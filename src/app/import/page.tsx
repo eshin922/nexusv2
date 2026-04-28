@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { searchDeals, HubspotError, type DealSummary } from "@/lib/hubspot";
+import { importDeal } from "@/app/actions/projects";
 
 const PAGE_SIZE = 50;
 
@@ -152,14 +153,15 @@ function ResultTable({
                     : "—"}
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <button
-                    type="button"
-                    disabled
-                    title="Coming in Slice 3"
-                    className="rounded-md border border-gray-200 px-3 py-1 text-xs text-gray-400"
-                  >
-                    Import
-                  </button>
+                  <form action={importDeal}>
+                    <input type="hidden" name="dealId" value={d.id} />
+                    <button
+                      type="submit"
+                      className="rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-900 hover:bg-gray-50"
+                    >
+                      Import
+                    </button>
+                  </form>
                 </td>
               </tr>
             ))}

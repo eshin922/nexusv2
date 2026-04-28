@@ -7,10 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:generate": "node --env-file=.env.local node_modules/drizzle-kit/bin.cjs generate",
+    "db:migrate": "node --env-file=.env.local node_modules/drizzle-kit/bin.cjs migrate",
+    "db:push": "node --env-file=.env.local node_modules/drizzle-kit/bin.cjs push",
+    "db:studio": "node --env-file=.env.local node_modules/drizzle-kit/bin.cjs studio"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.12.0",

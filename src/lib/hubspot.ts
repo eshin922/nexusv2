@@ -34,6 +34,11 @@ export type DealSearchResult = {
   total: number;
 };
 
+export type DealDetail = DealSummary & {
+  hubspotOwnerId: string | null;
+  ownerEmail: string | null;
+};
+
 export class HubspotError extends Error {
   readonly cause?: unknown;
   constructor(message: string, cause?: unknown) {
@@ -197,6 +202,81 @@ async function fetchCompanyNames(
     // Non-fatal
   }
   return map;
+}
+
+export async function getDeal(dealId: string): Promise<DealDetail | null> {
+  const c = getReadClient();
+
+  let deal;
+  try {
+    deal = await c.crm.deals.basicApi.getById(dealId, [
+      "dealname",
+      "dealstage",
+      "hubspot_owner_id",
+      "hs_lastmodifieddate",
+    ]);
+  } catch (err: unknown) {
+    const code = (err as { code?: number })?.code;
+    if (code === 404) return null;
+    throw new HubspotError(`Failed to fetch deal ${dealId}`, err);
+  }
+
+  const props = deal.properties ?? {};
+  const stageId = props.dealstage ?? "";
+  const ownerId = props.hubspot_owner_id ?? null;
+
+  const companyMap = await fetchCompanyIdsForDeals(c, [dealId]);
+  const companyId = companyMap.get(dealId) ?? null;
+  const namesMap = companyId
+    ? await fetchCompanyNames(c, [companyId])
+    : new Map<string, string>();
+  const clientName = companyId ? namesMap.get(companyId) ?? null : null;
+
+  let ownerName: string | null = null;
+  let ownerEmail: string | null = null;
+  if (ownerId) {
+    try {
+      const owner = await c.crm.owners.ownersApi.getById(Number(ownerId));
+      ownerName =
+        [owner.firstName, owner.lastName].filter(Boolean).join(" ") ||
+        owner.email ||
+        null;
+      ownerEmail = owner.email ?? null;
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  return {
+    id: deal.id,
+    name: props.dealname || "(unnamed)",
+    clientName,
+    ownerName,
+    stageId,
+    stageLabel: STAGE_LABEL_BY_ID[stageId] ?? stageId,
+    lastModified: props.hs_lastmodifieddate ?? null,
+    hubspotOwnerId: ownerId,
+    ownerEmail,
+  };
+}
+
+export async function findHubspotOwnerByEmail(
+  email: string,
+): Promise<{ id: string; firstName: string | null; lastName: string | null } | null> {
+  if (!email) return null;
+  try {
+    const c = getReadClient();
+    const resp = await c.crm.owners.ownersApi.getPage(email);
+    const owner = resp.results?.[0];
+    if (!owner?.id) return null;
+    return {
+      id: String(owner.id),
+      firstName: owner.firstName ?? null,
+      lastName: owner.lastName ?? null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function fetchOwnerNames(
