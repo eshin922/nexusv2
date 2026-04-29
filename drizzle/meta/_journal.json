@@ -8,6 +8,27 @@
       "when": 1777418416754,
       "tag": "0000_glorious_gateway",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777420073129,
+      "tag": "0001_lush_dreadnoughts",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777421846907,
+      "tag": "0002_futuristic_shiva",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1777424001015,
+      "tag": "0003_exotic_mandrill",
+      "breakpoints": true
     }
   ]
 }

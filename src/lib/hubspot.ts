@@ -39,6 +39,20 @@ export type DealDetail = DealSummary & {
   ownerEmail: string | null;
 };
 
+export type ProductSummary = {
+  id: string;
+  name: string;
+  sku: string | null;
+  productType: string | null;
+  description: string | null;
+  price: string | null;
+};
+
+export type ProductDetail = ProductSummary & {
+  cogs: string | null; // hs_cost_of_goods_sold (typically null at DPS today)
+  classification: string | null;
+};
+
 export class HubspotError extends Error {
   readonly cause?: unknown;
   constructor(message: string, cause?: unknown) {
@@ -257,6 +271,72 @@ export async function getDeal(dealId: string): Promise<DealDetail | null> {
     lastModified: props.hs_lastmodifieddate ?? null,
     hubspotOwnerId: ownerId,
     ownerEmail,
+  };
+}
+
+// ---------- products ----------
+
+const PRODUCT_PROPERTIES = [
+  "name",
+  "hs_sku",
+  "hs_product_type",
+  "hs_product_classification",
+  "description",
+  "price",
+  "hs_cost_of_goods_sold",
+] as const;
+
+function toSummary(p: {
+  id: string;
+  properties?: Record<string, string | null | undefined>;
+}): ProductSummary {
+  const props = p.properties ?? {};
+  return {
+    id: p.id,
+    name: props.name || "(unnamed product)",
+    sku: props.hs_sku || null,
+    productType: props.hs_product_type || null,
+    description: props.description || null,
+    price: props.price || null,
+  };
+}
+
+export async function searchProducts(
+  query: string,
+  limit = 20,
+): Promise<ProductSummary[]> {
+  const c = getReadClient();
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  try {
+    const resp = await c.crm.products.searchApi.doSearch({
+      query: trimmed,
+      properties: [...PRODUCT_PROPERTIES],
+      limit,
+      after: "0",
+      sorts: ["name"],
+    });
+    return (resp.results ?? []).map(toSummary);
+  } catch (err) {
+    throw new HubspotError("Failed to search HubSpot products", err);
+  }
+}
+
+export async function getProduct(productId: string): Promise<ProductDetail | null> {
+  const c = getReadClient();
+  let p;
+  try {
+    p = await c.crm.products.basicApi.getById(productId, [...PRODUCT_PROPERTIES]);
+  } catch (err: unknown) {
+    const code = (err as { code?: number })?.code;
+    if (code === 404) return null;
+    throw new HubspotError(`Failed to fetch product ${productId}`, err);
+  }
+  const props = p.properties ?? {};
+  return {
+    ...toSummary(p),
+    cogs: props.hs_cost_of_goods_sold || null,
+    classification: props.hs_product_classification || null,
   };
 }
 

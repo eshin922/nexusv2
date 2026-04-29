@@ -414,8 +414,10 @@ On a `sent` quote, PM clicks "Mark as Accepted" and selects which tier the custo
 2. Sets `status = accepted`, `accepted_tier_id`, `accepted_at`, `accepted_by_user_id`, `accept_source = manual_button`.
 3. Marks `scenario_status = accepted` on this scenario; auto-marks any other `active` scenarios on the project as `dropped` (auditable).
 4. Writes `accepted_snapshot_json`.
-5. Triggers HubSpot writeback: creates/updates HubSpot Quote object with line items from the accepted tier only, including `hs_cost_of_goods_sold`. Updates deal-level fields.
+5. Triggers HubSpot writeback: creates/updates HubSpot Quote object with line items from the accepted tier only, populating `hs_cost_of_goods_sold` on each line item. Updates deal-level fields.
 6. Locks the quote — no further edits.
+
+> **Note on `hs_cost_of_goods_sold`.** This is *additive*, not preservation of existing functionality. DPS HubSpot Products do not carry `hs_cost_of_goods_sold` because COGS is a composite per-quote, per-tier value (packaging + freight + production + service fees) that varies by volume and supplier — it cannot be expressed as a single product-level number. Slice 12's writeback populating line-item-level COGS from Nexus is the first time HubSpot has had real margin data for DPS deals. This unlocks native HubSpot reporting via `hs_margin = amount - hs_cost_of_goods_sold` for the first time, so margin per deal/per line/per category is queryable in HubSpot itself, not only via Nexus's Management Dashboard. Backward compatibility with the existing HubSpot → NetSuite Sales Order sync is preserved — the sync owner needs to confirm it accepts populated COGS gracefully (verification tracked in `docs/UX_BACKLOG.md`).
 
 ### FR-10: PDF Generation
 Customer-facing PDF derived from Quote view at the selected tier (or all tiers as a tiered-pricing PDF). Internal numbers never appear. Layout matches Estimate-tab style.

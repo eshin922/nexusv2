@@ -1,14 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/db";
-import { projects, users } from "@/db/schema";
+import { projects, quotes, users } from "@/db/schema";
 import { STAGE_LABEL_BY_ID } from "@/lib/hubspot";
 import {
   archiveProject,
   refreshFromHubspot,
 } from "@/app/actions/projects";
+import { createQuote } from "@/app/actions/quotes";
 import { CategorySelect } from "./category-select";
 import { ConfirmButton } from "./confirm-button";
 
@@ -39,6 +40,18 @@ export default async function ProjectDetailPage({
 
   if (rows.length === 0) notFound();
   const { project, salesRep: rep, pm: pmRow, importedBy: imp } = rows[0];
+
+  const projectQuotes = await db
+    .select({
+      id: quotes.id,
+      scenarioLabel: quotes.scenarioLabel,
+      versionNumber: quotes.versionNumber,
+      status: quotes.status,
+      createdAt: quotes.createdAt,
+    })
+    .from(quotes)
+    .where(eq(quotes.projectId, project.id))
+    .orderBy(desc(quotes.createdAt));
 
   const stageLabel = project.dealStage
     ? STAGE_LABEL_BY_ID[project.dealStage] ?? project.dealStage
@@ -133,10 +146,49 @@ export default async function ProjectDetailPage({
         </Field>
       </dl>
 
-      <Placeholder
-        title="Quote builder"
-        body="Quote scenarios, SKUs, tiers, and the Costing Sheet land here in Slices 4–11."
-      />
+      <section className="mb-4 rounded-md border border-gray-200 bg-white">
+        <header className="flex items-center justify-between border-b border-gray-200 px-5 py-3">
+          <h2 className="text-sm font-semibold text-gray-900">Quotes</h2>
+          {project.status === "active" && (
+            <form action={createQuote}>
+              <input type="hidden" name="projectId" value={project.id} />
+              <button
+                type="submit"
+                className="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700"
+              >
+                New Quote
+              </button>
+            </form>
+          )}
+        </header>
+        {projectQuotes.length === 0 ? (
+          <p className="px-5 py-6 text-center text-sm text-gray-500">
+            No quotes yet — click <span className="font-medium">New Quote</span> to start.
+          </p>
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {projectQuotes.map((q) => (
+              <li key={q.id}>
+                <Link
+                  href={`/projects/${project.id}/quotes/${q.id}`}
+                  className="flex items-center justify-between gap-4 px-5 py-3 text-sm hover:bg-gray-50"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="font-medium">
+                      {q.scenarioLabel} · v{q.versionNumber}
+                    </span>
+                    <StatusBadge status={q.status} />
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {q.createdAt.toLocaleDateString()}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <Placeholder
         title="Scenarios"
         body="Parallel scenarios within this project will appear here in Slice 14."
@@ -158,6 +210,25 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function Unassigned() {
   return <span className="text-gray-400">Unassigned</span>;
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    draft: "bg-gray-100 text-gray-700",
+    sent: "bg-blue-100 text-blue-800",
+    accepted: "bg-green-100 text-green-800",
+    superseded: "bg-amber-100 text-amber-800",
+    lost: "bg-red-100 text-red-800",
+  };
+  return (
+    <span
+      className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
+        styles[status] ?? "bg-gray-100 text-gray-700"
+      }`}
+    >
+      {status}
+    </span>
+  );
 }
 
 function Placeholder({ title, body }: { title: string; body: string }) {
