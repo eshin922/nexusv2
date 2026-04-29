@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { applyTierPreset } from "@/app/actions/quotes";
 
 const PRESETS = [
@@ -15,35 +15,52 @@ const PRESETS = [
 export function TierPresetSelect({
   quoteId,
   existingTierCount,
+  existingPackagingLineCount,
 }: {
   quoteId: string;
   existingTierCount: number;
+  existingPackagingLineCount: number;
 }) {
-  const formRef = useRef<HTMLFormElement>(null);
   const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState("");
+
+  function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const v = e.currentTarget.value;
+    if (!v) return;
+    if (existingTierCount > 0) {
+      const tierMsg = `${existingTierCount} existing tier${
+        existingTierCount === 1 ? "" : "s"
+      }`;
+      const lineMsg =
+        existingPackagingLineCount > 0
+          ? `\n\nUnit costs on ${existingPackagingLineCount} packaging line${
+              existingPackagingLineCount === 1 ? "" : "s"
+            } will reset (line metadata — supplier, category, markup — is preserved).`
+          : "";
+      if (!confirm(`Replace ${tierMsg} with preset?${lineMsg}`)) {
+        setSelected("");
+        return;
+      }
+    }
+    setSelected(v);
+    setError(null);
+    const fd = new FormData();
+    fd.set("quoteId", quoteId);
+    fd.set("preset", v);
+    startTransition(async () => {
+      const result = await applyTierPreset(fd);
+      if (!result.ok) setError(result.error.message);
+      setSelected("");
+    });
+  }
 
   return (
-    <form ref={formRef} action={applyTierPreset} className="inline-flex items-center gap-2">
-      <input type="hidden" name="quoteId" value={quoteId} />
+    <div className="inline-flex items-center gap-2">
       <select
-        name="preset"
+        value={selected}
         disabled={pending}
-        defaultValue=""
-        onChange={(e) => {
-          if (!e.currentTarget.value) return;
-          if (
-            existingTierCount > 0 &&
-            !confirm(
-              `Apply preset? This will delete the ${existingTierCount} existing tier${
-                existingTierCount === 1 ? "" : "s"
-              } and replace them.`,
-            )
-          ) {
-            e.currentTarget.value = "";
-            return;
-          }
-          startTransition(() => formRef.current?.requestSubmit());
-        }}
+        onChange={handleChange}
         className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm focus:border-gray-500 focus:outline-none disabled:opacity-50"
       >
         <option value="" disabled>
@@ -56,6 +73,11 @@ export function TierPresetSelect({
         ))}
       </select>
       {pending && <span className="text-xs text-gray-500">applying…</span>}
-    </form>
+      {error && (
+        <span className="text-xs text-red-700" role="alert">
+          {error}
+        </span>
+      )}
+    </div>
   );
 }

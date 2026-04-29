@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import {
   deleteSku,
   moveSku,
@@ -19,35 +19,92 @@ type Sku = {
   lastHubspotRefreshAt: Date | null;
 };
 
+const DEBOUNCE_MS = 500;
+
 export function SkuRow({
   sku,
   isFirst,
   isLast,
   hubspotPortalId,
+  disabled = false,
 }: {
   sku: Sku;
   isFirst: boolean;
   isLast: boolean;
   hubspotPortalId: string | null;
+  disabled?: boolean;
 }) {
-  const formRef = useRef<HTMLFormElement>(null);
-  const [saving, setSaving] = useState(false);
+  // Controlled state for editable fields. HubSpot-sourced fields stay
+  // read-only (rendered from the prop directly).
+  const [unitsPerPack, setUnitsPerPack] = useState(String(sku.unitsPerPack));
+  const [retailBenchmark, setRetailBenchmark] = useState(sku.retailBenchmark ?? "");
+  const [notes, setNotes] = useState(sku.notes ?? "");
 
-  const initialRef = useRef<Record<string, string>>({
-    unitsPerPack: String(sku.unitsPerPack),
-    retailBenchmark: sku.retailBenchmark ?? "",
-    notes: sku.notes ?? "",
-  });
+  const [pending, startTransition] = useTransition();
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stateRef = useRef({ unitsPerPack, retailBenchmark, notes });
+  stateRef.current = { unitsPerPack, retailBenchmark, notes };
 
-  function handleBlur(e: React.FocusEvent<HTMLInputElement>) {
-    const name = e.currentTarget.name;
-    const value = e.currentTarget.value;
-    if (initialRef.current[name] !== value) {
-      initialRef.current[name] = value;
-      setSaving(true);
-      formRef.current?.requestSubmit();
-      setTimeout(() => setSaving(false), 600);
-    }
+  useEffect(
+    () => () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    },
+    [],
+  );
+
+  type Overrides = Partial<{
+    unitsPerPack: string;
+    retailBenchmark: string;
+    notes: string;
+  }>;
+
+  function fireSave(overrides: Overrides = {}) {
+    const s = { ...stateRef.current, ...overrides };
+    const fd = new FormData();
+    fd.set("skuId", sku.id);
+    fd.set("unitsPerPack", s.unitsPerPack);
+    fd.set("retailBenchmark", s.retailBenchmark);
+    fd.set("notes", s.notes);
+    startTransition(async () => {
+      const result = await updateSku(fd);
+      if (!result.ok) setSaveError(result.error.message);
+      else setSaveError(null);
+    });
+  }
+
+  function scheduleSave(overrides: Overrides = {}) {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fireSave(overrides), DEBOUNCE_MS);
+  }
+
+  function handleDelete() {
+    if (!confirm(`Remove "${sku.productName}" from this quote?`)) return;
+    const fd = new FormData();
+    fd.set("skuId", sku.id);
+    startTransition(async () => {
+      const r = await deleteSku(fd);
+      if (!r.ok) setSaveError(r.error.message);
+    });
+  }
+
+  function handleMove(direction: "up" | "down") {
+    const fd = new FormData();
+    fd.set("skuId", sku.id);
+    fd.set("direction", direction);
+    startTransition(async () => {
+      const r = await moveSku(fd);
+      if (!r.ok) setSaveError(r.error.message);
+    });
+  }
+
+  function handleRefresh() {
+    const fd = new FormData();
+    fd.set("skuId", sku.id);
+    startTransition(async () => {
+      const r = await refreshSkuFromHubspot(fd);
+      if (!r.ok) setSaveError(r.error.message);
+    });
   }
 
   const productUrl = hubspotPortalId
@@ -55,89 +112,95 @@ export function SkuRow({
     : null;
 
   return (
-    <form
-      ref={formRef}
-      action={updateSku}
-      className="grid grid-cols-[1.4fr_2.4fr_0.7fr_0.9fr_2fr_auto] items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50"
-    >
-      <input type="hidden" name="skuId" value={sku.id} />
-
-      {/* HubSpot-sourced: read-only */}
+    <div className="grid grid-cols-[1.4fr_2.4fr_0.7fr_0.9fr_2fr_auto] items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50">
+      {/* HubSpot-sourced: read-only, badge */}
       <ReadOnlyCell value={sku.skuLabel} />
       <ReadOnlyCell value={sku.productName} />
 
-      {/* Nexus-local: editable */}
+      {/* Nexus-local: controlled, editable */}
       <input
-        name="unitsPerPack"
+        value={unitsPerPack}
         type="number"
         min={1}
-        defaultValue={String(sku.unitsPerPack)}
         required
-        onBlur={handleBlur}
-        className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm focus:border-gray-400 focus:outline-none"
+        disabled={disabled}
+        onChange={(e) => {
+          const v = e.target.value;
+          setUnitsPerPack(v);
+          scheduleSave({ unitsPerPack: v });
+        }}
+        className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
       />
       <input
-        name="retailBenchmark"
+        value={retailBenchmark}
         type="number"
         step="0.01"
-        defaultValue={sku.retailBenchmark ?? ""}
+        disabled={disabled}
+        onChange={(e) => {
+          const v = e.target.value;
+          setRetailBenchmark(v);
+          scheduleSave({ retailBenchmark: v });
+        }}
         placeholder="—"
-        onBlur={handleBlur}
-        className="w-full rounded border border-transparent bg-transparent px-1.5 py-1 text-sm focus:border-gray-300 focus:bg-white focus:outline-none"
+        className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
       />
       <input
-        name="notes"
-        defaultValue={sku.notes ?? ""}
+        value={notes}
+        disabled={disabled}
+        onChange={(e) => {
+          const v = e.target.value;
+          setNotes(v);
+          scheduleSave({ notes: v });
+        }}
         placeholder="—"
-        onBlur={handleBlur}
-        className="w-full rounded border border-transparent bg-transparent px-1.5 py-1 text-sm focus:border-gray-300 focus:bg-white focus:outline-none"
+        className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
       />
 
       <div className="flex items-center gap-1 justify-end">
-        {saving && <span className="text-xs text-gray-400 mr-1">saving…</span>}
+        {saveError ? (
+          <span className="text-xs text-red-700 mr-1" role="alert">
+            {saveError}
+          </span>
+        ) : pending ? (
+          <span className="text-xs text-gray-400 mr-1">saving…</span>
+        ) : null}
         <button
-          type="submit"
-          formAction={refreshSkuFromHubspot}
-          className="rounded border border-gray-200 px-1.5 py-0.5 text-xs hover:bg-white"
+          type="button"
+          onClick={handleRefresh}
+          disabled={disabled}
           title={
             sku.lastHubspotRefreshAt
               ? `Refresh from HubSpot (last synced ${formatRelative(sku.lastHubspotRefreshAt)})`
               : "Refresh from HubSpot"
           }
+          className="rounded border border-gray-200 px-1.5 py-0.5 text-xs hover:bg-white disabled:opacity-30"
         >
           ↻
         </button>
         <button
-          type="submit"
-          formAction={moveSku}
-          name="direction"
-          value="up"
-          disabled={isFirst}
-          className="rounded border border-gray-200 px-1.5 py-0.5 text-xs disabled:opacity-30 hover:bg-white"
+          type="button"
+          onClick={() => handleMove("up")}
+          disabled={disabled || isFirst}
           title="Move up"
+          className="rounded border border-gray-200 px-1.5 py-0.5 text-xs disabled:opacity-30 hover:bg-white"
         >
           ↑
         </button>
         <button
-          type="submit"
-          formAction={moveSku}
-          name="direction"
-          value="down"
-          disabled={isLast}
-          className="rounded border border-gray-200 px-1.5 py-0.5 text-xs disabled:opacity-30 hover:bg-white"
+          type="button"
+          onClick={() => handleMove("down")}
+          disabled={disabled || isLast}
           title="Move down"
+          className="rounded border border-gray-200 px-1.5 py-0.5 text-xs disabled:opacity-30 hover:bg-white"
         >
           ↓
         </button>
         <button
-          type="submit"
-          formAction={deleteSku}
-          onClick={(e) => {
-            if (!confirm(`Remove "${sku.productName}" from this quote?`))
-              e.preventDefault();
-          }}
-          className="rounded border border-red-200 bg-white px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-50"
+          type="button"
+          onClick={handleDelete}
+          disabled={disabled}
           title="Remove SKU"
+          className="rounded border border-red-200 bg-white px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-30"
         >
           ×
         </button>
@@ -146,14 +209,14 @@ export function SkuRow({
             href={productUrl}
             target="_blank"
             rel="noreferrer"
-            className="rounded border border-gray-200 px-1.5 py-0.5 text-xs text-blue-700 hover:bg-white"
             title="Open product in HubSpot"
+            className="rounded border border-gray-200 px-1.5 py-0.5 text-xs text-blue-700 hover:bg-white"
           >
             ↗
           </a>
         )}
       </div>
-    </form>
+    </div>
   );
 }
 

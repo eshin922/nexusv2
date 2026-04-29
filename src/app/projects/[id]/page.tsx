@@ -10,6 +10,7 @@ import {
   refreshFromHubspot,
 } from "@/app/actions/projects";
 import { createQuote } from "@/app/actions/quotes";
+import { IdBadge } from "@/components/id-badge";
 import { CategorySelect } from "./category-select";
 import { ConfirmButton } from "./confirm-button";
 
@@ -168,21 +169,23 @@ export default async function ProjectDetailPage({
         ) : (
           <ul className="divide-y divide-gray-100">
             {projectQuotes.map((q) => (
-              <li key={q.id}>
+              <li
+                key={q.id}
+                className="flex items-center justify-between gap-4 px-5 py-3 text-sm hover:bg-gray-50"
+              >
                 <Link
                   href={`/projects/${project.id}/quotes/${q.id}`}
-                  className="flex items-center justify-between gap-4 px-5 py-3 text-sm hover:bg-gray-50"
+                  className="flex flex-1 items-center gap-2"
                 >
-                  <span className="flex items-center gap-2">
-                    <span className="font-medium">
-                      {q.scenarioLabel} · v{q.versionNumber}
-                    </span>
-                    <StatusBadge status={q.status} />
+                  <span className="font-medium">
+                    {q.scenarioLabel} · v{q.versionNumber}
                   </span>
-                  <span className="text-xs text-gray-500">
-                    {q.createdAt.toLocaleDateString()}
-                  </span>
+                  <StatusBadge status={q.status} />
                 </Link>
+                <span className="flex items-center gap-2 text-xs text-gray-500">
+                  <IdBadge id={q.id} />
+                  {q.createdAt.toLocaleDateString()}
+                </span>
               </li>
             ))}
           </ul>

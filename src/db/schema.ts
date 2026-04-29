@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
+  boolean,
   date,
   foreignKey,
   index,
@@ -54,6 +55,11 @@ export const acceptSource = pgEnum("accept_source", [
   "manual_button",
   "hubspot_stage_change",
   "api",
+]);
+
+export const markupPctSource = pgEnum("markup_pct_source", [
+  "category_default",
+  "manual_override",
 ]);
 
 // ---------- identity ----------
@@ -228,6 +234,85 @@ export const quoteSkus = pgTable(
   (t) => [
     index("quote_skus_quote_id_idx").on(t.quoteId),
     index("quote_skus_hubspot_product_id_idx").on(t.hubspotProductId),
+  ],
+);
+
+// ---------- inputs (Slice 5: packaging) ----------
+
+// Per-line markup defaults. Vocabulary is intentionally *temporary* for
+// Slice 5 — Slice 9 redefines categories around "line of work" and will
+// rewrite both the markup_defaults rows and the category strings on
+// existing packaging_inputs rows. Kept as text PK (not enum) so that
+// future additions/renames don't require ALTER TYPE migrations.
+export const markupDefaults = pgTable("markup_defaults", {
+  category: text("category").primaryKey(),
+  defaultMarkupPct: numeric("default_markup_pct", {
+    precision: 5,
+    scale: 4,
+  }).notNull(),
+  // Nullable so seed migrations can insert rows without a real user FK.
+  updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// packaging_inputs is keyed by (quote_sku_id, tier_id) per the spec — one
+// row per (line, tier) cell. line_group_id groups all per-tier rows that
+// belong to the same logical "line" (same supplier / qty_per_unit /
+// category / markup). Line-level fields are duplicated across the tier
+// rows; per-tier fields are unit_cost and purchase_qty. Mass updates of
+// line metadata happen at the action layer via line_group_id.
+//
+// sort_order is line-level (all tier rows of the same line_group share
+// the same value); ↑/↓ arrows swap sort_order between two line groups.
+//
+// markup_pct + markup_pct_source: when category is set, default fills
+// from markup_defaults[category]. Manual edits flip source to
+// 'manual_override'; once overridden, category changes preserve the
+// manual value (sticky override; UI surfaces a revert affordance).
+//
+// No FK on category to markup_defaults — Slice 9's vocabulary swap will
+// rewrite both sides; the join is a soft reference.
+export const packagingInputs = pgTable(
+  "packaging_inputs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteSkuId: uuid("quote_sku_id")
+      .notNull()
+      .references(() => quoteSkus.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+    lineGroupId: uuid("line_group_id").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+
+    // Line-level (duplicated across tier rows of the same line_group_id):
+    supplier: text("supplier"),
+    qtyPerSellableUnit: numeric("qty_per_sellable_unit"),
+    category: text("category"),
+    markupPct: numeric("markup_pct", { precision: 5, scale: 4 }),
+    markupPctSource: markupPctSource("markup_pct_source"),
+    inventoryEligible: boolean("inventory_eligible").notNull().default(false),
+    notes: text("notes"),
+
+    // Per-tier:
+    unitCost: numeric("unit_cost", { precision: 10, scale: 4 }),
+    purchaseQty: numeric("purchase_qty"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One row per (line, tier). Prevents duplicate cells.
+    uniqueIndex("packaging_inputs_line_tier_idx").on(
+      t.quoteSkuId,
+      t.lineGroupId,
+      t.tierId,
+    ),
+    index("packaging_inputs_quote_sku_id_idx").on(t.quoteSkuId),
+    index("packaging_inputs_tier_id_idx").on(t.tierId),
+    index("packaging_inputs_line_group_id_idx").on(t.lineGroupId),
   ],
 );
 

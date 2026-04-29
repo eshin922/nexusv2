@@ -9,7 +9,9 @@ import {
   quoteTiers,
   users,
 } from "@/db/schema";
-import { addTier } from "@/app/actions/quotes";
+import { countPackagingLinesForQuote } from "@/app/actions/packaging";
+import { IdBadge } from "@/components/id-badge";
+import { AddTierButton } from "./add-tier-button";
 import { SkuRow } from "./sku-row";
 import { SkuSearchPanel } from "./sku-search-panel";
 import { TierRow } from "./tier-row";
@@ -89,6 +91,7 @@ export default async function QuoteBuilderPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <IdBadge id={quote.id} />
           <Badge className={STATUS_STYLES[quote.status] ?? STATUS_STYLES.draft}>
             {quote.status}
           </Badge>
@@ -137,6 +140,7 @@ export default async function QuoteBuilderPage({
                   isFirst={i === 0}
                   isLast={i === skus.length - 1}
                   hubspotPortalId={process.env.HUBSPOT_PROD_HUB_ID ?? null}
+                  disabled={!editable}
                 />
               ))}
             </div>
@@ -153,16 +157,9 @@ export default async function QuoteBuilderPage({
               <TierPresetSelect
                 quoteId={quote.id}
                 existingTierCount={tiers.length}
+                existingPackagingLineCount={await countPackagingLinesForQuote(quote.id)}
               />
-              <form action={addTier}>
-                <input type="hidden" name="quoteId" value={quote.id} />
-                <button
-                  type="submit"
-                  className="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700"
-                >
-                  Add Tier
-                </button>
-              </form>
+              <AddTierButton quoteId={quote.id} />
             </div>
           )
         }
@@ -181,6 +178,7 @@ export default async function QuoteBuilderPage({
                   tier={{ id: t.id, label: t.label, qty: t.qty }}
                   isFirst={i === 0}
                   isLast={i === tiers.length - 1}
+                  disabled={!editable}
                 />
               ))}
             </div>
@@ -191,29 +189,71 @@ export default async function QuoteBuilderPage({
       {/* Notes */}
       <Section title="Notes">
         <div className="p-4">
-          {editable ? (
-            <NotesEditor
-              quoteId={quote.id}
-              internalNotes={quote.internalNotes}
-              customerFacingNotes={quote.customerFacingNotes}
-            />
-          ) : (
-            <ReadOnlyNotes
-              internal={quote.internalNotes}
-              customer={quote.customerFacingNotes}
-            />
-          )}
+          <NotesEditor
+            quoteId={quote.id}
+            internalNotes={quote.internalNotes}
+            customerFacingNotes={quote.customerFacingNotes}
+            disabled={!editable}
+          />
+        </div>
+      </Section>
+
+      <Section title="Cost inputs">
+        <div className="grid grid-cols-3 divide-x divide-gray-100">
+          <CostInputLink
+            href={`/projects/${project.id}/quotes/${quote.id}/packaging`}
+            label="Packaging"
+            sub="Slice 5 — active"
+            active
+          />
+          <CostInputLink
+            href={`/projects/${project.id}/quotes/${quote.id}/production`}
+            label="Production"
+            sub="Slice 6 — coming soon"
+          />
+          <CostInputLink
+            href={`/projects/${project.id}/quotes/${quote.id}/freight`}
+            label="Freight"
+            sub="Slice 7 — coming soon"
+          />
         </div>
       </Section>
 
       <div className="mt-4 rounded-md border border-dashed border-gray-300 bg-white p-5">
-        <div className="text-sm font-semibold text-gray-700">Cost inputs &amp; Costing Sheet</div>
+        <div className="text-sm font-semibold text-gray-700">Costing Sheet</div>
         <p className="mt-1 text-sm text-gray-500">
-          Packaging, Freight, Production input pages and the derived Costing
-          Sheet land here in Slices 5–8.
+          Derived view across all cost inputs lands in Slice 8.
         </p>
       </div>
     </main>
+  );
+}
+
+function CostInputLink({
+  href,
+  label,
+  sub,
+  active = false,
+}: {
+  href: string;
+  label: string;
+  sub: string;
+  active?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`px-4 py-3 text-sm hover:bg-gray-50 ${
+        active ? "" : "text-gray-500"
+      }`}
+    >
+      <div
+        className={`font-medium ${active ? "text-gray-900" : "text-gray-700"}`}
+      >
+        {label} {active ? "→" : ""}
+      </div>
+      <div className="text-xs text-gray-500">{sub}</div>
+    </Link>
   );
 }
 

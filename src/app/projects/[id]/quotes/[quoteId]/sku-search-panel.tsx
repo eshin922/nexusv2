@@ -6,6 +6,38 @@ import {
   searchHubspotProductsAction,
 } from "@/app/actions/quotes";
 
+function AddProductButton({
+  quoteId,
+  productId,
+  onError,
+}: {
+  quoteId: string;
+  productId: string;
+  onError: (msg: string | null) => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  function handleClick() {
+    onError(null);
+    const fd = new FormData();
+    fd.set("quoteId", quoteId);
+    fd.set("productId", productId);
+    startTransition(async () => {
+      const result = await addSkuFromHubspotProduct(fd);
+      if (!result.ok) onError(result.error.message);
+    });
+  }
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={pending}
+      className="rounded-md bg-gray-900 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700 disabled:opacity-40"
+    >
+      {pending ? "Adding…" : "Add"}
+    </button>
+  );
+}
+
 type Product = {
   id: string;
   name: string;
@@ -93,16 +125,7 @@ export function SkuSearchPanel({ quoteId }: { quoteId: string }) {
                   {p.sku ?? <span className="italic">(no SKU)</span>}
                 </div>
               </div>
-              <form action={addSkuFromHubspotProduct}>
-                <input type="hidden" name="quoteId" value={quoteId} />
-                <input type="hidden" name="productId" value={p.id} />
-                <button
-                  type="submit"
-                  className="rounded-md bg-gray-900 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700"
-                >
-                  Add
-                </button>
-              </form>
+              <AddProductButton quoteId={quoteId} productId={p.id} onError={setError} />
             </li>
           ))}
         </ul>

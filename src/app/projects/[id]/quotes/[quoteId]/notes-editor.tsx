@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { updateQuoteNotes } from "@/app/actions/quotes";
 
 const DEBOUNCE_MS = 800;
@@ -9,61 +9,62 @@ export function NotesEditor({
   quoteId,
   internalNotes,
   customerFacingNotes,
+  disabled = false,
 }: {
   quoteId: string;
   internalNotes: string | null;
   customerFacingNotes: string | null;
+  disabled?: boolean;
 }) {
-  const formRef = useRef<HTMLFormElement>(null);
-  const initialRef = useRef({
-    internalNotes: internalNotes ?? "",
-    customerFacingNotes: customerFacingNotes ?? "",
-  });
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [internal, setInternal] = useState(internalNotes ?? "");
+  const [customer, setCustomer] = useState(customerFacingNotes ?? "");
 
-  function scheduleSave() {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      const form = formRef.current;
-      if (!form) return;
-      const data = new FormData(form);
-      const internal = String(data.get("internalNotes") ?? "");
-      const customer = String(data.get("customerFacingNotes") ?? "");
-      if (
-        internal === initialRef.current.internalNotes &&
-        customer === initialRef.current.customerFacingNotes
-      ) {
-        return;
-      }
-      initialRef.current = {
-        internalNotes: internal,
-        customerFacingNotes: customer,
-      };
-      setSaving(true);
-      form.requestSubmit();
-      setTimeout(() => setSaving(false), 500);
-    }, DEBOUNCE_MS);
-  }
+  const [pending, startTransition] = useTransition();
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stateRef = useRef({ internal, customer });
+  stateRef.current = { internal, customer };
 
   useEffect(
     () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
     },
     [],
   );
 
+  type Overrides = Partial<{ internal: string; customer: string }>;
+
+  function fireSave(overrides: Overrides = {}) {
+    const s = { ...stateRef.current, ...overrides };
+    const fd = new FormData();
+    fd.set("quoteId", quoteId);
+    fd.set("internalNotes", s.internal);
+    fd.set("customerFacingNotes", s.customer);
+    startTransition(async () => {
+      const r = await updateQuoteNotes(fd);
+      if (!r.ok) setSaveError(r.error.message);
+      else setSaveError(null);
+    });
+  }
+
+  function scheduleSave(overrides: Overrides = {}) {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fireSave(overrides), DEBOUNCE_MS);
+  }
+
   return (
-    <form ref={formRef} action={updateQuoteNotes} className="grid gap-4">
-      <input type="hidden" name="quoteId" value={quoteId} />
+    <div className="grid gap-4">
       <Field label="Internal notes" hint="Never appears on the customer PDF.">
         <textarea
-          name="internalNotes"
-          defaultValue={internalNotes ?? ""}
+          value={internal}
           rows={4}
-          onChange={scheduleSave}
-          onBlur={scheduleSave}
-          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
+          disabled={disabled}
+          onChange={(e) => {
+            const v = e.target.value;
+            setInternal(v);
+            scheduleSave({ internal: v });
+          }}
+          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-gray-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
         />
       </Field>
       <Field
@@ -71,20 +72,27 @@ export function NotesEditor({
         hint="Renders on the quote PDF; visible to the customer."
       >
         <textarea
-          name="customerFacingNotes"
-          defaultValue={customerFacingNotes ?? ""}
+          value={customer}
           rows={4}
-          onChange={scheduleSave}
-          onBlur={scheduleSave}
-          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
+          disabled={disabled}
+          onChange={(e) => {
+            const v = e.target.value;
+            setCustomer(v);
+            scheduleSave({ customer: v });
+          }}
+          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-gray-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
         />
       </Field>
-      {saving && (
+      {saveError ? (
+        <span className="text-xs text-red-700" role="alert">
+          {saveError}
+        </span>
+      ) : pending ? (
         <span className="text-xs text-gray-500" aria-live="polite">
           Saving…
         </span>
-      )}
-    </form>
+      ) : null}
+    </div>
   );
 }
 
