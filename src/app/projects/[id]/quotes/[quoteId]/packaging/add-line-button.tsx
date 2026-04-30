@@ -6,9 +6,11 @@ import { addPackagingLine } from "@/app/actions/packaging";
 export function AddLineButton({
   quoteSkuId,
   disabled = false,
+  tooltip,
 }: {
   quoteSkuId: string;
   disabled?: boolean;
+  tooltip?: string;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +37,7 @@ export function AddLineButton({
         type="button"
         onClick={handleClick}
         disabled={disabled || pending}
+        title={tooltip}
         className="rounded-md bg-gray-900 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {pending ? "Adding…" : "Add line"}

@@ -62,6 +62,19 @@ export const markupPctSource = pgEnum("markup_pct_source", [
   "manual_override",
 ]);
 
+// Slice 5.5 — assembly support. A SKU is one of:
+//   - leaf: terminal SKU (no children); the typical orderable item.
+//   - assembly: a SKU that holds child SKUs (kit, BOM, formulation
+//     composed of raw_material children, etc.). Whether the assembly
+//     represents a "formulation" is captured by cost_category (from
+//     HubSpot's hs_product_type), NOT by sku_role. A premade-bought
+//     formulation is a leaf with cost_category='Formulation'; a
+//     DPS-formulated assembly is sku_role='assembly' with
+//     cost_category='Formulation' and raw_material children.
+// Only assembly can have children. Validation lives in
+// src/lib/sku-tree.ts and the action layer.
+export const skuRole = pgEnum("sku_role", ["leaf", "assembly"]);
+
 // ---------- identity ----------
 
 export const users = pgTable(
@@ -199,16 +212,26 @@ export const quoteTiers = pgTable(
   (t) => [index("quote_tiers_quote_id_idx").on(t.quoteId)],
 );
 
-// quote_skus is a REFERENCE to a HubSpot Product. hubspot_product_id is
-// required and is the only canonical link — Nexus does not own product
-// vocabulary (categorization, classification, type). The two snapshot
-// fields below come from HubSpot at insert time and refresh on demand,
-// solely for fast display without re-fetching. Markup categorization is
-// out of scope here and lands in Slice 9 against a different vocabulary.
+// quote_skus is typically a reference to a HubSpot Product, but
+// hubspot_product_id is **nullable** as of Slice 5.5: assembly nodes
+// are often Nexus-conceived structures that may not exist in HubSpot.
+// Leaf SKUs are still typically HubSpot-anchored. Slice 12's writeback
+// must defensively skip any node missing hubspot_product_id (assemblies
+// with no HubSpot match don't writeback as line items — only their leaf
+// descendants do).
 //
-// Slice 12 writeback must refuse to push any quote_sku missing
-// hubspot_product_id (defensive — the NOT NULL constraint is the
-// primary guard).
+// Markup categorization remains out of scope here (Slice 9 redefines).
+//
+// Assembly fields (Slice 5.5):
+//   parent_sku_id  self-FK; nullable (top-level nodes have NULL).
+//                  ON DELETE CASCADE — deleting an assembly deletes
+//                  its entire subtree.
+//   sku_role       leaf / assembly. Default leaf. Whether an assembly
+//                  represents a formulation, kit, etc. is captured by
+//                  cost_category (Slice 9 / HubSpot hs_product_type),
+//                  NOT by sku_role.
+//   qty_per_parent how many of this child go into one parent unit
+//                  (e.g., 12 droppers per kit). NULL on top-level nodes.
 export const quoteSkus = pgTable(
   "quote_skus",
   {
@@ -216,8 +239,9 @@ export const quoteSkus = pgTable(
     quoteId: uuid("quote_id")
       .notNull()
       .references(() => quotes.id, { onDelete: "cascade" }),
-    hubspotProductId: text("hubspot_product_id").notNull(),
+    hubspotProductId: text("hubspot_product_id"),
     // Snapshot from HubSpot product: hs_sku → sku_label, name → product_name.
+    // For Nexus-local assemblies (no HubSpot ref), PM enters these manually.
     skuLabel: text("sku_label").notNull(),
     productName: text("product_name").notNull(),
     // Nexus-local: PM-edited.
@@ -228,12 +252,21 @@ export const quoteSkus = pgTable(
     lastHubspotRefreshAt: timestamp("last_hubspot_refresh_at", {
       withTimezone: true,
     }),
+    // Assembly support (Slice 5.5)
+    parentSkuId: uuid("parent_sku_id").references(
+      (): AnyPgColumn => quoteSkus.id,
+      { onDelete: "cascade" },
+    ),
+    skuRole: skuRole("sku_role").notNull().default("leaf"),
+    qtyPerParent: numeric("qty_per_parent", { precision: 10, scale: 4 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("quote_skus_quote_id_idx").on(t.quoteId),
     index("quote_skus_hubspot_product_id_idx").on(t.hubspotProductId),
+    index("quote_skus_parent_sku_id_idx").on(t.parentSkuId),
+    index("quote_skus_sku_role_idx").on(t.skuRole),
   ],
 );
 

@@ -25,6 +25,19 @@ import {
   runAction,
   type ActionResult,
 } from "@/lib/action-result";
+import {
+  snapshotSkuSubtree,
+  validateAssemblyOperation,
+  type SkuRoleValue,
+} from "@/lib/sku-tree";
+
+// DB query inlined here (used to live in sku-tree.ts but that module
+// must stay client-safe since SkuRow imports its pure helpers).
+async function loadAllSkusForQuote(quoteId: string) {
+  return db.select().from(quoteSkus).where(eq(quoteSkus.quoteId, quoteId));
+}
+import { packagingInputs as packagingInputsTable } from "@/db/schema";
+import { inArray } from "drizzle-orm";
 
 // HubSpot-sourced snapshot fields on quote_skus. Refresh from HubSpot
 // overwrites only these. Everything else on the row is Nexus-local.
@@ -305,6 +318,13 @@ export async function addSkuFromHubspotProduct(
     if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
     if (!productId) throw new ActionGuardError(ERR.VALIDATION, "productId required");
 
+    // Optional assembly fields (Slice 5.5).
+    const skuRoleRaw = String(formData.get("skuRole") ?? "leaf") as SkuRoleValue;
+    const parentSkuIdRaw = trimOrNull(formData.get("parentSkuId"));
+    const qtyPerParentRaw = trimOrNull(formData.get("qtyPerParent"));
+    if (!["leaf", "assembly"].includes(skuRoleRaw))
+      throw new ActionGuardError(ERR.VALIDATION, `Invalid sku_role: ${skuRoleRaw}`);
+
     const user = await ensureUser();
     const quote = await loadQuoteOrThrow(quoteId);
     assertDraft(quote);
@@ -315,6 +335,22 @@ export async function addSkuFromHubspotProduct(
         ERR.HUBSPOT,
         `HubSpot product ${productId} not found`,
       );
+
+    // Validate assembly assignment (parent must exist, same quote, can have
+    // children; cycle check is moot here since the new SKU has no descendants).
+    if (parentSkuIdRaw) {
+      const allSkus = await loadAllSkusForQuote(quoteId);
+      const validation = validateAssemblyOperation({
+        skuId: null,
+        newParentId: parentSkuIdRaw,
+        newQtyPerParent: qtyPerParentRaw,
+        newRole: skuRoleRaw,
+        quoteId,
+        allSkus,
+      });
+      if (!validation.ok)
+        throw new ActionGuardError(validation.code, validation.message);
+    }
 
     const snap = snapshotFromHubspotProduct(product);
 
@@ -334,6 +370,9 @@ export async function addSkuFromHubspotProduct(
         unitsPerPack: 1,
         sortOrder,
         lastHubspotRefreshAt: new Date(),
+        skuRole: skuRoleRaw,
+        parentSkuId: parentSkuIdRaw,
+        qtyPerParent: qtyPerParentRaw,
       })
       .returning({ id: quoteSkus.id });
 
@@ -347,10 +386,324 @@ export async function addSkuFromHubspotProduct(
         hubspot_product_id: productId,
         sku_label: snap.skuLabel,
         product_name: snap.productName,
+        sku_role: skuRoleRaw,
+        parent_sku_id: parentSkuIdRaw,
+        qty_per_parent: qtyPerParentRaw,
       },
     });
 
     revalidateQuoteTree(quote.projectId, quoteId);
+  });
+}
+
+/**
+ * Create a Nexus-local assembly SKU — no HubSpot Product reference.
+ * Used when PMs design an assembly before (or instead of) creating it
+ * in HubSpot. Leaf SKUs should still go through addSkuFromHubspotProduct.
+ */
+export async function addAssemblySku(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    const skuLabel = String(formData.get("skuLabel") ?? "").trim();
+    const productName = String(formData.get("productName") ?? "").trim();
+    const parentSkuIdRaw = trimOrNull(formData.get("parentSkuId"));
+    const qtyPerParentRaw = trimOrNull(formData.get("qtyPerParent"));
+
+    if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+    if (!skuLabel) throw new ActionGuardError(ERR.VALIDATION, "skuLabel required");
+    if (!productName) throw new ActionGuardError(ERR.VALIDATION, "productName required");
+
+    const user = await ensureUser();
+    const quote = await loadQuoteOrThrow(quoteId);
+    assertDraft(quote);
+
+    if (parentSkuIdRaw) {
+      const allSkus = await loadAllSkusForQuote(quoteId);
+      const validation = validateAssemblyOperation({
+        skuId: null,
+        newParentId: parentSkuIdRaw,
+        newQtyPerParent: qtyPerParentRaw,
+        newRole: "assembly",
+        quoteId,
+        allSkus,
+      });
+      if (!validation.ok)
+        throw new ActionGuardError(validation.code, validation.message);
+    }
+
+    const maxRow = await db
+      .select({ max: max(quoteSkus.sortOrder) })
+      .from(quoteSkus)
+      .where(eq(quoteSkus.quoteId, quoteId));
+    const sortOrder = (maxRow[0]?.max ?? -1) + 1;
+
+    const [sku] = await db
+      .insert(quoteSkus)
+      .values({
+        quoteId,
+        hubspotProductId: null,
+        skuLabel,
+        productName,
+        unitsPerPack: 1,
+        sortOrder,
+        skuRole: "assembly",
+        parentSkuId: parentSkuIdRaw,
+        qtyPerParent: qtyPerParentRaw,
+      })
+      .returning({ id: quoteSkus.id });
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_sku",
+      entityId: sku.id,
+      action: "created",
+      diffJson: {
+        quote_id: quoteId,
+        hubspot_product_id: null,
+        sku_label: skuLabel,
+        product_name: productName,
+        sku_role: "assembly",
+        parent_sku_id: parentSkuIdRaw,
+        qty_per_parent: qtyPerParentRaw,
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, quoteId);
+  });
+}
+
+/**
+ * Set parent_sku_id and qty_per_parent on an existing SKU.
+ * Validates: parent in same quote, can have children, no cycle, qty>0.
+ */
+/**
+ * Update qty_per_parent on a SKU that already has a parent. Refuses if
+ * SKU has no parent. Standalone (doesn't change the parent_sku_id link).
+ */
+export async function updateQtyPerParent(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const skuId = String(formData.get("skuId") ?? "").trim();
+    const qtyRaw = String(formData.get("qty") ?? "").trim();
+    if (!skuId) throw new ActionGuardError(ERR.VALIDATION, "skuId required");
+    if (!qtyRaw || Number(qtyRaw) <= 0)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "qty must be greater than zero.",
+      );
+
+    const user = await ensureUser();
+    const skuRows = await db
+      .select()
+      .from(quoteSkus)
+      .where(eq(quoteSkus.id, skuId))
+      .limit(1);
+    if (skuRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "SKU not found");
+    const sku = skuRows[0];
+
+    if (!sku.parentSkuId)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "qty_per_parent only applies when the SKU has a parent.",
+      );
+
+    const quote = await loadQuoteOrThrow(sku.quoteId);
+    assertDraft(quote);
+
+    // Numeric equality to avoid spurious "0.5" vs "0.5000" diffs
+    if (sku.qtyPerParent !== null && Number(sku.qtyPerParent) === Number(qtyRaw))
+      return;
+
+    await db
+      .update(quoteSkus)
+      .set({ qtyPerParent: qtyRaw, updatedAt: new Date() })
+      .where(eq(quoteSkus.id, skuId));
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_sku",
+      entityId: skuId,
+      action: "qty_per_parent_updated",
+      diffJson: { qty_per_parent: { from: sku.qtyPerParent, to: qtyRaw } },
+    });
+
+    revalidateQuoteTree(quote.projectId, sku.quoteId);
+  });
+}
+
+export async function assignSkuToParent(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const skuId = String(formData.get("skuId") ?? "").trim();
+    const parentSkuId = String(formData.get("parentSkuId") ?? "").trim();
+    const qtyRaw = String(formData.get("qtyPerParent") ?? "").trim();
+    if (!skuId) throw new ActionGuardError(ERR.VALIDATION, "skuId required");
+    if (!parentSkuId)
+      throw new ActionGuardError(ERR.VALIDATION, "parentSkuId required");
+    if (!qtyRaw)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "qtyPerParent required when assigning a parent.",
+      );
+
+    const user = await ensureUser();
+    const skuRows = await db
+      .select()
+      .from(quoteSkus)
+      .where(eq(quoteSkus.id, skuId))
+      .limit(1);
+    if (skuRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "SKU not found");
+    const sku = skuRows[0];
+
+    const quote = await loadQuoteOrThrow(sku.quoteId);
+    assertDraft(quote);
+
+    const allSkus = await loadAllSkusForQuote(sku.quoteId);
+    const validation = validateAssemblyOperation({
+      skuId,
+      newParentId: parentSkuId,
+      newQtyPerParent: qtyRaw,
+      newRole: sku.skuRole as SkuRoleValue,
+      quoteId: sku.quoteId,
+      allSkus,
+    });
+    if (!validation.ok)
+      throw new ActionGuardError(validation.code, validation.message);
+
+    await db
+      .update(quoteSkus)
+      .set({
+        parentSkuId,
+        qtyPerParent: qtyRaw,
+        updatedAt: new Date(),
+      })
+      .where(eq(quoteSkus.id, skuId));
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_sku",
+      entityId: skuId,
+      action: "assigned_to_parent",
+      diffJson: {
+        parent_sku_id: { from: sku.parentSkuId, to: parentSkuId },
+        qty_per_parent: { from: sku.qtyPerParent, to: qtyRaw },
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, sku.quoteId);
+  });
+}
+
+export async function unassignSkuFromParent(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const skuId = String(formData.get("skuId") ?? "").trim();
+    if (!skuId) throw new ActionGuardError(ERR.VALIDATION, "skuId required");
+
+    const user = await ensureUser();
+    const skuRows = await db
+      .select()
+      .from(quoteSkus)
+      .where(eq(quoteSkus.id, skuId))
+      .limit(1);
+    if (skuRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "SKU not found");
+    const sku = skuRows[0];
+
+    if (!sku.parentSkuId) return; // already detached
+
+    const quote = await loadQuoteOrThrow(sku.quoteId);
+    assertDraft(quote);
+
+    await db
+      .update(quoteSkus)
+      .set({
+        parentSkuId: null,
+        qtyPerParent: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(quoteSkus.id, skuId));
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_sku",
+      entityId: skuId,
+      action: "unassigned_from_parent",
+      diffJson: {
+        parent_sku_id: { from: sku.parentSkuId, to: null },
+        qty_per_parent: { from: sku.qtyPerParent, to: null },
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, sku.quoteId);
+  });
+}
+
+/**
+ * Change a SKU's role between leaf and assembly. Demoting assembly →
+ * leaf is refused if the SKU has children — PM must detach or delete
+ * them explicitly first. No auto-detach.
+ */
+export async function convertSkuRole(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const skuId = String(formData.get("skuId") ?? "").trim();
+    const newRoleRaw = String(formData.get("newRole") ?? "") as SkuRoleValue;
+    if (!skuId) throw new ActionGuardError(ERR.VALIDATION, "skuId required");
+    if (!["leaf", "assembly"].includes(newRoleRaw))
+      throw new ActionGuardError(ERR.VALIDATION, `Invalid newRole: ${newRoleRaw}`);
+
+    const user = await ensureUser();
+    const skuRows = await db
+      .select()
+      .from(quoteSkus)
+      .where(eq(quoteSkus.id, skuId))
+      .limit(1);
+    if (skuRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "SKU not found");
+    const sku = skuRows[0];
+
+    if (sku.skuRole === newRoleRaw) return; // no-op
+
+    const quote = await loadQuoteOrThrow(sku.quoteId);
+    assertDraft(quote);
+
+    const allSkus = await loadAllSkusForQuote(sku.quoteId);
+    const validation = validateAssemblyOperation({
+      skuId,
+      newParentId: sku.parentSkuId,
+      newQtyPerParent: sku.qtyPerParent,
+      newRole: newRoleRaw,
+      quoteId: sku.quoteId,
+      allSkus,
+    });
+    if (!validation.ok)
+      throw new ActionGuardError(validation.code, validation.message);
+
+    await db
+      .update(quoteSkus)
+      .set({ skuRole: newRoleRaw, updatedAt: new Date() })
+      .where(eq(quoteSkus.id, skuId));
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_sku",
+      entityId: skuId,
+      action: "role_converted",
+      diffJson: {
+        sku_role: { from: sku.skuRole, to: newRoleRaw },
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, sku.quoteId);
   });
 }
 
@@ -378,6 +731,15 @@ export async function refreshSkuFromHubspot(
 
   const quote = await loadQuoteOrThrow(sku.quoteId);
   assertDraft(quote);
+
+  // Nexus-local SKUs (assemblies without a HubSpot reference)
+  // can't be refreshed — there's no source to refresh from.
+  if (!sku.hubspotProductId) {
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      "This SKU isn't anchored to a HubSpot product, so there's nothing to refresh.",
+    );
+  }
 
   const product = await getProduct(sku.hubspotProductId);
   if (!product)
@@ -534,32 +896,52 @@ export async function updateSku(
 
 export async function deleteSku(formData: FormData): Promise<ActionResult<void>> {
   return runAction(async () => {
-  const skuId = String(formData.get("skuId") ?? "").trim();
-  if (!skuId) throw new ActionGuardError(ERR.VALIDATION, "skuId required");
+    const skuId = String(formData.get("skuId") ?? "").trim();
+    if (!skuId) throw new ActionGuardError(ERR.VALIDATION, "skuId required");
 
-  const user = await ensureUser();
-  const skuRows = await db
-    .select()
-    .from(quoteSkus)
-    .where(eq(quoteSkus.id, skuId))
-    .limit(1);
-  if (skuRows.length === 0) return;
-  const sku = skuRows[0];
+    const user = await ensureUser();
+    const skuRows = await db
+      .select()
+      .from(quoteSkus)
+      .where(eq(quoteSkus.id, skuId))
+      .limit(1);
+    if (skuRows.length === 0) return;
+    const sku = skuRows[0];
 
-  const quote = await loadQuoteOrThrow(sku.quoteId);
-  assertDraft(quote);
+    const quote = await loadQuoteOrThrow(sku.quoteId);
+    assertDraft(quote);
 
-  await db.delete(quoteSkus).where(eq(quoteSkus.id, skuId));
+    // Cascade-aware audit: snapshot the SKU's full subtree BEFORE the
+    // FK CASCADE wipes it. Single audit row captures the entire blast
+    // radius so PMs can reconstruct accidental cascades.
+    const allSkus = await loadAllSkusForQuote(sku.quoteId);
+    const { root, descendants } = snapshotSkuSubtree(skuId, allSkus);
 
-  await logAudit({
-    userId: user.id,
-    entityType: "quote_sku",
-    entityId: skuId,
-    action: "deleted",
-    diffJson: { sku_label: sku.skuLabel, product_name: sku.productName },
-  });
+    // Count packaging_inputs that will cascade (FK on quote_sku_id).
+    // Includes the deleted sku + every descendant's packaging rows.
+    const allDeletedSkuIds = [skuId, ...descendants.map((d) => d.id)];
+    const pkgRows = await db
+      .select({ id: packagingInputsTable.id })
+      .from(packagingInputsTable)
+      .where(inArray(packagingInputsTable.quoteSkuId, allDeletedSkuIds));
+    const cascadedPackagingCount = pkgRows.length;
 
-  revalidateQuoteTree(quote.projectId, sku.quoteId);
+    await db.delete(quoteSkus).where(eq(quoteSkus.id, skuId));
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_sku",
+      entityId: skuId,
+      action: "deleted",
+      diffJson: {
+        deleted_sku: root,
+        cascaded_descendants: descendants,
+        cascaded_descendant_count: descendants.length,
+        cascaded_packaging_inputs_count: cascadedPackagingCount,
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, sku.quoteId);
   });
 }
 

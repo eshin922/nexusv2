@@ -36,6 +36,20 @@
       "when": 1777432221330,
       "tag": "0004_productive_blur",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777481268021,
+      "tag": "0005_fat_hitman",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777484652314,
+      "tag": "0006_ambitious_gravity",
+      "breakpoints": true
     }
   ]
 }

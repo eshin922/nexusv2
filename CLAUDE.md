@@ -7,6 +7,42 @@ The codebase uses TWO separate HubSpot private app tokens:
 
 This separation is intentional: it makes accidental writes during development structurally impossible, not just unlikely.
 
+## Assembly rules (added Slice 5.5)
+
+`quote_skus` is a tree, not a flat list. Each SKU has a `sku_role`:
+
+- `leaf` — terminal. Cannot have children. Usually HubSpot-anchored.
+- `assembly` — holds child SKUs. Can also be a child of another assembly
+  (assembly nesting is supported). Often Nexus-local.
+
+Whether an assembly represents a "formulation," "kit," "gift set," or
+finished-goods bundle is captured by `cost_category` (Slice 9), **not**
+by `sku_role`. The earlier `umbrella` / `formulation_assembly` split was
+a category error and was collapsed before commit.
+
+**Validation lives in `src/lib/sku-tree.ts` (`validateAssemblyOperation`).
+All assembly-mutating actions call it.** Never mutate `parent_sku_id`,
+`qty_per_parent`, or `sku_role` without going through the validator.
+
+**Transitions:**
+- `leaf → assembly`: always allowed (parent state preserved).
+- `assembly → leaf`: refused if the SKU has children. PMs detach
+  explicitly. No auto-detach.
+
+**Cascade-aware audit:** `deleteSku` snapshots the full subtree (root +
+all descendants) and counts cascading packaging_inputs BEFORE the FK
+CASCADE fires. Single audit row per user action; `diff_json` carries the
+forensic record. Pattern applies to any future action that triggers
+cascade.
+
+**HubSpot reference is optional now.** `hubspot_product_id` is nullable
+since Slice 5.5. Leaf SKUs are typically HubSpot-anchored; assemblies
+often aren't. Slice 12 writeback skips `hubspot_product_id IS NULL` rows.
+
+See `docs/BOM_NOTES.md` for the full transition matrix, validation error
+codes, and packaging interaction. See `docs/STRATEGIC_VISION.md` for the
+v2 NetSuite-master direction this schema enables.
+
 ## Action result pattern (added Slice 5)
 
 Server actions return structured results, never throw on expected failure

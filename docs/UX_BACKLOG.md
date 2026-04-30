@@ -85,6 +85,36 @@ Items here are intentionally deferred - capture, don't fix in the moment.
   warn before save, (b) require an explicit "free" toggle, or
   (c) accept both and surface the ambiguity in the costing sheet.
 
+- [v2] Replace HubSpot ↔ NetSuite product sync with Nexus → NetSuite
+  direct integration. Removes the structural bottleneck that prevents
+  BOM/assembly metadata from flowing to NetSuite. NetSuite becomes the
+  single product master; Nexus becomes the assembly intelligence layer.
+
+- [v2] Direct Nexus → NetSuite Sales Order writeback with assembly
+  support. Eliminates manual NetSuite assembly configuration step that
+  ops currently performs. Nested BOMs flow as native NetSuite assembly
+  items.
+
+- [v2] HubSpot Products integration becomes one-way (NetSuite → HubSpot,
+  optional, for CRM visibility only). Nexus stops referencing HubSpot
+  Products as the canonical SKU source; references NetSuite items
+  directly.
+
+- [Slice 5.5 → Slice 13.5] Validate "Add assembly" button placement with
+  real PM workflow — current placement is bottom of search panel; may
+  belong as a separate tab, a top-of-page action, or inline with the
+  search results depending on actual PM mental model. Decision deferred
+  until we observe how PMs actually compose assemblies in practice.
+
+- [v1.5+ consideration] Evaluate dropping `sku_role` entirely and
+  inferring assembly status from tree position (has children vs. has no
+  children). Trade-off: simpler schema, requires handling the edge case
+  of adding children to a SKU that already has packaging_inputs (does
+  the leaf's existing packaging persist as the now-assembly's packaging,
+  or does the role transition force a packaging wipe?). Defer until
+  real PM usage proves whether explicit role declaration adds value
+  beyond what the tree shape already implies.
+
 ## Resolved
 
 - [Slice 12, resolved] `hs_cost_of_goods_sold` on HubSpot Products is unused

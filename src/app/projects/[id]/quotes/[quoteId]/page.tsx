@@ -10,8 +10,10 @@ import {
   users,
 } from "@/db/schema";
 import { countPackagingLinesForQuote } from "@/app/actions/packaging";
+import { buildTreeRenderOrder, getEligibleParents } from "@/lib/sku-tree";
 import { IdBadge } from "@/components/id-badge";
 import { AddTierButton } from "./add-tier-button";
+import { AddAssemblyButton } from "./add-assembly-button";
 import { SkuRow } from "./sku-row";
 import { SkuSearchPanel } from "./sku-search-panel";
 import { TierRow } from "./tier-row";
@@ -113,36 +115,72 @@ export default async function QuoteBuilderPage({
 
       {/* SKUs — referenced from HubSpot Products */}
       <Section title="SKUs">
-        {editable && <SkuSearchPanel quoteId={quote.id} />}
+        {editable && (
+          <div className="border-b border-gray-100">
+            <SkuSearchPanel
+              quoteId={quote.id}
+              eligibleParents={getEligibleParents(skus, null).map((p) => ({
+                id: p.id,
+                skuLabel: p.skuLabel,
+                productName: p.productName,
+                skuRole: p.skuRole,
+              }))}
+            />
+            <div className="px-4 pb-3">
+              <AddAssemblyButton
+                quoteId={quote.id}
+                eligibleParents={getEligibleParents(skus, null).map((p) => ({
+                  id: p.id,
+                  skuLabel: p.skuLabel,
+                  productName: p.productName,
+                  skuRole: p.skuRole as "leaf" | "assembly",
+                }))}
+              />
+            </div>
+          </div>
+        )}
         {skus.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-gray-500">
             {editable
-              ? "Search HubSpot Products above to add the first SKU."
+              ? "Search HubSpot Products above to add the first SKU, or create a Nexus-local assembly."
               : "No SKUs."}
           </p>
         ) : (
           <>
             <SkuHeader />
             <div className="divide-y divide-gray-100">
-              {skus.map((s, i) => (
-                <SkuRow
-                  key={s.id}
-                  sku={{
-                    id: s.id,
-                    hubspotProductId: s.hubspotProductId,
-                    skuLabel: s.skuLabel,
-                    productName: s.productName,
-                    unitsPerPack: s.unitsPerPack,
-                    retailBenchmark: s.retailBenchmark,
-                    notes: s.notes,
-                    lastHubspotRefreshAt: s.lastHubspotRefreshAt,
-                  }}
-                  isFirst={i === 0}
-                  isLast={i === skus.length - 1}
-                  hubspotPortalId={process.env.HUBSPOT_PROD_HUB_ID ?? null}
-                  disabled={!editable}
-                />
-              ))}
+              {buildTreeRenderOrder(skus).map(({ sku: s, depth }) => {
+                const eligibleParents = getEligibleParents(skus, s.id).map((p) => ({
+                  id: p.id,
+                  skuLabel: p.skuLabel,
+                  productName: p.productName,
+                  skuRole: p.skuRole,
+                }));
+                const hasChildren = skus.some((x) => x.parentSkuId === s.id);
+                return (
+                  <SkuRow
+                    key={s.id}
+                    sku={{
+                      id: s.id,
+                      hubspotProductId: s.hubspotProductId,
+                      skuLabel: s.skuLabel,
+                      productName: s.productName,
+                      unitsPerPack: s.unitsPerPack,
+                      retailBenchmark: s.retailBenchmark,
+                      notes: s.notes,
+                      lastHubspotRefreshAt: s.lastHubspotRefreshAt,
+                      skuRole: s.skuRole,
+                      parentSkuId: s.parentSkuId,
+                      qtyPerParent: s.qtyPerParent,
+                    }}
+                    depth={depth}
+                    hasChildren={hasChildren}
+                    eligibleParents={eligibleParents}
+                    hubspotPortalId={process.env.HUBSPOT_PROD_HUB_ID ?? null}
+                    disabled={!editable}
+                  />
+                );
+              })}
             </div>
           </>
         )}
@@ -279,10 +317,11 @@ function Section({
 
 function SkuHeader() {
   return (
-    <div className="grid grid-cols-[1.4fr_2.4fr_0.7fr_0.9fr_2fr_auto] gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+    <div className="grid grid-cols-[1.4fr_2fr_0.9fr_0.6fr_0.7fr_1.4fr_auto] gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2 text-xs font-medium uppercase tracking-wide text-gray-500">
       <span>SKU</span>
       <span>Product</span>
-      <span>Units/pk *</span>
+      <span>Type</span>
+      <span>Units/pk</span>
       <span>Retail $</span>
       <span>Notes</span>
       <span className="text-right">Actions</span>

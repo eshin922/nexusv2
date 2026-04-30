@@ -10,6 +10,7 @@ import {
   quoteTiers,
 } from "@/db/schema";
 import { listMarkupDefaults } from "@/app/actions/packaging";
+import { buildTreeRenderOrder } from "@/lib/sku-tree";
 import { IdBadge } from "@/components/id-badge";
 import { AddLineButton } from "./add-line-button";
 import { PackagingLineRow } from "./packaging-line-row";
@@ -162,14 +163,48 @@ export default async function PackagingInputsPage({
         </div>
       ) : (
         <div className="grid gap-4">
-          {skus.map((sku, idx) => {
+          {buildTreeRenderOrder(skus).map(({ sku, depth }, idx) => {
             const lines = Array.from(linesBySku.get(sku.id)?.values() ?? []).sort(
               (a, b) => a.sortOrder - b.sortOrder,
             );
+            const indentStyle = { marginLeft: `${depth * 24}px` };
+            const isAssembly = sku.skuRole === "assembly";
+
+            // Assemblies: read-only summary row, no packaging UI. Their
+            // leaf descendants get the full per-(line, tier) cost-cell UI.
+            if (isAssembly) {
+              return (
+                <div
+                  key={sku.id}
+                  style={indentStyle}
+                  className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-800">
+                        Assembly
+                      </span>
+                      <span className="font-semibold text-gray-900">
+                        {sku.skuLabel}
+                      </span>
+                      <span className="text-gray-500">· {sku.productName}</span>
+                    </div>
+                    <AddLineButton
+                      quoteSkuId={sku.id}
+                      disabled
+                      tooltip="Packaging lines belong to leaf SKUs. Assemblies aggregate their leaf descendants' packaging."
+                    />
+                  </div>
+                </div>
+              );
+            }
+
+            // Leaves: full packaging UI.
             return (
               <details
                 key={sku.id}
                 open={idx === 0}
+                style={indentStyle}
                 className="rounded-md border border-gray-200 bg-white"
               >
                 <summary className="flex cursor-pointer items-center justify-between px-4 py-3 text-sm font-semibold text-gray-900">

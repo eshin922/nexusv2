@@ -6,26 +6,55 @@ import {
   searchHubspotProductsAction,
 } from "@/app/actions/quotes";
 
+type Product = {
+  id: string;
+  name: string;
+  sku: string | null;
+};
+
+type EligibleParent = {
+  id: string;
+  skuLabel: string;
+  productName: string;
+  skuRole: "leaf" | "assembly";
+};
+
+const DEBOUNCE_MS = 300;
+
 function AddProductButton({
   quoteId,
   productId,
+  parentSkuId,
+  qtyPerParent,
   onError,
 }: {
   quoteId: string;
   productId: string;
+  parentSkuId: string;
+  qtyPerParent: string;
   onError: (msg: string | null) => void;
 }) {
   const [pending, startTransition] = useTransition();
+
   function handleClick() {
     onError(null);
+    if (parentSkuId && !qtyPerParent) {
+      onError("Enter qty per parent before adding to a parent.");
+      return;
+    }
     const fd = new FormData();
     fd.set("quoteId", quoteId);
     fd.set("productId", productId);
+    if (parentSkuId) {
+      fd.set("parentSkuId", parentSkuId);
+      fd.set("qtyPerParent", qtyPerParent);
+    }
     startTransition(async () => {
       const result = await addSkuFromHubspotProduct(fd);
       if (!result.ok) onError(result.error.message);
     });
   }
+
   return (
     <button
       type="button"
@@ -38,20 +67,23 @@ function AddProductButton({
   );
 }
 
-type Product = {
-  id: string;
-  name: string;
-  sku: string | null;
-};
-
-const DEBOUNCE_MS = 300;
-
-export function SkuSearchPanel({ quoteId }: { quoteId: string }) {
+export function SkuSearchPanel({
+  quoteId,
+  eligibleParents,
+}: {
+  quoteId: string;
+  eligibleParents: EligibleParent[];
+}) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Product[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Optional parent context — when set, all searches results add as children
+  // of that parent. PM enters qty_per_parent inline.
+  const [parentSkuId, setParentSkuId] = useState("");
+  const [qtyPerParent, setQtyPerParent] = useState("");
 
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -97,9 +129,39 @@ export function SkuSearchPanel({ quoteId }: { quoteId: string }) {
         )}
       </div>
 
-      {error && (
-        <p className="mt-2 text-sm text-red-700">{error}</p>
+      {eligibleParents.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+          <span>Add as child of:</span>
+          <select
+            value={parentSkuId}
+            onChange={(e) => setParentSkuId(e.target.value)}
+            className="rounded border border-gray-300 bg-white px-2 py-1 text-xs"
+          >
+            <option value="">— top level —</option>
+            {eligibleParents.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.skuLabel} — {p.productName} ({p.skuRole})
+              </option>
+            ))}
+          </select>
+          {parentSkuId && (
+            <>
+              <span>×</span>
+              <input
+                type="number"
+                step="0.0001"
+                min={0}
+                value={qtyPerParent}
+                onChange={(e) => setQtyPerParent(e.target.value)}
+                placeholder="qty per parent"
+                className="w-32 rounded border border-gray-300 bg-white px-2 py-1 text-xs"
+              />
+            </>
+          )}
+        </div>
       )}
+
+      {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
 
       {pending && results === null && (
         <p className="mt-2 text-xs text-gray-500">Searching…</p>
@@ -125,7 +187,13 @@ export function SkuSearchPanel({ quoteId }: { quoteId: string }) {
                   {p.sku ?? <span className="italic">(no SKU)</span>}
                 </div>
               </div>
-              <AddProductButton quoteId={quoteId} productId={p.id} onError={setError} />
+              <AddProductButton
+                quoteId={quoteId}
+                productId={p.id}
+                parentSkuId={parentSkuId}
+                qtyPerParent={qtyPerParent}
+                onError={setError}
+              />
             </li>
           ))}
         </ul>
