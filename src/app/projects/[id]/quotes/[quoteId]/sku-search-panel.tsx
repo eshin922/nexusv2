@@ -83,7 +83,7 @@ export function SkuSearchPanel({
   // Optional parent context — when set, all searches results add as children
   // of that parent. PM enters qty_per_parent inline.
   const [parentSkuId, setParentSkuId] = useState("");
-  const [qtyPerParent, setQtyPerParent] = useState("");
+  const [qtyPerParent, setQtyPerParent] = useState("1");
 
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);

@@ -163,7 +163,7 @@ export default async function PackagingInputsPage({
         </div>
       ) : (
         <div className="grid gap-4">
-          {buildTreeRenderOrder(skus).map(({ sku, depth }, idx) => {
+          {buildTreeRenderOrder(skus).map(({ sku, depth }) => {
             const lines = Array.from(linesBySku.get(sku.id)?.values() ?? []).sort(
               (a, b) => a.sortOrder - b.sortOrder,
             );
@@ -203,7 +203,7 @@ export default async function PackagingInputsPage({
             return (
               <details
                 key={sku.id}
-                open={idx === 0}
+                open
                 style={indentStyle}
                 className="rounded-md border border-gray-200 bg-white"
               >
