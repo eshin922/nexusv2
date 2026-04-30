@@ -123,3 +123,32 @@ Fix is one line per onChange: capture `const v = e.target.value;`
 before `setState(v)` and pass it as a `{field: v}` override to the
 save function. The save merges overrides over the ref:
 `const s = { ...stateRef.current, ...overrides };`.
+
+## Drizzle aggregation queries
+
+Use Drizzle's column-aware helpers (`count`, `max`, `min`, `sum`,
+`avg`) for aggregations whenever possible. Do **NOT** use raw `sql<T>`
+templates for aggregations that return non-string types (timestamps,
+dates, booleans).
+
+Wrong:
+```ts
+sql<Date | null>`max(${table.column})`     // type lies; runtime
+                                            // returns ISO string
+```
+
+Right:
+```ts
+max(table.column)                          // properly typed Date | null
+```
+
+The TypeScript generic on `sql<T>` is an assertion, not a runtime
+guarantee. Drizzle's column-aware helpers bind the column type and
+return it correctly at runtime. Save raw `sql<T>` for cases the helpers
+can't express, and verify the return type matches reality (typically
+string from Postgres for non-text types — calling `.getTime()` or
+`.toISOString()` on a string at runtime throws and 500s the request).
+
+Discovered Slice 5.6 when `getCacheStatus` used `sql<Date | null>` for
+`max(last_synced_at)`; the value came back as a string and crashed
+`isStale`/the cache-status route on every populated-cache visit.

@@ -5,6 +5,14 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Slice 5.6] PM custom property TBD. `hubspot_deals_cache.pm_id` /
+  `pm_name` / `pm_email` columns are nullable until the HubSpot deal
+  property internal name is identified. Set `HUBSPOT_PM_PROPERTY=<name>`
+  in env once known and the sync will populate the columns
+  automatically. To discover candidates, run `dumpDealProperties()`
+  (exported from `src/lib/hubspot-cache.ts`) — it lists deal properties
+  whose name/label matches `pm|manager|lead|owner|coordinator|director`.
+
 - [Slice 2] Home page paradigm is wrong. "Import Deal" is front-and-center 
   but PMs will spend 80% of their time looking at their existing projects, 
   not importing new ones. Home should be a project list with import as a 

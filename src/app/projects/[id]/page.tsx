@@ -5,14 +5,12 @@ import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/db";
 import { projects, quotes, users } from "@/db/schema";
 import { STAGE_LABEL_BY_ID } from "@/lib/hubspot";
-import {
-  archiveProject,
-  refreshFromHubspot,
-} from "@/app/actions/projects";
+import { archiveProject } from "@/app/actions/projects";
 import { createQuote } from "@/app/actions/quotes";
 import { IdBadge } from "@/components/id-badge";
 import { CategorySelect } from "./category-select";
 import { ConfirmButton } from "./confirm-button";
+import { RefreshProjectButton } from "./refresh-button";
 
 export default async function ProjectDetailPage({
   params,
@@ -83,16 +81,14 @@ export default async function ProjectDetailPage({
             {project.clientName ?? "—"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <form action={refreshFromHubspot}>
-            <input type="hidden" name="projectId" value={project.id} />
-            <button
-              type="submit"
-              className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm hover:bg-gray-50"
-            >
-              Refresh from HubSpot
-            </button>
-          </form>
+        <div className="flex items-center gap-3">
+          {project.lastHubspotRefreshAt && (
+            <span className="text-xs text-gray-500">
+              Last synced from HubSpot{" "}
+              {formatRelative(project.lastHubspotRefreshAt)}
+            </span>
+          )}
+          <RefreshProjectButton projectId={project.id} />
           {project.status === "active" && (
             <form action={archiveProject}>
               <input type="hidden" name="projectId" value={project.id} />

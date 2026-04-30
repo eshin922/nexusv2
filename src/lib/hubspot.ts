@@ -18,27 +18,6 @@ export const STAGE_LABEL_BY_ID: Record<string, string> = {
   "195274342": "Project Setup",
 };
 
-export type DealSummary = {
-  id: string;
-  name: string;
-  clientName: string | null;
-  ownerName: string | null;
-  stageId: string;
-  stageLabel: string;
-  lastModified: string | null; // ISO
-};
-
-export type DealSearchResult = {
-  results: DealSummary[];
-  nextCursor: string | null;
-  total: number;
-};
-
-export type DealDetail = DealSummary & {
-  hubspotOwnerId: string | null;
-  ownerEmail: string | null;
-};
-
 export type ProductSummary = {
   id: string;
   name: string;
@@ -49,7 +28,7 @@ export type ProductSummary = {
 };
 
 export type ProductDetail = ProductSummary & {
-  cogs: string | null; // hs_cost_of_goods_sold (typically null at DPS today)
+  cogs: string | null;
   classification: string | null;
 };
 
@@ -62,15 +41,10 @@ export class HubspotError extends Error {
   }
 }
 
-// Two-token model (see docs/claude.md):
-//   - Read operations  → HUBSPOT_ACCESS_TOKEN        (production, read-only scopes)
-//   - Write operations → HUBSPOT_WRITE_ACCESS_TOKEN  (added in Slice 12 only)
-// Splitting the clients makes accidental writes during development structurally
-// impossible — read paths must NEVER call getWriteClient.
 let _readClient: Client | null = null;
 let _writeClient: Client | null = null;
 
-function getReadClient(): Client {
+export function getReadClient(): Client {
   if (_readClient) return _readClient;
   const token = process.env.HUBSPOT_ACCESS_TOKEN;
   if (!token)
@@ -93,88 +67,7 @@ function getWriteClient(): Client {
   return _writeClient;
 }
 
-export async function searchDeals(args: {
-  query?: string;
-  after?: string;
-  pageSize?: number;
-}): Promise<DealSearchResult> {
-  const c = getReadClient();
-  const pageSize = args.pageSize ?? 50;
-
-  let searchResp;
-  try {
-    searchResp = await c.crm.deals.searchApi.doSearch({
-      filterGroups: [
-        {
-          filters: [
-            {
-              propertyName: "dealstage",
-              // SDK enum is finicky across versions — IN is the wire string
-              operator: "IN" as never,
-              values: [...ACTIVE_STAGE_IDS],
-            },
-          ],
-        },
-      ],
-      query: args.query?.trim() || undefined,
-      sorts: ["-hs_lastmodifieddate"],
-      properties: [
-        "dealname",
-        "dealstage",
-        "hubspot_owner_id",
-        "hs_lastmodifieddate",
-      ],
-      limit: pageSize,
-      after: args.after ?? "0",
-    });
-  } catch (err) {
-    throw new HubspotError("Failed to search HubSpot deals", err);
-  }
-
-  const deals = searchResp.results ?? [];
-  if (deals.length === 0) {
-    return { results: [], nextCursor: null, total: searchResp.total ?? 0 };
-  }
-
-  const dealIds = deals.map((d) => d.id);
-  const ownerIds = Array.from(
-    new Set(
-      deals
-        .map((d) => d.properties?.hubspot_owner_id)
-        .filter((v): v is string => Boolean(v)),
-    ),
-  );
-
-  // Run association lookup and owner list in parallel.
-  const [companyIdByDealId, ownerNameById] = await Promise.all([
-    fetchCompanyIdsForDeals(c, dealIds),
-    fetchOwnerNames(c, ownerIds),
-  ]);
-
-  const companyIds = Array.from(new Set(companyIdByDealId.values()));
-  const companyNameById = await fetchCompanyNames(c, companyIds);
-
-  const results: DealSummary[] = deals.map((d) => {
-    const props = d.properties ?? {};
-    const stageId = props.dealstage ?? "";
-    const ownerId = props.hubspot_owner_id;
-    const companyId = companyIdByDealId.get(d.id);
-    return {
-      id: d.id,
-      name: props.dealname || "(unnamed)",
-      clientName: companyId ? companyNameById.get(companyId) ?? null : null,
-      ownerName: ownerId ? ownerNameById.get(ownerId) ?? null : null,
-      stageId,
-      stageLabel: STAGE_LABEL_BY_ID[stageId] ?? stageId,
-      lastModified: props.hs_lastmodifieddate ?? null,
-    };
-  });
-
-  const nextCursor = searchResp.paging?.next?.after ?? null;
-  return { results, nextCursor, total: searchResp.total ?? results.length };
-}
-
-async function fetchCompanyIdsForDeals(
+export async function fetchCompanyIdsForDeals(
   c: Client,
   dealIds: string[],
 ): Promise<Map<string, string>> {
@@ -185,7 +78,6 @@ async function fetchCompanyIdsForDeals(
       inputs: dealIds.map((id) => ({ id })),
     });
     for (const r of resp.results ?? []) {
-      // Wire shape uses "_from"; SDK preserves it. Cast to access.
       const fromId = (r as unknown as { _from?: { id?: string } })._from?.id;
       const toId = r.to?.[0]?.toObjectId;
       if (fromId && toId !== undefined) map.set(fromId, String(toId));
@@ -196,7 +88,7 @@ async function fetchCompanyIdsForDeals(
   return map;
 }
 
-async function fetchCompanyNames(
+export async function fetchCompanyNames(
   c: Client,
   companyIds: string[],
 ): Promise<Map<string, string>> {
@@ -218,60 +110,30 @@ async function fetchCompanyNames(
   return map;
 }
 
-export async function getDeal(dealId: string): Promise<DealDetail | null> {
-  const c = getReadClient();
+export type OwnerDetail = {
+  name: string;
+  email: string | null;
+};
 
-  let deal;
+// Lists all org owners (HubSpot has no batch-by-id endpoint). At DPS scale
+// this is a single page (~16 owners). Returns details keyed by owner id —
+// callers index into this for whichever IDs they actually need.
+export async function fetchOwnerDetails(
+  c: Client,
+): Promise<Map<string, OwnerDetail>> {
+  const map = new Map<string, OwnerDetail>();
   try {
-    deal = await c.crm.deals.basicApi.getById(dealId, [
-      "dealname",
-      "dealstage",
-      "hubspot_owner_id",
-      "hs_lastmodifieddate",
-    ]);
-  } catch (err: unknown) {
-    const code = (err as { code?: number })?.code;
-    if (code === 404) return null;
-    throw new HubspotError(`Failed to fetch deal ${dealId}`, err);
-  }
-
-  const props = deal.properties ?? {};
-  const stageId = props.dealstage ?? "";
-  const ownerId = props.hubspot_owner_id ?? null;
-
-  const companyMap = await fetchCompanyIdsForDeals(c, [dealId]);
-  const companyId = companyMap.get(dealId) ?? null;
-  const namesMap = companyId
-    ? await fetchCompanyNames(c, [companyId])
-    : new Map<string, string>();
-  const clientName = companyId ? namesMap.get(companyId) ?? null : null;
-
-  let ownerName: string | null = null;
-  let ownerEmail: string | null = null;
-  if (ownerId) {
-    try {
-      const owner = await c.crm.owners.ownersApi.getById(Number(ownerId));
-      ownerName =
-        [owner.firstName, owner.lastName].filter(Boolean).join(" ") ||
-        owner.email ||
-        null;
-      ownerEmail = owner.email ?? null;
-    } catch {
-      // Non-fatal
+    const resp = await c.crm.owners.ownersApi.getPage(undefined, undefined, 100);
+    for (const o of resp.results ?? []) {
+      const id = String(o.id);
+      const name =
+        [o.firstName, o.lastName].filter(Boolean).join(" ") || o.email || id;
+      map.set(id, { name, email: o.email ?? null });
     }
+  } catch {
+    // Non-fatal
   }
-
-  return {
-    id: deal.id,
-    name: props.dealname || "(unnamed)",
-    clientName,
-    ownerName,
-    stageId,
-    stageLabel: STAGE_LABEL_BY_ID[stageId] ?? stageId,
-    lastModified: props.hs_lastmodifieddate ?? null,
-    hubspotOwnerId: ownerId,
-    ownerEmail,
-  };
+  return map;
 }
 
 // ---------- products ----------
@@ -357,26 +219,4 @@ export async function findHubspotOwnerByEmail(
   } catch {
     return null;
   }
-}
-
-async function fetchOwnerNames(
-  c: Client,
-  ownerIds: string[],
-): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  if (ownerIds.length === 0) return map;
-  try {
-    // Owners API has no batch-by-id endpoint. List the org's owners (small set
-    // for DPS — single page) and look up by id.
-    const resp = await c.crm.owners.ownersApi.getPage(undefined, undefined, 100);
-    for (const o of resp.results ?? []) {
-      const id = String(o.id);
-      const name =
-        [o.firstName, o.lastName].filter(Boolean).join(" ") || o.email || id;
-      map.set(id, name);
-    }
-  } catch {
-    // Non-fatal
-  }
-  return map;
 }

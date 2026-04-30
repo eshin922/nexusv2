@@ -6,7 +6,8 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { auditLog, projects, users } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
-import { getDeal, HubspotError } from "@/lib/hubspot";
+import { HubspotError } from "@/lib/hubspot";
+import { syncDealById } from "@/lib/hubspot-cache";
 
 const VALID_CATEGORIES = [
   "packaging",
@@ -72,23 +73,26 @@ export async function importDeal(formData: FormData) {
     .limit(1);
   if (existing.length > 0) redirect(`/projects/${existing[0].id}`);
 
-  const deal = await getDeal(dealId);
-  if (!deal) throw new HubspotError(`Deal ${dealId} not found in HubSpot`);
+  // Sync the deal into the cache first; importDeal inserts from cache so
+  // the project always reflects current HubSpot state. syncDealById is an
+  // upsert and doesn't touch other cache rows (closed deals coexist).
+  const cacheRow = await syncDealById(dealId);
+  if (!cacheRow) throw new HubspotError(`Deal ${dealId} not found in HubSpot`);
 
-  const salesRepUserId = await resolveSalesRepUserId(deal.ownerEmail);
+  const salesRepUserId = await resolveSalesRepUserId(cacheRow.salesRepEmail);
 
   const inserted = await db
     .insert(projects)
     .values({
       hubspotDealId: dealId,
-      hubspotOwnerId: deal.hubspotOwnerId,
-      dealName: deal.name,
-      clientName: deal.clientName,
+      hubspotOwnerId: cacheRow.salesRepId,
+      dealName: cacheRow.dealName,
+      clientName: cacheRow.associatedCompanyName,
       salesRepUserId,
       pmUserId: null,
       projectCategory: "packaging",
       status: "active",
-      dealStage: deal.stageId || null,
+      dealStage: cacheRow.dealStage,
       lastHubspotRefreshAt: new Date(),
       importedByUserId: user.id,
     })
@@ -107,7 +111,9 @@ export async function importDeal(formData: FormData) {
   redirect(`/projects/${project.id}`);
 }
 
-export async function refreshFromHubspot(formData: FormData) {
+export async function refreshFromHubspot(
+  formData: FormData,
+): Promise<{ ok: true; fieldsChanged: number }> {
   const projectId = String(formData.get("projectId") ?? "").trim();
   if (!projectId) throw new Error("projectId required");
 
@@ -121,13 +127,16 @@ export async function refreshFromHubspot(formData: FormData) {
   if (rows.length === 0) throw new Error("Project not found");
   const project = rows[0];
 
-  const deal = await getDeal(project.hubspotDealId);
-  if (!deal)
+  // Refresh via cache so all reads of HubSpot deal state go through the
+  // same path. syncDealById upserts the cache row; we read fresh values
+  // from it for the project-record update.
+  const cacheRow = await syncDealById(project.hubspotDealId);
+  if (!cacheRow)
     throw new HubspotError(
       `Deal ${project.hubspotDealId} no longer exists in HubSpot`,
     );
 
-  const salesRepUserId = await resolveSalesRepUserId(deal.ownerEmail);
+  const salesRepUserId = await resolveSalesRepUserId(cacheRow.salesRepEmail);
 
   const before = {
     deal_name: project.dealName,
@@ -137,10 +146,10 @@ export async function refreshFromHubspot(formData: FormData) {
     sales_rep_user_id: project.salesRepUserId,
   };
   const after = {
-    deal_name: deal.name,
-    client_name: deal.clientName,
-    deal_stage: deal.stageId || null,
-    hubspot_owner_id: deal.hubspotOwnerId,
+    deal_name: cacheRow.dealName,
+    client_name: cacheRow.associatedCompanyName,
+    deal_stage: cacheRow.dealStage,
+    hubspot_owner_id: cacheRow.salesRepId,
     sales_rep_user_id: salesRepUserId,
   };
   const diff = diffOf(before, after);
@@ -148,10 +157,10 @@ export async function refreshFromHubspot(formData: FormData) {
   await db
     .update(projects)
     .set({
-      dealName: deal.name,
-      clientName: deal.clientName,
-      dealStage: deal.stageId || null,
-      hubspotOwnerId: deal.hubspotOwnerId,
+      dealName: cacheRow.dealName,
+      clientName: cacheRow.associatedCompanyName,
+      dealStage: cacheRow.dealStage,
+      hubspotOwnerId: cacheRow.salesRepId,
       salesRepUserId,
       lastHubspotRefreshAt: new Date(),
       updatedAt: new Date(),
@@ -167,6 +176,7 @@ export async function refreshFromHubspot(formData: FormData) {
   });
 
   revalidatePath(`/projects/${projectId}`);
+  return { ok: true, fieldsChanged: Object.keys(diff).length };
 }
 
 export async function updateProjectCategory(formData: FormData) {

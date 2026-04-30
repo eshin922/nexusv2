@@ -349,6 +349,49 @@ export const packagingInputs = pgTable(
   ],
 );
 
+// ---------- hubspot deal cache (Slice 5.6) ----------
+
+// Local mirror of HubSpot deals for the import-deals page. Keeps the page
+// sub-100ms after first sync (vs. ~1s for the prior 3-RT HubSpot chain).
+// Cache, NOT source of truth — fields can be added/dropped freely; no
+// inbound FK references. Eviction model:
+//   - syncDeals(): DELETE active-stage rows + INSERT current active set,
+//     in a short transaction (HubSpot fetch happens outside the tx).
+//     Deals that left the active pipeline are evicted automatically.
+//   - syncDealById(): single-row upsert. Closed deals reach the cache
+//     only via this path (importing/refreshing a closed deal); they
+//     coexist with active rows and aren't touched by syncDeals.
+// Name/email columns are denormalized at sync time so the read query is
+// single-table. See docs/HUBSPOT_CACHE.md for the full design.
+export const hubspotDealsCache = pgTable(
+  "hubspot_deals_cache",
+  {
+    dealId: text("deal_id").primaryKey(),
+    dealName: text("deal_name").notNull(),
+    dealStage: text("deal_stage"),
+    amount: numeric("amount", { precision: 15, scale: 2 }),
+    closeDate: date("close_date"),
+    salesRepId: text("sales_rep_id"),
+    salesRepName: text("sales_rep_name"),
+    salesRepEmail: text("sales_rep_email"),
+    pmId: text("pm_id"),
+    pmName: text("pm_name"),
+    pmEmail: text("pm_email"),
+    associatedCompanyId: text("associated_company_id"),
+    associatedCompanyName: text("associated_company_name"),
+    createdAtHubspot: timestamp("created_at_hubspot", { withTimezone: true }),
+    updatedAtHubspot: timestamp("updated_at_hubspot", { withTimezone: true }),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("hubspot_deals_cache_deal_name_idx").on(t.dealName),
+    index("hubspot_deals_cache_deal_stage_idx").on(t.dealStage),
+    index("hubspot_deals_cache_last_synced_at_idx").on(t.lastSyncedAt),
+  ],
+);
+
 // ---------- audit ----------
 
 export const auditLog = pgTable(
