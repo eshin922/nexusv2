@@ -57,6 +57,13 @@
       "when": 1777578607193,
       "tag": "0007_amazing_zuras",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777581099438,
+      "tag": "0008_daily_moon_knight",
+      "breakpoints": true
     }
   ]
 }

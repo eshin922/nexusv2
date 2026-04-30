@@ -16,10 +16,12 @@ export function TierPresetSelect({
   quoteId,
   existingTierCount,
   existingPackagingLineCount,
+  existingProductionCellsWithData,
 }: {
   quoteId: string;
   existingTierCount: number;
   existingPackagingLineCount: number;
+  existingProductionCellsWithData: number;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +40,13 @@ export function TierPresetSelect({
               existingPackagingLineCount === 1 ? "" : "s"
             } will reset (line metadata — supplier, category, markup — is preserved).`
           : "";
-      if (!confirm(`Replace ${tierMsg} with preset?${lineMsg}`)) {
+      const productionMsg =
+        existingProductionCellsWithData > 0
+          ? `\n\nCost data on ${existingProductionCellsWithData} production cell${
+              existingProductionCellsWithData === 1 ? "" : "s"
+            } will reset (per-SKU policy — customer ships raws, allocate service fees, notes — is preserved). Forensic snapshot saved to audit log.`
+          : "";
+      if (!confirm(`Replace ${tierMsg} with preset?${lineMsg}${productionMsg}`)) {
         setSelected("");
         return;
       }

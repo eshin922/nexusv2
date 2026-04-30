@@ -6,6 +6,7 @@ import { db } from "@/db";
 import {
   auditLog,
   packagingInputs,
+  productionInputs,
   quotes,
   quoteSkus,
   quoteTiers,
@@ -376,6 +377,12 @@ export async function addSkuFromHubspotProduct(
       })
       .returning({ id: quoteSkus.id });
 
+    // Slice 6: leaf SKUs get one production_inputs row per existing tier.
+    // Assemblies don't have production rows — costs roll up from leaves.
+    if (skuRoleRaw === "leaf") {
+      await seedProductionInputsForNewLeaf({ quoteId, skuId: sku.id });
+    }
+
     await logAudit({
       userId: user.id,
       entityType: "quote_sku",
@@ -394,6 +401,30 @@ export async function addSkuFromHubspotProduct(
 
     revalidateQuoteTree(quote.projectId, quoteId);
   });
+}
+
+// Insert one production_inputs row per existing tier for a newly-created
+// (or assembly-promoted-to-) leaf SKU. Default policy values; ON CONFLICT
+// DO NOTHING so a re-promotion preserves any prior data on tiers that
+// already had rows.
+async function seedProductionInputsForNewLeaf(args: {
+  quoteId: string;
+  skuId: string;
+}): Promise<void> {
+  const tiers = await db
+    .select({ id: quoteTiers.id })
+    .from(quoteTiers)
+    .where(eq(quoteTiers.quoteId, args.quoteId));
+  if (tiers.length === 0) return;
+  await db
+    .insert(productionInputs)
+    .values(
+      tiers.map((t) => ({
+        quoteSkuId: args.skuId,
+        tierId: t.id,
+      })),
+    )
+    .onConflictDoNothing();
 }
 
 /**
@@ -693,6 +724,17 @@ export async function convertSkuRole(
       .set({ skuRole: newRoleRaw, updatedAt: new Date() })
       .where(eq(quoteSkus.id, skuId));
 
+    // Slice 6: assembly → leaf needs production_inputs rows for every tier.
+    // ON CONFLICT DO NOTHING — if the SKU was previously a leaf, its rows
+    // were preserved (leaf → assembly doesn't delete) so this only fills
+    // in tiers added while the SKU was an assembly.
+    if (sku.skuRole === "assembly" && newRoleRaw === "leaf") {
+      await seedProductionInputsForNewLeaf({
+        quoteId: sku.quoteId,
+        skuId,
+      });
+    }
+
     await logAudit({
       userId: user.id,
       entityType: "quote_sku",
@@ -917,14 +959,19 @@ export async function deleteSku(formData: FormData): Promise<ActionResult<void>>
     const allSkus = await loadAllSkusForQuote(sku.quoteId);
     const { root, descendants } = snapshotSkuSubtree(skuId, allSkus);
 
-    // Count packaging_inputs that will cascade (FK on quote_sku_id).
-    // Includes the deleted sku + every descendant's packaging rows.
+    // Count packaging_inputs and production_inputs that will cascade (both
+    // FK on quote_sku_id). Includes the deleted sku + every descendant.
     const allDeletedSkuIds = [skuId, ...descendants.map((d) => d.id)];
     const pkgRows = await db
       .select({ id: packagingInputsTable.id })
       .from(packagingInputsTable)
       .where(inArray(packagingInputsTable.quoteSkuId, allDeletedSkuIds));
     const cascadedPackagingCount = pkgRows.length;
+    const prodRows = await db
+      .select({ id: productionInputs.id })
+      .from(productionInputs)
+      .where(inArray(productionInputs.quoteSkuId, allDeletedSkuIds));
+    const cascadedProductionCount = prodRows.length;
 
     await db.delete(quoteSkus).where(eq(quoteSkus.id, skuId));
 
@@ -938,6 +985,7 @@ export async function deleteSku(formData: FormData): Promise<ActionResult<void>>
         cascaded_descendants: descendants,
         cascaded_descendant_count: descendants.length,
         cascaded_packaging_inputs_count: cascadedPackagingCount,
+        cascaded_production_inputs_count: cascadedProductionCount,
       },
     });
 
@@ -1073,6 +1121,47 @@ export async function addTier(formData: FormData): Promise<ActionResult<void>> {
     await db.insert(packagingInputs).values(newRows);
   }
 
+  // Slice 6: production_inputs rows are auto-created per (leaf SKU × tier).
+  // Walk every leaf SKU in the quote, inherit policy from any existing
+  // production row of that SKU (so the new tier gets the SKU's current
+  // customer_ships_raws / allocate_service_fees_to_cost / notes), and
+  // insert one row per leaf at the new tier.
+  const leafSkus = await db
+    .select({ id: quoteSkus.id })
+    .from(quoteSkus)
+    .where(and(eq(quoteSkus.quoteId, quoteId), eq(quoteSkus.skuRole, "leaf")));
+  let productionRowsSeeded = 0;
+  if (leafSkus.length > 0) {
+    const leafIds = leafSkus.map((s) => s.id);
+    const existingPolicy = await db
+      .selectDistinctOn([productionInputs.quoteSkuId], {
+        quoteSkuId: productionInputs.quoteSkuId,
+        customerShipsRaws: productionInputs.customerShipsRaws,
+        allocateServiceFeesToCost: productionInputs.allocateServiceFeesToCost,
+        notes: productionInputs.notes,
+      })
+      .from(productionInputs)
+      .where(inArray(productionInputs.quoteSkuId, leafIds));
+    const policyByLeaf = new Map(
+      existingPolicy.map((p) => [p.quoteSkuId, p]),
+    );
+    const newProdRows: (typeof productionInputs.$inferInsert)[] = leafSkus.map(
+      (s) => {
+        const p = policyByLeaf.get(s.id);
+        return {
+          quoteSkuId: s.id,
+          tierId: tier.id,
+          customerShipsRaws: p?.customerShipsRaws ?? false,
+          allocateServiceFeesToCost: p?.allocateServiceFeesToCost ?? true,
+          notes: p?.notes ?? null,
+          // per-tier costs intentionally null — PM fills in.
+        };
+      },
+    );
+    await db.insert(productionInputs).values(newProdRows);
+    productionRowsSeeded = newProdRows.length;
+  }
+
   await logAudit({
     userId: user.id,
     entityType: "quote_tier",
@@ -1082,6 +1171,7 @@ export async function addTier(formData: FormData): Promise<ActionResult<void>> {
       quote_id: quoteId,
       sort_order: sortOrder,
       packaging_rows_seeded: newRows.length,
+      production_rows_seeded: productionRowsSeeded,
     },
   });
 
@@ -1254,8 +1344,7 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
   // line work the PM did — vendor lookups, category decisions, markups).
   // After re-creating tiers, we reseed packaging_inputs with empty
   // unit_cost / purchase_qty for each preserved line × each new tier.
-  // Same shape will apply to freight_inputs and production_inputs in
-  // Slices 6–7.
+  // Same shape applies to production_inputs (Slice 6); freight_inputs (Slice 7).
   const preservedLines = await db
     .selectDistinctOn([packagingInputs.lineGroupId], {
       lineGroupId: packagingInputs.lineGroupId,
@@ -1274,7 +1363,56 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
     .where(eq(quoteSkus.quoteId, quoteId))
     .orderBy(asc(packagingInputs.lineGroupId), asc(packagingInputs.createdAt));
 
+  // Slice 6 — production policy snapshot, keyed by quote_sku_id. One row
+  // per leaf SKU; values come from any existing production_inputs row for
+  // that SKU (denormalized, so any row carries the policy).
+  const preservedProductionPolicy = await db
+    .selectDistinctOn([productionInputs.quoteSkuId], {
+      quoteSkuId: productionInputs.quoteSkuId,
+      customerShipsRaws: productionInputs.customerShipsRaws,
+      allocateServiceFeesToCost: productionInputs.allocateServiceFeesToCost,
+      notes: productionInputs.notes,
+    })
+    .from(productionInputs)
+    .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
+    .where(eq(quoteSkus.quoteId, quoteId));
+
+  // Forensic snapshot — capture every (sku, tier) row with non-null cost
+  // data or actual_units_produced before the cascade wipes them. Filter
+  // out empty bookkeeping rows (no data lost = no audit value).
+  const allProductionRows = await db
+    .select()
+    .from(productionInputs)
+    .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
+    .where(eq(quoteSkus.quoteId, quoteId));
+  const productionDataLost = allProductionRows
+    .map((r) => r.production_inputs)
+    .filter(
+      (r) =>
+        r.actualUnitsProduced !== null ||
+        r.fillingBlendingCost !== null ||
+        r.cmAssemblyTotal !== null ||
+        r.setupFeeTotal !== null ||
+        r.toolingArtworkTotal !== null ||
+        r.rdTotal !== null ||
+        r.otherServiceTotal !== null ||
+        r.bulkRawCost !== null,
+    )
+    .map((r) => ({
+      quote_sku_id: r.quoteSkuId,
+      tier_id: r.tierId,
+      actual_units_produced: r.actualUnitsProduced,
+      filling_blending_cost: r.fillingBlendingCost,
+      cm_assembly_total: r.cmAssemblyTotal,
+      setup_fee_total: r.setupFeeTotal,
+      tooling_artwork_total: r.toolingArtworkTotal,
+      rd_total: r.rdTotal,
+      other_service_total: r.otherServiceTotal,
+      bulk_raw_cost: r.bulkRawCost,
+    }));
+
   let cellsSeeded = 0;
+  let productionCellsSeeded = 0;
   await db.transaction(async (tx) => {
     // Delete all existing tiers — cascade kills all packaging_inputs rows.
     // (Per-tier cost values are intentionally lost; different volumes
@@ -1320,6 +1458,26 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
       await tx.insert(packagingInputs).values(seedRows);
       cellsSeeded = seedRows.length;
     }
+
+    // Reseed production_inputs: each leaf SKU's preserved policy × each new
+    // tier. Per-tier costs and actual_units_produced intentionally null —
+    // already snapshotted into productionDataLost for the audit row.
+    if (preservedProductionPolicy.length > 0) {
+      const seedRows: (typeof productionInputs.$inferInsert)[] = [];
+      for (const policy of preservedProductionPolicy) {
+        for (const tier of newTiers) {
+          seedRows.push({
+            quoteSkuId: policy.quoteSkuId,
+            tierId: tier.id,
+            customerShipsRaws: policy.customerShipsRaws,
+            allocateServiceFeesToCost: policy.allocateServiceFeesToCost,
+            notes: policy.notes,
+          });
+        }
+      }
+      await tx.insert(productionInputs).values(seedRows);
+      productionCellsSeeded = seedRows.length;
+    }
   });
 
   await logAudit({
@@ -1335,6 +1493,9 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
       },
       packaging_lines_preserved: preservedLines.length,
       packaging_cells_seeded: cellsSeeded,
+      production_skus_preserved: preservedProductionPolicy.length,
+      production_cells_seeded: productionCellsSeeded,
+      production_data_lost: productionDataLost,
     },
   });
 

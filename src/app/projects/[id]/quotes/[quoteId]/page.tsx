@@ -10,6 +10,7 @@ import {
   users,
 } from "@/db/schema";
 import { countPackagingLinesForQuote } from "@/app/actions/packaging";
+import { countProductionCellsWithDataForQuote } from "@/app/actions/production";
 import { buildTreeRenderOrder, getEligibleParents } from "@/lib/sku-tree";
 import { IdBadge } from "@/components/id-badge";
 import { AddTierButton } from "./add-tier-button";
@@ -196,6 +197,7 @@ export default async function QuoteBuilderPage({
                 quoteId={quote.id}
                 existingTierCount={tiers.length}
                 existingPackagingLineCount={await countPackagingLinesForQuote(quote.id)}
+                existingProductionCellsWithData={await countProductionCellsWithDataForQuote(quote.id)}
               />
               <AddTierButton quoteId={quote.id} />
             </div>
@@ -247,7 +249,8 @@ export default async function QuoteBuilderPage({
           <CostInputLink
             href={`/projects/${project.id}/quotes/${quote.id}/production`}
             label="Production"
-            sub="Slice 6 — coming soon"
+            sub="Slice 6 — active"
+            active
           />
           <CostInputLink
             href={`/projects/${project.id}/quotes/${quote.id}/freight`}

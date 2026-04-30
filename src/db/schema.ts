@@ -349,6 +349,78 @@ export const packagingInputs = pgTable(
   ],
 );
 
+// ---------- inputs (Slice 6: production) ----------
+
+// One row per (leaf SKU × tier) — automatic, not PM-added like packaging
+// lines. The (quote_sku_id, tier_id) unique index enforces this.
+//
+// Denormalization: customer_ships_raws, allocate_service_fees_to_cost, and
+// notes are per-SKU policy, fanned out across all tier rows of that SKU
+// by updateSkuProductionPolicy. Reading any one tier row gives the policy.
+//
+// bulk_raw_cost survives the customer_ships_raws toggle — the toggle
+// conditionally hides the field in the UI but the value stays in the DB
+// (CSS-hide / data-preserved semantics; toggling back restores the value).
+//
+// actual_units_produced is post-production observation, recorded after
+// the job runs. Stored alongside cost inputs because it varies per tier.
+//
+// Cascade: tier delete and SKU delete both ON DELETE CASCADE. Tier add
+// creates one row per leaf SKU; SKU creation (or assembly→leaf promotion)
+// creates one row per existing tier — both wired in actions/quotes.ts.
+export const productionInputs = pgTable(
+  "production_inputs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteSkuId: uuid("quote_sku_id")
+      .notNull()
+      .references(() => quoteSkus.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+
+    // Per-SKU policy (denormalized across this SKU's tier rows).
+    customerShipsRaws: boolean("customer_ships_raws").notNull().default(false),
+    allocateServiceFeesToCost: boolean("allocate_service_fees_to_cost")
+      .notNull()
+      .default(true),
+    notes: text("notes"),
+
+    // Per-tier cost inputs (PM-edited).
+    fillingBlendingCost: numeric("filling_blending_cost", {
+      precision: 12,
+      scale: 2,
+    }),
+    cmAssemblyTotal: numeric("cm_assembly_total", { precision: 12, scale: 2 }),
+    setupFeeTotal: numeric("setup_fee_total", { precision: 12, scale: 2 }),
+    toolingArtworkTotal: numeric("tooling_artwork_total", {
+      precision: 12,
+      scale: 2,
+    }),
+    rdTotal: numeric("rd_total", { precision: 12, scale: 2 }),
+    otherServiceTotal: numeric("other_service_total", {
+      precision: 12,
+      scale: 2,
+    }),
+    bulkRawCost: numeric("bulk_raw_cost", { precision: 12, scale: 2 }),
+
+    // Post-production observation.
+    actualUnitsProduced: integer("actual_units_produced"),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("production_inputs_sku_tier_idx").on(t.quoteSkuId, t.tierId),
+    index("production_inputs_quote_sku_id_idx").on(t.quoteSkuId),
+    index("production_inputs_tier_id_idx").on(t.tierId),
+  ],
+);
+
 // ---------- hubspot deal cache (Slice 5.6) ----------
 
 // Local mirror of HubSpot deals for the import-deals page. Keeps the page
