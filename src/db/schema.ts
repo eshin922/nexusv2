@@ -62,6 +62,21 @@ export const markupPctSource = pgEnum("markup_pct_source", [
   "manual_override",
 ]);
 
+// Slice 7 — freight ops vocabulary.
+export const freightMode = pgEnum("freight_mode", [
+  "parcel",
+  "ltl",
+  "ftl",
+  "ocean",
+  "air",
+  "courier",
+  "other",
+]);
+export const freightTreatment = pgEnum("freight_treatment", [
+  "bundled",
+  "pass_through",
+]);
+
 // Slice 5.5 — assembly support. A SKU is one of:
 //   - leaf: terminal SKU (no children); the typical orderable item.
 //   - assembly: a SKU that holds child SKUs (kit, BOM, formulation
@@ -259,6 +274,33 @@ export const quoteSkus = pgTable(
     ),
     skuRole: skuRole("sku_role").notNull().default("leaf"),
     qtyPerParent: numeric("qty_per_parent", { precision: 10, scale: 4 }),
+    // Customs / landed-cost data (Slice 6.5).
+    //
+    // CUSTOMER-INVISIBLE. These three values are NEVER shown to customers
+    // — no PDF, no quote view, no email. They are inputs to Slice 8's
+    // landed-freight rollup:
+    //
+    //   container_freight_per_unit = (sku.cbm_per_unit / total_shipment_cbm)
+    //                                  × line.total_freight / effective_units
+    //   duty_per_unit   = sku_factory_cost × sku.duty_pct
+    //   tariff_per_unit = sku_factory_cost × sku.tariff_pct
+    //
+    // sku_factory_cost = packaging_inputs.unit_cost (per-unit) +
+    //                    production_inputs amortized service fees +
+    //                    production_inputs raw costs
+    //                    (respecting allocate_service_fees_to_cost flag)
+    //
+    // CBM is constant across tiers per SKU — physical product volume
+    // doesn't change with order quantity. Stored once, applied across
+    // every freight rollup that touches this SKU.
+    //
+    // Often NULL during early quote drafting; PM populates after
+    // confirming with freight forwarder. See docs/CLAUDE.md
+    // "Customs / landed-cost data" for the full convention and the
+    // "Internal — not shown to customer" UI badge requirement.
+    cbmPerUnit: numeric("cbm_per_unit", { precision: 10, scale: 4 }),
+    dutyPct: numeric("duty_pct", { precision: 5, scale: 4 }),
+    tariffPct: numeric("tariff_pct", { precision: 5, scale: 4 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -418,6 +460,74 @@ export const productionInputs = pgTable(
     uniqueIndex("production_inputs_sku_tier_idx").on(t.quoteSkuId, t.tierId),
     index("production_inputs_quote_sku_id_idx").on(t.quoteSkuId),
     index("production_inputs_tier_id_idx").on(t.tierId),
+  ],
+);
+
+// ---------- inputs (Slice 7: freight) ----------
+
+// PM-added freight lines, one per logical shipment. Each line spans every
+// active tier (one row per (line_group_id, tier) pair). Per-line metadata
+// — supplier, shipment_id, mode, markup, treatment, notes — is denormalized
+// across this line's tier rows; updateFreightLineMetadata fans out across
+// all rows of one line_group_id in a single UPDATE. Same shape as
+// packaging_inputs.
+//
+// Freight lines are PM-added (not auto-seeded on SKU creation), unlike
+// production_inputs. The cascade pattern in addTier walks existing
+// line_group_ids and seeds new tier rows; if a SKU has no freight lines
+// yet, no rows are created.
+//
+// markup_pct is NULLABLE here even though addFreightLine writes 0.30 at
+// insert time. Matches packaging convention — captures "unset" as a
+// meaningful state, doesn't silently apply 30% to a row no PM has touched.
+//
+// units_in_shipment is nullable. NULL = "use tier.qty for amortization in
+// cost rollup" (the typical case). Populated only when shipment units
+// differ from tier qty (yield-mismatch: ship 10k raws to produce 5k
+// finished). Slice 8 cost rollup MUST honor: NULL → tier.qty.
+export const freightInputs = pgTable(
+  "freight_inputs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteSkuId: uuid("quote_sku_id")
+      .notNull()
+      .references(() => quoteSkus.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+    lineGroupId: uuid("line_group_id").notNull(),
+
+    // Per-line metadata (denormalized across tier rows of the same line).
+    shipmentId: text("shipment_id"),
+    supplier: text("supplier"),
+    freightMode: freightMode("freight_mode"),
+    freightTreatment: freightTreatment("freight_treatment")
+      .notNull()
+      .default("bundled"),
+    markupPct: numeric("markup_pct", { precision: 5, scale: 4 }),
+    notes: text("notes"),
+    sortOrder: integer("sort_order").notNull().default(0),
+
+    // Per-tier.
+    totalFreight: numeric("total_freight", { precision: 12, scale: 2 }),
+    unitsInShipment: integer("units_in_shipment"),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("freight_inputs_line_tier_idx").on(
+      t.quoteSkuId,
+      t.lineGroupId,
+      t.tierId,
+    ),
+    index("freight_inputs_quote_sku_id_idx").on(t.quoteSkuId),
+    index("freight_inputs_tier_id_idx").on(t.tierId),
+    index("freight_inputs_line_group_id_idx").on(t.lineGroupId),
   ],
 );
 

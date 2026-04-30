@@ -64,6 +64,20 @@
       "when": 1777581099438,
       "tag": "0008_daily_moon_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777585797788,
+      "tag": "0009_chemical_salo",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1777586069556,
+      "tag": "0010_orange_brother_voodoo",
+      "breakpoints": true
     }
   ]
 }

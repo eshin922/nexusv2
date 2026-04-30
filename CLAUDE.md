@@ -7,6 +7,53 @@ The codebase uses TWO separate HubSpot private app tokens:
 
 This separation is intentional: it makes accidental writes during development structurally impossible, not just unlikely.
 
+## Customs / landed-cost data (Slice 6.5)
+
+`quote_skus` carries three customs/landed-cost columns: `cbm_per_unit`,
+`duty_pct`, `tariff_pct`. **These values are NEVER customer-facing.**
+They are internal inputs to Slice 8's landed-freight rollup:
+
+```
+container_freight_per_unit = (sku.cbm_per_unit / total_shipment_cbm)
+                              × line.total_freight / effective_units
+duty_per_unit   = sku_factory_cost × sku.duty_pct
+tariff_per_unit = sku_factory_cost × sku.tariff_pct
+landed_freight_per_unit = sum of the three above
+displayed_freight       = landed_freight × (1 + line.markup_pct)
+```
+
+Where `sku_factory_cost` = packaging unit cost + production amortized
+service fees + production raw costs (respecting
+`allocate_service_fees_to_cost`).
+
+**Customer-facing visibility rules:**
+- Customer PDF (Slice 11): show only "Freight: $X" per tier (with duty
+  + tariff embedded silently) when `freight_treatment = pass_through`;
+  invisible (folded into unit cost) when `bundled`.
+- Internal Costing Sheet (Slice 8): MAY show duty/tariff/CBM
+  decomposition for PM debugging.
+- **Anywhere these values render in UI, label clearly with
+  "Internal — not shown to customer" badge or equivalent visual cue.**
+  See `customs-row.tsx` on the `/freight` page for the canonical
+  treatment.
+
+**Effective_units convention:** when `units_in_shipment` IS NULL on a
+freight row, the cost rollup MUST use `tier.qty` for amortization. NULL
+encodes "use tier qty" (the typical case); a value encodes a
+yield-mismatch override (ship 10k raws to produce 5k finished). Slice 8
+formula: `effective_units = freight_inputs.units_in_shipment ?? tier.qty`.
+
+These three customs fields are populated by PM after confirming with
+freight forwarder; often NULL during early quote drafting. Slice 8's
+Costing Sheet should surface "incomplete landed cost" state when a SKU
+on a freight line has any NULL among the three.
+
+**Percent display convention:** `duty_pct` and `tariff_pct` (and
+`markup_pct` on freight + packaging) are `numeric(5,4)` decimals in DB
+(0.2500 = 25%). UI shows percent values (25); the action layer
+divides/multiplies by 100 at the boundary. Display formatting strips
+trailing zeros.
+
 ## Assembly rules (added Slice 5.5)
 
 `quote_skus` is a tree, not a flat list. Each SKU has a `sku_role`:

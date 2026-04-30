@@ -5,6 +5,81 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Slice 6.5] Duty/tariff/CBM are NULL on all existing `quote_skus` rows.
+  PMs need to populate these per-SKU once duty rates are confirmed with
+  freight forwarder. Slice 8's Costing Sheet should surface
+  "incomplete landed cost" state when a SKU on a freight line has NULL
+  on `duty_pct`, `tariff_pct`, or `cbm_per_unit`. Slice 12 Mark-Accepted
+  should consider blocking on incomplete landed-cost data when
+  `freight_treatment = pass_through`.
+
+- [Slice 11 prerequisite] Pass-through freight rolls up to a quote-level
+  customer line on the PDF; internal per-SKU/per-line splits are
+  invisible to the customer. Bundled freight is invisible entirely
+  (amortized into unit cost). Confirm PDF layout treats freight as a
+  single bottom-of-quote line item, not per-SKU rows.
+
+- [Slice 7, fixed in slice] `addFreightLine` UI revalidation race —
+  first click wrote to DB but didn't refresh the open tab; a second
+  click 10s later triggered the visual refresh showing BOTH lines.
+  Caught during smoke testing. **Fix applied:** `router.refresh()`
+  after `useTransition` completes in `AddFreightLineButton`. Server's
+  `revalidatePath` alone proved unreliable in Next 15.5 for pushing
+  RSC updates to the open tab — the route segment cache holds the
+  pre-action render. Pattern likely applies to other action triggers
+  (add-tier, add-sku, add-packaging-line, refresh-from-hubspot) that
+  haven't surfaced the bug yet but are at risk; revisit if reports
+  arrive.
+
+- [Dev environment — Windows] Next 15 dev server intermittently
+  serves 404 on hard-refresh (`Ctrl+Shift+R`) of a working route.
+  Pattern in dev log: `GET 200` succeeds, then `Compiling /_not-found`
+  fires, then `GET 404`. Coincides with `EPERM: operation not permitted,
+  rename '.next/cache/webpack/.../0.pack.gz_' → '0.pack.gz'` errors
+  — Windows holding a lock on the webpack cache pack file. Workaround:
+  hit URL in a new tab, OR kill dev server and restart. Not a
+  production concern (Vercel doesn't use webpack dev cache). Consider
+  filing upstream against Next.js if it persists.
+
+- [Slice 7 → Slice 13.5] Destructive `applyTierPreset` has no undo
+  affordance. Forensic data lives in `audit_log.diff_json` (`production_data_lost`,
+  `freight_data_lost`), but recovery is manual: read the JSON in
+  Supabase and re-type values. Add an "Undo last preset apply" button
+  visible for ~5 minutes after the apply, OR a `revertTierPresetApply`
+  server action that reads the most recent `tier_preset_applied` audit
+  row and replays the snapshot. Considerations: tier IDs in the
+  snapshot point at deleted rows (the new tier set has different IDs),
+  so undo must restore the old tier set + reseed all input tables
+  with the snapshot's per-line metadata + per-cell values. Bigger
+  than it sounds; treat as a Slice 13.5 sub-project, not a 30-min
+  fix.
+
+- [Slice 7 → Slice 13.5 polish] Per-tier freight cells lack explicit
+  column labels. Each freight line shows N tier rows with inputs for
+  Total Freight ($) and Units in Shipment, but the only signal of
+  what each input means is a `$` prefix on the first and placeholder
+  text on the second. PMs scanning quickly read the layout as
+  ambiguous. Add column headers above the tier rows ("Tier" /
+  "Total Freight ($)" / "→" / "Units in Shipment" / actions), or
+  inline labels next to each input. Same fix could apply to packaging's
+  per-tier cells if the issue is general.
+
+- [Slice 7 → Slice 13.5 polish] `freight_treatment` toggle is not
+  obviously interactive. Currently rendered as a small pill ("Bundled"
+  in gray, "Pass-through" in amber) — looks like a status badge, not a
+  control. PMs miss it on first view. Replace with a visible toggle
+  switch, two-button segmented control, or labeled dropdown so the
+  click affordance is unambiguous.
+
+- [Slice 7 → Slice 13.5 polish] Shared-shipment freight lines. When
+  multiple SKUs travel in a single shipment (e.g., ocean container
+  with 3 products), PMs currently enter freight as separate per-SKU
+  lines with their pre-split share. Add a UI affordance for
+  "create freight line on multiple SKUs with auto-split" — splits
+  equally by default, options for by-units or by-weight if observed
+  need. Lines remain independent per-SKU post-split (no live link),
+  so the affordance is purely a UI convenience, not a schema change.
+
 - [Slice 6 → Slice 13.5 polish] Production inputs UI clarity:
   - Add per-row unit indicators ("per unit" vs "one-time") to
     disambiguate scaling vs flat costs.

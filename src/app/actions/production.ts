@@ -8,10 +8,10 @@ import { ensureUser } from "@/lib/auth/ensure-user";
 import {
   ActionGuardError,
   ERR,
-  quoteNotDraftMessage,
   runAction,
   type ActionResult,
 } from "@/lib/action-result";
+import { quoteForLeafSku } from "@/lib/quote-guards";
 
 // Snapshots returned to the client after a save so controlled state
 // re-hydrates from canonical server data — never from the form's
@@ -98,31 +98,6 @@ function numericEquals(a: string | null, b: string | null): boolean {
   return Number(a) === Number(b);
 }
 
-// Resolve quote ownership through (sku → quote) and assert draft. Used by
-// both per-cell and per-SKU actions.
-async function quoteForSku(quoteSkuId: string) {
-  const rows = await db
-    .select({ quote: quotes, sku: quoteSkus })
-    .from(quoteSkus)
-    .innerJoin(quotes, eq(quotes.id, quoteSkus.quoteId))
-    .where(eq(quoteSkus.id, quoteSkuId))
-    .limit(1);
-  if (rows.length === 0)
-    throw new ActionGuardError(ERR.NOT_FOUND, "SKU not found");
-  const { quote, sku } = rows[0];
-  if (quote.status !== "draft")
-    throw new ActionGuardError(
-      ERR.QUOTE_NOT_DRAFT,
-      quoteNotDraftMessage(quote.status),
-    );
-  if (sku.skuRole !== "leaf")
-    throw new ActionGuardError(
-      ERR.VALIDATION,
-      "Production inputs only apply to leaf SKUs.",
-    );
-  return { quote, sku };
-}
-
 // ---------- read helpers ----------
 
 // Counts production_inputs rows for the quote that carry any non-null cost
@@ -175,7 +150,7 @@ export async function upsertProductionInputs(
     if (!tierId) throw new ActionGuardError(ERR.VALIDATION, "tierId required");
 
     const user = await ensureUser();
-    const { quote } = await quoteForSku(quoteSkuId);
+    const { quote } = await quoteForLeafSku(quoteSkuId, "production");
 
     const newFields = {
       fillingBlendingCost: parseNumericOrNull(formData.get("fillingBlendingCost")),
@@ -308,7 +283,7 @@ export async function updateSkuProductionPolicy(
       throw new ActionGuardError(ERR.VALIDATION, "quoteSkuId required");
 
     const user = await ensureUser();
-    const { quote } = await quoteForSku(quoteSkuId);
+    const { quote } = await quoteForLeafSku(quoteSkuId, "production");
 
     const newCustomerShipsRaws = parseBool(formData.get("customerShipsRaws"));
     const newAllocate = parseBool(formData.get("allocateServiceFeesToCost"));

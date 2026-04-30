@@ -15,10 +15,14 @@ import { ensureUser } from "@/lib/auth/ensure-user";
 import {
   ActionGuardError,
   ERR,
-  quoteNotDraftMessage,
   runAction,
   type ActionResult,
 } from "@/lib/action-result";
+import {
+  quoteForLineGroup,
+  quoteForSku,
+  requireDraft,
+} from "@/lib/quote-guards";
 
 // Canonical line-level snapshot returned to the client after any line-level
 // update. The client uses this to hydrate its controlled state — never
@@ -89,43 +93,6 @@ function numericEquals(a: string | null, b: string | null): boolean {
   if (a === null && b === null) return true;
   if (a === null || b === null) return false;
   return Number(a) === Number(b);
-}
-
-// Load the quote that owns a given SKU; verify draft status. Throws
-// ActionGuardError on miss/violation (caught by runAction).
-async function quoteForSku(quoteSkuId: string) {
-  const rows = await db
-    .select({ quote: quotes, sku: quoteSkus })
-    .from(quoteSkus)
-    .innerJoin(quotes, eq(quotes.id, quoteSkus.quoteId))
-    .where(eq(quoteSkus.id, quoteSkuId))
-    .limit(1);
-  if (rows.length === 0)
-    throw new ActionGuardError(ERR.NOT_FOUND, "SKU not found");
-  const { quote, sku } = rows[0];
-  if (quote.status !== "draft")
-    throw new ActionGuardError(ERR.QUOTE_NOT_DRAFT, quoteNotDraftMessage(quote.status));
-  return { quote, sku };
-}
-
-async function quoteForLineGroup(lineGroupId: string) {
-  const rows = await db
-    .select({
-      quote: quotes,
-      sku: quoteSkus,
-      lineGroupId: packagingInputs.lineGroupId,
-    })
-    .from(packagingInputs)
-    .innerJoin(quoteSkus, eq(quoteSkus.id, packagingInputs.quoteSkuId))
-    .innerJoin(quotes, eq(quotes.id, quoteSkus.quoteId))
-    .where(eq(packagingInputs.lineGroupId, lineGroupId))
-    .limit(1);
-  if (rows.length === 0)
-    throw new ActionGuardError(ERR.NOT_FOUND, "Packaging line not found");
-  const { quote, sku } = rows[0];
-  if (quote.status !== "draft")
-    throw new ActionGuardError(ERR.QUOTE_NOT_DRAFT, quoteNotDraftMessage(quote.status));
-  return { quote, sku, lineGroupId };
 }
 
 async function lookupCategoryDefault(category: string | null): Promise<string | null> {
@@ -202,7 +169,7 @@ export async function updatePackagingLineMetadata(
     throw new ActionGuardError(ERR.VALIDATION, "lineGroupId required");
 
   const user = await ensureUser();
-  const { quote } = await quoteForLineGroup(lineGroupId);
+  const { quote } = await quoteForLineGroup(lineGroupId, "packaging_inputs");
 
   const beforeRows = await db
     .select()
@@ -370,7 +337,7 @@ export async function revertMarkupToDefault(
     throw new ActionGuardError(ERR.VALIDATION, "lineGroupId required");
 
   const user = await ensureUser();
-  const { quote } = await quoteForLineGroup(lineGroupId);
+  const { quote } = await quoteForLineGroup(lineGroupId, "packaging_inputs");
 
   const rows = await db
     .select()
@@ -437,7 +404,7 @@ export async function deletePackagingLine(
     throw new ActionGuardError(ERR.VALIDATION, "lineGroupId required");
 
   const user = await ensureUser();
-  const { quote, sku } = await quoteForLineGroup(lineGroupId);
+  const { quote, sku } = await quoteForLineGroup(lineGroupId, "packaging_inputs");
 
   const beforeRow = (
     await db
@@ -480,7 +447,7 @@ export async function movePackagingLine(
     throw new ActionGuardError(ERR.VALIDATION, "direction must be up or down");
 
   const user = await ensureUser();
-  const { quote, sku } = await quoteForLineGroup(lineGroupId);
+  const { quote, sku } = await quoteForLineGroup(lineGroupId, "packaging_inputs");
 
   const groupRow = (
     await db
@@ -553,8 +520,7 @@ export async function updatePackagingTierCell(
   if (rows.length === 0)
     throw new ActionGuardError(ERR.NOT_FOUND, "Cell not found");
   const { row, quote } = rows[0];
-  if (quote.status !== "draft")
-    throw new ActionGuardError(ERR.QUOTE_NOT_DRAFT, quoteNotDraftMessage(quote.status));
+  requireDraft(quote);
 
   const newUnitCost = parseNumericOrNull(formData.get("unitCost"));
   const newPurchaseQty = parseNumericOrNull(formData.get("purchaseQty"));
@@ -604,7 +570,7 @@ export async function copyTierValueToAllTiers(
     throw new ActionGuardError(ERR.VALIDATION, `unsupported column: ${column}`);
 
   const user = await ensureUser();
-  const { quote } = await quoteForLineGroup(lineGroupId);
+  const { quote } = await quoteForLineGroup(lineGroupId, "packaging_inputs");
 
   const sourceRows = await db
     .select({

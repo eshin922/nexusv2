@@ -17,11 +17,15 @@ export function TierPresetSelect({
   existingTierCount,
   existingPackagingLineCount,
   existingProductionCellsWithData,
+  existingFreightLineCount,
+  existingFreightCellsWithData,
 }: {
   quoteId: string;
   existingTierCount: number;
   existingPackagingLineCount: number;
   existingProductionCellsWithData: number;
+  existingFreightLineCount: number;
+  existingFreightCellsWithData: number;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +50,23 @@ export function TierPresetSelect({
               existingProductionCellsWithData === 1 ? "" : "s"
             } will reset (per-SKU policy — customer ships raws, allocate service fees, notes — is preserved). Forensic snapshot saved to audit log.`
           : "";
-      if (!confirm(`Replace ${tierMsg} with preset?${lineMsg}${productionMsg}`)) {
+      const freightMsg =
+        existingFreightCellsWithData > 0
+          ? `\n\nPer-tier costs on ${existingFreightCellsWithData} freight cell${
+              existingFreightCellsWithData === 1 ? "" : "s"
+            } across ${existingFreightLineCount} line${
+              existingFreightLineCount === 1 ? "" : "s"
+            } will reset (line metadata — supplier, mode, markup, treatment, notes — is preserved). Forensic snapshot saved to audit log.`
+          : existingFreightLineCount > 0
+            ? `\n\n${existingFreightLineCount} freight line${
+                existingFreightLineCount === 1 ? "" : "s"
+              } preserved (no per-tier cost data yet).`
+            : "";
+      if (
+        !confirm(
+          `Replace ${tierMsg} with preset?${lineMsg}${productionMsg}${freightMsg}`,
+        )
+      ) {
         setSelected("");
         return;
       }
