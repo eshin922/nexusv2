@@ -4,16 +4,9 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { db } from "@/db";
 import { projects, users } from "@/db/schema";
 import { findHubspotOwnerByEmail } from "@/lib/hubspot";
+import { isAdmin } from "@/lib/admin-guard";
 
 export type AppUser = typeof users.$inferSelect;
-
-function isAdminEmail(email: string): boolean {
-  const list = (process.env.ADMIN_EMAILS ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-  return list.includes(email.toLowerCase());
-}
 
 /**
  * Returns the DB row for the currently authenticated Clerk user, creating
@@ -43,7 +36,7 @@ export async function ensureUser(): Promise<AppUser> {
 
   const name =
     [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || null;
-  const role = isAdminEmail(email) ? "admin" : "pm";
+  const role = isAdmin(email) ? "admin" : "pm";
 
   const owner = await findHubspotOwnerByEmail(email);
   const hubspotOwnerId = owner?.id ?? null;

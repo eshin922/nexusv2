@@ -5,8 +5,19 @@ import {
   updateSkuProductionPolicy,
   upsertProductionInputs,
 } from "@/app/actions/production";
+import { useCostingStore } from "@/components/costing-store-provider";
+import {
+  selectUpdateProductionCell,
+  selectUpdateProductionPolicy,
+} from "@/lib/costing-store";
 
 const DEBOUNCE_MS = 500;
+
+function parseNumOrNull(v: string): number | null {
+  if (v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 type TierCell = {
   tierId: string;
@@ -104,6 +115,35 @@ export function ProductionSection({
   );
 
   const [pending, startTransition] = useTransition();
+
+  // Slice 8 sub-step 5: optimistic store push. Notes is metadata-only
+  // (no impact on costing rollup) so it doesn't push.
+  const updateProductionCell = useCostingStore(selectUpdateProductionCell);
+  const updateProductionPolicy = useCostingStore(selectUpdateProductionPolicy);
+
+  // Map from CellState field name to the costing input field name.
+  // The two are identical; declared explicitly for type-safety against
+  // future renames.
+  const CELL_FIELD_MAP: Record<
+    Exclude<CellField, never>,
+    | "fillingBlendingCost"
+    | "cmAssemblyTotal"
+    | "setupFeeTotal"
+    | "toolingArtworkTotal"
+    | "rdTotal"
+    | "otherServiceTotal"
+    | "bulkRawCost"
+    | "actualUnitsProduced"
+  > = {
+    fillingBlendingCost: "fillingBlendingCost",
+    cmAssemblyTotal: "cmAssemblyTotal",
+    setupFeeTotal: "setupFeeTotal",
+    toolingArtworkTotal: "toolingArtworkTotal",
+    rdTotal: "rdTotal",
+    otherServiceTotal: "otherServiceTotal",
+    bulkRawCost: "bulkRawCost",
+    actualUnitsProduced: "actualUnitsProduced",
+  };
 
   useEffect(() => {
     return () => {
@@ -206,6 +246,15 @@ export function ProductionSection({
       next[tierIndex] = { ...next[tierIndex], [field]: value };
       return next;
     });
+    // Optimistic store push: every cost field on this row is numeric.
+    // CELL_FIELD_MAP gives us the costing input field name (1:1 with
+    // CellField today; declared explicitly to fail at compile time if
+    // either side is renamed).
+    const tierId = tierCells[tierIndex].tierId;
+    const costingField = CELL_FIELD_MAP[field];
+    updateProductionCell(quoteSkuId, tierId, {
+      [costingField]: parseNumOrNull(value),
+    });
     scheduleCellSave(tierIndex, { [field]: value });
   }
 
@@ -227,6 +276,7 @@ export function ProductionSection({
               onChange={(e) => {
                 const v = e.target.checked;
                 setCustomerShipsRaws(v);
+                updateProductionPolicy(quoteSkuId, { customerShipsRaws: v });
                 fireImmediatePolicySave({ customerShipsRaws: v });
               }}
               className="h-4 w-4 rounded border-gray-300"
@@ -246,6 +296,9 @@ export function ProductionSection({
               onChange={(e) => {
                 const v = e.target.checked;
                 setAllocate(v);
+                updateProductionPolicy(quoteSkuId, {
+                  allocateServiceFeesToCost: v,
+                });
                 fireImmediatePolicySave({ allocate: v });
               }}
               className="h-4 w-4 rounded border-gray-300"

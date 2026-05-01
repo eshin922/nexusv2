@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { currentUser } from "@clerk/nextjs/server";
 import { SignOutButton } from "@clerk/nextjs";
+import { AccessDeniedBanner } from "@/components/access-denied-banner";
 
 export default async function Home() {
   const user = await currentUser();
@@ -8,6 +10,9 @@ export default async function Home() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
+      <Suspense fallback={null}>
+        <AccessDeniedBanner />
+      </Suspense>
       <h1 className="text-4xl font-semibold">Hello, {name}.</h1>
       <p className="text-sm text-gray-500">DPS Quoting Tool</p>
       <Link

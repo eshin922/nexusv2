@@ -274,14 +274,13 @@ export const quoteSkus = pgTable(
     ),
     skuRole: skuRole("sku_role").notNull().default("leaf"),
     qtyPerParent: numeric("qty_per_parent", { precision: 10, scale: 4 }),
-    // Customs / landed-cost data (Slice 6.5).
+    // Customs / landed-cost data (Slice 6.5; CBM moved to freight_inputs
+    // in Slice 8 pre-correction).
     //
-    // CUSTOMER-INVISIBLE. These three values are NEVER shown to customers
-    // — no PDF, no quote view, no email. They are inputs to Slice 8's
+    // CUSTOMER-INVISIBLE. These values are NEVER shown to customers — no
+    // PDF, no quote view, no email. They are inputs to Slice 8's
     // landed-freight rollup:
     //
-    //   container_freight_per_unit = (sku.cbm_per_unit / total_shipment_cbm)
-    //                                  × line.total_freight / effective_units
     //   duty_per_unit   = sku_factory_cost × sku.duty_pct
     //   tariff_per_unit = sku_factory_cost × sku.tariff_pct
     //
@@ -290,15 +289,16 @@ export const quoteSkus = pgTable(
     //                    production_inputs raw costs
     //                    (respecting allocate_service_fees_to_cost flag)
     //
-    // CBM is constant across tiers per SKU — physical product volume
-    // doesn't change with order quantity. Stored once, applied across
-    // every freight rollup that touches this SKU.
-    //
     // Often NULL during early quote drafting; PM populates after
-    // confirming with freight forwarder. See docs/CLAUDE.md
-    // "Customs / landed-cost data" for the full convention and the
-    // "Internal — not shown to customer" UI badge requirement.
-    cbmPerUnit: numeric("cbm_per_unit", { precision: 10, scale: 4 }),
+    // confirming with freight forwarder. See docs/CUSTOMS_AND_FREIGHT.md
+    // for the full convention and the "Internal — not shown to customer"
+    // UI badge requirement.
+    //
+    // CBM is captured on freight_inputs (per-(SKU, line, tier)) instead
+    // of here — see freight_inputs.sku_total_cbm comment. The earlier
+    // per-unit modeling on quote_skus was wrong: PMs work in total CBM
+    // per shipment per SKU, derived from pallet inspection, not per-unit
+    // volume.
     dutyPct: numeric("duty_pct", { precision: 5, scale: 4 }),
     tariffPct: numeric("tariff_pct", { precision: 5, scale: 4 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -331,6 +331,41 @@ export const markupDefaults = pgTable("markup_defaults", {
   }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Slice 8 — firm-level policy. Versioned via effective_from/until so we
+// can answer "what was our floor margin in Q3" without schema migration.
+// v1 only ever has one current row (effective_until IS NULL); admin
+// edits insert a new row and set the prior row's effective_until.
+//
+// Read pattern: the "current" settings is the row with effective_until
+// IS NULL. Index on (effective_from DESC NULLS LAST, effective_until
+// DESC NULLS FIRST) supports both that lookup and historical queries.
+export const firmSettings = pgTable(
+  "firm_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    targetMarginPct: numeric("target_margin_pct", { precision: 5, scale: 4 })
+      .notNull()
+      .default("0.3500"),
+    floorMarginPct: numeric("floor_margin_pct", { precision: 5, scale: 4 })
+      .notNull()
+      .default("0.2500"),
+    effectiveFrom: date("effective_from").notNull().default(sql`CURRENT_DATE`),
+    effectiveUntil: date("effective_until"),
+    updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("firm_settings_current_idx").on(
+      t.effectiveFrom.desc().nullsLast(),
+      t.effectiveUntil.desc().nullsFirst(),
+    ),
+  ],
+);
 
 // packaging_inputs is keyed by (quote_sku_id, tier_id) per the spec — one
 // row per (line, tier) cell. line_group_id groups all per-tier rows that
@@ -485,6 +520,23 @@ export const productionInputs = pgTable(
 // cost rollup" (the typical case). Populated only when shipment units
 // differ from tier qty (yield-mismatch: ship 10k raws to produce 5k
 // finished). Slice 8 cost rollup MUST honor: NULL → tier.qty.
+//
+// sku_total_cbm (Slice 8 pre-correction): total CBM this SKU occupies in
+// THIS shipment, at THIS tier. PMs derive this from pallet inspection —
+// clean pallets × pallet CBM, mixed pallets allocated by judgment. We
+// don't model pallet structure or per-unit CBM in the schema; the column
+// just stores the resulting total. Per-(line, SKU, tier) because
+// different tiers ship different volumes (50k bottles take more pallets
+// than 10k).
+//
+// Slice 8 freight rollup uses it to compute container freight share:
+//   total_shipment_cbm   = sum across SKUs in same line_group_id × tier
+//                          of sku_total_cbm
+//   this_sku_freight_$   = (sku_total_cbm / total_shipment_cbm)
+//                          × line.total_freight
+//   container_freight/u  = this_sku_freight_$ / effective_units
+// In v1 each line is per-SKU, so total_shipment_cbm = this row's
+// sku_total_cbm and the formula collapses to total_freight / effective_units.
 export const freightInputs = pgTable(
   "freight_inputs",
   {
@@ -511,6 +563,7 @@ export const freightInputs = pgTable(
     // Per-tier.
     totalFreight: numeric("total_freight", { precision: 12, scale: 2 }),
     unitsInShipment: integer("units_in_shipment"),
+    skuTotalCbm: numeric("sku_total_cbm", { precision: 10, scale: 4 }),
 
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -582,7 +635,15 @@ export const auditLog = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     entityType: text("entity_type").notNull(),
-    entityId: uuid("entity_id").notNull(),
+    // text rather than uuid so non-UUID-PK entities (e.g.,
+    // markup_defaults uses category text as PK) can audit cleanly.
+    // Existing UUID-PK entities (firm_settings, quotes, packaging_inputs,
+    // etc.) still write their UUID into this column — UUIDs are valid
+    // text. Caught Slice 8 admin smoke-test 7: inserting a markup
+    // defaults audit row with category "Test Category" rejected by
+    // the prior uuid type. Migration 0013 casts existing values via
+    // entity_id::text losslessly.
+    entityId: text("entity_id").notNull(),
     action: text("action").notNull(),
     diffJson: jsonb("diff_json").notNull().default(sql`'{}'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

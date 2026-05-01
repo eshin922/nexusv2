@@ -8,8 +8,23 @@ import {
   updateFreightLineMetadata,
   updateFreightTierCell,
 } from "@/app/actions/freight";
+import { useCostingStore } from "@/components/costing-store-provider";
+import {
+  selectUpdateFreightCell,
+  selectUpdateFreightLineMeta,
+} from "@/lib/costing-store";
+import { validatePercentDecimal } from "@/lib/percent-validation";
 
 const DEBOUNCE_MS = 500;
+
+// Empty → null. Number-coerce + finite-guard to avoid NaN landing in
+// the costing input. Pure helper, mirrors the same pattern in
+// packaging-line-row.tsx and customs-row.tsx.
+function parseNumOrNull(v: string): number | null {
+  if (v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 const FREIGHT_MODES = [
   { value: "", label: "—" },
@@ -39,6 +54,7 @@ type CellRow = {
   tierId: string;
   totalFreight: string | null;
   unitsInShipment: number | null;
+  skuTotalCbm: string | null;
 };
 
 type Line = {
@@ -83,7 +99,15 @@ export function FreightLineRow({
 
   const [pending, startTransition] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [markupError, setMarkupError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Slice 8 sub-step 5: optimistic store push. Only the metadata fields
+  // that affect the costing rollup (markup_pct, freight_treatment) push
+  // here; supplier / shipmentId / freightMode / notes are display-only
+  // metadata and don't need a recompute.
+  const updateFreightLineMeta = useCostingStore(selectUpdateFreightLineMeta);
+
   const stateRef = useRef({
     shipmentId,
     supplier,
@@ -171,13 +195,6 @@ export function FreightLineRow({
     });
   }
 
-  function toggleTreatment() {
-    const next: "bundled" | "pass_through" =
-      freightTreatment === "bundled" ? "pass_through" : "bundled";
-    setFreightTreatment(next);
-    fireImmediateSave({ freightTreatment: next });
-  }
-
   // Per-tier cell state (one row per tier)
   const cellByTier = new Map(line.cells.map((c) => [c.tierId, c]));
 
@@ -234,26 +251,56 @@ export function FreightLineRow({
             onChange={(e) => {
               const v = e.target.value;
               setMarkup(v);
+              if (v === "") {
+                setMarkupError(null);
+                updateFreightLineMeta(line.lineGroupId, { markupPct: null });
+                scheduleSave({ markup: v });
+                return;
+              }
+              const decimal = Number(v) / 100;
+              const r = validatePercentDecimal(decimal, "markup");
+              if (!r.valid) {
+                setMarkupError(r.message);
+                // Bail: don't push junk to store, don't schedule save.
+                return;
+              }
+              setMarkupError(null);
+              updateFreightLineMeta(line.lineGroupId, {
+                markupPct: r.normalized,
+              });
               scheduleSave({ markup: v });
             }}
             placeholder="—"
             className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400"
           />
           <span className="text-xs text-gray-500">%</span>
+          {markupError && (
+            <span className="text-[10px] text-red-700" role="alert">
+              {markupError}
+            </span>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={toggleTreatment}
+        <select
+          value={freightTreatment}
           disabled={disabled}
-          title="Click to toggle freight treatment"
-          className={`rounded px-2 py-0.5 text-xs font-medium ${
+          onChange={(e) => {
+            const v = e.target.value as "bundled" | "pass_through";
+            setFreightTreatment(v);
+            updateFreightLineMeta(line.lineGroupId, { freightTreatment: v });
+            fireImmediateSave({ freightTreatment: v });
+          }}
+          // Amber accent on pass-through to keep the visual signal that
+          // it's the less-default choice PMs need to consciously select.
+          // Bundled stays neutral. Same border/height/font as freightMode.
+          className={`rounded border bg-white px-2 py-1 text-sm focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 ${
             freightTreatment === "pass_through"
-              ? "bg-amber-100 text-amber-900"
-              : "bg-gray-200 text-gray-700"
-          } disabled:cursor-not-allowed disabled:opacity-50`}
+              ? "border-amber-300 bg-amber-50 text-amber-900 focus:border-amber-400"
+              : "border-gray-200 focus:border-gray-400"
+          }`}
         >
-          {freightTreatment === "pass_through" ? "Pass-through" : "Bundled"}
-        </button>
+          <option value="bundled">Bundled</option>
+          <option value="pass_through">Pass-through</option>
+        </select>
         <input
           value={notes}
           disabled={disabled}
@@ -339,12 +386,16 @@ function FreightTierCell({
   const [units, setUnits] = useState(
     cell.unitsInShipment === null ? "" : String(cell.unitsInShipment),
   );
+  const [cbm, setCbm] = useState(cell.skuTotalCbm ?? "");
   const [pending, startTransition] = useTransition();
   const [copying, startCopy] = useTransition();
   const [err, setErr] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stateRef = useRef({ totalFreight, units });
-  stateRef.current = { totalFreight, units };
+  const stateRef = useRef({ totalFreight, units, cbm });
+  stateRef.current = { totalFreight, units, cbm };
+
+  // Slice 8 sub-step 5: optimistic store push.
+  const updateFreightCell = useCostingStore(selectUpdateFreightCell);
 
   useEffect(
     () => () => {
@@ -353,7 +404,11 @@ function FreightTierCell({
     [],
   );
 
-  type Overrides = Partial<{ totalFreight: string; units: string }>;
+  type Overrides = Partial<{
+    totalFreight: string;
+    units: string;
+    cbm: string;
+  }>;
 
   function fireSave(overrides: Overrides = {}) {
     const s = { ...stateRef.current, ...overrides };
@@ -361,6 +416,7 @@ function FreightTierCell({
     fd.set("rowId", cell.rowId);
     fd.set("totalFreight", s.totalFreight);
     fd.set("unitsInShipment", s.units);
+    fd.set("skuTotalCbm", s.cbm);
     startTransition(async () => {
       const r = await updateFreightTierCell(fd);
       if (!r.ok) setErr(r.error.message);
@@ -373,7 +429,9 @@ function FreightTierCell({
     debounceRef.current = setTimeout(() => fireSave(overrides), DEBOUNCE_MS);
   }
 
-  function copyToAll(column: "total_freight" | "units_in_shipment") {
+  function copyToAll(
+    column: "total_freight" | "units_in_shipment" | "sku_total_cbm",
+  ) {
     setErr(null);
     const fd = new FormData();
     fd.set("lineGroupId", lineGroupId);
@@ -391,7 +449,7 @@ function FreightTierCell({
       : "units";
 
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-[120px_1fr_auto_1fr_auto] sm:items-center text-sm">
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-[100px_1fr_auto_1fr_auto_1fr_auto_auto] sm:items-center text-sm">
       <span className="text-xs uppercase tracking-wide text-gray-500">
         {tier.label}
       </span>
@@ -407,6 +465,7 @@ function FreightTierCell({
           onChange={(e) => {
             const v = e.target.value;
             setTotalFreight(v);
+            updateFreightCell(cell.rowId, { totalFreight: parseNumOrNull(v) });
             scheduleSave({ totalFreight: v });
           }}
           placeholder="Total freight"
@@ -432,17 +491,48 @@ function FreightTierCell({
         onChange={(e) => {
           const v = e.target.value;
           setUnits(v);
+          updateFreightCell(cell.rowId, {
+            unitsInShipment: parseNumOrNull(v),
+          });
           scheduleSave({ units: v });
         }}
         placeholder={unitsPlaceholder}
         className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400"
       />
+      <button
+        type="button"
+        disabled={disabled || copying || units === ""}
+        onClick={() => copyToAll("units_in_shipment")}
+        title="Apply this Units in Shipment to all tiers"
+        className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-xs hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-30"
+      >
+        →
+      </button>
+      <label className="flex items-center gap-1">
+        <input
+          type="number"
+          inputMode="decimal"
+          step="0.01"
+          min={0}
+          value={cbm}
+          disabled={disabled}
+          onChange={(e) => {
+            const v = e.target.value;
+            setCbm(v);
+            updateFreightCell(cell.rowId, { skuTotalCbm: parseNumOrNull(v) });
+            scheduleSave({ cbm: v });
+          }}
+          placeholder="SKU total CBM"
+          className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400"
+        />
+        <span className="text-xs text-gray-500">m³</span>
+      </label>
       <div className="flex items-center justify-end gap-2">
         <button
           type="button"
-          disabled={disabled || copying || units === ""}
-          onClick={() => copyToAll("units_in_shipment")}
-          title="Apply this Units in Shipment to all tiers"
+          disabled={disabled || copying || cbm === ""}
+          onClick={() => copyToAll("sku_total_cbm")}
+          title="Apply this SKU Total CBM to all tiers"
           className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-xs hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-30"
         >
           →

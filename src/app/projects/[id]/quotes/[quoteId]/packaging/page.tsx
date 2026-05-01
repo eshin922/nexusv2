@@ -9,9 +9,12 @@ import {
   quoteSkus,
   quoteTiers,
 } from "@/db/schema";
-import { listMarkupDefaults } from "@/app/actions/packaging";
+import { listMarkupDefaults } from "@/app/actions/markup-defaults";
+import { getCostingBundle } from "@/app/actions/costing";
 import { buildTreeRenderOrder } from "@/lib/sku-tree";
 import { IdBadge } from "@/components/id-badge";
+import { CostingStoreProvider } from "@/components/costing-store-provider";
+import { QuoteSummaryCard } from "@/components/quote-summary-card";
 import { AddLineButton } from "./add-line-button";
 import { PackagingLineRow } from "./packaging-line-row";
 
@@ -31,6 +34,10 @@ export default async function PackagingInputsPage({
   if (quoteRows.length === 0) notFound();
   const { quote, project } = quoteRows[0];
   if (project.id !== projectId) notFound();
+
+  // Slice 8 sub-step 4: fetch costing bundle for the optimistic store.
+  // Hydrates the CostingStoreProvider that wraps all interactive content.
+  const bundle = await getCostingBundle(quote.id);
 
   const [skus, tiers, inputRows, categories] = await Promise.all([
     db
@@ -110,8 +117,22 @@ export default async function PackagingInputsPage({
     });
   }
 
+  if (!bundle.ok) {
+    return (
+      <main className="mx-auto max-w-7xl p-6">
+        <div
+          role="alert"
+          className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-900"
+        >
+          Costing data unavailable: {bundle.error.message}
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto max-w-7xl p-6">
+      <CostingStoreProvider snapshot={bundle.data}>
       <div className="mb-2 text-sm">
         <Link
           href={`/projects/${project.id}/quotes/${quote.id}`}
@@ -249,10 +270,14 @@ export default async function PackagingInputsPage({
         </div>
       )}
 
-      <div className="mt-6 rounded-md border border-dashed border-gray-300 bg-white p-5 text-sm">
-        <span className="font-semibold text-gray-700">Cost summary &amp; Costing Sheet</span>
-        <span className="ml-2 text-gray-500">come in Slice 8.</span>
+      <div className="mt-6">
+        <QuoteSummaryCard
+          variant="compact"
+          editable={editable}
+          currentPage="packaging"
+        />
       </div>
+      </CostingStoreProvider>
     </main>
   );
 }

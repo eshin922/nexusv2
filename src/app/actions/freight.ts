@@ -1,8 +1,8 @@
 "use server";
 
 import { and, asc, count, eq, isNotNull, max, or } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 import { db } from "@/db";
+import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
   auditLog,
   freightInputs,
@@ -20,6 +20,7 @@ import {
 import {
   quoteForLeafSku,
   quoteForLineGroup,
+  quoteForSku,
   requireDraft,
 } from "@/lib/quote-guards";
 
@@ -50,11 +51,11 @@ export type FreightCellSnapshot = {
   rowId: string;
   totalFreight: string | null;
   unitsInShipment: number | null;
+  skuTotalCbm: string | null;
 };
 
 export type SkuCustomsSnapshot = {
   quoteSkuId: string;
-  cbmPerUnit: string | null;
   dutyPct: string | null;
   tariffPct: string | null;
 };
@@ -255,7 +256,7 @@ export async function addFreightLine(
       },
     });
 
-    revalidatePath(`/projects/${quote.projectId}/quotes/${quote.id}/freight`);
+    revalidateQuoteTree(quote.projectId, quote.id);
   });
 }
 
@@ -371,7 +372,7 @@ export async function updateFreightLineMetadata(
       diffJson: diff,
     });
 
-    revalidatePath(`/projects/${quote.projectId}/quotes/${quote.id}/freight`);
+    revalidateQuoteTree(quote.projectId, quote.id);
 
     return snapshot();
   });
@@ -401,14 +402,17 @@ export async function updateFreightTierCell(
 
     const newTotalFreight = parseNumericOrNull(formData.get("totalFreight"));
     const newUnitsInShipment = parseIntOrNull(formData.get("unitsInShipment"));
+    const newSkuTotalCbm = parseNumericOrNull(formData.get("skuTotalCbm"));
 
     const before = {
       total_freight: row.totalFreight,
       units_in_shipment: row.unitsInShipment,
+      sku_total_cbm: row.skuTotalCbm,
     };
     const after = {
       total_freight: newTotalFreight,
       units_in_shipment: newUnitsInShipment,
+      sku_total_cbm: newSkuTotalCbm,
     };
 
     const diff: Diff = {};
@@ -422,12 +426,18 @@ export async function updateFreightTierCell(
         from: before.units_in_shipment,
         to: after.units_in_shipment,
       };
+    if (!numericEquals(before.sku_total_cbm, after.sku_total_cbm))
+      diff.sku_total_cbm = {
+        from: before.sku_total_cbm,
+        to: after.sku_total_cbm,
+      };
 
     if (Object.keys(diff).length === 0) {
       return {
         rowId,
         totalFreight: row.totalFreight,
         unitsInShipment: row.unitsInShipment,
+        skuTotalCbm: row.skuTotalCbm,
       };
     }
 
@@ -436,6 +446,7 @@ export async function updateFreightTierCell(
       .set({
         totalFreight: newTotalFreight,
         unitsInShipment: newUnitsInShipment,
+        skuTotalCbm: newSkuTotalCbm,
         updatedAt: new Date(),
       })
       .where(eq(freightInputs.id, rowId));
@@ -448,24 +459,34 @@ export async function updateFreightTierCell(
       diffJson: diff,
     });
 
-    revalidatePath(`/projects/${quote.projectId}/quotes/${quote.id}/freight`);
+    revalidateQuoteTree(quote.projectId, quote.id);
 
     return {
       rowId,
       totalFreight: newTotalFreight,
       unitsInShipment: newUnitsInShipment,
+      skuTotalCbm: newSkuTotalCbm,
     };
   });
 }
 
-// Update per-SKU customs/landed-cost columns on quote_skus (Slice 6.5):
-// cbm_per_unit, duty_pct, tariff_pct. No fan-out — these are per-SKU
-// columns, not per-tier. UI display convention: percent fields arrive as
-// percent-display strings ("25" → "0.2500" stored).
+// Update per-SKU customs columns on quote_skus: duty_pct, tariff_pct.
+// Per-SKU (no fan-out) — these don't change with shipment/tier. UI
+// display convention: percent fields arrive as percent-display strings
+// ("25" → "0.2500" stored).
+//
+// CBM is captured per-(SKU, line, tier) on freight_inputs.sku_total_cbm
+// instead — see updateFreightTierCell. The cbm_per_unit column was
+// removed in Slice 8 schema correction (didn't match PM workflow).
+//
+// Both leaves AND assemblies can carry customs values: customs declares
+// at whichever SKU level the actual import filing happens at. Roman
+// gummies pattern: per-leaf (jars and caps each declared separately).
+// Fully-assembled finished-good pattern: per-assembly (one HS code for
+// the whole assembly, leaves carry no customs). PM's call.
 //
 // CUSTOMER-INVISIBLE values; UI surface labels them as "Internal — not
-// shown to customer". See CLAUDE.md "Customs / landed-cost data" for
-// the full convention.
+// shown to customer".
 export async function updateSkuCustomsData(
   formData: FormData,
 ): Promise<ActionResult<SkuCustomsSnapshot>> {
@@ -475,29 +496,23 @@ export async function updateSkuCustomsData(
       throw new ActionGuardError(ERR.VALIDATION, "quoteSkuId required");
 
     const user = await ensureUser();
-    const { quote, sku } = await quoteForLeafSku(quoteSkuId, "freight");
+    // quoteForSku — not quoteForLeafSku — because assemblies can also
+    // be the customs-declaration level for fully-assembled imports.
+    const { quote, sku } = await quoteForSku(quoteSkuId);
 
-    const newCbm = parseNumericOrNull(formData.get("cbmPerUnit"));
     const newDuty = percentDisplayToDecimal(formData.get("dutyPct"));
     const newTariff = percentDisplayToDecimal(formData.get("tariffPct"));
 
     const before = {
-      cbm_per_unit: sku.cbmPerUnit,
       duty_pct: sku.dutyPct,
       tariff_pct: sku.tariffPct,
     };
     const after = {
-      cbm_per_unit: newCbm,
       duty_pct: newDuty,
       tariff_pct: newTariff,
     };
 
     const diff: Diff = {};
-    if (!numericEquals(before.cbm_per_unit, after.cbm_per_unit))
-      diff.cbm_per_unit = {
-        from: before.cbm_per_unit,
-        to: after.cbm_per_unit,
-      };
     if (!numericEquals(before.duty_pct, after.duty_pct))
       diff.duty_pct = { from: before.duty_pct, to: after.duty_pct };
     if (!numericEquals(before.tariff_pct, after.tariff_pct))
@@ -506,7 +521,6 @@ export async function updateSkuCustomsData(
     if (Object.keys(diff).length === 0) {
       return {
         quoteSkuId,
-        cbmPerUnit: sku.cbmPerUnit,
         dutyPct: sku.dutyPct,
         tariffPct: sku.tariffPct,
       };
@@ -515,7 +529,6 @@ export async function updateSkuCustomsData(
     await db
       .update(quoteSkus)
       .set({
-        cbmPerUnit: newCbm,
         dutyPct: newDuty,
         tariffPct: newTariff,
         updatedAt: new Date(),
@@ -530,11 +543,10 @@ export async function updateSkuCustomsData(
       diffJson: diff,
     });
 
-    revalidatePath(`/projects/${quote.projectId}/quotes/${quote.id}/freight`);
+    revalidateQuoteTree(quote.projectId, quote.id);
 
     return {
       quoteSkuId,
-      cbmPerUnit: newCbm,
       dutyPct: newDuty,
       tariffPct: newTariff,
     };
@@ -554,7 +566,11 @@ export async function copyFreightTierValueToAllTiers(
       throw new ActionGuardError(ERR.VALIDATION, "lineGroupId required");
     if (!sourceTierId)
       throw new ActionGuardError(ERR.VALIDATION, "sourceTierId required");
-    if (column !== "total_freight" && column !== "units_in_shipment")
+    if (
+      column !== "total_freight" &&
+      column !== "units_in_shipment" &&
+      column !== "sku_total_cbm"
+    )
       throw new ActionGuardError(
         ERR.VALIDATION,
         `unsupported column: ${column}`,
@@ -567,6 +583,7 @@ export async function copyFreightTierValueToAllTiers(
       .select({
         totalFreight: freightInputs.totalFreight,
         unitsInShipment: freightInputs.unitsInShipment,
+        skuTotalCbm: freightInputs.skuTotalCbm,
       })
       .from(freightInputs)
       .where(
@@ -581,7 +598,9 @@ export async function copyFreightTierValueToAllTiers(
     const sourceValue =
       column === "total_freight"
         ? sourceRows[0].totalFreight
-        : sourceRows[0].unitsInShipment;
+        : column === "units_in_shipment"
+          ? sourceRows[0].unitsInShipment
+          : sourceRows[0].skuTotalCbm;
     if (sourceValue === null) return;
 
     const targets = await db
@@ -597,7 +616,9 @@ export async function copyFreightTierValueToAllTiers(
         const setClause =
           column === "total_freight"
             ? { totalFreight: sourceValue as string, updatedAt: new Date() }
-            : { unitsInShipment: sourceValue as number, updatedAt: new Date() };
+            : column === "units_in_shipment"
+              ? { unitsInShipment: sourceValue as number, updatedAt: new Date() }
+              : { skuTotalCbm: sourceValue as string, updatedAt: new Date() };
         await tx
           .update(freightInputs)
           .set(setClause)
@@ -618,7 +639,7 @@ export async function copyFreightTierValueToAllTiers(
       },
     });
 
-    revalidatePath(`/projects/${quote.projectId}/quotes/${quote.id}/freight`);
+    revalidateQuoteTree(quote.projectId, quote.id);
   });
 }
 
@@ -660,7 +681,7 @@ export async function deleteFreightLine(
       },
     });
 
-    revalidatePath(`/projects/${quote.projectId}/quotes/${quote.id}/freight`);
+    revalidateQuoteTree(quote.projectId, quote.id);
   });
 }
 
@@ -727,6 +748,6 @@ export async function moveFreightLine(
       },
     });
 
-    revalidatePath(`/projects/${quote.projectId}/quotes/${quote.id}/freight`);
+    revalidateQuoteTree(quote.projectId, quote.id);
   });
 }

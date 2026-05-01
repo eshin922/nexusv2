@@ -1,8 +1,8 @@
 "use server";
 
 import { and, asc, eq, max } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 import { db } from "@/db";
+import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
   auditLog,
   markupDefaults,
@@ -155,7 +155,7 @@ export async function addPackagingLine(
       diffJson: { quote_sku_id: quoteSkuId, tier_count: tiers.length, sort_order: sortOrder },
     });
 
-    revalidatePath(`/projects/${quote.projectId}/quotes/${quote.id}/packaging`);
+    revalidateQuoteTree(quote.projectId, quote.id);
     void sku;
   });
 }
@@ -314,7 +314,7 @@ export async function updatePackagingLineMetadata(
     diffJson: diff,
   });
 
-  revalidatePath(`/projects/${quote.projectId}/quotes/${quote.id}/packaging`);
+  revalidateQuoteTree(quote.projectId, quote.id);
 
   return snapshot(
     newSupplier,
@@ -389,7 +389,7 @@ export async function revertMarkupToDefault(
     },
   });
 
-  revalidatePath(`/projects/${quote.projectId}/quotes/${quote.id}/packaging`);
+  revalidateQuoteTree(quote.projectId, quote.id);
 
   return rowSnapshot(def, "category_default");
   });
@@ -430,7 +430,7 @@ export async function deletePackagingLine(
     },
   });
 
-  revalidatePath(`/projects/${quote.projectId}/quotes/${quote.id}/packaging`);
+  revalidateQuoteTree(quote.projectId, quote.id);
   void sku;
   });
 }
@@ -494,7 +494,7 @@ export async function movePackagingLine(
     diffJson: { sort_order: { from: groupRow.sortOrder, to: swapWith.sortOrder } },
   });
 
-  revalidatePath(`/projects/${quote.projectId}/quotes/${quote.id}/packaging`);
+  revalidateQuoteTree(quote.projectId, quote.id);
   void sku;
   });
 }
@@ -549,7 +549,7 @@ export async function updatePackagingTierCell(
     diffJson: diff,
   });
 
-  revalidatePath(`/projects/${quote.projectId}/quotes/${quote.id}/packaging`);
+  revalidateQuoteTree(quote.projectId, quote.id);
 
   return { rowId, unitCost: newUnitCost, purchaseQty: newPurchaseQty };
   });
@@ -623,7 +623,7 @@ export async function copyTierValueToAllTiers(
     },
   });
 
-  revalidatePath(`/projects/${quote.projectId}/quotes/${quote.id}/packaging`);
+  revalidateQuoteTree(quote.projectId, quote.id);
   });
 }
 
@@ -643,19 +643,4 @@ export async function countPackagingLinesForQuote(quoteId: string): Promise<numb
   return distinct.size;
 }
 
-/**
- * List markup_defaults for the dropdown.
- */
-export async function listMarkupDefaults(): Promise<
-  Array<{ category: string; defaultMarkupPct: string }>
-> {
-  const rows = await db
-    .select({
-      category: markupDefaults.category,
-      defaultMarkupPct: markupDefaults.defaultMarkupPct,
-    })
-    .from(markupDefaults)
-    .orderBy(asc(markupDefaults.category));
-  return rows;
-}
 

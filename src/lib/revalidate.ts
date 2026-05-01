@@ -15,4 +15,5 @@ export function revalidateQuoteTree(projectId: string, quoteId: string) {
   revalidatePath(`${base}/packaging`);
   revalidatePath(`${base}/production`); // Slice 6
   revalidatePath(`${base}/freight`); // Slice 7
+  revalidatePath(`${base}/costing`); // Slice 8
 }

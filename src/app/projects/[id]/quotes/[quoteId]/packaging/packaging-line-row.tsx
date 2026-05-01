@@ -9,6 +9,18 @@ import {
   updatePackagingLineMetadata,
   updatePackagingTierCell,
 } from "@/app/actions/packaging";
+import { useCostingStore } from "@/components/costing-store-provider";
+import {
+  selectUpdatePackagingCell,
+  selectUpdatePackagingLineMeta,
+} from "@/lib/costing-store";
+import { validatePercentDecimal } from "@/lib/percent-validation";
+
+function parseNumOrNull(v: string): number | null {
+  if (v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 type Tier = { id: string; label: string };
 
@@ -61,9 +73,20 @@ export function PackagingLineRow({
 
   const [pending, startTransition] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [markupError, setMarkupError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef({ supplier, qty, category, markup, inventoryEligible, notes });
   stateRef.current = { supplier, qty, category, markup, inventoryEligible, notes };
+
+  // Slice 8 sub-step 5: optimistic store push for the three metadata
+  // fields that affect the costing rollup (qty, category, markup_pct).
+  // The other line metadata (supplier, inventoryEligible, notes) is
+  // display-only — costing rollup ignores it. Category alone affects
+  // costing only via markup default lookup, so when the PM picks a
+  // category we update both category and the resolved markup.
+  const updatePackagingLineMeta = useCostingStore(
+    selectUpdatePackagingLineMeta,
+  );
 
   useEffect(
     () => () => {
@@ -176,6 +199,9 @@ export function PackagingLineRow({
           onChange={(e) => {
             const v = e.target.value;
             setQty(v);
+            updatePackagingLineMeta(line.lineGroupId, {
+              qtyPerSellableUnit: parseNumOrNull(v),
+            });
             scheduleSave(false, { qty: v });
           }}
           placeholder="qty/unit"
@@ -187,6 +213,12 @@ export function PackagingLineRow({
           onChange={(e) => {
             const v = e.target.value;
             setCategory(v);
+            // Optimistic: push the category change. The server response
+            // (which may also update markupPct via category default
+            // lookup) re-hydrates markup state for us.
+            updatePackagingLineMeta(line.lineGroupId, {
+              category: v === "" ? null : v,
+            });
             scheduleSave(true, { category: v });
           }}
           className={inputClass()}
@@ -208,6 +240,27 @@ export function PackagingLineRow({
             onChange={(e) => {
               const v = e.target.value;
               setMarkup(v);
+              // markup input is in raw decimal here (per existing UI
+              // convention; freight + customs use percent-display
+              // instead — UX_BACKLOG candidate to reconcile). So the
+              // typed value IS the decimal — pass it straight to
+              // validatePercentDecimal without the /100 conversion.
+              if (v === "") {
+                setMarkupError(null);
+                updatePackagingLineMeta(line.lineGroupId, { markupPct: null });
+                scheduleSave(false, { markup: v });
+                return;
+              }
+              const decimal = Number(v);
+              const r = validatePercentDecimal(decimal, "markup");
+              if (!r.valid) {
+                setMarkupError(r.message);
+                return;
+              }
+              setMarkupError(null);
+              updatePackagingLineMeta(line.lineGroupId, {
+                markupPct: r.normalized,
+              });
               scheduleSave(false, { markup: v });
             }}
             placeholder="markup"
@@ -260,7 +313,11 @@ export function PackagingLineRow({
           className={inputClass()}
         />
         <div className="flex items-center gap-1 justify-end">
-          {saveError ? (
+          {markupError ? (
+            <span className="text-xs text-red-700 mr-1" role="alert">
+              {markupError}
+            </span>
+          ) : saveError ? (
             <span className="text-xs text-red-700 mr-1" role="alert">
               {saveError}
             </span>
@@ -348,6 +405,12 @@ function TierCostCell({
   const valueRef = useRef(unitCost);
   valueRef.current = unitCost;
 
+  // Slice 8 sub-step 4: push optimistic update into the costing store on
+  // every onChange. Server save still fires on debounce as before.
+  // Subscribers (QuoteSummaryCard) re-render <50ms; reconcile from
+  // server settles ~700ms later, server-wins overwrite handles any drift.
+  const updatePackagingCell = useCostingStore(selectUpdatePackagingCell);
+
   useEffect(
     () => () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -372,6 +435,13 @@ function TierCostCell({
 
   function handleChange(value: string) {
     setUnitCost(value);
+    // Optimistic store push (immediate). cell is checked above; non-null here.
+    if (cell) {
+      const numeric = value === "" ? null : Number(value);
+      updatePackagingCell(cell.rowId, {
+        unitCost: Number.isFinite(numeric as number) ? (numeric as number) : null,
+      });
+    }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(fireSave, DEBOUNCE_MS);
   }
