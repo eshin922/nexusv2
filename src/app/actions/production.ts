@@ -1,8 +1,8 @@
 "use server";
 
 import { and, count, eq, isNotNull, or } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 import { db } from "@/db";
+import { revalidateQuoteTree } from "@/lib/revalidate";
 import { auditLog, productionInputs, quotes, quoteSkus } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
@@ -200,9 +200,7 @@ export async function upsertProductionInputs(
         action: "created",
         diffJson: diff,
       });
-      revalidatePath(
-        `/projects/${quote.projectId}/quotes/${quote.id}/production`,
-      );
+      revalidateQuoteTree(quote.projectId, quote.id);
       return { rowId, ...newFields };
     } else {
       const row = existingRows[0];
@@ -260,9 +258,7 @@ export async function upsertProductionInputs(
         diffJson: diff,
       });
 
-      revalidatePath(
-        `/projects/${quote.projectId}/quotes/${quote.id}/production`,
-      );
+      revalidateQuoteTree(quote.projectId, quote.id);
       return { rowId, ...newFields };
     }
   });
@@ -358,9 +354,7 @@ export async function updateSkuProductionPolicy(
       diffJson: diff,
     });
 
-    revalidatePath(
-      `/projects/${quote.projectId}/quotes/${quote.id}/production`,
-    );
+    revalidateQuoteTree(quote.projectId, quote.id);
 
     return {
       quoteSkuId,

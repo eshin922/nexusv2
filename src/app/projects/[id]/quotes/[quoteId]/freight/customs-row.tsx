@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { updateSkuCustomsData } from "@/app/actions/freight";
+import { useCostingStore } from "@/components/costing-store-provider";
+import { selectUpdateCustoms } from "@/lib/costing-store";
+import { validatePercentDecimal } from "@/lib/percent-validation";
 
 const DEBOUNCE_MS = 500;
 
@@ -13,31 +16,60 @@ function decimalToPercentDisplay(d: string | null): string {
   if (d === null) return "";
   const n = Number(d) * 100;
   if (!Number.isFinite(n)) return "";
-  // Strip trailing zeros: 25.0000 → "25", 12.5 stays "12.5"
   return Number(n.toFixed(4)).toString();
 }
 
+// Slice 8 schema correction: cbm_per_unit was dropped from quote_skus
+// (it didn't match PM workflow). CBM is now captured per-(SKU, line, tier)
+// on freight_inputs.sku_total_cbm — see freight-line-row.tsx.
 export function CustomsRow({
   quoteSkuId,
-  cbmPerUnit,
   dutyPct,
   tariffPct,
   disabled,
 }: {
   quoteSkuId: string;
-  cbmPerUnit: string | null;
   dutyPct: string | null;
   tariffPct: string | null;
   disabled: boolean;
 }) {
-  const [cbm, setCbm] = useState(cbmPerUnit ?? "");
   const [duty, setDuty] = useState(decimalToPercentDisplay(dutyPct));
   const [tariff, setTariff] = useState(decimalToPercentDisplay(tariffPct));
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // Per-field validation errors (separate from the shared save error
+  // so a duty validation failure doesn't blank out a tariff save error).
+  const [dutyError, setDutyError] = useState<string | null>(null);
+  const [tariffError, setTariffError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stateRef = useRef({ cbm, duty, tariff });
-  stateRef.current = { cbm, duty, tariff };
+  const stateRef = useRef({ duty, tariff });
+  stateRef.current = { duty, tariff };
+
+  // Slice 8 sub-step 5: optimistic store push on every onChange. Server
+  // save still fires on debounce; reconcile from server settles ~700ms
+  // later (server-wins overwrite handles any drift).
+  const updateCustoms = useCostingStore(selectUpdateCustoms);
+
+  // Validate a percent input (display value, e.g. "25" for 25%).
+  // Returns the normalized decimal on success or null on empty input;
+  // returns undefined on validation failure (caller should bail).
+  function validatePctInput(
+    v: string,
+    setFieldError: (msg: string | null) => void,
+  ): number | null | undefined {
+    if (v === "") {
+      setFieldError(null);
+      return null;
+    }
+    const decimal = Number(v) / 100;
+    const r = validatePercentDecimal(decimal, "rate");
+    if (!r.valid) {
+      setFieldError(r.message);
+      return undefined;
+    }
+    setFieldError(null);
+    return r.normalized;
+  }
 
   useEffect(
     () => () => {
@@ -46,13 +78,12 @@ export function CustomsRow({
     [],
   );
 
-  type Overrides = Partial<{ cbm: string; duty: string; tariff: string }>;
+  type Overrides = Partial<{ duty: string; tariff: string }>;
 
   function fireSave(overrides: Overrides = {}) {
     const s = { ...stateRef.current, ...overrides };
     const fd = new FormData();
     fd.set("quoteSkuId", quoteSkuId);
-    fd.set("cbmPerUnit", s.cbm);
     fd.set("dutyPct", s.duty);
     fd.set("tariffPct", s.tariff);
     startTransition(async () => {
@@ -67,8 +98,6 @@ export function CustomsRow({
     debounceRef.current = setTimeout(() => fireSave(overrides), DEBOUNCE_MS);
   }
 
-  // Soft warning if PM types a duty/tariff value < 0.5 (unlikely real-world).
-  // Display-only hint; not a save block.
   function lowPctWarn(value: string): string | null {
     if (value === "") return null;
     const n = Number(value);
@@ -90,36 +119,7 @@ export function CustomsRow({
         </span>
         {pending && <span className="text-[10px] text-gray-500">saving…</span>}
       </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="text-gray-700">
-            CBM per unit
-            <span
-              className="ml-1 cursor-help text-gray-400"
-              title="Cubic meters per single unit. Used to allocate container freight cost across SKUs by volume share."
-            >
-              ⓘ
-            </span>
-          </span>
-          <div className="flex items-center gap-1">
-            <input
-              type="number"
-              inputMode="decimal"
-              step="0.0001"
-              min={0}
-              value={cbm}
-              disabled={disabled}
-              onChange={(e) => {
-                const v = e.target.value;
-                setCbm(v);
-                scheduleSave({ cbm: v });
-              }}
-              placeholder="—"
-              className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400"
-            />
-            <span className="text-xs text-gray-500">m³</span>
-          </div>
-        </label>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-xs">
           <span className="text-gray-700">
             Duty %
@@ -141,6 +141,13 @@ export function CustomsRow({
               onChange={(e) => {
                 const v = e.target.value;
                 setDuty(v);
+                const normalized = validatePctInput(v, setDutyError);
+                // undefined = validation failed; do NOT push junk into
+                // the costing store and do NOT schedule a save. Local
+                // input state still shows the user's typed value so they
+                // can correct it.
+                if (normalized === undefined) return;
+                updateCustoms(quoteSkuId, { dutyPct: normalized });
                 scheduleSave({ duty: v });
               }}
               placeholder="—"
@@ -148,7 +155,12 @@ export function CustomsRow({
             />
             <span className="text-xs text-gray-500">%</span>
           </div>
-          {dutyWarn && (
+          {dutyError && (
+            <span className="text-[10px] text-red-700" role="alert">
+              {dutyError}
+            </span>
+          )}
+          {!dutyError && dutyWarn && (
             <span className="text-[10px] text-amber-700">{dutyWarn}</span>
           )}
         </label>
@@ -173,6 +185,9 @@ export function CustomsRow({
               onChange={(e) => {
                 const v = e.target.value;
                 setTariff(v);
+                const normalized = validatePctInput(v, setTariffError);
+                if (normalized === undefined) return;
+                updateCustoms(quoteSkuId, { tariffPct: normalized });
                 scheduleSave({ tariff: v });
               }}
               placeholder="—"
@@ -180,14 +195,19 @@ export function CustomsRow({
             />
             <span className="text-xs text-gray-500">%</span>
           </div>
-          {tariffWarn && (
+          {tariffError && (
+            <span className="text-[10px] text-red-700" role="alert">
+              {tariffError}
+            </span>
+          )}
+          {!tariffError && tariffWarn && (
             <span className="text-[10px] text-amber-700">{tariffWarn}</span>
           )}
         </label>
       </div>
       <p className="mt-2 text-[11px] italic text-gray-500">
-        These values are used to compute landed-freight cost. Internal use
-        only — not shown to customer.
+        Duty and tariff apply to factory cost. CBM is captured per shipment
+        on each freight line below. Internal use only — not shown to customer.
       </p>
       {error && (
         <p className="mt-1 text-xs text-red-700" role="alert">

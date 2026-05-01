@@ -37,6 +37,21 @@ export function requireDraft(quote: Quote): void {
   }
 }
 
+// Resolve the quote by id and assert draft. For actions keyed on quote
+// itself (vs sku or line group): updateQuoteGlobalPriceAdj, etc.
+export async function quoteByIdDraft(quoteId: string): Promise<Quote> {
+  const rows = await db
+    .select()
+    .from(quotes)
+    .where(eq(quotes.id, quoteId))
+    .limit(1);
+  if (rows.length === 0)
+    throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found");
+  const quote = rows[0];
+  requireDraft(quote);
+  return quote;
+}
+
 // Resolve quote ownership through (sku → quote) and assert draft. Returns
 // both rows for the caller to use. Used by per-SKU and per-cell actions
 // that arrive with a SKU id.

@@ -5,19 +5,577 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
-- [Slice 6.5] Duty/tariff/CBM are NULL on all existing `quote_skus` rows.
-  PMs need to populate these per-SKU once duty rates are confirmed with
-  freight forwarder. Slice 8's Costing Sheet should surface
-  "incomplete landed cost" state when a SKU on a freight line has NULL
-  on `duty_pct`, `tariff_pct`, or `cbm_per_unit`. Slice 12 Mark-Accepted
-  should consider blocking on incomplete landed-cost data when
-  `freight_treatment = pass_through`.
+- [v1.5+ — concurrent firm_settings write race] `updateFirmSettings`
+  closes the prior current row + inserts a new current row in a
+  transaction, but Postgres default `read committed` isolation
+  doesn't prevent two concurrent admins from both reading the same
+  prior row, both closing it (idempotent), and both inserting new
+  current rows — yielding two rows with `effective_until IS NULL`.
+  Every downstream read assumes the single-current invariant, so
+  this would silently break margin-status thresholds.
+
+  Fix: add a partial unique index.
+  ```
+  CREATE UNIQUE INDEX firm_settings_one_current
+    ON firm_settings (effective_until)
+    WHERE effective_until IS NULL;
+  ```
+  Postgres enforces "at most one row with NULL effective_until";
+  the second concurrent insert fails with a unique-violation that
+  the existing 22003-style action-result translator can map to
+  VALIDATION_ERROR ("Another admin just updated firm settings;
+  reload and try again.").
+
+  Not slice-blocking — 2 admins, internal tool, near-zero
+  probability of simultaneous Save clicks. But this is the right
+  long-term answer; cheaper than implementing serializable
+  isolation in application code. Slot into v1.5+ schema cleanup.
+
+- [v1.5+ — quote versioning & rollback] Many users editing many
+  surfaces over many hours. Without version control, "the quote got
+  worse, can we go back" requires manual reconstruction or accepting
+  the current state as final.
+
+  Existing primitives:
+  - `quotes.version_number` (Slice 4) supports linear versioning at
+    the quote lifecycle level (draft → sent → accepted →
+    superseded). Catches some revert needs but doesn't handle
+    within-draft drift.
+  - `audit_log` captures every mutation forensically but isn't
+    designed for state reconstruction.
+
+  Recommended architecture: hybrid of explicit version control +
+  automatic snapshots.
+
+  **(A) Lean into `version_number`** — explicit "Save as new
+  version" button creates immutable prior version, clones to new
+  draft. "Restore from v1" copies prior version's data into new
+  active draft.
+
+  **(C) Periodic + lifecycle snapshots** — new table
+  `quote_snapshots` captures full quote state (all inputs) on
+  triggers:
+  - Auto: every 15 min if edits occurred (debounced)
+  - Manual: PM clicks "Save Snapshot" with optional label
+  - Lifecycle: status transitions, scenario branches, accept actions
+
+  Retention: keep 24 rolling auto snapshots; all manual + lifecycle
+  snapshots permanent.
+
+  Restore action: select snapshot → confirm → auto-snapshot current
+  first (so restore is itself reversible) → replace input rows with
+  snapshot payload. Audit-logged.
+
+  Skipped option: event-sourcing the `audit_log` into restorable
+  state. Too complex for v1; audit log stays forensic, snapshots
+  handle restoration.
+
+  Estimated 8–12 hours. Slot after Slice 8.5 (multi-user realtime)
+  since concurrent editing is the more frequent pain. Connects to
+  Slice 14 scenarios (each scenario's branch point becomes a
+  lifecycle snapshot automatically).
+
+  Schema preview (don't build now):
+  ```
+  quote_snapshots (
+    id                   uuid PK,
+    quote_id             FK,
+    snapshot_at          timestamptz,
+    trigger              enum: auto / manual / lifecycle,
+    manual_label         text nullable,
+    created_by_user_id   FK,
+    payload              jsonb (all inputs serialized),
+    size_bytes           int
+  )
+  ```
+
+- [Slice 8.5 — multi-user realtime sync] Multi-PM concurrent editing
+  on the same quote requires real-time propagation of edits between
+  users. Current architecture: each user's Zustand store is local;
+  revalidation reaches other users' tabs only on their next page
+  action. Role-aware design (PM on /packaging, Production on
+  /production, Logistics on /freight) explicitly intends concurrent
+  work — they shouldn't have to manually reload to see each other's
+  edits.
+
+  Implementation: Supabase Realtime subscriptions on `quote_skus`,
+  `packaging_inputs`, `production_inputs`, `freight_inputs`,
+  `quote_tiers`, and `quotes` for the quote being viewed.
+
+  When a realtime notification arrives:
+  - Reconcile fires on the receiving tab (same path as existing
+    revalidation reconcile).
+  - Wait-for-quiet pattern from sub-step 6 still applies — incoming
+    changes don't clobber the current user's in-progress edits.
+  - 100ms debounce on multiple incoming events to coalesce bursts.
+
+  Affected components:
+  - `src/components/costing-store-provider.tsx` — subscribe on
+    mount, unsubscribe on cleanup.
+  - New `src/lib/supabase-realtime.ts` — wraps subscription channel
+    management with reconnect logic.
+
+  Slice 8.5 also bundles small UX polish items already logged:
+  - Production page → apply-to-all-tiers buttons (still pending).
+  - "Total freight" label clarity / tooltip pass on freight page.
+  - Bundled/Pass-through dropdown vs badge on freight (note: this
+    specific item was shipped inline during sub-step 5 testing —
+    can be removed from the bundle).
+  - Other field-label clarity from the [Slice 8.5 mini-polish] entry.
+
+  Estimated 1–2 days for core sync; presence indicator is +0.5 day
+  and can defer. Ships between Slice 8 and Slice 9. Continue Slice 8
+  sub-step 7 (final pre-Step-5 review). After Slice 8 ships clean
+  (admin pages + smoke tests), Slice 8.5 starts.
+
+  **Design notes** (refined post sub-step 6):
+
+  The reconcile path from sub-steps 4–6 is correct and reusable.
+  Realtime addition adds a new trigger; the rest of the architecture
+  stays the same.
+
+  1. **Coarse reconcile pattern.** Realtime notification triggers a
+     full `getCostingBundle` re-fetch, then standard reconcile applies
+     the fresh snapshot. Don't try to apply individual row diffs;
+     the existing reconcile already handles full snapshots cleanly.
+
+  2. **wait-for-quiet from sub-step 6 applies unchanged.** Local
+     user's in-progress edits take precedence; incoming external
+     changes defer until local user pauses for 800ms. Same
+     `QUIET_PERIOD_MS`, same `RETRY_INTERVAL_MS`. No new code path —
+     the existing tryReconcile in costing-store-provider.tsx already
+     handles this for revalidation snapshots; realtime snapshots
+     flow through the same pipe.
+
+  3. **Coalesce realtime events.** Alice edits 5 cells in 1 second;
+     Bob's tab should fire one re-fetch + reconcile, not 5. Add
+     200–300ms debounce on incoming Realtime events before triggering
+     re-fetch. (Distinct from the wait-for-quiet debounce — that's on
+     the receiving end, this is on the trigger end.)
+
+  4. **Edge case: incoming change invalidates local optimistic edit.**
+     E.g., another user deletes a tier the current user is editing
+     in. v1 handling: reconcile discards the orphaned optimistic
+     state silently; surface a toast ("Data updated by another user
+     — your unsaved edit may be lost"). Audit log captures actual
+     server state. Better merge logic deferred to v2.
+
+  5. **Subscription scope per page.** Subscribe to changes on tables
+     that affect this quote's costing — `quotes`, `quote_skus`,
+     `quote_tiers`, `packaging_inputs`, `production_inputs`,
+     `freight_inputs`, `markup_defaults`, `firm_settings`. Filter by
+     `quote_id` where applicable. Unsubscribe on unmount.
+
+  6. **Connection management.** Handle Supabase reconnects gracefully.
+     On reconnect, force a re-fetch + reconcile to catch missed
+     events during the disconnect.
+
+  7. **UX surface.** Small "Live" indicator near the page header
+     showing active subscription state. When other users are editing
+     the same quote, show "Alice is editing" or similar (Supabase
+     Realtime includes presence support). Defer presence to v1.5 if
+     it's significant work.
+
+- [Slice 9 — client target cost / price benchmark] Workflow gap: PMs
+  typically have a client-stated target price ("client wants $5
+  landed per unit at 50k") that serves as a negotiation benchmark.
+  Currently no field captures this; PMs mentally compare Required
+  Sell to remembered targets.
+
+  Schema: `quote_tiers.client_target_price_per_unit numeric(10,4)`
+  nullable. Populated by PM when there's a known target.
+
+  UI: per-tier rollup table on QuoteSummaryCard / Costing Sheet
+  gains a "Client Target" column. Shows:
+  - Target price (PM-entered)
+  - Gap (Required Sell − Target, $ and %)
+  - Status indicator: **COMPETITIVE** (Required Sell ≤ Target),
+    **OVER TARGET** (slightly above), **WAY OVER TARGET** (far above)
+
+  Combined with margin status, gives PMs a two-axis view:
+  - Margin GOOD + COMPETITIVE = strong position to win
+  - Margin GOOD + WAY OVER TARGET = profitable but uncompetitive
+  - Margin BELOW_FLOOR + COMPETITIVE = winning the deal at
+    unsustainable margin
+  - Margin BELOW_FLOOR + WAY OVER TARGET = nothing to do here
+
+  Math: reverse-solve global_adj from target price.
+  ```
+  adj_to_hit_target_price = (target_price / required_sell_without_adj) - 1
+  ```
+  Same algebra as suggested-adj-to-hit-target-margin, with price as
+  input instead of margin.
+
+  UI affordance: "Apply suggested adj to match client target" button
+  on rows where target is set and current sell ≠ target. One-click
+  sets the per-tier override (uses the per-tier override field from
+  the [Slice 9 — per-tier price adjustment] entry, not the global).
+
+  Connects to:
+  - [Slice 9 product spec] markup-driven vs margin-driven view
+    toggle — target-price-driven is a third mode.
+  - [Slice 9 — per-tier price adjustment] target-driven adjustments
+    are per-tier; global override remains the simple case.
+  - [Slice 9 — context-aware validation, with two-surface UX]
+    target unset is acceptable; surfaces as info-level "no benchmark
+    set" not warning.
+
+  Future variant (post-v1.5): split into two fields — "client
+  target" (their stated price) and "competing bid" (another vendor's
+  reported quote). Different negotiation contexts deserve separate
+  capture. v1: one field with notes, see how PMs use it.
+
+  Don't build for Slice 8 or sub-step 6. The current /costing
+  real-time fix proceeds independently.
+
+- [Slice 9 — per-tier price adjustment] Current
+  `quotes.global_price_adj_pct` is a single quote-level lever that
+  applies uniformly across all tiers in the costing math.
+
+  Problem: tier margin profiles diverge naturally (cost component
+  scaling, MOQ-based vendor pricing, strategic pilot-vs-production
+  pricing). A single global knob over-corrects for tiers that don't
+  need adjustment and can't express tier-specific intent. The
+  current "Apply suggested N% to hit target" button optimizes for
+  the lead tier silently — lifting Tier 1 into GOOD can push Tier 3
+  into over-priced.
+
+  Slice 9 addition: per-tier price adjustment override.
+
+  Schema: new nullable `quote_tiers.tier_price_adj_pct numeric(5,4)`.
+  When NULL, tier uses the quote-level global. When populated, the
+  override **replaces** the global for that tier (not stacks —
+  replaces is cleaner; PMs setting an override know what they
+  want).
+
+  UI:
+  - Per-tier rollup table in QuoteSummaryCard / Costing Sheet shows
+    current effective adj per tier (global if no override, override
+    value if set).
+  - Click a tier's adj cell to override; clear to revert to global.
+  - "Apply suggested N% to hit target" buttons available per-tier
+    in the rollup table — clicking a tier's button sets only that
+    tier's override.
+  - Quote-level global remains, applies as default to non-overridden
+    tiers.
+
+  Math:
+  - `effective_adj_for_tier = tier.tier_price_adj_pct ?? quote.global_price_adj_pct`
+  - Required Sell calculation uses `effective_adj_for_tier` per tier.
+  - Blended margin computes per-tier with each tier's own effective
+    adj.
+
+  Connects to: Slice 9 markup model work (per-line sell-price
+  override also slated for Slice 9) and the Slice 9 status badges
+  entry. All three share the "give PMs flexible, trustworthy
+  pricing controls" theme.
+
+  Continue Slice 8 with current global-only behavior. PMs testing
+  during Slice 8.5/9 window will hit the limitation; that's the
+  forcing function for Slice 9.
+
+- [Slice 9 — pricing completeness, with status indicators] PMs need
+  a fast way to know whether the costing math on a quote is
+  trustworthy — whether all the cost data needed to compute margin
+  is present, or whether the displayed margin is computed against
+  partial inputs.
+
+  Surface design: status badges on Cost Inputs nav cards (Packaging,
+  Production, Freight) and at the quote-level summary, paired with
+  the Slice 9 validation engine. The validation engine produces
+  issues categorized by severity; the badges surface that severity
+  at a glance:
+
+  - **Complete** (no issues) — small green checkmark, quiet visual.
+  - **Incomplete** (soft issues — tier coverage gap, missing customs
+    values, etc.) — yellow warning badge with "(N items need
+    attention)".
+  - **Blocking** (must fix to send) — red badge with count.
+
+  Click leads to the page with specific cells/rows flagged inline
+  so PMs can find and fix gaps.
+
+  Design rationale to preserve (status-with-severity beats
+  alternatives):
+  - A numeric ratio like "3/3" or "1/3 tiers covered" makes PMs do
+    mental math and doesn't capture severity. 1/3 of optional
+    fields is fine; 1/3 of pass-through freight cells is a real bug.
+  - A progress bar lies about completion. "85% complete" gives
+    false comfort if the missing 15% is the largest tier or a
+    pass-through freight line.
+  - A status pill with severity answers the binary question PMs
+    actually have: "can I trust the margin number I'm seeing?" —
+    which is the input to "should I send this quote?"
+
+  Build alongside the validation engine in Slice 9. Don't ship
+  preliminary completion indicators in earlier slices that would
+  need redesigning when the validation rules are formalized.
+
+  Connects to: the [Slice 9 prerequisite — pricing completeness
+  validation] entry below. Same Slice 9 deliverable: validation
+  produces the issues, badges surface them.
+
+- [Slice 9 — context-aware validation, with two-surface UX]
+  Validation engine produces warnings for both **completeness**
+  (missing inputs) and **anomaly detection** (suspicious values).
+  Currently the costing math treats missing input cells as "no
+  contribution" rather than "data missing" — PMs see plausible
+  margins on partial data without warnings.
+
+  **Detection scope:**
+
+  Completeness warnings (existing scope):
+  1. Tier coverage mismatch on freight lines — `total_freight` for
+     Tier 1 only → higher tiers compute zero freight contribution.
+  2. Tier coverage mismatch on packaging lines — `unit_cost` on
+     some tiers only → tier-dependent margin distortion.
+  3. Tier coverage mismatch on production — partial filling/blending
+     or `customer_ships_raws` toggle inconsistent across tiers.
+  4. Customs incomplete — SKU has freight lines but `duty_pct`,
+     `tariff_pct`, or `sku_total_cbm` is NULL.
+  5. SKU on quote with no cost data anywhere — factory $0,
+     contribution $0, sell $0; silently rolled into quote totals.
+  6. Multi-line freight asymmetry — one freight line complete, one
+     partial → broken line silently distorts landed-freight.
+
+  Anomaly warnings (new scope, examples):
+  - Flat-fee variance: tooling cost $5k on Tier 1, $50k on Tier 2.
+  - Outlier: unit_cost 10× the median across this SKU's other
+    packaging lines.
+  - Customs inconsistency: duty_pct 25% on one SKU, 0% on a sibling
+    SKU with the same HS code in notes.
+
+  **Two display surfaces work together:**
+
+  *Inline (per-field):*
+  - Small ⚠ icon next to suspicious cells.
+  - Hover for message.
+  - Click opens popover with message, suggested fix when applicable,
+    Accept and Fix buttons.
+
+  *Summary box (per-page):*
+  - Persistent panel below page header.
+  - "N warnings on this page" count.
+  - Expandable list with Accept/Fix per item.
+  - "Accept all" with confirmation.
+  - Items link to their cells (click → page scrolls to field).
+
+  *Costing Sheet aggregation:*
+  - Same summary-box pattern.
+  - Aggregates warnings across all input pages.
+  - Groups by source surface (packaging / production / freight /
+    customs).
+  - Pre-send gate — PM reviews this before quote sends.
+
+  **Acceptance workflow:**
+  - "Accept" suppresses warning, optionally captures reason.
+  - Reason auto-suggestions: "Vendor MOQ break", "Customer-specific
+    pricing", "Special handling fee", "(custom)".
+  - Audit-logged with reason.
+  - "Fix" applies suggested value where engine has confidence.
+
+  **Persistence — new table `quote_warnings`:**
+  ```
+  id                   uuid PK,
+  quote_id             FK,
+  source_table         text,
+  source_row_id        uuid,
+  warning_type         enum (flat_fee_variance, outlier,
+                              customs_inconsistency,
+                              completeness_gap, ...),
+  severity             enum (soft, blocking),
+  message              text,
+  suggested_value      numeric nullable,
+  detected_at          timestamptz,
+  accepted_at          timestamptz nullable,
+  accepted_by_user_id  FK nullable,
+  accepted_reason      text nullable,
+  resolved_at          timestamptz nullable
+  ```
+  Warnings persist across sessions; not regenerated on every page
+  load. Detected on save; resolved automatically when underlying
+  data changes; manually accepted to suppress.
+
+  **Severity gating:**
+  - **Blocking:** SKU with no cost data at all; freight pass-through
+    with null duty/tariff. Prevents Mark-Accepted (Slice 12).
+  - **Soft warning:** tier coverage mismatch, customs incomplete on
+    bundled freight, partial multi-line freight, anomalies. Warns
+    but allows.
+
+  **Architecture fit:**
+  - Detection: validation engine in `src/lib/validation.ts` (new).
+  - Real-time: optimistic store fires validation on input changes;
+    warnings appear immediately.
+  - Multi-user: warnings sync via Slice 8.5 realtime channel.
+  - Severity gating: blocking warnings prevent Mark-Accepted (Slice
+    12).
+
+  Estimated 8–12 hours total (completeness + anomaly detection +
+  two-surface UX + persistence).
+
+  Supersedes the narrower [Slice 6.5] customs-NULL entry that
+  previously lived here — context-aware validation expands to cover
+  all input categories AND anomaly detection, not just customs/CBM.
+
+- [Slice 13.5 polish — UX clarity sweep] Field labels and helper text
+  across all input pages. Many fields have names/placeholders that
+  are clear to developers but require context PMs don't have. Sweep
+  scope (do at once for consistency, NOT per-slice):
+
+  1. **Self-explanatory labels** — replace abbreviations and jargon
+     with what the field actually means in PM language.
+  2. **Concrete tooltips** on every non-obvious field with one-sentence
+     explanation + example where useful.
+  3. **Smart placeholders** that hint at scale and unit (e.g.,
+     `"10,000 (using tier qty)"` instead of `"default: 10,000"`).
+  4. **Hover tooltips on icon-only buttons** (→ apply-to-all,
+     refresh ↺, delete ×, reorder ↑↓).
+  5. **Disambiguating ambiguous wording** (e.g., "Total freight" →
+     "Shipment freight cost" with tooltip "Lump sum DPS pays
+     forwarder for the entire shipment containing this SKU").
+  6. **Status badge tooltips** (Bundled, Pass-through, GOOD,
+     BELOW_TARGET) explaining what they mean and any decision the PM
+     might take.
+
+  Specific known instances captured during build:
+  - Freight page: "Total freight" ambiguous; "default: 10,000"
+    doesn't signal what field it is; → apply-to-all icons unlabeled.
+  - Production page: "Filling/Blending" vs "CM/Assembly" distinction
+    could be unclear; per-unit vs one-time costs not visually
+    distinguished.
+  - Packaging page: `inventory_eligible` checkbox visible but does
+    nothing in v1.
+  - Customs: "Internal — not shown to customer" badge clear but the
+    customs subsection's overall purpose could use a one-line header
+    ("Why is this here?").
+  - Summary card: status badges may need tooltips when PMs first
+    encounter them.
+  - **Admin / markup-defaults delete:** native `window.confirm()`
+    in `markup-defaults-table.tsx` `handleDelete`. The `\n\n` in
+    the warn-with-count copy renders as raw newlines in the
+    browser dialog; on mobile the dialog truncates aggressively.
+    Functional for v1 (2 admin users, desktop-only) but the
+    landed-on copy ("N existing input rows use this category and
+    will be unaffected — they keep their saved markup. New rows
+    of this category will have no default markup until you
+    re-create it.") deserves a real modal component with proper
+    line-break rendering and a "no, cancel" button styled as
+    secondary.
+
+  Sequencing: hold for Slice 13.5 with informed inputs from real PM
+  testing in Slice 11+. Items causing immediate mid-build friction
+  get promoted to Slice 8.5 (mini-polish slice between 8 and 9), not
+  fixed inline.
+
+- [Slice 8.5 mini-polish] Quick UX clarity pass on the most-active
+  5–10 field labels/tooltips across freight, customs, summary card.
+  NOT a full sweep — that's Slice 13.5. Just enough to make the
+  freight page self-explanatory for PM testing during Slice 9+.
+  Specific candidates:
+  - Freight: "Total freight" → "Shipment freight cost" + tooltip
+  - Freight: "default: 10,000" placeholder → "10,000 (using tier qty)"
+  - Freight: → apply-to-all icon → tooltip "Apply to all tiers"
+  - Customs: subsection header tooltip "Internal cost inputs for
+    landed-cost rollup; never shown to customer."
+  - Summary card: GOOD / BELOW_TARGET / BELOW_FLOOR badge tooltips
+    explaining what each status means and what to do.
+  - Production: per-row "(per unit)" / "(one-time)" indicators on
+    cost field labels.
+  Insert between Slice 8 ship and Slice 9 start.
+
+- [Slice 9 product spec] Support both markup-driven and margin-driven
+  pricing as first-class workflows. Business uses both today; current
+  architecture is markup-driven (Sell = sum of cost × (1+markup)) with
+  margin shown as a derived metric. The model already half-supports
+  margin-driven via global_adj + suggested_adj, but the framing makes
+  it feel secondary. Slice 9 surfaces it as a first-class workflow.
+
+  Scope:
+  1. Add quote-level `target_margin_pct` override (numeric(5,4)
+     nullable on `quotes` table). When set, overrides firm target for
+     this quote's suggested-adj math and status flagging. PMs can quote
+     a strategic deal at a lower margin without changing firm-wide
+     defaults.
+  2. QuoteSummaryCard gains "Margin mode" toggle. Same data, different
+     framing: margin mode anchors on margin %, target gap, and
+     one-click Apply Suggested. Markup mode shows the per-component
+     markup breakdown that's there today.
+  3. Margin-driven workflow becomes prominent: PM types target margin
+     → suggested adj computes → one-click apply. Same math as today
+     (closed-form solve in costing.ts), just surfaced as primary.
+  4. Per-line sell-price override (also Slice 9): PM forces a sell
+     price on a specific component, margin compresses. Mirrors the
+     Excel "set sell, watch margin" pattern PMs use during
+     negotiation.
+
+  Architecture impact minimal. Costing math unchanged; new schema
+  fields and UI surfaces only. Caught Slice 8 sub-step 4 verification
+  when Edward observed that bumping a packaging cost barely moves the
+  blended margin (per-component markup math: revenue scales roughly
+  with cost, so margin is nearly invariant under uniform cost
+  changes). See `src/lib/costing.ts` formula header for the full
+  derivation.
+
+- [Slice 8 → Slice 13.5 polish] Surface markup_pct used per cost
+  component on the per-SKU breakdown table. Currently shows component
+  cost and final Required Sell; PMs can't see what category markup was
+  applied to each component without cross-referencing the input page.
+  Adding a column or inline marker showing
+  "Packaging × 20% (Freight category)" would speed up
+  "why is this number what it is" debugging. Caught Slice 8 sub-step 1
+  verification when reverse-engineering a Required Sell that didn't
+  match the Primary-default-markup mental model — turned out the line
+  was categorized as "Freight" (markup 20%), not "Primary".
+
+- [Slice 13.5 polish] Bulk-set tariff/duty across all SKUs in a quote
+  when uniform. PM workflow today: 35% China-origin tariff applies to
+  all SKUs in most shipments. Schema is already per-SKU (correct for
+  flexibility); add a quote-level "Apply tariff X% to all SKUs"
+  affordance that fans out a single value across all the quote's leaves.
+  Same UX pattern as policy fan-out we use elsewhere
+  (e.g. `updateSkuProductionPolicy`, freight metadata fan-out).
+
+- [Slice 13.5 polish] Mixed-SKU pallet allocation guidance. When a
+  pallet holds multiple SKUs, PM allocates the pallet's CBM by judgment.
+  The `sku_total_cbm` field accepts the resulting number with no help.
+  Future affordance: a "pallet builder" tool that lets PM enter pallet
+  configurations (this pallet has 60% SKU-A, 40% SKU-B) and computes
+  the CBM split. Defer until v1 in real PM use confirms the workflow
+  needs help — current PM workflow uses Excel for this and copies the
+  result into Nexus.
+
+- [Slice 13.5+] Multi-PO consolidated shipments. Real DPS ocean
+  shipments combine 2+ POs in one container (Nemah workbook NM1020 +
+  NM1021). Freight allocation crosses quote boundaries operationally
+  but not in our schema (`line_group_id` is per-quote). v1 keeps
+  freight per-quote; PMs do consolidated allocation in a separate
+  workbook. Future: cross-quote freight lines or shipment-level
+  reconciliation outside the quote.
 
 - [Slice 11 prerequisite] Pass-through freight rolls up to a quote-level
   customer line on the PDF; internal per-SKU/per-line splits are
   invisible to the customer. Bundled freight is invisible entirely
   (amortized into unit cost). Confirm PDF layout treats freight as a
   single bottom-of-quote line item, not per-SKU rows.
+
+- [Slice 5.5 → Slice 13.5 polish] Packaging inputs `<details>` sections
+  default to collapsed despite JSX setting `open`. Production
+  (Slice 6) and Freight (Slice 7) use the same `<details open>`
+  pattern and may have the same issue. Likely cause: browsers
+  (Chromium especially) persist `<details>` open/closed state
+  per-document across navigations within a session — once a user
+  collapses a section, the browser overrides the HTML `open` default
+  on subsequent visits. Fix options:
+  - Replace native `<details>` with a controlled React component that
+    initializes `open=true` regardless of browser state.
+  - Add a `useEffect` that explicitly sets `open` after mount on each
+    `<details>` element (heavy-handed but works with native element).
+  - Accept browser persistence as intentional UX (PMs who collapse
+    deliberately want it to stay collapsed) — but make the FIRST
+    visit always-expanded for new SKUs/quotes.
+  Apply the same fix across packaging, production, and freight pages
+  for consistency.
 
 - [Slice 7, fixed in slice] `addFreightLine` UI revalidation race —
   first click wrote to DB but didn't refresh the open tab; a second
@@ -213,6 +771,37 @@ Items here are intentionally deferred - capture, don't fix in the moment.
   beyond what the tree shape already implies.
 
 ## Resolved
+
+- [Slice 8 sub-step 5, resolved] Numeric overflow on percent fields.
+  Typing a value beyond `numeric(5,4)` capacity (e.g., 3025 in a
+  markup_pct input → decimal 30.25 > max 9.9999) crashed the page
+  with PostgresError 22003 `numeric_field_overflow`. Fixed via three
+  layers: (1) client-side `validatePercentDecimal` helper in
+  `src/lib/percent-validation.ts` rejects values outside ±999% before
+  store push or save, surfaces inline error per field; (2) `runAction`
+  in `src/lib/action-result.ts` translates Postgres SQL state 22003
+  (numeric_field_overflow) and 22001 (string_data_right_truncation)
+  to ActionResult VALIDATION_ERROR so any bypass returns a structured
+  error instead of a 500; (3) optimistic-rollback semantics on save
+  failure — when server returns ok:false the user's typed value
+  persists locally and the next edit re-triggers save (already
+  implicit in the existing controlled-input pattern, just verified).
+  Pattern applies to all `numeric(5,4)` percent fields:
+  packaging_inputs.markup_pct, freight_inputs.markup_pct,
+  quote_skus.duty_pct, quote_skus.tariff_pct,
+  quotes.global_price_adj_pct, firm_settings.target_margin_pct,
+  firm_settings.floor_margin_pct.
+
+- [Slice 6.5 / 7 confirmation, resolved] PM confirmed CBM workflow:
+  per-SKU allocation of total shipment CBM, derived from PM judgment
+  (carton-counting for clean shipments, eyeballing for mixed pallets).
+  Common case is two-SKU shared container (Roman gummies pattern: jars
+  69% / caps 31% of container CBM). Multi-PO consolidated shipments
+  are rare. Schema captures the result on
+  `freight_inputs.sku_total_cbm`; how PM derives the value is her
+  concern. Slice 8 schema correction dropped the per-unit CBM model
+  (`quote_skus.cbm_per_unit`) and moved to per-(SKU, line, tier)
+  totals. See `docs/CUSTOMS_AND_FREIGHT.md` for the full convention.
 
 - [Slice 12, resolved] `hs_cost_of_goods_sold` on HubSpot Products is unused
   at DPS because COGS is composite per-quote, not per-product. Slice 12

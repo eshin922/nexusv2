@@ -15,6 +15,9 @@ import {
   countFreightCellsWithDataForQuote,
   countFreightLinesForQuote,
 } from "@/app/actions/freight";
+import { getCostingBundle } from "@/app/actions/costing";
+import { CostingStoreProvider } from "@/components/costing-store-provider";
+import { QuoteSummaryCard } from "@/components/quote-summary-card";
 import { buildTreeRenderOrder, getEligibleParents } from "@/lib/sku-tree";
 import { IdBadge } from "@/components/id-badge";
 import { AddTierButton } from "./add-tier-button";
@@ -267,13 +270,32 @@ export default async function QuoteBuilderPage({
         </div>
       </Section>
 
-      <div className="mt-4 rounded-md border border-dashed border-gray-300 bg-white p-5">
-        <div className="text-sm font-semibold text-gray-700">Costing Sheet</div>
-        <p className="mt-1 text-sm text-gray-500">
-          Derived view across all cost inputs lands in Slice 8.
-        </p>
+      <div className="mt-4">
+        <CostingSummary quoteId={quote.id} editable={editable} />
       </div>
     </main>
+  );
+}
+
+async function CostingSummary({
+  quoteId,
+  editable,
+}: {
+  quoteId: string;
+  editable: boolean;
+}) {
+  const bundle = await getCostingBundle(quoteId);
+  if (!bundle.ok) {
+    return (
+      <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+        Costing summary unavailable: {bundle.error.message}
+      </div>
+    );
+  }
+  return (
+    <CostingStoreProvider snapshot={bundle.data}>
+      <QuoteSummaryCard variant="compact" editable={editable} />
+    </CostingStoreProvider>
   );
 }
 

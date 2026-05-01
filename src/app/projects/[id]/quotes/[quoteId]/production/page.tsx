@@ -9,8 +9,11 @@ import {
   quoteSkus,
   quoteTiers,
 } from "@/db/schema";
+import { getCostingBundle } from "@/app/actions/costing";
 import { buildTreeRenderOrder } from "@/lib/sku-tree";
 import { IdBadge } from "@/components/id-badge";
+import { CostingStoreProvider } from "@/components/costing-store-provider";
+import { QuoteSummaryCard } from "@/components/quote-summary-card";
 import { ProductionSection } from "./production-section";
 
 export default async function ProductionInputsPage({
@@ -30,7 +33,7 @@ export default async function ProductionInputsPage({
   const { quote, project } = quoteRows[0];
   if (project.id !== projectId) notFound();
 
-  const [skus, tiers, prodRows] = await Promise.all([
+  const [skus, tiers, prodRows, bundle] = await Promise.all([
     db
       .select()
       .from(quoteSkus)
@@ -46,6 +49,7 @@ export default async function ProductionInputsPage({
       .from(productionInputs)
       .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
       .where(eq(quoteSkus.quoteId, quote.id)),
+    getCostingBundle(quoteId),
   ]);
 
   const editable = quote.status === "draft";
@@ -99,7 +103,18 @@ export default async function ProductionInputsPage({
     }
   }
 
+  if (!bundle.ok) {
+    return (
+      <main className="mx-auto max-w-7xl p-6">
+        <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+          Costing bundle unavailable: {bundle.error.message}
+        </div>
+      </main>
+    );
+  }
+
   return (
+    <CostingStoreProvider snapshot={bundle.data}>
     <main className="mx-auto max-w-7xl p-6">
       <div className="mb-2 text-sm">
         <Link
@@ -231,12 +246,14 @@ export default async function ProductionInputsPage({
         </div>
       )}
 
-      <div className="mt-6 rounded-md border border-dashed border-gray-300 bg-white p-5 text-sm">
-        <span className="font-semibold text-gray-700">
-          Cost summary &amp; Costing Sheet
-        </span>
-        <span className="ml-2 text-gray-500">come in Slice 8.</span>
+      <div className="mt-6">
+        <QuoteSummaryCard
+          variant="compact"
+          editable={editable}
+          currentPage="production"
+        />
       </div>
     </main>
+    </CostingStoreProvider>
   );
 }
