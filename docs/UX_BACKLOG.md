@@ -920,6 +920,285 @@ Items here are intentionally deferred - capture, don't fix in the moment.
   real PM usage proves whether explicit role declaration adds value
   beyond what the tree shape already implies.
 
+## Design-driven feature commitments
+
+Items in this section are commitments that emerged from Claude
+Design's redesign rounds (rounds 1–3, post-Slice-9.1). Each is
+feature work that the redesign depends on. Items are tagged with
+target slice or sequenced as v1.5+ / post-MVP. "redesign-slice"
+means the item lands as part of the eventual redesign-implementation
+slice (TBD sequencing — see "Slice 18 candidate — frontend
+redesign" entry below).
+
+Source rounds noted in parentheses on each entry. Schema column
+names are illustrative; final names land at implementation time.
+
+### Round 2 commitments
+
+1. **System-suggested global price adjustment computation**
+   *(Round 2 → Slice 9.2)*
+   Live computation of the global price adjustment that lands
+   blended margin at firm target. One-click "Apply suggestion" UX.
+   Spec FR-7 references this; design provides concrete UX surface
+   (coaching banner on Costing Sheet when blended diverges from
+   target by ~0.3pp+). Implementation: pure function in
+   `src/lib/costing.ts` reverse-solving margin → required
+   adjustment. Cost: ~half a day.
+
+2. **Deep-link URL contract for Cost Build**
+   *(Round 2 → redesign-slice or Slice 13.5)*
+   Pattern: `/quote/[id]/build?focus=<section>-<row-id>` where
+   section ∈ {pkg, prod, frt} and row-id is the input row UUID.
+   Cost Build page handles param on mount; scrolls cell into view,
+   focuses input. Replaces need for a separate quick-edit surface.
+   Notification emails and future Slack messages link directly to
+   the cell. Cost: ~half a day.
+
+3. **Allocated-fee provenance schema**
+   *(Round 2 → Slice 13.5)*
+   Schema addition: `production_inputs.allocation_source_total`
+   (numeric — underlying one-time charge $) and
+   `production_inputs.allocation_source_qty` (int — divisor used).
+   Display as "$5,250 ÷ 25k" on allocated rows so PMs can trace
+   per-unit allocated provenance. Currently allocation math happens
+   in code with no audit trail surface. Cost: ~half a day.
+
+4. **Multi-user presence layer**
+   *(Round 2 → redesign-slice)*
+   Per-quote presence channel in Supabase Realtime. Publishes
+   `{user_id, current_page, current_section, last_active_at}` on
+   subscribe; subscribes to peers. UI: avatar cluster in app header
+   showing who's currently on this quote; per-user current-section
+   indicator (e.g., "Tomás · editing Packaging"). Coalesce updates
+   at 5s intervals. Builds on existing Slice 8.5 realtime
+   infrastructure. Cost: ~1 session.
+
+5. **Per-row "fresh since last visit" diff**
+   *(Round 2 → v1.5+)*
+   Schema addition: `quote_views` table tracking
+   per-user-per-quote last-seen timestamp. UI: small "fresh" dot on
+   rows updated since current user's last visit. Answers "where
+   was I" for re-entry sessions. Lower priority than presence (#4):
+   presence answers "who's here now," fresh-dot answers "what
+   changed while I was away." Cost: ~1 session.
+
+6. **⌘K global search**
+   *(Round 2 → post-MVP / Slice 13.5+)*
+   Quote-finding, SKU-finding, deal-finding, project-finding from
+   any page. Modal command palette pattern. Searches across
+   `quotes.scenario_label + version_number`,
+   `quote_skus.sku_label + product_name`,
+   `projects.deal_name + client_name`,
+   `hubspot_deals_cache.deal_name`. Standard pattern; existing
+   libraries (cmdk, kbar) handle most of it. Cost: ~1–2 sessions.
+
+7. **Owner-badge convention**
+   *(Round 2 → redesign-slice or trivially anywhere prior)*
+   Owner badges on Cost Build sections ("OWNED BY PURCHASING",
+   "OWNED BY PRODUCTION", "OWNED BY LOGISTICS"). Derived from
+   static mapping of `users.role` to cost-input-table ownership.
+   Surfaces implicit role assignments without making each role's
+   view siloed. Cost: ~1 hour. Trivially shippable.
+
+8. **Mark-Accepted gate visibility on Costing Sheet**
+   *(Round 2 → Slice 12 spec — see SPEC FR-9)*
+   Per CD's Round 2 pushback #2: gate state surfaces on the Costing
+   Sheet from the moment a quote has data, not only at the
+   Mark-Accepted action. Documented as SPEC FR-9 spec note (see
+   `docs/SPEC.md` → "Action contract notes"). No separate slice
+   work; clarifies FR-9 UX surface.
+
+9. **Slice 9.3 reframe — per-cell sell override**
+   *(Round 2 plan note)*
+   Slice 9.3 was originally framed as "markup-driven vs
+   margin-driven view toggle + per-line sell-price override," with
+   toggle implying global edit mode. Per CD pushback: global mode
+   dropped. Every sell-price cell is click-to-override; NULL =
+   computed; non-NULL = overridden, badged "OVR" with ↺ revert.
+   Schema unchanged: `quote_sku_tiers.sell_price_override`
+   (nullable). The reframe lands naturally when Slice 9.3 is built.
+
+10. **Role-as-affordance architectural principle**
+    *(Round 2 → CLAUDE.md — see "Role gating — affordance, not architecture")*
+    Documented as a CLAUDE.md note. Role checks happen at
+    cell/section affordance level, not page-component or routing
+    level. Single page, viewer param, dim non-owned sections. No
+    separate slice work.
+
+### Round 2.5 commitments
+
+11. **Per-row tier-spread sparkline + drawer for multi-tier entry**
+    *(Round 2.5 → redesign-slice)*
+    Always-on per-row sparkline showing cost variation across tiers
+    (shape vocabulary: `flat` / `step↓` / `partial` / `no costs`).
+    Click sparkline → opens per-row drawer with all four tier cells
+    visible, tab-traversable. Drawer footer has "↓ apply [active
+    tier value] to all tiers" affordance for the common case.
+    Optimizes "I just got a supplier quote sheet, paste in four
+    prices" flow. The sparkline shape is the data-shape vocabulary
+    that derives the customer-facing tier-pricing column (Round 3
+    carry-forward). Cost: ~1 session.
+
+12. **NULL = "no cost entered at this tier" semantics**
+    *(Round 2.5 → architectural commitment)*
+    NULL means "no cost entered at this tier" — never "inherit from
+    active tier." Schema-honest; validation engine clarity (Slice
+    9.5); audit-log fidelity. UX provides "↩ same as Tn" shortcuts
+    and "apply to all" affordances for fast entry without
+    inheritance logic. Materialized writes only. No new schema;
+    convention applied across cost-input tables.
+
+13. **"Mark as flat" SKU-level annotation**
+    *(Round 2.5 → backlog, schema TBD)*
+    Schema addition: `quote_skus.is_flat_pricing` boolean (or
+    per-line equivalent) marking SKUs/lines that structurally have
+    no volume break. Affordance in the multi-tier drawer
+    ("↪ Mark as flat (no volume break)"). Future supplier
+    re-quotes default to single-cost entry mode for flat-marked
+    items. Distinguishes "happens to be the same right now" from
+    "structurally no volume break." Cost: ~half a day.
+
+### Round 3 commitments
+
+14. **`quote_snapshots` table promotion (from inline json)**
+    *(Round 3 → Slice 11)*
+    Promotes spec section 10's v2 plan to v1. New table:
+    `id, quote_id, version_id, event (sent | accepted | superseded),
+    snapshot_json, created_at, created_by_user_id`. Replaces inline
+    `quotes.accepted_snapshot_json`. Foreign-keyed from
+    `quotes.accepted_snapshot_id`. Read paths for LOCKED state and
+    Final PDF go through snapshots, not live tables. Earlier
+    promotion than spec anticipated because we now want snapshots
+    at *send* time, not just accept time.
+
+15. **Send-event snapshot**
+    *(Round 3 → Slice 11)*
+    Every `sent` event writes a `quote_snapshots` row capturing the
+    customer-view tree at send time. Distinct from accept-event
+    snapshot. Required for the sent-vs-draft pinning model (#16).
+    Customer-view tree = vendor, customer, quote metadata, tiers,
+    skus.tier_prices, service_fees, freight_lines (everything in
+    `<PdfPage>` subtree).
+
+16. **Sent-version pinning in Mark-Accepted action**
+    *(Round 3 → Slice 11; see SPEC FR-9 "Action contract notes")*
+    Mark-Accepted action takes `version_id` (always the sent
+    version), not the current draft. Prevents "PM edits post-send →
+    silently accepts against draft" silent-data-corruption bug.
+    Drafts created after send are saved as sibling scenarios with
+    `status='dropped'`, `drop_reason='draft_at_accept'`.
+
+17. **Quote-level override audit pair**
+    *(Round 3 → Slice 12 spec; see SPEC FR-9)*
+    Schema additions:
+    `quotes.blended_below_floor_override_user_id` and
+    `quotes.blended_below_floor_override_reason`. Parallel to
+    existing line-level `underpriced_override_*` pair. Both pairs
+    needed because both gates can fire independently.
+
+18. **HubSpot writeback async confirmation UI**
+    *(Round 3 → Slice 12)*
+    LOCKED state shows "synced 2m ago" / "syncing…" / "sync failed
+    · retry" based on `hubspot_writeback.status`. Async, not
+    blocking. Failure is recoverable (retry button); success is
+    auditable. Spec FR-9 says "writeback failure handling and
+    retry"; CD specifies UX shape.
+
+19. **Sibling auto-drop on accept**
+    *(Round 3 → Slice 11 contract)*
+    `accept_source: 'manual_button'` triggers drop of all
+    `status='active'` siblings on same project. Schema: each
+    dropped sibling gets `drop_reason='accept_sibling'`,
+    `dropped_by_user_id` set, `dropped_at` timestamped. Auditable,
+    reversible by admin. Spec FR-9 partially covers ("auto-marks
+    any other active scenarios as dropped"); CD specifies
+    drop_reason and audit capture.
+
+20. **Draft-of-accepted-version sibling preservation**
+    *(Round 3 → Slice 11 contract)*
+    When PM accepts v3 but has v4 in draft on same scenario, v4 is
+    saved as sibling scenario with `status='dropped'`,
+    `drop_reason='draft_at_accept'`, `dropped_by_user_id` (the
+    accepting PM). PM's edits are preserved (recoverable from
+    dropped sibling), not silently discarded. Distinct from sibling
+    auto-drop (#19) which targets *other scenarios*; this targets
+    *the accepted scenario's own draft chain*.
+
+21. **PDF render path**
+    *(Round 3 → Slice 11)*
+    Customer-view component tree renders to PDF deterministically.
+    Same component, two render targets (web preview + PDF). Round
+    3 designs the component; PDF backend (react-pdf or similar) is
+    its own slice work. Build pipeline asserts component import
+    boundary (#23).
+
+22. **Snapshot-render path for LOCKED state**
+    *(Round 3 → Slice 11)*
+    `View snapshot` and `Final PDF` actions on LOCKED state render
+    from `quote_snapshots.json`, not from live tables.
+    Schema-versioned: if customer-view shape changes in future, old
+    snapshots still render against captured shape. Snapshot is
+    canonical post-acceptance.
+
+23. **Boundary-guard build invariant**
+    *(Round 3 → cross-cutting / implementation-slice; see CLAUDE.md
+    "Customer-view boundary guard")*
+    Build pipeline asserts `<PdfPage>` and descendants import zero
+    modules from costing surface. Failure mode: build error, not
+    runtime check. Prevents accidental leakage of internal-only
+    fields (markup, margin, cost components, customs, version
+    metadata) into customer-facing render tree. Visual notice on
+    preview ("Nothing below this line is in the customer's tree")
+    is design rhetoric; actual enforcement is structural.
+
+24. **Send-time PDF layout choice**
+    *(Round 3 → Slice 11 spec)*
+    Send action accepts
+    `pdf_layout: 'tier_table' | 'single_tier'` parameter. Default
+    `tier_table` (preserves Excel-flow expectation). PM picks
+    per-quote at send time. Both layouts render from same
+    component tree; same boundary guard applies. Reversible
+    (re-send with different layout creates new sent-event
+    snapshot).
+
+25. **Frozen Cost Build during pending approval**
+    *(Round 3 → Slice 12 spec; see SPEC FR-9)*
+    When override request is pending, Cost Build edits are frozen
+    on that quote. Editing during pending-approval would invalidate
+    the gate state the approver is approving against.
+    Cancel-then-edit is the explicit path. Cancel sends a "request
+    withdrawn" Slack reply automatically.
+
+### Visual / chrome / observability commitments emerging across rounds
+
+26. **Cost Build section visual close treatment**
+    *(Round 2 polish observation → redesign-slice)*
+    Section openings are unambiguous (colored accent bar, OWNED BY
+    badge, COMPLETE chip, subtotal); section closes are invisible
+    (Packaging's last row and Production's first row separate by
+    same visual weight as adjacent rows within Packaging). CD to
+    make the design call honoring existing visual system (likely
+    color-coded left edge full-height, or extended section accent —
+    *not* card encapsulation). Bundled into redesign-slice; not a
+    separate ticket.
+
+27. **Cost Build right-column elimination**
+    *(Round 2 polish observation → redesign-slice)*
+    Today's third column (presence panel + deep-link explainer)
+    crushes work-surface real estate. Strip in production: presence
+    becomes header element (avatar cluster top-right); deep-link
+    contract works invisibly without explainer panel. Cost Build →
+    two-column layout (tier rail + work surface). Bundled into
+    redesign-slice.
+
+28. **Cost stack panel live-interactive animation**
+    *(Round 2 polish observation → Slice 9.2 / redesign-slice)*
+    Slider drag animates cost stack bars to new state in real-time
+    (CSS transition on width/height, not flicker-replace).
+    Optimistic store already supports the data path; this is a CC
+    implementation detail at slice time. CD's design specifies the
+    animation grammar.
+
 ## Resolved
 
 - [Slice 8 sub-step 5, resolved] Numeric overflow on percent fields.

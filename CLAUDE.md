@@ -472,6 +472,64 @@ Reference: `src/lib/admin-guard.ts`. Pattern instances:
 `src/app/actions/firm-settings.ts` and `src/app/actions/markup-defaults.ts`
 (action).
 
+## Role gating — affordance, not architecture
+
+Role checks happen at the cell/section affordance level, not at the
+page-component or routing level. Single page renders for everyone in
+a given screen; write affordances filter by role.
+
+Example: Cost Build is one page. A PM viewing it sees all cost
+groups editable. A Purchasing user viewing the same page sees
+Packaging editable, Production and Freight read-only with a subtle
+dim treatment and a "read-only · viewing as Purchasing" caption.
+Same route, same component tree, same data fetch — the affordance
+check is per-section.
+
+This holds at Nexus's scale (5–7 users, role overlap is real,
+separate IA per role would be over-engineering). It does NOT scale
+to multi-tenant SaaS or large orgs where role-as-architecture buys
+real isolation. Nexus is internal-tool small; the affordance
+pattern is the right fit.
+
+Distinct from the admin gate above (`requireAdminPage` /
+`requireAdminAction`): admin is a hard security boundary checked at
+the page + action layer because the surfaces themselves are
+admin-only. Role-as-affordance applies to *shared* surfaces where
+multiple roles co-edit different sections of one page.
+
+Reference: Claude Design Round 2 pushback #3 (April 2026).
+
+## Customer-view boundary guard — build-time invariant
+
+Anything in the customer-facing render tree (the `<PdfPage>`
+component and all descendants) must import zero modules from the
+costing surface. Specifically forbidden in this subtree:
+
+- `markup_pct`, `markup_pct_source`, component_markup
+- cost_input rows (`packaging_inputs`, `production_inputs`,
+  `freight_inputs`)
+- `duty_pct`, `tariff_pct`, `sku_total_cbm`
+- cost-stack composition (contribution_cost decomposition)
+- supplier names (commercial confidence)
+- `version_number`, `scenario_label` (internal versioning)
+- `audit_log` fields, presence indicators, multi-user state
+- any debug or QA affordances
+
+Enforcement: build pipeline asserts the import boundary. Failure
+mode: build error at compile time, not runtime check. The visual
+"BOUNDARY GUARD" notice in the PM-internal preview is design
+rhetoric; the actual enforcement is structural.
+
+The PM-internal preview surface (where PMs review before sending)
+renders the same `<PdfPage>` component tree the PDF generator uses.
+Same component, two render targets. The PM's preview chrome
+(sidebar, header, send button, download button) lives *outside*
+`<PdfPage>` and is not included in the PDF render.
+
+Reference: Claude Design Round 3, commitment #23 (April 2026). See
+SPEC FR-10 for customer-view scope; UX_BACKLOG entry "Boundary-
+guard build invariant" for implementation details.
+
 ## Form state pattern (added Slice 5)
 
 All auto-saving forms in Nexus use **controlled inputs + useActionState**,

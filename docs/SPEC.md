@@ -419,6 +419,26 @@ On a `sent` quote, PM clicks "Mark as Accepted" and selects which tier the custo
 
 > **Note on `hs_cost_of_goods_sold`.** This is *additive*, not preservation of existing functionality. DPS HubSpot Products do not carry `hs_cost_of_goods_sold` because COGS is a composite per-quote, per-tier value (packaging + freight + production + service fees) that varies by volume and supplier — it cannot be expressed as a single product-level number. Slice 12's writeback populating line-item-level COGS from Nexus is the first time HubSpot has had real margin data for DPS deals. This unlocks native HubSpot reporting via `hs_margin = amount - hs_cost_of_goods_sold` for the first time, so margin per deal/per line/per category is queryable in HubSpot itself, not only via Nexus's Management Dashboard. Backward compatibility with the existing HubSpot → NetSuite Sales Order sync is preserved — the sync owner needs to confirm it accepts populated COGS gracefully (verification tracked in `docs/UX_BACKLOG.md`).
 
+#### Action contract notes (added post-design Rounds 2–3)
+
+**Gate visibility surface (Costing Sheet).** Gate state visibility surfaces on the Costing Sheet from the moment a quote has data, not only at the Mark-Accepted action. Mark Accepted button is visibly disabled when either gate fires; "Request admin override" is a sibling primary action; lines requiring review are anchored at the top of the Costing Sheet. PM resolves or requests override before reaching the Mark-Accepted moment. By acceptance time, the verdict is ratification, not arbitration. See Round 2 design for canonical treatment.
+
+**Sent-version pinning.** Mark-Accepted action takes `version_id` (always the sent version), never the current draft. PM editing a sent quote post-send creates draft v(n+1); customer responds against sent v(n). Mark-Accepted locks v(n) and preserves v(n+1) as a sibling scenario with `status='dropped'`, `drop_reason='draft_at_accept'`, `dropped_by_user_id` (the accepting PM). PM's draft work is recoverable from the dropped sibling, not silently discarded. The sent-vs-draft mismatch surfaces inline on the Mark-Accepted screen with `View v_sent (preview)` and `Compare v_sent ↔ v_draft changes` affordances. Distinct from sibling auto-drop in step 3 above (that targets *other* scenarios on the project; this targets the accepted scenario's *own* draft chain). See Round 3 design for canonical treatment.
+
+**Override audit captures.** Two parallel field pairs because both gates can fire independently:
+- Line-level: `quotes.underpriced_override_user_id`, `quotes.underpriced_override_reason` (existing).
+- Quote-level: `quotes.blended_below_floor_override_user_id`, `quotes.blended_below_floor_override_reason` (added Slice 12).
+
+**Override workflow** (per UX_BACKLOG "Design-driven feature commitments" → override pattern):
+1. PM clicks "Request admin override" on Costing Sheet.
+2. System drafts Slack DM to leadership (`@nina (sales-leadership)` or configured equivalent).
+3. PM reviews Slack DM, captures reason, sends.
+4. Out-of-band approval (admin replies in Slack thread or clicks approval link).
+5. Approval logs back to `quote_warnings.override_status` and `audit_log`.
+6. Mark-Accepted button enables; PM proceeds with tier selection + AcceptConfirm modal.
+
+**Frozen Cost Build during pending approval.** When `override_request.status='pending'` on a quote, Cost Build edits on that quote are frozen. Editing during pending-approval would invalidate the gate state being approved against. Cancel-then-edit is the explicit path. Cancel automatically sends a "request withdrawn" Slack reply.
+
 ### FR-10: PDF Generation
 Customer-facing PDF derived from Quote view at the selected tier (or all tiers as a tiered-pricing PDF). Internal numbers never appear. Layout matches Estimate-tab style.
 
