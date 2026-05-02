@@ -178,6 +178,12 @@ export const quotes = pgTable(
     globalPriceAdjPct: numeric("global_price_adj_pct", { precision: 5, scale: 4 })
       .notNull()
       .default("0"),
+    // Slice 9.1 — per-quote override of firm_settings.target_margin_pct.
+    // NULL = use the firm-level value (current behavior). When set,
+    // replaces the firm-level target for THIS quote's blended margin
+    // verdict (GOOD / BELOW_TARGET / BELOW_FLOOR thresholds). Wired
+    // up in Slice 9.2 alongside the per-tier price adjustment.
+    targetMarginPct: numeric("target_margin_pct", { precision: 5, scale: 4 }),
     // Self-FK; declared via foreignKey() below.
     copiedFromQuoteId: uuid("copied_from_quote_id"),
     customerFacingNotes: text("customer_facing_notes"),
@@ -221,6 +227,22 @@ export const quoteTiers = pgTable(
     label: text("label").notNull(),
     qty: integer("qty"), // nullable: "not yet specified" rather than sentinel 0
     sortOrder: integer("sort_order").notNull().default(0),
+    // Slice 9.1 — per-tier override of quotes.global_price_adj_pct.
+    // NULL = use the global value (current behavior). When set,
+    // REPLACES the global for THIS tier's costing math (not stacks).
+    // PMs use this when one tier needs a different markup than the
+    // quote-level adjustment. Wired up in Slice 9.2.
+    tierPriceAdjPct: numeric("tier_price_adj_pct", { precision: 5, scale: 4 }),
+    // Slice 9.1 — PM-entered customer target price per unit for this
+    // tier ("client wants $5 landed at 50k"). NULL = no target
+    // (current behavior). Used in Slice 9.4 for two-axis status
+    // (margin verdict + competitive verdict — COMPETITIVE / OVER /
+    // WAY OVER) and the reverse-solve "Apply suggested adj to match
+    // client target" affordance.
+    clientTargetPricePerUnit: numeric("client_target_price_per_unit", {
+      precision: 10,
+      scale: 4,
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

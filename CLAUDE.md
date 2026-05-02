@@ -309,9 +309,9 @@ shapes of PK:
   `projects`, `users`): UUIDs cast to text losslessly. Existing audit
   rows from before migration 0013 are unchanged in value, just
   re-typed.
-- **Text-PK entities** (`markup_defaults.category` today; future Slice
-  9 cost-categories table, Slice 13 deal organizer tags, Slice 14
-  scenario labels): the PK value goes directly into `entity_id`.
+- **Text-PK entities** (`markup_defaults.category` today; future
+  Slice 13 deal organizer tags, Slice 14 scenario labels): the PK
+  value goes directly into `entity_id`.
 
 When auditing a row with a text PK, set `entity_id` to the PK value
 directly. Do NOT synthesize a UUID and stash the real key in
@@ -326,6 +326,82 @@ entity_id column type.
 Caught Slice 8 admin smoke-test 7: `INSERT INTO audit_log` with
 `entity_id = 'Test Category'` rejected by the prior `uuid` type.
 Migration 0013_wide_cassandra_nova converts via `entity_id::text`.
+
+## Slice 9 pricing-control columns (added 9.1, migration 0014)
+
+Three nullable columns sit in the schema awaiting their UI in
+later Slice 9 sub-slices. Future engineer reading the schema needs
+to know they exist and what they're for, even before they're
+populated:
+
+- **`quotes.target_margin_pct numeric(5,4)`** — per-quote override
+  of `firm_settings.target_margin_pct`. NULL = use the firm-level
+  value (current behavior). Set = replaces the firm-level target
+  for that quote's blended margin verdict (GOOD / BELOW_TARGET /
+  BELOW_FLOOR thresholds). **Wired up in Slice 9.2** alongside the
+  per-tier price adjustment.
+- **`quote_tiers.tier_price_adj_pct numeric(5,4)`** — per-tier
+  override of `quotes.global_price_adj_pct`. NULL = use the global
+  value. Set = REPLACES the global for that tier's costing math
+  (not stacks). PMs use this when one tier needs a different markup
+  than the quote-level adjustment. **Wired up in Slice 9.2.**
+- **`quote_tiers.client_target_price_per_unit numeric(10,4)`** —
+  PM-entered customer target price per unit for the tier ("client
+  wants $5 landed at 50k"). NULL = no target. Used in Slice 9.4 for
+  two-axis status (margin verdict + competitive verdict —
+  COMPETITIVE / OVER / WAY OVER) and the reverse-solve "Apply
+  suggested adj to match client target" affordance. **Wired up in
+  Slice 9.4.**
+
+All three default to NULL on insert. Existing rows got NULL on
+migration. Behavior unchanged until the wiring slices land.
+
+**Effective-value pattern when wiring up (Slice 9.2):** the
+`quotes.targetMarginPct` and `firmSettings.targetMarginPct`
+columns share the same JS property name (Drizzle infers types
+per-table so types stay correct, but the namespace collides
+visually). Same shape for `quote_tiers.tierPriceAdjPct` vs
+`quotes.globalPriceAdjPct`. Wiring code must read the per-row
+override first and fall back to the higher-level value:
+
+```ts
+const effectiveTarget = quote.targetMarginPct ?? firm.targetMarginPct;
+const effectiveAdj    = tier.tierPriceAdjPct  ?? quote.globalPriceAdjPct;
+```
+
+Reading just the higher-level value silently ignores the
+override. Reading the override without the fallback breaks every
+quote that hasn't set one (the common case). Both directions are
+foot-guns; the `??` chain is the only correct read pattern.
+Surface this in the costing-rollup unit tests when 9.2 ships —
+add fixtures that exercise both "override set" and "override
+NULL" branches.
+
+## Markup vocabulary decision (Slice 9.1)
+
+The 7-category schedule (Primary, Secondary, Manufacturing,
+Tooling, Freight, Soft Goods, Other) **plus** the hybrid workbook
+additions (Co-Packing, Filling and Packout, Cards/Booklets,
+Logistics, One Time Charges, Passthrough, R&D / Testing, Raw
+Ingredients, Secondary - Cards/Booklets, Secondary - Corrugated,
+Secondary - Labels, Turnkey) are the actual production vocabulary.
+**Not placeholders.** Stable going forward.
+
+The prior plan to redefine these in Slice 9 was based on a
+misread that has since been corrected. Earlier comments and
+banners that said "categories will be redefined in Slice 9" or
+"v1 placeholders" are stale — sweep them out when you encounter
+them. Slice 9.1 removed the obvious surfaces (`/admin/markup-
+defaults` banner). Code comments referencing "Slice 9 redefines"
+in domain files (e.g., `src/db/schema.ts` `quote_skus` block)
+should be cleaned opportunistically — they're not actively
+misleading anymore but they're also not true.
+
+Default markup % values per category are a separate
+data-hygiene exercise: finance reviews and confirms, admin updates
+each value via `/admin/markup-defaults` (audit-logs naturally), no
+code change required. See SPEC §12 open question #4 and the
+matching UX_BACKLOG entry. Not slice-blocking.
 
 ## Action result pattern (added Slice 5)
 

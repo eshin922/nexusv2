@@ -310,7 +310,7 @@ Org-level policy. Single row (or one row per active version with effective dates
 | updated_by_user_id | uuid | FK |
 | updated_at | timestamptz | |
 
-Seed values from the 360 worksheet plus hybrid workbook additions (Co-Packing, Filling and Packout, Cards/Booklets, Logistics, One Time Charges, Passthrough, R&D / Testing, Raw Ingredients, Secondary - Cards/Booklets, Secondary - Corrugated, Secondary - Labels, Turnkey). Defaults for the new categories TBD with finance before Slice 9.
+Seed values from the 360 worksheet plus hybrid workbook additions (Co-Packing, Filling and Packout, Cards/Booklets, Logistics, One Time Charges, Passthrough, R&D / Testing, Raw Ingredients, Secondary - Cards/Booklets, Secondary - Corrugated, Secondary - Labels, Turnkey). Default markup % values per category to be confirmed by finance as data hygiene; not a Slice 9 dependency.
 
 #### `audit_log`
 Append-only forensic record.

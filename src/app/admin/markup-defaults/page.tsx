@@ -32,19 +32,6 @@ export default async function MarkupDefaultsAdminPage() {
         </p>
       </header>
 
-      <div
-        role="note"
-        className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
-      >
-        <p className="font-semibold">Slice 9 prerequisite</p>
-        <p className="mt-1">
-          The category schedule is being redefined for Slice 9 based on
-          "line of work." Edits here apply to v1 schema and may need to be
-          re-entered after Slice 9 migration. Talk to Edward before
-          large-scale changes.
-        </p>
-      </div>
-
       <section>
         <h2 className="mb-3 text-base font-semibold text-slate-900">
           Existing categories
