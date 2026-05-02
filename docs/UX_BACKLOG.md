@@ -5,6 +5,18 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [data hygiene — finance confirmation of default markup %]
+  Finance reviews and confirms default markup % values per category
+  in the existing schedule (7 categories from the 360 worksheet +
+  hybrid workbook additions; vocabulary is stable per Slice 9.1
+  decision, see CLAUDE.md "Markup vocabulary decision"). When
+  finance signs off on each value, an admin updates the per-category
+  defaults via `/admin/markup-defaults` (audit-logs naturally,
+  per-row inline edit pattern from Slice 8). **No code change
+  required.** Not slice-blocking, not architectural — just
+  shouldn't fall off the radar. Cross-references SPEC §12 open
+  question #4.
+
 - [v1.5+ — manual per-environment ops hygiene, gates second-developer
   onboarding] Broader-than-migrations risk: anything that must be
   applied per-environment outside of `git push → Vercel auto-deploy`
