@@ -5,6 +5,56 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [v1.5+ — manual per-environment ops hygiene, gates second-developer
+  onboarding] Broader-than-migrations risk: anything that must be
+  applied per-environment outside of `git push → Vercel auto-deploy`
+  has no environment indicator and can drift silently between dev
+  and prod. The Slice 8 production crash was the first instance
+  caught; the category is wider.
+
+  In-scope ops:
+  - **Drizzle migrations** (`npx drizzle-kit migrate`). Reads
+    whatever `DATABASE_URL` is set; if `.env.local` briefly points
+    at prod (or prod URL is in shell), migrations apply silently.
+    Slice 8 example: digest 2641917463 — migrations applied to
+    prod, code not yet deployed → schema/code drift → every quote
+    drill-in 500'd until the PR merged.
+  - **Supabase project config not modeled in Drizzle** — see
+    `drizzle/manual/`. Realtime publication membership, RLS state +
+    policies, Storage bucket config, Edge Functions. Slice 8.5
+    introduced `ALTER PUBLICATION supabase_realtime ADD TABLE ...`
+    as the first instance; future config in this category lands in
+    the same directory.
+  - **Vercel project env vars.** New env vars added in code but not
+    set on prod silently fail (`process.env.X` returns undefined,
+    handled or not by the consumer). Slice 8's `ADMIN_EMAILS` is
+    handled gracefully (`?? ""`); other future env vars may not be.
+
+  Mitigations (generalize across all three classes):
+  - Separate `npm run db:migrate:prod` / `npm run manual:apply:prod`
+    scripts that require an explicit `--confirm-prod` flag.
+  - Check `DATABASE_URL` host (and other env-targeting indicators)
+    against an allowlist before running; warn loudly if pointing at
+    a prod host.
+  - CI/CD-only application via a deploy hook (Vercel Build Step or
+    GitHub Action) that runs migrations + manual SQL + env-var
+    presence checks against prod only on `main` push, atomically
+    with code deploy. Removes the local-machine path entirely.
+  - Pre-deploy verification scripts (`scripts/verify/*`) run as
+    part of CI; PR merge blocked if dev/prod parity fails.
+
+  **Cross-reference: Slice 1 open question #7 (backup admin /
+  bus-factor).** The foot-gun's blast radius scales with developer
+  count — at solo dev it's recoverable in ~5 minutes; at 2+ devs
+  the merge-vs-migrate (or merge-vs-manual-apply) ordering becomes
+  a coordination problem. Dev A migrates locally to test, forgets
+  to revert; Dev B's PR merges and deploys against the now-
+  mismatched prod. Multiplies once Supabase config (publication,
+  RLS) and env vars enter the manual-ops surface. **This is not
+  nice-to-have — it gates safe onboarding of a second
+  admin/developer.** Pull forward whenever the second dev is
+  imminent.
+
 - [v1.5+ — concurrent firm_settings write race] `updateFirmSettings`
   closes the prior current row + inserts a new current row in a
   transaction, but Postgres default `read committed` isolation
@@ -164,7 +214,24 @@ Items here are intentionally deferred - capture, don't fix in the moment.
      that affect this quote's costing — `quotes`, `quote_skus`,
      `quote_tiers`, `packaging_inputs`, `production_inputs`,
      `freight_inputs`, `markup_defaults`, `firm_settings`. Filter by
-     `quote_id` where applicable. Unsubscribe on unmount.
+     `quote_id` where applicable (works for `quotes`, `quote_skus`,
+     `quote_tiers`). For per-input tables (`packaging_inputs`,
+     `production_inputs`, `freight_inputs`) which only have
+     `quote_sku_id`: Slice 8.5 ships with **broad subscribe + client-
+     side payload filter on `quote_sku_id` membership in local
+     store's known SKU set**. quote_skus ADD events trigger
+     reconcile, which pulls new SKUs into the store, which makes
+     subsequent input events on those SKU IDs pass the filter.
+
+     **v2 optimization candidates (revisit if Slice 14 parallel
+     scenarios meaningfully increases per-tab subscription count):**
+     - Client-side filter using local known-SKU set (what 8.5 ships).
+     - DB-side filter via denormalized `quote_id` column on the three
+       per-input tables. Schema migration; clean filter; adds drift
+       risk to input writes.
+     - Authenticated Supabase client with per-quote channel scoped
+       through RLS-aware filter expressions. Requires the JWT bridge
+       infrastructure (see RLS-on branch in #45 diligence).
 
   6. **Connection management.** Handle Supabase reconnects gracefully.
      On reconnect, force a re-fetch + reconcile to catch missed
@@ -418,6 +485,29 @@ Items here are intentionally deferred - capture, don't fix in the moment.
   previously lived here — context-aware validation expands to cover
   all input categories AND anomaly detection, not just customs/CBM.
 
+- [Slice 13.5 polish — header chrome consolidation] Replace the
+  current stacked-headers pattern (white app header + dark admin
+  header on `/admin/*`) with **mutually-exclusive header states**:
+
+  - **Inside `/admin/*`:** the dark admin header is the only header.
+    It carries the app logo on the left (click → returns to quoting
+    tool, replacing the redundant explicit "Back to quoting tool"
+    link), the page title in the middle, and a user menu on the
+    right (consolidating the email display, sign-out, and any
+    future user controls).
+  - **Outside `/admin/*`:** the white app header shows. Same logo
+    + user menu, no admin link to itself.
+
+  Eliminates: stacked chrome bars, redundant "Back to quoting tool"
+  link (logo click does the same), inconsistent user-display
+  patterns (email-as-text in admin header vs sign-out-button on
+  home).
+
+  Slice 8.5 shipped a partial fix — Settings link hides on /admin
+  via pathname check in AppHeaderClient. That removes the
+  pointing-at-self problem but leaves the stacked bars. Full
+  consolidation lands here.
+
 - [Slice 13.5 polish — UX clarity sweep] Field labels and helper text
   across all input pages. Many fields have names/placeholders that
   are clear to developers but require context PMs don't have. Sweep
@@ -473,6 +563,54 @@ Items here are intentionally deferred - capture, don't fix in the moment.
   NOT a full sweep — that's Slice 13.5. Just enough to make the
   freight page self-explanatory for PM testing during Slice 9+.
   Specific candidates:
+  - **`npm run cure` script (SHIPPED in Slice 8.5).** Bundles the
+    standard cure pattern (kill node + clear caches + restart) into
+    one command. Lives at `scripts/cure.mjs`. Cross-platform
+    (Windows taskkill / Unix pgrep) with PID exclusion so the
+    script doesn't kill itself. Reduces friction of the
+    repeatedly-needed cure cycle (4–5 manual invocations during
+    Slice 8.5 dev alone). Step 4 (close browser tabs) is still
+    manual — can't automate. CLAUDE.md "Server action ID
+    invalidation" section now references the one-command path.
+  - **Cross-user input-staleness awareness signal.** Surfaced
+    during Slice 8.5 multi-user smoke test #51. Current behavior
+    (correct, intentional): when a remote user edits a cell, the
+    realtime reconcile updates the local store + rollup display,
+    but each individual `<input>` retains its `useState`-bound
+    local value (because we don't want to clobber the local
+    user's typed-but-unsaved values). Net result: the rollup is
+    fresh, but the input value-shown in the cell is stale. If the
+    local user starts typing in that input, they overwrite the
+    remote change without knowing. Footgun.
+
+    Smallest viable signal: when a reconcile arrives that diff
+    against the prior snapshot in any input row that the user
+    isn't currently focused on, dispatch a CustomEvent that
+    surfaces a small dismissible banner: "Updated by another
+    user — input values may be stale until you reload." Banner
+    disappears on next user action OR manual dismissal. NOT a
+    full conflict-resolution UI (per the original Slice 8.5
+    "don't do" list); just an awareness signal. PMs can decide:
+    reload to pick up remote values, or proceed and overwrite.
+
+    Implementation lives in `costing-store-provider.tsx` as a
+    second pipe alongside the existing scheduleReconcile —
+    compare snap-before vs snap-after on each reconcile, dispatch
+    on diff. CostingStoreProvider is the right home because it
+    sees both the prior store state and the incoming snapshot.
+  - **Admin settings entry point in header nav.** Currently admins
+    reach `/admin/*` only by typing the URL. Add a "Settings" link
+    (or gear icon) in the top header, visible only when
+    `isAdmin(email)` returns true (env-based check via
+    `src/lib/admin-guard.ts` — no per-render DB hit; action-layer
+    `requireAdminPage`/`requireAdminAction` remains the security
+    boundary). Persistent across all pages, not home-only — admin
+    settings are infrastructure, not a destination, and should be
+    one click from anywhere. The `/admin` index page itself
+    already exists (Slice 8) as a two-card landing page for
+    Firm Settings + Markup Defaults; this entry only adds the
+    header affordance to reach it. Layout sidebar / proper nav
+    can come later when there are more admin pages.
   - Freight: "Total freight" → "Shipment freight cost" + tooltip
   - Freight: "default: 10,000" placeholder → "10,000 (using tier qty)"
   - Freight: → apply-to-all icon → tooltip "Apply to all tiers"

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { updateSkuCustomsData } from "@/app/actions/freight";
 import { useCostingStore } from "@/components/costing-store-provider";
+import { HelpTooltip } from "@/components/help-tooltip";
 import { selectUpdateCustoms } from "@/lib/costing-store";
 import { validatePercentDecimal } from "@/lib/percent-validation";
 
@@ -117,19 +118,28 @@ export function CustomsRow({
         <span className="rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-900">
           Internal — not shown to customer
         </span>
+        <HelpTooltip>
+          <p className="font-medium text-gray-900">
+            Internal only — never shown to the customer.
+          </p>
+          <p className="mt-2">
+            <strong>CBM share</strong> determines this SKU&apos;s portion of
+            the shipment&apos;s freight cost.
+          </p>
+          <p className="mt-1">
+            <strong>Duty %</strong> and <strong>Tariff %</strong> apply to
+            the SKU&apos;s factory cost.
+          </p>
+          <p className="mt-2">
+            All three roll up into the customer-facing freight number
+            invisibly.
+          </p>
+        </HelpTooltip>
         {pending && <span className="text-[10px] text-gray-500">saving…</span>}
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-gray-700">
-            Duty %
-            <span
-              className="ml-1 cursor-help text-gray-400"
-              title="Import duty applied to factory cost. Confirm with freight forwarder for new items."
-            >
-              ⓘ
-            </span>
-          </span>
+          <span className="text-gray-700">Duty %</span>
           <div className="flex items-center gap-1">
             <input
               type="number"
@@ -165,15 +175,7 @@ export function CustomsRow({
           )}
         </label>
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-gray-700">
-            Tariff %
-            <span
-              className="ml-1 cursor-help text-gray-400"
-              title="Country-specific tariff (e.g., Section 301) applied to factory cost. Confirm with freight forwarder for new items."
-            >
-              ⓘ
-            </span>
-          </span>
+          <span className="text-gray-700">Tariff %</span>
           <div className="flex items-center gap-1">
             <input
               type="number"

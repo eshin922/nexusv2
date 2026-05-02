@@ -9,6 +9,7 @@ import {
   updateFreightTierCell,
 } from "@/app/actions/freight";
 import { useCostingStore } from "@/components/costing-store-provider";
+import { HelpTooltip } from "@/components/help-tooltip";
 import {
   selectUpdateFreightCell,
   selectUpdateFreightLineMeta,
@@ -27,7 +28,7 @@ function parseNumOrNull(v: string): number | null {
 }
 
 const FREIGHT_MODES = [
-  { value: "", label: "—" },
+  { value: "", label: "— freight mode —" },
   { value: "parcel", label: "Parcel" },
   { value: "ltl", label: "LTL" },
   { value: "ftl", label: "FTL" },
@@ -270,7 +271,7 @@ export function FreightLineRow({
               });
               scheduleSave({ markup: v });
             }}
-            placeholder="—"
+            placeholder="Freight markup"
             className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400"
           />
           <span className="text-xs text-gray-500">%</span>
@@ -280,27 +281,45 @@ export function FreightLineRow({
             </span>
           )}
         </div>
-        <select
-          value={freightTreatment}
-          disabled={disabled}
-          onChange={(e) => {
-            const v = e.target.value as "bundled" | "pass_through";
-            setFreightTreatment(v);
-            updateFreightLineMeta(line.lineGroupId, { freightTreatment: v });
-            fireImmediateSave({ freightTreatment: v });
-          }}
-          // Amber accent on pass-through to keep the visual signal that
-          // it's the less-default choice PMs need to consciously select.
-          // Bundled stays neutral. Same border/height/font as freightMode.
-          className={`rounded border bg-white px-2 py-1 text-sm focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 ${
-            freightTreatment === "pass_through"
-              ? "border-amber-300 bg-amber-50 text-amber-900 focus:border-amber-400"
-              : "border-gray-200 focus:border-gray-400"
-          }`}
-        >
-          <option value="bundled">Bundled</option>
-          <option value="pass_through">Pass-through</option>
-        </select>
+        <div className="flex items-center gap-1">
+          <select
+            value={freightTreatment}
+            disabled={disabled}
+            onChange={(e) => {
+              const v = e.target.value as "bundled" | "pass_through";
+              setFreightTreatment(v);
+              updateFreightLineMeta(line.lineGroupId, { freightTreatment: v });
+              fireImmediateSave({ freightTreatment: v });
+            }}
+            // Amber accent on pass-through to keep the visual signal that
+            // it's the less-default choice PMs need to consciously select.
+            // Bundled stays neutral. Same border/height/font as freightMode.
+            className={`flex-1 rounded border bg-white px-2 py-1 text-sm focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 ${
+              freightTreatment === "pass_through"
+                ? "border-amber-300 bg-amber-50 text-amber-900 focus:border-amber-400"
+                : "border-gray-200 focus:border-gray-400"
+            }`}
+          >
+            <option value="bundled">Bundled (folded into unit price)</option>
+            <option value="pass_through">
+              Pass-through (separate line)
+            </option>
+          </select>
+          <HelpTooltip>
+            <p className="font-medium text-gray-900">
+              Customer visibility setting, not who pays.
+            </p>
+            <p className="mt-2">
+              <strong>Pass-through</strong> shows freight as its own line
+              item on the customer quote (with duty + tariff folded in
+              silently).
+            </p>
+            <p className="mt-1">
+              <strong>Bundled</strong> folds freight into the unit price;
+              the customer sees no separate freight line.
+            </p>
+          </HelpTooltip>
+        </div>
         <input
           value={notes}
           disabled={disabled}
@@ -471,6 +490,14 @@ function FreightTierCell({
           placeholder="Total freight"
           className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400"
         />
+        <HelpTooltip>
+          <p>
+            The freight forwarder&apos;s quoted amount for this entire
+            shipment line. Nexus allocates it across SKUs by their CBM
+            share, then divides by tier quantity to reach the per-unit
+            freight cost.
+          </p>
+        </HelpTooltip>
       </label>
       <button
         type="button"
@@ -522,7 +549,7 @@ function FreightTierCell({
             updateFreightCell(cell.rowId, { skuTotalCbm: parseNumOrNull(v) });
             scheduleSave({ cbm: v });
           }}
-          placeholder="SKU total CBM"
+          placeholder="CBM in this shipment"
           className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400"
         />
         <span className="text-xs text-gray-500">m³</span>

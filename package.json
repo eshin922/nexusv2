@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "cure": "node scripts/cure.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -15,6 +16,7 @@
   "dependencies": {
     "@clerk/nextjs": "^6.12.0",
     "@hubspot/api-client": "^13.5.0",
+    "@supabase/supabase-js": "^2.105.1",
     "drizzle-orm": "^0.36.4",
     "next": "^15.1.0",
     "postgres": "^3.4.5",

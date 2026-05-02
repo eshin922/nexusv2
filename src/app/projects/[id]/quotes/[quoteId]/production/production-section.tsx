@@ -258,6 +258,54 @@ export function ProductionSection({
     scheduleCellSave(tierIndex, { [field]: value });
   }
 
+  // Slice 8.5 #53 — fill-right semantics: copy this tier's value for
+  // `field` to all tiers AFTER this one (higher tier index). Mirrors
+  // spreadsheet "drag-fill rightward" behavior. Last tier's button
+  // has no targets and is hidden in CellRow.
+  //
+  // Sequenced client-side fires through the existing save path (no
+  // batch endpoint per the slice spec). Each save passes its target
+  // tier's full row state with the override merged in via
+  // fireCellSave's `overrides` parameter — matches the save-handler
+  // pattern from CLAUDE.md.
+  //
+  // No-op if the source value is empty (nothing meaningful to copy)
+  // or if no tiers to the right (last tier; button hidden anyway).
+  function applyToAllTiers(sourceTierIndex: number, field: CellField) {
+    const sourceValue = tierStatesRef.current[sourceTierIndex][field];
+    if (!sourceValue) return;
+    const targetCount = tierCells.length - 1 - sourceTierIndex;
+    if (targetCount < 1) return;
+    if (
+      !confirm(
+        `Apply "${sourceValue}" to the ${targetCount} tier${targetCount === 1 ? "" : "s"} to the right?`,
+      )
+    ) {
+      return;
+    }
+
+    // Update local state for tiers-to-the-right atomically.
+    setTierStates((prev) => {
+      const next = [...prev];
+      for (let i = sourceTierIndex + 1; i < next.length; i++) {
+        next[i] = { ...next[i], [field]: sourceValue };
+      }
+      return next;
+    });
+
+    // Optimistic store push for each target tier, then schedule save.
+    // Same path as updateCellField, just driven by the fill instead
+    // of an onChange.
+    const costingField = CELL_FIELD_MAP[field];
+    for (let i = sourceTierIndex + 1; i < tierCells.length; i++) {
+      const targetTierId = tierCells[i].tierId;
+      updateProductionCell(quoteSkuId, targetTierId, {
+        [costingField]: parseNumOrNull(sourceValue),
+      });
+      scheduleCellSave(i, { [field]: sourceValue });
+    }
+  }
+
   // ---------- render ----------
 
   const N = tierCells.length;
@@ -358,6 +406,7 @@ export function ProductionSection({
             cellErrors={cellErrors}
             disabled={disabled}
             onChange={(idx, v) => updateCellField(idx, row.key, v)}
+            onApplyToAll={(idx) => applyToAllTiers(idx, row.key)}
             gridCols={gridCols}
             inputType="numeric"
           />
@@ -374,6 +423,7 @@ export function ProductionSection({
             cellErrors={cellErrors}
             disabled={disabled}
             onChange={(idx, v) => updateCellField(idx, BULK_RAW_ROW.key, v)}
+            onApplyToAll={(idx) => applyToAllTiers(idx, BULK_RAW_ROW.key)}
             gridCols={gridCols}
             inputType="numeric"
           />
@@ -403,6 +453,7 @@ export function ProductionSection({
           onChange={(idx, v) =>
             updateCellField(idx, "actualUnitsProduced", v)
           }
+          onApplyToAll={(idx) => applyToAllTiers(idx, "actualUnitsProduced")}
           gridCols={gridCols}
           inputType="integer"
           rowClass="bg-amber-50/40"
@@ -424,6 +475,7 @@ function CellRow({
   cellErrors,
   disabled,
   onChange,
+  onApplyToAll,
   gridCols,
   inputType,
   rowClass = "",
@@ -435,6 +487,7 @@ function CellRow({
   cellErrors: (string | null)[];
   disabled: boolean;
   onChange: (tierIndex: number, value: string) => void;
+  onApplyToAll: (sourceTierIndex: number) => void;
   gridCols: string;
   inputType: "numeric" | "integer";
   rowClass?: string;
@@ -445,26 +498,52 @@ function CellRow({
       style={{ gridTemplateColumns: gridCols }}
     >
       <div className="px-3 py-2 text-gray-700">{label}</div>
-      {tierCells.map((c, idx) => (
-        <div key={c.tierId} className="px-2 py-1.5">
-          <input
-            type="number"
-            inputMode={inputType === "integer" ? "numeric" : "decimal"}
-            step={inputType === "integer" ? "1" : "0.01"}
-            min={0}
-            value={tierStates[idx][field]}
-            disabled={disabled}
-            onChange={(e) => onChange(idx, e.target.value)}
-            placeholder="—"
-            className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-right text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
-          />
-          {cellErrors[idx] && (
-            <p className="mt-1 text-[10px] text-red-700" role="alert">
-              {cellErrors[idx]}
-            </p>
-          )}
-        </div>
-      ))}
+      {tierCells.map((c, idx) => {
+        const value = tierStates[idx][field];
+        const hasValue = value !== "" && value !== "0";
+        // Fill-right semantics: button only appears if there are
+        // tiers AFTER this one to copy to. Last tier has nothing to
+        // its right, so no button.
+        const tiersToRight = tierCells.length - 1 - idx;
+        const showApplyButton = tiersToRight > 0;
+        return (
+          <div key={c.tierId} className="px-2 py-1.5">
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                inputMode={inputType === "integer" ? "numeric" : "decimal"}
+                step={inputType === "integer" ? "1" : "0.01"}
+                min={0}
+                value={value}
+                disabled={disabled}
+                onChange={(e) => onChange(idx, e.target.value)}
+                placeholder="—"
+                className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-right text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
+              />
+              {showApplyButton && (
+                <button
+                  type="button"
+                  onClick={() => onApplyToAll(idx)}
+                  disabled={disabled || !hasValue}
+                  title={
+                    hasValue
+                      ? `Apply this value to the ${tiersToRight} tier${tiersToRight === 1 ? "" : "s"} to the right`
+                      : "Enter a value first"
+                  }
+                  className="shrink-0 rounded border border-gray-200 px-1 py-0.5 text-xs text-blue-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-30"
+                >
+                  →
+                </button>
+              )}
+            </div>
+            {cellErrors[idx] && (
+              <p className="mt-1 text-[10px] text-red-700" role="alert">
+                {cellErrors[idx]}
+              </p>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

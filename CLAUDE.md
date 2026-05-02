@@ -1,3 +1,41 @@
+# Single Supabase project — dev and prod share one DB
+
+Nexus v1 runs against **one Supabase project for both dev and prod.**
+Local development connects to the same database that Vercel
+production reads from. There is no separate dev/staging Supabase
+instance.
+
+Implications, all of which need to be held simultaneously when
+working on anything DB-touching:
+
+- **Migrations applied locally apply to prod.** `npx drizzle-kit
+  migrate` reads `DATABASE_URL` and writes against whichever DB it
+  resolves to — which is prod. This caused the Slice 8 production
+  crash (digest 2641917463): a migration applied locally landed on
+  prod before code deployed; every quote drill-in 500'd until the
+  PR merged.
+- **Manual SQL applied locally applies to prod.** Same logic for
+  `drizzle/manual/*.sql` (Realtime publication ALTER, future RLS
+  policies). A "dev-only" experiment via psql hits real data.
+- **Realtime publication is shared.** Slice 8.5's `ALTER
+  PUBLICATION supabase_realtime ADD TABLE ...` configured
+  publication membership for both environments in one statement.
+- **Data is shared.** There's no test fixture set distinct from
+  production rows. Adding a "test" quote means adding it to the DB
+  PMs use.
+
+This is a v1 simplification appropriate for an internal tool with
+~12 users; a separate dev project is the right answer once the
+team grows past the foot-gun's blast radius (see UX_BACKLOG entry
+"manual per-environment ops hygiene"). For now: **assume any DB or
+Supabase-config change is a production change.** Treat them with
+the same care.
+
+When this stops being true (separate Supabase projects added, or
+dev/prod split via Supabase branching feature once GA), this
+section gets rewritten and the per-environment ops backlog item
+becomes the load-bearing fix.
+
 # Database client singleton (Drizzle + postgres-js)
 
 The Drizzle client and underlying postgres pool are pinned to
@@ -24,6 +62,136 @@ be the only call site).
 
 Caught Slice 8 sub-step 5 — many file edits during the optimistic
 computation work triggered enough HMR cycles to exhaust the pool.
+
+# Browser Supabase client singleton (@supabase/supabase-js)
+
+Sister to the Drizzle client above. Different concern: the Drizzle
+client is server-side, holds a Postgres connection pool, runs in
+RSC + server actions. The browser Supabase client is client-side,
+holds a single Realtime WebSocket, used only by the realtime
+subscription paths (Slice 8.5).
+
+Same HMR-safe singleton pattern: pinned to `globalThis` in dev so
+hot reloads don't leak WebSockets. Without the pin, every code
+change touching downstream consumers re-evaluates the module,
+creates a fresh `SupabaseClient`, opens a new WebSocket to
+Supabase Realtime, and orphans the prior socket. Pattern lives in
+`src/lib/supabase-browser.ts`. Production cold-starts skip the pin;
+each browser session creates the client exactly once at module load.
+
+Auth posture: anon key only. Read-only event stream. The two
+clients are NOT interchangeable — never call `postgres()` from
+client code, never call `createClient` (Supabase) from server code
+unless adding a separate explicit purpose.
+
+# Realtime ↔ optimistic store contract (Slice 8.5)
+
+The realtime sync introduced in Slice 8.5 is not a standalone
+module — it is **two ends of one rope** with the optimistic
+costing store from Slice 8 sub-steps 4-6. Debugging anything that
+involves "why didn't I see this update" requires understanding
+both ends together. Document them together; refactor them
+together; never rewrite one without auditing the other.
+
+## The rope
+
+Three trigger sources route into ONE reconcile pipe:
+
+1. **Snapshot prop change** — server revalidation after this
+   user's own server action, page re-renders with a fresh
+   `HydrateSnapshot` prop.
+2. **Per-quote realtime event** — postgres_changes on
+   `quotes` / `quote_skus` / `quote_tiers` /
+   `packaging_inputs` / `production_inputs` /
+   `freight_inputs`. CostingStoreProvider subscribes on mount,
+   filters per-input-table events client-side by
+   `quote_sku_id` membership in the local store's known SKU
+   set.
+3. **Global ref-changed CustomEvent** — dispatched on `window`
+   by GlobalRealtimeProvider when admin edits
+   `firm_settings` or `markup_defaults`. Mounted once per
+   session in `src/app/layout.tsx`.
+
+All three call `scheduleReconcile(snap)` in
+`costing-store-provider.tsx`. Realtime sources prepend a 250ms
+**coalesce window** (bursts of remote writes collapse to one
+re-fetch). Inside scheduleReconcile, the **wait-for-quiet (800ms)**
+poll defers reconcile if the local user has typed within the
+window. When user pauses, reconcile applies the latest snapshot via
+`store.reconcile()`.
+
+## What flows where
+
+```
+[server save → revalidation]    ──┐
+[per-quote postgres_changes]    ──┼──> [250ms coalesce] ──> [getCostingBundle re-fetch] ──┐
+[global ref CustomEvent]        ──┘                                                        │
+                                                                                            ▼
+                                                              [scheduleReconcile(snap)]
+                                                                          │
+                                                                          ▼
+                                                       [100ms initial debounce]
+                                                                          │
+                                                                          ▼
+                                                       [poll until lastUserEditAt ≥ 800ms ago]
+                                                                          │
+                                                                          ▼
+                                                              [store.reconcile(snap)]
+                                                                          │
+                                                                          ▼
+                                              [subscribers re-render: per-tier, breakdown, per-SKU]
+```
+
+Note: the snapshot-prop trigger skips the 250ms coalesce because
+prop changes already debounce naturally via React. The 100ms
+initial debounce inside scheduleReconcile applies to all three.
+
+## What NOT to do
+
+- **No granular row merging.** Realtime triggers do a coarse
+  re-fetch via `getCostingBundle` and apply the full snapshot.
+  Don't try to apply incoming postgres_changes payloads
+  directly to the store. Granular merge is a Slice 14+ problem
+  if it ever surfaces.
+- **No new reconcile paths.** Adding a new trigger source means
+  routing it through `scheduleReconcile`, not inventing a
+  parallel pipe. Every trigger gets coalesce + wait-for-quiet
+  for free.
+- **No presence indicators here.** "Sarah is editing this
+  quote" is a different feature, different slice (logged in
+  UX_BACKLOG).
+- **No conflict resolution UI.** Last-write-wins via the
+  reconcile path. The "remote-changed-while-local-edited"
+  awareness banner is logged separately for Slice 13.5.
+
+## RLS-off latent dependency
+
+The browser Supabase client uses the anon key. RLS is **off**
+across all 8 subscribed tables (see "Single Supabase project"
+section above and "Access model" framing). Access control is
+Clerk + page/action layer, not DB row level.
+
+If RLS is ever turned on for any subscribed table, the realtime
+path silently stops receiving events from that table — events
+fire server-side but fail RLS check on subscription delivery.
+Symptom: per-quote sync works for some tables and not others, or
+admin propagation breaks for `firm_settings` updates after RLS
+hits. Diagnosis: check RLS state with
+`scripts/verify/realtime-readiness.ts`. Fix: add a Clerk-Supabase
+JWT bridge (own infra task; see UX_BACKLOG).
+
+## Reference files
+
+- `src/components/costing-store-provider.tsx` — reconcile pipe,
+  per-quote subscription, scheduleReconcile, wait-for-quiet
+  polling.
+- `src/components/global-realtime-provider.tsx` — global
+  reference-data subscription, CustomEvent dispatch.
+- `src/lib/costing-store.ts` — Zustand store with
+  `lastUserEditAt` tracking; reconcile action.
+- `src/lib/supabase-browser.ts` — client singleton.
+- `scripts/verify/realtime-readiness.ts` — checks publication
+  membership + RLS state.
 
 # HubSpot token model
 
@@ -312,6 +480,11 @@ miss, not a real module error.
 2. `rm -rf .next node_modules/.cache`
 3. `npm run dev`
 4. Close ALL browser tabs on dev ports; open fresh tab on new port
+
+**Or one command for steps 1-3:** `npm run cure`. Runs
+`scripts/cure.mjs` which kills other node processes (PID-excluded
+so it doesn't kill itself), clears caches, starts `next dev -p
+3000` with inherited stdio. Step 4 still on you (browser side).
 
 Hard-refresh is NOT enough. Restart-only is NOT enough. Both must
 happen.
