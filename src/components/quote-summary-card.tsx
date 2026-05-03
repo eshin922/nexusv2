@@ -12,6 +12,7 @@ import {
 } from "@/lib/costing-store";
 import type { QuoteCostBreakdown } from "@/lib/costing";
 import { useCostingStore } from "./costing-store-provider";
+import { MarginVerdictPill } from "./costing/margin-verdict-pill";
 import { GlobalPriceAdjInput } from "./global-price-adj-input";
 import { QuoteTargetMarginPopover } from "./quote-target-margin-popover";
 import { TierPriceAdjInput } from "./tier-price-adj-input";
@@ -36,18 +37,6 @@ export type CostingPage = "packaging" | "production" | "freight";
 // Two display variants:
 //   - `compact`: cost-input pages (small header, "Open Costing Sheet →" link)
 //   - `full`:    costing sheet (larger header, no self-link)
-
-const STATUS_STYLES: Record<
-  "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR",
-  { label: string; cls: string }
-> = {
-  GOOD: { label: "GOOD", cls: "bg-green-100 text-green-800" },
-  BELOW_TARGET: {
-    label: "BELOW TARGET",
-    cls: "bg-amber-100 text-amber-900",
-  },
-  BELOW_FLOOR: { label: "BELOW FLOOR", cls: "bg-red-100 text-red-800" },
-};
 
 function fmtCurr(n: number): string {
   return n.toLocaleString("en-US", {
@@ -157,7 +146,6 @@ export function QuoteSummaryCard({
               </thead>
               <tbody className="divide-y divide-gray-100 bg-white">
                 {quoteRollup.map((t) => {
-                  const style = STATUS_STYLES[t.blendedMarginStatus];
                   return (
                     <tr key={t.tierId}>
                       <td className="px-3 py-2 font-medium">
@@ -176,11 +164,7 @@ export function QuoteSummaryCard({
                         {fmtPct(t.blendedMarginPct)}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        <span
-                          className={`inline-block rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${style.cls}`}
-                        >
-                          {style.label}
-                        </span>
+                        <MarginVerdictPill status={t.blendedMarginStatus} size="md" />
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex justify-end">

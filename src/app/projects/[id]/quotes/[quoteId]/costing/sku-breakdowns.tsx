@@ -70,7 +70,12 @@ export function CostingSkuBreakdownsList() {
 
 // ---- presentational components (pure props in, JSX out) ----
 
-function SkuBreakdown({
+// Slice 9.4a — exported so the per-SKU summary row's drawer can render
+// the cost decomposition for a single SKU on demand. CostingSkuBreakdownsList
+// is no longer the primary per-SKU surface (SkuSummaryRowList replaced it
+// as of Slice 9.4a) but SkuBreakdown survives as the analytical drawer
+// content.
+export function SkuBreakdown({
   sku,
   tiers,
 }: {
