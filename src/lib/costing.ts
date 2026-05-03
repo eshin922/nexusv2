@@ -186,6 +186,19 @@ export type CostingFreightInput = {
   freightTreatment: "bundled" | "pass_through";
 };
 
+// Slice 9.3 — per-cell sell-price override. Sparse: rows exist ONLY
+// when a PM has set an explicit override on a (SKU, tier) cell.
+// Absent entry = "use computed sell" (which itself respects per-tier
+// and global price adjustments). NOT NULL on the column at the DB
+// level guarantees override > 0 by way of the action layer's reject-
+// non-positive guard; the math layer also defends against negative
+// requiredSellPerUnit (see computeLeafPerTier).
+export type CostingCellOverride = {
+  quoteSkuId: string;
+  tierId: string;
+  sellPriceOverride: number;
+};
+
 export type QuoteCostingInput = {
   // Slice 9.2 — quote.targetMarginPct is per-quote override of
   // firmSettings.targetMarginPct. NULL = inherit firm-level.
@@ -208,6 +221,10 @@ export type QuoteCostingInput = {
   packaging: CostingPackagingInput[];
   production: CostingProductionInput[];
   freight: CostingFreightInput[];
+  // Slice 9.3 — sparse per-cell sell-price overrides. Empty array =
+  // no overrides anywhere. Order doesn't matter; computeQuoteCosting
+  // builds a `${skuId}::${tierId}` lookup map internally.
+  cellOverrides: CostingCellOverride[];
 };
 
 export type FreightLineBreakdown = {
@@ -221,6 +238,13 @@ export type FreightLineBreakdown = {
   freightTreatment: "bundled" | "pass_through";
 };
 
+// Slice 9.3 — `sellSource` is an open enum. New override layers may
+// add discriminated values in future slices (e.g., `"line_group_override"`
+// for Slice 14+ per-line overrides, `"scenario_override"` for scenario-
+// level overrides). UI consumers should default to "computed" treatment
+// when they encounter an unrecognized source rather than throwing.
+export type SellSource = "computed" | "cell_override";
+
 export type SkuPerTierRollup = {
   tierId: string;
   packagingCostPerUnit: number;
@@ -232,7 +256,15 @@ export type SkuPerTierRollup = {
   totalLandedFreightWithMarkup: number;
   separateServiceFeesPerUnit: number; // when allocate_service_fees=false
   contributionCostPerUnit: number;
+  // Slice 9.3 — `requiredSellPerUnit` is the value used by all
+  // downstream math (revenue, margin, partition). `computedSellPerUnit`
+  // is the pre-override markup-chain × (1 + effectiveAdj) result,
+  // exposed for UI tooltips ("OVR · was $X") on overridden cells.
+  // When `sellSource === "computed"`, `requiredSellPerUnit ===
+  // computedSellPerUnit`. When `"cell_override"`, the two diverge.
+  computedSellPerUnit: number;
   requiredSellPerUnit: number;
+  sellSource: SellSource;
   marginPct: number;
   revenue: number;
   cost: number;
@@ -350,17 +382,23 @@ function computeStatus(
 //
 // PER-TIER variant — kept for backwards compatibility with the
 // existing per-tier suggestedGlobalAdjPct surface. Returns null
-// when the tier has its own override (GPA can't move an overridden
-// tier — the existing per-tier suggestion is nonsensical in that
-// case). Quote-wide canonical surface lives in computeQuoteSuggestion.
+// when the tier is fully GPA-fixed (no GPA-influencable cells in
+// the tier — either tier-level override is set, or every cell in the
+// tier has a per-cell override). Quote-wide canonical surface lives
+// in computeQuoteSuggestion.
+//
+// Slice 9.3 — `tierGpaFixed` replaces the prior `tierHasOverride`
+// parameter. Same boolean shape; broader semantic captures both
+// override layers (per-tier and per-cell) that fix a tier's revenue
+// w.r.t. global GPA. Caller computes upstream from the input shape.
 function suggestedAdj(
   currentRevenue: number,
   currentCost: number,
   currentAdj: number,
   targetMargin: number,
-  tierHasOverride: boolean,
+  tierGpaFixed: boolean,
 ): number | null {
-  if (tierHasOverride) return null;
+  if (tierGpaFixed) return null;
   if (currentRevenue <= 0) return null;
   const currentMargin = (currentRevenue - currentCost) / currentRevenue;
   if (currentMargin >= targetMargin) return null;
@@ -401,12 +439,19 @@ function computeQuoteSuggestion(args: {
   effectiveTarget: number;
   floor: number;
   globalAdj: number;
-  // Per-tier breakdown for the partition: which tiers are overridden
-  // (FIXED revenue) vs inheriting (SOLVE FOR GPA).
-  perTierBreakdown: Array<{
+  // Slice 9.3 — per-CELL breakdown for the partition. Each entry is a
+  // (SKU, tier) cell with its revenue + cost contribution and its
+  // GPA-fixed status. `gpaFixed` is the actual partition criterion:
+  // true when this cell's revenue does NOT respond to global-GPA
+  // changes. A cell is GPA-fixed when it has a per-cell sell-price
+  // override OR sits in a tier with `tier_price_adj_pct` set (tier
+  // override REPLACES global, doesn't stack — see CLAUDE.md "Slice 9
+  // pricing-control columns"). Future override layers extend the
+  // semantic without changing the partition shape.
+  perCellBreakdown: Array<{
     revenue: number;
     cost: number;
-    hasOverride: boolean;
+    gpaFixed: boolean;
   }>;
 }): {
   suggestedAdj: number | null;
@@ -420,7 +465,7 @@ function computeQuoteSuggestion(args: {
     effectiveTarget,
     floor,
     globalAdj,
-    perTierBreakdown,
+    perCellBreakdown,
   } = args;
 
   // GOOD state — no suggestion needed.
@@ -444,32 +489,36 @@ function computeQuoteSuggestion(args: {
     return { suggestedAdj: null, suggestionGoal: null, suggestionMicrocopy: "" };
   }
 
-  // Partition tiers into overridden (FIXED) vs inheriting (SOLVE).
-  let revenueOverridden = 0;
+  // Slice 9.3 — partition cells into GPA-fixed (FIXED) vs
+  // GPA-influencable (SOLVE). Universal trigger for the all-fixed
+  // microcopy: every cell across every tier must be GPA-fixed (NOT
+  // a majority threshold). Wording "All cells…" matches.
+  let revenueFixed = 0;
   let revenueInheritingAtZeroGPA = 0;
-  let costOverridden = 0;
+  let costFixed = 0;
   let costInheriting = 0;
-  for (const t of perTierBreakdown) {
-    if (t.hasOverride) {
-      revenueOverridden += t.revenue;
-      costOverridden += t.cost;
+  for (const c of perCellBreakdown) {
+    if (c.gpaFixed) {
+      revenueFixed += c.revenue;
+      costFixed += c.cost;
     } else {
       // Strip the current GPA back to zero so we can re-solve from
       // a clean baseline. revenue = revenue_at_zero × (1 + globalAdj),
       // so revenue_at_zero = revenue / (1 + globalAdj). Cost is
       // GPA-independent so passes through.
-      revenueInheritingAtZeroGPA += t.revenue / (1 + globalAdj);
-      costInheriting += t.cost;
+      revenueInheritingAtZeroGPA += c.revenue / (1 + globalAdj);
+      costInheriting += c.cost;
     }
   }
 
-  // Degenerate: all tiers overridden. GPA cannot affect blended.
+  // Degenerate: all cells are GPA-fixed (per-cell or per-tier
+  // overrides). GPA cannot affect blended.
   if (revenueInheritingAtZeroGPA <= 0) {
     return {
       suggestedAdj: null,
       suggestionGoal: null,
       suggestionMicrocopy:
-        "All tiers have per-tier overrides; suggested GPA cannot affect blended.",
+        "All cells are price-fixed (per-cell or per-tier overrides); suggested GPA cannot affect blended.",
     };
   }
 
@@ -477,28 +526,28 @@ function computeQuoteSuggestion(args: {
   if (goalPct >= 1) {
     return { suggestedAdj: null, suggestionGoal: null, suggestionMicrocopy: "" };
   }
-  const targetBlendedRevenue = (costOverridden + costInheriting) / (1 - goalPct);
+  const targetBlendedRevenue = (costFixed + costInheriting) / (1 - goalPct);
 
-  // What inheriting tiers must contribute to hit the target.
-  const requiredInheritingRev = targetBlendedRevenue - revenueOverridden;
+  // What inheriting cells must contribute to hit the target.
+  const requiredInheritingRev = targetBlendedRevenue - revenueFixed;
 
-  // Degenerate: overridden tiers alone meet/exceed the goal-revenue.
+  // Degenerate: GPA-fixed cells alone meet/exceed the goal-revenue.
   // The floor branch is reachable when blended is BELOW_FLOOR but
-  // overridden tiers alone produce floor-level margin against total
-  // cost; the target branch (else) is mathematically unreachable
-  // given the GOOD short-circuit at the top of this function (if
-  // overridden revenue alone covers targetBlendedRev, then
-  // blended_margin >= effectiveTarget → blendedStatus === "GOOD" →
-  // early return). Kept defensively in case the GOOD short-circuit
-  // logic changes; remove only after auditing the upstream guard.
+  // fixed cells alone produce floor-level margin against total cost;
+  // the target branch (else) is mathematically unreachable given the
+  // GOOD short-circuit at the top of this function (if fixed revenue
+  // alone covers targetBlendedRev, then blended_margin >= effectiveTarget
+  // → blendedStatus === "GOOD" → early return). Kept defensively in
+  // case the GOOD short-circuit logic changes; remove only after
+  // auditing the upstream guard.
   if (requiredInheritingRev <= 0) {
     return {
       suggestedAdj: null,
       suggestionGoal: null,
       suggestionMicrocopy:
         goal === "floor"
-          ? "Overridden tiers are pulling blended below floor and inheriting tiers can't compensate; consider tuning per-tier overrides down."
-          : "Overridden tiers already exceed target — no GPA suggestion possible; consider tuning per-tier overrides down.",
+          ? "Price-fixed cells are pulling blended below floor and inheriting cells can't compensate; consider tuning overrides down."
+          : "Price-fixed cells already exceed target — no GPA suggestion possible; consider tuning overrides down.",
     };
   }
 
@@ -517,8 +566,8 @@ function computeQuoteSuggestion(args: {
       suggestionGoal: null,
       suggestionMicrocopy:
         goal === "floor"
-          ? "GPA alone cannot lift blended above floor — review per-tier overrides or per-line costs."
-          : "GPA alone cannot land blended at target — review per-tier overrides or per-line costs.",
+          ? "GPA alone cannot lift blended above floor — review overrides or per-line costs."
+          : "GPA alone cannot land blended at target — review overrides or per-line costs.",
     };
   }
 
@@ -549,9 +598,22 @@ function computeLeafPerTier(args: {
   freight: CostingFreightInput[];
   globalAdj: number;
   markupDefaults: Record<string, number>;
+  // Slice 9.3 — per-cell sell-price override. null = no override
+  // (use computed sell). When non-null, this value is TERMINAL —
+  // bypasses both per-tier and global price adjustments. Cell margin
+  // computes against the override; OVR badge in UI reads this state.
+  cellOverride: number | null;
 }): SkuPerTierRollup {
-  const { sku, tier, packaging, production, freight, globalAdj, markupDefaults } =
-    args;
+  const {
+    sku,
+    tier,
+    packaging,
+    production,
+    freight,
+    globalAdj,
+    markupDefaults,
+    cellOverride,
+  } = args;
   const tierQty = num(tier.qty);
 
   // ---------- packaging ----------
@@ -698,12 +760,30 @@ function computeLeafPerTier(args: {
     rawMarkupSum +
     separateServicesMarkupSum +
     totalLandedWithMarkup;
-  const requiredSellPerUnit = sellWithoutGlobalAdj * (1 + globalAdj);
+  // Slice 9.3 — `computedSellPerUnit` is the pure markup-chain result.
+  // Always exposed for UI ("was $X" tooltip on OVR badges).
+  const computedSellPerUnit = sellWithoutGlobalAdj * (1 + globalAdj);
+  // Slice 9.3 — per-cell override is TERMINAL. When set, it replaces
+  // computedSellPerUnit entirely; downstream margin/revenue use this
+  // value. Action layer rejects override <= 0, so positive value
+  // expected here. Defensive guard below handles the bypass case.
+  const requiredSellPerUnit = cellOverride ?? computedSellPerUnit;
+  const sellSource: SellSource = cellOverride !== null ? "cell_override" : "computed";
 
+  // Slice 9.3 belt-and-suspenders: action layer rejects override <= 0,
+  // but if a bypass write ever lands a negative `sell_price_override`
+  // in the DB, the formula `(neg − pos) / neg = pos` would falsely
+  // report positive margin. Guard explicitly: -1 sentinel signals
+  // "invalid: negative sell price" so consumers can render an error
+  // pill rather than a misleading verdict. Sentinel value chosen
+  // because it's outside the legitimate margin range [0, 1) and
+  // distinguishes from the existing 0-on-zero-revenue branch.
   const marginPct =
     requiredSellPerUnit > 0
       ? (requiredSellPerUnit - contributionCostPerUnit) / requiredSellPerUnit
-      : 0;
+      : requiredSellPerUnit < 0
+        ? -1
+        : 0;
   const revenue = requiredSellPerUnit * tierQty;
   const cost = contributionCostPerUnit * tierQty;
 
@@ -718,7 +798,9 @@ function computeLeafPerTier(args: {
     totalLandedFreightWithMarkup: totalLandedWithMarkup,
     separateServiceFeesPerUnit: separateServiceFees,
     contributionCostPerUnit,
+    computedSellPerUnit,
     requiredSellPerUnit,
+    sellSource,
     marginPct,
     revenue,
     cost,
@@ -738,7 +820,9 @@ function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
     totalLandedFreightWithMarkup: 0,
     separateServiceFeesPerUnit: 0,
     contributionCostPerUnit: 0,
+    computedSellPerUnit: 0,
     requiredSellPerUnit: 0,
+    sellSource: "computed",
     marginPct: 0,
     revenue: 0,
     cost: 0,
@@ -752,6 +836,13 @@ function rollUpAssemblyPerTier(
   const tierQty = num(tier.qty);
   let contribution = 0;
   let requiredSell = 0;
+  // Slice 9.3 — `computedSell` rolls up children's pure-markup values
+  // (ignoring any cell overrides on leaves). Used by UI tooltips that
+  // want to show "what would this assembly cost if no children were
+  // overridden." `requiredSell` rolls up children's effective values
+  // (override-where-present, computed-elsewhere) — that's the "real"
+  // assembly price the customer would pay.
+  let computedSell = 0;
   // Per-component bubble-up so a top-level assembly's per-component
   // values reflect the qty_per_parent chain to every leaf below it.
   // Used by the quote-level cost breakdown in QuoteSummaryCard. Earlier
@@ -766,6 +857,7 @@ function rollUpAssemblyPerTier(
   for (const c of children) {
     contribution += c.rollup.contributionCostPerUnit * c.qtyPerParent;
     requiredSell += c.rollup.requiredSellPerUnit * c.qtyPerParent;
+    computedSell += c.rollup.computedSellPerUnit * c.qtyPerParent;
     packaging += c.rollup.packagingCostPerUnit * c.qtyPerParent;
     production += c.rollup.productionCostPerUnit * c.qtyPerParent;
     raw += c.rollup.rawCostPerUnit * c.qtyPerParent;
@@ -788,7 +880,17 @@ function rollUpAssemblyPerTier(
     totalLandedFreightWithMarkup: 0,
     separateServiceFeesPerUnit: serviceFees,
     contributionCostPerUnit: contribution,
+    computedSellPerUnit: computedSell,
     requiredSellPerUnit: requiredSell,
+    // Slice 9.3 — `sellSource` on assembly rollups is always
+    // "computed". Overrides exist only at the leaf-cell level
+    // (per-cell schema is `quote_sku_tiers (quote_sku_id, tier_id)`
+    // with FK to leaf SKUs). When children are mixed (some
+    // overridden, some computed), the assembly's rolled-up
+    // `requiredSellPerUnit` reflects that mix in the value, but the
+    // tag stays "computed" because no override sits on the assembly
+    // cell itself. UI: don't render OVR badge on assembly rows.
+    sellSource: "computed",
     marginPct,
     revenue: requiredSell * tierQty,
     cost: contribution * tierQty,
@@ -840,6 +942,13 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
     arr.push(f);
     freightBySkuTier.set(k, arr);
   }
+  // Slice 9.3 — per-cell sell-price overrides indexed by `${skuId}::${tierId}`.
+  // Sparse: cells without overrides have no entry; lookup returns
+  // undefined → null cellOverride → use computed sell.
+  const cellOverridesBySkuTier = new Map<string, number>();
+  for (const c of input.cellOverrides ?? []) {
+    cellOverridesBySkuTier.set(`${c.quoteSkuId}::${c.tierId}`, c.sellPriceOverride);
+  }
 
   // DFS produces post-order traversal (children before parents) so
   // assemblies see their children's per-tier rollups when they roll up.
@@ -860,6 +969,14 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
           tier.tierPriceAdjPct !== null && tier.tierPriceAdjPct !== undefined
             ? num(tier.tierPriceAdjPct)
             : globalAdj;
+        // Slice 9.3 — per-cell override lookup. undefined → null →
+        // computeLeafPerTier uses computed sell. Map.get returning the
+        // primitive number means the cell has an override.
+        const cellOverrideValue = cellOverridesBySkuTier.get(
+          `${sku.id}::${tier.id}`,
+        );
+        const cellOverride =
+          cellOverrideValue !== undefined ? cellOverrideValue : null;
         return computeLeafPerTier({
           sku,
           tier,
@@ -868,6 +985,7 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
           freight: frt,
           globalAdj: effectiveAdj,
           markupDefaults,
+          cellOverride,
         });
       });
       const rollup: SkuRollup = {
@@ -965,17 +1083,27 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       effectiveTarget,
       firmSettings.floorMarginPct,
     );
-    // Slice 9.2 — per-tier suggested-adj uses the EFFECTIVE target and
-    // suppresses itself when this tier has a price-adj override
-    // (suggestion is moot for an overridden tier — GPA doesn't move it).
-    const tierHasOverride =
+    // Slice 9.3 — per-tier suggested-adj suppresses when the tier has
+    // no GPA-influencable cells. Tier is fully GPA-fixed when:
+    //   (a) tier-level price-adj override is set, OR
+    //   (b) every leaf SKU in this tier has a per-cell override
+    // (a) = "tier override REPLACES global"; (b) = "every cell value
+    // is terminal." Either way, GPA changes can't move the tier.
+    const tierHasTierAdj =
       tier.tierPriceAdjPct !== null && tier.tierPriceAdjPct !== undefined;
+    const leavesInTier = skus.filter((s) => s.skuRole === "leaf");
+    const tierAllLeavesOverridden =
+      leavesInTier.length > 0 &&
+      leavesInTier.every((s) =>
+        cellOverridesBySkuTier.has(`${s.id}::${tier.id}`),
+      );
+    const tierGpaFixed = tierHasTierAdj || tierAllLeavesOverridden;
     const suggested = suggestedAdj(
       revenue,
       cost,
       globalAdj,
       effectiveTarget,
-      tierHasOverride,
+      tierGpaFixed,
     );
     return {
       tierId: tier.id,
@@ -990,29 +1118,81 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
     };
   });
 
-  // Slice 9.2 — quote-wide blended verdict + system-suggested GPA.
-  // Sums across all tiers (each `quoteRollup[i].totalRevenue/Cost` is
-  // already × tier.qty), then partitions tiers into overridden (FIXED)
-  // vs inheriting (SOLVE FOR GPA) for the closed-form reverse-solve.
+  // Slice 9.3 — quote-wide blended verdict + system-suggested GPA.
+  // Sums across all top-level SKUs/tiers, then partitions cells into
+  // GPA-fixed (FIXED) vs GPA-influencable (SOLVE) for the closed-form
+  // reverse-solve. Cells walked here are TOP-LEVEL (parent IS NULL)
+  // SKU × tier pairs — same units as quoteRollup totals so the partition
+  // sums match blended totals exactly.
+  //
+  // Cell `gpaFixed` true when:
+  //   - tier has tier_price_adj_pct set (tier override REPLACES global), OR
+  //   - top-level SKU is a leaf with a per-cell sell_price_override at this
+  //     tier (cell override is terminal — bypasses both layers above), OR
+  //   - top-level SKU is an assembly AND every leaf descendant in this
+  //     tier has a per-cell override (every contributing cell is terminal)
+  //
   // See computeQuoteSuggestion for the full degenerate-case matrix.
   let blendedRevenue = 0;
   let blendedCost = 0;
-  const perTierForSuggestion: Array<{
+  const perCellForSuggestion: Array<{
     revenue: number;
     cost: number;
-    hasOverride: boolean;
+    gpaFixed: boolean;
   }> = [];
+
+  // Recursive helper: every leaf descendant of `skuId` has a cell
+  // override at `tierId`. Used to classify top-level assemblies as
+  // GPA-fixed when their entire leaf-cell footprint is overridden.
+  function allLeafDescendantsOverridden(skuId: string, tierId: string): boolean {
+    const sku = skusById.get(skuId);
+    if (!sku) return false;
+    if (sku.skuRole === "leaf") {
+      return cellOverridesBySkuTier.has(`${skuId}::${tierId}`);
+    }
+    const kids = childrenByParent.get(skuId) ?? [];
+    if (kids.length === 0) return false;
+    return kids.every((k) => allLeafDescendantsOverridden(k.id, tierId));
+  }
+
+  const topLevelSkus = childrenByParent.get(null) ?? [];
   for (let i = 0; i < tiers.length; i++) {
     const t = tiers[i];
     const qr = quoteRollup[i];
     blendedRevenue += qr.totalRevenue;
     blendedCost += qr.totalCost;
-    perTierForSuggestion.push({
-      revenue: qr.totalRevenue,
-      cost: qr.totalCost,
-      hasOverride:
-        t.tierPriceAdjPct !== null && t.tierPriceAdjPct !== undefined,
-    });
+    const tierHasAdj =
+      t.tierPriceAdjPct !== null && t.tierPriceAdjPct !== undefined;
+    for (const top of topLevelSkus) {
+      const r = rollupBySku.get(top.id);
+      if (!r) continue;
+      const pt = r.perTier.find((p) => p.tierId === t.id);
+      if (!pt) continue;
+      let gpaFixed = false;
+      if (tierHasAdj) {
+        gpaFixed = true;
+      } else if (top.skuRole === "leaf") {
+        gpaFixed = cellOverridesBySkuTier.has(`${top.id}::${t.id}`);
+      } else {
+        // Top-level assembly: GPA-fixed only when EVERY leaf descendant
+        // in this tier has an override. Approximation note for v1:
+        // partial-override assemblies (some leaves overridden, others
+        // not) are classified as GPA-influencable here. The closed-form
+        // solve then treats the assembly's entire rolled-up revenue as
+        // GPA-influencable, which slightly overestimates how much GPA
+        // can move it (the override portion is actually terminal). At
+        // typical Nexus quote shapes (few assemblies, mostly flat top-
+        // level leaves), the error is bounded and acceptable. If PMs
+        // report mis-suggestion on assembly-heavy quotes, refactor the
+        // partition to walk leaves with their qty_per_parent chain.
+        gpaFixed = allLeafDescendantsOverridden(top.id, t.id);
+      }
+      perCellForSuggestion.push({
+        revenue: pt.revenue,
+        cost: pt.cost,
+        gpaFixed,
+      });
+    }
   }
   const blendedMarginPct =
     blendedRevenue > 0 ? (blendedRevenue - blendedCost) / blendedRevenue : 0;
@@ -1032,7 +1212,7 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
     effectiveTarget,
     floor: firmSettings.floorMarginPct,
     globalAdj,
-    perTierBreakdown: perTierForSuggestion,
+    perCellBreakdown: perCellForSuggestion,
   });
   const quoteSummary: QuoteSummary = {
     blendedRevenue,

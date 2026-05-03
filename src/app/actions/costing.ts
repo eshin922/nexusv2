@@ -1,6 +1,6 @@
 "use server";
 
-import { asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
   auditLog,
@@ -11,6 +11,7 @@ import {
   productionInputs,
   quotes,
   quoteSkus,
+  quoteSkuTiers,
   quoteTiers,
 } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -20,7 +21,7 @@ import {
   runAction,
   type ActionResult,
 } from "@/lib/action-result";
-import { quoteByIdDraft } from "@/lib/quote-guards";
+import { quoteByIdDraft, quoteForSku } from "@/lib/quote-guards";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
   computeQuoteCosting,
@@ -116,7 +117,7 @@ export async function getQuoteCosting(
       );
     }
 
-    const [skus, tiers, pkgs, prods, frts, mks] = await Promise.all([
+    const [skus, tiers, pkgs, prods, frts, mks, cellOvr] = await Promise.all([
       db
         .select()
         .from(quoteSkus)
@@ -143,6 +144,19 @@ export async function getQuoteCosting(
         .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
         .where(eq(quoteSkus.quoteId, quoteId)),
       db.select().from(markupDefaults),
+      // Slice 9.3 — sparse load: only rows that exist for this quote's
+      // SKUs. Empty result = no overrides anywhere. INNER JOIN on
+      // quote_skus to scope by quote_id (quote_sku_tiers itself doesn't
+      // carry quote_id).
+      db
+        .select({
+          quoteSkuId: quoteSkuTiers.quoteSkuId,
+          tierId: quoteSkuTiers.tierId,
+          sellPriceOverride: quoteSkuTiers.sellPriceOverride,
+        })
+        .from(quoteSkuTiers)
+        .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTiers.quoteSkuId))
+        .where(eq(quoteSkus.quoteId, quoteId)),
     ]);
 
     // Plain Record (not Map) so the snapshot serializes cleanly across
@@ -179,6 +193,11 @@ export async function getQuoteCosting(
         qty: t.qty,
         sortOrder: t.sortOrder,
         tierPriceAdjPct: numOrNull(t.tierPriceAdjPct),
+      })),
+      cellOverrides: cellOvr.map((c) => ({
+        quoteSkuId: c.quoteSkuId,
+        tierId: c.tierId,
+        sellPriceOverride: num(c.sellPriceOverride),
       })),
       packaging: pkgs.map((r) => {
         const p = r.packaging_inputs;
@@ -473,6 +492,181 @@ export async function applySuggestedGlobalAdj(
   });
 }
 
+// ---------- mutation: updateSellPriceOverride (Slice 9.3) ----------
+
+// Per-cell sell-price override on the (quote_sku, tier) cell. Single
+// action handles both set and clear via the value-or-null parameter,
+// matching the Slice 9.2 precedent (`updateTierPriceAdj`,
+// `updateQuoteTargetMargin`). One audit row per state change with
+// `action: "cell_override_updated"`; the from/to encodes the
+// transition (set: from null, to value; change: from old, to new;
+// clear: from value, to null).
+//
+// DB shape: `quote_sku_tiers` is a sparse table — rows exist ONLY for
+// cells with overrides. NOT NULL on `sell_price_override` enforces
+// "row exists ⟹ override is set" at the schema level.
+//   - value === null  → DELETE the row
+//   - value > 0       → INSERT ON CONFLICT (PK) DO UPDATE
+//   - value <= 0      → reject (action layer guard); zero or negative
+//                       sell price isn't a legitimate quoting scenario
+//                       and would break partition revenue invariants.
+//                       To clear an override, send empty input (→ null
+//                       at the action) which DELETEs the row.
+//
+// Leaf-only invariant: overrides only apply to leaf SKUs. Assemblies
+// roll up children's `requiredSellPerUnit`; overriding an assembly
+// cell would orphan the children's computation. Action rejects on
+// non-leaf SKU. UI hides the click-to-override affordance on assembly
+// rows (defense in depth).
+export async function updateSellPriceOverride(
+  formData: FormData,
+): Promise<
+  ActionResult<{
+    quoteSkuId: string;
+    tierId: string;
+    sellPriceOverride: string | null;
+  }>
+> {
+  return runAction(async () => {
+    const quoteSkuId = String(formData.get("quoteSkuId") ?? "").trim();
+    const tierId = String(formData.get("tierId") ?? "").trim();
+    if (!quoteSkuId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteSkuId required");
+    if (!tierId)
+      throw new ActionGuardError(ERR.VALIDATION, "tierId required");
+
+    const user = await ensureUser();
+    // Quote draft + ownership through the SKU. Returns the quote and
+    // sku rows; throws QUOTE_NOT_DRAFT or NOT_FOUND on failure.
+    const { quote, sku } = await quoteForSku(quoteSkuId);
+
+    // Leaf-only invariant. Overrides on assembly cells would orphan
+    // the rolled-up children's computation; the math layer trusts
+    // overrides are leaf-cell-terminal.
+    if (sku.skuRole !== "leaf") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Sell-price overrides only apply to leaf SKUs.",
+      );
+    }
+
+    // Verify tier belongs to the same quote (defense in depth — FK
+    // alone can't catch cross-quote tier IDs).
+    const tierRows = await db
+      .select()
+      .from(quoteTiers)
+      .where(eq(quoteTiers.id, tierId))
+      .limit(1);
+    if (tierRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "Tier not found");
+    if (tierRows[0].quoteId !== quote.id) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Tier does not belong to this quote.",
+      );
+    }
+
+    // Parse the value. Empty input → null → clear; non-empty → numeric.
+    const rawValue = String(formData.get("sellPriceOverride") ?? "").trim();
+    let parsedValue: number | null;
+    if (rawValue === "") {
+      parsedValue = null;
+    } else {
+      const n = Number(rawValue);
+      if (!Number.isFinite(n)) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Sell price must be a number.",
+        );
+      }
+      // Reject non-positive values per architect's defensive guard:
+      // zero/negative breaks revenue contribution invariants and isn't
+      // a legitimate PM quoting scenario. To clear an override, send
+      // empty input (the dedicated revert path).
+      if (n <= 0) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Sell price must be greater than zero. To remove an override, use the ↺ revert affordance.",
+        );
+      }
+      parsedValue = n;
+    }
+
+    // Read previous value (if any) for the audit diff.
+    const existingRows = await db
+      .select()
+      .from(quoteSkuTiers)
+      .where(
+        and(
+          eq(quoteSkuTiers.quoteSkuId, quoteSkuId),
+          eq(quoteSkuTiers.tierId, tierId),
+        ),
+      )
+      .limit(1);
+    const previousValue =
+      existingRows.length > 0 ? existingRows[0].sellPriceOverride : null;
+
+    // No-op: incoming value matches stored value.
+    if (numericEquals(previousValue, parsedValue?.toString() ?? null)) {
+      return { quoteSkuId, tierId, sellPriceOverride: previousValue };
+    }
+
+    let storedValue: string | null;
+    if (parsedValue === null) {
+      // Clear: DELETE the row. If no row existed (previousValue null),
+      // the no-op short-circuit above already returned; reaching here
+      // means there was a row to delete.
+      await db
+        .delete(quoteSkuTiers)
+        .where(
+          and(
+            eq(quoteSkuTiers.quoteSkuId, quoteSkuId),
+            eq(quoteSkuTiers.tierId, tierId),
+          ),
+        );
+      storedValue = null;
+    } else {
+      // Set or update: INSERT ON CONFLICT. The composite PK
+      // (quote_sku_id, tier_id) is the conflict target.
+      const stored = parsedValue.toString();
+      await db
+        .insert(quoteSkuTiers)
+        .values({
+          quoteSkuId,
+          tierId,
+          sellPriceOverride: stored,
+        })
+        .onConflictDoUpdate({
+          target: [quoteSkuTiers.quoteSkuId, quoteSkuTiers.tierId],
+          set: { sellPriceOverride: stored, updatedAt: new Date() },
+        });
+      storedValue = stored;
+    }
+
+    // Audit. entity_id is the synthesized composite key (text per
+    // CLAUDE.md "audit_log.entity_id is text"). diff_json carries
+    // both component keys for query convenience.
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_sku_tier",
+      entityId: `${quoteSkuId}:${tierId}`,
+      action: "cell_override_updated",
+      diffJson: {
+        quote_sku_id: quoteSkuId,
+        tier_id: tierId,
+        sell_price_override: {
+          from: previousValue,
+          to: storedValue,
+        },
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, quote.id);
+
+    return { quoteSkuId, tierId, sellPriceOverride: storedValue };
+  });
+}
+
 // ---------- read action: getCostingBundle ----------
 
 // Returns the HydrateSnapshot needed to seed the client-side Zustand store
@@ -515,7 +709,7 @@ export async function getCostingBundle(
       );
     }
 
-    const [skus, tiers, pkgs, prods, frts, mks] = await Promise.all([
+    const [skus, tiers, pkgs, prods, frts, mks, cellOvr] = await Promise.all([
       db
         .select()
         .from(quoteSkus)
@@ -542,6 +736,16 @@ export async function getCostingBundle(
         .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
         .where(eq(quoteSkus.quoteId, quoteId)),
       db.select().from(markupDefaults),
+      // Slice 9.3 — sparse load of cell-level sell-price overrides.
+      db
+        .select({
+          quoteSkuId: quoteSkuTiers.quoteSkuId,
+          tierId: quoteSkuTiers.tierId,
+          sellPriceOverride: quoteSkuTiers.sellPriceOverride,
+        })
+        .from(quoteSkuTiers)
+        .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTiers.quoteSkuId))
+        .where(eq(quoteSkus.quoteId, quoteId)),
     ]);
 
     // Plain Record (not Map) so the snapshot serializes cleanly across
@@ -617,6 +821,14 @@ export async function getCostingBundle(
       };
     });
 
+    // Slice 9.3 — shape DB rows into pure-math input. Sparse: empty
+    // array if no overrides anywhere on this quote.
+    const cellOverrideList = cellOvr.map((c) => ({
+      quoteSkuId: c.quoteSkuId,
+      tierId: c.tierId,
+      sellPriceOverride: num(c.sellPriceOverride),
+    }));
+
     const input: QuoteCostingInput = {
       quote: {
         id: quote.id,
@@ -633,6 +845,7 @@ export async function getCostingBundle(
       packaging: packagingList,
       production: productionList,
       freight: freightList,
+      cellOverrides: cellOverrideList,
     };
 
     const result = computeQuoteCosting(input);
@@ -649,6 +862,7 @@ export async function getCostingBundle(
       packaging: packagingList,
       production: productionList,
       freight: freightList,
+      cellOverrides: cellOverrideList,
       costing: result,
     };
 

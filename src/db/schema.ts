@@ -10,6 +10,7 @@ import {
   numeric,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -331,6 +332,55 @@ export const quoteSkus = pgTable(
     index("quote_skus_hubspot_product_id_idx").on(t.hubspotProductId),
     index("quote_skus_parent_sku_id_idx").on(t.parentSkuId),
     index("quote_skus_sku_role_idx").on(t.skuRole),
+  ],
+);
+
+// ---------- per-cell sell-price overrides (Slice 9.3) ----------
+
+// Sparse table: rows exist ONLY when a PM has set an explicit sell-price
+// override on a (SKU, tier) cell. Absent row = "use computed sell"
+// (which itself respects per-tier and global price adjustments). This
+// is the third layer of the price-adjustment hierarchy:
+//
+//   if (cell exists) → use cell.sell_price_override (TERMINAL — bypasses
+//                       both per-tier and global adjustments)
+//   else if (tier.tier_price_adj_pct IS NOT NULL) → use tier override
+//   else → use quote.global_price_adj_pct
+//
+// Composite PK on (quote_sku_id, tier_id) — one override per cell at
+// most. Lazy writes: actions/sell-price-overrides.ts performs INSERT
+// ON CONFLICT UPDATE on set, DELETE on clear. Read paths LEFT JOIN.
+//
+// FKs cascade-delete from both parents — removing a SKU or a tier
+// removes any overrides it carried. Audit pattern uses a synthesized
+// composite key for entity_id ("{quote_sku_id}:{tier_id}") since
+// audit_log.entity_id is text (per CLAUDE.md "audit_log.entity_id is
+// text"). Diff_json carries both keys as well for query convenience.
+export const quoteSkuTiers = pgTable(
+  "quote_sku_tiers",
+  {
+    quoteSkuId: uuid("quote_sku_id")
+      .notNull()
+      .references(() => quoteSkus.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+    // numeric(10,4) matches the precision of computed sell prices
+    // (packagingInputs.unitCost, freightInputs.totalFreight, etc.).
+    // NOT NULL enforces the invariant "row exists ⟹ override is set"
+    // at the schema level. The action layer's DELETE-not-UPDATE-NULL
+    // pattern works without friction here; NOT NULL is defense in
+    // depth that catches future code paths attempting to violate
+    // the invariant before bad data accumulates.
+    sellPriceOverride: numeric("sell_price_override", { precision: 10, scale: 4 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.quoteSkuId, t.tierId] }),
+    // Reverse index for "all overrides in this tier" queries (e.g.,
+    // tier-side aggregations during costing rollup).
+    index("quote_sku_tiers_tier_id_idx").on(t.tierId),
   ],
 );
 

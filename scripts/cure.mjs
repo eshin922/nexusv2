@@ -62,8 +62,13 @@ rmSync("node_modules/.cache", { recursive: true, force: true });
 console.log("\n→ Starting dev server on :3000...");
 console.log("  ⚠ STEP 4: Close ALL browser tabs on localhost:3000, open fresh.\n");
 
+// shell: true required for Windows .cmd shims. Node 22.17.0+ tightened
+// spawn validation and rejects bare .cmd execution without a shell;
+// without it, spawn returns EINVAL. Args are static (no user input)
+// so shell injection isn't a concern. Caught Slice 9.2 smoke setup.
 const child = spawn(isWindows ? "npx.cmd" : "npx", ["next", "dev", "-p", "3000"], {
   stdio: "inherit",
+  shell: isWindows,
 });
 
 // Forward signals so Ctrl+C kills the dev server cleanly

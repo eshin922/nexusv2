@@ -361,8 +361,20 @@ are semantically different (PM is changing GPA vs PM is changing
 target margin), they get distinct `action` values regardless of
 column overlap.
 
+**Source flags scope.** `diff_json.source` values are reserved for
+marking non-default ORIGIN (system-driven, scenario-applied, bulk-
+imported, etc.) — distinguishing where a write came from when
+multiple surfaces can produce the same column-state transition.
+They are NOT used to mark action variants on a single surface (set
+vs revert, update vs replace). Action variant intent is encoded in
+the from/to value shape (`to: null` = clear; `from: null` = first-
+time set); a source flag would be redundant. The `cell_override_updated`
+action in Slice 9.3 is the canonical example of this — one action,
+no source flag, set/clear/change all distinguished by from/to.
+
 Reference: `src/app/actions/costing.ts` `applySuggestedGlobalAdj`
-vs `updateQuoteGlobalPriceAdj`.
+vs `updateQuoteGlobalPriceAdj` (cross-surface origin disambiguation),
+`updateSellPriceOverride` (single-surface variant via from/to).
 
 ## Suggested-GPA rounding convention (added Slice 9.2)
 
