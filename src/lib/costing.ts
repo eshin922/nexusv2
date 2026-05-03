@@ -138,6 +138,12 @@ export type CostingTier = {
   label: string;
   qty: number | null; // null treated as 0 in revenue, but indicates "not yet specified"
   sortOrder: number;
+  // Slice 9.2 — per-tier override of quote.globalPriceAdjPct.
+  // NULL = inherit global (current behavior). Non-NULL = REPLACE
+  // global for this tier's costing math (does not stack). Tiers with
+  // an override are immune to GPA changes — quote-wide suggested-GPA
+  // math partitions on this field.
+  tierPriceAdjPct: number | null;
 };
 
 export type CostingPackagingInput = {
@@ -181,7 +187,15 @@ export type CostingFreightInput = {
 };
 
 export type QuoteCostingInput = {
-  quote: { id: string; globalPriceAdjPct: number };
+  // Slice 9.2 — quote.targetMarginPct is per-quote override of
+  // firmSettings.targetMarginPct. NULL = inherit firm-level.
+  // Replaces the firm-level target for THIS quote's verdict bands
+  // (GOOD / BELOW_TARGET threshold). Floor stays firm-level always.
+  quote: {
+    id: string;
+    globalPriceAdjPct: number;
+    targetMarginPct: number | null;
+  };
   firmSettings: { targetMarginPct: number; floorMarginPct: number };
   // Record (not Map) so the snapshot survives RSC server→client
   // serialization. Maps don't round-trip across the RSC boundary —
@@ -261,12 +275,43 @@ export type QuotePerTierRollup = {
   suggestedGlobalAdjPct: number | null;
 };
 
+// Slice 9.2 — quote-wide blended view (across all tiers). The IA
+// spec verdict surface ("BLENDED MARGIN · ALL SKUS · ALL TIERS")
+// reads from this. Distinct from per-tier QuotePerTierRollup which
+// computes blended within a single tier.
+//
+// suggestedAdj is the canonical surface for the system-suggested
+// GPA banner (UX_BACKLOG: system-suggested global price adjustment
+// computation). Goal shifts by verdict state — target in
+// BELOW_TARGET, floor in BELOW_FLOOR, none in GOOD. Microcopy
+// always present (empty string when no banner shows). See the
+// computeQuoteSuggestion helper for the degenerate-case matrix.
+export type QuoteSummary = {
+  blendedRevenue: number;
+  blendedCost: number;
+  blendedMarginPct: number;
+  blendedMarginStatus: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
+  effectiveTargetMarginPct: number; // quote override or firm default
+  // System-suggested GPA. null in degenerate cases (already at goal,
+  // overridden tiers exceed goal, all tiers overridden, out of
+  // bounds). microcopy explains the null state when applicable.
+  suggestedAdj: number | null;
+  suggestionGoal: "target" | "floor" | null;
+  suggestionMicrocopy: string;
+};
+
 export type QuoteCostingResult = {
-  quote: { id: string; globalPriceAdjPct: number };
+  quote: {
+    id: string;
+    globalPriceAdjPct: number;
+    targetMarginPct: number | null;
+  };
   firmSettings: { targetMarginPct: number; floorMarginPct: number };
   tiers: Array<{ tierId: string; label: string; qty: number }>;
   skuRollups: SkuRollup[];
   quoteRollup: QuotePerTierRollup[];
+  // Slice 9.2 — quote-wide blended summary across all tiers.
+  quoteSummary: QuoteSummary;
 };
 
 // ---------- helpers ----------
@@ -302,12 +347,20 @@ function computeStatus(
 
 // Closed-form solve. See top-of-file comment for derivation.
 // Returns null if margin already at/above target.
+//
+// PER-TIER variant — kept for backwards compatibility with the
+// existing per-tier suggestedGlobalAdjPct surface. Returns null
+// when the tier has its own override (GPA can't move an overridden
+// tier — the existing per-tier suggestion is nonsensical in that
+// case). Quote-wide canonical surface lives in computeQuoteSuggestion.
 function suggestedAdj(
   currentRevenue: number,
   currentCost: number,
   currentAdj: number,
   targetMargin: number,
+  tierHasOverride: boolean,
 ): number | null {
+  if (tierHasOverride) return null;
   if (currentRevenue <= 0) return null;
   const currentMargin = (currentRevenue - currentCost) / currentRevenue;
   if (currentMargin >= targetMargin) return null;
@@ -319,6 +372,171 @@ function suggestedAdj(
   const adjNew = (1 + currentAdj) * k - 1;
   // Round to nearest 1%. Pad up so we never under-suggest.
   return Math.ceil(adjNew * 100) / 100;
+}
+
+// Slice 9.2 — quote-wide suggested-GPA computation. The canonical
+// surface for the system-suggested-GPA banner. Goal shifts by
+// verdict state (target in BELOW_TARGET, floor in BELOW_FLOOR,
+// none in GOOD). Math partitions tiers into overridden (FIXED
+// revenue) vs inheriting (SOLVE FOR GPA), avoiding the "uniform
+// multiplier" mistake which silently undershoots when any tier
+// is overridden.
+//
+// Returns the full degenerate-case matrix as a single shape:
+// { suggestedAdj: number | null, microcopy: string, goal }.
+// microcopy is always present; empty string when no banner shows.
+//
+// Bounds for "achievable": SUGGESTION_MIN_PCT to SUGGESTION_MAX_PCT
+// (decimals, not percent). Out-of-bounds suggestion suppressed
+// because GPA alone can't realistically lift the quote that far.
+
+const SUGGESTION_THRESHOLD_PP = 0.003; // 0.3pp gap before surfacing
+const SUGGESTION_MIN_PCT = -0.5;
+const SUGGESTION_MAX_PCT = 1.0;
+
+function computeQuoteSuggestion(args: {
+  blendedRevenue: number;
+  blendedCost: number;
+  blendedStatus: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
+  effectiveTarget: number;
+  floor: number;
+  globalAdj: number;
+  // Per-tier breakdown for the partition: which tiers are overridden
+  // (FIXED revenue) vs inheriting (SOLVE FOR GPA).
+  perTierBreakdown: Array<{
+    revenue: number;
+    cost: number;
+    hasOverride: boolean;
+  }>;
+}): {
+  suggestedAdj: number | null;
+  suggestionGoal: "target" | "floor" | null;
+  suggestionMicrocopy: string;
+} {
+  const {
+    blendedRevenue,
+    blendedCost,
+    blendedStatus,
+    effectiveTarget,
+    floor,
+    globalAdj,
+    perTierBreakdown,
+  } = args;
+
+  // GOOD state — no suggestion needed.
+  if (blendedStatus === "GOOD") {
+    return { suggestedAdj: null, suggestionGoal: null, suggestionMicrocopy: "" };
+  }
+
+  // Goal shifts by verdict state. BELOW_TARGET: solve to target.
+  // BELOW_FLOOR: solve to floor (urgent — lift above hard block).
+  const goal: "target" | "floor" =
+    blendedStatus === "BELOW_FLOOR" ? "floor" : "target";
+  const goalPct = goal === "floor" ? floor : effectiveTarget;
+
+  if (blendedRevenue <= 0) {
+    return { suggestedAdj: null, suggestionGoal: null, suggestionMicrocopy: "" };
+  }
+
+  // If blended is within threshold of goal, no banner.
+  const currentMargin = (blendedRevenue - blendedCost) / blendedRevenue;
+  if (Math.abs(currentMargin - goalPct) < SUGGESTION_THRESHOLD_PP) {
+    return { suggestedAdj: null, suggestionGoal: null, suggestionMicrocopy: "" };
+  }
+
+  // Partition tiers into overridden (FIXED) vs inheriting (SOLVE).
+  let revenueOverridden = 0;
+  let revenueInheritingAtZeroGPA = 0;
+  let costOverridden = 0;
+  let costInheriting = 0;
+  for (const t of perTierBreakdown) {
+    if (t.hasOverride) {
+      revenueOverridden += t.revenue;
+      costOverridden += t.cost;
+    } else {
+      // Strip the current GPA back to zero so we can re-solve from
+      // a clean baseline. revenue = revenue_at_zero × (1 + globalAdj),
+      // so revenue_at_zero = revenue / (1 + globalAdj). Cost is
+      // GPA-independent so passes through.
+      revenueInheritingAtZeroGPA += t.revenue / (1 + globalAdj);
+      costInheriting += t.cost;
+    }
+  }
+
+  // Degenerate: all tiers overridden. GPA cannot affect blended.
+  if (revenueInheritingAtZeroGPA <= 0) {
+    return {
+      suggestedAdj: null,
+      suggestionGoal: null,
+      suggestionMicrocopy:
+        "All tiers have per-tier overrides; suggested GPA cannot affect blended.",
+    };
+  }
+
+  // Required blended revenue to hit goal. Cost is fixed.
+  if (goalPct >= 1) {
+    return { suggestedAdj: null, suggestionGoal: null, suggestionMicrocopy: "" };
+  }
+  const targetBlendedRevenue = (costOverridden + costInheriting) / (1 - goalPct);
+
+  // What inheriting tiers must contribute to hit the target.
+  const requiredInheritingRev = targetBlendedRevenue - revenueOverridden;
+
+  // Degenerate: overridden tiers alone meet/exceed the goal-revenue.
+  // The floor branch is reachable when blended is BELOW_FLOOR but
+  // overridden tiers alone produce floor-level margin against total
+  // cost; the target branch (else) is mathematically unreachable
+  // given the GOOD short-circuit at the top of this function (if
+  // overridden revenue alone covers targetBlendedRev, then
+  // blended_margin >= effectiveTarget → blendedStatus === "GOOD" →
+  // early return). Kept defensively in case the GOOD short-circuit
+  // logic changes; remove only after auditing the upstream guard.
+  if (requiredInheritingRev <= 0) {
+    return {
+      suggestedAdj: null,
+      suggestionGoal: null,
+      suggestionMicrocopy:
+        goal === "floor"
+          ? "Overridden tiers are pulling blended below floor and inheriting tiers can't compensate; consider tuning per-tier overrides down."
+          : "Overridden tiers already exceed target — no GPA suggestion possible; consider tuning per-tier overrides down.",
+    };
+  }
+
+  // Solve: required = sum_inheriting_at_zero × (1 + suggested_GPA)
+  const adjNewRaw = requiredInheritingRev / revenueInheritingAtZeroGPA - 1;
+  // Round to nearest 1%, padding up so we never under-suggest.
+  const suggestedAdjPct = Math.ceil(adjNewRaw * 100) / 100;
+
+  // Bounds check — GPA alone may not be achievable.
+  if (
+    suggestedAdjPct < SUGGESTION_MIN_PCT ||
+    suggestedAdjPct > SUGGESTION_MAX_PCT
+  ) {
+    return {
+      suggestedAdj: null,
+      suggestionGoal: null,
+      suggestionMicrocopy:
+        goal === "floor"
+          ? "GPA alone cannot lift blended above floor — review per-tier overrides or per-line costs."
+          : "GPA alone cannot land blended at target — review per-tier overrides or per-line costs.",
+    };
+  }
+
+  // Surface-able suggestion. Microcopy will be rendered in UI from
+  // the goal + suggestedAdj; provide a default that the banner can
+  // either use directly or template against.
+  const goalPctDisplay = (goalPct * 100).toFixed(1);
+  const adjPctDisplay = (suggestedAdjPct * 100).toFixed(0);
+  const microcopy =
+    goal === "floor"
+      ? `System suggests +${adjPctDisplay}% to lift blended above floor (${goalPctDisplay}%).`
+      : `System suggests +${adjPctDisplay}% to land blended at target (${goalPctDisplay}%).`;
+
+  return {
+    suggestedAdj: suggestedAdjPct,
+    suggestionGoal: goal,
+    suggestionMicrocopy: microcopy,
+  };
 }
 
 // ---------- per-leaf, per-tier compute ----------
@@ -582,6 +800,14 @@ function rollUpAssemblyPerTier(
 export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResult {
   const { quote, firmSettings, markupDefaults, skus, tiers } = input;
   const globalAdj = num(quote.globalPriceAdjPct);
+  // Slice 9.2 — verdict bands use the per-quote target override when
+  // set, otherwise firm-level target. Floor stays firm-level always
+  // (admin only). See top-of-file comment for the effective-value
+  // pattern.
+  const effectiveTarget =
+    quote.targetMarginPct !== null && quote.targetMarginPct !== undefined
+      ? num(quote.targetMarginPct)
+      : firmSettings.targetMarginPct;
 
   // Build child-by-parent map for tree walking.
   const skusById = new Map(skus.map((s) => [s.id, s]));
@@ -628,13 +854,19 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
         );
         const prod = productionBySkuTier.get(`${sku.id}::${tier.id}`) ?? null;
         const frt = freightBySkuTier.get(`${sku.id}::${tier.id}`) ?? [];
+        // Slice 9.2 — per-tier price-adjustment override REPLACES
+        // global (does not stack). NULL = inherit global.
+        const effectiveAdj =
+          tier.tierPriceAdjPct !== null && tier.tierPriceAdjPct !== undefined
+            ? num(tier.tierPriceAdjPct)
+            : globalAdj;
         return computeLeafPerTier({
           sku,
           tier,
           packaging: pkgs,
           production: prod,
           freight: frt,
-          globalAdj,
+          globalAdj: effectiveAdj,
           markupDefaults,
         });
       });
@@ -730,13 +962,21 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
     const marginPct = revenue > 0 ? (revenue - cost) / revenue : 0;
     const status = computeStatus(
       marginPct,
-      firmSettings.targetMarginPct,
+      effectiveTarget,
       firmSettings.floorMarginPct,
     );
-    const suggested =
-      status === "GOOD"
-        ? null
-        : suggestedAdj(revenue, cost, globalAdj, firmSettings.targetMarginPct);
+    // Slice 9.2 — per-tier suggested-adj uses the EFFECTIVE target and
+    // suppresses itself when this tier has a price-adj override
+    // (suggestion is moot for an overridden tier — GPA doesn't move it).
+    const tierHasOverride =
+      tier.tierPriceAdjPct !== null && tier.tierPriceAdjPct !== undefined;
+    const suggested = suggestedAdj(
+      revenue,
+      cost,
+      globalAdj,
+      effectiveTarget,
+      tierHasOverride,
+    );
     return {
       tierId: tier.id,
       label: tier.label,
@@ -750,8 +990,70 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
     };
   });
 
+  // Slice 9.2 — quote-wide blended verdict + system-suggested GPA.
+  // Sums across all tiers (each `quoteRollup[i].totalRevenue/Cost` is
+  // already × tier.qty), then partitions tiers into overridden (FIXED)
+  // vs inheriting (SOLVE FOR GPA) for the closed-form reverse-solve.
+  // See computeQuoteSuggestion for the full degenerate-case matrix.
+  let blendedRevenue = 0;
+  let blendedCost = 0;
+  const perTierForSuggestion: Array<{
+    revenue: number;
+    cost: number;
+    hasOverride: boolean;
+  }> = [];
+  for (let i = 0; i < tiers.length; i++) {
+    const t = tiers[i];
+    const qr = quoteRollup[i];
+    blendedRevenue += qr.totalRevenue;
+    blendedCost += qr.totalCost;
+    perTierForSuggestion.push({
+      revenue: qr.totalRevenue,
+      cost: qr.totalCost,
+      hasOverride:
+        t.tierPriceAdjPct !== null && t.tierPriceAdjPct !== undefined,
+    });
+  }
+  const blendedMarginPct =
+    blendedRevenue > 0 ? (blendedRevenue - blendedCost) / blendedRevenue : 0;
+  const blendedStatus = computeStatus(
+    blendedMarginPct,
+    effectiveTarget,
+    firmSettings.floorMarginPct,
+  );
+  const {
+    suggestedAdj: quoteSuggestedAdj,
+    suggestionGoal,
+    suggestionMicrocopy,
+  } = computeQuoteSuggestion({
+    blendedRevenue,
+    blendedCost,
+    blendedStatus,
+    effectiveTarget,
+    floor: firmSettings.floorMarginPct,
+    globalAdj,
+    perTierBreakdown: perTierForSuggestion,
+  });
+  const quoteSummary: QuoteSummary = {
+    blendedRevenue,
+    blendedCost,
+    blendedMarginPct,
+    blendedMarginStatus: blendedStatus,
+    effectiveTargetMarginPct: effectiveTarget,
+    suggestedAdj: quoteSuggestedAdj,
+    suggestionGoal,
+    suggestionMicrocopy,
+  };
+
   return {
-    quote: { id: quote.id, globalPriceAdjPct: globalAdj },
+    quote: {
+      id: quote.id,
+      globalPriceAdjPct: globalAdj,
+      targetMarginPct:
+        quote.targetMarginPct !== null && quote.targetMarginPct !== undefined
+          ? num(quote.targetMarginPct)
+          : null,
+    },
     firmSettings: {
       targetMarginPct: firmSettings.targetMarginPct,
       floorMarginPct: firmSettings.floorMarginPct,
@@ -759,5 +1061,6 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
     tiers: tiers.map((t) => ({ tierId: t.id, label: t.label, qty: num(t.qty) })),
     skuRollups: renderOrdered,
     quoteRollup,
+    quoteSummary,
   };
 }

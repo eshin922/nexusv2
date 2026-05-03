@@ -327,6 +327,79 @@ Caught Slice 8 admin smoke-test 7: `INSERT INTO audit_log` with
 `entity_id = 'Test Category'` rejected by the prior `uuid` type.
 Migration 0013_wide_cassandra_nova converts via `entity_id::text`.
 
+## Audit source convention (added Slice 9.2)
+
+When multiple distinct origins write the SAME column via DIFFERENT
+server actions, they share the same `audit_log.action` value to keep
+timeline reads coherent. Disambiguate origins via `diff_json.source`.
+
+Slice 9.2 established the pattern with `quotes.global_price_adj_pct`:
+
+- Manual slider edit (`updateQuoteGlobalPriceAdj`) → `action:
+  "global_price_adj_updated"`, no `source` key. Absence = manual.
+- One-click apply of coaching banner suggestion
+  (`applySuggestedGlobalAdj`) → same `action:
+  "global_price_adj_updated"`, with `diff_json.source =
+  "system_suggestion"`.
+
+Single timeline of column changes; per-source filter when forensics
+need it: `diff_json->>'source' = 'system_suggestion'`.
+
+**Naming rule for new sources:** namespace by surface or origin
+class, not by generic word. Use `system_suggestion` (specific),
+not `suggestion` (no room to grow). When future paths land —
+Slice 9.5 bulk validation engine, scenario apply, AI-assisted
+recompute, etc. — each gets its own namespaced value:
+`bulk_validation_suggestion`, `scenario_apply`, `ai_recompute`.
+Reusing `system_suggestion` for a different surface defeats the
+namespace.
+
+**When to add `source` vs use a separate `action`:** if the writes
+are the same column with the same semantic effect (PM is changing
+the GPA), share `action` and namespace via `source`. If the writes
+are semantically different (PM is changing GPA vs PM is changing
+target margin), they get distinct `action` values regardless of
+column overlap.
+
+Reference: `src/app/actions/costing.ts` `applySuggestedGlobalAdj`
+vs `updateQuoteGlobalPriceAdj`.
+
+## Suggested-GPA rounding convention (added Slice 9.2)
+
+`computeQuoteSuggestion` uses `Math.ceil(adjNewRaw * 100) / 100` to
+round the closed-form raw solve up to the nearest 1pp. The ceil is
+intentional and serves as the safety buffer in BELOW_FLOOR state —
+no explicit buffer constant.
+
+In BELOW_FLOOR state, the closed-form solve produces a raw `adjNew`
+that lands blended exactly at floor. Ceil overshoots by 0–1pp
+depending on where the raw value sits in the percent grid: PM
+applies → blended lands just-above floor in BELOW_TARGET state,
+never exactly-at-floor. Stair-step then proceeds normally (PM
+clicks Apply again, suggestion targets effective_target, blended
+moves to GOOD).
+
+In BELOW_TARGET state, ceil also overshoots target by 0–1pp. Same
+logic: applying lands GOOD with a small headroom buffer, not at
+exact-target.
+
+**When to revisit:** if PMs report that applying a suggestion
+overshoots target by several pp when they only needed a fraction
+of a pp, that's the signal the ceil-as-buffer pattern has outlived
+its simplicity. Replace with explicit buffer constant (e.g.,
++0.5pp added to raw, then floor to nearest 1pp) and tune the
+buffer to taste. Until that signal surfaces, the ceil approach is
+the lower-maintenance choice.
+
+**Smoke verification (Slice 9.2):** at GPA=-20% on a BELOW_FLOOR
+quote (blended 6.6%), suggested was +0% (raw -0.4%, ceil bumped to
+0%). Apply landed blended at 25.31% — just above floor 25%. Next
+suggestion targeted effective_target; second Apply moved blended
+to GOOD.
+
+Reference: `src/lib/costing.ts` `computeQuoteSuggestion`
+(`adjNewRaw` → `suggestedAdjPct`).
+
 ## Slice 9 pricing-control columns (added 9.1, migration 0014)
 
 Three nullable columns sit in the schema awaiting their UI in
@@ -619,6 +692,10 @@ miss, not a real module error.
 `scripts/cure.mjs` which kills other node processes (PID-excluded
 so it doesn't kill itself), clears caches, starts `next dev -p
 3000` with inherited stdio. Step 4 still on you (browser side).
+(Note: cure.mjs is currently broken on Node 22.17.0+ due to a
+spawn validation tightening — `spawn("npx.cmd", ...)` returns
+EINVAL without `shell: true`. Until fixed, run the 4 steps
+manually. Tracked in UX_BACKLOG.)
 
 Hard-refresh is NOT enough. Restart-only is NOT enough. Both must
 happen.

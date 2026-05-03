@@ -92,6 +92,10 @@ export type CostingStoreState = {
 
   // Mutable inputs (PM edits flow here; recompute fires on every change)
   globalPriceAdjPct: number;
+  // Slice 9.2 — per-quote target margin override. NULL = inherit
+  // firm-level. Reverse-solve goal + verdict bands use the effective
+  // value (`?? firmSettings.targetMarginPct`).
+  targetMarginPct: number | null;
   firmSettings: { targetMarginPct: number; floorMarginPct: number };
   markupDefaults: Record<string, number>;
   skus: CostingSku[];
@@ -144,12 +148,18 @@ export type CostingStoreState = {
   ) => void;
   updateCustoms: (quoteSkuId: string, fields: CustomsFields) => void;
   updateGlobalAdj: (value: number) => void;
+  // Slice 9.2 — per-tier price-adj override (NULL = inherit global).
+  updateTierPriceAdj: (tierId: string, value: number | null) => void;
+  // Slice 9.2 — per-quote target-margin override (NULL = inherit firm).
+  updateTargetMargin: (value: number | null) => void;
 };
 
 export type HydrateSnapshot = {
   quoteId: string;
   projectId: string;
   globalPriceAdjPct: number;
+  // Slice 9.2 — per-quote target margin override (NULL = inherit firm).
+  targetMarginPct: number | null;
   firmSettings: { targetMarginPct: number; floorMarginPct: number };
   markupDefaults: Record<string, number>;
   skus: CostingSku[];
@@ -218,7 +228,11 @@ function recompute(
   },
 ): QuoteCostingResult {
   const input: QuoteCostingInput = {
-    quote: { id: s.quoteId, globalPriceAdjPct: s.globalPriceAdjPct },
+    quote: {
+      id: s.quoteId,
+      globalPriceAdjPct: s.globalPriceAdjPct,
+      targetMarginPct: s.targetMarginPct,
+    },
     firmSettings: s.firmSettings,
     markupDefaults: s.markupDefaults,
     skus: s.skus,
@@ -245,6 +259,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     quoteId: initial.quoteId,
     projectId: initial.projectId,
     globalPriceAdjPct: initial.globalPriceAdjPct,
+    targetMarginPct: initial.targetMarginPct,
     firmSettings: initial.firmSettings,
     markupDefaults: initial.markupDefaults,
     skus: initial.skus,
@@ -262,6 +277,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         quoteId: snapshot.quoteId,
         projectId: snapshot.projectId,
         globalPriceAdjPct: snapshot.globalPriceAdjPct,
+        targetMarginPct: snapshot.targetMarginPct,
         firmSettings: snapshot.firmSettings,
         markupDefaults: snapshot.markupDefaults,
         skus: snapshot.skus,
@@ -286,6 +302,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         quoteId: snapshot.quoteId,
         projectId: snapshot.projectId,
         globalPriceAdjPct: snapshot.globalPriceAdjPct,
+        targetMarginPct: snapshot.targetMarginPct,
         firmSettings: snapshot.firmSettings,
         markupDefaults: snapshot.markupDefaults,
         skus: snapshot.skus,
@@ -401,6 +418,31 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         costing: recompute({ ...s, globalPriceAdjPct: value }),
         lastUserEditAt: Date.now(),
       })),
+
+    // Slice 9.2 — per-tier price-adj override. value === null clears
+    // back to "inherit global"; otherwise the tier's revenue uses the
+    // override (REPLACES global, does not stack — see costing.ts).
+    updateTierPriceAdj: (tierId, value) =>
+      set((s) => {
+        const tiers = s.tiers.map((t) =>
+          t.id === tierId ? { ...t, tierPriceAdjPct: value } : t,
+        );
+        return {
+          tiers,
+          costing: recompute({ ...s, tiers }),
+          lastUserEditAt: Date.now(),
+        };
+      }),
+
+    // Slice 9.2 — per-quote target-margin override. value === null
+    // reverts to firm-level target. Drives verdict bands + suggestion
+    // goal (see computeQuoteCosting).
+    updateTargetMargin: (value) =>
+      set((s) => ({
+        targetMarginPct: value,
+        costing: recompute({ ...s, targetMarginPct: value }),
+        lastUserEditAt: Date.now(),
+      })),
   }));
 }
 
@@ -502,3 +544,25 @@ export const selectUpdateFreightLineMeta = (s: CostingStoreState) =>
 export const selectUpdateCustoms = (s: CostingStoreState) => s.updateCustoms;
 export const selectUpdateGlobalAdj = (s: CostingStoreState) =>
   s.updateGlobalAdj;
+export const selectUpdateTierPriceAdj = (s: CostingStoreState) =>
+  s.updateTierPriceAdj;
+export const selectUpdateTargetMargin = (s: CostingStoreState) =>
+  s.updateTargetMargin;
+
+// Slice 9.2 — per-quote target-margin override (NULL = inherit firm).
+// Effective value at any consumer is `target ?? firmSettings.targetMarginPct`.
+export const selectTargetMargin = (s: CostingStoreState) => s.targetMarginPct;
+
+// Slice 9.2 — quote-wide blended summary (revenue, cost, status,
+// suggested-GPA partition output). Single source for the GPA banner.
+export const selectQuoteSummary = (s: CostingStoreState) =>
+  s.costing.quoteSummary;
+
+// Slice 9.2 — per-tier price-adj override (NULL = inherit global).
+// Components rendering a single tier slider should subscribe via this
+// curried selector to avoid re-render on unrelated tier changes.
+export const selectTierPriceAdj =
+  (tierId: string) => (s: CostingStoreState) => {
+    const t = s.tiers.find((t) => t.id === tierId);
+    return t ? t.tierPriceAdjPct : null;
+  };
