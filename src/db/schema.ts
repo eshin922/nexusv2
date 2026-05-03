@@ -234,16 +234,16 @@ export const quoteTiers = pgTable(
     // PMs use this when one tier needs a different markup than the
     // quote-level adjustment. Wired up in Slice 9.2.
     tierPriceAdjPct: numeric("tier_price_adj_pct", { precision: 5, scale: 4 }),
-    // Slice 9.1 — PM-entered customer target price per unit for this
-    // tier ("client wants $5 landed at 50k"). NULL = no target
-    // (current behavior). Used in Slice 9.4 for two-axis status
-    // (margin verdict + competitive verdict — COMPETITIVE / OVER /
-    // WAY OVER) and the reverse-solve "Apply suggested adj to match
-    // client target" affordance.
-    clientTargetPricePerUnit: numeric("client_target_price_per_unit", {
-      precision: 10,
-      scale: 4,
-    }),
+    // (Slice 9.1's `client_target_price_per_unit` lived here originally;
+    // moved to a dedicated `quote_sku_tier_targets` table in Slice 9.4b
+    // migration 0016 once the IA spec settled per-(SKU, tier) granularity.
+    // No data migration was needed — the column was speculative and
+    // never UI-wired; zero non-null values existed at drop time.
+    // Architect call against single-table extension (option A): client
+    // target benchmark has independent lifecycle from `sell_price_override`
+    // and isn't a price-adjustment-hierarchy participant. Sister table
+    // preserves Slice 9.3's column-level NOT NULL invariant ("row exists
+    // ⟹ value is set") and avoids cross-column cleanup logic in actions.)
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -381,6 +381,73 @@ export const quoteSkuTiers = pgTable(
     // Reverse index for "all overrides in this tier" queries (e.g.,
     // tier-side aggregations during costing rollup).
     index("quote_sku_tiers_tier_id_idx").on(t.tierId),
+  ],
+);
+
+// ---------- per-cell client target benchmarks (Slice 9.4b) ----------
+
+// Sister sparse table to `quote_sku_tiers`. Different concern, parallel
+// pattern. Stores the customer's stated target price per (SKU, tier) cell
+// — the "client wants $5 landed at 50k for this SKU" data — used by
+// Slice 9.4b's two-axis verdict (margin × competitive: COMPETITIVE /
+// OVER / WAY OVER) and the "Apply suggested adj to match client target"
+// reverse-solve affordance (which writes per-tier `tier_price_adj_pct`,
+// not per-cell sell price — see UX_BACKLOG).
+//
+// Why a sister table, not a column on `quote_sku_tiers`:
+//   - `quote_sku_tiers` is "third layer of the price-adjustment
+//     hierarchy" — terminal sell-price overrides that bypass per-tier
+//     and global adjustments. Client target benchmarks aren't price-
+//     adjustment-hierarchy participants; they feed a separate verdict
+//     and a different reverse-solve target.
+//   - Independent lifecycles: PM may benchmark a cell without
+//     overriding it, override without knowing the client target, or
+//     set both. Single-column NOT NULL preserves Slice 9.3's
+//     "row exists ⟹ value is set" defense-in-depth at the column
+//     level (vs row-level CHECK across two columns, which complicates
+//     action-layer cleanup logic with read-after-write race windows).
+//   - Future cell-level concerns (per-cell freight treatment, valid-
+//     until, scenario annotations, PM justification notes) follow the
+//     same table-per-concern pattern. Composes by addition; no CHECK
+//     constraint amendment as columns accrete.
+//
+// Lazy-row pattern (mirrors `quote_sku_tiers`):
+//   - Action `setClientTarget(quoteSkuId, tierId, value | null)`:
+//     value > 0 → INSERT ON CONFLICT DO UPDATE; value === null → DELETE
+//   - Action layer rejects value <= 0 (matches Slice 9.3 sell-override
+//     invariant — non-positive prices break partition revenue math).
+//   - Read paths LEFT JOIN this table; absent row reads as "no benchmark."
+//
+// Audit pattern (mirrors `quote_sku_tiers`):
+//   - `entity_type = "quote_sku_tier_target"` (audit_log.entity_id text)
+//   - `entity_id` = synthesized composite `${quoteSkuId}:${tierId}`
+//   - Single action `client_target_updated`; from/to in diff_json
+//     distinguishes set/change/clear (per CLAUDE.md "Audit source
+//     convention" — same column → same action; from/to encodes intent).
+export const quoteSkuTierTargets = pgTable(
+  "quote_sku_tier_targets",
+  {
+    quoteSkuId: uuid("quote_sku_id")
+      .notNull()
+      .references(() => quoteSkus.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+    // numeric(10,4) matches the precision of `quote_sku_tiers.sell_price_override`
+    // and other monetary columns. NOT NULL enforces "row exists ⟹
+    // benchmark is set" at the column level (defense in depth — action
+    // layer's DELETE-not-UPDATE-NULL pattern catches future bypass).
+    clientTargetPricePerUnit: numeric("client_target_price_per_unit", {
+      precision: 10,
+      scale: 4,
+    }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.quoteSkuId, t.tierId] }),
+    // Reverse index for "all benchmarks in this tier" queries.
+    index("quote_sku_tier_targets_tier_id_idx").on(t.tierId),
   ],
 );
 
