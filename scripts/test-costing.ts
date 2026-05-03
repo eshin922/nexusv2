@@ -444,6 +444,153 @@ if (floorPartitionOut.quoteSummary.suggestedAdj !== null) {
   );
 }
 
+// ---- Slice 9.3: per-cell sell-price override is terminal ----
+// Global GPA = 0.50, no tier overrides. One leaf SKU; cell override at
+// $7.00 for tier T1. The override REPLACES the computed sell entirely;
+// neither global nor per-tier adj affects it. Computed value still
+// exposed for "was $X" tooltip via computedSellPerUnit.
+console.log("\n=== Slice 9.3: per-cell override is terminal ===");
+const cellOverrideInput: QuoteCostingInput = {
+  quote: { id: "q9.3a", globalPriceAdjPct: 0.5, targetMarginPct: null },
+  firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
+  markupDefaults: { Manufacturing: 0.3, Other: 0.3 },
+  skus: [
+    {
+      id: "x",
+      parentSkuId: null,
+      qtyPerParent: null,
+      skuRole: "leaf",
+      skuLabel: "X",
+      productName: "X",
+      sortOrder: 0,
+      dutyPct: null,
+      tariffPct: null,
+    },
+  ],
+  tiers: [
+    { id: "tA", label: "A", qty: 100, sortOrder: 0, tierPriceAdjPct: null },
+  ],
+  packaging: [
+    { quoteSkuId: "x", tierId: "tA", lineGroupId: "g", unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0.4 },
+  ],
+  production: [],
+  freight: [],
+  cellOverrides: [
+    { quoteSkuId: "x", tierId: "tA", sellPriceOverride: 7.0 },
+  ],
+};
+const cellOverrideOut = computeQuoteCosting(cellOverrideInput);
+const cellRollup = cellOverrideOut.skuRollups[0].perTier[0];
+assert("cell override is used directly as requiredSell", cellRollup.requiredSellPerUnit, 7.0);
+// Computed value would be: cost=1, markup=0.4 → base=1.40; × (1.50 GPA) = 2.10
+assert("computedSellPerUnit shows pre-override value", cellRollup.computedSellPerUnit, 2.1);
+console.log(
+  `  ${cellRollup.sellSource === "cell_override" ? "PASS" : "FAIL"}  sellSource = "cell_override": ${cellRollup.sellSource}`,
+);
+if (cellRollup.sellSource !== "cell_override") failures += 1;
+// Tier revenue uses override × tier.qty = 7 × 100 = 700
+assert("tier revenue uses override × qty", cellOverrideOut.quoteRollup[0].totalRevenue, 700);
+
+// ---- Slice 9.3: partition handles per-cell granularity within a
+// tier-overridden tier (no double-counting) ----
+// Tier T2 has tier_price_adj_pct = 0.10. One cell in T2 has a cell
+// override. Verifies the partition treats the cell as ONE fixed
+// contribution (not double-counted across tier-fixed AND cell-fixed
+// classifications). At the top-level walk, each (SKU, tier) cell is
+// classified once and contributes once to revenueFixed/costFixed.
+console.log("\n=== Slice 9.3: partition handles per-cell granularity within tier-overridden tier (no double-counting) ===");
+const partitionGranularityInput: QuoteCostingInput = {
+  quote: { id: "q9.3b", globalPriceAdjPct: 0.2, targetMarginPct: null },
+  firmSettings: { targetMarginPct: 0.5, floorMarginPct: 0.1 },
+  markupDefaults: { Manufacturing: 0.3, Other: 0.3 },
+  skus: [
+    {
+      id: "x",
+      parentSkuId: null,
+      qtyPerParent: null,
+      skuRole: "leaf",
+      skuLabel: "X",
+      productName: "X",
+      sortOrder: 0,
+      dutyPct: null,
+      tariffPct: null,
+    },
+  ],
+  tiers: [
+    { id: "t1", label: "T1", qty: 100, sortOrder: 0, tierPriceAdjPct: null },
+    { id: "t2", label: "T2", qty: 100, sortOrder: 1, tierPriceAdjPct: 0.1 },
+  ],
+  packaging: [
+    { quoteSkuId: "x", tierId: "t1", lineGroupId: "g", unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0.05 },
+    { quoteSkuId: "x", tierId: "t2", lineGroupId: "g", unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0.05 },
+  ],
+  production: [],
+  freight: [],
+  // Cell-level override on T2 specifically (T2 also has tier-adj).
+  cellOverrides: [
+    { quoteSkuId: "x", tierId: "t2", sellPriceOverride: 1.5 },
+  ],
+};
+const granularityOut = computeQuoteCosting(partitionGranularityInput);
+// T2's revenue = override 1.50 × qty 100 = 150 (not 100 × 1.05 × 1.10 = 115.5).
+assert(
+  "T2 cell uses override (terminal — bypasses tier-adj)",
+  granularityOut.quoteRollup[1].totalRevenue,
+  150,
+);
+// T1 inherits global +20%: revenue = 100 × 1.05 × 1.20 = 126
+assert(
+  "T1 cell inherits global GPA",
+  granularityOut.quoteRollup[0].totalRevenue,
+  126,
+);
+// Blended: 126 + 150 = 276 revenue, 200 cost, margin = (276-200)/276 = 0.275
+// Below target 0.50 → BELOW_TARGET. Both cells gpaFixed (T1 fixed because
+// nothing inheriting in T1? actually T1 inherits global, T2 fixed by both
+// cell-override and tier-adj). For partition: T1 gpaFixed = false (no
+// tier-adj, no cell-override on this leaf). T2 gpaFixed = true.
+console.log(
+  `  ${granularityOut.quoteSummary.blendedMarginStatus === "BELOW_TARGET" ? "PASS" : "FAIL"}  blended verdict precondition (BELOW_TARGET): ${granularityOut.quoteSummary.blendedMarginStatus}`,
+);
+if (granularityOut.quoteSummary.blendedMarginStatus !== "BELOW_TARGET") failures += 1;
+// Suggestion solves only for T1 (the inheriting cell). T1 needs to lift
+// blended to target. Math:
+//   targetBlendedRev = 200 / (1 - 0.50) = 400
+//   requiredInheritingRev = 400 - 150 = 250
+//   T1 revenue at GPA=0 = 126 / 1.20 = 105
+//   adjNew = 250/105 - 1 = 1.381 → out of bounds (> SUGGESTION_MAX_PCT=1.0)
+// So suggestion suppresses with "GPA alone cannot land blended at target" microcopy.
+console.log(
+  `  ${granularityOut.quoteSummary.suggestedAdj === null ? "PASS" : "FAIL"}  out-of-bounds suggestion suppresses: ${granularityOut.quoteSummary.suggestedAdj}`,
+);
+if (granularityOut.quoteSummary.suggestedAdj !== null) failures += 1;
+console.log(
+  `  ${granularityOut.quoteSummary.suggestionMicrocopy.includes("GPA alone cannot") ? "PASS" : "FAIL"}  microcopy reflects out-of-bounds: ${granularityOut.quoteSummary.suggestionMicrocopy}`,
+);
+if (!granularityOut.quoteSummary.suggestionMicrocopy.includes("GPA alone cannot")) failures += 1;
+
+// ---- Slice 9.3: belt-and-suspenders negative-sell guard ----
+// Action layer rejects override <= 0; this test exercises the costing
+// math's defensive guard for the bypass case. Negative override would
+// make (neg − pos) / neg = pos, falsely reporting positive margin
+// without the guard. Sentinel value -1 signals "invalid: negative
+// sell price" so consumers can render an error pill.
+console.log("\n=== Slice 9.3: defensive guard against negative requiredSell ===");
+const negativeOverrideInput: QuoteCostingInput = {
+  ...cellOverrideInput,
+  quote: { id: "q9.3c", globalPriceAdjPct: 0, targetMarginPct: null },
+  cellOverrides: [
+    { quoteSkuId: "x", tierId: "tA", sellPriceOverride: -5.0 },
+  ],
+};
+const negativeOut = computeQuoteCosting(negativeOverrideInput);
+const negCell = negativeOut.skuRollups[0].perTier[0];
+assert(
+  "negative requiredSell triggers -1 margin sentinel",
+  negCell.marginPct,
+  -1,
+);
+
 console.log(
   `\n${failures === 0 ? "✓ ALL ASSERTIONS PASS" : `✗ ${failures} ASSERTION(S) FAILED`}`,
 );

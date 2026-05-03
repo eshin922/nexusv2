@@ -1,6 +1,7 @@
 import { createStore } from "zustand";
 import {
   computeQuoteCosting,
+  type CostingCellOverride,
   type CostingFreightInput,
   type CostingPackagingInput,
   type CostingProductionInput,
@@ -103,6 +104,10 @@ export type CostingStoreState = {
   packaging: StoredPackagingRow[];
   production: StoredProductionRow[];
   freight: StoredFreightRow[];
+  // Slice 9.3 — sparse per-cell sell-price overrides. Empty array =
+  // no overrides. Mutated by `updateCellOverride(skuId, tierId, value)`
+  // (upsert / clear pattern; see action below).
+  cellOverrides: CostingCellOverride[];
 
   // Derived (always reflects current inputs)
   costing: QuoteCostingResult;
@@ -152,6 +157,15 @@ export type CostingStoreState = {
   updateTierPriceAdj: (tierId: string, value: number | null) => void;
   // Slice 9.2 — per-quote target-margin override (NULL = inherit firm).
   updateTargetMargin: (value: number | null) => void;
+  // Slice 9.3 — per-cell sell-price override. value === null clears
+  // the override (DELETEs the entry from cellOverrides + the DB row).
+  // value > 0 upserts. Action layer rejects value <= 0; store does
+  // not enforce (defense in depth lives at the action boundary).
+  updateCellOverride: (
+    quoteSkuId: string,
+    tierId: string,
+    value: number | null,
+  ) => void;
 };
 
 export type HydrateSnapshot = {
@@ -167,6 +181,9 @@ export type HydrateSnapshot = {
   packaging: StoredPackagingRow[];
   production: StoredProductionRow[];
   freight: StoredFreightRow[];
+  // Slice 9.3 — sparse per-cell sell-price overrides (rows that exist
+  // in DB at hydration time). Empty array if no overrides on this quote.
+  cellOverrides: CostingCellOverride[];
   costing: QuoteCostingResult; // pre-computed on the server side
 };
 
@@ -240,6 +257,7 @@ function recompute(
     packaging: s.packaging,
     production: s.production,
     freight: s.freight,
+    cellOverrides: s.cellOverrides,
   };
   return computeQuoteCosting(input);
 }
@@ -267,6 +285,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     packaging: initial.packaging,
     production: initial.production,
     freight: initial.freight,
+    cellOverrides: initial.cellOverrides,
     costing: initial.costing,
     hydrated: true,
     lastReconcileAt: Date.now(),
@@ -285,6 +304,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         packaging: snapshot.packaging,
         production: snapshot.production,
         freight: snapshot.freight,
+        cellOverrides: snapshot.cellOverrides,
         costing: snapshot.costing,
         hydrated: true,
         lastReconcileAt: Date.now(),
@@ -310,6 +330,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         packaging: snapshot.packaging,
         production: snapshot.production,
         freight: snapshot.freight,
+        cellOverrides: snapshot.cellOverrides,
         costing: snapshot.costing,
         lastReconcileAt: Date.now(),
         lastUserEditAt: 0,
@@ -443,6 +464,29 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         costing: recompute({ ...s, targetMarginPct: value }),
         lastUserEditAt: Date.now(),
       })),
+
+    // Slice 9.3 — per-cell sell-price override. value === null clears
+    // (filter out the entry, mirrors the server's DELETE semantics).
+    // value > 0 upserts (replace existing or append). The action layer
+    // rejects non-positive values; the store does not enforce here so
+    // the optimistic path can stay simple — if a non-positive value
+    // somehow reaches here, the costing math's defensive guard handles
+    // negative `requiredSellPerUnit` via the -1 sentinel.
+    updateCellOverride: (quoteSkuId, tierId, value) =>
+      set((s) => {
+        const filtered = s.cellOverrides.filter(
+          (c) => !(c.quoteSkuId === quoteSkuId && c.tierId === tierId),
+        );
+        const cellOverrides =
+          value === null
+            ? filtered
+            : [...filtered, { quoteSkuId, tierId, sellPriceOverride: value }];
+        return {
+          cellOverrides,
+          costing: recompute({ ...s, cellOverrides }),
+          lastUserEditAt: Date.now(),
+        };
+      }),
   }));
 }
 
@@ -565,4 +609,20 @@ export const selectTierPriceAdj =
   (tierId: string) => (s: CostingStoreState) => {
     const t = s.tiers.find((t) => t.id === tierId);
     return t ? t.tierPriceAdjPct : null;
+  };
+
+// Slice 9.3 — per-cell override action selector.
+export const selectUpdateCellOverride = (s: CostingStoreState) =>
+  s.updateCellOverride;
+
+// Slice 9.3 — single-cell override value selector. Returns the
+// override number when set, null when the cell is computed-only.
+// Curried so consumer subscribes only to its own (SKU, tier) cell;
+// changes elsewhere don't trigger re-renders.
+export const selectCellOverride =
+  (quoteSkuId: string, tierId: string) => (s: CostingStoreState) => {
+    const c = s.cellOverrides.find(
+      (c) => c.quoteSkuId === quoteSkuId && c.tierId === tierId,
+    );
+    return c ? c.sellPriceOverride : null;
   };
