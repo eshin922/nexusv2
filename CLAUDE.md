@@ -670,6 +670,41 @@ before `setState(v)` and pass it as a `{field: v}` override to the
 save function. The save merges overrides over the ref:
 `const s = { ...stateRef.current, ...overrides };`.
 
+## Never `npm run build` while `npm run dev` is live (added Slice 9.4a)
+
+Both write to `.next/` but with different artifact shapes —
+production build emits server-rendered chunks + minified bundles;
+dev emits HMR-keyed chunks + sourcemaps. Mixing them corrupts the
+vendor-chunk index. The dev server starts hitting
+`Cannot find module './vendor-chunks/<package>.js'` errors and the
+page renders as plain HTML (no CSS, no client hydration) because
+the broken chunk is the one that loads `globals.css` + the React
+client tree.
+
+**Symptoms:**
+- Page renders as unstyled plain text after a refresh
+- Dev server log shows `Cannot find module './vendor-chunks/<x>.js'`
+- 500 errors on routes that worked moments ago
+
+**Cause:** running `npm run build` (or any `next build`) at any
+point during a `next dev` session, even after a successful build,
+leaves the `.next/` directory in a state the dev server's HMR
+layer can't reconcile.
+
+**Cure:** `npm run cure` (or the manual 4-step from the next
+section). The cache clear is the load-bearing step.
+
+**How to avoid:** if you need to verify a production build, kill
+the dev server first (`Ctrl+C`), run `npm run build`, then either
+`npm run dev` (which rebuilds the dev cache from scratch) or
+`npm run cure` (cleaner). Never overlap the two.
+
+Caught Slice 9.4a smoke setup. Pattern is similar in shape to
+"Server action ID invalidation" below — a `.next/` cache
+inconsistency with a misleading symptom — but the cause is
+different (build/dev artifact mixing, not Next 15 server action
+content-hashing).
+
 ## Server action ID invalidation after refactors
 
 Next 15's server actions are content-hashed. Refactors that change

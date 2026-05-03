@@ -266,6 +266,11 @@ export type SkuPerTierRollup = {
   requiredSellPerUnit: number;
   sellSource: SellSource;
   marginPct: number;
+  // Slice 9.4a — per-(SKU, tier) verdict band, classified against the
+  // SAME thresholds as the quote-level blended verdict (effectiveTarget,
+  // firmSettings.floorMarginPct). Surfaces on the per-SKU summary row.
+  // For assemblies this reflects the rolled-up margin (mix of children).
+  marginStatus: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
   revenue: number;
   cost: number;
 };
@@ -603,6 +608,11 @@ function computeLeafPerTier(args: {
   // bypasses both per-tier and global price adjustments. Cell margin
   // computes against the override; OVR badge in UI reads this state.
   cellOverride: number | null;
+  // Slice 9.4a — verdict thresholds for per-(SKU, tier) margin
+  // classification. effectiveTarget already accounts for per-quote
+  // override (see computeQuoteCosting); floor stays firm-level.
+  effectiveTarget: number;
+  floor: number;
 }): SkuPerTierRollup {
   const {
     sku,
@@ -613,6 +623,8 @@ function computeLeafPerTier(args: {
     globalAdj,
     markupDefaults,
     cellOverride,
+    effectiveTarget,
+    floor,
   } = args;
   const tierQty = num(tier.qty);
 
@@ -802,6 +814,10 @@ function computeLeafPerTier(args: {
     requiredSellPerUnit,
     sellSource,
     marginPct,
+    // Slice 9.4a — verdict band against effective target (per-quote
+    // override or firm) and firm floor. Uses the same computeStatus
+    // helper as quote-level blended classification for consistency.
+    marginStatus: computeStatus(marginPct, effectiveTarget, floor),
     revenue,
     cost,
   };
@@ -824,6 +840,11 @@ function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
     requiredSellPerUnit: 0,
     sellSource: "computed",
     marginPct: 0,
+    // Empty assembly with no children: 0% margin, classified per
+    // standard thresholds. computeStatus(0, target, floor) = BELOW_FLOOR
+    // when floor > 0 (the typical case). Acceptable; this row state is
+    // visible for ~16ms before children fold in.
+    marginStatus: "BELOW_FLOOR",
     revenue: 0,
     cost: 0,
   };
@@ -832,6 +853,8 @@ function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
 function rollUpAssemblyPerTier(
   tier: CostingTier,
   children: Array<{ rollup: SkuPerTierRollup; qtyPerParent: number }>,
+  effectiveTarget: number,
+  floor: number,
 ): SkuPerTierRollup {
   const tierQty = num(tier.qty);
   let contribution = 0;
@@ -892,6 +915,10 @@ function rollUpAssemblyPerTier(
     // cell itself. UI: don't render OVR badge on assembly rows.
     sellSource: "computed",
     marginPct,
+    // Slice 9.4a — verdict band on assembly cells classifies the
+    // rolled-up margin against the same thresholds as leaf cells.
+    // Reflects the blended mix of children (overridden + computed).
+    marginStatus: computeStatus(marginPct, effectiveTarget, floor),
     revenue: requiredSell * tierQty,
     cost: contribution * tierQty,
   };
@@ -986,6 +1013,8 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
           globalAdj: effectiveAdj,
           markupDefaults,
           cellOverride,
+          effectiveTarget,
+          floor: firmSettings.floorMarginPct,
         });
       });
       const rollup: SkuRollup = {
@@ -1015,7 +1044,12 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
         rollup: r.perTier.find((pt) => pt.tierId === tier.id)!,
         qtyPerParent: num(k.qtyPerParent, 1),
       }));
-      return rollUpAssemblyPerTier(tier, childTierRollups);
+      return rollUpAssemblyPerTier(
+        tier,
+        childTierRollups,
+        effectiveTarget,
+        firmSettings.floorMarginPct,
+      );
     });
     const rollup: SkuRollup = {
       skuId: sku.id,

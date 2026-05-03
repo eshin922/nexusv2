@@ -109,6 +109,18 @@ export type CostingStoreState = {
   // (upsert / clear pattern; see action below).
   cellOverrides: CostingCellOverride[];
 
+  // Slice 9.4a — VIEW STATE (not a costing input). The currently-active
+  // tier on the Costing Sheet. Determines which tier's per-SKU summary
+  // row values render (active-tier required sell, active-tier margin
+  // pill, active-tier client-target gap when 9.4b lands). Initial value
+  // is null; <ActiveTierUrlSync> sets it on mount from URL `?tier=`
+  // (or defaults to first tier in sort_order). Mutating this does NOT
+  // re-run computeQuoteCosting — the math is per-tier-uniform; what
+  // changes is which tier's slice the UI surfaces. Mirrors the URL
+  // (URL is canonical for shareability; store is the local cache for
+  // sub-50ms subscriber re-renders without round-tripping the router).
+  activeTierId: string | null;
+
   // Derived (always reflects current inputs)
   costing: QuoteCostingResult;
 
@@ -166,6 +178,12 @@ export type CostingStoreState = {
     tierId: string,
     value: number | null,
   ) => void;
+  // Slice 9.4a — view-state mutator. Sets the active-tier selection.
+  // Pure mutation; no side effects. URL sync is the caller's
+  // responsibility (selector click handler + ActiveTierUrlSync
+  // component handle the URL writeback to keep the store free of
+  // router/navigation knowledge).
+  setActiveTier: (tierId: string | null) => void;
 };
 
 export type HydrateSnapshot = {
@@ -286,6 +304,12 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     production: initial.production,
     freight: initial.freight,
     cellOverrides: initial.cellOverrides,
+    // Slice 9.4a — view-state. Defaults to null on store creation;
+    // <ActiveTierUrlSync> sets it on mount from URL `?tier=` (or
+    // first tier in sort_order if URL absent/invalid). Hydrate /
+    // reconcile preserve the existing value across server snapshots
+    // (server snapshots don't carry view-state).
+    activeTierId: null,
     costing: initial.costing,
     hydrated: true,
     lastReconcileAt: Date.now(),
@@ -487,6 +511,13 @@ export function makeCostingStore(initial: HydrateSnapshot) {
           lastUserEditAt: Date.now(),
         };
       }),
+
+    // Slice 9.4a — view-state mutator for the active-tier selection.
+    // Pure mutation; no costing recompute (active tier doesn't affect
+    // math, only which tier's slice the UI surfaces). Does NOT stamp
+    // lastUserEditAt — selecting a tier isn't an input edit and
+    // shouldn't defer reconcile via wait-for-quiet.
+    setActiveTier: (tierId) => set({ activeTierId: tierId }),
   }));
 }
 
@@ -626,3 +657,25 @@ export const selectCellOverride =
     );
     return c ? c.sellPriceOverride : null;
   };
+
+// Slice 9.4a — view-state. The currently-active tier on the Costing
+// Sheet (drives per-SKU summary row's active-tier columns). null
+// before <ActiveTierUrlSync> initializes from URL or defaults to
+// first tier in sort_order.
+export const selectActiveTierId = (s: CostingStoreState) => s.activeTierId;
+
+// Slice 9.4a — view-state mutator selector. Used by <ActiveTierUrlSync>
+// (to set from URL) and by the active-tier selector UI (to set from
+// click). The selector also writes the URL via router.replace; the
+// store mutation here is the pure view-state update only.
+export const selectSetActiveTier = (s: CostingStoreState) => s.setActiveTier;
+
+// Slice 9.4a — convenience selector returning the QuotePerTierRollup
+// for the currently-active tier (or null when no active tier or the
+// active tier doesn't appear in quoteRollup — which can happen
+// momentarily after a reconcile that removed the prior active tier
+// before <ActiveTierUrlSync> falls back to first tier).
+export const selectActiveTierRollup = (s: CostingStoreState) => {
+  if (s.activeTierId === null) return null;
+  return s.costing.quoteRollup.find((q) => q.tierId === s.activeTierId) ?? null;
+};

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
@@ -5,9 +6,11 @@ import { db } from "@/db";
 import { projects, quotes } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { CostingStoreProvider } from "@/components/costing-store-provider";
+import { ActiveTierSelector } from "@/components/costing/active-tier-selector";
+import { ActiveTierUrlSync } from "@/components/costing/active-tier-url-sync";
 import { IdBadge } from "@/components/id-badge";
 import { QuoteSummaryCard } from "@/components/quote-summary-card";
-import { CostingSkuBreakdownsList } from "./sku-breakdowns";
+import { SkuSummaryRowList } from "./sku-summary-row";
 
 // Slice 8 sub-step 6 follow-up: this page is a thin server shell. All
 // math display reads from the Zustand store via CostingSkuBreakdownsList
@@ -69,6 +72,15 @@ export default async function CostingPage({
 
   return (
     <CostingStoreProvider snapshot={bundle.data}>
+      {/* Slice 9.4a — Suspense boundary required by useSearchParams in
+          App Router (see Next 15 docs: hooks that read URL state must
+          be inside a Suspense boundary or the build emits warnings and
+          falls back to client-only render). ActiveTierUrlSync is the
+          first consumer; the active-tier selector UI (Task 5) and any
+          future URL-aware Costing Sheet components share this boundary. */}
+      <Suspense fallback={null}>
+        <ActiveTierUrlSync />
+      </Suspense>
       <main className="mx-auto max-w-7xl p-6">
         <div className="mb-2 text-sm">
           <Link
@@ -113,10 +125,23 @@ export default async function CostingPage({
         </div>
 
         <section className="mb-6">
-          <h2 className="mb-3 text-base font-semibold text-gray-900">
-            Per-SKU breakdown
-          </h2>
-          <CostingSkuBreakdownsList />
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-base font-semibold text-gray-900">
+              Per-SKU breakdown
+            </h2>
+            {/* Slice 9.4a — page-level active-tier selector. Same
+                Suspense boundary as ActiveTierUrlSync (both consume
+                useSearchParams). Click handler updates store + URL
+                together; rows re-render against new active tier. */}
+            <Suspense fallback={null}>
+              <ActiveTierSelector />
+            </Suspense>
+          </div>
+          {/* Slice 9.4a — SkuSummaryRowList replaces the prior
+              CostingSkuBreakdownsList (cost-decomposition tables) as
+              the primary per-SKU surface. Decomposition is preserved
+              in the per-row drawer (Task 6 wires it). */}
+          <SkuSummaryRowList editable={editable} />
         </section>
       </main>
     </CostingStoreProvider>
