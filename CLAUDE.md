@@ -430,16 +430,26 @@ populated:
   value. Set = REPLACES the global for that tier's costing math
   (not stacks). PMs use this when one tier needs a different markup
   than the quote-level adjustment. **Wired up in Slice 9.2.**
-- **`quote_tiers.client_target_price_per_unit numeric(10,4)`** —
-  PM-entered customer target price per unit for the tier ("client
-  wants $5 landed at 50k"). NULL = no target. Used in Slice 9.4 for
-  two-axis status (margin verdict + competitive verdict —
-  COMPETITIVE / OVER / WAY OVER) and the reverse-solve "Apply
-  suggested adj to match client target" affordance. **Wired up in
-  Slice 9.4.**
+- **`quote_sku_tier_targets.client_target_price_per_unit numeric(10,4) NOT NULL`** —
+  PM-entered customer target price per (SKU, tier) cell ("client
+  wants $5 landed for THIS SKU at 50k"). Lives on its own sparse
+  sister table to `quote_sku_tiers`; lazy-row writes (INSERT for
+  set, DELETE for clear). Drives Slice 9.4b's two-axis verdict
+  (margin × competitive: COMPETITIVE / OVER / WAY OVER) and the
+  reverse-solve "Apply suggested adj to match client target"
+  affordance — note that affordance writes per-tier
+  `tier_price_adj_pct`, NOT per-cell `sell_price_override`.
+  Originally added at `quote_tiers` in Slice 9.1 migration 0014;
+  moved to `quote_sku_tier_targets` in Slice 9.4b migration 0016
+  after the IA spec settled per-(SKU, tier) granularity. Zero
+  data migration needed (column was speculative + never written).
+  **Wired up in Slice 9.4b.**
 
-All three default to NULL on insert. Existing rows got NULL on
-migration. Behavior unchanged until the wiring slices land.
+The first two columns default to NULL on insert. Existing rows got
+NULL on migration. Behavior unchanged until the wiring slices land.
+The third row above describes the post-9.4b shape — sparse table,
+NOT NULL on the value column, mirrors Slice 9.3's `quote_sku_tiers`
+pattern.
 
 **Effective-value pattern when wiring up (Slice 9.2):** the
 `quotes.targetMarginPct` and `firmSettings.targetMarginPct`

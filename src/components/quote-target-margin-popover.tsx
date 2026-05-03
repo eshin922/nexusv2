@@ -44,8 +44,11 @@ import { validatePercentDecimal } from "@/lib/percent-validation";
 //     literal" decision); revert button is the path back to inherit.
 //
 // Single-section layout reserves room for future per-quote settings
-// (client_target_price_per_unit, valid_until_days) that could land in
-// the same popover later. Don't predict scope; just don't preclude it.
+// (e.g., valid_until_days) that could land in the same popover later.
+// Don't predict scope; just don't preclude it. (Note: client target
+// price is per-(SKU, tier) cell, not per-quote — lives on the new
+// `quote_sku_tier_targets` table per Slice 9.4b migration 0016, NOT
+// in this popover.)
 
 const POPOVER_WIDTH_PX = 320;
 const VIEWPORT_PADDING_PX = 8;

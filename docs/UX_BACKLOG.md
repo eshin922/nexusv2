@@ -301,11 +301,17 @@ Items here are intentionally deferred - capture, don't fix in the moment.
   Currently no field captures this; PMs mentally compare Required
   Sell to remembered targets.
 
-  Schema: `quote_tiers.client_target_price_per_unit numeric(10,4)`
-  nullable. Populated by PM when there's a known target.
+  Schema: `quote_sku_tier_targets.client_target_price_per_unit
+  numeric(10,4) NOT NULL` — sparse sister table to `quote_sku_tiers`
+  per Slice 9.4b migration 0016. PMs typically apply the same target
+  across all SKUs in a tier (UX bulk-fill is the right answer at the
+  per-SKU summary row), but the data shape is per-cell so each
+  (SKU, tier) intersection can carry its own benchmark when product
+  mix matters. Lazy-row writes (INSERT for set, DELETE for clear)
+  mirror Slice 9.3's `quote_sku_tiers` pattern.
 
-  UI: per-tier rollup table on QuoteSummaryCard / Costing Sheet
-  gains a "Client Target" column. Shows:
+  UI: per-SKU summary row on Costing Sheet gains a "Client Target"
+  cell at the active tier. Shows:
   - Target price (PM-entered)
   - Gap (Required Sell − Target, $ and %)
   - Status indicator: **COMPETITIVE** (Required Sell ≤ Target),

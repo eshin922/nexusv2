@@ -156,8 +156,17 @@ Per SPEC FR-4, tiers are configurable per quote. Rail shows all defined tiers as
 - Tier label (e.g., "Tier 2")
 - Tier qty (e.g., "25k units")
 - Margin badge for active SKU at this tier (computed live)
-- Client target indicator (when `client_target_price_per_unit` is set — see Slice 9.4)
 - Per-tier price adjustment indicator (when `tier_price_adj_pct` is set — see Slice 9.2)
+
+(Tier-rail "client target indicator" was removed when migration 0016
+moved the column from `quote_tiers` to per-(SKU, tier) granularity on
+`quote_sku_tier_targets`. Aggregating per-cell back to tier-level for
+an indicator reverse-engineers a use case that doesn't exist post-
+migration. Benchmark completeness signaling — "X of Y SKUs benchmarked
+in this tier" or similar — is Slice 9.5's validation engine work
+(`quote_warnings` + UNDERPRICED chip pattern), NOT tier-rail.
+Per-cell client target itself surfaces on the per-SKU summary row
+on the Costing Sheet — see Slice 9.4b.)
 
 **Active tier:** visually highlighted; cost input rows below show this tier's data
 **Click any tier:** switches active tier; cost inputs reload for new tier; tier rail margin badges update
@@ -839,7 +848,7 @@ When viewer doesn't own a section, that section is dimmed with "READ-ONLY · VIE
 
 NULL = "no cost entered at this tier" everywhere. Never "inherit from active tier." Materialized writes only. UX provides shortcuts (`↩ same as Tn`, "apply to all") for fast entry without inheritance logic.
 
-Applies to: packaging_inputs.unit_cost, packaging_inputs.markup_pct, production_inputs.* (all numeric fields), freight_inputs.* (all numeric fields), quote_sku_tiers.sell_price_override, quote_tiers.tier_price_adj_pct, quote_tiers.client_target_price_per_unit.
+Applies to: packaging_inputs.unit_cost, packaging_inputs.markup_pct, production_inputs.* (all numeric fields), freight_inputs.* (all numeric fields), quote_sku_tiers.sell_price_override, quote_tiers.tier_price_adj_pct, quote_sku_tier_targets.client_target_price_per_unit.
 
 The exception: `freight_inputs.units_in_shipment` NULL = "fall back to tier.qty" (per CLAUDE.md, established pattern). This is the only NULL convention exception in cost-input space; documented to prevent drift.
 
