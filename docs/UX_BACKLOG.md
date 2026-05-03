@@ -5,6 +5,46 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Slice 9.2 polish — slider control for price-adjustment affordances]
+  Per-tier and global price adjustment affordances ship as slider
+  controls in redesign-implementation slice; current numeric input
+  is v1 functional treatment, revisit at visual rebuild. CD's
+  prototype intent was slider (continuous interaction for
+  "explore the curve" use case); revising IA spec to match
+  implementation would create retroactive drift in the design
+  system. Numeric input as v1 + slider as redesign-implementation
+  visual is consistent with the established v1-functional /
+  redesign-implementation-visual split. IA spec lines 329 + 387
+  remain unedited. Reference: `src/components/tier-price-adj-input.tsx`
+  and `src/components/global-price-adj-input.tsx` for the v1
+  numeric input pattern.
+
+- [Slice 9.2 polish — gear popover advisory when per-quote target
+  collapses verdict bands] When PM sets `quotes.target_margin_pct`
+  below `firm_settings.floor_margin_pct`, the BELOW_TARGET zone
+  disappears (any quote above floor is automatically GOOD relative
+  to its own target — the PM-controlled soft signal collapses
+  into the firm-controlled hard floor). Status quo per
+  UX_BACKLOG.md:644-649: PM is allowed to do this (strategic
+  deal pricing). Polish: surface the collapse explicitly in the
+  gear popover. When draft target < firm floor, render an
+  advisory line: "Target below firm floor — BELOW_TARGET verdict
+  won't fire; only BELOW_FLOOR will gate." Doesn't block save,
+  just signals the consequence. Caught Slice 9.2 smoke planning;
+  Edward's call was ship status quo, log polish. Reference:
+  `src/components/quote-target-margin-popover.tsx` Save handler;
+  add the advisory check before the validate/save call.
+
+- [dev infra — cure.mjs broken on Node 22.17.0+] `npm run cure`
+  fails with `spawn EINVAL` after Node 22.17.0 tightened spawn
+  validation for `.cmd` files on Windows. The script's
+  `spawn("npx.cmd", ["next", "dev", "-p", "3000"], {stdio: "inherit"})`
+  call needs `shell: true` added to the options object. Manual
+  cure (Ctrl+C → `rm -rf .next node_modules/.cache` → `npm run dev`
+  → fresh tab) is unaffected and is the current workaround.
+  Caught Slice 9.2 smoke setup. One-line fix in
+  `scripts/cure.mjs:65`. Not slice-blocking; out-of-slice cleanup.
+
 - [data hygiene — finance confirmation of default markup %]
   Finance reviews and confirms default markup % values per category
   in the existing schedule (7 categories from the 360 worksheet +

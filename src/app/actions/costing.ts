@@ -155,6 +155,7 @@ export async function getQuoteCosting(
       quote: {
         id: quote.id,
         globalPriceAdjPct: num(quote.globalPriceAdjPct),
+        targetMarginPct: numOrNull(quote.targetMarginPct),
       },
       firmSettings: {
         targetMarginPct: num(fs.targetMarginPct),
@@ -177,6 +178,7 @@ export async function getQuoteCosting(
         label: t.label,
         qty: t.qty,
         sortOrder: t.sortOrder,
+        tierPriceAdjPct: numOrNull(t.tierPriceAdjPct),
       })),
       packaging: pkgs.map((r) => {
         const p = r.packaging_inputs;
@@ -289,6 +291,188 @@ export async function updateQuoteGlobalPriceAdj(
   });
 }
 
+// ---------- mutation: updateTierPriceAdj (Slice 9.2) ----------
+
+// Per-tier price-adjustment override. NULL = inherit GPA; value =
+// REPLACE GPA for this tier (does not stack — see CLAUDE.md "Slice 9
+// pricing-control columns").
+//
+// Form contract: tierId, tierPriceAdjPct (percent display string, or
+// empty string to clear → NULL). Audit `tier_price_adj_updated`
+// records from/to including the explicit null-string for clarity.
+export async function updateTierPriceAdj(
+  formData: FormData,
+): Promise<
+  ActionResult<{ tierId: string; tierPriceAdjPct: string | null }>
+> {
+  return runAction(async () => {
+    const tierId = String(formData.get("tierId") ?? "").trim();
+    if (!tierId)
+      throw new ActionGuardError(ERR.VALIDATION, "tierId required");
+
+    const user = await ensureUser();
+    const tierRows = await db
+      .select()
+      .from(quoteTiers)
+      .where(eq(quoteTiers.id, tierId))
+      .limit(1);
+    if (tierRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "Tier not found");
+    const tier = tierRows[0];
+
+    // Re-uses the central draft guard via the quote.
+    const quote = await quoteByIdDraft(tier.quoteId);
+
+    const newAdj = percentDisplayToDecimal(formData.get("tierPriceAdjPct"));
+
+    if (numericEquals(tier.tierPriceAdjPct, newAdj)) {
+      return { tierId, tierPriceAdjPct: tier.tierPriceAdjPct };
+    }
+
+    await db
+      .update(quoteTiers)
+      .set({ tierPriceAdjPct: newAdj, updatedAt: new Date() })
+      .where(eq(quoteTiers.id, tierId));
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_tier",
+      entityId: tierId,
+      action: "tier_price_adj_updated",
+      diffJson: {
+        tier_price_adj_pct: {
+          from: tier.tierPriceAdjPct,
+          to: newAdj,
+        },
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, quote.id);
+
+    return { tierId, tierPriceAdjPct: newAdj };
+  });
+}
+
+// ---------- mutation: updateQuoteTargetMargin (Slice 9.2) ----------
+
+// Per-quote override of `firm_settings.target_margin_pct`. NULL =
+// inherit firm-level. Drives the BELOW_TARGET verdict band and the
+// suggested-GPA goal (when status === BELOW_TARGET).
+//
+// Form contract: quoteId, targetMarginPct (percent display, or empty
+// to clear). Audit `quote_target_margin_updated` records from/to.
+export async function updateQuoteTargetMargin(
+  formData: FormData,
+): Promise<
+  ActionResult<{ quoteId: string; targetMarginPct: string | null }>
+> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    if (!quoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+
+    const user = await ensureUser();
+    const quote = await quoteByIdDraft(quoteId);
+
+    const newTarget = percentDisplayToDecimal(formData.get("targetMarginPct"));
+
+    if (numericEquals(quote.targetMarginPct, newTarget)) {
+      return { quoteId, targetMarginPct: quote.targetMarginPct };
+    }
+
+    await db
+      .update(quotes)
+      .set({ targetMarginPct: newTarget, updatedAt: new Date() })
+      .where(eq(quotes.id, quoteId));
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote",
+      entityId: quoteId,
+      action: "quote_target_margin_updated",
+      diffJson: {
+        target_margin_pct: {
+          from: quote.targetMarginPct,
+          to: newTarget,
+        },
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, quote.id);
+
+    return { quoteId, targetMarginPct: newTarget };
+  });
+}
+
+// ---------- mutation: applySuggestedGlobalAdj (Slice 9.2) ----------
+
+// One-click apply of the system-suggested GPA. Writes the suggested
+// value to `quotes.global_price_adj_pct` (same column as the manual
+// slider). Audited as `global_price_adj_updated` with `source:
+// "system_suggestion"` in metadata so post-hoc analysis can
+// distinguish PM-typed vs. system-applied edits.
+//
+// AUDIT SOURCE CONVENTION: `source: "system_suggestion"` is reserved
+// for THIS specific surface — the live coaching banner on the
+// Costing Sheet that applies the closed-form GPA reverse-solve.
+// Future suggestion paths (e.g., Slice 9.5 bulk validation engine,
+// scenario-comparison apply, etc.) get their own distinct source
+// values (`bulk_validation_suggestion`, `scenario_apply`, ...) so a
+// PM querying "where did this GPA change come from" can disambiguate
+// without reading the human-context columns. Single-stream audit
+// timeline; per-source filter when needed.
+//
+// Form contract: quoteId, suggestedAdj (percent display string —
+// banner UI sends back the integer it just rendered).
+export async function applySuggestedGlobalAdj(
+  formData: FormData,
+): Promise<
+  ActionResult<{ quoteId: string; globalPriceAdjPct: string | null }>
+> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    if (!quoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+
+    const user = await ensureUser();
+    const quote = await quoteByIdDraft(quoteId);
+
+    const newAdj = percentDisplayToDecimal(formData.get("suggestedAdj"));
+    if (newAdj === null)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "suggestedAdj required (percent display)",
+      );
+
+    if (numericEquals(quote.globalPriceAdjPct, newAdj)) {
+      return { quoteId, globalPriceAdjPct: quote.globalPriceAdjPct };
+    }
+
+    await db
+      .update(quotes)
+      .set({ globalPriceAdjPct: newAdj, updatedAt: new Date() })
+      .where(eq(quotes.id, quoteId));
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote",
+      entityId: quoteId,
+      action: "global_price_adj_updated",
+      diffJson: {
+        global_price_adj_pct: {
+          from: quote.globalPriceAdjPct,
+          to: newAdj,
+        },
+        source: "system_suggestion",
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, quote.id);
+
+    return { quoteId, globalPriceAdjPct: newAdj };
+  });
+}
+
 // ---------- read action: getCostingBundle ----------
 
 // Returns the HydrateSnapshot needed to seed the client-side Zustand store
@@ -383,6 +567,7 @@ export async function getCostingBundle(
       label: t.label,
       qty: t.qty,
       sortOrder: t.sortOrder,
+      tierPriceAdjPct: numOrNull(t.tierPriceAdjPct),
     }));
 
     const packagingList = pkgs.map((r) => {
@@ -433,7 +618,11 @@ export async function getCostingBundle(
     });
 
     const input: QuoteCostingInput = {
-      quote: { id: quote.id, globalPriceAdjPct: num(quote.globalPriceAdjPct) },
+      quote: {
+        id: quote.id,
+        globalPriceAdjPct: num(quote.globalPriceAdjPct),
+        targetMarginPct: numOrNull(quote.targetMarginPct),
+      },
       firmSettings: {
         targetMarginPct: num(fs.targetMarginPct),
         floorMarginPct: num(fs.floorMarginPct),
@@ -452,6 +641,7 @@ export async function getCostingBundle(
       quoteId: quote.id,
       projectId: quote.projectId,
       globalPriceAdjPct: num(quote.globalPriceAdjPct),
+      targetMarginPct: numOrNull(quote.targetMarginPct),
       firmSettings: input.firmSettings,
       markupDefaults: markupMap,
       skus: skuList,

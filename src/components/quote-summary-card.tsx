@@ -8,10 +8,13 @@ import {
   selectQuoteId,
   selectQuoteRollup,
   selectSuggestedAdj,
+  selectTargetMargin,
 } from "@/lib/costing-store";
 import type { QuoteCostBreakdown } from "@/lib/costing";
 import { useCostingStore } from "./costing-store-provider";
 import { GlobalPriceAdjInput } from "./global-price-adj-input";
+import { QuoteTargetMarginPopover } from "./quote-target-margin-popover";
+import { TierPriceAdjInput } from "./tier-price-adj-input";
 
 // Page-context accent: when the card is rendered on /packaging, the
 // Packaging row gets a left-border accent + bold weight to signal "the
@@ -77,6 +80,12 @@ export function QuoteSummaryCard({
   const globalAdj = useCostingStore(selectGlobalAdj);
   const quoteRollup = useCostingStore(selectQuoteRollup);
   const suggestedAdj = useCostingStore(selectSuggestedAdj);
+  // Slice 9.2 — per-quote target-margin override drives the displayed
+  // effective target. NULL = inherit firm; value = override.
+  const targetMarginOverride = useCostingStore(selectTargetMargin);
+  const effectiveTarget =
+    targetMarginOverride ?? firmSettings.targetMarginPct;
+  const targetIsOverridden = targetMarginOverride !== null;
 
   return (
     <div className="rounded-md border border-gray-200 bg-white p-5">
@@ -91,15 +100,21 @@ export function QuoteSummaryCard({
           Pricing control summary
         </h2>
         <div className="flex items-center gap-3 text-xs text-gray-500">
-          <span>
-            Target {fmtPct(firmSettings.targetMarginPct)} / Floor{" "}
-            {fmtPct(firmSettings.floorMarginPct)}
+          <span className="flex items-center">
+            Target {fmtPct(effectiveTarget)}
+            {targetIsOverridden && (
+              <span className="ml-1 rounded bg-indigo-100 px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-indigo-800">
+                Overridden
+              </span>
+            )}
+            <QuoteTargetMarginPopover disabled={!editable} />
+            <span className="ml-2">/ Floor {fmtPct(firmSettings.floorMarginPct)}</span>
           </span>
           <Link
             href="/admin/firm-settings"
             className="text-blue-700 underline hover:text-blue-900"
           >
-            edit
+            edit firm
           </Link>
           {variant === "compact" && (
             <Link
@@ -136,6 +151,8 @@ export function QuoteSummaryCard({
                   <th className="px-3 py-2 text-right">Cost</th>
                   <th className="px-3 py-2 text-right">Margin</th>
                   <th className="px-3 py-2 text-right">Status</th>
+                  {/* Slice 9.2 — per-tier price-adjustment override */}
+                  <th className="px-3 py-2 text-right">Tier adj.</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 bg-white">
@@ -164,6 +181,14 @@ export function QuoteSummaryCard({
                         >
                           {style.label}
                         </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex justify-end">
+                          <TierPriceAdjInput
+                            tierId={t.tierId}
+                            disabled={!editable}
+                          />
+                        </div>
                       </td>
                     </tr>
                   );

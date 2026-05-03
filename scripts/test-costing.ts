@@ -306,6 +306,144 @@ console.log(
 );
 if (!Number.isFinite(nullLeaf.requiredSellPerUnit)) failures += 1;
 
+// ---- Slice 9.2: per-tier price-adj override REPLACES global ----
+// Two tiers with the same costs; tier A inherits global GPA = 0.20,
+// tier B overrides to 0.50. Revenue at B should be 25% higher than at
+// A (1.50 / 1.20). Suggested-GPA on the overridden tier is null.
+console.log("\n=== Slice 9.2: per-tier price-adj override ===");
+const perTierInput: QuoteCostingInput = {
+  quote: { id: "q3", globalPriceAdjPct: 0.2, targetMarginPct: null },
+  firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
+  markupDefaults: { Manufacturing: 0.3, Other: 0.3 },
+  skus: [
+    {
+      id: "x",
+      parentSkuId: null,
+      qtyPerParent: null,
+      skuRole: "leaf",
+      skuLabel: "X",
+      productName: "X",
+      sortOrder: 0,
+      dutyPct: null,
+      tariffPct: null,
+    },
+  ],
+  tiers: [
+    { id: "tA", label: "A", qty: 100, sortOrder: 0, tierPriceAdjPct: null },
+    { id: "tB", label: "B", qty: 100, sortOrder: 1, tierPriceAdjPct: 0.5 },
+  ],
+  packaging: [
+    { quoteSkuId: "x", tierId: "tA", lineGroupId: "g", unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0.4 },
+    { quoteSkuId: "x", tierId: "tB", lineGroupId: "g", unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0.4 },
+  ],
+  production: [],
+  freight: [],
+};
+const perTierOut = computeQuoteCosting(perTierInput);
+const revA = perTierOut.quoteRollup[0].totalRevenue;
+const revB = perTierOut.quoteRollup[1].totalRevenue;
+// Per-unit revenue: cost=1, markup=0.4 → 1.40 base; × (1 + adj)
+// A: 1.40 × 1.20 = 1.68; B: 1.40 × 1.50 = 2.10
+assert("per-tier override A revenue (×1.20)", revA, 100 * 1.4 * 1.2);
+assert("per-tier override B revenue (×1.50)", revB, 100 * 1.4 * 1.5);
+// Tier B's per-tier suggested-adj must be null (override suppresses).
+console.log(
+  `  ${perTierOut.quoteRollup[1].suggestedGlobalAdjPct === null ? "PASS" : "FAIL"}  per-tier suggested null when overridden: ${perTierOut.quoteRollup[1].suggestedGlobalAdjPct}`,
+);
+if (perTierOut.quoteRollup[1].suggestedGlobalAdjPct !== null) failures += 1;
+
+// ---- Slice 9.2: per-quote target margin override drives verdict ----
+console.log("\n=== Slice 9.2: per-quote target override ===");
+const targetOverrideInput: QuoteCostingInput = {
+  ...perTierInput,
+  quote: { id: "q4", globalPriceAdjPct: 0, targetMarginPct: 0.20 },
+  tiers: [
+    { id: "tA", label: "A", qty: 100, sortOrder: 0, tierPriceAdjPct: null },
+  ],
+};
+const targetOut = computeQuoteCosting(targetOverrideInput);
+// margin = 1 - 1/1.40 ≈ 0.286. firm target=0.35 (BELOW), quote
+// override=0.20 (GOOD).
+console.log(
+  `  ${targetOut.quoteSummary.blendedMarginStatus === "GOOD" ? "PASS" : "FAIL"}  per-quote target override flips verdict to GOOD: ${targetOut.quoteSummary.blendedMarginStatus}`,
+);
+if (targetOut.quoteSummary.blendedMarginStatus !== "GOOD") failures += 1;
+assert(
+  "effective target reflects override",
+  targetOut.quoteSummary.effectiveTargetMarginPct,
+  0.20,
+);
+
+// ---- Slice 9.2: quote suggestion partitions overridden vs inheriting ----
+console.log("\n=== Slice 9.2: quote-wide suggested GPA (partition) ===");
+// Two tiers. cost=1/unit, markup=0.05 (thin). Tier A inherits global
+// (start at 0), tier B overrides to +0.50. With floor=0.10 the
+// blended verdict is BELOW_TARGET (not BELOW_FLOOR), so goal=target.
+// Quote-suggestion holds B's revenue FIXED and solves only for A's
+// GPA — closed form:
+//   targetBlendedRev = (100+100)/(1-0.35) ≈ 307.69
+//   requiredA       = 307.69 - 157.5     ≈ 150.19
+//   suggestedAdj    = 150.19/105 - 1     ≈ 0.43
+const partitionInput: QuoteCostingInput = {
+  ...perTierInput,
+  quote: { id: "q5", globalPriceAdjPct: 0, targetMarginPct: null },
+  firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.10 },
+  packaging: [
+    { quoteSkuId: "x", tierId: "tA", lineGroupId: "g", unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0.05 },
+    { quoteSkuId: "x", tierId: "tB", lineGroupId: "g", unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0.05 },
+  ],
+};
+const partitionOut = computeQuoteCosting(partitionInput);
+console.log(
+  `  ${partitionOut.quoteSummary.blendedMarginStatus === "BELOW_TARGET" ? "PASS" : "FAIL"}  blended verdict precondition (BELOW_TARGET): ${partitionOut.quoteSummary.blendedMarginStatus}`,
+);
+if (partitionOut.quoteSummary.blendedMarginStatus !== "BELOW_TARGET") failures += 1;
+console.log(
+  `  ${partitionOut.quoteSummary.suggestionGoal === "target" ? "PASS" : "FAIL"}  goal-shift: BELOW_TARGET → goal=target`,
+);
+if (partitionOut.quoteSummary.suggestionGoal !== "target") failures += 1;
+console.log(
+  `  ${partitionOut.quoteSummary.suggestedAdj !== null ? "PASS" : "FAIL"}  quote-wide suggestion produced (non-null): ${partitionOut.quoteSummary.suggestedAdj}`,
+);
+if (partitionOut.quoteSummary.suggestedAdj === null) failures += 1;
+// Padded-up nearest 1%; expect ≈ 0.43.
+if (partitionOut.quoteSummary.suggestedAdj !== null) {
+  assert(
+    "partition: suggested ≈ 0.43 (solves only for inheriting tier)",
+    partitionOut.quoteSummary.suggestedAdj,
+    0.43,
+    0.011,
+  );
+}
+
+// ---- Slice 9.2: goal-shift to floor when BELOW_FLOOR ----
+console.log("\n=== Slice 9.2: goal-shift BELOW_FLOOR → goal=floor ===");
+// Same shape but firm floor=0.25 keeps verdict at BELOW_FLOOR; goal
+// must be floor (not target). Suggestion math then targets floor=0.25
+// with B fixed: requiredA = 200/(1-0.25) - 157.5 = 109.17;
+// suggestedAdj = 109.17/105 - 1 ≈ 0.04 (padded up).
+const floorPartitionInput: QuoteCostingInput = {
+  ...partitionInput,
+  firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
+};
+const floorPartitionOut = computeQuoteCosting(floorPartitionInput);
+console.log(
+  `  ${floorPartitionOut.quoteSummary.blendedMarginStatus === "BELOW_FLOOR" ? "PASS" : "FAIL"}  blended verdict precondition (BELOW_FLOOR): ${floorPartitionOut.quoteSummary.blendedMarginStatus}`,
+);
+if (floorPartitionOut.quoteSummary.blendedMarginStatus !== "BELOW_FLOOR") failures += 1;
+console.log(
+  `  ${floorPartitionOut.quoteSummary.suggestionGoal === "floor" ? "PASS" : "FAIL"}  goal-shift: BELOW_FLOOR → goal=floor`,
+);
+if (floorPartitionOut.quoteSummary.suggestionGoal !== "floor") failures += 1;
+if (floorPartitionOut.quoteSummary.suggestedAdj !== null) {
+  assert(
+    "floor partition: suggested ≈ 0.04 (lifts above floor)",
+    floorPartitionOut.quoteSummary.suggestedAdj,
+    0.04,
+    0.011,
+  );
+}
+
 console.log(
   `\n${failures === 0 ? "✓ ALL ASSERTIONS PASS" : `✗ ${failures} ASSERTION(S) FAILED`}`,
 );
