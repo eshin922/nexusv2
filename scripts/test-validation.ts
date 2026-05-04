@@ -127,6 +127,7 @@ function makeInput(
     freight: [],
     cellOverrides: [],
     cellTargets: [],
+    quoteTierTargets: [],
     ...overrides,
   };
 }
@@ -722,6 +723,238 @@ console.log("\n=== Slice 9.5: identity tuple stability — same input produces s
       out1.length === out2.length &&
       out1.every((w, i) => tuple(w) === tuple(out2[i])),
     `${out1.length} ↔ ${out2.length} warnings, tuples match`,
+  );
+}
+
+// ---------- Slice 9.4c: target_reconciliation_mismatch ----------
+
+console.log("\n=== Slice 9.4c: reconciliation matches → no warning ===");
+{
+  // Tier qty 100; quote-level target $200; 2 leaves with $1/unit each
+  // → sum = 100 × $1 + 100 × $1 = $200 → matches.
+  const input = makeInput({
+    skus: [makeSku({ id: "s1" }), makeSku({ id: "s2" })],
+    tiers: [makeTier("t1", 100)],
+    cellTargets: [
+      { quoteSkuId: "s1", tierId: "t1", clientTargetPricePerUnit: 1 },
+      { quoteSkuId: "s2", tierId: "t1", clientTargetPricePerUnit: 1 },
+    ],
+    quoteTierTargets: [
+      { tierId: "t1", clientTargetPriceTotal: 200 },
+    ],
+  });
+  const out = validateQuote(input, compute(input));
+  assertWarnings(
+    "no target_reconciliation_mismatch when sum equals target",
+    out,
+    (w) => !w.some((x) => x.kind === "target_reconciliation_mismatch"),
+    JSON.stringify(out.map((x) => x.kind)),
+  );
+}
+
+console.log("\n=== Slice 9.4c: reconciliation mismatched_high → review warning ===");
+{
+  // Sum = 100 × $2 + 100 × $1 = $300; quote target $200 → mismatch_high by $100.
+  const input = makeInput({
+    skus: [makeSku({ id: "s1" }), makeSku({ id: "s2" })],
+    tiers: [makeTier("t1", 100)],
+    cellTargets: [
+      { quoteSkuId: "s1", tierId: "t1", clientTargetPricePerUnit: 2 },
+      { quoteSkuId: "s2", tierId: "t1", clientTargetPricePerUnit: 1 },
+    ],
+    quoteTierTargets: [
+      { tierId: "t1", clientTargetPriceTotal: 200 },
+    ],
+  });
+  const out = validateQuote(input, compute(input));
+  const recon = out.filter((x) => x.kind === "target_reconciliation_mismatch");
+  assertWarnings(
+    "exactly one target_reconciliation_mismatch fires",
+    out,
+    () => recon.length === 1,
+    `got ${recon.length}`,
+  );
+  if (recon.length === 1) {
+    assertWarnings(
+      "severity is review",
+      out,
+      () => recon[0].severity === "review",
+      `severity=${recon[0].severity}`,
+    );
+    assertWarnings(
+      "scope is quote",
+      out,
+      () => recon[0].scope === "quote",
+      `scope=${recon[0].scope}`,
+    );
+    assertWarnings(
+      "table_name is quote_tiers",
+      out,
+      () => recon[0].table_name === "quote_tiers",
+      `table_name=${recon[0].table_name}`,
+    );
+    assertWarnings(
+      "row_id is the tier UUID",
+      out,
+      () => recon[0].row_id === "t1",
+      `row_id=${recon[0].row_id}`,
+    );
+    assertWarnings(
+      "tier_id is the tier UUID",
+      out,
+      () => recon[0].tier_id === "t1",
+      `tier_id=${recon[0].tier_id}`,
+    );
+    assertWarnings(
+      "field_name is client_target_price_total",
+      out,
+      () => recon[0].field_name === "client_target_price_total",
+      `field_name=${recon[0].field_name}`,
+    );
+    assertWarnings(
+      "detail_json carries status mismatched_high",
+      out,
+      () => (recon[0].detail_json as { status?: string }).status === "mismatched_high",
+      `status=${(recon[0].detail_json as { status?: string }).status}`,
+    );
+    assertWarnings(
+      "message names sum, target, and direction",
+      out,
+      () =>
+        recon[0].message.includes("$300") &&
+        recon[0].message.includes("$200") &&
+        recon[0].message.includes("exceeds"),
+      recon[0].message,
+    );
+  }
+}
+
+console.log("\n=== Slice 9.4c: reconciliation mismatched_low → review warning ===");
+{
+  // Sum = 100 × $0.50 = $50; target $200 → mismatched_low by $150.
+  const input = makeInput({
+    skus: [makeSku({ id: "s1" })],
+    tiers: [makeTier("t1", 100)],
+    cellTargets: [
+      { quoteSkuId: "s1", tierId: "t1", clientTargetPricePerUnit: 0.5 },
+    ],
+    quoteTierTargets: [
+      { tierId: "t1", clientTargetPriceTotal: 200 },
+    ],
+  });
+  const out = validateQuote(input, compute(input));
+  const recon = out.filter((x) => x.kind === "target_reconciliation_mismatch");
+  assertWarnings(
+    "mismatched_low fires one warning",
+    out,
+    () => recon.length === 1,
+    `got ${recon.length}`,
+  );
+  if (recon.length === 1) {
+    assertWarnings(
+      "message says 'is below'",
+      out,
+      () => recon[0].message.includes("is below"),
+      recon[0].message,
+    );
+    assertWarnings(
+      "detail_json status is mismatched_low",
+      out,
+      () => (recon[0].detail_json as { status?: string }).status === "mismatched_low",
+      JSON.stringify(recon[0].detail_json),
+    );
+  }
+}
+
+console.log("\n=== Slice 9.4c: partial completeness → no warning (gated) ===");
+{
+  // Two leaves but only one has a cell target → math layer reports
+  // 'not_applicable' → engine fires no reconciliation warning.
+  const input = makeInput({
+    skus: [makeSku({ id: "s1" }), makeSku({ id: "s2" })],
+    tiers: [makeTier("t1", 100)],
+    cellTargets: [
+      { quoteSkuId: "s1", tierId: "t1", clientTargetPricePerUnit: 5 },
+    ],
+    quoteTierTargets: [
+      { tierId: "t1", clientTargetPriceTotal: 200 },
+    ],
+  });
+  const out = validateQuote(input, compute(input));
+  assertWarnings(
+    "no warning on partial completeness (gated by math layer)",
+    out,
+    (w) => !w.some((x) => x.kind === "target_reconciliation_mismatch"),
+    JSON.stringify(out.map((x) => x.kind)),
+  );
+}
+
+console.log("\n=== Slice 9.4c: no quote-level target → no warning ===");
+{
+  // All cells have targets but no quote-level target → not_applicable.
+  const input = makeInput({
+    skus: [makeSku({ id: "s1" })],
+    tiers: [makeTier("t1", 100)],
+    cellTargets: [
+      { quoteSkuId: "s1", tierId: "t1", clientTargetPricePerUnit: 5 },
+    ],
+    quoteTierTargets: [],
+  });
+  const out = validateQuote(input, compute(input));
+  assertWarnings(
+    "no warning when quote-level target absent",
+    out,
+    (w) => !w.some((x) => x.kind === "target_reconciliation_mismatch"),
+    JSON.stringify(out.map((x) => x.kind)),
+  );
+}
+
+console.log("\n=== Slice 9.4c: within ε ($0.50 of $200, ε=$1) → matches ===");
+{
+  // Sum = 100 × $1.995 = $199.50; target $200 → within ε → matches.
+  const input = makeInput({
+    skus: [makeSku({ id: "s1" })],
+    tiers: [makeTier("t1", 100)],
+    cellTargets: [
+      { quoteSkuId: "s1", tierId: "t1", clientTargetPricePerUnit: 1.995 },
+    ],
+    quoteTierTargets: [
+      { tierId: "t1", clientTargetPriceTotal: 200 },
+    ],
+  });
+  const out = validateQuote(input, compute(input));
+  assertWarnings(
+    "no warning within ε",
+    out,
+    (w) => !w.some((x) => x.kind === "target_reconciliation_mismatch"),
+    JSON.stringify(out.map((x) => x.kind)),
+  );
+}
+
+console.log("\n=== Slice 9.4c: per-tier independence (T1 mismatch, T2 match) ===");
+{
+  // T1: 100 × $3 = $300; T1 target $200 → mismatch_high
+  // T2: 200 × $1 = $200; T2 target $200 → matches
+  // Engine should emit exactly 1 warning, scoped to T1.
+  const input = makeInput({
+    skus: [makeSku({ id: "s1" })],
+    tiers: [makeTier("t1", 100), makeTier("t2", 200)],
+    cellTargets: [
+      { quoteSkuId: "s1", tierId: "t1", clientTargetPricePerUnit: 3 },
+      { quoteSkuId: "s1", tierId: "t2", clientTargetPricePerUnit: 1 },
+    ],
+    quoteTierTargets: [
+      { tierId: "t1", clientTargetPriceTotal: 200 },
+      { tierId: "t2", clientTargetPriceTotal: 200 },
+    ],
+  });
+  const out = validateQuote(input, compute(input));
+  const recon = out.filter((x) => x.kind === "target_reconciliation_mismatch");
+  assertWarnings(
+    "only T1 fires (T2 matches)",
+    out,
+    () => recon.length === 1 && recon[0].tier_id === "t1",
+    `${recon.length} warnings; first tier_id=${recon[0]?.tier_id}`,
   );
 }
 
