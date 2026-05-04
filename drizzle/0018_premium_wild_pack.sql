@@ -1,0 +1,1 @@
+ALTER TABLE "quote_tiers" ADD COLUMN "client_target_price_total" numeric(12, 4);

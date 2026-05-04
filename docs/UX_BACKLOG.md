@@ -5,6 +5,36 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Tolerance scaling for quote-level reconciliation (Slice 9.4c follow-up)]
+
+  **Slice:** v1.5+ (revisit if PM smoke surfaces tolerance issues at quote-size extremes)
+
+  **What:** Slice 9.4c ships sum-of-cells reconciliation with **fixed ε = $1.00** for the diff between `quote_tiers.client_target_price_total` and the sum of `quote_sku_tier_targets.client_target_price_per_unit × tier.qty` across leaves. Architect-recommended for v1 (concrete + legible: "if sums match within a buck, we call it reconciled"). Real risk is OPPOSITE the obvious one: $1.00 may be too LOOSE at small quotes (a $200 sample-tier with $1 mismatch = 0.5% noise), not too tight at large quotes.
+
+  Candidate replacement when this entry surfaces: `max($1.00, 0.05% × quote_total)` hybrid floor — keeps fixed-buck legibility for small quotes while scaling at large totals. Or pure percentage with a small-quote floor.
+
+  **Where designed:** Slice 9.4c brief §3.2 + §8 Q2. Architect signoff during 9.4c.1 confirmed v1 ε; this entry preserves the alternative for revisit.
+
+  **Why log it:** Catch this at PM smoke — small quotes producing false-alarm reconciliation warnings, OR large quotes producing false-silence. The reconciliation rule is `review` severity (not `action_required`), so a noisy version trains PMs to ignore it. Threshold tuning is the right knob to turn rather than disabling the rule.
+
+  Reference: `src/lib/costing.ts` `RECONCILIATION_EPSILON_USD` constant + `computeReconciliationStatus` helper.
+
+- [Partial-completeness client-target benchmark coaching (Slice 9.4c follow-up)]
+
+  **Slice:** v1.5+ polish
+
+  **What:** Slice 9.4c gates the sum-of-cells reconciliation rule on **full** completeness — fires only when ALL leaf SKUs at a tier have cell targets set. Partial completeness produces `target_reconciliation_status: 'not_applicable'`. Architect-recommended for v1 (signal-to-noise: a noisy mid-build "you've set 3 of 5" rule trains PMs to disable validation entirely).
+
+  Coaching surface for partial state has a natural home outside the validation engine: a "sum-so-far chip" near the quote-level target input, or a "3 of 5 cells benchmarked" verdict chip on QuoteSummaryCard — same pattern as the verdict-surfacing convention from 9.4b.
+
+  Note: `sumOfCellTargetsAtTier` is **already populated** with the partial sum (Option A: sum-what's-set; unset cells contribute zero). The data is there waiting for the surface; v1.5+ wires it into a coaching chip.
+
+  **Where designed:** Slice 9.4c brief §8 Q1 + Q3. Architect-validated split: keep gated-on-completeness for the validation rule (the binary "send-readiness check"); add separate coaching surface for the partial state (the "in-build progress nudge").
+
+  **Why log it:** PMs in mid-quote-build often have targets on some SKUs and not all. The partial sum is informational at that point, not a problem. Coaching surface ("$X of $Y target benchmarked, 3 of 5 cells covered") communicates progress without firing a validation warning that demands acceptance.
+
+  Reference: `src/lib/costing.ts` `QuotePerTierRollup.sumOfCellTargetsAtTier` already surfaces the partial sum via the rollup; UI surface lands in v1.5+ polish.
+
 - [Slice 9.5.5 — comprehensive mutation-action wiring + inline icons + realtime sync]
 
   **Slice:** 9.5.5 (follow-up to 9.5)

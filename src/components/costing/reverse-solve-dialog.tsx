@@ -211,6 +211,7 @@ export function ReverseSolveDialog({
     freight: state.freight,
     cellOverrides: state.cellOverrides,
     cellTargets: state.cellTargets,
+    quoteTierTargets: state.quoteTierTargets,
   };
   const previewInput = buildPreviewInput(currentInput, affectedTierId, suggestedTierAdj);
   const previewCosting = computeQuoteCosting(previewInput);
