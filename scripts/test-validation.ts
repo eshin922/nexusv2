@@ -211,6 +211,50 @@ console.log("\n=== Slice 9.5: tier coverage mismatch on packaging ===");
   );
 }
 
+console.log("\n=== Slice 9.5: tier coverage uses VALUE-presence not row-presence ===");
+{
+  // Real-world: tier rows are auto-seeded at tier-add time per
+  // Slice 4 cascade. PM typing a value on T1 but leaving T2/T3 null
+  // should fire tier_coverage_mismatch for T2 + T3 — the meaningful
+  // signal is "PM typed cost on T1, not on T2/T3", not "row exists
+  // for T1, no rows for T2/T3" (rows always exist post-cascade).
+  // This test would catch a regression to row-presence checking.
+  const input = makeInput({
+    skus: [makeSku({ id: "s1" })],
+    tiers: [makeTier("t1", 1000), makeTier("t2", 5000), makeTier("t3", 10000)],
+    packaging: [
+      // All 3 tier rows exist (auto-seeded shape), but only T1 has
+      // unit_cost. T2 + T3 are auto-seeded-but-empty.
+      makePackagingInput({
+        quoteSkuId: "s1",
+        tierId: "t1",
+        lineGroupId: "l1",
+        unitCost: 1.5,
+      }),
+      makePackagingInput({
+        quoteSkuId: "s1",
+        tierId: "t2",
+        lineGroupId: "l1",
+        unitCost: null,
+      }),
+      makePackagingInput({
+        quoteSkuId: "s1",
+        tierId: "t3",
+        lineGroupId: "l1",
+        unitCost: null,
+      }),
+    ],
+  });
+  const out = validateQuote(input, compute(input));
+  const tierWarnings = out.filter((x) => x.kind === "tier_coverage_mismatch");
+  assertWarnings(
+    "tier_coverage_mismatch fires when VALUE missing despite rows present",
+    out,
+    () => tierWarnings.length === 2,
+    `${tierWarnings.length} warnings (expected 2 — T2, T3 missing values)`,
+  );
+}
+
 console.log("\n=== Slice 9.5: service fee tier variance ===");
 {
   const input = makeInput({

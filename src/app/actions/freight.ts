@@ -23,6 +23,7 @@ import {
   quoteForSku,
   requireDraft,
 } from "@/lib/quote-guards";
+import { reconcileWarnings } from "./warnings";
 
 // Snapshots returned to the client after a save so controlled state
 // re-hydrates from canonical server data — never from the form's
@@ -364,12 +365,20 @@ export async function updateFreightLineMetadata(
       })
       .where(eq(freightInputs.lineGroupId, lineGroupId));
 
+    // Slice 9.5 — reconcile validation warnings on action commit.
+    // freight_treatment toggle drives pass_through_freight_missing_customs;
+    // markup_pct edits drive markup_above_5x_default.
+    const cascade = await reconcileWarnings({ quoteId: quote.id });
+
     await logAudit({
       userId: user.id,
       entityType: "freight_line",
       entityId: lineGroupId,
       action: "updated",
-      diffJson: diff,
+      diffJson:
+        cascade.inserted + cascade.resolved + cascade.evaluated > 0
+          ? { ...diff, cascaded_warnings: cascade }
+          : diff,
     });
 
     revalidateQuoteTree(quote.projectId, quote.id);
@@ -451,12 +460,19 @@ export async function updateFreightTierCell(
       })
       .where(eq(freightInputs.id, rowId));
 
+    // Slice 9.5 — reconcile validation warnings on action commit.
+    // Drives cbm_cross_tier_variance + pass_through_freight_missing_customs.
+    const cascade = await reconcileWarnings({ quoteId: quote.id });
+
     await logAudit({
       userId: user.id,
       entityType: "freight_input",
       entityId: rowId,
       action: "updated",
-      diffJson: diff,
+      diffJson:
+        cascade.inserted + cascade.resolved + cascade.evaluated > 0
+          ? { ...diff, cascaded_warnings: cascade }
+          : diff,
     });
 
     revalidateQuoteTree(quote.projectId, quote.id);
@@ -535,12 +551,21 @@ export async function updateSkuCustomsData(
       })
       .where(eq(quoteSkus.id, quoteSkuId));
 
+    // Slice 9.5 — reconcile validation warnings on action commit.
+    // Drives pass_through_freight_missing_customs (auto-resolves
+    // when PM fills in duty_pct/tariff_pct on a SKU with
+    // pass-through freight).
+    const cascade = await reconcileWarnings({ quoteId: quote.id });
+
     await logAudit({
       userId: user.id,
       entityType: "quote_sku",
       entityId: quoteSkuId,
       action: "customs_updated",
-      diffJson: diff,
+      diffJson:
+        cascade.inserted + cascade.resolved + cascade.evaluated > 0
+          ? { ...diff, cascaded_warnings: cascade }
+          : diff,
     });
 
     revalidateQuoteTree(quote.projectId, quote.id);

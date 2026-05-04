@@ -15,6 +15,7 @@ import { buildTreeRenderOrder } from "@/lib/sku-tree";
 import { IdBadge } from "@/components/id-badge";
 import { CostingStoreProvider } from "@/components/costing-store-provider";
 import { QuoteSummaryCard } from "@/components/quote-summary-card";
+import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
 import { AddLineButton } from "./add-line-button";
 import { PackagingLineRow } from "./packaging-line-row";
 
@@ -143,18 +144,25 @@ export default async function PackagingInputsPage({
       </div>
 
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold">Packaging inputs</h1>
-        <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-600">
-          <span>{project.dealName}</span>
-          <span>·</span>
-          <span>{quote.scenarioLabel} v{quote.versionNumber}</span>
-          <span>·</span>
-          <IdBadge id={quote.id} />
-          <span>·</span>
-          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium">
-            {quote.status}
-          </span>
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold">Packaging inputs</h1>
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-600">
+              <span>{project.dealName}</span>
+              <span>·</span>
+              <span>{quote.scenarioLabel} v{quote.versionNumber}</span>
+              <span>·</span>
+              <IdBadge id={quote.id} />
+              <span>·</span>
+              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium">
+                {quote.status}
+              </span>
+            </p>
+          </div>
+          {/* Slice 9.5 — per-page warning chip (packaging scope only).
+              Filters warnings by table_name = packaging_inputs. */}
+          <WarningSummaryChip filter="packaging_inputs" />
+        </div>
       </header>
 
       {!editable && (

@@ -5,6 +5,20 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Slice 9.5.5 — comprehensive mutation-action wiring + inline icons + realtime sync]
+
+  **Slice:** 9.5.5 (follow-up to 9.5)
+
+  **What (action wiring):** Wire `reconcileWarnings({ quoteId })` into the remaining mutation actions deferred from PR 2 scope: `addPackagingLine`, `deletePackagingLine`, `updatePackagingLineMetadata`, `upsertProductionInputs`, `updateSkuProductionPolicy`, `addFreightLine`, `deleteFreightLine`, `addTier`, `deleteTier`, `addSkuFromHubspotProduct`, `addAssemblySku`, `deleteSku`. Pattern is established (canonical site: `updatePackagingTierCell` in Slice 9.5 PR 2). Mechanical work; low risk.
+
+  **What (inline icon wiring):** Wire `<WarningIcon>` + `<WarningPopover>` per brief §5.1 + Designer extension memo §A (CR-11) into existing cost-input cell components (`packaging-line-row.tsx`, `freight-line-row.tsx`, plus production cell rendering). Lands alongside the action-wiring sweep (same code path; cell components are the same surfaces the new mutation wirings re-validate). Brief §5.1 commitment timing shifts to 9.5.5; not a scope cut. Components already shipped in PR 2 — the wiring is the deferred piece.
+
+  **What (realtime client subscription):** Wire the browser-side Supabase Realtime subscription on `quote_warnings` so cross-PM sync works (Scenario 5 from brief §7, deferred from PR 2 smoke). Pattern established by Slice 8.5 — extend `costing-store-provider.tsx`'s reconcile pipe to subscribe to `quote_warnings` postgres_changes events on the active quote, route through the existing 250ms coalesce window. Server-side publication membership already configured in PR 2's manual SQL (`drizzle/manual/0017_warnings_realtime_publication.sql`); only the client subscription is missing. Cross-tab smoke: PM 1 accepts warning → PM 2's chip count updates within coalesce window without page refresh.
+
+  **Where designed:** Slice 9.5 brief §3 (action wiring) + §5.1 (inline icon UI) + §7 Scenario 5 (realtime sync); deferred from PR 2 scope to ship core pattern faster.
+
+  **Why log it:** Some of these actions trigger different rule patterns (add/delete fires `tier_coverage_mismatch`; SKU lifecycle re-evaluates outliers; markup edits fire `markup_above_5x_default`) and may surface engine edge cases. Inline icons are the canonical "warning fires here" surface PMs see at the field level — chip + panel surfaces (shipped in PR 2) provide the summary view, but per-cell discoverability is the §5.1 commitment. Realtime client subscription closes the cross-PM sync loop the publication-membership ALTER set up. Bundle all three (action wiring + inline icons + realtime) in 9.5.5 since they share the same per-cell components and the optimistic store's `warnings` slice already feeds them.
+
 - [Cross-round reconciliation revalidation queue]
 
   **Slice:** Redesign-implementation (per-sub-slice)

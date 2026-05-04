@@ -10,6 +10,7 @@ import { ActiveTierSelector } from "@/components/costing/active-tier-selector";
 import { ActiveTierUrlSync } from "@/components/costing/active-tier-url-sync";
 import { IdBadge } from "@/components/id-badge";
 import { QuoteSummaryCard } from "@/components/quote-summary-card";
+import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
 import { SkuSummaryRowList } from "./sku-summary-row";
 
 // Slice 8 sub-step 6 follow-up: this page is a thin server shell. All
@@ -92,20 +93,30 @@ export default async function CostingPage({
         </div>
 
         <header className="mb-6">
-          <h1 className="text-2xl font-semibold">Costing Sheet</h1>
-          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-600">
-            <span>{project.dealName}</span>
-            <span>·</span>
-            <span>
-              {quote.scenarioLabel} v{quote.versionNumber}
-            </span>
-            <span>·</span>
-            <IdBadge id={quote.id} />
-            <span>·</span>
-            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium">
-              {quote.status}
-            </span>
-          </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold">Costing Sheet</h1>
+              <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-600">
+                <span>{project.dealName}</span>
+                <span>·</span>
+                <span>
+                  {quote.scenarioLabel} v{quote.versionNumber}
+                </span>
+                <span>·</span>
+                <IdBadge id={quote.id} />
+                <span>·</span>
+                <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium">
+                  {quote.status}
+                </span>
+              </p>
+            </div>
+            {/* Slice 9.5 — Costing Sheet aggregation chip. Severity
+                emphasis (2px border) when ≥1 action_required present;
+                drives the visual cue for "Mark-Accepted will gate"
+                (Slice 12). Hidden when zero warnings. Per Designer
+                memo §C + CR-11. */}
+            <WarningSummaryChip scope="aggregate" />
+          </div>
         </header>
 
         {!editable && (
