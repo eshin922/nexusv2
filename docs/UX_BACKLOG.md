@@ -5,6 +5,200 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Competitive verdict epsilon — "OVER TARGET BY $0.00" after reverse-solve apply]
+  Slice 9.4b's reverse-solve apply path (cell client target → tier
+  adjustment) lands `requiredSellPerUnit` at-or-very-near the client
+  target by design. Float precision + `numeric(5,4)` storage on
+  `tier_price_adj_pct` produces a sub-cent overshoot that classifies
+  as `OVER_CLIENT_TARGET` via the strict `<=` comparison in
+  `computeCompetitiveStatus`. The competitive chip then reads "OVER
+  TARGET BY $0.00" — magnitude rounds to zero at 2-decimal display
+  but the chip color flips amber. This is the natural endpoint of
+  every successful reverse-solve, so PMs see this on every apply.
+  **Fix is one-line:** introduce an epsilon (e.g., 0.005 = half a
+  cent) in `computeCompetitiveStatus` so values within tolerance of
+  the target classify COMPETITIVE: `requiredSell <= target + EPSILON`.
+  Either that or add a third verdict state ("AT TARGET") with
+  distinct chip treatment. Recommend epsilon — simpler, matches the
+  PM mental model of "I asked the system to land me here, it did,
+  show competitive." Defer to next polish slice (9.5 validation
+  engine work or earlier if PMs complain). Surfaced during 9.4b
+  smoke Pass 3 Step 3 apply landing. Reference:
+  `src/lib/costing.ts` `computeCompetitiveStatus`.
+
+- [Light mode default + dark mode token tuning]
+
+  **Status.** Captured during Round 6 closeout review. Not yet scheduled.
+
+  **Context.** Across all six design rounds, CD's color tokens for the lowest text-contrast tier (used for small-caps column labels like TIER 1/2/3/4, metadata sublabels like "5 lines" / "29d ago", supporting numerics, and secondary helper text) render legibly in light mode but are too dim in dark mode. The pixel luminance values for "ink-4" (or equivalent lowest tier) sit too close to the dark background, which works against the perceptual contrast lift that bright/cream backgrounds provide naturally.
+
+  Specific surfaces where the issue manifests across rounds:
+  - **Round 4 deal organizer:** "12m" timestamps, "v3 sent" sublabels, "drop_reason=accept_sibling" forensic strings
+  - **Round 5 admin pages:** column headers (CATEGORY / DEFAULT MARKUP / IN USE / LAST EDITED), "29d ago / EQ" sublabels under markup values
+  - **Round 6 cost stack and section rows:** "5,000 units" sublabels under tier labels, TIER 1/2/3/4 small-caps labels in section row metadata strips, dollar values with insufficient pop
+  - **Costing Sheet (current build):** column headers, sublabels, breakdown table headers
+  - **Slice 9.4a per-SKU breakdown:** column headers and small-caps labels
+
+  This is a systematic design-system issue, not a Round 6 specific one. The fix is tokens-level, not surface-level redesign.
+
+  **Three commitments to land at implementation time.**
+
+  **1. Light mode ships as the default.** Dark mode stays available as a user toggle (current carry-forward from Round 1), but light mode is what new users see on first login.
+
+  Reasoning:
+  - Cost Build's data-viz density (cost stack with five-to-six color-coded component rows, sparklines, ingredient tables) benefits from bright backgrounds for hue distinction
+  - Long-session quote-building workflow favors light mode (sharper text rendering, less fatigue over hours of dense numerical data)
+  - Mixed-environment lighting in DPS office settings (bright conference rooms, varying monitor calibration) is more forgiving in light mode
+  - Dark mode remains valuable for users who explicitly prefer it (toggle stays in user preferences)
+
+  **2. Dark mode token tuning pass.** When dark mode is selected, push the lowest text-contrast tier up by roughly +15-20% luminance. Apply the change at the CSS variable definition layer (`--ink-4` or equivalent), not surface-by-surface. Verify the corrected token reads cleanly in dark mode without becoming visually heavy in light mode (where the same token pulls a different palette).
+
+  Specific surfaces to verify after tuning:
+  - Cost stack header section row metadata strips (the tightest case)
+  - Admin page table column headers
+  - Deal organizer project row metadata
+  - Costing Sheet per-SKU breakdown column headers
+
+  **3. Per-component cost stack color luminance review.** The cost stack's component bars (PKG blue / PROD teal / FRT teal / RAW green / D+T purple / PASS gray) are distinguished primarily by hue, with similar luminance values. In light mode this works because all sit on cream and hue distinction is clean. In dark mode, the eye loses contrast between similar-luminance hues — particularly PROD vs FRT (both teal-family) and D+T's hatched purple (which nearly disappears).
+
+  Adjust component color luminance for dark mode such that components remain perceptually distinct at glance. Light mode values should remain unchanged unless the parallel adjustment creates inconsistency.
+
+  **Effort.** Tokens-only change. Probably 1-2 hours of designer time + 1 hour of build implementation time when redesign-implementation slice ships. CSS variable updates plus visual verification across representative surfaces. No re-rendering of design rounds required.
+
+  **When this lands.** Implementation time during redesign-implementation slice. The slice itself will rebuild surfaces using the corrected tokens, so the tuning ships as part of the build, not a separate post-build polish pass.
+
+  **Why deferred to implementation.** The fix is small enough to handle as part of build rather than a separate pre-build CD round. Build engineer + Edward verify dark-mode legibility against representative surfaces during smoke tests; tune iteratively if needed.
+
+- [Mini-stack engagement instrumentation on Cost Build section rows]
+
+  **Status.** Captured from Round 6 designer notes pushback #1. Not yet scheduled.
+
+  **Context.** CD's Round 6 design includes a per-tier rollup mini-stack on each section row (Packaging / Production / Bulk Raw / Freight). The mini-stack shows per-tier per-unit cost values inline in the section header — answering "what does packaging cost at T2?" without opening the drill-down.
+
+  CD flagged this as their own pushback: the same data is already visible in the cost stack header (PKG row × T2 column = same number). The mini-stack is structurally a duplicate of the cost stack header in miniature, three times. CD shipped it because it's load-bearing in empty/incomplete states (when the cost stack header has nothing to read at certain tiers) and serves as a tactile preview before drill-down opens.
+
+  **The question to answer with data.** Do PMs scan section row mini-stacks to read per-tier cost values, or do they go straight to the cost stack at the top of the page?
+
+  If PMs primarily use the cost stack header as the glance surface, the mini-stacks are decorative — replace with a single status pill plus owner badge.
+
+  If PMs do scan mini-stacks (especially in incomplete/empty states), keep them.
+
+  **Implementation when build ships.** Add basic interaction telemetry to Cost Build section rows during the first 2-4 weeks of real PM use:
+  - Hover/scan tracking on section row mini-stack region
+  - Click-through patterns: do PMs click into drill-down without first scanning mini-stack values, or does the mini-stack scan happen before the drill-down click?
+  - Engagement in incomplete states specifically: when cost stack header has empty tiers, do mini-stacks get more attention?
+
+  **Decision criteria after 2-4 weeks of use.** If telemetry shows section-row mini-stacks aren't read, replace with status pill + owner badge only (CD's proposed alternative). If telemetry shows they are read, keep as designed.
+
+  **Effort.** Telemetry instrumentation: small. Decision review and potential UI simplification: small if simplifying. Total: 2-4 hours implementation + observation period.
+
+  **When this lands.** After redesign-implementation slice ships and real PM users are onboarded (Slice 17 territory). Telemetry instrumentation can be part of redesign-implementation slice; the decision pass happens after observation.
+
+  **Why this is a backlog item, not a build slice question.** CD's design decision is data-driven: the mini-stacks are correct if used, decorative if ignored. Without real-use data we'd be guessing. Defer to instrumentation-then-decide pattern.
+
+- [Auth provider migration: Google → Microsoft 365 primary]
+
+  **Status:** Captured during Slice 9.4b sounding-board session. Not yet scheduled.
+
+  **Context.** Slice 1 shipped with Clerk + Google SSO (Edward's `edward.shin@gmail.com` is on the `@thedps.co` allowlist by explicit exception during development). DPS as a firm uses Microsoft for email and authentication. When real DPS team members are onboarded to Nexus, they sign in with their Microsoft accounts, not Google.
+
+  **Scope of work.**
+
+  1. **Clerk dashboard configuration.**
+     - Enable Microsoft as OAuth provider in Clerk
+     - Configure DPS Microsoft 365 tenant ID (verify with DPS IT — Edward to check before this work starts)
+     - Confirm whether DPS is on Microsoft 365 / Entra ID (tenant-scoped) or generic Microsoft accounts (untenanted)
+     - Make Microsoft the primary provider in the Clerk sign-in component
+     - Decide: keep Google secondary for Edward's continued Gmail access, or remove Google entirely
+
+  2. **Email allowlist behavior.**
+     - Domain allowlist (`@thedps.co`) stays the same; works regardless of provider
+     - Verify Clerk's domain-allowlist enforcement is provider-agnostic (it is, but verify)
+     - Confirm Edward's `edward.shin@gmail.com` allowlist exception is provider-agnostic too if Google is retained
+
+  3. **No schema changes required.** `users.email` is the user identity key; Clerk normalizes across providers. Existing user records persist.
+
+  4. **No design changes required.** Clerk sign-in screen renders the configured providers; visual treatment is Clerk-default. Round 4 nav rail's avatar/initials work regardless.
+
+  5. **Smoke test:** Configure in dev environment, verify sign-in with a real DPS Microsoft account before flipping production.
+
+  **When this lands.** Slice 17 (real-user test) is the natural moment — at that point DPS PMs are being onboarded for the first time. Could land earlier as a small standalone task if Edward wants to test the flip, but no urgency before Slice 17.
+
+  **Open questions to confirm before scheduling.**
+  - Is DPS on Microsoft 365 / Entra ID, or generic Microsoft accounts? (Likely M365 — most small firms are — but verify with DPS IT.)
+  - Does DPS have an existing Entra ID / Azure AD tenant? Tenant ID needed for Clerk config.
+  - Does the firm want SSO-only (no fallback) or SSO-with-fallback (Google retained for break-glass)?
+  - Should the migration moment also coincide with role-based seat licensing review? (12 users × Microsoft licenses already paid; Clerk seat counts already include Edward + dev/test accounts.)
+
+  **Estimated effort.** Configuration work: 30-60 minutes. Verification: 30 minutes. Total: ~1 hour. Negligible compared to a build slice.
+
+  **Why this isn't urgent now.** Edward is the only active user during Slice 1-16 development. Microsoft auth becomes load-bearing only when real DPS PMs sign in for the first time. Capturing now so it doesn't fall through the cracks; not a Slice 9.4b/9.5/redesign-implementation blocker.
+
+- [Costing Sheet — summary-vs-working panel separation]
+  The Per-SKU breakdown currently carries both summary signals
+  (margin pill, sparkline, competitive verdict chip, required-sell
+  display) AND tuning affordances (per-cell sell override entry,
+  client target entry, reverse-solve "apply" button). Architectural
+  mismatch — summary panels should be read-only review surfaces;
+  tuning belongs on separate working surfaces. Specifically: the
+  reverse-solve "apply" affordance writes to *tier-level* scope
+  (`quote_tiers.tier_price_adj_pct`) from a *per-cell row* — the
+  affordance's UI location implies cell-level effect, but its
+  actual blast radius is the entire tier. Cross-cell consequence
+  dialog tries to surface this at confirm-time; the deeper fix is
+  putting the affordance on a tuning surface where the tier-level
+  scope is structurally legible. Surfaced during Slice 9.4b smoke
+  (Edward's architectural read of the Pass 3 dialog flow).
+  Reshape is redesign-implementation slice scope — CD's design
+  system handles surface separation explicitly, and the per-SKU
+  table layout will get rebuilt against the new surface vocabulary
+  at that point. Visual + architectural debt acknowledged for v1
+  build period; ships 9.4b as-is. Slice 9.4c brief (quote-level
+  client target) incorporates the surface-separation concern from
+  day one — quote-level entry is a NEW affordance and should land
+  on the right surface (likely a quote-level tuning panel, not the
+  per-SKU row). Reference: `src/components/costing/client-target-cell.tsx`
+  (cell-row affordance), `src/components/costing/reverse-solve-dialog.tsx`
+  (consequence-surface mitigation), Slice 9.3 `<RequiredSellCell>`
+  (per-cell override pattern that established this shape).
+
+- [Action-layer test coverage gap — leaf-only invariants and beyond]
+  `scripts/test-costing.ts` exercises pure costing math; there is no
+  test framework or fixture infrastructure for action-layer logic.
+  Slice 9.3's leaf-only invariant on `updateSellPriceOverride` and
+  Slice 9.4b's leaf-only invariant on `updateClientTarget` /
+  `applyClientTargetSolveTierAdj` are both enforced by 3-line guards
+  in action bodies, both reviewed at PR time, neither covered by
+  regression tests. Defense in depth lives only at the math layer
+  (which doesn't exercise the action-layer guards). The pattern
+  will grow with Slice 9.5+ work (validation engine adds more
+  action-layer rejection paths) and Slice 10+ (mark-accepted
+  writeback, NetSuite handoff). Two paths to consider when picking
+  up: (a) live integration tests against the shared dev/prod DB
+  with fixture insert + cleanup (risk: hits real data), or (b)
+  extract validation logic to pure helpers testable in
+  test-costing.ts (clean abstraction; one-line guards become
+  helpers). Scope decision belongs in the perf-audit slice between
+  11 and 12, before Slice 12 mark-accepted writeback ships and
+  expands the action-layer surface area further. Reference:
+  `src/app/actions/costing.ts:564-569` (Slice 9.3 leaf guard) and
+  `src/app/actions/costing.ts` `updateClientTarget` (Slice 9.4b
+  leaf guard, added in the strip commit).
+
+- [Redesign-implementation — systematic accessibility pass]
+  No formal accessibility audit on shipped surfaces (Slices 8–9.4b).
+  Color-coded affordances (margin verdict pills, competitive indicator,
+  sparkline active-tier point, OVR pills) likely fail WCAG color-
+  contrast in places and don't carry redundant signals for color-blind
+  users (protanopia/deuteranopia in particular). Examples flagged
+  during build: sparkline blue-active vs slate-non-active relies on
+  saturation/lightness contrast; verdict-pill red/amber/green ramp
+  lacks shape redundancy. ARIA attributes are inconsistent across
+  inline editors and disclosure buttons. Belongs in the redesign-
+  implementation slice's systematic pass — pre-design Nexus styles
+  weren't designed against an accessibility checklist; the redesign
+  is the right slice to retrofit. Don't patch one-off in build slices.
+
 - [Slice 9.2 polish — slider control for price-adjustment affordances]
   Per-tier and global price adjustment affordances ship as slider
   controls in redesign-implementation slice; current numeric input

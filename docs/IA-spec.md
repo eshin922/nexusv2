@@ -165,8 +165,12 @@ an indicator reverse-engineers a use case that doesn't exist post-
 migration. Benchmark completeness signaling — "X of Y SKUs benchmarked
 in this tier" or similar — is Slice 9.5's validation engine work
 (`quote_warnings` + UNDERPRICED chip pattern), NOT tier-rail.
-Per-cell client target itself surfaces on the per-SKU summary row
-on the Costing Sheet — see Slice 9.4b.)
+Per-cell client target itself surfaces on the per-(leaf SKU, tier)
+cell on the per-SKU summary row of the Costing Sheet — see Slice
+9.4b. Leaf-only invariant; assembly rows render an empty cell.
+A quote-level client target — for cases where a customer states a
+single price target across the whole project — lands in Slice 9.4c
+on a separate `quote_tiers` column.)
 
 **Active tier:** visually highlighted; cost input rows below show this tier's data
 **Click any tier:** switches active tier; cost inputs reload for new tier; tier rail margin badges update
@@ -377,8 +381,8 @@ Three cards, each surfacing a different signal:
 
 2. **Client benchmark card (Slice 9.4):**
    - Label: "CLIENT BENCHMARK"
-   - Count of cells over/at/under client target
-   - "vs client_target_price_per_unit · [N] of [N] cells benchmarked"
+   - Count of leaf cells over/at/under client target
+   - "vs client_target_price_per_unit · [N] of [N] leaf cells benchmarked"
 
 3. **Lines need review card:**
    - Label: "[N] LINES NEED REVIEW" or "0 LINES NEED REVIEW"
@@ -410,9 +414,9 @@ The work surface below the verdict and context cards.
 - Margin · Tier [N] column:
   - Margin % at active tier (large)
   - Two-axis verdict (Slice 9.4):
-    - Margin verdict pill: BELOW TARGET / BELOW FLOOR / GOOD
-    - Client verdict pill: COMPETITIVE / OVER CLIENT TARGET (when client_target_price_per_unit set)
-  - Client target reference and gap (e.g., "client target $6.80 · gap $-2.15 → match target")
+    - Margin verdict pill (all rows): BELOW TARGET / BELOW FLOOR / GOOD
+    - Client verdict chip (leaf rows only, when client_target_price_per_unit set): direction + magnitude inline ("under target by $0.74" / "over target by $0.74"); underlying enum COMPETITIVE / OVER_CLIENT_TARGET
+  - Tooltip on the client verdict chip carries the raw values being compared (Required sell / Client target) at 4-decimal precision; inline chip carries the interpretation per the verdict surfacing convention (CLAUDE.md).
 - All tiers column (sparkline of margin across all tiers):
   - Tier qty labels (10k, 25k, 50k, 100k)
   - Per-tier margin % values

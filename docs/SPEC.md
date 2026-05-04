@@ -79,7 +79,14 @@ In practice, one human wears multiple roles. Permissions are role-based and appl
 
 ### Authentication
 
-Google SSO via Clerk, restricted to `@thedps.co` email domain. 30-day sessions with refresh.
+Microsoft 365 SSO via Clerk, restricted to `@thedps.co` email domain. 30-day sessions with refresh.
+
+**Build-time exception:** Google SSO is configured as a secondary provider during development to support the founding developer's Gmail account (on the `@thedps.co` allowlist by explicit exception). Production rollout flips Microsoft 365 to primary; Google secondary is removed before the final DPS team onboarding, OR retained as a backup auth path if Edward retains Gmail-based admin access. Decision deferred to Slice 17 (real-user test).
+
+**Clerk configuration assumptions** (verify before Slice 17):
+- DPS uses Microsoft 365 / Entra ID (formerly Azure AD), not generic Microsoft consumer accounts. Tenant-scoped OAuth.
+- DPS Microsoft 365 tenant ID will be configured in Clerk to scope token validation to the DPS organization.
+- Email domain remains `@thedps.co`; allowlist is domain-based regardless of provider.
 
 ---
 
@@ -503,7 +510,7 @@ Unchanged from v1/v2: standard internal-tool performance, reliability, security 
 
 ## 9. Technology Stack
 
-Unchanged from v2: Next.js (App Router) + TypeScript + Tailwind, Postgres on Supabase, Drizzle ORM, Clerk auth (Google SSO), Vercel hosting, `@hubspot/api-client`, React-PDF, React Hook Form + Zod.
+Unchanged from v2: Next.js (App Router) + TypeScript + Tailwind, Postgres on Supabase, Drizzle ORM, Clerk auth (Microsoft 365 SSO primary; Google SSO secondary during build), Vercel hosting, `@hubspot/api-client`, React-PDF, React Hook Form + Zod.
 
 ---
 
@@ -531,7 +538,9 @@ These v1 design decisions preserve v2 optionality:
 **MVP cutline is Slice 12** — at that point the tool replaces Excel for net-new quote builds and writes structured data to HubSpot. Slices 13–17 add workspace features.
 
 ### Slice 1 — Foundation (1 session)
-Next.js scaffold, Supabase + Drizzle, Clerk auth (Google SSO, `@thedps.co` restricted), Vercel deploy. **End state:** log in, see "Hello, Edward."
+Next.js scaffold, Supabase + Drizzle, Clerk auth (Microsoft 365 SSO primary, Google SSO secondary, `@thedps.co` restricted), Vercel deploy. **End state:** log in, see "Hello, Edward."
+
+**Note:** Slice 1 already shipped with Google SSO only. Microsoft 365 provider configuration is added in a small follow-up before Slice 17 (real-user test) — see UX_BACKLOG entry "Auth provider migration: Google → Microsoft 365 primary."
 
 ### Slice 2 — HubSpot OAuth + Deal Search (2 sessions)
 HubSpot OAuth flow, encrypted token storage, deal search/list (no project creation yet). **End state:** searchable list of real DPS HubSpot deals.

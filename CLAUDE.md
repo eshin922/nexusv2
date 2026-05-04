@@ -412,7 +412,77 @@ to GOOD.
 Reference: `src/lib/costing.ts` `computeQuoteSuggestion`
 (`adjNewRaw` → `suggestedAdjPct`).
 
-## Slice 9 pricing-control columns (added 9.1, migration 0014)
+## Sparkline lossiness convention (added Slice 9.4b)
+
+`<MarginSparkline>` (per-SKU all-tiers margin viz on the per-SKU
+summary row) is intentionally lossy. The shape carries the
+**pattern signal** (flat / step↓ / partial / no-data); the
+**quantitative load** lives in the adjacent margin column and the
+per-point hover tooltips. Active-tier point is highlighted (indigo
+saturated fill) so PMs see "where am I currently looking" against
+the variance pattern.
+
+This split is deliberate. Adding axis labels, tick marks, or a
+shared y-axis across rows would push the viz toward "small chart"
+treatment and re-introduce the chart-library question (recharts
+~150KB) without buying enough — PMs read the sparkline for variance
+recognition, not absolute values. If a future PM use surfaces
+"shape recognition isn't enough; I need to see absolutes at a
+glance," that's the signal to revisit (likely toward a column
+add — "min/max margin" — rather than a sparkline upgrade).
+
+Reference: `src/components/costing/margin-sparkline.tsx`. No chart
+library deps; ~150 LOC inline SVG.
+
+## Verdict surfacing convention (added Slice 9.4b)
+
+When a verdict has multiple semantic pieces (direction +
+magnitude, status + count, etc.), **all interpretation pieces
+render inline on the surface**. Tooltip carries the underlying
+raw values being compared, NOT a re-statement of the
+interpretation.
+
+Slice 9.4b's `<CompetitiveIndicator>` established the pattern.
+Initial shape carried only direction inline ("under target" /
+"over target") with magnitude in the tooltip. Smoke surfaced the
+discoverability gap: PMs saw the chip with no signal that
+hovering would reveal magnitude — meaning the magnitude was
+effectively invisible unless the PM already knew to look.
+Reshaped to inline both pieces ("under target by $0.74" / "over
+target by $0.74"); tooltip shifted to raw comparison values
+("Required sell: $X.XXXX / Client target: $Y.YYYY") at full
+4-decimal precision for verification math.
+
+Why this matters as a convention, not just a one-off fix:
+hover-to-discover is a navigation pattern, not a presentation
+pattern. PMs reading verdict chips at speed don't pause to
+explore. Putting the second interpretation piece behind hover
+loses it for the workflow. Conversely, putting raw numerics in
+the chip would crowd the surface — the chip is for at-a-glance
+verdict reading, not analytical comparison. Splitting along
+**interpretation vs raw values** is the right axis: chip
+surfaces the answer; tooltip surfaces the math.
+
+When the convention applies: any verdict-style chip with a
+magnitude, count, or differential. Examples that would follow
+the same pattern:
+- "3 of 7 cells benchmarked" (Slice 9.4 client benchmark card)
+- "blended +2.4pp above target" (Slice 9.2 GOOD verdict context)
+- Future "N OVER" / "N UNDER" rollups in Slice 9.5 validation
+  engine — chip text carries direction + count; tooltip
+  carries the raw cell list or numerator/denominator details.
+
+When it doesn't apply: single-piece status chips (just GOOD /
+BELOW_TARGET / BELOW_FLOOR — no magnitude in the verdict
+itself). MarginVerdictPill stays single-piece because the
+margin % already lives adjacent to the pill on the per-SKU row.
+Adding "GOOD by 1.2pp" to the pill would duplicate the adjacent
+percent reading.
+
+Reference: `src/components/costing/competitive-indicator.tsx`
+for the canonical implementation. CompetitiveIndicator's earlier
+shape (tooltip-only-magnitude) is the anti-pattern this convention
+prevents.
 
 Three nullable columns sit in the schema awaiting their UI in
 later Slice 9 sub-slices. Future engineer reading the schema needs
@@ -431,11 +501,11 @@ populated:
   (not stacks). PMs use this when one tier needs a different markup
   than the quote-level adjustment. **Wired up in Slice 9.2.**
 - **`quote_sku_tier_targets.client_target_price_per_unit numeric(10,4) NOT NULL`** —
-  PM-entered customer target price per (SKU, tier) cell ("client
-  wants $5 landed for THIS SKU at 50k"). Lives on its own sparse
-  sister table to `quote_sku_tiers`; lazy-row writes (INSERT for
-  set, DELETE for clear). Drives Slice 9.4b's two-axis verdict
-  (margin × competitive: COMPETITIVE / OVER / WAY OVER) and the
+  PM-entered customer target price per (leaf SKU, tier) cell
+  ("client wants $5 landed for THIS SKU at 50k"). Lives on its own
+  sparse sister table to `quote_sku_tiers`; lazy-row writes (INSERT
+  for set, DELETE for clear). Drives Slice 9.4b's two-axis verdict
+  (margin × competitive: COMPETITIVE / OVER_CLIENT_TARGET) and the
   reverse-solve "Apply suggested adj to match client target"
   affordance — note that affordance writes per-tier
   `tier_price_adj_pct`, NOT per-cell `sell_price_override`.
@@ -443,7 +513,15 @@ populated:
   moved to `quote_sku_tier_targets` in Slice 9.4b migration 0016
   after the IA spec settled per-(SKU, tier) granularity. Zero
   data migration needed (column was speculative + never written).
-  **Wired up in Slice 9.4b.**
+  **Leaf-only invariant** — matches Slice 9.3 `sell_price_override`
+  posture. Customers state targets at SKU level (this surface) or
+  quote level (Slice 9.4c, separate column on `quote_tiers`);
+  assembly-level was scope creep, surfaced and stripped during
+  9.4b smoke. Schema accepts any role; runtime guard in
+  `updateClientTarget` rejects non-leaf with VALIDATION error.
+  Math layer is defense in depth — `rollUpAssemblyPerTier` always
+  returns `competitiveStatus: null` regardless of input.cellTargets
+  contents. **Wired up in Slice 9.4b.**
 
 The first two columns default to NULL on insert. Existing rows got
 NULL on migration. Behavior unchanged until the wiring slices land.

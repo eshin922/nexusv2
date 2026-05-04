@@ -2,6 +2,7 @@ import { createStore } from "zustand";
 import {
   computeQuoteCosting,
   type CostingCellOverride,
+  type CostingCellTarget,
   type CostingFreightInput,
   type CostingPackagingInput,
   type CostingProductionInput,
@@ -108,6 +109,9 @@ export type CostingStoreState = {
   // no overrides. Mutated by `updateCellOverride(skuId, tierId, value)`
   // (upsert / clear pattern; see action below).
   cellOverrides: CostingCellOverride[];
+  // Slice 9.4b — sparse per-cell client target benchmarks. Mirror
+  // shape to cellOverrides; mutated by updateCellTarget action below.
+  cellTargets: CostingCellTarget[];
 
   // Slice 9.4a — VIEW STATE (not a costing input). The currently-active
   // tier on the Costing Sheet. Determines which tier's per-SKU summary
@@ -178,6 +182,14 @@ export type CostingStoreState = {
     tierId: string,
     value: number | null,
   ) => void;
+  // Slice 9.4b — per-cell client target benchmark. Same contract as
+  // updateCellOverride: value === null clears (DELETEs entry); value > 0
+  // upserts. Action layer rejects value <= 0; store doesn't enforce here.
+  updateCellTarget: (
+    quoteSkuId: string,
+    tierId: string,
+    value: number | null,
+  ) => void;
   // Slice 9.4a — view-state mutator. Sets the active-tier selection.
   // Pure mutation; no side effects. URL sync is the caller's
   // responsibility (selector click handler + ActiveTierUrlSync
@@ -202,6 +214,9 @@ export type HydrateSnapshot = {
   // Slice 9.3 — sparse per-cell sell-price overrides (rows that exist
   // in DB at hydration time). Empty array if no overrides on this quote.
   cellOverrides: CostingCellOverride[];
+  // Slice 9.4b — sparse per-cell client target benchmarks (rows that
+  // exist in DB at hydration time).
+  cellTargets: CostingCellTarget[];
   costing: QuoteCostingResult; // pre-computed on the server side
 };
 
@@ -276,6 +291,7 @@ function recompute(
     production: s.production,
     freight: s.freight,
     cellOverrides: s.cellOverrides,
+    cellTargets: s.cellTargets,
   };
   return computeQuoteCosting(input);
 }
@@ -304,6 +320,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     production: initial.production,
     freight: initial.freight,
     cellOverrides: initial.cellOverrides,
+    cellTargets: initial.cellTargets,
     // Slice 9.4a — view-state. Defaults to null on store creation;
     // <ActiveTierUrlSync> sets it on mount from URL `?tier=` (or
     // first tier in sort_order if URL absent/invalid). Hydrate /
@@ -329,6 +346,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         production: snapshot.production,
         freight: snapshot.freight,
         cellOverrides: snapshot.cellOverrides,
+        cellTargets: snapshot.cellTargets,
         costing: snapshot.costing,
         hydrated: true,
         lastReconcileAt: Date.now(),
@@ -355,6 +373,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         production: snapshot.production,
         freight: snapshot.freight,
         cellOverrides: snapshot.cellOverrides,
+        cellTargets: snapshot.cellTargets,
         costing: snapshot.costing,
         lastReconcileAt: Date.now(),
         lastUserEditAt: 0,
@@ -512,6 +531,30 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         };
       }),
 
+    // Slice 9.4b — per-cell client target benchmark. Same shape as
+    // updateCellOverride; mirrors the lazy-row pattern. value === null
+    // clears (filter); value > 0 upserts. Action layer rejects value
+    // <= 0 — store doesn't enforce here. Recompute fires so the
+    // competitive verdict on this cell re-classifies optimistically.
+    updateCellTarget: (quoteSkuId, tierId, value) =>
+      set((s) => {
+        const filtered = s.cellTargets.filter(
+          (c) => !(c.quoteSkuId === quoteSkuId && c.tierId === tierId),
+        );
+        const cellTargets =
+          value === null
+            ? filtered
+            : [
+                ...filtered,
+                { quoteSkuId, tierId, clientTargetPricePerUnit: value },
+              ];
+        return {
+          cellTargets,
+          costing: recompute({ ...s, cellTargets }),
+          lastUserEditAt: Date.now(),
+        };
+      }),
+
     // Slice 9.4a — view-state mutator for the active-tier selection.
     // Pure mutation; no costing recompute (active tier doesn't affect
     // math, only which tier's slice the UI surfaces). Does NOT stamp
@@ -656,6 +699,21 @@ export const selectCellOverride =
       (c) => c.quoteSkuId === quoteSkuId && c.tierId === tierId,
     );
     return c ? c.sellPriceOverride : null;
+  };
+
+// Slice 9.4b — per-cell client target action selector.
+export const selectUpdateCellTarget = (s: CostingStoreState) =>
+  s.updateCellTarget;
+
+// Slice 9.4b — single-cell client target value selector. Returns the
+// target number when set, null when no benchmark on this cell. Curried
+// for per-cell subscription granularity, mirrors selectCellOverride.
+export const selectCellTarget =
+  (quoteSkuId: string, tierId: string) => (s: CostingStoreState) => {
+    const c = s.cellTargets.find(
+      (c) => c.quoteSkuId === quoteSkuId && c.tierId === tierId,
+    );
+    return c ? c.clientTargetPricePerUnit : null;
   };
 
 // Slice 9.4a — view-state. The currently-active tier on the Costing

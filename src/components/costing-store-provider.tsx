@@ -328,3 +328,19 @@ export function useCostingStore<T>(
   }
   return useStore(store, selector);
 }
+
+// Slice 9.4b — direct store access for snapshot reads (e.g., the
+// reverse-solve dialog snapshots full state once on open to compute
+// the cross-cell consequence preview without subscribing to every
+// slice that could affect the solve). Use sparingly — selectors via
+// `useCostingStore` are still the default; this is for one-shot
+// snapshot needs that don't warrant per-slice subscriptions.
+export function useCostingStoreApi(): CostingStore {
+  const store = useContext(StoreContext);
+  if (!store) {
+    throw new Error(
+      "useCostingStoreApi must be used inside <CostingStoreProvider>",
+    );
+  }
+  return store;
+}
