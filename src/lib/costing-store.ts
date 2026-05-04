@@ -11,6 +11,7 @@ import {
   type QuoteCostingInput,
   type QuoteCostingResult,
 } from "./costing";
+import { validateQuote, type WarningSpec } from "./validation";
 
 // ============================================================================
 // Slice 8 — Costing store (Zustand, per-quote instance)
@@ -127,6 +128,19 @@ export type CostingStoreState = {
 
   // Derived (always reflects current inputs)
   costing: QuoteCostingResult;
+  // Slice 9.5 — validation engine output, recomputed alongside costing
+  // on every input change. Pure-function engine; no DB write from here
+  // (server-side persistence happens on action commit per architect
+  // verdict — see warnings.ts reconcileWarnings). This in-store slice
+  // drives inline icon surfacing, summary chip count, and the
+  // Costing Sheet aggregation panel for IMMEDIATE feedback as PMs
+  // type, without server round-trip.
+  warnings: WarningSpec[];
+  // Slice 9.5 — server-persisted warning rows (active + accepted),
+  // refreshed on every snapshot via hydrate/reconcile. The UI merges
+  // by identity tuple onto the in-memory `warnings` specs to attach
+  // DB ids, enabling per-row Accept actions.
+  persistedWarnings: PersistedQuoteWarning[];
 
   // Bookkeeping
   hydrated: boolean; // false until first hydrate() call
@@ -218,6 +232,29 @@ export type HydrateSnapshot = {
   // exist in DB at hydration time).
   cellTargets: CostingCellTarget[];
   costing: QuoteCostingResult; // pre-computed on the server side
+  // Slice 9.5 — persisted warnings on this quote (active + accepted).
+  // Used to attach DB ids onto client-computed engine specs by
+  // identity tuple, enabling per-row Accept actions. Auto_resolved
+  // rows omitted (historical noise; surface separately if PM
+  // forensic mode is added).
+  persistedWarnings: PersistedQuoteWarning[];
+};
+
+// Minimal shape — fields the UI needs to render + actions need to
+// reference. Mirrors src/app/actions/warnings.ts QuoteWarning but
+// kept here to avoid action-layer import in the store.
+export type PersistedQuoteWarning = {
+  id: string;
+  quoteId: string;
+  scope: "line" | "quote";
+  tableName: string | null;
+  rowId: string | null;
+  fieldName: string | null;
+  tierId: string | null;
+  kind: string;
+  severity: "info" | "review" | "action_required";
+  status: "active" | "accepted";
+  acceptReasonKind: string | null;
 };
 
 // Field shapes for each action — these mirror the input rows but allow
@@ -271,12 +308,12 @@ export type CustomsFields = Partial<Pick<CostingSku, "dutyPct" | "tariffPct">>;
 // quote, investigate before making the rollup async or memoized.
 
 function recompute(
-  s: Omit<CostingStoreState, "costing" | "hydrated" | "lastReconcileAt"> & {
+  s: Omit<CostingStoreState, "costing" | "warnings" | "hydrated" | "lastReconcileAt"> & {
     [K in keyof CostingStoreState as K extends `update${string}` | "hydrate" | "reconcile"
       ? never
       : K]: CostingStoreState[K];
   },
-): QuoteCostingResult {
+): { costing: QuoteCostingResult; warnings: WarningSpec[] } {
   const input: QuoteCostingInput = {
     quote: {
       id: s.quoteId,
@@ -293,7 +330,34 @@ function recompute(
     cellOverrides: s.cellOverrides,
     cellTargets: s.cellTargets,
   };
-  return computeQuoteCosting(input);
+  const costing = computeQuoteCosting(input);
+  const warnings = validateQuote(input, costing);
+  return { costing, warnings };
+}
+
+// Slice 9.5 — compute warnings from a hydrate/reconcile snapshot.
+// Snapshots arrive with server-pre-computed `costing`; warnings are
+// computed client-side from the snapshot's inputs + costing. Keeps
+// the server-precompute optimization for costing while letting the
+// client populate the warnings slice without extending HydrateSnapshot.
+function warningsFromSnapshot(snapshot: HydrateSnapshot): WarningSpec[] {
+  const input: QuoteCostingInput = {
+    quote: {
+      id: snapshot.quoteId,
+      globalPriceAdjPct: snapshot.globalPriceAdjPct,
+      targetMarginPct: snapshot.targetMarginPct,
+    },
+    firmSettings: snapshot.firmSettings,
+    markupDefaults: snapshot.markupDefaults,
+    skus: snapshot.skus,
+    tiers: snapshot.tiers,
+    packaging: snapshot.packaging,
+    production: snapshot.production,
+    freight: snapshot.freight,
+    cellOverrides: snapshot.cellOverrides,
+    cellTargets: snapshot.cellTargets,
+  };
+  return validateQuote(input, snapshot.costing);
 }
 
 // ============================================================================
@@ -328,6 +392,8 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     // (server snapshots don't carry view-state).
     activeTierId: null,
     costing: initial.costing,
+    warnings: warningsFromSnapshot(initial),
+    persistedWarnings: initial.persistedWarnings,
     hydrated: true,
     lastReconcileAt: Date.now(),
     lastUserEditAt: 0,
@@ -348,6 +414,8 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         cellOverrides: snapshot.cellOverrides,
         cellTargets: snapshot.cellTargets,
         costing: snapshot.costing,
+        warnings: warningsFromSnapshot(snapshot),
+        persistedWarnings: snapshot.persistedWarnings,
         hydrated: true,
         lastReconcileAt: Date.now(),
         lastUserEditAt: 0,
@@ -375,6 +443,8 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         cellOverrides: snapshot.cellOverrides,
         cellTargets: snapshot.cellTargets,
         costing: snapshot.costing,
+        warnings: warningsFromSnapshot(snapshot),
+        persistedWarnings: snapshot.persistedWarnings,
         lastReconcileAt: Date.now(),
         lastUserEditAt: 0,
       }),
@@ -391,7 +461,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         );
         return {
           packaging,
-          costing: recompute({ ...s, packaging }),
+          ...recompute({ ...s, packaging }),
           lastUserEditAt: Date.now(),
         };
       }),
@@ -403,7 +473,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         );
         return {
           packaging,
-          costing: recompute({ ...s, packaging }),
+          ...recompute({ ...s, packaging }),
           lastUserEditAt: Date.now(),
         };
       }),
@@ -417,7 +487,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         );
         return {
           production,
-          costing: recompute({ ...s, production }),
+          ...recompute({ ...s, production }),
           lastUserEditAt: Date.now(),
         };
       }),
@@ -435,7 +505,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         );
         return {
           production,
-          costing: recompute({ ...s, production }),
+          ...recompute({ ...s, production }),
           lastUserEditAt: Date.now(),
         };
       }),
@@ -447,7 +517,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         );
         return {
           freight,
-          costing: recompute({ ...s, freight }),
+          ...recompute({ ...s, freight }),
           lastUserEditAt: Date.now(),
         };
       }),
@@ -459,7 +529,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         );
         return {
           freight,
-          costing: recompute({ ...s, freight }),
+          ...recompute({ ...s, freight }),
           lastUserEditAt: Date.now(),
         };
       }),
@@ -471,7 +541,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         );
         return {
           skus,
-          costing: recompute({ ...s, skus }),
+          ...recompute({ ...s, skus }),
           lastUserEditAt: Date.now(),
         };
       }),
@@ -479,7 +549,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     updateGlobalAdj: (value) =>
       set((s) => ({
         globalPriceAdjPct: value,
-        costing: recompute({ ...s, globalPriceAdjPct: value }),
+        ...recompute({ ...s, globalPriceAdjPct: value }),
         lastUserEditAt: Date.now(),
       })),
 
@@ -493,7 +563,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         );
         return {
           tiers,
-          costing: recompute({ ...s, tiers }),
+          ...recompute({ ...s, tiers }),
           lastUserEditAt: Date.now(),
         };
       }),
@@ -504,7 +574,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     updateTargetMargin: (value) =>
       set((s) => ({
         targetMarginPct: value,
-        costing: recompute({ ...s, targetMarginPct: value }),
+        ...recompute({ ...s, targetMarginPct: value }),
         lastUserEditAt: Date.now(),
       })),
 
@@ -526,7 +596,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
             : [...filtered, { quoteSkuId, tierId, sellPriceOverride: value }];
         return {
           cellOverrides,
-          costing: recompute({ ...s, cellOverrides }),
+          ...recompute({ ...s, cellOverrides }),
           lastUserEditAt: Date.now(),
         };
       }),
@@ -550,7 +620,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
               ];
         return {
           cellTargets,
-          costing: recompute({ ...s, cellTargets }),
+          ...recompute({ ...s, cellTargets }),
           lastUserEditAt: Date.now(),
         };
       }),
@@ -737,3 +807,142 @@ export const selectActiveTierRollup = (s: CostingStoreState) => {
   if (s.activeTierId === null) return null;
   return s.costing.quoteRollup.find((q) => q.tierId === s.activeTierId) ?? null;
 };
+
+// ============================================================================
+// Slice 9.5 — validation warning selectors
+// ============================================================================
+//
+// Engine output is recomputed alongside costing on every input change.
+// Selectors below provide granular subscription patterns so individual
+// components don't re-render on warnings unrelated to them.
+//
+// Note on identity tuples (per architect option 2b-A): row_id is TEXT.
+// Genuine row warnings store UUID-as-text. Cross-row pattern warnings
+// synthesize keys like "sku:<id>:col:setup_fee_total". Cell-lookup
+// selectors below match on the synthesized-or-uuid row_id; callers that
+// need to render an inline icon next to a specific input cell pass
+// the row's UUID-as-text.
+
+// All active warnings on this quote (client-side computed, not yet
+// persisted — server-side persistence happens on action commit).
+// Most consumers want the count or a filtered slice; subscribe via
+// the more granular selectors below to avoid re-rendering on
+// unrelated warning changes.
+export const selectWarnings = (s: CostingStoreState) => s.warnings;
+
+// Count of active warnings. Curried so summary chip + inline counters
+// can subscribe without pulling the full array (though Zustand's
+// shallow-equal still triggers when the array reference changes).
+// Most consumers should prefer this over selectWarnings.length to
+// keep the subscription dependency explicit.
+export const selectWarningCount = (s: CostingStoreState) => s.warnings.length;
+
+// Counts grouped by severity. Drives the per-page chip's color
+// (highest-severity wins for chip register; mixed-severity uses
+// highest-severity color per Designer extension memo CR-11).
+export const selectWarningCountsBySeverity = (s: CostingStoreState) => {
+  let info = 0;
+  let review = 0;
+  let action_required = 0;
+  for (const w of s.warnings) {
+    if (w.severity === "info") info += 1;
+    else if (w.severity === "review") review += 1;
+    else if (w.severity === "action_required") action_required += 1;
+  }
+  return { info, review, action_required, total: s.warnings.length };
+};
+
+// Highest severity present among active warnings, or null when zero.
+// Used by the per-page chip + Costing Sheet aggregation panel to pick
+// the chip color register (info → muted, review → warn, action_required → bad).
+export const selectHighestSeverity = (
+  s: CostingStoreState,
+): "info" | "review" | "action_required" | null => {
+  let highest: "info" | "review" | null = null;
+  for (const w of s.warnings) {
+    if (w.severity === "action_required") return "action_required";
+    if (w.severity === "review") {
+      highest = "review";
+    } else if (w.severity === "info" && highest === null) {
+      highest = "info";
+    }
+  }
+  return highest;
+};
+
+// Curried selector: warnings matching a specific (table_name, row_id)
+// pair, used by inline warning icons. row_id can be a UUID-as-text
+// (genuine row warning) or a synthesized composite key (cross-row
+// pattern warning). The matcher is exact; identity-tuple stability
+// is preserved by the engine across consecutive runs.
+export const selectWarningsForRow =
+  (tableName: string, rowId: string) => (s: CostingStoreState) =>
+    s.warnings.filter(
+      (w) => w.table_name === tableName && w.row_id === rowId,
+    );
+
+// Curried selector: warnings matching a specific (table_name,
+// row_id, tier_id) triple. Stricter than selectWarningsForRow —
+// used when the inline icon is per-(cell, tier) rather than per-row.
+// tier_id null on the warning matches any tier_id query (cross-tier
+// warnings like service_fee_tier_variance attach to the SKU/column
+// pair, not a specific tier).
+export const selectWarningsForCell =
+  (tableName: string, rowId: string, tierId: string | null) =>
+  (s: CostingStoreState) =>
+    s.warnings.filter(
+      (w) =>
+        w.table_name === tableName &&
+        w.row_id === rowId &&
+        (w.tier_id === null || w.tier_id === tierId),
+    );
+
+// Curried selector: warnings filtered by table_name (e.g., all
+// packaging-page warnings). Drives per-page summary chips.
+export const selectWarningsForTable =
+  (tableName: string) => (s: CostingStoreState) =>
+    s.warnings.filter((w) => w.table_name === tableName);
+
+// Slice 9.5 — server-persisted warnings (active + accepted) snapshot.
+// The UI merges by identity tuple onto in-memory engine specs to
+// attach DB ids for per-row Accept. Refreshed on every snapshot via
+// hydrate/reconcile.
+export const selectPersistedWarnings = (s: CostingStoreState) =>
+  s.persistedWarnings;
+
+// Helper: build a Map keyed by identity tuple from the persisted
+// warnings list (active rows only). UI components use this to look
+// up the DB id for a given engine spec (so Accept can fire).
+// Memoization is the caller's responsibility — typically map is
+// built once per render via useMemo.
+export function buildPersistedWarningIndex(
+  persisted: PersistedQuoteWarning[],
+): Map<string, PersistedQuoteWarning> {
+  const map = new Map<string, PersistedQuoteWarning>();
+  for (const w of persisted) {
+    if (w.status !== "active") continue;
+    const key = `${w.tableName ?? ""}::${w.rowId ?? ""}::${w.fieldName ?? ""}::${w.tierId ?? ""}::${w.kind}`;
+    map.set(key, w);
+  }
+  return map;
+}
+
+// Slice 9.5 — accepted-tuple Set. Per architect option (iii),
+// accepted warnings stay suppressed even when the engine continues
+// to fire on the same data. UI filters engine specs against this
+// Set to hide accepted "ghost" warnings from the chip + panel.
+export function buildAcceptedWarningKeySet(
+  persisted: PersistedQuoteWarning[],
+): Set<string> {
+  const set = new Set<string>();
+  for (const w of persisted) {
+    if (w.status !== "accepted") continue;
+    const key = `${w.tableName ?? ""}::${w.rowId ?? ""}::${w.fieldName ?? ""}::${w.tierId ?? ""}::${w.kind}`;
+    set.add(key);
+  }
+  return set;
+}
+
+export function persistedWarningKey(spec: WarningSpec): string {
+  return `${spec.table_name ?? ""}::${spec.row_id ?? ""}::${spec.field_name ?? ""}::${spec.tier_id ?? ""}::${spec.kind}`;
+}

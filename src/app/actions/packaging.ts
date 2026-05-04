@@ -23,6 +23,7 @@ import {
   quoteForSku,
   requireDraft,
 } from "@/lib/quote-guards";
+import { reconcileWarnings } from "./warnings";
 
 // Canonical line-level snapshot returned to the client after any line-level
 // update. The client uses this to hydrate its controlled state — never
@@ -541,12 +542,24 @@ export async function updatePackagingTierCell(
     })
     .where(eq(packagingInputs.id, rowId));
 
+  // Slice 9.5 — reconcile validation warnings on action commit.
+  // Pure-function engine re-runs against fresh costing state; new
+  // specs INSERT, missing-from-engine specs auto_resolve, accepted
+  // rows stay sticky (option iii). Cascade summary folds into the
+  // audit row's diff_json (architect verdict on Q-F mutation volume:
+  // server-side persistence is action-commit-only, not per
+  // keystroke; client-side optimistic display is separate).
+  const cascade = await reconcileWarnings({ quoteId: quote.id });
+
   await logAudit({
     userId: user.id,
     entityType: "packaging_input",
     entityId: rowId,
     action: "updated",
-    diffJson: diff,
+    diffJson:
+      cascade.inserted + cascade.resolved + cascade.evaluated > 0
+        ? { ...diff, cascaded_warnings: cascade }
+        : diff,
   });
 
   revalidateQuoteTree(quote.projectId, quote.id);

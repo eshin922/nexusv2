@@ -225,13 +225,50 @@ Most action affordances live in page-level surfaces (header strips on Setup / Co
 
 ---
 
+### CR-11. Validation warning UI register (Slice 9.5)
+
+**The inconsistency:** Slice 9.5 ships three new UI surfaces — inline warning icon, per-page summary panel, Costing Sheet aggregation panel — that CD didn't explicitly design. Without explicit reconciliation, these could drift into a new chip register or accidentally conflict with the `--internal` boundary-guard reservation.
+
+**Disposition: WARNINGS USE CD'S VERDICT-RAMP CHIP REGISTER (`--good` / `--warn` / `--bad`). NOT `--internal`. NOT a new register.**
+
+**Specifics (per Designer extension memo, Slice 9.5):**
+
+- **Severity color tokens** — `info` = `--ink-3` (muted gray, ambient FYI), `review` = `--warn` (amber), `action_required` = `--bad` (red). Maps to Round 2 `chip` / `chip warn` / `chip bad` already canonical at `dist/source/round-2/app/r2/styles.css:255-273`. Pre-RI Tailwind placeholders (`text-slate-500` / `text-amber-600` / `text-red-600`); reskin to canonical tokens during RI.0.
+- **Inline icon shape** — 10px geometric SVG, single-color via `currentColor`. Fill-vs-outline split mirrors Slice 9.4b convention: outlined info circle for `info` (advisory), outlined warning triangle for `review` (matches `CompetitiveIndicator` outlined posture), filled exclamation circle for `action_required` (matches `MarginVerdictPill` BELOW_FLOOR filled posture).
+- **Anchor** — inline-end of input cell, ~6px gap from right edge.
+- **Fresh-dot precedence** — when warning fires on a cell that's also marked fresh (Round 2 `fresh-dot` affordance), warning icon takes precedence; fresh-dot is suppressed. Resolution always supersedes ambience.
+- **Per-page summary chip** — `[icon] N warnings ▾`, highest severity wins for chip color, hidden when zero.
+- **Costing Sheet aggregation panel** — replaces the existing "0 lines need review" card. Severity emphasis: when any `action_required` present, chip uses `border: 2px solid var(--bad)` matching Round 2's BELOW_FLOOR verdict treatment (this is the visual cue PMs see for "Mark-Accepted will gate"). Standard 1px treatment when only review/info present.
+- **Accept-all behavior** — single bulk reason for v1 (per-warning multi-row picker is wrong for v1 weight); confirmation dialog gates when ≥1 `action_required` present.
+- **Accept popover microcopy** — "Accepting suppresses this warning. It returns if you change the underlying value." (drops the manual-reactivate reference since that path is UX_BACKLOG, not v1).
+
+**`--internal` reservation — DO NOT cross with this register.**
+
+`--internal` (the D+T purple in the cost stack, hatched extension on customer-invisible markup) is reserved for the **boundary-guard signal**: "this never goes to the customer." Surfaces using `--internal`:
+- Cost stack D+T row (`<PdfPage>` boundary-excluded)
+- Customs panels on freight (CBM / duty / tariff)
+- Any "Internal — not shown to customer" badge
+
+Validation warnings are PM-internal **by virtue of where they live** (cost-build / costing-sheet pages, never the PDF render tree per Round 3 boundary-guard build invariant). They don't need the `--internal` color register; they earn the verdict-ramp register because they answer "is this priced/configured right" not "is this visible to the customer." Future surfaces extending verdict-style affordances (validation warnings, Slice 12 Mark-Accepted gate states, Slice 9.5+ compliance signals) follow the verdict-ramp register; future surfaces extending boundary-guard affordances (PM-internal cost composition, supplier names, customs internals) follow `--internal`.
+
+**Cross-round coherence verified.** Round 1 chip register, Round 2 chip register, Round 6 section-row chip register all share the verdict-ramp tokens; warnings inherit that vocabulary across all surfaces this slice ships and surfaces RI.4 will rebuild.
+
+**Implications for CC:**
+- Pre-RI: Tailwind utilities mapped per Designer memo (severity tokens table)
+- Post-RI.0: mechanical reskin — find `text-slate-500` / `text-amber-600` / `text-red-600` → replace with `--ink-3` / `--warn` / `--bad`
+- Future verdict surfaces (e.g., Slice 12 Mark-Accepted blocking states) inherit the same chip register
+
+**Decided by:** Designer agent + CA + Edward, May 2026, Slice 9.5 design extension review. Reference: `docs/designer-agent-prompt.md` Pattern 2 invocation; full memo retained in conversation history (Slice 9.5 PR 2 turn).
+
+---
+
 ## Anticipated future inconsistencies
 
 These haven't surfaced yet but are likely to during build. Pre-flagged so Designer + CC know they're coming:
 
 ### Future-CR-A. Validation warning UI (Slice 9.5) overlap with Round 6 Cost Build
 
-When Slice 9.5 ships the validation engine + `quote_warnings` table, the inline warning UI (per UX_BACKLOG entry from Round 1-2) will need to live somewhere visually on Cost Build. Round 6's section-with-drill-down design didn't account for inline warnings. Designer will produce a small targeted design extension when Slice 9.5 surfaces the question.
+**RESOLVED → CR-11.** Slice 9.5 design extension memo (Designer, May 2026) closed this entry. Disposition: warnings use verdict-ramp chip register, not `--internal`; integration into Round 6's section-row chip slot is clean (no register collision). Kept here for trail; see CR-11 for canonical disposition.
 
 ### Future-CR-B. Customer view (Round 3) vs PDF (Slice 11) layout
 
@@ -265,6 +302,7 @@ Round 4 designed the inbox section of the deal organizer but the slice brief def
 | 2026-05 | CR-6 | CA + Edward | **Provisional** | Most-recent-round wins per surface for status chip vocabulary. Specific instances tracked as they surface. |
 | 2026-05 | CR-8 | CA + Edward | **Provisional** | Tier picker context-dependent across surfaces. CC follows per-surface canonical round. |
 | 2026-05 | CR-10 | CA + Edward | **Provisional** | Topbar minimal; page-specific actions live in page headers. Edward to revalidate when RI.3 + RI.4 ship. |
+| 2026-05 | CR-11 | Designer + CA + Edward | **Decided** | Validation warning UI uses verdict-ramp chip register (`--good` / `--warn` / `--bad`); NOT `--internal` (reserved for boundary-guard). Closes Future-CR-A. |
 
 **Provisional vs decided.** Provisional dispositions are the working assumption CC implements against. They're not final until Edward walks the rendered page during smoke and confirms (or refines). Cost of revisiting a provisional disposition is small — typically a small visual change, not architectural rework.
 

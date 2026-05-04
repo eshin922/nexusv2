@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
   auditLog,
@@ -14,6 +14,7 @@ import {
   quoteSkuTiers,
   quoteSkuTierTargets,
   quoteTiers,
+  quoteWarnings,
 } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
@@ -1446,6 +1447,34 @@ export async function getCostingBundle(
 
     const result = computeQuoteCosting(input);
 
+    // Slice 9.5 — load persisted warnings (active + accepted) into
+    // the snapshot so the client store can attach DB ids onto
+    // engine-computed specs by identity tuple, enabling per-row
+    // Accept actions. Auto_resolved rows omitted (historical noise).
+    const persistedWarningRows = await db
+      .select()
+      .from(quoteWarnings)
+      .where(
+        and(
+          eq(quoteWarnings.quoteId, quoteId),
+          inArray(quoteWarnings.status, ["active", "accepted"]),
+        ),
+      );
+
+    const persistedWarnings = persistedWarningRows.map((w) => ({
+      id: w.id,
+      quoteId: w.quoteId,
+      scope: w.scope as "line" | "quote",
+      tableName: w.tableName,
+      rowId: w.rowId,
+      fieldName: w.fieldName,
+      tierId: w.tierId,
+      kind: w.kind,
+      severity: w.severity as "info" | "review" | "action_required",
+      status: w.status as "active" | "accepted",
+      acceptReasonKind: w.acceptReasonKind,
+    }));
+
     const snapshot: HydrateSnapshot = {
       quoteId: quote.id,
       projectId: quote.projectId,
@@ -1461,6 +1490,7 @@ export async function getCostingBundle(
       cellOverrides: cellOverrideList,
       cellTargets: cellTargetList,
       costing: result,
+      persistedWarnings,
     };
 
     return snapshot;

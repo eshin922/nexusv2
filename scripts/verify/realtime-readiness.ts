@@ -38,6 +38,11 @@ const TABLES = [
   "quotes",
   "firm_settings",
   "markup_defaults",
+  // Slice 9.5 — quote_warnings extends the realtime rope so warning
+  // lifecycle changes (accepted by one PM, auto_resolved by another's
+  // input change) propagate cross-PM via the same coalesce + reconcile
+  // pipe. RLS-off matching the others.
+  "quote_warnings",
 ] as const;
 
 // --- 1. Replication membership in supabase_realtime publication ---

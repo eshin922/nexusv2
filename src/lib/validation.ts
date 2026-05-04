@@ -244,12 +244,22 @@ function checkLineLevelCompleteness(
   const warnings: WarningSpec[] = [];
 
   for (const sku of leafSkus(input)) {
-    // Rule: tier coverage mismatch on packaging. If packaging exists
-    // for some tiers but not all on this SKU, flag each missing tier.
-    // Severity: review. Suggested fix: copy from an existing tier.
+    // Rule: tier coverage mismatch on packaging. If packaging cost is
+    // entered for some tiers but not all on this SKU, flag each
+    // missing tier. Severity: review. Suggested fix: copy from an
+    // existing tier.
+    //
+    // Checks VALUE-presence (unit_cost !== null), not row-presence —
+    // packaging_inputs rows are auto-seeded at tier-add time per
+    // Slice 4 cascade pattern, so row-presence is a degenerate signal
+    // (every SKU has a row for every tier even when PM hasn't entered
+    // anything). The meaningful question is whether PM has typed cost
+    // values into each tier.
     const skuPkg = input.packaging.filter((p) => p.quoteSkuId === sku.id);
-    const presentPkgTiers = new Set(skuPkg.map((p) => p.tierId));
-    if (skuPkg.length > 0 && presentPkgTiers.size < input.tiers.length) {
+    const presentPkgTiers = new Set(
+      skuPkg.filter((p) => p.unitCost !== null).map((p) => p.tierId),
+    );
+    if (presentPkgTiers.size > 0 && presentPkgTiers.size < input.tiers.length) {
       const sourceTier = input.tiers.find((t) => presentPkgTiers.has(t.id))!;
       for (const t of input.tiers.filter((tt) => !presentPkgTiers.has(tt.id))) {
         warnings.push({
@@ -292,7 +302,12 @@ function checkLineLevelCompleteness(
         p.otherServiceTotal,
       ].some((v) => v !== null),
     );
-    if (skuHasProduction && skuPkg.length === 0) {
+    // production_without_packaging: SKU has production cost data but
+    // no packaging cost on any tier. Same row-vs-value distinction
+    // as tier_coverage_mismatch — check unit_cost values, not row
+    // count.
+    const skuHasPackagingValues = skuPkg.some((p) => p.unitCost !== null);
+    if (skuHasProduction && !skuHasPackagingValues) {
       warnings.push({
         scope: "line",
         table_name: "packaging_inputs",
@@ -308,8 +323,10 @@ function checkLineLevelCompleteness(
 
     // Rule: SKU has retail benchmark but no contribution cost.
     // Probably an in-progress quote (PM imported retail target before
-    // cost data). Info-level — ambient nudge.
-    if (sku.retailBenchmark && skuPkg.length === 0 && !skuHasProduction) {
+    // cost data). Info-level — ambient nudge. Same value-vs-row
+    // distinction: check whether PM has typed any cost data, not
+    // whether rows exist.
+    if (sku.retailBenchmark && !skuHasPackagingValues && !skuHasProduction) {
       warnings.push({
         scope: "line",
         table_name: "quote_skus",
