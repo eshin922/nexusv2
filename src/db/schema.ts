@@ -244,6 +244,30 @@ export const quoteTiers = pgTable(
     // and isn't a price-adjustment-hierarchy participant. Sister table
     // preserves Slice 9.3's column-level NOT NULL invariant ("row exists
     // ⟹ value is set") and avoids cross-column cleanup logic in actions.)
+    //
+    // Slice 9.4c — quote-level client target. PM-stated total dollar
+    // figure for this tier ("client wants $150,000 for the program
+    // at 50k units"). Distinct from per-cell `client_target_price_per_unit`
+    // on `quote_sku_tier_targets`:
+    //   - Per-cell target: PMs state per-unit prices ("$5 landed each
+    //     for SKU-X at 25k") — `quote_sku_tier_targets.client_target_price_per_unit`
+    //   - Quote-level target: PMs state program totals ("$150k for the
+    //     full quote at 25k units") — THIS COLUMN
+    // The asymmetry (per-unit vs total) is the customer-stated reality,
+    // not a math convenience. Reconciliation between the two surfaces
+    // converts via tier qty: `cell.target_per_unit × tier.qty` summed
+    // across SKUs ≈ tier.client_target_price_total. The TOTAL is the
+    // source of truth here (PM-stated dollar figure); cell sums are
+    // derived for the reconciliation rule (Slice 9.5 validation engine).
+    // NULL = no quote-level target on this tier (NULL-as-empty-signal).
+    // Direct column placement (vs sister table) — per-tier granularity
+    // matches `tierPriceAdjPct` precedent above; sister-table justification
+    // for per-cell (column count + lifecycle independence) doesn't apply.
+    // Wired up in Slice 9.4c.
+    clientTargetPriceTotal: numeric("client_target_price_total", {
+      precision: 12,
+      scale: 4,
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

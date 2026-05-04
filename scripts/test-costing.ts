@@ -851,6 +851,259 @@ console.log(
 );
 if (Math.abs(sellAfterApply - targetRT) > 1e-9) failures += 1;
 
+// ---- Slice 9.4c: quote-level competitive verdict + sum reconciliation ----
+//
+// New math: per-tier quote-level verdict + reconciliation between the
+// per-tier total target ($150k for the program) and the sum of per-cell
+// targets at that tier (cell.target_per_unit × tier.qty summed across
+// leaves). Per architect Q1 (gated-on-completeness) + Q3-A (sum-what's-set):
+//   - sum is computed across whatever cells are SET (Option A; unset
+//     leaves contribute zero per NULL-as-empty-signal)
+//   - reconciliation rule fires only when ALL leaves at the tier have
+//     cell targets — partial completeness yields 'not_applicable'
+// ε = $1.00 fixed for v1 (UX_BACKLOG entry queued for tolerance scaling
+// at quote-size extremes).
+
+// Fixture builder: 2 leaf SKUs, 1 tier (qty 100). Per-cell math
+// kept simple: $1 unit cost + 0% markup → required_sell = $1/u.
+// Total revenue = 2 SKUs × $1/u × 100 qty = $200.
+function makeQuoteLevelFixture(args: {
+  quoteTierTargets?: Array<{ tierId: string; clientTargetPriceTotal: number }>;
+  cellTargets?: Array<{
+    quoteSkuId: string;
+    tierId: string;
+    clientTargetPricePerUnit: number;
+  }>;
+}): QuoteCostingInput {
+  return {
+    quote: { id: "q9.4c", globalPriceAdjPct: 0, targetMarginPct: null },
+    firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
+    markupDefaults: { Manufacturing: 0, Other: 0 },
+    skus: [
+      { id: "s1", parentSkuId: null, qtyPerParent: null, skuRole: "leaf",
+        skuLabel: "S1", productName: "S1", sortOrder: 0,
+        dutyPct: null, tariffPct: null, retailBenchmark: null },
+      { id: "s2", parentSkuId: null, qtyPerParent: null, skuRole: "leaf",
+        skuLabel: "S2", productName: "S2", sortOrder: 1,
+        dutyPct: null, tariffPct: null, retailBenchmark: null },
+    ],
+    tiers: [{ id: "t1", label: "T1", qty: 100, sortOrder: 0, tierPriceAdjPct: null }],
+    packaging: [
+      { quoteSkuId: "s1", tierId: "t1", lineGroupId: "g1",
+        unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0 },
+      { quoteSkuId: "s2", tierId: "t1", lineGroupId: "g2",
+        unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0 },
+    ],
+    production: [], freight: [],
+    cellOverrides: [],
+    cellTargets: args.cellTargets ?? [],
+    quoteTierTargets: args.quoteTierTargets ?? [],
+  };
+}
+
+console.log("\n=== Slice 9.4c: quote-level competitive verdict ===");
+
+// COMPETITIVE: target $250 ≥ revenue $200 + ε
+{
+  const out = computeQuoteCosting(makeQuoteLevelFixture({
+    quoteTierTargets: [{ tierId: "t1", clientTargetPriceTotal: 250 }],
+  }));
+  const tier = out.quoteRollup[0];
+  console.log(
+    `  ${tier.competitiveStatusQuoteLevel === "COMPETITIVE" ? "PASS" : "FAIL"}  target $250 ≥ revenue $200 → COMPETITIVE: ${tier.competitiveStatusQuoteLevel}`,
+  );
+  if (tier.competitiveStatusQuoteLevel !== "COMPETITIVE") failures += 1;
+  console.log(
+    `  ${tier.clientTargetPriceTotal === 250 ? "PASS" : "FAIL"}  clientTargetPriceTotal surfaced on rollup: ${tier.clientTargetPriceTotal}`,
+  );
+  if (tier.clientTargetPriceTotal !== 250) failures += 1;
+}
+
+// COMPETITIVE: target equal to revenue (within ε)
+{
+  const out = computeQuoteCosting(makeQuoteLevelFixture({
+    quoteTierTargets: [{ tierId: "t1", clientTargetPriceTotal: 200 }],
+  }));
+  const tier = out.quoteRollup[0];
+  console.log(
+    `  ${tier.competitiveStatusQuoteLevel === "COMPETITIVE" ? "PASS" : "FAIL"}  target == revenue (equality counts as COMPETITIVE): ${tier.competitiveStatusQuoteLevel}`,
+  );
+  if (tier.competitiveStatusQuoteLevel !== "COMPETITIVE") failures += 1;
+}
+
+// OVER_CLIENT_TARGET: target $150 < revenue $200
+{
+  const out = computeQuoteCosting(makeQuoteLevelFixture({
+    quoteTierTargets: [{ tierId: "t1", clientTargetPriceTotal: 150 }],
+  }));
+  const tier = out.quoteRollup[0];
+  console.log(
+    `  ${tier.competitiveStatusQuoteLevel === "OVER_CLIENT_TARGET" ? "PASS" : "FAIL"}  target $150 < revenue $200 → OVER_CLIENT_TARGET: ${tier.competitiveStatusQuoteLevel}`,
+  );
+  if (tier.competitiveStatusQuoteLevel !== "OVER_CLIENT_TARGET") failures += 1;
+}
+
+// null when no quote-level target set (NULL-as-empty-signal)
+{
+  const out = computeQuoteCosting(makeQuoteLevelFixture({}));
+  const tier = out.quoteRollup[0];
+  console.log(
+    `  ${tier.competitiveStatusQuoteLevel === null ? "PASS" : "FAIL"}  no target → competitiveStatusQuoteLevel null: ${tier.competitiveStatusQuoteLevel}`,
+  );
+  if (tier.competitiveStatusQuoteLevel !== null) failures += 1;
+  console.log(
+    `  ${tier.clientTargetPriceTotal === null ? "PASS" : "FAIL"}  clientTargetPriceTotal null when unset: ${tier.clientTargetPriceTotal}`,
+  );
+  if (tier.clientTargetPriceTotal !== null) failures += 1;
+}
+
+console.log("\n=== Slice 9.4c: sum-of-cells reconciliation ===");
+
+// matches: cell × qty × N = quote-level target. s1=$1.00, s2=$1.00
+// → sum = (1 + 1) × 100 = $200; quote-level target $200; |200-200|=0 ≤ ε
+{
+  const out = computeQuoteCosting(makeQuoteLevelFixture({
+    quoteTierTargets: [{ tierId: "t1", clientTargetPriceTotal: 200 }],
+    cellTargets: [
+      { quoteSkuId: "s1", tierId: "t1", clientTargetPricePerUnit: 1.00 },
+      { quoteSkuId: "s2", tierId: "t1", clientTargetPricePerUnit: 1.00 },
+    ],
+  }));
+  const tier = out.quoteRollup[0];
+  console.log(
+    `  ${tier.targetReconciliationStatus === "matches" ? "PASS" : "FAIL"}  sum=200 = target=200 → matches: ${tier.targetReconciliationStatus}`,
+  );
+  if (tier.targetReconciliationStatus !== "matches") failures += 1;
+  console.log(
+    `  ${tier.sumOfCellTargetsAtTier === 200 ? "PASS" : "FAIL"}  sumOfCellTargetsAtTier=200: ${tier.sumOfCellTargetsAtTier}`,
+  );
+  if (tier.sumOfCellTargetsAtTier !== 200) failures += 1;
+}
+
+// mismatched_high: sum $300 > target $200
+{
+  const out = computeQuoteCosting(makeQuoteLevelFixture({
+    quoteTierTargets: [{ tierId: "t1", clientTargetPriceTotal: 200 }],
+    cellTargets: [
+      { quoteSkuId: "s1", tierId: "t1", clientTargetPricePerUnit: 1.50 },
+      { quoteSkuId: "s2", tierId: "t1", clientTargetPricePerUnit: 1.50 },
+    ],
+  }));
+  const tier = out.quoteRollup[0];
+  console.log(
+    `  ${tier.targetReconciliationStatus === "mismatched_high" ? "PASS" : "FAIL"}  sum=300 > target=200 → mismatched_high: ${tier.targetReconciliationStatus}`,
+  );
+  if (tier.targetReconciliationStatus !== "mismatched_high") failures += 1;
+}
+
+// mismatched_low: sum $150 < target $200
+{
+  const out = computeQuoteCosting(makeQuoteLevelFixture({
+    quoteTierTargets: [{ tierId: "t1", clientTargetPriceTotal: 200 }],
+    cellTargets: [
+      { quoteSkuId: "s1", tierId: "t1", clientTargetPricePerUnit: 0.75 },
+      { quoteSkuId: "s2", tierId: "t1", clientTargetPricePerUnit: 0.75 },
+    ],
+  }));
+  const tier = out.quoteRollup[0];
+  console.log(
+    `  ${tier.targetReconciliationStatus === "mismatched_low" ? "PASS" : "FAIL"}  sum=150 < target=200 → mismatched_low: ${tier.targetReconciliationStatus}`,
+  );
+  if (tier.targetReconciliationStatus !== "mismatched_low") failures += 1;
+}
+
+// matches within ε: sum $200.50 vs target $200 → diff=0.50, ε=1.00 → matches
+{
+  const out = computeQuoteCosting(makeQuoteLevelFixture({
+    quoteTierTargets: [{ tierId: "t1", clientTargetPriceTotal: 200 }],
+    cellTargets: [
+      { quoteSkuId: "s1", tierId: "t1", clientTargetPricePerUnit: 1.0025 },
+      { quoteSkuId: "s2", tierId: "t1", clientTargetPricePerUnit: 1.0025 },
+    ],
+  }));
+  const tier = out.quoteRollup[0];
+  console.log(
+    `  ${tier.targetReconciliationStatus === "matches" ? "PASS" : "FAIL"}  sum=200.50 within ε=$1 → matches: ${tier.targetReconciliationStatus}`,
+  );
+  if (tier.targetReconciliationStatus !== "matches") failures += 1;
+}
+
+// not_applicable: no quote-level target
+{
+  const out = computeQuoteCosting(makeQuoteLevelFixture({
+    cellTargets: [
+      { quoteSkuId: "s1", tierId: "t1", clientTargetPricePerUnit: 1.00 },
+      { quoteSkuId: "s2", tierId: "t1", clientTargetPricePerUnit: 1.00 },
+    ],
+  }));
+  const tier = out.quoteRollup[0];
+  console.log(
+    `  ${tier.targetReconciliationStatus === "not_applicable" ? "PASS" : "FAIL"}  cells set + no quote target → not_applicable: ${tier.targetReconciliationStatus}`,
+  );
+  if (tier.targetReconciliationStatus !== "not_applicable") failures += 1;
+}
+
+// not_applicable: no cell targets
+{
+  const out = computeQuoteCosting(makeQuoteLevelFixture({
+    quoteTierTargets: [{ tierId: "t1", clientTargetPriceTotal: 200 }],
+  }));
+  const tier = out.quoteRollup[0];
+  console.log(
+    `  ${tier.targetReconciliationStatus === "not_applicable" ? "PASS" : "FAIL"}  quote target + no cells → not_applicable: ${tier.targetReconciliationStatus}`,
+  );
+  if (tier.targetReconciliationStatus !== "not_applicable") failures += 1;
+  console.log(
+    `  ${tier.sumOfCellTargetsAtTier === 0 ? "PASS" : "FAIL"}  sumOfCellTargetsAtTier=0 when no cells set: ${tier.sumOfCellTargetsAtTier}`,
+  );
+  if (tier.sumOfCellTargetsAtTier !== 0) failures += 1;
+}
+
+// not_applicable: PARTIAL completeness (gate fails — only 1 of 2 leaves
+// has cell target set). Architect Q1 verdict: rule fires only on
+// FULL completeness; partial returns 'not_applicable'.
+{
+  const out = computeQuoteCosting(makeQuoteLevelFixture({
+    quoteTierTargets: [{ tierId: "t1", clientTargetPriceTotal: 200 }],
+    cellTargets: [
+      { quoteSkuId: "s1", tierId: "t1", clientTargetPricePerUnit: 1.00 },
+      // s2 missing target — gate fails
+    ],
+  }));
+  const tier = out.quoteRollup[0];
+  console.log(
+    `  ${tier.targetReconciliationStatus === "not_applicable" ? "PASS" : "FAIL"}  partial completeness (1 of 2 cells set) → not_applicable: ${tier.targetReconciliationStatus}`,
+  );
+  if (tier.targetReconciliationStatus !== "not_applicable") failures += 1;
+  // BUT sumOfCellTargetsAtTier still reports the partial sum
+  // (Option A: sum-what's-set). Useful for future "sum so far"
+  // coaching surface (UX_BACKLOG queued).
+  console.log(
+    `  ${tier.sumOfCellTargetsAtTier === 100 ? "PASS" : "FAIL"}  partial sum surfaced (Option A): ${tier.sumOfCellTargetsAtTier} (expected 100 = 1 × 100)`,
+  );
+  if (tier.sumOfCellTargetsAtTier !== 100) failures += 1;
+}
+
+// Empty-quote edge: zero leaves at tier — rule shouldn't fire
+// (architect's leaf-count guard against `every() === true` on empty).
+{
+  const out = computeQuoteCosting({
+    quote: { id: "qe", globalPriceAdjPct: 0, targetMarginPct: null },
+    firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
+    markupDefaults: {},
+    skus: [],
+    tiers: [{ id: "t1", label: "T1", qty: 100, sortOrder: 0, tierPriceAdjPct: null }],
+    packaging: [], production: [], freight: [],
+    cellOverrides: [], cellTargets: [],
+    quoteTierTargets: [{ tierId: "t1", clientTargetPriceTotal: 200 }],
+  });
+  const tier = out.quoteRollup[0];
+  console.log(
+    `  ${tier.targetReconciliationStatus === "not_applicable" ? "PASS" : "FAIL"}  zero leaves + quote target → not_applicable (no false-positive on empty quote): ${tier.targetReconciliationStatus}`,
+  );
+  if (tier.targetReconciliationStatus !== "not_applicable") failures += 1;
+}
+
 console.log(
   `\n${failures === 0 ? "✓ ALL ASSERTIONS PASS" : `✗ ${failures} ASSERTION(S) FAILED`}`,
 );
