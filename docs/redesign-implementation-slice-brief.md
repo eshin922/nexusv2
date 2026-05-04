@@ -170,9 +170,11 @@ The following must ship before redesign-implementation begins:
 
 ### Schema migrations required for this slice
 
-Migrations 17-22 land before or as part of redesign-implementation. Order matters because some have FK dependencies. CC sequences within the slice; here is the dependency graph:
+Seven migrations land before or as part of redesign-implementation. Order matters because some have FK dependencies. CC sequences within the slice; here is the dependency graph.
 
-**Migration 17 — workspace state tables** (Round 4 commitments)
+**Note on numbering.** The migration numbers below (17 through 23) are illustrative based on what was shipped when this brief was written. Migration numbers are sequential by ship order, not reserved by slice plan. Slice 9.5 will take 0017 (the next available number after 0016_lethal_silk_fever). When RI.1 begins, CC checks the latest shipped migration number and assigns the next sequential numbers — likely 0018-0024 after Slice 9.5 ships, or higher if other slices intervene. The dependency graph below uses 17-23 as labels for reference within this brief only.
+
+**Migration 17 (illustrative) — workspace state tables** (Round 4 commitments)
 - `user_pinned_projects` — composite PK (user_id, project_id), pin_order INT
 - `user_project_visits` — composite PK (user_id, project_id), last_visited_at TIMESTAMPTZ; indexed on (user_id, last_visited_at DESC) for MRU queries
 
@@ -227,7 +229,7 @@ Captured here so they're not lost. Will land in their respective slices:
 
 ## 2. Schema migration plan (consolidated)
 
-For CC's reference. Migrations 17-23 in order:
+For CC's reference. Seven migrations in order (numbers 17-23 are labels-within-this-brief; actual sequential numbers assigned at ship time):
 
 1. **17 — workspace state**: user_pinned_projects, user_project_visits
 2. **18 — scenario semantics**: scenarios.recommended, drop_reason enum extension
@@ -1003,7 +1005,7 @@ For CC's planning. Approximate; refine during build.
 | Sub-slice | Scope | Estimated |
 |---|---|---|
 | RI.0 | Token foundation: CD's `:root` ported into `globals.css` / `design-tokens.css`, Tailwind v4 `@theme` configured, Newsreader + Instrument Sans + JetBrains Mono via `next/font`, dark-mode `--ink-4` tuning, light mode default | 1-2 days |
-| RI.1 | Schema migrations 17-23 + verify scripts | 2-3 days |
+| RI.1 | Schema migrations (7 total; numbered sequentially at ship time) + verify scripts | 2-3 days |
 | RI.2 | Two-tier rail + Home rebuild | 3-4 days |
 | RI.3 | Project Detail rebuild | 3-4 days |
 | RI.4 | Cost Build unification (3 pages → 1, sections-with-drill-down, cost stack horizontal, Bulk Raw section + mode selector, post-production dual yield) | 6-8 days |

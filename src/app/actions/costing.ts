@@ -200,6 +200,7 @@ export async function getQuoteCosting(
         sortOrder: s.sortOrder,
         dutyPct: numOrNull(s.dutyPct),
         tariffPct: numOrNull(s.tariffPct),
+        retailBenchmark: numOrNull(s.retailBenchmark),
       })),
       tiers: tiers.map((t) => ({
         id: t.id,
@@ -1041,6 +1042,7 @@ export async function applyClientTargetSolveTierAdj(
         sortOrder: s.sortOrder,
         dutyPct: numOrNull(s.dutyPct),
         tariffPct: numOrNull(s.tariffPct),
+        retailBenchmark: numOrNull(s.retailBenchmark),
       })),
       tiers: tiersFresh.map((t) => ({
         id: t.id,
@@ -1350,6 +1352,7 @@ export async function getCostingBundle(
       sortOrder: s.sortOrder,
       dutyPct: numOrNull(s.dutyPct),
       tariffPct: numOrNull(s.tariffPct),
+      retailBenchmark: numOrNull(s.retailBenchmark),
     }));
 
     const tierList = tiers.map((t) => ({

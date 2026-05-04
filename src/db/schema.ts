@@ -723,6 +723,116 @@ export const freightInputs = pgTable(
   ],
 );
 
+// ---------- validation engine (Slice 9.5) ----------
+
+// Persistent warnings produced by the validation engine
+// (`src/lib/validation.ts`). Surfaces inline alongside the suspicious
+// field, in per-page summary panels, and aggregated on the Costing
+// Sheet. PMs can fix the underlying data (engine auto-resolves) or
+// accept the warning with a reason.
+//
+// Two scopes (per brief §2):
+//   - 'line' — warning targets a specific row + field + tier
+//     (table_name + row_id + field_name + tier_id)
+//   - 'quote' — warning targets the whole quote (e.g., "no SKUs have
+//     cost data yet"); table_name / row_id / field_name / tier_id
+//     all NULL
+//
+// `row_id` is TEXT (not UUID) per architect's recommendation — mirrors
+// `audit_log.entity_id` posture. Genuine row warnings store the row's
+// UUID-as-text. Cross-row pattern warnings (e.g., service-fee variance
+// across that SKU's tier rows) synthesize a composite text key like
+// `"sku:<sku_id>:col:setup_fee_total"`. Single column carries both
+// shapes; identity-tuple addressing stays unambiguous.
+//
+// Status lifecycle:
+//   - 'active' — currently surfaced
+//   - 'accepted' — PM explicitly suppressed with reason. Per architect
+//     option (iii): suppression sticks until manual re-activate or row
+//     delete; engine doesn't compare accept-time data snapshots. UX
+//     for manual re-activate is UX_BACKLOG candidate (not 9.5 blocking).
+//   - 'auto_resolved' — underlying data changed such that engine no
+//     longer fires; engine flips status automatically. Auto-resolved
+//     row stays as historical record; if engine re-fires, a NEW active
+//     row is INSERTed (architect verdict in §3 reconciliation).
+//
+// Audit pattern (mirrors CLAUDE.md cascade audit):
+//   - Single audit row per user action that triggers re-validation
+//   - Cascading warning lifecycle changes (created / auto-resolved /
+//     re-activated) captured in `diff_json.cascaded_warnings_*` keys
+//   - When PM explicitly accepts a warning: own audit row with
+//     `caused_by_audit_id` linking back to the input change that
+//     surfaced the warning (when applicable; Round 5 commitment)
+//
+// Persistence asymmetry (per brief §3): engine fires client-side on
+// every input change for inline display (free, in-memory); persists
+// server-side ONLY on action commit (insert/update/delete completion).
+// This is intentionally different from costing's keystroke-debounced
+// persistence — warnings are persistent state with audit trail;
+// keystroke-aligned persistence would create write storms.
+export const quoteWarnings = pgTable(
+  "quote_warnings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+
+    // Scope: line-level vs quote-level
+    scope: text("scope").notNull(), // CHECK enforced via raw SQL in migration
+
+    // Targeting: which row, which field, which tier (NULL when scope = 'quote')
+    tableName: text("table_name"),
+    rowId: text("row_id"),
+    fieldName: text("field_name"),
+    tierId: uuid("tier_id").references(() => quoteTiers.id, {
+      onDelete: "cascade",
+    }),
+
+    // Classification
+    kind: text("kind").notNull(),
+    severity: text("severity").notNull(), // CHECK: 'info' | 'review' | 'action_required'
+
+    // Status lifecycle
+    status: text("status").notNull().default("active"), // CHECK: 'active' | 'accepted' | 'auto_resolved'
+
+    // Acceptance trail (when status = 'accepted')
+    acceptedByUserId: uuid("accepted_by_user_id").references(() => users.id),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    acceptReasonKind: text("accept_reason_kind"), // 'vendor_moq_break' | 'customer_specific_pricing' | 'special_handling_fee' | 'custom' | NULL
+    acceptReasonText: text("accept_reason_text"),
+
+    // Auto-resolve trail (when status = 'auto_resolved')
+    autoResolvedAt: timestamp("auto_resolved_at", { withTimezone: true }),
+
+    // Surface metadata
+    message: text("message").notNull(),
+    detailJson: jsonb("detail_json"),
+
+    // Lifecycle timestamps
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastEvaluatedAt: timestamp("last_evaluated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // "Active warnings on this quote" — drives summary chip counts +
+    // Mark-Accepted gate read in Slice 12.
+    index("quote_warnings_quote_active_idx")
+      .on(t.quoteId, t.status)
+      .where(sql`status = 'active'`),
+    // "All warnings on this quote, by scope" — line vs quote split.
+    index("quote_warnings_quote_scope_idx").on(t.quoteId, t.scope),
+    // "Warnings on this row" — for inline icon affordances + cell-
+    // level cleanup. Partial: skips quote-scope warnings (no row_id).
+    index("quote_warnings_row_idx")
+      .on(t.tableName, t.rowId)
+      .where(sql`table_name IS NOT NULL`),
+  ],
+);
+
 // ---------- hubspot deal cache (Slice 5.6) ----------
 
 // Local mirror of HubSpot deals for the import-deals page. Keeps the page

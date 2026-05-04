@@ -32,6 +32,7 @@ const input: QuoteCostingInput = {
       sortOrder: 0,
       dutyPct: null,
       tariffPct: null,
+      retailBenchmark: null,
     },
     {
       id: "lo",
@@ -43,6 +44,7 @@ const input: QuoteCostingInput = {
       sortOrder: 0,
       dutyPct: null,
       tariffPct: null,
+      retailBenchmark: null,
     },
     {
       id: "bt",
@@ -65,6 +67,7 @@ const input: QuoteCostingInput = {
       sortOrder: 1,
       dutyPct: null,
       tariffPct: null,
+      retailBenchmark: null,
     },
     {
       id: "lb",
@@ -76,6 +79,7 @@ const input: QuoteCostingInput = {
       sortOrder: 2,
       dutyPct: null,
       tariffPct: null,
+      retailBenchmark: null,
     },
   ],
   tiers: [{ id: "t1", label: "50k", qty: 50000, sortOrder: 0 }],
@@ -328,6 +332,7 @@ const perTierInput: QuoteCostingInput = {
       sortOrder: 0,
       dutyPct: null,
       tariffPct: null,
+      retailBenchmark: null,
     },
   ],
   tiers: [
@@ -467,6 +472,7 @@ const cellOverrideInput: QuoteCostingInput = {
       sortOrder: 0,
       dutyPct: null,
       tariffPct: null,
+      retailBenchmark: null,
     },
   ],
   tiers: [
@@ -516,6 +522,7 @@ const partitionGranularityInput: QuoteCostingInput = {
       sortOrder: 0,
       dutyPct: null,
       tariffPct: null,
+      retailBenchmark: null,
     },
   ],
   tiers: [
@@ -606,7 +613,7 @@ const competitiveBaseInput: QuoteCostingInput = {
     {
       id: "x", parentSkuId: null, qtyPerParent: null, skuRole: "leaf",
       skuLabel: "X", productName: "X", sortOrder: 0,
-      dutyPct: null, tariffPct: null,
+      dutyPct: null, tariffPct: null, retailBenchmark: null,
     },
   ],
   tiers: [
@@ -754,9 +761,9 @@ const assemblyInput: QuoteCostingInput = {
   markupDefaults: { Manufacturing: 0.3, Other: 0.3 },
   skus: [
     { id: "asm", parentSkuId: null, qtyPerParent: null, skuRole: "assembly",
-      skuLabel: "ASM", productName: "Kit", sortOrder: 0, dutyPct: null, tariffPct: null },
+      skuLabel: "ASM", productName: "Kit", sortOrder: 0, dutyPct: null, tariffPct: null, retailBenchmark: null },
     { id: "leaf", parentSkuId: "asm", qtyPerParent: 1, skuRole: "leaf",
-      skuLabel: "L", productName: "Leaf", sortOrder: 0, dutyPct: null, tariffPct: null },
+      skuLabel: "L", productName: "Leaf", sortOrder: 0, dutyPct: null, tariffPct: null, retailBenchmark: null },
   ],
   tiers: [{ id: "tA", label: "A", qty: 10, sortOrder: 0, tierPriceAdjPct: null }],
   packaging: [

@@ -131,6 +131,10 @@ export type CostingSku = {
   // duty_pct + tariff_pct stay per-SKU (don't change with shipment/tier).
   dutyPct: number | null;
   tariffPct: number | null;
+  // Slice 9.5 — surfaced for validation engine's
+  // retail_benchmark_no_cost rule (info-level: SKU has retail target
+  // but no cost data yet; ambient nudge).
+  retailBenchmark: number | null;
 };
 
 export type CostingTier = {
