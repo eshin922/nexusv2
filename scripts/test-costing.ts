@@ -12,6 +12,8 @@
 
 import {
   computeQuoteCosting,
+  naiveTierAdjForCostExceedsTarget,
+  suggestTierAdjForClientTarget,
   type QuoteCostingInput,
 } from "../src/lib/costing.ts";
 
@@ -590,6 +592,257 @@ assert(
   negCell.marginPct,
   -1,
 );
+
+// ---- Slice 9.4b: competitive verdict classification ----
+// Cell with no client target → competitiveStatus null (NULL-as-empty-signal).
+// Cell with target above required_sell → COMPETITIVE.
+// Cell with target below required_sell → OVER_CLIENT_TARGET.
+console.log("\n=== Slice 9.4b: competitive verdict classification ===");
+const competitiveBaseInput: QuoteCostingInput = {
+  quote: { id: "q9.4b-a", globalPriceAdjPct: 0, targetMarginPct: null },
+  firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
+  markupDefaults: { Manufacturing: 0.3, Other: 0.3 },
+  skus: [
+    {
+      id: "x", parentSkuId: null, qtyPerParent: null, skuRole: "leaf",
+      skuLabel: "X", productName: "X", sortOrder: 0,
+      dutyPct: null, tariffPct: null,
+    },
+  ],
+  tiers: [
+    { id: "tA", label: "A", qty: 100, sortOrder: 0, tierPriceAdjPct: null },
+  ],
+  packaging: [
+    { quoteSkuId: "x", tierId: "tA", lineGroupId: "g", unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0.4 },
+  ],
+  production: [], freight: [],
+  cellOverrides: [],
+  cellTargets: [],
+};
+// Computed sell at this state: cost=1, markup=0.4 → base=1.40; × (1+0) = 1.40.
+const competitiveNullOut = computeQuoteCosting(competitiveBaseInput);
+const cellNoTarget = competitiveNullOut.skuRollups[0].perTier[0];
+console.log(
+  `  ${cellNoTarget.competitiveStatus === null ? "PASS" : "FAIL"}  no target → competitiveStatus null: ${cellNoTarget.competitiveStatus}`,
+);
+if (cellNoTarget.competitiveStatus !== null) failures += 1;
+
+const competitiveAboveOut = computeQuoteCosting({
+  ...competitiveBaseInput,
+  cellTargets: [{ quoteSkuId: "x", tierId: "tA", clientTargetPricePerUnit: 2.0 }],
+});
+const cellAboveTarget = competitiveAboveOut.skuRollups[0].perTier[0];
+console.log(
+  `  ${cellAboveTarget.competitiveStatus === "COMPETITIVE" ? "PASS" : "FAIL"}  required_sell ($1.40) ≤ target ($2.00) → COMPETITIVE: ${cellAboveTarget.competitiveStatus}`,
+);
+if (cellAboveTarget.competitiveStatus !== "COMPETITIVE") failures += 1;
+
+const competitiveBelowOut = computeQuoteCosting({
+  ...competitiveBaseInput,
+  cellTargets: [{ quoteSkuId: "x", tierId: "tA", clientTargetPricePerUnit: 1.0 }],
+});
+const cellBelowTarget = competitiveBelowOut.skuRollups[0].perTier[0];
+console.log(
+  `  ${cellBelowTarget.competitiveStatus === "OVER_CLIENT_TARGET" ? "PASS" : "FAIL"}  required_sell ($1.40) > target ($1.00) → OVER_CLIENT_TARGET: ${cellBelowTarget.competitiveStatus}`,
+);
+if (cellBelowTarget.competitiveStatus !== "OVER_CLIENT_TARGET") failures += 1;
+
+// Equality counts as COMPETITIVE per architect Q3 sign-off ("equality
+// counts as COMPETITIVE — PM lands exactly at target; not over").
+const competitiveEqualOut = computeQuoteCosting({
+  ...competitiveBaseInput,
+  cellTargets: [{ quoteSkuId: "x", tierId: "tA", clientTargetPricePerUnit: 1.4 }],
+});
+const cellEqualTarget = competitiveEqualOut.skuRollups[0].perTier[0];
+console.log(
+  `  ${cellEqualTarget.competitiveStatus === "COMPETITIVE" ? "PASS" : "FAIL"}  required_sell == target → COMPETITIVE: ${cellEqualTarget.competitiveStatus}`,
+);
+if (cellEqualTarget.competitiveStatus !== "COMPETITIVE") failures += 1;
+
+// ---- Slice 9.4b: reverse-solve happy path ----
+// Cell with cost=1, markup=0.4 → base=1.40. Target $2.00.
+// Math: tier_adj = 2.00 / 1.40 - 1 = 0.4286.
+console.log("\n=== Slice 9.4b: reverse-solve happy path ===");
+const solveOut = suggestTierAdjForClientTarget(
+  "x", "tA", competitiveAboveOut, {
+    ...competitiveBaseInput,
+    cellTargets: [{ quoteSkuId: "x", tierId: "tA", clientTargetPricePerUnit: 2.0 }],
+  },
+);
+console.log(
+  `  ${solveOut.ok ? "PASS" : "FAIL"}  reverse-solve produces value (ok=true)`,
+);
+if (!solveOut.ok) failures += 1;
+if (solveOut.ok) {
+  assert(
+    "reverse-solve: tier_adj = T/base - 1 = 2.0/1.4 - 1 ≈ 0.4286",
+    solveOut.suggestedTierAdj,
+    0.4286,
+    0.001,
+  );
+}
+
+// ---- Slice 9.4b: reverse-solve edge cases ----
+console.log("\n=== Slice 9.4b: reverse-solve edge cases ===");
+
+// (a) no_target_set
+const noTargetSolve = suggestTierAdjForClientTarget(
+  "x", "tA", competitiveNullOut, competitiveBaseInput,
+);
+console.log(
+  `  ${!noTargetSolve.ok && noTargetSolve.reason === "no_target_set" ? "PASS" : "FAIL"}  no target → no_target_set: ${noTargetSolve.ok ? "ok=true" : noTargetSolve.reason}`,
+);
+if (!(!noTargetSolve.ok && noTargetSolve.reason === "no_target_set")) failures += 1;
+
+// (b) cell_overridden — target set, but cell also has sell_price_override
+const overriddenInput: QuoteCostingInput = {
+  ...competitiveBaseInput,
+  cellOverrides: [{ quoteSkuId: "x", tierId: "tA", sellPriceOverride: 1.5 }],
+  cellTargets: [{ quoteSkuId: "x", tierId: "tA", clientTargetPricePerUnit: 2.0 }],
+};
+const overriddenOut = computeQuoteCosting(overriddenInput);
+const overriddenSolve = suggestTierAdjForClientTarget(
+  "x", "tA", overriddenOut, overriddenInput,
+);
+console.log(
+  `  ${!overriddenSolve.ok && overriddenSolve.reason === "cell_overridden" ? "PASS" : "FAIL"}  cell overridden → cell_overridden: ${overriddenSolve.ok ? "ok=true" : overriddenSolve.reason}`,
+);
+if (!(!overriddenSolve.ok && overriddenSolve.reason === "cell_overridden")) failures += 1;
+
+// (d) cost_exceeds_target — base ($1.40) >= T ($1.00)
+const costExceedsInput: QuoteCostingInput = {
+  ...competitiveBaseInput,
+  cellTargets: [{ quoteSkuId: "x", tierId: "tA", clientTargetPricePerUnit: 1.0 }],
+};
+const costExceedsOut = computeQuoteCosting(costExceedsInput);
+const costExceedsSolve = suggestTierAdjForClientTarget(
+  "x", "tA", costExceedsOut, costExceedsInput,
+);
+console.log(
+  `  ${!costExceedsSolve.ok && costExceedsSolve.reason === "cost_exceeds_target" ? "PASS" : "FAIL"}  base >= T → cost_exceeds_target: ${costExceedsSolve.ok ? "ok=true" : costExceedsSolve.reason}`,
+);
+if (!(!costExceedsSolve.ok && costExceedsSolve.reason === "cost_exceeds_target")) failures += 1;
+
+// (e) solution_out_of_range — base very small, T very large → tier_adj > 9.99
+// base=1.40, T=20 → tier_adj = 20/1.40 - 1 = 13.28 → above bound (9.99)
+const oorInput: QuoteCostingInput = {
+  ...competitiveBaseInput,
+  cellTargets: [{ quoteSkuId: "x", tierId: "tA", clientTargetPricePerUnit: 20.0 }],
+};
+const oorOut = computeQuoteCosting(oorInput);
+const oorSolve = suggestTierAdjForClientTarget(
+  "x", "tA", oorOut, oorInput,
+);
+console.log(
+  `  ${!oorSolve.ok && oorSolve.reason === "solution_out_of_range" ? "PASS" : "FAIL"}  out-of-range solution suppresses: ${oorSolve.ok ? "ok=true value=" + oorSolve.suggestedTierAdj : oorSolve.reason}`,
+);
+if (!(!oorSolve.ok && oorSolve.reason === "solution_out_of_range")) failures += 1;
+
+// ---- Slice 9.4b: leaf-only invariant (math layer ignores assembly targets) ----
+// Workflow correction surfaced during 9.4b smoke: customers state
+// client targets at SKU level (per leaf SKU, per tier) OR quote level
+// (Slice 9.4c, separate column). Never at assembly level. Action layer
+// rejects assembly writes; math layer is defense in depth — even if a
+// stray assembly target lands in input.cellTargets (impossible via UI;
+// only possible via direct DB write), the math computes
+// competitiveStatus: null on the assembly rollup. Mirrors the
+// leaf-only invariant on Slice 9.3 sell-price overrides.
+console.log("\n=== Slice 9.4b: math layer ignores assembly cellTargets ===");
+const assemblyInput: QuoteCostingInput = {
+  quote: { id: "q9.4b-asm", globalPriceAdjPct: 0, targetMarginPct: null },
+  firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
+  markupDefaults: { Manufacturing: 0.3, Other: 0.3 },
+  skus: [
+    { id: "asm", parentSkuId: null, qtyPerParent: null, skuRole: "assembly",
+      skuLabel: "ASM", productName: "Kit", sortOrder: 0, dutyPct: null, tariffPct: null },
+    { id: "leaf", parentSkuId: "asm", qtyPerParent: 1, skuRole: "leaf",
+      skuLabel: "L", productName: "Leaf", sortOrder: 0, dutyPct: null, tariffPct: null },
+  ],
+  tiers: [{ id: "tA", label: "A", qty: 10, sortOrder: 0, tierPriceAdjPct: null }],
+  packaging: [
+    { quoteSkuId: "leaf", tierId: "tA", lineGroupId: "g", unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0.4 },
+  ],
+  production: [], freight: [],
+  cellOverrides: [],
+  cellTargets: [
+    // Stray assembly target in input — should be ignored by math layer.
+    // (Impossible via UI; included here to verify defense in depth.)
+    { quoteSkuId: "asm", tierId: "tA", clientTargetPricePerUnit: 2.0 },
+  ],
+};
+const assemblyOut = computeQuoteCosting(assemblyInput);
+const assemblyRollup = assemblyOut.skuRollups.find((r) => r.skuId === "asm")!;
+const assemblyCell = assemblyRollup.perTier[0];
+console.log(
+  `  ${assemblyCell.competitiveStatus === null ? "PASS" : "FAIL"}  assembly cellTarget ignored → competitiveStatus null: ${assemblyCell.competitiveStatus}`,
+);
+if (assemblyCell.competitiveStatus !== null) failures += 1;
+
+// ---- Slice 9.4b: cost_exceeds_target apply path (naive helper) ----
+// Bug surfaced during 9.4b smoke: action layer rejected the destructive-
+// case apply (base >= T) because `suggestTierAdjForClientTarget` returns
+// ok=false for cost_exceeds_target. Cell.tsx hand-computed the naive
+// solution inline; action layer didn't mirror. Fix extracts the naive
+// math to `naiveTierAdjForCostExceedsTarget` so both call sites stay
+// aligned. Math: tier_adj = clientTarget / base - 1, bounded to
+// [-0.99, 9.99] (sane price-near-zero floor; non-finite → null).
+console.log("\n=== Slice 9.4b: cost_exceeds_target naive helper ===");
+
+// Happy path: target < base → negative naive in bounds.
+// base=2, target=1 → naive = 1/2 - 1 = -0.5 (sell at 50% of base, not
+// at-cost). Within [-0.99, 9.99].
+const naiveHappy = naiveTierAdjForCostExceedsTarget(2, 1);
+console.log(
+  `  ${naiveHappy === -0.5 ? "PASS" : "FAIL"}  base=2, target=1 → naive=-0.5 (in bounds): ${naiveHappy}`,
+);
+if (naiveHappy !== -0.5) failures += 1;
+
+// Edge: target = base → naive = 0 (apply with no change; no-op edge).
+const naiveEqual = naiveTierAdjForCostExceedsTarget(3, 3);
+console.log(
+  `  ${naiveEqual === 0 ? "PASS" : "FAIL"}  base=3, target=3 → naive=0: ${naiveEqual}`,
+);
+if (naiveEqual !== 0) failures += 1;
+
+// Out of range LOW: target ≪ base → naive < -0.99 → null.
+// base=100, target=0.5 → naive = 0.005 - 1 = -0.995. Below -0.99.
+const naiveTooLow = naiveTierAdjForCostExceedsTarget(100, 0.5);
+console.log(
+  `  ${naiveTooLow === null ? "PASS" : "FAIL"}  target ≪ base (sell ≈ 0%) → null: ${naiveTooLow}`,
+);
+if (naiveTooLow !== null) failures += 1;
+
+// Defensive: base = 0 → null (singular).
+const naiveZeroBase = naiveTierAdjForCostExceedsTarget(0, 1);
+console.log(
+  `  ${naiveZeroBase === null ? "PASS" : "FAIL"}  base=0 → null: ${naiveZeroBase}`,
+);
+if (naiveZeroBase !== null) failures += 1;
+
+// Defensive: negative base → null (invariant violation).
+const naiveNegBase = naiveTierAdjForCostExceedsTarget(-1, 1);
+console.log(
+  `  ${naiveNegBase === null ? "PASS" : "FAIL"}  base<0 → null: ${naiveNegBase}`,
+);
+if (naiveNegBase !== null) failures += 1;
+
+// Defensive: non-finite inputs → null.
+const naiveNaN = naiveTierAdjForCostExceedsTarget(NaN, 1);
+console.log(
+  `  ${naiveNaN === null ? "PASS" : "FAIL"}  base=NaN → null: ${naiveNaN}`,
+);
+if (naiveNaN !== null) failures += 1;
+
+// Round-trip verification: applying naive to base lands at target
+// within float precision. Mirrors the action-layer tolerance check.
+const baseRT = 2.5355;
+const targetRT = 2.0;
+const naiveRT = naiveTierAdjForCostExceedsTarget(baseRT, targetRT)!;
+const sellAfterApply = baseRT * (1 + naiveRT);
+console.log(
+  `  ${Math.abs(sellAfterApply - targetRT) < 1e-9 ? "PASS" : "FAIL"}  applying naive lands sell at target: base*(1+adj)=${sellAfterApply.toFixed(6)} vs target=${targetRT}`,
+);
+if (Math.abs(sellAfterApply - targetRT) > 1e-9) failures += 1;
 
 console.log(
   `\n${failures === 0 ? "✓ ALL ASSERTIONS PASS" : `✗ ${failures} ASSERTION(S) FAILED`}`,

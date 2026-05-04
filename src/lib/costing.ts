@@ -199,6 +199,25 @@ export type CostingCellOverride = {
   sellPriceOverride: number;
 };
 
+// Slice 9.4b — per-cell client target benchmark. Sister sparse table to
+// CostingCellOverride / quote_sku_tiers. Customer-stated price the PM
+// captures during negotiation ("client wants $5 landed at 50k for this
+// SKU"). Drives the per-(SKU, tier) competitive verdict (COMPETITIVE /
+// OVER_CLIENT_TARGET / null) and the "Apply suggested adj to match
+// client target" reverse-solve affordance. Independent lifecycle from
+// sell_price_override — PM may benchmark a cell without overriding it,
+// override without knowing the target, or set both. Assemblies allowed
+// (per Edward's pressure-test B resolution).
+//
+// Customer-view boundary: this data is INTERNAL ONLY — never surfaces
+// in the customer-facing PDF or sent-version snapshot. See CLAUDE.md
+// "Customer-view boundary guard" forbidden-field enumeration.
+export type CostingCellTarget = {
+  quoteSkuId: string;
+  tierId: string;
+  clientTargetPricePerUnit: number;
+};
+
 export type QuoteCostingInput = {
   // Slice 9.2 — quote.targetMarginPct is per-quote override of
   // firmSettings.targetMarginPct. NULL = inherit firm-level.
@@ -225,6 +244,9 @@ export type QuoteCostingInput = {
   // no overrides anywhere. Order doesn't matter; computeQuoteCosting
   // builds a `${skuId}::${tierId}` lookup map internally.
   cellOverrides: CostingCellOverride[];
+  // Slice 9.4b — sparse per-cell client target benchmarks. Mirror
+  // shape to cellOverrides; lazy rows on `quote_sku_tier_targets`.
+  cellTargets: CostingCellTarget[];
 };
 
 export type FreightLineBreakdown = {
@@ -271,6 +293,13 @@ export type SkuPerTierRollup = {
   // firmSettings.floorMarginPct). Surfaces on the per-SKU summary row.
   // For assemblies this reflects the rolled-up margin (mix of children).
   marginStatus: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
+  // Slice 9.4b — per-(SKU, tier) competitive verdict against PM-entered
+  // client target benchmark. NULL when no `client_target_price_per_unit`
+  // is set on this cell (NULL-as-empty-signal). When set, classifies
+  // requiredSellPerUnit (the EFFECTIVE sell — respects per-cell override)
+  // against the target. Independent of marginStatus; PMs see both axes.
+  // Drives the secondary competitive indicator on the per-SKU summary row.
+  competitiveStatus: "COMPETITIVE" | "OVER_CLIENT_TARGET" | null;
   revenue: number;
   cost: number;
 };
@@ -382,6 +411,21 @@ function computeStatus(
   return "BELOW_FLOOR";
 }
 
+// Slice 9.4b — competitive verdict classification, shared by leaf and
+// assembly per-tier rollups. NULL semantics: when the cell has no
+// client target, competitiveStatus is null (NULL-as-empty-signal —
+// secondary indicator simply doesn't render). When set, classifies
+// the EFFECTIVE sell (which is the per-cell override if set, else
+// the computed sell) against the target — equality counts as
+// COMPETITIVE (PM lands exactly at target; not over).
+function computeCompetitiveStatus(
+  requiredSellPerUnit: number,
+  cellTarget: number | null,
+): "COMPETITIVE" | "OVER_CLIENT_TARGET" | null {
+  if (cellTarget === null) return null;
+  return requiredSellPerUnit <= cellTarget ? "COMPETITIVE" : "OVER_CLIENT_TARGET";
+}
+
 // Closed-form solve. See top-of-file comment for derivation.
 // Returns null if margin already at/above target.
 //
@@ -415,6 +459,195 @@ function suggestedAdj(
   const adjNew = (1 + currentAdj) * k - 1;
   // Round to nearest 1%. Pad up so we never under-suggest.
   return Math.ceil(adjNew * 100) / 100;
+}
+
+// Slice 9.4b — reverse-solve helper: suggest the per-tier price
+// adjustment needed to land a given (SKU, tier) cell exactly at its
+// client target benchmark. Closed-form solve; per-cell math:
+//
+//   required_sell(s, t) = base(s) × (1 + tier_adj(t))
+//   base(s)             = component_cost(s) × (1 + component_markup(s))
+//
+// Solve for tier_adj(t) such that required_sell === T:
+//   tier_adj(t) = T / base(s) - 1
+//
+// For assemblies, base is the rolled-up children's
+// (base × qtyPerParent) chain — already encoded in the assembly cell's
+// `computedSellPerUnit / (1 + currentTierAdj)`. We use that derivation
+// here so the helper works for both leaf and assembly cells without
+// duplicating the markup chain.
+//
+// Output: { ok: true, suggestedTierAdj } | { ok: false, reason }.
+// The suggested adj is the value to write to `quote_tiers.tier_price_adj_pct`
+// for the target cell's tier. Apply path is `applyClientTargetSolveTierAdj`
+// in src/app/actions/costing.ts (mirrors Slice 9.2 `applySuggestedGlobalAdj`).
+//
+// Per-architect guard order (Q1 sign-off):
+//   1. no_target_set       — no benchmark on this cell; nothing to solve for
+//   2. cell_overridden     — target cell has sell_price_override; tier_adj
+//                            has zero leverage on this cell (override is
+//                            terminal); solve is non-actionable
+//   3. all_cells_fixed     — every leaf cell at tier t has sell_price_override;
+//                            tier_adj change moves nothing; defensive (usually
+//                            short-circuits at step 2 already)
+//   4. cost_exceeds_target — base(s) >= T; no positive sell hits the target;
+//                            math would go to ≤ -1 (sell at or below cost)
+//   5. solution_out_of_range — tier_adj_solution outside ±9.99 (validatePercent
+//                              caps at ±999%; numeric(5,4) at ±9.9999); also
+//                              catches Infinity/NaN from zero-base degenerate
+//
+// Cross-cell consequence: applying the suggested adj on tier t affects
+// EVERY (SKU, tier t) cell, not just the originating one. The dialog
+// path renders an explicit per-cell post-apply table — caller invokes
+// `computeQuoteCosting` with the suggested adj substituted into the
+// tier's `tierPriceAdjPct` to produce the preview state. This helper
+// returns ONLY the suggested value; the preview is two-call by design
+// (per architect Q2 sign-off).
+export type ReverseSolveResult =
+  | { ok: true; suggestedTierAdj: number }
+  | {
+      ok: false;
+      reason:
+        | "no_target_set"
+        | "cell_overridden"
+        | "all_cells_fixed"
+        | "cost_exceeds_target"
+        | "solution_out_of_range";
+    };
+
+const REVERSE_SOLVE_MIN_ADJ = -9.99;
+const REVERSE_SOLVE_MAX_ADJ = 9.99;
+
+export function suggestTierAdjForClientTarget(
+  quoteSkuId: string,
+  tierId: string,
+  costing: QuoteCostingResult,
+  input: QuoteCostingInput,
+): ReverseSolveResult {
+  // Guard 1: no target set on this cell.
+  const targetEntry = input.cellTargets.find(
+    (t) => t.quoteSkuId === quoteSkuId && t.tierId === tierId,
+  );
+  if (!targetEntry) {
+    return { ok: false, reason: "no_target_set" };
+  }
+  const T = targetEntry.clientTargetPricePerUnit;
+
+  // Guard 2: target cell has a sell-price override; tier_adj has no
+  // leverage. Override is terminal per Slice 9.3 semantics.
+  const cellHasOverride = input.cellOverrides.some(
+    (o) => o.quoteSkuId === quoteSkuId && o.tierId === tierId,
+  );
+  if (cellHasOverride) {
+    return { ok: false, reason: "cell_overridden" };
+  }
+
+  // Guard 3 (defensive): every leaf cell at this tier has an override
+  // → tier_adj change moves nothing. Usually short-circuits at guard
+  // 2 already (the target cell is itself a fixed cell), but kept for
+  // forward-compat against future state changes.
+  const leavesInTier = input.skus.filter((s) => s.skuRole === "leaf");
+  const allLeavesOverridden =
+    leavesInTier.length > 0 &&
+    leavesInTier.every((s) =>
+      input.cellOverrides.some(
+        (o) => o.quoteSkuId === s.id && o.tierId === tierId,
+      ),
+    );
+  if (allLeavesOverridden) {
+    return { ok: false, reason: "all_cells_fixed" };
+  }
+
+  // Resolve base(s) for the target cell. We back it out from the
+  // existing rollup: requiredSellPerUnit = base × (1 + currentTierAdj).
+  // currentTierAdj = tier.tierPriceAdjPct ?? globalAdj (Slice 9.2's
+  // effectiveAdj rule). Use the rollup's existing values to avoid
+  // duplicating the markup chain — works for both leaf and assembly.
+  const skuRollup = costing.skuRollups.find((r) => r.skuId === quoteSkuId);
+  if (!skuRollup) {
+    // Shouldn't happen: cellTargets should only reference existing
+    // SKUs. Defensive: treat as no_target_set.
+    return { ok: false, reason: "no_target_set" };
+  }
+  const cellRollup = skuRollup.perTier.find((pt) => pt.tierId === tierId);
+  if (!cellRollup) {
+    return { ok: false, reason: "no_target_set" };
+  }
+  const tierRow = input.tiers.find((t) => t.id === tierId);
+  if (!tierRow) {
+    return { ok: false, reason: "no_target_set" };
+  }
+  const currentTierAdj =
+    tierRow.tierPriceAdjPct !== null && tierRow.tierPriceAdjPct !== undefined
+      ? Number(tierRow.tierPriceAdjPct)
+      : input.quote.globalPriceAdjPct;
+  // base = computedSellPerUnit / (1 + currentTierAdj). The
+  // computedSellPerUnit field is the markup-chain × (1 + effectiveAdj)
+  // result (Slice 9.3 added it for the OVR tooltip; reused here).
+  // Avoid divide-by-zero when currentTierAdj === -1 (sell free).
+  const denom = 1 + currentTierAdj;
+  if (denom === 0) {
+    return { ok: false, reason: "solution_out_of_range" };
+  }
+  const base = cellRollup.computedSellPerUnit / denom;
+
+  // Guard 4: base alone meets or exceeds target → no positive sell
+  // hits target → math goes to <= -1 (sell ≤ cost). PM has wiggle
+  // via override path (separately) but cannot achieve via tier_adj.
+  if (base >= T) {
+    return { ok: false, reason: "cost_exceeds_target" };
+  }
+
+  // Solve.
+  const suggestedTierAdj = T / base - 1;
+
+  // Guard 5: solution outside schema/validation bounds (catches
+  // Infinity/NaN too — comparison against finite bounds returns false
+  // for non-finite, which falls into the ! Number.isFinite branch).
+  if (
+    !Number.isFinite(suggestedTierAdj) ||
+    suggestedTierAdj < REVERSE_SOLVE_MIN_ADJ ||
+    suggestedTierAdj > REVERSE_SOLVE_MAX_ADJ
+  ) {
+    return { ok: false, reason: "solution_out_of_range" };
+  }
+
+  return { ok: true, suggestedTierAdj };
+}
+
+// Slice 9.4b — naive tier-adj solution for the `cost_exceeds_target`
+// case (base ≥ T → no positive sell can hit target → solution lands
+// at or below sell-equals-cost). Per Edward's pressure-test resolution,
+// the destructive case is applyable with explicit consequence framing
+// — the affordance shows in amber + dialog spells out the margin drop.
+// Both cell.tsx (display gating) and the action layer (apply path
+// re-derivation) need the naive value; this helper centralizes the
+// math + bounds check so the two call sites stay aligned.
+//
+// Bounds: [-0.99, 9.99] — tighter than the canonical reverse-solve
+// REVERSE_SOLVE_MIN_ADJ. -0.99 caps "sell at 1% of base" (anything
+// below means sell ≈ 0); the high bound is there for completeness
+// (cost_exceeds_target case never produces values > 0 in practice).
+// Out-of-range / non-finite → null (caller surfaces as
+// solution_out_of_range refusal).
+const COST_EXCEEDS_TARGET_NAIVE_MIN_ADJ = -0.99;
+const COST_EXCEEDS_TARGET_NAIVE_MAX_ADJ = 9.99;
+
+export function naiveTierAdjForCostExceedsTarget(
+  base: number,
+  clientTarget: number,
+): number | null {
+  if (!Number.isFinite(base) || base <= 0) return null;
+  if (!Number.isFinite(clientTarget) || clientTarget <= 0) return null;
+  const naive = clientTarget / base - 1;
+  if (
+    !Number.isFinite(naive) ||
+    naive < COST_EXCEEDS_TARGET_NAIVE_MIN_ADJ ||
+    naive > COST_EXCEEDS_TARGET_NAIVE_MAX_ADJ
+  ) {
+    return null;
+  }
+  return naive;
 }
 
 // Slice 9.2 — quote-wide suggested-GPA computation. The canonical
@@ -613,6 +846,10 @@ function computeLeafPerTier(args: {
   // override (see computeQuoteCosting); floor stays firm-level.
   effectiveTarget: number;
   floor: number;
+  // Slice 9.4b — per-cell client target benchmark. null = no target
+  // set on this cell (NULL-as-empty-signal); competitiveStatus
+  // resolves to null and the secondary indicator doesn't render.
+  cellTarget: number | null;
 }): SkuPerTierRollup {
   const {
     sku,
@@ -625,6 +862,7 @@ function computeLeafPerTier(args: {
     cellOverride,
     effectiveTarget,
     floor,
+    cellTarget,
   } = args;
   const tierQty = num(tier.qty);
 
@@ -818,6 +1056,10 @@ function computeLeafPerTier(args: {
     // override or firm) and firm floor. Uses the same computeStatus
     // helper as quote-level blended classification for consistency.
     marginStatus: computeStatus(marginPct, effectiveTarget, floor),
+    // Slice 9.4b — competitive verdict against PM-entered client target
+    // benchmark. Reads from EFFECTIVE sell (respects per-cell override
+    // when set). NULL when no benchmark exists on this cell.
+    competitiveStatus: computeCompetitiveStatus(requiredSellPerUnit, cellTarget),
     revenue,
     cost,
   };
@@ -845,6 +1087,9 @@ function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
     // when floor > 0 (the typical case). Acceptable; this row state is
     // visible for ~16ms before children fold in.
     marginStatus: "BELOW_FLOOR",
+    // Slice 9.4b — assembly cells never carry a competitive verdict
+    // (leaf-only invariant; see rollUpAssemblyPerTier).
+    competitiveStatus: null,
     revenue: 0,
     cost: 0,
   };
@@ -919,6 +1164,13 @@ function rollUpAssemblyPerTier(
     // rolled-up margin against the same thresholds as leaf cells.
     // Reflects the blended mix of children (overridden + computed).
     marginStatus: computeStatus(marginPct, effectiveTarget, floor),
+    // Slice 9.4b — assembly cells never carry a competitive verdict.
+    // Client targets are leaf-only (matches Slice 9.3 sell-price-
+    // override invariant); the math layer doesn't compute against
+    // assembly-level targets even if input.cellTargets contained one
+    // (impossible via the action layer guard, possible only via direct
+    // DB write). Quote-level client targets land in Slice 9.4c.
+    competitiveStatus: null,
     revenue: requiredSell * tierQty,
     cost: contribution * tierQty,
   };
@@ -976,6 +1228,13 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
   for (const c of input.cellOverrides ?? []) {
     cellOverridesBySkuTier.set(`${c.quoteSkuId}::${c.tierId}`, c.sellPriceOverride);
   }
+  // Slice 9.4b — per-cell client target benchmarks indexed by the same
+  // composite key shape. Mirror sparse pattern; lookup returns undefined
+  // → null cellTarget → competitiveStatus null (NULL-as-empty-signal).
+  const cellTargetsBySkuTier = new Map<string, number>();
+  for (const c of input.cellTargets ?? []) {
+    cellTargetsBySkuTier.set(`${c.quoteSkuId}::${c.tierId}`, c.clientTargetPricePerUnit);
+  }
 
   // DFS produces post-order traversal (children before parents) so
   // assemblies see their children's per-tier rollups when they roll up.
@@ -1004,6 +1263,13 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
         );
         const cellOverride =
           cellOverrideValue !== undefined ? cellOverrideValue : null;
+        // Slice 9.4b — per-cell client target lookup. Same pattern;
+        // undefined → null → competitiveStatus null.
+        const cellTargetValue = cellTargetsBySkuTier.get(
+          `${sku.id}::${tier.id}`,
+        );
+        const cellTarget =
+          cellTargetValue !== undefined ? cellTargetValue : null;
         return computeLeafPerTier({
           sku,
           tier,
@@ -1015,6 +1281,7 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
           cellOverride,
           effectiveTarget,
           floor: firmSettings.floorMarginPct,
+          cellTarget,
         });
       });
       const rollup: SkuRollup = {
@@ -1044,6 +1311,8 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
         rollup: r.perTier.find((pt) => pt.tierId === tier.id)!,
         qtyPerParent: num(k.qtyPerParent, 1),
       }));
+      // Slice 9.4b — assemblies don't read cellTargets (leaf-only
+      // invariant; see rollUpAssemblyPerTier comment).
       return rollUpAssemblyPerTier(
         tier,
         childTierRollups,

@@ -4,10 +4,17 @@ import { useState } from "react";
 import {
   selectActiveTierId,
   selectActiveTierRollup,
+  selectCellTarget,
   selectSkuRollups,
   selectTiers,
 } from "@/lib/costing-store";
 import { useCostingStore } from "@/components/costing-store-provider";
+import { ClientTargetCell } from "@/components/costing/client-target-cell";
+import { CompetitiveIndicator } from "@/components/costing/competitive-indicator";
+import {
+  MarginSparkline,
+  type SparklinePoint,
+} from "@/components/costing/margin-sparkline";
 import { MarginVerdictPill } from "@/components/costing/margin-verdict-pill";
 import { RequiredSellCell } from "@/components/required-sell-cell";
 import type { SkuRollup } from "@/lib/costing";
@@ -61,9 +68,10 @@ function fmtCurr4(n: number): string {
 }
 
 // Number of <td> cells in the summary <tr> — used by the drawer <tr>'s
-// <td colspan> so it spans the full table width. Update if columns
-// change (Slice 9.4b adds client-target + sparkline columns).
-const SUMMARY_COL_COUNT = 6;
+// <td colspan> so it spans the full table width. Update when columns
+// change. Slice 9.4b: client-target column (#5) + sparkline column
+// (#7) brought count from 6 → 8.
+const SUMMARY_COL_COUNT = 8;
 
 function SkuSummaryRow({
   sku,
@@ -79,6 +87,14 @@ function SkuSummaryRow({
   const activeTierId = useCostingStore(selectActiveTierId);
   const tiers = useCostingStore(selectTiers);
   const perTier = sku.perTier.find((pt) => pt.tierId === activeTierId);
+  // Slice 9.4b — read the cell's client target from the store (sparse;
+  // null when no benchmark on this cell). Required for the
+  // CompetitiveIndicator's tooltip math (gap calculation reads target).
+  // Curried selector so this row only re-renders when ITS cell's target
+  // changes, not when other cells' targets change.
+  const clientTarget = useCostingStore(
+    selectCellTarget(sku.skuId, activeTierId ?? ""),
+  );
 
   if (!activeTierId || !perTier) {
     // Mid-reconcile race: ActiveTierUrlSync hasn't yet landed a valid
@@ -145,14 +161,62 @@ function SkuSummaryRow({
           />
         </td>
 
-        {/* Margin: percent + verdict pill */}
+        {/* Slice 9.4b — Client target (active tier). Leaf-only —
+            customers state targets at SKU level (this column on leaf
+            rows) or quote level (Slice 9.4c). Assembly rows render an
+            empty cell for layout; no click affordance, no reverse-
+            solve. Stripped from 9.4b before commit after smoke
+            surfaced the workflow correction. */}
+        <td className="px-3 py-2 text-right text-sm">
+          {!isAssembly && (
+            <ClientTargetCell
+              quoteSkuId={sku.skuId}
+              skuLabel={sku.skuLabel}
+              tierId={activeTierId}
+              editable={editable}
+            />
+          )}
+        </td>
+
+        {/* Margin: percent + verdict pill (primary) + competitive
+            indicator (secondary, Slice 9.4b). Secondary is leaf-only
+            — assembly rows show just margin % + pill (their cells can
+            never have client targets). Within leaves, indicator
+            renders only when client target is set on this cell. */}
         <td className="px-3 py-2 text-right">
-          <div className="flex items-center justify-end gap-1.5">
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
             <span className="text-sm tabular-nums text-gray-900">
               {(perTier.marginPct * 100).toFixed(1)}%
             </span>
             <MarginVerdictPill status={perTier.marginStatus} size="sm" />
+            {!isAssembly && (
+              <CompetitiveIndicator
+                status={perTier.competitiveStatus}
+                requiredSellPerUnit={perTier.requiredSellPerUnit}
+                clientTarget={clientTarget}
+              />
+            )}
           </div>
+        </td>
+
+        {/* Slice 9.4b — All-tiers margin sparkline. Inline SVG;
+            autoscale per SKU; active-tier point highlighted. Hover
+            tooltips per point via SVG <title>. Built from this SKU's
+            perTier slices in tier-sort-order; tiers with no revenue
+            render as gaps in the line (no circle, line breaks). */}
+        <td className="px-3 py-2 text-right">
+          <MarginSparkline
+            points={sku.perTier.map((pt): SparklinePoint => {
+              const tierMeta = tiers.find((t) => t.tierId === pt.tierId);
+              return {
+                tierId: pt.tierId,
+                tierLabel: tierMeta?.label ?? pt.tierId,
+                marginPct: pt.marginPct,
+                hasRevenue: pt.revenue > 0,
+              };
+            })}
+            activeTierId={activeTierId}
+          />
         </td>
 
         {/* Drawer disclosure trigger: icon-only, derives state from
@@ -229,7 +293,9 @@ export function SkuSummaryRowList({ editable }: { editable: boolean }) {
             <th className="px-3 py-2 text-right">Contribution</th>
             <th className="px-1 py-2" aria-hidden="true" />
             <th className="px-3 py-2 text-right">Required sell</th>
+            <th className="px-3 py-2 text-right">Client target</th>
             <th className="px-3 py-2 text-right">Margin</th>
+            <th className="px-3 py-2 text-right">All tiers</th>
             <th className="px-3 py-2 text-right" aria-label="Expand row" />
           </tr>
         </thead>

@@ -12,6 +12,7 @@ import {
   quotes,
   quoteSkus,
   quoteSkuTiers,
+  quoteSkuTierTargets,
   quoteTiers,
 } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -25,6 +26,8 @@ import { quoteByIdDraft, quoteForSku } from "@/lib/quote-guards";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
   computeQuoteCosting,
+  naiveTierAdjForCostExceedsTarget,
+  suggestTierAdjForClientTarget,
   type QuoteCostingInput,
   type QuoteCostingResult,
 } from "@/lib/costing";
@@ -117,7 +120,7 @@ export async function getQuoteCosting(
       );
     }
 
-    const [skus, tiers, pkgs, prods, frts, mks, cellOvr] = await Promise.all([
+    const [skus, tiers, pkgs, prods, frts, mks, cellOvr, cellTgt] = await Promise.all([
       db
         .select()
         .from(quoteSkus)
@@ -156,6 +159,17 @@ export async function getQuoteCosting(
         })
         .from(quoteSkuTiers)
         .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTiers.quoteSkuId))
+        .where(eq(quoteSkus.quoteId, quoteId)),
+      // Slice 9.4b — sparse load of per-cell client target benchmarks.
+      // Mirror Slice 9.3 cellOverrides query shape.
+      db
+        .select({
+          quoteSkuId: quoteSkuTierTargets.quoteSkuId,
+          tierId: quoteSkuTierTargets.tierId,
+          clientTargetPricePerUnit: quoteSkuTierTargets.clientTargetPricePerUnit,
+        })
+        .from(quoteSkuTierTargets)
+        .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTierTargets.quoteSkuId))
         .where(eq(quoteSkus.quoteId, quoteId)),
     ]);
 
@@ -198,6 +212,11 @@ export async function getQuoteCosting(
         quoteSkuId: c.quoteSkuId,
         tierId: c.tierId,
         sellPriceOverride: num(c.sellPriceOverride),
+      })),
+      cellTargets: cellTgt.map((c) => ({
+        quoteSkuId: c.quoteSkuId,
+        tierId: c.tierId,
+        clientTargetPricePerUnit: num(c.clientTargetPricePerUnit),
       })),
       packaging: pkgs.map((r) => {
         const p = r.packaging_inputs;
@@ -667,6 +686,563 @@ export async function updateSellPriceOverride(
   });
 }
 
+// ---------- mutation: updateClientTarget (Slice 9.4b) ----------
+
+// Per-cell client target benchmark on the (quote_sku, tier) cell.
+// Single action handles set + change + clear via the value-or-null
+// parameter (matches Slice 9.3 `updateSellPriceOverride` pattern;
+// Slice 9.2 `updateTierPriceAdj`; Slice 9.2 `updateQuoteTargetMargin`).
+// One audit row per state change with `action: "cell_target_updated"`;
+// the from/to encodes the transition.
+//
+// DB shape: `quote_sku_tier_targets` is a sparse sister table to
+// `quote_sku_tiers`. Different concern (customer-stated benchmark vs
+// PM-authored override) but identical shape. Lazy rows; NOT NULL on
+// `client_target_price_per_unit` enforces "row exists ⟹ benchmark
+// is set" at the schema level. See CLAUDE.md "Slice 9 pricing-control
+// columns" for the architect's sister-table-vs-single-table rationale.
+//   - value === null  → DELETE the row
+//   - value > 0       → INSERT ON CONFLICT (PK) DO UPDATE
+//   - value <= 0      → reject (action layer guard); zero or negative
+//                       benchmark isn't a legitimate quoting scenario.
+//                       To clear a benchmark, send empty input → null
+//                       → DELETE.
+//
+// Leaf-only invariant — matches Slice 9.3 sell-price-override
+// invariant. Client targets are stated by customers at the SKU level
+// (this surface) or the quote level (Slice 9.4c, separate column on
+// `quote_tiers`). Assembly-level targets are not a real workflow case
+// — surfaced during 9.4b smoke as a workflow correction; the prep PR
+// erroneously shipped assembly support which was stripped before
+// commit. Schema (`quote_sku_tier_targets`) accepts any role, but
+// the runtime guard rejects non-leaf — same posture as
+// `updateSellPriceOverride`.
+//
+// Audit source: no `source` flag. Per CLAUDE.md "Audit source convention"
+// — set/change/clear on the same column = same semantic, share `action`,
+// distinguish via from/to. Source flags reserved for non-default
+// origins (system suggestions, scenario apply, bulk imports).
+export async function updateClientTarget(
+  formData: FormData,
+): Promise<
+  ActionResult<{
+    quoteSkuId: string;
+    tierId: string;
+    clientTargetPricePerUnit: string | null;
+  }>
+> {
+  return runAction(async () => {
+    const quoteSkuId = String(formData.get("quoteSkuId") ?? "").trim();
+    const tierId = String(formData.get("tierId") ?? "").trim();
+    if (!quoteSkuId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteSkuId required");
+    if (!tierId)
+      throw new ActionGuardError(ERR.VALIDATION, "tierId required");
+
+    const user = await ensureUser();
+    // Quote draft + ownership through the SKU. Returns the quote and
+    // sku rows; throws QUOTE_NOT_DRAFT or NOT_FOUND on failure.
+    const { quote, sku } = await quoteForSku(quoteSkuId);
+
+    // Leaf-only invariant. Mirrors Slice 9.3 `updateSellPriceOverride`.
+    // Client targets are SKU-level (this surface) or quote-level (Slice
+    // 9.4c); assembly-level was scope creep removed during 9.4b smoke.
+    if (sku.skuRole !== "leaf") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Client targets only apply to leaf SKUs.",
+      );
+    }
+
+    // Verify tier belongs to the same quote (defense in depth — FK
+    // alone can't catch cross-quote tier IDs).
+    const tierRows = await db
+      .select()
+      .from(quoteTiers)
+      .where(eq(quoteTiers.id, tierId))
+      .limit(1);
+    if (tierRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "Tier not found");
+    if (tierRows[0].quoteId !== quote.id) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Tier does not belong to this quote.",
+      );
+    }
+
+    // Parse the value. Empty input → null → clear; non-empty → numeric.
+    const rawValue = String(
+      formData.get("clientTargetPricePerUnit") ?? "",
+    ).trim();
+    let parsedValue: number | null;
+    if (rawValue === "") {
+      parsedValue = null;
+    } else {
+      const n = Number(rawValue);
+      if (!Number.isFinite(n)) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Client target must be a number.",
+        );
+      }
+      // Reject non-positive values. Mirrors Slice 9.3 sell-override
+      // invariant — non-positive prices break revenue math + reverse-
+      // solve invariants. To clear the target, send empty input.
+      if (n <= 0) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Client target must be greater than zero. To remove a benchmark, clear the field.",
+        );
+      }
+      parsedValue = n;
+    }
+
+    // Read previous value (if any) for the audit diff.
+    const existingRows = await db
+      .select()
+      .from(quoteSkuTierTargets)
+      .where(
+        and(
+          eq(quoteSkuTierTargets.quoteSkuId, quoteSkuId),
+          eq(quoteSkuTierTargets.tierId, tierId),
+        ),
+      )
+      .limit(1);
+    const previousValue =
+      existingRows.length > 0
+        ? existingRows[0].clientTargetPricePerUnit
+        : null;
+
+    // No-op: incoming value matches stored value (within precision).
+    if (numericEquals(previousValue, parsedValue?.toString() ?? null)) {
+      return {
+        quoteSkuId,
+        tierId,
+        clientTargetPricePerUnit: previousValue,
+      };
+    }
+
+    let storedValue: string | null;
+    if (parsedValue === null) {
+      // Clear: DELETE the row. The no-op short-circuit above already
+      // handled the "nothing to clear" case; reaching here means a
+      // row exists.
+      await db
+        .delete(quoteSkuTierTargets)
+        .where(
+          and(
+            eq(quoteSkuTierTargets.quoteSkuId, quoteSkuId),
+            eq(quoteSkuTierTargets.tierId, tierId),
+          ),
+        );
+      storedValue = null;
+    } else {
+      // Set or update: INSERT ON CONFLICT. Composite PK is conflict target.
+      const stored = parsedValue.toString();
+      await db
+        .insert(quoteSkuTierTargets)
+        .values({
+          quoteSkuId,
+          tierId,
+          clientTargetPricePerUnit: stored,
+        })
+        .onConflictDoUpdate({
+          target: [
+            quoteSkuTierTargets.quoteSkuId,
+            quoteSkuTierTargets.tierId,
+          ],
+          set: { clientTargetPricePerUnit: stored, updatedAt: new Date() },
+        });
+      storedValue = stored;
+    }
+
+    // Audit. entity_id is the synthesized composite key (text per
+    // CLAUDE.md "audit_log.entity_id is text"). entity_type is
+    // "quote_sku_tier_target" — distinct from "quote_sku_tier" used
+    // by sell-price overrides — so audit timeline queries can filter
+    // benchmark changes from override changes natively.
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_sku_tier_target",
+      entityId: `${quoteSkuId}:${tierId}`,
+      action: "cell_target_updated",
+      diffJson: {
+        quote_sku_id: quoteSkuId,
+        tier_id: tierId,
+        client_target_price_per_unit: {
+          from: previousValue,
+          to: storedValue,
+        },
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, quote.id);
+
+    return {
+      quoteSkuId,
+      tierId,
+      clientTargetPricePerUnit: storedValue,
+    };
+  });
+}
+
+// ---------- mutation: applyClientTargetSolveTierAdj (Slice 9.4b) ----------
+
+// Apply path for the per-(SKU, tier) "match client target" reverse-solve.
+// Mirrors Slice 9.2's `applySuggestedGlobalAdj` precedent (same shape,
+// different surface/origin):
+//   - Writes `quote_tiers.tier_price_adj_pct` (same column the manual
+//     `updateTierPriceAdj` writes)
+//   - Audit row: `action: "tier_price_adj_updated"` (same as manual);
+//     `diff_json.source: "client_target_solve"` (namespaced — per
+//     CLAUDE.md "Audit source convention", reserved for THIS surface;
+//     future cell-level reverse-solves get distinct values)
+//   - Forensic field `diff_json.solve_origin_sku_id` captures which
+//     cell drove the solve (the `(quoteSkuId, tierId)` cell that the
+//     PM clicked Apply on). Aids "where did this tier-adj come from"
+//     audit-trail reads.
+//
+// Server re-derives the suggested value by re-running
+// `suggestTierAdjForClientTarget` against freshly-loaded costing state.
+// FormData-supplied `suggestedAdj` is compared to the server's
+// re-derived value within precision tolerance; rejected if they
+// disagree (defense against forged FormData per architect Q4 sign-off).
+//
+// Form contract: `quoteId`, `tierId`, `suggestedSkuId` (the cell that
+// drove the solve — for forensic + re-derivation), `suggestedAdj`
+// (numeric percent display, e.g., "5.5" for 5.5%; same convention as
+// the manual updateTierPriceAdj input).
+export async function applyClientTargetSolveTierAdj(
+  formData: FormData,
+): Promise<
+  ActionResult<{
+    quoteId: string;
+    tierId: string;
+    tierPriceAdjPct: string;
+  }>
+> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    const tierId = String(formData.get("tierId") ?? "").trim();
+    const suggestedSkuId = String(formData.get("suggestedSkuId") ?? "").trim();
+    const suggestedAdjRaw = String(formData.get("suggestedAdj") ?? "").trim();
+
+    if (!quoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+    if (!tierId)
+      throw new ActionGuardError(ERR.VALIDATION, "tierId required");
+    if (!suggestedSkuId)
+      throw new ActionGuardError(ERR.VALIDATION, "suggestedSkuId required");
+    if (!suggestedAdjRaw)
+      throw new ActionGuardError(ERR.VALIDATION, "suggestedAdj required");
+
+    const suggestedAdjFromForm = Number(suggestedAdjRaw);
+    if (!Number.isFinite(suggestedAdjFromForm)) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "suggestedAdj must be a number.",
+      );
+    }
+
+    const user = await ensureUser();
+    const quote = await quoteByIdDraft(quoteId);
+
+    // Load full costing state — same load shape as getCostingBundle.
+    // Inline duplication is acceptable for Slice 9.4b's scope; backlog
+    // entry exists to extract `loadCostingState(quoteId)` shared helper
+    // when a third call site emerges.
+    const fsRows = await db
+      .select()
+      .from(firmSettings)
+      .where(isNull(firmSettings.effectiveUntil))
+      .orderBy(desc(firmSettings.effectiveFrom))
+      .limit(1);
+    const fs = fsRows[0];
+    if (!fs) {
+      throw new ActionGuardError(
+        ERR.NOT_FOUND,
+        "firm_settings has no current row.",
+      );
+    }
+    const [skus, tiersFresh, pkgs, prods, frts, mks, cellOvr, cellTgt] =
+      await Promise.all([
+        db
+          .select()
+          .from(quoteSkus)
+          .where(eq(quoteSkus.quoteId, quoteId))
+          .orderBy(asc(quoteSkus.sortOrder), asc(quoteSkus.createdAt)),
+        db
+          .select()
+          .from(quoteTiers)
+          .where(eq(quoteTiers.quoteId, quoteId))
+          .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt)),
+        db
+          .select()
+          .from(packagingInputs)
+          .innerJoin(quoteSkus, eq(quoteSkus.id, packagingInputs.quoteSkuId))
+          .where(eq(quoteSkus.quoteId, quoteId)),
+        db
+          .select()
+          .from(productionInputs)
+          .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
+          .where(eq(quoteSkus.quoteId, quoteId)),
+        db
+          .select()
+          .from(freightInputs)
+          .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
+          .where(eq(quoteSkus.quoteId, quoteId)),
+        db.select().from(markupDefaults),
+        db
+          .select({
+            quoteSkuId: quoteSkuTiers.quoteSkuId,
+            tierId: quoteSkuTiers.tierId,
+            sellPriceOverride: quoteSkuTiers.sellPriceOverride,
+          })
+          .from(quoteSkuTiers)
+          .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTiers.quoteSkuId))
+          .where(eq(quoteSkus.quoteId, quoteId)),
+        db
+          .select({
+            quoteSkuId: quoteSkuTierTargets.quoteSkuId,
+            tierId: quoteSkuTierTargets.tierId,
+            clientTargetPricePerUnit:
+              quoteSkuTierTargets.clientTargetPricePerUnit,
+          })
+          .from(quoteSkuTierTargets)
+          .innerJoin(
+            quoteSkus,
+            eq(quoteSkus.id, quoteSkuTierTargets.quoteSkuId),
+          )
+          .where(eq(quoteSkus.quoteId, quoteId)),
+      ]);
+
+    const markupMap: Record<string, number> = Object.fromEntries(
+      mks.map((m) => [m.category, Number(m.defaultMarkupPct)]),
+    );
+
+    const input: QuoteCostingInput = {
+      quote: {
+        id: quote.id,
+        globalPriceAdjPct: num(quote.globalPriceAdjPct),
+        targetMarginPct: numOrNull(quote.targetMarginPct),
+      },
+      firmSettings: {
+        targetMarginPct: num(fs.targetMarginPct),
+        floorMarginPct: num(fs.floorMarginPct),
+      },
+      markupDefaults: markupMap,
+      skus: skus.map((s) => ({
+        id: s.id,
+        parentSkuId: s.parentSkuId,
+        qtyPerParent: numOrNull(s.qtyPerParent),
+        skuRole: s.skuRole as "leaf" | "assembly",
+        skuLabel: s.skuLabel,
+        productName: s.productName,
+        sortOrder: s.sortOrder,
+        dutyPct: numOrNull(s.dutyPct),
+        tariffPct: numOrNull(s.tariffPct),
+      })),
+      tiers: tiersFresh.map((t) => ({
+        id: t.id,
+        label: t.label,
+        qty: t.qty,
+        sortOrder: t.sortOrder,
+        tierPriceAdjPct: numOrNull(t.tierPriceAdjPct),
+      })),
+      cellOverrides: cellOvr.map((c) => ({
+        quoteSkuId: c.quoteSkuId,
+        tierId: c.tierId,
+        sellPriceOverride: num(c.sellPriceOverride),
+      })),
+      cellTargets: cellTgt.map((c) => ({
+        quoteSkuId: c.quoteSkuId,
+        tierId: c.tierId,
+        clientTargetPricePerUnit: num(c.clientTargetPricePerUnit),
+      })),
+      packaging: pkgs.map((r) => {
+        const p = r.packaging_inputs;
+        return {
+          quoteSkuId: p.quoteSkuId,
+          tierId: p.tierId,
+          lineGroupId: p.lineGroupId,
+          unitCost: numOrNull(p.unitCost),
+          qtyPerSellableUnit: numOrNull(p.qtyPerSellableUnit),
+          category: p.category,
+          markupPct: numOrNull(p.markupPct),
+        };
+      }),
+      production: prods.map((r) => {
+        const p = r.production_inputs;
+        return {
+          quoteSkuId: p.quoteSkuId,
+          tierId: p.tierId,
+          customerShipsRaws: p.customerShipsRaws,
+          allocateServiceFeesToCost: p.allocateServiceFeesToCost,
+          fillingBlendingCost: numOrNull(p.fillingBlendingCost),
+          cmAssemblyTotal: numOrNull(p.cmAssemblyTotal),
+          setupFeeTotal: numOrNull(p.setupFeeTotal),
+          toolingArtworkTotal: numOrNull(p.toolingArtworkTotal),
+          rdTotal: numOrNull(p.rdTotal),
+          otherServiceTotal: numOrNull(p.otherServiceTotal),
+          bulkRawCost: numOrNull(p.bulkRawCost),
+          actualUnitsProduced: p.actualUnitsProduced,
+        };
+      }),
+      freight: frts.map((r) => {
+        const f = r.freight_inputs;
+        return {
+          quoteSkuId: f.quoteSkuId,
+          tierId: f.tierId,
+          lineGroupId: f.lineGroupId,
+          totalFreight: numOrNull(f.totalFreight),
+          unitsInShipment: f.unitsInShipment,
+          skuTotalCbm: numOrNull(f.skuTotalCbm),
+          markupPct: numOrNull(f.markupPct),
+          freightTreatment: f.freightTreatment,
+        };
+      }),
+    };
+
+    // Defense in depth — leaf-only invariant on the origin cell.
+    // `updateClientTarget` already rejects assembly writes, so any
+    // assembly-origin solve must be forged FormData. Same posture as
+    // updateClientTarget's leaf guard.
+    const originSku = skus.find((s) => s.id === suggestedSkuId);
+    if (!originSku) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "Origin SKU not found.");
+    }
+    if (originSku.skuRole !== "leaf") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Reverse-solve origin must be a leaf SKU.",
+      );
+    }
+
+    // Re-run the costing math + reverse-solve helper against fresh state.
+    const costing = computeQuoteCosting(input);
+    const solveResult = suggestTierAdjForClientTarget(
+      suggestedSkuId,
+      tierId,
+      costing,
+      input,
+    );
+
+    // Branch on solve result. Three outcomes:
+    //   1. ok=true                       → use suggestedTierAdj
+    //   2. ok=false, cost_exceeds_target → mirror cell.tsx consequence
+    //      path: compute naive solution. Per Edward's pressure-test
+    //      resolution, this case is applyable with explicit consequence
+    //      framing on the dialog. The math layer's
+    //      `suggestTierAdjForClientTarget` stops at the guard; the
+    //      naive helper does the rest.
+    //   3. ok=false, any other reason    → genuine refusal, throw.
+    let serverDerived: number;
+    if (solveResult.ok) {
+      serverDerived = solveResult.suggestedTierAdj;
+    } else if (solveResult.reason === "cost_exceeds_target") {
+      // Re-derive base from fresh costing state; mirror cell.tsx
+      // consequence-branch logic exactly.
+      const skuRollup = costing.skuRollups.find(
+        (r) => r.skuId === suggestedSkuId,
+      );
+      const cell = skuRollup?.perTier.find((p) => p.tierId === tierId);
+      const tierRow = input.tiers.find((t) => t.id === tierId);
+      const cellTargetEntry = input.cellTargets.find(
+        (c) => c.quoteSkuId === suggestedSkuId && c.tierId === tierId,
+      );
+      if (!cell || !tierRow || !cellTargetEntry) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Cell state mismatch during cost-exceeds-target solve. Refresh and re-apply.",
+        );
+      }
+      const currentTierAdj =
+        tierRow.tierPriceAdjPct !== null && tierRow.tierPriceAdjPct !== undefined
+          ? Number(tierRow.tierPriceAdjPct)
+          : input.quote.globalPriceAdjPct;
+      const denom = 1 + currentTierAdj;
+      if (denom === 0) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Singular tier-adj denominator; cannot solve.",
+        );
+      }
+      const base = cell.computedSellPerUnit / denom;
+      const naive = naiveTierAdjForCostExceedsTarget(
+        base,
+        cellTargetEntry.clientTargetPricePerUnit,
+      );
+      if (naive === null) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Solution out of range for cost-exceeds-target case.",
+        );
+      }
+      serverDerived = naive;
+    } else {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Reverse-solve failed: ${solveResult.reason}. Cell state may have changed since the suggestion was computed; refresh and try again.`,
+      );
+    }
+
+    // Defense against forged FormData: server-derived value MUST match
+    // the FormData-supplied value within float precision tolerance.
+    // Tolerance 0.0001 = 0.01pp (one-hundredth of a percent point) —
+    // enough margin for client/server JS number serialization round-
+    // trips, tight enough to catch any forged value.
+    if (Math.abs(serverDerived - suggestedAdjFromForm) > 0.0001) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Suggested adj value does not match server-derived solution. Refresh and re-apply.",
+      );
+    }
+
+    // Read previous tier_price_adj_pct for audit diff.
+    const prevTier = tiersFresh.find((t) => t.id === tierId);
+    if (!prevTier) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "Tier not found.");
+    }
+    const previousAdj = prevTier.tierPriceAdjPct;
+    const stored = serverDerived.toString();
+
+    // No-op short-circuit: server-derived value matches existing
+    // tier_price_adj_pct already.
+    if (numericEquals(previousAdj, stored)) {
+      return { quoteId, tierId, tierPriceAdjPct: stored };
+    }
+
+    await db
+      .update(quoteTiers)
+      .set({ tierPriceAdjPct: stored, updatedAt: new Date() })
+      .where(eq(quoteTiers.id, tierId));
+
+    // Audit. Same `action` as manual updateTierPriceAdj; namespaced
+    // `source` distinguishes the apply-path origin. `solve_origin_sku_id`
+    // is the forensic field architect Q4 specified — captures which
+    // cell drove the solve so audit-trail reads can answer "where did
+    // this tier-adj come from."
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_tier",
+      entityId: tierId,
+      action: "tier_price_adj_updated",
+      diffJson: {
+        tier_price_adj_pct: {
+          from: previousAdj,
+          to: stored,
+        },
+        source: "client_target_solve",
+        solve_origin_sku_id: suggestedSkuId,
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, quote.id);
+
+    return { quoteId, tierId, tierPriceAdjPct: stored };
+  });
+}
+
 // ---------- read action: getCostingBundle ----------
 
 // Returns the HydrateSnapshot needed to seed the client-side Zustand store
@@ -709,7 +1285,7 @@ export async function getCostingBundle(
       );
     }
 
-    const [skus, tiers, pkgs, prods, frts, mks, cellOvr] = await Promise.all([
+    const [skus, tiers, pkgs, prods, frts, mks, cellOvr, cellTgt] = await Promise.all([
       db
         .select()
         .from(quoteSkus)
@@ -745,6 +1321,16 @@ export async function getCostingBundle(
         })
         .from(quoteSkuTiers)
         .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTiers.quoteSkuId))
+        .where(eq(quoteSkus.quoteId, quoteId)),
+      // Slice 9.4b — sparse load of cell-level client target benchmarks.
+      db
+        .select({
+          quoteSkuId: quoteSkuTierTargets.quoteSkuId,
+          tierId: quoteSkuTierTargets.tierId,
+          clientTargetPricePerUnit: quoteSkuTierTargets.clientTargetPricePerUnit,
+        })
+        .from(quoteSkuTierTargets)
+        .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTierTargets.quoteSkuId))
         .where(eq(quoteSkus.quoteId, quoteId)),
     ]);
 
@@ -828,6 +1414,12 @@ export async function getCostingBundle(
       tierId: c.tierId,
       sellPriceOverride: num(c.sellPriceOverride),
     }));
+    // Slice 9.4b — sparse client target benchmarks; same shape pattern.
+    const cellTargetList = cellTgt.map((c) => ({
+      quoteSkuId: c.quoteSkuId,
+      tierId: c.tierId,
+      clientTargetPricePerUnit: num(c.clientTargetPricePerUnit),
+    }));
 
     const input: QuoteCostingInput = {
       quote: {
@@ -846,6 +1438,7 @@ export async function getCostingBundle(
       production: productionList,
       freight: freightList,
       cellOverrides: cellOverrideList,
+      cellTargets: cellTargetList,
     };
 
     const result = computeQuoteCosting(input);
@@ -863,6 +1456,7 @@ export async function getCostingBundle(
       production: productionList,
       freight: freightList,
       cellOverrides: cellOverrideList,
+      cellTargets: cellTargetList,
       costing: result,
     };
 
