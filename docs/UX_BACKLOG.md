@@ -5,6 +5,16 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Cross-round reconciliation revalidation queue]
+
+  **Slice:** Redesign-implementation (per-sub-slice)
+
+  **What:** Provisional dispositions in `docs/cross-round-reconciliation.md` (CR-2 through CR-10) need Edward's visual revalidation when the affected surfaces ship. CR-2 (no breadcrumbs in v1) verified at RI.2; CR-4 (Settings = admin only) verified at RI.7; CR-10 (minimal topbar) verified at RI.3 + RI.4; CR-3, CR-5, CR-6, CR-8 as relevant surfaces ship.
+
+  **Where designed:** Pre-RI.1 cross-round reconciliation pass.
+
+  **Why log it:** Operational reminder, not a feature commitment. Edward smokes affected surfaces; provisional disposition either confirms (becomes decided) or refines. Tracked in reconciliation doc; flagged here so it doesn't get lost in slice momentum.
+
 - [Competitive verdict epsilon — "OVER TARGET BY $0.00" after reverse-solve apply]
   Slice 9.4b's reverse-solve apply path (cell client target → tier
   adjustment) lands `requiredSellPerUnit` at-or-very-near the client
@@ -65,9 +75,9 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
   **Effort.** Tokens-only change. Probably 1-2 hours of designer time + 1 hour of build implementation time when redesign-implementation slice ships. CSS variable updates plus visual verification across representative surfaces. No re-rendering of design rounds required.
 
-  **When this lands.** Implementation time during redesign-implementation slice. The slice itself will rebuild surfaces using the corrected tokens, so the tuning ships as part of the build, not a separate post-build polish pass.
+  **When this lands.** **RI.0 (token foundation sub-slice)** per the amended redesign-implementation brief. RI.0 ports CD's `:root` block verbatim into `globals.css` / `src/styles/design-tokens.css`, configures Tailwind v4 `@theme`, loads Newsreader / Instrument Sans / JetBrains Mono via `next/font`, and implements the dark-mode `--ink-4` luminance lift + per-component cost stack color luminance review. RI.8 (final polish) verifies legibility holds across all rebuilt surfaces.
 
-  **Why deferred to implementation.** The fix is small enough to handle as part of build rather than a separate pre-build CD round. Build engineer + Edward verify dark-mode legibility against representative surfaces during smoke tests; tune iteratively if needed.
+  **Why deferred to implementation.** The fix is small enough to handle as part of build rather than a separate pre-build CD round. Designer audits the rendered Slice 9.4b surface post-token-port to verify tokens flow through correctly (this is the calibration pause point for the whole slice's visual baseline).
 
 - [Mini-stack engagement instrumentation on Cost Build section rows]
 
@@ -1233,12 +1243,14 @@ names are illustrative; final names land at implementation time.
    libraries (cmdk, kbar) handle most of it. Cost: ~1–2 sessions.
 
 7. **Owner-badge convention**
-   *(Round 2 → redesign-slice or trivially anywhere prior)*
+   *(Round 2 → in progress in RI.4)*
    Owner badges on Cost Build sections ("OWNED BY PURCHASING",
    "OWNED BY PRODUCTION", "OWNED BY LOGISTICS"). Derived from
    static mapping of `users.role` to cost-input-table ownership.
    Surfaces implicit role assignments without making each role's
-   view siloed. Cost: ~1 hour. Trivially shippable.
+   view siloed. Cost: ~1 hour. Round 6 designs section-row owner
+   badges directly; ships as part of RI.4 (Cost Build unification)
+   per the redesign-implementation brief.
 
 8. **Mark-Accepted gate visibility on Costing Sheet**
    *(Round 2 → Slice 12 spec — see SPEC FR-9)*
@@ -1249,14 +1261,16 @@ names are illustrative; final names land at implementation time.
    work; clarifies FR-9 UX surface.
 
 9. **Slice 9.3 reframe — per-cell sell override**
-   *(Round 2 plan note)*
+   *(Round 2 plan note → Slice 9.3, shipped)*
    Slice 9.3 was originally framed as "markup-driven vs
    margin-driven view toggle + per-line sell-price override," with
    toggle implying global edit mode. Per CD pushback: global mode
    dropped. Every sell-price cell is click-to-override; NULL =
    computed; non-NULL = overridden, badged "OVR" with ↺ revert.
-   Schema unchanged: `quote_sku_tiers.sell_price_override`
-   (nullable). The reframe lands naturally when Slice 9.3 is built.
+   Schema: `quote_sku_tiers.sell_price_override` NOT NULL on the
+   sparse table (lazy-row pattern; row exists ⟹ override is set).
+   **Shipped as designed in Slice 9.3 + Slice 9.4a per-SKU summary
+   row UI wiring; preserved through 9.4b client target work.**
 
 10. **Role-as-affordance architectural principle**
     *(Round 2 → CLAUDE.md — see "Role gating — affordance, not architecture")*
@@ -1438,6 +1452,88 @@ names are illustrative; final names land at implementation time.
     Optimistic store already supports the data path; this is a CC
     implementation detail at slice time. CD's design specifies the
     animation grammar.
+
+### Round 4 commitments
+
+29. **Cross-project picker scaling for 60+ historical projects**
+    *(Round 4 → backlog; surface before history accumulates)*
+    Round 4 commitment carried forward in the redesign-implementation
+    brief §9 deferrals. When a user has 60+ projects in their
+    history, the cross-project Copy picker becomes unwieldy.
+    Solutions to evaluate when surfacing: pagination, MRU
+    compression, archive-by-default, search-first interaction
+    model. Not a v1 concern; flagged so it surfaces before real
+    history depth makes the pattern unusable.
+
+### Round 6 commitments
+
+30. **Cost stack lens toggle (absolute vs normalized)**
+    *(Round 6 designer notes pushback #3 → backlog)*
+    Defer until real PM use surfaces confusion about whether the
+    cost stack reads as absolute dollars or normalized to a
+    baseline. If telemetry/feedback indicates confusion, add a
+    toggle (e.g., "Show: absolute / normalized to T1 / normalized
+    to component"). Round 6 design ships absolute-only; this entry
+    captures the deferred polish path.
+
+31. **Per-section approval workflow on Cost Build**
+    *(Round 6 deferred → backlog)*
+    PMs may want to mark sections as "approved by purchasing" or
+    similar before the Costing Sheet renders the contribution from
+    that section. Defer until real PM workflow surfaces the need.
+    Schema implication: `cost_section_meta.approval_status` enum +
+    `approved_by_user_id` + `approved_at` (per-section variant of
+    the existing approval pattern). No design exists yet; future
+    Designer-extension work when the use case materializes.
+
+32. **Inventory pool cross-project surface**
+    *(Round 6 deferred → backlog)*
+    Inventory-eligible items currently flagged on individual lines
+    (`packaging_inputs.inventory_eligible` + related). A cross-
+    project "what's in inventory across all my active quotes"
+    surface — answering "do I have stock for this new quote
+    elsewhere?" — is a separate workflow that hasn't been
+    designed. Surface concept logged for future design round.
+    Likely Slice 15+ territory.
+
+33. **Empty-state line templates pre-fill**
+    *(Round 6 deferred → backlog)*
+    When a PM adds a new packaging or production line, pre-fill
+    common shapes (e.g., "primary packaging — bottle" template
+    with fields hinted: name slot, supplier slot, typical markup
+    category). Quality-of-life improvement; defer until real PM
+    frustration with empty rows surfaces. Not a feature commitment;
+    UX polish.
+
+34. **Cross-section deposit lifecycle UI polish**
+    *(Round 6 + Bulk Raw correction → post-MVP)*
+    The deposit lifecycle (DUE / INVOICED / PAID / RECONCILED)
+    ships in RI.4 with basic visual treatment (chips on Production
+    + Bulk Raw section headers per Round 6 design). Polish pass —
+    receipt attachments, invoice number formatting, deposit-paid
+    notification flow, automatic reconciliation match against
+    HubSpot/NetSuite — deferred to post-MVP. Logged so the polish
+    work doesn't get lost and so future schema additions
+    (`deposit_invoice_attachments` table or similar) have a
+    capture point.
+
+### Late carry-over (Round 2 sign-off)
+
+35. **Slack admin-override workflow**
+    *(Round 2 → Slice 12)*
+    When Costing Sheet is BELOW FLOOR and PM clicks "Request admin
+    override," a Slack DM goes to the configured approver
+    (director or above — e.g. `@nina (director)` or
+    `@sales-leadership` channel). Approver responds in Slack with
+    approve/deny + written reason. Approval logs to the quote's
+    audit log with `approver_user_id`, `reason`, `ts`.
+    Mark-Accepted unlocks for that quote until next material
+    change. Promoted from "design intent" to "Slice 12 spec" at
+    Round 2 close. Slack matches DPS's actual approval rhythm.
+    Implements as the real override workflow when Mark-Accepted
+    writeback ships in Slice 12. Carries forward CD bundle entry
+    that wasn't previously merged into the project's working
+    UX_BACKLOG; surfaced during post-Round-6 consolidation pass.
 
 ## Resolved
 
