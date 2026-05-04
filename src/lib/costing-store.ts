@@ -211,6 +211,16 @@ export type CostingStoreState = {
     tierId: string,
     value: number | null,
   ) => void;
+  // Slice 9.4c — quote-level (per-tier) client target. Direct column
+  // on `quote_tiers.client_target_price_total` (NOT lazy-row sister
+  // table). value === null clears the slot in `quoteTierTargets`;
+  // value > 0 upserts. Action layer rejects value <= 0; store doesn't
+  // enforce here. Recompute fires so the verdict pill on
+  // QuoteSummaryCard + reconciliation status re-classify optimistically.
+  updateQuoteLevelClientTarget: (
+    tierId: string,
+    value: number | null,
+  ) => void;
   // Slice 9.4a — view-state mutator. Sets the active-tier selection.
   // Pure mutation; no side effects. URL sync is the caller's
   // responsibility (selector click handler + ActiveTierUrlSync
@@ -641,6 +651,27 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         };
       }),
 
+    // Slice 9.4c — quote-level (per-tier) client target. value === null
+    // clears the slot; value > 0 upserts. Mirrors updateCellTarget shape
+    // (filter + replace) — quoteTierTargets is a sparse list keyed on
+    // tierId. Recompute fires so quote-level verdict + reconciliation
+    // re-classify optimistically.
+    updateQuoteLevelClientTarget: (tierId, value) =>
+      set((s) => {
+        const filtered = s.quoteTierTargets.filter(
+          (t) => t.tierId !== tierId,
+        );
+        const quoteTierTargets =
+          value === null
+            ? filtered
+            : [...filtered, { tierId, clientTargetPriceTotal: value }];
+        return {
+          quoteTierTargets,
+          ...recompute({ ...s, quoteTierTargets }),
+          lastUserEditAt: Date.now(),
+        };
+      }),
+
     // Slice 9.4a — view-state mutator for the active-tier selection.
     // Pure mutation; no costing recompute (active tier doesn't affect
     // math, only which tier's slice the UI surfaces). Does NOT stamp
@@ -790,6 +821,19 @@ export const selectCellOverride =
 // Slice 9.4b — per-cell client target action selector.
 export const selectUpdateCellTarget = (s: CostingStoreState) =>
   s.updateCellTarget;
+
+// Slice 9.4c — quote-level (per-tier) client target action selector.
+export const selectUpdateQuoteLevelClientTarget = (s: CostingStoreState) =>
+  s.updateQuoteLevelClientTarget;
+
+// Slice 9.4c — single-tier quote-level target value selector. Returns
+// the dollar value when set, null when no quote-level target on this
+// tier. Curried so consumers subscribe only to their tier.
+export const selectQuoteLevelClientTarget =
+  (tierId: string) => (s: CostingStoreState) => {
+    const t = s.quoteTierTargets.find((t) => t.tierId === tierId);
+    return t ? t.clientTargetPriceTotal : null;
+  };
 
 // Slice 9.4b — single-cell client target value selector. Returns the
 // target number when set, null when no benchmark on this cell. Curried
