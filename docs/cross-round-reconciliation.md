@@ -291,6 +291,123 @@ The pattern: when italic-display renders in a card/header position (room organiz
 
 These haven't surfaced yet but are likely to during build. Pre-flagged so Designer + CC know they're coming:
 
+### CR-13. Cost stack header structural fidelity — per-tier columns + segmented bars
+
+**The inconsistency.** RI.4 initial implementation rendered the cost stack header as horizontal rows-spanning-tiers (components as primary axis); CD's R6 source uses the opposite: per-tier columns as primary axis, components stack vertically inside each column. Plus the bar element was single-segment (cost only); R6's `.r6-bar` grammar (R2 source verbatim, R6 inherits per brief §3.3) is two segments: `seg.cost` solid component color + `seg.markup` same-color hatched overlay with 1px dashed white separator. Edward smoke caught both gaps; Designer Pattern 2 produced the reshape spec; CC implements per CD's named class structure.
+
+**Disposition: COST STACK HEADER USES R6 NAMED-CLASS STRUCTURE — `.r6-stack-grid` (rail + N tier columns) > `.r6-tier-col` (head + bars + foot per tier) > `.r6-comp-row` (one per component) > `.r6-bar` (with `seg.cost` + `seg.markup` children). Per-tier columns are the primary spatial axis. Active-tier highlight is whole-column via inset box-shadow + accent-soft tint.**
+
+**Source access (corrected May 2026):** R6 was shipped as a bundled HTML file (`docs/design-prototypes/dist/Nexus Round 6.html`) with assets inside `<script type="__bundler/manifest">` chunks (base64-gzipped). CD did NOT ship un-bundled source for Round 6 (Rounds 1, 2, 2.5 had it under `source/round-N/`; Rounds 3, 4, 5, 6 didn't). The bundle is opaque to grep / Read / Glob.
+
+**Extracted source now lives at `docs/design-prototypes/dist/source/round-6/`** (recovered programmatically via `scripts/extract-r6-source.mjs`; see that directory's README). This contains the rendered DOM + inline `<style>` blocks (`index.html`, ~117KB, 753 CSS class definitions) plus 11 named `.jsx` modules (`cost-build-page.jsx`, `section-summary-row.jsx`, `cost-stack-header.jsx`, four drawer files, etc.). **All Designer + CC audits against R6 must read this directory directly**; the prose `dist/docs/r6-designer-notes.md` is supplemental, not a substitute for the rendered source.
+
+**Specifics:**
+
+- **R6 actual CSS class vocabulary is UNPREFIXED.** R6 source uses `.chip`, `.stack`, `.cell`, `.section-row`, `.sku-row`, `.tier-col`, etc. — NOT the `r6-` synthetic prefix the initial RI.4 implementation invented. The synthetic-class list this section originally carried (`.r6-stack-grid`, `.r6-row-rail`, `.r6-tier-col`, etc.) was a Designer convention adopted before extraction was possible; it should be reconciled toward R6's actual class names during the next implementation sweep. Any future audit-finding-implementation cycle on this surface MUST cite specific R6 class names from the extracted source, not the synthetic prefix.
+
+- **Component → color token mapping** (R2 source canonical, R6 inherits):
+  - PKG = `var(--accent)` (indigo)
+  - PROD = `var(--good)` (teal-green)
+  - RAW = `var(--good)` (PROD child; same family)
+  - FRT = `var(--freight)` (cyan-teal; **NEW token** added to design-tokens.css per Designer recommendation — codebase previously collapsed PROD + FRT to `--good`, losing R2's three-component-color distinction)
+  - D+T = `var(--internal)` (customer-invisible purple)
+  - PASS = `var(--ink-3)` at `opacity: 0.55` + italic right-side amount label (passthrough is not marked up; visually de-emphasized)
+
+- **Segmented bar grammar** (R2 source verbatim — `source/round-2/app/r2/styles.css` lines 381-456 — R6 inherits per brief §3.3 line 333 "markup hatched extensions"):
+  - `seg.cost` — solid component color, full opacity, width = `cost / maxTotalCost × barWidth`
+  - `seg.markup` — same component color base + 45° hatched overlay via `repeating-linear-gradient(45deg, rgba(255,255,255,0.20) 0 4px, rgba(255,255,255,0) 4px 8px)` + `border-left: 1px dashed rgba(255,255,255,0.40)` separator
+  - PASS has no `seg.markup` (passthrough is never marked up)
+
+- **V1 limitation — segment population:** cost-rollup math layer's `QuoteCostBreakdown` exposes the SUM of `cost × (1 + markup)` per component (already-amortized). Splitting cost vs markup requires math-layer extension. For v1, `seg.cost` renders the FULL value; `seg.markup` renders empty. Bar STRUCTURE has both segments wired so that when the math layer extension lands (UX_BACKLOG entry "Cost rollup component breakout for RAW + D+T + PASS rows" extended to include cost-vs-markup split), only the per-component value derivation changes; the visual layer is already correct.
+
+- **Active-tier highlight** is whole-column via `style={{ backgroundColor: "var(--accent-soft)", boxShadow: "inset 2px 0 0 var(--accent), inset -2px 0 0 var(--accent)" }}`. Inset box-shadow over border avoids layout shift when the active flips. Cell-level `bg-accent-soft/30` (CC's prior implementation) removed.
+
+- **Live animation** preserved per R2 commitment + R6 carries-forward: `transition-all duration-200 ease-out` on each `seg-cost` + `seg-markup` width.
+
+- **6-row case (raws_mode = dps_sources):** RAW row inserted between PROD and FRT; rail label uses `.r6-rail-row-child` modifier (indent + `└` parenting tick + `text-ink-4` desaturated); tier column body bars stay flush left. When `raws_mode !== "dps_sources"`, RAW row hidden from both rail and tier column bodies (no skeleton row).
+
+- **Adjustment row in footer:** spec'd as conditional render when `tier.adjustment_per_unit !== 0`, but the cost-rollup doesn't expose per-tier adjustment per-unit cleanly today. Omitted entirely for v1; UX_BACKLOG entry covers the math-layer addition + rendering when it surfaces.
+
+**FRT color token addition (codebase change):**
+- `design-tokens.css` adds `--freight: oklch(0.55 0.10 195)` (light) + `--freight: oklch(0.78 0.10 195)` (dark) plus `--freight-soft` variants
+- `globals.css` `@theme` exposes `--color-freight` + `--color-freight-soft` for Tailwind utility access (`bg-freight`, `text-freight`, etc. — none consumed yet outside cost stack header; available for future surfaces that need the freight hue)
+
+**Working pattern established (Edward directive, RI.4):**
+For any net-new visual surface in the redesign-implementation slice, CC reads CD's prototype HTML first, identifies CD's named CSS classes, and builds against the same structural hierarchy. Brief is a navigation aid pointing to which round + section applies; CD's HTML defines what to build. Brief amendments to §0.5 + Designer prompt landed alongside this CR (effective for RI.5 onward; applied to this in-flight reshape as well).
+
+**Decided by:** Designer Pattern 2 + Edward + CA, May 2026, RI.4 block-boundary smoke item (c). Reference: Designer extension memo (full structural spec); Edward's directive on R6-source-as-authoritative; brief §0.5 amendment; Designer agent prompt amendment; R2 source CSS for segmented bar grammar (`source/round-2/app/r2/styles.css:381-456`).
+
+**Amendment (May 2026, RI.4 block-boundary smoke item d) — section row alignment + active-tier propagation:**
+
+After the cost stack header reshape landed correctly, smoke surfaced a second structural-fidelity gap: section rows below (collapsed Production / Bulk Raw / Freight rows) carried right-edge mini-stacks at a different rhythm than the cost stack header above. R6 commitment "tiers are columns everywhere" means tier-column geometry must propagate down through every surface that lives below the cost stack — not just exist within the cost stack itself. Designer Pattern 2 audit produced the extension spec; CC implemented in the same block PR.
+
+Specifics:
+
+- **Aligned-but-distinct, NOT unified grid.** Section rows are their own `.r6-section-row` block; tier-column geometry is shared via a page-level `tierColumnsTemplate` derived value (`repeat(N, minmax(160px, 1fr))`) passed to `<CostStackHeader>` and every `<SectionWithDrilldown>`. Each surface owns its block; forcing section rows into `.r6-stack-grid` would distort `.r6-row-rail`'s purpose or fragment the namespace.
+
+- **Three-region grid for section row** using CSS `contents` keyword for the tier-cells wrapper (so children participate directly in the parent grid): `gridTemplateColumns: "minmax(180px, 1.2fr) ${tierColumnsTemplate} auto"` — left region (chevron + name + sublabel), middle region (N tier cells inline via `display: contents`), right region (status chip + deposit + open/close cta).
+
+- **Active-tier propagation is page-wide**, with three intensities of accent-soft register so the active column reads at every intensity level appropriate to the surface:
+  - **Cost stack header tier card** — full-perimeter inset 2px accent border + accent-soft tint (peak intensity, headline surface)
+  - **Section row tier cell** — accent-soft pill (`border-accent/40 bg-accent-soft text-accent-ink`) on the active cell only (mid intensity, secondary surface)
+  - **Drilldown table** — `bg-accent-soft` on the column header, `bg-accent-soft/30` on the data cells (lowest intensity, tertiary surface — input forms must remain legible)
+
+- **Cost-stack header tier-card heads become clickable buttons** that drive the active-tier store + URL via `setActiveTier(tier.id) + router.replace(?tier=...)`. Mirrors `active-tier-selector.tsx` pattern; **no separate `<ActiveTierSelector>` mounted on Cost Build** — the cost stack header IS the selector. `<ActiveTierUrlSync>` mounted at the page root inside `<CostingStoreProvider>` handles URL → store on initial mount + browser back/forward.
+
+- **Drilldown column-highlight sweep** — three line-row components touched: `packaging-line-row.tsx` (`TierCostCell`), `freight-line-row.tsx` (`FreightTierCell`), `production-section.tsx` (`CellRow` + table header strip). Each subscribes to `selectActiveTierId` directly so re-renders are local to changed cells, not the whole row. Bulk Raw drilldown's ingredient table has no per-tier columns; column-highlight not applicable there.
+
+- **`section-mini-stack.tsx` deleted.** The right-edge mini-stack shape was the wrong rhythm; replaced by tier cells in the section row's middle grid region. Only consumer was `section-with-drilldown.tsx` which now inlines the tier-cell rendering.
+
+- **Smoke verification points** (Edward's directive, RI.4 block-boundary smoke item e): rapid tier-toggle responsiveness across cost stack + section rows + open drilldown — should feel sub-perceptual; profile DevTools if any lag/flicker. With a section drilldown open, tier toggles should propagate column highlight through to drilldown cells consistently across all four sections.
+
+- **Per-cell vocabulary inside section row middle region** (Designer Pattern 1 audit refinement, May 2026): inactive cell is text-only (no container, no border, no bg); active cell is the R2 `.chip.accent` pill register (`border-accent/40 bg-accent-soft text-accent-ink`, R2 source `styles.css:271`); empty active cell renders em-dash inside the active pill (R6 designer notes commitment #2 dashed-pill register adapted to active state). Container chip-shape per cell is rejected — it borrows chip semantics that should land on the active-tier highlight alone.
+
+- **Section row visual hierarchy** (Designer Pattern 1 audit Concern 5): section name carries display register at `text-xl font-medium tracking-tight` for headline weight (R2 `.section-head h2` register, not full 22px page-section-head); status chip demoted by removing `font-medium` and `tracking-wide` so it reads as ambient context, not co-dominant with the name. Scan-weight ordering: section name (display, ink) → tier values aligned in rhythm (mono, ink-3 with one accent-pill on active) → status chip + open/close (mono small, ink-3) → deposit badge when present.
+
+**Decided by amendment:** Designer Pattern 2 (initial extension) + Designer Pattern 1 (refinement audit) + Edward + CA, May 2026. References: Designer agent extension memos (Q1-Q5 structural / refinement audit Concerns 1-5 + structural-fork answer that aligned-but-distinct is correct); Edward's directive on R6-source-as-authoritative + smoke verification scope.
+
+**Amendment-2 (May 2026, RI.4 block-boundary smoke item f) — `tierColumnsTemplate` ripout + R6 actual-source reconciliation:**
+
+Edward smoked the implementation against R6's rendering. "Many many visual differences" surfaced. Investigation revealed the load-bearing access blocker: R6 was shipped as a bundled HTML file with assets opaque to grep / Read / Glob; CD did not ship un-bundled `source/round-6/`. Prior Designer audits worked from prose `r6-designer-notes.md` only — describing commitments without specifying pixel-level styling. Vocabulary-consistent extensions accumulated and drifted further from R6's actual rendered output with each pass.
+
+`scripts/extract-r6-source.mjs` recovers R6 source programmatically; output at `docs/design-prototypes/dist/source/round-6/`. R6 actual class register is **unprefixed** (`.r6-stack`, `.r6-tier-col`, `.r6-comp-row`, `.r6-bar`, `.r6-section`, `.r6-section-row`, `.tier-mini`, `.mini-stack`, etc. — these ARE the real class names in R6 source; the synthetic-prefix caveat the original entry carried is now obsolete and replaced).
+
+Comprehensive Designer Pattern 1 audit against extracted source surfaced **13 Critical + 9 Significant + 7 Minor deviations**. Single biggest finding: **the `tierColumnsTemplate` shared-grid pattern is invented — does NOT exist in R6 — and produced every "tier values spreading awkwardly across the page" symptom**. Cost stack and section row do NOT share tier-column geometry:
+
+- **Cost stack** uses `repeat(N, 1fr)` full-bleed with `gap: 1px` on `--rule` background (gap-as-hairline-divider — NOT separate cards with padding+gap)
+- **Section row mini-stack** is content-sized flex inside an `auto` track of a 6-track grid (`32px 1fr auto auto auto auto` = chev | head | status-chip | owner | mini-stack | open-cta)
+
+Stripped end-to-end from `page.tsx`, `cost-stack-header.tsx`, and `section-with-drilldown.tsx`.
+
+Other comprehensive-sweep changes (full inventory in implementation diff): cost stack tier card no border + active = `inset 0 -3px 0 var(--ink)` bottom underline (NOT full-perimeter accent pill); bar grammar = full-cell-width bar with segments scaled via `width:%` (NOT bar shrinks); foot Sell label display 14px + bare margin row with pip dot (NO chip); tier head 22px display qty with `<sup>units</sup>` suffix; stack head H2 + 5/6-item component color legend (NOT mono caption + grammar legend); section row name 18px display + sublabel mono 11px ink-3 lowercase (NOT uppercase 10px ink-4 eyebrow); section row tier-mini active = ink + font-medium text only (NO pill); page header H1 italic display 30px = "Cost build · Primary v3" (project identity in rail, NOT cost-build header); HubSpot pulse-dot meta strip; scenario context strip card chrome; anchor pill ★ + code + "— anchor SKU" tag with name outside italic 17px; mode selector green-themed segmented control (RAW family); five `--comp-*` tokens added to design-tokens.css (PKG / PROD / FRT / RAW / D+T) — separate from broader semantic palette so cost stack hues can shift independently.
+
+Owner column rendered with placeholder per Path A (22px paper-3 circle + em-dash + ink-4 "—" label) until `cost_section_meta.owner_user_id` schema lands. UX_BACKLOG entry "Cost section ownership data model" tracks the schema + assignment surface.
+
+**Lesson — process amendment (CLAUDE.md "Design prototype source access" section):** comprehensive Designer audit against extracted source → CC implements complete sweep → single smoke at end. Iterative concern-by-concern audits without source-of-truth grounding optimize for local consistency at the cost of cumulative drift; this was paid for in real Designer + dev cycles before the access blocker was diagnosed. Going forward for any net-new R6 surface or any "many visual differences" smoke result: comprehensive cycle, not incremental.
+
+**Decided by amendment-2:** Designer Pattern 1 comprehensive audit + Edward + CA, May 2026. References: Designer agent comprehensive audit memo (13C + 9S + 7M deviation inventory); R6 extracted source at `docs/design-prototypes/dist/source/round-6/index.html` lines 2346-2709 (page-head + context + cost stack + section row + drawer); R6 `cost-stack-header.jsx` + `section-summary-row.jsx` + `cost-build-page.jsx` for component-level reference.
+
+**Amendment-3 (May 2026, RI.4 block-boundary final sweep) — drilldown rebuilds + body bg correction + Tailwind v4 utility-class learning:**
+
+After amendments 1+2 closed structure + content-fidelity gaps on the page chrome (cost stack header, section rows, scenario context strip), Edward smoked against R6 and surfaced two further gaps: (1) the four section drilldowns were not rebuilt against R6 and were carrying form-based UI from prior slices, fundamentally divergent from R6's drilldown register; (2) global CSS `body { background: var(--paper) }` was wrong against R6 (`var(--paper-2)`), so `bg-paper` cards sat on the same color as the page bg producing zero contrast.
+
+**Drilldown rebuilds — full R6 fidelity per `docs/design-prototypes/dist/source/round-6/{packaging,production,freight,bulk-raw}-drawer.jsx`:**
+
+- **Packaging:** flat `.r6-dt.pkg` table replacing per-SKU form composition. Cols: Component | Category | Supplier | Markup | per-Tier | actions. Per-line metadata + tier cost cells inline-editable; computed landed value `unit_cost × (1+markup) × qty/unit` shown as sub-text. Total — packaging foot row.
+- **Production:** flat `.r6-dt.prod` table. CC schema stores fixed cost fields per (SKU, tier); R6 uses variable lines per section. Bridge: map each fixed cost field to a virtual "line" with R6 metadata (kind, category). Six virtual lines per SKU (Filling/blending, CM assembly, Setup fee, Tooling/artwork, R&D, Other services), plus Bulk raw cost when raws_mode = cm_sources. NRE rows show amortized sub-text (`→ $X/u`) when `allocateServiceFeesToCost = true`, swap to "billed as one-time charge" sublabel when false. R6 toggle cards at top + post-prod reconcile block at bottom.
+- **Freight:** per-line `.r6-fr-line` cards. Each head: inline supplier edit + meta + `.r6-fr-treat` Bundled/Passthrough toggle (dark blue / ink fills on active). `.r6-fr-tiers` rollup row with inline total-freight inputs + computed per-unit + raw `$X ÷ Y units` math sublabel. `.r6-fr-customs` blue-tint sub-card when `bundled` (CBM + duty + tariff).
+- **Bulk Raw:** three-card `.r6-raws-mode` banner (DPS / CM / Customer) with green accent. R6 empty drawer for inactive modes + dps-with-no-categories. Drawer toolbar + `.r6-raw-cat` cards with `.r6-raw-ing-head` + `.r6-raw-ing` ingredient table.
+
+All four drilldowns use R6's unprefixed class register (`.r6-dt`, `.r6-fr-line`, `.r6-raws-mode`, etc.) extracted verbatim from R6 source into `src/styles/r6-cost-build.css` and imported via `globals.css`. Existing actions wired (`updatePackagingTierCell`, `upsertProductionInputs`, `updateFreightTierCell`, `setRawsMode`, `updateSkuProductionPolicy`).
+
+**Body bg correction (cross-cutting):** R6 `body { background: var(--paper-2) }` (`index.html:362`) — slightly grey, so `--paper` cards (cost stack outer, section row outer, drawer toolbar, freight line cards, raw category cards) read as visibly lighter card surfaces on the page. CC's body bg was `var(--paper)` since RI.0 (a porting error from R2 base). Corrected globally in `globals.css` body rule. Outer + inner rails also flipped from `bg-paper-2` (which now matched body) → inline `background: var(--paper)` so rails read as lighter strips against the page.
+
+**Tailwind v4 @theme utility class learning (durable lesson):** Tailwind v4's `@theme { --color-paper: var(--paper) }` chain pattern produced inconsistent utility class output for some elements during RI.4 — `bg-paper` would render correctly on some surfaces (inner rail) but not others (cost stack outer, section row outer). Root cause not fully diagnosed; pragmatic resolution was switching visual-critical bg/border to inline `style={{ background: "var(--paper)", border: "1px solid var(--rule)" }}` which bypasses Tailwind's utility/theme layer entirely and resolves CSS variables at the browser-runtime layer. Pattern: when a Tailwind custom-token utility class doesn't render reliably across a slice, use inline `style={{ <prop>: "var(--token)" }}` for the visual-critical surface. Reserve Tailwind utilities for layout (flex, grid, padding, gap) which compile reliably.
+
+**Decided by amendment-3:** Edward + CA + Designer Pattern 1 + CC, May 2026. References: R6 extracted source `docs/design-prototypes/dist/source/round-6/{packaging,production,freight,bulk-raw}-drawer.jsx`; R6 CSS `index.html:2705-3352` (drawer-toolbar + r6-dt + r6-prod-toggles + r6-post-prod + r6-fr-line + r6-fr-customs + r6-empty-drawer + r6-raws-mode + r6-raw-cat); `src/styles/r6-cost-build.css` extraction; `src/app/globals.css` body bg correction.
+
+---
+
 ### Future-CR-A. Validation warning UI (Slice 9.5) overlap with Round 6 Cost Build
 
 **RESOLVED → CR-11.** Slice 9.5 design extension memo (Designer, May 2026) closed this entry. Disposition: warnings use verdict-ramp chip register, not `--internal`; integration into Round 6's section-row chip slot is clean (no register collision). Kept here for trail; see CR-11 for canonical disposition.
@@ -329,6 +446,7 @@ Round 4 designed the inbox section of the deal organizer but the slice brief def
 | 2026-05 | CR-10 | CA + Edward | **Provisional** | Topbar minimal; page-specific actions live in page headers. Edward to revalidate when RI.3 + RI.4 ship. |
 | 2026-05 | CR-11 | Designer + CA + Edward | **Decided** | Validation warning UI uses verdict-ramp chip register (`--good` / `--warn` / `--bad`); NOT `--internal` (reserved for boundary-guard). Closes Future-CR-A. |
 | 2026-05 | CR-12 | Designer + CA + Edward | **Decided** | Italic-display register is desaturated (`text-ink-3`). Saturated `text-ink` italic reserved for in-prose body emphasis. Future italic-display surfaces inherit; Designer audits flag drift. |
+| 2026-05 | CR-13 | Designer + CA + Edward | **Decided** | Cost stack header uses R6 named-class structure: `.r6-stack-grid` > `.r6-tier-col` > `.r6-comp-row` > `.r6-bar` (with `seg.cost` + `seg.markup`). Per-tier columns are primary spatial axis; whole-column active highlight; FRT gets new `--freight` token. Working pattern established: net-new visual surfaces require reading CD's source HTML first; brief is a pointer not a substitute. **Amended (May 2026):** tier-column geometry propagates page-wide via shared `tierColumnsTemplate` (cost stack header + every section row aligned-but-distinct); active-tier propagation page-wide with three intensities (header card → section pill → drilldown cell); cost-stack header tier-card heads are the selector (no separate `<ActiveTierSelector>` on Cost Build); `section-mini-stack.tsx` deleted. |
 
 **Provisional vs decided.** Provisional dispositions are the working assumption CC implements against. They're not final until Edward walks the rendered page during smoke and confirms (or refines). Cost of revisiting a provisional disposition is small — typically a small visual change, not architectural rework.
 

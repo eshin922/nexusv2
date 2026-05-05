@@ -48,7 +48,13 @@ export async function InnerRail({
   );
 
   return (
-    <aside className="fixed left-14 top-0 z-20 flex h-screen w-60 flex-col overflow-y-auto border-r border-rule bg-paper-2 px-3 py-3">
+    <aside
+      className="fixed left-14 top-0 z-20 flex h-screen w-60 flex-col overflow-y-auto px-3 py-3"
+      style={{
+        background: "var(--paper)",
+        borderRight: "1px solid var(--rule)",
+      }}
+    >
       {/* Back to all deals */}
       <Link
         href="/"
@@ -132,10 +138,11 @@ export async function InnerRail({
                   >
                     Setup
                   </Link>
-                  {/* Cost Build unification (RI.4) — for now, link to packaging
-                      as the entry. RI.4 will replace with /cost-build. */}
+                  {/* Slice RI.4 — Cost Build unified to single page with
+                      sections-with-drill-down (Packaging / Production /
+                      Bulk Raw / Freight). */}
                   <Link
-                    href={`/projects/${projectId}/quotes/${s.latestQuoteId}/packaging`}
+                    href={`/projects/${projectId}/quotes/${s.latestQuoteId}/cost-build`}
                     className="text-[11px] text-ink-3 hover:text-ink"
                   >
                     Cost build

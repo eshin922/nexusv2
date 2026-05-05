@@ -63,6 +63,118 @@ be the only call site).
 Caught Slice 8 sub-step 5 — many file edits during the optimistic
 computation work triggered enough HMR cycles to exhaust the pool.
 
+## Dev uses DIRECT_URL (session-mode pooler at :5432), NOT DATABASE_URL
+
+`src/db/index.ts` reads `DIRECT_URL` in dev and `DATABASE_URL` in
+production. Both go through Supabase's pooler hostname; the
+distinguishing port is `:5432` (session mode) vs `:6543`
+(transaction mode).
+
+Why dev uses session mode: Next.js dev (Webpack OR Turbopack) spawns
+multiple worker processes (~7 observed). `globalThis` is per-process,
+so each worker creates its own postgres-js pool. With many workers
+holding pools against transaction-mode pgbouncer, the multiplexing
+layer becomes a contention bottleneck — symptoms: requests hang for
+60s+ then surface as `PostgresError 57014 statement timeout`. Tuning
+postgres-js settings (`max`, `idle_timeout`, `max_lifetime`) doesn't
+escape this; if anything, `max_lifetime: 60` makes it worse by
+force-closing mid-query.
+
+Session mode binds a Postgres backend per client connection
+(no multiplexing complexity). With pool max=5 × ~7 workers = ~35
+backends — comfortably under Supabase's free-tier ~60 cap. Slower
+on paper than transaction mode; reliable in practice for our scale.
+
+Production stays on `DATABASE_URL` (transaction mode). Vercel
+functions are short-lived and benefit from transaction-mode
+multiplexing — opposite tradeoff from long-running dev workers.
+
+**Future-CC failure modes to recognize:**
+- "GET /cost-build 200 in 100000ms" with no errors → pgbouncer
+  saturation. Cure pattern: kill dev, wait 30s for pgbouncer to
+  drain, clear `.next` and `node_modules/.cache`, restart.
+- "PostgresError: canceling statement due to statement timeout"
+  on a fast-looking query → backend never got the slot in time, or
+  `max_lifetime` killed the connection mid-query. Don't set
+  `max_lifetime` on dev pools.
+- "too many connections for role" on direct connections → too many
+  workers × pool max for Supabase backend cap. Drop pool max.
+
+Caught Slice RI.4. Tried in order: Turbopack→Webpack (didn't help —
+Webpack also spawns workers); pool max=10→5 + idle_timeout (helped
+but still timed out); transaction-mode → session-mode pooler
+(fixed). The `getCostingBundle` parallel-query discipline below is
+the OTHER half of the fix; both were necessary.
+
+## Design prototype source access (rounds 3+)
+
+CD shipped Rounds 1, 2, 2.5 with un-bundled source under
+`docs/design-prototypes/dist/source/round-N/` (HTML + JSX + CSS
+readable directly). Rounds 3, 4, 5, 6 are bundler-format only —
+custom `<script type="__bundler/manifest">` + base64-gzipped
+asset chunks. Bundled HTML is opaque to grep / Read / Glob.
+
+**Extraction script:** `scripts/extract-r6-source.mjs` decodes a
+bundle's manifest into the same directory shape CD used for the
+earlier rounds. Already run for Round 6; output at
+`docs/design-prototypes/dist/source/round-6/`.
+
+```
+node scripts/extract-r6-source.mjs 5   # extract round-5
+```
+
+R6 (and likely R3-R5) actual CSS classes are **unprefixed**
+(`.chip`, `.stack`, `.cell`, `.section-row`, `.sku-row`,
+`.tier-col`, etc.). Earlier RI.4 work invented `r6-` synthetic
+prefixes before extraction was possible — those are obsolete; new
+work cites the real class names from the extracted source.
+
+**Working pattern for any "many visual differences" smoke result
+or net-new R6 surface:** comprehensive Designer audit against
+extracted source → CC implements complete sweep → single smoke at
+end. Iterating concern-by-concern is more expensive than the
+comprehensive cycle (this was learned the hard way during RI.4
+section row refinement; cost was several Designer audits + dev
+cycles before the access blocker surfaced).
+
+When CD ships proper un-bundled source for a future round refresh,
+the extraction script becomes obsolete for that round.
+
+## getCostingBundle parallel-query discipline
+
+`getCostingBundle` runs an internal `Promise.all` of 8 queries.
+**Never call it inside an outer `Promise.all`** — combined demand
+balloons past pool capacity (15+ slots from a 5-slot pool is
+catastrophic; even from a 10-slot pool it stalls).
+
+Wrong:
+```ts
+const [skus, tiers, ..., bundle, ...] = await Promise.all([
+  db.select()..., // 7 outer queries
+  getCostingBundle(quoteId), // ← internally fans out 8 more
+  ...
+]);
+```
+
+Right:
+```ts
+const bundle = await getCostingBundle(quoteId);
+const [skus, tiers, ...] = await Promise.all([
+  db.select()..., // outer queries here
+]);
+```
+
+Sequencing caps peak demand at `max(8 inner, N outer)` instead of
+adding them. Page render adds <1s; under contention it's the
+difference between "loads in 2s" and "hangs forever."
+
+Pattern applies to any future helper that does its own internal
+fan-out parallelism. If a function's body has `Promise.all([...])`
+of more than 2-3 queries, document it on the function and don't
+nest it inside another `Promise.all` at the call site.
+
+Caught Slice RI.4 cost-build page (`/projects/[id]/quotes/[quoteId]/cost-build`).
+
 # Browser Supabase client singleton (@supabase/supabase-js)
 
 Sister to the Drizzle client above. Different concern: the Drizzle

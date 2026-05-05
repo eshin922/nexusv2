@@ -51,7 +51,13 @@ export async function OuterRail() {
   })();
 
   return (
-    <aside className="fixed left-0 top-0 z-30 flex h-screen w-14 flex-col items-center gap-2 border-r border-rule bg-paper-2 py-3">
+    <aside
+      className="fixed left-0 top-0 z-30 flex h-screen w-14 flex-col items-center gap-2 py-3"
+      style={{
+        background: "var(--paper)",
+        borderRight: "1px solid var(--rule)",
+      }}
+    >
       {/* Nexus N mark — top */}
       <Link
         href="/"

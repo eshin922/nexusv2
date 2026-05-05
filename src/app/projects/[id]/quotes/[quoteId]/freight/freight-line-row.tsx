@@ -11,6 +11,7 @@ import {
 import { useCostingStore } from "@/components/costing-store-provider";
 import { HelpTooltip } from "@/components/help-tooltip";
 import {
+  selectActiveTierId,
   selectUpdateFreightCell,
   selectUpdateFreightLineMeta,
 } from "@/lib/costing-store";
@@ -415,6 +416,9 @@ function FreightTierCell({
 
   // Slice 8 sub-step 5: optimistic store push.
   const updateFreightCell = useCostingStore(selectUpdateFreightCell);
+  // RI.4 CR-13 amendment: column highlight when this tier is active.
+  const activeTierId = useCostingStore(selectActiveTierId);
+  const isActive = activeTierId === tier.id;
 
   useEffect(
     () => () => {
@@ -468,8 +472,16 @@ function FreightTierCell({
       : "units";
 
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-[100px_1fr_auto_1fr_auto_1fr_auto_auto] sm:items-center text-sm">
-      <span className="text-xs uppercase tracking-wide text-gray-500">
+    <div
+      className={`grid grid-cols-1 gap-2 sm:grid-cols-[100px_1fr_auto_1fr_auto_1fr_auto_auto] sm:items-center text-sm rounded px-1 py-0.5 transition-colors ${
+        isActive ? "bg-accent-soft/30" : ""
+      }`}
+    >
+      <span
+        className={`text-xs uppercase tracking-wide ${
+          isActive ? "text-accent-ink" : "text-gray-500"
+        }`}
+      >
         {tier.label}
       </span>
       <label className="flex items-center gap-1">
