@@ -54,7 +54,7 @@ export async function OuterRail() {
     <aside
       className="fixed left-0 top-0 z-30 flex h-screen w-14 flex-col items-center gap-2 py-3"
       style={{
-        background: "var(--paper)",
+        background: "var(--paper-3)",
         borderRight: "1px solid var(--rule)",
       }}
     >

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=1480, initial-scale=1" />
+  <title>Nexus v2 — Quoting Flow</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400;1,6..72,500&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="styles.css" />
+
+  <style>
+    /* notes section anchors */
+    .page h4 {
+      font-family: var(--display);
+      font-size: 18px;
+      font-weight: 500;
+      font-style: italic;
+      letter-spacing: -0.01em;
+      margin: 18px 0 8px;
+      color: var(--ink);
+    }
+    .page ul li { margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+<template id="__bundler_thumbnail">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+    <rect width="400" height="400" fill="oklch(0.97 0.012 85)"/>
+    <g transform="translate(120 120)">
+      <rect width="160" height="160" rx="20" fill="oklch(0.45 0.12 250)"/>
+      <text x="80" y="100" font-family="Georgia, serif" font-size="68" font-weight="500" fill="oklch(0.97 0.012 85)" text-anchor="middle">R1</text>
+    </g>
+    <text x="200" y="332" font-family="Georgia, serif" font-size="20" fill="oklch(0.35 0.02 250)" text-anchor="middle" font-style="italic">Nexus</text>
+  </svg>
+</template>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script src="app/data.js"></script>
+  <script type="text/babel" src="tweaks-panel.jsx"></script>
+  <script type="text/babel" src="app/shell.jsx"></script>
+  <script type="text/babel" src="app/project.jsx"></script>
+  <script type="text/babel" src="app/setup.jsx"></script>
+  <script type="text/babel" src="app/build.jsx"></script>
+  <script type="text/babel" src="app/costing.jsx"></script>
+  <script type="text/babel" src="app/notes.jsx"></script>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect } = React;
+
+    const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+      "theme": "dark",
+      "buildStage": "tunable",
+      "viewer": "pm",
+      "costingScenario": "healthy"
+    }/*EDITMODE-END*/;
+
+    function App() {
+      const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+      const [route, setRoute] = useState("build");
+
+      useEffect(() => {
+        document.documentElement.setAttribute("data-theme", tweaks.theme);
+      }, [tweaks]);
+
+      const D = window.NX_DATA;
+      const crumbs = {
+        project: [{ label: "Pipeline" }, { label: D.project.client }, { label: "Overview", here: true }],
+        setup:   [{ label: "Pipeline" }, { label: D.project.client }, { label: "Quote v3" }, { label: "Setup", here: true }],
+        build:   [{ label: "Pipeline" }, { label: D.project.client }, { label: "Quote v3" }, { label: "Cost build", here: true }],
+        costing: [{ label: "Pipeline" }, { label: D.project.client }, { label: "Quote v3" }, { label: "Costing sheet", here: true }],
+        notes:   [{ label: "Round 2" }, { label: "Designer notes", here: true }],
+      }[route];
+
+      return (
+        <div className="shell" data-screen-label={`Route: ${route}`}>
+          <Sidebar route={route} onRoute={setRoute} />
+          <main className="main">
+            <Topbar crumbs={crumbs} presence={D.presence} />
+            {route === "project" && <ProjectView onOpenQuote={() => setRoute("build")} />}
+            {route === "setup" && <QuoteSetup onContinue={() => setRoute("build")} />}
+            {route === "build" && <CostBuild stage={tweaks.buildStage} viewer={tweaks.viewer} />}
+            {route === "costing" && <CostingSheet scenario={tweaks.costingScenario} />}
+            {route === "notes" && <NotesView />}
+          </main>
+
+          <TweaksPanel title="Tweaks">
+            <TweakSection title="Jump to screen">
+              <TweakSelect
+                value={route}
+                onChange={(v) => setRoute(v)}
+                options={[
+                  { value: "project", label: "Project · overview" },
+                  { value: "setup",   label: "Quote setup" },
+                  { value: "build",   label: "Cost build" },
+                  { value: "costing", label: "Costing sheet" },
+                  { value: "notes",   label: "Designer notes" },
+                ]}
+              />
+            </TweakSection>
+            <TweakSection title="Theme">
+              <TweakRadio value={tweaks.theme} onChange={(v) => setTweak("theme", v)}
+                options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
+            </TweakSection>
+            {route === "build" && (
+              <>
+                <TweakSection title="Cost build · stage">
+                  <TweakRadio value={tweaks.buildStage} onChange={(v) => setTweak("buildStage", v)}
+                    options={[
+                      { value: "empty",   label: "Day 1 · empty" },
+                      { value: "partial", label: "Day 4 · partial" },
+                      { value: "tunable", label: "Day 6 · tunable" },
+                    ]} />
+                </TweakSection>
+                <TweakSection title="Viewing as">
+                  <TweakRadio value={tweaks.viewer} onChange={(v) => setTweak("viewer", v)}
+                    options={[
+                      { value: "pm",    label: "PM (Maya)" },
+                      { value: "purch", label: "Purchasing" },
+                      { value: "prod",  label: "Production" },
+                    ]} />
+                </TweakSection>
+              </>
+            )}
+            {route === "costing" && (
+              <TweakSection title="Costing scenario">
+                <TweakRadio value={tweaks.costingScenario} onChange={(v) => setTweak("costingScenario", v)}
+                  options={[
+                    { value: "healthy", label: "GOOD · sendable" },
+                    { value: "below",   label: "BELOW FLOOR · gated" },
+                  ]} />
+              </TweakSection>
+            )}
+          </TweaksPanel>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

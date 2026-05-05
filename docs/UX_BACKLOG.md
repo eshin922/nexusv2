@@ -23,6 +23,18 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
   Reference: `src/db/schema.ts` `quotes.drop_reason` column comment + Slice 12 brief auto-drop section.
 
+- [Per-SKU drill-down from Costing Sheet to Cost Build (post-MVP)]
+
+  **Slice:** Post-MVP / TBD (validate workflow first)
+
+  **What:** Costing Sheet currently routes to Cost Build only at the page level (no per-SKU context). When PMs land on Costing Sheet directly via inner rail or deep-link and want to drill into a specific SKU's decomposition, they re-navigate manually. Wire if/when smoke shows the workflow gap. Requires `?focus=<sku-id>` deep-link param on Cost Build + per-row "Open in Cost Build →" affordance on Costing Sheet rows.
+
+  **Why log it:** R2's per-SKU surface had inline cost decomposition (no separate Cost Build); R6 split decomposition out to Cost Build. Costing Sheet R2 source has no per-row navigation because R2 didn't need it. With v1 RI.4+RI.5 architecture, the inter-page nav lives at the top-level Cost Build button. If PMs report "I wanted to drill into a SKU specifically, not the section," that's the signal to add `?focus=<sku-id>` deep-linking to Cost Build + a per-row affordance on Costing Sheet rows.
+
+  **Where designed:** R2 `costing.jsx:388` confirms cards are NOT clickable in R2 source (cell-level affordances only); brief §3.3:362 specifies "Open Cost Build →" at page level only. v1 ships per option A from RI.5 Room 3 audit (May 2026).
+
+  Reference: Designer Room 3 audit Q3 sub-question + Edward's escalation directive.
+
 - [Production schema → variable-line model (post-MVP)]
 
   **Slice:** Post-MVP / TBD (data model migration)
