@@ -115,25 +115,11 @@ export function ProductionDrilldown({
 
   return (
     <div className="grid gap-4">
-      {/* Mode-aware hint at top — reminds PMs of the raws-mode context.
-          When dps_sources, bulk_raw_cost cells inside ProductionSection
-          should not be touched (managed in Bulk Raw section). Full
-          conditional disable lives in ProductionSection in a follow-up;
-          the hint here covers v1 PM communication. */}
-      {rawsMode === "dps_sources" && (
-        <div className="rounded border border-accent/40 bg-accent-soft px-3 py-2 text-xs text-accent-ink">
-          DPS sources raws · ingredient costs live in the Bulk Raw section.
-          Bulk-raw-cost cells below are not used for landed cost when this
-          mode is active.
-        </div>
-      )}
-      {rawsMode === "customer_supplies" && (
-        <div className="rounded border border-rule bg-paper-2 px-3 py-2 text-xs text-ink-3">
-          Customer supplies raws · production costs cover labor + overhead
-          only. Bulk-raw-cost cells below render but are excluded from
-          landed cost.
-        </div>
-      )}
+      {/* Slice RI.4: mode-aware hint removed per Designer audit M-7
+          follow-up to C-1. Mode selector now lives inside Bulk Raw
+          drilldown (mode-declaration zone); the Bulk Raw section
+          header status chip carries the mode signal across all
+          sections, so the duplicate hint here is redundant. */}
 
       {buildTreeRenderOrder(skus).map(({ sku, depth }) => {
         const indentStyle = { marginLeft: `${depth * 24}px` };

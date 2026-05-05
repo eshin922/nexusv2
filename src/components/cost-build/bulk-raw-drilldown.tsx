@@ -1,24 +1,26 @@
-// Slice RI.4 — Bulk Raw drill-down panel. v1 ships the schema-aware
-// read-only display:
-//   - Categories list (PM-defined groupings: "Active ingredients",
-//     "Carriers", etc. Each with optional markup_pct override)
-//   - Per-category ingredient table (native_unit + cost_per_native +
-//     usage_per_filled + per_filled_unit_cost stored generated column)
-//   - Add Category + Add Ingredient buttons (DISABLED placeholders;
-//     CRUD action layer lands in RI.4 follow-up sub-slice)
+import { ModeSelector } from "./mode-selector";
+
+// Slice RI.4 — Bulk Raw drill-down panel.
 //
-// What ships in this v1:
-//   - Schema query + display (categories + ingredients)
-//   - Empty state CTA
-//   - Read-only ingredient values
+// Per Designer audit C-1 (block-boundary): Bulk Raw is a peer
+// section that ALWAYS renders; the mode selector lives INSIDE the
+// drilldown as the mode-declaration zone. When raws-mode !=
+// dps_sources, the drilldown shows mode selector + INACTIVE message;
+// when dps_sources, the full categories + ingredients UI.
 //
-// What's deferred to RI.4 follow-up (UX_BACKLOG):
-//   - Add/edit/delete categories
-//   - Add/edit/delete ingredients
-//   - Section deposit lifecycle UI (state read shows on section header
-//     deposit badge already; full deposit-update affordance deferred)
+// v1 ships:
+//   - Mode selector at top (functional via setRawsMode action)
+//   - Mode-aware body: INACTIVE explanation OR categories + ingredients
+//   - Read-only ingredient table when dps_sources
+//   - Add Category / Add Ingredient = DISABLED placeholders
+//     (CRUD action layer lands in RI.4 follow-up)
+//
+// Deferred to RI.4 follow-up (UX_BACKLOG):
+//   - Add/edit/delete categories + ingredients
+//   - Section deposit lifecycle UI (deposit badge state reads from
+//     cost_section_deposits already; UPDATE affordance deferred)
 //   - HTS code lookup integration
-//   - Supplier picker (suppliers infrastructure ships separately)
+//   - Supplier picker
 
 type BulkRawCategory = {
   id: string;
@@ -67,11 +69,13 @@ function fmtPct(n: string | null): string {
 
 export function BulkRawDrilldown({
   quoteId,
+  rawsMode,
   categories,
   ingredients,
   editable,
 }: {
   quoteId: string;
+  rawsMode: "cm_sources" | "dps_sources" | "customer_supplies";
   categories: BulkRawCategory[];
   ingredients: BulkRawIngredient[];
   editable: boolean;
@@ -83,9 +87,47 @@ export function BulkRawDrilldown({
     ingsByCategory.set(ing.categoryId, arr);
   }
 
+  // Mode selector always renders at top of drilldown (mode-declaration
+  // zone per Round 6 + Bulk Raw correction).
+  const modeSelector = (
+    <ModeSelector
+      quoteId={quoteId}
+      currentMode={rawsMode}
+      disabled={!editable}
+    />
+  );
+
+  // INACTIVE state: when raws-mode != dps_sources, show mode selector
+  // + explanation. No categories/ingredients UI.
+  if (rawsMode !== "dps_sources") {
+    return (
+      <div className="flex flex-col gap-4">
+        {modeSelector}
+        <div className="rounded border border-rule bg-paper-2 p-6 text-center">
+          <div className="font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3">
+            Bulk Raw inactive
+          </div>
+          <p className="mx-auto mt-2 max-w-md text-sm text-ink-3">
+            {rawsMode === "cm_sources"
+              ? "Contract manufacturer sources the bulk raws. Raws cost enters via the Production section's bulk-raw-cost field."
+              : "Customer supplies the raws. Raws are excluded from landed cost; production covers labor + overhead only."}
+          </p>
+          <p className="mt-3 text-xs text-ink-4">
+            Switch to{" "}
+            <span className="font-mono">DPS sources raws</span>{" "}
+            above to enter ingredient-level Bulk Raw data.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // DPS_SOURCES state: full categories + ingredients UI.
   if (categories.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-3 rounded border border-dashed border-rule bg-paper-2 px-6 py-12 text-center">
+      <div className="flex flex-col gap-4">
+        {modeSelector}
+        <div className="flex flex-col items-center gap-3 rounded border border-dashed border-rule bg-paper-2 px-6 py-12 text-center">
         <div className="font-display text-lg text-ink">
           No categories yet
         </div>
@@ -105,12 +147,14 @@ export function BulkRawDrilldown({
         <p className="font-mono text-[10px] uppercase tracking-wide text-ink-4">
           CRUD UI ships in RI.4 follow-up · schema is in place
         </p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-4">
+      {modeSelector}
       <div className="flex items-center justify-between">
         <p className="text-xs text-ink-3">
           {categories.length} categor{categories.length === 1 ? "y" : "ies"} ·{" "}

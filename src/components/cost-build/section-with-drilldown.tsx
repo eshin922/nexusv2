@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SectionMiniStack } from "./section-mini-stack";
 
 // Slice RI.4 — Section row anatomy per Round 6 Change B (summary-with-
 // drill-down architecture). One drawer open at a time per page; drawer
@@ -8,11 +9,11 @@ import Link from "next/link";
 // Composition (left to right):
 //   - Chevron (expand affordance; rotates when open)
 //   - Section name + sublabel (compact metadata: line count + key flags)
+//   - Per-tier mini-stack (per Designer audit C-5; reads from
+//     quoteRollup costBreakdown — section-specific component values)
 //   - Status chip (complete / in_progress / empty)
 //   - Owner badge — DEFERRED to RI.4 follow-up (needs per-section owner
-//     schema; not in 0019 migration)
-//   - Per-tier mini-stack — DEFERRED to RI.4 follow-up (needs per-section
-//     tier rollup math; can derive from quoteRollup but adds complexity)
+//     schema; not in 0019 migration; PR description carries the defer)
 //   - Open/Close CTA (mirrors chevron click)
 //   - Deposit badge (when section has deposit configured)
 //
@@ -92,6 +93,11 @@ export function SectionWithDrilldown({
             </span>
           </div>
         </div>
+
+        {/* Per-tier mini-stack — load-bearing per R6 Pushback #1
+            (PMs scan section-level cost preview without opening drawer).
+            Reads section-specific costBreakdown values from quoteRollup. */}
+        <SectionMiniStack tiers={tiers} sectionKind={sectionKind} />
 
         {/* Status chip */}
         <StatusChipView chip={statusChip} />

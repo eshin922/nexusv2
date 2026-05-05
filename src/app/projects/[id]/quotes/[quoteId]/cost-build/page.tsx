@@ -24,7 +24,6 @@ import { PackagingDrilldown } from "@/components/cost-build/packaging-drilldown"
 import { ProductionDrilldown } from "@/components/cost-build/production-drilldown";
 import { FreightDrilldown } from "@/components/cost-build/freight-drilldown";
 import { BulkRawDrilldown } from "@/components/cost-build/bulk-raw-drilldown";
-import { ModeSelector } from "@/components/cost-build/mode-selector";
 import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
 
 // Slice RI.4 — Cost Build unification per Round 6 + Bulk Raw correction.
@@ -173,12 +172,13 @@ export default async function CostBuildPage({
 
   const editable = quote.status === "draft";
   const rawsMode = bulkRawMeta[0]?.rawsMode ?? "cm_sources";
-  const showBulkRawSection = rawsMode === "dps_sources";
 
-  // Default open section: query param OR Packaging (most-common entry).
-  const validSections = showBulkRawSection
-    ? ["packaging", "production", "bulk_raw", "freight"]
-    : ["packaging", "production", "freight"];
+  // Bulk Raw section ALWAYS renders as a peer (per Round 6 + Bulk Raw
+  // correction; Designer audit C-1). Mode selector lives INSIDE the
+  // section (mode-declaration zone). When raws-mode != dps_sources,
+  // the drilldown shows the mode selector + INACTIVE message; when
+  // dps_sources, full categories + ingredients UI.
+  const validSections = ["packaging", "production", "bulk_raw", "freight"];
   const openSection =
     expandedSection && validSections.includes(expandedSection)
       ? expandedSection
@@ -207,17 +207,9 @@ export default async function CostBuildPage({
           />
         </section>
 
-        {/* Mode selector — drives Bulk Raw section visibility +
-            cost-stack RAW row */}
-        <section className="mb-6">
-          <ModeSelector
-            quoteId={quote.id}
-            currentMode={rawsMode}
-            disabled={!editable}
-          />
-        </section>
-
-        {/* Sections — accordion-style summary-with-drill-down */}
+        {/* Sections — accordion-style summary-with-drill-down. Mode
+            selector lives inside the Bulk Raw drilldown per Round 6
+            + Bulk Raw correction (Designer audit C-1). */}
         <div className="flex flex-col gap-3">
           <SectionWithDrilldown
             id="packaging"
@@ -261,33 +253,37 @@ export default async function CostBuildPage({
             />
           </SectionWithDrilldown>
 
-          {/* Bulk Raw section — only visible when raws-mode = dps_sources */}
-          {showBulkRawSection && (
-            <SectionWithDrilldown
-              id="bulk_raw"
-              name="Bulk Raw"
-              sublabel={`${bulkRawCats.length} categor${bulkRawCats.length === 1 ? "y" : "ies"} · ${bulkRawIngs.length} ingredient${bulkRawIngs.length === 1 ? "" : "s"}`}
-              statusChip={bulkRawStatusChip(
-                bulkRawCats.length,
-                bulkRawIngs.length,
-              )}
-              tiers={tiers.map((t) => ({ id: t.id, label: t.label, qty: t.qty }))}
+          {/* Bulk Raw section — always renders per Round 6 + Bulk Raw
+              correction (mode-declaration zone). Drilldown content
+              varies by mode: when dps_sources, categories + ingredients;
+              when cm_sources or customer_supplies, INACTIVE message
+              with explanation. Designer audit C-1. */}
+          <SectionWithDrilldown
+            id="bulk_raw"
+            name="Bulk Raw"
+            sublabel={bulkRawSublabel(rawsMode, bulkRawCats.length, bulkRawIngs.length)}
+            statusChip={bulkRawStatusChip(
+              rawsMode,
+              bulkRawCats.length,
+              bulkRawIngs.length,
+            )}
+            tiers={tiers.map((t) => ({ id: t.id, label: t.label, qty: t.qty }))}
+            quoteId={quote.id}
+            sectionKind="bulk_raw"
+            deposit={deposits.find((d) => d.sectionKind === "bulk_raw")}
+            isOpen={openSection === "bulk_raw"}
+            projectId={project.id}
+          >
+            <BulkRawDrilldown
               quoteId={quote.id}
-              sectionKind="bulk_raw"
-              deposit={deposits.find((d) => d.sectionKind === "bulk_raw")}
-              isOpen={openSection === "bulk_raw"}
-              projectId={project.id}
-            >
-              <BulkRawDrilldown
-                quoteId={quote.id}
-                categories={bulkRawCats}
-                ingredients={bulkRawIngs.map((r) => ({
-                  ...r.bulk_raw_ingredients,
-                }))}
-                editable={editable}
-              />
-            </SectionWithDrilldown>
-          )}
+              rawsMode={rawsMode}
+              categories={bulkRawCats}
+              ingredients={bulkRawIngs.map((r) => ({
+                ...r.bulk_raw_ingredients,
+              }))}
+              editable={editable}
+            />
+          </SectionWithDrilldown>
 
           <SectionWithDrilldown
             id="freight"
@@ -325,9 +321,31 @@ function freightStatusChip(rowCount: number) {
   if (rowCount === 0) return { label: "EMPTY", tone: "neutral" as const };
   return { label: "IN PROGRESS", tone: "active" as const };
 }
-function bulkRawStatusChip(catCount: number, ingCount: number) {
+function bulkRawStatusChip(
+  rawsMode: "cm_sources" | "dps_sources" | "customer_supplies",
+  catCount: number,
+  ingCount: number,
+) {
+  if (rawsMode !== "dps_sources") {
+    return { label: "INACTIVE", tone: "neutral" as const };
+  }
   if (catCount === 0) return { label: "EMPTY", tone: "neutral" as const };
   if (ingCount === 0)
     return { label: "CATEGORIES ONLY", tone: "neutral" as const };
   return { label: "IN PROGRESS", tone: "active" as const };
+}
+
+function bulkRawSublabel(
+  rawsMode: "cm_sources" | "dps_sources" | "customer_supplies",
+  catCount: number,
+  ingCount: number,
+): string {
+  switch (rawsMode) {
+    case "cm_sources":
+      return "CM sources · raws cost in Production";
+    case "customer_supplies":
+      return "Customer supplies · raws excluded from landed cost";
+    case "dps_sources":
+      return `${catCount} categor${catCount === 1 ? "y" : "ies"} · ${ingCount} ingredient${ingCount === 1 ? "" : "s"}`;
+  }
 }

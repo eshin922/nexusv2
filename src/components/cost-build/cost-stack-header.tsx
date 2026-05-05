@@ -187,9 +187,17 @@ function RowGroup({
     <>
       <div
         className={`p-2 font-mono text-[10px] uppercase tracking-wide ${
-          isRaw ? "pl-6 text-ink-4" : "text-ink-2"
+          isRaw ? "pl-3 text-ink-4" : "text-ink-2"
         } ${!isLast ? "border-b border-rule" : ""}`}
       >
+        {/* Slice RI.4 — RAW row parenting tick per Round 6 designer
+            notes addendum item 6. Indent + tick communicate
+            "child of PROD"; ink-4 desaturation reinforces hierarchy. */}
+        {isRaw ? (
+          <span aria-hidden className="mr-1 text-ink-4">
+            └
+          </span>
+        ) : null}
         {row.label}
       </div>
       {tiers.map((t) => {

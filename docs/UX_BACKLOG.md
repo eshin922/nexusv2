@@ -23,6 +23,67 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
   Reference: `src/db/schema.ts` `quotes.drop_reason` column comment + Slice 12 brief auto-drop section.
 
+- [RI.4 follow-up — Bulk Raw CRUD UI (categories + ingredients)]
+
+  **Slice:** RI.4 follow-up sub-slice (post-RI.4 PR merge)
+
+  **What:** RI.4 ships Bulk Raw schema (3 tables from migration 0019) + read-only display in the new Cost Build drilldown + mode selector + INACTIVE state. CRUD action layer + form UIs for categories + ingredients are scaffolded as DISABLED placeholders ("+ New category" / "+ New ingredient" buttons; "ships in RI.4 follow-up" microcopy).
+
+  **What ships in the follow-up:**
+  - `addBulkRawCategory` + `updateBulkRawCategory` + `deleteBulkRawCategory` server actions
+  - `addBulkRawIngredient` + `updateBulkRawIngredient` + `deleteBulkRawIngredient` server actions
+  - Inline-edit affordances in the existing categories + ingredients table (per Round 5 admin inline-edit pattern)
+  - Add Category modal/inline form + Add Ingredient modal/inline form
+  - HTS code lookup integration (deferred separately; not blocking categories/ingredients CRUD)
+  - Supplier picker (deferred; suppliers infrastructure ships separately)
+
+  **Where designed:** Round 6 + Bulk Raw correction. RI.4 brief §3.4 line 419-426 spec'd the full UI; CC scope-cut to read-only + scaffold for v1.
+
+  **Why log it:** Bulk Raw is brand-new schema with zero existing data. The read-only v1 lets PMs see future-state structure but not edit. CRUD UI is real product surface that needs Designer dispatch (Pattern 3 — small targeted design round) before CC implements.
+
+  Reference: `src/components/cost-build/bulk-raw-drilldown.tsx` + `src/app/actions/bulk-raw.ts` (`setRawsMode` shipped; CRUD scaffold).
+
+- [RI.4 follow-up — line-row component token reskin (Packaging / Production / Freight / Customs)]
+
+  **Slice:** RI.4 follow-up OR RI.5 polish (Costing Sheet rebuild may swallow some of this)
+
+  **What:** The line-row + section components reused inside the new Cost Build drilldowns are pre-RI utilitarian:
+  - `src/app/projects/[id]/quotes/[quoteId]/packaging/packaging-line-row.tsx` (495 LOC)
+  - `src/app/projects/[id]/quotes/[quoteId]/packaging/add-line-button.tsx`
+  - `src/app/projects/[id]/quotes/[quoteId]/production/production-section.tsx` (549 LOC)
+  - `src/app/projects/[id]/quotes/[quoteId]/freight/freight-line-row.tsx` (578 LOC)
+  - `src/app/projects/[id]/quotes/[quoteId]/freight/customs-row.tsx`
+  - `src/app/projects/[id]/quotes/[quoteId]/freight/add-line-button.tsx`
+
+  Token regressions inside these components: `bg-gray-*`, `border-gray-*`, `text-red-700`, `bg-amber-50`, `text-amber-800`, `text-blue-700`, `text-gray-500`, etc. RI.0 token foundation didn't reach into these (the smoke targets were specific surfaces like the per-SKU summary table column header + verdict pills + sparkline).
+
+  **Visible PM impact:** PMs opening any drill-down on the new Cost Build page see pre-RI styling (raw sRGB Tailwind palette) inside the drawer, visually inconsistent with the OKLCH-tuned shell surrounding it.
+
+  **Where designed:** RI.4 brief §3.4 lines 396-433 describe the target drill-down structure (toolbar + table + per-tier columns); the visual treatment per CD's design system applies to the whole composition.
+
+  **Why log it:** Mechanical reskin (find/replace `bg-gray-100` → `bg-paper-3`, etc.) plus a Designer pass to verify visual register matches R6. ~1-2 days of work. Could land as an RI.4 polish PR OR fold into RI.5 (Costing Sheet rebuild may share some of these surfaces).
+
+  Reference: Designer audit X-1 (RI.4 block-boundary, Slice RI.4 PR review).
+
+- [RI.4 follow-up — Cost rollup component breakout for RAW + D+T + PASS rows in cost stack]
+
+  **Slice:** RI.4 follow-up OR RI.5 (Costing Sheet rebuild)
+
+  **What:** The cost stack header (`CostStackHeader`) renders 5 or 6 component bar rows: PKG / PROD / [RAW when dps_sources] / FRT / D+T / PASS. The math layer's `QuoteCostBreakdown` only exposes 4 fields: `packaging`, `production`, `freight`, `serviceFees`. RAW + D+T + PASS rows currently render as 0 (component is structurally present but value source is empty).
+
+  **What's needed:**
+  - Math layer extension: `QuoteCostBreakdown` adds:
+    - `bulkRaw: number` — sum of bulk raw ingredient costs (when dps_sources mode; else 0)
+    - `dutyTariff: number` — sum of duty + tariff portions of landed freight (split out from current `freight` total)
+    - `passthroughFreight: number` — pass_through-treatment freight (split out from `freight`)
+  - Cost rollup helper updates: `rollUpAssemblyPerTier` + `quoteRollup` walk extends to compute these breakouts
+  - Tests: `scripts/test-costing.ts` adds assertions for the new breakouts
+  - `CostStackHeader.rowValue()` reads the new fields instead of returning 0
+
+  **Why log it:** Without this, the cost stack header has 2-3 always-empty rows that visually communicate "this is structurally present but data isn't flowing." Functional v1 — PMs can read PKG/PROD/FRT — but the 0-rows are a fidelity gap. Math layer extension is real engineering work; deferred until the surface needs the differentiation enough to justify.
+
+  Reference: `src/components/cost-build/cost-stack-header.tsx:240-254` `rowValue` helper + Designer audit X-3 (RI.4 block-boundary).
+
 - [Per-SKU drill-down spacing audit (RI.5 smoke target)]
 
   **Slice:** RI.5 (Costing Sheet rebuild — Round 6 section-with-drill-down pattern)
