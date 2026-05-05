@@ -5,6 +5,35 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Quote-total client target affordance (Slice 9.4c — pulled back)]
+
+  **Slice:** Post-MVP / TBD
+
+  **What:** When PMs negotiate at quote-total level ("can you do this for $X?"), surface a target affordance that lets them model the deal against the customer's stated total. Workflow case is real but uncommon; PMs currently derive by comparing against existing revenue total mentally. Discrete affordance deferred until real-user testing surfaces clear need + proper surface placement.
+
+  **Where designed:** Slice 9.4c (briefed and partially implemented; pulled back during 9.4c.4 smoke after surface-placement audit revealed the Pricing Control Summary is being consolidated out in redesign-implementation §5, plus per-tier per-unit framing doesn't map to real customer negotiation patterns — customers communicate either per-cell-per-unit or quote-total; never "all SKUs at this tier should average $X/unit").
+
+  **Why log it:** Architectural patterns from the 9.4c implementation work are reusable when (if) this affordance ships properly:
+  - per-unit math at quote-level scope (revenue-per-unit vs target-per-unit)
+  - divide-by-zero protection on tier_qty during per-unit derivations
+  - validation rule shape for reconciliation mismatch (per-cell sum vs quote-level)
+  - ε tolerance discipline for per-unit comparisons (~$0.01/unit for v1; tolerance scaling tracked separately per architect's queued thinking)
+  - CR-12 Designer extension for warning vocabulary on Costing Sheet stays valid even though CR-12 itself was reverted; the broader chip + verdict + reconciliation pattern survives in CR-11.
+
+  **Surface placement consideration:** if/when this ships, surface should be evaluated against the redesign-implementation cost stack panel + margin verdict band architecture (RI.5 Costing Sheet rebuild), not the pre-rebuild Pricing Control Summary. The proper home is likely the cost stack panel header or margin verdict band — places that have per-SKU breakdown visible alongside, proper visual register, and aren't being consolidated away.
+
+  ### Architectural patterns to preserve (Slice 9.4c — deferred)
+
+  When quote-level target was being built (subsequently pulled back), CC + architect worked out the math for per-unit verdict + reconciliation. Reusable when quote-level affordance ships properly post-MVP:
+
+  - **Per-unit verdict shape.** `tier_required_sell_per_unit = total_revenue / tier_qty`; `competitive_verdict_quote_level: COMPETITIVE` if `tier_required_sell_per_unit <= target_per_unit` (no ε needed — matches per-cell direct comparison; equality counts as COMPETITIVE).
+  - **Per-unit reconciliation.** `sum_of_cell_targets_per_unit_at_tier = Σ over leaf SKUs of cell_target_per_unit` (no qty multiplication on either side; both per-unit). `matches` if `|sum_per_unit - target_per_unit| ≤ ε` ($0.01/unit for v1).
+  - **Divide-by-zero protection.** `tier.qty = 0 or NULL` → revenue_per_unit guard `tier.qty > 0 ? revenue / qty : 0`.
+  - **Completeness gate (architect Q1).** Reconciliation rule fires only when ALL leaf SKUs at the tier have cell targets set; partial returns `not_applicable`. Empty-quote edge guarded against `every() === true` on empty arrays via explicit `leafSkus.length > 0` precondition.
+  - **Identity tuple for warning row.** `scope='quote'`, `table_name='quote_tiers'`, `row_id=tierId` (genuine UUID-as-text), `field_name='client_target_price_per_unit'`, `tier_id=tierId`. One warning per tier with mismatch (variance IS the cross-cell pattern; no single cell "owns" the warning).
+  - **Audit shape.** `action: "quote_level_client_target_updated"`, no `source` flag — set/change/clear on a single column = same semantic per CLAUDE.md "Audit source convention."
+  - **Schema posture.** Per-tier granularity → direct column on `quote_tiers` (not sister table — sister-table justification of "column count + lifecycle independence" doesn't apply at quote-tier level; matches `tierPriceAdjPct` precedent).
+
 - [Slice 9.5.5 — comprehensive mutation-action wiring + inline icons + realtime sync]
 
   **Slice:** 9.5.5 (follow-up to 9.5)

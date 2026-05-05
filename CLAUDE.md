@@ -514,9 +514,12 @@ populated:
   after the IA spec settled per-(SKU, tier) granularity. Zero
   data migration needed (column was speculative + never written).
   **Leaf-only invariant** — matches Slice 9.3 `sell_price_override`
-  posture. Customers state targets at SKU level (this surface) or
-  quote level (Slice 9.4c, separate column on `quote_tiers`);
-  assembly-level was scope creep, surfaced and stripped during
+  posture. Customers state targets at SKU level (this surface);
+  quote-level negotiation is post-MVP (Slice 9.4c was briefed +
+  partially built then pulled back per surface-placement audit
+  — see UX_BACKLOG entry "Quote-total client target affordance"
+  for the deferral + architectural patterns preserved).
+  Assembly-level was scope creep, surfaced and stripped during
   9.4b smoke. Schema accepts any role; runtime guard in
   `updateClientTarget` rejects non-leaf with VALIDATION error.
   Math layer is defense in depth — `rollUpAssemblyPerTier` always
