@@ -126,7 +126,6 @@ export function ClientTargetCell({
       freight: state.freight,
       cellOverrides: state.cellOverrides,
       cellTargets: state.cellTargets,
-      quoteTierTargets: state.quoteTierTargets,
     };
     // Use the freshly-derived costing from store (state.costing) — it
     // already reflects all current overrides + tier adjustments.

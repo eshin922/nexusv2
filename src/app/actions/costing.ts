@@ -220,16 +220,6 @@ export async function getQuoteCosting(
         tierId: c.tierId,
         clientTargetPricePerUnit: num(c.clientTargetPricePerUnit),
       })),
-      // Slice 9.4c — quote-level (per-tier) client targets. Sparse:
-      // emit only tiers where clientTargetPriceTotal is non-null.
-      // Engine looks up by tierId; missing tier reads as null
-      // (NULL-as-empty-signal).
-      quoteTierTargets: tiers
-        .filter((t) => t.clientTargetPriceTotal !== null)
-        .map((t) => ({
-          tierId: t.id,
-          clientTargetPriceTotal: num(t.clientTargetPriceTotal),
-        })),
       packaging: pkgs.map((r) => {
         const p = r.packaging_inputs;
         return {
@@ -1072,16 +1062,6 @@ export async function applyClientTargetSolveTierAdj(
         tierId: c.tierId,
         clientTargetPricePerUnit: num(c.clientTargetPricePerUnit),
       })),
-      // Slice 9.4c — quote-level (per-tier) client targets. Sparse:
-      // emit only tiers where clientTargetPriceTotal is non-null.
-      // Engine looks up by tierId; missing tier reads as null
-      // (NULL-as-empty-signal).
-      quoteTierTargets: tiersFresh
-        .filter((t) => t.clientTargetPriceTotal !== null)
-        .map((t) => ({
-          tierId: t.id,
-          clientTargetPriceTotal: num(t.clientTargetPriceTotal),
-        })),
       packaging: pkgs.map((r) => {
         const p = r.packaging_inputs;
         return {
@@ -1444,17 +1424,6 @@ export async function getCostingBundle(
       tierId: c.tierId,
       clientTargetPricePerUnit: num(c.clientTargetPricePerUnit),
     }));
-    // Slice 9.4c — sparse quote-level (per-tier) client targets.
-    // Built from the same `tiers` query result; column is on
-    // `quote_tiers` directly. Empty array when no tier has a
-    // quote-level target. Snapshot carries this through to the
-    // store so optimistic edits + reconcile see the same shape.
-    const quoteTierTargetList = tiers
-      .filter((t) => t.clientTargetPriceTotal !== null)
-      .map((t) => ({
-        tierId: t.id,
-        clientTargetPriceTotal: num(t.clientTargetPriceTotal),
-      }));
 
     const input: QuoteCostingInput = {
       quote: {
@@ -1474,7 +1443,6 @@ export async function getCostingBundle(
       freight: freightList,
       cellOverrides: cellOverrideList,
       cellTargets: cellTargetList,
-      quoteTierTargets: quoteTierTargetList,
     };
 
     const result = computeQuoteCosting(input);
@@ -1521,7 +1489,6 @@ export async function getCostingBundle(
       freight: freightList,
       cellOverrides: cellOverrideList,
       cellTargets: cellTargetList,
-      quoteTierTargets: quoteTierTargetList,
       costing: result,
       persistedWarnings,
     };
