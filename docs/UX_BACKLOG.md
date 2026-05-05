@@ -5,6 +5,24 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Per-SKU drill-down spacing audit (RI.5 smoke target)]
+
+  **Slice:** RI.5 (Costing Sheet rebuild — Round 6 section-with-drill-down pattern)
+
+  **What:** Slice RI.0 smoke (Edward, May 2026) surfaced spacing issues on the per-SKU drill-down table that the new tokens make more visible:
+  - FREIGHT LINE #1 sub-block compression (vertical density too tight for the per-line content)
+  - Value-label alignment drift across the cost-component rows
+  - Per-tier column rhythm inconsistent (column widths don't match the rhythm established on the parent SKU summary table)
+  - INTERNAL badge placement looks orphaned vs the rows it qualifies
+
+  These are pre-existing on the drill-down surface (Slice 8 era + accumulated through 9.x cost-input surfaces). RI.0 token foundation makes the spacing issues more visible because the OKLCH-tuned palette + JetBrains Mono header reduce visual noise that previously camouflaged the layout drift.
+
+  **Where designed:** RI.5 (Costing Sheet rebuild) per Round 6's section-with-drill-down pattern. The drill-down container itself gets re-architected as a section drill-down composition matching the cost-build sections (R6 designer notes).
+
+  **Why log it:** Don't fix in RI.0. RI.0 ships token foundation only; the drill-down composition is being rebuilt in RI.5 against R6's pattern, and patching spacing in the current shape creates rework when the section-with-drill-down composition lands. RI.5 smoke explicitly verifies these four spacing concerns.
+
+  Reference: `src/app/projects/[id]/quotes/[quoteId]/costing/sku-breakdowns.tsx` (current drill-down surface; RI.5 will replace).
+
 - [Quote-total client target affordance (Slice 9.4c — pulled back)]
 
   **Slice:** Post-MVP / TBD

@@ -12,16 +12,21 @@
 
 export type MarginStatus = "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
 
+// Slice RI.0 — palette swapped from raw Tailwind sRGB hex (bg-green-100
+// etc.) to CD's OKLCH-tuned semantic tokens. --good-soft / --good for
+// GOOD, --warn-soft / --warn for BELOW_TARGET, --bad-soft / --bad for
+// BELOW_FLOOR. Light + dark mode adapt automatically via design-tokens.css.
+// Smoke-target wiring for the token foundation.
 const STATUS_STYLES: Record<
   MarginStatus,
   { label: string; cls: string }
 > = {
-  GOOD: { label: "GOOD", cls: "bg-green-100 text-green-800" },
+  GOOD: { label: "GOOD", cls: "bg-good-soft text-good" },
   BELOW_TARGET: {
     label: "BELOW TARGET",
-    cls: "bg-amber-100 text-amber-900",
+    cls: "bg-warn-soft text-warn",
   },
-  BELOW_FLOOR: { label: "BELOW FLOOR", cls: "bg-red-100 text-red-800" },
+  BELOW_FLOOR: { label: "BELOW FLOOR", cls: "bg-bad-soft text-bad" },
 };
 
 const SIZE_STYLES: Record<"sm" | "md", string> = {
