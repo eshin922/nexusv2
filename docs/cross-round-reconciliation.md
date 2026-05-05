@@ -262,6 +262,31 @@ Validation warnings are PM-internal **by virtue of where they live** (cost-build
 
 ---
 
+### CR-12. Italic-display register is desaturated (`text-ink-3`)
+
+**The inconsistency:** R2 styles.css line 228 establishes `.page-title em { font-style: italic; color: var(--ink-3); font-weight: 400; }` — italic-as-typographic-secondary, intentionally desaturated. Without an explicit cross-round resolution, future surfaces using italic-display can drift to saturated `text-ink` (full color), reading as emphasis instead of CD's secondary register.
+
+**Disposition: ITALIC-DISPLAY USES `text-ink-3` (DESATURATED). SATURATED `text-ink` ITALIC IS RESERVED FOR IN-PROSE EMPHASIS (e.g., R2 `.lede em` body italics).**
+
+**Specifics:**
+
+- **Italic client h1 on Project Detail** (Round 4 brief §3.2 line 297): `font-display text-3xl italic text-ink-3` — the saturated weight reads as emphasis, not as the secondary header register CD established for italic-display.
+- **Italic client name in inner rail header**: `font-display text-sm italic text-ink-3` — same convention; reading "Lumen & Co." as desaturated secondary while the deal name (parent context) renders at `text-ink-2`.
+- **Italic client name in Deal Organizer project list rows**: `font-display text-sm italic text-ink-3` — same convention.
+
+The pattern: when italic-display renders in a card/header position (room organizer treatment), use `text-ink-3`. Reserve `text-ink` italic for run-of-prose emphasis where the text is one token within a body sentence.
+
+**Why this matters:** italic-display is one of the system's signature typographic moves (Newsreader serif italic at large size). Saturating it loses the visual hierarchy CD established. When PMs scan a Project Detail header, italic client name should read as "context anchor, not the emphatic statement" — that's what desaturation conveys.
+
+**Implications for CC:**
+- Future surfaces using italic-display (Customer view greeting, PDF customer block, Mark-Accepted accepted state) inherit `text-ink-3` for the italic
+- Existing utilitarian `italic` Tailwind utility usages in pre-RI surfaces (e.g., `customs-row.tsx`, `sku-search-panel.tsx`) are body-prose italics; those use `text-gray-500` / `italic text-...-500` which is the body-italic register; not subject to this convention
+- Designer audits flag any future `italic text-ink` usage as a fidelity violation if it's display-class typography
+
+**Decided by:** Designer agent + CA + Edward, May 2026, RI.1+RI.2+RI.3 block-boundary fidelity audit (re-run). M21 finding promoted to a CR entry to harden against future drift across remaining RI sub-slices.
+
+---
+
 ## Anticipated future inconsistencies
 
 These haven't surfaced yet but are likely to during build. Pre-flagged so Designer + CC know they're coming:
@@ -303,6 +328,7 @@ Round 4 designed the inbox section of the deal organizer but the slice brief def
 | 2026-05 | CR-8 | CA + Edward | **Provisional** | Tier picker context-dependent across surfaces. CC follows per-surface canonical round. |
 | 2026-05 | CR-10 | CA + Edward | **Provisional** | Topbar minimal; page-specific actions live in page headers. Edward to revalidate when RI.3 + RI.4 ship. |
 | 2026-05 | CR-11 | Designer + CA + Edward | **Decided** | Validation warning UI uses verdict-ramp chip register (`--good` / `--warn` / `--bad`); NOT `--internal` (reserved for boundary-guard). Closes Future-CR-A. |
+| 2026-05 | CR-12 | Designer + CA + Edward | **Decided** | Italic-display register is desaturated (`text-ink-3`). Saturated `text-ink` italic reserved for in-prose body emphasis. Future italic-display surfaces inherit; Designer audits flag drift. |
 
 **Provisional vs decided.** Provisional dispositions are the working assumption CC implements against. They're not final until Edward walks the rendered page during smoke and confirms (or refines). Cost of revisiting a provisional disposition is small — typically a small visual change, not architectural rework.
 

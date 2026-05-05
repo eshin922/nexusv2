@@ -94,7 +94,7 @@ export default async function ProjectDetailPage({
       <div className="mb-6 flex items-start justify-between gap-4 border-b border-rule pb-4">
         <div className="min-w-0">
           {project.clientName && (
-            <h1 className="font-display text-3xl italic text-ink">
+            <h1 className="font-display text-3xl italic text-ink-3">
               {project.clientName}
             </h1>
           )}
@@ -344,7 +344,7 @@ function ScenarioCardView({
         <div>
           <div className="flex items-center gap-2">
             {scenario.isRecommended && (
-              <span title="Recommended" className="text-warn">
+              <span title="Recommended" className="text-accent">
                 ★
               </span>
             )}
@@ -352,15 +352,15 @@ function ScenarioCardView({
               {scenario.scenarioLabel}
             </h3>
             <span
-              className={`rounded px-1.5 py-0 font-mono text-[10px] font-medium uppercase tracking-wide ${
+              className={`rounded border px-1.5 py-0 font-mono text-[10px] font-medium uppercase tracking-wide ${
                 isAccepted
-                  ? "bg-good-soft text-good"
+                  ? "border-good/40 bg-good-soft text-good"
                   : isDropped
-                    ? "bg-paper-3 text-ink-3"
-                    : "bg-accent-soft text-accent"
+                    ? "border-rule bg-paper-3 text-ink-3"
+                    : "border-accent/40 bg-accent-soft text-accent-ink"
               }`}
             >
-              {scenario.scenarioStatus}
+              {scenario.scenarioStatus.toUpperCase()}
             </span>
             {isDropped && scenario.dropReason && (
               <span className="rounded border border-rule px-1.5 py-0 font-mono text-[9px] uppercase tracking-wide text-ink-3">
@@ -397,15 +397,15 @@ function ScenarioCardView({
                 v{v.versionNumber}
               </span>
               <span
-                className={`rounded px-1.5 py-0 font-mono text-[9px] font-medium uppercase tracking-wide ${
+                className={`rounded border px-1.5 py-0 font-mono text-[9px] font-medium uppercase tracking-wide ${
                   v.status === "accepted"
-                    ? "bg-good-soft text-good"
+                    ? "border-good/40 bg-good-soft text-good"
                     : v.status === "sent"
-                      ? "bg-accent-soft text-accent"
-                      : "bg-warn-soft text-warn"
+                      ? "border-accent/40 bg-accent-soft text-accent-ink"
+                      : "border-warn/40 bg-warn-soft text-warn"
                 }`}
               >
-                {v.status}
+                {v.status.toUpperCase()}
               </span>
             </Link>
             <span className="font-mono text-[10px] text-ink-4">
@@ -434,7 +434,7 @@ function NextActionCard({
       ? "border-good bg-good-soft/40"
       : "border-accent bg-accent-soft";
   return (
-    <section className={`mb-4 rounded border-l-4 ${cls} p-4`}>
+    <section className={`mb-4 rounded border ${cls} p-4`}>
       <div className="font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3">
         Next action
       </div>
@@ -462,8 +462,13 @@ function Field({
   );
 }
 
-function fmtRelative(d: Date): string {
-  const ms = Date.now() - d.getTime();
+// RSC boundary defense: timestamps serialize as ISO strings when
+// crossing server → client component boundary. Even though this file
+// is a server component, defensive coercion keeps the formatters
+// safe if any portion gets carved into a client subtree later.
+function fmtRelative(d: Date | string): string {
+  const t = typeof d === "string" ? new Date(d).getTime() : d.getTime();
+  const ms = Date.now() - t;
   const minutes = Math.round(ms / 60_000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes}m ago`;
@@ -477,8 +482,9 @@ function fmtRelative(d: Date): string {
   return `${months}mo ago`;
 }
 
-function fmtAbsolute(d: Date): string {
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+function fmtAbsolute(d: Date | string): string {
+  const date = typeof d === "string" ? new Date(d) : d;
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function humanizeAction(action: string): string {

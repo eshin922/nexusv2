@@ -51,7 +51,7 @@ export async function OuterRail() {
   })();
 
   return (
-    <aside className="fixed left-0 top-0 z-30 flex h-screen w-14 flex-col items-center gap-2 border-r border-rule bg-paper py-3">
+    <aside className="fixed left-0 top-0 z-30 flex h-screen w-14 flex-col items-center gap-2 border-r border-rule bg-paper-2 py-3">
       {/* Nexus N mark — top */}
       <Link
         href="/"
@@ -79,10 +79,10 @@ export async function OuterRail() {
       {/* ⌘K search placeholder — functional later */}
       <button
         type="button"
-        title="Search (coming soon)"
+        title="Search · coming soon"
         disabled
-        className="flex h-7 w-7 items-center justify-center rounded text-ink-4 disabled:cursor-not-allowed disabled:opacity-60"
-        aria-label="Search (coming soon)"
+        className="flex h-7 w-7 items-center justify-center rounded text-ink-4 disabled:cursor-not-allowed"
+        aria-label="Search — coming soon"
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
           <circle cx="6" cy="6" r="3.5" />
@@ -93,7 +93,7 @@ export async function OuterRail() {
       {/* Pinned section */}
       {pinned.length > 0 && (
         <>
-          <div className="mt-3 font-mono text-[8px] uppercase tracking-[0.18em] text-ink-4">
+          <div className="mt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-4">
             PINNED
           </div>
           <div className="flex flex-col gap-1.5">
@@ -113,7 +113,7 @@ export async function OuterRail() {
       {/* Recent section */}
       {recent.length > 0 && (
         <>
-          <div className="mt-3 font-mono text-[8px] uppercase tracking-[0.18em] text-ink-4">
+          <div className="mt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-4">
             RECENT
           </div>
           <div className="flex flex-col gap-1.5">

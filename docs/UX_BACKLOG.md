@@ -5,6 +5,24 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [DB invariant: quotes.drop_reason ↔ scenario_status='dropped' (Slice 12 hardening)]
+
+  **Slice:** 12 (Mark-Accepted + sibling auto-drop action)
+
+  **What:** RI.1 added `quotes.drop_reason` (scenario_drop_reason enum) and `dropped_by_user_id` + `dropped_at` columns. Schema comment declares the invariant: "NULL on active/accepted; required (action-layer) when status transitions to 'dropped'." But the action layer that enforces this — sibling auto-drop on Mark-Accepted (Round 3 commitment #5), draft-at-accept auto-save (Round 3 commitment #2), manual drop UI — ships in Slice 12.
+
+  **Risk window:** between RI.1 and Slice 12, a manually-inserted `scenario_status='dropped'` row could land with NULL `drop_reason`. Render path is graceful (`humanizeDropReason` returns the reason as-is; if null, badge renders empty). But the data quality drift is real if anything bypasses the action layer.
+
+  **Where designed:** Slice 12 brief — auto-drop on accept implements the canonical write path. Designer RI.1+RI.2+RI.3 audit S5 surfaced + dispositioned (Justify-or-Fix; CC chose UX_BACKLOG over premature DB CHECK).
+
+  **Two paths when the invariant ships:**
+  1. Add a DB CHECK constraint via Slice 12 migration: `CHECK ((scenario_status = 'dropped') = (drop_reason IS NOT NULL))`. Hard guarantee at the schema layer. Defensible.
+  2. Action-layer enforcement only (default to 'manual' when missing on dropped rows). Looser; relies on action discipline.
+
+  **Why log it:** Don't add the CHECK now (premature; no auto-drop action to validate against). Don't lose the invariant (would create silent data drift). Slice 12 implementation should pick path 1 OR path 2 explicitly.
+
+  Reference: `src/db/schema.ts` `quotes.drop_reason` column comment + Slice 12 brief auto-drop section.
+
 - [Per-SKU drill-down spacing audit (RI.5 smoke target)]
 
   **Slice:** RI.5 (Costing Sheet rebuild — Round 6 section-with-drill-down pattern)

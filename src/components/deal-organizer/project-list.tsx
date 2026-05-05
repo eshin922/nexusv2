@@ -30,8 +30,12 @@ const FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: "accepted", label: "Accepted" },
 ];
 
-function fmtRelative(d: Date): string {
-  const ms = Date.now() - d.getTime();
+// RSC boundary: Date instances serialize as ISO strings when crossing
+// from server component → client component props. Coerce defensively
+// so the formatter works whether the caller passed a Date or a string.
+function fmtRelative(d: Date | string): string {
+  const t = typeof d === "string" ? new Date(d).getTime() : d.getTime();
+  const ms = Date.now() - t;
   const minutes = Math.round(ms / 60_000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes}m ago`;
@@ -46,9 +50,9 @@ function fmtRelative(d: Date): string {
 }
 
 const STATUS_CHIP: Record<string, { cls: string; label: string }> = {
-  draft: { cls: "bg-warn-soft text-warn", label: "DRAFT" },
-  sent: { cls: "bg-accent-soft text-accent", label: "SENT" },
-  accepted: { cls: "bg-good-soft text-good", label: "ACCEPTED" },
+  draft: { cls: "border-warn/40 bg-warn-soft text-warn", label: "DRAFT" },
+  sent: { cls: "border-accent/40 bg-accent-soft text-accent-ink", label: "SENT" },
+  accepted: { cls: "border-good/40 bg-good-soft text-good", label: "ACCEPTED" },
 };
 
 export function DealOrganizerProjectList({
@@ -139,7 +143,7 @@ export function DealOrganizerProjectList({
                       />
                       <div className="min-w-0">
                         {r.clientName && (
-                          <div className="truncate font-display text-sm italic text-ink">
+                          <div className="truncate font-display text-sm italic text-ink-3">
                             {r.clientName}
                           </div>
                         )}
@@ -175,7 +179,7 @@ export function DealOrganizerProjectList({
                   <td className="px-3 py-2.5">
                     {r.latestQuote && (
                       <span
-                        className={`inline-block rounded px-1.5 py-0 font-mono text-[10px] font-medium uppercase tracking-wide ${chip.cls}`}
+                        className={`inline-block rounded border px-1.5 py-0 font-mono text-[10px] font-medium uppercase tracking-wide ${chip.cls}`}
                       >
                         {chip.label}
                       </span>

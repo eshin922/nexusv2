@@ -52,7 +52,7 @@ export async function InnerRail({
       {/* Back to all deals */}
       <Link
         href="/"
-        className="mb-3 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.13em] text-ink-3 hover:text-ink"
+        className="mb-3 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3 hover:text-ink"
       >
         <span aria-hidden>←</span>
         <span>All deals</span>
@@ -67,7 +67,7 @@ export async function InnerRail({
         />
         <div className="min-w-0 flex-1">
           {header.clientName && (
-            <div className="truncate font-display text-sm italic text-ink">
+            <div className="truncate font-display text-sm italic text-ink-3">
               {header.clientName}
             </div>
           )}
@@ -81,7 +81,7 @@ export async function InnerRail({
       </div>
 
       {/* Scenarios */}
-      <div className="mb-2 font-mono text-[9px] uppercase tracking-[0.18em] text-ink-4">
+      <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-4">
         Scenarios
       </div>
 
@@ -106,7 +106,7 @@ export async function InnerRail({
               >
                 <span className="flex min-w-0 items-center gap-1.5">
                   {s.isRecommended && (
-                    <span title="Recommended" className="text-warn">
+                    <span title="Recommended" className="text-accent">
                       ★
                     </span>
                   )}
@@ -116,8 +116,8 @@ export async function InnerRail({
                   </span>
                 </span>
                 {s.scenarioStatus === "accepted" && (
-                  <span className="rounded bg-good-soft px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide text-good">
-                    accepted
+                  <span className="rounded border border-good/40 bg-good-soft px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide text-good">
+                    ACCEPTED
                   </span>
                 )}
               </Link>
@@ -159,8 +159,27 @@ export async function InnerRail({
           );
         })}
 
-        {/* Dropped scenarios — collapsed disclosure when > 3 */}
-        {droppedScenarios.length > 0 && (
+        {/* Dropped scenarios — render inline when count <= 3 (per
+            Round 4 pushback #2 + brief §3.6 line 523); collapse to
+            "+N dropped" disclosure when count > 3. The pushback's
+            target was 5+ feels cluttered; 1-3 dropped don't trigger. */}
+        {droppedScenarios.length > 0 && droppedScenarios.length <= 3 && (
+          <div className="mt-1 flex flex-col gap-0.5">
+            {droppedScenarios.map((s) => (
+              <Link
+                key={s.scenarioLabel}
+                href={`/projects/${projectId}/quotes/${s.latestQuoteId}/costing`}
+                className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-ink-4 line-through hover:text-ink-3"
+              >
+                <span className="truncate">{s.scenarioLabel}</span>
+                <span className="font-mono text-[10px]">
+                  v{s.latestVersionNumber}
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+        {droppedScenarios.length > 3 && (
           <details className="mt-2">
             <summary className="cursor-pointer text-xs text-ink-4 hover:text-ink-3">
               +{droppedScenarios.length} dropped
@@ -188,7 +207,7 @@ export async function InnerRail({
           inner rail's mini feed consumes the same data with a
           last-N-entries cap). For RI.2, leave a placeholder slot. */}
       <div className="mt-4 border-t border-rule pt-3">
-        <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-ink-4">
+        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-4">
           Activity
         </div>
         <div className="mt-2 text-[11px] italic text-ink-4">
