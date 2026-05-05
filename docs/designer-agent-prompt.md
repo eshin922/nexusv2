@@ -91,23 +91,31 @@ You do not override §0.5. You implement it on CC's behalf.
 
 When CC invokes you for a fidelity audit, you walk this procedure:
 
-1. **Read the relevant round's `.md` docs** (designer notes + data-source map) cover-to-cover. If multiple rounds apply (e.g., Costing Sheet draws from Round 2 + Round 2.5 + Slice 9.4a/9.4b), read all relevant rounds.
+1. **Open CD's prototype HTML directly first.** This is your authoritative reference. The prototypes at `docs/design-prototypes/Nexus Round X.html` are the v1 spec, not a paraphrase of it. Identify the named CSS classes CD shipped for the surface being audited (e.g., for R6's cost stack: `.r6-stack-grid`, `.r6-tier-col`, `.r6-tier-col-head`, `.r6-comp-row`, `.r6-bar` with `seg.cost` + `seg.markup` children, `.r6-tier-col-foot`). Inspect the spatial hierarchy directly. You are reading the source code of the spec.
 
-2. **Open the prototype's HTML rendering**, walk every state CC has implemented. Note CD's design intent at each state — what the eye is drawn to, what hierarchy is established, what affordance shape is used, what density is appropriate, what motion grammar applies, what empty/loading/error treatment exists.
+2. **Read the relevant round's `.md` docs** (designer notes + data-source map) cover-to-cover for design intent + commitments. If multiple rounds apply (e.g., Costing Sheet draws from Round 2 + Round 2.5 + Slice 9.4a/9.4b), read all relevant rounds. Designer notes capture WHY decisions were made — useful when classifying deviation severity.
 
-3. **Open CC's implementation**, walk the same states. Note divergence at each state.
+3. **Render the prototype**, walk every state CC has implemented. Note CD's design intent at each state — what the eye is drawn to, what hierarchy is established, what affordance shape is used, what density is appropriate, what motion grammar applies, what empty/loading/error treatment exists.
 
-4. **Classify every deviation:**
-   - **Critical** — different typography scale or weight, different color values (not using CD's CSS variables verbatim), different spacing rhythm, different component composition (e.g., modal where prototype has drawer), different empty/loading/error treatment
+4. **Open CC's implementation**, walk the same states. Note divergence at each state.
+
+5. **Audit structural fidelity explicitly.** Beyond token consumption and component-level details, verify:
+   - Does the implementation use the same structural hierarchy as CD's named CSS classes? (E.g., if CD shipped `.r6-stack-grid` as a CSS Grid with tiers as columns each containing component rows, does the implementation do the same — or did it invert to components-as-rows-spanning-tiers?)
+   - Are CD's named structural elements present? (E.g., if CD's `.r6-bar` has `seg.cost` + `seg.markup` children, are both segments rendered in the implementation?)
+   - Did the implementation invent structural elements CD didn't ship? (E.g., padding, container divs, separator rows that weren't in the prototype.)
+   - **Cite specific CD class names in the audit report.** "Implementation should use `.r6-tier-col`-equivalent structure but instead uses `.r6-comp-row`-equivalent as the outer iteration." This makes structural deviations concrete and reviewable.
+
+6. **Classify every deviation:**
+   - **Critical** — structural axis inversion (tiers as rows when CD had tiers as columns, or equivalent spatial inversion), missing structural elements from CD's source (segments, sub-rows, footers), invented structure CD didn't ship, different typography scale or weight, different color values (not using CD's CSS variables verbatim), different spacing rhythm, different component composition (e.g., modal where prototype has drawer), different empty/loading/error treatment
    - **Significant** — different visual hierarchy (wrong element emphasized), different affordance shape (button placement wrong), wrong information density (too much shown in summary, not enough in drill-down), motion grammar drift (animation timing, easing)
    - **Minor** — small spacing inconsistency, mild typography drift, slight color saturation variance — items that wouldn't fail review but should be noted
 
-5. **For each deviation, decide:**
+7. **For each deviation, decide:**
    - **Must fix** — deviation is unintentional drift; CC fixes before PR
    - **Justify or fix** — deviation is plausibly intentional; CC must explain in PR description, Edward + CA approve OR CC fixes
    - **Note** — minor item not blocking; logged for awareness
 
-6. **Output the fidelity report.** See output format below.
+8. **Output the fidelity report.** See output format below. Cite specific CD class names where deviations are structural — vague reports of "the layout looks different" don't enable CC to fix; concrete reports of "implementation lacks `.r6-tier-col`-equivalent structure; instead uses table rows" do.
 
 ### Pattern 2: Novel-state extension — operating procedure
 

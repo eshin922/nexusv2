@@ -50,9 +50,25 @@
   --good:      oklch(0.55 0.10 155);
   --good-soft: oklch(0.94 0.035 155);
   --warn:      oklch(0.62 0.13 70);
-  --warn-soft: oklch(0.95 0.045 70);
+  --warn-soft: oklch(0.94 0.05 70);
   --bad:       oklch(0.55 0.18 25);
   --bad-soft:  oklch(0.95 0.04 25);
+
+  /* Slice RI.4 — Cost stack component palette per R2/R6 source.
+     R6 defines five distinct hues spaced 25–40° apart in OKLCH for
+     maximum perceptual separation between PKG / PROD / FRT / RAW / D+T.
+     `--freight` is kept (legacy alias, used by Tailwind utility classes
+     elsewhere); the `--comp-*` tokens are R6's canonical names used in
+     the cost stack. */
+  --freight:      oklch(0.55 0.10 195);
+  --freight-soft: oklch(0.94 0.035 195);
+
+  --comp-pkg:        oklch(0.55 0.10 250);
+  --comp-prod:       oklch(0.52 0.10 175);
+  --comp-frt:        oklch(0.58 0.09 215);
+  --comp-raw:        oklch(0.55 0.10 145);
+  --comp-dt:         oklch(0.52 0.13 290);
+  --comp-dt-stripe:  oklch(0.52 0.13 290 / 0.42);
 
   /* INTERNAL — load-bearing customer-invisible signal */
   --internal:      oklch(0.50 0.08 305);
@@ -102,11 +118,22 @@
 
   /* Semantic */
   --good:      oklch(0.78 0.13 155);
-  --good-soft: oklch(0.28 0.05 155);
+  --good-soft: oklch(0.30 0.05 155);
   --warn:      oklch(0.82 0.13 75);
-  --warn-soft: oklch(0.30 0.05 70);
+  --warn-soft: oklch(0.32 0.05 70);
   --bad:       oklch(0.74 0.16 25);
   --bad-soft:  oklch(0.32 0.06 25);
+
+  /* Slice RI.4 — Cost stack FRT freight token (dark variant). */
+  --freight:      oklch(0.78 0.10 195);
+  --freight-soft: oklch(0.28 0.05 195);
+
+  --comp-pkg:        oklch(0.74 0.13 250);
+  --comp-prod:       oklch(0.74 0.13 175);
+  --comp-frt:        oklch(0.78 0.12 215);
+  --comp-raw:        oklch(0.76 0.14 145);
+  --comp-dt:         oklch(0.72 0.16 290);
+  --comp-dt-stripe:  oklch(0.72 0.16 290 / 0.55);
 
   /* INTERNAL */
   --internal:      oklch(0.74 0.10 305);

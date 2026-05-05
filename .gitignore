@@ -13,6 +13,10 @@ out/
 # Production builds
 build/
 dist/
+# ...except CD's design prototype source — referenced by CR-13 +
+# CLAUDE.md "Design prototype source access" + Designer agent audits.
+!docs/design-prototypes/dist/
+!docs/design-prototypes/dist/**
 
 # Environment variables — NEVER commit
 .env

@@ -14,11 +14,15 @@ import {
   quoteSkus,
   quoteTiers,
 } from "@/db/schema";
+import { Suspense } from "react";
 import { listMarkupDefaults } from "@/app/actions/markup-defaults";
 import { getCostingBundle } from "@/app/actions/costing";
 import { CostingStoreProvider } from "@/components/costing-store-provider";
+import { ActiveTierUrlSync } from "@/components/costing/active-tier-url-sync";
 import { CostBuildHeader } from "@/components/cost-build/cost-build-header";
 import { CostStackHeader } from "@/components/cost-build/cost-stack-header";
+import { CostBuildAccordion } from "@/components/cost-build/cost-build-accordion";
+import { ScenarioContextStrip } from "@/components/cost-build/scenario-context-strip";
 import { SectionWithDrilldown } from "@/components/cost-build/section-with-drilldown";
 import { PackagingDrilldown } from "@/components/cost-build/packaging-drilldown";
 import { ProductionDrilldown } from "@/components/cost-build/production-drilldown";
@@ -80,8 +84,15 @@ export default async function CostBuildPage({
   const { quote, project } = quoteRows[0];
   if (project.id !== projectId) notFound();
 
-  // Single bundle fetch — all four sections + bulk raw schema state +
-  // deposit lifecycle + costing bundle for the optimistic store.
+  // getCostingBundle MUST run sequentially (not inside the outer
+  // Promise.all). Its internal Promise.all of 8 queries combined with
+  // 7 outer parallel queries used to demand 15+ pool slots from a
+  // 10-slot pool — observed as indefinite hang in dev (Slice RI.4
+  // infrastructure thread, May 2026). Sequencing caps peak demand
+  // at max(8, 7) = 8. See CLAUDE.md "getCostingBundle parallel-query
+  // discipline" for the durable convention.
+  const bundle = await getCostingBundle(quote.id);
+
   const [
     skus,
     tiers,
@@ -89,11 +100,7 @@ export default async function CostBuildPage({
     prodRows,
     frtRows,
     categories,
-    bundle,
     bulkRawMeta,
-    bulkRawCats,
-    bulkRawIngs,
-    deposits,
   ] = await Promise.all([
     db
       .select()
@@ -131,26 +138,44 @@ export default async function CostBuildPage({
         asc(freightInputs.createdAt),
       ),
     listMarkupDefaults(),
-    getCostingBundle(quote.id),
     db
       .select()
       .from(bulkRawSectionMeta)
       .where(eq(bulkRawSectionMeta.quoteId, quote.id))
       .limit(1),
-    db
-      .select()
-      .from(bulkRawCategories)
-      .where(eq(bulkRawCategories.quoteId, quote.id))
-      .orderBy(asc(bulkRawCategories.sortOrder)),
-    db
-      .select()
-      .from(bulkRawIngredients)
-      .innerJoin(
-        bulkRawCategories,
-        eq(bulkRawCategories.id, bulkRawIngredients.categoryId),
-      )
-      .where(eq(bulkRawCategories.quoteId, quote.id))
-      .orderBy(asc(bulkRawIngredients.sortOrder)),
+  ]);
+
+  // Phase 2: Bulk Raw categories/ingredients only when in dps_sources
+  // mode (the only time the data is rendered). Skip otherwise — saves
+  // 2 queries per page load when mode = cm_sources / customer_supplies.
+  const rawsModeForFetch =
+    bulkRawMeta[0]?.rawsMode ?? "cm_sources";
+  const [bulkRawCats, bulkRawIngs, deposits] = await Promise.all([
+    rawsModeForFetch === "dps_sources"
+      ? db
+          .select()
+          .from(bulkRawCategories)
+          .where(eq(bulkRawCategories.quoteId, quote.id))
+          .orderBy(asc(bulkRawCategories.sortOrder))
+      : Promise.resolve(
+          [] as (typeof bulkRawCategories.$inferSelect)[],
+        ),
+    rawsModeForFetch === "dps_sources"
+      ? db
+          .select()
+          .from(bulkRawIngredients)
+          .innerJoin(
+            bulkRawCategories,
+            eq(bulkRawCategories.id, bulkRawIngredients.categoryId),
+          )
+          .where(eq(bulkRawCategories.quoteId, quote.id))
+          .orderBy(asc(bulkRawIngredients.sortOrder))
+      : Promise.resolve(
+          [] as Array<{
+            bulk_raw_ingredients: typeof bulkRawIngredients.$inferSelect;
+            bulk_raw_categories: typeof bulkRawCategories.$inferSelect;
+          }>,
+        ),
     db
       .select()
       .from(costSectionDeposits)
@@ -173,6 +198,12 @@ export default async function CostBuildPage({
   const editable = quote.status === "draft";
   const rawsMode = bulkRawMeta[0]?.rawsMode ?? "cm_sources";
 
+  const tierBrief = tiers.map((t) => ({
+    id: t.id,
+    label: t.label,
+    qty: t.qty,
+  }));
+
   // Bulk Raw section ALWAYS renders as a peer (per Round 6 + Bulk Raw
   // correction; Designer audit C-1). Mode selector lives INSIDE the
   // section (mode-declaration zone). When raws-mode != dps_sources,
@@ -186,42 +217,91 @@ export default async function CostBuildPage({
 
   return (
     <CostingStoreProvider snapshot={bundle.data}>
-      <main className="p-6">
+      {/* URL ↔ store sync for active-tier selection. Suspense
+          boundary required for useSearchParams in app router. */}
+      <Suspense fallback={null}>
+        <ActiveTierUrlSync />
+      </Suspense>
+      {/* Body bg is now paper-2 globally (matches R6); cost-stack +
+          section bg-paper cards read as contrast field. Max-width
+          1480px + 40px horizontal padding per R6 `.r6-page`
+          (Designer audit C-6). 28px top + 80px bottom matches R6. */}
+      <main
+        className="mx-auto px-10 pt-7 pb-20"
+        style={{ maxWidth: "1480px" }}
+      >
         <CostBuildHeader
           project={project}
           quote={quote}
+          tierCount={tiers.length}
           editable={editable}
         >
           <WarningSummaryChip />
         </CostBuildHeader>
 
+        {/* Scenario context strip — anchor SKU + tier count + units
+            total + scenario-switch affordance per Round 6 data-source-
+            map page-level identity table. Renders ABOVE cost stack. */}
+        <ScenarioContextStrip
+          projectId={project.id}
+          scenarioLabel={quote.scenarioLabel}
+          scenarioVersion={quote.versionNumber}
+          anchorSku={(() => {
+            // V1 anchor SKU = first leaf SKU. There's no `is_anchor`
+            // column today; per-quote anchor pinning is a future
+            // enhancement (UX_BACKLOG candidate when surfaces need it).
+            const leaves = skus.filter((s) => s.skuRole === "leaf");
+            const first = leaves[0] ?? skus[0] ?? null;
+            return first
+              ? {
+                  id: first.id,
+                  skuLabel: first.skuLabel,
+                  productName: first.productName,
+                  skuRole: first.skuRole,
+                }
+              : null;
+          })()}
+          otherSkus={(() => {
+            const leaves = skus.filter((s) => s.skuRole === "leaf");
+            const anchor = leaves[0] ?? skus[0];
+            return skus
+              .filter((s) => s.id !== anchor?.id)
+              .map((s) => ({
+                id: s.id,
+                skuLabel: s.skuLabel,
+                productName: s.productName,
+                skuRole: s.skuRole,
+              }));
+          })()}
+          tierCount={tiers.length}
+          unitsTotal={tiers.reduce((sum, t) => sum + (t.qty ?? 0), 0)}
+        />
+
         {/* Cost stack header — multi-tier side-by-side */}
         <section className="mb-6">
-          <CostStackHeader
-            tiers={tiers.map((t) => ({
-              id: t.id,
-              label: t.label,
-              qty: t.qty,
-            }))}
-            rawsMode={rawsMode}
-          />
+          <CostStackHeader tiers={tierBrief} rawsMode={rawsMode} />
         </section>
 
-        {/* Sections — accordion-style summary-with-drill-down. Mode
-            selector lives inside the Bulk Raw drilldown per Round 6
-            + Bulk Raw correction (Designer audit C-1). */}
-        <div className="flex flex-col gap-3">
+        {/* Sections — accordion-style summary-with-drill-down. Open
+            state is client-managed via <CostBuildAccordion> context
+            (RI.4 perf fix per Edward smoke item (a)). All drawer
+            content stays mounted server-side; CSS hides/shows on
+            toggle. Mode selector lives inside the Bulk Raw drilldown
+            per Round 6 + Bulk Raw correction (Designer audit C-1). */}
+        <CostBuildAccordion
+          initialOpen={openSection}
+          projectId={project.id}
+          quoteId={quote.id}
+        >
           <SectionWithDrilldown
             id="packaging"
             name="Packaging"
-            sublabel={`${pkgRows.length} input rows`}
+            sublabel={packagingSublabel(pkgRows)}
             statusChip={packagingStatusChip(pkgRows.length)}
-            tiers={tiers.map((t) => ({ id: t.id, label: t.label, qty: t.qty }))}
-            quoteId={quote.id}
+            tiers={tierBrief}
             sectionKind="packaging"
+            lineCount={pkgRows.length}
             deposit={deposits.find((d) => d.sectionKind === "packaging")}
-            isOpen={openSection === "packaging"}
-            projectId={project.id}
           >
             <PackagingDrilldown
               skus={skus}
@@ -235,14 +315,12 @@ export default async function CostBuildPage({
           <SectionWithDrilldown
             id="production"
             name="Production"
-            sublabel={`${prodRows.length} input rows`}
+            sublabel={productionSublabel(prodRows)}
             statusChip={productionStatusChip(prodRows.length)}
-            tiers={tiers.map((t) => ({ id: t.id, label: t.label, qty: t.qty }))}
-            quoteId={quote.id}
+            tiers={tierBrief}
             sectionKind="production"
+            lineCount={prodRows.length}
             deposit={deposits.find((d) => d.sectionKind === "production")}
-            isOpen={openSection === "production"}
-            projectId={project.id}
           >
             <ProductionDrilldown
               skus={skus}
@@ -267,12 +345,10 @@ export default async function CostBuildPage({
               bulkRawCats.length,
               bulkRawIngs.length,
             )}
-            tiers={tiers.map((t) => ({ id: t.id, label: t.label, qty: t.qty }))}
-            quoteId={quote.id}
+            tiers={tierBrief}
             sectionKind="bulk_raw"
+            lineCount={bulkRawCats.length}
             deposit={deposits.find((d) => d.sectionKind === "bulk_raw")}
-            isOpen={openSection === "bulk_raw"}
-            projectId={project.id}
           >
             <BulkRawDrilldown
               quoteId={quote.id}
@@ -288,13 +364,11 @@ export default async function CostBuildPage({
           <SectionWithDrilldown
             id="freight"
             name="Freight"
-            sublabel={`${frtRows.length} input rows`}
+            sublabel={freightSublabel(frtRows)}
             statusChip={freightStatusChip(frtRows.length)}
-            tiers={tiers.map((t) => ({ id: t.id, label: t.label, qty: t.qty }))}
-            quoteId={quote.id}
+            tiers={tierBrief}
             sectionKind="freight"
-            isOpen={openSection === "freight"}
-            projectId={project.id}
+            lineCount={frtRows.length}
           >
             <FreightDrilldown
               skus={skus}
@@ -303,36 +377,37 @@ export default async function CostBuildPage({
               editable={editable}
             />
           </SectionWithDrilldown>
-        </div>
+        </CostBuildAccordion>
       </main>
     </CostingStoreProvider>
   );
 }
 
+// R6 status chip is driven by kind enum only — no custom labels (per
+// Designer audit C-3 + R6 section-summary-row.jsx:18-23).
 function packagingStatusChip(rowCount: number) {
-  if (rowCount === 0) return { label: "EMPTY", tone: "neutral" as const };
-  return { label: "IN PROGRESS", tone: "active" as const };
+  if (rowCount === 0) return { kind: "empty" as const };
+  return { kind: "in_progress" as const };
 }
 function productionStatusChip(rowCount: number) {
-  if (rowCount === 0) return { label: "EMPTY", tone: "neutral" as const };
-  return { label: "IN PROGRESS", tone: "active" as const };
+  if (rowCount === 0) return { kind: "empty" as const };
+  return { kind: "in_progress" as const };
 }
 function freightStatusChip(rowCount: number) {
-  if (rowCount === 0) return { label: "EMPTY", tone: "neutral" as const };
-  return { label: "IN PROGRESS", tone: "active" as const };
+  if (rowCount === 0) return { kind: "empty" as const };
+  return { kind: "in_progress" as const };
 }
 function bulkRawStatusChip(
   rawsMode: "cm_sources" | "dps_sources" | "customer_supplies",
   catCount: number,
   ingCount: number,
 ) {
-  if (rawsMode !== "dps_sources") {
-    return { label: "INACTIVE", tone: "neutral" as const };
-  }
-  if (catCount === 0) return { label: "EMPTY", tone: "neutral" as const };
-  if (ingCount === 0)
-    return { label: "CATEGORIES ONLY", tone: "neutral" as const };
-  return { label: "IN PROGRESS", tone: "active" as const };
+  // R6 cost-build-page.jsx:174-180: when raws are accounted for
+  // elsewhere (cm_sources / customer_supplies), Bulk Raw section is
+  // semantically "complete." NOT "INACTIVE."
+  if (rawsMode !== "dps_sources") return { kind: "complete" as const };
+  if (catCount === 0) return { kind: "empty" as const };
+  return { kind: "in_progress" as const };
 }
 
 function bulkRawSublabel(
@@ -342,10 +417,72 @@ function bulkRawSublabel(
 ): string {
   switch (rawsMode) {
     case "cm_sources":
-      return "CM sources · raws cost in Production";
+      return "CM sources raws — folded into Production";
     case "customer_supplies":
-      return "Customer supplies · raws excluded from landed cost";
+      return "Customer supplies raws — no cost contribution";
     case "dps_sources":
-      return `${catCount} categor${catCount === 1 ? "y" : "ies"} · ${ingCount} ingredient${ingCount === 1 ? "" : "s"}`;
+      if (catCount === 0)
+        return "Oil base, actives, fragrance, preservatives — billed in kg / L / mL";
+      return `${catCount} categor${catCount === 1 ? "y" : "ies"} · ${ingCount} ingredient${ingCount === 1 ? "" : "s"} · native units`;
   }
+}
+
+// Sublabel helpers — semantic meta per R6 source
+// (cost-build-page.jsx lines 144-146, 160-164, 184-192, 210-214).
+// PMs read these to understand "what's the shape of this section's
+// data?" not "how many rows are in it?". When empty, evocative copy
+// describes what the section will hold (drives PM toward population).
+
+function packagingSublabel(
+  rows: Array<{ packaging_inputs: { lineGroupId: string; supplier: string | null; inventoryEligible: boolean } }>,
+): string {
+  if (rows.length === 0)
+    return "Bottle, dropper, label, carton — markup defaults from category";
+  // Dedup by lineGroupId — one logical line has N tier rows in DB
+  const lines = new Map<string, { supplier: string | null; inventoryEligible: boolean }>();
+  for (const r of rows) {
+    if (!lines.has(r.packaging_inputs.lineGroupId)) {
+      lines.set(r.packaging_inputs.lineGroupId, {
+        supplier: r.packaging_inputs.supplier,
+        inventoryEligible: r.packaging_inputs.inventoryEligible,
+      });
+    }
+  }
+  const inventoryCount = [...lines.values()].filter((l) => l.inventoryEligible).length;
+  const supplierSet = new Set(
+    [...lines.values()].map((l) => l.supplier).filter((s): s is string => !!s),
+  );
+  return `${inventoryCount} inventory-eligible · ${supplierSet.size} supplier${supplierSet.size === 1 ? "" : "s"}`;
+}
+
+function productionSublabel(
+  rows: Array<{ production_inputs: { allocateServiceFeesToCost: boolean; actualUnitsProduced: number | null } }>,
+): string {
+  if (rows.length === 0)
+    return "Filling, assembly, NRE — service fees & per-unit price";
+  // R6 sublabel: "fees amortized · run locked" / "fees billed separately".
+  // Nexus has allocate_service_fees_to_cost per SKU; majority-vote.
+  const allocCount = rows.filter((r) => r.production_inputs.allocateServiceFeesToCost).length;
+  const allocText = allocCount > rows.length / 2 ? "fees amortized" : "fees billed separately";
+  // Run-locked = any row has actualUnitsProduced set.
+  const runLocked = rows.some((r) => r.production_inputs.actualUnitsProduced != null);
+  return runLocked ? `${allocText} · run locked` : allocText;
+}
+
+function freightSublabel(
+  rows: Array<{ freight_inputs: { lineGroupId: string; freightTreatment: "bundled" | "pass_through" } }>,
+): string {
+  if (rows.length === 0)
+    return "Inbound, outbound, customs — per-line treatment";
+  // Dedup by lineGroupId. Count bundled vs passthrough.
+  const lines = new Map<string, "bundled" | "pass_through">();
+  for (const r of rows) {
+    if (!lines.has(r.freight_inputs.lineGroupId)) {
+      lines.set(r.freight_inputs.lineGroupId, r.freight_inputs.freightTreatment);
+    }
+  }
+  const bundled = [...lines.values()].filter((t) => t === "bundled").length;
+  const pass = [...lines.values()].filter((t) => t === "pass_through").length;
+  const lineCount = lines.size;
+  return `${lineCount} line${lineCount === 1 ? "" : "s"} · ${bundled} bundled, ${pass} passthrough · customs on DDP`;
 }

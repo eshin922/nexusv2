@@ -1,26 +1,21 @@
-import { ModeSelector } from "./mode-selector";
+"use client";
 
-// Slice RI.4 — Bulk Raw drill-down panel.
+import { useTransition } from "react";
+import { setRawsMode } from "@/app/actions/bulk-raw";
+
+// Slice RI.4 — Bulk Raw drill-down per R6 source
+// (`docs/design-prototypes/dist/source/round-6/bulk-raw-drawer.jsx`).
 //
-// Per Designer audit C-1 (block-boundary): Bulk Raw is a peer
-// section that ALWAYS renders; the mode selector lives INSIDE the
-// drilldown as the mode-declaration zone. When raws-mode !=
-// dps_sources, the drilldown shows mode selector + INACTIVE message;
-// when dps_sources, the full categories + ingredients UI.
-//
-// v1 ships:
-//   - Mode selector at top (functional via setRawsMode action)
-//   - Mode-aware body: INACTIVE explanation OR categories + ingredients
-//   - Read-only ingredient table when dps_sources
-//   - Add Category / Add Ingredient = DISABLED placeholders
-//     (CRUD action layer lands in RI.4 follow-up)
-//
-// Deferred to RI.4 follow-up (UX_BACKLOG):
-//   - Add/edit/delete categories + ingredients
-//   - Section deposit lifecycle UI (deposit badge state reads from
-//     cost_section_deposits already; UPDATE affordance deferred)
-//   - HTS code lookup integration
-//   - Supplier picker
+// Composition:
+//   1. Raws-mode banner (.r6-raws-mode) — three radio cards: DPS / CM /
+//      Customer. Acts as the mode-declaration zone per R6 + Bulk Raw
+//      correction.
+//   2. When mode = cm_sources / customer_supplies → r6-empty-drawer
+//      with explanation.
+//   3. When mode = dps_sources + no categories → r6-empty-drawer CTA.
+//   4. When mode = dps_sources + categories present → drawer toolbar
+//      + per-category cards (.r6-raw-cat) with ingredient table
+//      (.r6-raw-ing-head / .r6-raw-ing) below.
 
 type BulkRawCategory = {
   id: string;
@@ -48,23 +43,46 @@ type BulkRawIngredient = {
   updatedAt: Date;
 };
 
-function fmtCurr4(n: string | null): string {
+const RAWS_MODE_OPTIONS: Array<{
+  key: "dps_sources" | "cm_sources" | "customer_supplies";
+  label: string;
+  desc: string;
+  consequence: string;
+}> = [
+  {
+    key: "cm_sources",
+    label: "CM sources raws",
+    desc: "Contract manufacturer sources the bulk raws. Raws cost enters via Production's bulk-raw-cost field.",
+    consequence: "→ raws folded into Production",
+  },
+  {
+    key: "dps_sources",
+    label: "DPS sources raws",
+    desc: "DPS purchases the bulk raws. Ingredients enter here in native units (kg / L / mL); per-unit cost is computed.",
+    consequence: "→ RAW row visible in cost stack",
+  },
+  {
+    key: "customer_supplies",
+    label: "Customer supplies raws",
+    desc: "Customer ships raws to DPS. Production covers labor + overhead only. Raws excluded from landed cost.",
+    consequence: "→ raws excluded from landed cost",
+  },
+];
+
+function fmtNumOrDash(n: string | null, decimals: number): string {
   if (n === null) return "—";
   const num = Number(n);
   if (!Number.isFinite(num)) return "—";
-  return num.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 4,
-    maximumFractionDigits: 4,
-  });
+  return num.toFixed(decimals);
 }
 
-function fmtPct(n: string | null): string {
-  if (n === null) return "inherit firm";
-  const num = Number(n);
-  if (!Number.isFinite(num)) return "—";
-  return `${(num * 100).toFixed(1)}%`;
+function fmtCurr2(n: number): string {
+  return n.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 export function BulkRawDrilldown({
@@ -87,178 +105,207 @@ export function BulkRawDrilldown({
     ingsByCategory.set(ing.categoryId, arr);
   }
 
-  // Mode selector always renders at top of drilldown (mode-declaration
-  // zone per Round 6 + Bulk Raw correction).
-  const modeSelector = (
-    <ModeSelector
-      quoteId={quoteId}
-      currentMode={rawsMode}
-      disabled={!editable}
-    />
-  );
+  return (
+    <div>
+      <RawsModeBanner
+        quoteId={quoteId}
+        currentMode={rawsMode}
+        disabled={!editable}
+      />
 
-  // INACTIVE state: when raws-mode != dps_sources, show mode selector
-  // + explanation. No categories/ingredients UI.
-  if (rawsMode !== "dps_sources") {
-    return (
-      <div className="flex flex-col gap-4">
-        {modeSelector}
-        <div className="rounded border border-rule bg-paper-2 p-6 text-center">
-          <div className="font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3">
-            Bulk Raw inactive
-          </div>
-          <p className="mx-auto mt-2 max-w-md text-sm text-ink-3">
+      {rawsMode !== "dps_sources" ? (
+        <div className="r6-empty-drawer">
+          <div className="glyph">∅</div>
+          <h4>Raws not tracked in this quote</h4>
+          <p>
             {rawsMode === "cm_sources"
-              ? "Contract manufacturer sources the bulk raws. Raws cost enters via the Production section's bulk-raw-cost field."
-              : "Customer supplies the raws. Raws are excluded from landed cost; production covers labor + overhead only."}
-          </p>
-          <p className="mt-3 text-xs text-ink-4">
-            Switch to{" "}
-            <span className="font-mono">DPS sources raws</span>{" "}
-            above to enter ingredient-level Bulk Raw data.
+              ? "The CM is sourcing raws and billing through their service line. Raw cost contribution to the cost stack is zero — the goo is folded into Production's per-unit price."
+              : "Customer is supplying raws to the CM. We don't see the cost; the cost stack RAW row is hidden."}{" "}
+            Switch to <em>DPS sources</em> above if that changes.
           </p>
         </div>
-      </div>
-    );
-  }
+      ) : categories.length === 0 ? (
+        <div className="r6-empty-drawer">
+          <div className="glyph">∅</div>
+          <h4>No raw categories yet</h4>
+          <p>
+            Add the formula's raw categories — oil base, actives, fragrance,
+            preservatives — then ingredient sub-lines under each. We bill
+            native units (kg / L / mL); per-unit cost is computed from usage
+            per filled bottle.
+          </p>
+          <div className="actions">
+            <button
+              type="button"
+              disabled
+              title="CRUD UI ships in RI.4 follow-up · schema is in place"
+              className="r6-btn primary"
+            >
+              + Add raw category
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="r6-drawer-toolbar">
+            <div className="lhs">
+              <span>
+                <strong>{categories.length}</strong> raw categor
+                {categories.length === 1 ? "y" : "ies"}
+              </span>
+              <span>·</span>
+              <span>
+                {ingredients.length} ingredient
+                {ingredients.length === 1 ? "" : "s"}
+              </span>
+              <span>·</span>
+              <span>Native units (kg / L / mL) → per-unit via usage × fill</span>
+            </div>
+            <div className="rhs">
+              <button
+                type="button"
+                disabled
+                title="CRUD UI ships in RI.4 follow-up"
+                className="r6-btn sm"
+              >
+                + Category
+              </button>
+            </div>
+          </div>
 
-  // DPS_SOURCES state: full categories + ingredients UI.
-  if (categories.length === 0) {
-    return (
-      <div className="flex flex-col gap-4">
-        {modeSelector}
-        <div className="flex flex-col items-center gap-3 rounded border border-dashed border-rule bg-paper-2 px-6 py-12 text-center">
-        <div className="font-display text-lg text-ink">
-          No categories yet
-        </div>
-        <p className="max-w-md text-sm text-ink-3">
-          Categories group ingredients by type (e.g., "Active ingredients",
-          "Carriers", "Preservatives"). Each category can carry an optional
-          markup % override.
-        </p>
-        <button
-          type="button"
-          disabled
-          title="Add category — coming in RI.4 follow-up"
-          className="rounded border border-rule bg-paper px-3 py-1.5 text-sm font-medium text-ink-3 disabled:cursor-not-allowed"
-        >
-          + New category
-        </button>
-        <p className="font-mono text-[10px] uppercase tracking-wide text-ink-4">
-          CRUD UI ships in RI.4 follow-up · schema is in place
-        </p>
-        </div>
-      </div>
-    );
+          {categories.map((cat) => (
+            <RawCategoryCard
+              key={cat.id}
+              category={cat}
+              ingredients={ingsByCategory.get(cat.id) ?? []}
+            />
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+function RawsModeBanner({
+  quoteId,
+  currentMode,
+  disabled,
+}: {
+  quoteId: string;
+  currentMode: "cm_sources" | "dps_sources" | "customer_supplies";
+  disabled: boolean;
+}) {
+  const [pending, startTransition] = useTransition();
+
+  function selectMode(mode: typeof RAWS_MODE_OPTIONS[number]["key"]) {
+    if (disabled || pending || mode === currentMode) return;
+    const fd = new FormData();
+    fd.set("quoteId", quoteId);
+    fd.set("rawsMode", mode);
+    startTransition(async () => {
+      await setRawsMode(fd);
+    });
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      {modeSelector}
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-ink-3">
-          {categories.length} categor{categories.length === 1 ? "y" : "ies"} ·{" "}
-          {ingredients.length} ingredient{ingredients.length === 1 ? "" : "s"}
-        </p>
+    <div className="r6-raws-mode">
+      {RAWS_MODE_OPTIONS.map((o) => (
         <button
+          key={o.key}
           type="button"
-          disabled={!editable}
-          title="Add category — coming in RI.4 follow-up"
-          className="rounded border border-rule bg-paper px-2.5 py-1 text-xs text-ink-3 disabled:cursor-not-allowed hover:border-rule-2 hover:text-ink"
+          className={`r6-raws-opt ${currentMode === o.key ? "on" : ""}`}
+          onClick={() => selectMode(o.key)}
+          disabled={disabled || pending}
         >
-          + New category
+          <div className="lab">
+            <span className="pip" />
+            {o.label}
+          </div>
+          <div className="desc">{o.desc}</div>
+          <div className="consequence">{o.consequence}</div>
         </button>
+      ))}
+    </div>
+  );
+}
+
+function RawCategoryCard({
+  category,
+  ingredients,
+}: {
+  category: BulkRawCategory;
+  ingredients: BulkRawIngredient[];
+}) {
+  const totalNativeCost = ingredients.reduce((s, i) => {
+    const n = Number(i.perFilledUnitCost);
+    return Number.isFinite(n) ? s + n : s;
+  }, 0);
+  const markupPct = category.markupPct ? Number(category.markupPct) * 100 : null;
+
+  return (
+    <div className="r6-raw-cat">
+      <div className="r6-raw-cat-head">
+        <div>
+          <div className="name">{category.name}</div>
+          <div className="meta">
+            <span>
+              {ingredients.length} ingredient
+              {ingredients.length === 1 ? "" : "s"}
+            </span>
+          </div>
+        </div>
+        <span className="markup">
+          markup {markupPct !== null ? `${markupPct.toFixed(0)}%` : "inherit"}
+        </span>
+        <span className="total">
+          {totalNativeCost > 0 ? fmtCurr2(totalNativeCost) : "—"} / unit
+        </span>
       </div>
 
-      {categories.map((cat) => {
-        const ings = ingsByCategory.get(cat.id) ?? [];
-        return (
-          <article
-            key={cat.id}
-            className="overflow-hidden rounded border border-rule bg-paper"
-          >
-            <header className="flex items-center justify-between gap-3 border-b border-rule bg-paper-2 px-4 py-2.5">
-              <div>
-                <h3 className="font-display text-base text-ink">
-                  {cat.name}
-                </h3>
-                <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wide text-ink-3">
-                  <span>
-                    {ings.length} ingredient{ings.length === 1 ? "" : "s"}
-                  </span>
-                  <span>·</span>
-                  <span>markup {fmtPct(cat.markupPct)}</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                disabled={!editable}
-                title="Add ingredient — coming in RI.4 follow-up"
-                className="rounded border border-rule bg-paper px-2.5 py-1 text-xs text-ink-3 disabled:cursor-not-allowed hover:border-rule-2 hover:text-ink"
-              >
-                + New ingredient
-              </button>
-            </header>
+      <div className="r6-raw-ing-head">
+        <span>Ingredient</span>
+        <span className="num">Native unit</span>
+        <span className="num">Cost / native</span>
+        <span className="num">Usage / filled unit</span>
+        <span className="num">Per filled unit</span>
+        <span></span>
+      </div>
 
-            {ings.length === 0 ? (
-              <p className="py-6 text-center text-sm italic text-ink-4">
-                No ingredients in this category yet.
-              </p>
-            ) : (
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-rule bg-paper-3 text-left font-mono text-[10px] uppercase tracking-[0.13em] text-ink-3">
-                    <th className="px-3 py-2 font-normal">Ingredient</th>
-                    <th className="px-3 py-2 font-normal">Native unit</th>
-                    <th className="px-3 py-2 text-right font-normal">
-                      Cost / native
-                    </th>
-                    <th className="px-3 py-2 text-right font-normal">
-                      Usage / filled unit
-                    </th>
-                    <th className="px-3 py-2 text-right font-normal">
-                      Per filled unit
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ings.map((ing) => (
-                    <tr
-                      key={ing.id}
-                      className="border-b border-rule last:border-b-0 hover:bg-paper-2"
-                    >
-                      <td className="px-3 py-2 text-sm">
-                        <div className="font-medium text-ink">{ing.name}</div>
-                        {ing.htsCode && (
-                          <div className="font-mono text-[10px] text-ink-4">
-                            HTS {ing.htsCode}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs text-ink-2">
-                        {ing.nativeUnit}
-                      </td>
-                      <td className="px-3 py-2 text-right text-sm tabular-nums text-ink-2">
-                        {fmtCurr4(ing.costPerNativeUnit)}
-                      </td>
-                      <td className="px-3 py-2 text-right text-sm tabular-nums text-ink-2">
-                        {ing.usagePerFilledUnit ?? "—"}
-                      </td>
-                      <td className="px-3 py-2 text-right text-sm font-medium tabular-nums text-ink">
-                        {fmtCurr4(ing.perFilledUnitCost)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </article>
-        );
-      })}
-
-      <p className="text-center font-mono text-[10px] uppercase tracking-wide text-ink-4">
-        Edit + delete affordances ship in RI.4 follow-up · schema is in place
-      </p>
+      {ingredients.length === 0 ? (
+        <div
+          style={{
+            padding: "12px 16px",
+            color: "var(--ink-4)",
+            fontStyle: "italic",
+            fontSize: "12.5px",
+            textAlign: "center",
+          }}
+        >
+          No ingredients in this category yet.
+        </div>
+      ) : (
+        ingredients.map((ing) => (
+          <div key={ing.id} className="r6-raw-ing">
+            <div className="name">
+              {ing.name}
+              {ing.htsCode && <span className="sub">HTS {ing.htsCode}</span>}
+            </div>
+            <div className="num">{ing.nativeUnit}</div>
+            <div className="num">
+              ${fmtNumOrDash(ing.costPerNativeUnit, 2)}
+              <span className="raw-detail">/ {ing.nativeUnit}</span>
+            </div>
+            <div className="num">
+              {ing.usagePerFilledUnit ?? "—"}
+              <span className="raw-detail">{ing.nativeUnit} / fill</span>
+            </div>
+            <div className="num per-unit">
+              ${fmtNumOrDash(ing.perFilledUnitCost, 4)}
+            </div>
+            <div className="actions">···</div>
+          </div>
+        ))
+      )}
     </div>
   );
 }

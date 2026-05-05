@@ -48,7 +48,13 @@ export async function InnerRail({
   );
 
   return (
-    <aside className="fixed left-14 top-0 z-20 flex h-screen w-60 flex-col overflow-y-auto border-r border-rule bg-paper-2 px-3 py-3">
+    <aside
+      className="fixed left-14 top-0 z-20 flex h-screen w-60 flex-col overflow-y-auto px-3 py-3"
+      style={{
+        background: "var(--paper)",
+        borderRight: "1px solid var(--rule)",
+      }}
+    >
       {/* Back to all deals */}
       <Link
         href="/"

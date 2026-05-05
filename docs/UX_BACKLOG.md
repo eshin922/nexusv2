@@ -23,6 +23,97 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
   Reference: `src/db/schema.ts` `quotes.drop_reason` column comment + Slice 12 brief auto-drop section.
 
+- [Production schema → variable-line model (post-MVP)]
+
+  **Slice:** Post-MVP / TBD (data model migration)
+
+  **What:** RI.4 ships Production drilldown as a flat `.r6-dt.prod` table by mapping CC's fixed cost fields (filling_blending, cm_assembly, setup_fee, tooling_artwork, rd, other_service, bulk_raw_cost) onto **virtual lines** per SKU. R6's prototype models production as variable lines per section (each with its own kind/category/supplier/markup). Schema migration would let users add arbitrary production lines (e.g., "Custom assembly fixture", "Secondary kitting") rather than being constrained to the 7 fixed fields. Visual register lands today; data model expansion = real work for v1.5+.
+
+  **Migration sketch:** new `production_lines` table (parallel to `packaging_inputs` / `freight_inputs`) with `line_group_id` + `kind` (per_unit / amortized_nre) + `category` + `supplier` + `markup_pct`. `production_inputs` reduces to per-(line, tier) cell with `total_cost` only. Cost-rollup math layer reads from the new shape.
+
+  **Where designed:** R6 `production-drawer.jsx` lines 85-127 (variable-line table); R6 `index.html:2811-2816` (`.r6-dt.prod` grid template).
+
+  Reference: Slice RI.4 production-drilldown.tsx VIRTUAL_LINES bridge + CR-13 amendment-3.
+
+- [Bulk Raw category + ingredient CRUD UI]
+
+  **Slice:** RI.4 follow-up (post-RI.4 PR merge)
+
+  **What:** RI.4 ships Bulk Raw drilldown read-only with R6 visual register. Add Category / Add Ingredient buttons currently DISABLED placeholders. CRUD action layer + form UIs deferred. Schema is in place (3 tables: bulk_raw_categories, bulk_raw_ingredients, bulk_raw_section_meta from migration 0019) — only the UI + actions ship in follow-up.
+
+  Reference: `src/components/cost-build/bulk-raw-drilldown.tsx`.
+
+- [Production line supplier picker]
+
+  **Slice:** Post-MVP / TBD (depends on supplier infrastructure slice)
+
+  **What:** R6 production line table has a Supplier column. CC's production_inputs schema has no per-line supplier (denormalized; production blocks track per-SKU policy only). RI.4 ships Supplier column rendering "—" placeholder. When supplier infrastructure ships (separate slice), Production line supplier picker lights up.
+
+  Coordinates with: schema variable-line migration (entry above).
+
+  Reference: R6 `production-drawer.jsx:110` `.r6-dt-row .sup`.
+
+- [HTS code lookup for Bulk Raw ingredients]
+
+  **Slice:** Post-MVP / TBD
+
+  **What:** R6 Bulk Raw ingredient sub-line shows HTS code as sub-text under ingredient name. Schema has `bulk_raw_ingredients.hts_code text` column. Ingredient CRUD UI (entry above) needs an HTS picker / search affordance — typing a description matches against an HTS code list (DDP customs declarations require valid HTS).
+
+  Reference: R6 `bulk-raw-drawer.jsx:133` `<span className="sub">HTS {ing.hts_code}</span>`.
+
+- [Cost section ownership data model]
+
+  **Slice:** Post-MVP / TBD (no owner-assignment surface ships in redesign-implementation)
+
+  **What:** R6 section row anatomy includes an owner column (22px avatar with initials + owner name + " · N lines" trailing). RI.4 ships with placeholder rendering (paper-3 circle + em-dash + ink-4 "—" label) per Designer Pattern 1 audit Path A — the column track holds R6 anatomy but the data is absent. When owner-assignment lands, the placeholder lights up.
+
+  **Schema:** new `cost_section_meta` table parallel to `bulk_raw_section_meta`:
+  ```
+  CREATE TABLE cost_section_meta (
+    quote_id    UUID NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+    section_kind cost_section_kind NOT NULL,  -- enum: packaging/production/freight/bulk_raw
+    owner_user_id UUID REFERENCES users(id),
+    PRIMARY KEY (quote_id, section_kind)
+  );
+  ```
+  `cost_section_kind` enum already exists for `cost_section_deposits`; reuse.
+
+  **UI surface:** assignment via Cost Build page header dropdown ("Assigned to: PM Sarah") OR per-section right-click → reassign. Coordinate with role-as-affordance pattern from CLAUDE.md (Purchasing role sees Packaging editable, Production read-only with role-aware caption).
+
+  **Where designed:** R6 `index.html` lines 2667-2678 (`.r6-section-row .owner`) + `section-summary-row.jsx` lines 25-29; brief §3.4:401.
+
+  Reference: Designer Pattern 1 comprehensive audit C-5 (RI.4 block-boundary, May 2026).
+
+- [Per-component cost-vs-markup math layer extension]
+
+  **Slice:** Post-MVP / TBD
+
+  **What:** R6's cost stack bar grammar uses two segments per component bar: `seg.cost` (solid component color) + `seg.markup` (ink-colored, 1px white separator). R6 fixtures explicitly split `cost` and `markup` per component. Nexus's cost-rollup math layer (`src/lib/costing.ts` `QuoteCostBreakdown`) currently exposes the SUM `cost × (1 + markup)` per component — the split isn't computed. RI.4 ships with `seg.cost` only (full-width segment, no markup overlay).
+
+  **Math layer change:** extend `costBreakdown` to expose `{ packaging: { cost, markup }, production: { cost, markup }, ... }` per tier. Source data is already there (`packaging_inputs.markup_pct`, `production_inputs.allocate_service_fees_to_cost`, etc.); just needs a different aggregation shape.
+
+  **UI consequence:** cost-stack-header.tsx `CompRow` already wires the second segment behind a guard; flipping the math returns +1 segment per bar with no further UI change. Per-component cost-vs-markup transparency is a real PM affordance ("how much of this packaging line is contribution vs uplift?") that R2/R6 prioritized.
+
+  **Where designed:** R6 `index.html` lines 2495-2543 (`.r6-bar .seg.cost.* + .seg.markup`); R2 source canonical at `source/round-2/app/r2/styles.css:381-456`.
+
+  Reference: Designer Pattern 1 comprehensive audit C-9 + RI.4 cost-stack-header.tsx CompRow comment.
+
+- [Pulse-dot live HubSpot sync indicator]
+
+  **Slice:** Post-MVP / TBD (data wiring; visual already lands in RI.4)
+
+  **What:** R6 page header includes a 6px green pulse-dot + "Synced to HubSpot · {timestamp}" mono caption signaling realtime sync state. RI.4 ships the visual treatment (green dot with `box-shadow: 0 0 0 3px var(--good-soft)` halo) but the caption text is currently the project's deal/client name placeholder, not a real HubSpot sync timestamp.
+
+  **Wiring:** existing Slice 5.6 cache (`getCacheStatus`) exposes `last_synced_at` per HubSpot entity. Add HubSpot deal sync timestamp to the project-load query path (`projects/[id]/cost-build/page.tsx`) + render in `cost-build-header.tsx` meta strip. Stage label ("Closed Won — Q3" etc.) is also queryable from the cached deal record.
+
+  **Where designed:** R6 `index.html` lines 2357-2365 (`.r6-page-head .meta` + `.live`); brief §3.4 line 397 commitment to per-surface HubSpot sync trust chrome.
+
+  Reference: Designer Pattern 1 comprehensive audit S-6.
+
+- [RI.4 follow-up — Section row owner badge]
+
+  **Slice:** Folded into "Cost section ownership data model" entry above (consolidated post-comprehensive-audit).
+
 - [RI.4 follow-up — Bulk Raw CRUD UI (categories + ingredients)]
 
   **Slice:** RI.4 follow-up sub-slice (post-RI.4 PR merge)

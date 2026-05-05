@@ -1,13 +1,30 @@
+"use client";
+
+import { useEffect, useRef, useState, useTransition } from "react";
 import type { quoteSkus } from "@/db/schema";
-import { buildTreeRenderOrder } from "@/lib/sku-tree";
 import { AddFreightLineButton } from "@/app/projects/[id]/quotes/[quoteId]/freight/add-line-button";
-import { CustomsRow } from "@/app/projects/[id]/quotes/[quoteId]/freight/customs-row";
-import { FreightLineRow } from "@/app/projects/[id]/quotes/[quoteId]/freight/freight-line-row";
+import {
+  deleteFreightLine,
+  updateFreightLineMetadata,
+  updateFreightTierCell,
+} from "@/app/actions/freight";
+import { useCostingStore } from "@/components/costing-store-provider";
+import {
+  selectActiveTierId,
+  selectUpdateFreightCell,
+  selectUpdateFreightLineMeta,
+} from "@/lib/costing-store";
 
 type QuoteSku = typeof quoteSkus.$inferSelect;
 
-// Slice RI.4 — Freight drill-down panel. Reuses CustomsRow +
-// FreightLineRow + AddFreightLineButton from the prior /freight page.
+// Slice RI.4 — Freight drill-down per R6 source
+// (`docs/design-prototypes/dist/source/round-6/freight-drawer.jsx`).
+//
+// Composition: per-line cards (.r6-fr-line) with head bar
+// (label + meta + treatment toggle) + per-tier rollup row +
+// customs sub-card when treatment = bundled. Customs data lives on
+// quote_skus (cbm/duty/tariff) per SKU, not per freight line — so
+// customs sub-card sources from the line's owning SKU.
 
 type FreightInputRow = {
   freight_inputs: {
@@ -38,6 +55,7 @@ type FreightInputRow = {
 
 type FreightLineForUI = {
   lineGroupId: string;
+  quoteSkuId: string;
   sortOrder: number;
   shipmentId: string | null;
   supplier: string | null;
@@ -53,14 +71,33 @@ type FreightLineForUI = {
   freightTreatment: "bundled" | "pass_through";
   markupPct: string | null;
   notes: string | null;
-  cells: Array<{
-    rowId: string;
-    tierId: string;
-    totalFreight: string | null;
-    unitsInShipment: number | null;
-    skuTotalCbm: string | null;
-  }>;
+  cells: Map<
+    string,
+    {
+      rowId: string;
+      totalFreight: string | null;
+      unitsInShipment: number | null;
+      skuTotalCbm: string | null;
+    }
+  >;
 };
+
+const DEBOUNCE_MS = 500;
+
+function num(v: string | null | undefined): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function fmtCurr2(n: number): string {
+  return n.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
 
 export function FreightDrilldown({
   skus,
@@ -73,20 +110,15 @@ export function FreightDrilldown({
   inputRows: FreightInputRow[];
   editable: boolean;
 }) {
-  const tierBrief = tiers.map((t) => ({ id: t.id, label: t.label, qty: t.qty }));
-
-  const linesBySku = new Map<string, Map<string, FreightLineForUI>>();
+  const skuMap = new Map(skus.map((s) => [s.id, s]));
+  const linesById = new Map<string, FreightLineForUI>();
   for (const r of inputRows) {
     const row = r.freight_inputs;
-    let bySku = linesBySku.get(row.quoteSkuId);
-    if (!bySku) {
-      bySku = new Map();
-      linesBySku.set(row.quoteSkuId, bySku);
-    }
-    let line = bySku.get(row.lineGroupId);
+    let line = linesById.get(row.lineGroupId);
     if (!line) {
       line = {
         lineGroupId: row.lineGroupId,
+        quoteSkuId: row.quoteSkuId,
         sortOrder: row.sortOrder,
         shipmentId: row.shipmentId,
         supplier: row.supplier,
@@ -94,18 +126,22 @@ export function FreightDrilldown({
         freightTreatment: row.freightTreatment,
         markupPct: row.markupPct,
         notes: row.notes,
-        cells: [],
+        cells: new Map(),
       };
-      bySku.set(row.lineGroupId, line);
+      linesById.set(row.lineGroupId, line);
     }
-    line.cells.push({
+    line.cells.set(row.tierId, {
       rowId: row.id,
-      tierId: row.tierId,
       totalFreight: row.totalFreight,
       unitsInShipment: row.unitsInShipment,
       skuTotalCbm: row.skuTotalCbm,
     });
   }
+  const lines = Array.from(linesById.values()).sort(
+    (a, b) => a.sortOrder - b.sortOrder,
+  );
+
+  const leafSkus = skus.filter((s) => s.skuRole === "leaf");
 
   if (tiers.length === 0) {
     return (
@@ -115,103 +151,391 @@ export function FreightDrilldown({
     );
   }
 
-  if (skus.length === 0) {
+  if (leafSkus.length === 0) {
     return (
-      <div className="rounded border border-rule bg-paper-2 p-6 text-center text-sm text-ink-3">
-        Add at least one SKU to the quote before entering freight inputs.
+      <div className="r6-empty-drawer">
+        <div className="glyph">∅</div>
+        <h4>No leaf SKUs yet</h4>
+        <p>Add at least one leaf SKU to the quote before entering freight inputs.</p>
       </div>
     );
   }
 
+  if (lines.length === 0) {
+    return (
+      <div className="r6-empty-drawer">
+        <div className="glyph">∅</div>
+        <h4>No freight lines yet</h4>
+        <p>
+          Add inbound (raws → CM) and outbound (CM → customer) shipments. Each
+          line can be bundled into the unit cost or passed through as a
+          separate billable.
+        </p>
+        <div className="actions">
+          <AddFreightLineButton
+            quoteSkuId={leafSkus[0].id}
+            disabled={!editable}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  const bundledCount = lines.filter((l) => l.freightTreatment === "bundled").length;
+  const passCount = lines.filter((l) => l.freightTreatment === "pass_through").length;
+
   return (
-    <div className="grid gap-4">
-      {buildTreeRenderOrder(skus).map(({ sku, depth }) => {
-        const indentStyle = { marginLeft: `${depth * 24}px` };
-        const isAssembly = sku.skuRole === "assembly";
+    <div>
+      <div className="r6-drawer-toolbar">
+        <div className="lhs">
+          <span>
+            <strong>{lines.length}</strong> freight line
+            {lines.length === 1 ? "" : "s"}
+          </span>
+          <span>·</span>
+          <span>
+            <strong>{bundledCount}</strong> bundled,{" "}
+            <strong>{passCount}</strong> passthrough
+          </span>
+          <span>·</span>
+          <span>Treatment is per-line, not section-wide</span>
+        </div>
+        <div className="rhs">
+          <AddFreightLineButton
+            quoteSkuId={leafSkus[0].id}
+            disabled={!editable}
+          />
+        </div>
+      </div>
 
-        if (isAssembly) {
-          return (
-            <div
-              key={sku.id}
-              style={indentStyle}
-              className="rounded border border-accent/40 bg-accent-soft px-4 py-2 text-sm"
-            >
-              <div className="mb-2 flex items-center gap-2">
-                <span className="rounded border border-accent/40 bg-accent-soft px-1.5 py-0 font-mono text-[10px] font-medium uppercase tracking-wide text-accent-ink">
-                  Assembly
-                </span>
-                <span className="font-medium text-ink">{sku.skuLabel}</span>
-                <span className="text-ink-3">· {sku.productName}</span>
-                <span className="ml-auto text-xs text-ink-3">
-                  Freight costs roll up from leaf children.
-                </span>
-              </div>
-              <CustomsRow
-                quoteSkuId={sku.id}
-                dutyPct={sku.dutyPct}
-                tariffPct={sku.tariffPct}
-                disabled={!editable}
-              />
-            </div>
-          );
-        }
-
-        const lines = Array.from(linesBySku.get(sku.id)?.values() ?? []).sort(
-          (a, b) => a.sortOrder - b.sortOrder,
-        );
-
-        return (
-          <details
-            key={sku.id}
-            open
-            style={indentStyle}
-            className="rounded border border-rule bg-paper"
-          >
-            <summary className="flex cursor-pointer items-center justify-between px-4 py-3 text-sm font-medium text-ink">
-              <span>
-                {sku.skuLabel} · {sku.productName}
-                <span className="ml-2 text-xs font-normal text-ink-3">
-                  {lines.length} freight line{lines.length === 1 ? "" : "s"}
-                </span>
-              </span>
-              {tiers.length > 0 && (
-                <AddFreightLineButton
-                  quoteSkuId={sku.id}
-                  disabled={!editable}
-                />
-              )}
-            </summary>
-
-            <div className="border-t border-rule px-4 py-3">
-              <CustomsRow
-                quoteSkuId={sku.id}
-                dutyPct={sku.dutyPct}
-                tariffPct={sku.tariffPct}
-                disabled={!editable}
-              />
-
-              {lines.length === 0 ? (
-                <p className="mt-4 py-4 text-center text-sm text-ink-3">
-                  No freight lines yet.
-                </p>
-              ) : (
-                <div className="mt-4 grid gap-3">
-                  {lines.map((line, i) => (
-                    <FreightLineRow
-                      key={line.lineGroupId}
-                      line={line}
-                      tiers={tierBrief}
-                      isFirst={i === 0}
-                      isLast={i === lines.length - 1}
-                      disabled={!editable}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </details>
-        );
-      })}
+      {lines.map((line) => (
+        <FreightLineCard
+          key={line.lineGroupId}
+          line={line}
+          tiers={tiers}
+          sku={skuMap.get(line.quoteSkuId)}
+          disabled={!editable}
+        />
+      ))}
     </div>
+  );
+}
+
+function FreightLineCard({
+  line,
+  tiers,
+  sku,
+  disabled,
+}: {
+  line: FreightLineForUI;
+  tiers: Array<{ id: string; label: string; qty: number | null }>;
+  sku: QuoteSku | undefined;
+  disabled: boolean;
+}) {
+  const [pending, startTransition] = useTransition();
+  const updateFreightLineMeta = useCostingStore(selectUpdateFreightLineMeta);
+
+  const [supplier, setSupplier] = useState(line.supplier ?? "");
+  const [treatment, setTreatment] = useState<"bundled" | "pass_through">(
+    line.freightTreatment,
+  );
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stateRef = useRef({ supplier, treatment });
+  stateRef.current = { supplier, treatment };
+
+  useEffect(() => {
+    setSupplier(line.supplier ?? "");
+    setTreatment(line.freightTreatment);
+  }, [line.lineGroupId, line.supplier, line.freightTreatment]);
+
+  useEffect(
+    () => () => {
+      if (debounce.current) clearTimeout(debounce.current);
+    },
+    [],
+  );
+
+  function fireMetaSave(overrides: Partial<{
+    supplier: string;
+    treatment: "bundled" | "pass_through";
+  }> = {}) {
+    const s = { ...stateRef.current, ...overrides };
+    const fd = new FormData();
+    fd.set("lineGroupId", line.lineGroupId);
+    fd.set("supplier", s.supplier);
+    fd.set("freightMode", line.freightMode ?? "");
+    fd.set("freightTreatment", s.treatment);
+    fd.set("markupPct", line.markupPct ?? "");
+    fd.set("notes", line.notes ?? "");
+    fd.set("shipmentId", line.shipmentId ?? "");
+    startTransition(async () => {
+      await updateFreightLineMetadata(fd);
+    });
+    updateFreightLineMeta(line.lineGroupId, {
+      freightTreatment: s.treatment,
+      markupPct: num(line.markupPct),
+    });
+  }
+
+  function selectTreatment(t: "bundled" | "pass_through") {
+    if (disabled || pending || t === treatment) return;
+    setTreatment(t);
+    fireMetaSave({ treatment: t });
+  }
+
+  function scheduleSupplierSave(value: string) {
+    if (debounce.current) clearTimeout(debounce.current);
+    debounce.current = setTimeout(() => fireMetaSave({ supplier: value }), DEBOUNCE_MS);
+  }
+
+  function handleDelete() {
+    if (!confirm("Delete this freight line?")) return;
+    const fd = new FormData();
+    fd.set("lineGroupId", line.lineGroupId);
+    startTransition(async () => {
+      await deleteFreightLine(fd);
+    });
+  }
+
+  const lineLabel = supplier || `Freight line ${line.lineGroupId.slice(0, 8)}`;
+  const skuLabel = sku?.skuLabel ?? "—";
+
+  // Customs: duty/tariff per-SKU (quote_skus.dutyPct/tariffPct);
+  // cbm per-(SKU, tier) on freight_inputs.skuTotalCbm. Show first
+  // tier's cbm as representative.
+  const firstCell = line.cells.values().next().value;
+  const cbm = num(firstCell?.skuTotalCbm ?? null);
+  const duty = num(sku?.dutyPct);
+  const tariff = num(sku?.tariffPct);
+  const showCustoms =
+    treatment === "bundled" && (cbm !== null || duty !== null || tariff !== null);
+
+  return (
+    <div className="r6-fr-line">
+      <div className="r6-fr-line-head">
+        <div className="lhs">
+          <input
+            type="text"
+            value={supplier}
+            disabled={disabled || pending}
+            onChange={(e) => {
+              const v = e.target.value;
+              setSupplier(v);
+              scheduleSupplierSave(v);
+            }}
+            placeholder="Supplier / carrier"
+            style={{
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              fontFamily: "var(--display)",
+              fontWeight: 500,
+              fontSize: "15.5px",
+              color: "var(--ink)",
+              letterSpacing: "-0.005em",
+              width: "100%",
+            }}
+          />
+          <div className="meta">
+            <span>{line.freightMode ?? "mode —"}</span>
+            <span className="sep">·</span>
+            <span>{skuLabel}</span>
+            <span className="sep">·</span>
+            <span>DDP</span>
+          </div>
+        </div>
+
+        <div className="r6-fr-treat">
+          <button
+            type="button"
+            className={treatment === "bundled" ? "on bundled" : ""}
+            disabled={disabled || pending}
+            onClick={() => selectTreatment("bundled")}
+          >
+            Bundled
+          </button>
+          <button
+            type="button"
+            className={treatment === "pass_through" ? "on pass_through" : ""}
+            disabled={disabled || pending}
+            onClick={() => selectTreatment("pass_through")}
+          >
+            Passthrough
+          </button>
+        </div>
+
+        <div className="actions">
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={disabled || pending}
+            title="Delete line"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--ink-3)",
+              cursor: "pointer",
+              padding: "0 4px",
+              fontFamily: "var(--mono)",
+              fontSize: "14px",
+            }}
+          >
+            ···
+          </button>
+        </div>
+      </div>
+
+      <div
+        className="r6-fr-tiers"
+        style={{
+          gridTemplateColumns: `1.4fr ${tiers.map(() => "1fr").join(" ")}`,
+        }}
+      >
+        <span className="lab">
+          {treatment === "bundled"
+            ? "Per-unit (rolls into FRT)"
+            : "Per-unit (shown to customer)"}
+        </span>
+        {tiers.map((t) => (
+          <FreightTierCell
+            key={t.id}
+            tierId={t.id}
+            tierQty={t.qty}
+            line={line}
+            disabled={disabled}
+          />
+        ))}
+      </div>
+
+      {showCustoms && (
+        <div className="r6-fr-customs">
+          <div className="head">
+            <span className="lab">Customs · DDP</span>
+            <span className="desc">
+              Duty + tariff land on freight at port of entry
+            </span>
+          </div>
+          <div className="grid">
+            <div className="cell">
+              <div className="ck">CBM / unit</div>
+              <div className="cv">
+                {cbm !== null ? `${cbm.toFixed(4)} m³` : "—"}
+              </div>
+            </div>
+            <div className="cell">
+              <div className="ck">Duty rate</div>
+              <div className="cv">
+                {duty !== null ? `${(duty * 100).toFixed(1)}%` : "—"}
+              </div>
+            </div>
+            <div className="cell">
+              <div className="ck">Tariff (Section 301)</div>
+              <div className="cv">
+                {tariff !== null ? `${(tariff * 100).toFixed(1)}%` : "—"}
+              </div>
+            </div>
+          </div>
+          <div className="desc-foot">
+            On DDP, duty and tariff are our cost — landed and rolled into the
+            bundled per-unit above. Switch to FOB or DAP and the customer pays
+            them at port; the freight per-unit drops accordingly.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FreightTierCell({
+  tierId,
+  tierQty,
+  line,
+  disabled,
+}: {
+  tierId: string;
+  tierQty: number | null;
+  line: FreightLineForUI;
+  disabled: boolean;
+}) {
+  const cell = line.cells.get(tierId);
+  const [pending, startTransition] = useTransition();
+  const updateFreightCell = useCostingStore(selectUpdateFreightCell);
+  const activeTierId = useCostingStore(selectActiveTierId);
+  const isActive = activeTierId === tierId;
+
+  const [totalFreight, setTotalFreight] = useState(cell?.totalFreight ?? "");
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const valueRef = useRef(totalFreight);
+  valueRef.current = totalFreight;
+
+  useEffect(() => {
+    setTotalFreight(cell?.totalFreight ?? "");
+  }, [cell?.rowId, cell?.totalFreight]);
+
+  useEffect(
+    () => () => {
+      if (debounce.current) clearTimeout(debounce.current);
+    },
+    [],
+  );
+
+  if (!cell) {
+    return <span className="num empty">—</span>;
+  }
+
+  function fireSave() {
+    if (!cell) return;
+    const fd = new FormData();
+    fd.set("rowId", cell.rowId);
+    fd.set("totalFreight", valueRef.current);
+    fd.set("unitsInShipment", cell.unitsInShipment?.toString() ?? "");
+    fd.set("skuTotalCbm", cell.skuTotalCbm ?? "");
+    startTransition(async () => {
+      await updateFreightTierCell(fd);
+    });
+  }
+
+  function handleChange(value: string) {
+    setTotalFreight(value);
+    if (cell) {
+      updateFreightCell(cell.rowId, { totalFreight: num(value) });
+    }
+    if (debounce.current) clearTimeout(debounce.current);
+    debounce.current = setTimeout(fireSave, DEBOUNCE_MS);
+  }
+
+  const total = num(totalFreight);
+  const units = cell.unitsInShipment ?? tierQty ?? 0;
+  const perUnit = total !== null && units > 0 ? total / units : null;
+
+  return (
+    <span
+      className={`num ${perUnit === null ? "empty" : ""}`}
+      style={isActive ? { background: "var(--accent-soft)" } : undefined}
+    >
+      <input
+        type="number"
+        step="0.01"
+        min={0}
+        value={totalFreight}
+        disabled={disabled || pending}
+        onChange={(e) => handleChange(e.target.value)}
+        placeholder="—"
+        style={{
+          background: "transparent",
+          border: "none",
+          font: "inherit",
+          color: "inherit",
+          width: "70px",
+          textAlign: "right",
+          padding: 0,
+        }}
+      />
+      {perUnit !== null && (
+        <span className="raw">
+          {fmtCurr2(perUnit)}/u · ${total?.toLocaleString()} ÷ {units.toLocaleString()}
+        </span>
+      )}
+    </span>
   );
 }
