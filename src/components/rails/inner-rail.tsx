@@ -132,10 +132,11 @@ export async function InnerRail({
                   >
                     Setup
                   </Link>
-                  {/* Cost Build unification (RI.4) — for now, link to packaging
-                      as the entry. RI.4 will replace with /cost-build. */}
+                  {/* Slice RI.4 — Cost Build unified to single page with
+                      sections-with-drill-down (Packaging / Production /
+                      Bulk Raw / Freight). */}
                   <Link
-                    href={`/projects/${projectId}/quotes/${s.latestQuoteId}/packaging`}
+                    href={`/projects/${projectId}/quotes/${s.latestQuoteId}/cost-build`}
                     className="text-[11px] text-ink-3 hover:text-ink"
                   >
                     Cost build
