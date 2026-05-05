@@ -33,25 +33,6 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
   **Why log it:** PMs in mid-quote-build often have targets on some SKUs and not all. The partial sum is informational at that point, not a problem. Coaching surface ("$X of $Y target benchmarked, 3 of 5 cells covered") communicates progress without firing a validation warning that demands acceptance.
 
-- [Quote-level reverse-solve apply affordance (Slice 9.4c follow-up)]
-
-  **Slice:** post-MVP / TBD (not v1, not v1.5 by default — surface only if PM workflow demand surfaces)
-
-  **What:** Slice 9.4b ships a per-cell `→ apply suggested adj` affordance on `<ClientTargetCell>` that reverse-solves a per-tier `tier_price_adj_pct` to land the cell at the customer's stated per-unit target. The architectural symmetry would suggest a per-tier `→ apply suggested adj to match tier target` analog on the new QuoteSummaryCard "Client target" column shipped in Slice 9.4c — same reverse-solve mechanic, anchored at the quote-level total instead of a per-cell target.
-
-  Three independent reasons to defer:
-  1. **Architectural complexity.** Quote-level reverse-solve has a different math shape than per-cell — solving for a tier-total revenue ≥ target involves the entire tier's blended cost stack, not a single cell. The closed-form vs. iterative split is non-trivial.
-  2. **Workflow unclear.** Per-cell reverse-solve has a clear PM workflow ("customer wants $5 for THIS SKU at 50k → click Apply → tier adj lands the cell"). Quote-level reverse-solve maps to "customer wants $200,000 for the whole tier → click Apply → tier adj lands the tier-total" — but PMs negotiating tier-totals often want to choose WHICH cells move, not move them uniformly. A blanket apply may not match the negotiation reality.
-  3. **Column density.** The QuoteSummaryCard "Client target" column (CR-12) is already at 4 occupants (input + verdict + warning + ↺ clear). Adding a 5th occupant pushes the column past Designer's stated revisit threshold, forcing a row-format rethink (stacked cards) that's bigger than the affordance warrants.
-
-  Three reasons all point the same direction: defer.
-
-  **Where designed:** Slice 9.4c brief §1 second bullet (explicit on this); CR-12 in `docs/cross-round-reconciliation.md` Open call surfaced + decided to defer.
-
-  **Why log it:** Architectural symmetry IS real — if PM workflow demand surfaces ("I want a one-click that pulls the whole tier toward the stated total target"), this is the slice-shape it would take. Capturing the framing now means future-Edward doesn't re-discover the question + re-do the analysis.
-
-  Reference: `src/components/costing/client-target-cell.tsx` (per-cell precedent), `src/components/costing/reverse-solve-dialog.tsx` (closed-form math precedent), `src/lib/costing.ts` `suggestTierAdjForClientTarget` (per-cell solve helper — quote-level analogue would be `suggestTierAdjForQuoteLevelTarget`).
-
   Reference: `src/lib/costing.ts` `QuotePerTierRollup.sumOfCellTargetsAtTier` already surfaces the partial sum via the rollup; UI surface lands in v1.5+ polish.
 
 - [Slice 9.5.5 — comprehensive mutation-action wiring + inline icons + realtime sync]
