@@ -91,6 +91,66 @@ export const freightTreatment = pgEnum("freight_treatment", [
 // src/lib/sku-tree.ts and the action layer.
 export const skuRole = pgEnum("sku_role", ["leaf", "assembly"]);
 
+// ---------- RI.1 enums (redesign-implementation slice) ----------
+
+// Slice RI.1 — scenario drop reasons. NULL on quotes that aren't
+// dropped; set when scenarioStatus = 'dropped' (action layer ensures).
+// Values per Round 3 + Round 4 commitments:
+//   - superseded_by_copy: replaced by a copy operation (Slice 15)
+//   - draft_at_accept: was a draft at the moment a sibling was
+//     accepted; auto-saved as dropped sibling (Round 3 commit #2)
+//   - accept_sibling: dropped because a sibling was accepted via
+//     Mark-Accepted (Round 3 commit #5)
+//   - manual: PM explicitly dropped it
+//   - other: catch-all for forensic future cases
+export const scenarioDropReason = pgEnum("scenario_drop_reason", [
+  "superseded_by_copy",
+  "draft_at_accept",
+  "accept_sibling",
+  "manual",
+  "other",
+]);
+
+// Slice RI.1 — Bulk Raw raws-mode tri-state per Bulk Raw correction.
+// Determines whether the Cost Build page renders the Bulk Raw
+// section + which row-set the cost stack header shows.
+export const rawsMode = pgEnum("raws_mode", [
+  "cm_sources",
+  "dps_sources",
+  "customer_supplies",
+]);
+
+// Slice RI.1 — deposit lifecycle for cost sections (packaging, production,
+// bulk_raw). Per Round 6 deposit-badge surface design.
+export const depositStatus = pgEnum("deposit_status", [
+  "none",
+  "due",
+  "invoiced",
+  "paid",
+  "reconciled",
+]);
+
+// Slice RI.1 — bulk raw native units. Customer-stated unit for raw
+// ingredient cost-per-native + usage-per-filled. Drives unit-conversion
+// in the Bulk Raw drill-down.
+export const bulkRawNativeUnit = pgEnum("bulk_raw_native_unit", [
+  "kg",
+  "L",
+  "mL",
+  "oz",
+  "g",
+  "lb",
+]);
+
+// Slice RI.1 — cost section kind for cross-section deposit lifecycle.
+// Single deposit table keyed by (quote_id, section_kind) per architect
+// option A — cleaner than per-section meta tables.
+export const costSectionKind = pgEnum("cost_section_kind", [
+  "packaging",
+  "production",
+  "bulk_raw",
+]);
+
 // ---------- identity ----------
 
 export const users = pgTable(
@@ -196,6 +256,21 @@ export const quotes = pgTable(
       { onDelete: "set null" },
     ),
     underpricedOverrideReason: text("underpriced_override_reason"),
+    // Slice RI.1 — Round 4 commitment: ★ Primary indicator. One scenario
+    // per project marked recommended. False default; project-level
+    // unique-by-recommended invariant enforced at the action layer
+    // (not via DB constraint — multiple scenarios can be flipped during
+    // PM exploration before the recommended pin lands; soft invariant).
+    isRecommended: boolean("is_recommended").notNull().default(false),
+    // Slice RI.1 — Round 3/4 commitment: drop_reason for scenarios
+    // whose status = 'dropped'. Carries forensic intent of the drop.
+    // NULL on active/accepted; required (action-layer) when status
+    // transitions to 'dropped'.
+    dropReason: scenarioDropReason("drop_reason"),
+    droppedByUserId: uuid("dropped_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    droppedAt: timestamp("dropped_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, {
@@ -210,6 +285,12 @@ export const quotes = pgTable(
     ),
     index("quotes_project_id_idx").on(t.projectId),
     index("quotes_status_idx").on(t.status),
+    // Slice RI.1 — partial index on the recommended pin per project.
+    // Supports "find the recommended scenario for this project"
+    // queries (one row per project max in steady state).
+    index("quotes_project_recommended_idx")
+      .on(t.projectId)
+      .where(sql`is_recommended = true`),
     foreignKey({
       columns: [t.copiedFromQuoteId],
       foreignColumns: [t.id],
@@ -895,7 +976,233 @@ export const auditLog = pgTable(
     entityId: text("entity_id").notNull(),
     action: text("action").notNull(),
     diffJson: jsonb("diff_json").notNull().default(sql`'{}'::jsonb`),
+    // Slice RI.1 — Round 5 cascade tagging commitment. When a single
+    // user action triggers cascading derived audit rows (e.g., re-band
+    // cascading from firm_settings change touches N quotes), each
+    // derived row sets caused_by_audit_id → the user-action's audit row.
+    // Self-FK; ON DELETE SET NULL preserves cascade roots even when
+    // a derived child is purged. NULL on root (user-initiated) audits.
+    causedByAuditId: uuid("caused_by_audit_id").references(
+      (): AnyPgColumn => auditLog.id,
+      { onDelete: "set null" },
+    ),
+    // Slice RI.1 — Round 5 audit log read view denormalized columns
+    // for free-text search. summary = human-readable short description
+    // ("PM updated target margin from 35% to 38%"); entity_label =
+    // resolved label of the entity ("Lumen & Co. · Primary v3").
+    // Both indexed via gin_trgm_ops for trigram search. Populated by
+    // logAudit() helper at write time; existing rows backfilled via
+    // migration data step where derivable.
+    summary: text("summary"),
+    entityLabel: text("entity_label"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("audit_log_entity_idx").on(t.entityType, t.entityId)],
+  (t) => [
+    index("audit_log_entity_idx").on(t.entityType, t.entityId),
+    // Slice RI.1 — index on caused_by_audit_id for cascade-rollup
+    // queries ("show all audit rows derived from this user action").
+    // Partial — only non-NULL caused_by rows are interesting.
+    index("audit_log_caused_by_idx")
+      .on(t.causedByAuditId)
+      .where(sql`caused_by_audit_id IS NOT NULL`),
+    // Slice RI.1 — trigram GIN indexes for free-text search on
+    // summary + entity_label. Powers the audit-log read view filter
+    // bar's free-text search box. Requires pg_trgm extension.
+    index("audit_log_summary_trgm_idx").using(
+      "gin",
+      sql`${t.summary} gin_trgm_ops`,
+    ),
+    index("audit_log_entity_label_trgm_idx").using(
+      "gin",
+      sql`${t.entityLabel} gin_trgm_ops`,
+    ),
+  ],
+);
+
+// ---------- RI.1 workspace state ----------
+
+// Slice RI.1 — user-pinned projects for the outer rail's Pinned
+// section (Round 4). Composite PK enforces one pin per
+// (user, project). pin_order drives stable left-to-right ordering
+// in the rail. ON DELETE CASCADE on both FKs cleans pins when a
+// user or project is removed.
+export const userPinnedProjects = pgTable(
+  "user_pinned_projects",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    pinOrder: integer("pin_order").notNull().default(0),
+    pinnedAt: timestamp("pinned_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.projectId] }),
+    index("user_pinned_projects_user_pin_order_idx").on(
+      t.userId,
+      t.pinOrder,
+    ),
+  ],
+);
+
+// Slice RI.1 — user-project visit log for the outer rail's Recent
+// section (Round 4 MRU). Composite PK enforces single row per
+// (user, project); last_visited_at updated on each project surface
+// nav. Index on (user_id, last_visited_at DESC) supports
+// MRU-ordered Recent fetch.
+export const userProjectVisits = pgTable(
+  "user_project_visits",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    lastVisitedAt: timestamp("last_visited_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.projectId] }),
+    index("user_project_visits_user_visited_idx").on(
+      t.userId,
+      t.lastVisitedAt.desc(),
+    ),
+  ],
+);
+
+// ---------- RI.1 Bulk Raw schema (Bulk Raw correction) ----------
+
+// Slice RI.1 — per-quote bulk-raw section meta. Carries raws_mode
+// (the tri-state mode selector). Deposit lifecycle lives on the
+// cross-section `cost_section_deposits` table per architect
+// option A — single deposit table for all sections.
+//
+// Keyed by quote_id (one bulk-raw section per quote). When Slice 14
+// normalizes scenarios into their own table, this could re-key to
+// (scenario_id) but for v1 quote_id is sufficient.
+export const bulkRawSectionMeta = pgTable(
+  "bulk_raw_section_meta",
+  {
+    quoteId: uuid("quote_id")
+      .primaryKey()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    rawsMode: rawsMode("raws_mode").notNull().default("cm_sources"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+);
+
+// Slice RI.1 — Bulk Raw category. PM-defined grouping of ingredients
+// (e.g., "Active ingredients", "Carriers"). Multiple per quote;
+// markup_pct optional override of firm default for this category.
+export const bulkRawCategories = pgTable(
+  "bulk_raw_categories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    markupPct: numeric("markup_pct", { precision: 5, scale: 4 }),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("bulk_raw_categories_quote_id_idx").on(t.quoteId)],
+);
+
+// Slice RI.1 — Bulk Raw ingredient. PM-entered raw with native unit
+// + cost-per-native + usage-per-filled. per_filled_unit_cost is a
+// stored generated column (Postgres-computed at row-write time) so
+// downstream consumers don't re-derive on every read. supplier_id
+// nullable until suppliers infrastructure ships separately.
+export const bulkRawIngredients = pgTable(
+  "bulk_raw_ingredients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => bulkRawCategories.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    nativeUnit: bulkRawNativeUnit("native_unit").notNull(),
+    costPerNativeUnit: numeric("cost_per_native_unit", {
+      precision: 10,
+      scale: 4,
+    }),
+    usagePerFilledUnit: numeric("usage_per_filled_unit", {
+      precision: 10,
+      scale: 4,
+    }),
+    perFilledUnitCost: numeric("per_filled_unit_cost", {
+      precision: 10,
+      scale: 4,
+    }).generatedAlwaysAs(
+      sql`cost_per_native_unit * usage_per_filled_unit`,
+    ),
+    htsCode: text("hts_code"),
+    supplierId: uuid("supplier_id"),
+    notes: text("notes"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("bulk_raw_ingredients_category_id_idx").on(t.categoryId),
+  ],
+);
+
+// ---------- RI.1 cross-section deposits ----------
+
+// Slice RI.1 — single table for deposit lifecycle across all cost
+// sections (architect option A per brief Q1). Keyed by
+// (quote_id, section_kind) — at most one deposit row per
+// (quote, section). Round 6 deposit-badge surface design renders
+// state strings off this table.
+export const costSectionDeposits = pgTable(
+  "cost_section_deposits",
+  {
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    sectionKind: costSectionKind("section_kind").notNull(),
+    depositPct: numeric("deposit_pct", { precision: 5, scale: 4 }),
+    depositAmount: numeric("deposit_amount", { precision: 12, scale: 2 }),
+    depositStatus: depositStatus("deposit_status").notNull().default("none"),
+    depositInvoiceId: text("deposit_invoice_id"),
+    depositInvoicedAt: timestamp("deposit_invoiced_at", {
+      withTimezone: true,
+    }),
+    depositPaidAt: timestamp("deposit_paid_at", { withTimezone: true }),
+    depositReconciledAt: timestamp("deposit_reconciled_at", {
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.quoteId, t.sectionKind] }),
+    index("cost_section_deposits_quote_id_idx").on(t.quoteId),
+  ],
 );

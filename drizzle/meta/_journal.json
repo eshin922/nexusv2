@@ -134,6 +134,13 @@
       "when": 1777940000000,
       "tag": "0018_pullback_client_target",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1777942644265,
+      "tag": "0019_ri_1_workspace_scenarios_audit_bulkraw",
+      "breakpoints": true
     }
   ]
 }
