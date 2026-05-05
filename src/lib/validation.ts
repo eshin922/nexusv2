@@ -70,9 +70,7 @@ export type WarningKind =
   | "negative_cost"
   | "zero_cost_populated_row"
   // Outliers — statistical
-  | "category_outlier_5x"
-  // Slice 9.4c — quote-level reconciliation
-  | "target_reconciliation_mismatch";
+  | "category_outlier_5x";
 
 export type WarningSpec = {
   scope: WarningScope;
@@ -104,7 +102,6 @@ export function validateQuote(
     ...checkLineLevelCompleteness(input),
     ...checkAnomalies(input),
     ...checkOutliers(input, costing),
-    ...checkQuoteLevelReconciliation(input, costing),
   ];
 }
 
@@ -723,75 +720,6 @@ function checkOutliers(
         });
       }
     }
-  }
-
-  return warnings;
-}
-
-// ---------- quote-level reconciliation (Slice 9.4c) ----------
-
-// Rule: quote-level client target should match the sum of per-cell
-// client targets at each tier. Fires per-tier with status
-// `mismatched_high` (sum > target + ε) or `mismatched_low` (sum < target - ε).
-//
-// Pass-through to math layer's `targetReconciliationStatus`. The math
-// layer enforces:
-//   - completeness gate: rule fires only when ALL leaf SKUs have cell
-//     targets at this tier (architect Q1 → A: gated-on-completeness)
-//   - epsilon: $1.00 fixed for v1 (architect Q2; UX_BACKLOG entry
-//     queued for tolerance scaling at quote-size extremes)
-//   - partial-completeness produces 'not_applicable' (coaching surface
-//     deferred to v1.5+ per architect Q3 and UX_BACKLOG entry)
-//
-// Severity: review. Quote-level negotiated total + sum-of-cell breakdown
-// are both stated by the customer; divergence is a hand-validation flag,
-// not a hard send-blocker. PM resolves by either (a) updating the
-// quote-level total, (b) adjusting cell targets to sum correctly, or
-// (c) accepting with a reason ("customer agreed to the package price
-// even though sum-of-cells differs").
-//
-// Identity tuple: scope='quote', table_name='quote_tiers',
-// row_id=tierId (genuine UUID-as-text — matches `quote_tier` audit
-// posture from updateTierPriceAdj, updateQuoteLevelClientTarget),
-// field_name='client_target_price_total', tier_id=tierId. Identity is
-// per-(quote, tier) — one warning per tier with mismatch, not one per
-// cell driving the mismatch (the divergence IS a cross-cell pattern).
-function checkQuoteLevelReconciliation(
-  input: QuoteCostingInput,
-  costing: QuoteCostingResult,
-): WarningSpec[] {
-  const warnings: WarningSpec[] = [];
-
-  for (const tierRollup of costing.quoteRollup) {
-    const status = tierRollup.targetReconciliationStatus;
-    if (status !== "mismatched_high" && status !== "mismatched_low") continue;
-
-    const target = tierRollup.clientTargetPriceTotal;
-    const sum = tierRollup.sumOfCellTargetsAtTier;
-    if (target === null) continue; // defense in depth — math layer guarantees this
-
-    const tier = input.tiers.find((t) => t.id === tierRollup.tierId);
-    const tierName = tier?.label ?? tierRollup.tierId;
-    const direction = status === "mismatched_high" ? "exceeds" : "is below";
-    const delta = Math.abs(sum - target);
-
-    warnings.push({
-      scope: "quote",
-      table_name: "quote_tiers",
-      row_id: tierRollup.tierId, // genuine UUID-as-text
-      field_name: "client_target_price_total",
-      tier_id: tierRollup.tierId,
-      kind: "target_reconciliation_mismatch",
-      severity: "review",
-      message: `Sum of cell targets ($${sum.toFixed(2)}) ${direction} the quote-level target ($${target.toFixed(2)}) on ${tierName} by $${delta.toFixed(2)}.`,
-      detail_json: {
-        tier_id: tierRollup.tierId,
-        client_target_price_total: target,
-        sum_of_cell_targets: sum,
-        difference: sum - target,
-        status,
-      },
-    });
   }
 
   return warnings;

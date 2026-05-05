@@ -262,62 +262,6 @@ Validation warnings are PM-internal **by virtue of where they live** (cost-build
 
 ---
 
-### CR-12. Quote-level client target on `<QuoteSummaryCard>` (Slice 9.4c)
-
-**The inconsistency.** Slice 9.4c introduces a quote-level (per-tier, $ TOTAL) client target distinct from Slice 9.4b's per-(SKU, tier) cell target. The per-tier rollup table in `<QuoteSummaryCard>` must surface up to **three concurrent verdict/affordance states** per row: margin verdict pill (always), quote-level competitive verdict (when target set), and reconciliation warning icon (when target set + all cells set + |sum − target| > $1 ε). CD's six rounds did not design this composite; the Round 6 cost-stack header captures multi-tier columns side-by-side, but the `<QuoteSummaryCard>` per-tier rollup table is a Round 2 ancestor that has accumulated affordances surface-by-surface (Slice 9.2 added Tier adj column; 9.4c now adds Client target + reconciliation). Vocabulary anchors are CR-11 (warning chip register) and the Slice 9.4b verdict-surfacing convention; the question is composition + table-row layout.
-
-**Disposition: EXTEND THE PER-TIER ROW WITH A NEW "Client target" COLUMN PAIRING TIER-TARGET INPUT + COMPETITIVE VERDICT CHIP + RECONCILIATION WARNING ICON + ↺ CLEAR. PRESERVE 6-COLUMN TABLE STRUCTURE; THE NEW COLUMN ADDS, REPLACES NONE; ROW BECOMES 7 COLUMNS. NO ROW WRAPPING, NO STACKED CARDS.**
-
-**Specifics (per Designer extension memo, Slice 9.4c):**
-
-- **Verdict pill placement — new column, NOT alongside `<MarginVerdictPill>`.** The Status column answers "is THIS TIER's blended margin healthy?"; the quote-level competitive verdict answers "is THIS TIER's revenue meeting the customer's stated tier-total target?" — two verdicts about the same row, not two readings of one verdict. Putting them in the same column creates stacked-chip pile / asymmetric column rhythm / conditional-swap problems. New column lives between Tier adj and the right edge. Column header: **"Client target"** (matches per-cell `<ClientTargetCell>` column header on per-SKU summary row — vocabulary consistency).
-- **Column contents per row, single horizontal line, right-aligned:** `$ [ tier target ]  COMPETITIVE under target by $X  ⚠  ↺`. Reading order: input → verdict → warning → clear. Value first (where eye lands when scanning a tabular column), interpretation second, escalation third, action last.
-- **Verdict chip — extends `<CompetitiveIndicator>` exactly.** COMPETITIVE = `border-emerald-300 text-emerald-800` outline; OVER_CLIENT_TARGET = `border-amber-300 text-amber-800`. `text-[9px]` uppercase, `px-1.5 py-0`. Inline copy carries direction + magnitude per Slice 9.4b verdict-surfacing convention: `"under target by $X"` / `"over target by $X"`. Tooltip: `"Tier revenue: $A.AA / Client tier target: $B.BB"` at 2-decimal precision (tier totals, not per-unit — 4-decimal would be noise here).
-- **Reconciliation icon — outlined warning triangle, 10px, `text-amber-600` pre-RI / `--warn` post-RI.0 reskin.** CR-11 `review` severity glyph. Anchored inline-end of cell, `ml-1.5` (6px) gap from verdict chip. Tooltip = warning's `message` field verbatim. Click scrolls + highlights the per-SKU summary breakdown for the affected tier (drill-from-rollup-verdict-to-cell-investigation pattern, Round 2.5 precedent).
-- **Composite state — additive, no suppression.** Input + verdict + warning render side-by-side in left-to-right reading order. The 10px outlined icon is naturally subordinate to the ~16px outlined chip with text — visual hierarchy already encodes "interpretation first, escalation flag second" without explicit suppression rules. When BOTH `BELOW_FLOOR` margin (Status column) AND `OVER_CLIENT_TARGET` (new column) fire, the row carries heavy negative signal — DO NOT mute it. The composite IS the diagnosis. Cross-reference fresh-dot precedence (CR-11): if a fresh-dot is ever added to this column's input, the warning icon takes precedence — same rule as CR-11.
-- **Per-tier grid — 7 columns holds; do NOT break to stacked cards.** Tier · Revenue · Cost · Margin · Status · Tier adj keep current widths. New Client target column ~200px target, flex-grow when verdict + icon present. Existing `overflow-x-auto` wrapper at QuoteSummaryCard:134 handles narrow viewports (horizontal scroll, no row wrapping). Breaking-point trigger (NOT this slice): 8+ columns OR a column with multi-line content. If reverse-solve "→ apply suggested adj to match tier target" lands later, revisit.
-- **No active-tier highlighting on QuoteSummaryCard.** Slice 9.4a's indigo highlight lives on per-SKU summary row + `MarginSparkline` because those surfaces are organized around "given the tier I'm currently focused on, how does this SKU price out?" The QuoteSummaryCard rollup is structurally the OPPOSITE — "all tiers side-by-side," row IS the tier, point is symmetric comparison. Active-tier highlighting here would imply a focus mode the surface doesn't have.
-- **NULL-as-empty-signal — input always present, verdict + warning conditional.** Input visible with placeholder `"$ tier target"` when NULL. Verdict chip renders only when `competitiveStatusQuoteLevel !== null`. Warning icon renders only when `targetReconciliationStatus === 'mismatched_high' || 'mismatched_low'`. Clear path mirrors `<TierPriceAdjInput>`: ↺ button visible only when target is set; clicking writes UPDATE-to-NULL on `quote_tiers.client_target_price_total`. NOT empty-input-on-blur (the per-cell `<ClientTargetCell>` posture) — in a single-line row with multiple occupants, blur-to-clear creates ambiguity about what an empty input means at submit time.
-
-**Composite state matrix — concrete render spec:**
-
-| Margin verdict | Quote-target | All cells set | Reconciliation | New column renders |
-|---|---|---|---|---|
-| any | NULL | n/a | not_applicable | `$ [____]` (empty input only) |
-| any | $X | none | not_applicable | `$ [X.XX]  COMPETITIVE under target by $Y  ↺` |
-| any | $X | partial | not_applicable | `$ [X.XX]  OVER TARGET by $Y  ↺` (no warning — gated upstream) |
-| any | $X | full | matches | `$ [X.XX]  COMPETITIVE under target by $Y  ↺` (no warning — within ε) |
-| any | $X | full | mismatched_high | `$ [X.XX]  OVER TARGET by $Y  ⚠ ↺` |
-| any | $X | full | mismatched_low | `$ [X.XX]  COMPETITIVE under target by $Y  ⚠ ↺` |
-
-Margin verdict (Status column) is independent — always renders, unchanged by new column contents.
-
-**Token + sizing summary (pre-RI Tailwind → post-RI.0 reskin):**
-
-| Element | Pre-RI Tailwind | Post-RI.0 token |
-|---|---|---|
-| Input field | `w-24 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-right tabular-nums` | `--ink-3` border / `--surface-0` bg |
-| Input placeholder | `"$ tier target"` | (text only) |
-| Verdict chip — COMPETITIVE | `border border-emerald-300 text-emerald-800 bg-white px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide rounded` | `--good` outline |
-| Verdict chip — OVER_CLIENT_TARGET | `border border-amber-300 text-amber-800 bg-white px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide rounded` | `--warn` outline |
-| Reconciliation warning icon | 10px outlined warning triangle SVG, `text-amber-600 currentColor` | `--warn` |
-| Icon margin from chip | `ml-1.5` (6px) | (unchanged) |
-| Clear button | `rounded border border-gray-200 px-1.5 py-0.5 text-[10px] text-gray-600 hover:bg-gray-50` | `--ink-4` text / `--ink-1` border |
-| Cell flex | `flex items-center justify-end gap-1.5` | (unchanged) |
-
-**Open call (deferred to smoke):** column header copy `"Client target"` reads identically on both per-SKU summary row (per-unit values) and QuoteSummaryCard (tier-total values). Designer judgment: keep both as `"Client target"`, let column context disambiguate. Edward to confirm during smoke; if PMs are confused, polish PR adds `"(tier total)"` qualifier to QuoteSummaryCard column header.
-
-**Cross-slice question surfaced, not blocking 9.4c:** reverse-solve at quote level (per-tier `→ apply suggested adj to match tier target`, analogue of Slice 9.4b's per-cell affordance) is silent in the 9.4c brief. If in scope for PR 2, the new column gets a 4th occupant; if deferred, ships with input + verdict + warning + clear only. CA + Edward to call.
-
-**Implications for CC:**
-- Pre-RI: Tailwind utilities per token table above
-- Post-RI.0: mechanical reskin — same find/replace pattern as CR-11
-- Future quote-level reverse-solve affordance (if it lands) inherits this column's structure; revisit column-density rule at that time
-
-**Decided by:** Designer agent + CA + Edward, May 2026, Slice 9.4c PR 2 design extension review. Reference: `docs/designer-agent-prompt.md` Pattern 2 invocation; full memo retained in conversation history (Slice 9.4c PR 2 turn).
-
----
-
 ## Anticipated future inconsistencies
 
 These haven't surfaced yet but are likely to during build. Pre-flagged so Designer + CC know they're coming:
@@ -359,7 +303,6 @@ Round 4 designed the inbox section of the deal organizer but the slice brief def
 | 2026-05 | CR-8 | CA + Edward | **Provisional** | Tier picker context-dependent across surfaces. CC follows per-surface canonical round. |
 | 2026-05 | CR-10 | CA + Edward | **Provisional** | Topbar minimal; page-specific actions live in page headers. Edward to revalidate when RI.3 + RI.4 ship. |
 | 2026-05 | CR-11 | Designer + CA + Edward | **Decided** | Validation warning UI uses verdict-ramp chip register (`--good` / `--warn` / `--bad`); NOT `--internal` (reserved for boundary-guard). Closes Future-CR-A. |
-| 2026-05 | CR-12 | Designer + CA + Edward | **Decided** | Quote-level client target on QuoteSummaryCard renders in a new "Client target" column (input + competitive verdict chip + amber reconciliation warning icon + ↺ clear, additive, no suppression); 7 columns total, no row break to stacked cards; no active-tier highlighting (preserves tier-symmetric posture); input always present, verdict + warning conditional. Extends `<CompetitiveIndicator>`, CR-11, and verdict-surfacing convention. |
 
 **Provisional vs decided.** Provisional dispositions are the working assumption CC implements against. They're not final until Edward walks the rendered page during smoke and confirms (or refines). Cost of revisiting a provisional disposition is small — typically a small visual change, not architectural rework.
 

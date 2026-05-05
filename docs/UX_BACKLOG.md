@@ -5,54 +5,34 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
-- [Tolerance scaling for quote-level reconciliation (Slice 9.4c follow-up)]
+- [Quote-total client target affordance (Slice 9.4c — pulled back)]
 
-  **Slice:** v1.5+ (revisit if PM smoke surfaces tolerance issues at quote-size extremes)
+  **Slice:** Post-MVP / TBD
 
-  **What:** Slice 9.4c ships sum-of-cells reconciliation with **fixed ε = $1.00** for the diff between `quote_tiers.client_target_price_total` and the sum of `quote_sku_tier_targets.client_target_price_per_unit × tier.qty` across leaves. Architect-recommended for v1 (concrete + legible: "if sums match within a buck, we call it reconciled"). Real risk is OPPOSITE the obvious one: $1.00 may be too LOOSE at small quotes (a $200 sample-tier with $1 mismatch = 0.5% noise), not too tight at large quotes.
+  **What:** When PMs negotiate at quote-total level ("can you do this for $X?"), surface a target affordance that lets them model the deal against the customer's stated total. Workflow case is real but uncommon; PMs currently derive by comparing against existing revenue total mentally. Discrete affordance deferred until real-user testing surfaces clear need + proper surface placement.
 
-  Candidate replacement when this entry surfaces: `max($1.00, 0.05% × quote_total)` hybrid floor — keeps fixed-buck legibility for small quotes while scaling at large totals. Or pure percentage with a small-quote floor.
+  **Where designed:** Slice 9.4c (briefed and partially implemented; pulled back during 9.4c.4 smoke after surface-placement audit revealed the Pricing Control Summary is being consolidated out in redesign-implementation §5, plus per-tier per-unit framing doesn't map to real customer negotiation patterns — customers communicate either per-cell-per-unit or quote-total; never "all SKUs at this tier should average $X/unit").
 
-  **Where designed:** Slice 9.4c brief §3.2 + §8 Q2. Architect signoff during 9.4c.1 confirmed v1 ε; this entry preserves the alternative for revisit.
+  **Why log it:** Architectural patterns from the 9.4c implementation work are reusable when (if) this affordance ships properly:
+  - per-unit math at quote-level scope (revenue-per-unit vs target-per-unit)
+  - divide-by-zero protection on tier_qty during per-unit derivations
+  - validation rule shape for reconciliation mismatch (per-cell sum vs quote-level)
+  - ε tolerance discipline for per-unit comparisons (~$0.01/unit for v1; tolerance scaling tracked separately per architect's queued thinking)
+  - CR-12 Designer extension for warning vocabulary on Costing Sheet stays valid even though CR-12 itself was reverted; the broader chip + verdict + reconciliation pattern survives in CR-11.
 
-  **Why log it:** Catch this at PM smoke — small quotes producing false-alarm reconciliation warnings, OR large quotes producing false-silence. The reconciliation rule is `review` severity (not `action_required`), so a noisy version trains PMs to ignore it. Threshold tuning is the right knob to turn rather than disabling the rule.
+  **Surface placement consideration:** if/when this ships, surface should be evaluated against the redesign-implementation cost stack panel + margin verdict band architecture (RI.5 Costing Sheet rebuild), not the pre-rebuild Pricing Control Summary. The proper home is likely the cost stack panel header or margin verdict band — places that have per-SKU breakdown visible alongside, proper visual register, and aren't being consolidated away.
 
-  Reference: `src/lib/costing.ts` `RECONCILIATION_EPSILON_USD` constant + `computeReconciliationStatus` helper.
+  ### Architectural patterns to preserve (Slice 9.4c — deferred)
 
-- [Partial-completeness client-target benchmark coaching (Slice 9.4c follow-up)]
+  When quote-level target was being built (subsequently pulled back), CC + architect worked out the math for per-unit verdict + reconciliation. Reusable when quote-level affordance ships properly post-MVP:
 
-  **Slice:** v1.5+ polish
-
-  **What:** Slice 9.4c gates the sum-of-cells reconciliation rule on **full** completeness — fires only when ALL leaf SKUs at a tier have cell targets set. Partial completeness produces `target_reconciliation_status: 'not_applicable'`. Architect-recommended for v1 (signal-to-noise: a noisy mid-build "you've set 3 of 5" rule trains PMs to disable validation entirely).
-
-  Coaching surface for partial state has a natural home outside the validation engine: a "sum-so-far chip" near the quote-level target input, or a "3 of 5 cells benchmarked" verdict chip on QuoteSummaryCard — same pattern as the verdict-surfacing convention from 9.4b.
-
-  Note: `sumOfCellTargetsAtTier` is **already populated** with the partial sum (Option A: sum-what's-set; unset cells contribute zero). The data is there waiting for the surface; v1.5+ wires it into a coaching chip.
-
-  **Where designed:** Slice 9.4c brief §8 Q1 + Q3. Architect-validated split: keep gated-on-completeness for the validation rule (the binary "send-readiness check"); add separate coaching surface for the partial state (the "in-build progress nudge").
-
-  **Why log it:** PMs in mid-quote-build often have targets on some SKUs and not all. The partial sum is informational at that point, not a problem. Coaching surface ("$X of $Y target benchmarked, 3 of 5 cells covered") communicates progress without firing a validation warning that demands acceptance.
-
-- [Quote-level reverse-solve apply affordance (Slice 9.4c follow-up)]
-
-  **Slice:** post-MVP / TBD (not v1, not v1.5 by default — surface only if PM workflow demand surfaces)
-
-  **What:** Slice 9.4b ships a per-cell `→ apply suggested adj` affordance on `<ClientTargetCell>` that reverse-solves a per-tier `tier_price_adj_pct` to land the cell at the customer's stated per-unit target. The architectural symmetry would suggest a per-tier `→ apply suggested adj to match tier target` analog on the new QuoteSummaryCard "Client target" column shipped in Slice 9.4c — same reverse-solve mechanic, anchored at the quote-level total instead of a per-cell target.
-
-  Three independent reasons to defer:
-  1. **Architectural complexity.** Quote-level reverse-solve has a different math shape than per-cell — solving for a tier-total revenue ≥ target involves the entire tier's blended cost stack, not a single cell. The closed-form vs. iterative split is non-trivial.
-  2. **Workflow unclear.** Per-cell reverse-solve has a clear PM workflow ("customer wants $5 for THIS SKU at 50k → click Apply → tier adj lands the cell"). Quote-level reverse-solve maps to "customer wants $200,000 for the whole tier → click Apply → tier adj lands the tier-total" — but PMs negotiating tier-totals often want to choose WHICH cells move, not move them uniformly. A blanket apply may not match the negotiation reality.
-  3. **Column density.** The QuoteSummaryCard "Client target" column (CR-12) is already at 4 occupants (input + verdict + warning + ↺ clear). Adding a 5th occupant pushes the column past Designer's stated revisit threshold, forcing a row-format rethink (stacked cards) that's bigger than the affordance warrants.
-
-  Three reasons all point the same direction: defer.
-
-  **Where designed:** Slice 9.4c brief §1 second bullet (explicit on this); CR-12 in `docs/cross-round-reconciliation.md` Open call surfaced + decided to defer.
-
-  **Why log it:** Architectural symmetry IS real — if PM workflow demand surfaces ("I want a one-click that pulls the whole tier toward the stated total target"), this is the slice-shape it would take. Capturing the framing now means future-Edward doesn't re-discover the question + re-do the analysis.
-
-  Reference: `src/components/costing/client-target-cell.tsx` (per-cell precedent), `src/components/costing/reverse-solve-dialog.tsx` (closed-form math precedent), `src/lib/costing.ts` `suggestTierAdjForClientTarget` (per-cell solve helper — quote-level analogue would be `suggestTierAdjForQuoteLevelTarget`).
-
-  Reference: `src/lib/costing.ts` `QuotePerTierRollup.sumOfCellTargetsAtTier` already surfaces the partial sum via the rollup; UI surface lands in v1.5+ polish.
+  - **Per-unit verdict shape.** `tier_required_sell_per_unit = total_revenue / tier_qty`; `competitive_verdict_quote_level: COMPETITIVE` if `tier_required_sell_per_unit <= target_per_unit` (no ε needed — matches per-cell direct comparison; equality counts as COMPETITIVE).
+  - **Per-unit reconciliation.** `sum_of_cell_targets_per_unit_at_tier = Σ over leaf SKUs of cell_target_per_unit` (no qty multiplication on either side; both per-unit). `matches` if `|sum_per_unit - target_per_unit| ≤ ε` ($0.01/unit for v1).
+  - **Divide-by-zero protection.** `tier.qty = 0 or NULL` → revenue_per_unit guard `tier.qty > 0 ? revenue / qty : 0`.
+  - **Completeness gate (architect Q1).** Reconciliation rule fires only when ALL leaf SKUs at the tier have cell targets set; partial returns `not_applicable`. Empty-quote edge guarded against `every() === true` on empty arrays via explicit `leafSkus.length > 0` precondition.
+  - **Identity tuple for warning row.** `scope='quote'`, `table_name='quote_tiers'`, `row_id=tierId` (genuine UUID-as-text), `field_name='client_target_price_per_unit'`, `tier_id=tierId`. One warning per tier with mismatch (variance IS the cross-cell pattern; no single cell "owns" the warning).
+  - **Audit shape.** `action: "quote_level_client_target_updated"`, no `source` flag — set/change/clear on a single column = same semantic per CLAUDE.md "Audit source convention."
+  - **Schema posture.** Per-tier granularity → direct column on `quote_tiers` (not sister table — sister-table justification of "column count + lifecycle independence" doesn't apply at quote-tier level; matches `tierPriceAdjPct` precedent).
 
 - [Slice 9.5.5 — comprehensive mutation-action wiring + inline icons + realtime sync]
 

@@ -14,7 +14,6 @@ import type { QuoteCostBreakdown } from "@/lib/costing";
 import { useCostingStore } from "./costing-store-provider";
 import { MarginVerdictPill } from "./costing/margin-verdict-pill";
 import { GlobalPriceAdjInput } from "./global-price-adj-input";
-import { QuoteLevelClientTargetCell } from "./quote-level-client-target-cell";
 import { QuoteTargetMarginPopover } from "./quote-target-margin-popover";
 import { TierPriceAdjInput } from "./tier-price-adj-input";
 
@@ -143,10 +142,6 @@ export function QuoteSummaryCard({
                   <th className="px-3 py-2 text-right">Status</th>
                   {/* Slice 9.2 — per-tier price-adjustment override */}
                   <th className="px-3 py-2 text-right">Tier adj.</th>
-                  {/* Slice 9.4c — quote-level client target per tier
-                      (input + competitive verdict + reconciliation
-                      warning + clear). Per CR-12. */}
-                  <th className="px-3 py-2 text-right">Client target</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 bg-white">
@@ -178,12 +173,6 @@ export function QuoteSummaryCard({
                             disabled={!editable}
                           />
                         </div>
-                      </td>
-                      <td className="px-3 py-2">
-                        <QuoteLevelClientTargetCell
-                          tierId={t.tierId}
-                          disabled={!editable}
-                        />
                       </td>
                     </tr>
                   );

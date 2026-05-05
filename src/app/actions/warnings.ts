@@ -216,14 +216,6 @@ async function loadCostingForQuote(
       tierId: c.tierId,
       clientTargetPricePerUnit: num(c.clientTargetPricePerUnit),
     })),
-    // Slice 9.4c — quote-level (per-tier) client targets. Sparse:
-    // emit only tiers where clientTargetPriceTotal is non-null.
-    quoteTierTargets: tiers
-      .filter((t) => t.clientTargetPriceTotal !== null)
-      .map((t) => ({
-        tierId: t.id,
-        clientTargetPriceTotal: num(t.clientTargetPriceTotal),
-      })),
     packaging: pkgs.map((r) => {
       const p = r.packaging_inputs;
       return {

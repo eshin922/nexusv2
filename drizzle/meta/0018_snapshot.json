@@ -1,5 +1,5 @@
 {
-  "id": "df946d30-1a03-4af8-86bd-e98998165b02",
+  "id": "b7d2e1a4-3c8f-4019-9e22-1d4f8b0c5a91",
   "prevId": "ed34cfbe-6be8-4055-a4ca-a411730cb3b1",
   "version": "7",
   "dialect": "postgresql",
@@ -1664,12 +1664,6 @@
         "tier_price_adj_pct": {
           "name": "tier_price_adj_pct",
           "type": "numeric(5, 4)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "client_target_price_total": {
-          "name": "client_target_price_total",
-          "type": "numeric(12, 4)",
           "primaryKey": false,
           "notNull": false
         },

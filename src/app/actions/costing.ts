@@ -220,16 +220,6 @@ export async function getQuoteCosting(
         tierId: c.tierId,
         clientTargetPricePerUnit: num(c.clientTargetPricePerUnit),
       })),
-      // Slice 9.4c — quote-level (per-tier) client targets. Sparse:
-      // emit only tiers where clientTargetPriceTotal is non-null.
-      // Engine looks up by tierId; missing tier reads as null
-      // (NULL-as-empty-signal).
-      quoteTierTargets: tiers
-        .filter((t) => t.clientTargetPriceTotal !== null)
-        .map((t) => ({
-          tierId: t.id,
-          clientTargetPriceTotal: num(t.clientTargetPriceTotal),
-        })),
       packaging: pkgs.map((r) => {
         const p = r.packaging_inputs;
         return {
@@ -898,119 +888,6 @@ export async function updateClientTarget(
   });
 }
 
-// ---------- mutation: updateQuoteLevelClientTarget (Slice 9.4c) ----------
-
-// Quote-level client target on the (quote, tier) cell. Direct column
-// on `quote_tiers.client_target_price_total` (NOT a sister table —
-// per-tier granularity matches `tierPriceAdjPct` precedent; sister-
-// table justification — column count + lifecycle independence —
-// doesn't apply at quote-tier level).
-//
-// Set + change + clear via the value-or-null parameter (mirrors
-// `updateClientTarget` per-cell pattern). One audit row per state
-// change with `action: "quote_level_client_target_updated"`; from/to
-// encodes the transition. No `source` flag — set/change/clear on a
-// single column = same semantic per CLAUDE.md "Audit source convention."
-//
-// Distinct from `updateClientTarget` (per-cell, per-unit, on the
-// sparse sister table). Per-unit-vs-total asymmetry IS the customer-
-// stated reality: customers state "$X for THIS SKU at 50k units" OR
-// "$Y for the whole package at 50k" — different negotiation
-// surfaces, different storage. See migration 0018 column comment +
-// CLAUDE.md "Slice 9 pricing-control columns" for the rationale.
-//
-//   - value === null  → clear (UPDATE … SET … = NULL)
-//   - value > 0       → set (UPDATE … SET … = value)
-//   - value <= 0      → reject (action layer guard); zero or negative
-//                       target isn't a legitimate quoting scenario.
-//                       To clear, send empty input → null.
-//
-// Form contract: tierId, clientTargetPriceTotal (numeric dollar
-// string, or empty string to clear → NULL).
-export async function updateQuoteLevelClientTarget(
-  formData: FormData,
-): Promise<
-  ActionResult<{ tierId: string; clientTargetPriceTotal: string | null }>
-> {
-  return runAction(async () => {
-    const tierId = String(formData.get("tierId") ?? "").trim();
-    if (!tierId)
-      throw new ActionGuardError(ERR.VALIDATION, "tierId required");
-
-    const user = await ensureUser();
-    const tierRows = await db
-      .select()
-      .from(quoteTiers)
-      .where(eq(quoteTiers.id, tierId))
-      .limit(1);
-    if (tierRows.length === 0)
-      throw new ActionGuardError(ERR.NOT_FOUND, "Tier not found");
-    const tier = tierRows[0];
-
-    // Re-uses the central draft guard via the quote.
-    const quote = await quoteByIdDraft(tier.quoteId);
-
-    // Parse the value. Empty input → null → clear; non-empty → numeric.
-    const rawValue = String(
-      formData.get("clientTargetPriceTotal") ?? "",
-    ).trim();
-    let parsedValue: number | null;
-    if (rawValue === "") {
-      parsedValue = null;
-    } else {
-      const n = Number(rawValue);
-      if (!Number.isFinite(n)) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "Quote-level client target must be a number.",
-        );
-      }
-      // Reject non-positive — same posture as per-cell `updateClientTarget`.
-      // Zero/negative quote target breaks the COMPETITIVE/OVER verdict
-      // (target ≥ revenue is the predicate; non-positive forces every
-      // populated quote to OVER_CLIENT_TARGET).
-      if (n <= 0) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "Quote-level client target must be greater than zero. To remove a target, clear the field.",
-        );
-      }
-      parsedValue = n;
-    }
-
-    const newStored = parsedValue === null ? null : parsedValue.toString();
-
-    if (numericEquals(tier.clientTargetPriceTotal, newStored)) {
-      return {
-        tierId,
-        clientTargetPriceTotal: tier.clientTargetPriceTotal,
-      };
-    }
-
-    await db
-      .update(quoteTiers)
-      .set({ clientTargetPriceTotal: newStored, updatedAt: new Date() })
-      .where(eq(quoteTiers.id, tierId));
-
-    await logAudit({
-      userId: user.id,
-      entityType: "quote_tier",
-      entityId: tierId,
-      action: "quote_level_client_target_updated",
-      diffJson: {
-        client_target_price_total: {
-          from: tier.clientTargetPriceTotal,
-          to: newStored,
-        },
-      },
-    });
-
-    revalidateQuoteTree(quote.projectId, quote.id);
-
-    return { tierId, clientTargetPriceTotal: newStored };
-  });
-}
-
 // ---------- mutation: applyClientTargetSolveTierAdj (Slice 9.4b) ----------
 
 // Apply path for the per-(SKU, tier) "match client target" reverse-solve.
@@ -1185,16 +1062,6 @@ export async function applyClientTargetSolveTierAdj(
         tierId: c.tierId,
         clientTargetPricePerUnit: num(c.clientTargetPricePerUnit),
       })),
-      // Slice 9.4c — quote-level (per-tier) client targets. Sparse:
-      // emit only tiers where clientTargetPriceTotal is non-null.
-      // Engine looks up by tierId; missing tier reads as null
-      // (NULL-as-empty-signal).
-      quoteTierTargets: tiersFresh
-        .filter((t) => t.clientTargetPriceTotal !== null)
-        .map((t) => ({
-          tierId: t.id,
-          clientTargetPriceTotal: num(t.clientTargetPriceTotal),
-        })),
       packaging: pkgs.map((r) => {
         const p = r.packaging_inputs;
         return {
@@ -1557,17 +1424,6 @@ export async function getCostingBundle(
       tierId: c.tierId,
       clientTargetPricePerUnit: num(c.clientTargetPricePerUnit),
     }));
-    // Slice 9.4c — sparse quote-level (per-tier) client targets.
-    // Built from the same `tiers` query result; column is on
-    // `quote_tiers` directly. Empty array when no tier has a
-    // quote-level target. Snapshot carries this through to the
-    // store so optimistic edits + reconcile see the same shape.
-    const quoteTierTargetList = tiers
-      .filter((t) => t.clientTargetPriceTotal !== null)
-      .map((t) => ({
-        tierId: t.id,
-        clientTargetPriceTotal: num(t.clientTargetPriceTotal),
-      }));
 
     const input: QuoteCostingInput = {
       quote: {
@@ -1587,7 +1443,6 @@ export async function getCostingBundle(
       freight: freightList,
       cellOverrides: cellOverrideList,
       cellTargets: cellTargetList,
-      quoteTierTargets: quoteTierTargetList,
     };
 
     const result = computeQuoteCosting(input);
@@ -1634,7 +1489,6 @@ export async function getCostingBundle(
       freight: freightList,
       cellOverrides: cellOverrideList,
       cellTargets: cellTargetList,
-      quoteTierTargets: quoteTierTargetList,
       costing: result,
       persistedWarnings,
     };

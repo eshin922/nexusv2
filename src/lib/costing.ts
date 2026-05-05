@@ -251,27 +251,6 @@ export type QuoteCostingInput = {
   // Slice 9.4b — sparse per-cell client target benchmarks. Mirror
   // shape to cellOverrides; lazy rows on `quote_sku_tier_targets`.
   cellTargets: CostingCellTarget[];
-  // Slice 9.4c — quote-level (per-tier) client target benchmarks.
-  // PM-stated total dollar figure for the tier — different shape +
-  // different unit from cellTargets (per-unit). Loaded from
-  // `quote_tiers.client_target_price_total` (NULL = not set on this
-  // tier). Empty array on quotes where no tier has a quote-level
-  // target. Drives quote-level competitive verdict on QuoteSummaryCard
-  // + sum-of-cells reconciliation rule (Slice 9.5 validation engine).
-  // Reconciliation note: cell.targetPerUnit × tier.qty summed across
-  // leaves, compared to tier.targetTotal — see quoteRollup site for
-  // unit-conversion math.
-  quoteTierTargets: CostingQuoteTierTarget[];
-};
-
-// Slice 9.4c — per-tier quote-level target. The TOTAL is the
-// source of truth (PM-stated dollar figure for the tier); cell
-// sums are derived for reconciliation (see brief §3 + architect T1).
-export type CostingQuoteTierTarget = {
-  tierId: string;
-  // Total $ for the tier ($150,000 not $5/unit). Wider precision
-  // than per-cell targets — quote totals reach six figures.
-  clientTargetPriceTotal: number;
 };
 
 export type FreightLineBreakdown = {
@@ -364,44 +343,6 @@ export type QuotePerTierRollup = {
   blendedMarginPct: number;
   blendedMarginStatus: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
   suggestedGlobalAdjPct: number | null;
-  // Slice 9.4c — quote-level client target value for THIS tier
-  // (NULL = no target set; NULL-as-empty-signal). UI surfaces the
-  // value alongside the verdict pill on QuoteSummaryCard.
-  clientTargetPriceTotal: number | null;
-  // Slice 9.4c — quote-level competitive verdict per tier. Same
-  // enum + shape as the per-cell `competitiveStatus` on
-  // SkuPerTierRollup; "applied at quote level instead of cell level"
-  // (architect T2). null when target unset (NULL-as-empty-signal).
-  competitiveStatusQuoteLevel:
-    | "COMPETITIVE"
-    | "OVER_CLIENT_TARGET"
-    | null;
-  // Slice 9.4c — reconciliation between quote-level target and the
-  // sum of per-cell targets at this tier. Per architect option (Q3-A):
-  // sumOfCellTargetsAtTier sums what's set (NULL-as-empty-signal —
-  // unset cells contribute zero). Per architect Q1: rule "fires" only
-  // when ALL leaf SKUs have cell targets set (the gated-completeness
-  // call); partial-completeness produces 'not_applicable'.
-  //
-  // Status semantics:
-  //   - 'not_applicable' — quote-level target NULL, OR completeness
-  //     gate fails (some leaves have cell targets but not all), OR
-  //     no cell targets set at all on this tier
-  //   - 'matches'         — both set + completeness gate passes +
-  //     |sum - target| <= ε ($1.00 fixed for v1; UX_BACKLOG entry
-  //     queued for tolerance scaling at quote-size extremes)
-  //   - 'mismatched_high' — sum > target + ε
-  //   - 'mismatched_low'  — sum < target - ε
-  targetReconciliationStatus:
-    | "not_applicable"
-    | "matches"
-    | "mismatched_high"
-    | "mismatched_low";
-  // Sum of per-cell targets at this tier (Option A: sum-what's-set).
-  // Always a number (zero when no cells set); not nullable. Distinct
-  // from reconciliation `not_applicable` status which signals "rule
-  // can't evaluate," not "sum is zero."
-  sumOfCellTargetsAtTier: number;
 };
 
 // Slice 9.2 — quote-wide blended view (across all tiers). The IA
@@ -487,69 +428,6 @@ function computeCompetitiveStatus(
 ): "COMPETITIVE" | "OVER_CLIENT_TARGET" | null {
   if (cellTarget === null) return null;
   return requiredSellPerUnit <= cellTarget ? "COMPETITIVE" : "OVER_CLIENT_TARGET";
-}
-
-// Slice 9.4c — quote-level competitive verdict (per tier). Same
-// enum shape as per-cell `computeCompetitiveStatus`; applied at
-// quote level (totalRevenue vs target_total) instead of per-unit.
-// ε absorbs the rounding noise that surfaces when summing many
-// per-cell required-sell values × tier qty — empirically <$0.50
-// at Nexus scale. Same epsilon discipline as per-cell status.
-const QUOTE_LEVEL_COMPETITIVE_EPSILON_USD = 0.5;
-function computeQuoteLevelCompetitiveStatus(
-  totalRevenue: number,
-  clientTargetPriceTotal: number | null,
-): "COMPETITIVE" | "OVER_CLIENT_TARGET" | null {
-  if (clientTargetPriceTotal === null) return null;
-  return totalRevenue <= clientTargetPriceTotal + QUOTE_LEVEL_COMPETITIVE_EPSILON_USD
-    ? "COMPETITIVE"
-    : "OVER_CLIENT_TARGET";
-}
-
-// Slice 9.4c — sum-of-cells reconciliation between quote-level
-// target and the sum of per-cell targets at this tier.
-//
-// UNIT CONVERSION — important: cell targets are stored per-unit
-// (`quote_sku_tier_targets.client_target_price_per_unit`); quote-level
-// target is stored per-tier-total (`quote_tiers.client_target_price_total`).
-// Reconciliation requires:
-//   sum_of_cells = Σ over leaves of (cellTarget × tier.qty)
-// then compared to clientTargetPriceTotal.
-//
-// Per architect Q1 (gated-on-completeness) + Q3-A (sum-what's-set):
-//   - Sum is always computed across whatever leaf cells are SET
-//     (Option A — unset leaves contribute zero, NULL-as-empty-signal)
-//   - But the rule itself fires (status = matches | mismatched_*)
-//     only when:
-//       (a) quote-level target IS NOT NULL, AND
-//       (b) at least one leaf SKU has a cell target set, AND
-//       (c) ALL leaf SKUs at this tier have cell targets set
-//         (the gated-completeness gate)
-//     If any of (a), (b), (c) fails, status = 'not_applicable'.
-//
-// ε = $1.00 fixed for v1. Wider than per-cell ε ($0.50) because
-// quote totals roll up many per-cell values × qty. Architect-confirmed:
-// real risk is "too LOOSE" at small quotes (a $200 sample tier with
-// $1 mismatch = 0.5% noise), not too tight at large quotes. UX_BACKLOG
-// entry queued: "tolerance scaling for quote-level reconciliation"
-// — candidate: max($1.00, 0.05% × quote_total).
-const RECONCILIATION_EPSILON_USD = 1.0;
-function computeReconciliationStatus(
-  clientTargetPriceTotal: number | null,
-  sumOfCellTargetsAtTier: number,
-  allLeavesHaveCellTargets: boolean,
-  anyLeafHasCellTarget: boolean,
-):
-  | "not_applicable"
-  | "matches"
-  | "mismatched_high"
-  | "mismatched_low" {
-  if (clientTargetPriceTotal === null) return "not_applicable";
-  if (!anyLeafHasCellTarget) return "not_applicable";
-  if (!allLeavesHaveCellTargets) return "not_applicable";
-  const diff = sumOfCellTargetsAtTier - clientTargetPriceTotal;
-  if (Math.abs(diff) <= RECONCILIATION_EPSILON_USD) return "matches";
-  return diff > 0 ? "mismatched_high" : "mismatched_low";
 }
 
 // Closed-form solve. See top-of-file comment for derivation.
@@ -1475,23 +1353,8 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
   }
   for (const root of childrenByParent.get(null) ?? []) emitTree(root.id);
 
-  // Slice 9.4c — index quote-level tier targets by tierId for the
-  // per-tier rollup walk below. Sparse: empty array when no tier has
-  // a quote-level target. Lookup returns undefined → null in rollup.
-  const quoteTierTargetByTierId = new Map<string, number>();
-  for (const t of input.quoteTierTargets ?? []) {
-    quoteTierTargetByTierId.set(t.tierId, t.clientTargetPriceTotal);
-  }
-
   // Quote-level rollup: sum across top-level (parent IS NULL) SKUs only.
   const topLevel = childrenByParent.get(null) ?? [];
-  // Slice 9.4c — leaf-only enumeration for the completeness gate on
-  // sum-of-cells reconciliation. The gate fires only when ALL leaves
-  // have cell targets at THIS tier. Defensive: we filter by skuRole
-  // even though the leaf-only invariant on cellTargets is enforced
-  // by Slice 9.4b's action layer; same posture as
-  // `rollUpAssemblyPerTier` always returning competitiveStatus null.
-  const leafSkus = skus.filter((s) => s.skuRole === "leaf");
   const quoteRollup: QuotePerTierRollup[] = tiers.map((tier) => {
     let revenue = 0;
     let cost = 0;
@@ -1549,38 +1412,6 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       effectiveTarget,
       tierGpaFixed,
     );
-
-    // Slice 9.4c — quote-level competitive verdict + sum-of-cells
-    // reconciliation. Re-walks cellTargets at this site (architect
-    // pre-flight: cheap, localized; avoids threading per-tier target
-    // values through SkuPerTierRollup).
-    //
-    // Unit conversion: cellTargets are per-unit; multiplied by tier.qty
-    // to align with quote-level total. Sum is what's set (Option A —
-    // leaves without targets contribute zero per NULL-as-empty-signal).
-    const tierQtyForReconcile = num(tier.qty);
-    const clientTargetTotalForTier =
-      quoteTierTargetByTierId.get(tier.id) ?? null;
-    let sumOfCellTargets = 0;
-    let leavesWithCellTargets = 0;
-    for (const leaf of leafSkus) {
-      const cellTargetEntry = cellTargetsBySkuTier.get(
-        `${leaf.id}::${tier.id}`,
-      );
-      if (cellTargetEntry !== undefined) {
-        sumOfCellTargets += cellTargetEntry * tierQtyForReconcile;
-        leavesWithCellTargets += 1;
-      }
-    }
-    // Completeness gate (architect Q1): ALL leaves at this tier must
-    // have cell targets set for reconciliation to fire. Plus an
-    // explicit guard for the degenerate empty-quote case (zero
-    // leaves) — `every()` returns true on empty arrays, but firing
-    // on empty quotes is never meaningful.
-    const allLeavesHaveCellTargets =
-      leafSkus.length > 0 && leavesWithCellTargets === leafSkus.length;
-    const anyLeafHasCellTarget = leavesWithCellTargets > 0;
-
     return {
       tierId: tier.id,
       label: tier.label,
@@ -1591,18 +1422,6 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       blendedMarginPct: marginPct,
       blendedMarginStatus: status,
       suggestedGlobalAdjPct: suggested,
-      clientTargetPriceTotal: clientTargetTotalForTier,
-      competitiveStatusQuoteLevel: computeQuoteLevelCompetitiveStatus(
-        revenue,
-        clientTargetTotalForTier,
-      ),
-      targetReconciliationStatus: computeReconciliationStatus(
-        clientTargetTotalForTier,
-        sumOfCellTargets,
-        allLeavesHaveCellTargets,
-        anyLeafHasCellTarget,
-      ),
-      sumOfCellTargetsAtTier: sumOfCellTargets,
     };
   });
 

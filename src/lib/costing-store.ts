@@ -6,7 +6,6 @@ import {
   type CostingFreightInput,
   type CostingPackagingInput,
   type CostingProductionInput,
-  type CostingQuoteTierTarget,
   type CostingSku,
   type CostingTier,
   type QuoteCostingInput,
@@ -114,12 +113,6 @@ export type CostingStoreState = {
   // Slice 9.4b — sparse per-cell client target benchmarks. Mirror
   // shape to cellOverrides; mutated by updateCellTarget action below.
   cellTargets: CostingCellTarget[];
-  // Slice 9.4c — sparse quote-level (per-tier) client targets.
-  // Empty array when no tier has a quote-level target. Drives
-  // QuoteSummaryCard's competitive verdict + sum reconciliation
-  // (validation engine integration in 9.4c.2). Mutator
-  // updateQuoteTierTarget lands in 9.4c.2.
-  quoteTierTargets: CostingQuoteTierTarget[];
 
   // Slice 9.4a — VIEW STATE (not a costing input). The currently-active
   // tier on the Costing Sheet. Determines which tier's per-SKU summary
@@ -211,16 +204,6 @@ export type CostingStoreState = {
     tierId: string,
     value: number | null,
   ) => void;
-  // Slice 9.4c — quote-level (per-tier) client target. Direct column
-  // on `quote_tiers.client_target_price_total` (NOT lazy-row sister
-  // table). value === null clears the slot in `quoteTierTargets`;
-  // value > 0 upserts. Action layer rejects value <= 0; store doesn't
-  // enforce here. Recompute fires so the verdict pill on
-  // QuoteSummaryCard + reconciliation status re-classify optimistically.
-  updateQuoteLevelClientTarget: (
-    tierId: string,
-    value: number | null,
-  ) => void;
   // Slice 9.4a — view-state mutator. Sets the active-tier selection.
   // Pure mutation; no side effects. URL sync is the caller's
   // responsibility (selector click handler + ActiveTierUrlSync
@@ -248,10 +231,6 @@ export type HydrateSnapshot = {
   // Slice 9.4b — sparse per-cell client target benchmarks (rows that
   // exist in DB at hydration time).
   cellTargets: CostingCellTarget[];
-  // Slice 9.4c — sparse quote-level (per-tier) client targets at
-  // hydration time. Built from `quote_tiers.client_target_price_total`
-  // rows where the column is non-null.
-  quoteTierTargets: CostingQuoteTierTarget[];
   costing: QuoteCostingResult; // pre-computed on the server side
   // Slice 9.5 — persisted warnings on this quote (active + accepted).
   // Used to attach DB ids onto client-computed engine specs by
@@ -350,7 +329,6 @@ function recompute(
     freight: s.freight,
     cellOverrides: s.cellOverrides,
     cellTargets: s.cellTargets,
-    quoteTierTargets: s.quoteTierTargets,
   };
   const costing = computeQuoteCosting(input);
   const warnings = validateQuote(input, costing);
@@ -378,7 +356,6 @@ function warningsFromSnapshot(snapshot: HydrateSnapshot): WarningSpec[] {
     freight: snapshot.freight,
     cellOverrides: snapshot.cellOverrides,
     cellTargets: snapshot.cellTargets,
-    quoteTierTargets: snapshot.quoteTierTargets,
   };
   return validateQuote(input, snapshot.costing);
 }
@@ -408,7 +385,6 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     freight: initial.freight,
     cellOverrides: initial.cellOverrides,
     cellTargets: initial.cellTargets,
-    quoteTierTargets: initial.quoteTierTargets,
     // Slice 9.4a — view-state. Defaults to null on store creation;
     // <ActiveTierUrlSync> sets it on mount from URL `?tier=` (or
     // first tier in sort_order if URL absent/invalid). Hydrate /
@@ -437,7 +413,6 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         freight: snapshot.freight,
         cellOverrides: snapshot.cellOverrides,
         cellTargets: snapshot.cellTargets,
-        quoteTierTargets: snapshot.quoteTierTargets,
         costing: snapshot.costing,
         warnings: warningsFromSnapshot(snapshot),
         persistedWarnings: snapshot.persistedWarnings,
@@ -467,7 +442,6 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         freight: snapshot.freight,
         cellOverrides: snapshot.cellOverrides,
         cellTargets: snapshot.cellTargets,
-        quoteTierTargets: snapshot.quoteTierTargets,
         costing: snapshot.costing,
         warnings: warningsFromSnapshot(snapshot),
         persistedWarnings: snapshot.persistedWarnings,
@@ -651,27 +625,6 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         };
       }),
 
-    // Slice 9.4c — quote-level (per-tier) client target. value === null
-    // clears the slot; value > 0 upserts. Mirrors updateCellTarget shape
-    // (filter + replace) — quoteTierTargets is a sparse list keyed on
-    // tierId. Recompute fires so quote-level verdict + reconciliation
-    // re-classify optimistically.
-    updateQuoteLevelClientTarget: (tierId, value) =>
-      set((s) => {
-        const filtered = s.quoteTierTargets.filter(
-          (t) => t.tierId !== tierId,
-        );
-        const quoteTierTargets =
-          value === null
-            ? filtered
-            : [...filtered, { tierId, clientTargetPriceTotal: value }];
-        return {
-          quoteTierTargets,
-          ...recompute({ ...s, quoteTierTargets }),
-          lastUserEditAt: Date.now(),
-        };
-      }),
-
     // Slice 9.4a — view-state mutator for the active-tier selection.
     // Pure mutation; no costing recompute (active tier doesn't affect
     // math, only which tier's slice the UI surfaces). Does NOT stamp
@@ -821,19 +774,6 @@ export const selectCellOverride =
 // Slice 9.4b — per-cell client target action selector.
 export const selectUpdateCellTarget = (s: CostingStoreState) =>
   s.updateCellTarget;
-
-// Slice 9.4c — quote-level (per-tier) client target action selector.
-export const selectUpdateQuoteLevelClientTarget = (s: CostingStoreState) =>
-  s.updateQuoteLevelClientTarget;
-
-// Slice 9.4c — single-tier quote-level target value selector. Returns
-// the dollar value when set, null when no quote-level target on this
-// tier. Curried so consumers subscribe only to their tier.
-export const selectQuoteLevelClientTarget =
-  (tierId: string) => (s: CostingStoreState) => {
-    const t = s.quoteTierTargets.find((t) => t.tierId === tierId);
-    return t ? t.clientTargetPriceTotal : null;
-  };
 
 // Slice 9.4b — single-cell client target value selector. Returns the
 // target number when set, null when no benchmark on this cell. Curried
