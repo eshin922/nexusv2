@@ -44,6 +44,18 @@ function fmtCurr4(n: number): string {
   });
 }
 
+// R2 fidelity: 2 decimals on display, 4 decimals on edit. Per Edward
+// + Designer call (RI.5 Room 3 audit Finding #15). Visual cleanliness
+// on display; precision retained in edit mode.
+function fmtCurr2(n: number): string {
+  return n.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 export function RequiredSellCell({
   quoteSkuId,
   tierId,
@@ -224,11 +236,22 @@ export function RequiredSellCell({
   }
 
   // ---- Display mode render ----
-  // Inline (no flex-col) so the cell stays in the table row's normal
-  // flow without expanding vertical space. Error tooltip absolutely
-  // positioned (rare path; only after a server rejection).
+  // R2 register per `costing.jsx:408-421`: dashed --rule-2 border by
+  // default (signals editability at-a-glance); solid --accent border +
+  // --accent-soft fill + --accent-ink text on override; OVR chip
+  // inline INSIDE the button (single click target). Mono 13px display
+  // value at 2 decimals (R2 fidelity per Finding #15). ↺ revert stays
+  // adjacent for now (Finding #14 deferred to polish pass).
   return (
-    <span className="relative inline-flex items-center justify-end gap-1 tabular-nums">
+    <span
+      style={{
+        position: "relative",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "flex-end",
+        gap: 4,
+      }}
+    >
       <button
         ref={cellButtonRef}
         type="button"
@@ -241,40 +264,76 @@ export function RequiredSellCell({
               : "Click to override sell price"
             : undefined
         }
-        className={`rounded px-1 py-0 text-right tabular-nums ${
-          editable
-            ? "cursor-pointer hover:bg-blue-50 focus:bg-blue-50 focus:outline-none"
-            : "cursor-default"
-        } ${isOverride ? "font-semibold text-indigo-900" : ""}`}
+        style={{
+          display: "inline-flex",
+          alignItems: "baseline",
+          gap: 4,
+          fontFamily: "var(--mono)",
+          fontSize: 13,
+          fontWeight: 500,
+          color: isOverride ? "var(--accent-ink)" : "var(--ink)",
+          background: isOverride ? "var(--accent-soft)" : "transparent",
+          padding: "1px 6px",
+          borderRadius: 4,
+          border: isOverride
+            ? "1px solid var(--accent)"
+            : "1px dashed var(--rule-2)",
+          cursor: editable ? "pointer" : "default",
+        }}
       >
-        {fmtCurr4(displayValue)}
-      </button>
-      {isOverride && (
-        <>
+        {fmtCurr2(displayValue)}
+        {isOverride && (
           <span
-            title={`Override active · was ${fmtCurr4(computedValue)} computed`}
-            className="rounded bg-indigo-100 px-1 py-0 text-[9px] font-medium uppercase tracking-wide text-indigo-800"
+            style={{
+              marginLeft: 4,
+              fontSize: 9,
+              letterSpacing: "0.05em",
+              fontWeight: 500,
+            }}
           >
             OVR
           </span>
-          {editable && (
-            <button
-              type="button"
-              onClick={revert}
-              disabled={pending}
-              title="Revert to computed sell"
-              aria-label="Revert override"
-              className="rounded border border-gray-200 px-1 py-0 text-[10px] leading-none text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-            >
-              ↺
-            </button>
-          )}
-        </>
+        )}
+      </button>
+      {isOverride && editable && (
+        <button
+          type="button"
+          onClick={revert}
+          disabled={pending}
+          title="Revert to computed sell"
+          aria-label="Revert override"
+          style={{
+            border: "1px solid var(--rule-2)",
+            background: "transparent",
+            padding: "1px 6px",
+            fontSize: 10,
+            color: "var(--ink-3)",
+            borderRadius: 4,
+            cursor: pending ? "not-allowed" : "pointer",
+            opacity: pending ? 0.5 : 1,
+          }}
+        >
+          ↺
+        </button>
       )}
       {error && (
         <span
           role="alert"
-          className="absolute right-0 top-full z-10 mt-0.5 whitespace-nowrap rounded bg-red-100 px-1.5 py-0.5 text-[10px] leading-none text-red-800 shadow-sm"
+          style={{
+            position: "absolute",
+            right: 0,
+            top: "100%",
+            zIndex: 10,
+            marginTop: 2,
+            whiteSpace: "nowrap",
+            background: "var(--bad-soft)",
+            color: "var(--bad)",
+            padding: "2px 6px",
+            fontSize: 10,
+            lineHeight: 1,
+            borderRadius: 4,
+            border: "1px solid var(--bad)",
+          }}
         >
           {error}
         </span>

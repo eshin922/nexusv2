@@ -1,26 +1,49 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
 import { db } from "@/db";
-import { projects, quotes } from "@/db/schema";
+import {
+  bulkRawSectionMeta,
+  projects,
+  quotes,
+  quoteTiers,
+} from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { CostingStoreProvider } from "@/components/costing-store-provider";
-import { ActiveTierSelector } from "@/components/costing/active-tier-selector";
 import { ActiveTierUrlSync } from "@/components/costing/active-tier-url-sync";
-import { IdBadge } from "@/components/id-badge";
-import { QuoteSummaryCard } from "@/components/quote-summary-card";
-import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
+import { CostStackHeader } from "@/components/cost-build/cost-stack-header";
+import { CostingPageHead } from "@/components/costing/costing-page-head";
+import { LinesRequiringReview } from "@/components/costing/lines-requiring-review";
+import { PerTierOverrideCard } from "@/components/costing/per-tier-override-card";
+import { VerdictBand } from "@/components/costing/verdict-band";
+import { CostingSectionHead } from "@/components/costing/costing-section-head";
 import { SkuSummaryRowList } from "./sku-summary-row";
 
-// Slice 8 sub-step 6 follow-up: this page is a thin server shell. All
-// math display reads from the Zustand store via CostingSkuBreakdownsList
-// and QuoteSummaryCard, both inside CostingStoreProvider. The page
-// itself only handles auth/notFound + initial bundle fetch + static
-// chrome (header, project name, status). PMs iterate on GPA and margin
-// here directly, so every section must update optimistically in lockstep.
-
-// ---- main page ----
+// Slice RI.5 — Costing Sheet rebuild per Designer comprehensive audit
+// + brief §3.3. Three rooms top-to-bottom:
+//
+//   ROOM 0 (conditional, BELOW_FLOOR only) — Lines Requiring Review
+//          block. Anchored above verdict band per R2 rationale.
+//   ROOM 1 — Cost stack panel (R6 cost-stack-header reused). "How
+//            this number is built." Multi-tier columns; tier columns
+//            are the active-tier selector (no separate selector UI).
+//   ROOM 2 — Margin verdict band: 96px display blended margin number
+//            + status text + admin-override-path BELOW_FLOOR + global
+//            price adj slider with system-suggestion banner. Healthy
+//            state shows three insight cards below.
+//   PER-TIER OVERRIDE CARD — between Room 2 and Room 3. Hides when
+//                            single-tier quote.
+//   ROOM 3 — Per-SKU breakdown table (Slice 9.4a/9.4b shipped surface,
+//            preserved exactly).
+//
+// Removed from prior build:
+//   - <QuoteSummaryCard> mount (consolidated into Room 1 + Room 2)
+//   - Per-tier cost breakdown sections (cost stack panel replaces)
+//   - <ActiveTierSelector> page-level mount (cost stack columns ARE
+//     the selector per R6 grammar)
+//   - <h2>Per-SKU breakdown</h2> Tailwind-utility header (replaced
+//     by R2 .r2-section-head register with italic-em annotation)
 
 export default async function CostingPage({
   params,
@@ -41,28 +64,56 @@ export default async function CostingPage({
 
   const editable = quote.status === "draft";
 
+  // getCostingBundle MUST run sequentially (its internal Promise.all
+  // of 8 queries combined with parallel raws-mode fetch otherwise
+  // exhausts the pool — see CLAUDE.md "getCostingBundle parallel-
+  // query discipline").
   const bundle = await getCostingBundle(quoteId);
+
+  const [tiers, bulkRawMeta] = await Promise.all([
+    db
+      .select()
+      .from(quoteTiers)
+      .where(eq(quoteTiers.quoteId, quoteId))
+      .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt)),
+    db
+      .select()
+      .from(bulkRawSectionMeta)
+      .where(eq(bulkRawSectionMeta.quoteId, quoteId))
+      .limit(1),
+  ]);
+
+  const rawsMode = bulkRawMeta[0]?.rawsMode ?? "cm_sources";
+
   if (!bundle.ok) {
     return (
-      <main className="mx-auto max-w-7xl p-6">
-        <div className="mb-2 text-sm">
+      <main className="r2-page">
+        <div style={{ marginBottom: 8, fontSize: 13 }}>
           <Link
             href={`/projects/${project.id}/quotes/${quote.id}`}
-            className="text-gray-500 hover:text-gray-900"
+            style={{ color: "var(--ink-3)" }}
           >
             ← Quote builder
           </Link>
         </div>
-        <h1 className="text-2xl font-semibold">Costing Sheet</h1>
+        <h1 className="r2-page-title">Costing Sheet</h1>
         <div
           role="alert"
-          className="mt-4 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-900"
+          style={{
+            marginTop: 16,
+            padding: 16,
+            borderRadius: 8,
+            background: "var(--bad-soft)",
+            border: "1px solid var(--bad)",
+            color: "var(--bad)",
+            fontSize: 13,
+          }}
         >
-          <p className="font-semibold">Costing unavailable</p>
-          <p className="mt-1">{bundle.error.message}</p>
+          <p style={{ fontWeight: 600 }}>Costing unavailable</p>
+          <p style={{ marginTop: 4 }}>{bundle.error.message}</p>
           {bundle.error.code === "NOT_FOUND" &&
             bundle.error.message.includes("firm_settings") && (
-              <p className="mt-2 text-xs">
+              <p style={{ marginTop: 8, fontSize: 11 }}>
                 Contact an admin to seed firm settings via the admin page.
               </p>
             )}
@@ -71,91 +122,67 @@ export default async function CostingPage({
     );
   }
 
+  const tierBrief = tiers.map((t) => ({
+    id: t.id,
+    label: t.label,
+    qty: t.qty,
+  }));
+
   return (
     <CostingStoreProvider snapshot={bundle.data}>
-      {/* Slice 9.4a — Suspense boundary required by useSearchParams in
-          App Router (see Next 15 docs: hooks that read URL state must
-          be inside a Suspense boundary or the build emits warnings and
-          falls back to client-only render). ActiveTierUrlSync is the
-          first consumer; the active-tier selector UI (Task 5) and any
-          future URL-aware Costing Sheet components share this boundary. */}
+      {/* URL ↔ store sync for active-tier selection. Visual selector
+          UI removed — cost stack tier columns are the selector now. */}
       <Suspense fallback={null}>
         <ActiveTierUrlSync />
       </Suspense>
-      <main className="mx-auto max-w-7xl p-6">
-        <div className="mb-2 text-sm">
-          <Link
-            href={`/projects/${project.id}/quotes/${quote.id}`}
-            className="text-gray-500 hover:text-gray-900"
-          >
-            ← Quote builder
-          </Link>
-        </div>
 
-        <header className="mb-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-semibold">Costing Sheet</h1>
-              <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-600">
-                <span>{project.dealName}</span>
-                <span>·</span>
-                <span>
-                  {quote.scenarioLabel} v{quote.versionNumber}
-                </span>
-                <span>·</span>
-                <IdBadge id={quote.id} />
-                <span>·</span>
-                <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium">
-                  {quote.status}
-                </span>
-              </p>
-            </div>
-            {/* Slice 9.5 — Costing Sheet aggregation chip. Severity
-                emphasis (2px border) when ≥1 action_required present;
-                drives the visual cue for "Mark-Accepted will gate"
-                (Slice 12). Hidden when zero warnings. Per Designer
-                memo §C + CR-11. */}
-            <WarningSummaryChip scope="aggregate" />
-          </div>
-        </header>
+      <main className="r2-page">
+        <CostingPageHead
+          projectId={projectId}
+          quoteId={quoteId}
+          project={project}
+          quote={quote}
+        />
 
         {!editable && (
           <div
             role="alert"
-            className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+            style={{
+              marginBottom: 16,
+              padding: 16,
+              borderRadius: 8,
+              background: "var(--warn-soft)",
+              border: "1px solid var(--warn)",
+              color: "var(--warn)",
+              fontSize: 13,
+            }}
           >
-            <p className="font-semibold">
-              This quote is in <span className="font-mono">{quote.status}</span>{" "}
+            <p style={{ fontWeight: 600 }}>
+              This quote is in{" "}
+              <span style={{ fontFamily: "var(--mono)" }}>{quote.status}</span>{" "}
               status. Editing is disabled.
             </p>
           </div>
         )}
 
-        <div className="mb-6">
-          <QuoteSummaryCard variant="full" editable={editable} />
-        </div>
+        {/* ROOM 0 — Lines Requiring Review (BELOW_FLOOR only) */}
+        <LinesRequiringReview />
 
-        <section className="mb-6">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-base font-semibold text-gray-900">
-              Per-SKU breakdown
-            </h2>
-            {/* Slice 9.4a — page-level active-tier selector. Same
-                Suspense boundary as ActiveTierUrlSync (both consume
-                useSearchParams). Click handler updates store + URL
-                together; rows re-render against new active tier. */}
-            <Suspense fallback={null}>
-              <ActiveTierSelector />
-            </Suspense>
-          </div>
-          {/* Slice 9.4a — SkuSummaryRowList replaces the prior
-              CostingSkuBreakdownsList (cost-decomposition tables) as
-              the primary per-SKU surface. Decomposition is preserved
-              in the per-row drawer (Task 6 wires it). */}
-          <SkuSummaryRowList editable={editable} />
+        {/* ROOM 1 — Cost stack panel (R6 cost-stack-header reused) */}
+        <section style={{ marginBottom: 18 }}>
+          <CostStackHeader tiers={tierBrief} rawsMode={rawsMode} />
         </section>
+
+        {/* ROOM 2 — Margin verdict band (+ healthy-state insight cards) */}
+        <VerdictBand editable={editable} />
+
+        {/* Per-tier override card (Slice 9.2 — preserve, between Room 2/3) */}
+        <PerTierOverrideCard editable={editable} />
+
+        {/* ROOM 3 — Per-SKU breakdown table (9.4a/9.4b preserved) */}
+        <CostingSectionHead />
+        <SkuSummaryRowList editable={editable} />
       </main>
     </CostingStoreProvider>
   );
 }
-

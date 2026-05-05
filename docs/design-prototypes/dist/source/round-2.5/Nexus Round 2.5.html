@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nexus · Round 2.5 — multi-tier mechanics</title>
+<link rel="stylesheet" href="app/r2/styles.css" />
+<style>
+  /* ─── Round 2.5 specific ─────────────────────────────────────── */
+
+  /* Tier-spread sparkline — always-on, per-row */
+  .tspread {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 22px;
+    padding: 0 2px;
+    cursor: pointer;
+    position: relative;
+  }
+  .tspread:hover { background: var(--paper-3); border-radius: 4px; }
+  .tspread .tick {
+    width: 7px;
+    background: oklch(0.55 0.10 250);
+    border-radius: 1.5px;
+    position: relative;
+  }
+  .tspread .tick.empty {
+    background: transparent;
+    border: 1px dashed var(--rule-2);
+    height: 22px !important;
+  }
+  .tspread .tick.active {
+    outline: 1.5px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .tspread .tick.override {
+    background: var(--accent);
+  }
+  .tspread.frt .tick { background: oklch(0.55 0.10 195); }
+  .tspread.frt .tick.override { background: var(--accent); }
+  .tspread.prod .tick { background: oklch(0.50 0.10 215); }
+  .tspread.prod .tick.override { background: var(--accent); }
+
+  /* Tier strip-labels under sparkline */
+  .tspread-wrap {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 5px;
+  }
+  .tspread-wrap:hover { background: var(--paper-3); }
+  .tspread-wrap.open { background: var(--accent-soft); outline: 1px solid var(--accent); }
+  .tspread-wrap .legend {
+    font-family: var(--mono);
+    font-size: 8.5px;
+    color: var(--ink-4);
+    letter-spacing: 0.05em;
+    margin-top: 2px;
+  }
+  .tspread-wrap.open .legend { color: var(--accent-ink); }
+
+  /* Drawer */
+  .tdrawer {
+    background: var(--paper-2);
+    border: 1px solid var(--accent);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    padding: 14px 18px 16px;
+    margin: -1px 0 0;
+    display: grid;
+    grid-template-columns: 180px 1fr 220px;
+    gap: 18px;
+    align-items: start;
+  }
+  .tdrawer .tdrawer-context {
+    border-right: 1px solid var(--rule);
+    padding-right: 16px;
+  }
+  .tdrawer-context .name { font-size: 13.5px; font-weight: 500; color: var(--ink); margin-bottom: 4px; }
+  .tdrawer-context .meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: 0; }
+  .tdrawer-context .supplier { font-size: 11.5px; color: var(--ink-2); margin-top: 8px; }
+
+  /* Tier-cell strip in drawer */
+  .tcells {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .tcell {
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: var(--paper);
+    cursor: text;
+    display: flex; flex-direction: column;
+    gap: 4px;
+    transition: border-color 0.1s, background 0.1s;
+  }
+  .tcell:hover { border-color: var(--accent); }
+  .tcell.empty { background: var(--paper-3); border-style: dashed; }
+  .tcell.active { border-color: var(--accent); background: var(--accent-soft); }
+  .tcell .tlabel {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .tcell .tcost {
+    font-family: var(--mono);
+    font-size: 16px;
+    color: var(--ink);
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 0;
+    width: 100%;
+    font-weight: 500;
+  }
+  .tcell .tcost::placeholder { color: var(--ink-4); font-style: italic; font-weight: 400; }
+  .tcell .tinherit {
+    font-family: var(--mono);
+    font-size: 8.5px;
+    letter-spacing: 0.04em;
+    color: var(--ink-4);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+    text-align: left;
+  }
+  .tcell .tinherit:hover { color: var(--accent-ink); }
+
+  /* Drawer footer actions */
+  .tdrawer-actions {
+    display: flex; flex-direction: column; gap: 6px;
+    align-items: stretch;
+    padding-left: 16px;
+    border-left: 1px solid var(--rule);
+  }
+  .tdrawer-actions .btn { justify-content: flex-start; font-size: 11.5px; }
+  .tdrawer-actions .helper {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--ink-4);
+    letter-spacing: 0.04em;
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+
+  /* Audit-log mini view */
+  .tdrawer-audit {
+    grid-column: 1 / -1;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--rule);
+    display: flex; gap: 18px; flex-wrap: wrap;
+  }
+  .tdrawer-audit .item {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink-4);
+    letter-spacing: 0.03em;
+  }
+  .tdrawer-audit .item strong { color: var(--ink-3); font-weight: 500; }
+
+  /* Designer notes inline */
+  .dn-card {
+    background: oklch(0.96 0.04 88);
+    border-left: 3px solid oklch(0.65 0.16 75);
+    padding: 14px 18px;
+    border-radius: 4px;
+    color: oklch(0.30 0.05 80);
+    font-size: 12px;
+    line-height: 1.55;
+    margin-bottom: 16px;
+  }
+  [data-theme="dark"] .dn-card {
+    background: oklch(0.22 0.05 80);
+    color: oklch(0.85 0.04 85);
+    border-left-color: oklch(0.70 0.16 75);
+  }
+  .dn-card strong { color: oklch(0.20 0.05 80); }
+  [data-theme="dark"] .dn-card strong { color: oklch(0.95 0.02 85); }
+  .dn-card .dn-eyebrow {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: oklch(0.45 0.10 75);
+    margin-bottom: 4px;
+  }
+  [data-theme="dark"] .dn-card .dn-eyebrow { color: oklch(0.75 0.12 75); }
+
+  /* State switcher (top of page) */
+  .state-switcher {
+    display: flex;
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 4px;
+    gap: 2px;
+  }
+  .state-switcher button {
+    background: transparent;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    cursor: pointer;
+  }
+  .state-switcher button.active { background: var(--paper); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+  [data-theme="dark"] .state-switcher button.active { box-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+
+  /* Row hover — clearer affordance for sparkline */
+  .field.tier-row { padding: 12px 14px; align-items: center; }
+  .field.tier-row .tspread-wrap { margin: 0 4px; }
+</style>
+</head>
+<body>
+<template id="__bundler_thumbnail">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+    <rect width="400" height="400" fill="oklch(0.97 0.012 85)"/>
+    <g transform="translate(120 120)">
+      <rect width="160" height="160" rx="20" fill="oklch(0.45 0.12 250)"/>
+      <text x="80" y="100" font-family="Georgia, serif" font-size="68" font-weight="500" fill="oklch(0.97 0.012 85)" text-anchor="middle">R2.5</text>
+    </g>
+    <text x="200" y="332" font-family="Georgia, serif" font-size="20" fill="oklch(0.35 0.02 250)" text-anchor="middle" font-style="italic">Nexus</text>
+  </svg>
+</template>
+
+<div id="root"></div>
+
+<!-- Edit-mode persistence -->
+<script>
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "theme": "light",
+    "scenario": "applyToAll",
+    "drawerOpen": true
+  }/*EDITMODE-END*/;
+</script>
+
+<!-- React + Babel -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<!-- Tweaks -->
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<!-- Reuse some r2 data shape, but Round 2.5 has its own scoped data -->
+
+<script type="text/babel">
+const { useState, useEffect, useMemo, Fragment } = React;
+
+// ─── Scoped data — focused on multi-tier mechanics ─────────────────
+// Tier shape: T1 10k · T2 25k · T3 50k · T4 100k for "Hydra-Glow Serum"
+const TIERS = [
+  { id: "t1", label: "T1", qty: 10000 },
+  { id: "t2", label: "T2", qty: 25000 },
+  { id: "t3", label: "T3", qty: 50000 },
+  { id: "t4", label: "T4", qty: 100000 },
+];
+
+// Each row carries per-tier costs as a 4-array. NULL means "no cost entered yet."
+const ROWS_BY_SCENARIO = {
+  // Scenario 1 — apply-to-all flow. The PM has typed T2 and is about to flatten.
+  applyToAll: [
+    {
+      id: "pkg-bottle", group: "pkg", name: "Glass dropper bottle · 30ml",
+      category: "primary", supplier: "Pacific Glass Co.",
+      costs: [null, 1.42, null, null],   // mid-flow: T2 typed, others NULL
+      markup_pct: 38,
+      lastEditor: "Tomás", lastEditAgo: "just now",
+    },
+    {
+      id: "pkg-cap", group: "pkg", name: "Aluminum collar · brushed",
+      category: "secondary", supplier: "Shenzhen Metal Works",
+      costs: [0.34, 0.34, 0.34, 0.34],   // genuinely flat — entered same value across tiers
+      markup_pct: 32,
+      lastEditor: "Tomás", lastEditAgo: "2d",
+    },
+    {
+      id: "pkg-box", group: "pkg", name: "Outer carton · matte FSC",
+      category: "tertiary", supplier: "Fortis Print",
+      costs: [null, null, null, null],   // not started
+      markup_pct: 28,
+      lastEditor: null, lastEditAgo: null,
+    },
+    {
+      id: "pkg-insert", group: "pkg", name: "Pulp insert · molded",
+      category: "tertiary", supplier: "Fortis Print",
+      costs: [0.18, 0.18, 0.18, 0.18],   // flat
+      markup_pct: 28,
+      lastEditor: "Tomás", lastEditAgo: "3d",
+    },
+  ],
+
+  // Scenario 2 — supplier quote sheet. Four genuinely different tier prices.
+  supplierQuote: [
+    {
+      id: "pkg-bottle", group: "pkg", name: "Glass dropper bottle · 30ml",
+      category: "primary", supplier: "Pacific Glass Co.",
+      costs: [1.55, 1.42, 1.30, 1.18],   // genuine volume break
+      markup_pct: 38,
+      lastEditor: "Tomás", lastEditAgo: "just now",
+    },
+    {
+      id: "pkg-cap", group: "pkg", name: "Aluminum collar · brushed",
+      category: "secondary", supplier: "Shenzhen Metal Works",
+      costs: [0.38, 0.34, 0.30, 0.26],   // step-down
+      markup_pct: 32,
+      lastEditor: "Tomás", lastEditAgo: "5m",
+    },
+    {
+      id: "pkg-box", group: "pkg", name: "Outer carton · matte FSC",
+      category: "tertiary", supplier: "Fortis Print",
+      costs: [0.42, 0.42, 0.38, 0.32],   // T1 + T2 flat, then drops
+      markup_pct: 28,
+      lastEditor: "Tomás", lastEditAgo: "1h",
+    },
+    {
+      id: "pkg-insert", group: "pkg", name: "Pulp insert · molded",
+      category: "tertiary", supplier: "Fortis Print",
+      costs: [0.18, 0.18, 0.18, 0.18],   // truly flat (no volume break)
+      markup_pct: 28,
+      lastEditor: "Tomás", lastEditAgo: "3d",
+    },
+  ],
+};
+
+// ─── Tier-spread sparkline ─────────────────────────────────────────
+function TierSpread({ costs, group, activeIdx, onClick, isOpen, overrides }) {
+  const filled = costs.filter(c => c != null);
+  const max = filled.length > 0 ? Math.max(...filled) : 1;
+  const min = filled.length > 0 ? Math.min(...filled) : 0;
+
+  // Shape detector for the legend caption
+  let shape = "—";
+  if (filled.length === 0) shape = "no costs";
+  else if (filled.length < 4) shape = `${filled.length}/4`;
+  else if (max - min < 0.001) shape = "flat";
+  else if (costs.every((c, i) => i === 0 || c <= costs[i-1])) shape = "step↓";
+  else shape = "varies";
+
+  return (
+    <div className={"tspread-wrap" + (isOpen ? " open" : "")} onClick={onClick} title="Click to open per-tier prices">
+      <div className={"tspread " + group}>
+        {costs.map((c, i) => {
+          if (c == null) {
+            return <div key={i} className={"tick empty" + (i === activeIdx ? " active" : "")} />;
+          }
+          // Height scaled to value (min height 5px so a flat spread reads as bars not dots)
+          const h = max - min < 0.001
+            ? 14
+            : 5 + ((c - min) / (max - min)) * 17;
+          return (
+            <div key={i}
+              className={"tick" + (i === activeIdx ? " active" : "") + (overrides && overrides[i] ? " override" : "")}
+              style={{ height: h }}
+              title={`${TIERS[i].label} · $${c.toFixed(2)}`}
+            />
+          );
+        })}
+      </div>
+      <div className="legend">{shape}</div>
+    </div>
+  );
+}
+
+// ─── Per-row drawer ────────────────────────────────────────────────
+function TierDrawer({ row, activeIdx, onClose, onChange }) {
+  const [costs, setCosts] = useState([...row.costs]);
+  const [editingIdx, setEditingIdx] = useState(activeIdx);
+
+  // Find any "anchor" tier (first non-null) for the "↩ same as Tn" affordance
+  const anchorIdx = costs.findIndex(c => c != null);
+  const anchorVal = anchorIdx >= 0 ? costs[anchorIdx] : null;
+
+  const setCell = (i, v) => {
+    const next = [...costs];
+    next[i] = v;
+    setCosts(next);
+  };
+
+  const applyToAll = () => {
+    if (anchorVal == null) return;
+    setCosts(costs.map(() => anchorVal));
+  };
+
+  const filledCount = costs.filter(c => c != null).length;
+  const allFilled = filledCount === 4;
+  const allSame = allFilled && costs.every(c => Math.abs(c - costs[0]) < 0.001);
+
+  return (
+    <div className="tdrawer">
+      {/* Context column */}
+      <div className="tdrawer-context">
+        <div className="name">{row.name}</div>
+        <div className="meta">{row.category} · markup +{row.markup_pct}%</div>
+        <div className="supplier">{row.supplier}</div>
+        <div className="meta" style={{ marginTop: 10 }}>
+          From: <strong style={{ color: "var(--ink-2)" }}>supplier email</strong><br />
+          received {row.lastEditAgo || "—"}
+        </div>
+      </div>
+
+      {/* Tier cells */}
+      <div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+          <span className="eyebrow">Cost per unit · per tier</span>
+          <span className="mono" style={{ fontSize: 10, color: "var(--ink-4)" }}>
+            {filledCount}/4 priced{allSame && filledCount === 4 ? " · flat across all tiers" : ""}
+          </span>
+        </div>
+        <div className="tcells">
+          {TIERS.map((t, i) => {
+            const c = costs[i];
+            const isEmpty = c == null;
+            const isActive = i === editingIdx;
+            return (
+              <div key={t.id}
+                className={"tcell" + (isEmpty ? " empty" : "") + (isActive ? " active" : "")}
+                onClick={() => setEditingIdx(i)}
+              >
+                <div className="tlabel">
+                  <span>{t.label} · {(t.qty/1000).toFixed(0)}k</span>
+                  {!isEmpty && (
+                    <span style={{ color: "var(--ink-4)", textTransform: "none", letterSpacing: 0 }}>
+                      {(c * (1 + row.markup_pct/100)).toFixed(2)}/u
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  className="tcost"
+                  value={c == null ? "" : `$${c.toFixed(2)}`}
+                  placeholder="$0.00"
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value.replace(/[^0-9.]/g, ""));
+                    setCell(i, isNaN(v) ? null : v);
+                  }}
+                  onFocus={() => setEditingIdx(i)}
+                />
+                {isEmpty && anchorVal != null && i !== anchorIdx && (
+                  <button className="tinherit"
+                    onClick={(e) => { e.stopPropagation(); setCell(i, anchorVal); }}
+                    title={`Copy ${TIERS[anchorIdx].label} value`}
+                  >
+                    ↩ same as {TIERS[anchorIdx].label}  ${anchorVal.toFixed(2)}
+                  </button>
+                )}
+                {!isEmpty && i !== anchorIdx && Math.abs(c - costs[anchorIdx]) < 0.001 && (
+                  <div style={{
+                    fontFamily: "var(--mono)", fontSize: 8.5, letterSpacing: "0.04em",
+                    color: "var(--ink-4)", marginTop: 0,
+                  }}>
+                    = {TIERS[anchorIdx].label}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="mono" style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 10, lineHeight: 1.55 }}>
+          NULL means <strong style={{ color: "var(--ink-3)" }}>no cost entered at this tier</strong> — never "inherit." Validation engine sees the gap. Audit log only writes what the PM typed.
+        </div>
+      </div>
+
+      {/* Actions column */}
+      <div className="tdrawer-actions">
+        <button className="btn"
+          onClick={applyToAll}
+          disabled={anchorVal == null}
+          style={{
+            background: "var(--accent-soft)",
+            border: "1px solid var(--accent)",
+            color: "var(--accent-ink)",
+          }}
+        >
+          ⤓ Apply {anchorVal != null ? `${TIERS[anchorIdx].label} ($${anchorVal.toFixed(2)})` : "—"} to all tiers
+        </button>
+        <div className="helper">
+          For lines that don't have a real volume break — flat across all tiers.
+        </div>
+
+        <button className="btn ghost sm" style={{ marginTop: 12 }}>
+          ⌐ Mark as flat (no volume break)
+        </button>
+        <div className="helper">
+          Annotates the SKU; future supplier re-quotes default to single-cost entry.
+        </div>
+
+        <div style={{ flex: 1, minHeight: 8 }} />
+
+        <button className="btn primary sm"
+          onClick={() => { onChange(costs); onClose(); }}
+        >
+          Save · {filledCount}/4 priced →
+        </button>
+        <button className="btn ghost sm" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+
+      {/* Audit log mini */}
+      <div className="tdrawer-audit">
+        <div className="item">
+          <strong>Audit log:</strong> writes only the cells the PM actually typed. NULL cells don't appear.
+        </div>
+        <div className="item">— last write: <strong>{row.lastEditor || "—"}</strong> · {row.lastEditAgo || "—"}</div>
+        <div className="item">— quote_v3 · packaging_inputs · {row.id}</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main page ─────────────────────────────────────────────────────
+function App() {
+  const [tweaks, setTweaks] = useState(window.TWEAK_DEFAULTS || { theme: "dark", scenario: "supplierQuote", drawerOpen: true });
+
+  // Theme bind
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", tweaks.theme || "dark");
+  }, [tweaks.theme]);
+
+  const setTweak = (k, v) => setTweaks(prev => {
+    const next = typeof k === "object" ? { ...prev, ...k } : { ...prev, [k]: v };
+    window.parent.postMessage({ type: "__edit_mode_set_keys", edits: typeof k === "object" ? k : { [k]: v } }, "*");
+    return next;
+  });
+
+  const rows = ROWS_BY_SCENARIO[tweaks.scenario] || ROWS_BY_SCENARIO.supplierQuote;
+  const [activeIdx, setActiveIdx] = useState(1); // T2 active by default
+  const [openRowId, setOpenRowId] = useState(tweaks.drawerOpen ? "pkg-bottle" : null);
+  const [edits, setEdits] = useState({}); // rowId -> [costs]
+
+  const effectiveRow = (r) => edits[r.id] ? { ...r, costs: edits[r.id] } : r;
+
+  // Tweaks panel mount
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.data?.type === "__activate_edit_mode") setShowPanel(true);
+      else if (e.data?.type === "__deactivate_edit_mode") setShowPanel(false);
+    };
+    window.addEventListener("message", handler);
+    window.parent.postMessage({ type: "__edit_mode_available" }, "*");
+    return () => window.removeEventListener("message", handler);
+  }, []);
+  const [showPanel, setShowPanel] = useState(false);
+
+  return (
+    <div data-screen-label="Round 2.5 · multi-tier mechanics">
+      {/* Top bar */}
+      <div style={{
+        background: "var(--paper-2)", borderBottom: "1px solid var(--rule)",
+        padding: "10px 24px", display: "flex", alignItems: "center", gap: 16,
+      }}>
+        <div className="row gap-3" style={{ flex: 1 }}>
+          <a href="Nexus Round 2.html" className="mono" style={{ fontSize: 11, color: "var(--ink-3)", textDecoration: "none" }}>
+            ← Round 2 · main file
+          </a>
+          <span className="mono" style={{ fontSize: 11, color: "var(--ink-4)" }}>·</span>
+          <span className="mono" style={{ fontSize: 11, color: "var(--ink) ", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            Round 2.5 — multi-tier mechanics addendum
+          </span>
+        </div>
+        <div className="state-switcher">
+          <button
+            className={tweaks.scenario === "applyToAll" ? "active" : ""}
+            onClick={() => setTweak("scenario", "applyToAll")}
+          >
+            ① Apply-to-all
+          </button>
+          <button
+            className={tweaks.scenario === "supplierQuote" ? "active" : ""}
+            onClick={() => setTweak("scenario", "supplierQuote")}
+          >
+            ② Supplier-quote-sheet
+          </button>
+        </div>
+      </div>
+
+      {/* Page */}
+      <div className="page" style={{ padding: "24px 28px 80px", maxWidth: 1280 }}>
+        <div className="page-head">
+          <div>
+            <p className="eyebrow">Cost Build · Hydra-Glow Serum · packaging</p>
+            <h1 className="page-title">
+              {tweaks.scenario === "applyToAll"
+                ? <>Same cost across <em>every</em> tier? Type once, apply.</>
+                : <>Different cost per tier? Type the <em>volume break</em>, move on.</>
+              }
+            </h1>
+            <p className="page-sub">
+              {tweaks.scenario === "applyToAll"
+                ? "The 60% case: a packaging line with no real volume break. Type T2, apply to all tiers, save. Five interactions for a four-tier line — and the audit log knows the PM actually typed them all."
+                : "The 40% case: supplier quote sheet arrives with four prices. Open the line, tab through four cells, save. Sparkline shape encodes the volume break for downstream scanning + customer-view derivation."
+              }
+            </p>
+          </div>
+          <div className="row gap-2" style={{ alignSelf: "flex-start" }}>
+            <span className="mono" style={{ fontSize: 10, color: "var(--ink-4)", padding: "6px 10px", border: "1px dashed var(--rule)", borderRadius: 4 }}>
+              T1 · T2 · T3 · T4
+            </span>
+            <span className="mono" style={{ fontSize: 10, color: "var(--ink-3)", padding: "6px 10px", background: "var(--paper-3)", borderRadius: 4 }}>
+              Active: <strong>{TIERS[activeIdx].label}</strong>
+            </span>
+          </div>
+        </div>
+
+        {/* Designer notes — pushback acknowledgment */}
+        <div className="dn-card">
+          <div className="dn-eyebrow">DN · Round 2.5 close-out</div>
+          <strong>NULL = "no cost entered at this tier"</strong> — never "inherit from active tier." Per CD pushback at Round 2 close: validation engine clarity (Slice 9.5), audit-log honesty, and schema NULL-convention discipline all point the same direction. The drawer defaults to all-empty fields except active tier; each empty field shows <code>↩ same as Tn</code>; the footer has <code>⤓ apply to all</code> for the common-flat case. Materialized writes only.
+        </div>
+
+        {/* The list */}
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{
+            background: "var(--paper-3)",
+            padding: "10px 16px",
+            borderBottom: "1px solid var(--rule)",
+            display: "grid",
+            gridTemplateColumns: "1.6fr 130px 130px 90px",
+            gap: 12,
+            alignItems: "center",
+            fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase",
+            color: "var(--ink-4)",
+          }}>
+            <span>Component · category · supplier</span>
+            <span style={{ textAlign: "center" }}>Tier spread</span>
+            <span style={{ textAlign: "right" }}>Active ({TIERS[activeIdx].label})</span>
+            <span style={{ textAlign: "right" }}>Markup</span>
+          </div>
+
+          {rows.map(r => {
+            const er = effectiveRow(r);
+            const isOpen = openRowId === r.id;
+            const c = er.costs[activeIdx];
+            return (
+              <Fragment key={r.id}>
+                <div className="field tier-row" style={{
+                  display: "grid",
+                  gridTemplateColumns: "1.6fr 130px 130px 90px",
+                  gap: 12,
+                  borderTop: "1px solid var(--rule)",
+                  background: isOpen ? "var(--paper-3)" : undefined,
+                }}>
+                  <div>
+                    <div style={{ fontSize: 13.5, color: "var(--ink)", fontWeight: 500 }}>{er.name}</div>
+                    <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)", letterSpacing: 0, marginTop: 2 }}>
+                      {er.category} · {er.supplier}
+                      {er.lastEditor && <> · last by <strong style={{ color: "var(--ink-2)", fontWeight: 500 }}>{er.lastEditor}</strong> · {er.lastEditAgo}</>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "center" }}>
+                    <TierSpread
+                      costs={er.costs}
+                      group={er.group}
+                      activeIdx={activeIdx}
+                      isOpen={isOpen}
+                      onClick={() => setOpenRowId(isOpen ? null : r.id)}
+                    />
+                  </div>
+                  <div style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 14, color: c == null ? "var(--ink-4)" : "var(--ink)" }}>
+                    {c == null ? <span style={{ fontStyle: "italic", fontSize: 11 }}>—</span> : `$${c.toFixed(2)}`}
+                  </div>
+                  <div style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 11, color: "var(--ink-3)" }}>
+                    +{er.markup_pct}%
+                  </div>
+                </div>
+                {isOpen && (
+                  <TierDrawer
+                    row={er}
+                    activeIdx={activeIdx}
+                    onClose={() => setOpenRowId(null)}
+                    onChange={(newCosts) => setEdits({ ...edits, [r.id]: newCosts })}
+                  />
+                )}
+              </Fragment>
+            );
+          })}
+        </div>
+
+        {/* Sparkline legend */}
+        <div className="card" style={{ marginTop: 16, padding: 16 }}>
+          <p className="eyebrow" style={{ marginBottom: 10 }}>Sparkline shapes — how to read them at a glance</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+            {[
+              { label: "flat", caption: "All four tiers same cost. No volume break.", costs: [0.18, 0.18, 0.18, 0.18] },
+              { label: "step↓", caption: "Genuine volume break. Costs drop monotonically.", costs: [1.55, 1.42, 1.30, 1.18] },
+              { label: "2/4", caption: "Partial. Two tiers priced, two NULL. Engine flags.", costs: [null, 1.42, null, 1.18] },
+              { label: "no costs", caption: "Not started. All four NULL.", costs: [null, null, null, null] },
+            ].map((ex, i) => (
+              <div key={i} style={{ padding: "10px 12px", background: "var(--paper-3)", borderRadius: 6, display: "flex", alignItems: "center", gap: 12 }}>
+                <TierSpread costs={ex.costs} group="pkg" activeIdx={1} onClick={() => {}} />
+                <div>
+                  <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-2)", fontWeight: 500 }}>{ex.label}</div>
+                  <div style={{ fontSize: 10.5, color: "var(--ink-3)", marginTop: 2, lineHeight: 1.4 }}>{ex.caption}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Bridge to customer view */}
+        <div className="card" style={{ marginTop: 16, padding: "16px 20px", borderLeft: "3px solid var(--accent)" }}>
+          <p className="eyebrow" style={{ marginBottom: 6, color: "var(--accent-ink)" }}>Bridge to Round 3 · customer view</p>
+          <p style={{ fontSize: 12.5, color: "var(--ink-2)", lineHeight: 1.55, margin: 0 }}>
+            The same sparkline shape that scans here is what the customer-facing tier-pricing table derives from. <strong>flat</strong> → customer sees one price. <strong>step↓</strong> → customer sees the volume break with cost-per-unit at each break. <strong>partial</strong> → customer view either omits the unpriced tier or shows it as "quote on request" — that's a Round 3 decision, but the surface is unambiguous because the data is.
+          </p>
+        </div>
+      </div>
+
+      {/* Tweaks panel */}
+      {showPanel && window.TweaksPanel && (
+        <window.TweaksPanel onClose={() => { setShowPanel(false); window.parent.postMessage({ type: "__edit_mode_dismissed" }, "*"); }}>
+          <window.TweakSection title="Display">
+            <window.TweakRadio label="Theme" value={tweaks.theme} onChange={(v) => setTweak("theme", v)} options={[
+              { value: "light", label: "Light" },
+              { value: "dark",  label: "Dark"  },
+            ]} />
+          </window.TweakSection>
+          <window.TweakSection title="Scenario">
+            <window.TweakRadio label="State" value={tweaks.scenario} onChange={(v) => setTweak("scenario", v)} options={[
+              { value: "applyToAll",     label: "① Apply-to-all" },
+              { value: "supplierQuote",  label: "② Supplier-quote-sheet" },
+            ]} />
+            <window.TweakToggle label="Drawer open on first row" value={tweaks.drawerOpen} onChange={(v) => setTweak("drawerOpen", v)} />
+          </window.TweakSection>
+        </window.TweaksPanel>
+      )}
+    </div>
+  );
+}
+
+window.TWEAK_DEFAULTS = TWEAK_DEFAULTS;
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+
+<script type="application/json" id="speaker-notes">[]</script>
+
+</body>
+</html>

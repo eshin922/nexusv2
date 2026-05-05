@@ -1,10 +1,5 @@
 "use client";
 
-import {
-  selectSkuRollups,
-  selectTiers,
-} from "@/lib/costing-store";
-import { useCostingStore } from "@/components/costing-store-provider";
 import { InternalOnlyBadge } from "@/components/internal-only-badge";
 import type {
   FreightLineBreakdown,
@@ -13,18 +8,17 @@ import type {
   SkuRollup,
 } from "@/lib/costing";
 
-// Slice 8 sub-step 6 follow-up: this entire section is store-driven.
-// The previous version rendered server-side from the snapshot, which
-// produced visible inconsistency on /costing — the QuoteSummaryCard
-// above (store-driven) updated optimistically on GPA edits while the
-// per-SKU breakdown below stayed stale until server revalidation.
+// Slice RI.5 Room 3 sweep — per-SKU cost decomposition drawer.
+// R2 doesn't have this drawer in its prototype, but the rollup is
+// load-bearing PM workflow ("show me why this number is what it is")
+// so it's preserved as a Designer-authorized R2 extension. Restyled
+// to R2 register: paper-2 card chrome, mono labels, ink-token colors,
+// internal-only badges on customer-invisible freight components.
 //
-// Now everything reads from the same Zustand store; the entire page
-// updates in lockstep on every keystroke. The store-driven framing is
-// "all math display reads from the store; static page chrome (header,
-// project name, etc.) stays server-rendered."
-
-// ---- formatting helpers (mirror page.tsx) ----
+// Mounted from sku-summary-row.tsx as expandable drawer per row.
+// Shows the same cost decomposition that lives canonically on Cost
+// Build (per the redesign IA split); having it here too is the
+// debugging affordance PMs rely on without leaving the verdict surface.
 
 function fmtCurr2(n: number): string {
   return n.toLocaleString("en-US", {
@@ -46,35 +40,33 @@ function fmtPct(n: number): string {
   return `${(n * 100).toFixed(1)}%`;
 }
 
-// ---- list-level component (subscribes to store) ----
+const cellNumStyle: React.CSSProperties = {
+  padding: "6px 12px 6px 0",
+  textAlign: "right",
+  fontFamily: "var(--mono)",
+  fontSize: 11.5,
+  color: "var(--ink-2)",
+  fontVariantNumeric: "tabular-nums",
+};
 
-export function CostingSkuBreakdownsList() {
-  const skuRollups = useCostingStore(selectSkuRollups);
-  const tiers = useCostingStore(selectTiers);
+const cellNumBoldStyle: React.CSSProperties = {
+  ...cellNumStyle,
+  color: "var(--ink)",
+  fontWeight: 500,
+};
 
-  if (skuRollups.length === 0) {
-    return (
-      <p className="rounded-md border border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">
-        No SKUs in this quote yet.
-      </p>
-    );
-  }
-  return (
-    <div className="grid gap-4">
-      {skuRollups.map((sku) => (
-        <SkuBreakdown key={sku.skuId} sku={sku} tiers={tiers} />
-      ))}
-    </div>
-  );
-}
+const cellLabelStyle: React.CSSProperties = {
+  padding: "6px 12px 6px 16px",
+  fontSize: 12,
+  color: "var(--ink-3)",
+};
 
-// ---- presentational components (pure props in, JSX out) ----
+const cellLabelBoldStyle: React.CSSProperties = {
+  ...cellLabelStyle,
+  color: "var(--ink-2)",
+  fontWeight: 500,
+};
 
-// Slice 9.4a — exported so the per-SKU summary row's drawer can render
-// the cost decomposition for a single SKU on demand. CostingSkuBreakdownsList
-// is no longer the primary per-SKU surface (SkuSummaryRowList replaced it
-// as of Slice 9.4a) but SkuBreakdown survives as the analytical drawer
-// content.
 export function SkuBreakdown({
   sku,
   tiers,
@@ -82,138 +74,201 @@ export function SkuBreakdown({
   sku: SkuRollup;
   tiers: QuoteCostingResult["tiers"];
 }) {
-  const indentStyle = { marginLeft: `${sku.indentDepth * 24}px` };
-
   if (sku.skuRole === "assembly") {
     return (
       <div
-        style={indentStyle}
-        className="rounded-md border border-blue-200 bg-blue-50 p-3"
+        style={{
+          background: "oklch(from var(--accent) l c h / 0.04)",
+          border: "1px solid oklch(from var(--accent) l c h / 0.20)",
+          borderRadius: 8,
+          padding: 16,
+        }}
       >
-        <div className="mb-2 flex items-center gap-2 text-sm">
-          <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-800">
-            Assembly
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            marginBottom: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <span className="r2-chip accent">Assembly</span>
+          <span
+            className="r2-mono"
+            style={{ fontSize: 11, color: "var(--ink-3)" }}
+          >
+            {sku.skuLabel}
           </span>
-          <span className="font-semibold text-gray-900">{sku.skuLabel}</span>
-          <span className="text-gray-500">· {sku.productName}</span>
+          <span
+            style={{
+              fontFamily: "var(--display)",
+              fontSize: 14,
+              color: "var(--ink)",
+              letterSpacing: "-0.005em",
+            }}
+          >
+            {sku.productName}
+          </span>
           {sku.qtyPerParent !== null && (
-            <span className="text-xs text-gray-500">
+            <span
+              className="r2-mono"
+              style={{ fontSize: 10.5, color: "var(--ink-4)" }}
+            >
               × {sku.qtyPerParent} per parent
             </span>
           )}
         </div>
-        <table className="min-w-full divide-y divide-blue-100 text-xs">
-          <thead className="text-left uppercase tracking-wide text-blue-800">
-            <tr>
-              <th className="py-1 pr-3">Component</th>
-              {tiers.map((t) => (
-                <th key={t.tierId} className="py-1 pr-3 text-right">
-                  {t.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-blue-100">
-            <Row label="Contribution cost / unit (rolled up)" sku={sku}>
-              {(pt) => fmtCurr4(pt.contributionCostPerUnit)}
-            </Row>
-            <Row label="Required sell / unit (rolled up)" sku={sku} bold>
-              {(pt) => fmtCurr4(pt.requiredSellPerUnit)}
-            </Row>
-            <Row label="Margin" sku={sku}>
-              {(pt) => fmtPct(pt.marginPct)}
-            </Row>
-            <Row label="Revenue (× tier qty)" sku={sku}>
-              {(pt) => fmtCurr2(pt.revenue)}
-            </Row>
-            <Row label="Cost (× tier qty)" sku={sku}>
-              {(pt) => fmtCurr2(pt.cost)}
-            </Row>
-          </tbody>
-        </table>
+        <BreakdownTable tiers={tiers}>
+          <Row label="Contribution cost / unit (rolled up)" sku={sku}>
+            {(pt) => fmtCurr4(pt.contributionCostPerUnit)}
+          </Row>
+          <Row label="Required sell / unit (rolled up)" sku={sku} bold>
+            {(pt) => fmtCurr4(pt.requiredSellPerUnit)}
+          </Row>
+          <Row label="Margin" sku={sku}>
+            {(pt) => fmtPct(pt.marginPct)}
+          </Row>
+          <Row label="Revenue (× tier qty)" sku={sku}>
+            {(pt) => fmtCurr2(pt.revenue)}
+          </Row>
+          <Row label="Cost (× tier qty)" sku={sku}>
+            {(pt) => fmtCurr2(pt.cost)}
+          </Row>
+        </BreakdownTable>
       </div>
     );
   }
 
-  // Leaf — full decomposition table
   return (
     <div
-      style={indentStyle}
-      className="rounded-md border border-gray-200 bg-white p-3"
+      style={{
+        background: "var(--paper-2)",
+        border: "1px solid var(--rule)",
+        borderRadius: 8,
+        padding: 16,
+      }}
     >
-      <div className="mb-2 text-sm">
-        <span className="font-semibold text-gray-900">{sku.skuLabel}</span>
-        <span className="ml-1 text-gray-500">· {sku.productName}</span>
-        {sku.qtyPerParent !== null && (
-          <span className="ml-2 text-xs text-gray-500">
-            × {sku.qtyPerParent} per parent
-          </span>
-        )}
-      </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 text-xs">
-          <thead className="bg-gray-50 text-left uppercase tracking-wide text-gray-500">
-            <tr>
-              <th className="py-1.5 pl-3 pr-3">Component</th>
-              {tiers.map((t) => (
-                <th key={t.tierId} className="py-1.5 pr-3 text-right">
-                  {t.label}
-                  <span className="ml-1 font-normal text-gray-400">
-                    ({t.qty.toLocaleString()})
-                  </span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            <Row label="Packaging cost / unit" sku={sku}>
-              {(pt) => fmtCurr4(pt.packagingCostPerUnit)}
-            </Row>
-            <Row label="Production cost / unit" sku={sku}>
-              {(pt) => fmtCurr4(pt.productionCostPerUnit)}
-            </Row>
-            <Row label="Raw cost / unit" sku={sku}>
-              {(pt) => fmtCurr4(pt.rawCostPerUnit)}
-            </Row>
-            <Row label="Factory cost / unit" sku={sku} bold>
-              {(pt) => fmtCurr4(pt.factoryCostPerUnit)}
-            </Row>
-            <FreightLines sku={sku} tiers={tiers} />
-            <Row
-              label={
-                <>
-                  Landed freight before markup{" "}
-                  <InternalOnlyBadge short className="ml-1" />
-                </>
-              }
-              sku={sku}
+      <BreakdownTable tiers={tiers}>
+        <Row label="Packaging cost / unit" sku={sku}>
+          {(pt) => fmtCurr4(pt.packagingCostPerUnit)}
+        </Row>
+        <Row label="Production cost / unit" sku={sku}>
+          {(pt) => fmtCurr4(pt.productionCostPerUnit)}
+        </Row>
+        <Row label="Raw cost / unit" sku={sku}>
+          {(pt) => fmtCurr4(pt.rawCostPerUnit)}
+        </Row>
+        <Row label="Factory cost / unit" sku={sku} bold>
+          {(pt) => fmtCurr4(pt.factoryCostPerUnit)}
+        </Row>
+        <FreightLines sku={sku} tiers={tiers} />
+        <Row
+          label={
+            <>
+              Landed freight before markup{" "}
+              <InternalOnlyBadge short className="ml-1" />
+            </>
+          }
+          sku={sku}
+        >
+          {(pt) => fmtCurr4(pt.totalLandedFreightBeforeMarkup)}
+        </Row>
+        <Row label="Landed freight with markup" sku={sku} bold>
+          {(pt) => fmtCurr4(pt.totalLandedFreightWithMarkup)}
+        </Row>
+        <Row label="Separate service fees / unit" sku={sku}>
+          {(pt) => fmtCurr4(pt.separateServiceFeesPerUnit)}
+        </Row>
+        <Row label="Contribution cost / unit" sku={sku} bold>
+          {(pt) => fmtCurr4(pt.contributionCostPerUnit)}
+        </Row>
+        <Row label="Required sell / unit" sku={sku} bold>
+          {(pt) => fmtCurr4(pt.requiredSellPerUnit)}
+        </Row>
+        <Row label="Margin" sku={sku}>
+          {(pt) => fmtPct(pt.marginPct)}
+        </Row>
+        <Row label="Revenue (× tier qty)" sku={sku}>
+          {(pt) => fmtCurr2(pt.revenue)}
+        </Row>
+        <Row label="Cost (× tier qty)" sku={sku}>
+          {(pt) => fmtCurr2(pt.cost)}
+        </Row>
+      </BreakdownTable>
+    </div>
+  );
+}
+
+function BreakdownTable({
+  tiers,
+  children,
+}: {
+  tiers: QuoteCostingResult["tiers"];
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table
+        style={{
+          width: "100%",
+          borderCollapse: "collapse",
+          fontSize: 12,
+        }}
+      >
+        <thead>
+          <tr
+            style={{
+              borderBottom: "1px solid var(--rule)",
+            }}
+          >
+            <th
+              style={{
+                padding: "8px 12px 8px 16px",
+                textAlign: "left",
+                fontFamily: "var(--mono)",
+                fontSize: 9.5,
+                letterSpacing: "0.13em",
+                textTransform: "uppercase",
+                color: "var(--ink-4)",
+                fontWeight: 500,
+              }}
             >
-              {(pt) => fmtCurr4(pt.totalLandedFreightBeforeMarkup)}
-            </Row>
-            <Row label="Landed freight with markup" sku={sku} bold>
-              {(pt) => fmtCurr4(pt.totalLandedFreightWithMarkup)}
-            </Row>
-            <Row label="Separate service fees / unit" sku={sku}>
-              {(pt) => fmtCurr4(pt.separateServiceFeesPerUnit)}
-            </Row>
-            <Row label="Contribution cost / unit" sku={sku} bold>
-              {(pt) => fmtCurr4(pt.contributionCostPerUnit)}
-            </Row>
-            <Row label="Required sell / unit" sku={sku} bold>
-              {(pt) => fmtCurr4(pt.requiredSellPerUnit)}
-            </Row>
-            <Row label="Margin" sku={sku}>
-              {(pt) => fmtPct(pt.marginPct)}
-            </Row>
-            <Row label="Revenue (× tier qty)" sku={sku}>
-              {(pt) => fmtCurr2(pt.revenue)}
-            </Row>
-            <Row label="Cost (× tier qty)" sku={sku}>
-              {(pt) => fmtCurr2(pt.cost)}
-            </Row>
-          </tbody>
-        </table>
-      </div>
+              Component
+            </th>
+            {tiers.map((t) => (
+              <th
+                key={t.tierId}
+                style={{
+                  padding: "8px 12px 8px 0",
+                  textAlign: "right",
+                  fontFamily: "var(--mono)",
+                  fontSize: 9.5,
+                  letterSpacing: "0.13em",
+                  textTransform: "uppercase",
+                  color: "var(--ink-4)",
+                  fontWeight: 500,
+                }}
+              >
+                {t.label}
+                <span
+                  style={{
+                    marginLeft: 4,
+                    color: "var(--ink-4)",
+                    fontWeight: 400,
+                    letterSpacing: 0,
+                    textTransform: "none",
+                    fontSize: 9.5,
+                  }}
+                >
+                  ({t.qty.toLocaleString()})
+                </span>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
     </div>
   );
 }
@@ -230,10 +285,13 @@ function Row({
   children: (pt: SkuPerTierRollup) => React.ReactNode;
 }) {
   return (
-    <tr className={bold ? "font-semibold" : ""}>
-      <td className="py-1 pl-3 pr-3 text-gray-700">{label}</td>
+    <tr style={{ borderTop: "1px solid var(--rule)" }}>
+      <td style={bold ? cellLabelBoldStyle : cellLabelStyle}>{label}</td>
       {sku.perTier.map((pt) => (
-        <td key={pt.tierId} className="py-1 pr-3 text-right tabular-nums">
+        <td
+          key={pt.tierId}
+          style={bold ? cellNumBoldStyle : cellNumStyle}
+        >
           {children(pt)}
         </td>
       ))}
@@ -265,15 +323,49 @@ function FreightLines({
         const treatment =
           [...linesByTier.values()][0]?.freightTreatment ?? "bundled";
         return (
-          <tr key={lineId} className="bg-gray-50/50">
-            <td colSpan={1 + tiers.length} className="px-3 py-1">
-              <div className="text-[10px] uppercase tracking-wide text-gray-500">
-                Freight line #{idx + 1}
-                <span className="ml-2 rounded bg-gray-200 px-1.5 py-0.5 text-[9px] font-medium normal-case text-gray-700">
+          <tr
+            key={lineId}
+            style={{
+              borderTop: "1px solid var(--rule)",
+              background: "var(--paper-3)",
+            }}
+          >
+            <td
+              colSpan={1 + tiers.length}
+              style={{ padding: "10px 16px" }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 6,
+                  fontFamily: "var(--mono)",
+                  fontSize: 9.5,
+                  letterSpacing: "0.13em",
+                  textTransform: "uppercase",
+                  color: "var(--ink-4)",
+                }}
+              >
+                <span>Freight line #{idx + 1}</span>
+                <span
+                  className={
+                    treatment === "pass_through"
+                      ? "r2-chip"
+                      : "r2-chip accent"
+                  }
+                  style={{ fontSize: 9 }}
+                >
                   {treatment === "pass_through" ? "Pass-through" : "Bundled"}
                 </span>
               </div>
-              <table className="mt-1 min-w-full text-xs">
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 11.5,
+                }}
+              >
                 <tbody>
                   <FreightSubRow
                     label="Container freight / unit"
@@ -333,14 +425,30 @@ function FreightSubRow({
 }) {
   return (
     <tr>
-      <td className="pr-3 text-gray-600">
+      <td
+        style={{
+          padding: "3px 12px 3px 0",
+          color: "var(--ink-3)",
+          fontSize: 11,
+        }}
+      >
         {label}
         {badge && <InternalOnlyBadge short className="ml-1" />}
       </td>
       {tiers.map((t) => {
         const fl = linesByTier.get(t.tierId);
         return (
-          <td key={t.tierId} className="pr-3 text-right tabular-nums">
+          <td
+            key={t.tierId}
+            style={{
+              padding: "3px 12px 3px 0",
+              textAlign: "right",
+              fontFamily: "var(--mono)",
+              fontSize: 11,
+              color: "var(--ink-2)",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
             {fl ? pick(fl) : "—"}
           </td>
         );
