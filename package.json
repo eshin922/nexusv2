@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "cure": "node scripts/cure.mjs",
+    "verify:boundaries": "node --experimental-strip-types scripts/verify/customer-view-boundary.ts",
+    "prebuild": "npm run verify:boundaries",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

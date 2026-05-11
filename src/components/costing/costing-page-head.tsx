@@ -68,15 +68,15 @@ export function CostingPageHead({
         >
           ← Back to Cost Build
         </Link>
-        <button
-          type="button"
+        <Link
+          href={`/projects/${projectId}/quotes/${quoteId}/customer-view`}
           className="r2-btn"
-          disabled
-          title="Customer preview ships in Slice 11"
         >
           Preview customer quote
-        </button>
+        </Link>
         <MarkAcceptedCluster
+          projectId={projectId}
+          quoteId={quoteId}
           status={status}
           editable={quote.status === "draft"}
         />
@@ -86,45 +86,58 @@ export function CostingPageHead({
 }
 
 function MarkAcceptedCluster({
+  projectId,
+  quoteId,
   status,
   editable,
 }: {
+  projectId: string;
+  quoteId: string;
   status: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
   editable: boolean;
 }) {
+  const href = `/projects/${projectId}/quotes/${quoteId}/mark-accepted`;
+
   if (status !== "BELOW_FLOOR") {
+    if (!editable) {
+      return (
+        <button
+          type="button"
+          className="r2-btn primary"
+          disabled
+          title="Quote not editable"
+        >
+          Mark accepted →
+        </button>
+      );
+    }
     return (
-      <button
-        type="button"
-        className="r2-btn primary"
-        disabled={!editable}
-        title="Mark-Accepted writeback ships in Slice 12"
-      >
+      <Link href={href} className="r2-btn primary">
         Mark accepted →
-      </button>
+      </Link>
     );
   }
 
   // BELOW_FLOOR: two-shape cluster — strikethrough disabled +
-  // admin-override-request CTA
+  // admin-override-request CTA. Both route to Mark-Accepted page;
+  // the page itself surfaces the bothGates state (visual shell of
+  // the override flow).
   return (
     <div className="r2-row r2-gap-2">
-      <button
-        type="button"
-        disabled
+      <Link
+        href={href}
         className="r2-btn"
         style={{
-          opacity: 0.55,
-          cursor: "not-allowed",
+          opacity: 0.7,
           textDecoration: "line-through",
           textDecorationColor: "var(--bad)",
           textDecorationThickness: "1px",
         }}
       >
         Mark accepted
-      </button>
-      <button
-        type="button"
+      </Link>
+      <Link
+        href={href}
         className="r2-btn"
         style={{
           background: "var(--paper-2)",
@@ -135,10 +148,9 @@ function MarkAcceptedCluster({
           letterSpacing: "0.05em",
           textTransform: "uppercase",
         }}
-        title="Admin override routing wires up in Slice 12"
       >
         ⚿ Request admin override
-      </button>
+      </Link>
     </div>
   );
 }
