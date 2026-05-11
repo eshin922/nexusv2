@@ -282,6 +282,9 @@ export type ScenarioVersion = {
   id: string;
   versionNumber: number;
   status: string; // 'draft' | 'sent' | 'accepted'
+  /** RI.7 — customer-facing quote_number, assigned at sendQuote.
+   * Null for drafts (pre-send). */
+  quoteNumber: string | null;
   acceptedAt: Date | null;
   sentAt: Date | null;
   copiedFromQuoteId: string | null;
@@ -328,6 +331,7 @@ export async function getProjectScenarioCards(
       q.id,
       q.version_number,
       q.status,
+      q.quote_number,
       q.accepted_at,
       q.sent_at,
       q.copied_from_quote_id,
@@ -351,6 +355,7 @@ export async function getProjectScenarioCards(
     id: string;
     version_number: number;
     status: string;
+    quote_number: string | null;
     accepted_at: Date | null;
     sent_at: Date | null;
     copied_from_quote_id: string | null;
@@ -371,6 +376,7 @@ export async function getProjectScenarioCards(
       id: r.id,
       versionNumber: r.version_number,
       status: r.status,
+      quoteNumber: r.quote_number,
       acceptedAt: r.accepted_at,
       sentAt: r.sent_at,
       copiedFromQuoteId: r.copied_from_quote_id,

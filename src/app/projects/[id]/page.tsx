@@ -396,6 +396,14 @@ function ScenarioCardView({
               <span className="font-mono text-[10px] text-ink-3">
                 v{v.versionNumber}
               </span>
+              {/* Slice RI.7 — customer-facing quote_number, assigned at
+                  sendQuote. Renders adjacent to version number for
+                  sent+ quotes; drafts show no chip (no number yet). */}
+              {v.quoteNumber && (
+                <span className="font-mono text-[10px] text-ink-2">
+                  {v.quoteNumber}
+                </span>
+              )}
               <span
                 className={`rounded border px-1.5 py-0 font-mono text-[9px] font-medium uppercase tracking-wide ${
                   v.status === "accepted"

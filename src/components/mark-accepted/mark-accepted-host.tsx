@@ -12,9 +12,21 @@ import type { TierCardData } from "./tier-card";
 
 export type MarkAcceptedSubState =
   | "good"
+  | "awaitingMark"
   | "bothGates"
   | "pending"
   | "locked";
+
+// Slice RI.7 — customer-acceptance signal recorded but PM hasn't
+// finalized Mark-Accepted yet. Same component tree as `good`; the
+// affirmation chip + auto-select-tier are the visual differences.
+// (Per CR-SM DEC-6: extend the `good` sub-state with an affirmation
+// chip rather than spinning up a new component.)
+export type CustomerAcceptanceContext = {
+  tierId: string;
+  tierLabel: string;
+  recordedAt: Date;
+};
 
 export function MarkAcceptedHost({
   initialSubState,
@@ -27,6 +39,7 @@ export function MarkAcceptedHost({
   quoteNumber,
   flaggedLines,
   activeSiblings,
+  customerAcceptance,
   showStateSwitcher,
 }: {
   initialSubState: MarkAcceptedSubState;
@@ -44,6 +57,7 @@ export function MarkAcceptedHost({
     margin: number;
     lastEdit: string;
   }>;
+  customerAcceptance: CustomerAcceptanceContext | null;
   showStateSwitcher: boolean;
 }) {
   const [subState, setSubState] =
@@ -99,22 +113,28 @@ export function MarkAcceptedHost({
                 ① GOOD
               </button>
               <button
+                className={subState === "awaitingMark" ? "active" : ""}
+                onClick={() => setSubState("awaitingMark")}
+              >
+                ② Awaiting mark
+              </button>
+              <button
                 className={subState === "bothGates" ? "active" : ""}
                 onClick={() => setSubState("bothGates")}
               >
-                ② Both gates
+                ③ Both gates
               </button>
               <button
                 className={subState === "pending" ? "active" : ""}
                 onClick={() => setSubState("pending")}
               >
-                ③ Pending approval
+                ④ Pending approval
               </button>
               <button
                 className={subState === "locked" ? "active" : ""}
                 onClick={() => setSubState("locked")}
               >
-                ④ Locked
+                ⑤ Locked
               </button>
             </div>
           </div>
@@ -134,6 +154,32 @@ export function MarkAcceptedHost({
           draftVersion="current draft"
           showVersionMismatch={false}
           activeSiblings={activeSiblings}
+          customerAcceptance={null}
+        />
+      )}
+      {subState === "awaitingMark" && (
+        <MarkAcceptedGood
+          blendedMarginPct={blendedMarginPct}
+          status={status}
+          targetPct={targetPct}
+          floorPct={floorPct}
+          tiers={tiers}
+          customerName={customerName}
+          quoteNumber={quoteNumber}
+          sentVersion="v1 (sent)"
+          draftVersion="current draft"
+          showVersionMismatch={false}
+          activeSiblings={activeSiblings}
+          customerAcceptance={
+            customerAcceptance ?? {
+              // Switcher-only fallback for prototype state preview when
+              // real customer-accept hasn't been recorded yet.
+              tierId: tiers[Math.floor(tiers.length / 2)]?.id ?? "",
+              tierLabel:
+                tiers[Math.floor(tiers.length / 2)]?.label ?? "Tier ?",
+              recordedAt: new Date(),
+            }
+          }
         />
       )}
       {subState === "bothGates" && (

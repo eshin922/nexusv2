@@ -180,6 +180,7 @@ export function CustomerViewHost({
           vendor={view.vendor}
           quote={view.quote}
           customer={view.customer}
+          preparedBy={view.preparedBy}
         />
         <p className="pdf-eyebrow" style={{ marginTop: 28 }}>
           {copy.eyebrow}

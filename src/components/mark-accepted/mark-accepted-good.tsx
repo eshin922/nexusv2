@@ -5,6 +5,15 @@ import { MarginVerdict } from "./margin-verdict";
 import { TierCard, type TierCardData } from "./tier-card";
 import { VersionWarning } from "./version-warning";
 import { AcceptConfirmModal } from "./accept-confirm-modal";
+import type { CustomerAcceptanceContext } from "./mark-accepted-host";
+
+function formatRecordedAt(d: Date): string {
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
 export function MarkAcceptedGood({
   blendedMarginPct,
@@ -18,6 +27,7 @@ export function MarkAcceptedGood({
   draftVersion,
   showVersionMismatch,
   activeSiblings,
+  customerAcceptance,
 }: {
   blendedMarginPct: number;
   status: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
@@ -30,17 +40,56 @@ export function MarkAcceptedGood({
   draftVersion: string;
   showVersionMismatch: boolean;
   activeSiblings: ReadonlyArray<{ id: string; label: string; margin: number; lastEdit: string }>;
+  customerAcceptance: CustomerAcceptanceContext | null;
 }) {
+  // When customer-acceptance was recorded, auto-select that tier
+  // (PM's flow: read the chip, click Mark-accepted, finalize).
+  // Otherwise default to the recommended tier.
   const recommendedIdx = Math.max(
     0,
     tiers.findIndex((t) => t.recommended),
   );
-  const [selected, setSelected] = useState(recommendedIdx);
+  const acceptedIdx = customerAcceptance
+    ? tiers.findIndex((t) => t.id === customerAcceptance.tierId)
+    : -1;
+  const initialIdx = acceptedIdx >= 0 ? acceptedIdx : recommendedIdx;
+  const [selected, setSelected] = useState(initialIdx);
   const [showConfirm, setShowConfirm] = useState(false);
   const tier = tiers[selected] ?? tiers[0];
 
   return (
     <>
+      {customerAcceptance && (
+        <div
+          style={{
+            margin: "16px 24px 0",
+            padding: "10px 14px",
+            background: "var(--accent-soft, var(--paper-2))",
+            borderLeft: "3px solid var(--accent, var(--ink-3))",
+            borderRadius: 4,
+            fontSize: 13,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+          role="status"
+        >
+          <span>
+            <strong style={{ color: "var(--accent-strong, var(--ink-1))" }}>
+              ✓ Customer accepted {customerAcceptance.tierLabel}
+            </strong>{" "}
+            <span style={{ color: "var(--ink-3)" }}>
+              · recorded {formatRecordedAt(customerAcceptance.recordedAt)}
+            </span>
+          </span>
+          <span
+            className="mono"
+            style={{ fontSize: 10.5, color: "var(--ink-4)" }}
+          >
+            Tier auto-selected · review gates &amp; finalize below.
+          </span>
+        </div>
+      )}
       <div className="macc-header">
         <MarginVerdict
           blendedMarginPct={blendedMarginPct}

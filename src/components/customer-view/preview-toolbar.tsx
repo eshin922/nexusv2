@@ -20,7 +20,7 @@ export function PreviewToolbar({
   onSubStateChange,
   showStateSwitcher,
 }: {
-  quoteNumber: string;
+  quoteNumber: string | null;
   sentDate: string | null;
   pdfLayout: CustomerViewPdfLayout;
   onPdfLayoutChange: (next: CustomerViewPdfLayout) => void;
@@ -33,7 +33,7 @@ export function PreviewToolbar({
       <div className="left">
         <span className="ribbon">PM-internal preview · this becomes the PDF</span>
         <span className="meta">
-          <strong>{quoteNumber}</strong>
+          <strong>{quoteNumber ?? "draft (no number yet)"}</strong>
           {sentDate ? ` · sent ${formatShortDate(sentDate)}` : ""}
         </span>
         <span className="meta" style={{ color: "var(--ink-4)" }}>·</span>

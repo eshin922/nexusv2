@@ -2,17 +2,9 @@ import type {
   CustomerViewVendor,
   CustomerViewQuote,
   CustomerViewCustomer,
+  CustomerViewPreparedBy,
 } from "@/types/customer-view";
 import { QUOTE_STUBS } from "@/lib/customer-view-fixtures";
-
-function isStub(v: string | null) {
-  return (
-    v === QUOTE_STUBS.quoteNumber ||
-    v === QUOTE_STUBS.paymentTerms ||
-    v === QUOTE_STUBS.leadTime ||
-    v === QUOTE_STUBS.incoterms
-  );
-}
 
 function formatLongDate(iso: string | null): string {
   if (!iso) return "—";
@@ -24,14 +16,20 @@ function formatLongDate(iso: string | null): string {
   });
 }
 
+function Stub({ text }: { text: string }) {
+  return <span className="pdf-stub">{text}</span>;
+}
+
 export function PdfHeader({
   vendor,
   quote,
   customer,
+  preparedBy,
 }: {
   vendor: CustomerViewVendor;
   quote: CustomerViewQuote;
   customer: CustomerViewCustomer;
+  preparedBy: CustomerViewPreparedBy | null;
 }) {
   return (
     <div>
@@ -43,10 +41,10 @@ export function PdfHeader({
         <div className="doc-meta">
           <div>
             <strong>Quotation</strong> ·{" "}
-            {isStub(quote.quoteNumber) ? (
-              <span className="pdf-stub">{quote.quoteNumber}</span>
-            ) : (
+            {quote.quoteNumber ? (
               quote.quoteNumber
+            ) : (
+              <Stub text={QUOTE_STUBS.quoteNumber} />
             )}
           </div>
           <div>Issued · {formatLongDate(quote.sentDate)}</div>
@@ -68,9 +66,21 @@ export function PdfHeader({
         <div style={{ textAlign: "right" }}>
           <div className="label">Prepared by</div>
           <div className="name">{vendor.name}</div>
-          <div className="sub">
-            <span className="pdf-stub">{QUOTE_STUBS.preparedBy}</span>
-          </div>
+          {preparedBy ? (
+            <>
+              <div className="sub">{preparedBy.name}</div>
+              <div className="sub">{preparedBy.email}</div>
+              {/* Phone line OMITTED entirely when null/empty — graceful
+                  degradation per Edward review of RI.7 (HubSpot Owners
+                  API has no phone; manual users.phone is the sole
+                  source). Email is the canonical CDM contact. */}
+              {preparedBy.phone && <div className="sub">{preparedBy.phone}</div>}
+            </>
+          ) : (
+            <div className="sub">
+              <Stub text={QUOTE_STUBS.preparedBy} />
+            </div>
+          )}
           <div className="sub">{vendor.address}</div>
         </div>
       </div>
