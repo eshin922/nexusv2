@@ -70,6 +70,40 @@ Items here are intentionally deferred - capture, don't fix in the moment.
   would duplicate the audit row. If a future slice introduces an
   independent re-snapshot path, split back out.
 
+- [Audit log read-view: explicit renderers for pre-RI.7 action types]
+
+  **Slice:** RI.8 polish / TBD
+
+  **What:** RI.7 shipped the audit log read view MVP with explicit
+  renderer cases for the new RI.7 action types (quote_sent /
+  customer_acceptance_* / user_phone_updated / firm_settings_updated)
+  plus a handful of older ones (global_price_adj_updated,
+  cell_override_updated, scenario_dropped, create/created,
+  update/updated, delete/deleted). Self-smoke (May 2026) against the
+  live audit_log surfaced 5 action types that still fall through to
+  the generic action-key uppercased fallback:
+  - `raws_mode_updated` (RI.4)
+  - `production_policy_updated` (Slice 6)
+  - `tier_price_adj_updated` (Slice 9.2)
+  - `cell_target_updated` (Slice 9.4b)
+  - `quote_level_client_target_updated` (Slice 9.4c — pulled back;
+    7 stale audit rows persist as historical noise; explicit renderer
+    not needed but consider data cleanup if forensic queries get
+    confused)
+
+  **Why log it:** generic fallback renders correctly (chip label =
+  uppercased action key + neutral color + raw action key summary)
+  but loses the action-specific surface treatment PMs benefit from.
+  When RI.8 audit-log polish work happens (filters, time-grouped
+  headers, cascade chips, CSV export), add explicit renderer cases
+  for these five. Sample diff_json shapes available via
+  `scripts/verify/audit-log-renderer-smoke.ts`.
+
+  Reference: `src/app/admin/audit-log/renderers.ts`,
+  `scripts/verify/audit-log-renderer-smoke.ts`. Convention from
+  `docs/ri7-state-machine.md` §6.1 (audit log read-view rendering
+  scope).
+
   **Why log it:** RI.7 implementation needs to extend the read-view
   renderer map alongside the actions themselves — not just write to
   audit_log and let the read view show "(unknown action)". The
