@@ -230,12 +230,27 @@ User-table extension:
 ALTER TABLE users ADD COLUMN phone text;
 ```
 
-Extend `findHubspotOwnerByEmail` + `fetchOwnerDetails` in
-`src/lib/hubspot.ts` to pull phone from HubSpot owners API.
-Back-fill `users.phone` in `ensureUser` on first sign-in.
+**CORRECTION (May 2026, during implementation):** v1 of this
+amendment assumed HubSpot's Owners API carries phone. **It doesn't**
+— verified against `@hubspot/api-client`'s `PublicOwner` schema
+(fields: firstName, lastName, email, id, userId, type, teams,
+archived, createdAt, updatedAt; no phone). Phone is **manual admin
+UI only**; no HubSpot sync extension. `findHubspotOwnerByEmail` +
+`fetchOwnerDetails` stay name+email only (current behavior preserved).
 
-Admin manual-edit affordance for `users.phone` (HubSpot owner phone
-is often empty in practice — needs manual entry path).
+**Admin user-management surface (new RI.7 scope):** per-user
+inline-edit table on `/admin/users` (sub-section under admin nav)
+with columns name / email / role / phone / actions. Edit mode
+allows manual phone entry; save audit-logs with action
+`user_phone_updated`. The same surface is the right home for any
+future user-management work (role transitions, archival) so it's
+not single-use scaffolding.
+
+**Null-phone handling at customer view:** PdfHeader renders the
+phone line ONLY when `prepared_by_phone_snapshot IS NOT NULL`. For
+users without phone, the Prepared-by block shows name + email +
+firm address (three lines instead of four). Customer view stays
+valid; email is the canonical contact in CDM contracts.
 
 Snapshot columns (per CR-SM DEC-8) land on `quotes`, not `users`:
 ```sql
@@ -396,8 +411,9 @@ Total: ~20 new columns + 1 sequence. Single RI.7 migration.
 
 ### HubSpot sync extension
 
-Extend `findHubspotOwnerByEmail` + `fetchOwnerDetails` to pull
-`phone` from owners API. Back-fill `users.phone` in `ensureUser`.
+**Scope deleted (May 2026 implementation correction):** Owners API
+doesn't carry phone. `findHubspotOwnerByEmail` + `fetchOwnerDetails`
+stay as-is (name + email). Phone source = manual admin UI only.
 
 ### Server actions (new)
 
@@ -488,22 +504,29 @@ R3/R4/R5/R6 design vocabulary.
 
 If both this amendment + CR-SM resolve to recommended decisions:
 
-1. **Migration + schema delta** (1 migration; all columns + sequence)
-2. **HubSpot sync extension** (`fetchOwnerDetails` + `findHubspotOwnerByEmail` pull phone; `ensureUser` back-fills)
-3. **Server actions** (firm_settings updates + sendQuote +
-   recordCustomerAcceptance + clearCustomerAcceptance)
-4. **Firm settings page extension** (Customer-facing defaults card,
+1. **Migration + schema delta** (1 migration; all columns + sequence) — ✅ landed
+2. **Server actions** (firm_settings updates + sendQuote +
+   recordCustomerAcceptance + clearCustomerAcceptance +
+   updateUserPhone)
+3. **Firm settings page extension** (Customer-facing defaults card,
    read + edit states)
+4. **Admin user-management surface** (`/admin/users` — per-user
+   table, inline edit for phone, audit-logged via
+   `user_phone_updated`)
 5. **Markup defaults page** (per base brief §3.11 — independent of
    this amendment)
-6. **Audit log read view** (per base brief §3.12 — independent)
+6. **Audit log read view** (per base brief §3.12 — independent +
+   new-action renderers)
 7. **Customer view PdfHeader + PdfTerms wiring** (drop `.pdf-stub`s
-   when sent; render real values)
+   when sent; render real values; null-phone conditional)
 8. **Costing Sheet customer-accept toggle** (CR-SM DEC-2)
 9. **Mark-Accepted page fifth sub-state (`awaitingMark`)** (CR-SM DEC-6)
 10. **Project Detail scenario card quote-number rendering**
 11. **Verifier script** (`scenario-quote-status-invariant.ts`)
 12. **Smoke + Designer audit pass**
+
+(HubSpot sync extension removed per implementation correction —
+Owners API doesn't carry phone; manual admin UI is the sole source.)
 
 Estimated work: brief base §8 had RI.7 at 3–4 days for §3.10–3.12
 admin pages only. With this amendment + CR-SM additions, revise to

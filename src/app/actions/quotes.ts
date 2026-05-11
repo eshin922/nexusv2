@@ -1,19 +1,23 @@
 "use server";
 
-import { and, asc, eq, max } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, max, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
 import {
   auditLog,
+  firmSettings,
   freightInputs,
   packagingInputs,
   productionInputs,
+  projects,
   quotes,
   quoteSkus,
   quoteTiers,
+  users,
 } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
+  findHubspotOwnerById,
   getProduct,
   HubspotError,
   searchProducts,
@@ -1609,5 +1613,346 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
   });
 
   revalidateQuoteTree(quote.projectId, quoteId);
+  });
+}
+
+// ---------- Slice RI.7 — state-machine actions ----------
+// Per docs/ri7-state-machine.md (CR-SM, decisions DEC-1..DEC-8).
+
+// DEC-4 + DEC-7 + DEC-8: sendQuote transitions a draft to sent.
+//   - Assigns customer-facing quote_number from quote_number_seq
+//     (prefixed with firm_settings.quote_number_prefix).
+//   - Snapshots commercial defaults onto the quote row (DEC-7).
+//   - Snapshots PreparedBy contact (name/email/phone) onto the quote
+//     row (DEC-8). Resolution chain: projects.salesRepUserId → users
+//     first; HubSpot one-shot fetch by hubspot_owner_id as fallback
+//     for un-signed-in-rep. Phone is always null from HubSpot path
+//     (Owners API has no phone — manual users.phone entry only).
+//   - Computes valid_until = today + firm_settings.days_valid_default
+//     days (NULL if days_valid_default not configured; PdfTerms shows
+//     "—" in that case).
+//
+// All writes happen in one transaction with two audit_log rows:
+//   - quote_sent: { quote_number, valid_until, snapshots }
+//   - prepared_by_snapshotted: { name, email, phone, derived_from }
+//
+// UI affordance for RI.7: the customer-view preview-toolbar Download
+// buttons trigger this (stubbed PDF generation; Slice 11 wires real
+// PDF render + email). Cost Build / Costing Sheet status banners
+// pick up the new 'sent' state via existing requireDraft guards.
+export async function sendQuote(
+  formData: FormData,
+): Promise<ActionResult<{ quoteNumber: string; sentAt: Date }>> {
+  return runAction(async () => {
+    const user = await ensureUser();
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    if (!quoteId) {
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId is required.");
+    }
+
+    const quote = await loadQuoteOrThrow(quoteId);
+    assertDraft(quote);
+
+    // At-least-one-tier-with-qty + at-least-one-SKU sanity gates.
+    const [tierCount, skuCount] = await Promise.all([
+      db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(quoteTiers)
+        .where(
+          and(
+            eq(quoteTiers.quoteId, quoteId),
+            sql`${quoteTiers.qty} IS NOT NULL`,
+          ),
+        ),
+      db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(quoteSkus)
+        .where(eq(quoteSkus.quoteId, quoteId)),
+    ]);
+    if ((tierCount[0]?.n ?? 0) === 0) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Quote needs at least one tier with a quantity before it can be sent.",
+      );
+    }
+    if ((skuCount[0]?.n ?? 0) === 0) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Quote needs at least one SKU before it can be sent.",
+      );
+    }
+
+    // Load project + firm_settings (current) in parallel.
+    const [projectRows, firmRows] = await Promise.all([
+      db
+        .select()
+        .from(projects)
+        .where(eq(projects.id, quote.projectId))
+        .limit(1),
+      db
+        .select()
+        .from(firmSettings)
+        .where(isNull(firmSettings.effectiveUntil))
+        .orderBy(desc(firmSettings.effectiveFrom))
+        .limit(1),
+    ]);
+    if (projectRows.length === 0) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "Project not found.");
+    }
+    if (firmRows.length === 0) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "No active firm settings row; configure firm settings before sending quotes.",
+      );
+    }
+    const project = projectRows[0];
+    const firm = firmRows[0];
+
+    if (!firm.quoteNumberPrefix) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Quote-number prefix is not configured in firm settings.",
+      );
+    }
+
+    // PreparedBy resolution (DEC-8).
+    type PreparedBy = {
+      name: string;
+      email: string;
+      phone: string | null;
+      derivedFrom: "users.id" | "hubspot_owner_id";
+    };
+    let preparedBy: PreparedBy | null = null;
+
+    if (project.salesRepUserId) {
+      const [rep] = await db
+        .select({ name: users.name, email: users.email, phone: users.phone })
+        .from(users)
+        .where(eq(users.id, project.salesRepUserId))
+        .limit(1);
+      if (rep && rep.email) {
+        preparedBy = {
+          name: rep.name ?? rep.email,
+          email: rep.email,
+          phone: rep.phone ?? null,
+          derivedFrom: "users.id",
+        };
+      }
+    }
+    if (!preparedBy && project.hubspotOwnerId) {
+      const owner = await findHubspotOwnerById(project.hubspotOwnerId);
+      if (owner && owner.email) {
+        preparedBy = {
+          name: owner.name ?? owner.email,
+          email: owner.email,
+          phone: null, // HubSpot Owners API has no phone — verified.
+          derivedFrom: "hubspot_owner_id",
+        };
+      }
+    }
+    if (!preparedBy) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Deal owner could not be resolved. Refresh deal context and retry, or assign a sales rep in HubSpot.",
+      );
+    }
+
+    const sentAt = new Date();
+    const daysValid = firm.daysValidDefault ?? null;
+
+    const result = await db.transaction(async (tx) => {
+      // Pull next quote number from the sequence inside the transaction
+      // so the audit + UPDATE see the same value.
+      const seqResult = (await tx.execute(
+        sql`SELECT nextval('quote_number_seq') AS next`,
+      )) as unknown as Array<{ next: string | number }>;
+      const next = String(seqResult[0].next);
+      const quoteNumber = `${firm.quoteNumberPrefix}-${next}`;
+
+      // valid_until = today + days_valid_default. Computed in SQL so
+      // we don't have to do timezone math in JS.
+      const validUntilExpr =
+        daysValid !== null
+          ? sql`(CURRENT_DATE + ${daysValid}::int * INTERVAL '1 day')::date`
+          : sql`NULL::date`;
+
+      const [updated] = await tx
+        .update(quotes)
+        .set({
+          status: "sent",
+          sentAt,
+          quoteNumber,
+          validUntil: sql<string>`${validUntilExpr}` as unknown as string,
+          // DEC-7: commercial snapshots
+          tcsSnapshot: firm.tcsDefault ?? null,
+          paymentTermsSnapshot: firm.paymentTermsDefault ?? null,
+          leadTimeSnapshot: firm.leadTimeDefault ?? null,
+          incotermsSnapshot: firm.incotermsDefault ?? null,
+          daysValidSnapshot: daysValid,
+          // DEC-8: PreparedBy snapshots
+          preparedByNameSnapshot: preparedBy.name,
+          preparedByEmailSnapshot: preparedBy.email,
+          preparedByPhoneSnapshot: preparedBy.phone,
+          updatedAt: sentAt,
+        })
+        .where(eq(quotes.id, quoteId))
+        .returning();
+
+      await tx.insert(auditLog).values([
+        {
+          userId: user.id,
+          entityType: "quote",
+          entityId: quoteId,
+          action: "quote_sent",
+          diffJson: {
+            quoteNumber,
+            validUntil: updated.validUntil,
+            snapshots: {
+              tcs: firm.tcsDefault ?? null,
+              paymentTerms: firm.paymentTermsDefault ?? null,
+              leadTime: firm.leadTimeDefault ?? null,
+              incoterms: firm.incotermsDefault ?? null,
+              daysValid,
+            },
+          },
+        },
+        {
+          userId: user.id,
+          entityType: "quote",
+          entityId: quoteId,
+          action: "prepared_by_snapshotted",
+          diffJson: {
+            name: preparedBy.name,
+            email: preparedBy.email,
+            phone: preparedBy.phone,
+            derived_from: preparedBy.derivedFrom,
+          },
+        },
+      ]);
+
+      return { quoteNumber, sentAt };
+    });
+
+    revalidateQuoteTree(quote.projectId, quoteId);
+    return result;
+  });
+}
+
+// DEC-1 + DEC-2: record the customer signal as a timestamped event,
+// distinct from PM finalization via Mark-Accepted. PM clicks
+// "Customer responded · Tier N" on Costing Sheet adjacent to the
+// Mark-Accepted cluster. The quote stays at status='sent'; the
+// `customer_accepted_at IS NOT NULL` tuple is the awaiting-mark
+// sub-state (Mark-Accepted page renders affirmation chip).
+export async function recordCustomerAcceptance(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const user = await ensureUser();
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    const tierId = String(formData.get("tierId") ?? "").trim();
+    const emailRef = String(formData.get("emailRef") ?? "").trim() || null;
+    if (!quoteId || !tierId) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "quoteId and tierId are required.",
+      );
+    }
+
+    const quote = await loadQuoteOrThrow(quoteId);
+    if (quote.status !== "sent") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Cannot record customer acceptance on a ${quote.status} quote — only sent quotes.`,
+      );
+    }
+
+    // Verify the tier belongs to this quote.
+    const [tier] = await db
+      .select()
+      .from(quoteTiers)
+      .where(and(eq(quoteTiers.id, tierId), eq(quoteTiers.quoteId, quoteId)))
+      .limit(1);
+    if (!tier) {
+      throw new ActionGuardError(
+        ERR.NOT_FOUND,
+        "Tier not found on this quote.",
+      );
+    }
+
+    const now = new Date();
+    await db.transaction(async (tx) => {
+      await tx
+        .update(quotes)
+        .set({
+          customerAcceptedAt: now,
+          customerAcceptedTierId: tierId,
+          customerAcceptedRecordedByUserId: user.id,
+          updatedAt: now,
+        })
+        .where(eq(quotes.id, quoteId));
+
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote",
+        entityId: quoteId,
+        action: "customer_acceptance_recorded",
+        diffJson: {
+          customer_accepted_tier_id: tierId,
+          recorded_by_user_id: user.id,
+          email_ref: emailRef,
+        },
+      });
+    });
+
+    revalidateQuoteTree(quote.projectId, quoteId);
+  });
+}
+
+// Companion to recordCustomerAcceptance — clear the customer signal
+// without affecting the quote's primary status. Captures the prior
+// tier_id in diff_json as `{from, to: null}` per CR-SM §6.1.
+export async function clearCustomerAcceptance(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const user = await ensureUser();
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    if (!quoteId) {
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId is required.");
+    }
+
+    const quote = await loadQuoteOrThrow(quoteId);
+    if (quote.status !== "sent" || !quote.customerAcceptedAt) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "No customer acceptance to clear on this quote.",
+      );
+    }
+
+    const priorTierId = quote.customerAcceptedTierId;
+
+    const now = new Date();
+    await db.transaction(async (tx) => {
+      await tx
+        .update(quotes)
+        .set({
+          customerAcceptedAt: null,
+          customerAcceptedTierId: null,
+          customerAcceptedRecordedByUserId: null,
+          updatedAt: now,
+        })
+        .where(eq(quotes.id, quoteId));
+
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote",
+        entityId: quoteId,
+        action: "customer_acceptance_cleared",
+        diffJson: { from: priorTierId, to: null },
+      });
+    });
+
+    revalidateQuoteTree(quote.projectId, quoteId);
   });
 }

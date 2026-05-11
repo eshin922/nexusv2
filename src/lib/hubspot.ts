@@ -220,3 +220,29 @@ export async function findHubspotOwnerByEmail(
     return null;
   }
 }
+
+// Slice RI.7 — one-shot fetch by HubSpot owner ID for the un-signed-in-rep
+// PreparedBy resolution path (CR-SM DEC-8). Used at sendQuote when
+// `projects.sales_rep_user_id IS NULL` but `projects.hubspot_owner_id`
+// is set. Returns name + email; HubSpot Owners API does NOT carry phone
+// (verified against @hubspot/api-client PublicOwner schema), so phone
+// is always null from this path. Manual admin entry is the sole phone
+// source for users without it on `users.phone`.
+export async function findHubspotOwnerById(
+  ownerId: string,
+): Promise<{ name: string | null; email: string | null } | null> {
+  if (!ownerId) return null;
+  const n = Number(ownerId);
+  if (!Number.isFinite(n)) return null;
+  try {
+    const c = getReadClient();
+    const owner = await c.crm.owners.ownersApi.getById(n);
+    const name =
+      [owner.firstName, owner.lastName].filter(Boolean).join(" ") ||
+      owner.email ||
+      null;
+    return { name, email: owner.email ?? null };
+  } catch {
+    return null;
+  }
+}

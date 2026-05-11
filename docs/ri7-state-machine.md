@@ -392,6 +392,21 @@ needed — see §5 below.
 
 **Decision: snapshot at send** (Edward, post-review of CR-SM v1).
 
+**Correction during implementation (May 2026):** the brief amendment
+v1 assumed phone was syncable from HubSpot's Owners API. **It's not.**
+Verified against `@hubspot/api-client`'s `PublicOwner` schema —
+fields are `firstName`, `lastName`, `email`, `id`, `userId`, `type`,
+`teams`, `archived`, `createdAt`, `updatedAt`. No phone. (Phone would
+live on the HubSpot Users API or on a linked contact record; both
+hacky for v1 and not the canonical source.)
+
+**Revised phone source: manual admin UI only.** `users.phone` is
+populated via a new admin user-management surface (per-user inline
+edit, audit-logged). For users with no manually-entered phone,
+`prepared_by_phone_snapshot` is NULL at send time — PdfHeader
+renders the phone line conditionally (omits when NULL). Customer
+view stays valid without phone; email is the canonical contact.
+
 Rationale: same as DEC-7. Customer-facing commitments shouldn't shift
 under the customer. R3 design implies "Prepared by" is fixed-at-send.
 If the sales rep is reassigned in HubSpot, leaves The DPS, or changes
