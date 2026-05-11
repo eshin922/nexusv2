@@ -5,6 +5,67 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Multi-tenant quote-number sequence (post-MVP)]
+
+  **Slice:** Post-MVP / TBD (when multi-tenant becomes real)
+
+  **What:** RI.7's quote-number trigger lands as `CREATE SEQUENCE
+  quote_number_seq START 1000` — a single global Postgres sequence
+  shared across all firms. Single-tenant v1 (The DPS only) — safe
+  assumption. When Nexus is ever multi-tenant, the global sequence
+  would race + collide across firms (Firm A's `DPS-1042` could
+  accidentally be Firm B's `ACME-1042` if the sequence is shared).
+  Worse: counter exposure leaks aggregate quote volume across firms.
+
+  **Migration when it matters:**
+  - Option A: per-firm sequence — `CREATE SEQUENCE quote_number_seq_{firm_id}`
+    dynamically; bookkeeping in firm_settings or a separate
+    `firm_quote_counters` table
+  - Option B: `(firm_id, next_quote_number)` table with row-level
+    locking on increment (`SELECT ... FOR UPDATE` per assignment)
+  - Option B reads cleaner; Option A scales further (sequences are
+    cheaper than transactional updates at very high volume — not a
+    concern at Nexus scale)
+
+  **Why log it:** when multi-tenant becomes real, this is one of the
+  first things to fix. Single-tenant assumption is explicit in CR-SM
+  DEC-4 + the migration comment. Not a v1 concern.
+
+  Reference: `docs/ri7-state-machine.md` DEC-4; `docs/ri7-brief-amendment.md` §3.10.b.
+
+- [Audit log read-view: new action renderers for RI.7]
+
+  **Slice:** RI.7 (folded into base brief §3.12 implementation)
+
+  **What:** The audit log read view from brief §3.12 ships with an
+  action-renderer map (action enum → display function + chip color).
+  RI.7 adds four new action types that need entries in that map, not
+  just storage:
+  - `customer_acceptance_recorded` — diff_json carries
+    `{ customer_accepted_tier_id, recorded_by_user_id, email_ref? }`.
+    Renderer: "Customer accepted Tier N · recorded by [user] · email
+    ref: [string|—]".
+  - `customer_acceptance_cleared` — diff_json carries `{ from:
+    tier_id, to: null }`. Renderer: "Cleared customer acceptance ·
+    was Tier N".
+  - `prepared_by_snapshotted` — diff_json carries `{ name, email,
+    phone, derived_from: "users.id" | "hubspot_owner_id" }`. Renderer:
+    "PreparedBy snapshotted at send · [name] · resolved from
+    [Nexus user|HubSpot one-shot]".
+  - `firm_settings_updated` — existing action, new diff_json column
+    names for vendor identity / customer-facing defaults. Per-column
+    renderer extends with: vendor_name, vendor_tagline, vendor_address,
+    quote_number_prefix, tcs_default, payment_terms_default,
+    lead_time_default, incoterms_default, days_valid_default.
+
+  **Why log it:** RI.7 implementation needs to extend the read-view
+  renderer map alongside the actions themselves — not just write to
+  audit_log and let the read view show "(unknown action)". The
+  rendering work is scoped here so it's not forgotten when the
+  state-machine actions are wired.
+
+  Reference: `docs/ri7-state-machine.md` §6.1; brief §3.12.
+
 - [Slice 13 — HubSpot library sync (vendors + products)]
 
   **Slice:** 13 (post-MVP enrichment)

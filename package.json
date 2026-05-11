@@ -6,6 +6,7 @@
     "dev": "next dev",
     "cure": "node scripts/cure.mjs",
     "verify:boundaries": "node --experimental-strip-types scripts/verify/customer-view-boundary.ts",
+    "verify:ri-7-readiness": "node --env-file=.env.local --experimental-strip-types scripts/verify/ri-7-schema-readiness.ts",
     "prebuild": "npm run verify:boundaries",
     "build": "next build",
     "start": "next start",
