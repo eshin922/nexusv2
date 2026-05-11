@@ -287,15 +287,21 @@ export function SkuSummaryRowList({ editable }: { editable: boolean }) {
   return (
     <div className="overflow-x-auto rounded-md border border-gray-200">
       <table className="min-w-full text-sm">
-        <thead className="bg-gray-50 text-left text-[10px] uppercase tracking-wide text-gray-500">
+        {/* Slice RI.0 — column-header typography moved to JetBrains Mono
+            small caps per CD's eyebrow pattern (R2 styles.css `.eyebrow`
+            line 93: --mono, 10.5px, letter-spacing 0.13em, uppercase,
+            color --ink-3). Background --paper-2 per R1 table-header
+            convention (R1 line 348). Smoke-target wiring for token
+            foundation. */}
+        <thead className="bg-paper-2 text-left font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3">
           <tr>
-            <th className="px-3 py-2">SKU</th>
-            <th className="px-3 py-2 text-right">Contribution</th>
+            <th className="px-3 py-2 font-normal">SKU</th>
+            <th className="px-3 py-2 text-right font-normal">Contribution</th>
             <th className="px-1 py-2" aria-hidden="true" />
-            <th className="px-3 py-2 text-right">Required sell</th>
-            <th className="px-3 py-2 text-right">Client target</th>
-            <th className="px-3 py-2 text-right">Margin</th>
-            <th className="px-3 py-2 text-right">All tiers</th>
+            <th className="px-3 py-2 text-right font-normal">Required sell</th>
+            <th className="px-3 py-2 text-right font-normal">Client target</th>
+            <th className="px-3 py-2 text-right font-normal">Margin</th>
+            <th className="px-3 py-2 text-right font-normal">All tiers</th>
             <th className="px-3 py-2 text-right" aria-label="Expand row" />
           </tr>
         </thead>

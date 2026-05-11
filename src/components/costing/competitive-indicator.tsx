@@ -22,17 +22,21 @@
 // (math/data layer); UI labels diverge for display, matching the
 // MarginVerdictPill pattern.
 
+// Slice RI.0 — outline + ink colors swapped from raw Tailwind sRGB hex
+// to CD's OKLCH semantic tokens. COMPETITIVE uses --good (border-good
+// + text-good); OVER_CLIENT_TARGET uses --warn. Light + dark mode adapt
+// automatically via design-tokens.css. Smoke-target wiring.
 const STATUS_STYLES: Record<
   "COMPETITIVE" | "OVER_CLIENT_TARGET",
   { directionLabel: string; cls: string }
 > = {
   COMPETITIVE: {
     directionLabel: "under target by",
-    cls: "border-emerald-300 text-emerald-800",
+    cls: "border-good text-good",
   },
   OVER_CLIENT_TARGET: {
     directionLabel: "over target by",
-    cls: "border-amber-300 text-amber-800",
+    cls: "border-warn text-warn",
   },
 };
 
@@ -82,7 +86,11 @@ export function CompetitiveIndicator({
   return (
     <span
       title={tooltip}
-      className={`inline-block whitespace-nowrap rounded border bg-white px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide ${style.cls}`}
+      // Slice RI.0 — bg-white dropped per Designer audit C2. Outline
+      // chip needs no fill; the border + colored text alone reads as
+      // an outline chip in both light and dark modes (bg-white was
+      // glaring in dark).
+      className={`inline-block whitespace-nowrap rounded border px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide ${style.cls}`}
     >
       {style.directionLabel} {fmtCurr2(gap)}
     </span>

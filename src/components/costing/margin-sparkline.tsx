@@ -69,7 +69,7 @@ export function MarginSparkline({
   if (realPoints.length === 0) {
     return (
       <span
-        className="inline-block text-[10px] text-gray-300"
+        className="inline-block text-[10px] text-ink-4"
         title="No margin data — enter costs to populate"
         style={{ width: SPARKLINE_W, height: SPARKLINE_H, lineHeight: `${SPARKLINE_H}px` }}
       >
@@ -140,6 +140,11 @@ export function MarginSparkline({
       role="img"
       aria-label={`Margin across ${points.length} tiers: ${realPoints.map((p) => fmtPct(p.marginPct)).join(", ")}`}
     >
+      {/* Slice RI.0 — color tokens swapped from raw sRGB hex
+          (#94a3b8 / #4338ca) to CD's OKLCH semantic tokens via
+          currentColor inheritance. Inactive points use --ink-3
+          (the muted body-text tier); active point uses --accent
+          (CD's confident ink-blue). Smoke-target wiring. */}
       {/* Connecting lines per segment (skipped for single-point segments) */}
       {segments.map((seg, segIdx) => {
         if (seg.pts.length < 2) return null;
@@ -155,7 +160,8 @@ export function MarginSparkline({
             key={segIdx}
             d={d}
             fill="none"
-            stroke="#94a3b8"
+            className="text-ink-3"
+            stroke="currentColor"
             strokeWidth={1}
           />
         );
@@ -172,8 +178,9 @@ export function MarginSparkline({
             cx={xPos(idx)}
             cy={yPos(p.marginPct)}
             r={isActive ? ACTIVE_POINT_R : POINT_R}
-            fill={isActive ? "#4338ca" : "#94a3b8"}
-            stroke={isActive ? "#4338ca" : "#94a3b8"}
+            className={isActive ? "text-accent" : "text-ink-3"}
+            fill="currentColor"
+            stroke="currentColor"
             strokeWidth={isActive ? 0 : 0.5}
           >
             <title>

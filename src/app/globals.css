@@ -1,19 +1,119 @@
 @import "tailwindcss";
+@import "../styles/design-tokens.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * Tailwind v4 @theme block — exposes CD's design tokens to utility
+ * classes. Each --color-*, --font-* declaration here generates the
+ * matching Tailwind utility (e.g. --color-paper → bg-paper, text-paper,
+ * border-paper). Token VALUES live in design-tokens.css; this block
+ * just routes them into Tailwind's namespace via var() so dark-mode
+ * swap (changing --paper underneath) flows through without redefining
+ * @theme.
+ *
+ * --font-* tokens consume the next/font CSS variables defined in
+ * layout.tsx; the design-tokens.css fallback stack provides legibility
+ * before fonts hydrate.
+ */
+@theme {
+  /* Paper palette */
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-paper-3: var(--paper-3);
+  --color-paper-4: var(--paper-4);
+
+  /* Rules */
+  --color-rule: var(--rule);
+  --color-rule-2: var(--rule-2);
+
+  /* Ink palette */
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+
+  /* Accent */
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+
+  /* Semantic */
+  --color-good: var(--good);
+  --color-good-soft: var(--good-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+
+  /* Customer-invisible internal-only signal */
+  --color-internal: var(--internal);
+  --color-internal-soft: var(--internal-soft);
+  --color-internal-rule: var(--internal-rule);
+
+  /* Backlog-dependent wishful state */
+  --color-wishful: var(--wishful);
+
+  /* Type families — font-display, font-ui, font-mono utilities */
+  --font-display: var(--display);
+  --font-ui: var(--ui);
+  --font-mono: var(--mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/*
+ * Shadows go through @theme inline rather than @theme. The `inline`
+ * keyword tells Tailwind v4 NOT to emit a competing :root declaration
+ * for the shadow keys (which would self-reference the values already
+ * defined in design-tokens.css's :root, breaking shadows at runtime).
+ * Designer's RI.0 audit caught this; see Tailwind v4 docs on @theme inline.
+ */
+@theme inline {
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+}
+
+/*
+ * Element resets matching CD's R2 base (source/round-2/app/r2/styles.css
+ * lines 77-90). Keeps body background + foreground + font wired
+ * through CSS variables for theme-aware behavior at the document root.
+ */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  letter-spacing: -0.005em;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--accent-ink);
+  text-decoration: none;
 }

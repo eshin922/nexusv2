@@ -1,0 +1,123 @@
+/*
+ * Nexus design tokens — OKLCH palette ported from CD's Round 2 prototype.
+ * Source: docs/design-prototypes/dist/source/round-2/app/r2/styles.css
+ *
+ * Structural inversion from CD's R2 source: R2 has dark in :root +
+ * [data-theme="light"] override. We invert to light-default per the
+ * redesign-implementation slice brief §6 RI.0 + §10:
+ *   "Light mode confirmed as default at app shell level"
+ *
+ * Token VALUES are R2 verbatim. STRUCTURE matches R1 (light in :root,
+ * dark in [data-theme="dark"]). Designer can verify values match R2
+ * source token-by-token; the structural choice favors pragmatic
+ * "light is default" wiring at the app shell.
+ *
+ * One delta from R2 dark: --ink-4 luminance lifted from 0.50 to 0.58
+ * (+~16%, midpoint of the +15-20% range called for in UX_BACKLOG entry
+ * "Light mode default + dark mode token tuning"). Lifts the lowest
+ * text-contrast tier into reliable legibility in dark mode without
+ * becoming visually heavy in light mode (where this token pulls a
+ * different palette entirely).
+ *
+ * Round 6 / Bulk Raw cost-stack per-component dark-mode luminance
+ * tuning — separate concern, lands per UX_BACKLOG when those
+ * components ship in RI.4. Token file stays clean of cost-stack
+ * specifics for now.
+ */
+
+/* ─── Light mode (default) ──────────────────────────── */
+:root {
+  /* Paper palette */
+  --paper:    oklch(0.985 0.006 85);
+  --paper-2:  oklch(0.965 0.008 85);
+  --paper-3:  oklch(0.945 0.010 85);
+  --paper-4:  oklch(0.925 0.012 85);
+  --rule:     oklch(0.88 0.012 85);
+  --rule-2:   oklch(0.82 0.014 85);
+
+  /* Ink palette */
+  --ink:    oklch(0.20 0.02 255);
+  --ink-2:  oklch(0.36 0.02 255);
+  --ink-3:  oklch(0.52 0.015 255);
+  --ink-4:  oklch(0.68 0.012 255);
+
+  /* Accent — a single confident ink-blue */
+  --accent:      oklch(0.42 0.14 255);
+  --accent-soft: oklch(0.93 0.04 255);
+  --accent-ink:  oklch(0.30 0.12 255);
+
+  /* Semantic — restrained, not candy */
+  --good:      oklch(0.55 0.10 155);
+  --good-soft: oklch(0.94 0.035 155);
+  --warn:      oklch(0.62 0.13 70);
+  --warn-soft: oklch(0.95 0.045 70);
+  --bad:       oklch(0.55 0.18 25);
+  --bad-soft:  oklch(0.95 0.04 25);
+
+  /* INTERNAL — load-bearing customer-invisible signal */
+  --internal:      oklch(0.50 0.08 305);
+  --internal-soft: oklch(0.94 0.025 305);
+  --internal-rule: oklch(0.70 0.05 305);
+
+  /* WISHFUL — for any UI that depends on uncommitted backlog */
+  --wishful: oklch(0.60 0.03 85);
+
+  /* Type stacks (font-family fallbacks; actual font loading via
+     next/font in layout.tsx — those declarations override the family
+     names with the next/font CSS variables, but these stacks remain
+     the legibility floor when next/font fails or before fonts hydrate) */
+  --display: "Newsreader", Georgia, serif;
+  --ui:      "Instrument Sans", "Helvetica Neue", system-ui, sans-serif;
+  --mono:    "JetBrains Mono", ui-monospace, monospace;
+
+  /* Shadows — light theme, OKLCH-tuned */
+  --shadow-sm: 0 1px 0 oklch(0.88 0.012 85), 0 1px 2px oklch(0.20 0.02 255 / 0.04);
+  --shadow-md: 0 1px 0 oklch(0.88 0.012 85), 0 8px 24px oklch(0.20 0.02 255 / 0.06);
+  --shadow-lg: 0 24px 60px oklch(0.20 0.02 255 / 0.12);
+}
+
+/* ─── Dark mode override ────────────────────────────── */
+[data-theme="dark"] {
+  /* Paper palette */
+  --paper:    oklch(0.16 0.012 255);
+  --paper-2:  oklch(0.19 0.013 255);
+  --paper-3:  oklch(0.225 0.014 255);
+  --paper-4:  oklch(0.265 0.015 255);
+  --rule:     oklch(0.30 0.014 255);
+  --rule-2:   oklch(0.36 0.016 255);
+
+  /* Ink palette
+     --ink-4 lifted from R2's 0.50 to 0.58 per UX_BACKLOG entry "Light
+     mode default + dark mode token tuning" (+~16%, midpoint of
+     +15-20% range). */
+  --ink:    oklch(0.96 0.008 85);
+  --ink-2:  oklch(0.84 0.010 85);
+  --ink-3:  oklch(0.66 0.012 85);
+  --ink-4:  oklch(0.58 0.014 85);
+
+  /* Accent */
+  --accent:      oklch(0.78 0.13 250);
+  --accent-soft: oklch(0.30 0.06 250);
+  --accent-ink:  oklch(0.92 0.10 250);
+
+  /* Semantic */
+  --good:      oklch(0.78 0.13 155);
+  --good-soft: oklch(0.28 0.05 155);
+  --warn:      oklch(0.82 0.13 75);
+  --warn-soft: oklch(0.30 0.05 70);
+  --bad:       oklch(0.74 0.16 25);
+  --bad-soft:  oklch(0.32 0.06 25);
+
+  /* INTERNAL */
+  --internal:      oklch(0.74 0.10 305);
+  --internal-soft: oklch(0.28 0.045 305);
+  --internal-rule: oklch(0.45 0.07 305);
+
+  /* WISHFUL */
+  --wishful: oklch(0.62 0.04 85);
+
+  /* Shadows — dark theme */
+  --shadow-sm: 0 1px 0 oklch(0.30 0.014 255), 0 1px 2px oklch(0 0 0 / 0.4);
+  --shadow-md: 0 1px 0 oklch(0.30 0.014 255), 0 8px 24px oklch(0 0 0 / 0.5);
+  --shadow-lg: 0 24px 60px oklch(0 0 0 / 0.6);
+}
