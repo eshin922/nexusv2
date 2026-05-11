@@ -441,14 +441,21 @@ render-time HubSpot fetch with TTL cache) updates to: **one-shot
 HubSpot fetch at send, no TTL cache needed** — see the refined
 §3.10.h in `docs/ri7-brief-amendment.md`.
 
-**Audit:** action `prepared_by_snapshotted` fires from `sendQuote`
-inside the same DB transaction as the snapshot writes; `diff_json`
-carries `{ name, email, phone, derived_from: "users.id" | "hubspot_owner_id" }`.
-The `derived_from` discriminator lets future forensic queries
-distinguish "snapshot was based on a Nexus-resolved user record" vs
-"snapshot was based on a HubSpot one-shot fetch because the rep
-hadn't signed in yet" — useful when a customer disputes the contact
-they were quoted under.
+**Audit:** PreparedBy snapshot is folded into the `quote_sent` audit
+row's `diff_json.preparedBy` sub-object (decision post-Edward review:
+no independent emit path exists; snapshots are immutable for sent
+quotes per DEC-8 — no other action writes these fields, so a separate
+`prepared_by_snapshotted` action would duplicate audit rows for the
+same logical event). `diff_json.preparedBy = { name, email, phone,
+derived_from: "users.id" | "hubspot_owner_id" }`. The `derived_from`
+discriminator lets future forensic queries distinguish "snapshot was
+based on a Nexus-resolved user record" vs "snapshot was based on a
+HubSpot one-shot fetch because the rep hadn't signed in yet" —
+useful when a customer disputes the contact they were quoted under.
+
+If a future slice introduces an independent path for re-snapshotting
+PreparedBy (e.g., admin "fix the prepared-by on a sent quote" affordance),
+split `prepared_by_snapshotted` back out as its own action then.
 
 ### DEC-7: T&Cs / payment terms / lead time / incoterms freeze rules
 
@@ -565,6 +572,13 @@ Brief §3.12 (audit log read view) renders chronological entries with
 action chips + structured diff tables. The new audit actions this CR
 introduces MUST be rendered by the read view, not just stored:
 
+- `quote_sent` — new action; diff_json shape:
+  `{ quoteNumber, validUntil, snapshots: {tcs, paymentTerms,
+  leadTime, incoterms, daysValid}, preparedBy: {name, email, phone,
+  derived_from} }`. Renderer surfaces "Quote sent · {quoteNumber}
+  · valid until {date} · prepared by {name} (resolved from
+  {Nexus user|HubSpot one-shot})". Snapshot details available on
+  expand.
 - `customer_acceptance_recorded` — action chip; diff_json shape:
   `{ customer_accepted_tier_id, recorded_by_user_id, email_ref? }`.
   Renderer surfaces "Customer accepted Tier N · recorded by [user]
@@ -572,10 +586,8 @@ introduces MUST be rendered by the read view, not just stored:
 - `customer_acceptance_cleared` — action chip; diff_json shape:
   `{ from: tier_id, to: null }`. Renderer surfaces "Cleared customer
   acceptance · was Tier N".
-- `prepared_by_snapshotted` — fires inside sendQuote; diff_json
-  shape: `{ name, email, phone, derived_from: "users.id" |
-  "hubspot_owner_id" }`. Renderer surfaces "PreparedBy snapshotted at
-  send · [name] · resolved from [Nexus user|HubSpot one-shot]".
+- `user_phone_updated` — diff_json shape `{ from, to }`. Renderer
+  surfaces "User phone updated · {from|—} → {to|—}".
 - `firm_settings_updated` — existing action; new diff_json shapes
   for vendor identity / customer-facing defaults sub-edits. Renderer
   inherits existing per-column diff display; new column names render

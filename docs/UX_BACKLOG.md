@@ -39,8 +39,15 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
   **What:** The audit log read view from brief §3.12 ships with an
   action-renderer map (action enum → display function + chip color).
-  RI.7 adds four new action types that need entries in that map, not
-  just storage:
+  RI.7 adds five new action types (plus extended diff_json shapes
+  on an existing action) that need entries in that map, not just
+  storage:
+  - `quote_sent` — diff_json carries `{ quoteNumber, validUntil,
+    snapshots: {tcs, paymentTerms, leadTime, incoterms, daysValid},
+    preparedBy: {name, email, phone, derived_from} }`. Renderer:
+    "Quote sent · {quoteNumber} · valid until {date} · prepared by
+    {name} (resolved from {Nexus user|HubSpot one-shot})". Snapshot
+    details available on expand.
   - `customer_acceptance_recorded` — diff_json carries
     `{ customer_accepted_tier_id, recorded_by_user_id, email_ref? }`.
     Renderer: "Customer accepted Tier N · recorded by [user] · email
@@ -48,15 +55,20 @@ Items here are intentionally deferred - capture, don't fix in the moment.
   - `customer_acceptance_cleared` — diff_json carries `{ from:
     tier_id, to: null }`. Renderer: "Cleared customer acceptance ·
     was Tier N".
-  - `prepared_by_snapshotted` — diff_json carries `{ name, email,
-    phone, derived_from: "users.id" | "hubspot_owner_id" }`. Renderer:
-    "PreparedBy snapshotted at send · [name] · resolved from
-    [Nexus user|HubSpot one-shot]".
+  - `user_phone_updated` — diff_json `{ from, to }`. Renderer:
+    "User phone updated · {from|—} → {to|—}".
   - `firm_settings_updated` — existing action, new diff_json column
     names for vendor identity / customer-facing defaults. Per-column
     renderer extends with: vendor_name, vendor_tagline, vendor_address,
     quote_number_prefix, tcs_default, payment_terms_default,
     lead_time_default, incoterms_default, days_valid_default.
+
+  PreparedBy snapshot data lives inside `quote_sent.diff_json.preparedBy`
+  rather than a distinct `prepared_by_snapshotted` action (CR-SM §1.DEC-8
+  audit decision, May 2026 post-Edward-review): snapshots are immutable
+  for sent quotes and emit only inside sendQuote, so a distinct action
+  would duplicate the audit row. If a future slice introduces an
+  independent re-snapshot path, split back out.
 
   **Why log it:** RI.7 implementation needs to extend the read-view
   renderer map alongside the actions themselves — not just write to

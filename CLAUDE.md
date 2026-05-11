@@ -488,6 +488,42 @@ Reference: `src/app/actions/costing.ts` `applySuggestedGlobalAdj`
 vs `updateQuoteGlobalPriceAdj` (cross-surface origin disambiguation),
 `updateSellPriceOverride` (single-surface variant via from/to).
 
+## Versioned-table carry-forward audit (added Slice RI.7)
+
+When a versioned table — one where every update is a fresh row
+closing the prior via `effective_until` — gains new columns, audit
+**every existing update path** for carry-forward. Without carry-forward,
+unchanged columns silently null out on each version bump in a path
+that doesn't know about them.
+
+`firm_settings` is the canonical example. RI.7 added 9 new columns
+(vendor identity + customer-facing commercial defaults). The existing
+`updateFirmSettings` action only wrote `target_margin_pct` +
+`floor_margin_pct` + versioning fields when inserting the new row —
+meaning every margin edit would have nulled out vendor_name +
+quote_number_prefix + all the snapshot-default columns from the new
+"current" row. Customer view would render empty firm name after any
+margin policy change.
+
+Fix pattern: centralize via a helper (`versionedFirmSettingsUpdate`
+in `src/app/actions/firm-settings.ts`) that starts from the prior
+row's values and overlays the caller's edits. Both update actions
+go through it; both stay correct as new columns get added.
+
+**When to audit:** any time a new column lands on a versioned table.
+Search for `insert(<table>).values(...)` and verify each call site
+either carries forward unchanged columns OR is intentionally
+resetting them. Don't trust the action layer — search comprehensively.
+
+**Tables where this rule applies today:** `firm_settings` (versioned
+via `effective_from / effective_until`). Add to this list when new
+versioned tables land.
+
+Caught Slice RI.7 implementation. Pre-existing `updateFirmSettings`
+needed a 30-line refactor to carry-forward all 9 new columns before
+the customer-facing-defaults card UI could land — discovered while
+working through admin surfaces.
+
 ## Suggested-GPA rounding convention (added Slice 9.2)
 
 `computeQuoteSuggestion` uses `Math.ceil(adjNewRaw * 100) / 100` to

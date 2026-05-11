@@ -1798,37 +1798,33 @@ export async function sendQuote(
         .where(eq(quotes.id, quoteId))
         .returning();
 
-      await tx.insert(auditLog).values([
-        {
-          userId: user.id,
-          entityType: "quote",
-          entityId: quoteId,
-          action: "quote_sent",
-          diffJson: {
-            quoteNumber,
-            validUntil: updated.validUntil,
-            snapshots: {
-              tcs: firm.tcsDefault ?? null,
-              paymentTerms: firm.paymentTermsDefault ?? null,
-              leadTime: firm.leadTimeDefault ?? null,
-              incoterms: firm.incotermsDefault ?? null,
-              daysValid,
-            },
+      // Single audit row per send. PreparedBy snapshot lives in the
+      // diff_json sub-object — no independent emit path (snapshots are
+      // immutable for sent quotes per DEC-8; no other action writes
+      // these fields). Folding avoids audit row duplication.
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote",
+        entityId: quoteId,
+        action: "quote_sent",
+        diffJson: {
+          quoteNumber,
+          validUntil: updated.validUntil,
+          snapshots: {
+            tcs: firm.tcsDefault ?? null,
+            paymentTerms: firm.paymentTermsDefault ?? null,
+            leadTime: firm.leadTimeDefault ?? null,
+            incoterms: firm.incotermsDefault ?? null,
+            daysValid,
           },
-        },
-        {
-          userId: user.id,
-          entityType: "quote",
-          entityId: quoteId,
-          action: "prepared_by_snapshotted",
-          diffJson: {
+          preparedBy: {
             name: preparedBy.name,
             email: preparedBy.email,
             phone: preparedBy.phone,
             derived_from: preparedBy.derivedFrom,
           },
         },
-      ]);
+      });
 
       return { quoteNumber, sentAt };
     });
