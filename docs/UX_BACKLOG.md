@@ -70,6 +70,51 @@ Items here are intentionally deferred - capture, don't fix in the moment.
   would duplicate the audit row. If a future slice introduces an
   independent re-snapshot path, split back out.
 
+- [Admin surfaces visual rebuild (Round 5 + post-RI.0 token consolidation)]
+
+  **Slice:** RI.8 polish (or dedicated admin-rebuild slice)
+
+  **What:** Admin pages (`/admin/firm-settings`, `/admin/users`,
+  `/admin/audit-log`, `/admin/markup-defaults`) were built in Slice 8
+  with stock Tailwind utility classes (`bg-slate-900`, `border-slate-300`,
+  `text-slate-700`, etc.). RI.0's `@theme` token rebuild replaced
+  the default Tailwind palette with project-specific OKLCH tokens
+  (paper / ink / accent / good / warn / bad / internal / freight),
+  so the stock `slate-*` / `blue-*` palettes generate no CSS in Tailwind
+  v4 emission. Symptom: admin buttons render as unstyled `<button>`
+  elements, section cards have no visible borders/backgrounds, inputs
+  use browser-default chrome.
+
+  RI.7 surfaced this when Edward smoke-walked /admin/firm-settings
+  and reported "Save button doesn't look like a button." Spot-fix:
+  swapped the four Save / Search buttons to `.r2-btn primary` (loaded
+  globally; project's button primitive). Rest of the admin chrome
+  (card backgrounds, fieldset headers, input borders, dl summary
+  panels, history table) still uses broken stock Tailwind utilities.
+
+  **Scope when this slice runs:**
+  - Replace `bg-slate-*`, `border-slate-*`, `text-slate-*` utilities
+    on admin pages with `@theme`-token-backed alternatives (paper-N,
+    ink-N, rule). Or migrate to scoped CSS files following the
+    `r2-*.css` pattern used by other RI surfaces.
+  - Brief §3.10 specifies a richer Round 5 firm-settings design
+    (portfolio-effect strip, history rail, edit-mode preview-then-
+    commit). Rebuild firm-settings UI to match that design while
+    also fixing the palette issue.
+  - Apply the same visual rebuild to markup-defaults (§3.11),
+    audit-log (§3.12), and users (new RI.7 surface, no design
+    round source yet — extrapolate from Round 5 register).
+
+  **Why log it:** the spot-fix on the four buttons gets RI.7 to
+  smoke-pass-able, but the broader admin chrome is visually broken
+  across all four admin pages. PMs accessing admin during the RI.7
+  → RI.8 gap will see functionally-correct but visually-incomplete
+  surfaces. Acceptable for a v1 internal tool with limited admin
+  use; not acceptable past RI.8.
+
+  Reference: Edward's RI.7 smoke-walk surface, May 2026. Spot-fix
+  commits on `slice-ri.7`.
+
 - [Audit log read-view: explicit renderers for pre-RI.7 action types]
 
   **Slice:** RI.8 polish / TBD

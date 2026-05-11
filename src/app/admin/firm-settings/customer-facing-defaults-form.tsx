@@ -279,12 +279,13 @@ export function CustomerFacingDefaultsForm({
         <button
           type="submit"
           disabled={pending}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="r2-btn primary"
+          style={{ opacity: pending ? 0.5 : 1 }}
         >
           {pending ? "Saving…" : "Save new version"}
         </button>
         <span className="text-xs text-slate-500">
-          Versioned save. Sent quotes' snapshots are unaffected.
+          Versioned save. Sent quotes&rsquo; snapshots are unaffected.
         </span>
       </div>
     </form>

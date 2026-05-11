@@ -111,10 +111,7 @@ export default async function AuditLogPage({
             className="flex-1 rounded border border-slate-300 bg-slate-50 px-2 py-1 text-sm focus:border-slate-500 focus:bg-white focus:outline-none"
           />
         </label>
-        <button
-          type="submit"
-          className="rounded bg-slate-900 px-3 py-1 text-sm font-semibold text-white hover:bg-slate-700"
-        >
+        <button type="submit" className="r2-btn primary sm">
           Search
         </button>
         {query && (

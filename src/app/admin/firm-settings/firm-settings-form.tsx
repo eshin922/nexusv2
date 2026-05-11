@@ -161,7 +161,8 @@ export function FirmSettingsForm({
         <button
           type="submit"
           disabled={pending}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="r2-btn primary"
+          style={{ opacity: pending ? 0.5 : 1 }}
         >
           {pending ? "Saving…" : "Save new version"}
         </button>

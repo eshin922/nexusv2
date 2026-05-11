@@ -128,7 +128,8 @@ function UserRow({ user }: { user: Row }) {
               type="button"
               onClick={save}
               disabled={pending}
-              className="rounded bg-slate-900 px-2 py-1 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+              className="r2-btn primary sm"
+              style={{ opacity: pending ? 0.5 : 1 }}
             >
               {pending ? "Saving…" : "Save"}
             </button>
