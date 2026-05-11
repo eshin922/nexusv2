@@ -993,6 +993,76 @@ Otherwise it's the action-ID hash drift and the cure is the answer.
 After meaningful action-layer sweeps, warn the user before they hit
 this in the browser.
 
+## CTE → JOIN UPDATE → nextval ordering caveat (added Slice RI.7)
+
+PostgreSQL does NOT guarantee that a CTE's `ORDER BY` propagates into
+a JOIN UPDATE → `nextval()` row-visit order. The CTE materializes the
+row set, but the planner is free to choose how to scan the join, so
+sequence values may be assigned in a different order than the CTE's
+ORDER BY.
+
+Concrete shape that does NOT strictly enforce order:
+
+```sql
+WITH ordered AS (
+  SELECT id FROM foo
+  WHERE ...
+  ORDER BY sent_at ASC NULLS LAST, created_at ASC
+)
+UPDATE foo f
+SET seq_col = nextval('foo_seq')
+FROM ordered o
+WHERE f.id = o.id;
+```
+
+Symptom: numbers come out *mostly* in the intended order but with
+occasional swaps between adjacent rows.
+
+**When it matters:** backfilling a sequence-derived identifier across
+multiple rows where strict order is semantically important (e.g.,
+oldest-first numbering for chronological reading).
+
+**When it doesn't:** rows where the assigned identifier has no prior
+external commitment AND order is informational rather than load-
+bearing. Slice RI.7's `0021_quote_number_backfill.sql` is in this
+category — 3 pre-RI.7 sent quotes whose customers had never seen a
+number. The minor swap is acceptable; documented in the migration
+itself.
+
+**Strict-order patterns when needed:**
+
+1. `ROW_NUMBER() + arithmetic on a base value` — bypass the sequence,
+   compute deterministically:
+   ```sql
+   WITH base AS (SELECT nextval('foo_seq') AS start),
+        ordered AS (
+          SELECT id, ROW_NUMBER() OVER (ORDER BY ...) AS rn FROM foo WHERE ...
+        )
+   UPDATE foo f
+   SET seq_col = (SELECT start FROM base) + o.rn - 1
+   FROM ordered o
+   WHERE f.id = o.id;
+   -- then bump the sequence: ALTER SEQUENCE foo_seq RESTART WITH ...;
+   ```
+
+2. **Per-row UPDATE in a procedural block** (PL/pgSQL):
+   ```sql
+   DO $$
+   DECLARE r RECORD;
+   BEGIN
+     FOR r IN SELECT id FROM foo WHERE ... ORDER BY ... LOOP
+       UPDATE foo SET seq_col = nextval('foo_seq') WHERE id = r.id;
+     END LOOP;
+   END $$;
+   ```
+
+Both patterns strictly enforce order at the cost of more SQL.
+
+Caught Slice RI.7 quote_number backfill smoke (migration 0021).
+Three rows; one swap between rows 2 and 3. Edward's disposition (A):
+accept as-is. Convention banked here so future-CC encounters it
+before tripping on a backfill where order does matter.
+
 ## Drizzle aggregation queries
 
 Use Drizzle's column-aware helpers (`count`, `max`, `min`, `sum`,
