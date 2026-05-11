@@ -5,6 +5,257 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Slice 13 — HubSpot library sync (vendors + products)]
+
+  **Slice:** 13 (post-MVP enrichment)
+
+  **What:** Promote vendors + products from ambient free-text fields scattered across Cost Build input pages (packaging supplier, production supplier, freight forwarder, etc.) to first-class tables with bidirectional HubSpot sync. Cost Build input rows retrofit from free-text supplier strings to dropdown selections backed by the synced vendor library. Products get the same treatment so SKU-level references can resolve to canonical entities instead of repeated free-text.
+
+  **Scope:**
+  - `vendors` + `products` first-class tables (schema, migrations).
+  - HubSpot bidirectional sync (read + write). Read syncs vendor/product entries created in HubSpot CRM into Nexus. Write pushes Nexus-originated entries back to HubSpot. Conflict-resolution policy TBD at slice kickoff.
+  - Retrofit Cost Build input pages: packaging line supplier field, production input supplier field, freight line forwarder field — all switch from text input to dropdown sourced from synced library.
+  - Migration strategy for existing free-text values: best-match against synced library, mark unmatched entries for manual reconciliation by admin (don't silently lose data).
+
+  **Dependencies:**
+  - HubSpot CRM-side data setup — vendor records need to exist as HubSpot objects before sync can pull them. Confirm with HubSpot admin at slice kickoff.
+  - RI.7 admin foundation — sync config UI (frequency, conflict policy, manual trigger) lives in admin.
+  - Migration strategy — define before slice 13 starts since touch-everything-Cost-Build refactor depends on the canonical mapping rules.
+
+  **Seed payload:** `docs/hubspot-vendor-seed.ts` — 127 raw `type = VENDOR` records pulled from HubSpot 2026-05-06. NOT cleaned: ~25 empty names, ~25 records where `name` = website domain, mixed-industry rows (SaaS + professional services co-mingled with operational suppliers). File docstring lists the industry filter set for cost-line eligibility + recommends Edward triage to a `cost_line_eligible` HubSpot custom field before Slice 13 sync filters on it. The `VendorRecord` interface is the v0 shape; final `vendors` table schema decided at slice kickoff.
+
+  **Why log it:** anyone working Cost Build section drilldowns between now and Slice 13 needs to know the free-text supplier fields are TEMPORARY. Don't build dependent UX (filtering, grouping by supplier, reports) on top of free-text — wait for the dropdown retrofit. RI.6 + RI.7 + Slice 11/12 work is unaffected; this is a future enrichment, not a refactor of in-flight scope.
+
+  Reference: post-RI.6 surface, May 2026.
+
+- [PreparedBy contact derivation (RI.7)]
+
+  **Slice:** RI.7 (admin foundation / firm_settings extension)
+
+  **What:** Customer-facing PDF "Prepared by" block currently has THREE lines on the right side of the header: firm name, contact (name/email/phone), firm address. RI.6 ships firm name + firm address as live (`VENDOR_FIXTURE` constant in `src/lib/customer-view-fixtures.ts`, promoted to `firm_settings` in RI.7); the contact line renders the visible-synthetic stub `{prepared-by-pending · derives from deal owner in RI.7}` via `QUOTE_STUBS.preparedBy` + the `.pdf-stub` dashed-underline marker.
+
+  Contact is per-deal data — different sales rep per project — so it must derive from the HubSpot deal owner, not a firm-level constant. Resolution chain:
+  `projects.salesRepUserId` (uuid FK → `users.id`) → `users.name` + `users.email` + `users.phone`.
+
+  **What's wired today (schema audit, May 2026):**
+  - ✅ `projects.hubspot_owner_id` (text, indexed) — captured at deal import time.
+  - ✅ `projects.sales_rep_user_id` (uuid FK → users) — backfilled by `ensureUser()` on Clerk sign-in via HubSpot owner email match (`src/lib/auth/ensure-user.ts:50-60`).
+  - ✅ `users.name` + `users.email` — populated on first sign-in from Clerk.
+  - ❌ `users.phone` column — does not exist.
+  - ❌ HubSpot owner sync extension — `findHubspotOwnerByEmail` + `fetchOwnerDetails` (`src/lib/hubspot.ts:121, 205`) return `{ id, firstName, lastName, email }` only. HubSpot owner records DO carry phone in the API; we just don't pull it.
+
+  **Scope:**
+  1. Migration: ADD `users.phone text` (nullable; not all users have phone).
+  2. Extend `fetchOwnerDetails` + `findHubspotOwnerByEmail` to pull phone from HubSpot owners API; backfill `users.phone` in `ensureUser` on first sign-in.
+  3. Admin manual-edit affordance for users.phone (HubSpot owner phone is often empty in CRM — needs manual entry path).
+  4. Server helper `getQuotePreparedBy(quoteId)` returns `{ name, email, phone }` from `projects.salesRepUserId → users` join. Replaces `QUOTE_STUBS.preparedBy` stub in `PdfHeader`.
+  5. Promote `VENDOR_FIXTURE` (name/sub/address) to `firm_settings` table columns with the constant as graceful-degradation fallback when columns are NULL.
+
+  **Open PM question — un-signed-in-rep edge case:** if the sales rep on a deal hasn't signed into Nexus yet, `projects.salesRepUserId` is NULL and there's no users row to resolve to. Three options:
+  - **(a) Render-time HubSpot fetch by `projects.hubspotOwnerId`.** One round trip per PDF render (cacheable per owner ID). Pro: always-correct render. Con: cache invalidation + adds HubSpot dependency to a customer-facing render path.
+  - **(b) Eagerly snapshot at deal import.** Add `projects.prepared_by_name / _email / _phone` columns; populate from HubSpot at import. Pro: render path is purely DB. Con: snapshot goes stale if owner is reassigned in HubSpot after import; needs refresh-on-deal-refresh wiring.
+  - **(c) Block PDF render until rep signs in.** Show an actionable "Sales rep hasn't signed into Nexus yet — they must sign in once before quotes can be sent." surface. Pro: simplest data model; forces backfill. Con: hard-gates a PM workflow on an unrelated sign-in event.
+
+  Decide at RI.7 kickoff. Default leaning is (a) with a sensible TTL cache, since the deal-owner refresh button already establishes the pattern of HubSpot-as-source-of-truth at render time. (b) is the right answer if HubSpot rate limits become a real concern.
+
+  **Why log it:** RI.6 ships with the stub as part of the visible-synthetic discipline; the architecture decision (data source = deal owner, not firm-level constant) is captured here so RI.7 doesn't have to re-derive it. Architectural correction call was Edward's May 2026 review of the RI.6 vendor block — hardcoding contact would be wrong for any quote not handled by one specific person.
+
+  Reference: `src/lib/customer-view-fixtures.ts` `VENDOR_FIXTURE` + `QUOTE_STUBS.preparedBy`; `src/components/pdf/pdf-header.tsx` PreparedBy block; schema audit `src/db/schema.ts:156-208`.
+
+- [Customer-view boundary guard: migrate from custom verifier script to ESLint no-restricted-paths]
+
+  **Slice:** TBD (when ESLint infra arrives)
+
+  **What:** RI.6 implemented the customer-view boundary guard via `scripts/verify/customer-view-boundary.ts` — a custom 90-line script that greps `src/components/pdf/**/*.{ts,tsx}` for forbidden imports (`@/components/cost-build`, `@/components/costing`, `@/lib/costing*`, `@/db*`, `@/app/actions/*`, `@/components/internal-only-badge*`). Hooked into the prebuild npm script so failures surface at `next build`. The Designer audit specced ESLint via eslint-plugin-import's `no-restricted-paths` rule, but the project has no ESLint configured today (v15.5.15's `next lint` is deprecated, and this codebase never set up the canonical eslint.config or eslint.json). Installing eslint + eslint-plugin-import + writing flat config just for one rule is yak-shaving for v1; the custom script delivers the same enforcement strength.
+
+  **Why log it:** when Edward decides ESLint pays for itself across the codebase (likely Slice 17 polish or a separate codebase-hygiene slice), migrate the customer-view boundary check into the canonical `import/no-restricted-paths` config and delete the custom script. The script is 90 lines that someone has to remember to maintain; ESLint is the canonical mechanism. Until ESLint is otherwise needed, the custom script is the right shape.
+
+  **Where designed:** Designer memory `reference_r3_pdf_token_lock.md` specced the ESLint mechanism on the (incorrect) assumption that Next.js's default eslint setup ships eslint-plugin-import. That assumption was wrong for this project. The mechanism intent (build-time error if costing imports leak into PDF subtree) is preserved either way.
+
+  Reference: `scripts/verify/customer-view-boundary.ts`, `package.json` `prebuild` script, RI.6 implementation.
+
+- [DB invariant: quotes.drop_reason ↔ scenario_status='dropped' (Slice 12 hardening)]
+
+  **Slice:** 12 (Mark-Accepted + sibling auto-drop action)
+
+  **What:** RI.1 added `quotes.drop_reason` (scenario_drop_reason enum) and `dropped_by_user_id` + `dropped_at` columns. Schema comment declares the invariant: "NULL on active/accepted; required (action-layer) when status transitions to 'dropped'." But the action layer that enforces this — sibling auto-drop on Mark-Accepted (Round 3 commitment #5), draft-at-accept auto-save (Round 3 commitment #2), manual drop UI — ships in Slice 12.
+
+  **Risk window:** between RI.1 and Slice 12, a manually-inserted `scenario_status='dropped'` row could land with NULL `drop_reason`. Render path is graceful (`humanizeDropReason` returns the reason as-is; if null, badge renders empty). But the data quality drift is real if anything bypasses the action layer.
+
+  **Where designed:** Slice 12 brief — auto-drop on accept implements the canonical write path. Designer RI.1+RI.2+RI.3 audit S5 surfaced + dispositioned (Justify-or-Fix; CC chose UX_BACKLOG over premature DB CHECK).
+
+  **Two paths when the invariant ships:**
+  1. Add a DB CHECK constraint via Slice 12 migration: `CHECK ((scenario_status = 'dropped') = (drop_reason IS NOT NULL))`. Hard guarantee at the schema layer. Defensible.
+  2. Action-layer enforcement only (default to 'manual' when missing on dropped rows). Looser; relies on action discipline.
+
+  **Why log it:** Don't add the CHECK now (premature; no auto-drop action to validate against). Don't lose the invariant (would create silent data drift). Slice 12 implementation should pick path 1 OR path 2 explicitly.
+
+  Reference: `src/db/schema.ts` `quotes.drop_reason` column comment + Slice 12 brief auto-drop section.
+
+- [Per-SKU drill-down from Costing Sheet to Cost Build (post-MVP)]
+
+  **Slice:** Post-MVP / TBD (validate workflow first)
+
+  **What:** Costing Sheet currently routes to Cost Build only at the page level (no per-SKU context). When PMs land on Costing Sheet directly via inner rail or deep-link and want to drill into a specific SKU's decomposition, they re-navigate manually. Wire if/when smoke shows the workflow gap. Requires `?focus=<sku-id>` deep-link param on Cost Build + per-row "Open in Cost Build →" affordance on Costing Sheet rows.
+
+  **Why log it:** R2's per-SKU surface had inline cost decomposition (no separate Cost Build); R6 split decomposition out to Cost Build. Costing Sheet R2 source has no per-row navigation because R2 didn't need it. With v1 RI.4+RI.5 architecture, the inter-page nav lives at the top-level Cost Build button. If PMs report "I wanted to drill into a SKU specifically, not the section," that's the signal to add `?focus=<sku-id>` deep-linking to Cost Build + a per-row affordance on Costing Sheet rows.
+
+  **Where designed:** R2 `costing.jsx:388` confirms cards are NOT clickable in R2 source (cell-level affordances only); brief §3.3:362 specifies "Open Cost Build →" at page level only. v1 ships per option A from RI.5 Room 3 audit (May 2026).
+
+  Reference: Designer Room 3 audit Q3 sub-question + Edward's escalation directive.
+
+- [Production schema → variable-line model (post-MVP)]
+
+  **Slice:** Post-MVP / TBD (data model migration)
+
+  **What:** RI.4 ships Production drilldown as a flat `.r6-dt.prod` table by mapping CC's fixed cost fields (filling_blending, cm_assembly, setup_fee, tooling_artwork, rd, other_service, bulk_raw_cost) onto **virtual lines** per SKU. R6's prototype models production as variable lines per section (each with its own kind/category/supplier/markup). Schema migration would let users add arbitrary production lines (e.g., "Custom assembly fixture", "Secondary kitting") rather than being constrained to the 7 fixed fields. Visual register lands today; data model expansion = real work for v1.5+.
+
+  **Migration sketch:** new `production_lines` table (parallel to `packaging_inputs` / `freight_inputs`) with `line_group_id` + `kind` (per_unit / amortized_nre) + `category` + `supplier` + `markup_pct`. `production_inputs` reduces to per-(line, tier) cell with `total_cost` only. Cost-rollup math layer reads from the new shape.
+
+  **Where designed:** R6 `production-drawer.jsx` lines 85-127 (variable-line table); R6 `index.html:2811-2816` (`.r6-dt.prod` grid template).
+
+  Reference: Slice RI.4 production-drilldown.tsx VIRTUAL_LINES bridge + CR-13 amendment-3.
+
+- [Bulk Raw category + ingredient CRUD UI]
+
+  **Slice:** RI.4 follow-up (post-RI.4 PR merge)
+
+  **What:** RI.4 ships Bulk Raw drilldown read-only with R6 visual register. Add Category / Add Ingredient buttons currently DISABLED placeholders. CRUD action layer + form UIs deferred. Schema is in place (3 tables: bulk_raw_categories, bulk_raw_ingredients, bulk_raw_section_meta from migration 0019) — only the UI + actions ship in follow-up.
+
+  Reference: `src/components/cost-build/bulk-raw-drilldown.tsx`.
+
+- [Production line supplier picker]
+
+  **Slice:** Post-MVP / TBD (depends on supplier infrastructure slice)
+
+  **What:** R6 production line table has a Supplier column. CC's production_inputs schema has no per-line supplier (denormalized; production blocks track per-SKU policy only). RI.4 ships Supplier column rendering "—" placeholder. When supplier infrastructure ships (separate slice), Production line supplier picker lights up.
+
+  Coordinates with: schema variable-line migration (entry above).
+
+  Reference: R6 `production-drawer.jsx:110` `.r6-dt-row .sup`.
+
+- [HTS code lookup for Bulk Raw ingredients]
+
+  **Slice:** Post-MVP / TBD
+
+  **What:** R6 Bulk Raw ingredient sub-line shows HTS code as sub-text under ingredient name. Schema has `bulk_raw_ingredients.hts_code text` column. Ingredient CRUD UI (entry above) needs an HTS picker / search affordance — typing a description matches against an HTS code list (DDP customs declarations require valid HTS).
+
+  Reference: R6 `bulk-raw-drawer.jsx:133` `<span className="sub">HTS {ing.hts_code}</span>`.
+
+- [Cost section ownership data model]
+
+  **Slice:** Post-MVP / TBD (no owner-assignment surface ships in redesign-implementation)
+
+  **What:** R6 section row anatomy includes an owner column (22px avatar with initials + owner name + " · N lines" trailing). RI.4 ships with placeholder rendering (paper-3 circle + em-dash + ink-4 "—" label) per Designer Pattern 1 audit Path A — the column track holds R6 anatomy but the data is absent. When owner-assignment lands, the placeholder lights up.
+
+  **Schema:** new `cost_section_meta` table parallel to `bulk_raw_section_meta`:
+  ```
+  CREATE TABLE cost_section_meta (
+    quote_id    UUID NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+    section_kind cost_section_kind NOT NULL,  -- enum: packaging/production/freight/bulk_raw
+    owner_user_id UUID REFERENCES users(id),
+    PRIMARY KEY (quote_id, section_kind)
+  );
+  ```
+  `cost_section_kind` enum already exists for `cost_section_deposits`; reuse.
+
+  **UI surface:** assignment via Cost Build page header dropdown ("Assigned to: PM Sarah") OR per-section right-click → reassign. Coordinate with role-as-affordance pattern from CLAUDE.md (Purchasing role sees Packaging editable, Production read-only with role-aware caption).
+
+  **Where designed:** R6 `index.html` lines 2667-2678 (`.r6-section-row .owner`) + `section-summary-row.jsx` lines 25-29; brief §3.4:401.
+
+  Reference: Designer Pattern 1 comprehensive audit C-5 (RI.4 block-boundary, May 2026).
+
+- [Per-component cost-vs-markup math layer extension]
+
+  **Slice:** Post-MVP / TBD
+
+  **What:** R6's cost stack bar grammar uses two segments per component bar: `seg.cost` (solid component color) + `seg.markup` (ink-colored, 1px white separator). R6 fixtures explicitly split `cost` and `markup` per component. Nexus's cost-rollup math layer (`src/lib/costing.ts` `QuoteCostBreakdown`) currently exposes the SUM `cost × (1 + markup)` per component — the split isn't computed. RI.4 ships with `seg.cost` only (full-width segment, no markup overlay).
+
+  **Math layer change:** extend `costBreakdown` to expose `{ packaging: { cost, markup }, production: { cost, markup }, ... }` per tier. Source data is already there (`packaging_inputs.markup_pct`, `production_inputs.allocate_service_fees_to_cost`, etc.); just needs a different aggregation shape.
+
+  **UI consequence:** cost-stack-header.tsx `CompRow` already wires the second segment behind a guard; flipping the math returns +1 segment per bar with no further UI change. Per-component cost-vs-markup transparency is a real PM affordance ("how much of this packaging line is contribution vs uplift?") that R2/R6 prioritized.
+
+  **Where designed:** R6 `index.html` lines 2495-2543 (`.r6-bar .seg.cost.* + .seg.markup`); R2 source canonical at `source/round-2/app/r2/styles.css:381-456`.
+
+  Reference: Designer Pattern 1 comprehensive audit C-9 + RI.4 cost-stack-header.tsx CompRow comment.
+
+- [Pulse-dot live HubSpot sync indicator]
+
+  **Slice:** Post-MVP / TBD (data wiring; visual already lands in RI.4)
+
+  **What:** R6 page header includes a 6px green pulse-dot + "Synced to HubSpot · {timestamp}" mono caption signaling realtime sync state. RI.4 ships the visual treatment (green dot with `box-shadow: 0 0 0 3px var(--good-soft)` halo) but the caption text is currently the project's deal/client name placeholder, not a real HubSpot sync timestamp.
+
+  **Wiring:** existing Slice 5.6 cache (`getCacheStatus`) exposes `last_synced_at` per HubSpot entity. Add HubSpot deal sync timestamp to the project-load query path (`projects/[id]/cost-build/page.tsx`) + render in `cost-build-header.tsx` meta strip. Stage label ("Closed Won — Q3" etc.) is also queryable from the cached deal record.
+
+  **Where designed:** R6 `index.html` lines 2357-2365 (`.r6-page-head .meta` + `.live`); brief §3.4 line 397 commitment to per-surface HubSpot sync trust chrome.
+
+  Reference: Designer Pattern 1 comprehensive audit S-6.
+
+- [RI.4 follow-up — Section row owner badge]
+
+  **Slice:** Folded into "Cost section ownership data model" entry above (consolidated post-comprehensive-audit).
+
+- [RI.4 follow-up — Bulk Raw CRUD UI (categories + ingredients)]
+
+  **Slice:** RI.4 follow-up sub-slice (post-RI.4 PR merge)
+
+  **What:** RI.4 ships Bulk Raw schema (3 tables from migration 0019) + read-only display in the new Cost Build drilldown + mode selector + INACTIVE state. CRUD action layer + form UIs for categories + ingredients are scaffolded as DISABLED placeholders ("+ New category" / "+ New ingredient" buttons; "ships in RI.4 follow-up" microcopy).
+
+  **What ships in the follow-up:**
+  - `addBulkRawCategory` + `updateBulkRawCategory` + `deleteBulkRawCategory` server actions
+  - `addBulkRawIngredient` + `updateBulkRawIngredient` + `deleteBulkRawIngredient` server actions
+  - Inline-edit affordances in the existing categories + ingredients table (per Round 5 admin inline-edit pattern)
+  - Add Category modal/inline form + Add Ingredient modal/inline form
+  - HTS code lookup integration (deferred separately; not blocking categories/ingredients CRUD)
+  - Supplier picker (deferred; suppliers infrastructure ships separately)
+
+  **Where designed:** Round 6 + Bulk Raw correction. RI.4 brief §3.4 line 419-426 spec'd the full UI; CC scope-cut to read-only + scaffold for v1.
+
+  **Why log it:** Bulk Raw is brand-new schema with zero existing data. The read-only v1 lets PMs see future-state structure but not edit. CRUD UI is real product surface that needs Designer dispatch (Pattern 3 — small targeted design round) before CC implements.
+
+  Reference: `src/components/cost-build/bulk-raw-drilldown.tsx` + `src/app/actions/bulk-raw.ts` (`setRawsMode` shipped; CRUD scaffold).
+
+- [RI.4 follow-up — line-row component token reskin (Packaging / Production / Freight / Customs)]
+
+  **Slice:** RI.4 follow-up OR RI.5 polish (Costing Sheet rebuild may swallow some of this)
+
+  **What:** The line-row + section components reused inside the new Cost Build drilldowns are pre-RI utilitarian:
+  - `src/app/projects/[id]/quotes/[quoteId]/packaging/packaging-line-row.tsx` (495 LOC)
+  - `src/app/projects/[id]/quotes/[quoteId]/packaging/add-line-button.tsx`
+  - `src/app/projects/[id]/quotes/[quoteId]/production/production-section.tsx` (549 LOC)
+  - `src/app/projects/[id]/quotes/[quoteId]/freight/freight-line-row.tsx` (578 LOC)
+  - `src/app/projects/[id]/quotes/[quoteId]/freight/customs-row.tsx`
+  - `src/app/projects/[id]/quotes/[quoteId]/freight/add-line-button.tsx`
+
+  Token regressions inside these components: `bg-gray-*`, `border-gray-*`, `text-red-700`, `bg-amber-50`, `text-amber-800`, `text-blue-700`, `text-gray-500`, etc. RI.0 token foundation didn't reach into these (the smoke targets were specific surfaces like the per-SKU summary table column header + verdict pills + sparkline).
+
+  **Visible PM impact:** PMs opening any drill-down on the new Cost Build page see pre-RI styling (raw sRGB Tailwind palette) inside the drawer, visually inconsistent with the OKLCH-tuned shell surrounding it.
+
+  **Where designed:** RI.4 brief §3.4 lines 396-433 describe the target drill-down structure (toolbar + table + per-tier columns); the visual treatment per CD's design system applies to the whole composition.
+
+  **Why log it:** Mechanical reskin (find/replace `bg-gray-100` → `bg-paper-3`, etc.) plus a Designer pass to verify visual register matches R6. ~1-2 days of work. Could land as an RI.4 polish PR OR fold into RI.5 (Costing Sheet rebuild may share some of these surfaces).
+
+  Reference: Designer audit X-1 (RI.4 block-boundary, Slice RI.4 PR review).
+
+- [RI.4 follow-up — Cost rollup component breakout for RAW + D+T + PASS rows in cost stack]
+
+  **Slice:** RI.4 follow-up OR RI.5 (Costing Sheet rebuild)
+
+  **What:** The cost stack header (`CostStackHeader`) renders 5 or 6 component bar rows: PKG / PROD / [RAW when dps_sources] / FRT / D+T / PASS. The math layer's `QuoteCostBreakdown` only exposes 4 fields: `packaging`, `production`, `freight`, `serviceFees`. RAW + D+T + PASS rows currently render as 0 (component is structurally present but value source is empty).
+
+  **What's needed:**
+  - Math layer extension: `QuoteCostBreakdown` adds:
+    - `bulkRaw: number` — sum of bulk raw ingredient costs (when dps_sources mode; else 0)
+    - `dutyTariff: number` — sum of duty + tariff portions of landed freight (split out from current `freight` total)
+    - `passthroughFreight: number` — pass_through-treatment freight (split out from `freight`)
+  - Cost rollup helper updates: `rollUpAssemblyPerTier` + `quoteRollup` walk extends to compute these breakouts
+  - Tests: `scripts/test-costing.ts` adds assertions for the new breakouts
+  - `CostStackHeader.rowValue()` reads the new fields instead of returning 0
+
+  **Why log it:** Without this, the cost stack header has 2-3 always-empty rows that visually communicate "this is structurally present but data isn't flowing." Functional v1 — PMs can read PKG/PROD/FRT — but the 0-rows are a fidelity gap. Math layer extension is real engineering work; deferred until the surface needs the differentiation enough to justify.
+
+  Reference: `src/components/cost-build/cost-stack-header.tsx:240-254` `rowValue` helper + Designer audit X-3 (RI.4 block-boundary).
+
 - [Per-SKU drill-down spacing audit (RI.5 smoke target)]
 
   **Slice:** RI.5 (Costing Sheet rebuild — Round 6 section-with-drill-down pattern)

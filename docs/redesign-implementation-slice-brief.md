@@ -51,6 +51,20 @@ A coordinated visual + structural rebuild of every PM-facing surface, applying C
 
 This slice is large and has many decisions in flight. To prevent visual drift, the decision-authority is explicit.
 
+### CD's design rounds are non-negotiable v1 spec
+
+The HTML prototypes at `docs/design-prototypes/Nexus Round X.html` are authoritative for v1 visual design. They are not reference material the brief synthesizes from; they ARE the spec. CC implements against CD's source directly.
+
+**Working pattern for any net-new visual surface:**
+
+1. **Open CD's prototype HTML first** — render it locally, identify the named CSS classes (`.r6-stack-grid`, `.r6-tier-col`, `.r6-comp-row`, etc.), inspect the spatial structure
+2. **Build against CD's named structure** — if CD shipped `.r6-stack-grid` as a CSS Grid with tiers as side-by-side columns, the implementation uses CSS Grid with tiers as side-by-side columns. Class names translate to Tailwind utilities, but the structural hierarchy matches
+3. **The brief is a navigation aid** — points CC to which sections of CD's source apply, paraphrases the design intent for context, but the brief is NOT a substitute for reading CD's source. **Where the brief and CD's source disagree, CD's source wins.**
+4. **Do not improvise from prior slices' patterns** — net-new surfaces in R6 may use grammar that doesn't exist in earlier rounds (the cost stack is one example). Pattern-matching from R3 or R4 conventions to fill gaps in net-new R6 surfaces is incorrect; read R6's source directly
+5. **Designer audits structural fidelity, not just token consumption** — Designer verifies that CD's named CSS structure is reflected in the implementation, that segmented bars are segmented, that tiers-as-columns are tiers-as-columns
+
+This pattern was added after RI.4 surfaced a structural-fidelity gap on the cost stack header (implementation rendered components-as-rows-spanning-tiers when CD specified tiers-as-columns-containing-component-rows). The gap existed because the brief's English description was ambiguous and CC built against the brief without reading CD's source. The fix is to enforce source-first as the working pattern, not to write more synthesis-from-source in briefs.
+
 ### The Designer agent
 
 Visual decisions during build are routed through a **Designer agent** — an AI agent with authority below CD (the human designer who produced the six rounds) but above CC on visual questions. Designer's responsibilities:
@@ -88,16 +102,20 @@ When CC encounters one of these and the prototypes don't answer it, **CC invokes
 
 For each Tier 1 and Tier 2 surface (and each Tier 3 surface where visual treatment is being scaffolded), CC's implementation cycle is:
 
-1. **Read** the relevant round's `.md` docs (designer notes + data-source map) cover-to-cover before writing any component code
-2. **Render** the prototype locally — open the HTML in a browser, walk every state via the Tweaks panel, screenshot the states being implemented
-3. **Implement** the surface in Next.js + RSC + Tailwind (or whichever stack patterns apply)
-4. **Compare** side-by-side: rendered prototype on left half of screen, implementation on right half. Walk every state. Note every visual deviation.
-5. **Invoke Designer for fidelity audit.** Designer produces a structured report classifying each deviation as Critical / Significant / Minor and recommending Must-Fix / Justify-or-Fix / Note disposition.
-6. **Address Designer's findings:** must-fix deviations are corrected before PR; justify-or-fix deviations are either corrected OR explained in PR description. Designer may reclassify after seeing CC's justification.
-7. **PR description includes** screenshots of both prototype and implementation side-by-side for each state, plus Designer's fidelity report with disposition for each finding. Edward + CA review for fidelity before merge — Designer's audit is the first pass; Edward + CA are the final pass.
+1. **Open CD's prototype HTML first.** For net-new visual surfaces, this is the authoritative spec. Identify the named CSS classes CD shipped (e.g., `.r6-stack-grid`, `.r6-tier-col`, `.r6-bar` with `seg.cost` + `seg.markup` children). Inspect the spatial hierarchy. The brief points to which round + section applies; CD's HTML defines what to build.
+2. **Read** the relevant round's `.md` docs (designer notes + data-source map) cover-to-cover for design intent + commitments
+3. **Render** the prototype locally — walk every state via the Tweaks panel, screenshot the states being implemented
+4. **Implement** the surface in Next.js + RSC + Tailwind, matching CD's structural hierarchy. Class names translate to Tailwind utilities; structure stays the same. If CD shipped tiers as side-by-side columns each containing all components, the implementation uses tiers as side-by-side columns each containing all components — not components as rows spanning tiers
+5. **Compare** side-by-side: rendered prototype on left half of screen, implementation on right half. Walk every state. Note every visual deviation, structural or detail
+6. **Invoke Designer for fidelity audit.** Designer produces a structured report classifying each deviation as Critical / Significant / Minor and recommending Must-Fix / Justify-or-Fix / Note disposition. **For net-new surfaces, Designer explicitly audits structural fidelity against CD's named CSS classes** — not just token consumption
+7. **Address Designer's findings:** must-fix deviations are corrected before PR; justify-or-fix deviations are either corrected OR explained in PR description. Designer may reclassify after seeing CC's justification
+8. **PR description includes** screenshots of both prototype and implementation side-by-side for each state, plus Designer's fidelity report with disposition for each finding. Edward + CA review for fidelity before merge — Designer's audit is the first pass; Edward + CA are the final pass
 
 Deviations that are NOT acceptable without explicit Edward + CA sign-off (these are "Critical" by Designer's classification):
 
+- **Structural axis inversion** — if CD's source shipped tiers as columns and the implementation built tiers as rows (or any equivalent spatial inversion), that's Critical even if every individual color and font is correct. The spatial grammar carries design intent
+- **Missing structural elements from CD's source** — if CD's `.r6-bar` has `seg.cost` + `seg.markup` children and the implementation rendered only `seg.cost`, that's Critical. CD shipped the segments deliberately; missing them changes the information rendered
+- **Inventing structure CD didn't ship** — if CD didn't have a particular surface element and the implementation added one (filling gaps from prior slices' patterns or general design intuition), that's Critical. Net-new surfaces in R6 may have grammar that breaks earlier conventions intentionally
 - Different typography scale or weights
 - Different color values (use CD's CSS variables verbatim)
 - Different spacing rhythm

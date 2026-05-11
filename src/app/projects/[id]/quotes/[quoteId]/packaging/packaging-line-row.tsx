@@ -11,6 +11,7 @@ import {
 } from "@/app/actions/packaging";
 import { useCostingStore } from "@/components/costing-store-provider";
 import {
+  selectActiveTierId,
   selectUpdatePackagingCell,
   selectUpdatePackagingLineMeta,
 } from "@/lib/costing-store";
@@ -418,7 +419,22 @@ function TierCostCell({
     [],
   );
 
-  if (!cell) return <span className="text-xs text-gray-400">—</span>;
+  // Active-tier column highlight (RI.4 CR-13 amendment): cells in the
+  // active tier column tint with accent-soft/30. Subscribes to the
+  // store so re-renders are local to changed cells, not the whole row.
+  const activeTierId = useCostingStore(selectActiveTierId);
+  const isActive = activeTierId === tier.id;
+
+  if (!cell)
+    return (
+      <span
+        className={`text-xs text-gray-400 ${
+          isActive ? "rounded bg-accent-soft/30 px-1" : ""
+        }`}
+      >
+        —
+      </span>
+    );
 
   function fireSave() {
     if (!cell) return;
@@ -464,8 +480,16 @@ function TierCostCell({
   }
 
   return (
-    <div className="flex items-center gap-1">
-      <span className="text-xs text-gray-500">{tier.label}</span>
+    <div
+      className={`flex items-center gap-1 rounded px-1 py-0.5 transition-colors ${
+        isActive ? "bg-accent-soft/30" : ""
+      }`}
+    >
+      <span
+        className={`text-xs ${isActive ? "text-accent-ink" : "text-gray-500"}`}
+      >
+        {tier.label}
+      </span>
       <input
         value={unitCost}
         type="number"

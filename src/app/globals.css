@@ -1,5 +1,8 @@
 @import "tailwindcss";
 @import "../styles/design-tokens.css";
+@import "../styles/r6-cost-build.css";
+@import "../styles/r2-costing.css";
+@import "../styles/r3-customer-view.css";
 
 /*
  * Tailwind v4 @theme block — exposes CD's design tokens to utility
@@ -49,6 +52,10 @@
   --color-internal-soft: var(--internal-soft);
   --color-internal-rule: var(--internal-rule);
 
+  /* Cost stack FRT component color (Slice RI.4) */
+  --color-freight: var(--freight);
+  --color-freight-soft: var(--freight-soft);
+
   /* Backlog-dependent wishful state */
   --color-wishful: var(--wishful);
 
@@ -87,7 +94,10 @@ body {
 }
 
 body {
-  background: var(--paper);
+  /* paper-2 matches R6 body bg (index.html line 362). bg-paper cards
+     (cost stack, section rows, scenario context strip) read as
+     contrast-field cards on top — same as R6's visual register. */
+  background: var(--paper-2);
   color: var(--ink);
   font-family: var(--ui);
   font-size: 14px;

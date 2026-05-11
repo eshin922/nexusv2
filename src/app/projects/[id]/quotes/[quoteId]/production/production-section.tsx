@@ -7,6 +7,7 @@ import {
 } from "@/app/actions/production";
 import { useCostingStore } from "@/components/costing-store-provider";
 import {
+  selectActiveTierId,
   selectUpdateProductionCell,
   selectUpdateProductionPolicy,
 } from "@/lib/costing-store";
@@ -120,6 +121,8 @@ export function ProductionSection({
   // (no impact on costing rollup) so it doesn't push.
   const updateProductionCell = useCostingStore(selectUpdateProductionCell);
   const updateProductionPolicy = useCostingStore(selectUpdateProductionPolicy);
+  // RI.4 CR-13 amendment: column highlight on active tier.
+  const activeTierId = useCostingStore(selectActiveTierId);
 
   // Map from CellState field name to the costing input field name.
   // The two are identical; declared explicitly for type-safety against
@@ -388,11 +391,19 @@ export function ProductionSection({
           style={{ gridTemplateColumns: gridCols }}
         >
           <div className="px-3 py-2">Field</div>
-          {tierCells.map((c) => (
-            <div key={c.tierId} className="px-3 py-2 text-right">
-              {c.tierLabel}
-            </div>
-          ))}
+          {tierCells.map((c) => {
+            const isActive = activeTierId === c.tierId;
+            return (
+              <div
+                key={c.tierId}
+                className={`px-3 py-2 text-right transition-colors ${
+                  isActive ? "bg-accent-soft text-accent-ink" : ""
+                }`}
+              >
+                {c.tierLabel}
+              </div>
+            );
+          })}
         </div>
 
         {/* Cost rows */}
@@ -492,6 +503,8 @@ function CellRow({
   inputType: "numeric" | "integer";
   rowClass?: string;
 }) {
+  // RI.4 CR-13 amendment: column highlight on active tier.
+  const activeTierId = useCostingStore(selectActiveTierId);
   return (
     <div
       className={`grid items-center border-b border-gray-100 text-sm ${rowClass}`}
@@ -501,13 +514,19 @@ function CellRow({
       {tierCells.map((c, idx) => {
         const value = tierStates[idx][field];
         const hasValue = value !== "" && value !== "0";
+        const isActive = activeTierId === c.tierId;
         // Fill-right semantics: button only appears if there are
         // tiers AFTER this one to copy to. Last tier has nothing to
         // its right, so no button.
         const tiersToRight = tierCells.length - 1 - idx;
         const showApplyButton = tiersToRight > 0;
         return (
-          <div key={c.tierId} className="px-2 py-1.5">
+          <div
+            key={c.tierId}
+            className={`px-2 py-1.5 transition-colors ${
+              isActive ? "bg-accent-soft/30" : ""
+            }`}
+          >
             <div className="flex items-center gap-1">
               <input
                 type="number"

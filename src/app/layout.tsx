@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Newsreader, Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
-import { AppHeader } from "@/components/app-header";
+import { AppShell } from "@/components/app-shell";
 import { GlobalRealtimeProvider } from "@/components/global-realtime-provider";
 import "./globals.css";
 
@@ -60,10 +60,11 @@ export default function RootLayout({
               a window CustomEvent on changes; CostingStoreProvider folds
               it into the same reconcile pipe as per-quote events. */}
           <GlobalRealtimeProvider />
-          {/* Slice 8.5 — persistent app header with admin entry point
-              (visible to ADMIN_EMAILS-listed users only). */}
-          <AppHeader />
-          {children}
+          {/* Slice RI.2 — AppShell renders the outer rail (Round 4)
+              for authenticated users; sign-in/sign-up pages pass
+              through unwrapped. Project surfaces add the inner rail
+              via /projects/[id]/layout.tsx. */}
+          <AppShell>{children}</AppShell>
         </body>
       </html>
     </ClerkProvider>

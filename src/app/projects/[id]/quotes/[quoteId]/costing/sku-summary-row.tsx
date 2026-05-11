@@ -1,62 +1,68 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { updateClientTarget } from "@/app/actions/costing";
 import {
   selectActiveTierId,
   selectActiveTierRollup,
   selectCellTarget,
+  selectPerTierForSku,
   selectSkuRollups,
   selectTiers,
+  selectUpdateCellTarget,
+  type CostingStoreState,
 } from "@/lib/costing-store";
-import { useCostingStore } from "@/components/costing-store-provider";
-import { ClientTargetCell } from "@/components/costing/client-target-cell";
-import { CompetitiveIndicator } from "@/components/costing/competitive-indicator";
+import {
+  useCostingStore,
+  useCostingStoreApi,
+} from "@/components/costing-store-provider";
+import { TwoAxisVerdictPair } from "@/components/costing/two-axis-verdict";
 import {
   MarginSparkline,
   type SparklinePoint,
 } from "@/components/costing/margin-sparkline";
-import { MarginVerdictPill } from "@/components/costing/margin-verdict-pill";
+import { ReverseSolveDialog } from "@/components/costing/reverse-solve-dialog";
 import { RequiredSellCell } from "@/components/required-sell-cell";
-import type { SkuRollup } from "@/lib/costing";
+import {
+  naiveTierAdjForCostExceedsTarget,
+  suggestTierAdjForClientTarget,
+  type QuoteCostingInput,
+  type SkuRollup,
+} from "@/lib/costing";
 import { SkuBreakdown } from "./sku-breakdowns";
 
-// Slice 9.4a — per-SKU summary table. Replaces sku-breakdowns.tsx as
-// the primary per-SKU surface on the Costing Sheet. Cost-decomposition
-// (the prior surface) survives as the drawer-only inspection view
-// triggered from each row's disclosure button (Task 6 wires the actual
-// drawer content; this scaffold renders the empty drawer container so
-// the layout is reviewable end-to-end).
+// Slice RI.5 Room 3 sweep — per-SKU breakdown rebuilt as card-per-
+// SKU per R2 source (`docs/design-prototypes/dist/source/round-2/
+// app/r2/costing.jsx:383-509`). Replaces the prior 9.4a table+drawer
+// invention which had no R2 source.
 //
-// Table structure (per IA-spec Costing Sheet § per-SKU breakdown):
-//   <table>
-//     <thead>: SKU | Contribution | → | Required sell | Margin | (drawer toggle)
-//     <tbody>: one <tr> per SKU; ALL cells render the ACTIVE-TIER slice.
-//              Each <tr> is followed by a conditional drawer <tr>
-//              (colspan-full) when expandedSkuId matches.
+// Each SKU = `<article>` with R2 .r2-card register, conditional
+// `borderLeft: 3px solid var(--bad)` when active-tier marginStatus
+// is BELOW_FLOOR. Inner grid: 4 columns (1.4fr 1.4fr 1.5fr 1.4fr,
+// gap 0) with borderRight separators. Columns:
+//   1. SKU identity (mono label + UNDERPRICED + Assembly chips →
+//      display 17px name → mono metadata)
+//   2. Contribution → required sell (eyebrow → inline arrow grammar
+//      with RequiredSellCell + retail readout)
+//   3. Margin (eyebrow → 28px display → TwoAxisVerdictPair → gap-
+//      readout with inline ClientTarget edit + reverse-solve button)
+//   4. All tiers (eyebrow → MarginSparkline preserved per brief
+//      §3.3:368 + Q2 PM call as authorized R2 extension)
 //
-// Visual treatment:
-//   - Subtle borders + hover tint, NOT card-per-row containers
-//     (matches IA-spec table-style framing; cards-per-SKU was the
-//     prior wrong-shape inference from sku-breakdowns.tsx)
-//   - Drawer row visually extends its summary row above: border-top
-//     suppressed, slight gray bg tint, no spacing between
-//   - Assembly rows: subtle blue-tint left border + small "Assembly"
-//     badge inline with SKU label (assemblies are still per-SKU rows
-//     in this table; they just render rolled-up values from children)
-//
-// Drawer expansion model:
-//   - Single source of truth: expandedSkuId in <SkuSummaryRowList>
-//   - One drawer open at a time per page (clicking another row
-//     auto-collapses the prior). Disclosure chevron derives from
-//     expandedSkuId === sku.skuId; no per-row local state.
-//
-// Per-SKU active-tier values:
-//   - Active tier resolved by parent via store (selectActiveTierId).
-//     Active tier doesn't render an explicit per-row indicator; the
-//     page-level selector (Task 5) is the source of truth for "which
-//     tier am I looking at" — trust the user.
-//   - When active tier changes, every row re-renders with the new
-//     tier's slice; per-cell overrides persist per-(SKU, tier).
+// Drawer + ▾/▴ mechanic deleted (R2 has no drawer; decomposition
+// lives on Cost Build per R6 IA split). Per-SKU navigation to Cost
+// Build is post-MVP per UX_BACKLOG.
+
+const selectSkus = (s: CostingStoreState) => s.skus;
+
+function fmtCurr2(n: number): string {
+  return n.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
 
 function fmtCurr4(n: number): string {
   return n.toLocaleString("en-US", {
@@ -67,144 +73,290 @@ function fmtCurr4(n: number): string {
   });
 }
 
-// Number of <td> cells in the summary <tr> — used by the drawer <tr>'s
-// <td colspan> so it spans the full table width. Update when columns
-// change. Slice 9.4b: client-target column (#5) + sparkline column
-// (#7) brought count from 6 → 8.
-const SUMMARY_COL_COUNT = 8;
+export function SkuSummaryRowList({ editable }: { editable: boolean }) {
+  const skuRollups = useCostingStore(selectSkuRollups);
+  const activeTier = useCostingStore(selectActiveTierRollup);
+  // Single-source-of-truth: one drawer open at a time per page. Per-row
+  // ▾/▴ toggle on the SKU identity column expands the cost-decomposition
+  // drawer below the row.
+  const [expandedSkuId, setExpandedSkuId] = useState<string | null>(null);
+
+  function handleToggleExpand(skuId: string) {
+    setExpandedSkuId((prev) => (prev === skuId ? null : skuId));
+  }
+
+  if (skuRollups.length === 0) {
+    return (
+      <div
+        className="r2-card"
+        style={{ padding: "32px 20px", textAlign: "center" }}
+      >
+        <p
+          className="r2-mono"
+          style={{ fontSize: 12, color: "var(--ink-4)", margin: 0 }}
+        >
+          No SKUs in this quote yet.
+        </p>
+      </div>
+    );
+  }
+
+  if (!activeTier) {
+    return (
+      <div
+        className="r2-card"
+        style={{ padding: "32px 20px", textAlign: "center" }}
+      >
+        <p
+          className="r2-mono"
+          style={{ fontSize: 12, color: "var(--ink-4)", margin: 0 }}
+        >
+          Add a tier to see required sell.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {skuRollups.map((sku) => (
+        <SkuSummaryRow
+          key={sku.skuId}
+          sku={sku}
+          editable={editable}
+          expanded={expandedSkuId === sku.skuId}
+          onToggleExpand={handleToggleExpand}
+        />
+      ))}
+    </div>
+  );
+}
 
 function SkuSummaryRow({
   sku,
+  editable,
   expanded,
   onToggleExpand,
-  editable,
 }: {
   sku: SkuRollup;
+  editable: boolean;
   expanded: boolean;
   onToggleExpand: (skuId: string) => void;
-  editable: boolean;
 }) {
   const activeTierId = useCostingStore(selectActiveTierId);
   const tiers = useCostingStore(selectTiers);
+  const skus = useCostingStore(selectSkus);
   const perTier = sku.perTier.find((pt) => pt.tierId === activeTierId);
-  // Slice 9.4b — read the cell's client target from the store (sparse;
-  // null when no benchmark on this cell). Required for the
-  // CompetitiveIndicator's tooltip math (gap calculation reads target).
-  // Curried selector so this row only re-renders when ITS cell's target
-  // changes, not when other cells' targets change.
-  const clientTarget = useCostingStore(
-    selectCellTarget(sku.skuId, activeTierId ?? ""),
-  );
 
   if (!activeTierId || !perTier) {
-    // Mid-reconcile race: ActiveTierUrlSync hasn't yet landed a valid
-    // tier or active tier was just removed. Render minimal placeholder
-    // row that doesn't break the table column alignment.
+    // Mid-reconcile placeholder — minimal card chrome
     return (
-      <tr className="border-t border-gray-100">
-        <td colSpan={SUMMARY_COL_COUNT} className="px-3 py-2 text-xs text-gray-400">
+      <article className="r2-card" style={{ padding: "16px 20px" }}>
+        <span
+          className="r2-mono"
+          style={{ fontSize: 11, color: "var(--ink-4)" }}
+        >
           {sku.skuLabel} · waiting for tier…
-        </td>
-      </tr>
+        </span>
+      </article>
     );
   }
 
   const isAssembly = sku.skuRole === "assembly";
+  const isBelowFloor = perTier.marginStatus === "BELOW_FLOOR";
   const indentPx = sku.indentDepth * 16;
+  const activeTierLabel =
+    tiers.find((t) => t.tierId === activeTierId)?.label ?? "";
+
+  // Look up retail benchmark from skus list (input-side data)
+  const skuInput = skus.find((s) => s.id === sku.skuId);
+  const retailBenchmark = skuInput?.retailBenchmark ?? null;
 
   return (
-    <>
-      <tr
-        className={`border-t border-gray-200 transition-colors hover:bg-gray-50 ${
-          isAssembly ? "bg-blue-50/30" : "bg-white"
-        } ${expanded ? "border-b-0" : ""}`}
+    <article
+      className="r2-card"
+      style={
+        isBelowFloor
+          ? { borderLeft: "3px solid var(--bad)" }
+          : undefined
+      }
+    >
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1.4fr 1.4fr 1.5fr 1.4fr",
+          gap: 0,
+        }}
       >
-        {/* SKU identity */}
-        <td className="px-3 py-2 text-sm">
+        {/* Column 1 — SKU identity (vertical stack) */}
+        <div
+          style={{
+            padding: "16px 20px",
+            borderRight: "1px solid var(--rule)",
+            paddingLeft: `${20 + indentPx}px`,
+          }}
+        >
           <div
-            style={{ paddingLeft: `${indentPx}px` }}
-            className="flex items-baseline gap-2"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 4,
+              flexWrap: "wrap",
+            }}
           >
-            {isAssembly && (
-              <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-blue-800">
-                Assembly
-              </span>
-            )}
-            <span className="font-semibold text-gray-900">{sku.skuLabel}</span>
-            <span className="truncate text-xs text-gray-500">
-              {sku.productName}
+            <span
+              className="r2-mono"
+              style={{ fontSize: 11, color: "var(--ink-3)" }}
+            >
+              {sku.skuLabel}
             </span>
-            {sku.qtyPerParent !== null && (
-              <span className="whitespace-nowrap text-[10px] text-gray-400">
-                × {sku.qtyPerParent} per parent
+            {isAssembly && <span className="r2-chip accent">Assembly</span>}
+            {isBelowFloor && (
+              <span
+                className="r2-chip bad"
+                style={{ fontSize: 9 }}
+              >
+                UNDERPRICED
               </span>
             )}
           </div>
-        </td>
+          <div
+            style={{
+              fontFamily: "var(--display)",
+              fontSize: 17,
+              letterSpacing: "-0.01em",
+              color: "var(--ink)",
+              lineHeight: 1.25,
+            }}
+          >
+            {sku.productName}
+          </div>
+          {sku.qtyPerParent !== null && (
+            <div
+              className="r2-mono"
+              style={{
+                fontSize: 10.5,
+                color: "var(--ink-4)",
+                marginTop: 2,
+              }}
+            >
+              × {sku.qtyPerParent} per parent
+            </div>
+          )}
+        </div>
 
-        {/* Contribution cost (active tier) */}
-        <td className="px-3 py-2 text-right text-sm tabular-nums text-gray-700">
-          {fmtCurr4(perTier.contributionCostPerUnit)}
-        </td>
+        {/* Column 2 — Contribution → Required sell */}
+        <div
+          style={{
+            padding: "16px 20px",
+            borderRight: "1px solid var(--rule)",
+          }}
+        >
+          <p
+            className="r2-eyebrow"
+            style={{ marginBottom: 4, fontSize: 9.5 }}
+          >
+            Contribution → required sell
+          </p>
+          <div
+            className="r2-mono"
+            style={{ fontSize: 13, display: "flex", alignItems: "baseline", gap: 4 }}
+          >
+            <span style={{ color: "var(--ink-2)" }}>
+              {fmtCurr2(perTier.contributionCostPerUnit)}
+            </span>
+            <span style={{ color: "var(--ink-3)" }}>→</span>
+            {!isAssembly ? (
+              <RequiredSellCell
+                quoteSkuId={sku.skuId}
+                tierId={activeTierId}
+                editable={editable}
+              />
+            ) : (
+              <span
+                className="r2-mono"
+                style={{ fontSize: 13, color: "var(--ink-2)" }}
+              >
+                {fmtCurr2(perTier.requiredSellPerUnit)}
+              </span>
+            )}
+          </div>
+          {retailBenchmark !== null && perTier.requiredSellPerUnit > 0 && (
+            <div
+              className="r2-mono"
+              style={{
+                fontSize: 10.5,
+                color: "var(--ink-4)",
+                marginTop: 4,
+              }}
+            >
+              retail {fmtCurr2(retailBenchmark)} ·{" "}
+              {((perTier.requiredSellPerUnit / retailBenchmark) * 100).toFixed(0)}
+              % of retail
+            </div>
+          )}
+        </div>
 
-        {/* Arrow flourish */}
-        <td className="px-1 py-2 text-center text-gray-300" aria-hidden="true">
-          →
-        </td>
-
-        {/* Required sell (active tier) — Slice 9.3 click-to-edit */}
-        <td className="px-3 py-2 text-right text-sm">
-          <RequiredSellCell
-            quoteSkuId={sku.skuId}
-            tierId={activeTierId}
-            editable={editable}
+        {/* Column 3 — Margin (eyebrow → 28px → two-axis → gap-readout) */}
+        <div
+          style={{
+            padding: "16px 20px",
+            borderRight: "1px solid var(--rule)",
+          }}
+        >
+          <p
+            className="r2-eyebrow"
+            style={{ marginBottom: 4, fontSize: 9.5 }}
+          >
+            Margin · {activeTierLabel}
+          </p>
+          <div
+            style={{
+              fontFamily: "var(--display)",
+              fontSize: 28,
+              letterSpacing: "-0.02em",
+              lineHeight: 1,
+              color: marginColorToken(perTier.marginStatus),
+              marginBottom: 10,
+            }}
+          >
+            {(perTier.marginPct * 100).toFixed(1)}
+            <span style={{ fontSize: 14, opacity: 0.7 }}>%</span>
+          </div>
+          <TwoAxisVerdictPair
+            marginStatus={perTier.marginStatus}
+            competitiveStatus={perTier.competitiveStatus}
+            renderClientChip={!isAssembly}
           />
-        </td>
-
-        {/* Slice 9.4b — Client target (active tier). Leaf-only —
-            customers state targets at SKU level (this column on leaf
-            rows) or quote level (Slice 9.4c). Assembly rows render an
-            empty cell for layout; no click affordance, no reverse-
-            solve. Stripped from 9.4b before commit after smoke
-            surfaced the workflow correction. */}
-        <td className="px-3 py-2 text-right text-sm">
           {!isAssembly && (
-            <ClientTargetCell
+            <ClientTargetGapReadout
               quoteSkuId={sku.skuId}
               skuLabel={sku.skuLabel}
               tierId={activeTierId}
+              requiredSellPerUnit={perTier.requiredSellPerUnit}
+              competitiveStatus={perTier.competitiveStatus}
               editable={editable}
             />
           )}
-        </td>
+        </div>
 
-        {/* Margin: percent + verdict pill (primary) + competitive
-            indicator (secondary, Slice 9.4b). Secondary is leaf-only
-            — assembly rows show just margin % + pill (their cells can
-            never have client targets). Within leaves, indicator
-            renders only when client target is set on this cell. */}
-        <td className="px-3 py-2 text-right">
-          <div className="flex flex-wrap items-center justify-end gap-1.5">
-            <span className="text-sm tabular-nums text-gray-900">
-              {(perTier.marginPct * 100).toFixed(1)}%
-            </span>
-            <MarginVerdictPill status={perTier.marginStatus} size="sm" />
-            {!isAssembly && (
-              <CompetitiveIndicator
-                status={perTier.competitiveStatus}
-                requiredSellPerUnit={perTier.requiredSellPerUnit}
-                clientTarget={clientTarget}
-              />
-            )}
-          </div>
-        </td>
-
-        {/* Slice 9.4b — All-tiers margin sparkline. Inline SVG;
-            autoscale per SKU; active-tier point highlighted. Hover
-            tooltips per point via SVG <title>. Built from this SKU's
-            perTier slices in tier-sort-order; tiers with no revenue
-            render as gaps in the line (no circle, line breaks). */}
-        <td className="px-3 py-2 text-right">
+        {/* Column 4 — All tiers sparkline + expand toggle */}
+        <div
+          style={{
+            padding: "16px 20px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-end",
+            gap: 6,
+          }}
+        >
+          <p
+            className="r2-eyebrow"
+            style={{ marginBottom: 0, fontSize: 9.5 }}
+          >
+            All tiers
+          </p>
           <MarginSparkline
             points={sku.perTier.map((pt): SparklinePoint => {
               const tierMeta = tiers.find((t) => t.tierId === pt.tierId);
@@ -217,106 +369,437 @@ function SkuSummaryRow({
             })}
             activeTierId={activeTierId}
           />
-        </td>
-
-        {/* Drawer disclosure trigger: icon-only, derives state from
-            shared expandedSkuId — opening Row B auto-collapses Row A. */}
-        <td className="px-3 py-2 text-right">
           <button
             type="button"
             onClick={() => onToggleExpand(sku.skuId)}
             title={expanded ? "Hide breakdown" : "Show breakdown"}
             aria-label={expanded ? "Hide breakdown" : "Show breakdown"}
             aria-expanded={expanded}
-            className="rounded border border-gray-200 px-1.5 py-0.5 text-xs leading-none text-gray-600 hover:border-gray-400 hover:text-gray-900"
+            style={{
+              marginTop: 4,
+              fontFamily: "var(--mono)",
+              fontSize: 10,
+              letterSpacing: "0.05em",
+              textTransform: "uppercase",
+              color: "var(--ink-3)",
+              background: "transparent",
+              border: "1px solid var(--rule)",
+              borderRadius: 4,
+              padding: "2px 8px",
+              cursor: "pointer",
+            }}
           >
-            {expanded ? "▴" : "▾"}
+            {expanded ? "▴ Hide breakdown" : "▾ Show breakdown"}
           </button>
-        </td>
-      </tr>
+        </div>
+      </div>
 
-      {/* Drawer row — only renders when expanded. border-top: 0 +
-          subtle bg tint visually anchors this as the summary row's
-          extension. Renders the existing <SkuBreakdown> (cost-
-          decomposition) — preserved analytical view for "show me why
-          this number" debugging. Single drawer open at a time per
-          page (controlled by parent's expandedSkuId). */}
+      {/* Expandable cost-decomposition drawer — Designer-authorized
+          R2 extension. R2 prototype doesn't have this drawer, but the
+          rollup is load-bearing PM workflow ("show me why this number
+          is what it is"). Restyled to R2 register with paper-2 card
+          chrome. Single-source-of-truth: SkuSummaryRowList owns
+          expandedSkuId; opening another row collapses prior. */}
       {expanded && (
-        <tr className="border-t-0 bg-gray-50/60">
-          <td colSpan={SUMMARY_COL_COUNT} className="px-3 pb-3 pt-1">
-            <SkuBreakdown sku={sku} tiers={tiers} />
-          </td>
-        </tr>
+        <div
+          style={{
+            borderTop: "1px solid var(--rule)",
+            padding: "16px 20px",
+            background: "var(--paper)",
+          }}
+        >
+          <SkuBreakdown sku={sku} tiers={tiers} />
+        </div>
       )}
-    </>
+    </article>
   );
 }
 
-// List + table chrome. Owns the single expandedSkuId state (one
-// drawer open at a time per page). Empty-states for zero-SKU and
-// zero-tier quotes.
-export function SkuSummaryRowList({ editable }: { editable: boolean }) {
-  const skuRollups = useCostingStore(selectSkuRollups);
-  const activeTier = useCostingStore(selectActiveTierRollup);
-  const [expandedSkuId, setExpandedSkuId] = useState<string | null>(null);
+function marginColorToken(
+  status: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR",
+): string {
+  switch (status) {
+    case "GOOD":
+      return "var(--good)";
+    case "BELOW_TARGET":
+      return "var(--warn)";
+    case "BELOW_FLOOR":
+      return "var(--bad)";
+  }
+}
 
-  function handleToggleExpand(skuId: string) {
-    // Toggle: clicking the currently-open row collapses it; clicking
-    // any other row collapses the prior + opens the new (single-source-
-    // of-truth means setting expandedSkuId to the new id implicitly
-    // collapses the old).
-    setExpandedSkuId((prev) => (prev === skuId ? null : skuId));
+// ─── Client target gap-readout (consolidates ClientTargetCell into
+// margin column per Designer audit Finding #16) ─────────────────────
+//
+// R2 source `costing.jsx:468-478`: when client target is set, render
+// gap-readout below the verdict chips: "client target $X.XX · gap
+// $Y.YY" + (when competitive === "over") inline "→ apply suggested
+// adj" button.
+//
+// Q7 decision (PM call): preserve click-to-set discoverability via
+// empty placeholder ("set client target →") when no target is set.
+// Documented as R2 extension authorized for discoverability.
+//
+// Click-to-edit pattern matches RequiredSellCell (auto-focus, select-
+// all, Enter/blur commit, Esc cancel). Empty input commits as clear
+// (per ClientTargetCell convention from 9.4b — empty IS the natural
+// "no benchmark" state).
+
+function ClientTargetGapReadout({
+  quoteSkuId,
+  skuLabel,
+  tierId,
+  requiredSellPerUnit,
+  competitiveStatus,
+  editable,
+}: {
+  quoteSkuId: string;
+  skuLabel: string;
+  tierId: string;
+  requiredSellPerUnit: number;
+  competitiveStatus: "COMPETITIVE" | "OVER_CLIENT_TARGET" | null;
+  editable: boolean;
+}) {
+  const cellTarget = useCostingStore(selectCellTarget(quoteSkuId, tierId));
+  const updateLocal = useCostingStore(selectUpdateCellTarget);
+  const [editMode, setEditMode] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editMode && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editMode]);
+
+  function openEditor() {
+    if (!editable || pending) return;
+    setDraft(cellTarget !== null ? cellTarget.toFixed(4) : "");
+    setError(null);
+    setEditMode(true);
   }
 
-  if (skuRollups.length === 0) {
+  function commit(value: string) {
+    setError(null);
+    const trimmed = value.trim();
+    if (trimmed === "") {
+      // Empty input clears — different from RequiredSellCell. For
+      // client target, empty IS the natural "no benchmark" state.
+      updateLocal(quoteSkuId, tierId, null);
+      const fd = new FormData();
+      fd.set("quoteSkuId", quoteSkuId);
+      fd.set("tierId", tierId);
+      fd.set("clientTargetPricePerUnit", "");
+      startTransition(async () => {
+        const r = await updateClientTarget(fd);
+        if (!r.ok) setError(r.error.message);
+      });
+      setEditMode(false);
+      return;
+    }
+    const n = Number(trimmed);
+    if (!Number.isFinite(n)) {
+      setError("Enter a numeric value.");
+      return;
+    }
+    if (n <= 0) {
+      setError("Target must be > 0.");
+      return;
+    }
+    if (cellTarget !== null && Math.abs(n - cellTarget) < 0.00005) {
+      setEditMode(false);
+      return;
+    }
+    updateLocal(quoteSkuId, tierId, n);
+    setEditMode(false);
+    const fd = new FormData();
+    fd.set("quoteSkuId", quoteSkuId);
+    fd.set("tierId", tierId);
+    fd.set("clientTargetPricePerUnit", n.toString());
+    startTransition(async () => {
+      const r = await updateClientTarget(fd);
+      if (!r.ok) setError(r.error.message);
+    });
+  }
+
+  if (editMode) {
     return (
-      <p className="rounded-md border border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">
-        No SKUs in this quote yet.
-      </p>
+      <div
+        className="r2-mono"
+        style={{ marginTop: 6, fontSize: 10.5, position: "relative" }}
+      >
+        <span style={{ color: "var(--ink-4)" }}>client target </span>
+        <input
+          ref={inputRef}
+          type="text"
+          inputMode="decimal"
+          value={draft}
+          disabled={pending}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit(draft);
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              setEditMode(false);
+            }
+          }}
+          onBlur={() => commit(draft)}
+          style={{
+            width: 80,
+            fontFamily: "var(--mono)",
+            fontSize: 10.5,
+            background: "var(--paper)",
+            border: "1px solid var(--accent)",
+            borderRadius: 4,
+            padding: "1px 6px",
+            color: "var(--ink)",
+          }}
+          placeholder="$X.XX"
+        />
+        {error && (
+          <span
+            role="alert"
+            style={{
+              position: "absolute",
+              right: 0,
+              top: "100%",
+              marginTop: 2,
+              background: "var(--bad-soft)",
+              color: "var(--bad)",
+              padding: "2px 6px",
+              fontSize: 10,
+              borderRadius: 4,
+              border: "1px solid var(--bad)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {error}
+          </span>
+        )}
+      </div>
     );
   }
 
-  if (!activeTier) {
+  // No target set: render empty placeholder click-to-set affordance
+  // (per Q7 — preserve discoverability)
+  if (cellTarget === null) {
+    if (!editable) return null;
     return (
-      <p className="rounded-md border border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">
-        Add a tier to see required sell.
-      </p>
+      <button
+        type="button"
+        onClick={openEditor}
+        className="r2-mono"
+        style={{
+          marginTop: 6,
+          fontSize: 10.5,
+          color: "var(--ink-4)",
+          background: "transparent",
+          border: "none",
+          padding: 0,
+          cursor: "pointer",
+        }}
+        title="Click to set client target benchmark"
+      >
+        set client target →
+      </button>
     );
   }
+
+  // Target set: render gap-readout
+  const gap = requiredSellPerUnit - cellTarget;
+  const isOver = competitiveStatus === "OVER_CLIENT_TARGET";
 
   return (
-    <div className="overflow-x-auto rounded-md border border-gray-200">
-      <table className="min-w-full text-sm">
-        {/* Slice RI.0 — column-header typography moved to JetBrains Mono
-            small caps per CD's eyebrow pattern (R2 styles.css `.eyebrow`
-            line 93: --mono, 10.5px, letter-spacing 0.13em, uppercase,
-            color --ink-3). Background --paper-2 per R1 table-header
-            convention (R1 line 348). Smoke-target wiring for token
-            foundation. */}
-        <thead className="bg-paper-2 text-left font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3">
-          <tr>
-            <th className="px-3 py-2 font-normal">SKU</th>
-            <th className="px-3 py-2 text-right font-normal">Contribution</th>
-            <th className="px-1 py-2" aria-hidden="true" />
-            <th className="px-3 py-2 text-right font-normal">Required sell</th>
-            <th className="px-3 py-2 text-right font-normal">Client target</th>
-            <th className="px-3 py-2 text-right font-normal">Margin</th>
-            <th className="px-3 py-2 text-right font-normal">All tiers</th>
-            <th className="px-3 py-2 text-right" aria-label="Expand row" />
-          </tr>
-        </thead>
-        <tbody>
-          {skuRollups.map((sku) => (
-            <SkuSummaryRow
-              key={sku.skuId}
-              sku={sku}
-              expanded={expandedSkuId === sku.skuId}
-              onToggleExpand={handleToggleExpand}
-              editable={editable}
-            />
-          ))}
-        </tbody>
-      </table>
+    <div
+      className="r2-mono"
+      style={{
+        marginTop: 6,
+        fontSize: 10.5,
+        color: "var(--ink-4)",
+        display: "flex",
+        alignItems: "baseline",
+        gap: 6,
+        flexWrap: "wrap",
+      }}
+    >
+      <button
+        type="button"
+        onClick={openEditor}
+        disabled={!editable}
+        style={{
+          background: "transparent",
+          border: "none",
+          padding: 0,
+          fontFamily: "var(--mono)",
+          fontSize: 10.5,
+          color: "var(--ink-4)",
+          cursor: editable ? "pointer" : "default",
+        }}
+        title={editable ? "Click to edit client target" : undefined}
+      >
+        client target {fmtCurr2(cellTarget)}
+      </button>
+      <span style={{ color: "var(--ink-4)" }}>·</span>
+      <span style={{ color: isOver ? "var(--warn)" : "var(--ink-3)" }}>
+        gap {gap >= 0 ? "+" : ""}
+        {fmtCurr2(gap)}
+      </span>
+      {isOver && editable && (
+        <ApplySuggestedAdjButton
+          quoteSkuId={quoteSkuId}
+          skuLabel={skuLabel}
+          tierId={tierId}
+          clientTarget={cellTarget}
+        />
+      )}
     </div>
+  );
+}
+
+// Reverse-solve "→ apply suggested adj" button — opens
+// ReverseSolveDialog with consequence-framing for cost_exceeds_target
+// case (Designer audit Finding #6). Compute logic ported verbatim
+// from ClientTargetCell to preserve the exact reverse-solve actionability
+// rules (Edward's pressure-test resolution: hidden-not-disabled for
+// non-actionable failure modes; cost_exceeds_target is applyable with
+// explicit consequence framing in the dialog).
+function ApplySuggestedAdjButton({
+  quoteSkuId,
+  skuLabel,
+  tierId,
+  clientTarget,
+}: {
+  quoteSkuId: string;
+  skuLabel: string;
+  tierId: string;
+  clientTarget: number;
+}) {
+  const storeApi = useCostingStoreApi();
+  const cellRollup = useCostingStore(selectPerTierForSku(quoteSkuId, tierId));
+  const tiers = useCostingStore(selectTiers);
+  const [open, setOpen] = useState(false);
+
+  if (!cellRollup) return null;
+
+  // Derive reverse-solve actionability — same logic as ClientTargetCell
+  let solveActionable = false;
+  let solveSuggestedAdj = 0;
+  let solveConsequenceCostExceedsTarget = false;
+  const state = storeApi.getState();
+  const input: QuoteCostingInput = {
+    quote: {
+      id: state.quoteId,
+      globalPriceAdjPct: state.globalPriceAdjPct,
+      targetMarginPct: state.targetMarginPct,
+    },
+    firmSettings: state.firmSettings,
+    markupDefaults: state.markupDefaults,
+    skus: state.skus,
+    tiers: state.tiers,
+    packaging: state.packaging,
+    production: state.production,
+    freight: state.freight,
+    cellOverrides: state.cellOverrides,
+    cellTargets: state.cellTargets,
+  };
+  const result = suggestTierAdjForClientTarget(
+    quoteSkuId,
+    tierId,
+    state.costing,
+    input,
+  );
+  if (result.ok) {
+    solveActionable = true;
+    solveSuggestedAdj = result.suggestedTierAdj;
+  } else if (result.reason === "cost_exceeds_target") {
+    const skuRollup = state.costing.skuRollups.find(
+      (r) => r.skuId === quoteSkuId,
+    );
+    const cell = skuRollup?.perTier.find((p) => p.tierId === tierId);
+    const tierRow = state.tiers.find((t) => t.id === tierId);
+    if (cell && tierRow) {
+      const currentTierAdj =
+        tierRow.tierPriceAdjPct ?? state.globalPriceAdjPct;
+      const denom = 1 + currentTierAdj;
+      if (denom !== 0) {
+        const base = cell.computedSellPerUnit / denom;
+        const naive = naiveTierAdjForCostExceedsTarget(base, clientTarget);
+        if (naive !== null) {
+          solveActionable = true;
+          solveSuggestedAdj = naive;
+          solveConsequenceCostExceedsTarget = true;
+        }
+      }
+    }
+  }
+
+  if (!solveActionable) return null;
+
+  const tierMeta = tiers.find((t) => t.tierId === tierId);
+  if (!tierMeta) return null;
+
+  const buttonStyle: React.CSSProperties = solveConsequenceCostExceedsTarget
+    ? {
+        marginLeft: 4,
+        fontSize: 10,
+        padding: "1px 6px",
+        fontFamily: "var(--ui)",
+        background: "var(--warn-soft)",
+        color: "var(--warn)",
+        border: "1px solid var(--warn)",
+        borderRadius: 4,
+        cursor: "pointer",
+      }
+    : {
+        marginLeft: 4,
+        fontSize: 10,
+        padding: "1px 6px",
+        fontFamily: "var(--ui)",
+        background: "transparent",
+        color: "var(--ink-3)",
+        border: "none",
+        cursor: "pointer",
+      };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        style={buttonStyle}
+        title={
+          solveConsequenceCostExceedsTarget
+            ? "Apply suggested tier adjustment to match client target — would price below cost (consequence)"
+            : "Apply suggested tier adjustment to match client target"
+        }
+      >
+        {solveConsequenceCostExceedsTarget
+          ? "⚠ apply (drops margin)"
+          : "→ apply suggested adj"}
+      </button>
+      {open && (
+        <ReverseSolveDialog
+          open={open}
+          onClose={() => setOpen(false)}
+          originSkuId={quoteSkuId}
+          originSkuLabel={skuLabel}
+          affectedTierId={tierId}
+          affectedTierLabel={tierMeta.label}
+          affectedTierQty={tierMeta.qty}
+          clientTarget={clientTarget}
+          suggestedTierAdj={solveSuggestedAdj}
+          consequenceCostExceedsTarget={solveConsequenceCostExceedsTarget}
+          quoteId={state.quoteId}
+        />
+      )}
+    </>
   );
 }
