@@ -135,6 +135,32 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
   Reference: post-RI.6 surface, May 2026.
 
+- [Per-customer commercial defaults from NetSuite]
+
+  **Slice:** Post-MVP / TBD (likely paired with or after Slice 13 HubSpot library sync — same external-sync infrastructure shape)
+
+  **What:** Several "customer-facing defaults" in firm_settings vary per customer in The DPS's actual workflow — payment terms is the load-bearing example (Net 30 vs 50/50 deposit vs custom contractual). Incoterms and lead time often vary per customer relationship too. RI.7 ships firm-wide defaults with per-quote override as the only customization path, forcing PMs to re-enter the same customer-specific values for every quote to that customer.
+
+  **Source of truth:** NetSuite. Customer records carry payment terms (and arguably incoterms / lead time) at the customer level.
+
+  **Future state:** When a quote is created against a customer, pull customer-level commercial defaults from NetSuite and snapshot onto the quote at send. firm_settings defaults become the fallback for customers without customer-level configuration.
+
+  **Field split:**
+  - Per-customer (sync from NetSuite): payment terms, incoterms, lead time
+  - Firm-wide (stay in firm_settings): T&Cs, days valid, quote-number prefix, vendor identity
+
+  **Data flow:** NetSuite → Nexus (read sync). Could pair with Slice 13 HubSpot vendor library sync if sync infrastructure overlaps, or stand as its own slice.
+
+  **Open design questions for slice kickoff:**
+  - Customer-entity schema location in Nexus (new `customers` table? extend `projects`?)
+  - Sync cadence (on-demand at quote creation / periodic / webhook-driven)
+  - Fallback chain (customer terms → firm default → null)
+  - Whether Nexus admin UI writes back to NetSuite or NetSuite is read-only source-of-truth
+
+  **Why deferred:** RI.7 firm-wide-with-override is functional but friction-heavy for repeat customers. NetSuite sync is real infrastructure work (auth, sync model, conflict resolution); worth doing after Slice 13 establishes a HubSpot read-sync pattern Nexus can model NetSuite reads against.
+
+  Reference: flagged by Edward post-RI.7, May 2026. Confirms earlier prediction in Slice 13 scoping that NetSuite would become relevant once payment workflows entered scope.
+
 - [PreparedBy contact derivation (RI.7)]
 
   **Slice:** RI.7 (admin foundation / firm_settings extension)
