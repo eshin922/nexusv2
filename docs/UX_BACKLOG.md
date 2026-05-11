@@ -5,6 +5,75 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Slice 13 — HubSpot library sync (vendors + products)]
+
+  **Slice:** 13 (post-MVP enrichment)
+
+  **What:** Promote vendors + products from ambient free-text fields scattered across Cost Build input pages (packaging supplier, production supplier, freight forwarder, etc.) to first-class tables with bidirectional HubSpot sync. Cost Build input rows retrofit from free-text supplier strings to dropdown selections backed by the synced vendor library. Products get the same treatment so SKU-level references can resolve to canonical entities instead of repeated free-text.
+
+  **Scope:**
+  - `vendors` + `products` first-class tables (schema, migrations).
+  - HubSpot bidirectional sync (read + write). Read syncs vendor/product entries created in HubSpot CRM into Nexus. Write pushes Nexus-originated entries back to HubSpot. Conflict-resolution policy TBD at slice kickoff.
+  - Retrofit Cost Build input pages: packaging line supplier field, production input supplier field, freight line forwarder field — all switch from text input to dropdown sourced from synced library.
+  - Migration strategy for existing free-text values: best-match against synced library, mark unmatched entries for manual reconciliation by admin (don't silently lose data).
+
+  **Dependencies:**
+  - HubSpot CRM-side data setup — vendor records need to exist as HubSpot objects before sync can pull them. Confirm with HubSpot admin at slice kickoff.
+  - RI.7 admin foundation — sync config UI (frequency, conflict policy, manual trigger) lives in admin.
+  - Migration strategy — define before slice 13 starts since touch-everything-Cost-Build refactor depends on the canonical mapping rules.
+
+  **Seed payload:** `docs/hubspot-vendor-seed.ts` — 127 raw `type = VENDOR` records pulled from HubSpot 2026-05-06. NOT cleaned: ~25 empty names, ~25 records where `name` = website domain, mixed-industry rows (SaaS + professional services co-mingled with operational suppliers). File docstring lists the industry filter set for cost-line eligibility + recommends Edward triage to a `cost_line_eligible` HubSpot custom field before Slice 13 sync filters on it. The `VendorRecord` interface is the v0 shape; final `vendors` table schema decided at slice kickoff.
+
+  **Why log it:** anyone working Cost Build section drilldowns between now and Slice 13 needs to know the free-text supplier fields are TEMPORARY. Don't build dependent UX (filtering, grouping by supplier, reports) on top of free-text — wait for the dropdown retrofit. RI.6 + RI.7 + Slice 11/12 work is unaffected; this is a future enrichment, not a refactor of in-flight scope.
+
+  Reference: post-RI.6 surface, May 2026.
+
+- [PreparedBy contact derivation (RI.7)]
+
+  **Slice:** RI.7 (admin foundation / firm_settings extension)
+
+  **What:** Customer-facing PDF "Prepared by" block currently has THREE lines on the right side of the header: firm name, contact (name/email/phone), firm address. RI.6 ships firm name + firm address as live (`VENDOR_FIXTURE` constant in `src/lib/customer-view-fixtures.ts`, promoted to `firm_settings` in RI.7); the contact line renders the visible-synthetic stub `{prepared-by-pending · derives from deal owner in RI.7}` via `QUOTE_STUBS.preparedBy` + the `.pdf-stub` dashed-underline marker.
+
+  Contact is per-deal data — different sales rep per project — so it must derive from the HubSpot deal owner, not a firm-level constant. Resolution chain:
+  `projects.salesRepUserId` (uuid FK → `users.id`) → `users.name` + `users.email` + `users.phone`.
+
+  **What's wired today (schema audit, May 2026):**
+  - ✅ `projects.hubspot_owner_id` (text, indexed) — captured at deal import time.
+  - ✅ `projects.sales_rep_user_id` (uuid FK → users) — backfilled by `ensureUser()` on Clerk sign-in via HubSpot owner email match (`src/lib/auth/ensure-user.ts:50-60`).
+  - ✅ `users.name` + `users.email` — populated on first sign-in from Clerk.
+  - ❌ `users.phone` column — does not exist.
+  - ❌ HubSpot owner sync extension — `findHubspotOwnerByEmail` + `fetchOwnerDetails` (`src/lib/hubspot.ts:121, 205`) return `{ id, firstName, lastName, email }` only. HubSpot owner records DO carry phone in the API; we just don't pull it.
+
+  **Scope:**
+  1. Migration: ADD `users.phone text` (nullable; not all users have phone).
+  2. Extend `fetchOwnerDetails` + `findHubspotOwnerByEmail` to pull phone from HubSpot owners API; backfill `users.phone` in `ensureUser` on first sign-in.
+  3. Admin manual-edit affordance for users.phone (HubSpot owner phone is often empty in CRM — needs manual entry path).
+  4. Server helper `getQuotePreparedBy(quoteId)` returns `{ name, email, phone }` from `projects.salesRepUserId → users` join. Replaces `QUOTE_STUBS.preparedBy` stub in `PdfHeader`.
+  5. Promote `VENDOR_FIXTURE` (name/sub/address) to `firm_settings` table columns with the constant as graceful-degradation fallback when columns are NULL.
+
+  **Open PM question — un-signed-in-rep edge case:** if the sales rep on a deal hasn't signed into Nexus yet, `projects.salesRepUserId` is NULL and there's no users row to resolve to. Three options:
+  - **(a) Render-time HubSpot fetch by `projects.hubspotOwnerId`.** One round trip per PDF render (cacheable per owner ID). Pro: always-correct render. Con: cache invalidation + adds HubSpot dependency to a customer-facing render path.
+  - **(b) Eagerly snapshot at deal import.** Add `projects.prepared_by_name / _email / _phone` columns; populate from HubSpot at import. Pro: render path is purely DB. Con: snapshot goes stale if owner is reassigned in HubSpot after import; needs refresh-on-deal-refresh wiring.
+  - **(c) Block PDF render until rep signs in.** Show an actionable "Sales rep hasn't signed into Nexus yet — they must sign in once before quotes can be sent." surface. Pro: simplest data model; forces backfill. Con: hard-gates a PM workflow on an unrelated sign-in event.
+
+  Decide at RI.7 kickoff. Default leaning is (a) with a sensible TTL cache, since the deal-owner refresh button already establishes the pattern of HubSpot-as-source-of-truth at render time. (b) is the right answer if HubSpot rate limits become a real concern.
+
+  **Why log it:** RI.6 ships with the stub as part of the visible-synthetic discipline; the architecture decision (data source = deal owner, not firm-level constant) is captured here so RI.7 doesn't have to re-derive it. Architectural correction call was Edward's May 2026 review of the RI.6 vendor block — hardcoding contact would be wrong for any quote not handled by one specific person.
+
+  Reference: `src/lib/customer-view-fixtures.ts` `VENDOR_FIXTURE` + `QUOTE_STUBS.preparedBy`; `src/components/pdf/pdf-header.tsx` PreparedBy block; schema audit `src/db/schema.ts:156-208`.
+
+- [Customer-view boundary guard: migrate from custom verifier script to ESLint no-restricted-paths]
+
+  **Slice:** TBD (when ESLint infra arrives)
+
+  **What:** RI.6 implemented the customer-view boundary guard via `scripts/verify/customer-view-boundary.ts` — a custom 90-line script that greps `src/components/pdf/**/*.{ts,tsx}` for forbidden imports (`@/components/cost-build`, `@/components/costing`, `@/lib/costing*`, `@/db*`, `@/app/actions/*`, `@/components/internal-only-badge*`). Hooked into the prebuild npm script so failures surface at `next build`. The Designer audit specced ESLint via eslint-plugin-import's `no-restricted-paths` rule, but the project has no ESLint configured today (v15.5.15's `next lint` is deprecated, and this codebase never set up the canonical eslint.config or eslint.json). Installing eslint + eslint-plugin-import + writing flat config just for one rule is yak-shaving for v1; the custom script delivers the same enforcement strength.
+
+  **Why log it:** when Edward decides ESLint pays for itself across the codebase (likely Slice 17 polish or a separate codebase-hygiene slice), migrate the customer-view boundary check into the canonical `import/no-restricted-paths` config and delete the custom script. The script is 90 lines that someone has to remember to maintain; ESLint is the canonical mechanism. Until ESLint is otherwise needed, the custom script is the right shape.
+
+  **Where designed:** Designer memory `reference_r3_pdf_token_lock.md` specced the ESLint mechanism on the (incorrect) assumption that Next.js's default eslint setup ships eslint-plugin-import. That assumption was wrong for this project. The mechanism intent (build-time error if costing imports leak into PDF subtree) is preserved either way.
+
+  Reference: `scripts/verify/customer-view-boundary.ts`, `package.json` `prebuild` script, RI.6 implementation.
+
 - [DB invariant: quotes.drop_reason ↔ scenario_status='dropped' (Slice 12 hardening)]
 
   **Slice:** 12 (Mark-Accepted + sibling auto-drop action)
