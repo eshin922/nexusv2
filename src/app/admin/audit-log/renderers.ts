@@ -121,17 +121,27 @@ export function renderAction(
         chip: { color: "warn", label: "DROPPED" },
         summary: `Scenario dropped · reason: ${fmtMaybeNull(diff(diffJson, "drop_reason"))}`,
       };
+    // Cost-input CRUD actions use past-tense keys throughout the
+    // action layer (`created` / `updated` / `deleted` — see
+    // src/app/actions/{freight,packaging,production}.ts). Smoke
+    // against real audit_log entries during RI.7 caught the
+    // original renderer's present-tense `create`/`update`/`delete`
+    // mismatch — keys never matched, fell through to generic
+    // fallback. Both forms accepted now for forward/backward compat.
     case "create":
+    case "created":
       return {
         chip: { color: "good", label: "CREATED" },
         summary: entityLabel ? `Created ${entityLabel}` : "Created",
       };
     case "update":
+    case "updated":
       return {
         chip: { color: "neutral", label: "UPDATED" },
         summary: entityLabel ? `Updated ${entityLabel}` : "Updated",
       };
     case "delete":
+    case "deleted":
       return {
         chip: { color: "bad", label: "DELETED" },
         summary: entityLabel ? `Deleted ${entityLabel}` : "Deleted",
