@@ -115,6 +115,32 @@ Items here are intentionally deferred - capture, don't fix in the moment.
   Reference: Edward's RI.7 smoke-walk surface, May 2026. Spot-fix
   commits on `slice-ri.7`.
 
+- [T&Cs render: bullet-list support]
+
+  **Slice:** RI.8 polish / TBD
+
+  **What:** T&Cs commonly contain bulleted lists (logistics rate
+  validity periods, exclusion conditions, etc.). PdfTerms currently
+  splits on blank-line separators for paragraph rendering but has
+  no support for in-paragraph bulleted items. Edward's first T&Cs
+  paste hit this on the logistics rates section.
+
+  **Workaround in place:** prose-with-semicolons reformatting
+  (Edward's pasted version inlines the three logistics bullets into
+  a single sentence with `;` separators). Functional but loses
+  scannability for legal text where bullets aid review.
+
+  **Future state:** parse common bullet markers (`-`, `•`, `*` at
+  line start) within paragraph blocks into rendered `<ul>` lists
+  with PdfTerms' small-text legal register. Or full Markdown
+  rendering if other formatting (bold, headings) becomes needed.
+
+  **Why deferred:** Edward's current T&Cs prose-reformatting is
+  functional for v1. Bullet support is polish, not a blocker for
+  ship.
+
+  Reference: surfaced by Edward post-RI.7 T&Cs paste, May 2026.
+
 - [Audit log read-view: explicit renderers for pre-RI.7 action types]
 
   **Slice:** RI.8 polish / TBD
