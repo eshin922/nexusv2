@@ -27,6 +27,11 @@ const NAV: Array<{ href: string; label: string; description: string }> = [
     label: "Users",
     description: "Manual phone entry for PreparedBy",
   },
+  {
+    href: "/admin/audit-log",
+    label: "Audit log",
+    description: "Append-only write history",
+  },
 ];
 
 export default async function AdminLayout({

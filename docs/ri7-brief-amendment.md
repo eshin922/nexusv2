@@ -507,23 +507,33 @@ If both this amendment + CR-SM resolve to recommended decisions:
 1. **Migration + schema delta** (1 migration; all columns + sequence) — ✅ landed
 2. **Server actions** (firm_settings updates + sendQuote +
    recordCustomerAcceptance + clearCustomerAcceptance +
-   updateUserPhone)
+   updateUserPhone) — ✅ landed
 3. **Firm settings page extension** (Customer-facing defaults card,
-   read + edit states)
+   read + edit states) — ✅ landed
 4. **Admin user-management surface** (`/admin/users` — per-user
    table, inline edit for phone, audit-logged via
-   `user_phone_updated`)
+   `user_phone_updated`) — ✅ landed
 5. **Markup defaults page** (per base brief §3.11 — independent of
-   this amendment)
-6. **Audit log read view** (per base brief §3.12 — independent +
-   new-action renderers)
+   this amendment) — ⏸ deferred to RI.8 polish (base brief scope;
+   existing Slice 8 surface is functional; Round 5 visual rebuild
+   queued)
+6. **Audit log read view** (per base brief §3.12 — MVP + new-action
+   renderers) — ✅ landed (MVP). Polish items (filters, cascade
+   chips, time-grouped feed, CSV export, deep-link state) queued
+   for RI.8 / UX_BACKLOG.
 7. **Customer view PdfHeader + PdfTerms wiring** (drop `.pdf-stub`s
-   when sent; render real values; null-phone conditional)
-8. **Costing Sheet customer-accept toggle** (CR-SM DEC-2)
-9. **Mark-Accepted page fifth sub-state (`awaitingMark`)** (CR-SM DEC-6)
-10. **Project Detail scenario card quote-number rendering**
-11. **Verifier script** (`scenario-quote-status-invariant.ts`)
-12. **Smoke + Designer audit pass**
+   when sent; render real values; null-phone conditional) — ✅ landed
+8. **Costing Sheet customer-accept toggle** (CR-SM DEC-2) — ✅ landed
+9. **Mark-Accepted page fifth sub-state (`awaitingMark`)** (CR-SM DEC-6) — ✅ landed
+10. **Project Detail scenario card quote-number rendering** — ✅ landed
+11. **Verifier script** (`scenario-quote-status-invariant.ts`) — ✅ landed
+12. **Smoke + Designer audit pass** — Edward smoke pending
+
+**Dev stub** (not in original sequence): a "Mark sent (dev — Slice 11
+replaces)" affordance on the customer-view preview toolbar. Gated by
+`NODE_ENV !== 'production'` AND admin role. Lets PMs/Edward exercise
+sendQuote end-to-end without waiting for Slice 11's PDF + email
+flow. Slice 11 replaces with the real flow on the Download buttons.
 
 (HubSpot sync extension removed per implementation correction —
 Owners API doesn't carry phone; manual admin UI is the sole source.)

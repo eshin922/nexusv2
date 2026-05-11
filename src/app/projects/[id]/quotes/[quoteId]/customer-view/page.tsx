@@ -4,6 +4,7 @@ import { desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { firmSettings, projects, quotes, users } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
+import { ensureUser } from "@/lib/auth/ensure-user";
 import { findHubspotOwnerById } from "@/lib/hubspot";
 import { CustomerViewHost } from "@/components/customer-view/customer-view-host";
 import { VENDOR_FIXTURE } from "@/lib/customer-view-fixtures";
@@ -222,6 +223,15 @@ export default async function CustomerViewPage({
   const showStateSwitcher =
     dev === "1" || process.env.NODE_ENV !== "production";
 
+  // Slice RI.7 — dev send stub gate. Two checks for safety:
+  //   1. NODE_ENV !== 'production' — won't render in prod builds at all
+  //   2. Admin role — even in dev, only admins see the affordance
+  // Slice 11 replaces the entire stub with real PDF + email flow on
+  // the existing Download buttons.
+  const me = await ensureUser();
+  const devSendEnabled =
+    process.env.NODE_ENV !== "production" && me.role === "admin";
+
   return (
     <>
       <div style={{ padding: "12px 24px 0", fontSize: 13 }}>
@@ -239,7 +249,13 @@ export default async function CustomerViewPage({
           Costing Sheet
         </Link>
       </div>
-      <CustomerViewHost view={view} showStateSwitcher={showStateSwitcher} />
+      <CustomerViewHost
+        view={view}
+        quoteId={quote.id}
+        quoteStatus={quote.status}
+        showStateSwitcher={showStateSwitcher}
+        devSendEnabled={devSendEnabled}
+      />
     </>
   );
 }
