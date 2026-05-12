@@ -59,8 +59,8 @@ export default async function AdminLayout({
           the body). */}
       <header
         style={{
-          background: "var(--ink)",
-          color: "var(--paper)",
+          background: "var(--admin-chrome-bg)",
+          color: "var(--admin-chrome-text)",
           borderBottom: "1px solid var(--rule)",
         }}
       >
@@ -96,7 +96,7 @@ export default async function AdminLayout({
                 fontFamily: "var(--display)",
                 fontSize: 14,
                 fontWeight: 500,
-                color: "var(--paper)",
+                color: "var(--admin-chrome-text)",
                 textDecoration: "none",
               }}
             >
@@ -110,16 +110,16 @@ export default async function AdminLayout({
               gap: 16,
               fontFamily: "var(--mono)",
               fontSize: 11,
-              color: "var(--paper-3)",
+              color: "var(--admin-chrome-muted)",
             }}
           >
             <span>{admin.email}</span>
             <Link
               href="/"
               style={{
-                color: "var(--paper)",
+                color: "var(--admin-chrome-text)",
                 textDecoration: "underline",
-                textDecorationColor: "var(--paper-3)",
+                textDecorationColor: "var(--admin-chrome-muted)",
               }}
             >
               ← Back to quoting tool
