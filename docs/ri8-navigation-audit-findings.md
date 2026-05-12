@@ -258,10 +258,27 @@ Suggested ask shape per Designer:
 > (b) inner-rail surface-visibility rules across the IA arc,
 > (c) per-surface 'next move' affordance vs centralized inbox,
 > (d) breadcrumb standardization across quote-scoped surfaces
->     (with attention to R6's deliberate omission on Cost Build)."
+>     (with attention to R6's deliberate omission on Cost Build),
+> (e) action button cluster grammar across quote-scoped surfaces
+>     (Cost Build header, Costing Sheet head, Customer view
+>     toolbar, Mark-Accepted header) — hierarchy, grouping,
+>     primary CTA placement, direction consistency."
 
 These are the F-5-structural / F-8 / F-11 / F-13 items framed for
 CD's IA-level review.
+
+**(e) origin:** Edward's RI.8 step 0 smoke surfaced Costing Sheet
+action cluster ergonomics — the Preview / customer-accept /
+Mark-Accepted trio lacks visible hierarchy. Customer-accept is a
+workflow prereq for Mark-Accepted (sequenced steps); Preview is
+a sideways look-at; clustering grammar doesn't currently signal
+either relationship. Navigation audit scope §2.2 asked about
+"action button placement consistency" but Designer's findings
+(F-6) only covered back-nav placement; cluster grammar across
+quote-scoped surfaces went unanswered. Extended the ask shape
+rather than spinning a separate audit cycle — same competency
+split applies (per-surface fidelity Designer can do;
+cross-surface grammar is IA judgment).
 
 ---
 

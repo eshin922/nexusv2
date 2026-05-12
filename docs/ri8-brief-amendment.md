@@ -442,6 +442,34 @@ Path 2):
    - **F-4 absorbed:** replace three-column "Cost inputs" nav strip
      with one "Continue to Cost build →" affordance per brief §3.5
      + R1 source.
+   - **Landed in commit 0341d9b, May 2026.**
+1.5. **Setup polish++** (extends step 1's spot-fix; no CD R7
+   round). Edward chose path (c) spot-fix++ post-step-1 smoke after
+   "feels under-loved" feedback. CA endorsed (c) as the right
+   middle path: (a) accept leaves visible debt; (b) full CD R7
+   round is heavy for a polish-class surface; (c) applies existing
+   R1/R5/R6 grammar to existing IA without new design decisions.
+   - **R1 page-head fidelity:** italic display title
+     `Define <em>SKUs &amp; volume tiers</em>` + R1 sub-copy +
+     `Save draft / Continue to cost build →` action cluster
+     (per `source/round-1/app/setup.jsx`).
+   - **Two-column setup-grid** per R1: SKU table left, tier rail
+     right. Existing `<Section>` blocks for SKUs + Tiers fold
+     into the grid layout.
+   - **R5 card chrome on Section helper:** eyebrow + mono captions
+     + spacing rhythm. Reuse markup-defaults / firm-settings
+     register where applicable.
+   - **R5/R6 table treatment for Tier rows:** mono caption row
+     headers, inline-edit chrome consistent with other tables.
+   - **Surface-separation cleanup:** remove `CostingSummary` card
+     entirely. Brief §5 + §3.5 explicit — Pricing Control Summary
+     lives on Costing Sheet only. (Was deferred at §6.c original
+     spot-fix scope; cleanup now lands as part of polish++ since
+     surface-separation is a non-negotiable per brief §5.)
+   - **Hard scope-cap 1-2 days.** Ambiguity during build →
+     Designer fidelity audit. If Designer can't extrapolate
+     cleanly from R1/R5/R6 source, that specific item defers to
+     §6.b follow-up slice. Don't expand silently.
 2. **Markup defaults Round 5 rebuild** + recompute preview engine
    (smaller surface; warms up the Round 5 register implementation).
 3. **Firm settings Round 5 rebuild** + re-band preview engine
@@ -454,8 +482,10 @@ Path 2):
 6. **T&Cs bullet rendering** (small, scope-bounded; markers-only
    per §3 decision).
 7. **Project Detail + Costing Sheet + per-surface tactical polish:**
-   - **F-9:** Project Detail scenario card gets dual-affordance —
-     "Open · Costing" + "Build" both visible per card.
+   - **F-9:** Project Detail scenario card dual-affordance —
+     `Build · v{N}` + `Open Costing · v{N}` both visible per card.
+     **(Landed in step 0 follow-up patch cluster, May 2026 — Issue
+     5. Marked here for completeness.)**
    - **F-12:** wire inner-rail mini activity feed via existing
      `getProjectActivity` with smaller limit (option a, per brief
      §3.6 line 535 commitment).
@@ -464,6 +494,30 @@ Path 2):
    - **F-7:** Customer view + Mark-Accepted breadcrumbs adopt
      mono-caption register (`.r2-eyebrow` shape) instead of raw
      inline-text.
+   - **Customer-accept toggle redesign** (post-step-0 smoke,
+     Edward May 2026): current dropdown + disabled Record button
+     is an awkward two-step inline form. Redesign per Edward:
+       - Default state: "Record customer response" chip
+       - Click → popover with tier picker + Confirm / Cancel
+       - Recorded state: "✓ Customer accepted Tier N · clear"
+         affirmation chip
+     CR-SM DEC-2 specified placement only, not visual treatment
+     — this is design polish work. Co-locates with F-6 / F-7 on
+     same surface family (Costing Sheet head).
+   - **Costing Sheet action cluster grouping** (post-step-0
+     smoke, Edward May 2026): three remaining actions after F-6
+     extraction (Preview / customer-response chip / Mark
+     Accepted) need visible hierarchy:
+       - Preview = sideways look-at affordance
+       - Customer-response chip = workflow prereq for Mark
+         Accepted (sequenced steps)
+       - Mark Accepted = primary forward CTA
+     Group customer-response + Mark Accepted visually (proximity
+     + shared treatment) since they're sequenced. Preview stays
+     visually distinct as sideways action. Final cluster grammar
+     pending CD R7 (e) for cross-surface standardization; RI.8
+     applies the visible-hierarchy treatment within existing
+     grammar to ship the felt-friction fix now.
 8. **Dark mode sweep** across all rebuilt surfaces (excluding
    PDF subtree per token-lock).
 9. **F-10 conditional verify** post-F-1 (inner-rail fix). If
@@ -519,7 +573,20 @@ R7 ask. Both behaviors banked as durable convention in
   > the IA arc; (c) per-surface 'next move' affordance vs centralized
   > inbox; (d) breadcrumb standardization across quote-scoped
   > surfaces (with attention to R6's deliberate omission on Cost
-  > Build)."
+  > Build); (e) action button cluster grammar across quote-scoped
+  > surfaces (Cost Build header, Costing Sheet head, Customer view
+  > toolbar, Mark-Accepted header) — hierarchy, grouping, primary CTA
+  > placement, direction consistency."
+
+  **(e) extension added post-step-0 smoke (Edward, May 2026).**
+  Costing Sheet action cluster ergonomics — Preview / customer-accept
+  toggle / Mark-Accepted lacks visible hierarchy + grouping;
+  customer-accept is sequenced-prereq for Mark-Accepted but
+  clustering grammar doesn't signal it. Scope §2.2 of the navigation
+  audit asked about action button placement consistency but
+  Designer's findings (F-6) only covered back-nav; cluster grammar
+  went unanswered. See `docs/ri8-navigation-audit-findings.md` §4
+  origin note.
 
 - **RI.9 navigation slice** opens once CD lands IA direction.
   F-5-structural, F-8, F-11, F-13 land there with the CD R7 output

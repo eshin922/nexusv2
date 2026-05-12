@@ -15,9 +15,10 @@ import {
   countFreightCellsWithDataForQuote,
   countFreightLinesForQuote,
 } from "@/app/actions/freight";
-import { getCostingBundle } from "@/app/actions/costing";
-import { CostingStoreProvider } from "@/components/costing-store-provider";
-import { QuoteSummaryCard } from "@/components/quote-summary-card";
+// Slice RI.8 step 1.5 — Pricing Control Summary moved off Setup
+// per brief §5 + §3.5. getCostingBundle / CostingStoreProvider /
+// QuoteSummaryCard imports dropped along with the CostingSummary
+// helper component.
 import { buildTreeRenderOrder, getEligibleParents } from "@/lib/sku-tree";
 import { IdBadge } from "@/components/id-badge";
 import { AddTierButton } from "./add-tier-button";
@@ -89,29 +90,51 @@ export default async function QuoteBuilderPage({
         </Link>
       </div>
 
-      <header className="mb-6 flex items-start justify-between gap-4">
+      {/* Slice RI.8 step 1.5 — R1 page-head fidelity per
+          source/round-1/app/setup.jsx lines 8-18 + styles.css
+          .page-head / .page-title / .page-sub / .eyebrow. */}
+      <header className="r1-setup-head">
         <div>
-          <h1 className="text-2xl font-semibold">
-            {quote.scenarioLabel} · v{quote.versionNumber}
-          </h1>
-          <p className="mt-1 text-sm text-ink-3">
-            {project.clientName ?? "—"}
-            {pm?.name && (
-              <>
-                {" · PM: "}
-                <span className="text-ink-2">{pm.name}</span>
-              </>
-            )}
+          <p className="r1-setup-eyebrow">
+            Quote setup · {quote.scenarioLabel} v{quote.versionNumber}
           </p>
+          <h1 className="r1-setup-title">
+            Define <em>SKUs &amp; volume tiers</em>
+          </h1>
+          <p className="r1-setup-sub">
+            Done once per quote. Tiers become first-class views — not
+            duplicate columns of inputs.
+            {project.clientName ? ` · ${project.clientName}` : ""}
+            {pm?.name ? ` · PM ${pm.name}` : ""}
+          </p>
+          <div className="r1-setup-meta">
+            <IdBadge id={quote.id} />
+            <Badge
+              className={STATUS_STYLES[quote.status] ?? STATUS_STYLES.draft}
+            >
+              {quote.status}
+            </Badge>
+            <span>created {quote.createdAt.toLocaleDateString()}</span>
+          </div>
         </div>
         <div className="flex items-center gap-2">
-          <IdBadge id={quote.id} />
-          <Badge className={STATUS_STYLES[quote.status] ?? STATUS_STYLES.draft}>
-            {quote.status}
-          </Badge>
-          <span className="text-xs text-ink-3">
-            created {quote.createdAt.toLocaleDateString()}
-          </span>
+          {/* Save draft — auto-save reinforcement; matches R1 line 15.
+              Tooltip explains the auto-save model. */}
+          <button
+            type="button"
+            className="r2-btn ghost"
+            title="Saved automatically as you edit."
+            disabled
+          >
+            Save draft
+          </button>
+          {/* Continue to cost build — primary CTA per R1 line 16. */}
+          <Link
+            href={`/projects/${project.id}/quotes/${quote.id}/cost-build`}
+            className="r2-btn primary"
+          >
+            Continue to cost build →
+          </Link>
         </div>
       </header>
 
@@ -124,6 +147,11 @@ export default async function QuoteBuilderPage({
           editable.
         </div>
       )}
+
+      {/* Slice RI.8 step 1.5 — R1 two-column setup grid. SKUs
+          left (1.4fr), Volume tiers right (1fr) per R1 source.
+          Notes section follows full-width below the grid. */}
+      <div className="r1-setup-grid">
 
       {/* SKUs — referenced from HubSpot Products */}
       <Section title="SKUs">
@@ -238,10 +266,16 @@ export default async function QuoteBuilderPage({
           </>
         )}
       </Section>
+      </div>
+      {/* end .r1-setup-grid */}
 
-      {/* Notes */}
+      {/* Notes — full-width below the setup grid. R1 prototype
+          doesn't include this surface (it was illustrative), so
+          register matches the grid cards but the section spans
+          full width as the canonical "internal + customer-facing"
+          notes block. */}
       <Section title="Notes">
-        <div className="p-4">
+        <div className="p-[18px]">
           <NotesEditor
             quoteId={quote.id}
             internalNotes={quote.internalNotes}
@@ -251,62 +285,31 @@ export default async function QuoteBuilderPage({
         </div>
       </Section>
 
-      {/* Slice RI.8 F-4 fix — replaces the legacy 3-column Cost
-          inputs nav strip (which pointed at deprecated
-          /packaging, /production, /freight routes RI.4 unified
-          into one Cost Build page). Per brief §3.5 + R1 design
-          source, this is now a single "Continue to Cost build →"
-          affordance. The three legacy routes still redirect, so
-          existing inbound links from elsewhere keep working —
-          but PMs entering from Setup see the canonical IA. */}
-      <Section title="Cost inputs">
-        <div className="p-4">
-          <Link
-            href={`/projects/${project.id}/quotes/${quote.id}/cost-build`}
-            className="r2-btn primary"
-          >
-            Continue to Cost build →
-          </Link>
-          <p className="mt-2 text-xs text-ink-3">
-            Three sections (Packaging / Production / Freight) plus
-            Bulk Raw, all feeding one cost stack. Drill into each
-            section to edit; the stack updates live.
-          </p>
-        </div>
-      </Section>
+      {/* Slice RI.8 step 1.5 — `Cost inputs` Section block removed.
+          The "Continue to cost build →" CTA now lives in the
+          page-head action cluster per R1 source line 16. PMs
+          have a single canonical path forward, not a redundant
+          mid-page section.
 
-      <div className="mt-4">
-        <CostingSummary quoteId={quote.id} editable={editable} />
-      </div>
+          CostingSummary card removed entirely. Surface separation
+          per brief §5 + §3.5: Pricing Control Summary lives on
+          Costing Sheet only. Was a Slice 5/6/7-era convenience
+          render; carried forward through RI.0-RI.7 unnecessarily.
+          PMs reviewing margins navigate to Costing Sheet (via
+          page-head Continue button or inner-rail). */}
     </main>
-  );
-}
-
-async function CostingSummary({
-  quoteId,
-  editable,
-}: {
-  quoteId: string;
-  editable: boolean;
-}) {
-  const bundle = await getCostingBundle(quoteId);
-  if (!bundle.ok) {
-    return (
-      <div className="rounded-md border border-bad/40 bg-bad-soft p-4 text-sm text-bad">
-        Costing summary unavailable: {bundle.error.message}
-      </div>
-    );
-  }
-  return (
-    <CostingStoreProvider snapshot={bundle.data}>
-      <QuoteSummaryCard variant="compact" editable={editable} />
-    </CostingStoreProvider>
   );
 }
 
 // Slice RI.8 step 1 — CostInputLink helper removed. F-4 absorbed
 // the three-column Cost inputs nav strip into a single
 // "Continue to Cost build →" affordance.
+//
+// Slice RI.8 step 1.5 — Section helper now renders R1 card chrome
+// per source/round-1/styles.css .card / .card-head / .card-body.
+// Body is always flush (no internal padding); callers manage
+// their own internal layout. mb-4 spacing between sections
+// preserved.
 
 function Section({
   title,
@@ -318,12 +321,12 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="mb-4 rounded-md border border-rule bg-paper">
-      <header className="flex items-center justify-between border-b border-rule px-4 py-2">
-        <h2 className="text-sm font-semibold text-ink">{title}</h2>
+    <section className="r1-setup-card mb-4">
+      <header className="r1-setup-card-head">
+        <h3>{title}</h3>
         {action}
       </header>
-      {children}
+      <div className="r1-setup-card-body flush">{children}</div>
     </section>
   );
 }
