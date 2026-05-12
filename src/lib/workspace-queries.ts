@@ -504,7 +504,12 @@ export async function getProjectActivity(
     summary: r.summary,
     entityLabel: r.entity_label,
     diffJson: r.diff_json,
-    createdAt: r.created_at,
+    // Coerce: db.execute returns timestamps as ISO strings even
+    // though the generic types it Date. Per CLAUDE.md "Drizzle
+    // aggregation queries" — sql<T> is an assertion, not a runtime
+    // guarantee. Callers expecting Date methods crash without this.
+    createdAt:
+      r.created_at instanceof Date ? r.created_at : new Date(r.created_at),
   }));
 }
 
