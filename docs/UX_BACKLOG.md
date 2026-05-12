@@ -5,6 +5,45 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Incoterm selector for freight]
+
+  **Slice:** RI.9 or freight-model-expansion slice (~4-6h).
+  Adjacent to deferred "Freight mode first-class representation"
+  entry (ocean-import / domestic / air / mixed); candidate to
+  bundle both into a single freight model expansion slice.
+
+  **What:** Freight line currently shows DDP hardcoded (no
+  visible affordance). PMs need to specify other incoterms
+  (EXW for buyer pickup, FOB for port handoff, CIF cost +
+  insurance + freight, CFR, DAP, FCA, etc.) — these determine
+  which costs flow into customer-facing price vs are excluded.
+
+  **Open design question — placement:**
+  - (a) Per freight line — most flexible; rare in CDM workflow
+  - (b) Per freight section
+  - (c) Quote-level setting with optional per-line override
+    (CA lean — most quotes have a single shipping arrangement;
+    per-line override handles the rare mixed case)
+  - (d) Firm default + per-quote override
+
+  **What incoterms affect:**
+  - Math: which costs flow to customer-facing unit price vs are
+    excluded. DDP includes duty/tariff in price; EXW excludes
+    them (buyer's cost). Math layer's current container-only
+    markup + D+T pass-through model assumes DDP; other
+    incoterms shift this.
+  - Customer-facing PDF terms display ("FOB Long Beach" vs
+    "DDP Customer Door"). Slice RI.7 already wires
+    `incoterms_default` on firm_settings + `incoterms_snapshot`
+    on quotes — leveraged at send-time for PDF rendering.
+    Selector here would override the snapshot per-quote /
+    per-line.
+  - Insurance responsibility assignment (CIF includes
+    insurance; CFR doesn't).
+
+  Reference: flagged by Edward during Slice RI.8 cost-stack
+  smoke (May 2026).
+
 - [Cross-section consistency within Costs surface]
 
   **Slice:** Strong candidate for proposed RI.9.5 Design Audit
