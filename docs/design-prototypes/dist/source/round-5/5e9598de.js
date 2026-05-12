@@ -1,0 +1,183 @@
+// Round 5 data — admin pages.
+// firm_settings: target/floor with effective dates (current + recent history)
+// markup_defaults: per-category table from FR-15 vocabulary
+// audit_log: append-only forensic record with diff_json shapes
+
+window.NXR5 = {
+  me: {
+    user_id: "u_edward",
+    name: "Edward Quist",
+    initials: "EQ",
+    role: "admin",
+    last_login_at: "2026-04-30T07:42:00Z",
+  },
+
+  firm_settings: {
+    current: {
+      target_margin_pct: 0.35,
+      floor_margin_pct: 0.25,
+      effective_from: "2026-04-01",
+      effective_until: null,
+      updated_by: { id: "u_edward", name: "Edward Quist", initials: "EQ" },
+      updated_at: "2026-04-01T14:22:00Z",
+      updated_at_label: "Apr 1 · 29d ago",
+    },
+    history: [
+      { target: 0.35, floor: 0.25, from: "2026-04-01", until: null,         by: "Edward Quist", at: "29d ago", current: true },
+      { target: 0.33, floor: 0.25, from: "2026-01-15", until: "2026-04-01", by: "Edward Quist", at: "Jan 15"  },
+      { target: 0.30, floor: 0.22, from: "2025-09-01", until: "2026-01-15", by: "Edward Quist", at: "Sep 1, 2025" },
+      { target: 0.30, floor: 0.20, from: "2025-04-12", until: "2025-09-01", by: "Nina Halvor",  at: "Apr 12, 2025" },
+    ],
+    portfolio_effect: {
+      total_quotes: 24,
+      good: 14,
+      below_target: 8,
+      below_floor: 2,
+      as_of: "live",
+    },
+  },
+
+  // What re-banding looks like in the preview (a 35→40 target change)
+  preview_diff: {
+    from: { target: 0.35, floor: 0.25 },
+    to:   { target: 0.40, floor: 0.25 },
+    rebanded: {
+      good_to_below_target: 4,    // were good at 35%, slip to below-target at 40%
+      below_target_to_below_floor: 0,
+      good_total_after: 10,
+      below_target_total_after: 12,
+      below_floor_total_after: 2,
+    },
+    affected_quotes: [
+      { project: "Lumen & Co.", scenario: "Primary",            v: 3, margin: 36.2, was: "good", now: "below_target" },
+      { project: "Sonder",      scenario: "Primary",            v: 3, margin: 36.7, was: "good", now: "below_target" },
+      { project: "Marin",       scenario: "Primary",            v: 2, margin: 37.0, was: "good", now: "below_target" },
+      { project: "Beija Flor",  scenario: "Primary",            v: 4, margin: 38.8, was: "good", now: "below_target" },
+    ],
+  },
+
+  // FR-15 categories — assumes Slice 9 vocabulary settled
+  markup_defaults: [
+    { category: "Primary Packaging",          default_markup_pct: 0.40, line_item_count: 142, last_edited_by: "Edward Quist", last_edited: "Apr 1",  edited_label: "29d ago" },
+    { category: "Secondary - Corrugated",     default_markup_pct: 0.35, line_item_count: 78,  last_edited_by: "Edward Quist", last_edited: "Apr 1",  edited_label: "29d ago" },
+    { category: "Secondary - Labels",         default_markup_pct: 0.45, line_item_count: 94,  last_edited_by: "Nina Halvor",  last_edited: "Mar 18", edited_label: "Mar 18" },
+    { category: "Secondary - Cards/Booklets", default_markup_pct: 0.45, line_item_count: 38,  last_edited_by: "Nina Halvor",  last_edited: "Mar 18", edited_label: "Mar 18" },
+    { category: "Manufacturing",              default_markup_pct: 0.30, line_item_count: 187, last_edited_by: "Edward Quist", last_edited: "Apr 1",  edited_label: "29d ago" },
+    { category: "Filling and Packout",        default_markup_pct: 0.32, line_item_count: 156, last_edited_by: "Edward Quist", last_edited: "Apr 1",  edited_label: "29d ago" },
+    { category: "Co-Packing",                 default_markup_pct: 0.28, line_item_count: 22,  last_edited_by: "Edward Quist", last_edited: "Feb 4",  edited_label: "Feb 4"  },
+    { category: "Raw Ingredients",            default_markup_pct: 0.38, line_item_count: 213, last_edited_by: "Edward Quist", last_edited: "Apr 1",  edited_label: "29d ago" },
+    { category: "Logistics",                  default_markup_pct: 0.20, line_item_count: 67,  last_edited_by: "Edward Quist", last_edited: "Apr 1",  edited_label: "29d ago" },
+    { category: "Passthrough",                default_markup_pct: 0.00, line_item_count: 31,  last_edited_by: "Edward Quist", last_edited: "Sep 1, 2025", edited_label: "Sep 1, 2025" },
+    { category: "One Time Charges",           default_markup_pct: 0.25, line_item_count: 18,  last_edited_by: "Nina Halvor",  last_edited: "Mar 18", edited_label: "Mar 18" },
+    { category: "R&D / Testing",              default_markup_pct: 0.50, line_item_count: 9,   last_edited_by: "Edward Quist", last_edited: "Feb 4",  edited_label: "Feb 4"  },
+    { category: "Turnkey",                    default_markup_pct: 0.35, line_item_count: 12,  last_edited_by: "Edward Quist", last_edited: "Feb 4",  edited_label: "Feb 4"  },
+    { category: "Tooling",                    default_markup_pct: 0.15, line_item_count: 0,   last_edited_by: "Edward Quist", last_edited: "Apr 1",  edited_label: "29d ago", unused: true },
+  ],
+
+  audit_log: [
+    {
+      id: "a_1428", ts: "2h ago", ts_full: "2026-04-30 06:14",
+      user: { initials: "MO", name: "Maya Okafor" },
+      entity_type: "quote", entity_id: "q_lc_p_v3", entity_label: "Lumen & Co. · Primary v3",
+      action: "below_floor_override_requested",
+      summary: "Override DM sent to @nina · v3 sent at 22.8% blended (floor 25%)",
+      diff_fields: 3,
+      diff: { override_dm_sent_at: { from: null, to: "2026-04-30T05:42:00Z" }, override_pending: { from: false, to: true }, override_dm_recipient: { from: null, to: "u_nina" } },
+    },
+    {
+      id: "a_1427", ts: "2h ago", ts_full: "2026-04-30 06:14",
+      user: { initials: "MO", name: "Maya Okafor" },
+      entity_type: "quote", entity_id: "q_lc_p_v3", entity_label: "Lumen & Co. · Primary v3",
+      action: "sent",
+      summary: "Quote sent · 22.8% blended margin · BELOW_FLOOR (firm floor 25%)",
+      diff_fields: 4,
+      diff: { status: { from: "draft", to: "sent" }, sent_at: { from: null, to: "2026-04-30T05:42:00Z" }, blended_margin_pct: { from: null, to: 0.228 }, gate_state: { from: null, to: "below_floor" } },
+    },
+    {
+      id: "a_1419", ts: "5h ago", ts_full: "2026-04-30 03:18",
+      user: { initials: "MO", name: "Maya Okafor" },
+      entity_type: "scenario", entity_id: "sc_aggressive", entity_label: "Lumen & Co. · Aggressive — drop CAP-60",
+      action: "scenario_created",
+      summary: "Forked from Primary v2 · removed CAP-60",
+      diff_fields: 6,
+      copy_source: "q_lc_p_v2",
+      diff: { scenario_label: { from: null, to: "Aggressive — drop CAP-60" }, copied_from_quote_id: { from: null, to: "q_lc_p_v2" }, sku_count: { from: 0, to: 4 }, scenario_status: { from: null, to: "active" } },
+    },
+    {
+      id: "a_1392", ts: "yesterday · 2:14pm",
+      user: { initials: "MO", name: "Maya Okafor" },
+      entity_type: "quote", entity_id: "q_lc_p_v2", entity_label: "Lumen & Co. · Primary v2",
+      action: "cell_override_updated",
+      summary: "Sell override set on CAP-60 · Tier 2 — $4.85 → $4.62",
+      diff_fields: 1,
+      diff: { sell_price_override: { from: 4.85, to: 4.62 } },
+      cell_ref: { sku: "CAP-60", tier: "T2" },
+    },
+    {
+      id: "a_1380", ts: "yesterday · 11:02am",
+      user: { initials: "MO", name: "Maya Okafor" },
+      entity_type: "quote", entity_id: "q_lc_p_v2", entity_label: "Lumen & Co. · Primary v2",
+      action: "cell_target_updated",
+      summary: "Client target benchmark on CAP-60 · Tier 2 — null → $4.50",
+      diff_fields: 1,
+      diff: { client_target: { from: null, to: 4.50 } },
+      cell_ref: { sku: "CAP-60", tier: "T2" },
+    },
+    {
+      id: "a_1361", ts: "2d ago",
+      user: { initials: "WC", name: "Wei Chen" },
+      entity_type: "packaging_input", entity_id: "pi_lc_2031", entity_label: "Lumen & Co. · Primary draft · Verre Pacific dropper",
+      action: "updated",
+      summary: "Cost cascade · Verre Pacific dropper updated $0.42 → $0.38 · 4 SKU rows × 4 tiers re-derived",
+      diff_fields: 19,
+      cascade: true,
+      cascade_count: { quotes: 1, sku_rows: 4, input_rows: 16 },
+      diff: { unit_cost: { from: 0.42, to: 0.38 } },
+    },
+    {
+      id: "a_1340", ts: "Apr 28",
+      user: { initials: "MO", name: "Maya Okafor" },
+      entity_type: "scenario", entity_id: "sc_freight", entity_label: "Lumen & Co. · Pass-through freight",
+      action: "scenario_dropped",
+      summary: "Dropped — drop_reason=explored",
+      diff_fields: 2,
+      diff: { scenario_status: { from: "active", to: "dropped" }, drop_reason: { from: null, to: "explored" } },
+    },
+    {
+      id: "a_1314", ts: "Apr 26",
+      user: { initials: "MO", name: "Maya Okafor" },
+      entity_type: "quote", entity_id: "q_lc_p_v1", entity_label: "Lumen & Co. · Primary v1",
+      action: "sent",
+      summary: "Quote sent · 25.6% blended · BELOW_TARGET",
+      diff_fields: 4,
+      diff: { status: { from: "draft", to: "sent" }, sent_at: { from: null, to: "2026-04-26T17:14:00Z" }, blended_margin_pct: { from: null, to: 0.256 }, gate_state: { from: null, to: "below_target" } },
+    },
+    {
+      id: "a_1098", ts: "Apr 22",
+      user: { initials: "MO", name: "Maya Okafor" },
+      entity_type: "project", entity_id: "P-2418", entity_label: "Lumen & Co.",
+      action: "created",
+      summary: "Project imported from HubSpot deal DL-91723",
+      diff_fields: 5,
+      diff: { hubspot_deal_id: { from: null, to: "DL-91723" }, deal_name: { from: null, to: "Q3 Replenish + Glow Capsule Launch" }, client_name: { from: null, to: "Lumen & Co." } },
+    },
+    {
+      id: "a_1024", ts: "Apr 1",
+      user: { initials: "EQ", name: "Edward Quist" },
+      entity_type: "firm_settings", entity_id: "fs_2026_q2", entity_label: "Firm policy",
+      action: "updated",
+      summary: "Target margin 33% → 35% · floor margin unchanged at 25%",
+      diff_fields: 2,
+      diff: { target_margin_pct: { from: 0.33, to: 0.35 }, effective_from: { from: "2026-01-15", to: "2026-04-01" } },
+    },
+    {
+      id: "a_0982", ts: "Mar 18",
+      user: { initials: "NH", name: "Nina Halvor" },
+      entity_type: "markup_defaults", entity_id: "Secondary - Labels", entity_label: "Markup default · Secondary - Labels",
+      action: "updated",
+      summary: "Default markup 40% → 45%",
+      diff_fields: 1,
+      diff: { default_markup_pct: { from: 0.40, to: 0.45 } },
+    },
+  ],
+};

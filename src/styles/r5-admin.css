@@ -1,0 +1,321 @@
+/*
+ * Slice RI.8 step 2 — Round 5 admin stylesheet.
+ *
+ * Ports relevant R5 classes from
+ * docs/design-prototypes/dist/source/round-5/index.html for the
+ * markup-defaults page (step 2), firm-settings page (step 3),
+ * audit log read view (step 5), and any Round-5-anchored admin
+ * polish. Class names match R5 source verbatim (`.r5-*`) so
+ * future CD references read cleanly against the prototype.
+ *
+ * Loaded via src/app/globals.css after r2-pricing / r6-costs /
+ * r3-quote / r1-setup — R5 classes don't collide with those
+ * surfaces; admin pages opt in by adding `.r5-page` wrapper +
+ * R5-prefixed class names on inner elements.
+ */
+
+/* ─── Page head ─────────────────────────────────────── */
+.r5-page {
+  padding: 28px 40px 60px;
+  max-width: 1480px;
+  margin: 0 auto;
+}
+.r5-page-head {
+  margin-bottom: 24px;
+}
+.r5-page-head .eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--ink-4);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.r5-page-head h1 {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 30px;
+  margin: 0 0 6px;
+  letter-spacing: -0.012em;
+  color: var(--ink);
+}
+.r5-page-head h1 em {
+  font-style: italic;
+  color: var(--ink-3);
+  font-weight: 400;
+  font-size: 22px;
+}
+.r5-page-head .sub {
+  color: var(--ink-3);
+  font-size: 13.5px;
+  margin: 0;
+  max-width: 70ch;
+  line-height: 1.55;
+}
+
+/* ─── Markup defaults — propagation rule banner ────── */
+.r5-md-rule {
+  margin-bottom: 14px;
+  padding: 12px 16px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+.r5-md-rule .icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: oklch(from var(--accent) l c h / 0.15);
+  color: var(--accent-ink);
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  margin-top: 1px;
+}
+.r5-md-rule strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* ─── Markup defaults — table ──────────────────────── */
+.r5-md-table {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.r5-md-table-head {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr 90px;
+  gap: 14px;
+  padding: 12px 22px;
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  font-weight: 500;
+}
+.r5-md-row {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr 90px;
+  gap: 14px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--rule);
+  align-items: center;
+  transition: background 80ms;
+}
+.r5-md-row:last-child {
+  border-bottom: none;
+}
+.r5-md-row:hover {
+  background: var(--paper-2);
+}
+.r5-md-row.editing {
+  background: var(--paper-2);
+  border-left: 3px solid var(--accent);
+  padding-left: 19px;
+}
+.r5-md-row.unused {
+  opacity: 0.62;
+}
+
+.r5-md-row .name {
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 500;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.r5-md-row .name .unused-chip {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--paper-3);
+  color: var(--ink-4);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.r5-md-row .markup {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  text-align: right;
+}
+.r5-md-row .markup .pct {
+  color: var(--ink-3);
+  margin-left: 2px;
+}
+.r5-md-row .lic {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.r5-md-row .lic .zero {
+  color: var(--ink-4);
+  font-style: italic;
+}
+.r5-md-row .last {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.r5-md-row .last .by {
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  display: block;
+}
+.r5-md-row .actions {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  letter-spacing: 0.05em;
+}
+.r5-md-row .actions button {
+  color: var(--ink-3);
+  padding: 2px 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+.r5-md-row .actions button:hover {
+  color: var(--accent-ink);
+}
+.r5-md-row .actions button.disabled,
+.r5-md-row .actions button:disabled {
+  color: var(--ink-4);
+  cursor: not-allowed;
+}
+
+/* ─── Markup defaults — inline edit ────────────────── */
+.r5-md-edit {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+}
+.r5-md-edit input {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  padding: 5px 8px;
+  width: 80px;
+  text-align: right;
+  outline: none;
+}
+.r5-md-edit .pct {
+  color: var(--ink-3);
+}
+.r5-md-edit .save {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: var(--accent-ink);
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: oklch(from var(--accent) l c h / 0.10);
+  border: 1px solid oklch(from var(--accent) l c h / 0.30);
+  cursor: pointer;
+}
+.r5-md-edit .save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.r5-md-edit .cancel {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: var(--ink-3);
+  padding: 4px 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.r5-md-edit-help {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--paper-3);
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.r5-md-edit-help strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+.r5-md-edit-help .impact {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-4);
+  margin-top: 4px;
+}
+
+/* ─── Markup defaults — foot strip ─────────────────── */
+.r5-md-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 22px;
+  background: var(--paper-2);
+  border-top: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.r5-md-foot a,
+.r5-md-foot button {
+  color: var(--accent-ink);
+  letter-spacing: 0.04em;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+.r5-md-foot button:disabled {
+  color: var(--ink-4);
+  cursor: not-allowed;
+}
+
+/* ─── Designer note panel ──────────────────────────── */
+.r5-dn {
+  margin: 18px 0;
+  padding: 12px 14px;
+  background: oklch(0.78 0.13 75 / 0.07);
+  border-left: 3px solid var(--warn);
+  border-radius: 0 6px 6px 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.r5-dn .lbl {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--warn);
+  margin-right: 8px;
+}

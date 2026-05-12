@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import {
   deleteMarkupDefault,
+  previewMarkupDefaultRecompute,
   upsertMarkupDefault,
   type MarkupDefaultRow,
+  type RecomputePreview,
 } from "@/app/actions/markup-defaults";
 import { validatePercentDecimal } from "@/lib/percent-validation";
 
-const DEBOUNCE_MS = 500;
+// Slice RI.8 step 2 — Markup defaults Round 5 inline-edit table.
+// Click-Edit → row becomes the editor (Cancel + Save buttons) per
+// R5 source. Live disclosure renders below the editing row with
+// counts + approximate margin-shift range from
+// previewMarkupDefaultRecompute (per §1.2 Edward disposition).
 
 function decimalToPctDisplay(d: string): string {
   const n = Number(d) * 100;
@@ -16,43 +22,87 @@ function decimalToPctDisplay(d: string): string {
   return Number(n.toFixed(4)).toString();
 }
 
+function fmtRelativeDate(d: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return "today";
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
+  return `${Math.floor(diffDays / 365)}y ago`;
+}
+
 export function MarkupDefaultsTable({
   rows,
   referenceCounts,
+  inUseCount,
+  totalCount,
 }: {
   rows: MarkupDefaultRow[];
   referenceCounts: Record<string, number>;
+  inUseCount: number;
+  totalCount: number;
 }) {
+  const [editCategory, setEditCategory] = useState<string | null>(null);
+
   return (
-    <div className="overflow-hidden rounded-md border border-slate-300 bg-white">
-      <table className="min-w-full divide-y divide-slate-200 text-sm">
-        <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-          <tr>
-            <th className="px-3 py-2">Category</th>
-            <th className="px-3 py-2 text-right">Default markup</th>
-            <th className="px-3 py-2">Used by</th>
-            <th className="px-3 py-2">Updated</th>
-            <th className="px-3 py-2"></th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {rows.length === 0 ? (
-            <tr>
-              <td colSpan={5} className="px-3 py-4 text-center text-slate-500">
-                No categories yet. Add one below.
-              </td>
-            </tr>
-          ) : (
-            rows.map((r) => (
-              <ExistingRow
-                key={r.category}
-                row={r}
-                referenceCount={referenceCounts[r.category] ?? 0}
-              />
-            ))
-          )}
-        </tbody>
-      </table>
+    <div className="r5-md-table">
+      <div className="r5-md-table-head">
+        <div>Category</div>
+        <div style={{ textAlign: "right" }}>Default markup</div>
+        <div>In use</div>
+        <div>Last edited</div>
+        <div></div>
+      </div>
+
+      {rows.length === 0 ? (
+        <div
+          style={{
+            padding: "24px 22px",
+            textAlign: "center",
+            fontSize: 13,
+            color: "var(--ink-3)",
+            fontStyle: "italic",
+          }}
+        >
+          No categories yet.
+        </div>
+      ) : (
+        rows.map((row) => {
+          const refCount = referenceCounts[row.category] ?? 0;
+          const isEditing = editCategory === row.category;
+          return (
+            <ExistingRow
+              key={row.category}
+              row={row}
+              referenceCount={refCount}
+              editing={isEditing}
+              onStartEdit={() => setEditCategory(row.category)}
+              onCancel={() => setEditCategory(null)}
+              onSaved={() => setEditCategory(null)}
+            />
+          );
+        })
+      )}
+
+      <div className="r5-md-foot">
+        <span>
+          {totalCount} categor{totalCount === 1 ? "y" : "ies"} ·{" "}
+          {inUseCount} in use
+        </span>
+        {/* "+ NEW CATEGORY" inert per Round 5 brief — vocabulary is
+            locked at the FR-15 entries; drawn-but-disabled signals
+            the affordance is intentional, not missing. */}
+        <button
+          type="button"
+          disabled
+          title="Vocabulary is locked at the FR-15 entries. Re-evaluate when category count crosses 25 (Round 5 designer note)."
+        >
+          + NEW CATEGORY
+        </button>
+      </div>
     </div>
   );
 }
@@ -60,132 +110,119 @@ export function MarkupDefaultsTable({
 function ExistingRow({
   row,
   referenceCount,
+  editing,
+  onStartEdit,
+  onCancel,
+  onSaved,
 }: {
   row: MarkupDefaultRow;
   referenceCount: number;
+  editing: boolean;
+  onStartEdit: () => void;
+  onCancel: () => void;
+  onSaved: () => void;
 }) {
-  const [pct, setPct] = useState(decimalToPctDisplay(row.defaultMarkupPct));
+  const unused = referenceCount === 0;
+  const currentDisplay = decimalToPctDisplay(row.defaultMarkupPct);
+
+  if (editing) {
+    return (
+      <EditingRow
+        row={row}
+        referenceCount={referenceCount}
+        currentDisplay={currentDisplay}
+        onCancel={onCancel}
+        onSaved={onSaved}
+      />
+    );
+  }
+
+  return (
+    <div className={`r5-md-row ${unused ? "unused" : ""}`}>
+      <div className="name">
+        {row.category}
+        {unused && <span className="unused-chip">unused</span>}
+      </div>
+      <div className="markup">
+        {currentDisplay}
+        <span className="pct">%</span>
+      </div>
+      <div className="lic">
+        {referenceCount > 0 ? (
+          <>
+            {referenceCount} line item{referenceCount === 1 ? "" : "s"}
+          </>
+        ) : (
+          <span className="zero">0 — never used</span>
+        )}
+      </div>
+      <div className="last">
+        {fmtRelativeDate(row.updatedAt)}
+        <span className="by" aria-hidden>
+          {/* TODO(RI.8 step 5 audit-log polish): resolve user
+              initials from updated_by_user_id. For now, blank. */}
+        </span>
+      </div>
+      <div className="actions">
+        <button type="button" onClick={onStartEdit}>
+          Edit
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function EditingRow({
+  row,
+  referenceCount,
+  currentDisplay,
+  onCancel,
+  onSaved,
+}: {
+  row: MarkupDefaultRow;
+  referenceCount: number;
+  currentDisplay: string;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [pct, setPct] = useState(currentDisplay);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [deleting, startDelete] = useTransition();
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [preview, setPreview] = useState<RecomputePreview | null>(null);
+  const [, startPreview] = useTransition();
+  const unused = referenceCount === 0;
 
-  useEffect(
-    () => () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    },
-    [],
-  );
-
-  function fireSave(value: string) {
-    const decimal = value === "" ? null : Number(value) / 100;
-    if (decimal === null) {
-      setError("Markup % is required.");
+  // Fire preview on pct change (debounced via setTimeout would be
+  // cleaner but transitional + React 19 useTransition already coalesces
+  // intermediate renders — accept that the action runs more often than
+  // strictly necessary for the live-disclosure value).
+  function refreshPreview(value: string) {
+    if (value === "") {
+      setPreview(null);
       return;
     }
-    const v = validatePercentDecimal(decimal, "markup");
-    if (!v.valid) {
-      setError(v.message);
+    const decimal = Number(value) / 100;
+    if (!Number.isFinite(decimal)) {
+      setPreview(null);
       return;
     }
-    setError(null);
-    const fd = new FormData();
-    fd.set("category", row.category);
-    fd.set("defaultMarkupPct", value);
-    startTransition(async () => {
-      const r = await upsertMarkupDefault(fd);
-      if (!r.ok) setError(r.error.message);
+    startPreview(async () => {
+      const r = await previewMarkupDefaultRecompute(
+        row.category,
+        String(decimal),
+      );
+      if (r.ok) setPreview(r.data);
     });
   }
 
   function handleChange(value: string) {
     setPct(value);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => fireSave(value), DEBOUNCE_MS);
-  }
-
-  function handleDelete() {
-    // Modal copy per Edward's spec: warn-with-count, don't block.
-    // Existing rows keep their saved markup_pct; only the dropdown
-    // loses the entry until re-created.
-    const message =
-      referenceCount > 0
-        ? `Delete category "${row.category}"?\n\n` +
-          `${referenceCount} existing input row${referenceCount === 1 ? "" : "s"} use${referenceCount === 1 ? "s" : ""} this category and will be unaffected — they keep their saved markup. New rows of this category will have no default markup until you re-create it.`
-        : `Delete category "${row.category}"?\n\nNo existing input rows reference this category.`;
-    if (!confirm(message)) return;
-    const fd = new FormData();
-    fd.set("category", row.category);
-    startDelete(async () => {
-      const r = await deleteMarkupDefault(fd);
-      if (!r.ok) setError(r.error.message);
-    });
-  }
-
-  return (
-    <tr>
-      <td className="px-3 py-2 font-medium text-slate-900">{row.category}</td>
-      <td className="px-3 py-2 text-right">
-        <div className="flex items-center justify-end gap-1">
-          <input
-            type="number"
-            inputMode="decimal"
-            step="0.01"
-            min={0}
-            value={pct}
-            onChange={(e) => handleChange(e.target.value)}
-            className="w-24 rounded border border-slate-300 bg-white px-2 py-0.5 text-right text-sm focus:border-slate-500 focus:outline-none"
-          />
-          <span className="text-xs text-slate-500">%</span>
-        </div>
-        {error && (
-          <p className="mt-1 text-xs text-red-700" role="alert">
-            {error}
-          </p>
-        )}
-      </td>
-      <td className="px-3 py-2 text-xs text-slate-500">
-        {referenceCount === 0 ? (
-          <span className="text-slate-400">no references</span>
-        ) : (
-          <span>
-            {referenceCount} packaging row{referenceCount === 1 ? "" : "s"}
-          </span>
-        )}
-      </td>
-      <td className="px-3 py-2 text-xs text-slate-500">
-        {row.updatedAt.toLocaleString()}
-      </td>
-      <td className="px-3 py-2 text-right">
-        {pending && <span className="mr-2 text-xs text-slate-400">saving…</span>}
-        <button
-          type="button"
-          onClick={handleDelete}
-          disabled={deleting}
-          className="rounded border border-red-200 bg-white px-2 py-0.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-30"
-        >
-          {deleting ? "Deleting…" : "Delete"}
-        </button>
-      </td>
-    </tr>
-  );
-}
-
-export function AddCategoryForm() {
-  const [category, setCategory] = useState("");
-  const [pct, setPct] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
-
-  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
     setError(null);
-    setSuccess(null);
-    if (category.trim() === "") {
-      setError("Category name is required.");
-      return;
-    }
+    refreshPreview(value);
+  }
+
+  function handleSave() {
+    setError(null);
     if (pct === "") {
       setError("Markup % is required.");
       return;
@@ -196,64 +233,168 @@ export function AddCategoryForm() {
       setError(v.message);
       return;
     }
-    const fd = new FormData(e.currentTarget);
+    const fd = new FormData();
+    fd.set("category", row.category);
+    fd.set("defaultMarkupPct", pct);
     startTransition(async () => {
       const r = await upsertMarkupDefault(fd);
       if (!r.ok) {
         setError(r.error.message);
+        return;
+      }
+      onSaved();
+    });
+  }
+
+  function handleDelete() {
+    const message =
+      referenceCount > 0
+        ? `Delete category "${row.category}"?\n\n` +
+          `${referenceCount} existing input row${referenceCount === 1 ? "" : "s"} use${referenceCount === 1 ? "s" : ""} this category and will be unaffected — they keep their saved markup. New rows of this category will have no default markup until you re-create it.`
+        : `Delete category "${row.category}"?\n\nNo existing input rows reference this category.`;
+    if (!confirm(message)) return;
+    const fd = new FormData();
+    fd.set("category", row.category);
+    startTransition(async () => {
+      const r = await deleteMarkupDefault(fd);
+      if (!r.ok) {
+        setError(r.error.message);
       } else {
-        setSuccess(`Added "${r.data.category}".`);
-        setCategory("");
-        setPct("");
+        onSaved();
       }
     });
   }
 
   return (
-    <form
-      onSubmit={onSubmit}
-      className="rounded-md border border-slate-300 bg-white p-4"
-    >
-      <h3 className="mb-3 text-sm font-semibold text-slate-900">
-        Add new category
-      </h3>
-      <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
-        <input
-          type="text"
-          name="category"
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          placeholder="e.g., Primary Packaging"
-          className="rounded border border-slate-300 bg-white px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
-        />
-        <div className="flex items-center gap-1">
+    <div className={`r5-md-row editing ${unused ? "unused" : ""}`}>
+      <div className="name">
+        {row.category}
+        {unused && <span className="unused-chip">unused</span>}
+      </div>
+      <div className="markup">
+        <div className="r5-md-edit">
+          <span></span>
           <input
             type="number"
-            name="defaultMarkupPct"
             inputMode="decimal"
             step="0.01"
             min={0}
             value={pct}
-            onChange={(e) => setPct(e.target.value)}
-            placeholder="30"
-            className="w-24 rounded border border-slate-300 bg-white px-2 py-1 text-right text-sm focus:border-slate-500 focus:outline-none"
+            onChange={(e) => handleChange(e.target.value)}
+            autoFocus
+            aria-label={`${row.category} markup percent`}
           />
-          <span className="text-xs text-slate-500">%</span>
+          <span className="pct">%</span>
         </div>
+      </div>
+      <div className="lic">
+        {referenceCount > 0 ? (
+          <>
+            {referenceCount} line item{referenceCount === 1 ? "" : "s"}
+          </>
+        ) : (
+          <span className="zero">0 — never used</span>
+        )}
+      </div>
+      <div className="last">
+        {fmtRelativeDate(row.updatedAt)}
+      </div>
+      <div className="actions">
         <button
-          type="submit"
+          type="button"
+          onClick={handleDelete}
           disabled={pending}
-          className="rounded-md bg-slate-900 px-3 py-1 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+          style={{ color: "var(--bad)" }}
         >
-          {pending ? "Adding…" : "Add"}
+          Delete
+        </button>
+        <button type="button" className="cancel" onClick={onCancel} disabled={pending}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="save"
+          onClick={handleSave}
+          disabled={pending || pct === ""}
+        >
+          {pending ? "Saving…" : "Save"}
         </button>
       </div>
-      {error && (
-        <p className="mt-2 text-xs text-red-700" role="alert">
-          {error}
-        </p>
-      )}
-      {success && <p className="mt-2 text-xs text-green-700">{success}</p>}
-    </form>
+
+      {/* Live disclosure — R5 commitment per brief §3.11. Renders
+          below the editing row; references current preview state. */}
+      <div className="r5-md-edit-help">
+        {error ? (
+          <span
+            role="alert"
+            style={{ color: "var(--bad)", fontWeight: 500 }}
+          >
+            {error}
+          </span>
+        ) : preview ? (
+          <PreviewDisclosure preview={preview} />
+        ) : (
+          <span style={{ color: "var(--ink-3)" }}>
+            Enter a new % to see the impact preview…
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PreviewDisclosure({ preview }: { preview: RecomputePreview }) {
+  const oldDisplay = decimalToPctDisplay(preview.oldPct);
+  const newDisplay = decimalToPctDisplay(preview.newPct);
+  const noChange = preview.deltaPctPp === 0;
+  const noDrafts = preview.affectedDraftQuotes === 0;
+
+  if (noChange) {
+    return (
+      <span style={{ color: "var(--ink-3)" }}>
+        No change yet. Adjust the % to see the impact preview.
+      </span>
+    );
+  }
+
+  // Shift sign convention: positive deltaPp (higher markup) trends
+  // positive blended-margin shift. Display absolute range with
+  // direction prefix; PMs read the sign quickly.
+  const shiftSign = preview.deltaPctPp > 0 ? "+" : "";
+  const shiftLow = preview.shiftLowPp.toFixed(1);
+  const shiftHigh = preview.shiftHighPp.toFixed(1);
+
+  return (
+    <>
+      <strong>
+        Saving {oldDisplay}% → {newDisplay}%
+      </strong>{" "}
+      will recompute markup on{" "}
+      <strong>
+        {preview.affectedLineItems} line item
+        {preview.affectedLineItems === 1 ? "" : "s"}
+      </strong>{" "}
+      across{" "}
+      <strong>
+        {preview.affectedDraftQuotes} draft quote
+        {preview.affectedDraftQuotes === 1 ? "" : "s"}
+      </strong>
+      .{noDrafts ? " " : " Sent quotes are not affected."}
+      <div className="impact">
+        {noDrafts ? (
+          <>No draft quotes affected — this change is forward-only.</>
+        ) : (
+          <>
+            Estimated blended-margin shift on those drafts:{" "}
+            <strong style={{ color: "var(--ink-2)" }}>
+              {shiftSign}
+              {shiftLow} to {shiftSign}
+              {shiftHigh} pts
+            </strong>{" "}
+            (approximate; assumes 20–40% packaging cost share)
+          </>
+        )}
+      </div>
+    </>
   );
 }
