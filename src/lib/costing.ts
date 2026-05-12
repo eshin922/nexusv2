@@ -287,7 +287,18 @@ export type SkuPerTierRollup = {
   // (backwards-compat for any reader that hasn't migrated).
   totalContainerFreightBeforeMarkup: number;
   totalDutyTariffBeforeMarkup: number;
+  // Slice RI.8 Option 2 — per-component MARKED-UP sums (cost × (1 +
+  // markup) per line, summed). These are the first-class primitives
+  // the cost-stack rows + section mini-stack + drilldown TOTAL all
+  // read. Replaces the proportional-share approximation that caused
+  // PM-visible mismatches across the three display surfaces.
+  packagingMarkupSumPerUnit: number;
+  productionMarkupSumPerUnit: number;
+  rawMarkupSumPerUnit: number;
+  freightContainerMarkupSumPerUnit: number;
+  freightDutyTariffMarkupSumPerUnit: number;
   separateServiceFeesPerUnit: number; // when allocate_service_fees=false
+  separateServicesMarkupSumPerUnit: number; // marked-up version of above
   contributionCostPerUnit: number;
   // Slice 9.3 — `requiredSellPerUnit` is the value used by all
   // downstream math (revenue, margin, partition). `computedSellPerUnit`
@@ -345,6 +356,17 @@ export type QuoteCostBreakdown = {
   // `freight` continues to see the combined number.
   freightContainer: number;
   dutyAndTariff: number;
+  // Slice RI.8 Option 2 — per-component marked-up sums (cost ×
+  // (1 + markup) applied at the line level, summed across SKUs
+  // weighted by tier qty). These are the canonical "sell
+  // contribution" primitives for cost-stack rows + section
+  // mini-stack + drilldown TOTAL.
+  packagingMarkupSum: number;
+  productionMarkupSum: number;
+  rawMarkupSum: number;
+  freightContainerMarkupSum: number;
+  dutyAndTariffMarkupSum: number;
+  separateServicesMarkupSum: number;
 };
 
 export type QuotePerTierRollup = {
@@ -977,6 +999,11 @@ function computeLeafPerTier(args: {
   // consumers; the two parallel accumulators expose the split.
   let totalContainerBefore = 0;
   let totalDutyTariffBefore = 0;
+  // Slice RI.8 Option 2 — per-component marked-up sums (cost ×
+  // (1 + freight markup) per line). The cost-stack rows + section
+  // mini-stack + drilldown TOTAL all read these primitives.
+  let totalContainerWithMarkup = 0;
+  let totalDutyTariffWithMarkup = 0;
   for (const f of freight) {
     const total = num(f.totalFreight);
     if (total <= 0) {
@@ -1034,6 +1061,11 @@ function computeLeafPerTier(args: {
     totalLandedWithMarkup += landedWithMarkup;
     totalContainerBefore += container;
     totalDutyTariffBefore += duty + tariff;
+    // Marked-up component split (Option 2). Freight markup applies
+    // uniformly to (container + duty + tariff) at line level —
+    // splitting the marked-up sum mirrors the cost split exactly.
+    totalContainerWithMarkup += container * (1 + freightMarkup);
+    totalDutyTariffWithMarkup += (duty + tariff) * (1 + freightMarkup);
   }
 
   // ---------- contribution + required sell ----------
@@ -1086,7 +1118,14 @@ function computeLeafPerTier(args: {
     totalLandedFreightWithMarkup: totalLandedWithMarkup,
     totalContainerFreightBeforeMarkup: totalContainerBefore,
     totalDutyTariffBeforeMarkup: totalDutyTariffBefore,
+    // Slice RI.8 Option 2 — per-component marked-up sums.
+    packagingMarkupSumPerUnit: packagingMarkupSum,
+    productionMarkupSumPerUnit: productionMarkupSum,
+    rawMarkupSumPerUnit: rawMarkupSum,
+    freightContainerMarkupSumPerUnit: totalContainerWithMarkup,
+    freightDutyTariffMarkupSumPerUnit: totalDutyTariffWithMarkup,
     separateServiceFeesPerUnit: separateServiceFees,
+    separateServicesMarkupSumPerUnit: separateServicesMarkupSum,
     contributionCostPerUnit,
     computedSellPerUnit,
     requiredSellPerUnit,
@@ -1118,7 +1157,13 @@ function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
     totalLandedFreightWithMarkup: 0,
     totalContainerFreightBeforeMarkup: 0,
     totalDutyTariffBeforeMarkup: 0,
+    packagingMarkupSumPerUnit: 0,
+    productionMarkupSumPerUnit: 0,
+    rawMarkupSumPerUnit: 0,
+    freightContainerMarkupSumPerUnit: 0,
+    freightDutyTariffMarkupSumPerUnit: 0,
     separateServiceFeesPerUnit: 0,
+    separateServicesMarkupSumPerUnit: 0,
     contributionCostPerUnit: 0,
     computedSellPerUnit: 0,
     requiredSellPerUnit: 0,
@@ -1167,6 +1212,13 @@ function rollUpAssemblyPerTier(
   let containerFreight = 0;
   let dutyTariff = 0;
   let serviceFees = 0;
+  // Slice RI.8 Option 2 — per-component marked-up sums bubble up.
+  let packagingMarkup = 0;
+  let productionMarkup = 0;
+  let rawMarkup = 0;
+  let containerFreightMarkup = 0;
+  let dutyTariffMarkup = 0;
+  let servicesMarkup = 0;
   for (const c of children) {
     contribution += c.rollup.contributionCostPerUnit * c.qtyPerParent;
     requiredSell += c.rollup.requiredSellPerUnit * c.qtyPerParent;
@@ -1180,6 +1232,17 @@ function rollUpAssemblyPerTier(
       c.rollup.totalContainerFreightBeforeMarkup * c.qtyPerParent;
     dutyTariff += c.rollup.totalDutyTariffBeforeMarkup * c.qtyPerParent;
     serviceFees += c.rollup.separateServiceFeesPerUnit * c.qtyPerParent;
+    packagingMarkup +=
+      c.rollup.packagingMarkupSumPerUnit * c.qtyPerParent;
+    productionMarkup +=
+      c.rollup.productionMarkupSumPerUnit * c.qtyPerParent;
+    rawMarkup += c.rollup.rawMarkupSumPerUnit * c.qtyPerParent;
+    containerFreightMarkup +=
+      c.rollup.freightContainerMarkupSumPerUnit * c.qtyPerParent;
+    dutyTariffMarkup +=
+      c.rollup.freightDutyTariffMarkupSumPerUnit * c.qtyPerParent;
+    servicesMarkup +=
+      c.rollup.separateServicesMarkupSumPerUnit * c.qtyPerParent;
   }
   const marginPct =
     requiredSell > 0 ? (requiredSell - contribution) / requiredSell : 0;
@@ -1196,7 +1259,14 @@ function rollUpAssemblyPerTier(
     totalLandedFreightWithMarkup: 0,
     totalContainerFreightBeforeMarkup: containerFreight,
     totalDutyTariffBeforeMarkup: dutyTariff,
+    // Slice RI.8 Option 2 — per-component marked-up bubble-up.
+    packagingMarkupSumPerUnit: packagingMarkup,
+    productionMarkupSumPerUnit: productionMarkup,
+    rawMarkupSumPerUnit: rawMarkup,
+    freightContainerMarkupSumPerUnit: containerFreightMarkup,
+    freightDutyTariffMarkupSumPerUnit: dutyTariffMarkup,
     separateServiceFeesPerUnit: serviceFees,
+    separateServicesMarkupSumPerUnit: servicesMarkup,
     contributionCostPerUnit: contribution,
     computedSellPerUnit: computedSell,
     requiredSellPerUnit: requiredSell,
@@ -1415,6 +1485,12 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       serviceFees: 0,
       freightContainer: 0,
       dutyAndTariff: 0,
+      packagingMarkupSum: 0,
+      productionMarkupSum: 0,
+      rawMarkupSum: 0,
+      freightContainerMarkupSum: 0,
+      dutyAndTariffMarkupSum: 0,
+      separateServicesMarkupSum: 0,
     };
     for (const top of topLevel) {
       const r = rollupBySku.get(top.id);
@@ -1437,6 +1513,20 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
         pt.totalContainerFreightBeforeMarkup * tQty;
       breakdown.dutyAndTariff += pt.totalDutyTariffBeforeMarkup * tQty;
       breakdown.serviceFees += pt.separateServiceFeesPerUnit * tQty;
+      // Slice RI.8 Option 2 — per-component marked-up sums.
+      breakdown.packagingMarkupSum +=
+        pt.packagingMarkupSumPerUnit * tQty;
+      // raw markup folds into productionMarkup (mirrors cost-side
+      // folding above).
+      breakdown.productionMarkupSum +=
+        (pt.productionMarkupSumPerUnit + pt.rawMarkupSumPerUnit) * tQty;
+      breakdown.rawMarkupSum += pt.rawMarkupSumPerUnit * tQty;
+      breakdown.freightContainerMarkupSum +=
+        pt.freightContainerMarkupSumPerUnit * tQty;
+      breakdown.dutyAndTariffMarkupSum +=
+        pt.freightDutyTariffMarkupSumPerUnit * tQty;
+      breakdown.separateServicesMarkupSum +=
+        pt.separateServicesMarkupSumPerUnit * tQty;
     }
     const marginPct = revenue > 0 ? (revenue - cost) / revenue : 0;
     const status = computeStatus(

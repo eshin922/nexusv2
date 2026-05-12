@@ -258,6 +258,34 @@ console.log(
 );
 if (b.dutyAndTariff < 0) failures += 1;
 
+// Slice RI.8 Option 2 — per-component marked-up sum invariants.
+// Each markup sum must be ≥ its corresponding cost (markup is
+// always ≥ 0 in valid inputs).
+assert(
+  "packagingMarkupSum ≥ packaging cost",
+  Math.max(0, b.packagingMarkupSum - b.packaging),
+  Math.abs(b.packagingMarkupSum - b.packaging),
+  0.001,
+);
+assert(
+  "productionMarkupSum ≥ production cost",
+  Math.max(0, b.productionMarkupSum - b.production),
+  Math.abs(b.productionMarkupSum - b.production),
+  0.001,
+);
+assert(
+  "freightContainerMarkupSum ≥ freightContainer cost",
+  Math.max(0, b.freightContainerMarkupSum - b.freightContainer),
+  Math.abs(b.freightContainerMarkupSum - b.freightContainer),
+  0.001,
+);
+assert(
+  "dutyAndTariffMarkupSum ≥ dutyAndTariff cost",
+  Math.max(0, b.dutyAndTariffMarkupSum - b.dutyAndTariff),
+  Math.abs(b.dutyAndTariffMarkupSum - b.dutyAndTariff),
+  0.001,
+);
+
 console.log("\n=== Render order (top-down) ===");
 const order = out.skuRollups.map((r) => r.skuLabel).join(" → ");
 const expectedOrder = "GIFT-SET → LIP-OIL-10ML → BOTTLE → CAP → LABEL";

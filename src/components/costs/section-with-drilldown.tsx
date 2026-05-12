@@ -62,23 +62,26 @@ function valueFor(
   sectionKind: SectionKind,
   rollup: ReturnType<typeof selectQuoteRollup>[number],
 ): number {
+  // Slice RI.8 Option 2 — section mini-stack reads MARKED-UP per-
+  // component primitives so it matches cost-stack rows + drilldown
+  // TOTAL across the three display surfaces. Math layer is the
+  // single source of truth; no display-layer approximations.
+  const b = rollup.costBreakdown;
   switch (sectionKind) {
     case "packaging":
-      return rollup.costBreakdown.packaging;
+      return b.packagingMarkupSum;
     case "production":
-      return rollup.costBreakdown.production;
+      // Production section bundles raw bulk + production service
+      // fees (matches breakdown.production cost-side folding).
+      return b.productionMarkupSum;
     case "freight":
-      // Section header sums both buckets — Freight section is the
-      // single input surface for both container freight and D+T;
-      // the section's tier-total should reflect everything PMs
-      // entered there. D+T splits out only at the cost-stack-header
-      // row level (Slice RI.8 Option B+). costBreakdown.freight is
-      // already the derived sum (= freightContainer + dutyAndTariff)
-      // so this stays correct.
-      return rollup.costBreakdown.freight;
+      // Section header sums container + D+T marked-up contributions;
+      // Freight section is the single input surface for both. Cost-
+      // stack splits the two visually into FRT + D+T rows.
+      return b.freightContainerMarkupSum + b.dutyAndTariffMarkupSum;
     case "bulk_raw":
-      // Cost-rollup doesn't yet break out RAW (UX_BACKLOG: Cost rollup
-      // component breakout for RAW row).
+      // RAW row deferred (UX_BACKLOG: companion restoration with the
+      // dps_sources mode primitives).
       return 0;
   }
 }

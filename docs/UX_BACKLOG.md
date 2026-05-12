@@ -5,6 +5,53 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Freight markup per line + firm-defaults consumption]
+
+  **Slice:** RI.9 or dedicated freight-markup slice (~4-6h
+  with architectural decision).
+
+  **What:** Freight section currently has no markup affordance
+  in the UI even though the math layer DOES apply
+  `freight_inputs.markup_pct` per line (line_landed_with_markup
+  = (container + duty + tariff) × (1 + markup_pct)). The column
+  exists but is hidden — no editable input surfaces on freight
+  drilldown or anywhere else. PMs marking up freight (CDM
+  industry standard 10-25%) have to inflate total_freight as a
+  workaround.
+
+  Compounding gap: firm markup defaults by category include a
+  "freight" entry, but it's not consumed by the Freight section.
+  The "freight" category markup default is currently only applied
+  via cross-bleed when PMs misuse the category on packaging
+  components.
+
+  **Future state:**
+  - Surface markup_pct editable per freight line (similar pattern
+    to packaging line markup input)
+  - Auto-populate from firm_markup_defaults['freight'] on freight
+    line creation (consistent with packaging consuming category
+    defaults)
+  - Per-line override allowed (PM deviates from firm default for
+    specific lines)
+  - Math integration already in place — just wire the UI input
+  - Audit log: `freight_markup_updated` action for line-level
+    override
+  - Cost stack: freight markup contribution surfaces alongside
+    other components in the per-component markup primitives
+    (post-Option 2 refactor — pattern already established)
+
+  **Architectural decision pending slice kickoff:**
+  - Should firm "freight" category be scope-restricted (only
+    usable in Freight section) or open (any category usable
+    anywhere)? Restricting prevents cross-bleed misuse but limits
+    flexibility; open model preserves current behavior. Either
+    way the freight section needs its own primary markup default.
+
+  Reference: flagged by Edward during Slice RI.8 hotfix cost-
+  stack smoke (May 2026). Coordinates with Slice RI.8 step 2
+  Markup defaults Round 5 rebuild (category-scope decision should
+  be settled together).
+
 - [HelpTooltip trigger — replace bare "?" with Info icon]
 
   **Slice:** RI.8 step 7 (cross-surface tactical polish)

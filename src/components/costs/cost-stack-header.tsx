@@ -63,31 +63,49 @@ function fmtPct(n: number): string {
   return `${(n * 100).toFixed(1)}%`;
 }
 
-// Total tier value (raw, NOT per-unit). Caller divides by tier.qty.
+// Slice RI.8 Option 2 — return BOTH cost AND markup per component
+// (raw totals, NOT per-unit). Caller divides by tier.qty for display.
+// Sourced from per-component marked-up primitives on the math layer
+// (no more proportional-share approximation). Reconciles with section
+// mini-stack + drilldown TOTAL — all three read the same source.
+type CostMarkup = { cost: number; markup: number };
 function tierTotalFor(
   key: ComponentKey,
   rollup: ReturnType<typeof selectQuoteRollup>[number],
-): number {
+): CostMarkup {
+  const b = rollup.costBreakdown;
   switch (key) {
     case "packaging":
-      return rollup.costBreakdown.packaging;
+      // packagingMarkupSum is the MARKED-UP value (cost × (1+markup));
+      // markup contribution = markedUp − cost.
+      return {
+        cost: b.packaging,
+        markup: b.packagingMarkupSum - b.packaging,
+      };
     case "production":
-      return rollup.costBreakdown.production;
+      return {
+        cost: b.production,
+        markup: b.productionMarkupSum - b.production,
+      };
     case "freight":
-      // Slice RI.8 Option B+ — FRT row reads container-only.
-      // D+T renders separately via the "internal" row below.
-      return rollup.costBreakdown.freightContainer;
+      // FRT row reads container-only. Markup = container_marked_up − container.
+      return {
+        cost: b.freightContainer,
+        markup: b.freightContainerMarkupSum - b.freightContainer,
+      };
     case "internal":
-      // Slice RI.8 Option B+ — D+T (duty + tariff) cost-stack row.
-      // Edward locked position: own row with real numbers, not a
-      // freight-fold or hardcoded zero.
-      return rollup.costBreakdown.dutyAndTariff;
+      // D+T row reads dutyAndTariff with its share of the freight
+      // line's markup_pct applied (math layer applies freight markup
+      // uniformly to container + D+T per line).
+      return {
+        cost: b.dutyAndTariff,
+        markup: b.dutyAndTariffMarkupSum - b.dutyAndTariff,
+      };
     case "raw":
     case "passthrough":
-      // Not yet broken out from costBreakdown (UX_BACKLOG: companion
-      // restoration with the per-component split — RAW for
-      // dps_sources mode, PASS for separateServiceFees > 0).
-      return 0;
+      // Not yet rendered (UX_BACKLOG: RAW for dps_sources mode,
+      // PASS for separateServiceFees > 0).
+      return { cost: 0, markup: 0 };
   }
 }
 
@@ -264,31 +282,27 @@ function TierColumn({
   // Per-unit values per R6 (cost-build-data.jsx fixture comment).
   const totalCostPerUnit = tierQty > 0 ? totalCostTier / tierQty : 0;
   const totalRevenuePerUnit = tierQty > 0 ? totalRevenueTier / tierQty : 0;
-  const totalMarkupPerUnit = totalRevenuePerUnit - totalCostPerUnit;
+  // totalCostPerUnit retained for the MarginRow + bar normalization;
+  // proportional markup distribution no longer used post-Option 2.
   const marginPct = rollup?.blendedMarginPct ?? null;
   const marginStatus = rollup?.blendedMarginStatus ?? "GOOD";
   const isEmpty = totalRevenueTier <= 0;
 
-  // Slice RI.8 hotfix — Subtotal reconciliation bug (Edward smoke).
-  // R6's "Subtotal" semantic = sum of (cost + markup) across rendered
-  // component rows (verified against cost-build-data.jsx:43-51:
-  // each tier's `subtotal` field = sum of its components' cost+markup).
-  // Prior code displayed rollup.totalCost (cost-only) as Subtotal,
-  // which doesn't reconcile with the rows that show cost+markup.
-  //
-  // New Subtotal = sum of what's literally rendered above. The
-  // "Adjustment" delta to Sell shows when the rendered rows don't
-  // fully account for Sell (cell overrides, hidden components like
-  // serviceFees / passthrough — both UX_BACKLOG items pending the
-  // per-component split for RI.9 cost-stack work).
+  // Slice RI.8 Option 2 — each component reads its cost AND its real
+  // per-line markup directly from the math layer
+  // (rollup.costBreakdown.*MarkupSum). No more proportional-share
+  // approximation. Subtotal = sum of (cost + markup) = sellWithoutGlobalAdj
+  // when no cell-overrides; the Adjustment row surfaces the gap to
+  // Sell when adjustments / overrides apply.
   const componentValues = components.map((key) => {
-    const tierTotal = rollup ? tierTotalFor(key, rollup) : 0;
-    const componentCostPerUnit = tierQty > 0 ? tierTotal / tierQty : 0;
-    const componentMarkupPerUnit =
-      totalCostPerUnit > 0 && totalMarkupPerUnit > 0
-        ? (componentCostPerUnit / totalCostPerUnit) * totalMarkupPerUnit
-        : 0;
-    return { key, cost: componentCostPerUnit, markup: componentMarkupPerUnit };
+    const cm = rollup
+      ? tierTotalFor(key, rollup)
+      : { cost: 0, markup: 0 };
+    return {
+      key,
+      cost: tierQty > 0 ? cm.cost / tierQty : 0,
+      markup: tierQty > 0 ? cm.markup / tierQty : 0,
+    };
   });
   const subtotalPerUnit = componentValues.reduce(
     (sum, c) => sum + c.cost + c.markup,
