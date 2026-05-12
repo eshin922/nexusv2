@@ -15,8 +15,8 @@ export function revalidateQuoteTree(projectId: string, quoteId: string) {
   revalidatePath(`${base}/packaging`);
   revalidatePath(`${base}/production`); // Slice 6
   revalidatePath(`${base}/freight`); // Slice 7
-  revalidatePath(`${base}/costing`); // Slice 8
-  revalidatePath(`${base}/cost-build`); // Slice RI.4
-  revalidatePath(`${base}/customer-view`); // Slice RI.6 (snapshot reads)
+  revalidatePath(`${base}/pricing`); // Slice 8
+  revalidatePath(`${base}/costs`); // Slice RI.4
+  revalidatePath(`${base}/quote`); // Slice RI.6 (snapshot reads)
   revalidatePath(`${base}/mark-accepted`); // Slice RI.6 (sub-state derivation)
 }

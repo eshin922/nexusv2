@@ -6,7 +6,7 @@ import {
 } from "@/lib/costing-store";
 import { useCostingStore } from "@/components/costing-store-provider";
 
-// Slice RI.5 — Costing Sheet Room 3 section head per R2
+// Slice RI.5 — Pricing Room 3 section head per R2
 // (`docs/design-prototypes/dist/source/round-2/app/r2/costing.jsx:342-355`).
 //
 // `<h2>Per-SKU breakdown <em>· active tier {label}</em></h2>` —
@@ -14,7 +14,7 @@ import { useCostingStore } from "@/components/costing-store-provider";
 // reading. NO tier-tab cluster (the cost stack panel above IS the
 // active-tier selector per R6 grammar).
 
-export function CostingSectionHead() {
+export function PricingSectionHead() {
   const tiers = useCostingStore(selectTiers);
   const activeTierId = useCostingStore(selectActiveTierId);
   const activeLabel =

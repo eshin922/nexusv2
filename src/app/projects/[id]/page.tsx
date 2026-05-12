@@ -18,8 +18,8 @@ import { CategorySelect } from "./category-select";
 
 // Slice RI.8 — state-aware default surface for version-row clicks.
 // Brand-new quotes (no SKUs/tiers) land on Setup instead of an
-// empty Costing Sheet. PMs adding inputs land on Cost Build. PMs
-// with cost inputs already in place land on Costing Sheet (current
+// empty Pricing. PMs adding inputs land on Costs. PMs
+// with cost inputs already in place land on Pricing (current
 // review surface). Edward caught the original "always Costing"
 // behavior in step 0 smoke — new quotes rendered an empty Costing
 // Sheet which read as broken.
@@ -29,8 +29,8 @@ function defaultQuoteSurface(
 ): string {
   const base = `/projects/${projectId}/quotes/${v.id}`;
   if (!v.hasSetupComplete) return base; // Setup (bare quote index)
-  if (!v.hasCostInputs) return `${base}/cost-build`;
-  return `${base}/costing`;
+  if (!v.hasCostInputs) return `${base}/costs`;
+  return `${base}/pricing`;
 }
 import { ConfirmButton } from "./confirm-button";
 import { RefreshProjectButton } from "./refresh-button";
@@ -411,13 +411,13 @@ function ScenarioCardView({
             there's something to review. */}
         <div className="flex items-center gap-2">
           <Link
-            href={`/projects/${projectId}/quotes/${latest.id}/cost-build`}
+            href={`/projects/${projectId}/quotes/${latest.id}/costs`}
             className="rounded border border-rule bg-paper px-2.5 py-1 text-xs text-ink-2 hover:border-rule-2 hover:text-ink"
           >
             Build · v{latest.versionNumber}
           </Link>
           <Link
-            href={`/projects/${projectId}/quotes/${latest.id}/costing`}
+            href={`/projects/${projectId}/quotes/${latest.id}/pricing`}
             className="rounded border border-rule bg-paper px-2.5 py-1 text-xs font-medium text-ink hover:border-rule-2 hover:bg-paper-2"
           >
             Open Costing · v{latest.versionNumber}

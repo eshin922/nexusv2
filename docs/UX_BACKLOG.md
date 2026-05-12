@@ -296,6 +296,58 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
   Reference: `src/db/schema.ts` `quotes.drop_reason` column comment + Slice 12 brief auto-drop section.
 
+- [Setup page feature enhancements]
+
+  **Slice:** §6.b Setup redesign (when CD R7 lands) OR standalone "Setup enhancements" slice
+
+  **What:** Two related enhancements both deferred from RI.8 polish
+  scope. Bundled because they share natural slice routing — either
+  Setup redesign (§6.b) or a standalone "Setup enhancements" slice.
+
+  **(1) Add new product authoring**
+
+  Current state: Setup page supports HubSpot product lookup (search
+  existing) and "+ Add assembly (Nexus-local)" (compose existing
+  components). PMs can't create a brand-new product from Setup —
+  custom one-offs require leaving Nexus, adding to HubSpot, then
+  returning to look up.
+
+  Open design question: where does the new product LIVE?
+  - (a) Nexus-local — quick add, no HubSpot pollution; good for
+    one-off customs (1-2 days)
+  - (b) HubSpot writeback — canonical across firm; good for items
+    reused across customers (2-3 days)
+  - (c) PM choice at creation time with chooser UX (3-4+ days)
+
+  **(2) SKU table interactivity**
+
+  Current state: Table supports basic operations (add/remove/reorder
+  via up-down arrows). Lacks modern interactivity for the assembly
+  use case — Assemblies are first-class (per existing TYPE column
+  distinguishing Leaf vs Assembly) but nested component structure
+  isn't surfaced in the table.
+
+  Future state:
+  - Drag-and-drop row reordering (replaces up/down arrows in
+    ACTIONS column)
+  - Assembly rows expand/collapse to reveal nested components
+  - Inline edit affordances for nested components consistent with
+    R5/R6 inline-edit table pattern
+  - Better visual distinction between Leaf and Assembly row
+    treatments
+
+  **Routing — both enhancements:**
+  - (a) Bundle into §6.b Setup redesign slice when CD R7 lands —
+    Designer's redesign brief naturally covers both
+  - (b) Standalone "Setup enhancements" slice if Edward wants
+    enhancements before full redesign
+
+  Cleaner if §6.b happens (bundles enhancement with redesign).
+  Standalone is right if redesign waits indefinitely.
+
+  Reference: both flagged by Edward post-RI.8 step 1.5 smoke,
+  May 2026.
+
 - [Per-SKU drill-down from Costing Sheet to Cost Build (post-MVP)]
 
   **Slice:** Post-MVP / TBD (validate workflow first)

@@ -18,7 +18,7 @@ import {
   suggestTierAdjForClientTarget,
   type QuoteCostingInput,
 } from "@/lib/costing";
-import { ReverseSolveDialog } from "@/components/costing/reverse-solve-dialog";
+import { ReverseSolveDialog } from "@/components/pricing/reverse-solve-dialog";
 
 // Slice 9.4b — per-(SKU, tier) client target benchmark cell. Renders
 // the Client target value on the per-SKU summary row's new column.

@@ -6,7 +6,7 @@ import { recordProjectVisit } from "@/app/actions/workspace";
 //
 // Slice RI.8 (F-1 fix) — InnerRail rendering moved OUT of this
 // layout. Reason: the inner rail needs `activeQuoteId` to expand
-// the sub-rail (Setup / Cost build / Costing sheet / Customer
+// the sub-rail (Setup / Costs / Pricing / Customer
 // view) on quote-scoped surfaces. The project-root layout can't
 // see deeper URL segments without parsing them, but the
 // /quotes/[quoteId]/ layout CAN — quoteId is a route param at

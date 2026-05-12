@@ -576,7 +576,17 @@ R7 ask. Both behaviors banked as durable convention in
   > Build); (e) action button cluster grammar across quote-scoped
   > surfaces (Cost Build header, Costing Sheet head, Customer view
   > toolbar, Mark-Accepted header) — hierarchy, grouping, primary CTA
-  > placement, direction consistency."
+  > placement, direction consistency; (f) authoring placement for
+  > customer-facing notes — does authoring live adjacent to where
+  > notes render (Preview / Customer view), or with quote definition
+  > (Setup)?"
+
+  **(f) extension added post-step-1.5 smoke (Edward, May 2026).** Notes
+  currently live full-width on Setup below the setup-grid; Edward
+  flagged this as an IA question — authoring should arguably live
+  adjacent to render (Customer view), not with quote definition.
+  Routed to CD R7 since it's cross-surface workflow IA, not Setup-page
+  fidelity.
 
   **(e) extension added post-step-0 smoke (Edward, May 2026).**
   Costing Sheet action cluster ergonomics — Preview / customer-accept

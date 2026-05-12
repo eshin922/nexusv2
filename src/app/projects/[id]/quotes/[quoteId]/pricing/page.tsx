@@ -11,16 +11,16 @@ import {
 } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { CostingStoreProvider } from "@/components/costing-store-provider";
-import { ActiveTierUrlSync } from "@/components/costing/active-tier-url-sync";
-import { CostStackHeader } from "@/components/cost-build/cost-stack-header";
-import { CostingPageHead } from "@/components/costing/costing-page-head";
-import { LinesRequiringReview } from "@/components/costing/lines-requiring-review";
-import { PerTierOverrideCard } from "@/components/costing/per-tier-override-card";
-import { VerdictBand } from "@/components/costing/verdict-band";
-import { CostingSectionHead } from "@/components/costing/costing-section-head";
+import { ActiveTierUrlSync } from "@/components/pricing/active-tier-url-sync";
+import { CostStackHeader } from "@/components/costs/cost-stack-header";
+import { PricingPageHead } from "@/components/pricing/pricing-page-head";
+import { LinesRequiringReview } from "@/components/pricing/lines-requiring-review";
+import { PerTierOverrideCard } from "@/components/pricing/per-tier-override-card";
+import { VerdictBand } from "@/components/pricing/verdict-band";
+import { PricingSectionHead } from "@/components/pricing/pricing-section-head";
 import { SkuSummaryRowList } from "./sku-summary-row";
 
-// Slice RI.5 — Costing Sheet rebuild per Designer comprehensive audit
+// Slice RI.5 — Pricing rebuild per Designer comprehensive audit
 // + brief §3.3. Three rooms top-to-bottom:
 //
 //   ROOM 0 (conditional, BELOW_FLOOR only) — Lines Requiring Review
@@ -96,7 +96,7 @@ export default async function CostingPage({
             ← Quote builder
           </Link>
         </div>
-        <h1 className="r2-page-title">Costing Sheet</h1>
+        <h1 className="r2-page-title">Pricing</h1>
         <div
           role="alert"
           style={{
@@ -137,7 +137,7 @@ export default async function CostingPage({
       </Suspense>
 
       <main className="r2-page">
-        <CostingPageHead
+        <PricingPageHead
           projectId={projectId}
           quoteId={quoteId}
           project={project}
@@ -187,7 +187,7 @@ export default async function CostingPage({
         <PerTierOverrideCard editable={editable} />
 
         {/* ROOM 3 — Per-SKU breakdown table (9.4a/9.4b preserved) */}
-        <CostingSectionHead />
+        <PricingSectionHead />
         <SkuSummaryRowList editable={editable} />
       </main>
     </CostingStoreProvider>

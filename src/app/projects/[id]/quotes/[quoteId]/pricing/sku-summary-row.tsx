@@ -16,12 +16,12 @@ import {
   useCostingStore,
   useCostingStoreApi,
 } from "@/components/costing-store-provider";
-import { TwoAxisVerdictPair } from "@/components/costing/two-axis-verdict";
+import { TwoAxisVerdictPair } from "@/components/pricing/two-axis-verdict";
 import {
   MarginSparkline,
   type SparklinePoint,
-} from "@/components/costing/margin-sparkline";
-import { ReverseSolveDialog } from "@/components/costing/reverse-solve-dialog";
+} from "@/components/pricing/margin-sparkline";
+import { ReverseSolveDialog } from "@/components/pricing/reverse-solve-dialog";
 import { RequiredSellCell } from "@/components/required-sell-cell";
 import {
   naiveTierAdjForCostExceedsTarget,
@@ -50,7 +50,7 @@ import { SkuBreakdown } from "./sku-breakdowns";
 //      §3.3:368 + Q2 PM call as authorized R2 extension)
 //
 // Drawer + ▾/▴ mechanic deleted (R2 has no drawer; decomposition
-// lives on Cost Build per R6 IA split). Per-SKU navigation to Cost
+// lives on Costs per R6 IA split). Per-SKU navigation to Cost
 // Build is post-MVP per UX_BACKLOG.
 
 const selectSkus = (s: CostingStoreState) => s.skus;

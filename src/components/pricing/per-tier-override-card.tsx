@@ -8,7 +8,7 @@ import {
 import { useCostingStore } from "@/components/costing-store-provider";
 import { TierPriceAdjInput } from "@/components/tier-price-adj-input";
 
-// Slice RI.5 — Costing Sheet per-tier override card (Slice 9.2 logic).
+// Slice RI.5 — Pricing per-tier override card (Slice 9.2 logic).
 //
 // R2 source `costing.jsx:357-381`. Card placed BETWEEN Room 2 (verdict
 // band) and Room 3 (per-SKU breakdown table). Conceptually the

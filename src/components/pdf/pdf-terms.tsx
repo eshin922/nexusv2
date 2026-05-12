@@ -1,5 +1,5 @@
-import type { CustomerViewQuote } from "@/types/customer-view";
-import { QUOTE_STUBS } from "@/lib/customer-view-fixtures";
+import type { CustomerViewQuote } from "@/types/quote";
+import { QUOTE_STUBS } from "@/lib/quote-fixtures";
 
 function formatLongDate(iso: string | null): string {
   if (!iso) return "—";

@@ -1,6 +1,6 @@
 "use client";
 
-// Slice RI.4 — error boundary for /cost-build. Surfaces runtime
+// Slice RI.4 — error boundary for /costs. Surfaces runtime
 // failures visibly during smoke instead of producing a blank screen
 // (Next.js default behavior for unhandled errors in server components).
 
@@ -18,7 +18,7 @@ export default function CostBuildError({
         className="rounded border border-bad bg-bad-soft p-4 text-sm text-bad"
       >
         <div className="font-mono text-[10.5px] uppercase tracking-[0.13em]">
-          Cost build · runtime error
+          Costs · runtime error
         </div>
         <h1 className="mt-1 font-display text-lg text-bad">
           {error.message || "Unknown error"}

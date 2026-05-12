@@ -8,18 +8,18 @@ import {
 import { useCostingStore } from "@/components/costing-store-provider";
 import { CustomerAcceptToggle } from "./customer-accept-toggle";
 
-// Slice RI.5 — Costing Sheet page chrome per R2 source
+// Slice RI.5 — Pricing page chrome per R2 source
 // (`docs/design-prototypes/dist/source/round-2/app/r2/costing.jsx:124-165`).
 //
 // Composition: eyebrow + italic-display H1 + sub copy + button cluster.
 // H1: "Tune <em>price</em> & review." — italic-em word per R2 grammar.
 // Sub copy: keyed off blendedMarginStatus.
-// Buttons: Back to Cost Build (ghost) + Preview customer quote
+// Buttons: Back to Costs (ghost) + Preview customer quote
 // (disabled placeholder for Slice 11) + Mark accepted (two-shape
 // conditional based on BELOW_FLOOR — strikethrough + admin override
 // CTA when blocked; primary when sendable).
 
-export function CostingPageHead({
+export function PricingPageHead({
   projectId,
   quoteId,
   project,
@@ -61,7 +61,7 @@ export function CostingPageHead({
     <div className="r2-page-head">
       <div>
         <p className="r2-eyebrow">
-          Costing Sheet · {project.clientName ?? project.dealName} / Quote v
+          Pricing · {project.clientName ?? project.dealName} / Quote v
           {quote.versionNumber}
         </p>
         <h1 className="r2-page-title">
@@ -72,13 +72,13 @@ export function CostingPageHead({
 
       <div className="r2-row r2-gap-2" style={{ flexWrap: "wrap" }}>
         <Link
-          href={`/projects/${projectId}/quotes/${quoteId}/cost-build`}
+          href={`/projects/${projectId}/quotes/${quoteId}/costs`}
           className="r2-btn ghost sm"
         >
-          ← Back to Cost Build
+          ← Back to Costs
         </Link>
         <Link
-          href={`/projects/${projectId}/quotes/${quoteId}/customer-view`}
+          href={`/projects/${projectId}/quotes/${quoteId}/quote`}
           className="r2-btn"
         >
           Preview customer quote

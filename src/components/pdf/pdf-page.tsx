@@ -2,10 +2,10 @@
 //
 // This component AND ALL DESCENDANTS form the customer-view boundary
 // guard: imports limited to React + sibling pdf/* components +
-// @/types/customer-view. NO costing, no schema, no internal-only-badge,
-// no theme tokens (literal OKLCH only — see r3-customer-view.css).
+// @/types/quote. NO costing, no schema, no internal-only-badge,
+// no theme tokens (literal OKLCH only — see r3-quote.css).
 //
-// Boundary verified by scripts/verify/customer-view-boundary.ts.
+// Boundary verified by scripts/verify/quote-boundary.ts.
 
 import type { ReactNode } from "react";
 

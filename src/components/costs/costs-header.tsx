@@ -1,8 +1,8 @@
-// Slice RI.4 — Cost Build page header per R6 actual source
+// Slice RI.4 — Costs page header per R6 actual source
 // (`docs/design-prototypes/dist/source/round-6/index.html` lines
 // 2346-2365 + cost-build-page.jsx lines 81-98).
 //
-// R6 anchors page identity on FUNCTION ("Cost build · Primary v3"
+// R6 anchors page identity on FUNCTION ("Costs · Primary v3"
 // italic display 30px) with the scenario as a desaturated em-tag.
 // Project/client identity stays in rail/inbox surfaces, NOT on the
 // cost-build header. Designer Pattern 1 audit Path A.
@@ -21,7 +21,7 @@
 
 import Link from "next/link";
 
-export function CostBuildHeader({
+export function CostsHeader({
   project,
   quote,
   tierCount,
@@ -59,7 +59,7 @@ export function CostBuildHeader({
     <header className="r6-page-head mb-[22px] flex items-end justify-between gap-6">
       <div className="min-w-0 flex-1">
         <h1 className="m-0 font-display text-[30px] font-medium italic leading-tight tracking-[-0.012em] text-ink">
-          Cost build{" "}
+          Costs{" "}
           <em className="not-italic font-normal text-ink-3">
             · {quote.scenarioLabel} v{quote.versionNumber}
           </em>
@@ -94,12 +94,12 @@ export function CostBuildHeader({
 
       <div className="flex shrink-0 items-center gap-2">
         {/* View as customer — default .btn variant per R6
-            (index.html:517-528). Slice RI.7 wired to /customer-view
+            (index.html:517-528). Slice RI.7 wired to /quote
             (RI.6 surface, snapshot-aware reads). Sentence case,
             Instrument Sans 13px, paper bg + rule-2 border + 6px
             radius + 7px×12px padding. */}
         <Link
-          href={`/projects/${quote.projectId}/quotes/${quote.id}/customer-view`}
+          href={`/projects/${quote.projectId}/quotes/${quote.id}/quote`}
           className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-rule-2 bg-paper text-[13px] font-medium text-ink transition-all hover:bg-paper-2 hover:border-ink-4"
           style={{ padding: "7px 12px" }}
         >

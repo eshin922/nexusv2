@@ -3,8 +3,8 @@ import type {
   CustomerViewQuote,
   CustomerViewCustomer,
   CustomerViewPreparedBy,
-} from "@/types/customer-view";
-import { QUOTE_STUBS } from "@/lib/customer-view-fixtures";
+} from "@/types/quote";
+import { QUOTE_STUBS } from "@/lib/quote-fixtures";
 
 function formatLongDate(iso: string | null): string {
   if (!iso) return "—";

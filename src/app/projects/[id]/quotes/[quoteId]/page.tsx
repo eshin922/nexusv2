@@ -128,12 +128,12 @@ export default async function QuoteBuilderPage({
           >
             Save draft
           </button>
-          {/* Continue to cost build — primary CTA per R1 line 16. */}
+          {/* Continue to Costs — primary CTA per R1 line 16. */}
           <Link
-            href={`/projects/${project.id}/quotes/${quote.id}/cost-build`}
+            href={`/projects/${project.id}/quotes/${quote.id}/costs`}
             className="r2-btn primary"
           >
-            Continue to cost build →
+            Continue to Costs →
           </Link>
         </div>
       </header>
@@ -286,16 +286,16 @@ export default async function QuoteBuilderPage({
       </Section>
 
       {/* Slice RI.8 step 1.5 — `Cost inputs` Section block removed.
-          The "Continue to cost build →" CTA now lives in the
+          The "Continue to Costs →" CTA now lives in the
           page-head action cluster per R1 source line 16. PMs
           have a single canonical path forward, not a redundant
           mid-page section.
 
           CostingSummary card removed entirely. Surface separation
           per brief §5 + §3.5: Pricing Control Summary lives on
-          Costing Sheet only. Was a Slice 5/6/7-era convenience
+          Pricing only. Was a Slice 5/6/7-era convenience
           render; carried forward through RI.0-RI.7 unnecessarily.
-          PMs reviewing margins navigate to Costing Sheet (via
+          PMs reviewing margins navigate to Pricing (via
           page-head Continue button or inner-rail). */}
     </main>
   );
@@ -303,7 +303,7 @@ export default async function QuoteBuilderPage({
 
 // Slice RI.8 step 1 — CostInputLink helper removed. F-4 absorbed
 // the three-column Cost inputs nav strip into a single
-// "Continue to Cost build →" affordance.
+// "Continue to Costs →" affordance.
 //
 // Slice RI.8 step 1.5 — Section helper now renders R1 card chrome
 // per source/round-1/styles.css .card / .card-head / .card-body.

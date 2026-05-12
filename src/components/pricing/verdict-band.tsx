@@ -13,7 +13,7 @@ import { useCostingStore } from "@/components/costing-store-provider";
 import { GlobalPriceAdjInput } from "@/components/global-price-adj-input";
 import { QuoteTargetMarginPopover } from "@/components/quote-target-margin-popover";
 
-// Slice RI.5 — Costing Sheet Room 2: Margin verdict band.
+// Slice RI.5 — Pricing Room 2: Margin verdict band.
 //
 // R2 source `costing.jsx:211-339`. Two-column grid:
 //   LEFT — the number (96px display blended margin %, status color

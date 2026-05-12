@@ -1,15 +1,15 @@
 /*
- * R2 Costing Sheet CSS — extracted verbatim from
+ * R2 Pricing CSS — extracted verbatim from
  * docs/design-prototypes/dist/source/round-2/app/r2/styles.css.
  *
- * Loaded via globals.css for the Costing Sheet rebuild (RI.5).
+ * Loaded via globals.css for the Pricing rebuild (RI.5).
  * Classes prefixed `r2-` to avoid collision with R6 `r6-` cost-build
  * classes (RI.4). Token references are unchanged — same OKLCH palette
  * lives in design-tokens.css.
  *
  * Used by:
- *   - src/app/projects/[id]/quotes/[quoteId]/costing/page.tsx (Costing Sheet)
- *   - src/components/costing/* (Costing Sheet rooms + chrome)
+ *   - src/app/projects/[id]/quotes/[quoteId]/costing/page.tsx (Pricing)
+ *   - src/components/costing/* (Pricing rooms + chrome)
  */
 
 /* Type primitives */

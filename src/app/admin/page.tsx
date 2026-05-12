@@ -9,7 +9,7 @@ const SECTIONS: Array<{
     href: "/admin/firm-settings",
     label: "Firm settings",
     description:
-      "Target margin and floor margin policy. Drives the GOOD / BELOW_TARGET / BELOW_FLOOR thresholds on every quote's Costing Sheet.",
+      "Target margin and floor margin policy. Drives the GOOD / BELOW_TARGET / BELOW_FLOOR thresholds on every quote's Pricing.",
   },
   {
     href: "/admin/markup-defaults",

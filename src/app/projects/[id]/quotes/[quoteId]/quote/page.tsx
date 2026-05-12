@@ -6,17 +6,17 @@ import { firmSettings, projects, quotes, users } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { findHubspotOwnerById } from "@/lib/hubspot";
-import { CustomerViewHost } from "@/components/customer-view/customer-view-host";
-import { VENDOR_FIXTURE } from "@/lib/customer-view-fixtures";
+import { QuoteHost } from "@/components/quote/quote-host";
+import { VENDOR_FIXTURE } from "@/lib/quote-fixtures";
 import type {
   CustomerView,
   CustomerViewPreparedBy,
   CustomerViewSku,
   CustomerViewTier,
   CustomerViewVendor,
-} from "@/types/customer-view";
+} from "@/types/quote";
 
-// Slice RI.6 — Customer view page (visual shell + boundary-guard
+// Slice RI.6 — Quote page (visual shell + boundary-guard
 // build invariant per brief §3.7).
 // Slice RI.7 — wires real firm_settings live reads + per-quote
 // snapshots into the data shape. Draft quotes preview against current
@@ -74,7 +74,7 @@ export default async function CustomerViewPage({
             ← Quote builder
           </Link>
         </div>
-        <h1>Customer view unavailable</h1>
+        <h1>Quote unavailable</h1>
         <p style={{ color: "var(--bad)" }}>{bundle.error.message}</p>
       </main>
     );
@@ -243,13 +243,13 @@ export default async function CustomerViewPage({
         </Link>
         {" · "}
         <Link
-          href={`/projects/${project.id}/quotes/${quote.id}/costing`}
+          href={`/projects/${project.id}/quotes/${quote.id}/pricing`}
           style={{ color: "var(--ink-3)" }}
         >
-          Costing Sheet
+          Pricing
         </Link>
       </div>
-      <CustomerViewHost
+      <QuoteHost
         view={view}
         quoteId={quote.id}
         quoteStatus={quote.status}

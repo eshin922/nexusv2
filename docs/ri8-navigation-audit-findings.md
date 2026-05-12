@@ -262,7 +262,10 @@ Suggested ask shape per Designer:
 > (e) action button cluster grammar across quote-scoped surfaces
 >     (Cost Build header, Costing Sheet head, Customer view
 >     toolbar, Mark-Accepted header) — hierarchy, grouping,
->     primary CTA placement, direction consistency."
+>     primary CTA placement, direction consistency;
+> (f) authoring placement for customer-facing notes — does
+>     authoring live adjacent to where notes render (Preview /
+>     Customer view), or with quote definition (Setup)?"
 
 These are the F-5-structural / F-8 / F-11 / F-13 items framed for
 CD's IA-level review.

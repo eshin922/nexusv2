@@ -171,17 +171,17 @@ export default async function MarkAcceptedPage({
         </Link>
         {" · "}
         <Link
-          href={`/projects/${project.id}/quotes/${quote.id}/costing`}
+          href={`/projects/${project.id}/quotes/${quote.id}/pricing`}
           style={{ color: "var(--ink-3)" }}
         >
-          Costing Sheet
+          Pricing
         </Link>
         {" · "}
         <Link
-          href={`/projects/${project.id}/quotes/${quote.id}/customer-view`}
+          href={`/projects/${project.id}/quotes/${quote.id}/quote`}
           style={{ color: "var(--ink-3)" }}
         >
-          Customer view
+          Quote
         </Link>
       </div>
       <MarkAcceptedHost

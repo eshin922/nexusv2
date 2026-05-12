@@ -2,7 +2,7 @@ import type {
   CustomerViewServiceFee,
   CustomerViewFreightLine,
   CustomerViewTier,
-} from "@/types/customer-view";
+} from "@/types/quote";
 
 function fmtUSD(n: number, decimals = 2) {
   const abs = Math.abs(n);

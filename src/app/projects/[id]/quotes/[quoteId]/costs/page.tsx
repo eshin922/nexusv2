@@ -18,29 +18,29 @@ import { Suspense } from "react";
 import { listMarkupDefaults } from "@/app/actions/markup-defaults";
 import { getCostingBundle } from "@/app/actions/costing";
 import { CostingStoreProvider } from "@/components/costing-store-provider";
-import { ActiveTierUrlSync } from "@/components/costing/active-tier-url-sync";
+import { ActiveTierUrlSync } from "@/components/pricing/active-tier-url-sync";
 import {
-  CostBuildHeader,
+  CostsHeader,
   SentStatusBanner,
-} from "@/components/cost-build/cost-build-header";
-import { CostStackHeader } from "@/components/cost-build/cost-stack-header";
-import { CostBuildAccordion } from "@/components/cost-build/cost-build-accordion";
-import { ScenarioContextStrip } from "@/components/cost-build/scenario-context-strip";
-import { SectionWithDrilldown } from "@/components/cost-build/section-with-drilldown";
-import { PackagingDrilldown } from "@/components/cost-build/packaging-drilldown";
-import { ProductionDrilldown } from "@/components/cost-build/production-drilldown";
-import { FreightDrilldown } from "@/components/cost-build/freight-drilldown";
-import { BulkRawDrilldown } from "@/components/cost-build/bulk-raw-drilldown";
+} from "@/components/costs/costs-header";
+import { CostStackHeader } from "@/components/costs/cost-stack-header";
+import { CostBuildAccordion } from "@/components/costs/costs-accordion";
+import { ScenarioContextStrip } from "@/components/costs/scenario-context-strip";
+import { SectionWithDrilldown } from "@/components/costs/section-with-drilldown";
+import { PackagingDrilldown } from "@/components/costs/packaging-drilldown";
+import { ProductionDrilldown } from "@/components/costs/production-drilldown";
+import { FreightDrilldown } from "@/components/costs/freight-drilldown";
+import { BulkRawDrilldown } from "@/components/costs/bulk-raw-drilldown";
 import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
 
-// Slice RI.4 — Cost Build unification per Round 6 + Bulk Raw correction.
+// Slice RI.4 — Costs unification per Round 6 + Bulk Raw correction.
 //
 // Replaces the prior three pages (/packaging, /production, /freight)
-// with a single Cost Build page composed of summary-with-drill-down
+// with a single Costs page composed of summary-with-drill-down
 // sections + horizontal cost stack header at top.
 //
 // Page composition (top to bottom):
-//   1. Page header — "Cost build · [Scenario] vN" + meta strip + warning chip
+//   1. Page header — "Costs · [Scenario] vN" + meta strip + warning chip
 //   2. Cost stack header — multi-tier side-by-side per-tier columns
 //      (5 rows by default; 6 rows when raws-mode = dps_sources)
 //   3. Mode selector — three radio cards for raws-mode (drives Bulk Raw
@@ -56,7 +56,7 @@ import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
 //
 // What's removed vs the prior three pages:
 //   - Embedded Pricing Control Summary at bottom of each page (PCS lives
-//     on Costing Sheet only after RI.5)
+//     on Pricing only after RI.5)
 //   - Per-page navigation header (page-level header now)
 //   - Per-page warning chip (cumulative chip in page header now)
 //
@@ -233,7 +233,7 @@ export default async function CostBuildPage({
         className="mx-auto px-10 pt-7 pb-20"
         style={{ maxWidth: "1480px" }}
       >
-        <CostBuildHeader
+        <CostsHeader
           project={project}
           quote={{
             ...quote,
@@ -243,10 +243,10 @@ export default async function CostBuildPage({
           editable={editable}
         >
           <WarningSummaryChip />
-        </CostBuildHeader>
+        </CostsHeader>
 
         {/* Slice RI.7 — page-level state notice. Banner moved out of
-            CostBuildHeader's flex container (was squeezing the title
+            CostsHeader's flex container (was squeezing the title
             column to 1-2-word wraps once it appeared on sent quotes). */}
         {!editable && <SentStatusBanner status={quote.status} />}
 

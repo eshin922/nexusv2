@@ -11,8 +11,8 @@ import { ProjectGlyph } from "./project-glyph";
 //   - Back-to-all-deals link (top)
 //   - Project header (client + deal + stage + synced metadata)
 //   - Scenarios list (with margin pip + draft-after-send warning chips)
-//   - Sub-rail expansion under active scenario (Setup / Cost build /
-//     Costing sheet / Customer view links) — basic version in RI.2;
+//   - Sub-rail expansion under active scenario (Setup / Costs /
+//     Pricing / Quote links) — basic version in RI.2;
 //     RI.3 adds the activity feed
 //   - Mini activity feed — DEFERRED to RI.3 (needs activity log read
 //     query + project-scoped filter; ships with Project Detail rebuild)
@@ -110,7 +110,7 @@ export async function InnerRail({
           return (
             <div key={s.scenarioLabel}>
               <Link
-                href={`/projects/${projectId}/quotes/${s.latestQuoteId}/costing`}
+                href={`/projects/${projectId}/quotes/${s.latestQuoteId}/pricing`}
                 className={`flex items-center justify-between gap-2 rounded px-2 py-1.5 text-xs ${
                   isActive
                     ? "bg-paper-3 font-medium text-ink"
@@ -139,8 +139,8 @@ export async function InnerRail({
                 )}
               </Link>
 
-              {/* Sub-rail under active scenario: Setup / Cost build /
-                  Costing sheet / Customer view links.
+              {/* Sub-rail under active scenario: Setup / Costs /
+                  Pricing / Quote links.
 
                   Slice RI.8 Issue 3 fix — hrefs use activeQuoteId
                   (the version PM is actually viewing) instead of
@@ -162,30 +162,30 @@ export async function InnerRail({
                     >
                       Setup
                     </Link>
-                    {/* Slice RI.4 — Cost Build unified to single page
+                    {/* Slice RI.4 — Costs unified to single page
                         with sections-with-drill-down (Packaging /
                         Production / Bulk Raw / Freight). */}
                     <Link
-                      href={`/projects/${projectId}/quotes/${targetQuoteId}/cost-build`}
+                      href={`/projects/${projectId}/quotes/${targetQuoteId}/costs`}
                       className="text-[11px] text-ink-3 hover:text-ink"
                     >
-                      Cost build
+                      Costs
                     </Link>
                     <Link
-                      href={`/projects/${projectId}/quotes/${targetQuoteId}/costing`}
+                      href={`/projects/${projectId}/quotes/${targetQuoteId}/pricing`}
                       className="text-[11px] text-ink-3 hover:text-ink"
                     >
-                      Costing sheet
+                      Pricing
                     </Link>
-                    {/* Slice RI.8 F-3 fix — Customer view shipped in
+                    {/* Slice RI.8 F-3 fix — Quote shipped in
                         RI.6 with snapshot-aware reads added in RI.7.
                         The stale "ships in Slice 10" disabled-span
                         placeholder is replaced with a real link. */}
                     <Link
-                      href={`/projects/${projectId}/quotes/${targetQuoteId}/customer-view`}
+                      href={`/projects/${projectId}/quotes/${targetQuoteId}/quote`}
                       className="text-[11px] text-ink-3 hover:text-ink"
                     >
-                      Customer view
+                      Quote
                     </Link>
                   </div>
                 );
@@ -203,7 +203,7 @@ export async function InnerRail({
             {droppedScenarios.map((s) => (
               <Link
                 key={s.scenarioLabel}
-                href={`/projects/${projectId}/quotes/${s.latestQuoteId}/costing`}
+                href={`/projects/${projectId}/quotes/${s.latestQuoteId}/pricing`}
                 className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-ink-4 line-through hover:text-ink-3"
               >
                 <span className="truncate">{s.scenarioLabel}</span>
@@ -223,7 +223,7 @@ export async function InnerRail({
               {droppedScenarios.map((s) => (
                 <Link
                   key={s.scenarioLabel}
-                  href={`/projects/${projectId}/quotes/${s.latestQuoteId}/costing`}
+                  href={`/projects/${projectId}/quotes/${s.latestQuoteId}/pricing`}
                   className="flex items-center gap-1.5 px-2 py-1 text-xs text-ink-4 line-through hover:text-ink-3"
                 >
                   <span className="truncate">{s.scenarioLabel}</span>

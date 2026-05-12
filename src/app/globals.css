@@ -1,9 +1,9 @@
 @import "tailwindcss";
 @import "../styles/design-tokens.css";
-@import "../styles/r6-cost-build.css";
-@import "../styles/r2-costing.css";
+@import "../styles/r6-costs.css";
+@import "../styles/r2-pricing.css";
 @import "../styles/r1-setup.css";
-@import "../styles/r3-customer-view.css";
+@import "../styles/r3-quote.css";
 
 /*
  * Tailwind v4 @theme block — exposes CD's design tokens to utility

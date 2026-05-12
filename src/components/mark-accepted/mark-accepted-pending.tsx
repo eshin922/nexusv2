@@ -79,7 +79,7 @@ export function MarkAcceptedPending({
             }}
           >
             <p className="eyebrow" style={{ marginBottom: 8 }}>
-              Cost Build is read-only during approval window
+              Costs is read-only during approval window
             </p>
             <p
               style={{

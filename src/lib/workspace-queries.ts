@@ -296,7 +296,7 @@ export type ScenarioVersion = {
    * least 1 tier with non-null qty. hasCostInputs = has any
    * packaging / production / freight / bulk_raw data. Together
    * they pick the right default surface for entering a quote
-   * (Setup / Cost Build / Costing Sheet). */
+   * (Setup / Costs / Pricing). */
   hasSetupComplete: boolean;
   hasCostInputs: boolean;
 };

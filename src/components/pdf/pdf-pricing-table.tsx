@@ -2,7 +2,7 @@ import type {
   CustomerViewSku,
   CustomerViewTier,
   CustomerViewPdfLayout,
-} from "@/types/customer-view";
+} from "@/types/quote";
 
 function fmtUSD(n: number) {
   return (

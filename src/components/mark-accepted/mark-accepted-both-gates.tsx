@@ -162,11 +162,11 @@ export function MarkAcceptedBothGates({
                   lineHeight: 1.5,
                 }}
               >
-                Open Cost Build → adjust the flagged lines back into range →
+                Open Costs → adjust the flagged lines back into range →
                 re-Mark accepted.
               </p>
               <button className="btn sm" style={{ marginTop: 12 }}>
-                ← Back to Cost Build
+                ← Back to Costs
               </button>
             </div>
             <div

@@ -10,7 +10,7 @@ import { InnerRail } from "@/components/rails/inner-rail";
 // canonical sub-rail navigation has been waiting for —
 // `/projects/[id]/layout.tsx` never had access to quoteId, so
 // InnerRail received `activeQuoteId=undefined` and the per-scenario
-// sub-rail (Setup / Cost build / Costing sheet / Customer view)
+// sub-rail (Setup / Costs / Pricing / Quote)
 // never expanded for the active scenario.
 //
 // Why we resolve scenario_label here (not in InnerRail):

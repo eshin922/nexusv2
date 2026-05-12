@@ -1,3 +1,59 @@
+# Surface naming canon (Slice RI.8)
+
+The four customer-facing surfaces between Setup and Mark Accepted
+were renamed during RI.8 for clearer labels. Old → new:
+
+- **Cost build → Costs** (URL `/cost-build` → `/costs`)
+- **Costing sheet → Pricing** (URL `/costing` → `/pricing`)
+- **Customer view → Quote** (URL `/customer-view` → `/quote`)
+
+Setup + Mark Accepted unchanged.
+
+**What's renamed:**
+- Route folders, component folders, page-level component names
+  (`CostBuildHeader → CostsHeader`, `CostingPageHead →
+  PricingPageHead`, `CustomerViewHost → QuoteHost`).
+- Per-surface CSS files (`r6-cost-build.css → r6-costs.css`,
+  `r2-costing.css → r2-pricing.css`, `r3-customer-view.css →
+  r3-quote.css`).
+- Lib + types files anchored to the renamed surfaces
+  (`src/lib/customer-view-fixtures.ts → src/lib/quote-fixtures.ts`,
+  `src/types/customer-view.ts → src/types/quote.ts`).
+- User-facing labels in JSX text, button copy, breadcrumbs,
+  back-nav, eyebrows.
+
+**What's intentionally NOT renamed** (concept-anchored, not
+surface-anchored):
+- `src/lib/costing.ts` — costing math library; serves all four
+  surfaces, not just Pricing.
+- `src/lib/costing-store.ts` + `src/components/costing-store-provider.tsx`
+  — state management for cost data; concept, not surface.
+- `src/app/actions/costing.ts` — costing-math action layer;
+  consumed by multiple surfaces.
+- DB schema fields with "customer" (e.g., `customer_facing_notes`,
+  `customer_accepted_at`) — describe the customer entity, not
+  the Quote surface.
+- Audit log action names like `customer_acceptance_recorded` —
+  describe business events (customer's acceptance), not surface
+  refs.
+- `quote.status` enum values (`draft` / `sent` / `accepted` /
+  `superseded` / `lost`) — describe lifecycle, unchanged.
+- `getCostingBundle`, `QuoteCostBreakdown`, `CostingPage` type,
+  etc. — concept-anchored types.
+
+**URL awkwardness flag:** `/projects/[id]/quotes/[quoteId]/quote`
+repeats "quote." Edward's call: accept the repetition for
+label/URL consistency. Don't reroute or alias.
+
+**301 redirects** in `next.config.ts` preserve external bookmarks
+to the old paths. Same precedent as F-4 redirects from
+`/packaging`, `/production`, `/freight` to `/cost-build` (which
+is now `/costs`).
+
+**Future-CC default:** use the new surface names in all new code,
+comments, and documentation. Reference: Edward's rename directive,
+May 2026.
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**

@@ -87,7 +87,7 @@ export function MarkAcceptedHost({
           }}
         >
           <span style={{ color: "var(--ink-4)" }}>
-            Costing Sheet · {customerName} · {quoteNumber} ·{" "}
+            Pricing · {customerName} · {quoteNumber} ·{" "}
           </span>
           <strong style={{ color: "var(--ink)" }}>Mark accepted</strong>
         </div>

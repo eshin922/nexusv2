@@ -1,10 +1,10 @@
 /*
- * Slice RI.6 — Customer view + Mark-Accepted styles per Round 3 source
+ * Slice RI.6 — Quote + Mark-Accepted styles per Round 3 source
  * (docs/design-prototypes/dist/source/round-3/index.html lines 902-1712).
  *
  * Two register groups in this file:
  *
- * 1. .pdf-* classes (Customer view PDF subtree) — LITERAL OKLCH values.
+ * 1. .pdf-* classes (Quote PDF subtree) — LITERAL OKLCH values.
  *    NO var() references. PDF must render identically regardless of
  *    theme/dark mode because customers never see the theme.
  *    See CLAUDE.md "PDF token lock" + Designer memory

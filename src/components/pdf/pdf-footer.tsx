@@ -1,8 +1,8 @@
 import type {
   CustomerViewVendor,
   CustomerViewQuote,
-} from "@/types/customer-view";
-import { QUOTE_STUBS } from "@/lib/customer-view-fixtures";
+} from "@/types/quote";
+import { QUOTE_STUBS } from "@/lib/quote-fixtures";
 
 export function PdfFooter({
   vendor,

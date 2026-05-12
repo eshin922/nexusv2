@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { CustomerView, CustomerViewPdfLayout } from "@/types/customer-view";
+import type { CustomerView, CustomerViewPdfLayout } from "@/types/quote";
 import { PreviewToolbar, type CustomerViewSubState } from "./preview-toolbar";
 import { BoundaryGuardNotice } from "./boundary-guard-notice";
 import { PageBreakMarker } from "./page-break-marker";
@@ -136,7 +136,7 @@ function introCopy(
   };
 }
 
-export function CustomerViewHost({
+export function QuoteHost({
   view,
   quoteId,
   quoteStatus,

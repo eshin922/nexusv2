@@ -10,7 +10,7 @@ import {
 } from "@/lib/costing-store";
 import { useCostingStore } from "@/components/costing-store-provider";
 
-// Slice RI.5 — Costing Sheet Room 0: Lines Requiring Review block.
+// Slice RI.5 — Pricing Room 0: Lines Requiring Review block.
 //
 // Conditional, BELOW_FLOOR-only block anchored ABOVE the verdict band
 // per R2 source rationale (`costing.jsx:167-209`): "Lifted ABOVE the

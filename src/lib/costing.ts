@@ -1,4 +1,4 @@
-// Slice 8 — Costing Sheet rollup. Pure TypeScript, no Drizzle imports,
+// Slice 8 — Pricing rollup. Pure TypeScript, no Drizzle imports,
 // no server-only. Takes plain data structures (caller assembles from DB),
 // returns plain data structures. Unit-testable via a fixture script.
 // Same pattern as src/lib/sku-tree.ts — client-safe in principle; the

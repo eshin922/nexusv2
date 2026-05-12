@@ -17,7 +17,7 @@
 // seed, but keeps the customer view from rendering empty vendor on
 // a misconfigured admin state).
 
-import type { CustomerViewVendor } from "@/types/customer-view";
+import type { CustomerViewVendor } from "@/types/quote";
 
 // Graceful-degradation fallback for firm-level identity. Used by the
 // customer-view page when `firm_settings.vendor_*` columns are NULL.

@@ -5,7 +5,7 @@ import {
   selectQuoteRollup,
 } from "@/lib/costing-store";
 import { useCostingStore } from "@/components/costing-store-provider";
-import { useCostBuildAccordion } from "./cost-build-accordion";
+import { useCostBuildAccordion } from "./costs-accordion";
 
 // Slice RI.4 — Section row per R6 actual source (extracted from
 // docs/design-prototypes/dist/source/round-6/index.html lines

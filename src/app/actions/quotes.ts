@@ -1711,7 +1711,7 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
 //
 // UI affordance for RI.7: the customer-view preview-toolbar Download
 // buttons trigger this (stubbed PDF generation; Slice 11 wires real
-// PDF render + email). Cost Build / Costing Sheet status banners
+// PDF render + email). Costs / Pricing status banners
 // pick up the new 'sent' state via existing requireDraft guards.
 export async function sendQuote(
   formData: FormData,
@@ -1909,7 +1909,7 @@ export async function sendQuote(
 
 // DEC-1 + DEC-2: record the customer signal as a timestamped event,
 // distinct from PM finalization via Mark-Accepted. PM clicks
-// "Customer responded · Tier N" on Costing Sheet adjacent to the
+// "Customer responded · Tier N" on Pricing adjacent to the
 // Mark-Accepted cluster. The quote stays at status='sent'; the
 // `customer_accepted_at IS NOT NULL` tuple is the awaiting-mark
 // sub-state (Mark-Accepted page renders affirmation chip).

@@ -30,7 +30,7 @@ import { useCostingStore } from "@/components/costing-store-provider";
 //
 // Active-tier propagation: cost stack header tier-card click drives
 // the active-tier store (mirrors active-tier-selector.tsx pattern).
-// No separate <ActiveTierSelector> mounted on Cost Build — the tier
+// No separate <ActiveTierSelector> mounted on Costs — the tier
 // columns ARE the selector.
 
 const URL_PARAM = "tier";

@@ -46,7 +46,7 @@ export function CostBuildAccordion({
       // Update URL without triggering Next.js navigation (avoids
       // server re-render). Deep-link survives page refresh.
       if (typeof window !== "undefined") {
-        const base = `/projects/${projectId}/quotes/${quoteId}/cost-build`;
+        const base = `/projects/${projectId}/quotes/${quoteId}/costs`;
         const url = id ? `${base}?section=${id}` : base;
         window.history.replaceState({}, "", url);
       }

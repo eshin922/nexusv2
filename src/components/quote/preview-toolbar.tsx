@@ -2,7 +2,7 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { CustomerViewPdfLayout } from "@/types/customer-view";
+import type { CustomerViewPdfLayout } from "@/types/quote";
 import { sendQuote } from "@/app/actions/quotes";
 
 export type CustomerViewSubState = "pure" | "passThrough" | "partial";

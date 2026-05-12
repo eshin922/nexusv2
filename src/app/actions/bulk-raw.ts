@@ -70,7 +70,7 @@ export async function setRawsMode(
       summary: `Raws mode changed from ${previousMode} to ${rawsMode}`,
     });
 
-    revalidatePath(`/projects/${quote.projectId}/quotes/${quoteId}/cost-build`);
+    revalidatePath(`/projects/${quote.projectId}/quotes/${quoteId}/costs`);
 
     return { quoteId, rawsMode };
   });
