@@ -270,6 +270,119 @@ this checklist explicitly. It's not paranoia; it's the durable
 discipline that prevents "this never worked since the
 consolidation" surfacing months later.
 
+## "Region-scope over trigger-scope when smoke surfaces architectural issues"
+
+When smoke surfaces multiple related issues in the same
+architectural region, scope the whole region — don't patch each
+trigger in isolation. The trigger that surfaces a bug is rarely
+the boundary of the bug; usually it's one symptom of a
+structural problem affecting the whole region.
+
+**Reference moment:** Slice RI.8 cost-stack architecture pass.
+The first smoke flag was "freight contribution shows 0 in cost
+stack." Trigger-scope diagnosis would have been "fix the freight
+display." Region-scope diagnosis surfaced:
+- CustomsRow orphaning (RI.4 unification regression)
+- Domestic-freight fallback gap (cbm-required for all paths)
+- D+T folded into FRT bucket; cost-stack D+T row hardcoded zero
+- Subtotal vs row-sum mismatch (proportional-share approximation
+  vs per-row markup distribution)
+- Cost-stack PKG vs Packaging drilldown TOTAL diverge by ~9%
+  (different formulas for "similar-labeled" displays)
+- Production "services billed separately" silently hides cost
+  contribution from PROD column
+
+Five+ commits to the cost math layer (Option A → Option B → Option
+2 comprehensive) all addressed one region. Trying to ship each as
+a 1-line patch as smoke surfaced them would have produced 5+
+incremental shifts in math semantics, with PMs hitting each as a
+separate confusion. Region-scoping shipped one comprehensive
+math layer extension (per-component marked-up primitives), one
+display alignment pass (three surfaces read same source), and
+clear UX_BACKLOG entries for the remaining companion work
+(RAW + PASS row restoration).
+
+**Trigger for region-scoping:**
+- Same smoke surfaces multiple issues in same architectural region
+- OR fixing the trigger requires touching shared infrastructure
+- OR the trigger's symptom can be reproduced from multiple
+  upstream sources
+
+**When NOT to region-scope:**
+- Trigger is genuinely isolated (1-line fix with no cross-cutting
+  implications)
+- Scope creep beyond what's surfaced (don't preemptively rebuild
+  adjacent regions just because they're "nearby")
+
+CA's "whack-a-mole" instinct is the signal — when reactive 1-line
+patches are accumulating, that's the trigger to step back +
+region-scope.
+
+## "Defer-with-rationale beats forcing uniformity"
+
+When something diverges from an established grammar pattern,
+evaluate whether the divergence reflects a structural difference
+in the underlying data or workflow. If yes, document the
+divergence with rationale and accept it. Don't force-fit a
+uniform treatment just because adjacent surfaces have it.
+
+**Reference moment:** Slice RI.8 Designer audit M4 — Production
+section sublabel ("fees amortized · run locked") doesn't follow
+the same content-describing grammar packaging and freight
+sublabels use ("4 inventory-eligible · 1 supplier" / "3 lines · 2
+bundled, 1 passthrough"). M4 was deferred per Edward + CA
+disposition with explicit rationale: production is structurally
+different from packaging/freight — a single computed line per
+SKU vs an enumerable list of physical components/shipments. The
+behavior-describing sublabel ("how the production data is being
+treated") may be intentional grammar divergence vs the
+content-describing copy used on lists.
+
+**Pattern:** when you spot a divergence, ask:
+1. Is the underlying data structurally the same? (List of items
+   vs single computed value vs aggregate)
+2. If yes → fix the divergence; force-fit was unintentional
+3. If no → document the divergence with rationale; don't force-fit
+4. Always document the "no, intentional" cases so future audits
+   don't re-surface them
+
+This prevents both directions: silently letting drift accumulate
+(no documentation) AND forcing uniformity that masks structural
+differences (false consistency).
+
+## "Audit rubric coverage gap signaling"
+
+When smoke surfaces an issue the audit didn't catch, the audit's
+rubric has a coverage gap. Bank the dimension explicitly so future
+audits add it as a sweep criterion.
+
+**Reference moment:** Slice RI.8 step 11 Designer audit verdict
+was APPROVE-with-three-MEDIUM-fixes. Step 10 smoke (post-audit
+fixes) then surfaced: admin settings icon rendered as
+sparkle/asterisk-ray glyph, not a gear. The audit didn't catch
+this because iconography wasn't part of its rubric — the audit
+focused on layout / typography / token usage / vocabulary
+fidelity against R-source.
+
+Bank the dimension: **iconography sweep** as an explicit Designer
+audit sweep criterion. Future audits include "does the icon
+choice match the surface's role / vocabulary?" as a check.
+
+**Pattern for any audit-surfaced coverage gap:**
+1. The miss itself is a 1-line fix; ship it.
+2. Separately, bank the dimension as a future audit rubric
+   addition. Don't bury it in the fix commit.
+3. If the audit framework lives in a doc (e.g.,
+   `docs/designer-agent-prompt.md`), update that doc too so
+   subsequent invocations carry the expanded rubric.
+4. Cross-surface dimensions (icons, motion, density grammar,
+   tone-of-voice) are particularly worth banking — they cut
+   across surface-specific rubrics.
+
+Banked from Slice RI.8 step 11 smoke (May 2026). Strengthens the
+case for RI.9.5 Design Audit Slice scope to include
+cross-cutting dimensions, not just per-surface fidelity.
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**
