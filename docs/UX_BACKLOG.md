@@ -5,6 +5,75 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [HubSpot webhook integration — 2-way sync foundation]
+
+  **Slice:** Likely Slice 12 expansion (combined with Mark-
+  Accepted writeback) OR dedicated foundation slice.
+
+  **What:** Currently HubSpot → Nexus sync requires manual
+  refresh via the "Refresh from HubSpot" button. PMs may quote
+  against stale deal data when changes happen in HubSpot (deal
+  stage advances, deal value updates, owner changes) without
+  Nexus being notified.
+
+  **Future state:**
+  - HubSpot webhook endpoint in Nexus (authenticated, idempotent,
+    error-recovery)
+  - Subscribe to deal property change events in HubSpot
+  - Nexus updates cached deal data automatically when webhook
+    fires
+  - Audit log integration tracks which webhook events triggered
+    changes
+
+  **Open design questions when slice spawns:**
+  - Which HubSpot events to subscribe? (Deal property changes,
+    deal stage changes, deal owner changes, deal deletion,
+    association changes)
+  - Conflict resolution: if PM edits the deal in Nexus AND
+    HubSpot updates same field, who wins?
+  - Webhook delivery failure handling: HubSpot retries N times;
+    how does Nexus queue + dead-letter?
+
+  **Scope:** ~1-2 days for webhook handler implementation.
+  Could bundle with Slice 12 (Mark-Accepted writeback) for full
+  bidirectional sync foundation; combined scope ~3-4 days.
+
+  Reference: flagged by Edward during Slice RI.8 architecture
+  discussion (May 2026).
+
+- [Collapsible inner rail]
+
+  **Slice:** Possible homes — bundle with navigation IA CD R7
+  ask findings, RI.9 nav slice implementation, OR step 7
+  cross-surface tactical polish.
+
+  **What:** The inner rail (scenarios list + sub-rail + activity
+  section) on quote-scoped surfaces takes ~240px of horizontal
+  space. On smaller screens or when PMs want maximum main-content
+  area (especially the Costs cost stack which is dense), the
+  rail consumes valuable real estate without always being needed.
+
+  **Future state:**
+  - Collapse / expand toggle (chevron or similar affordance) on
+    inner rail
+  - Collapsed state shows minimal indicator (project glyph or
+    vertical accent strip) or hides entirely
+  - Expanded state restores the full rail
+  - State persists per session or per user preference
+  - Smooth animation transition between states
+
+  **Open design questions when slice spawns:**
+  - Collapse to fully hidden, or to a thin vertical strip with
+    hover-to-expand?
+  - Per-session state (resets each session) vs persistent user
+    preference (stored in user settings)?
+  - Should the outer rail (project switcher) also be
+    collapsible, or only the inner rail?
+  - Keyboard shortcut to toggle?
+
+  Reference: flagged by Edward during Slice RI.8 smoke
+  (May 2026).
+
 - [Incoterm selector for freight]
 
   **Slice:** RI.9 or freight-model-expansion slice (~4-6h).
