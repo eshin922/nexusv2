@@ -196,6 +196,15 @@ export function CostStackHeader({
           )}
           <LegendItem label="Freight" color="var(--comp-frt)" />
           <LegendItem label="D+T" tail="internal" hatched />
+          {/* Passthrough legend slot — R6 commitment to stack grammar
+              consistency across states (the PASS row may render empty
+              but the legend slot stays present). Restored per Designer
+              audit M1 — slot was dropped during Option B+ fold-in
+              alongside the row; row stays dropped pending companion
+              math layer split (UX_BACKLOG: RAW + PASS restoration).
+              The legend slot is cheap and preserves R6 grammar even
+              with the row deferred. */}
+          <LegendItem label="Passthrough" color="var(--ink-4)" />
         </div>
       </div>
 

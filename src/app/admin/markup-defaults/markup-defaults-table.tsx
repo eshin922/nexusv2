@@ -16,7 +16,16 @@ import { validatePercentDecimal } from "@/lib/percent-validation";
 // counts + approximate margin-shift range from
 // previewMarkupDefaultRecompute (per §1.2 Edward disposition).
 
-function decimalToPctDisplay(d: string): string {
+// Slice RI.8 Designer audit M2 — split display vs edit-state precision.
+// R5 fixture (6b746616.js:60) renders whole-percent: (pct * 100).toFixed(0).
+// Browse state uses the whole-percent shape; edit-state retains 4-decimal
+// precision so PMs entering sub-percent values (e.g. 32.5%) don't lose data.
+function decimalToPctBrowseDisplay(d: string): string {
+  const n = Number(d) * 100;
+  if (!Number.isFinite(n)) return "";
+  return n.toFixed(0);
+}
+function decimalToPctEditDisplay(d: string): string {
   const n = Number(d) * 100;
   if (!Number.isFinite(n)) return "";
   return Number(n.toFixed(4)).toString();
@@ -123,14 +132,17 @@ function ExistingRow({
   onSaved: () => void;
 }) {
   const unused = referenceCount === 0;
-  const currentDisplay = decimalToPctDisplay(row.defaultMarkupPct);
+  // Browse-state: whole-percent display per R5 fixture (M2). Edit-state
+  // input receives 4-decimal precision so sub-percent values survive.
+  const browseDisplay = decimalToPctBrowseDisplay(row.defaultMarkupPct);
+  const editDisplay = decimalToPctEditDisplay(row.defaultMarkupPct);
 
   if (editing) {
     return (
       <EditingRow
         row={row}
         referenceCount={referenceCount}
-        currentDisplay={currentDisplay}
+        currentDisplay={editDisplay}
         onCancel={onCancel}
         onSaved={onSaved}
       />
@@ -144,7 +156,7 @@ function ExistingRow({
         {unused && <span className="unused-chip">unused</span>}
       </div>
       <div className="markup">
-        {currentDisplay}
+        {browseDisplay}
         <span className="pct">%</span>
       </div>
       <div className="lic">
@@ -344,8 +356,10 @@ function EditingRow({
 }
 
 function PreviewDisclosure({ preview }: { preview: RecomputePreview }) {
-  const oldDisplay = decimalToPctDisplay(preview.oldPct);
-  const newDisplay = decimalToPctDisplay(preview.newPct);
+  // Preview text reads as a sentence (e.g. "Saving 40% → 45% will
+  // recompute markup on..."); align with browse-state R5 whole-percent.
+  const oldDisplay = decimalToPctBrowseDisplay(preview.oldPct);
+  const newDisplay = decimalToPctBrowseDisplay(preview.newPct);
   const noChange = preview.deltaPctPp === 0;
   const noDrafts = preview.affectedDraftQuotes === 0;
 

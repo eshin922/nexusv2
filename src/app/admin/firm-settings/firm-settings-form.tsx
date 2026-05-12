@@ -190,9 +190,11 @@ export function FirmSettingsForm({
         sign: "up" as const,
         text: `▲ +${d.toFixed(1)} pts vs. current ${oldN.toFixed(0)}%`,
       };
+    // Designer audit M3 — arrow encodes direction; drop redundant minus
+    // sign to avoid double-marking (was "▼ -5.0 pts" → now "▼ 5.0 pts").
     return {
       sign: "down" as const,
-      text: `▼ ${d.toFixed(1)} pts vs. current ${oldN.toFixed(0)}%`,
+      text: `▼ ${Math.abs(d).toFixed(1)} pts vs. current ${oldN.toFixed(0)}%`,
     };
   })();
   const floorDelta = (() => {
@@ -209,7 +211,7 @@ export function FirmSettingsForm({
       };
     return {
       sign: "down" as const,
-      text: `▼ ${d.toFixed(1)} pts vs. current ${oldN.toFixed(0)}%`,
+      text: `▼ ${Math.abs(d).toFixed(1)} pts vs. current ${oldN.toFixed(0)}%`,
     };
   })();
 
