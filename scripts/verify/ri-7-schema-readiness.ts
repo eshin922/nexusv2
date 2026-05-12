@@ -167,20 +167,30 @@ async function main() {
       ["lead_time_default", "8–12 weeks from confirmed PO"],
       ["incoterms_default", "FOB Long Beach"],
       ["days_valid_default", 30],
-      ["tcs_default", null], // expected NULL — hold gate
     ];
     for (const [col, want] of expected) {
       const got = row[col];
-      const label =
-        col === "tcs_default"
-          ? `${col} = NULL (hold gate)`
-          : `${col} = ${JSON.stringify(want)}`;
+      const label = `${col} = ${JSON.stringify(want)}`;
       if (got === want) {
         console.log(`  ✓ ${label}`);
       } else {
         console.log(`  ✗ ${label} — got ${JSON.stringify(got)}`);
         failures++;
       }
+    }
+
+    // tcs_default — hold gate closed post-Edward T&Cs paste. Assertion:
+    // must be a non-empty string (canonical legal text). The exact text
+    // is admin-managed and may evolve; we just confirm something landed.
+    if (typeof row.tcs_default === "string" && row.tcs_default.length > 0) {
+      console.log(
+        `  ✓ tcs_default = <${row.tcs_default.length} chars> (hold gate closed)`,
+      );
+    } else {
+      console.log(
+        `  ✗ tcs_default = NULL or empty — T&Cs hold gate not yet closed`,
+      );
+      failures++;
     }
   }
 

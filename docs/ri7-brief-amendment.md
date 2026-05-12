@@ -441,25 +441,14 @@ Independent-of-CR-SM resolutions:
 
 1. **DPS quote-number prefix.** Resolved: `DPS`. Format `DPS-1000`,
    `DPS-1001`, ... Counter starts at 1000.
-2. **DPS T&Cs canonical text.** **OPEN — kickoff path (b) approved.**
-   RI.7 implementation kicks off without canonical T&Cs text. Schema
-   migration lands with `tcs_default` NULL on existing firm_settings
-   rows; customer view PdfTerms renders `{tcs-pending}` stub for sent
-   quotes (consistent with the visible-synthetic discipline from
-   RI.6). Edward chases canonical text in parallel with build; small
-   UPDATE patch when text arrives.
-
-   **Hold gate (release-time, not kickoff-time):** T&Cs canonical text
-   MUST land before RI.7's PR opens to main. The `{tcs-pending}` stub
-   is a build-time placeholder, NOT a ship-time state — production
-   customer views cannot ship with stub legal text. Implementation
-   completes against the stub; PR-to-main blocks on the T&Cs UPDATE.
-
-   If T&Cs becomes a real blocker (build complete but Edward unable
-   to source text), surface back for re-decision: either (i) defer
-   the entire customer-view T&Cs rendering to a later slice and ship
-   RI.7 without it, (ii) ship with a generic placeholder text that
-   covers the legal minimum, or (iii) hold the PR.
+2. **DPS T&Cs canonical text.** **CLOSED — pasted via /admin/firm-settings
+   Customer-facing-defaults card, May 2026.** 1295 chars of legal text
+   landed on the active firm_settings row through the canonical admin
+   UI write path (audit-logged via `firm_settings_updated`). Hold gate
+   released. One workaround in place: T&Cs include logistics rate
+   bullets reformatted as prose-with-semicolons because PdfTerms doesn't
+   parse bullet markers yet (logged as separate UX_BACKLOG entry "T&Cs
+   render: bullet-list support" for RI.8 polish).
 3. **DPS payment terms default.** Resolved: `50% deposit, 50% on
    shipment`. Edward confirms based on actual customer cadence.
 4. **DPS lead time default.** Resolved: `8–12 weeks from confirmed PO`.
@@ -549,22 +538,19 @@ matches the magnitude of RI.4 / RI.5 sub-slices.
 
 - [x] CR-SM DEC-1 through DEC-8 (see `docs/ri7-state-machine.md` §8)
 - [x] §5.1 quote-number prefix: `DPS`
-- [ ] §5.2 DPS T&Cs canonical text — **OPEN**, PM provides separately;
-      flagged as potential kickoff blocker (RI.7 can start without it
-      but `tcs_default` column lands NULL)
+- [x] §5.2 DPS T&Cs canonical text — landed via /admin/firm-settings
+      paste (1295 chars on active row, hold gate closed)
 - [x] §5.3 payment terms default: `50% deposit, 50% on shipment`
 - [x] §5.4 lead time default: `8–12 weeks from confirmed PO`
 - [x] §5.5 incoterms default: `FOB Long Beach`
 - [x] §5.6 days_valid default: `30`
 - [x] §5.7 per-quote override surface placement: (a) Costing Sheet header
 
-**Kickoff path (b) approved.** RI.7 implementation starts without
-§5.2 T&Cs canonical text. `tcs_default` lands NULL; PdfTerms renders
-`{tcs-pending}` stub for sent quotes during build + PM smoke.
+**All decisions resolved.** RI.7 implementation complete; hold gate
+closed (T&Cs text in via admin UI canonical write path); Edward smoke
+walked the 8 surfaces and confirmed clean. Two real bugs caught and
+patched during smoke (PdfFooter null-render, Cost Build sent-status
+banner layout + View-as-customer link). Ready for PR-to-main.
 
-**Hold gate before PR-to-main:** T&Cs text must land. Stub is a
-build-time placeholder, not a ship-time state. PR-to-main blocks
-on the T&Cs UPDATE; build proceeds otherwise unblocked.
-
-Brief sections 3.10.a through 3.10.h (+ CR-SM §7 schema) are concrete
-and ready to build.
+Brief sections 3.10.a through 3.10.h (+ CR-SM §7 schema) all built
+and verified end-to-end.
