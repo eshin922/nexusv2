@@ -426,7 +426,7 @@ function FreightLineCard({
           // between label + tier cells, mirroring packaging-drilldown's
           // table-head "Markup" column placement. Container-only
           // application; D+T pass through at customs rate.
-          gridTemplateColumns: `1.4fr 90px ${tiers.map(() => "1fr").join(" ")}`,
+          gridTemplateColumns: `1.4fr 130px ${tiers.map(() => "1fr").join(" ")}`,
         }}
       >
         <span className="lab">
@@ -444,9 +444,11 @@ function FreightLineCard({
             fontSize: 10.5,
             color: "var(--ink-3)",
             letterSpacing: "0.04em",
+            textTransform: "uppercase",
           }}
           title="Freight markup % — applied to container freight only; duty + tariff pass through at customs-stated rate."
         >
+          <span style={{ color: "var(--ink-4)" }}>Markup</span>
           <input
             type="number"
             step="1"
