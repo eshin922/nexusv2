@@ -240,14 +240,29 @@ function FreightLineCard({
   const [treatment, setTreatment] = useState<"bundled" | "pass_through">(
     line.freightTreatment,
   );
+  // Slice RI.8 freight-markup feature — per-line markup % editable.
+  // Display convention: percent display (e.g. "15" for 15%); action
+  // layer divides by 100 to store as decimal. Same convention as
+  // packaging line markup + duty/tariff.
+  const markupDisplay = (() => {
+    if (line.markupPct === null) return "";
+    const n = Number(line.markupPct) * 100;
+    if (!Number.isFinite(n)) return "";
+    return Number(n.toFixed(4)).toString();
+  })();
+  const [markup, setMarkup] = useState(markupDisplay);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stateRef = useRef({ supplier, treatment });
-  stateRef.current = { supplier, treatment };
+  const stateRef = useRef({ supplier, treatment, markup });
+  stateRef.current = { supplier, treatment, markup };
 
   useEffect(() => {
     setSupplier(line.supplier ?? "");
     setTreatment(line.freightTreatment);
-  }, [line.lineGroupId, line.supplier, line.freightTreatment]);
+    setMarkup(markupDisplay);
+    // markupDisplay is derived from line.markupPct; dep-array uses
+    // the source field rather than the derived value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [line.lineGroupId, line.supplier, line.freightTreatment, line.markupPct]);
 
   useEffect(
     () => () => {
@@ -259,6 +274,7 @@ function FreightLineCard({
   function fireMetaSave(overrides: Partial<{
     supplier: string;
     treatment: "bundled" | "pass_through";
+    markup: string;
   }> = {}) {
     const s = { ...stateRef.current, ...overrides };
     const fd = new FormData();
@@ -266,15 +282,19 @@ function FreightLineCard({
     fd.set("supplier", s.supplier);
     fd.set("freightMode", line.freightMode ?? "");
     fd.set("freightTreatment", s.treatment);
-    fd.set("markupPct", line.markupPct ?? "");
+    // markupPct is sent in PERCENT display form ("15" for 15%); the
+    // action layer divides by 100 to store as decimal.
+    fd.set("markupPct", s.markup);
     fd.set("notes", line.notes ?? "");
     fd.set("shipmentId", line.shipmentId ?? "");
     startTransition(async () => {
       await updateFreightLineMetadata(fd);
     });
+    const markupDecimal =
+      s.markup === "" ? null : Number(s.markup) / 100;
     updateFreightLineMeta(line.lineGroupId, {
       freightTreatment: s.treatment,
-      markupPct: num(line.markupPct),
+      markupPct: Number.isFinite(markupDecimal) ? markupDecimal : null,
     });
   }
 
@@ -287,6 +307,20 @@ function FreightLineCard({
   function scheduleSupplierSave(value: string) {
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => fireMetaSave({ supplier: value }), DEBOUNCE_MS);
+  }
+
+  // Markup commits on blur/Enter per Slice RI.8 keystroke-focus
+  // pattern (same as totalFreight, duty, tariff). Local state
+  // updates on every keystroke; persist at commit boundaries.
+  function handleMarkupBlur() {
+    if (markup === markupDisplay) return; // no change
+    fireMetaSave({ markup });
+  }
+  function handleMarkupKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.currentTarget.blur();
+    }
   }
 
   function handleDelete() {
@@ -363,6 +397,51 @@ function FreightLineCard({
             Passthrough
           </button>
         </div>
+
+        {/* Slice RI.8 freight-markup feature — per-line markup input.
+            Container-only application (D+T pass through). Auto-
+            populated from firm "freight" markup default at line
+            creation (handled in addFreightLine action). PMs see
+            the firm default applied automatically; can override
+            per-line via this input. Blur/Enter commit pattern. */}
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "baseline",
+            gap: 4,
+            fontFamily: "var(--mono)",
+            fontSize: 10.5,
+            color: "var(--ink-3)",
+            letterSpacing: "0.04em",
+          }}
+          title="Freight markup % — applied to container freight; duty + tariff pass through at customs rate."
+        >
+          <span>MARKUP</span>
+          <input
+            type="number"
+            step="1"
+            min={0}
+            value={markup}
+            disabled={disabled || pending}
+            onChange={(e) => setMarkup(e.target.value)}
+            onBlur={handleMarkupBlur}
+            onKeyDown={handleMarkupKeyDown}
+            placeholder="—"
+            aria-label="Freight markup percent"
+            style={{
+              background: "transparent",
+              border: "1px dotted var(--rule)",
+              borderRadius: 3,
+              fontFamily: "var(--mono)",
+              fontSize: 11,
+              color: "var(--ink)",
+              width: 42,
+              textAlign: "right",
+              padding: "1px 4px",
+            }}
+          />
+          <span style={{ color: "var(--ink-4)" }}>%</span>
+        </label>
 
         <div className="actions">
           <button

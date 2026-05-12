@@ -121,6 +121,22 @@ export function renderAction(
         chip: { color: "warn", label: "DROPPED" },
         summary: `Scenario dropped · reason: ${fmtMaybeNull(diff(diffJson, "drop_reason"))}`,
       };
+    case "freight_markup_updated": {
+      // Slice RI.8 freight-markup feature — line-level override audit.
+      // from/to are decimal strings ("0.3000"); render as percent
+      // display for human scan.
+      const fromVal = diff(diffJson, "from");
+      const toVal = diff(diffJson, "to");
+      const fmtPct = (v: unknown): string => {
+        if (v === null || v === undefined) return "—";
+        const n = Number(v) * 100;
+        return Number.isFinite(n) ? `${Number(n.toFixed(2))}%` : String(v);
+      };
+      return {
+        chip: { color: "neutral", label: "FREIGHT MARKUP" },
+        summary: `Freight markup · ${fmtPct(fromVal)} → ${fmtPct(toVal)}`,
+      };
+    }
     // Cost-input CRUD actions use past-tense keys throughout the
     // action layer (`created` / `updated` / `deleted` — see
     // src/app/actions/{freight,packaging,production}.ts). Smoke

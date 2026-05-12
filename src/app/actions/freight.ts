@@ -6,6 +6,7 @@ import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
   auditLog,
   freightInputs,
+  markupDefaults,
   quotes,
   quoteSkus,
   quoteTiers,
@@ -234,13 +235,24 @@ export async function addFreightLine(
 
     const lineGroupId = crypto.randomUUID();
 
+    // Slice RI.8 freight-markup feature — auto-populate from firm
+    // "Freight" markup default. Falls back to 0.3000 (legacy hardcode)
+    // if the firm hasn't configured a Freight category. PMs can
+    // override per-line via the markup input on FreightLineCard.
+    const [freightDefault] = await db
+      .select({ pct: markupDefaults.defaultMarkupPct })
+      .from(markupDefaults)
+      .where(eq(markupDefaults.category, "Freight"))
+      .limit(1);
+    const initialMarkupPct = freightDefault?.pct ?? "0.3000";
+
     await db.insert(freightInputs).values(
       tiers.map((t) => ({
         quoteSkuId,
         tierId: t.id,
         lineGroupId,
         sortOrder,
-        markupPct: "0.3000",
+        markupPct: initialMarkupPct,
         freightTreatment: "bundled" as const,
       })),
     );
@@ -380,6 +392,26 @@ export async function updateFreightLineMetadata(
           ? { ...diff, cascaded_warnings: cascade }
           : diff,
     });
+
+    // Slice RI.8 freight-markup feature — dedicated audit event
+    // for markup_pct changes per Edward's hotfix scope. Emits in
+    // addition to the generic `updated` row so timeline reads
+    // ("show me all freight markup overrides") can filter on
+    // action key directly without parsing diff_json. Mirrors the
+    // CLAUDE.md "Audit source convention" pattern of distinct
+    // semantic events getting distinct action keys.
+    if ("markup_pct" in diff) {
+      await logAudit({
+        userId: user.id,
+        entityType: "freight_line",
+        entityId: lineGroupId,
+        action: "freight_markup_updated",
+        diffJson: {
+          from: before.markup_pct,
+          to: after.markup_pct,
+        },
+      });
+    }
 
     revalidateQuoteTree(quote.projectId, quote.id);
 

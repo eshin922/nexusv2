@@ -1046,7 +1046,13 @@ function computeLeafPerTier(args: {
     const tariff = factoryCostPerUnit * num(sku.tariffPct);
     const landedBefore = container + duty + tariff;
     const freightMarkup = num(f.markupPct, FALLBACK_MARKUP);
-    const landedWithMarkup = landedBefore * (1 + freightMarkup);
+    // Slice RI.8 freight-markup feature — CA + Edward decision:
+    // markup applies to the CONTAINER (DPS-controlled shipping fee)
+    // only, NOT to duty/tariff which pass through at customs-stated
+    // rates. Customer pays customs-rate D+T as is; we mark up our
+    // shipping/freight service.
+    const containerWithMarkup = container * (1 + freightMarkup);
+    const landedWithMarkup = containerWithMarkup + duty + tariff;
     freightLines.push({
       lineGroupId: f.lineGroupId,
       containerFreightPerUnit: container,
@@ -1061,11 +1067,12 @@ function computeLeafPerTier(args: {
     totalLandedWithMarkup += landedWithMarkup;
     totalContainerBefore += container;
     totalDutyTariffBefore += duty + tariff;
-    // Marked-up component split (Option 2). Freight markup applies
-    // uniformly to (container + duty + tariff) at line level —
-    // splitting the marked-up sum mirrors the cost split exactly.
-    totalContainerWithMarkup += container * (1 + freightMarkup);
-    totalDutyTariffWithMarkup += (duty + tariff) * (1 + freightMarkup);
+    // Marked-up split (Option 2 + freight-markup feature). Markup
+    // applies to container only (see CA decision above); D+T's
+    // "marked-up" sum equals its cost — pass-through, no margin
+    // added on customs.
+    totalContainerWithMarkup += containerWithMarkup;
+    totalDutyTariffWithMarkup += duty + tariff;
   }
 
   // ---------- contribution + required sell ----------

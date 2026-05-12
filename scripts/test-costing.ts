@@ -187,13 +187,20 @@ assert(
   bottle.freightLines[0].landedFreightBeforeMarkup,
   0.274,
 );
+// Slice RI.8 freight-markup feature — markup now applies to
+// CONTAINER only (CA decision). D+T pass through at customs-stated
+// rate. Old math: landedBefore × (1 + freightMarkup).
+// New math: containerWithMarkup + duty + tariff
+//        = (0.1 × 1.30) + 0.024 + 0.15 = 0.13 + 0.174 = 0.304.
 assert(
-  "landedFreightWithMarkup",
+  "landedFreightWithMarkup (container-only markup)",
   bottle.freightLines[0].landedFreightWithMarkup,
-  0.3562,
+  0.304,
 );
 assert("contributionCostPerUnit", bottle.contributionCostPerUnit, 0.874);
-assert("requiredSellPerUnit", bottle.requiredSellPerUnit, 1.1862);
+// requiredSell shifts by -0.0522 (= (0.024 + 0.15) × 0.30 D+T markup
+// no longer applied). Same shift propagates to assembly + tier.
+assert("requiredSellPerUnit", bottle.requiredSellPerUnit, 1.134);
 
 console.log("\n=== Cap (leaf) ===");
 assert("contributionCostPerUnit", cap.contributionCostPerUnit, 0.05);
@@ -205,24 +212,30 @@ assert("requiredSellPerUnit", label.requiredSellPerUnit, 0.03);
 
 console.log("\n=== Lip Oil (assembly) ===");
 assert("contributionCostPerUnit", lipOil.contributionCostPerUnit, 0.944);
-assert("requiredSellPerUnit", lipOil.requiredSellPerUnit, 1.2862);
+// Same -0.0522 shift from container-only freight markup.
+assert("requiredSellPerUnit", lipOil.requiredSellPerUnit, 1.234);
 
 console.log("\n=== Gift Set (top-level assembly) ===");
 assert("contributionCostPerUnit", giftSet.contributionCostPerUnit, 0.944);
-assert("requiredSellPerUnit", giftSet.requiredSellPerUnit, 1.2862);
+assert("requiredSellPerUnit", giftSet.requiredSellPerUnit, 1.234);
 
 console.log("\n=== Quote-level T1 (50k) ===");
-assert("totalRevenue", tierRollup.totalRevenue, 64310, 0.5);
+// Revenue shift: 0.0522 × 50000 units = 2610 less revenue.
+// 64310 - 2610 = 61700.
+assert("totalRevenue", tierRollup.totalRevenue, 61700, 0.5);
 assert("totalCost", tierRollup.totalCost, 47200, 0.5);
-assert("blendedMarginPct", tierRollup.blendedMarginPct, 0.266, 0.001);
+// Margin: (61700 - 47200) / 61700 = 14500 / 61700 ≈ 0.235.
+assert("blendedMarginPct", tierRollup.blendedMarginPct, 0.235, 0.001);
+// 0.235 < floor (0.25) → BELOW_FLOOR (was BELOW_TARGET pre-change).
 console.log(
-  `  ${tierRollup.blendedMarginStatus === "BELOW_TARGET" ? "PASS" : "FAIL"}  blendedMarginStatus = ${tierRollup.blendedMarginStatus} (expected BELOW_TARGET)`,
+  `  ${tierRollup.blendedMarginStatus === "BELOW_FLOOR" ? "PASS" : "FAIL"}  blendedMarginStatus = ${tierRollup.blendedMarginStatus} (expected BELOW_FLOOR)`,
 );
-if (tierRollup.blendedMarginStatus !== "BELOW_TARGET") failures += 1;
+if (tierRollup.blendedMarginStatus !== "BELOW_FLOOR") failures += 1;
+// Larger suggested adj needed to lift margin past floor + target.
 assert(
   "suggestedGlobalAdjPct",
   tierRollup.suggestedGlobalAdjPct ?? -1,
-  0.13,
+  0.18,
   0.001,
 );
 
