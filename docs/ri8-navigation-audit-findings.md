@@ -260,12 +260,16 @@ Suggested ask shape per Designer:
 > (d) breadcrumb standardization across quote-scoped surfaces
 >     (with attention to R6's deliberate omission on Cost Build),
 > (e) action button cluster grammar across quote-scoped surfaces
->     (Cost Build header, Costing Sheet head, Customer view
->     toolbar, Mark-Accepted header) — hierarchy, grouping,
->     primary CTA placement, direction consistency;
-> (f) authoring placement for customer-facing notes — does
->     authoring live adjacent to where notes render (Preview /
->     Customer view), or with quote definition (Setup)?"
+>     (Costs header, Pricing head, Quote toolbar, Mark-Accepted
+>     header) — hierarchy, grouping, primary CTA placement,
+>     direction consistency."
+
+(Item (f) authoring placement for customer-facing notes was
+relocated INTO the separate Setup R7 ask per Edward + CA Gate 3
+disposition, May 2026. Setup R7 designer needs Notes design as
+part of Setup. Navigation IA ask keeps items a-e — they're
+genuinely cross-surface IA. See
+`docs/ri8-setup-cd-r7-ask.md` §1.1 Notes section design.)
 
 These are the F-5-structural / F-8 / F-11 / F-13 items framed for
 CD's IA-level review.

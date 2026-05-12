@@ -82,12 +82,25 @@ production realities + accumulated v1 affordances.
 - **Tier table** — register treatment. R1 has `.tier-row` grid;
   v1 has its own. CD designs the canonical tier-row register
   consistent with the new SKU table.
-- **Notes section** — currently full-width below the setup grid.
-  CD picks: stays full-width OR moves elsewhere OR splits
-  (internal-notes vs customer-facing-notes have different audience).
-  Note: customer-facing notes authoring placement is the related
-  question (f) in the navigation IA R7 ask — CD may want to
-  resolve them together.
+- **Notes section design — full scope, BOTH internal + customer-
+  facing notes.** Per Edward + CA Gate 3 disposition (May 2026),
+  customer-facing notes authoring is Setup-anchored and lives
+  inside THIS ask (not the navigation IA R7 ask). The Setup R7
+  designer needs the answer to design Setup properly. Specific
+  questions:
+  - Currently full-width below the setup grid (single block
+    containing both internal-notes textarea + customer-facing
+    notes textarea). Stays unified, splits into two surfaces,
+    or moves authoring of customer-facing notes adjacent to where
+    they render (Quote surface)?
+  - The two have different audiences — internal-notes is PM-only,
+    never customer-visible; customer-facing notes render on the
+    Quote surface PDF.
+  - Per-SKU notes (the `quote_skus.notes` column dropped from the
+    inline column in §1.1 SKU table) is a separate concern from
+    quote-level notes — three distinct surfaces in play
+    (per-SKU notes, internal-notes, customer-facing notes).
+    CD designs how all three relate.
 
 ### 1.2 Feature enhancements (per UX_BACKLOG "Setup page feature enhancements")
 
@@ -112,17 +125,18 @@ points with the table treatment:
 
 ### 1.3 Cross-page IA touchpoints (flag to CD; outside Setup-only scope)
 
-- **Setup → Cost build** next-step affordance. Currently
+- **Setup → Costs** next-step affordance. Currently
   "Continue to cost build →" lives in the page-head action
   cluster (R1 fidelity). CD confirms or restructures.
 - **Setup → Pricing** affordance. Currently not surfaced from
   Setup directly. CD picks whether Pricing entry is per-tier-row
-  on Setup OR exclusively via Cost build / inner-rail.
-- **Customer-facing notes authoring placement** (item (f) in the
-  navigation IA R7 ask). Auth currently lives on Setup; renders on
-  Quote (formerly Customer view). Cross-surface IA question;
-  related to F-5-structural / F-8 / F-11 / F-13 from the
-  navigation audit.
+  on Setup OR exclusively via Costs / inner-rail.
+
+(Customer-facing notes authoring placement — previously item (f)
+of the navigation IA R7 ask — has been folded INTO §1.1 Notes
+section design above per Edward + CA Gate 3 disposition. It's
+Setup-anchored: the Setup R7 designer needs to design Notes
+treatment as part of Setup, not as a cross-surface IA question.)
 
 ---
 
@@ -207,14 +221,17 @@ implementation pace.
 
 ---
 
-## 6. Approval needed before routing
+## 6. Approval status
 
-- [ ] Edward approves promoting §6.b to active CD R7 ask
-- [ ] Edward + CA approve the §1 scope shape
-- [ ] Edward + CA decide on §1.3 cross-page IA touchpoints —
-      include in this ask, defer to navigation IA R7, or split
-- [ ] Routing: Edward + CA send to CD; coordination with the
-      separate navigation IA R7 ask
+- [x] **Gate 1** — Edward approved promoting §6.b to active CD R7
+      ask (May 2026).
+- [ ] **Gate 2** — Edward + CA review §1 scope shape on this draft
+      doc. Provisional approval otherwise.
+- [x] **Gate 3** — Item (f) customer-facing notes authoring
+      RELOCATED INTO §1.1 of THIS ask (Setup-anchored). Navigation
+      IA ask keeps items a-e (genuinely cross-surface).
+- [ ] **Gate 4** — Routing: Edward + CA forward both asks (this
+      doc + navigation IA findings §4) directly to CD. CC isn't in
+      the loop.
 
-Once approvals land, this doc becomes the canonical brief CC
-attaches to CD when routing.
+Once Gates 2 + 4 land, this doc is the canonical brief CD reads.
