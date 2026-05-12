@@ -68,10 +68,17 @@ function valueFor(
     case "production":
       return rollup.costBreakdown.production;
     case "freight":
+      // Section header sums both buckets — Freight section is the
+      // single input surface for both container freight and D+T;
+      // the section's tier-total should reflect everything PMs
+      // entered there. D+T splits out only at the cost-stack-header
+      // row level (Slice RI.8 Option B+). costBreakdown.freight is
+      // already the derived sum (= freightContainer + dutyAndTariff)
+      // so this stays correct.
       return rollup.costBreakdown.freight;
     case "bulk_raw":
       // Cost-rollup doesn't yet break out RAW (UX_BACKLOG: Cost rollup
-      // component breakout for RAW + D+T + PASS rows).
+      // component breakout for RAW row).
       return 0;
   }
 }

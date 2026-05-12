@@ -74,12 +74,19 @@ function tierTotalFor(
     case "production":
       return rollup.costBreakdown.production;
     case "freight":
-      return rollup.costBreakdown.freight;
-    case "raw":
+      // Slice RI.8 Option B+ — FRT row reads container-only.
+      // D+T renders separately via the "internal" row below.
+      return rollup.costBreakdown.freightContainer;
     case "internal":
+      // Slice RI.8 Option B+ — D+T (duty + tariff) cost-stack row.
+      // Edward locked position: own row with real numbers, not a
+      // freight-fold or hardcoded zero.
+      return rollup.costBreakdown.dutyAndTariff;
+    case "raw":
     case "passthrough":
-      // Not yet broken out from costBreakdown (UX_BACKLOG: per-component
-      // cost-vs-markup math layer extension).
+      // Not yet broken out from costBreakdown (UX_BACKLOG: companion
+      // restoration with the per-component split — RAW for
+      // dps_sources mode, PASS for separateServiceFees > 0).
       return 0;
   }
 }
@@ -120,20 +127,13 @@ export function CostStackHeader({
   }
 
   const showRaw = rawsMode === "dps_sources";
-  // Slice RI.8 Option A hotfix — D+T and PASS rows dropped.
-  // D+T (duty + tariff) contribution is folded into FRT bucket inside
-  // computeQuoteCosting (totalLandedFreightBeforeMarkup includes
-  // container + duty + tariff). A separate row would require a
-  // QuoteCostBreakdown split (Option B; UX_BACKLOG for RI.9). Until
-  // then, the hardcoded-zero D+T row was misleading PMs into thinking
-  // it was a separately-trackable component.
-  //
-  // PASS (passthrough) also dropped for the same reason — services
-  // billed separately flow to revenue but aren't in any breakdown
-  // bucket today; the row was always zero.
+  // Slice RI.8 Option B+ — D+T row restored with real numbers
+  // sourced from breakdown.dutyAndTariff. PASS still hardcoded
+  // to zero and dropped pending companion restoration work
+  // (UX_BACKLOG entry referenced from RI.9 cost-stack work).
   const components: ComponentKey[] = showRaw
-    ? ["packaging", "production", "raw", "freight"]
-    : ["packaging", "production", "freight"];
+    ? ["packaging", "production", "raw", "freight", "internal"]
+    : ["packaging", "production", "freight", "internal"];
 
   // R6 normalizes bar segment widths to max per-unit SUBTOTAL (cost,
   // NOT revenue) across tiers per cost-stack-header.jsx lines 14-19:
@@ -176,11 +176,8 @@ export function CostStackHeader({
           {showRaw && (
             <LegendItem label="Raws" tail="(DPS-sourced)" color="var(--comp-raw)" />
           )}
-          <LegendItem
-            label="Freight"
-            tail="incl. D+T"
-            color="var(--comp-frt)"
-          />
+          <LegendItem label="Freight" color="var(--comp-frt)" />
+          <LegendItem label="D+T" tail="internal" hatched />
         </div>
       </div>
 

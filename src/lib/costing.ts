@@ -280,6 +280,13 @@ export type SkuPerTierRollup = {
   freightLines: FreightLineBreakdown[];
   totalLandedFreightBeforeMarkup: number;
   totalLandedFreightWithMarkup: number;
+  // Slice RI.8 Option B+ — D+T (duty + tariff) is broken out from the
+  // total landed freight so the cost-stack can render it as its own
+  // row (Edward's locked position). Two new fields parallel the
+  // existing total; `totalLandedFreightBeforeMarkup` remains the sum
+  // (backwards-compat for any reader that hasn't migrated).
+  totalContainerFreightBeforeMarkup: number;
+  totalDutyTariffBeforeMarkup: number;
   separateServiceFeesPerUnit: number; // when allocate_service_fees=false
   contributionCostPerUnit: number;
   // Slice 9.3 — `requiredSellPerUnit` is the value used by all
@@ -331,6 +338,13 @@ export type QuoteCostBreakdown = {
   production: number;
   freight: number;
   serviceFees: number;
+  // Slice RI.8 Option B+ — D+T cost-stack row (Edward locked
+  // position). `freight` is now derived = freightContainer +
+  // dutyAndTariff. Container row reads `freightContainer`; the new
+  // D+T row reads `dutyAndTariff`. Backwards-compat: any reader of
+  // `freight` continues to see the combined number.
+  freightContainer: number;
+  dutyAndTariff: number;
 };
 
 export type QuotePerTierRollup = {
@@ -957,6 +971,12 @@ function computeLeafPerTier(args: {
   const freightLines: FreightLineBreakdown[] = [];
   let totalLandedBefore = 0;
   let totalLandedWithMarkup = 0;
+  // Slice RI.8 Option B+ — track container + D+T separately so the
+  // cost-stack can render them as their own rows. Sum still rolls
+  // up into totalLandedBefore for backwards-compat with existing
+  // consumers; the two parallel accumulators expose the split.
+  let totalContainerBefore = 0;
+  let totalDutyTariffBefore = 0;
   for (const f of freight) {
     const total = num(f.totalFreight);
     if (total <= 0) {
@@ -980,8 +1000,20 @@ function computeLeafPerTier(args: {
     // adds shared shipments, the caller will pre-compute the sum across
     // sibling rows and pass it via a future field on CostingFreightInput.
     const totalShipmentCbm = skuTotalCbm;
+    // Slice RI.8 Option B+ — domestic-freight fallback.
+    // When CBM is unset (typical for parcel/LTL/FTL domestic moves
+    // where volume doesn't drive cost allocation), the line's full
+    // total_freight allocates to this SKU. v1's "each line is
+    // per-SKU" assumption makes this safe: this SKU absorbs the
+    // full freight line either way. Without this fallback, PMs
+    // entering domestic freight see 0 contribution unless they
+    // also fabricate a CBM value, which is meaningless for parcel.
+    // Ocean / air paths still drive container = (cbm share) × total
+    // when skuTotalCbm > 0.
     const thisSkuShare =
-      totalShipmentCbm > 0 ? (skuTotalCbm / totalShipmentCbm) * total : 0;
+      totalShipmentCbm > 0
+        ? (skuTotalCbm / totalShipmentCbm) * total
+        : total;
     const container = effectiveUnits > 0 ? thisSkuShare / effectiveUnits : 0;
     const duty = factoryCostPerUnit * num(sku.dutyPct);
     const tariff = factoryCostPerUnit * num(sku.tariffPct);
@@ -1000,6 +1032,8 @@ function computeLeafPerTier(args: {
     });
     totalLandedBefore += landedBefore;
     totalLandedWithMarkup += landedWithMarkup;
+    totalContainerBefore += container;
+    totalDutyTariffBefore += duty + tariff;
   }
 
   // ---------- contribution + required sell ----------
@@ -1050,6 +1084,8 @@ function computeLeafPerTier(args: {
     freightLines,
     totalLandedFreightBeforeMarkup: totalLandedBefore,
     totalLandedFreightWithMarkup: totalLandedWithMarkup,
+    totalContainerFreightBeforeMarkup: totalContainerBefore,
+    totalDutyTariffBeforeMarkup: totalDutyTariffBefore,
     separateServiceFeesPerUnit: separateServiceFees,
     contributionCostPerUnit,
     computedSellPerUnit,
@@ -1080,6 +1116,8 @@ function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
     freightLines: [],
     totalLandedFreightBeforeMarkup: 0,
     totalLandedFreightWithMarkup: 0,
+    totalContainerFreightBeforeMarkup: 0,
+    totalDutyTariffBeforeMarkup: 0,
     separateServiceFeesPerUnit: 0,
     contributionCostPerUnit: 0,
     computedSellPerUnit: 0,
@@ -1125,6 +1163,9 @@ function rollUpAssemblyPerTier(
   let production = 0;
   let raw = 0;
   let landedFreight = 0;
+  // Slice RI.8 Option B+ — split bubble-up for cost-stack D+T row.
+  let containerFreight = 0;
+  let dutyTariff = 0;
   let serviceFees = 0;
   for (const c of children) {
     contribution += c.rollup.contributionCostPerUnit * c.qtyPerParent;
@@ -1135,6 +1176,9 @@ function rollUpAssemblyPerTier(
     raw += c.rollup.rawCostPerUnit * c.qtyPerParent;
     landedFreight +=
       c.rollup.totalLandedFreightBeforeMarkup * c.qtyPerParent;
+    containerFreight +=
+      c.rollup.totalContainerFreightBeforeMarkup * c.qtyPerParent;
+    dutyTariff += c.rollup.totalDutyTariffBeforeMarkup * c.qtyPerParent;
     serviceFees += c.rollup.separateServiceFeesPerUnit * c.qtyPerParent;
   }
   const marginPct =
@@ -1150,6 +1194,8 @@ function rollUpAssemblyPerTier(
     // Markup-applied freight isn't roll-up-meaningful at the assembly
     // level (markup math runs per-line on leaves); skip.
     totalLandedFreightWithMarkup: 0,
+    totalContainerFreightBeforeMarkup: containerFreight,
+    totalDutyTariffBeforeMarkup: dutyTariff,
     separateServiceFeesPerUnit: serviceFees,
     contributionCostPerUnit: contribution,
     computedSellPerUnit: computedSell,
@@ -1367,6 +1413,8 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       production: 0,
       freight: 0,
       serviceFees: 0,
+      freightContainer: 0,
+      dutyAndTariff: 0,
     };
     for (const top of topLevel) {
       const r = rollupBySku.get(top.id);
@@ -1382,6 +1430,12 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       breakdown.production +=
         (pt.productionCostPerUnit + pt.rawCostPerUnit) * tQty;
       breakdown.freight += pt.totalLandedFreightBeforeMarkup * tQty;
+      // Slice RI.8 Option B+ — D+T cost-stack row reads dutyAndTariff;
+      // FRT row reads freightContainer. `freight` stays as the
+      // backwards-compat sum (= freightContainer + dutyAndTariff).
+      breakdown.freightContainer +=
+        pt.totalContainerFreightBeforeMarkup * tQty;
+      breakdown.dutyAndTariff += pt.totalDutyTariffBeforeMarkup * tQty;
       breakdown.serviceFees += pt.separateServiceFeesPerUnit * tQty;
     }
     const marginPct = revenue > 0 ? (revenue - cost) / revenue : 0;
