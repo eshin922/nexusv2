@@ -56,6 +56,15 @@ export default function RootLayout({
         lang="en"
         data-theme="light"
         className={`${newsreader.variable} ${instrumentSans.variable} ${jetbrainsMono.variable}`}
+        // Slice RI.8 step 8 — pre-paint script intentionally diverges
+        // server-rendered data-theme="light" from client-applied theme
+        // (read from localStorage before React mounts, to prevent
+        // flash-of-light-mode for users who saved "dark"). Standard
+        // next-themes pattern: suppress hydration warning on the
+        // <html> element so React doesn't flag the deliberate mismatch.
+        // Only suppresses warnings for THIS element's attributes;
+        // hydration mismatches anywhere else still throw.
+        suppressHydrationWarning
       >
         <head>
           <script
