@@ -20,21 +20,22 @@ import { ProjectGlyph } from "./project-glyph";
 export async function InnerRail({
   projectId,
   activeScenarioLabel,
+  activeQuoteId,
 }: {
   projectId: string;
   /** The scenario_label of the quote being viewed, if any. Drives
    * the active-scenario highlight + sub-rail expansion under that
-   * scenario row.
-   *
-   * Slice RI.8 F-1 fix v2: prop was `activeQuoteId` previously, but
-   * matching `s.latestQuoteId === activeQuoteId` excluded PMs
-   * viewing older versions of a scenario (which is the common case
-   * after a re-send creates a new draft version — older sent
-   * versions stay reachable via Project Detail's version chain).
-   * Resolved scenario_label at the layout level (one tiny DB
-   * lookup) and passed it directly is the simpler, more correct
-   * contract. */
+   * scenario row. Resolved at the layout level via quoteId →
+   * scenario_label lookup; works for any version of a scenario,
+   * not just the latest. */
   activeScenarioLabel?: string;
+  /** The exact quote ID PM is currently viewing. Sub-rail link
+   * hrefs use THIS (not s.latestQuoteId) so navigating across
+   * sub-rail surfaces keeps PMs in their current version's pages.
+   * Issue 3 fix — sub-rail was always jumping to latestQuoteId,
+   * surprising PMs inspecting older sent versions by routing them
+   * to the current draft. */
+  activeQuoteId?: string;
 }) {
   const [header, scenarios] = await Promise.all([
     getProjectHeader(projectId),
@@ -123,9 +124,13 @@ export async function InnerRail({
                     </span>
                   )}
                   <span className="truncate">{s.scenarioLabel}</span>
-                  <span className="font-mono text-[10px] text-ink-4">
-                    v{s.latestVersionNumber}
-                  </span>
+                  {/* Slice RI.8 Issue 2 fix — version chip dropped.
+                      The "v5" caption read as "rail locked to v5"
+                      when PMs viewing older versions saw it. Active
+                      highlight + sub-rail expansion already convey
+                      scope; version chip was redundant + misleading.
+                      Per-version row enumeration isn't intended
+                      per brief §3.6. */}
                 </span>
                 {s.scenarioStatus === "accepted" && (
                   <span className="rounded border border-good/40 bg-good-soft px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide text-good">
@@ -135,44 +140,56 @@ export async function InnerRail({
               </Link>
 
               {/* Sub-rail under active scenario: Setup / Cost build /
-                  Costing sheet / Customer view links */}
-              {isActive && (
-                <div className="ml-4 mt-1 mb-2 flex flex-col gap-0.5 border-l border-rule pl-2">
-                  {/* Slice RI.8 F-2 fix — Setup is the bare quote index
-                      page (/quotes/[quoteId]), not a /setup segment. */}
-                  <Link
-                    href={`/projects/${projectId}/quotes/${s.latestQuoteId}`}
-                    className="text-[11px] text-ink-3 hover:text-ink"
-                  >
-                    Setup
-                  </Link>
-                  {/* Slice RI.4 — Cost Build unified to single page with
-                      sections-with-drill-down (Packaging / Production /
-                      Bulk Raw / Freight). */}
-                  <Link
-                    href={`/projects/${projectId}/quotes/${s.latestQuoteId}/cost-build`}
-                    className="text-[11px] text-ink-3 hover:text-ink"
-                  >
-                    Cost build
-                  </Link>
-                  <Link
-                    href={`/projects/${projectId}/quotes/${s.latestQuoteId}/costing`}
-                    className="text-[11px] text-ink-3 hover:text-ink"
-                  >
-                    Costing sheet
-                  </Link>
-                  {/* Slice RI.8 F-3 fix — Customer view shipped in RI.6
-                      with snapshot-aware reads added in RI.7. The stale
-                      "ships in Slice 10" disabled-span placeholder is
-                      replaced with a real link. */}
-                  <Link
-                    href={`/projects/${projectId}/quotes/${s.latestQuoteId}/customer-view`}
-                    className="text-[11px] text-ink-3 hover:text-ink"
-                  >
-                    Customer view
-                  </Link>
-                </div>
-              )}
+                  Costing sheet / Customer view links.
+
+                  Slice RI.8 Issue 3 fix — hrefs use activeQuoteId
+                  (the version PM is actually viewing) instead of
+                  s.latestQuoteId. PMs inspecting older sent
+                  versions now navigate within that version, not
+                  jumping unexpectedly to the latest draft.
+                  Fallback to latestQuoteId if activeQuoteId isn't
+                  set (shouldn't happen when isActive is true, but
+                  defensive). */}
+              {isActive && (() => {
+                const targetQuoteId = activeQuoteId ?? s.latestQuoteId;
+                return (
+                  <div className="ml-4 mt-1 mb-2 flex flex-col gap-0.5 border-l border-rule pl-2">
+                    {/* Slice RI.8 F-2 fix — Setup is the bare quote
+                        index page, not a /setup segment. */}
+                    <Link
+                      href={`/projects/${projectId}/quotes/${targetQuoteId}`}
+                      className="text-[11px] text-ink-3 hover:text-ink"
+                    >
+                      Setup
+                    </Link>
+                    {/* Slice RI.4 — Cost Build unified to single page
+                        with sections-with-drill-down (Packaging /
+                        Production / Bulk Raw / Freight). */}
+                    <Link
+                      href={`/projects/${projectId}/quotes/${targetQuoteId}/cost-build`}
+                      className="text-[11px] text-ink-3 hover:text-ink"
+                    >
+                      Cost build
+                    </Link>
+                    <Link
+                      href={`/projects/${projectId}/quotes/${targetQuoteId}/costing`}
+                      className="text-[11px] text-ink-3 hover:text-ink"
+                    >
+                      Costing sheet
+                    </Link>
+                    {/* Slice RI.8 F-3 fix — Customer view shipped in
+                        RI.6 with snapshot-aware reads added in RI.7.
+                        The stale "ships in Slice 10" disabled-span
+                        placeholder is replaced with a real link. */}
+                    <Link
+                      href={`/projects/${projectId}/quotes/${targetQuoteId}/customer-view`}
+                      className="text-[11px] text-ink-3 hover:text-ink"
+                    >
+                      Customer view
+                    </Link>
+                  </div>
+                );
+              })()}
             </div>
           );
         })}

@@ -54,10 +54,16 @@ export default async function QuoteLayout({
 
   return (
     <div className="min-h-screen">
-      <InnerRail projectId={id} activeScenarioLabel={activeScenarioLabel} />
-      {/* Main content offset by inner rail (240px). Outer rail's
-          56px padding already applied by AppShell at the root. */}
-      <div className="pl-60">{children}</div>
+      <InnerRail
+        projectId={id}
+        activeScenarioLabel={activeScenarioLabel}
+        activeQuoteId={quoteId}
+      />
+      {/* Main content offset by inner rail (240px) + 16px breathing
+          room → pl-64 (256px). Outer rail's 56px padding applied by
+          AppShell at the root. Issue 1 fix — pl-60 sat flush against
+          inner rail's right edge once F-1 made the rail render. */}
+      <div className="pl-64">{children}</div>
     </div>
   );
 }
