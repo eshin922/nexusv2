@@ -19,7 +19,10 @@ import { listMarkupDefaults } from "@/app/actions/markup-defaults";
 import { getCostingBundle } from "@/app/actions/costing";
 import { CostingStoreProvider } from "@/components/costing-store-provider";
 import { ActiveTierUrlSync } from "@/components/costing/active-tier-url-sync";
-import { CostBuildHeader } from "@/components/cost-build/cost-build-header";
+import {
+  CostBuildHeader,
+  SentStatusBanner,
+} from "@/components/cost-build/cost-build-header";
 import { CostStackHeader } from "@/components/cost-build/cost-stack-header";
 import { CostBuildAccordion } from "@/components/cost-build/cost-build-accordion";
 import { ScenarioContextStrip } from "@/components/cost-build/scenario-context-strip";
@@ -232,12 +235,20 @@ export default async function CostBuildPage({
       >
         <CostBuildHeader
           project={project}
-          quote={quote}
+          quote={{
+            ...quote,
+            projectId: project.id,
+          }}
           tierCount={tiers.length}
           editable={editable}
         >
           <WarningSummaryChip />
         </CostBuildHeader>
+
+        {/* Slice RI.7 — page-level state notice. Banner moved out of
+            CostBuildHeader's flex container (was squeezing the title
+            column to 1-2-word wraps once it appeared on sent quotes). */}
+        {!editable && <SentStatusBanner status={quote.status} />}
 
         {/* Scenario context strip — anchor SKU + tier count + units
             total + scenario-switch affordance per Round 6 data-source-
