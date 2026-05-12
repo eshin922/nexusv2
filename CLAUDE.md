@@ -92,6 +92,69 @@ distinction early prevents drift in two directions: over-renaming
 clarity) or under-renaming (surface-anchored identifiers stay on
 the old name, creating drift between naming and label).
 
+## "Design was illustrative; real data needs different proportions"
+
+CD's design prototypes are anchored on mock data. When real
+production data stresses dimensions that the mock didn't —
+column widths, row heights, list lengths, character counts —
+deliberate drift from the design source's literal proportions is
+sometimes necessary. The drift is acceptable when:
+
+- the design source's *intent* is preserved (composition, register,
+  grammar) even though numeric proportions change
+- real data documentably exceeds the mock's range (e.g., production
+  HubSpot product names "Hydrating Glow Serum 50ml Glass Dropper
+  Bottle Frosted" vs R1's toy "Foo product")
+- the change is documented explicitly in the commit message so
+  future fidelity audits don't flag it as drift-from-spec
+
+Caught Slice RI.8 step 1.5 — R1's setup-grid `1.4fr 1fr` proportion
+was sized for short SKU table mock data; real DPS product names
+truncated badly in the half-width column. Widened to `2fr 1fr`
+(~67/33) with explicit doc + commit-message rationale. Designer
+audit weighed this against R1 fidelity intent and confirmed the
+composition (SKU table dominant left, tier rail flanking right)
+is preserved.
+
+When this pattern recurs: name the dimension under stress (column
+width, row height, etc.), document the mock vs real-data
+mismatch, get Edward + CA sign-off if the drift is non-obvious.
+Don't silently re-proportion under "looks better with my data."
+
+## "Functional dependency check before dropping an affordance"
+
+Before removing a UI affordance — even one that visually doesn't
+fit a redesign — audit whether it's the **sole authoring surface**
+for any underlying data. If yes, drop-and-replace, not just drop.
+
+A "sole authoring surface" check:
+- Is there ANOTHER UI surface that can write the same column /
+  field / setting?
+- Is there an action layer the affordance is the only caller of?
+- If the affordance disappears, is the data effectively read-only?
+
+If any answer is yes, the affordance is load-bearing — design a
+replacement workflow before dropping. The replacement may live
+on a different surface (row-expand drawer, modal, dedicated
+admin) or fold into an adjacent affordance.
+
+Caught Slice RI.8 step 1.5 Designer audit on SKU table column
+restructure. R1's six-column layout drops the inline Notes
+column entirely. v1's per-row notes input is the ONLY UI write
+path for `quote_skus.notes` (the page-level NotesEditor edits
+*quote-level* `internalNotes` + `customerFacingNotes` — distinct
+columns). Dropping the per-row affordance without a replacement
+would have made `quote_skus.notes` effectively read-only. Designer
+flagged this; the work was deferred to §6.b standalone Setup
+redesign which gets to design the proper replacement workflow
+(row-expand drawer, modal, or per-SKU sub-editor in the
+page-level Notes block).
+
+When this pattern recurs: explicit "what writes this data today,
+what writes it after the change" audit before any affordance
+removal. Log the discovery if the affordance turns out to be
+load-bearing — the discovery itself is reusable knowledge.
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**

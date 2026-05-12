@@ -68,7 +68,15 @@
 /* ─── Setup grid ────────────────────────────────────── */
 .r1-setup-grid {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
+  /* Slice RI.8 — Designer audit response (Q1 approved): widened
+     from R1's literal 1.4fr 1fr to 2fr 1fr (~67/33). R1's mock
+     SKU table content had short product names; real DPS HubSpot
+     names ("Hydrating Glow Serum 50ml Glass Dropper Bottle
+     Frosted") truncate at the narrower split. R1 composition
+     intent (SKU dominant left, tier rail flanking right) is
+     preserved. See CLAUDE.md "Design was illustrative; real
+     data needs different proportions" for the convention. */
+  grid-template-columns: 2fr 1fr;
   gap: 16px;
   align-items: start;
   margin-bottom: 16px;
