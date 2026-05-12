@@ -269,6 +269,33 @@ function TierColumn({
   const marginStatus = rollup?.blendedMarginStatus ?? "GOOD";
   const isEmpty = totalRevenueTier <= 0;
 
+  // Slice RI.8 hotfix — Subtotal reconciliation bug (Edward smoke).
+  // R6's "Subtotal" semantic = sum of (cost + markup) across rendered
+  // component rows (verified against cost-build-data.jsx:43-51:
+  // each tier's `subtotal` field = sum of its components' cost+markup).
+  // Prior code displayed rollup.totalCost (cost-only) as Subtotal,
+  // which doesn't reconcile with the rows that show cost+markup.
+  //
+  // New Subtotal = sum of what's literally rendered above. The
+  // "Adjustment" delta to Sell shows when the rendered rows don't
+  // fully account for Sell (cell overrides, hidden components like
+  // serviceFees / passthrough — both UX_BACKLOG items pending the
+  // per-component split for RI.9 cost-stack work).
+  const componentValues = components.map((key) => {
+    const tierTotal = rollup ? tierTotalFor(key, rollup) : 0;
+    const componentCostPerUnit = tierQty > 0 ? tierTotal / tierQty : 0;
+    const componentMarkupPerUnit =
+      totalCostPerUnit > 0 && totalMarkupPerUnit > 0
+        ? (componentCostPerUnit / totalCostPerUnit) * totalMarkupPerUnit
+        : 0;
+    return { key, cost: componentCostPerUnit, markup: componentMarkupPerUnit };
+  });
+  const subtotalPerUnit = componentValues.reduce(
+    (sum, c) => sum + c.cost + c.markup,
+    0,
+  );
+  const adjustmentPerUnit = totalRevenuePerUnit - subtotalPerUnit;
+
   // R6 tier-col: paper bg + cursor + active = inset bottom underline.
   // No border on the column; gap-as-rule from parent grid renders dividers.
   return (
@@ -299,27 +326,15 @@ function TierColumn({
       </div>
 
       <div className="r6-tier-col-bars flex flex-1 flex-col gap-0.5 px-[18px] pt-3 pb-1.5">
-        {components.map((key) => {
-          const tierTotal = rollup ? tierTotalFor(key, rollup) : 0;
-          const componentCostPerUnit = tierQty > 0 ? tierTotal / tierQty : 0;
-          // Approximate markup per component proportional to cost share
-          // (UX_BACKLOG: per-component cost-vs-markup math layer extension
-          // for true per-component markup). For v1: each component's
-          // markup contribution = (componentCost / totalCost) × totalMarkup.
-          const componentMarkupPerUnit =
-            totalCostPerUnit > 0 && totalMarkupPerUnit > 0
-              ? (componentCostPerUnit / totalCostPerUnit) * totalMarkupPerUnit
-              : 0;
-          return (
-            <CompRow
-              key={key}
-              componentKey={key}
-              cost={componentCostPerUnit}
-              markup={componentMarkupPerUnit}
-              maxPerUnitCost={maxPerUnitCost}
-            />
-          );
-        })}
+        {componentValues.map((c) => (
+          <CompRow
+            key={c.key}
+            componentKey={c.key}
+            cost={c.cost}
+            markup={c.markup}
+            maxPerUnitCost={maxPerUnitCost}
+          />
+        ))}
       </div>
 
       <div className="r6-tier-col-foot mt-auto flex flex-col gap-1.5 border-t border-rule px-[18px] pt-3.5 pb-4">
@@ -327,10 +342,31 @@ function TierColumn({
           <>
             <div className="flex items-baseline justify-between text-[11px] text-ink-4">
               <span>Subtotal</span>
-              <span className="font-mono text-[11px] text-ink-3">
-                {totalCostPerUnit > 0 ? fmtCurr2(totalCostPerUnit) : "—"}
+              <span
+                className="font-mono text-[11px] text-ink-3"
+                title="Sum of (cost + markup) across component rows above"
+              >
+                {subtotalPerUnit > 0 ? fmtCurr2(subtotalPerUnit) : "—"}
               </span>
             </div>
+            {Math.abs(adjustmentPerUnit) >= 0.005 && (
+              <div
+                className="flex items-baseline justify-between text-[11px] text-ink-4"
+                title="Difference between Sell and the sum of component rows. Non-zero when a cell override is set, when a per-tier price adjustment applies, or when there are hidden cost components (passthrough services) not rendered above."
+              >
+                <span>{adjustmentPerUnit < 0 ? "Override" : "Adjustment"}</span>
+                <span
+                  className="font-mono text-[11px]"
+                  style={{
+                    color:
+                      adjustmentPerUnit < 0 ? "var(--bad)" : "var(--ink-3)",
+                  }}
+                >
+                  {adjustmentPerUnit >= 0 ? "+" : "−"}
+                  {fmtCurr2(Math.abs(adjustmentPerUnit))}
+                </span>
+              </div>
+            )}
             <div className="mt-1 flex items-baseline justify-between border-t border-rule pt-1.5">
               <span className="font-display text-[14px] text-ink">Sell</span>
               <span className="font-display text-[22px] font-medium leading-none tracking-[-0.02em] text-ink">
