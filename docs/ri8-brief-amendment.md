@@ -449,6 +449,25 @@ Path 2):
    middle path: (a) accept leaves visible debt; (b) full CD R7
    round is heavy for a polish-class surface; (c) applies existing
    R1/R5/R6 grammar to existing IA without new design decisions.
+
+   **Status (May 2026, post-smoke): hit scope-cap ceiling.** Two
+   landing cycles (R1 page-head + setup-grid + R5 card chrome +
+   CostingSummary removal; then SKU column rebalance + customer-
+   accept toggle redesign per Designer audit (b)+(c) lite). Edward
+   smoke surfaced that the SKU table 7-column structure remains
+   the root cause of "cramped Setup" feel + Tier table fidelity
+   drift becomes the next candidate — both are creeping redesign,
+   which is exactly the failure mode §6.c's scope-cap was designed
+   to prevent. CA recommended escalation; Edward approved.
+
+   **§6.b promoted to active CD R7 ask** — see
+   `docs/ri8-setup-cd-r7-ask.md`. Further Setup tweaks FROZEN in
+   RI.8; current Setup state (R1 page-head + 67/33 grid + ↑↓× +
+   ⋯ overflow + inline Notes) ships as-is to main with RI.8.
+   §6.b ships as its own slice when CD R7 lands; Setup work
+   fully supersedes step 1.5 in-place. Step 2 (Markup defaults
+   Round 5 rebuild) starts in parallel — admin work isn't gated
+   on Setup decision.
    - **R1 page-head fidelity:** italic display title
      `Define <em>SKUs &amp; volume tiers</em>` + R1 sub-copy +
      `Save draft / Continue to cost build →` action cluster
