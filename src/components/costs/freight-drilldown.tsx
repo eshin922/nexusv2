@@ -439,27 +439,20 @@ function FreightTierCell({
   const isActive = activeTierId === tierId;
 
   const [totalFreight, setTotalFreight] = useState(cell?.totalFreight ?? "");
-  // Slice RI.8 Option A hotfix — inline CBM input. cbm is the
-  // load-bearing input for the container-freight share math
-  // ((sku_total_cbm / total_shipment_cbm) × total_freight). Without
-  // it set, freight contribution = 0 regardless of totalFreight.
-  // Previously only editable on the orphaned /freight surface.
-  const [skuTotalCbm, setSkuTotalCbm] = useState(cell?.skuTotalCbm ?? "");
-  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stateRef = useRef({ totalFreight, skuTotalCbm });
-  stateRef.current = { totalFreight, skuTotalCbm };
+  const valueRef = useRef(totalFreight);
+  valueRef.current = totalFreight;
 
+  // Slice RI.8 hotfix — blur+Enter save (replaces debounced-on-change).
+  // Edward's UX call: numeric autosave on keystroke was making the
+  // input lose focus mid-typing for PMs entering multi-digit numbers.
+  // New pattern: save fires only on blur (tab out / click away) OR
+  // when the user hits Enter. Local state updates on every keystroke
+  // so the input renders correctly; the store + DB persist only at
+  // commit boundaries. Smoke: type "10000" with pauses → focus
+  // retained → Enter commits → tab commits.
   useEffect(() => {
     setTotalFreight(cell?.totalFreight ?? "");
-    setSkuTotalCbm(cell?.skuTotalCbm ?? "");
-  }, [cell?.rowId, cell?.totalFreight, cell?.skuTotalCbm]);
-
-  useEffect(
-    () => () => {
-      if (debounce.current) clearTimeout(debounce.current);
-    },
-    [],
-  );
+  }, [cell?.rowId, cell?.totalFreight]);
 
   if (!cell) {
     return <span className="num empty">—</span>;
@@ -467,37 +460,42 @@ function FreightTierCell({
 
   function fireSave() {
     if (!cell) return;
-    const s = stateRef.current;
+    // No-op if the value hasn't changed since last save
+    if (valueRef.current === (cell.totalFreight ?? "")) return;
     const fd = new FormData();
     fd.set("rowId", cell.rowId);
-    fd.set("totalFreight", s.totalFreight);
+    fd.set("totalFreight", valueRef.current);
     fd.set("unitsInShipment", cell.unitsInShipment?.toString() ?? "");
-    fd.set("skuTotalCbm", s.skuTotalCbm);
+    // Slice RI.8 hotfix — CBM input removed from per-tier cell per
+    // Edward's UX call. Awkward placement + redundant across tiers.
+    // Sending the existing value through unchanged on save so the
+    // row's saved CBM (if any) survives. Equal-allocation fallback
+    // math in costing.ts handles the no-CBM case correctly. Future
+    // work: single unit-CBM input per SKU on Setup or Costs surface;
+    // logged in UX_BACKLOG.
+    fd.set("skuTotalCbm", cell.skuTotalCbm ?? "");
+    // Optimistic store push fires here, NOT on every keystroke —
+    // keeps cost-stack + section header in sync at commit time.
+    if (cell) updateFreightCell(cell.rowId, { totalFreight: num(valueRef.current) });
     startTransition(async () => {
       await updateFreightTierCell(fd);
     });
   }
 
-  function scheduleSave() {
-    if (debounce.current) clearTimeout(debounce.current);
-    debounce.current = setTimeout(fireSave, DEBOUNCE_MS);
-  }
-
   function handleFreightChange(value: string) {
     setTotalFreight(value);
-    if (cell) updateFreightCell(cell.rowId, { totalFreight: num(value) });
-    scheduleSave();
   }
-  function handleCbmChange(value: string) {
-    setSkuTotalCbm(value);
-    if (cell) updateFreightCell(cell.rowId, { skuTotalCbm: num(value) });
-    scheduleSave();
+
+  function handleFreightKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.currentTarget.blur();
+    }
   }
 
   const total = num(totalFreight);
   const units = cell.unitsInShipment ?? tierQty ?? 0;
   const perUnit = total !== null && units > 0 ? total / units : null;
-  const cbmNum = num(skuTotalCbm);
 
   return (
     <span
@@ -524,9 +522,11 @@ function FreightTierCell({
           value={totalFreight}
           disabled={disabled || pending}
           onChange={(e) => handleFreightChange(e.target.value)}
+          onBlur={fireSave}
+          onKeyDown={handleFreightKeyDown}
           placeholder="total $"
           aria-label="Total freight $ for this shipment"
-          title="Total freight cost for this shipment (NOT per-unit — the per-unit value is derived below as $total ÷ tier units)"
+          title="Total freight cost for this shipment (NOT per-unit). Save on tab/click-out or Enter."
           style={{
             background: "transparent",
             border: "none",
@@ -541,55 +541,6 @@ function FreightTierCell({
       {perUnit !== null && (
         <span className="raw">
           {fmtCurr2(perUnit)}/u · ${total?.toLocaleString()} ÷ {units.toLocaleString()}
-        </span>
-      )}
-      <span
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "flex-end",
-          gap: 4,
-          marginTop: 2,
-        }}
-      >
-        <input
-          type="number"
-          step="1"
-          min={0}
-          value={skuTotalCbm}
-          disabled={disabled || pending}
-          onChange={(e) => handleCbmChange(e.target.value)}
-          placeholder="—"
-          aria-label="SKU CBM"
-          title="SKU's CBM share of the shipment (m³). Required for container-freight math."
-          style={{
-            background: "transparent",
-            border: "1px dotted var(--rule)",
-            borderRadius: 3,
-            font: "inherit",
-            color: "var(--ink-3)",
-            fontSize: "10.5px",
-            width: "62px",
-            textAlign: "right",
-            padding: "1px 3px",
-          }}
-        />
-        <span
-          style={{
-            color: "var(--ink-4)",
-            fontFamily: "var(--mono)",
-            fontSize: 9,
-          }}
-        >
-          m³
-        </span>
-      </span>
-      {cbmNum !== null && cbmNum > 0 && (
-        <span
-          className="raw"
-          style={{ fontSize: 9, color: "var(--ink-4)" }}
-        >
-          CBM share
         </span>
       )}
     </span>

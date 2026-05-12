@@ -5,6 +5,94 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [HelpTooltip trigger — replace bare "?" with Info icon]
+
+  **Slice:** RI.8 step 7 (cross-surface tactical polish)
+
+  **What:** `src/components/help-tooltip.tsx` renders a bare "?"
+  inside a small bordered circle as the tooltip trigger. Edward
+  smoke: reads as awkward / free-floating, doesn't telegraph
+  "interactive." Standard accessibility + clarity pattern is a
+  proper Info icon (lucide-react `<Info>` or equivalent).
+
+  Single-source-of-truth: HelpTooltip is the only "?" trigger
+  pattern in the codebase (grep verified). Replacing the
+  child glyph inside the existing `<button>` propagates to every
+  consumer (CustomsRow, freight-line-row, etc.).
+
+  **Audit task during step 7:**
+  - Replace "?" character with `<Info size={12} />` (or token
+    SVG) inside the trigger button
+  - Verify visual register still matches the surrounding
+    register (small + secondary; doesn't compete with the
+    label it annotates)
+  - Spot-check every consuming surface (Setup, Costs, Pricing,
+    Quote, admin pages) for hover/click + dark-mode contrast
+
+  Reference: flagged by Edward during Slice RI.8 hotfix
+  (May 2026).
+
+- [Cross-surface autosave refactor — blur+Enter pattern]
+
+  **Slice:** RI.8 step 7 (cross-surface tactical polish) OR a
+  small dedicated sweep slice.
+
+  **What:** Slice RI.8 hotfix replaced debounced-on-keystroke
+  autosave with blur+Enter commit on two surfaces (FreightTierCell
+  totalFreight, CustomsRow duty/tariff). Edward smoke: keystroke
+  autosave + optimistic re-render caused focus loss mid-typing
+  for multi-digit numbers — PMs entering "10000" with pauses
+  between digits lost focus on every save fire.
+
+  Pattern: local state updates on every keystroke (input renders
+  correctly), commit fires ONLY on blur (tab out / click away)
+  OR Enter key. Optimistic store push happens at commit, not on
+  every change, so cost-stack / section headers stay in sync at
+  commit boundaries.
+
+  **Remaining files** (~11) using debounced-on-change autosave:
+  - src/app/projects/[id]/quotes/[quoteId]/freight/freight-line-row.tsx (legacy /freight surface)
+  - src/app/projects/[id]/quotes/[quoteId]/notes-editor.tsx
+  - src/app/projects/[id]/quotes/[quoteId]/packaging/packaging-line-row.tsx
+  - src/app/projects/[id]/quotes/[quoteId]/production/production-section.tsx
+  - src/app/projects/[id]/quotes/[quoteId]/sku-row.tsx
+  - src/app/projects/[id]/quotes/[quoteId]/sku-search-panel.tsx
+  - src/app/projects/[id]/quotes/[quoteId]/tier-row.tsx
+  - src/components/costs/packaging-drilldown.tsx
+  - src/components/costs/production-drilldown.tsx
+  - src/components/global-price-adj-input.tsx
+  - src/components/tier-price-adj-input.tsx
+
+  Reference: Slice RI.8 hotfix (May 2026). The 2 freight surfaces
+  establish the canonical pattern.
+
+  **Convention to bank**: numeric/text inputs that fire server
+  saves should commit on blur+Enter, never on keystroke. Keystroke
+  saves only safe when the input is uncontrolled OR when the
+  parent guarantees no remount on save (rare in practice).
+
+- [CBM share — unit-level input model]
+
+  **Slice:** RI.9 cost-stack work
+
+  **What:** Slice RI.8 hotfix added then removed an inline per-tier
+  CBM input on FreightTierCell per Edward's UX call (awkward
+  placement, redundant across tiers — same SKU has identical CBM
+  on each tier). Equal-allocation fallback math in costing.ts
+  handles the no-CBM case correctly for all single-product or
+  similar-sized-SKU shipments.
+
+  **Future state**: single unit-CBM input per SKU on Setup or
+  Costs surface; system computes per-tier `sku_total_cbm` as
+  `unit_cbm × tier_qty` internally. Only matters for
+  ocean-multi-SKU shipments with mixed product sizes — deferred
+  until that use case becomes visible.
+
+  Reference: flagged by Edward during Slice RI.8 hotfix
+  (May 2026). Existing `freight_inputs.sku_total_cbm` column
+  preserved; backfill from a new `quote_skus.unit_cbm` column
+  when this lands.
+
 - [Cross-surface numeric input step attribute audit]
 
   **Slice:** Slice RI.8 step 7 (cross-surface tactical polish)
