@@ -54,6 +54,44 @@ is now `/costs`).
 comments, and documentation. Reference: Edward's rename directive,
 May 2026.
 
+## Rename heuristic — surface refs vs concept refs
+
+When a UI surface is renamed (or any large semantic rename ripples
+through the codebase), the operating heuristic is:
+
+> **Rename surface references. Preserve concept references.**
+
+A reference is a *surface* reference if it would change with the
+surface (file is named after the surface, label is rendered to PMs,
+URL path is the user-facing IA). A reference is a *concept*
+reference if it would survive a surface redesign — math libraries,
+state stores, action layers, schema columns, audit-log action keys,
+enum values, business-event names.
+
+**Applied during the Slice RI.8 surface rename (May 2026):**
+
+- Renamed: `src/components/cost-build/` → `src/components/costs/`
+  (surface-anchored folder), `CostBuildHeader` → `CostsHeader`
+  (page-level component), CSS files `r6-cost-build.css → r6-costs.css`
+  (per-surface stylesheet).
+- Preserved: `src/lib/costing.ts` (math library used by every
+  surface), `src/lib/costing-store.ts` (state mgmt), `src/app/actions/costing.ts`
+  (server actions), `customer_facing_notes` + `customer_accepted_at`
+  (schema fields describing the customer entity, not the Quote
+  surface), `customer_acceptance_recorded` audit action (business
+  event), `quote.status` enum values.
+
+**Practical test when uncertain:** ask "would this reference
+survive a future complete redesign of the surface — different
+visuals, different IA, different label?" If yes, it's
+concept-anchored — preserve. If no, it's surface-anchored — rename.
+
+This rule applies to future renames too. Recognizing the
+distinction early prevents drift in two directions: over-renaming
+(concept names get dragged into the rename, breaking semantic
+clarity) or under-renaming (surface-anchored identifiers stay on
+the old name, creating drift between naming and label).
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**
