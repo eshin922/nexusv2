@@ -411,6 +411,27 @@
   color: oklch(0.30 0.015 255);
 }
 .pdf-tcs .tcs-body p:last-child { margin-bottom: 0; }
+/* Slice RI.8 step 6 — bullet list rendering within T&Cs.
+   Same typographic register as the surrounding <p> (small serif legal
+   register); markers indented from the paragraph baseline so the eye
+   tracks the list separately without breaking the prose flow. */
+.pdf-tcs .tcs-body ul {
+  margin: 0 0 6px;
+  padding-left: 16px;
+  list-style: disc;
+}
+.pdf-tcs .tcs-body ul:last-child { margin-bottom: 0; }
+.pdf-tcs .tcs-body li {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: oklch(0.30 0.015 255);
+  margin: 0 0 2px;
+}
+.pdf-tcs .tcs-body li::marker {
+  color: oklch(0.50 0.015 255);
+  font-size: 9px;
+}
 
 /* Notes block */
 .pdf-notes {
