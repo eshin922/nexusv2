@@ -113,8 +113,18 @@ export async function InnerRail({
         <span>All deals</span>
       </Link>
 
-      {/* Project header */}
-      <div className="mb-4 flex items-start gap-2.5 border-b border-rule pb-3">
+      {/* Project header — Slice RI.8 step 9 / F-10 close.
+          Wrapped in Link so PMs on Costs / Pricing / Quote /
+          Mark-Accepted can navigate UP to Project Detail directly.
+          Was a back-nav gap pre-RI.8 (R6 deliberately strips
+          in-page breadcrumb on Cost Build); F-1's sub-rail fix
+          handles cross-quote nav but not up-to-project. This
+          closes the residual. */}
+      <Link
+        href={`/projects/${projectId}`}
+        className="mb-4 flex items-start gap-2.5 border-b border-rule pb-3 hover:bg-paper-3 -mx-1 px-1 py-1 rounded transition-colors"
+        title="Project detail"
+      >
         <ProjectGlyph
           glyph={header.glyph}
           projectName={header.clientName ?? header.dealName}
@@ -133,7 +143,7 @@ export async function InnerRail({
             </div>
           )}
         </div>
-      </div>
+      </Link>
 
       {/* Scenarios */}
       <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-4">
