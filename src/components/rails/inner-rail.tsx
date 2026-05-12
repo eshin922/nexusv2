@@ -132,8 +132,10 @@ export async function InnerRail({
                   Costing sheet / Customer view links */}
               {isActive && (
                 <div className="ml-4 mt-1 mb-2 flex flex-col gap-0.5 border-l border-rule pl-2">
+                  {/* Slice RI.8 F-2 fix — Setup is the bare quote index
+                      page (/quotes/[quoteId]), not a /setup segment. */}
                   <Link
-                    href={`/projects/${projectId}/quotes/${s.latestQuoteId}/setup`}
+                    href={`/projects/${projectId}/quotes/${s.latestQuoteId}`}
                     className="text-[11px] text-ink-3 hover:text-ink"
                   >
                     Setup
@@ -153,13 +155,16 @@ export async function InnerRail({
                   >
                     Costing sheet
                   </Link>
-                  {/* Customer view ships in Slice 10; placeholder link. */}
-                  <span
-                    className="cursor-not-allowed text-[11px] text-ink-4"
-                    title="Customer view ships in Slice 10"
+                  {/* Slice RI.8 F-3 fix — Customer view shipped in RI.6
+                      with snapshot-aware reads added in RI.7. The stale
+                      "ships in Slice 10" disabled-span placeholder is
+                      replaced with a real link. */}
+                  <Link
+                    href={`/projects/${projectId}/quotes/${s.latestQuoteId}/customer-view`}
+                    className="text-[11px] text-ink-3 hover:text-ink"
                   >
                     Customer view
-                  </span>
+                  </Link>
                 </div>
               )}
             </div>

@@ -13,6 +13,7 @@ import {
 } from "@/lib/workspace-queries";
 import { archiveProject } from "@/app/actions/projects";
 import { createQuote } from "@/app/actions/quotes";
+import { InnerRail } from "@/components/rails/inner-rail";
 import { CategorySelect } from "./category-select";
 import { ConfirmButton } from "./confirm-button";
 import { RefreshProjectButton } from "./refresh-button";
@@ -89,7 +90,12 @@ export default async function ProjectDetailPage({
   );
 
   return (
-    <main className="p-6">
+    /* Slice RI.8 F-1 fix — InnerRail moved out of project layout to
+       avoid double-render under the new quote layout. Project Detail
+       renders its own rail with no activeQuoteId (no sub-rail). */
+    <div className="min-h-screen">
+      <InnerRail projectId={project.id} />
+      <main className="pl-60 p-6">
       {/* Header strip */}
       <div className="mb-6 flex items-start justify-between gap-4 border-b border-rule pb-4">
         <div className="min-w-0">
@@ -318,7 +324,8 @@ export default async function ProjectDetailPage({
           )}
         </aside>
       </div>
-    </main>
+      </main>
+    </div>
   );
 }
 
