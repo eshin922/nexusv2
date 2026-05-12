@@ -79,9 +79,26 @@ production realities + accumulated v1 affordances.
     designs the canonical action vocabulary)
   - Visual distinction between Leaf and Assembly rows (per
     UX_BACKLOG enhancement #2)
-- **Tier table** — register treatment. R1 has `.tier-row` grid;
-  v1 has its own. CD designs the canonical tier-row register
-  consistent with the new SKU table.
+- **Tier table** — full redesign, parallel decision set to SKU
+  table. Key decisions CD owns:
+  - **Column structure:** v1 has Label, Qty, Price-adj %, actions.
+    R1 has its own `.tier-row` grid. CD picks the canonical
+    column set + ordering + widths.
+  - **Inline edit pattern:** click-Edit (mirrors R5 markup-
+    defaults), debounced autosave, or blur+Enter (RI.8 freight
+    surface pattern). CD picks the canonical pattern.
+  - **+ / − add/remove control:** affordance placement (foot
+    button, inline + per row, action cluster) + visual register.
+  - **Default tier handling:** quotes start with a default tier
+    set OR PM picks from preset templates (RI.4 added tier
+    presets). CD designs the preset-vs-blank initial state.
+  - **Empty state:** "no tiers yet" prompt + CTA to add first
+    tier. R5 patterns for empty states exist; CD applies
+    consistent treatment.
+  - **Visual coupling with SKU table:** the two tables share a
+    grid + visual register. CD designs them as a pair — same
+    inline-edit pattern, same row register, same action
+    cluster grammar. NOT two independently-designed surfaces.
 - **Notes section design — full scope, BOTH internal + customer-
   facing notes.** Per Edward + CA Gate 3 disposition (May 2026),
   customer-facing notes authoring is Setup-anchored and lives
@@ -118,8 +135,14 @@ points with the table treatment:
   - Drag-and-drop row reordering (replaces existing up/down
     arrows in the action cluster)
   - Assembly rows expand/collapse to reveal nested components
-  - Inline edit affordances for nested components consistent with
-    R5/R6 inline-edit table pattern
+  - **Inline edit affordances for nested components** —
+    explicit decision: IN-SCOPE for this §1.2 bundle. Scope
+    impact: nested component editing means the expand/collapse
+    affordance ALSO exposes editable fields (unit cost, qty,
+    markup, etc.) on the nested rows. This is meaningfully
+    larger than read-only expansion. If CD wants to carve this
+    into a separate v1.5 enhancement, decide at design time
+    and document the carve in designer notes.
   - Better visual distinction between Leaf and Assembly row
     treatments
 
@@ -128,9 +151,10 @@ points with the table treatment:
 - **Setup → Costs** next-step affordance. Currently
   "Continue to cost build →" lives in the page-head action
   cluster (R1 fidelity). CD confirms or restructures.
-- **Setup → Pricing** affordance. Currently not surfaced from
-  Setup directly. CD picks whether Pricing entry is per-tier-row
-  on Setup OR exclusively via Costs / inner-rail.
+- **Setup → Pricing** affordance — DEFERRED to navigation IA R7
+  ask (item c: per-surface 'next move' affordance owns this).
+  Setup inherits whatever nav IA R7 decides for Setup → Pricing.
+  Not asked here.
 
 (Customer-facing notes authoring placement — previously item (f)
 of the navigation IA R7 ask — has been folded INTO §1.1 Notes
@@ -152,7 +176,9 @@ To bound the ask:
 - **Inner rail / outer rail** — unchanged; navigation IA R7
   handles cross-surface rail decisions separately.
 - **Mode selector / Bulk Raw section** — those are Cost build
-  concerns, not Setup.
+  concerns, not Setup. (CC verified May 2026: mode selector
+  renders inside `BulkRawDrilldown` on `/costs`, NOT on Setup.
+  Exclusion holds.)
 - **Admin pages** — Round 5 design already established; RI.8
   steps 2-5 build them out.
 
@@ -179,10 +205,10 @@ Same shape as prior CD rounds:
 
 ## 4. Sequencing relative to RI.8
 
-**RI.8 freezes further Setup tweaks** post-step-1.5. Current Setup
+**RI.8 froze further Setup tweaks** post-step-1.5. Current Setup
 state (R1 page-head + setup-grid + R5 card chrome + 67/33 SKU
-column + ↑↓× + ⋯ overflow + inline Notes) ships as-is to main with
-RI.8.
+column + ↑↓× + ⋯ overflow + inline Notes) shipped to main with
+RI.8 (merge commit `7bf6dc8`, May 2026).
 
 **§6.b ships as its own slice** when CD R7 lands. The slice scope:
 
@@ -195,10 +221,10 @@ RI.8.
    gets fully superseded — no lingering technical debt to clean up
    since spot-fix++ was always scoped as throw-away polish.
 
-**Step 2 (Markup defaults Round 5 rebuild)** of RI.8 starts in
-parallel with this CD R7 routing — admin work isn't gated on
+**Step 2 (Markup defaults Round 5 rebuild)** of RI.8 ran in
+parallel with this CD R7 routing — admin work wasn't gated on
 Setup decision. CD R7 turnaround is independent of CC's RI.8
-implementation pace.
+implementation pace; RI.8 has now shipped.
 
 ---
 
@@ -216,8 +242,10 @@ implementation pace.
   but CC does. CD picks the design; CC + Edward weigh
   implementation feasibility before §6.b kicks off.
 - **Coordination with navigation IA R7.** Both R7 efforts touch
-  cross-surface notes authoring (item (f)). CD may want to bundle
-  or sequence; Edward + CA route the question.
+  cross-surface notes authoring — resolved by Gate 3 disposition
+  (May 2026): customer-facing notes authoring folded INTO this
+  ask's §1.1 (Setup-anchored). Navigation IA R7 keeps items a-e.
+  No remaining coordination risk.
 
 ---
 
@@ -225,8 +253,11 @@ implementation pace.
 
 - [x] **Gate 1** — Edward approved promoting §6.b to active CD R7
       ask (May 2026).
-- [ ] **Gate 2** — Edward + CA review §1 scope shape on this draft
-      doc. Provisional approval otherwise.
+- [x] **Gate 2** — Edward + CA approved §1 scope shape post-
+      refinements (Tier table parallel scope, §1.2 inline-edit
+      explicit decision, §1.3 Pricing entry deferred to nav IA,
+      §2 mode selector verification, §4 RI.8 ship past tense,
+      §5 notes coordination resolved). May 2026.
 - [x] **Gate 3** — Item (f) customer-facing notes authoring
       RELOCATED INTO §1.1 of THIS ask (Setup-anchored). Navigation
       IA ask keeps items a-e (genuinely cross-surface).
@@ -234,4 +265,5 @@ implementation pace.
       doc + navigation IA findings §4) directly to CD. CC isn't in
       the loop.
 
-Once Gates 2 + 4 land, this doc is the canonical brief CD reads.
+Gate 4 is the only open gate. Once routed to CD, this doc is the
+canonical brief CD reads.
