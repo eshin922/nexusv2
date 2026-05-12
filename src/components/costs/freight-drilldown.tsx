@@ -523,6 +523,16 @@ function FreightTierCell({
   const updateFreightCell = useCostingStore(selectUpdateFreightCell);
   const activeTierId = useCostingStore(selectActiveTierId);
   const isActive = activeTierId === tierId;
+  // Slice RI.8 hotfix — read markupPct from the COSTING STORE so the
+  // marked-up tier display reflects optimistic updates immediately.
+  // The `line` prop comes from server-side inputRows which only
+  // updates after RSC revalidation; the store is optimistically
+  // synced on save. Reading from the store keeps the "→ $X" arrow
+  // value in sync with the cost stack + section mini-stack.
+  const storeMarkup = useCostingStore((s) => {
+    const row = s.freight.find((f) => f.lineGroupId === line.lineGroupId);
+    return row?.markupPct ?? null;
+  });
 
   const [totalFreight, setTotalFreight] = useState(cell?.totalFreight ?? "");
   const valueRef = useRef(totalFreight);
@@ -586,7 +596,9 @@ function FreightTierCell({
   // below raw per-unit (mirrors packaging line "raw → marked-up"
   // pattern). Container-only markup; D+T pass through. When markup
   // is 0/null, marked-up equals raw and the arrow row is suppressed.
-  const lineMarkup = num(line.markupPct) ?? 0;
+  // Source: storeMarkup (optimistic-aware) falls back to line.markupPct
+  // (server prop) when the store hasn't been populated.
+  const lineMarkup = storeMarkup ?? num(line.markupPct) ?? 0;
   const markedUpPerUnit =
     perUnit !== null && lineMarkup > 0 ? perUnit * (1 + lineMarkup) : null;
 
