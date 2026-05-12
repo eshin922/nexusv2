@@ -398,51 +398,6 @@ function FreightLineCard({
           </button>
         </div>
 
-        {/* Slice RI.8 freight-markup feature — per-line markup input.
-            Container-only application (D+T pass through). Auto-
-            populated from firm "freight" markup default at line
-            creation (handled in addFreightLine action). PMs see
-            the firm default applied automatically; can override
-            per-line via this input. Blur/Enter commit pattern. */}
-        <label
-          style={{
-            display: "inline-flex",
-            alignItems: "baseline",
-            gap: 4,
-            fontFamily: "var(--mono)",
-            fontSize: 10.5,
-            color: "var(--ink-3)",
-            letterSpacing: "0.04em",
-          }}
-          title="Freight markup % — applied to container freight; duty + tariff pass through at customs rate."
-        >
-          <span>MARKUP</span>
-          <input
-            type="number"
-            step="1"
-            min={0}
-            value={markup}
-            disabled={disabled || pending}
-            onChange={(e) => setMarkup(e.target.value)}
-            onBlur={handleMarkupBlur}
-            onKeyDown={handleMarkupKeyDown}
-            placeholder="—"
-            aria-label="Freight markup percent"
-            style={{
-              background: "transparent",
-              border: "1px dotted var(--rule)",
-              borderRadius: 3,
-              fontFamily: "var(--mono)",
-              fontSize: 11,
-              color: "var(--ink)",
-              width: 42,
-              textAlign: "right",
-              padding: "1px 4px",
-            }}
-          />
-          <span style={{ color: "var(--ink-4)" }}>%</span>
-        </label>
-
         <div className="actions">
           <button
             type="button"
@@ -467,7 +422,11 @@ function FreightLineCard({
       <div
         className="r6-fr-tiers"
         style={{
-          gridTemplateColumns: `1.4fr ${tiers.map(() => "1fr").join(" ")}`,
+          // Slice RI.8 freight-markup feature — MARKUP column inserted
+          // between label + tier cells, mirroring packaging-drilldown's
+          // table-head "Markup" column placement. Container-only
+          // application; D+T pass through at customs rate.
+          gridTemplateColumns: `1.4fr 90px ${tiers.map(() => "1fr").join(" ")}`,
         }}
       >
         <span className="lab">
@@ -475,6 +434,44 @@ function FreightLineCard({
             ? "Total $ per tier — divided by units → FRT"
             : "Total $ per tier — passed to customer separately"}
         </span>
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "baseline",
+            justifyContent: "flex-end",
+            gap: 4,
+            fontFamily: "var(--mono)",
+            fontSize: 10.5,
+            color: "var(--ink-3)",
+            letterSpacing: "0.04em",
+          }}
+          title="Freight markup % — applied to container freight only; duty + tariff pass through at customs-stated rate."
+        >
+          <input
+            type="number"
+            step="1"
+            min={0}
+            value={markup}
+            disabled={disabled || pending}
+            onChange={(e) => setMarkup(e.target.value)}
+            onBlur={handleMarkupBlur}
+            onKeyDown={handleMarkupKeyDown}
+            placeholder="—"
+            aria-label="Freight markup percent"
+            style={{
+              background: "transparent",
+              border: "1px dotted var(--rule)",
+              borderRadius: 3,
+              fontFamily: "var(--mono)",
+              fontSize: 11,
+              color: "var(--ink)",
+              width: 48,
+              textAlign: "right",
+              padding: "1px 4px",
+            }}
+          />
+          <span style={{ color: "var(--ink-4)" }}>%</span>
+        </label>
         {tiers.map((t) => (
           <FreightTierCell
             key={t.id}
