@@ -1177,7 +1177,7 @@
 .r5-dn {
   margin: 18px 0;
   padding: 12px 14px;
-  background: oklch(0.78 0.13 75 / 0.07);
+  background: oklch(from var(--warn) l c h / 0.07);
   border-left: 3px solid var(--warn);
   border-radius: 0 6px 6px 0;
   font-size: 12.5px;

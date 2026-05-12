@@ -9,6 +9,7 @@ import {
   getRecentProjects,
 } from "@/lib/workspace-queries";
 import { ProjectGlyph } from "./project-glyph";
+import { ThemeToggle } from "../theme-toggle";
 
 // Slice RI.2 — Round 4 outer rail (56px wide, fixed left). Always
 // visible to authenticated users. Composition (top to bottom):
@@ -138,6 +139,11 @@ export async function OuterRail() {
 
       {/* Spacer pushes Settings + Avatar to the bottom */}
       <div className="flex-1" />
+
+      {/* Slice RI.8 step 8 — theme toggle. All users, localStorage-
+          backed, persists across navigation. Above Settings so it
+          sits adjacent to the avatar cluster. */}
+      <ThemeToggle />
 
       {/* Settings — admin only */}
       {showAdmin && (

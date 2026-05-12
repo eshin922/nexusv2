@@ -47,13 +47,24 @@ export default function RootLayout({
     <ClerkProvider>
       {/* Slice RI.0 — data-theme="light" sets the app default; CD's
           tokens in design-tokens.css activate the light palette in
-          :root. Dark mode is opt-in via [data-theme="dark"] override
-          (toggle UX surfaces in a later sub-slice). */}
+          :root. Slice RI.8 step 8 — pre-paint script reads
+          localStorage("nexus-theme") and applies "dark" before
+          React mounts, preventing flash-of-light-mode on page load
+          for users who have saved a dark preference. ThemeToggle in
+          the outer rail wires the runtime flip. */}
       <html
         lang="en"
         data-theme="light"
         className={`${newsreader.variable} ${instrumentSans.variable} ${jetbrainsMono.variable}`}
       >
+        <head>
+          <script
+            // eslint-disable-next-line react/no-danger
+            dangerouslySetInnerHTML={{
+              __html: `try{var t=localStorage.getItem("nexus-theme");if(t==="dark"||t==="light"){document.documentElement.setAttribute("data-theme",t);}}catch(e){}`,
+            }}
+          />
+        </head>
         <body>
           {/* Slice 8.5 — single per-session subscription to admin-managed
               reference tables (firm_settings, markup_defaults). Dispatches
