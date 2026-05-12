@@ -25,6 +25,19 @@
  * specifics for now.
  */
 
+/* ─── color-scheme — native form control theming ────────────
+ * Tells the browser to render native form controls (<select> dropdown
+ * lists, scrollbars, date pickers, autofill backgrounds) in light or
+ * dark mode. Without this, native dropdowns render in the OS default
+ * theme regardless of our data-theme attribute — e.g. a <select>'s
+ * popup list shows up with a white background in dark mode.
+ *
+ * Pinned to :root so the value is inherited even if elsewhere we
+ * scope themes onto a different element.
+ */
+:root { color-scheme: light; }
+[data-theme="dark"] { color-scheme: dark; }
+
 /* ─── Light mode (default) ──────────────────────────── */
 :root {
   /* Paper palette */
