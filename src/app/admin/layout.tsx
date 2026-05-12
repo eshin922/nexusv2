@@ -7,9 +7,12 @@ import { requireAdminPage } from "@/lib/admin-guard";
 // requireAdmin internally — defense in depth, since action endpoints are
 // reachable without going through this layout.
 //
-// Visual treatment is intentionally distinct from PM workflow (slate
-// background, "Admin" header badge, separate nav). PMs landing here by
-// accident immediately see "this is not the quoting tool."
+// Slice RI.8 step 8 — chrome rebuilt against design tokens. Prior
+// version used stock Tailwind palettes (slate-*/amber-*) which don't
+// emit CSS under the RI.0 @theme rebuild. R5 admin page bodies were
+// already token-driven and swap correctly; this brings the layout
+// shell into the same vocabulary so dark-mode swap is consistent
+// edge-to-edge.
 
 const NAV: Array<{ href: string; label: string; description: string }> = [
   {
@@ -42,44 +45,141 @@ export default async function AdminLayout({
   const admin = await requireAdminPage();
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-300 bg-slate-900 text-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-3">
-            <span className="rounded bg-amber-500 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-slate-900">
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "var(--paper-2)",
+      }}
+    >
+      {/* Admin chrome bar — visually distinct from PM workflow so a
+          PM landing here by accident sees "this is not the quoting
+          tool." Ink-on-paper inversion: dark bar + paper text in
+          light mode; light bar + ink text in dark mode (which still
+          reads as "admin chrome" because it inverts contrast against
+          the body). */}
+      <header
+        style={{
+          background: "var(--ink)",
+          color: "var(--paper)",
+          borderBottom: "1px solid var(--rule)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "12px 24px",
+            maxWidth: 1480,
+            margin: "0 auto",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span
+              style={{
+                fontFamily: "var(--mono)",
+                fontSize: 10,
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                fontWeight: 600,
+                padding: "3px 8px",
+                borderRadius: 4,
+                background: "var(--warn)",
+                color: "var(--ink)",
+              }}
+            >
               Admin
             </span>
-            <Link href="/admin" className="text-sm font-semibold hover:underline">
+            <Link
+              href="/admin"
+              style={{
+                fontFamily: "var(--display)",
+                fontSize: 14,
+                fontWeight: 500,
+                color: "var(--paper)",
+                textDecoration: "none",
+              }}
+            >
               Nexus admin
             </Link>
           </div>
-          <div className="flex items-center gap-4 text-xs text-slate-300">
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+              fontFamily: "var(--mono)",
+              fontSize: 11,
+              color: "var(--paper-3)",
+            }}
+          >
             <span>{admin.email}</span>
-            <Link href="/" className="text-slate-100 underline hover:text-white">
+            <Link
+              href="/"
+              style={{
+                color: "var(--paper)",
+                textDecoration: "underline",
+                textDecorationColor: "var(--paper-3)",
+              }}
+            >
               ← Back to quoting tool
             </Link>
           </div>
         </div>
       </header>
 
-      <div className="mx-auto flex max-w-7xl gap-6 px-6 py-6">
-        <nav className="w-56 shrink-0">
-          <ul className="space-y-1">
+      <div
+        style={{
+          display: "flex",
+          gap: 24,
+          padding: "24px",
+          maxWidth: 1480,
+          margin: "0 auto",
+        }}
+      >
+        <nav style={{ width: 224, flexShrink: 0 }}>
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {NAV.map((item) => (
-              <li key={item.href}>
+              <li key={item.href} style={{ marginBottom: 4 }}>
                 <Link
                   href={item.href}
-                  className="block rounded-md border border-transparent px-3 py-2 text-sm text-slate-700 hover:border-slate-300 hover:bg-white"
+                  className="r5-admin-nav-item"
+                  style={{
+                    display: "block",
+                    padding: "10px 14px",
+                    borderRadius: 6,
+                    border: "1px solid transparent",
+                    textDecoration: "none",
+                    transition: "background 80ms, border-color 80ms",
+                  }}
                 >
-                  <div className="font-medium text-slate-900">{item.label}</div>
-                  <div className="text-xs text-slate-500">{item.description}</div>
+                  <div
+                    style={{
+                      fontFamily: "var(--display)",
+                      fontSize: 14,
+                      fontWeight: 500,
+                      color: "var(--ink)",
+                      marginBottom: 2,
+                    }}
+                  >
+                    {item.label}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--ink-3)",
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    {item.description}
+                  </div>
                 </Link>
               </li>
             ))}
           </ul>
         </nav>
 
-        <main className="min-w-0 flex-1">{children}</main>
+        <main style={{ minWidth: 0, flex: 1 }}>{children}</main>
       </div>
     </div>
   );
