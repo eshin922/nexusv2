@@ -5,6 +5,56 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Audit log activity comprehensiveness — rail + page entries]
+
+  **Slice:** Audit log polish slice (~3-5 days, bundled scope).
+  Co-bundle candidate with RI.9 nav slice if both touch inner
+  rail.
+
+  **What:** Both the inner-rail activity feed (~240px, truncated
+  to 6 entries) and the full `/admin/audit-log` page render
+  terse `{actor} {action}` summaries. Example from current state:
+  "Ed Shin price adj" — PM can't tell which tier, which cell,
+  what the previous value was, or what it is now. Misses the
+  point of an audit trail (chase down a change → know what
+  changed). Already-logged adjacent gaps: 5 pre-RI.7 action
+  renderers still show as raw strings; Designer audit L3 entity
+  hyperlinks deferred to v1.5. Bundle all three together.
+
+  **Future state — activity rail (constrained ~240px):**
+  - Short-form: `Ed Shin · T2 Std $14.20→$15.10`
+  - Or 2-line: action header + delta line
+  - Direction arrow + magnitude where applicable
+  - Truncate gracefully with ellipsis; hover or expand for full
+  - Critical: surface scope (tier / scenario / cell) so PM can
+    tell adjustments apart at a glance
+
+  **Future state — full audit log page (comprehensive):**
+  - From-value → to-value for every change
+  - Scope context: scenario name, tier label, cell identity,
+    surface origin
+  - All pre-RI.7 actions get rich renderers (existing UX_BACKLOG
+    entry — folds into this scope)
+  - L3 designer audit finding: entity hyperlinks to source
+    records (v1.5; folds into this scope)
+
+  **Open design questions when slice spawns:**
+  - Activity rail format constraints: lines per entry?
+    Truncation strategy?
+  - Tiered priority — which actions get rich rendering vs
+    minimal? Defaults for unknown action types?
+  - Schema sufficiency check: does `audit_log.diff_json` carry
+    enough scope keys + old/new values for every action type
+    today, or do some actions lose detail at write time? Audit
+    each action emitter; backfill diff shape where missing.
+  - Currency / percent formatting consistency with cost stack
+    register
+  - Action type → renderer map; default fallback renderer
+
+  Reference: flagged by Edward during Slice RI.8 smoke
+  (May 2026) — screenshot of inner rail showing terse "Ed Shin
+  price adj" entries.
+
 - [HubSpot webhook integration — 2-way sync foundation]
 
   **Slice:** Likely Slice 12 expansion (combined with Mark-

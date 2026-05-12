@@ -750,8 +750,17 @@ export function FirmSettingsForm({
             </div>
           )}
 
-          {history.slice(0, 4).map((h) => (
-            <div key={h.effectiveFrom} className="item">
+          {history.slice(0, 4).map((h, i) => (
+            // Slice RI.8 step 11 fix — composite key. effectiveFrom
+            // alone collides when multiple versions land on the same
+            // day (the common case — every save uses today's date for
+            // effective_from). Combine with effectiveUntil for
+            // disambiguation; fall back to index for the (now
+            // impossible) duplicate-both-bounds edge case.
+            <div
+              key={`${h.effectiveFrom}::${h.effectiveUntil ?? "null"}::${i}`}
+              className="item"
+            >
               <div>
                 <div className="vals">
                   <span className="target">
