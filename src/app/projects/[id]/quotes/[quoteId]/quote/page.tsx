@@ -66,14 +66,14 @@ export default async function CustomerViewPage({
   if (!bundle.ok) {
     return (
       <main style={{ padding: "32px 24px", maxWidth: 880, margin: "0 auto" }}>
-        <div style={{ marginBottom: 16, fontSize: 13 }}>
+        <p className="r2-eyebrow" style={{ marginBottom: 16 }}>
           <Link
             href={`/projects/${project.id}/quotes/${quote.id}`}
             style={{ color: "var(--ink-3)" }}
           >
-            ← Quote builder
+            ← Setup
           </Link>
-        </div>
+        </p>
         <h1>Quote unavailable</h1>
         <p style={{ color: "var(--bad)" }}>{bundle.error.message}</p>
       </main>
@@ -234,12 +234,18 @@ export default async function CustomerViewPage({
 
   return (
     <>
-      <div style={{ padding: "12px 24px 0", fontSize: 13 }}>
+      {/* F-7 (Slice RI.8 step 7): breadcrumb adopts mono-caption
+          register via .r2-eyebrow so it reads as nav-context, not
+          inline body text. */}
+      <p
+        className="r2-eyebrow"
+        style={{ padding: "16px 24px 0" }}
+      >
         <Link
           href={`/projects/${project.id}/quotes/${quote.id}`}
           style={{ color: "var(--ink-3)" }}
         >
-          ← Quote builder
+          ← Setup
         </Link>
         {" · "}
         <Link
@@ -248,7 +254,8 @@ export default async function CustomerViewPage({
         >
           Pricing
         </Link>
-      </div>
+        {" · Quote"}
+      </p>
       <QuoteHost
         view={view}
         quoteId={quote.id}

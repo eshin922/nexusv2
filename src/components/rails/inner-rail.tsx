@@ -1,10 +1,51 @@
 import "server-only";
 import Link from "next/link";
 import {
+  getProjectActivity,
   getProjectHeader,
   getProjectScenarios,
 } from "@/lib/workspace-queries";
 import { ProjectGlyph } from "./project-glyph";
+
+// Slice RI.8 F-12 fix — mini activity feed cap. Project Detail page
+// (the full feed) uses limit=30; rail uses a smaller cap because the
+// rail is glanceable navigation, not the canonical reading surface.
+const RAIL_ACTIVITY_LIMIT = 6;
+
+function compactTime(d: Date, now: Date = new Date()): string {
+  const diffMs = now.getTime() - d.getTime();
+  const diffMin = Math.floor(diffMs / (1000 * 60));
+  const diffH = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffD = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffMin < 1) return "now";
+  if (diffMin < 60) return `${diffMin}m`;
+  if (diffH < 24) return `${diffH}h`;
+  if (diffD < 7) return `${diffD}d`;
+  return d.toLocaleString("en-US", { month: "short", day: "numeric" });
+}
+
+function shortenAction(action: string): string {
+  // Map action keys to glanceable verbs for the rail's tight space.
+  // Verbose audit-log renderer summaries live on the full activity
+  // surface; rail compresses.
+  const map: Record<string, string> = {
+    quote_sent: "sent",
+    customer_acceptance_recorded: "customer ✓",
+    customer_acceptance_cleared: "cleared ✓",
+    user_phone_updated: "phone edit",
+    firm_settings_updated: "firm policy",
+    global_price_adj_updated: "price adj",
+    cell_override_updated: "override",
+    scenario_dropped: "dropped",
+    created: "created",
+    create: "created",
+    updated: "updated",
+    update: "updated",
+    deleted: "deleted",
+    delete: "deleted",
+  };
+  return map[action] ?? action.replace(/_/g, " ");
+}
 
 // Slice RI.2 — Round 4 inner rail (240px wide). Renders only when on
 // a project surface. Composition (top to bottom):
@@ -37,9 +78,10 @@ export async function InnerRail({
    * to the current draft. */
   activeQuoteId?: string;
 }) {
-  const [header, scenarios] = await Promise.all([
+  const [header, scenarios, activity] = await Promise.all([
     getProjectHeader(projectId),
     getProjectScenarios(projectId),
+    getProjectActivity(projectId, RAIL_ACTIVITY_LIMIT),
   ]);
 
   if (!header) return null;
@@ -237,17 +279,52 @@ export async function InnerRail({
         )}
       </div>
 
-      {/* Mini activity feed — DEFERRED to RI.3 (Project Detail rebuild
-          ships the activity log read query + project-scoped filter; the
-          inner rail's mini feed consumes the same data with a
-          last-N-entries cap). For RI.2, leave a placeholder slot. */}
+      {/* Mini activity feed — Slice RI.8 F-12 fix. Wired via existing
+          getProjectActivity with a smaller limit. Glanceable verbs +
+          compact time; full activity surface still lives on the
+          Project Detail page (limit=30, fuller renderers). */}
       <div className="mt-4 border-t border-rule pt-3">
         <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-4">
           Activity
         </div>
-        <div className="mt-2 text-[11px] italic text-ink-4">
-          Mini feed — RI.3
-        </div>
+        {activity.length === 0 ? (
+          <div className="mt-2 text-[11px] italic text-ink-4">
+            No activity yet
+          </div>
+        ) : (
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {activity.map((a) => (
+              <li
+                key={a.id}
+                className="flex items-baseline gap-1.5 text-[11px] leading-snug"
+                title={a.summary ?? a.action}
+              >
+                <span className="font-mono text-[9.5px] text-ink-4 shrink-0 w-7">
+                  {compactTime(a.createdAt)}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-ink-3">
+                  <span className="text-ink-2">
+                    {a.userName ?? "—"}
+                  </span>{" "}
+                  <span className="text-ink-4">
+                    {shortenAction(a.action)}
+                  </span>
+                  {a.entityLabel && (
+                    <span className="text-ink-3"> · {a.entityLabel}</span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {activity.length === RAIL_ACTIVITY_LIMIT && (
+          <Link
+            href={`/projects/${projectId}`}
+            className="mt-2 inline-block font-mono text-[9.5px] uppercase tracking-[0.06em] text-accent-ink hover:text-ink"
+          >
+            All activity →
+          </Link>
+        )}
       </div>
     </aside>
   );

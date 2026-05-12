@@ -162,12 +162,18 @@ export default async function MarkAcceptedPage({
 
   return (
     <>
-      <div style={{ padding: "12px 24px 0", fontSize: 13 }}>
+      {/* F-7 (Slice RI.8 step 7): breadcrumb adopts mono-caption
+          register via .r2-eyebrow — same shape as Quote page,
+          consistent across customer-facing surface family. */}
+      <p
+        className="r2-eyebrow"
+        style={{ padding: "16px 24px 0" }}
+      >
         <Link
           href={`/projects/${project.id}/quotes/${quote.id}`}
           style={{ color: "var(--ink-3)" }}
         >
-          ← Quote builder
+          ← Setup
         </Link>
         {" · "}
         <Link
@@ -183,7 +189,8 @@ export default async function MarkAcceptedPage({
         >
           Quote
         </Link>
-      </div>
+        {" · Mark accepted"}
+      </p>
       <MarkAcceptedHost
         initialSubState={initialSubState}
         blendedMarginPct={blendedPct}

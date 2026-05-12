@@ -14,10 +14,20 @@ import { CustomerAcceptToggle } from "./customer-accept-toggle";
 // Composition: eyebrow + italic-display H1 + sub copy + button cluster.
 // H1: "Tune <em>price</em> & review." — italic-em word per R2 grammar.
 // Sub copy: keyed off blendedMarginStatus.
-// Buttons: Back to Costs (ghost) + Preview customer quote
-// (disabled placeholder for Slice 11) + Mark accepted (two-shape
-// conditional based on BELOW_FLOOR — strikethrough + admin override
-// CTA when blocked; primary when sendable).
+// Buttons (post-F-6 + cluster grouping, Slice RI.8 step 7):
+//   - Preview customer quote (sideways look-at affordance, distinct
+//     visual register from the workflow cluster)
+//   - Workflow cluster (sequenced): customer-response chip → Mark
+//     accepted. Visually grouped via shared treatment + proximity
+//     since Mark Accepted is gated on customer-response being
+//     recorded (CR-SM DEC-1+DEC-2).
+//   - Back-to-Costs moved INTO the eyebrow as a breadcrumb (F-6:
+//     R2 grammar — breadcrumb position, not action cluster).
+//
+// Brief amendment §11 step 7. Cluster grammar pending CD R7 (e)
+// for cross-surface standardization; RI.8 ships the visible-
+// hierarchy treatment within existing grammar to fix the
+// felt-friction now.
 
 export function PricingPageHead({
   projectId,
@@ -60,7 +70,18 @@ export function PricingPageHead({
   return (
     <div className="r2-page-head">
       <div>
+        {/* F-6: Back-to-Costs absorbed into the eyebrow breadcrumb.
+            R2 grammar — mono caption register, separator dots, the
+            arrow + link reads as "where I came from" not as an
+            action button. */}
         <p className="r2-eyebrow">
+          <Link
+            href={`/projects/${projectId}/quotes/${quoteId}/costs`}
+            style={{ color: "var(--ink-3)" }}
+          >
+            ← Costs
+          </Link>
+          {" · "}
           Pricing · {project.clientName ?? project.dealName} / Quote v
           {quote.versionNumber}
         </p>
@@ -70,35 +91,64 @@ export function PricingPageHead({
         <p className="r2-page-sub">{subCopy}</p>
       </div>
 
+      {/* Action cluster — sideways affordance + workflow cluster.
+          Preview sits alone (look-at, not workflow forward); the
+          customer-response chip + Mark Accepted bundle as a single
+          visual unit since they are sequenced steps in one workflow. */}
       <div className="r2-row r2-gap-2" style={{ flexWrap: "wrap" }}>
         <Link
-          href={`/projects/${projectId}/quotes/${quoteId}/costs`}
-          className="r2-btn ghost sm"
-        >
-          ← Back to Costs
-        </Link>
-        <Link
           href={`/projects/${projectId}/quotes/${quoteId}/quote`}
-          className="r2-btn"
+          className="r2-btn ghost"
         >
           Preview customer quote
         </Link>
-        {/* Slice RI.7 — customer-acceptance toggle. Only renders on
-            sent quotes (pre-send: no customer signal; post-accept: locked). */}
-        {quote.status === "sent" && (
-          <CustomerAcceptToggle
+        <div
+          className="r2-workflow-cluster"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "4px 8px",
+            background: "var(--paper-2)",
+            border: "1px solid var(--rule)",
+            borderRadius: 8,
+          }}
+        >
+          {/* Slice RI.7 — customer-acceptance toggle. Renders inert
+              placeholder on drafts (so the workflow sequence reads
+              correctly even pre-send), live affordance on sent.
+              Mark Accepted is the gated terminal step; visual
+              grouping with the customer-response chip signals the
+              prereq relationship per Edward's step 7 disposition. */}
+          {quote.status === "sent" ? (
+            <CustomerAcceptToggle
+              quoteId={quoteId}
+              customerAcceptedAt={quote.customerAcceptedAt}
+              customerAcceptedTierId={quote.customerAcceptedTierId}
+              tiers={tiers}
+            />
+          ) : (
+            <span
+              title="Customer response is recorded after the quote is sent"
+              style={{
+                fontFamily: "var(--mono)",
+                fontSize: 10.5,
+                color: "var(--ink-4)",
+                letterSpacing: "0.04em",
+                padding: "4px 8px",
+              }}
+            >
+              ① customer response · pending send
+            </span>
+          )}
+          <span style={{ color: "var(--ink-4)", fontSize: 10 }}>→</span>
+          <MarkAcceptedCluster
+            projectId={projectId}
             quoteId={quoteId}
-            customerAcceptedAt={quote.customerAcceptedAt}
-            customerAcceptedTierId={quote.customerAcceptedTierId}
-            tiers={tiers}
+            status={status}
+            editable={quote.status === "draft"}
           />
-        )}
-        <MarkAcceptedCluster
-          projectId={projectId}
-          quoteId={quoteId}
-          status={status}
-          editable={quote.status === "draft"}
-        />
+        </div>
       </div>
     </div>
   );
