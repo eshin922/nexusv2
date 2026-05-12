@@ -332,6 +332,7 @@ export default async function CostBuildPage({
             sectionKind="production"
             lineCount={prodRows.length}
             deposit={deposits.find((d) => d.sectionKind === "production")}
+            indicatorChip={productionIndicatorChip(prodRows)}
           >
             <ProductionDrilldown
               skus={skus}
@@ -478,6 +479,30 @@ function productionSublabel(
   // Run-locked = any row has actualUnitsProduced set.
   const runLocked = rows.some((r) => r.production_inputs.actualUnitsProduced != null);
   return runLocked ? `${allocText} · run locked` : allocText;
+}
+
+// Slice RI.8 Option A hotfix — when production rows are MAJORITY
+// billed-separately, the cost-stack PROD column reads em-dash even
+// though services are real costs. The chip surfaces "why" so PMs
+// don't read em-dash as a broken compute. Services still flow to
+// revenue via separateServicesMarkupSum and margin is correct;
+// they just don't roll into the production-cost bucket.
+//
+// Pattern: chip only renders when the visual surface is at risk of
+// being misread. If all rows allocate (default), no chip needed.
+function productionIndicatorChip(
+  rows: Array<{ production_inputs: { allocateServiceFeesToCost: boolean } }>,
+): { label: string; tone: "warn" | "neutral" | "accent" } | undefined {
+  if (rows.length === 0) return undefined;
+  const allocCount = rows.filter(
+    (r) => r.production_inputs.allocateServiceFeesToCost,
+  ).length;
+  const majorityBilledSeparately = allocCount <= rows.length / 2;
+  if (!majorityBilledSeparately) return undefined;
+  return {
+    label: "services billed separately · not in cost bucket",
+    tone: "neutral",
+  };
 }
 
 function freightSublabel(

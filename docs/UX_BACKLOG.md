@@ -5,6 +5,73 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Per-component QuoteCostBreakdown split — cost-stack architecture]
+
+  **Slice:** RI.9 cost-stack work (kickoff scope)
+
+  **What:** Today `QuoteCostBreakdown` has 4 fields:
+  `packaging`, `production`, `freight`, `serviceFees`. The
+  `freight` bucket folds in container freight + duty + tariff;
+  `production` folds in raw bulk costs + amortized service fees
+  (when allocate_service_fees_to_cost = true). The cost-stack
+  header at `/costs` renders a row per component but D+T + PASS
+  + RAW (cm_sources mode) all hardcode to 0 because there's no
+  matching bucket — see `cost-stack-header.tsx` `tierTotalFor`.
+
+  Option A hotfix (Slice RI.8) dropped the misleading rows from
+  the legend + header rendering. Option B is the proper fix:
+  split the breakdown into first-class components so each
+  cost-stack row reads a real bucket.
+
+  **Proposed shape:**
+  ```ts
+  type QuoteCostBreakdown = {
+    packagingCost: number;
+    productionCost: number;       // services-allocated only
+    rawCost: number;              // bulk raws (currently folded into production)
+    freightContainer: number;     // freight × cbm share (excludes D+T)
+    dutyAndTariff: number;        // duty + tariff (currently folded into freight)
+    separateServiceFees: number;  // services billed-separately (currently in revenue only, not in breakdown)
+  };
+  ```
+
+  **Why log it:** the current single-bucket folding works for
+  margin compute (total cost is still total cost) but breaks
+  the cost-stack UX — PMs can't see "where did D+T contribute"
+  or "what's the freight container share vs the duty share."
+  Option B requires:
+  - Math layer change: split contributions per leaf computation
+  - Roll-up change: assembly rollup carries the 6 components
+  - UI: cost-stack-header reads new buckets; legend re-expands
+  - Schema: no DB change (compute-only refactor)
+
+  Reference: Slice RI.8 investigation (May 2026).
+  Edward + CA call — Option A approved as hotfix; Option B
+  deferred to RI.9 cost-stack redesign work.
+
+- [Restore cost-stack RAW + PASS rows under per-component split]
+
+  **Slice:** RI.9 cost-stack work (companion to per-component
+  QuoteCostBreakdown split)
+
+  **What:** Slice RI.8 Option A hotfix dropped the RAW and PASS
+  legend items + rows from the cost-stack header because they
+  rendered as hardcoded em-dashes. Restore them once the
+  per-component breakdown lands:
+  - RAW: read from `rawCost` bucket. Renders only when
+    `rawsMode = dps_sources` (otherwise raws fold into
+    production).
+  - PASS (passthrough): read from `separateServiceFees`
+    bucket. Renders when any production row has
+    `allocate_service_fees_to_cost = false`.
+
+  Pattern is "row appears when it carries signal" — same logic
+  RAW already used (conditional on dps_sources mode). Avoid the
+  always-visible-always-zero anti-pattern that motivated the
+  hotfix.
+
+  Reference: Slice RI.8 Option A hotfix.
+
 - [Multi-tenant quote-number sequence (post-MVP)]
 
   **Slice:** Post-MVP / TBD (when multi-tenant becomes real)

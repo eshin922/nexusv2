@@ -120,9 +120,20 @@ export function CostStackHeader({
   }
 
   const showRaw = rawsMode === "dps_sources";
+  // Slice RI.8 Option A hotfix — D+T and PASS rows dropped.
+  // D+T (duty + tariff) contribution is folded into FRT bucket inside
+  // computeQuoteCosting (totalLandedFreightBeforeMarkup includes
+  // container + duty + tariff). A separate row would require a
+  // QuoteCostBreakdown split (Option B; UX_BACKLOG for RI.9). Until
+  // then, the hardcoded-zero D+T row was misleading PMs into thinking
+  // it was a separately-trackable component.
+  //
+  // PASS (passthrough) also dropped for the same reason — services
+  // billed separately flow to revenue but aren't in any breakdown
+  // bucket today; the row was always zero.
   const components: ComponentKey[] = showRaw
-    ? ["packaging", "production", "raw", "freight", "internal", "passthrough"]
-    : ["packaging", "production", "freight", "internal", "passthrough"];
+    ? ["packaging", "production", "raw", "freight"]
+    : ["packaging", "production", "freight"];
 
   // R6 normalizes bar segment widths to max per-unit SUBTOTAL (cost,
   // NOT revenue) across tiers per cost-stack-header.jsx lines 14-19:
@@ -165,9 +176,11 @@ export function CostStackHeader({
           {showRaw && (
             <LegendItem label="Raws" tail="(DPS-sourced)" color="var(--comp-raw)" />
           )}
-          <LegendItem label="Freight" color="var(--comp-frt)" />
-          <LegendItem label="D+T" tail="internal" hatched />
-          <LegendItem label="Passthrough" color="var(--ink-4)" />
+          <LegendItem
+            label="Freight"
+            tail="incl. D+T"
+            color="var(--comp-frt)"
+          />
         </div>
       </div>
 

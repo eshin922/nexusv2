@@ -87,6 +87,7 @@ export function SectionWithDrilldown({
   ownerName,
   lineCount,
   deposit,
+  indicatorChip,
   children,
 }: {
   id: string;
@@ -99,6 +100,13 @@ export function SectionWithDrilldown({
   ownerName?: string;
   lineCount?: number;
   deposit?: DepositRow;
+  /**
+   * Optional explanatory chip rendered inline with the sublabel.
+   * Used to surface "why the mini-stack reads em-dash even though
+   * data exists" — e.g. Production when fees are billed separately.
+   * Slice RI.8 Option A hotfix.
+   */
+  indicatorChip?: { label: string; tone: "warn" | "neutral" | "accent" };
   children: React.ReactNode;
 }) {
   const { openId, setOpenId } = useCostBuildAccordion();
@@ -166,9 +174,19 @@ export function SectionWithDrilldown({
           >
             {sublabel}
           </div>
-          {deposit && deposit.depositStatus !== "none" && (
-            <div style={{ marginTop: "4px", display: "flex", gap: "6px" }}>
-              <DepositChip deposit={deposit} />
+          {(indicatorChip || (deposit && deposit.depositStatus !== "none")) && (
+            <div
+              style={{
+                marginTop: "4px",
+                display: "flex",
+                gap: "6px",
+                flexWrap: "wrap",
+              }}
+            >
+              {indicatorChip && <IndicatorChip chip={indicatorChip} />}
+              {deposit && deposit.depositStatus !== "none" && (
+                <DepositChip deposit={deposit} />
+              )}
             </div>
           )}
         </div>
@@ -326,6 +344,37 @@ function Owner({
         </span>
       )}
     </div>
+  );
+}
+
+// Slice RI.8 Option A hotfix — generic indicator chip for surfacing
+// "why em-dash" semantic context next to the sublabel. Used by
+// Production section when services are billed separately
+// (allocate_service_fees_to_cost=false) — explains the otherwise-
+// confusing zero in the cost-stack PROD column.
+function IndicatorChip({
+  chip,
+}: {
+  chip: { label: string; tone: "warn" | "neutral" | "accent" };
+}) {
+  const cls =
+    chip.tone === "warn"
+      ? "border-transparent bg-warn-soft text-warn"
+      : chip.tone === "accent"
+        ? "border-transparent bg-accent-soft text-accent-ink"
+        : "border-rule bg-paper-3 text-ink-3";
+  return (
+    <span
+      className={`inline-flex items-center gap-[5px] rounded-full border font-mono uppercase ${cls}`}
+      style={{
+        padding: "3px 7px",
+        fontSize: "9.5px",
+        letterSpacing: "0.06em",
+      }}
+      title={chip.label}
+    >
+      {chip.label}
+    </span>
   );
 }
 

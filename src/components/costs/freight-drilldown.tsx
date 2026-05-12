@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { quoteSkus } from "@/db/schema";
 import { AddFreightLineButton } from "@/app/projects/[id]/quotes/[quoteId]/freight/add-line-button";
+import { CustomsRow } from "@/app/projects/[id]/quotes/[quoteId]/freight/customs-row";
 import {
   deleteFreightLine,
   updateFreightLineMetadata,
@@ -301,14 +302,13 @@ function FreightLineCard({
   const skuLabel = sku?.skuLabel ?? "—";
 
   // Customs: duty/tariff per-SKU (quote_skus.dutyPct/tariffPct);
-  // cbm per-(SKU, tier) on freight_inputs.skuTotalCbm. Show first
-  // tier's cbm as representative.
-  const firstCell = line.cells.values().next().value;
-  const cbm = num(firstCell?.skuTotalCbm ?? null);
-  const duty = num(sku?.dutyPct);
-  const tariff = num(sku?.tariffPct);
-  const showCustoms =
-    treatment === "bundled" && (cbm !== null || duty !== null || tariff !== null);
+  // cbm per-(SKU, tier) on freight_inputs.skuTotalCbm. cbm is now
+  // edited inline per-tier cell (see FreightTierCell). Customs editor
+  // (CustomsRow) renders below the tier row when treatment = bundled.
+  //
+  // Slice RI.8 Option A hotfix — CustomsRow re-wired here after
+  // orphaning during the RI.4 /freight → /costs unification.
+  const showCustoms = treatment === "bundled";
 
   return (
     <div className="r6-fr-line">
@@ -407,39 +407,14 @@ function FreightLineCard({
         ))}
       </div>
 
-      {showCustoms && (
-        <div className="r6-fr-customs">
-          <div className="head">
-            <span className="lab">Customs · DDP</span>
-            <span className="desc">
-              Duty + tariff land on freight at port of entry
-            </span>
-          </div>
-          <div className="grid">
-            <div className="cell">
-              <div className="ck">CBM / unit</div>
-              <div className="cv">
-                {cbm !== null ? `${cbm.toFixed(4)} m³` : "—"}
-              </div>
-            </div>
-            <div className="cell">
-              <div className="ck">Duty rate</div>
-              <div className="cv">
-                {duty !== null ? `${(duty * 100).toFixed(1)}%` : "—"}
-              </div>
-            </div>
-            <div className="cell">
-              <div className="ck">Tariff (Section 301)</div>
-              <div className="cv">
-                {tariff !== null ? `${(tariff * 100).toFixed(1)}%` : "—"}
-              </div>
-            </div>
-          </div>
-          <div className="desc-foot">
-            On DDP, duty and tariff are our cost — landed and rolled into the
-            bundled per-unit above. Switch to FOB or DAP and the customer pays
-            them at port; the freight per-unit drops accordingly.
-          </div>
+      {showCustoms && sku && (
+        <div style={{ marginTop: 12 }}>
+          <CustomsRow
+            quoteSkuId={sku.id}
+            dutyPct={sku.dutyPct}
+            tariffPct={sku.tariffPct}
+            disabled={disabled}
+          />
         </div>
       )}
     </div>
@@ -464,13 +439,20 @@ function FreightTierCell({
   const isActive = activeTierId === tierId;
 
   const [totalFreight, setTotalFreight] = useState(cell?.totalFreight ?? "");
+  // Slice RI.8 Option A hotfix — inline CBM input. cbm is the
+  // load-bearing input for the container-freight share math
+  // ((sku_total_cbm / total_shipment_cbm) × total_freight). Without
+  // it set, freight contribution = 0 regardless of totalFreight.
+  // Previously only editable on the orphaned /freight surface.
+  const [skuTotalCbm, setSkuTotalCbm] = useState(cell?.skuTotalCbm ?? "");
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const valueRef = useRef(totalFreight);
-  valueRef.current = totalFreight;
+  const stateRef = useRef({ totalFreight, skuTotalCbm });
+  stateRef.current = { totalFreight, skuTotalCbm };
 
   useEffect(() => {
     setTotalFreight(cell?.totalFreight ?? "");
-  }, [cell?.rowId, cell?.totalFreight]);
+    setSkuTotalCbm(cell?.skuTotalCbm ?? "");
+  }, [cell?.rowId, cell?.totalFreight, cell?.skuTotalCbm]);
 
   useEffect(
     () => () => {
@@ -485,55 +467,129 @@ function FreightTierCell({
 
   function fireSave() {
     if (!cell) return;
+    const s = stateRef.current;
     const fd = new FormData();
     fd.set("rowId", cell.rowId);
-    fd.set("totalFreight", valueRef.current);
+    fd.set("totalFreight", s.totalFreight);
     fd.set("unitsInShipment", cell.unitsInShipment?.toString() ?? "");
-    fd.set("skuTotalCbm", cell.skuTotalCbm ?? "");
+    fd.set("skuTotalCbm", s.skuTotalCbm);
     startTransition(async () => {
       await updateFreightTierCell(fd);
     });
   }
 
-  function handleChange(value: string) {
-    setTotalFreight(value);
-    if (cell) {
-      updateFreightCell(cell.rowId, { totalFreight: num(value) });
-    }
+  function scheduleSave() {
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(fireSave, DEBOUNCE_MS);
+  }
+
+  function handleFreightChange(value: string) {
+    setTotalFreight(value);
+    if (cell) updateFreightCell(cell.rowId, { totalFreight: num(value) });
+    scheduleSave();
+  }
+  function handleCbmChange(value: string) {
+    setSkuTotalCbm(value);
+    if (cell) updateFreightCell(cell.rowId, { skuTotalCbm: num(value) });
+    scheduleSave();
   }
 
   const total = num(totalFreight);
   const units = cell.unitsInShipment ?? tierQty ?? 0;
   const perUnit = total !== null && units > 0 ? total / units : null;
+  const cbmNum = num(skuTotalCbm);
 
   return (
     <span
       className={`num ${perUnit === null ? "empty" : ""}`}
-      style={isActive ? { background: "var(--accent-soft)" } : undefined}
+      style={
+        isActive
+          ? { background: "var(--accent-soft)", display: "block" }
+          : { display: "block" }
+      }
     >
-      <input
-        type="number"
-        step="0.01"
-        min={0}
-        value={totalFreight}
-        disabled={disabled || pending}
-        onChange={(e) => handleChange(e.target.value)}
-        placeholder="—"
+      <span
         style={{
-          background: "transparent",
-          border: "none",
-          font: "inherit",
-          color: "inherit",
-          width: "70px",
-          textAlign: "right",
-          padding: 0,
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "flex-end",
+          gap: 4,
         }}
-      />
+      >
+        <span style={{ color: "var(--ink-4)", fontSize: 9 }}>$</span>
+        <input
+          type="number"
+          step="0.01"
+          min={0}
+          value={totalFreight}
+          disabled={disabled || pending}
+          onChange={(e) => handleFreightChange(e.target.value)}
+          placeholder="—"
+          aria-label="Total freight"
+          title="Total freight cost for this shipment"
+          style={{
+            background: "transparent",
+            border: "none",
+            font: "inherit",
+            color: "inherit",
+            width: "62px",
+            textAlign: "right",
+            padding: 0,
+          }}
+        />
+      </span>
       {perUnit !== null && (
         <span className="raw">
           {fmtCurr2(perUnit)}/u · ${total?.toLocaleString()} ÷ {units.toLocaleString()}
+        </span>
+      )}
+      <span
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "flex-end",
+          gap: 4,
+          marginTop: 2,
+        }}
+      >
+        <input
+          type="number"
+          step="0.0001"
+          min={0}
+          value={skuTotalCbm}
+          disabled={disabled || pending}
+          onChange={(e) => handleCbmChange(e.target.value)}
+          placeholder="—"
+          aria-label="SKU CBM"
+          title="SKU's CBM share of the shipment (m³). Required for container-freight math."
+          style={{
+            background: "transparent",
+            border: "1px dotted var(--rule)",
+            borderRadius: 3,
+            font: "inherit",
+            color: "var(--ink-3)",
+            fontSize: "10.5px",
+            width: "62px",
+            textAlign: "right",
+            padding: "1px 3px",
+          }}
+        />
+        <span
+          style={{
+            color: "var(--ink-4)",
+            fontFamily: "var(--mono)",
+            fontSize: 9,
+          }}
+        >
+          m³
+        </span>
+      </span>
+      {cbmNum !== null && cbmNum > 0 && (
+        <span
+          className="raw"
+          style={{ fontSize: 9, color: "var(--ink-4)" }}
+        >
+          CBM share
         </span>
       )}
     </span>

@@ -155,6 +155,62 @@ what writes it after the change" audit before any affordance
 removal. Log the discovery if the affordance turns out to be
 load-bearing — the discovery itself is reusable knowledge.
 
+## "Surface unification can orphan components"
+
+When consolidating routes / surfaces (route 1 + route 2 + route 3
+→ single route), child components from the deprecated routes can
+get disconnected during the refactor. Imports go stale; the
+component file still exists but no caller references it. Result:
+load-bearing UI affordances silently disappear, often discovered
+weeks or months later through a "this never worked" smoke flag.
+
+**Reference moment:** Slice RI.4 unified `/packaging`,
+`/production`, `/freight` → single `/costs`. The
+`CustomsRow` editor at
+`src/app/projects/[id]/quotes/[quoteId]/freight/customs-row.tsx`
+was preserved (per the Slice RI.4 page.tsx comment claim:
+"These components are token-aware after RI.0 and don't need
+rebuilding"). But it was never re-rendered inside the new
+`FreightDrilldown` — the new sub-card displayed the same data
+as read-only `—` placeholders. PMs lost the only path to edit
+`quote_skus.duty_pct` / `tariff_pct` post-RI.4. The cost
+contribution from D+T silently dropped to 0 for any quote
+configured after the consolidation; freight contribution
+dropped to 0 too when `sku_total_cbm` wasn't set elsewhere.
+Discovered Slice RI.8 step 8 dark-mode smoke when Edward
+noticed the section header em-dashes.
+
+**Checklist for future consolidation slices:**
+
+1. **Grep for orphaned imports.** After the consolidation:
+   ```
+   grep -rn "import.*<componentName>" src/
+   ```
+   For each component file under the deprecated route's
+   directory, verify at least one production caller imports it.
+   Zero callers = orphan; either re-wire or delete.
+2. **Functional dependency check** on each deprecated affordance
+   (see existing convention above) — already covered for
+   abstract affordances, but explicitly extend to
+   component-level imports during route consolidation.
+3. **Action-layer audit.** Each server action exported by the
+   deprecated route's files — does some active component still
+   call it? If yes, the action's input UI must still exist
+   somewhere reachable. If no, the action is dead code (delete
+   or migrate intent into the new surface).
+4. **End-to-end input-to-margin trace.** For the math the
+   deprecated surface fed: write a one-paragraph trace
+   ("PM enters X on surface Y → action Z writes column W →
+   compute path C reads W → bucket B in QuoteCostBreakdown")
+   and verify every step is reachable post-consolidation.
+5. **Smoke ask in consolidation PR:** "list every column edited
+   pre-consolidation, confirm a UI path edits it post-."
+
+Slice briefs that propose route consolidations should include
+this checklist explicitly. It's not paranoia; it's the durable
+discipline that prevents "this never worked since the
+consolidation" surfacing months later.
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**
