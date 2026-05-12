@@ -155,6 +155,65 @@ what writes it after the change" audit before any affordance
 removal. Log the discovery if the affordance turns out to be
 load-bearing — the discovery itself is reusable knowledge.
 
+## "Two computations for similar-labeled displays will diverge"
+
+When the math layer exposes derived approximations (e.g., a
+proportional-share allocation) while another display layer uses
+direct primitives (e.g., per-line markup application), the labels
+imply matches but the math doesn't guarantee them. Two surfaces
+labeled "Total — packaging" can produce different numbers without
+either being wrong — they're just answering different questions
+with different formulas.
+
+**Reference moment:** Slice RI.8 hotfix surfaced THREE semantic
+mismatches across the cost-stack architecture in a single PM
+smoke session:
+
+1. **Subtotal vs row sum**: cost-stack rows display `cost +
+   markup_share` (R6 fidelity); Subtotal was reading `totalCost`
+   (cost-only). PMs read the column and expect rows-sum =
+   Subtotal — formulas guarantee they don't.
+2. **PKG row vs drilldown TOTAL**: cost-stack PKG = `cost +
+   proportional_markup_share_of_total`; drilldown TOTAL =
+   `Σ unit_cost × (1 + line.markup_pct)`. ~9% ratio gap from
+   weighted-average markup vs proportional re-allocation.
+3. **D+T fold**: cost-stack D+T was hardcoded 0 (math layer didn't
+   split duty+tariff from container freight); display label
+   implied trackable component.
+
+Root cause is the same in all three: **derived approximations vs
+math-layer primitives**. The fix is structural — extend the math
+layer to expose first-class per-component primitives, then every
+display surface reads the same value. Avoid the trap of
+"approximating in the display layer because the math doesn't
+have it" — that approximation becomes a future smoke flag.
+
+**Checklist when adding a derived display value:**
+
+1. **Identify the primitive.** What's the single source of truth
+   the math layer should expose? Don't re-derive it in the
+   display.
+2. **Check sibling displays.** If two surfaces both render
+   "packaging total" (mini-stack, drilldown foot, cost-stack
+   row), they MUST source from the same primitive. PMs read
+   labels; formulas guarantee consistency.
+3. **Comprehensive semantic audit before commit.** When adding
+   a new display field, trace EVERY existing surface that
+   shows a similar value. Compare formulas. If they differ,
+   either align the formulas OR rename the labels to
+   distinguish what each shows.
+4. **Resist proportional-share approximations** when first-class
+   primitives are achievable. Cost stack's proportional markup
+   distribution was a v1 shortcut; first surfaced as PM
+   confusion three slices later.
+
+**Banked from Slice RI.8 hotfix scope expansion (May 2026).**
+The first two mismatches were fixed reactively (each fix +
+re-smoke surfaced the next); CA's "comprehensive semantic audit
+before commit" call broke the whack-a-mole pattern on the third.
+Future similar surfaces: do the audit first, ship one
+comprehensive fix.
+
 ## "Surface unification can orphan components"
 
 When consolidating routes / surfaces (route 1 + route 2 + route 3
