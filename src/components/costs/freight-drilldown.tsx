@@ -643,7 +643,8 @@ function FreightTierCell({
           }}
         />
       </span>
-      {perUnit !== null && (
+      {perUnit !== null && markedUpPerUnit === null && (
+        // No markup applied — single line per-unit cost.
         <span
           className="raw"
           title={
@@ -655,14 +656,44 @@ function FreightTierCell({
           {fmtCurr2(perUnit)}/u
         </span>
       )}
-      {markedUpPerUnit !== null && (
-        <span
-          className="raw"
-          style={{ color: "var(--ink-3)", display: "block" }}
-          title={`Marked-up per-unit = ${fmtCurr2(perUnit ?? 0)} × (1 + ${(lineMarkup * 100).toFixed(0)}%)`}
-        >
-          → {fmtCurr2(markedUpPerUnit)}
-        </span>
+      {perUnit !== null && markedUpPerUnit !== null && (
+        // Slice RI.8 freight-markup feature — 3-row breakdown when
+        // markup applies. Mirrors packaging's input + markup % column
+        // + total pattern, but expanded inline since freight's input
+        // is total $ (not per-unit). Order: cost basis → markup
+        // contribution → marked-up total. Total emphasized via ink
+        // weight.
+        <>
+          <span
+            className="raw"
+            style={{ display: "block", color: "var(--ink-4)" }}
+            title={
+              total !== null
+                ? `Cost basis: $${total.toLocaleString()} ÷ ${units.toLocaleString()} units`
+                : undefined
+            }
+          >
+            {fmtCurr2(perUnit)} cost/u
+          </span>
+          <span
+            className="raw"
+            style={{ display: "block", color: "var(--ink-4)" }}
+            title={`Markup contribution = ${fmtCurr2(perUnit)} × ${(lineMarkup * 100).toFixed(0)}%`}
+          >
+            +{fmtCurr2(markedUpPerUnit - perUnit)} mkup
+          </span>
+          <span
+            className="raw"
+            style={{
+              display: "block",
+              color: "var(--ink)",
+              fontWeight: 500,
+            }}
+            title={`Cost + markup = marked-up per-unit (FRT row contribution)`}
+          >
+            {fmtCurr2(markedUpPerUnit)}/u
+          </span>
+        </>
       )}
     </span>
   );
