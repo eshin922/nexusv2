@@ -144,7 +144,7 @@ export function CustomsRow({
             <input
               type="number"
               inputMode="decimal"
-              step="0.01"
+              step="1"
               min={0}
               value={duty}
               disabled={disabled}
@@ -180,7 +180,7 @@ export function CustomsRow({
             <input
               type="number"
               inputMode="decimal"
-              step="0.01"
+              step="1"
               min={0}
               value={tariff}
               disabled={disabled}

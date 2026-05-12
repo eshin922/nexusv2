@@ -5,6 +5,42 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Cross-surface numeric input step attribute audit]
+
+  **Slice:** Slice RI.8 step 7 (cross-surface tactical polish)
+  OR a small dedicated sweep slice.
+
+  **What:** Slice RI.8 Option B+ hotfix flagged that the CBM
+  share input had `step="0.0001"` — spinners incremented by
+  ten-thousandths, making the arrows useless. Hotfix fixed the
+  four freight inputs (totalFreight, skuTotalCbm, dutyPct,
+  tariffPct) to `step="1"`. PMs can still type fractional values
+  freely (the step attribute only constrains the spinner
+  increment + form-submit validation; onChange handlers accept
+  any input).
+
+  **Audit scope:** every `<input type="number">` with a `step`
+  attribute across the app. Likely candidates:
+  - Markup defaults table: defaultMarkupPct (step="0.01" today)
+  - Firm settings: target/floor margin (step="0.01" today)
+  - Setup SKU rows: retail benchmark, quantity inputs
+  - Production drilldown: lump-sum fields (filling/blending,
+    setup fee, etc.)
+  - Packaging line rows: unit cost, qty_per_sellable_unit,
+    markup pct
+  - Global price adjustment slider
+  - Tier qty inputs
+  - Per-cell sell-price override input
+
+  **Convention to bank** if it doesn't already exist: arrows
+  should increment by the natural unit PMs adjust by. Dollars =
+  whole-dollar arrows (step="1"). Percentages = whole-point
+  arrows (step="1"). CBM / fractional units = whole-unit arrows
+  (step="1") with fractional typing supported. Sub-cent
+  precision via arrows is never what PMs want.
+
+  Reference: Slice RI.8 Option B+ hotfix (May 2026).
+
 - [Restore cost-stack RAW + PASS rows under per-component split]
 
   **Slice:** RI.9 cost-stack work

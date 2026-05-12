@@ -519,7 +519,7 @@ function FreightTierCell({
         <span style={{ color: "var(--ink-4)", fontSize: 9 }}>$</span>
         <input
           type="number"
-          step="0.01"
+          step="1"
           min={0}
           value={totalFreight}
           disabled={disabled || pending}
@@ -554,7 +554,7 @@ function FreightTierCell({
       >
         <input
           type="number"
-          step="0.0001"
+          step="1"
           min={0}
           value={skuTotalCbm}
           disabled={disabled || pending}
