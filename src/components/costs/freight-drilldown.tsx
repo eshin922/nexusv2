@@ -312,9 +312,17 @@ function FreightLineCard({
   // Markup commits on blur/Enter per Slice RI.8 keystroke-focus
   // pattern (same as totalFreight, duty, tariff). Local state
   // updates on every keystroke; persist at commit boundaries.
-  function handleMarkupBlur() {
-    if (markup === markupDisplay) return; // no change
-    fireMetaSave({ markup });
+  //
+  // Edward smoke fix: read DOM value via e.currentTarget.value rather
+  // than the `markup` closure variable. React state updates from
+  // onChange are batched; when blur fires in the same synthetic task
+  // (e.g., user types then immediately tabs), the closure-captured
+  // `markup` can be stale relative to what's in the DOM. Reading from
+  // the event target is closure-safe.
+  function handleMarkupBlur(e: React.FocusEvent<HTMLInputElement>) {
+    const currentValue = e.currentTarget.value;
+    if (currentValue === markupDisplay) return; // no change
+    fireMetaSave({ markup: currentValue });
   }
   function handleMarkupKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {

@@ -5,6 +5,45 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Cross-section consistency within Costs surface]
+
+  **Slice:** Strong candidate for proposed RI.9.5 Design Audit
+  Slice. If that stays deferred, log as standalone for a
+  dedicated CD R7 round.
+
+  **What:** Packaging, Production, and Freight sections on the
+  Costs surface have inconsistent visual treatments:
+  - Different color palettes (Freight has amber CUSTOMS subsection)
+  - Different layout patterns (Packaging has clean table;
+    Freight has header strip + per-tier row + customs subsection)
+  - Different input visibility (Packaging MARKUP clearly inline
+    column; Freight Duty/Tariff partially obscured in subsection)
+  - Different column registers and footer treatments
+
+  Pattern of inconsistency extends beyond just these two sections
+  — Production section likely has its own variations.
+
+  **Future state:** Unified section visual register across Costs
+  surface. Same card chrome, same header strip pattern, same
+  column structure (component/category/supplier/markup/tiers),
+  same MARKUP placement, same TOTAL footer, same input
+  visibility, same color palette (reserve amber for actual
+  warnings/errors only — not subsection backgrounds).
+
+  **Recommendation to Edward + CA:** reconsider scoping
+  RI.9.5 Design Audit Slice. Slice RI.8 hotfix surfaced
+  multiple architectural-consistency findings reactively (cost
+  stack semantic mismatches × 3, cross-section visual diverge,
+  CustomsRow orphaning during route consolidation, "?" tooltip
+  trigger, autosave focus loss, numeric step attrs); each smoke
+  surfaces another instance. Reactive logging is preserving
+  signal but the systematic review is the structural fix. CC
+  estimate: 1-2 days for a proper cross-surface audit.
+
+  Reference: flagged by Edward during Slice RI.8 cost-stack
+  smoke (May 2026); latest instance of the architectural-
+  consistency pattern.
+
 - [Cost stack bar hover tooltip — cost + markup breakdown]
 
   **Slice:** Step 7 (cross-surface tactical polish) for (a);
