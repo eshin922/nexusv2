@@ -5,6 +5,47 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Cost stack bar hover tooltip — cost + markup breakdown]
+
+  **Slice:** Step 7 (cross-surface tactical polish) for (a);
+  RI.9 for (b). OR bundle both into a dedicated "cost stack UX
+  enhancements" slice.
+
+  **What:** Cost-stack bars currently show total component value
+  (e.g., PKG $5.80) with a visual cost+markup bar segmentation
+  but no numeric breakdown. Hover tooltip showing cost + markup
+  composition would help PMs understand contribution sources
+  without leaving the cost stack.
+
+  **Future state — two scope levels:**
+
+  (a) **Tier-level breakdown** — hover PKG bar → tooltip shows
+  "Cost $4.00 + Markup $1.80 = $5.80". Reads from per-component
+  buckets (`componentCost` + `componentMarkupSum` from the math
+  layer). ~1 hour. Implementation depends on Option 2 (per-
+  component markup primitives) — shipped in current Slice RI.8
+  hotfix; data is available, just needs the hover trigger +
+  tooltip rendering.
+
+  (b) **Per-line breakdown** — hover PKG bar → each packaging
+  line's contribution listed ("T&L: $4.00 × 1.45 = $5.80;
+  Secondary: ...; etc."). ~3-4 hours; touches drilldown data
+  shape; visual considerations for multi-line sections (clipping,
+  scrolling within tooltip).
+
+  Apply consistently across PKG, PROD, FRT, D+T components. Use
+  single tooltip component pattern for cross-component
+  consistency.
+
+  **Why deferred from RI.8 hotfix:** scope discipline — the hot-
+  fix is already large (Option 2 + freight markup feature + 5
+  prior commits). Tooltip enhancement is polish work, not bug
+  fix. Edward deferred (a) tier-level alongside (b) per-line so
+  both ship in the same future slice for consistency.
+
+  Reference: flagged by Edward during Slice RI.8 cost-stack
+  smoke (May 2026).
+
 - [Freight markup category scope-restriction decision]
 
   **Slice:** RI.9 or schema-architecture slice.
