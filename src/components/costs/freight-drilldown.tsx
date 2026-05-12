@@ -393,8 +393,8 @@ function FreightLineCard({
       >
         <span className="lab">
           {treatment === "bundled"
-            ? "Per-unit (rolls into FRT)"
-            : "Per-unit (shown to customer)"}
+            ? "Total $ per tier — divided by units → FRT"
+            : "Total $ per tier — passed to customer separately"}
         </span>
         {tiers.map((t) => (
           <FreightTierCell
@@ -524,9 +524,9 @@ function FreightTierCell({
           value={totalFreight}
           disabled={disabled || pending}
           onChange={(e) => handleFreightChange(e.target.value)}
-          placeholder="—"
-          aria-label="Total freight"
-          title="Total freight cost for this shipment"
+          placeholder="total $"
+          aria-label="Total freight $ for this shipment"
+          title="Total freight cost for this shipment (NOT per-unit — the per-unit value is derived below as $total ÷ tier units)"
           style={{
             background: "transparent",
             border: "none",
