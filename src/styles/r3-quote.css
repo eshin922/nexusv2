@@ -112,6 +112,42 @@
 .pdf-page + .pdf-page { margin-top: 24px; }
 .pdf-page * { box-sizing: border-box; }
 
+/* ─── Dark-mode shadow override (screen-only) ──────────────── */
+/* R3 source's pure-black shadow stack (oklch(0 0 0 / ...)) renders
+   invisible against the dark workspace — black-on-near-black has
+   no visible contrast, so the white PDF abuts the dark mat at
+   full white-to-dark glare with zero lift. Reported by Edward in
+   step 8 dark-mode smoke; logged in step-8 backlog.
+
+   Override adds a paper-tinted rim + soft warm halo specifically
+   for dark-theme rendering. The four shadow layers (top-to-bottom):
+     1. 1px paper-tinted outline rim — defines edge against dark bg
+     2. Standard close shadow — pushed deeper (0.65 alpha) since it
+        has to read through a dark workspace
+     3. Standard far shadow — same logic
+     4. Warm-paper halo glow — simulates ambient light bouncing off
+        a sheet of white paper into a darkened room. Pulls the PDF
+        forward as a "lit artifact" rather than a stamped-on plate.
+
+   PDF token-lock preserved: this rule lives on the WRAPPER's
+   theme attribute and only adjusts box-shadow, which is a screen
+   presentation effect that never enters the PDF render output.
+   All values are literal OKLCH; no var() references — same
+   discipline as the base .pdf-page rule. */
+[data-theme="dark"] .pdf-page {
+  box-shadow:
+    0 0 0 1px oklch(0.55 0.018 85 / 0.30),
+    0 30px 60px oklch(0 0 0 / 0.65),
+    0 60px 120px oklch(0 0 0 / 0.40),
+    0 0 100px oklch(0.92 0.02 85 / 0.06);
+}
+/* Slight padding bump on the workspace in dark mode — more breathing
+   room helps the "white page on dark mat" register feel intentional
+   rather than cramped. */
+[data-theme="dark"] .preview-chrome {
+  padding: 40px 48px 96px;
+}
+
 .pdf-page .pdf-eyebrow {
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 10px;
