@@ -115,7 +115,7 @@ export type CostingStoreState = {
   cellTargets: CostingCellTarget[];
 
   // Slice 9.4a — VIEW STATE (not a costing input). The currently-active
-  // tier on the Costing Sheet. Determines which tier's per-SKU summary
+  // tier on the Pricing. Determines which tier's per-SKU summary
   // row values render (active-tier required sell, active-tier margin
   // pill, active-tier client-target gap when 9.4b lands). Initial value
   // is null; <ActiveTierUrlSync> sets it on mount from URL `?tier=`
@@ -133,7 +133,7 @@ export type CostingStoreState = {
   // (server-side persistence happens on action commit per architect
   // verdict — see warnings.ts reconcileWarnings). This in-store slice
   // drives inline icon surfacing, summary chip count, and the
-  // Costing Sheet aggregation panel for IMMEDIATE feedback as PMs
+  // Pricing aggregation panel for IMMEDIATE feedback as PMs
   // type, without server round-trip.
   warnings: WarningSpec[];
   // Slice 9.5 — server-persisted warning rows (active + accepted),
@@ -853,7 +853,7 @@ export const selectWarningCountsBySeverity = (s: CostingStoreState) => {
 };
 
 // Highest severity present among active warnings, or null when zero.
-// Used by the per-page chip + Costing Sheet aggregation panel to pick
+// Used by the per-page chip + Pricing aggregation panel to pick
 // the chip color register (info → muted, review → warn, action_required → bad).
 export const selectHighestSeverity = (
   s: CostingStoreState,

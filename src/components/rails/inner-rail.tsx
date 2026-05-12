@@ -1,41 +1,90 @@
 import "server-only";
 import Link from "next/link";
 import {
+  getProjectActivity,
   getProjectHeader,
   getProjectScenarios,
 } from "@/lib/workspace-queries";
 import { ProjectGlyph } from "./project-glyph";
+
+// Slice RI.8 F-12 fix — mini activity feed cap. Project Detail page
+// (the full feed) uses limit=30; rail uses a smaller cap because the
+// rail is glanceable navigation, not the canonical reading surface.
+const RAIL_ACTIVITY_LIMIT = 6;
+
+function compactTime(d: Date, now: Date = new Date()): string {
+  const diffMs = now.getTime() - d.getTime();
+  const diffMin = Math.floor(diffMs / (1000 * 60));
+  const diffH = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffD = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffMin < 1) return "now";
+  if (diffMin < 60) return `${diffMin}m`;
+  if (diffH < 24) return `${diffH}h`;
+  if (diffD < 7) return `${diffD}d`;
+  return d.toLocaleString("en-US", { month: "short", day: "numeric" });
+}
+
+function shortenAction(action: string): string {
+  // Map action keys to glanceable verbs for the rail's tight space.
+  // Verbose audit-log renderer summaries live on the full activity
+  // surface; rail compresses.
+  const map: Record<string, string> = {
+    quote_sent: "sent",
+    customer_acceptance_recorded: "customer ✓",
+    customer_acceptance_cleared: "cleared ✓",
+    user_phone_updated: "phone edit",
+    firm_settings_updated: "firm policy",
+    global_price_adj_updated: "price adj",
+    cell_override_updated: "override",
+    scenario_dropped: "dropped",
+    created: "created",
+    create: "created",
+    updated: "updated",
+    update: "updated",
+    deleted: "deleted",
+    delete: "deleted",
+  };
+  return map[action] ?? action.replace(/_/g, " ");
+}
 
 // Slice RI.2 — Round 4 inner rail (240px wide). Renders only when on
 // a project surface. Composition (top to bottom):
 //   - Back-to-all-deals link (top)
 //   - Project header (client + deal + stage + synced metadata)
 //   - Scenarios list (with margin pip + draft-after-send warning chips)
-//   - Sub-rail expansion under active scenario (Setup / Cost build /
-//     Costing sheet / Customer view links) — basic version in RI.2;
+//   - Sub-rail expansion under active scenario (Setup / Costs /
+//     Pricing / Quote links) — basic version in RI.2;
 //     RI.3 adds the activity feed
 //   - Mini activity feed — DEFERRED to RI.3 (needs activity log read
 //     query + project-scoped filter; ships with Project Detail rebuild)
 
 export async function InnerRail({
   projectId,
+  activeScenarioLabel,
   activeQuoteId,
 }: {
   projectId: string;
+  /** The scenario_label of the quote being viewed, if any. Drives
+   * the active-scenario highlight + sub-rail expansion under that
+   * scenario row. Resolved at the layout level via quoteId →
+   * scenario_label lookup; works for any version of a scenario,
+   * not just the latest. */
+  activeScenarioLabel?: string;
+  /** The exact quote ID PM is currently viewing. Sub-rail link
+   * hrefs use THIS (not s.latestQuoteId) so navigating across
+   * sub-rail surfaces keeps PMs in their current version's pages.
+   * Issue 3 fix — sub-rail was always jumping to latestQuoteId,
+   * surprising PMs inspecting older sent versions by routing them
+   * to the current draft. */
   activeQuoteId?: string;
 }) {
-  const [header, scenarios] = await Promise.all([
+  const [header, scenarios, activity] = await Promise.all([
     getProjectHeader(projectId),
     getProjectScenarios(projectId),
+    getProjectActivity(projectId, RAIL_ACTIVITY_LIMIT),
   ]);
 
   if (!header) return null;
-
-  // Determine the "active" scenario based on which quote is being
-  // viewed (if any). Scenario surface links expand under the active one.
-  const activeScenarioLabel = activeQuoteId
-    ? scenarios.find((s) => s.latestQuoteId === activeQuoteId)?.scenarioLabel
-    : undefined;
 
   // Per Round 4 + Round 4 pushback #2: dropped scenarios collapse to
   // "+N dropped" disclosure when count > 3. Active and accepted always
@@ -64,8 +113,18 @@ export async function InnerRail({
         <span>All deals</span>
       </Link>
 
-      {/* Project header */}
-      <div className="mb-4 flex items-start gap-2.5 border-b border-rule pb-3">
+      {/* Project header — Slice RI.8 step 9 / F-10 close.
+          Wrapped in Link so PMs on Costs / Pricing / Quote /
+          Mark-Accepted can navigate UP to Project Detail directly.
+          Was a back-nav gap pre-RI.8 (R6 deliberately strips
+          in-page breadcrumb on Cost Build); F-1's sub-rail fix
+          handles cross-quote nav but not up-to-project. This
+          closes the residual. */}
+      <Link
+        href={`/projects/${projectId}`}
+        className="mb-4 flex items-start gap-2.5 border-b border-rule pb-3 hover:bg-paper-3 -mx-1 px-1 py-1 rounded transition-colors"
+        title="Project detail"
+      >
         <ProjectGlyph
           glyph={header.glyph}
           projectName={header.clientName ?? header.dealName}
@@ -84,7 +143,7 @@ export async function InnerRail({
             </div>
           )}
         </div>
-      </div>
+      </Link>
 
       {/* Scenarios */}
       <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-4">
@@ -103,7 +162,7 @@ export async function InnerRail({
           return (
             <div key={s.scenarioLabel}>
               <Link
-                href={`/projects/${projectId}/quotes/${s.latestQuoteId}/costing`}
+                href={`/projects/${projectId}/quotes/${s.latestQuoteId}/pricing`}
                 className={`flex items-center justify-between gap-2 rounded px-2 py-1.5 text-xs ${
                   isActive
                     ? "bg-paper-3 font-medium text-ink"
@@ -117,9 +176,13 @@ export async function InnerRail({
                     </span>
                   )}
                   <span className="truncate">{s.scenarioLabel}</span>
-                  <span className="font-mono text-[10px] text-ink-4">
-                    v{s.latestVersionNumber}
-                  </span>
+                  {/* Slice RI.8 Issue 2 fix — version chip dropped.
+                      The "v5" caption read as "rail locked to v5"
+                      when PMs viewing older versions saw it. Active
+                      highlight + sub-rail expansion already convey
+                      scope; version chip was redundant + misleading.
+                      Per-version row enumeration isn't intended
+                      per brief §3.6. */}
                 </span>
                 {s.scenarioStatus === "accepted" && (
                   <span className="rounded border border-good/40 bg-good-soft px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide text-good">
@@ -128,40 +191,57 @@ export async function InnerRail({
                 )}
               </Link>
 
-              {/* Sub-rail under active scenario: Setup / Cost build /
-                  Costing sheet / Customer view links */}
-              {isActive && (
-                <div className="ml-4 mt-1 mb-2 flex flex-col gap-0.5 border-l border-rule pl-2">
-                  <Link
-                    href={`/projects/${projectId}/quotes/${s.latestQuoteId}/setup`}
-                    className="text-[11px] text-ink-3 hover:text-ink"
-                  >
-                    Setup
-                  </Link>
-                  {/* Slice RI.4 — Cost Build unified to single page with
-                      sections-with-drill-down (Packaging / Production /
-                      Bulk Raw / Freight). */}
-                  <Link
-                    href={`/projects/${projectId}/quotes/${s.latestQuoteId}/cost-build`}
-                    className="text-[11px] text-ink-3 hover:text-ink"
-                  >
-                    Cost build
-                  </Link>
-                  <Link
-                    href={`/projects/${projectId}/quotes/${s.latestQuoteId}/costing`}
-                    className="text-[11px] text-ink-3 hover:text-ink"
-                  >
-                    Costing sheet
-                  </Link>
-                  {/* Customer view ships in Slice 10; placeholder link. */}
-                  <span
-                    className="cursor-not-allowed text-[11px] text-ink-4"
-                    title="Customer view ships in Slice 10"
-                  >
-                    Customer view
-                  </span>
-                </div>
-              )}
+              {/* Sub-rail under active scenario: Setup / Costs /
+                  Pricing / Quote links.
+
+                  Slice RI.8 Issue 3 fix — hrefs use activeQuoteId
+                  (the version PM is actually viewing) instead of
+                  s.latestQuoteId. PMs inspecting older sent
+                  versions now navigate within that version, not
+                  jumping unexpectedly to the latest draft.
+                  Fallback to latestQuoteId if activeQuoteId isn't
+                  set (shouldn't happen when isActive is true, but
+                  defensive). */}
+              {isActive && (() => {
+                const targetQuoteId = activeQuoteId ?? s.latestQuoteId;
+                return (
+                  <div className="ml-4 mt-1 mb-2 flex flex-col gap-0.5 border-l border-rule pl-2">
+                    {/* Slice RI.8 F-2 fix — Setup is the bare quote
+                        index page, not a /setup segment. */}
+                    <Link
+                      href={`/projects/${projectId}/quotes/${targetQuoteId}`}
+                      className="text-[11px] text-ink-3 hover:text-ink"
+                    >
+                      Setup
+                    </Link>
+                    {/* Slice RI.4 — Costs unified to single page
+                        with sections-with-drill-down (Packaging /
+                        Production / Bulk Raw / Freight). */}
+                    <Link
+                      href={`/projects/${projectId}/quotes/${targetQuoteId}/costs`}
+                      className="text-[11px] text-ink-3 hover:text-ink"
+                    >
+                      Costs
+                    </Link>
+                    <Link
+                      href={`/projects/${projectId}/quotes/${targetQuoteId}/pricing`}
+                      className="text-[11px] text-ink-3 hover:text-ink"
+                    >
+                      Pricing
+                    </Link>
+                    {/* Slice RI.8 F-3 fix — Quote shipped in
+                        RI.6 with snapshot-aware reads added in RI.7.
+                        The stale "ships in Slice 10" disabled-span
+                        placeholder is replaced with a real link. */}
+                    <Link
+                      href={`/projects/${projectId}/quotes/${targetQuoteId}/quote`}
+                      className="text-[11px] text-ink-3 hover:text-ink"
+                    >
+                      Quote
+                    </Link>
+                  </div>
+                );
+              })()}
             </div>
           );
         })}
@@ -175,7 +255,7 @@ export async function InnerRail({
             {droppedScenarios.map((s) => (
               <Link
                 key={s.scenarioLabel}
-                href={`/projects/${projectId}/quotes/${s.latestQuoteId}/costing`}
+                href={`/projects/${projectId}/quotes/${s.latestQuoteId}/pricing`}
                 className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-ink-4 line-through hover:text-ink-3"
               >
                 <span className="truncate">{s.scenarioLabel}</span>
@@ -195,7 +275,7 @@ export async function InnerRail({
               {droppedScenarios.map((s) => (
                 <Link
                   key={s.scenarioLabel}
-                  href={`/projects/${projectId}/quotes/${s.latestQuoteId}/costing`}
+                  href={`/projects/${projectId}/quotes/${s.latestQuoteId}/pricing`}
                   className="flex items-center gap-1.5 px-2 py-1 text-xs text-ink-4 line-through hover:text-ink-3"
                 >
                   <span className="truncate">{s.scenarioLabel}</span>
@@ -209,17 +289,52 @@ export async function InnerRail({
         )}
       </div>
 
-      {/* Mini activity feed — DEFERRED to RI.3 (Project Detail rebuild
-          ships the activity log read query + project-scoped filter; the
-          inner rail's mini feed consumes the same data with a
-          last-N-entries cap). For RI.2, leave a placeholder slot. */}
+      {/* Mini activity feed — Slice RI.8 F-12 fix. Wired via existing
+          getProjectActivity with a smaller limit. Glanceable verbs +
+          compact time; full activity surface still lives on the
+          Project Detail page (limit=30, fuller renderers). */}
       <div className="mt-4 border-t border-rule pt-3">
         <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-4">
           Activity
         </div>
-        <div className="mt-2 text-[11px] italic text-ink-4">
-          Mini feed — RI.3
-        </div>
+        {activity.length === 0 ? (
+          <div className="mt-2 text-[11px] italic text-ink-4">
+            No activity yet
+          </div>
+        ) : (
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {activity.map((a) => (
+              <li
+                key={a.id}
+                className="flex items-baseline gap-1.5 text-[11px] leading-snug"
+                title={a.summary ?? a.action}
+              >
+                <span className="font-mono text-[9.5px] text-ink-4 shrink-0 w-7">
+                  {compactTime(a.createdAt)}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-ink-3">
+                  <span className="text-ink-2">
+                    {a.userName ?? "—"}
+                  </span>{" "}
+                  <span className="text-ink-4">
+                    {shortenAction(a.action)}
+                  </span>
+                  {a.entityLabel && (
+                    <span className="text-ink-3"> · {a.entityLabel}</span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {activity.length === RAIL_ACTIVITY_LIMIT && (
+          <Link
+            href={`/projects/${projectId}`}
+            className="mt-2 inline-block font-mono text-[9.5px] uppercase tracking-[0.06em] text-accent-ink hover:text-ink"
+          >
+            All activity →
+          </Link>
+        )}
       </div>
     </aside>
   );

@@ -290,6 +290,15 @@ export type ScenarioVersion = {
   copiedFromQuoteId: string | null;
   createdAt: Date;
   updatedAt: Date;
+  /** Slice RI.8 — quote completeness flags powering state-aware
+   * routing on Project Detail (version-row clicks + scenario card
+   * action buttons). hasSetupComplete = has at least 1 SKU AND at
+   * least 1 tier with non-null qty. hasCostInputs = has any
+   * packaging / production / freight / bulk_raw data. Together
+   * they pick the right default surface for entering a quote
+   * (Setup / Costs / Pricing). */
+  hasSetupComplete: boolean;
+  hasCostInputs: boolean;
 };
 
 export type ScenarioCard = {
@@ -321,6 +330,8 @@ export async function getProjectScenarioCards(
     copied_from_quote_id: string | null;
     created_at: Date;
     updated_at: Date;
+    has_setup_complete: boolean;
+    has_cost_inputs: boolean;
   }>(sql`
     SELECT
       q.scenario_label,
@@ -336,7 +347,32 @@ export async function getProjectScenarioCards(
       q.sent_at,
       q.copied_from_quote_id,
       q.created_at,
-      q.updated_at
+      q.updated_at,
+      -- Slice RI.8 — quote completeness flags for state-aware routing
+      -- on Project Detail. EXISTS subqueries avoid N+1 client lookups.
+      (
+        EXISTS (SELECT 1 FROM quote_skus WHERE quote_id = q.id)
+        AND
+        EXISTS (SELECT 1 FROM quote_tiers WHERE quote_id = q.id AND qty IS NOT NULL)
+      ) AS has_setup_complete,
+      (
+        EXISTS (
+          SELECT 1 FROM packaging_inputs pi
+          JOIN quote_skus qs ON qs.id = pi.quote_sku_id
+          WHERE qs.quote_id = q.id
+        )
+        OR EXISTS (
+          SELECT 1 FROM production_inputs prod
+          JOIN quote_skus qs ON qs.id = prod.quote_sku_id
+          WHERE qs.quote_id = q.id
+        )
+        OR EXISTS (
+          SELECT 1 FROM freight_inputs fi
+          JOIN quote_skus qs ON qs.id = fi.quote_sku_id
+          WHERE qs.quote_id = q.id
+        )
+        OR EXISTS (SELECT 1 FROM bulk_raw_categories WHERE quote_id = q.id)
+      ) AS has_cost_inputs
     FROM quotes q
     WHERE q.project_id = ${projectId}
     ORDER BY q.scenario_label, q.version_number DESC
@@ -361,6 +397,8 @@ export async function getProjectScenarioCards(
     copied_from_quote_id: string | null;
     created_at: Date;
     updated_at: Date;
+    has_setup_complete: boolean;
+    has_cost_inputs: boolean;
   }>) {
     if (!byLabel.has(r.scenario_label)) {
       byLabel.set(r.scenario_label, {
@@ -382,6 +420,8 @@ export async function getProjectScenarioCards(
       copiedFromQuoteId: r.copied_from_quote_id,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
+      hasSetupComplete: r.has_setup_complete,
+      hasCostInputs: r.has_cost_inputs,
     });
   }
   return Array.from(byLabel.values());
@@ -464,7 +504,12 @@ export async function getProjectActivity(
     summary: r.summary,
     entityLabel: r.entity_label,
     diffJson: r.diff_json,
-    createdAt: r.created_at,
+    // Coerce: db.execute returns timestamps as ISO strings even
+    // though the generic types it Date. Per CLAUDE.md "Drizzle
+    // aggregation queries" — sql<T> is an assertion, not a runtime
+    // guarantee. Callers expecting Date methods crash without this.
+    createdAt:
+      r.created_at instanceof Date ? r.created_at : new Date(r.created_at),
   }));
 }
 

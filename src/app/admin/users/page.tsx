@@ -4,17 +4,26 @@ import { users } from "@/db/schema";
 import { requireAdminPage } from "@/lib/admin-guard";
 import { UsersTable } from "./users-table";
 
-// Slice RI.7 — admin user-management surface. v1 scope is narrow:
-// manual phone entry for PreparedBy contact derivation (CR-SM DEC-8).
+// Slice RI.8 step 4 — Round 5 vocabulary extrapolation to /admin/users.
+// CD did NOT ship a R5 design for this page; we extend the R5 vocabulary
+// established for firm-settings + markup-defaults + audit-log:
+// - .r5-page wrapper with .r5-page-head (eyebrow + italic em h1 + sub)
+// - .r5-users-table grid with click-Edit row pattern (mirrors
+//   .r5-md-row's row-becomes-editor)
+// - role pill (mono + uppercase + accent-tinted for admin)
+// - "no phone" chip (mirrors .unused-chip on markup defaults)
+// - Designer note panel at bottom
 //
-// HubSpot Owners API has no phone (verified against
-// @hubspot/api-client PublicOwner schema), so phone is exclusively
-// admin-managed manual entry. Users without phone render the customer
-// view PdfHeader with the phone line OMITTED (graceful degradation;
-// email is the canonical contact in CDM contracts).
+// What stays placeholder (per R5 brief vocabulary "drawn-but-inert
+// for not-yet-built"):
+// - Role transitions (admin/pm/purchasing/...) edit affordance. v1
+//   stays DB-direct per pre-existing comment; UI is post-MVP scope.
+// - "+ Invite user" button — Clerk auto-provisions on sign-in; no
+//   admin-invite path exists today. Add when invite flow lands.
 //
-// Role transitions / archival affordances live here too as future
-// scope — the surface is the right home for any user-management work.
+// v1 scope unchanged from RI.7: phone-only inline edit. The R5
+// presentation makes the page belong with the rest of the admin
+// surfaces without expanding feature scope.
 
 export default async function AdminUsersPage() {
   await requireAdminPage();
@@ -22,52 +31,41 @@ export default async function AdminUsersPage() {
   const rows = await db.select().from(users).orderBy(asc(users.name));
 
   return (
-    <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold text-slate-900">Users</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Per-user details. <strong>Phone</strong> is the load-bearing
-          field for v1 — it appears on customer-facing PDFs in the
-          PreparedBy block when the user is the sales rep on a deal.
-          HubSpot does not sync phone; enter manually here.
+    <div className="r5-page">
+      <div className="r5-page-head">
+        <p className="eyebrow">Admin · Users</p>
+        <h1>
+          Manage <em>users</em>
+        </h1>
+        <p className="sub">
+          Users are auto-provisioned via Clerk sign-in. The load-bearing
+          edit here is <strong style={{ color: "var(--ink)" }}>phone</strong>{" "}
+          — it populates the PreparedBy block on customer-facing PDFs.
+          HubSpot doesn&rsquo;t sync phone, so it&rsquo;s admin-managed
+          manually.
         </p>
-      </header>
+      </div>
 
-      <section className="rounded-md border border-slate-300 bg-white">
-        <UsersTable
-          users={rows.map((r) => ({
-            id: r.id,
-            email: r.email,
-            name: r.name,
-            role: r.role,
-            phone: r.phone,
-          }))}
-        />
-      </section>
+      <UsersTable
+        users={rows.map((r) => ({
+          id: r.id,
+          email: r.email,
+          name: r.name,
+          role: r.role,
+          phone: r.phone,
+        }))}
+      />
 
-      <details className="rounded-md border border-slate-300 bg-white p-5 text-sm text-slate-600">
-        <summary className="cursor-pointer font-semibold text-slate-900">
-          About this surface
-        </summary>
-        <div className="mt-2 space-y-2">
-          <p>
-            Users are auto-provisioned on first sign-in via Clerk;{" "}
-            <code>name</code> + <code>email</code> are pulled from the
-            Clerk profile. <code>role</code> is admin or pm based on
-            the <code>ADMIN_EMAILS</code> env at first sign-in. To
-            change a user's role today, edit the database directly —
-            role-editing UI is post-v1 scope.
-          </p>
-          <p>
-            <strong>Phone</strong> is the only field this surface lets
-            you edit. It populates{" "}
-            <code>quotes.prepared_by_phone_snapshot</code> at sendQuote
-            time via the PreparedBy resolution chain. If a user has no
-            phone here, the customer view PdfHeader simply omits the
-            phone line — email is sufficient contact for the customer.
-          </p>
-        </div>
-      </details>
+      <div className="r5-dn">
+        <span className="lbl">Designer note</span>
+        Phone is the only field this surface lets you edit; name + email
+        come from Clerk, and role transitions are DB-direct in v1. Once
+        we have an invite-flow (admin pre-creates user, role gets picked
+        before first sign-in) plus a role-edit affordance, this surface
+        grows two more click-Edit columns. Re-evaluate the table shape
+        when that scope lands — at three editable columns the
+        click-Edit-the-whole-row pattern starts to crowd.
+      </div>
     </div>
   );
 }

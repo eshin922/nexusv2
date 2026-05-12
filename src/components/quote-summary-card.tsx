@@ -12,7 +12,7 @@ import {
 } from "@/lib/costing-store";
 import type { QuoteCostBreakdown } from "@/lib/costing";
 import { useCostingStore } from "./costing-store-provider";
-import { MarginVerdictPill } from "./costing/margin-verdict-pill";
+import { MarginVerdictPill } from "./pricing/margin-verdict-pill";
 import { GlobalPriceAdjInput } from "./global-price-adj-input";
 import { QuoteTargetMarginPopover } from "./quote-target-margin-popover";
 import { TierPriceAdjInput } from "./tier-price-adj-input";
@@ -35,7 +35,7 @@ export type CostingPage = "packaging" | "production" | "freight";
 // falling back to stale cached client state.
 //
 // Two display variants:
-//   - `compact`: cost-input pages (small header, "Open Costing Sheet →" link)
+//   - `compact`: cost-input pages (small header, "Open Pricing →" link)
 //   - `full`:    costing sheet (larger header, no self-link)
 
 function fmtCurr(n: number): string {
@@ -107,10 +107,10 @@ export function QuoteSummaryCard({
           </Link>
           {variant === "compact" && (
             <Link
-              href={`/projects/${projectId}/quotes/${quoteId}/costing`}
+              href={`/projects/${projectId}/quotes/${quoteId}/pricing`}
               className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium hover:bg-gray-50"
             >
-              Open Costing Sheet →
+              Open Pricing →
             </Link>
           )}
         </div>

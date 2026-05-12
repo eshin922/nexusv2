@@ -7,15 +7,15 @@
 // the project doesn't have ESLint configured yet (UX_BACKLOG: migrate
 // to ESLint when lint infra arrives; tracking entry below).
 //
-// Run via `node --experimental-strip-types scripts/verify/customer-view-boundary.ts`.
+// Run via `node --experimental-strip-types scripts/verify/quote-boundary.ts`.
 // Hooked into the prebuild step (next.config or npm script) so failures
 // surface at `next build` time, not just smoke.
 //
 // Failure mode: process.exit(1) with the offending file + import.
 //
 // Sources blocked from `src/components/pdf/`:
-//   - @/components/cost-build/*
-//   - @/components/costing/*
+//   - @/components/costs/*
+//   - @/components/pricing/*
 //   - @/components/internal-only-badge*
 //   - @/lib/costing
 //   - @/lib/costing-store
@@ -29,9 +29,14 @@ import { join, relative } from "node:path";
 const ROOT = process.cwd();
 const PDF_DIR = join(ROOT, "src", "components", "pdf");
 
+// Slice RI.8 surface naming canon — path patterns updated:
+//   @/components/cost-build → @/components/costs (Costs surface)
+//   @/components/costing    → @/components/pricing (Pricing surface)
+// `costing-store` + `lib/costing` remain concept-anchored data layer
+// names; stay forbidden from the Quote (was Customer view) subtree.
 const FORBIDDEN_PATTERNS: ReadonlyArray<{ pattern: RegExp; reason: string }> = [
-  { pattern: /^@\/components\/cost-build/, reason: "cost-build surface" },
-  { pattern: /^@\/components\/costing/, reason: "costing surface" },
+  { pattern: /^@\/components\/costs/, reason: "Costs surface (was cost-build)" },
+  { pattern: /^@\/components\/pricing/, reason: "Pricing surface (was costing)" },
   {
     pattern: /^@\/components\/internal-only-badge/,
     reason: "internal-only-badge (customer-invisible signal)",
@@ -95,7 +100,7 @@ if (violations.length > 0) {
     console.error();
   }
   console.error(
-    "Fix: extract the customer-visible piece into @/types/customer-view, or hoist the offending data fetch to the page-level RSC and pass typed props down."
+    "Fix: extract the customer-visible piece into @/types/quote, or hoist the offending data fetch to the page-level RSC and pass typed props down."
   );
   process.exit(1);
 }

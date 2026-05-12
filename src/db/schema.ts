@@ -112,7 +112,7 @@ export const scenarioDropReason = pgEnum("scenario_drop_reason", [
 ]);
 
 // Slice RI.1 — Bulk Raw raws-mode tri-state per Bulk Raw correction.
-// Determines whether the Cost Build page renders the Bulk Raw
+// Determines whether the Costs page renders the Bulk Raw
 // section + which row-set the cost stack header shows.
 export const rawsMode = pgEnum("raws_mode", [
   "cm_sources",

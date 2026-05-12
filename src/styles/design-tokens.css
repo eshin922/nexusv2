@@ -25,6 +25,19 @@
  * specifics for now.
  */
 
+/* ─── color-scheme — native form control theming ────────────
+ * Tells the browser to render native form controls (<select> dropdown
+ * lists, scrollbars, date pickers, autofill backgrounds) in light or
+ * dark mode. Without this, native dropdowns render in the OS default
+ * theme regardless of our data-theme attribute — e.g. a <select>'s
+ * popup list shows up with a white background in dark mode.
+ *
+ * Pinned to :root so the value is inherited even if elsewhere we
+ * scope themes onto a different element.
+ */
+:root { color-scheme: light; }
+[data-theme="dark"] { color-scheme: dark; }
+
 /* ─── Light mode (default) ──────────────────────────── */
 :root {
   /* Paper palette */
@@ -90,6 +103,16 @@
   --shadow-sm: 0 1px 0 oklch(0.88 0.012 85), 0 1px 2px oklch(0.20 0.02 255 / 0.04);
   --shadow-md: 0 1px 0 oklch(0.88 0.012 85), 0 8px 24px oklch(0.20 0.02 255 / 0.06);
   --shadow-lg: 0 24px 60px oklch(0.20 0.02 255 / 0.12);
+
+  /* Slice RI.8 step 8 — admin chrome bar. Distinct surface from the
+     body that signals "you're in admin." In light mode: ink-dark
+     bar with paper text (dramatic privileged-area chrome). In dark
+     mode (override below): paper-4 (the most-elevated dark surface)
+     with ink text — subtle elevation rather than inversion, so the
+     bar doesn't read as "stray light-mode chrome" in a dark page. */
+  --admin-chrome-bg:    var(--ink);
+  --admin-chrome-text:  var(--paper);
+  --admin-chrome-muted: var(--paper-3);
 }
 
 /* ─── Dark mode override ────────────────────────────── */
@@ -147,4 +170,11 @@
   --shadow-sm: 0 1px 0 oklch(0.30 0.014 255), 0 1px 2px oklch(0 0 0 / 0.4);
   --shadow-md: 0 1px 0 oklch(0.30 0.014 255), 0 8px 24px oklch(0 0 0 / 0.5);
   --shadow-lg: 0 24px 60px oklch(0 0 0 / 0.6);
+
+  /* Admin chrome — subtle elevation above body in dark mode (paper-4
+     is the most-elevated dark surface; reads as "chrome distinct
+     from page" without inverting to a glaring light bar). */
+  --admin-chrome-bg:    var(--paper-4);
+  --admin-chrome-text:  var(--ink);
+  --admin-chrome-muted: var(--ink-3);
 }

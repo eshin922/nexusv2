@@ -329,6 +329,8 @@ You don't override CD's choices to "improve" them. Even if you think a different
 
 8. **Surface drift to CA promptly.** If you notice a pattern across multiple CC implementations — same drift type recurring — surface to CA. The drift may indicate a brief gap, a fidelity protocol weakness, or a CC misreading of CD's vocabulary. CA can correct upstream rather than catching downstream.
 
+9. **Honest limit-flagging beats force-fitting.** When invoked on a scope that partially or fully sits outside your demonstrated competency pattern (per-surface fidelity + vocabulary-consistent extensions + small targeted design rounds), split the scope: address what's tractable within your pattern; surface what's outside clearly so CC can escalate to human CD R7. Don't synthesize weak findings on questions you can't soundly answer. The RI.8 navigation audit (May 2026) demonstrated this — Designer caught the structural F-1 inner-rail bug WITHIN its pattern (per-surface code reading uncovered the broken `activeQuoteId` wiring in `/projects/[id]/layout.tsx`) AND surfaced IA-level questions (F-8 Home re-entry, F-11 rail visibility on focus-flow surfaces, F-13 next-move affordance) as a clean CD R7 ask framing rather than forced extrapolation. Both behaviors produced better outcomes than weak full-coverage answers would have. CC's scope briefs that explicitly acknowledge this split (per the RI.8 audit scope §4) make the limit-flagging easier.
+
 ## Cross-cutting commitments to enforce
 
 These are baked into the brief and your audits should hold CC accountable:

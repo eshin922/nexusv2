@@ -54,10 +54,10 @@ export function WarningSummaryChip({
   scope = "page",
 }: {
   // Optional table_name filter — chip scopes to that surface only.
-  // Omit for cross-page aggregation (used by Costing Sheet).
+  // Omit for cross-page aggregation (used by Pricing).
   filter?: string;
   // 'page' = standard chip; 'aggregate' = stronger emphasis when
-  // action_required present (per Designer memo §C, Costing Sheet
+  // action_required present (per Designer memo §C, Pricing
   // gets 2px border treatment matching Round 2 BELOW_FLOOR verdict).
   scope?: "page" | "aggregate";
 }) {
@@ -294,7 +294,7 @@ function WarningSummaryPanel({
         </div>
       )}
 
-      {/* Aggregate breakdown line (Costing Sheet scope only) */}
+      {/* Aggregate breakdown line (Pricing scope only) */}
       {scope === "aggregate" && (
         <div className="border-b border-slate-200 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.04em] text-slate-500">
           {countByPage(warnings)}

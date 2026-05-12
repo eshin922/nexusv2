@@ -180,6 +180,14 @@ function trimOrNull(v: FormDataEntryValue | null): string | null {
 
 // ---------- quote-level actions ----------
 
+// Initial-quote creator. Used by NextActionCard's "Open Setup →"
+// button on just-created projects (no scenarios yet). Always
+// creates the "Primary" scenario at versionNumber=1; if invoked
+// when Primary already exists, increments versionNumber within
+// Primary — historical behavior preserved so the "Open Setup"
+// affordance stays idempotent for repeat clicks. PMs creating a
+// distinct scenario family use `createScenario` (button position
+// + label make the distinction; see below).
 export async function createQuote(formData: FormData) {
   const projectId = String(formData.get("projectId") ?? "").trim();
   if (!projectId) throw new Error("projectId required");
@@ -226,6 +234,71 @@ export async function createQuote(formData: FormData) {
       project_id: projectId,
       scenario_label: "Primary",
       version_number: versionNumber,
+    },
+  });
+
+  redirect(`/projects/${projectId}/quotes/${quote.id}`);
+}
+
+// Slice RI.8 Issue 4 fix — "+ New scenario" creates a NEW scenario
+// family (separate scenarioLabel + versionNumber=1), not a new
+// version of Primary. Pre-RI.8 the button was wired to createQuote
+// which silently incremented Primary's version, so PMs clicking
+// "+ New scenario" thinking they'd get an alternative scenario
+// instead got a new draft version of Primary.
+//
+// Auto-naming: picks the next available "Alt N" label
+// (Alt 1, Alt 2, ...). PMs rename via scenario-label editing
+// (post-MVP affordance; not yet wired). Naming starts at 1 — PMs
+// who want a meaningful name can rename when that surface lands.
+export async function createScenario(formData: FormData) {
+  const projectId = String(formData.get("projectId") ?? "").trim();
+  if (!projectId) throw new Error("projectId required");
+
+  const user = await ensureUser();
+
+  // Find next available "Alt N" label. Returns distinct scenario
+  // labels for the project; we pick the lowest unused N.
+  const existingScenarios = await db
+    .selectDistinct({ scenarioLabel: quotes.scenarioLabel })
+    .from(quotes)
+    .where(eq(quotes.projectId, projectId));
+
+  const existingLabels = new Set(existingScenarios.map((r) => r.scenarioLabel));
+  let n = 1;
+  while (existingLabels.has(`Alt ${n}`)) n++;
+  const scenarioLabel = `Alt ${n}`;
+
+  const [quote] = await db
+    .insert(quotes)
+    .values({
+      projectId,
+      scenarioLabel,
+      scenarioStatus: "active",
+      versionNumber: 1,
+      status: "draft",
+      globalPriceAdjPct: "0",
+      createdByUserId: user.id,
+    })
+    .returning({ id: quotes.id });
+
+  await db.insert(quoteTiers).values({
+    quoteId: quote.id,
+    label: "Tier 1",
+    qty: null,
+    sortOrder: 0,
+  });
+
+  await logAudit({
+    userId: user.id,
+    entityType: "quote",
+    entityId: quote.id,
+    action: "created",
+    diffJson: {
+      project_id: projectId,
+      scenario_label: scenarioLabel,
+      version_number: 1,
+      created_via: "new_scenario_button",
     },
   });
 
@@ -1638,7 +1711,7 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
 //
 // UI affordance for RI.7: the customer-view preview-toolbar Download
 // buttons trigger this (stubbed PDF generation; Slice 11 wires real
-// PDF render + email). Cost Build / Costing Sheet status banners
+// PDF render + email). Costs / Pricing status banners
 // pick up the new 'sent' state via existing requireDraft guards.
 export async function sendQuote(
   formData: FormData,
@@ -1836,7 +1909,7 @@ export async function sendQuote(
 
 // DEC-1 + DEC-2: record the customer signal as a timestamped event,
 // distinct from PM finalization via Mark-Accepted. PM clicks
-// "Customer responded · Tier N" on Costing Sheet adjacent to the
+// "Customer responded · Tier N" on Pricing adjacent to the
 // Mark-Accepted cluster. The quote stays at status='sent'; the
 // `customer_accepted_at IS NOT NULL` tuple is the awaiting-mark
 // sub-state (Mark-Accepted page renders affirmation chip).

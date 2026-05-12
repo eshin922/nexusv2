@@ -187,13 +187,20 @@ assert(
   bottle.freightLines[0].landedFreightBeforeMarkup,
   0.274,
 );
+// Slice RI.8 freight-markup feature — markup now applies to
+// CONTAINER only (CA decision). D+T pass through at customs-stated
+// rate. Old math: landedBefore × (1 + freightMarkup).
+// New math: containerWithMarkup + duty + tariff
+//        = (0.1 × 1.30) + 0.024 + 0.15 = 0.13 + 0.174 = 0.304.
 assert(
-  "landedFreightWithMarkup",
+  "landedFreightWithMarkup (container-only markup)",
   bottle.freightLines[0].landedFreightWithMarkup,
-  0.3562,
+  0.304,
 );
 assert("contributionCostPerUnit", bottle.contributionCostPerUnit, 0.874);
-assert("requiredSellPerUnit", bottle.requiredSellPerUnit, 1.1862);
+// requiredSell shifts by -0.0522 (= (0.024 + 0.15) × 0.30 D+T markup
+// no longer applied). Same shift propagates to assembly + tier.
+assert("requiredSellPerUnit", bottle.requiredSellPerUnit, 1.134);
 
 console.log("\n=== Cap (leaf) ===");
 assert("contributionCostPerUnit", cap.contributionCostPerUnit, 0.05);
@@ -205,24 +212,30 @@ assert("requiredSellPerUnit", label.requiredSellPerUnit, 0.03);
 
 console.log("\n=== Lip Oil (assembly) ===");
 assert("contributionCostPerUnit", lipOil.contributionCostPerUnit, 0.944);
-assert("requiredSellPerUnit", lipOil.requiredSellPerUnit, 1.2862);
+// Same -0.0522 shift from container-only freight markup.
+assert("requiredSellPerUnit", lipOil.requiredSellPerUnit, 1.234);
 
 console.log("\n=== Gift Set (top-level assembly) ===");
 assert("contributionCostPerUnit", giftSet.contributionCostPerUnit, 0.944);
-assert("requiredSellPerUnit", giftSet.requiredSellPerUnit, 1.2862);
+assert("requiredSellPerUnit", giftSet.requiredSellPerUnit, 1.234);
 
 console.log("\n=== Quote-level T1 (50k) ===");
-assert("totalRevenue", tierRollup.totalRevenue, 64310, 0.5);
+// Revenue shift: 0.0522 × 50000 units = 2610 less revenue.
+// 64310 - 2610 = 61700.
+assert("totalRevenue", tierRollup.totalRevenue, 61700, 0.5);
 assert("totalCost", tierRollup.totalCost, 47200, 0.5);
-assert("blendedMarginPct", tierRollup.blendedMarginPct, 0.266, 0.001);
+// Margin: (61700 - 47200) / 61700 = 14500 / 61700 ≈ 0.235.
+assert("blendedMarginPct", tierRollup.blendedMarginPct, 0.235, 0.001);
+// 0.235 < floor (0.25) → BELOW_FLOOR (was BELOW_TARGET pre-change).
 console.log(
-  `  ${tierRollup.blendedMarginStatus === "BELOW_TARGET" ? "PASS" : "FAIL"}  blendedMarginStatus = ${tierRollup.blendedMarginStatus} (expected BELOW_TARGET)`,
+  `  ${tierRollup.blendedMarginStatus === "BELOW_FLOOR" ? "PASS" : "FAIL"}  blendedMarginStatus = ${tierRollup.blendedMarginStatus} (expected BELOW_FLOOR)`,
 );
-if (tierRollup.blendedMarginStatus !== "BELOW_TARGET") failures += 1;
+if (tierRollup.blendedMarginStatus !== "BELOW_FLOOR") failures += 1;
+// Larger suggested adj needed to lift margin past floor + target.
 assert(
   "suggestedGlobalAdjPct",
   tierRollup.suggestedGlobalAdjPct ?? -1,
-  0.13,
+  0.18,
   0.001,
 );
 
@@ -240,6 +253,52 @@ assert("breakdown.serviceFees", b.serviceFees, 0, 0.5);
 const breakdownSum = b.packaging + b.production + b.freight + b.serviceFees;
 assert("breakdown sum ≈ totalCost", breakdownSum, tierRollup.totalCost, 0.5);
 
+// Slice RI.8 Option B+ — D+T bucket split assertions. `freight` must
+// equal `freightContainer + dutyAndTariff` exactly (it's a derived
+// sum). Both component buckets must be non-negative.
+assert(
+  "breakdown.freight = freightContainer + dutyAndTariff",
+  b.freight,
+  b.freightContainer + b.dutyAndTariff,
+  0.001,
+);
+console.log(
+  `  ${b.freightContainer >= 0 ? "PASS" : "FAIL"}  freightContainer non-negative: ${b.freightContainer}`,
+);
+if (b.freightContainer < 0) failures += 1;
+console.log(
+  `  ${b.dutyAndTariff >= 0 ? "PASS" : "FAIL"}  dutyAndTariff non-negative: ${b.dutyAndTariff}`,
+);
+if (b.dutyAndTariff < 0) failures += 1;
+
+// Slice RI.8 Option 2 — per-component marked-up sum invariants.
+// Each markup sum must be ≥ its corresponding cost (markup is
+// always ≥ 0 in valid inputs).
+assert(
+  "packagingMarkupSum ≥ packaging cost",
+  Math.max(0, b.packagingMarkupSum - b.packaging),
+  Math.abs(b.packagingMarkupSum - b.packaging),
+  0.001,
+);
+assert(
+  "productionMarkupSum ≥ production cost",
+  Math.max(0, b.productionMarkupSum - b.production),
+  Math.abs(b.productionMarkupSum - b.production),
+  0.001,
+);
+assert(
+  "freightContainerMarkupSum ≥ freightContainer cost",
+  Math.max(0, b.freightContainerMarkupSum - b.freightContainer),
+  Math.abs(b.freightContainerMarkupSum - b.freightContainer),
+  0.001,
+);
+assert(
+  "dutyAndTariffMarkupSum ≥ dutyAndTariff cost",
+  Math.max(0, b.dutyAndTariffMarkupSum - b.dutyAndTariff),
+  Math.abs(b.dutyAndTariffMarkupSum - b.dutyAndTariff),
+  0.001,
+);
+
 console.log("\n=== Render order (top-down) ===");
 const order = out.skuRollups.map((r) => r.skuLabel).join(" → ");
 const expectedOrder = "GIFT-SET → LIP-OIL-10ML → BOTTLE → CAP → LABEL";
@@ -249,10 +308,16 @@ console.log(
 if (order !== expectedOrder) failures += 1;
 
 // ---- NULL sku_total_cbm graceful-handling test ----
-// Build a minimal one-leaf one-tier quote where the freight line has
-// total_freight set but sku_total_cbm IS NULL. Container freight should
-// be 0 (no division-by-zero, no NaN); duty + tariff still apply.
-console.log("\n=== NULL sku_total_cbm graceful handling ===");
+// Slice RI.8 Option B+ — domestic-freight fallback. NULL cbm no
+// longer zeros container freight; instead this SKU absorbs the
+// full line (v1's per-SKU-per-line assumption makes this safe).
+// Pre-RI.8 behavior was container=0 on NULL cbm; PMs entering
+// domestic freight with no CBM data saw zero contribution. The
+// fallback rule: when skuTotalCbm is unset, allocate the line's
+// total_freight evenly across effective_units → container =
+// total_freight / effective_units. Duty + tariff still apply on
+// top (factory-cost × pct).
+console.log("\n=== NULL sku_total_cbm — domestic-freight fallback ===");
 const nullCbmInput: QuoteCostingInput = {
   quote: { id: "q2", globalPriceAdjPct: 0 },
   firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
@@ -299,10 +364,21 @@ const nullCbmInput: QuoteCostingInput = {
 const nullOut = computeQuoteCosting(nullCbmInput);
 const nullLeaf = nullOut.skuRollups[0].perTier[0];
 const nullLine = nullLeaf.freightLines[0];
-assert("container/unit (NULL cbm)", nullLine.containerFreightPerUnit, 0);
+// Domestic fallback: container = totalFreight / effectiveUnits
+// = 1000 / 10000 = 0.10 per unit. Prior assertion expected 0;
+// behavior changed in Slice RI.8 Option B+.
+assert(
+  "container/unit (NULL cbm — domestic fallback)",
+  nullLine.containerFreightPerUnit,
+  1000 / 10000,
+);
 assert("duty/unit (still applies)", nullLine.dutyPerUnit, 1 * 0.04);
 assert("tariff/unit (still applies)", nullLine.tariffPerUnit, 1 * 0.25);
-assert("landed_before (no container)", nullLine.landedFreightBeforeMarkup, 0.04 + 0.25);
+assert(
+  "landed_before (container + duty + tariff)",
+  nullLine.landedFreightBeforeMarkup,
+  0.1 + 0.04 + 0.25,
+);
 console.log(
   `  ${Number.isFinite(nullLeaf.contributionCostPerUnit) ? "PASS" : "FAIL"}  contributionCost is finite (no NaN): ${nullLeaf.contributionCostPerUnit}`,
 );

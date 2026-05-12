@@ -1,6 +1,6 @@
 // Slice RI.6 — 56px Mark-Accepted MarginVerdict.
 //
-// DISTINCT FROM Costing Sheet's 96px <VerdictBand>. Both read the
+// DISTINCT FROM Pricing's 96px <VerdictBand>. Both read the
 // same blendedMarginPct + blendedMarginStatus selectors when wired
 // to the costing store, but compose differently:
 //

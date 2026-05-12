@@ -5,6 +5,421 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Audit log activity comprehensiveness — rail + page entries]
+
+  **Slice:** Audit log polish slice (~3-5 days, bundled scope).
+  Co-bundle candidate with RI.9 nav slice if both touch inner
+  rail.
+
+  **What:** Both the inner-rail activity feed (~240px, truncated
+  to 6 entries) and the full `/admin/audit-log` page render
+  terse `{actor} {action}` summaries. Example from current state:
+  "Ed Shin price adj" — PM can't tell which tier, which cell,
+  what the previous value was, or what it is now. Misses the
+  point of an audit trail (chase down a change → know what
+  changed). Already-logged adjacent gaps: 5 pre-RI.7 action
+  renderers still show as raw strings; Designer audit L3 entity
+  hyperlinks deferred to v1.5. Bundle all three together.
+
+  **Future state — activity rail (constrained ~240px):**
+  - Short-form: `Ed Shin · T2 Std $14.20→$15.10`
+  - Or 2-line: action header + delta line
+  - Direction arrow + magnitude where applicable
+  - Truncate gracefully with ellipsis; hover or expand for full
+  - Critical: surface scope (tier / scenario / cell) so PM can
+    tell adjustments apart at a glance
+
+  **Future state — full audit log page (comprehensive):**
+  - From-value → to-value for every change
+  - Scope context: scenario name, tier label, cell identity,
+    surface origin
+  - All pre-RI.7 actions get rich renderers (existing UX_BACKLOG
+    entry — folds into this scope)
+  - L3 designer audit finding: entity hyperlinks to source
+    records (v1.5; folds into this scope)
+
+  **Open design questions when slice spawns:**
+  - Activity rail format constraints: lines per entry?
+    Truncation strategy?
+  - Tiered priority — which actions get rich rendering vs
+    minimal? Defaults for unknown action types?
+  - Schema sufficiency check: does `audit_log.diff_json` carry
+    enough scope keys + old/new values for every action type
+    today, or do some actions lose detail at write time? Audit
+    each action emitter; backfill diff shape where missing.
+  - Currency / percent formatting consistency with cost stack
+    register
+  - Action type → renderer map; default fallback renderer
+
+  Reference: flagged by Edward during Slice RI.8 smoke
+  (May 2026) — screenshot of inner rail showing terse "Ed Shin
+  price adj" entries.
+
+- [HubSpot webhook integration — 2-way sync foundation]
+
+  **Slice:** Likely Slice 12 expansion (combined with Mark-
+  Accepted writeback) OR dedicated foundation slice.
+
+  **What:** Currently HubSpot → Nexus sync requires manual
+  refresh via the "Refresh from HubSpot" button. PMs may quote
+  against stale deal data when changes happen in HubSpot (deal
+  stage advances, deal value updates, owner changes) without
+  Nexus being notified.
+
+  **Future state:**
+  - HubSpot webhook endpoint in Nexus (authenticated, idempotent,
+    error-recovery)
+  - Subscribe to deal property change events in HubSpot
+  - Nexus updates cached deal data automatically when webhook
+    fires
+  - Audit log integration tracks which webhook events triggered
+    changes
+
+  **Open design questions when slice spawns:**
+  - Which HubSpot events to subscribe? (Deal property changes,
+    deal stage changes, deal owner changes, deal deletion,
+    association changes)
+  - Conflict resolution: if PM edits the deal in Nexus AND
+    HubSpot updates same field, who wins?
+  - Webhook delivery failure handling: HubSpot retries N times;
+    how does Nexus queue + dead-letter?
+
+  **Scope:** ~1-2 days for webhook handler implementation.
+  Could bundle with Slice 12 (Mark-Accepted writeback) for full
+  bidirectional sync foundation; combined scope ~3-4 days.
+
+  Reference: flagged by Edward during Slice RI.8 architecture
+  discussion (May 2026).
+
+- [Collapsible inner rail]
+
+  **Slice:** Possible homes — bundle with navigation IA CD R7
+  ask findings, RI.9 nav slice implementation, OR step 7
+  cross-surface tactical polish.
+
+  **What:** The inner rail (scenarios list + sub-rail + activity
+  section) on quote-scoped surfaces takes ~240px of horizontal
+  space. On smaller screens or when PMs want maximum main-content
+  area (especially the Costs cost stack which is dense), the
+  rail consumes valuable real estate without always being needed.
+
+  **Future state:**
+  - Collapse / expand toggle (chevron or similar affordance) on
+    inner rail
+  - Collapsed state shows minimal indicator (project glyph or
+    vertical accent strip) or hides entirely
+  - Expanded state restores the full rail
+  - State persists per session or per user preference
+  - Smooth animation transition between states
+
+  **Open design questions when slice spawns:**
+  - Collapse to fully hidden, or to a thin vertical strip with
+    hover-to-expand?
+  - Per-session state (resets each session) vs persistent user
+    preference (stored in user settings)?
+  - Should the outer rail (project switcher) also be
+    collapsible, or only the inner rail?
+  - Keyboard shortcut to toggle?
+
+  Reference: flagged by Edward during Slice RI.8 smoke
+  (May 2026).
+
+- [Incoterm selector for freight]
+
+  **Slice:** RI.9 or freight-model-expansion slice (~4-6h).
+  Adjacent to deferred "Freight mode first-class representation"
+  entry (ocean-import / domestic / air / mixed); candidate to
+  bundle both into a single freight model expansion slice.
+
+  **What:** Freight line currently shows DDP hardcoded (no
+  visible affordance). PMs need to specify other incoterms
+  (EXW for buyer pickup, FOB for port handoff, CIF cost +
+  insurance + freight, CFR, DAP, FCA, etc.) — these determine
+  which costs flow into customer-facing price vs are excluded.
+
+  **Open design question — placement:**
+  - (a) Per freight line — most flexible; rare in CDM workflow
+  - (b) Per freight section
+  - (c) Quote-level setting with optional per-line override
+    (CA lean — most quotes have a single shipping arrangement;
+    per-line override handles the rare mixed case)
+  - (d) Firm default + per-quote override
+
+  **What incoterms affect:**
+  - Math: which costs flow to customer-facing unit price vs are
+    excluded. DDP includes duty/tariff in price; EXW excludes
+    them (buyer's cost). Math layer's current container-only
+    markup + D+T pass-through model assumes DDP; other
+    incoterms shift this.
+  - Customer-facing PDF terms display ("FOB Long Beach" vs
+    "DDP Customer Door"). Slice RI.7 already wires
+    `incoterms_default` on firm_settings + `incoterms_snapshot`
+    on quotes — leveraged at send-time for PDF rendering.
+    Selector here would override the snapshot per-quote /
+    per-line.
+  - Insurance responsibility assignment (CIF includes
+    insurance; CFR doesn't).
+
+  Reference: flagged by Edward during Slice RI.8 cost-stack
+  smoke (May 2026).
+
+- [Cross-section consistency within Costs surface]
+
+  **Slice:** Strong candidate for proposed RI.9.5 Design Audit
+  Slice. If that stays deferred, log as standalone for a
+  dedicated CD R7 round.
+
+  **What:** Packaging, Production, and Freight sections on the
+  Costs surface have inconsistent visual treatments:
+  - Different color palettes (Freight has amber CUSTOMS subsection)
+  - Different layout patterns (Packaging has clean table;
+    Freight has header strip + per-tier row + customs subsection)
+  - Different input visibility (Packaging MARKUP clearly inline
+    column; Freight Duty/Tariff partially obscured in subsection)
+  - Different column registers and footer treatments
+
+  Pattern of inconsistency extends beyond just these two sections
+  — Production section likely has its own variations.
+
+  **Future state:** Unified section visual register across Costs
+  surface. Same card chrome, same header strip pattern, same
+  column structure (component/category/supplier/markup/tiers),
+  same MARKUP placement, same TOTAL footer, same input
+  visibility, same color palette (reserve amber for actual
+  warnings/errors only — not subsection backgrounds).
+
+  **Recommendation to Edward + CA:** reconsider scoping
+  RI.9.5 Design Audit Slice. Slice RI.8 hotfix surfaced
+  multiple architectural-consistency findings reactively (cost
+  stack semantic mismatches × 3, cross-section visual diverge,
+  CustomsRow orphaning during route consolidation, "?" tooltip
+  trigger, autosave focus loss, numeric step attrs); each smoke
+  surfaces another instance. Reactive logging is preserving
+  signal but the systematic review is the structural fix. CC
+  estimate: 1-2 days for a proper cross-surface audit.
+
+  Reference: flagged by Edward during Slice RI.8 cost-stack
+  smoke (May 2026); latest instance of the architectural-
+  consistency pattern.
+
+- [Cost stack bar hover tooltip — cost + markup breakdown]
+
+  **Slice:** Step 7 (cross-surface tactical polish) for (a);
+  RI.9 for (b). OR bundle both into a dedicated "cost stack UX
+  enhancements" slice.
+
+  **What:** Cost-stack bars currently show total component value
+  (e.g., PKG $5.80) with a visual cost+markup bar segmentation
+  but no numeric breakdown. Hover tooltip showing cost + markup
+  composition would help PMs understand contribution sources
+  without leaving the cost stack.
+
+  **Future state — two scope levels:**
+
+  (a) **Tier-level breakdown** — hover PKG bar → tooltip shows
+  "Cost $4.00 + Markup $1.80 = $5.80". Reads from per-component
+  buckets (`componentCost` + `componentMarkupSum` from the math
+  layer). ~1 hour. Implementation depends on Option 2 (per-
+  component markup primitives) — shipped in current Slice RI.8
+  hotfix; data is available, just needs the hover trigger +
+  tooltip rendering.
+
+  (b) **Per-line breakdown** — hover PKG bar → each packaging
+  line's contribution listed ("T&L: $4.00 × 1.45 = $5.80;
+  Secondary: ...; etc."). ~3-4 hours; touches drilldown data
+  shape; visual considerations for multi-line sections (clipping,
+  scrolling within tooltip).
+
+  Apply consistently across PKG, PROD, FRT, D+T components. Use
+  single tooltip component pattern for cross-component
+  consistency.
+
+  **Why deferred from RI.8 hotfix:** scope discipline — the hot-
+  fix is already large (Option 2 + freight markup feature + 5
+  prior commits). Tooltip enhancement is polish work, not bug
+  fix. Edward deferred (a) tier-level alongside (b) per-line so
+  both ship in the same future slice for consistency.
+
+  Reference: flagged by Edward during Slice RI.8 cost-stack
+  smoke (May 2026).
+
+- [Freight markup category scope-restriction decision]
+
+  **Slice:** RI.9 or schema-architecture slice.
+
+  **What:** Slice RI.8 freight-markup feature shipped with the
+  open-model assumption: firm `markup_defaults` entries are
+  identified by category name (text), and any category can be
+  used in any cost section (packaging or freight). Freight
+  auto-populates from `markup_defaults.category = "Freight"` on
+  freight line creation, but nothing prevents PMs from also
+  applying that category to a packaging row, or using a
+  packaging category on a freight row.
+
+  **Architectural question to resolve:** should firm "Freight"
+  category be scope-restricted (only usable in Freight section)
+  or stay open (any category usable anywhere)? Restricting
+  prevents misuse / cross-bleed but limits flexibility. Open
+  model preserves current behavior.
+
+  **Implementation cost when decided:** if scope-restrict, add
+  `markup_defaults.scope` enum column (`global` / `packaging`
+  / `freight`) + migration + UI dropdown filter on each section
+  to only show relevant categories. Action validation rejects
+  out-of-scope assignments.
+
+  Reference: deferred from Slice RI.8 freight-markup feature
+  (May 2026). The freature shipped with open-model auto-populate;
+  this entry captures the scope-restriction follow-up.
+
+- [HelpTooltip trigger — replace bare "?" with Info icon]
+
+  **Slice:** RI.8 step 7 (cross-surface tactical polish)
+
+  **What:** `src/components/help-tooltip.tsx` renders a bare "?"
+  inside a small bordered circle as the tooltip trigger. Edward
+  smoke: reads as awkward / free-floating, doesn't telegraph
+  "interactive." Standard accessibility + clarity pattern is a
+  proper Info icon (lucide-react `<Info>` or equivalent).
+
+  Single-source-of-truth: HelpTooltip is the only "?" trigger
+  pattern in the codebase (grep verified). Replacing the
+  child glyph inside the existing `<button>` propagates to every
+  consumer (CustomsRow, freight-line-row, etc.).
+
+  **Audit task during step 7:**
+  - Replace "?" character with `<Info size={12} />` (or token
+    SVG) inside the trigger button
+  - Verify visual register still matches the surrounding
+    register (small + secondary; doesn't compete with the
+    label it annotates)
+  - Spot-check every consuming surface (Setup, Costs, Pricing,
+    Quote, admin pages) for hover/click + dark-mode contrast
+
+  Reference: flagged by Edward during Slice RI.8 hotfix
+  (May 2026).
+
+- [Cross-surface autosave refactor — blur+Enter pattern]
+
+  **Slice:** RI.8 step 7 (cross-surface tactical polish) OR a
+  small dedicated sweep slice.
+
+  **What:** Slice RI.8 hotfix replaced debounced-on-keystroke
+  autosave with blur+Enter commit on two surfaces (FreightTierCell
+  totalFreight, CustomsRow duty/tariff). Edward smoke: keystroke
+  autosave + optimistic re-render caused focus loss mid-typing
+  for multi-digit numbers — PMs entering "10000" with pauses
+  between digits lost focus on every save fire.
+
+  Pattern: local state updates on every keystroke (input renders
+  correctly), commit fires ONLY on blur (tab out / click away)
+  OR Enter key. Optimistic store push happens at commit, not on
+  every change, so cost-stack / section headers stay in sync at
+  commit boundaries.
+
+  **Remaining files** (~11) using debounced-on-change autosave:
+  - src/app/projects/[id]/quotes/[quoteId]/freight/freight-line-row.tsx (legacy /freight surface)
+  - src/app/projects/[id]/quotes/[quoteId]/notes-editor.tsx
+  - src/app/projects/[id]/quotes/[quoteId]/packaging/packaging-line-row.tsx
+  - src/app/projects/[id]/quotes/[quoteId]/production/production-section.tsx
+  - src/app/projects/[id]/quotes/[quoteId]/sku-row.tsx
+  - src/app/projects/[id]/quotes/[quoteId]/sku-search-panel.tsx
+  - src/app/projects/[id]/quotes/[quoteId]/tier-row.tsx
+  - src/components/costs/packaging-drilldown.tsx
+  - src/components/costs/production-drilldown.tsx
+  - src/components/global-price-adj-input.tsx
+  - src/components/tier-price-adj-input.tsx
+
+  Reference: Slice RI.8 hotfix (May 2026). The 2 freight surfaces
+  establish the canonical pattern.
+
+  **Convention to bank**: numeric/text inputs that fire server
+  saves should commit on blur+Enter, never on keystroke. Keystroke
+  saves only safe when the input is uncontrolled OR when the
+  parent guarantees no remount on save (rare in practice).
+
+- [CBM share — unit-level input model]
+
+  **Slice:** RI.9 cost-stack work
+
+  **What:** Slice RI.8 hotfix added then removed an inline per-tier
+  CBM input on FreightTierCell per Edward's UX call (awkward
+  placement, redundant across tiers — same SKU has identical CBM
+  on each tier). Equal-allocation fallback math in costing.ts
+  handles the no-CBM case correctly for all single-product or
+  similar-sized-SKU shipments.
+
+  **Future state**: single unit-CBM input per SKU on Setup or
+  Costs surface; system computes per-tier `sku_total_cbm` as
+  `unit_cbm × tier_qty` internally. Only matters for
+  ocean-multi-SKU shipments with mixed product sizes — deferred
+  until that use case becomes visible.
+
+  Reference: flagged by Edward during Slice RI.8 hotfix
+  (May 2026). Existing `freight_inputs.sku_total_cbm` column
+  preserved; backfill from a new `quote_skus.unit_cbm` column
+  when this lands.
+
+- [Cross-surface numeric input step attribute audit]
+
+  **Slice:** Slice RI.8 step 7 (cross-surface tactical polish)
+  OR a small dedicated sweep slice.
+
+  **What:** Slice RI.8 Option B+ hotfix flagged that the CBM
+  share input had `step="0.0001"` — spinners incremented by
+  ten-thousandths, making the arrows useless. Hotfix fixed the
+  four freight inputs (totalFreight, skuTotalCbm, dutyPct,
+  tariffPct) to `step="1"`. PMs can still type fractional values
+  freely (the step attribute only constrains the spinner
+  increment + form-submit validation; onChange handlers accept
+  any input).
+
+  **Audit scope:** every `<input type="number">` with a `step`
+  attribute across the app. Likely candidates:
+  - Markup defaults table: defaultMarkupPct (step="0.01" today)
+  - Firm settings: target/floor margin (step="0.01" today)
+  - Setup SKU rows: retail benchmark, quantity inputs
+  - Production drilldown: lump-sum fields (filling/blending,
+    setup fee, etc.)
+  - Packaging line rows: unit cost, qty_per_sellable_unit,
+    markup pct
+  - Global price adjustment slider
+  - Tier qty inputs
+  - Per-cell sell-price override input
+
+  **Convention to bank** if it doesn't already exist: arrows
+  should increment by the natural unit PMs adjust by. Dollars =
+  whole-dollar arrows (step="1"). Percentages = whole-point
+  arrows (step="1"). CBM / fractional units = whole-unit arrows
+  (step="1") with fractional typing supported. Sub-cent
+  precision via arrows is never what PMs want.
+
+  Reference: Slice RI.8 Option B+ hotfix (May 2026).
+
+- [Restore cost-stack RAW + PASS rows under per-component split]
+
+  **Slice:** RI.9 cost-stack work
+
+  **What:** Slice RI.8 Option B+ landed the D+T row split. RAW
+  (when rawsMode ≠ dps_sources) and PASS (services billed
+  separately) still render as hardcoded em-dashes because their
+  buckets aren't broken out from production / serviceFees yet.
+  Complete the split:
+  - RAW: extract `rawCost` from the production sum into its own
+    breakdown bucket. Render only when `rawsMode = dps_sources`
+    (otherwise raws fold into production, same as today).
+  - PASS (passthrough): expose `separateServiceFees` as a
+    breakdown row. Render when any production row has
+    `allocate_service_fees_to_cost = false`.
+
+  Pattern is "row appears when it carries signal" — same logic
+  RAW already used (conditional on dps_sources mode). Avoid the
+  always-visible-always-zero anti-pattern that motivated the
+  D+T relabel in Option A.
+
+  Reference: Slice RI.8 Option B+ hotfix (D+T split landed;
+  RAW/PASS deferred).
+
 - [Multi-tenant quote-number sequence (post-MVP)]
 
   **Slice:** Post-MVP / TBD (when multi-tenant becomes real)
@@ -295,6 +710,58 @@ Items here are intentionally deferred - capture, don't fix in the moment.
   **Why log it:** Don't add the CHECK now (premature; no auto-drop action to validate against). Don't lose the invariant (would create silent data drift). Slice 12 implementation should pick path 1 OR path 2 explicitly.
 
   Reference: `src/db/schema.ts` `quotes.drop_reason` column comment + Slice 12 brief auto-drop section.
+
+- [Setup page feature enhancements]
+
+  **Slice:** §6.b Setup redesign (when CD R7 lands) OR standalone "Setup enhancements" slice
+
+  **What:** Two related enhancements both deferred from RI.8 polish
+  scope. Bundled because they share natural slice routing — either
+  Setup redesign (§6.b) or a standalone "Setup enhancements" slice.
+
+  **(1) Add new product authoring**
+
+  Current state: Setup page supports HubSpot product lookup (search
+  existing) and "+ Add assembly (Nexus-local)" (compose existing
+  components). PMs can't create a brand-new product from Setup —
+  custom one-offs require leaving Nexus, adding to HubSpot, then
+  returning to look up.
+
+  Open design question: where does the new product LIVE?
+  - (a) Nexus-local — quick add, no HubSpot pollution; good for
+    one-off customs (1-2 days)
+  - (b) HubSpot writeback — canonical across firm; good for items
+    reused across customers (2-3 days)
+  - (c) PM choice at creation time with chooser UX (3-4+ days)
+
+  **(2) SKU table interactivity**
+
+  Current state: Table supports basic operations (add/remove/reorder
+  via up-down arrows). Lacks modern interactivity for the assembly
+  use case — Assemblies are first-class (per existing TYPE column
+  distinguishing Leaf vs Assembly) but nested component structure
+  isn't surfaced in the table.
+
+  Future state:
+  - Drag-and-drop row reordering (replaces up/down arrows in
+    ACTIONS column)
+  - Assembly rows expand/collapse to reveal nested components
+  - Inline edit affordances for nested components consistent with
+    R5/R6 inline-edit table pattern
+  - Better visual distinction between Leaf and Assembly row
+    treatments
+
+  **Routing — both enhancements:**
+  - (a) Bundle into §6.b Setup redesign slice when CD R7 lands —
+    Designer's redesign brief naturally covers both
+  - (b) Standalone "Setup enhancements" slice if Edward wants
+    enhancements before full redesign
+
+  Cleaner if §6.b happens (bundles enhancement with redesign).
+  Standalone is right if redesign waits indefinitely.
+
+  Reference: both flagged by Edward post-RI.8 step 1.5 smoke,
+  May 2026.
 
 - [Per-SKU drill-down from Costing Sheet to Cost Build (post-MVP)]
 

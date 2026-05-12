@@ -1,8 +1,10 @@
 @import "tailwindcss";
 @import "../styles/design-tokens.css";
-@import "../styles/r6-cost-build.css";
-@import "../styles/r2-costing.css";
-@import "../styles/r3-customer-view.css";
+@import "../styles/r6-costs.css";
+@import "../styles/r2-pricing.css";
+@import "../styles/r1-setup.css";
+@import "../styles/r3-quote.css";
+@import "../styles/r5-admin.css";
 
 /*
  * Tailwind v4 @theme block — exposes CD's design tokens to utility
@@ -126,4 +128,151 @@ textarea {
 a {
   color: var(--accent-ink);
   text-decoration: none;
+}
+
+/*
+ * Slice RI.8 step 8 followup — dark-mode central form-field fix.
+ *
+ * Pre-RI.0 surfaces use `bg-white` + `border-gray-300` literally
+ * (95+ JSX classNames). Tailwind v4 emits `bg-white` as a literal
+ * #fff regardless of @theme; renders as glaring white in dark mode
+ * on every form input + card. Stock border palettes
+ * (border-gray-300 / border-slate-300) don't emit at all under
+ * the @theme rebuild — borderless inputs in dark.
+ *
+ * Per Edward + CA call: a single central override fixes every
+ * existing usage without touching 95 component files. Maps the
+ * common stock backgrounds + borders to tokens that swap on
+ * data-theme.
+ *
+ * PDF subtree confirmed clean of bg-white via grep — boundary
+ * intact. Long-term: surfaces adopt token-driven classes
+ * (RI.9+ refactor). This central override makes dark mode
+ * shippable now.
+ */
+.bg-white {
+  background-color: var(--paper) !important;
+}
+.bg-gray-50,
+.bg-slate-50 {
+  background-color: var(--paper-2) !important;
+}
+.bg-gray-100,
+.bg-slate-100 {
+  background-color: var(--paper-3) !important;
+}
+.border-gray-200,
+.border-gray-300,
+.border-slate-200,
+.border-slate-300 {
+  border-color: var(--rule) !important;
+}
+
+/* Neutral text utilities — map slate/gray to ink palette so the
+   most-used "dark text on white" register survives dark-mode swap.
+   These maps approximate the original sRGB luminance; PMs see no
+   change in light mode, dark mode lifts to a readable ink. */
+.text-slate-900,
+.text-gray-900 {
+  color: var(--ink) !important;
+}
+.text-slate-800,
+.text-gray-800,
+.text-slate-700,
+.text-gray-700 {
+  color: var(--ink-2) !important;
+}
+.text-slate-600,
+.text-gray-600,
+.text-slate-500,
+.text-gray-500 {
+  color: var(--ink-3) !important;
+}
+.text-slate-400,
+.text-gray-400 {
+  color: var(--ink-4) !important;
+}
+
+/* Semantic-tinted utilities — amber/red/green/blue stock variants
+   route to the semantic token pairs (warn/bad/good/accent) so
+   margin pills, toast banners, override warnings etc. swap with
+   theme. */
+.bg-amber-50,
+.bg-amber-100,
+.bg-yellow-50,
+.bg-yellow-100 {
+  background-color: var(--warn-soft) !important;
+}
+.text-amber-900,
+.text-amber-800,
+.text-amber-700,
+.text-yellow-900,
+.text-yellow-800 {
+  color: var(--warn) !important;
+}
+.border-amber-200,
+.border-amber-300,
+.border-amber-400 {
+  border-color: oklch(from var(--warn) l c h / 0.4) !important;
+}
+
+.bg-red-50,
+.bg-red-100,
+.bg-rose-50,
+.bg-rose-100 {
+  background-color: var(--bad-soft) !important;
+}
+.text-red-900,
+.text-red-800,
+.text-red-700,
+.text-rose-900,
+.text-rose-800 {
+  color: var(--bad) !important;
+}
+.border-red-200,
+.border-red-300,
+.border-red-400 {
+  border-color: oklch(from var(--bad) l c h / 0.4) !important;
+}
+
+.bg-green-50,
+.bg-green-100,
+.bg-emerald-50,
+.bg-emerald-100 {
+  background-color: var(--good-soft) !important;
+}
+.text-green-900,
+.text-green-800,
+.text-green-700,
+.text-emerald-900,
+.text-emerald-800,
+.text-emerald-700 {
+  color: var(--good) !important;
+}
+.border-green-200,
+.border-green-300 {
+  border-color: oklch(from var(--good) l c h / 0.4) !important;
+}
+
+.bg-blue-50,
+.bg-blue-100,
+.bg-sky-50,
+.bg-sky-100,
+.bg-indigo-50,
+.bg-indigo-100 {
+  background-color: var(--accent-soft) !important;
+}
+.text-blue-900,
+.text-blue-800,
+.text-blue-700,
+.text-sky-900,
+.text-sky-800,
+.text-indigo-900,
+.text-indigo-800 {
+  color: var(--accent-ink) !important;
+}
+.border-blue-200,
+.border-blue-300,
+.border-blue-400 {
+  border-color: oklch(from var(--accent) l c h / 0.4) !important;
 }

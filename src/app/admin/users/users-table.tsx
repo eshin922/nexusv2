@@ -3,13 +3,10 @@
 import { useState, useTransition } from "react";
 import { updateUserPhone } from "@/app/actions/users";
 
-// Slice RI.7 — per-user inline-edit table on /admin/users. v1 scope:
-// edit phone only. Other fields (name, email, role) are read-only.
-//
-// Edit flow: click "Edit" → row swaps to editable input + Save/Cancel.
-// Save fires updateUserPhone; success advances back to read mode with
-// the new value. Inline error display via the action's ActionResult
-// error message.
+// Slice RI.8 step 4 — Round 5 vocabulary on /admin/users. CSS classes
+// `.r5-users-*` mirror `.r5-md-*` shape conventions (click-Edit row
+// becomes editor; foot strip with count). v1 functional scope is
+// unchanged from RI.7: phone-only inline edit.
 
 type Row = {
   id: string;
@@ -20,48 +17,128 @@ type Row = {
 };
 
 export function UsersTable({ users }: { users: Row[] }) {
+  const [editId, setEditId] = useState<string | null>(null);
+  const withPhone = users.filter((u) => u.phone !== null && u.phone !== "").length;
+
   return (
-    <table className="min-w-full divide-y divide-slate-200 text-sm">
-      <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
-        <tr>
-          <th className="px-4 py-2">Name</th>
-          <th className="px-4 py-2">Email</th>
-          <th className="px-4 py-2">Role</th>
-          <th className="px-4 py-2">Phone</th>
-          <th className="px-4 py-2 w-32 text-right">Actions</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-slate-100">
-        {users.map((u) => (
-          <UserRow key={u.id} user={u} />
-        ))}
-        {users.length === 0 && (
-          <tr>
-            <td
-              colSpan={5}
-              className="px-4 py-6 text-center italic text-slate-500"
-            >
-              No users yet — provision via Clerk sign-in.
-            </td>
-          </tr>
-        )}
-      </tbody>
-    </table>
+    <div className="r5-users-table">
+      <div className="r5-users-table-head">
+        <div>Name</div>
+        <div>Email</div>
+        <div>Role</div>
+        <div>Phone</div>
+        <div></div>
+      </div>
+
+      {users.length === 0 ? (
+        <div
+          style={{
+            padding: "24px 22px",
+            textAlign: "center",
+            fontSize: 13,
+            color: "var(--ink-3)",
+            fontStyle: "italic",
+          }}
+        >
+          No users yet — provision via Clerk sign-in.
+        </div>
+      ) : (
+        users.map((u) => (
+          <UserRow
+            key={u.id}
+            user={u}
+            editing={editId === u.id}
+            onStartEdit={() => setEditId(u.id)}
+            onCancel={() => setEditId(null)}
+            onSaved={() => setEditId(null)}
+          />
+        ))
+      )}
+
+      <div className="r5-users-foot">
+        <span>
+          {users.length} user{users.length === 1 ? "" : "s"} · {withPhone} with
+          phone
+        </span>
+        <button
+          type="button"
+          disabled
+          title="Clerk auto-provisions on first sign-in. Admin-invite flow is post-v1."
+          style={{
+            color: "var(--ink-4)",
+            background: "none",
+            border: "none",
+            cursor: "not-allowed",
+            fontFamily: "inherit",
+            fontSize: "inherit",
+            letterSpacing: "0.04em",
+          }}
+        >
+          + INVITE USER
+        </button>
+      </div>
+    </div>
   );
 }
 
-function UserRow({ user }: { user: Row }) {
-  const [editing, setEditing] = useState(false);
+function UserRow({
+  user,
+  editing,
+  onStartEdit,
+  onCancel,
+  onSaved,
+}: {
+  user: Row;
+  editing: boolean;
+  onStartEdit: () => void;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  if (editing) {
+    return <EditingRow user={user} onCancel={onCancel} onSaved={onSaved} />;
+  }
+
+  return (
+    <div className="r5-users-row">
+      <div className="name">
+        {user.name ?? <span className="no-name">(no name)</span>}
+      </div>
+      <div className="email" title={user.email}>
+        {user.email}
+      </div>
+      <div>
+        <span className={`role ${user.role === "admin" ? "admin" : ""}`}>
+          {user.role}
+        </span>
+      </div>
+      <div className="phone">
+        {user.phone ? (
+          user.phone
+        ) : (
+          <span className="empty">no phone</span>
+        )}
+      </div>
+      <div className="actions">
+        <button type="button" onClick={onStartEdit}>
+          Edit
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function EditingRow({
+  user,
+  onCancel,
+  onSaved,
+}: {
+  user: Row;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
   const [phone, setPhone] = useState(user.phone ?? "");
-  const [currentPhone, setCurrentPhone] = useState(user.phone);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-
-  function cancel() {
-    setEditing(false);
-    setPhone(currentPhone ?? "");
-    setError(null);
-  }
 
   function save() {
     setError(null);
@@ -73,77 +150,72 @@ function UserRow({ user }: { user: Row }) {
       if (!r.ok) {
         setError(r.error.message);
       } else {
-        setCurrentPhone(r.data.phone);
-        setEditing(false);
+        onSaved();
       }
     });
   }
 
   return (
-    <tr>
-      <td className="px-4 py-2 font-medium text-slate-900">
-        {user.name ?? <span className="italic text-slate-500">(no name)</span>}
-      </td>
-      <td className="px-4 py-2 text-slate-700">{user.email}</td>
-      <td className="px-4 py-2">
-        <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+    <div className="r5-users-row editing">
+      <div className="name">
+        {user.name ?? <span className="no-name">(no name)</span>}
+      </div>
+      <div className="email" title={user.email}>
+        {user.email}
+      </div>
+      <div>
+        <span className={`role ${user.role === "admin" ? "admin" : ""}`}>
           {user.role}
         </span>
-      </td>
-      <td className="px-4 py-2">
-        {editing ? (
-          <div className="space-y-1">
-            <input
-              type="text"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+1 555 555 0184"
-              className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
-              autoFocus
-            />
-            {error && (
-              <p className="text-xs text-red-700" role="alert">
-                {error}
-              </p>
-            )}
-          </div>
-        ) : currentPhone ? (
-          <span className="font-mono text-xs text-slate-900">{currentPhone}</span>
-        ) : (
-          <span className="italic text-slate-500">—</span>
-        )}
-      </td>
-      <td className="px-4 py-2 text-right">
-        {editing ? (
-          <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={cancel}
-              disabled={pending}
-              className="text-xs text-slate-600 hover:text-slate-900"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={save}
-              disabled={pending}
-              className="r2-btn primary sm"
-              style={{ opacity: pending ? 0.5 : 1 }}
-            >
-              {pending ? "Saving…" : "Save"}
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="text-xs font-medium text-slate-700 underline hover:text-slate-900"
+      </div>
+      <div className="phone">
+        <div className="r5-users-edit">
+          <input
+            type="text"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+1 555 555 0184"
+            autoFocus
+            aria-label={`${user.name ?? user.email} phone`}
+          />
+        </div>
+      </div>
+      <div className="actions">
+        <button
+          type="button"
+          className="cancel"
+          onClick={onCancel}
+          disabled={pending}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="save"
+          onClick={save}
+          disabled={pending}
+        >
+          {pending ? "Saving…" : "Save"}
+        </button>
+      </div>
+
+      <div className="r5-users-edit-help">
+        {error ? (
+          <span
+            role="alert"
+            style={{ color: "var(--bad)", fontWeight: 500 }}
           >
-            Edit phone
-          </button>
+            {error}
+          </span>
+        ) : (
+          <>
+            Phone shows on customer-facing PDFs in the{" "}
+            <strong>PreparedBy</strong> block when this user is the sales rep
+            on a deal. Leave blank if you don&rsquo;t want it on customer
+            comms — the email line stays as canonical contact.
+          </>
         )}
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 }

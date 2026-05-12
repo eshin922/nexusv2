@@ -12,8 +12,26 @@ import {
   type ScenarioCard,
 } from "@/lib/workspace-queries";
 import { archiveProject } from "@/app/actions/projects";
-import { createQuote } from "@/app/actions/quotes";
+import { createQuote, createScenario } from "@/app/actions/quotes";
+import { InnerRail } from "@/components/rails/inner-rail";
 import { CategorySelect } from "./category-select";
+
+// Slice RI.8 — state-aware default surface for version-row clicks.
+// Brand-new quotes (no SKUs/tiers) land on Setup instead of an
+// empty Pricing. PMs adding inputs land on Costs. PMs
+// with cost inputs already in place land on Pricing (current
+// review surface). Edward caught the original "always Costing"
+// behavior in step 0 smoke — new quotes rendered an empty Costing
+// Sheet which read as broken.
+function defaultQuoteSurface(
+  projectId: string,
+  v: { id: string; hasSetupComplete: boolean; hasCostInputs: boolean },
+): string {
+  const base = `/projects/${projectId}/quotes/${v.id}`;
+  if (!v.hasSetupComplete) return base; // Setup (bare quote index)
+  if (!v.hasCostInputs) return `${base}/costs`;
+  return `${base}/pricing`;
+}
 import { ConfirmButton } from "./confirm-button";
 import { RefreshProjectButton } from "./refresh-button";
 
@@ -89,7 +107,12 @@ export default async function ProjectDetailPage({
   );
 
   return (
-    <main className="p-6">
+    /* Slice RI.8 F-1 fix — InnerRail moved out of project layout to
+       avoid double-render under the new quote layout. Project Detail
+       renders its own rail with no activeQuoteId (no sub-rail). */
+    <div className="min-h-screen">
+      <InnerRail projectId={project.id} />
+      <main className="pl-64 p-6">
       {/* Header strip */}
       <div className="mb-6 flex items-start justify-between gap-4 border-b border-rule pb-4">
         <div className="min-w-0">
@@ -204,7 +227,11 @@ export default async function ProjectDetailPage({
                 Scenarios
               </h2>
               {project.status === "active" && (
-                <form action={createQuote}>
+                /* Slice RI.8 Issue 4 fix — calls createScenario
+                   (new scenario family with auto-incremented "Alt N"
+                   label) instead of createQuote (which silently
+                   incremented Primary's version). */
+                <form action={createScenario}>
                   <input type="hidden" name="projectId" value={project.id} />
                   <button
                     type="submit"
@@ -318,7 +345,8 @@ export default async function ProjectDetailPage({
           )}
         </aside>
       </div>
-    </main>
+      </main>
+    </div>
   );
 }
 
@@ -373,12 +401,26 @@ function ScenarioCardView({
             {scenario.versions.length === 1 ? "" : "s"}
           </div>
         </div>
+        {/* Slice RI.8 F-9 dual-affordance + version-explicit labels
+            per Edward's directive. PMs see destination on the
+            button face — no surprise jump to v5 when they meant
+            to inspect the scenario's latest data. "Open" no longer
+            hides the latest-version default behind a single label.
+            Build button visible when there's incomplete cost data
+            (no SKUs, no cost inputs); both buttons visible once
+            there's something to review. */}
         <div className="flex items-center gap-2">
           <Link
-            href={`/projects/${projectId}/quotes/${latest.id}/costing`}
+            href={`/projects/${projectId}/quotes/${latest.id}/costs`}
             className="rounded border border-rule bg-paper px-2.5 py-1 text-xs text-ink-2 hover:border-rule-2 hover:text-ink"
           >
-            Open
+            Build · v{latest.versionNumber}
+          </Link>
+          <Link
+            href={`/projects/${projectId}/quotes/${latest.id}/pricing`}
+            className="rounded border border-rule bg-paper px-2.5 py-1 text-xs font-medium text-ink hover:border-rule-2 hover:bg-paper-2"
+          >
+            Open Costing · v{latest.versionNumber}
           </Link>
         </div>
       </header>
@@ -390,7 +432,7 @@ function ScenarioCardView({
             className="flex items-center justify-between gap-3 py-1.5"
           >
             <Link
-              href={`/projects/${projectId}/quotes/${v.id}/costing`}
+              href={defaultQuoteSurface(projectId, v)}
               className="flex flex-1 items-center gap-2 hover:text-accent"
             >
               <span className="font-mono text-[10px] text-ink-3">

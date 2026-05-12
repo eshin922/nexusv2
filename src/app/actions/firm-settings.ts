@@ -1,9 +1,9 @@
 "use server";
 
-import { desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
-import { auditLog, firmSettings } from "@/db/schema";
+import { auditLog, firmSettings, projects, quotes } from "@/db/schema";
 import { requireAdminAction } from "@/lib/admin-guard";
 import {
   ActionGuardError,
@@ -11,6 +11,7 @@ import {
   runAction,
   type ActionResult,
 } from "@/lib/action-result";
+import { getQuoteCosting } from "./costing";
 
 // Firm-level policy admin actions. The /admin layout already gates
 // access via requireAdmin, but each action calls it again — defense in
@@ -221,6 +222,253 @@ export async function updateFirmSettings(
     revalidatePath("/admin/firm-settings");
 
     return inserted;
+  });
+}
+
+// Slice RI.8 step 3 — portfolio bands + re-band preview engine.
+//
+// Round 5 firm-settings page surfaces "portfolio effect" (live count of
+// sent quotes by margin band) and a re-band preview when the admin
+// proposes new target/floor numbers ("4 quotes change band. 0 newly
+// drop below floor."). Both consume the same per-quote blended-margin
+// list — the bands are just a cheap re-bucket under different
+// thresholds; blended margins themselves are policy-independent.
+//
+// What we compute: every non-draft quote that's still active (not
+// superseded/lost) gets its blended margin via getQuoteCosting. Bucket
+// under current target/floor for the live read; same list re-bucketed
+// for the preview.
+//
+// Performance: getQuoteCosting fires ~10 queries per quote (see
+// CLAUDE.md "getCostingBundle parallel-query discipline"). Iteration
+// is SEQUENTIAL — the inner fan-out already saturates pool slots; an
+// outer Promise.all would balloon demand past pool capacity.
+//
+// At Nexus scale (~50 sent quotes typical) sequential is fine; at
+// that scale it completes in seconds, not minutes. If portfolio grows
+// substantially (200+ sent quotes), introduce a cached blended_margin
+// column refreshed at sendQuote / costing-recompute time. UX_BACKLOG
+// item logged on first encountering the cost. For now: pragmatic
+// straight-line compute.
+export type PortfolioQuoteRow = {
+  quoteId: string;
+  projectName: string;
+  scenarioLabel: string;
+  versionNumber: number;
+  status: string;
+  blendedMarginPct: number; // 0.0..1.0
+};
+
+export type PortfolioBands = {
+  totalQuotes: number;
+  good: number; // >= target
+  belowTarget: number; // floor <= m < target
+  belowFloor: number; // < floor
+  quotes: PortfolioQuoteRow[];
+};
+
+// Internal: get all in-scope quotes with computed blended margins.
+// In-scope = status IN ('sent','accepted') — drafts excluded (they
+// change before send), superseded/lost excluded (out-of-flow).
+async function getPortfolioQuotes(): Promise<PortfolioQuoteRow[]> {
+  const rows = await db
+    .select({
+      quoteId: quotes.id,
+      scenarioLabel: quotes.scenarioLabel,
+      versionNumber: quotes.versionNumber,
+      status: quotes.status,
+      projectName: projects.dealName,
+    })
+    .from(quotes)
+    .innerJoin(projects, eq(projects.id, quotes.projectId))
+    .where(
+      and(
+        // status IN ('sent','accepted') — drafts/superseded/lost excluded
+        ne(quotes.status, "draft"),
+        ne(quotes.status, "superseded"),
+        ne(quotes.status, "lost"),
+      ),
+    );
+
+  // Sequential — each getQuoteCosting fans out internally; outer
+  // Promise.all would saturate the pool (see CLAUDE.md).
+  const out: PortfolioQuoteRow[] = [];
+  for (const r of rows) {
+    const result = await getQuoteCosting(r.quoteId);
+    if (!result.ok) continue; // skip quotes that fail to cost (orphaned)
+    out.push({
+      quoteId: r.quoteId,
+      projectName: r.projectName,
+      scenarioLabel: r.scenarioLabel,
+      versionNumber: r.versionNumber,
+      status: r.status,
+      blendedMarginPct: result.data.quoteSummary.blendedMarginPct,
+    });
+  }
+  return out;
+}
+
+function bucketQuotes(
+  quotesIn: PortfolioQuoteRow[],
+  target: number,
+  floor: number,
+): { good: number; belowTarget: number; belowFloor: number } {
+  let good = 0;
+  let belowTarget = 0;
+  let belowFloor = 0;
+  for (const q of quotesIn) {
+    if (q.blendedMarginPct >= target) good++;
+    else if (q.blendedMarginPct >= floor) belowTarget++;
+    else belowFloor++;
+  }
+  return { good, belowTarget, belowFloor };
+}
+
+export async function getFirmPortfolioBands(): Promise<
+  ActionResult<PortfolioBands>
+> {
+  return runAction(async () => {
+    await requireAdminAction();
+    const [fs] = await db
+      .select()
+      .from(firmSettings)
+      .where(isNull(firmSettings.effectiveUntil))
+      .orderBy(desc(firmSettings.effectiveFrom))
+      .limit(1);
+    if (!fs) {
+      throw new ActionGuardError(
+        ERR.NOT_FOUND,
+        "firm_settings has no current row.",
+      );
+    }
+    const quotesList = await getPortfolioQuotes();
+    const target = Number(fs.targetMarginPct);
+    const floor = Number(fs.floorMarginPct);
+    const { good, belowTarget, belowFloor } = bucketQuotes(
+      quotesList,
+      target,
+      floor,
+    );
+    return {
+      totalQuotes: quotesList.length,
+      good,
+      belowTarget,
+      belowFloor,
+      quotes: quotesList,
+    };
+  });
+}
+
+// Re-band preview shape: under hypothetical new target/floor, what
+// counts change band, and which specific quotes are newly below
+// target / below floor. Sample lists capped at 5 for "view all" UX.
+export type RebandPreview = {
+  currentTargetPct: number;
+  currentFloorPct: number;
+  newTargetPct: number;
+  newFloorPct: number;
+  currentBands: { good: number; belowTarget: number; belowFloor: number };
+  newBands: { good: number; belowTarget: number; belowFloor: number };
+  // Bucket transitions for "N change band" header
+  changingBandCount: number;
+  newlyBelowTargetCount: number;
+  newlyBelowFloorCount: number;
+  // Sample affected quotes (cap 5) with their transition
+  newlyBelowTarget: Array<
+    PortfolioQuoteRow & { fromBand: "good"; toBand: "belowTarget" }
+  >;
+  newlyBelowFloor: Array<
+    PortfolioQuoteRow & {
+      fromBand: "good" | "belowTarget";
+      toBand: "belowFloor";
+    }
+  >;
+};
+
+function bandOf(
+  m: number,
+  target: number,
+  floor: number,
+): "good" | "belowTarget" | "belowFloor" {
+  if (m >= target) return "good";
+  if (m >= floor) return "belowTarget";
+  return "belowFloor";
+}
+
+export async function previewFirmSettingsReband(
+  newTargetDecimal: string,
+  newFloorDecimal: string,
+): Promise<ActionResult<RebandPreview>> {
+  return runAction(async () => {
+    await requireAdminAction();
+
+    const newTarget = Number(newTargetDecimal);
+    const newFloor = Number(newFloorDecimal);
+    if (!Number.isFinite(newTarget) || !Number.isFinite(newFloor)) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Target/floor must be finite decimals.",
+      );
+    }
+
+    const [fs] = await db
+      .select()
+      .from(firmSettings)
+      .where(isNull(firmSettings.effectiveUntil))
+      .orderBy(desc(firmSettings.effectiveFrom))
+      .limit(1);
+    if (!fs) {
+      throw new ActionGuardError(
+        ERR.NOT_FOUND,
+        "firm_settings has no current row.",
+      );
+    }
+    const curTarget = Number(fs.targetMarginPct);
+    const curFloor = Number(fs.floorMarginPct);
+    const quotesList = await getPortfolioQuotes();
+
+    const currentBands = bucketQuotes(quotesList, curTarget, curFloor);
+    const newBands = bucketQuotes(quotesList, newTarget, newFloor);
+
+    // Per-quote transitions for affected lists + change count.
+    let changingBandCount = 0;
+    const newlyBelowTarget: RebandPreview["newlyBelowTarget"] = [];
+    const newlyBelowFloor: RebandPreview["newlyBelowFloor"] = [];
+
+    for (const q of quotesList) {
+      const from = bandOf(q.blendedMarginPct, curTarget, curFloor);
+      const to = bandOf(q.blendedMarginPct, newTarget, newFloor);
+      if (from !== to) changingBandCount++;
+
+      if (from === "good" && to === "belowTarget" && newlyBelowTarget.length < 5) {
+        newlyBelowTarget.push({ ...q, fromBand: "good", toBand: "belowTarget" });
+      }
+      if (
+        to === "belowFloor" &&
+        (from === "good" || from === "belowTarget") &&
+        newlyBelowFloor.length < 5
+      ) {
+        newlyBelowFloor.push({
+          ...q,
+          fromBand: from,
+          toBand: "belowFloor",
+        });
+      }
+    }
+
+    return {
+      currentTargetPct: curTarget,
+      currentFloorPct: curFloor,
+      newTargetPct: newTarget,
+      newFloorPct: newFloor,
+      currentBands,
+      newBands,
+      changingBandCount,
+      newlyBelowTargetCount: Math.max(0, newBands.belowTarget - currentBands.belowTarget),
+      newlyBelowFloorCount: Math.max(0, newBands.belowFloor - currentBands.belowFloor),
+      newlyBelowTarget,
+      newlyBelowFloor,
+    };
   });
 }
 

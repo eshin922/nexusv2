@@ -1,0 +1,147 @@
+/*
+ * Slice RI.8 step 1.5 — Setup polish++ stylesheet.
+ *
+ * Ports the relevant R1 classes from
+ * docs/design-prototypes/dist/source/round-1/styles.css to apply
+ * R1 fidelity on the Setup / Quote Builder page. Scope-capped to
+ * Setup only — broader R5 admin rebuild lives in RI.8 steps 2-5
+ * and uses its own register.
+ *
+ * Class scope is intentionally narrow (`.r1-setup-*`) so other
+ * surfaces' similar concepts (card, eyebrow, page-head) don't
+ * collide with R1's specifically-Setup treatment. The existing
+ * .r2-btn primitive serves as the button base; R1 buttons match
+ * R2 closely.
+ */
+
+/* ─── Page head ─────────────────────────────────────── */
+.r1-setup-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+.r1-setup-eyebrow {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-3);
+  margin: 0 0 8px;
+}
+.r1-setup-title {
+  font-family: var(--display);
+  font-size: 36px;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.05;
+}
+.r1-setup-title em {
+  font-style: italic;
+  color: var(--ink-3);
+  font-weight: 400;
+}
+.r1-setup-sub {
+  font-size: 13px;
+  color: var(--ink-3);
+  margin: 8px 0 0;
+  max-width: 60ch;
+}
+
+/* Meta strip beneath the title for status chip + IdBadge + created
+   date. R1 prototype doesn't show these (it's illustrative); they
+   stay useful for PMs identifying the quote at a glance. Live in
+   the eyebrow zone, not in the action cluster on the right. */
+.r1-setup-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+}
+
+/* ─── Setup grid ────────────────────────────────────── */
+.r1-setup-grid {
+  display: grid;
+  /* Slice RI.8 — Designer audit response (Q1 approved): widened
+     from R1's literal 1.4fr 1fr to 2fr 1fr (~67/33). R1's mock
+     SKU table content had short product names; real DPS HubSpot
+     names ("Hydrating Glow Serum 50ml Glass Dropper Bottle
+     Frosted") truncate at the narrower split. R1 composition
+     intent (SKU dominant left, tier rail flanking right) is
+     preserved. See CLAUDE.md "Design was illustrative; real
+     data needs different proportions" for the convention. */
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+
+/* Mobile / narrow: stack vertically. Nexus is desktop-only per
+   SPEC §8 but the wide breakpoint provides a degenerate fallback
+   for laptops with sub-1280px viewports + dev tools open. */
+@media (max-width: 1024px) {
+  .r1-setup-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ─── Cards ─────────────────────────────────────────── */
+.r1-setup-card {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.r1-setup-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--rule);
+}
+.r1-setup-card-head h3 {
+  margin: 0;
+  font-family: var(--ui);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+}
+.r1-setup-card-head .meta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.r1-setup-card-body {
+  padding: 18px;
+}
+.r1-setup-card-body.flush {
+  padding: 0;
+}
+
+/* ─── Tier rows ─────────────────────────────────────── */
+/* Visual register for the tier list inside the Volume tiers card.
+   Existing TierRow component renders inside; this CSS sets the
+   surrounding container shape. */
+.r1-setup-tier-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Empty-state callout inside a card body. */
+.r1-setup-empty {
+  padding: 24px 18px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-3);
+  font-style: italic;
+}

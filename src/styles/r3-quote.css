@@ -1,0 +1,992 @@
+/*
+ * Slice RI.6 — Quote + Mark-Accepted styles per Round 3 source
+ * (docs/design-prototypes/dist/source/round-3/index.html lines 902-1712).
+ *
+ * Two register groups in this file:
+ *
+ * 1. .pdf-* classes (Quote PDF subtree) — LITERAL OKLCH values.
+ *    NO var() references. PDF must render identically regardless of
+ *    theme/dark mode because customers never see the theme.
+ *    See CLAUDE.md "PDF token lock" + Designer memory
+ *    reference_r3_pdf_token_lock.md.
+ *
+ * 2. .macc-*, .preview-*, .tier-card, .modal-*, .version-warning,
+ *    .locked-ribbon, .pending-banner, .state-sub, .formfield,
+ *    .slack-preview, .page-break-marker — PM-only chrome. Theme tokens
+ *    used freely (var(--paper), var(--ink), etc).
+ *
+ * .dn-inline scaffolding from R3 prototype is NOT ported — designer
+ * notes are not customer-facing or PM-facing copy.
+ */
+
+/* ─── Customer-view preview chrome (PM-only) ─────────────── */
+/* Diagonal-stripe pattern field around the PdfPage card. R3 source
+   index.html:902-908. The pattern is on the WRAPPER, not inside
+   PdfPage — boundary-guard-safe since .preview-chrome is in
+   src/components/customer-view/ (UNGUARDED). */
+.preview-chrome {
+  background:
+    repeating-linear-gradient(45deg,
+      oklch(from var(--paper) calc(l - 0.02) c h) 0 12px,
+      var(--paper) 12px 24px);
+  min-height: calc(100vh - 50px);
+  padding: 32px 40px 80px;
+}
+
+/* Toolbar floats as a centered card on the diagonal field —
+   max-width matches PdfPage so the visual rhythm aligns. */
+.preview-toolbar {
+  max-width: 880px;
+  margin: 0 auto 18px;
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+.preview-toolbar .left {
+  display: flex; align-items: center; gap: 12px;
+}
+.preview-toolbar .ribbon {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  background: var(--paper-3);
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+.preview-toolbar .meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+}
+.preview-toolbar .meta strong { color: var(--ink); font-weight: 500; }
+.preview-toolbar .right {
+  display: flex; align-items: center; gap: 10px;
+}
+
+/* Send-as: tier table | single tier — text-toggle inline in toolbar */
+.preview-toolbar .send-as {
+  color: var(--ink-3);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.preview-toolbar .send-as button {
+  background: transparent;
+  border: none;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--ink-4);
+}
+.preview-toolbar .send-as button.active {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.preview-toolbar .send-as .sep { color: var(--ink-4); padding: 0 2px; }
+
+/* ─── PDF page wrapper + descendants — PDF TOKEN LOCK ────── */
+/* Every value below is a literal OKLCH or sRGB. NO var() — see header. */
+.pdf-page {
+  max-width: 880px;
+  margin: 0 auto;
+  background: oklch(0.985 0.005 85);
+  color: oklch(0.20 0.015 255);
+  font-family: "Newsreader", Georgia, serif;
+  padding: 56px 64px 64px;
+  border-radius: 2px;
+  box-shadow:
+    0 1px 0 oklch(0 0 0 / 0.20),
+    0 30px 60px oklch(0 0 0 / 0.45),
+    0 60px 120px oklch(0 0 0 / 0.20);
+  min-height: 1100px;
+  position: relative;
+}
+.pdf-page + .pdf-page { margin-top: 24px; }
+.pdf-page * { box-sizing: border-box; }
+
+/* ─── Dark-mode shadow override (screen-only) ──────────────── */
+/* R3 source's pure-black shadow stack (oklch(0 0 0 / ...)) renders
+   invisible against the dark workspace — black-on-near-black has
+   no visible contrast, so the white PDF abuts the dark mat at
+   full white-to-dark glare with zero lift. Reported by Edward in
+   step 8 dark-mode smoke; logged in step-8 backlog.
+
+   Override adds a paper-tinted rim + soft warm halo specifically
+   for dark-theme rendering. The four shadow layers (top-to-bottom):
+     1. 1px paper-tinted outline rim — defines edge against dark bg
+     2. Standard close shadow — pushed deeper (0.65 alpha) since it
+        has to read through a dark workspace
+     3. Standard far shadow — same logic
+     4. Warm-paper halo glow — simulates ambient light bouncing off
+        a sheet of white paper into a darkened room. Pulls the PDF
+        forward as a "lit artifact" rather than a stamped-on plate.
+
+   PDF token-lock preserved: this rule lives on the WRAPPER's
+   theme attribute and only adjusts box-shadow, which is a screen
+   presentation effect that never enters the PDF render output.
+   All values are literal OKLCH; no var() references — same
+   discipline as the base .pdf-page rule. */
+[data-theme="dark"] .pdf-page {
+  box-shadow:
+    0 0 0 1px oklch(0.55 0.018 85 / 0.30),
+    0 30px 60px oklch(0 0 0 / 0.65),
+    0 60px 120px oklch(0 0 0 / 0.40),
+    0 0 100px oklch(0.92 0.02 85 / 0.06);
+}
+/* Slight padding bump on the workspace in dark mode — more breathing
+   room helps the "white page on dark mat" register feel intentional
+   rather than cramped. */
+[data-theme="dark"] .preview-chrome {
+  padding: 40px 48px 96px;
+}
+
+.pdf-page .pdf-eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: oklch(0.50 0.02 255);
+  margin: 0 0 10px;
+}
+.pdf-page .pdf-h1 {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 34px;
+  font-weight: 400;
+  letter-spacing: -0.020em;
+  margin: 0 0 4px;
+  color: oklch(0.18 0.02 255);
+}
+.pdf-page .pdf-h2 {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  margin: 32px 0 14px;
+  color: oklch(0.18 0.02 255);
+}
+.pdf-page .pdf-h3 {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  margin: 18px 0 8px;
+  color: oklch(0.18 0.02 255);
+}
+.pdf-page p, .pdf-page li {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 13px;
+  color: oklch(0.30 0.015 255);
+  line-height: 1.55;
+}
+.pdf-page .pdf-mono {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  color: oklch(0.40 0.015 255);
+  letter-spacing: 0.02em;
+}
+.pdf-page hr.pdf-rule {
+  border: none;
+  border-top: 1px solid oklch(0.85 0.012 85);
+  margin: 24px 0;
+}
+
+/* PDF header */
+.pdf-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  border-bottom: 2px solid oklch(0.20 0.02 255);
+  padding-bottom: 18px;
+  margin-bottom: 10px;
+}
+.pdf-header .vendor {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: oklch(0.20 0.02 255);
+  font-weight: 500;
+}
+.pdf-header .vendor-sub {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 11.5px;
+  color: oklch(0.45 0.015 255);
+  margin-top: 2px;
+}
+.pdf-header .doc-meta {
+  text-align: right;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10px;
+  color: oklch(0.45 0.015 255);
+  letter-spacing: 0.04em;
+  line-height: 1.7;
+}
+.pdf-header .doc-meta strong { color: oklch(0.18 0.02 255); font-weight: 500; }
+
+/* Customer block */
+.pdf-customer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin: 18px 0 8px;
+}
+.pdf-customer .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: oklch(0.50 0.02 255);
+  margin-bottom: 4px;
+}
+.pdf-customer .name {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 17px;
+  color: oklch(0.18 0.02 255);
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+.pdf-customer .sub {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 12.5px;
+  color: oklch(0.40 0.015 255);
+}
+
+/* Pricing table */
+.pdf-pricing {
+  margin: 14px 0;
+  border-collapse: collapse;
+  width: 100%;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+.pdf-pricing thead th {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: oklch(0.50 0.02 255);
+  text-align: right;
+  padding: 8px 10px;
+  border-bottom: 1px solid oklch(0.20 0.02 255);
+  font-weight: 500;
+}
+.pdf-pricing thead th:first-child { text-align: left; }
+.pdf-pricing tbody td {
+  padding: 10px 10px;
+  border-bottom: 1px solid oklch(0.88 0.012 85);
+  text-align: right;
+  font-size: 12.5px;
+  color: oklch(0.20 0.02 255);
+  vertical-align: middle;
+}
+.pdf-pricing tbody td:first-child {
+  text-align: left;
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 13.5px;
+}
+.pdf-pricing tbody td.qty {
+  color: oklch(0.45 0.015 255);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.pdf-pricing tbody tr.recommended {
+  background: oklch(0.97 0.025 85);
+}
+.pdf-pricing tbody tr.recommended td:first-child {
+  position: relative;
+}
+.pdf-pricing tbody tr.recommended td:first-child::before {
+  content: "★";
+  position: absolute;
+  left: -16px; top: 50%; transform: translateY(-50%);
+  color: oklch(0.55 0.13 75);
+  font-size: 11px;
+}
+.pdf-pricing tbody tr.recommended td.note {
+  font-family: "Newsreader", Georgia, serif;
+  font-style: italic;
+  color: oklch(0.45 0.10 75);
+  font-size: 11.5px;
+  text-align: left;
+}
+.pdf-pricing tbody td.unpriced {
+  color: oklch(0.55 0.02 255);
+  font-style: italic;
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 12px;
+}
+.pdf-pricing tbody tr.flat-row td.flat-note {
+  font-family: "Newsreader", Georgia, serif;
+  font-style: italic;
+  color: oklch(0.50 0.02 255);
+  font-size: 11.5px;
+  text-align: left;
+}
+
+/* Per-SKU block (multi-SKU pass-through layout) */
+.pdf-sku-block {
+  margin: 22px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid oklch(0.88 0.012 85);
+}
+.pdf-sku-block:first-child { border-top: none; padding-top: 0; }
+.pdf-sku-block .sku-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 4px;
+}
+.pdf-sku-block .sku-head .name {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 17px;
+  color: oklch(0.18 0.02 255);
+  font-weight: 500;
+}
+.pdf-sku-block .sku-head .pack {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+  color: oklch(0.50 0.02 255);
+  letter-spacing: 0.04em;
+}
+
+/* Charges */
+.pdf-charges {
+  margin-top: 18px;
+  border-top: 1px solid oklch(0.88 0.012 85);
+  padding-top: 14px;
+}
+.pdf-charge-row {
+  display: grid;
+  grid-template-columns: 1fr 100px 100px;
+  gap: 12px;
+  padding: 8px 0;
+  align-items: baseline;
+  border-bottom: 1px solid oklch(0.92 0.010 85);
+}
+.pdf-charge-row:last-child { border-bottom: none; }
+.pdf-charge-row .label {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 13px;
+  color: oklch(0.20 0.02 255);
+}
+.pdf-charge-row .label .sub {
+  display: block;
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 11.5px;
+  color: oklch(0.50 0.015 255);
+  font-style: italic;
+  margin-top: 2px;
+}
+.pdf-charge-row .qty {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+  color: oklch(0.50 0.015 255);
+  text-align: right;
+}
+.pdf-charge-row .amount {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 13px;
+  color: oklch(0.20 0.02 255);
+  text-align: right;
+  font-weight: 500;
+}
+
+/* Terms grid */
+.pdf-terms {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px 32px;
+  margin-top: 20px;
+  padding: 18px 0 0;
+  border-top: 1px solid oklch(0.20 0.02 255);
+}
+.pdf-terms .row { display: block; }
+.pdf-terms .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: oklch(0.50 0.015 255);
+  margin-bottom: 4px;
+}
+.pdf-terms .value {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 13.5px;
+  color: oklch(0.18 0.02 255);
+}
+.pdf-terms .value.mono {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12.5px;
+}
+
+/* Slice RI.7 — T&Cs body block (full-width, after the .pdf-terms grid).
+   Smaller text + light contrast register; this is dense legal copy that
+   PMs configure once and rarely revisit. Multi-paragraph supported via
+   split-on-blank-line in PdfTerms. */
+.pdf-tcs {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid oklch(0.88 0.012 85);
+}
+.pdf-tcs .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: oklch(0.50 0.015 255);
+  margin-bottom: 6px;
+}
+.pdf-tcs .tcs-body p {
+  margin: 0 0 6px;
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: oklch(0.30 0.015 255);
+}
+.pdf-tcs .tcs-body p:last-child { margin-bottom: 0; }
+/* Slice RI.8 step 6 — bullet list rendering within T&Cs.
+   Same typographic register as the surrounding <p> (small serif legal
+   register); markers indented from the paragraph baseline so the eye
+   tracks the list separately without breaking the prose flow. */
+.pdf-tcs .tcs-body ul {
+  margin: 0 0 6px;
+  padding-left: 16px;
+  list-style: disc;
+}
+.pdf-tcs .tcs-body ul:last-child { margin-bottom: 0; }
+.pdf-tcs .tcs-body li {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: oklch(0.30 0.015 255);
+  margin: 0 0 2px;
+}
+.pdf-tcs .tcs-body li::marker {
+  color: oklch(0.50 0.015 255);
+  font-size: 9px;
+}
+
+/* Notes block */
+.pdf-notes {
+  margin-top: 22px;
+  padding: 14px 18px;
+  background: oklch(0.97 0.012 85);
+  border-left: 3px solid oklch(0.55 0.04 255);
+  border-radius: 2px;
+}
+.pdf-notes .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: oklch(0.50 0.015 255);
+  margin-bottom: 6px;
+}
+.pdf-notes p {
+  margin: 0;
+  font-size: 12.5px;
+  color: oklch(0.25 0.015 255);
+  line-height: 1.6;
+}
+
+/* PDF footer */
+.pdf-footer {
+  margin-top: 36px;
+  padding-top: 14px;
+  border-top: 1px solid oklch(0.88 0.012 85);
+  display: flex; justify-content: space-between;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  color: oklch(0.55 0.015 255);
+  letter-spacing: 0.04em;
+}
+
+/* Stub-text discipline marker — used when a PDF field renders against
+   not-yet-schema fixture data. Renders the value with a subtle dashed
+   underline so visual smoke distinguishes plumbed-from-DB vs stubbed. */
+.pdf-page .pdf-stub {
+  border-bottom: 1px dashed oklch(0.55 0.13 75 / 0.55);
+  padding-bottom: 1px;
+}
+
+/* Page-break marker — preview only, NOT in PDF render path */
+.page-break-marker {
+  max-width: 880px;
+  margin: 14px auto 0;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 4px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.page-break-marker::before, .page-break-marker::after {
+  content: ""; flex: 1; border-top: 1px dashed var(--rule-2);
+}
+
+/* ─── Mark-Accepted (Surface B) — PM-only chrome ─────────── */
+.macc-stage {
+  padding: 0;
+  background: var(--paper);
+  min-height: calc(100vh - 50px);
+}
+
+.macc-header {
+  padding: 24px 32px 18px;
+  border-bottom: 1px solid var(--rule);
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 32px;
+}
+.macc-verdict {
+  display: flex; align-items: baseline; gap: 14px;
+}
+.macc-verdict .margin-num {
+  font-family: var(--display);
+  font-size: 56px;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  line-height: 1;
+}
+.macc-verdict .margin-num.good { color: var(--good); }
+.macc-verdict .margin-num.warn { color: var(--warn); }
+.macc-verdict .margin-num.bad  { color: var(--bad); }
+.macc-verdict .margin-meta {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.macc-verdict .margin-meta .lbl {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.macc-verdict .margin-meta .sub {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.macc-cta-cluster {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+}
+.macc-cta-primary {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 22px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--ink);
+}
+.macc-cta-primary:hover { background: var(--ink-2); }
+.macc-cta-primary:disabled {
+  background: var(--paper-3);
+  color: var(--ink-4);
+  border-color: var(--rule);
+  cursor: not-allowed;
+}
+.macc-cta-primary.accent {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+}
+.macc-cta-secondary {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.macc-preview-rail {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 0;
+}
+.macc-tier-list { padding: 24px 32px; }
+.macc-side-rail {
+  background: var(--paper-2);
+  border-left: 1px solid var(--rule);
+  padding: 24px 24px;
+  position: sticky; top: 50px;
+  align-self: flex-start;
+}
+
+/* Tier card (selectable) */
+.tier-card {
+  display: grid;
+  grid-template-columns: 28px 1fr 100px 90px;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--paper-2);
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s;
+}
+.tier-card:hover { border-color: var(--accent); }
+.tier-card.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.15);
+}
+.tier-card .radio {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-4);
+  display: grid; place-items: center;
+}
+.tier-card.selected .radio {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.tier-card.selected .radio::after {
+  content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--paper);
+}
+.tier-card .tname {
+  font-family: var(--display);
+  font-size: 18px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.tier-card .tqty {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+}
+.tier-card .tprice {
+  font-family: var(--mono);
+  font-size: 17px;
+  color: var(--ink);
+  text-align: right;
+  font-weight: 500;
+}
+.tier-card .tmargin {
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: right;
+}
+.tier-card .tmargin.good { color: var(--good); }
+.tier-card .tmargin.warn { color: var(--warn); }
+.tier-card .tmargin.bad  { color: var(--bad); }
+.tier-card.disabled { opacity: 0.45; cursor: not-allowed; }
+.tier-card.disabled:hover { border-color: var(--rule); }
+
+/* ─── Modal primitives ──────────────────────────────────── */
+.modal-scrim {
+  position: fixed; inset: 0;
+  background: oklch(0 0 0 / 0.65);
+  display: grid; place-items: center;
+  z-index: 100;
+  padding: 40px;
+}
+.modal {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 580px;
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+}
+.modal.lg { max-width: 720px; }
+.modal-head {
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--rule);
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px;
+}
+.modal-head .titles { display: flex; flex-direction: column; gap: 4px; }
+.modal-head .titles .eyebrow { color: var(--ink-4); font-size: 10px; }
+.modal-head .titles h2 {
+  font-family: var(--display);
+  font-size: 22px;
+  margin: 0;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+.modal-body {
+  padding: 18px 24px 22px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.modal-foot {
+  padding: 14px 24px 18px;
+  border-top: 1px solid var(--rule);
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 16px;
+}
+
+.formfield { display: flex; flex-direction: column; gap: 6px; }
+.formfield label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.formfield textarea,
+.formfield input[type="text"] {
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: var(--ui);
+  font-size: 13px;
+  color: var(--ink);
+  resize: vertical;
+  min-height: 80px;
+  outline: none;
+  transition: border-color 0.1s;
+}
+.formfield textarea:focus,
+.formfield input[type="text"]:focus { border-color: var(--accent); }
+.formfield .helper {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--ink-4);
+}
+
+/* Slack DM preview */
+.slack-preview {
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.slack-preview .slack-head {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--rule);
+}
+.slack-preview .slack-logo {
+  width: 18px; height: 18px;
+  background: oklch(0.55 0.18 305);
+  border-radius: 4px;
+  display: grid; place-items: center;
+  color: white; font-size: 11px; font-weight: 700;
+}
+.slack-preview .slack-to {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.slack-preview .slack-to strong { color: var(--ink); font-weight: 500; }
+.slack-preview .slack-msg {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.slack-preview .slack-msg .mention { color: var(--accent-ink); font-weight: 500; }
+
+/* Pending-approval banner */
+.pending-banner {
+  margin: 0 32px 0;
+  padding: 14px 20px;
+  background: var(--warn-soft);
+  border: 1px solid oklch(from var(--warn) l c h / 0.4);
+  border-radius: 8px;
+  display: flex; align-items: center; gap: 14px;
+}
+.pending-banner .pulse {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 0 var(--warn);
+  animation: pulse 1.6s ease-out infinite;
+  flex-shrink: 0;
+}
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 oklch(from var(--warn) l c h / 0.6); }
+  100% { box-shadow: 0 0 0 12px oklch(from var(--warn) l c h / 0); }
+}
+.pending-banner .text {
+  flex: 1;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.pending-banner .text strong { color: var(--ink); font-weight: 500; }
+.pending-banner .text .meta {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+  margin-top: 4px;
+}
+
+/* Locked-quote ribbon */
+.locked-ribbon {
+  background: var(--good-soft);
+  border-bottom: 1px solid oklch(from var(--good) l c h / 0.4);
+  padding: 14px 32px;
+  display: flex; align-items: center; gap: 14px;
+}
+.locked-ribbon .icon {
+  width: 32px; height: 32px;
+  background: var(--good);
+  color: var(--paper);
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.locked-ribbon .text {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.locked-ribbon .text .heading {
+  font-family: var(--display);
+  font-size: 17px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.locked-ribbon .text .meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+}
+.locked-ribbon .right {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 10px;
+}
+
+/* Sent-vs-draft version mismatch banner */
+.version-warning {
+  background: oklch(from var(--warn) l c h / 0.10);
+  border: 1px solid oklch(from var(--warn) l c h / 0.45);
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  display: flex; gap: 14px; align-items: flex-start;
+}
+.version-warning .icon {
+  flex-shrink: 0;
+  width: 24px; height: 24px;
+  background: var(--warn);
+  color: var(--paper);
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 1px;
+}
+.version-warning .text { flex: 1; font-size: 13px; color: var(--ink-2); line-height: 1.55; }
+.version-warning .text h4 {
+  margin: 0 0 4px;
+  font-family: var(--display);
+  font-size: 15px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.version-warning .text strong { color: var(--ink); font-weight: 500; }
+.version-warning .actions { display: flex; gap: 8px; margin-top: 10px; }
+
+/* Boundary-guard notice (preview-only callout) */
+.boundary-guard-notice {
+  max-width: 880px;
+  margin: 0 auto 14px;
+  padding: 10px 14px;
+  background: var(--internal-soft);
+  border: 1px dashed var(--internal-rule);
+  border-radius: 4px;
+  color: var(--internal);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  letter-spacing: 0.02em;
+}
+.boundary-guard-notice .eyebrow {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--internal);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+/* State sub-switcher (dev-only — guarded at component level) */
+.state-sub {
+  display: flex;
+  gap: 1px;
+  background: var(--rule);
+  padding: 1px;
+  border-radius: 7px;
+  border: 1px solid var(--rule);
+}
+.state-sub button {
+  background: var(--paper);
+  border: none;
+  padding: 7px 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.state-sub button:first-child { border-radius: 5px 0 0 5px; }
+.state-sub button:last-child { border-radius: 0 5px 5px 0; }
+.state-sub button.active { background: var(--paper-3); color: var(--ink); }
+
+/* Generic small button used in Mark-Accepted side rails + version warning */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.btn:hover { border-color: var(--ink-4); }
+.btn.sm { padding: 4px 10px; font-size: 11.5px; }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.bad { color: var(--bad); border-color: var(--bad); }
+.btn.bad:hover { background: var(--bad-soft); }
+.btn.primary {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+.btn.primary:hover { background: var(--ink-2); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn .row, .row.gap-2 { display: flex; align-items: center; gap: 8px; }
+
+/* Generic chip */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+}
+.chip.good { background: var(--good-soft); border-color: oklch(from var(--good) l c h / 0.35); color: var(--good); }
+.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* Eyebrow utility used widely */
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin: 0;
+}
+.mono {
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+}

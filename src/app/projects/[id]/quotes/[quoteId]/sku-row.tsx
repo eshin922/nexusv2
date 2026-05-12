@@ -68,6 +68,14 @@ export function SkuRow({
   const [pending, startTransition] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
   const [reassignOpen, setReassignOpen] = useState(false);
+  // Slice RI.8 — overflow menu state for action cluster compression
+  // (Designer audit Q2 approved). Houses the four conditional
+  // affordances (assembly reassign / detach / HubSpot refresh /
+  // HubSpot product link) behind a `⋯` button. Click + ESC +
+  // outside-click closes. Full keyboard arrow nav is polish,
+  // deferred per Designer's drop-and-defer fallback.
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef({ unitsPerPack, retailBenchmark, notes });
   stateRef.current = { unitsPerPack, retailBenchmark, notes };
@@ -78,6 +86,28 @@ export function SkuRow({
     },
     [],
   );
+
+  // Slice RI.8 — overflow menu close-on-outside-click + ESC.
+  useEffect(() => {
+    if (!overflowOpen) return;
+    function onClick(e: MouseEvent) {
+      if (
+        overflowRef.current &&
+        !overflowRef.current.contains(e.target as Node)
+      ) {
+        setOverflowOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOverflowOpen(false);
+    }
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [overflowOpen]);
 
   type Overrides = Partial<{
     unitsPerPack: string;
@@ -287,58 +317,24 @@ export function SkuRow({
           className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
         />
 
+        {/* Slice RI.8 action cluster — Designer audit (c) lite:
+            always-visible ↑↓× + ⋯ overflow popover holding the four
+            conditional affordances (reassign / detach / refresh /
+            HubSpot link). Compresses 7-button cluster to a max of
+            5 visible elements (saving span + 3 always + ⋯). */}
         <div className="flex items-center gap-1 justify-end">
           {saveError ? (
             <span className="text-xs text-red-700 mr-1" role="alert">{saveError}</span>
           ) : pending ? (
-            <span className="text-xs text-gray-400 mr-1">saving…</span>
+            <span className="text-xs text-ink-4 mr-1">saving…</span>
           ) : null}
 
-          {/* Assembly menu */}
-          {canBeChild && eligibleParents.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setReassignOpen((v) => !v)}
-              disabled={disabled}
-              title={sku.parentSkuId ? "Reassign parent" : "Assign to parent"}
-              className="rounded border border-gray-200 px-1.5 py-0.5 text-xs hover:bg-white disabled:opacity-30"
-            >
-              {sku.parentSkuId ? "↔" : "↳"}
-            </button>
-          )}
-          {sku.parentSkuId && (
-            <button
-              type="button"
-              onClick={handleDetach}
-              disabled={disabled}
-              title="Detach from parent"
-              className="rounded border border-gray-200 px-1.5 py-0.5 text-xs hover:bg-white disabled:opacity-30"
-            >
-              ⤴
-            </button>
-          )}
-
-          {sku.hubspotProductId && (
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={disabled}
-              title={
-                sku.lastHubspotRefreshAt
-                  ? `Refresh from HubSpot (last synced ${formatRelative(sku.lastHubspotRefreshAt)})`
-                  : "Refresh from HubSpot"
-              }
-              className="rounded border border-gray-200 px-1.5 py-0.5 text-xs hover:bg-white disabled:opacity-30"
-            >
-              ↻
-            </button>
-          )}
           <button
             type="button"
             onClick={() => handleMove("up")}
             disabled={disabled}
             title="Move up"
-            className="rounded border border-gray-200 px-1.5 py-0.5 text-xs disabled:opacity-30 hover:bg-white"
+            className="rounded border border-rule px-1.5 py-0.5 text-xs disabled:opacity-30 hover:bg-paper-2"
           >
             ↑
           </button>
@@ -347,7 +343,7 @@ export function SkuRow({
             onClick={() => handleMove("down")}
             disabled={disabled}
             title="Move down"
-            className="rounded border border-gray-200 px-1.5 py-0.5 text-xs disabled:opacity-30 hover:bg-white"
+            className="rounded border border-rule px-1.5 py-0.5 text-xs disabled:opacity-30 hover:bg-paper-2"
           >
             ↓
           </button>
@@ -356,20 +352,99 @@ export function SkuRow({
             onClick={handleDelete}
             disabled={disabled}
             title={sku.skuRole !== "leaf" ? "Delete (cascade)" : "Remove SKU"}
-            className="rounded border border-red-200 bg-white px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-30"
+            className="rounded border border-bad/40 bg-paper px-1.5 py-0.5 text-xs text-bad hover:bg-bad-soft disabled:opacity-30"
           >
             ×
           </button>
-          {productUrl && (
-            <a
-              href={productUrl}
-              target="_blank"
-              rel="noreferrer"
-              title="Open product in HubSpot"
-              className="rounded border border-gray-200 px-1.5 py-0.5 text-xs text-blue-700 hover:bg-white"
-            >
-              ↗
-            </a>
+
+          {/* ⋯ overflow popover — conditional buttons live here.
+              Only renders when there's at least one item to show. */}
+          {((canBeChild && eligibleParents.length > 0) ||
+            sku.parentSkuId ||
+            sku.hubspotProductId ||
+            productUrl) && (
+            <div className="relative" ref={overflowRef}>
+              <button
+                type="button"
+                onClick={() => setOverflowOpen((v) => !v)}
+                disabled={disabled}
+                aria-expanded={overflowOpen}
+                aria-haspopup="menu"
+                title="More actions"
+                className="rounded border border-rule px-1.5 py-0.5 text-xs hover:bg-paper-2 disabled:opacity-30"
+              >
+                ⋯
+              </button>
+              {overflowOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full mt-1 z-50 min-w-[200px] rounded border border-rule bg-paper py-1 shadow-md"
+                >
+                  {canBeChild && eligibleParents.length > 0 && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setReassignOpen(true);
+                        setOverflowOpen(false);
+                      }}
+                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2"
+                    >
+                      <span className="mr-2 font-mono text-ink-3">
+                        {sku.parentSkuId ? "↔" : "↳"}
+                      </span>
+                      {sku.parentSkuId ? "Reassign parent" : "Assign to parent"}
+                    </button>
+                  )}
+                  {sku.parentSkuId && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        handleDetach();
+                        setOverflowOpen(false);
+                      }}
+                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2"
+                    >
+                      <span className="mr-2 font-mono text-ink-3">⤴</span>
+                      Detach from parent
+                    </button>
+                  )}
+                  {sku.hubspotProductId && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        handleRefresh();
+                        setOverflowOpen(false);
+                      }}
+                      title={
+                        sku.lastHubspotRefreshAt
+                          ? `Last synced ${formatRelative(sku.lastHubspotRefreshAt)}`
+                          : undefined
+                      }
+                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2"
+                    >
+                      <span className="mr-2 font-mono text-ink-3">↻</span>
+                      Refresh from HubSpot
+                    </button>
+                  )}
+                  {productUrl && (
+                    <a
+                      href={productUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      role="menuitem"
+                      onClick={() => setOverflowOpen(false)}
+                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2"
+                    >
+                      <span className="mr-2 font-mono text-ink-3">↗</span>
+                      Open in HubSpot
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

@@ -8,7 +8,7 @@ import * as schema from "./schema";
 // dev mode spawns ~7 workers, each with its own postgres-js pool;
 // pgbouncer's transaction-mode multiplexing layer becomes a bottleneck
 // faster than the connection-recycling settings can drain it
-// (observed: GET /cost-build → statement_timeout, Slice RI.4
+// (observed: GET /costs → statement_timeout, Slice RI.4
 // infrastructure thread May 2026). Session mode binds a backend per
 // client connection — slower max throughput on paper but no
 // transaction-mode contention; works reliably in practice.

@@ -1,30 +1,42 @@
-import { desc, eq, sql, ilike, and, or, type SQL } from "drizzle-orm";
+import { desc, eq, sql, ilike, or, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, users } from "@/db/schema";
 import { requireAdminPage } from "@/lib/admin-guard";
 import { alias } from "drizzle-orm/pg-core";
 import { AuditLogRow } from "./audit-log-row";
+import { dayGroupLabel } from "./renderers";
 
-// Slice RI.7 — audit-log read view (MVP). Brief §3.12 calls for the
-// full surface (filters, cascade chips, time-grouped feed, trigram
-// search, CSV export, deep-link filter state). RI.7 ships the
-// minimum-viable feed + action-renderer map; polish items land in
-// RI.8 / UX_BACKLOG.
+// Slice RI.8 step 5 — audit-log Round 5 polish.
 //
-// MVP scope:
-//   - Reverse-chronological feed (most recent first, capped at 200)
-//   - Free-text search via `summary` ilike (trigram-indexed)
-//   - Action chip per RI.7 renderer map
-//   - Diff_json expand inline (default collapsed)
-//   - User + timestamp + entity label
+// R5 source: docs/design-prototypes/dist/source/round-5/e13554fd.js +
+// r5-admin.css.
 //
-// Deferred to RI.8 / backlog:
-//   - Entity / user / action / date-range filters
-//   - Time-grouped headers ("TODAY · APR 30")
-//   - Cascade chip (caused_by_audit_id surfacing)
-//   - CSV export
-//   - URL-state for filters
-//   - Pagination / infinite scroll past 200 entries
+// What landed this step:
+// - R5 page-head (eyebrow + italic "Audit log" h1 + sub)
+// - Filter bar: search input live; entity/user/action/date chips
+//   drawn-inert v1 (URL ?q is the only operational filter)
+// - Active-filter strip when ?q is set, with "Clear filter" link
+// - "{N} entries · oldest {ts}" + EXPORT CSV / COPY DEEP-LINK drawn-
+//   inert in the bar above the feed
+// - Day-grouped feed (Today / Yesterday / Apr 30 separators)
+// - Row: ts + avatar initials + verb (who + colored-action chip +
+//   entity) + summary + meta + expand-to-diff panel
+// - Designer note panel below feed
+//
+// Deferred per R5 brief vocabulary "drawn-but-inert for not-yet-
+// built":
+// - Entity / user / action / date-range chip filters (drawn; no
+//   wiring). Add per-chip state + URL params when the data shapes
+//   for each are ready.
+// - CSV export action wiring (drawn; backend missing). Trivial to
+//   add once the action ships.
+// - Copy deep-link (URL state already lives in ?q; chip-state URL
+//   params are the prerequisite for the rest).
+// - Pagination beyond 200 rows.
+// - Cascade chip surfacing for cost_input cascades — pattern is
+//   in the row component (caused_by_audit_id → "cascade · caused_by"
+//   chip), but cost-input rollup actions haven't been auditing
+//   cascade chains yet; lands in a future cost-input audit pass.
 
 const PAGE_LIMIT = 200;
 
@@ -39,8 +51,6 @@ export default async function AuditLogPage({
 
   const auditUser = alias(users, "audit_user");
 
-  // Build the WHERE clause once. Free-text search hits the trigram
-  // indexes on summary + entity_label.
   const whereClause: SQL | undefined =
     query.length > 0
       ? or(
@@ -69,91 +79,213 @@ export default async function AuditLogPage({
     .orderBy(desc(auditLog.createdAt))
     .limit(PAGE_LIMIT);
 
-  // Cap counter for the "showing N of M" indicator.
   const totalRows = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(auditLog)
     .where(whereClause ?? sql`true`);
   const total = totalRows[0]?.n ?? 0;
 
-  return (
-    <div className="space-y-4">
-      <header className="flex items-baseline justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Audit log</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Append-only history of every write through the action layer.
-            Most recent first.
-          </p>
-        </div>
-        <span className="text-xs text-slate-500">
-          {total === 0
-            ? "no entries"
-            : total > PAGE_LIMIT
-              ? `showing ${PAGE_LIMIT} of ${total.toLocaleString()}`
-              : `${total.toLocaleString()} entr${total === 1 ? "y" : "ies"}`}
-        </span>
-      </header>
+  // Group rows by relative day label
+  type Group = { label: string; entries: typeof rows };
+  const groups: Group[] = [];
+  let currentLabel: string | null = null;
+  for (const r of rows) {
+    const label = dayGroupLabel(r.createdAt);
+    if (label !== currentLabel) {
+      groups.push({ label, entries: [] });
+      currentLabel = label;
+    }
+    groups[groups.length - 1].entries.push(r);
+  }
 
-      <form
-        method="GET"
-        className="flex items-center gap-3 rounded-md border border-slate-300 bg-white px-3 py-2"
-      >
-        <label className="flex flex-1 items-center gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Search
+  const oldestTs =
+    rows.length > 0
+      ? rows[rows.length - 1].createdAt.toLocaleString("en-US", {
+          month: "short",
+          day: "numeric",
+        })
+      : null;
+
+  return (
+    <div className="r5-page">
+      <div className="r5-page-head">
+        <p className="eyebrow">Admin · Audit log</p>
+        <h1>
+          Audit <em>log</em>
+        </h1>
+        <p className="sub">
+          Append-only forensic record of every state change in the system.
+          Filter by free-text query (entity / user / action / date-range
+          filters are coming). Expand any row for the structured diff.
+        </p>
+      </div>
+
+      {/* Filter bar — search live; chips drawn-inert */}
+      <form method="GET" className="r5-al-filters">
+        <div className="r5-al-search">
+          <span className="icon" aria-hidden>
+            ⌕
           </span>
           <input
             type="search"
             name="q"
             defaultValue={query}
-            placeholder="Match against summary + entity (trigram index)"
-            className="flex-1 rounded border border-slate-300 bg-slate-50 px-2 py-1 text-sm focus:border-slate-500 focus:bg-white focus:outline-none"
+            placeholder="Search summary, entity…"
+            aria-label="Search audit log"
           />
-        </label>
-        <button type="submit" className="r2-btn primary sm">
-          Search
+        </div>
+        <button
+          type="submit"
+          className="r5-al-filter"
+          style={{ fontFamily: "var(--mono)", fontSize: 10.5, letterSpacing: "0.05em" }}
+        >
+          SEARCH
         </button>
-        {query && (
-          <a
-            href="/admin/audit-log"
-            className="text-xs text-slate-600 underline hover:text-slate-900"
-          >
-            Clear
-          </a>
-        )}
+        <button
+          type="button"
+          className="r5-al-filter"
+          disabled
+          title="Entity filter — wiring lands next"
+        >
+          Entity <span className="v">any</span>
+        </button>
+        <button
+          type="button"
+          className="r5-al-filter"
+          disabled
+          title="User filter — wiring lands next"
+        >
+          User <span className="v">any</span>
+        </button>
+        <button
+          type="button"
+          className="r5-al-filter"
+          disabled
+          title="Action filter — wiring lands next"
+        >
+          Action <span className="v">any</span>
+        </button>
+        <button
+          type="button"
+          className="r5-al-filter"
+          disabled
+          title="Date filter — wiring lands next"
+        >
+          Date <span className="v">all</span>
+        </button>
       </form>
 
-      <section className="overflow-hidden rounded-md border border-slate-300 bg-white">
-        {rows.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm italic text-slate-500">
-            {query
-              ? `No entries match "${query}". Try a different search.`
-              : "No audit entries yet."}
-          </p>
-        ) : (
-          <ul className="divide-y divide-slate-100">
-            {rows.map((r) => (
-              <AuditLogRow
-                key={r.id}
-                row={{
-                  id: r.id,
-                  createdAt: r.createdAt,
-                  action: r.action,
-                  entityType: r.entityType,
-                  entityId: r.entityId,
-                  entityLabel: r.entityLabel,
-                  summary: r.summary,
-                  diffJson: r.diffJson as Record<string, unknown>,
-                  causedByAuditId: r.causedByAuditId,
-                  userName: r.userName,
-                  userEmail: r.userEmail,
-                }}
-              />
-            ))}
-          </ul>
-        )}
-      </section>
+      {query && (
+        <div className="r5-al-active-bar">
+          <span className="lbl">Filtered</span>
+          <span style={{ fontSize: 12.5, color: "var(--ink-2)" }}>
+            All entries matching{" "}
+            <strong
+              style={{
+                fontFamily: "var(--display)",
+                fontStyle: "italic",
+                fontWeight: 500,
+                color: "var(--ink)",
+              }}
+            >
+              &ldquo;{query}&rdquo;
+            </strong>{" "}
+            — {total} entr{total === 1 ? "y" : "ies"}
+          </span>
+          <a className="clear" href="/admin/audit-log">
+            Clear filter
+          </a>
+        </div>
+      )}
+
+      <div className="r5-al-bar">
+        <span>
+          {total === 0
+            ? "no entries"
+            : total > PAGE_LIMIT
+              ? `showing ${PAGE_LIMIT} of ${total.toLocaleString()}`
+              : `${total.toLocaleString()} entr${total === 1 ? "y" : "ies"}`}
+          {oldestTs && rows.length > 0 && (
+            <span style={{ color: "var(--ink-4)" }}>
+              {" "}
+              · oldest in view {oldestTs}
+            </span>
+          )}
+        </span>
+        <div style={{ display: "flex", gap: 14 }}>
+          <button
+            type="button"
+            className="copy-link"
+            disabled
+            title="CSV export — wiring lands next"
+          >
+            EXPORT CSV
+          </button>
+          <span style={{ color: "var(--ink-4)" }}>·</span>
+          <button
+            type="button"
+            className="copy-link"
+            disabled
+            title="Deep-link copy — wiring lands once chip filters carry URL state"
+          >
+            COPY DEEP-LINK
+          </button>
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <div
+          className="r5-al-feed"
+          style={{
+            padding: "40px 22px",
+            textAlign: "center",
+            fontSize: 13,
+            color: "var(--ink-3)",
+            fontStyle: "italic",
+          }}
+        >
+          {query
+            ? `No entries match "${query}". Try a different search.`
+            : "No audit entries yet."}
+        </div>
+      ) : (
+        <div className="r5-al-feed">
+          {groups.map((g) => (
+            <div key={g.label}>
+              <div className="r5-al-day">{g.label}</div>
+              {g.entries.map((r) => (
+                <AuditLogRow
+                  key={r.id}
+                  row={{
+                    id: r.id,
+                    createdAt: r.createdAt,
+                    action: r.action,
+                    entityType: r.entityType,
+                    entityId: r.entityId,
+                    entityLabel: r.entityLabel,
+                    summary: r.summary,
+                    diffJson: r.diffJson as Record<string, unknown>,
+                    causedByAuditId: r.causedByAuditId,
+                    userName: r.userName,
+                    userEmail: r.userEmail,
+                  }}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="r5-dn">
+        <span className="lbl">Designer note</span>
+        Diffs are expandable rows, not modals — auditors scan, expansion is
+        for the rare deep look. Color saturates only the action chip; the
+        rest of the row is neutral so the eye lands on what matters.
+        Cascades (when wired through cost-input rollups) surface as a
+        single entry on the source change with a chip, not N derived rows;
+        the structured facts stay queryable in the DB without drowning the
+        feed.
+      </div>
     </div>
   );
 }

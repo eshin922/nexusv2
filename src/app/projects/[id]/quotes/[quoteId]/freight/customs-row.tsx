@@ -99,6 +99,22 @@ export function CustomsRow({
     debounceRef.current = setTimeout(() => fireSave(overrides), DEBOUNCE_MS);
   }
 
+  // Slice RI.8 hotfix — blur+Enter save handler (replaces
+  // debounced-on-change for the numeric inputs below). Edward's
+  // UX call: keystroke autosave + optimistic re-render caused
+  // focus loss mid-typing for multi-digit values. blur/Enter
+  // commits work in keystroke-safe windows.
+  function commitNow(overrides: Overrides = {}) {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    fireSave(overrides);
+  }
+  function handleEnter(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.currentTarget.blur();
+    }
+  }
+
   function lowPctWarn(value: string): string | null {
     if (value === "") return null;
     const n = Number(value);
@@ -144,22 +160,25 @@ export function CustomsRow({
             <input
               type="number"
               inputMode="decimal"
-              step="0.01"
+              step="1"
               min={0}
               value={duty}
               disabled={disabled}
               onChange={(e) => {
+                // Local state only; commit on blur/Enter (Slice RI.8
+                // keystroke-focus-loss fix). Validation still runs
+                // inline so the error message renders live.
                 const v = e.target.value;
                 setDuty(v);
-                const normalized = validatePctInput(v, setDutyError);
-                // undefined = validation failed; do NOT push junk into
-                // the costing store and do NOT schedule a save. Local
-                // input state still shows the user's typed value so they
-                // can correct it.
-                if (normalized === undefined) return;
-                updateCustoms(quoteSkuId, { dutyPct: normalized });
-                scheduleSave({ duty: v });
+                validatePctInput(v, setDutyError);
               }}
+              onBlur={() => {
+                const normalized = validatePctInput(duty, setDutyError);
+                if (normalized === undefined) return; // invalid; don't commit
+                updateCustoms(quoteSkuId, { dutyPct: normalized });
+                commitNow({ duty });
+              }}
+              onKeyDown={handleEnter}
               placeholder="—"
               className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400"
             />
@@ -180,18 +199,22 @@ export function CustomsRow({
             <input
               type="number"
               inputMode="decimal"
-              step="0.01"
+              step="1"
               min={0}
               value={tariff}
               disabled={disabled}
               onChange={(e) => {
                 const v = e.target.value;
                 setTariff(v);
-                const normalized = validatePctInput(v, setTariffError);
+                validatePctInput(v, setTariffError);
+              }}
+              onBlur={() => {
+                const normalized = validatePctInput(tariff, setTariffError);
                 if (normalized === undefined) return;
                 updateCustoms(quoteSkuId, { tariffPct: normalized });
-                scheduleSave({ tariff: v });
+                commitNow({ tariff });
               }}
+              onKeyDown={handleEnter}
               placeholder="—"
               className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400"
             />

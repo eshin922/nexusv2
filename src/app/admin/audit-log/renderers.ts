@@ -121,6 +121,22 @@ export function renderAction(
         chip: { color: "warn", label: "DROPPED" },
         summary: `Scenario dropped · reason: ${fmtMaybeNull(diff(diffJson, "drop_reason"))}`,
       };
+    case "freight_markup_updated": {
+      // Slice RI.8 freight-markup feature — line-level override audit.
+      // from/to are decimal strings ("0.3000"); render as percent
+      // display for human scan.
+      const fromVal = diff(diffJson, "from");
+      const toVal = diff(diffJson, "to");
+      const fmtPct = (v: unknown): string => {
+        if (v === null || v === undefined) return "—";
+        const n = Number(v) * 100;
+        return Number.isFinite(n) ? `${Number(n.toFixed(2))}%` : String(v);
+      };
+      return {
+        chip: { color: "neutral", label: "FREIGHT MARKUP" },
+        summary: `Freight markup · ${fmtPct(fromVal)} → ${fmtPct(toVal)}`,
+      };
+    }
     // Cost-input CRUD actions use past-tense keys throughout the
     // action layer (`created` / `updated` / `deleted` — see
     // src/app/actions/{freight,packaging,production}.ts). Smoke
@@ -176,4 +192,81 @@ export function chipClass(color: ChipColor): string {
     default:
       return "border-slate-300 bg-slate-50 text-slate-700";
   }
+}
+
+// Slice RI.8 step 5 — R5 action-chip color name (`.r5-al-row .action`
+// has variants .good / .accent / .warn / .bad — see r5-admin.css).
+// Translates the renderer's ChipColor into the R5 class suffix.
+// Neutral falls through to the default pill style on the .action
+// base class.
+export function r5ActionClass(color: ChipColor): string {
+  switch (color) {
+    case "accent":
+      return "accent";
+    case "good":
+      return "good";
+    case "warn":
+      return "warn";
+    case "bad":
+      return "bad";
+    case "neutral":
+    default:
+      return "";
+  }
+}
+
+// Extract 1-2 letter initials from a display name or email. Used for
+// the R5 audit-log avatar circle. Falls back to "—" if neither is
+// available.
+export function initialsFor(
+  name: string | null,
+  email: string | null,
+): string {
+  if (name) {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    if (parts[0].length >= 2) return parts[0].slice(0, 2).toUpperCase();
+    return parts[0][0]?.toUpperCase() ?? "—";
+  }
+  if (email) {
+    const local = email.split("@")[0];
+    if (local.length >= 2) return local.slice(0, 2).toUpperCase();
+    return local[0]?.toUpperCase() ?? "—";
+  }
+  return "—";
+}
+
+// Day-group label for R5 feed separators. Maps a Date to a header
+// like "TODAY · MAY 12", "YESTERDAY · MAY 11", "MAY 10".
+export function dayGroupLabel(d: Date, now: Date = new Date()): string {
+  const dStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.round(
+    (nowStart.getTime() - dStart.getTime()) / (1000 * 60 * 60 * 24),
+  );
+  const monthDay = d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+  if (diffDays === 0) return `Today · ${monthDay}`;
+  if (diffDays === 1) return `Yesterday · ${monthDay}`;
+  if (diffDays < 7) return `${diffDays} days ago · ${monthDay}`;
+  return monthDay;
+}
+
+// Compact "5h ago" / "2d ago" / "Apr 30" timestamp for the row left
+// column. Same vocabulary as the R5 source's e.ts values.
+export function compactRelativeTime(d: Date, now: Date = new Date()): string {
+  const diffMs = now.getTime() - d.getTime();
+  const diffMin = Math.floor(diffMs / (1000 * 60));
+  const diffH = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffD = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffH < 24) return `${diffH}h ago`;
+  if (diffD === 1) return "yesterday";
+  if (diffD < 7) return `${diffD}d ago`;
+  return d.toLocaleString("en-US", { month: "short", day: "numeric" });
 }

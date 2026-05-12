@@ -454,7 +454,7 @@ export async function updateQuoteTargetMargin(
 //
 // AUDIT SOURCE CONVENTION: `source: "system_suggestion"` is reserved
 // for THIS specific surface — the live coaching banner on the
-// Costing Sheet that applies the closed-form GPA reverse-solve.
+// Pricing that applies the closed-form GPA reverse-solve.
 // Future suggestion paths (e.g., Slice 9.5 bulk validation engine,
 // scenario-comparison apply, etc.) get their own distinct source
 // values (`bulk_validation_suggestion`, `scenario_apply`, ...) so a

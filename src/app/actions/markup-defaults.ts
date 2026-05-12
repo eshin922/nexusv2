@@ -1,6 +1,6 @@
 "use server";
 
-import { asc, count, eq, isNotNull } from "drizzle-orm";
+import { asc, count, eq, isNotNull, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { auditLog, markupDefaults, packagingInputs } from "@/db/schema";
@@ -151,6 +151,120 @@ export async function listMarkupDefaultReferenceCounts(): Promise<
     if (r.category !== null) map.set(r.category, Number(r.n));
   }
   return map;
+}
+
+// Slice RI.8 step 2 — recompute preview engine for the Round 5
+// markup-defaults inline-edit live disclosure (per brief §3.11).
+// Edward's §1.2 disposition: APPROXIMATE ranges, not exact recompute
+// simulation. Brief spec language ("Estimated blended-margin shift
+// on those drafts: +0.6 to +1.4 pts") authorizes approximation.
+//
+// What we compute (real data):
+//   - affectedLineItems: count of packaging_inputs rows in this
+//     category (across ALL quote statuses; the actually-affected
+//     subset is drafts only, but the line-count is meaningful as
+//     "how many rows have this category").
+//   - affectedDraftQuotes: count of distinct draft quotes that have
+//     at least one packaging_inputs line in this category.
+//
+// What we estimate (approximate):
+//   - shiftLowPct / shiftHighPct: bounded heuristic. Packaging
+//     contributes typically 20-40% of CDM cost-stack; a delta of
+//     N pp on markup ≈ N × (0.20 to 0.40) pp shift in blended margin.
+//     Honest about being approximate; documented inline.
+//
+// Schema note: only `packaging_inputs` carries a `category` column
+// (markup_defaults vocabulary spans concerns but is actually
+// referenced from packaging only). Production / freight markup is
+// per-row without category lookup. Preview reflects this — drafts
+// + lines from packaging exclusively.
+//
+// Read-only; admin-gated (consumed by /admin/markup-defaults edit
+// disclosure). Safe to call repeatedly as PM tunes the input.
+export type RecomputePreview = {
+  category: string;
+  oldPct: string; // decimal e.g. "0.3000"
+  newPct: string; // decimal e.g. "0.4200"
+  deltaPctPp: number; // pp difference, signed (+12.0 means +12pp)
+  affectedLineItems: number;
+  affectedDraftQuotes: number;
+  shiftLowPp: number; // estimated blended-margin shift, low bound, signed pp
+  shiftHighPp: number; // estimated blended-margin shift, high bound, signed pp
+};
+
+export async function previewMarkupDefaultRecompute(
+  category: string,
+  newPctDecimal: string,
+): Promise<ActionResult<RecomputePreview>> {
+  return runAction(async () => {
+    await requireAdminAction();
+
+    if (!category) {
+      throw new ActionGuardError(ERR.VALIDATION, "category is required.");
+    }
+    const newDec = Number(newPctDecimal);
+    if (!Number.isFinite(newDec)) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "new pct must be a finite decimal.",
+      );
+    }
+
+    // Lookup current default for old → new framing.
+    const [current] = await db
+      .select()
+      .from(markupDefaults)
+      .where(eq(markupDefaults.category, category))
+      .limit(1);
+    const oldDec = current ? Number(current.defaultMarkupPct) : 0;
+    const deltaPp = (newDec - oldDec) * 100; // signed pp
+
+    // Count affected line items + distinct draft quotes via JOIN to
+    // quote_skus → quotes (status='draft' filter).
+    //
+    // Note on counts: line-item count is across ALL statuses because
+    // PMs benefit from knowing the total category usage. Draft count
+    // is the specifically-affected subset (sent+ quotes are frozen
+    // per the propagation rule — only drafts recompute).
+    const lineCountRow = await db
+      .select({ n: count() })
+      .from(packagingInputs)
+      .where(eq(packagingInputs.category, category));
+    const affectedLineItems = Number(lineCountRow[0]?.n ?? 0);
+
+    const draftCountResult = (await db.execute(sql`
+      SELECT COUNT(DISTINCT q.id) AS n
+      FROM "packaging_inputs" pi
+      JOIN "quote_skus" qs ON qs.id = pi.quote_sku_id
+      JOIN "quotes" q ON q.id = qs.quote_id
+      WHERE pi.category = ${category}
+        AND q.status = 'draft'
+    `)) as unknown as Array<{ n: string | number }>;
+    const affectedDraftQuotes = Number(draftCountResult[0]?.n ?? 0);
+
+    // Approximate margin-shift range. Packaging typically contributes
+    // 20-40% of CDM cost stack; delta of N pp markup ≈ N × (0.20 to
+    // 0.40) pp blended-margin shift. The arithmetic is rough — real
+    // shift depends on per-quote cost-stack composition + tier
+    // weighting — but the bounded range is honest about being
+    // approximate per Edward's §1.2 disposition. Refine to exact
+    // recompute if future smoke reveals PMs need precision; until
+    // then, brief spec language ("+0.6 to +1.4 pts") authorizes
+    // approximation.
+    const shiftLowPp = deltaPp * 0.2;
+    const shiftHighPp = deltaPp * 0.4;
+
+    return {
+      category,
+      oldPct: current?.defaultMarkupPct ?? "0",
+      newPct: newPctDecimal,
+      deltaPctPp: deltaPp,
+      affectedLineItems,
+      affectedDraftQuotes,
+      shiftLowPp,
+      shiftHighPp,
+    };
+  });
 }
 
 // Delete a category. Existing packaging_inputs rows that reference it

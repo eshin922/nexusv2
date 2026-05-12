@@ -1,3 +1,275 @@
+# Surface naming canon (Slice RI.8)
+
+The four customer-facing surfaces between Setup and Mark Accepted
+were renamed during RI.8 for clearer labels. Old → new:
+
+- **Cost build → Costs** (URL `/cost-build` → `/costs`)
+- **Costing sheet → Pricing** (URL `/costing` → `/pricing`)
+- **Customer view → Quote** (URL `/customer-view` → `/quote`)
+
+Setup + Mark Accepted unchanged.
+
+**What's renamed:**
+- Route folders, component folders, page-level component names
+  (`CostBuildHeader → CostsHeader`, `CostingPageHead →
+  PricingPageHead`, `CustomerViewHost → QuoteHost`).
+- Per-surface CSS files (`r6-cost-build.css → r6-costs.css`,
+  `r2-costing.css → r2-pricing.css`, `r3-customer-view.css →
+  r3-quote.css`).
+- Lib + types files anchored to the renamed surfaces
+  (`src/lib/customer-view-fixtures.ts → src/lib/quote-fixtures.ts`,
+  `src/types/customer-view.ts → src/types/quote.ts`).
+- User-facing labels in JSX text, button copy, breadcrumbs,
+  back-nav, eyebrows.
+
+**What's intentionally NOT renamed** (concept-anchored, not
+surface-anchored):
+- `src/lib/costing.ts` — costing math library; serves all four
+  surfaces, not just Pricing.
+- `src/lib/costing-store.ts` + `src/components/costing-store-provider.tsx`
+  — state management for cost data; concept, not surface.
+- `src/app/actions/costing.ts` — costing-math action layer;
+  consumed by multiple surfaces.
+- DB schema fields with "customer" (e.g., `customer_facing_notes`,
+  `customer_accepted_at`) — describe the customer entity, not
+  the Quote surface.
+- Audit log action names like `customer_acceptance_recorded` —
+  describe business events (customer's acceptance), not surface
+  refs.
+- `quote.status` enum values (`draft` / `sent` / `accepted` /
+  `superseded` / `lost`) — describe lifecycle, unchanged.
+- `getCostingBundle`, `QuoteCostBreakdown`, `CostingPage` type,
+  etc. — concept-anchored types.
+
+**URL awkwardness flag:** `/projects/[id]/quotes/[quoteId]/quote`
+repeats "quote." Edward's call: accept the repetition for
+label/URL consistency. Don't reroute or alias.
+
+**301 redirects** in `next.config.ts` preserve external bookmarks
+to the old paths. Same precedent as F-4 redirects from
+`/packaging`, `/production`, `/freight` to `/cost-build` (which
+is now `/costs`).
+
+**Future-CC default:** use the new surface names in all new code,
+comments, and documentation. Reference: Edward's rename directive,
+May 2026.
+
+## Rename heuristic — surface refs vs concept refs
+
+When a UI surface is renamed (or any large semantic rename ripples
+through the codebase), the operating heuristic is:
+
+> **Rename surface references. Preserve concept references.**
+
+A reference is a *surface* reference if it would change with the
+surface (file is named after the surface, label is rendered to PMs,
+URL path is the user-facing IA). A reference is a *concept*
+reference if it would survive a surface redesign — math libraries,
+state stores, action layers, schema columns, audit-log action keys,
+enum values, business-event names.
+
+**Applied during the Slice RI.8 surface rename (May 2026):**
+
+- Renamed: `src/components/cost-build/` → `src/components/costs/`
+  (surface-anchored folder), `CostBuildHeader` → `CostsHeader`
+  (page-level component), CSS files `r6-cost-build.css → r6-costs.css`
+  (per-surface stylesheet).
+- Preserved: `src/lib/costing.ts` (math library used by every
+  surface), `src/lib/costing-store.ts` (state mgmt), `src/app/actions/costing.ts`
+  (server actions), `customer_facing_notes` + `customer_accepted_at`
+  (schema fields describing the customer entity, not the Quote
+  surface), `customer_acceptance_recorded` audit action (business
+  event), `quote.status` enum values.
+
+**Practical test when uncertain:** ask "would this reference
+survive a future complete redesign of the surface — different
+visuals, different IA, different label?" If yes, it's
+concept-anchored — preserve. If no, it's surface-anchored — rename.
+
+This rule applies to future renames too. Recognizing the
+distinction early prevents drift in two directions: over-renaming
+(concept names get dragged into the rename, breaking semantic
+clarity) or under-renaming (surface-anchored identifiers stay on
+the old name, creating drift between naming and label).
+
+## "Design was illustrative; real data needs different proportions"
+
+CD's design prototypes are anchored on mock data. When real
+production data stresses dimensions that the mock didn't —
+column widths, row heights, list lengths, character counts —
+deliberate drift from the design source's literal proportions is
+sometimes necessary. The drift is acceptable when:
+
+- the design source's *intent* is preserved (composition, register,
+  grammar) even though numeric proportions change
+- real data documentably exceeds the mock's range (e.g., production
+  HubSpot product names "Hydrating Glow Serum 50ml Glass Dropper
+  Bottle Frosted" vs R1's toy "Foo product")
+- the change is documented explicitly in the commit message so
+  future fidelity audits don't flag it as drift-from-spec
+
+Caught Slice RI.8 step 1.5 — R1's setup-grid `1.4fr 1fr` proportion
+was sized for short SKU table mock data; real DPS product names
+truncated badly in the half-width column. Widened to `2fr 1fr`
+(~67/33) with explicit doc + commit-message rationale. Designer
+audit weighed this against R1 fidelity intent and confirmed the
+composition (SKU table dominant left, tier rail flanking right)
+is preserved.
+
+When this pattern recurs: name the dimension under stress (column
+width, row height, etc.), document the mock vs real-data
+mismatch, get Edward + CA sign-off if the drift is non-obvious.
+Don't silently re-proportion under "looks better with my data."
+
+## "Functional dependency check before dropping an affordance"
+
+Before removing a UI affordance — even one that visually doesn't
+fit a redesign — audit whether it's the **sole authoring surface**
+for any underlying data. If yes, drop-and-replace, not just drop.
+
+A "sole authoring surface" check:
+- Is there ANOTHER UI surface that can write the same column /
+  field / setting?
+- Is there an action layer the affordance is the only caller of?
+- If the affordance disappears, is the data effectively read-only?
+
+If any answer is yes, the affordance is load-bearing — design a
+replacement workflow before dropping. The replacement may live
+on a different surface (row-expand drawer, modal, dedicated
+admin) or fold into an adjacent affordance.
+
+Caught Slice RI.8 step 1.5 Designer audit on SKU table column
+restructure. R1's six-column layout drops the inline Notes
+column entirely. v1's per-row notes input is the ONLY UI write
+path for `quote_skus.notes` (the page-level NotesEditor edits
+*quote-level* `internalNotes` + `customerFacingNotes` — distinct
+columns). Dropping the per-row affordance without a replacement
+would have made `quote_skus.notes` effectively read-only. Designer
+flagged this; the work was deferred to §6.b standalone Setup
+redesign which gets to design the proper replacement workflow
+(row-expand drawer, modal, or per-SKU sub-editor in the
+page-level Notes block).
+
+When this pattern recurs: explicit "what writes this data today,
+what writes it after the change" audit before any affordance
+removal. Log the discovery if the affordance turns out to be
+load-bearing — the discovery itself is reusable knowledge.
+
+## "Two computations for similar-labeled displays will diverge"
+
+When the math layer exposes derived approximations (e.g., a
+proportional-share allocation) while another display layer uses
+direct primitives (e.g., per-line markup application), the labels
+imply matches but the math doesn't guarantee them. Two surfaces
+labeled "Total — packaging" can produce different numbers without
+either being wrong — they're just answering different questions
+with different formulas.
+
+**Reference moment:** Slice RI.8 hotfix surfaced THREE semantic
+mismatches across the cost-stack architecture in a single PM
+smoke session:
+
+1. **Subtotal vs row sum**: cost-stack rows display `cost +
+   markup_share` (R6 fidelity); Subtotal was reading `totalCost`
+   (cost-only). PMs read the column and expect rows-sum =
+   Subtotal — formulas guarantee they don't.
+2. **PKG row vs drilldown TOTAL**: cost-stack PKG = `cost +
+   proportional_markup_share_of_total`; drilldown TOTAL =
+   `Σ unit_cost × (1 + line.markup_pct)`. ~9% ratio gap from
+   weighted-average markup vs proportional re-allocation.
+3. **D+T fold**: cost-stack D+T was hardcoded 0 (math layer didn't
+   split duty+tariff from container freight); display label
+   implied trackable component.
+
+Root cause is the same in all three: **derived approximations vs
+math-layer primitives**. The fix is structural — extend the math
+layer to expose first-class per-component primitives, then every
+display surface reads the same value. Avoid the trap of
+"approximating in the display layer because the math doesn't
+have it" — that approximation becomes a future smoke flag.
+
+**Checklist when adding a derived display value:**
+
+1. **Identify the primitive.** What's the single source of truth
+   the math layer should expose? Don't re-derive it in the
+   display.
+2. **Check sibling displays.** If two surfaces both render
+   "packaging total" (mini-stack, drilldown foot, cost-stack
+   row), they MUST source from the same primitive. PMs read
+   labels; formulas guarantee consistency.
+3. **Comprehensive semantic audit before commit.** When adding
+   a new display field, trace EVERY existing surface that
+   shows a similar value. Compare formulas. If they differ,
+   either align the formulas OR rename the labels to
+   distinguish what each shows.
+4. **Resist proportional-share approximations** when first-class
+   primitives are achievable. Cost stack's proportional markup
+   distribution was a v1 shortcut; first surfaced as PM
+   confusion three slices later.
+
+**Banked from Slice RI.8 hotfix scope expansion (May 2026).**
+The first two mismatches were fixed reactively (each fix +
+re-smoke surfaced the next); CA's "comprehensive semantic audit
+before commit" call broke the whack-a-mole pattern on the third.
+Future similar surfaces: do the audit first, ship one
+comprehensive fix.
+
+## "Surface unification can orphan components"
+
+When consolidating routes / surfaces (route 1 + route 2 + route 3
+→ single route), child components from the deprecated routes can
+get disconnected during the refactor. Imports go stale; the
+component file still exists but no caller references it. Result:
+load-bearing UI affordances silently disappear, often discovered
+weeks or months later through a "this never worked" smoke flag.
+
+**Reference moment:** Slice RI.4 unified `/packaging`,
+`/production`, `/freight` → single `/costs`. The
+`CustomsRow` editor at
+`src/app/projects/[id]/quotes/[quoteId]/freight/customs-row.tsx`
+was preserved (per the Slice RI.4 page.tsx comment claim:
+"These components are token-aware after RI.0 and don't need
+rebuilding"). But it was never re-rendered inside the new
+`FreightDrilldown` — the new sub-card displayed the same data
+as read-only `—` placeholders. PMs lost the only path to edit
+`quote_skus.duty_pct` / `tariff_pct` post-RI.4. The cost
+contribution from D+T silently dropped to 0 for any quote
+configured after the consolidation; freight contribution
+dropped to 0 too when `sku_total_cbm` wasn't set elsewhere.
+Discovered Slice RI.8 step 8 dark-mode smoke when Edward
+noticed the section header em-dashes.
+
+**Checklist for future consolidation slices:**
+
+1. **Grep for orphaned imports.** After the consolidation:
+   ```
+   grep -rn "import.*<componentName>" src/
+   ```
+   For each component file under the deprecated route's
+   directory, verify at least one production caller imports it.
+   Zero callers = orphan; either re-wire or delete.
+2. **Functional dependency check** on each deprecated affordance
+   (see existing convention above) — already covered for
+   abstract affordances, but explicitly extend to
+   component-level imports during route consolidation.
+3. **Action-layer audit.** Each server action exported by the
+   deprecated route's files — does some active component still
+   call it? If yes, the action's input UI must still exist
+   somewhere reachable. If no, the action is dead code (delete
+   or migrate intent into the new surface).
+4. **End-to-end input-to-margin trace.** For the math the
+   deprecated surface fed: write a one-paragraph trace
+   ("PM enters X on surface Y → action Z writes column W →
+   compute path C reads W → bucket B in QuoteCostBreakdown")
+   and verify every step is reachable post-consolidation.
+5. **Smoke ask in consolidation PR:** "list every column edited
+   pre-consolidation, confirm a UI path edits it post-."
+
+Slice briefs that propose route consolidations should include
+this checklist explicitly. It's not paranoia; it's the durable
+discipline that prevents "this never worked since the
+consolidation" surfacing months later.
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**

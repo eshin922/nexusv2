@@ -200,7 +200,7 @@ function checkQuoteLevelCompleteness(
       tier_id: null,
       kind: "no_skus_with_cost_data",
       severity: "info",
-      message: "No cost data yet · open Cost build to begin.",
+      message: "No cost data yet · open Costs to begin.",
       detail_json: {},
     });
   }
