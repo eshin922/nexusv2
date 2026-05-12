@@ -19,10 +19,22 @@ import { ProjectGlyph } from "./project-glyph";
 
 export async function InnerRail({
   projectId,
-  activeQuoteId,
+  activeScenarioLabel,
 }: {
   projectId: string;
-  activeQuoteId?: string;
+  /** The scenario_label of the quote being viewed, if any. Drives
+   * the active-scenario highlight + sub-rail expansion under that
+   * scenario row.
+   *
+   * Slice RI.8 F-1 fix v2: prop was `activeQuoteId` previously, but
+   * matching `s.latestQuoteId === activeQuoteId` excluded PMs
+   * viewing older versions of a scenario (which is the common case
+   * after a re-send creates a new draft version — older sent
+   * versions stay reachable via Project Detail's version chain).
+   * Resolved scenario_label at the layout level (one tiny DB
+   * lookup) and passed it directly is the simpler, more correct
+   * contract. */
+  activeScenarioLabel?: string;
 }) {
   const [header, scenarios] = await Promise.all([
     getProjectHeader(projectId),
@@ -30,12 +42,6 @@ export async function InnerRail({
   ]);
 
   if (!header) return null;
-
-  // Determine the "active" scenario based on which quote is being
-  // viewed (if any). Scenario surface links expand under the active one.
-  const activeScenarioLabel = activeQuoteId
-    ? scenarios.find((s) => s.latestQuoteId === activeQuoteId)?.scenarioLabel
-    : undefined;
 
   // Per Round 4 + Round 4 pushback #2: dropped scenarios collapse to
   // "+N dropped" disclosure when count > 3. Active and accepted always
