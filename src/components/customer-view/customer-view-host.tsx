@@ -138,10 +138,16 @@ function introCopy(
 
 export function CustomerViewHost({
   view,
+  quoteId,
+  quoteStatus,
   showStateSwitcher,
+  devSendEnabled,
 }: {
   view: CustomerView;
+  quoteId: string;
+  quoteStatus: string;
   showStateSwitcher: boolean;
+  devSendEnabled: boolean;
 }) {
   const [subState, setSubState] = useState<CustomerViewSubState>("pure");
   const [pdfLayout, setPdfLayout] = useState<CustomerViewPdfLayout>(view.pdfLayout);
@@ -155,6 +161,8 @@ export function CustomerViewHost({
   return (
     <div className="preview-chrome">
       <PreviewToolbar
+        quoteId={quoteId}
+        quoteStatus={quoteStatus}
         quoteNumber={view.quote.quoteNumber}
         sentDate={view.quote.sentDate}
         pdfLayout={pdfLayout}
@@ -162,6 +170,7 @@ export function CustomerViewHost({
         subState={subState}
         onSubStateChange={setSubState}
         showStateSwitcher={showStateSwitcher}
+        devSendEnabled={devSendEnabled}
       />
 
       <BoundaryGuardNotice />
@@ -180,6 +189,7 @@ export function CustomerViewHost({
           vendor={view.vendor}
           quote={view.quote}
           customer={view.customer}
+          preparedBy={view.preparedBy}
         />
         <p className="pdf-eyebrow" style={{ marginTop: 28 }}>
           {copy.eyebrow}

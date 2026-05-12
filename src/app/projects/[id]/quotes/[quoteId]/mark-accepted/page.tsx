@@ -16,6 +16,7 @@ import type { FlaggedLine } from "@/components/mark-accepted/mark-accepted-both-
 
 const VALID_SUBSTATES: ReadonlyArray<MarkAcceptedSubState> = [
   "good",
+  "awaitingMark",
   "bothGates",
   "pending",
   "locked",
@@ -24,9 +25,14 @@ const VALID_SUBSTATES: ReadonlyArray<MarkAcceptedSubState> = [
 function statusToSubState(
   s: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR",
   isAccepted: boolean,
+  hasCustomerAcceptance: boolean,
 ): MarkAcceptedSubState {
   if (isAccepted) return "locked";
   if (s === "BELOW_FLOOR") return "bothGates";
+  // Slice RI.7 — customer signal recorded but no override gate to clear
+  // → awaitingMark (PM finalizes with affirmation chip). Below-target
+  // is still sendable so it falls into awaitingMark when applicable.
+  if (hasCustomerAcceptance) return "awaitingMark";
   return "good";
 }
 
@@ -117,10 +123,29 @@ export default async function MarkAcceptedPage({
   const blendedPct = summary.blendedMarginPct * 100;
   const isAccepted = quote.scenarioStatus === "accepted";
 
+  // Slice RI.7 — customer-acceptance context (CR-SM DEC-1 + DEC-6).
+  // Drives awaitingMark sub-state + the affirmation chip when present.
+  const customerAcceptance =
+    quote.customerAcceptedAt && quote.customerAcceptedTierId
+      ? (() => {
+          const tier = tierData.find(
+            (t) => t.id === quote.customerAcceptedTierId,
+          );
+          return tier
+            ? {
+                tierId: tier.id,
+                tierLabel: tier.label,
+                recordedAt: quote.customerAcceptedAt!,
+              }
+            : null;
+        })()
+      : null;
+
   // Sub-state resolution: explicit ?state= override (dev), else derived.
   let initialSubState = statusToSubState(
     summary.blendedMarginStatus,
     isAccepted,
+    customerAcceptance !== null,
   );
   if (state && (VALID_SUBSTATES as ReadonlyArray<string>).includes(state)) {
     initialSubState = state as MarkAcceptedSubState;
@@ -128,6 +153,12 @@ export default async function MarkAcceptedPage({
 
   const showStateSwitcher =
     dev === "1" || process.env.NODE_ENV !== "production";
+
+  // Real quote_number when sent+; falls back to scenario·version
+  // label for drafts (Mark-Accepted page generally won't render for
+  // drafts, but the header copy stays valid).
+  const quoteNumberLabel =
+    quote.quoteNumber ?? `${quote.scenarioLabel} · v${quote.versionNumber}`;
 
   return (
     <>
@@ -161,9 +192,10 @@ export default async function MarkAcceptedPage({
         floorPct={firmFloor}
         tiers={tierData}
         customerName={project.clientName ?? "(customer pending)"}
-        quoteNumber={`${quote.scenarioLabel} · v${quote.versionNumber}`}
+        quoteNumber={quoteNumberLabel}
         flaggedLines={flaggedLines}
         activeSiblings={[]}
+        customerAcceptance={customerAcceptance}
         showStateSwitcher={showStateSwitcher}
       />
     </>

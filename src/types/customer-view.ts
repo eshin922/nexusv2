@@ -12,15 +12,32 @@
 // reference_ri6_boundary_guard.md.
 
 export type CustomerViewVendor = {
-  /** Firm-level identity. RI.7 promotes these three fields to firm_settings. */
+  /** Firm-level identity. Lives in firm_settings since RI.7; falls back
+   * to VENDOR_FIXTURE constant when those columns are NULL. */
   name: string;
   sub: string;
   address: string;
-  // Contact (name/email/phone) intentionally omitted at the firm level —
-  // it's per-deal data derived from the HubSpot deal owner. PdfHeader
-  // renders QUOTE_STUBS.preparedBy as a visible-synthetic stub until
-  // RI.7 wires `projects.salesRepUserId → users` + the new `users.phone`
-  // column. See UX_BACKLOG "PreparedBy contact derivation (RI.7)".
+  // Contact (name/email/phone) is per-deal data — see CustomerViewPreparedBy
+  // below.
+};
+
+/**
+ * Slice RI.7 — per-deal "Prepared by" contact for the customer-facing PDF.
+ * Derives from the HubSpot deal owner (`projects.salesRepUserId → users`,
+ * with HubSpot one-shot fallback for un-signed-in-reps). Snapshot at
+ * sendQuote (DEC-8); customer view of an already-sent quote always
+ * renders the snapshot. Drafts render live resolution as preview.
+ *
+ * `phone` is nullable — HubSpot Owners API has no phone (verified
+ * against `@hubspot/api-client` PublicOwner schema), so phone is
+ * exclusively admin-managed manual entry on `users.phone`. When NULL,
+ * PdfHeader OMITS the phone line entirely (graceful degradation;
+ * email is the canonical CDM contact).
+ */
+export type CustomerViewPreparedBy = {
+  name: string;
+  email: string;
+  phone: string | null;
 };
 
 export type CustomerViewCustomer = {
@@ -31,16 +48,32 @@ export type CustomerViewCustomer = {
 };
 
 export type CustomerViewQuote = {
-  /** Customer-facing friendly id (HG-2418). NEVER renders versionNumber or scenarioLabel. */
-  quoteNumber: string;
+  /**
+   * Customer-facing friendly id (`DPS-1042`). Assigned at sendQuote
+   * from `quote_number_seq` with `firm_settings.quote_number_prefix`.
+   * Null for drafts — PdfHeader renders `.pdf-stub` placeholder.
+   * NEVER renders versionNumber or scenarioLabel.
+   */
+  quoteNumber: string | null;
   /** ISO date the version was sent. Null = preview not yet sent. */
   sentDate: string | null;
-  /** Computed from sentDate + 30d (or stored). */
+  /** ISO date; sendQuote computes `sent_at + days_valid_default` days. */
   validUntil: string | null;
-  paymentTerms: string;
-  leadTime: string;
+  /**
+   * Drafts: live read from `firm_settings.payment_terms_default`.
+   * Sent+: read from `quote.payment_terms_snapshot` (frozen at send).
+   * Null in either case → PdfTerms renders `.pdf-stub` placeholder.
+   */
+  paymentTerms: string | null;
+  leadTime: string | null;
   customerFacingNotes: string | null;
-  incoterms: string;
+  incoterms: string | null;
+  /**
+   * Multi-paragraph T&Cs legal text. Same live/snapshot split as
+   * `paymentTerms`. Null pending Edward's canonical text → PdfTerms
+   * renders `.pdf-stub` placeholder (hold gate before RI.7 PR-to-main).
+   */
+  tcs: string | null;
 };
 
 export type CustomerViewSku = {
@@ -95,6 +128,13 @@ export type CustomerView = {
   vendor: CustomerViewVendor;
   customer: CustomerViewCustomer;
   quote: CustomerViewQuote;
+  /**
+   * Per-deal sales-rep contact (RI.7). Null when neither
+   * `projects.sales_rep_user_id` nor `projects.hubspot_owner_id`
+   * resolves (rare — every imported deal carries hubspot_owner_id).
+   * PdfHeader renders `.pdf-stub` placeholder when null.
+   */
+  preparedBy: CustomerViewPreparedBy | null;
   tiers: ReadonlyArray<CustomerViewTier>;
   skus: ReadonlyArray<CustomerViewSku>;
   serviceFees: ReadonlyArray<CustomerViewServiceFee>;

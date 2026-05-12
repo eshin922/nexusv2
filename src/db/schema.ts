@@ -162,6 +162,11 @@ export const users = pgTable(
     name: text("name"),
     role: userRole("role").notNull().default("read_only"),
     hubspotOwnerId: text("hubspot_owner_id"),
+    // Slice RI.7 — phone for PreparedBy contact derivation (DEC-8).
+    // Back-filled from HubSpot owners API in ensureUser on first sign-in
+    // (sync extension lands in RI.7). Admin manual entry affordance for
+    // users whose HubSpot owner record has no phone.
+    phone: text("phone"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -271,6 +276,48 @@ export const quotes = pgTable(
       onDelete: "set null",
     }),
     droppedAt: timestamp("dropped_at", { withTimezone: true }),
+    // ---------- Slice RI.7 — state machine + send-time snapshots ----------
+    // Per docs/ri7-state-machine.md (CR-SM). Decision tags below map to
+    // the resolved DEC-1..DEC-8 in CR-SM §6.
+
+    // DEC-1: customer-acceptance event recording (event-not-phase). The
+    // (status='sent' AND customer_accepted_at IS NOT NULL) tuple is the
+    // "awaiting Mark-Accepted" sub-state — PM has recorded the customer
+    // signal but hasn't finalized the gates yet. Mark-Accepted action
+    // promotes these to accepted_* fields when PM clicks through.
+    customerAcceptedAt: timestamp("customer_accepted_at", {
+      withTimezone: true,
+    }),
+    customerAcceptedTierId: uuid("customer_accepted_tier_id").references(
+      (): AnyPgColumn => quoteTiers.id,
+      { onDelete: "set null" },
+    ),
+    customerAcceptedRecordedByUserId: uuid(
+      "customer_accepted_recorded_by_user_id",
+    ).references(() => users.id, { onDelete: "set null" }),
+    // DEC-4: customer-facing quote number. Nullable until send.
+    // Format: `{firm_settings.quote_number_prefix}-{quote_number_seq}`.
+    // sendQuote action assigns; partial unique index enforces uniqueness
+    // among assigned numbers. Single-tenant v1 — sequence is global.
+    quoteNumber: text("quote_number"),
+    // DEC-7: send-time snapshots of firm_settings commercial defaults.
+    // Snapshot at sendQuote so past sent quotes never silently update if
+    // firm settings change post-send. Drafts read firm_settings live.
+    paymentTermsSnapshot: text("payment_terms_snapshot"),
+    leadTimeSnapshot: text("lead_time_snapshot"),
+    incotermsSnapshot: text("incoterms_snapshot"),
+    tcsSnapshot: text("tcs_snapshot"),
+    daysValidSnapshot: integer("days_valid_snapshot"),
+    // DEC-8: PreparedBy contact snapshot at send. Same rationale as
+    // DEC-7 — customer view of an already-sent quote must always show
+    // the rep who sent it, even if the rep is reassigned/leaves/changes
+    // phone after send. sendQuote resolves live
+    // (projects.salesRepUserId → users + HubSpot owners fallback for
+    // un-signed-in-rep) and writes the snapshots one-shot. Drafts
+    // render live via getQuotePreparedBy switch on quote.status.
+    preparedByNameSnapshot: text("prepared_by_name_snapshot"),
+    preparedByEmailSnapshot: text("prepared_by_email_snapshot"),
+    preparedByPhoneSnapshot: text("prepared_by_phone_snapshot"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, {
@@ -291,6 +338,13 @@ export const quotes = pgTable(
     index("quotes_project_recommended_idx")
       .on(t.projectId)
       .where(sql`is_recommended = true`),
+    // Slice RI.7 — partial unique index on quote_number. Nullable until
+    // send (DEC-4); once assigned must be globally unique (single-tenant
+    // v1). When multi-tenant lands, replace with (firm_id, quote_number)
+    // composite — see UX_BACKLOG "Multi-tenant quote-number sequence".
+    uniqueIndex("quotes_quote_number_idx")
+      .on(t.quoteNumber)
+      .where(sql`quote_number IS NOT NULL`),
     foreignKey({
       columns: [t.copiedFromQuoteId],
       foreignColumns: [t.id],
@@ -570,6 +624,23 @@ export const firmSettings = pgTable(
     floorMarginPct: numeric("floor_margin_pct", { precision: 5, scale: 4 })
       .notNull()
       .default("0.2500"),
+    // ---------- Slice RI.7 — vendor identity + customer-facing defaults ----------
+    // Per docs/ri7-brief-amendment.md §3.10. Vendor identity is firm-level
+    // (renders live on every customer view PdfHeader). Customer-facing
+    // defaults (T&Cs / terms / lead time / incoterms / days_valid) feed
+    // the per-quote snapshot at sendQuote (see quotes.*_snapshot above).
+    // Seed values landed via migration 0020 for the active row (per PM
+    // answers in brief amendment §5.1, §5.3-§5.7); tcs_default left NULL
+    // pending Edward's canonical T&Cs text (hold gate before PR-to-main).
+    vendorName: text("vendor_name"),
+    vendorTagline: text("vendor_tagline"),
+    vendorAddress: text("vendor_address"),
+    quoteNumberPrefix: text("quote_number_prefix"),
+    tcsDefault: text("tcs_default"),
+    paymentTermsDefault: text("payment_terms_default"),
+    leadTimeDefault: text("lead_time_default"),
+    incotermsDefault: text("incoterms_default"),
+    daysValidDefault: integer("days_valid_default"),
     effectiveFrom: date("effective_from").notNull().default(sql`CURRENT_DATE`),
     effectiveUntil: date("effective_until"),
     updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {

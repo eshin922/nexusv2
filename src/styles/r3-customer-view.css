@@ -386,6 +386,32 @@
   font-size: 12.5px;
 }
 
+/* Slice RI.7 — T&Cs body block (full-width, after the .pdf-terms grid).
+   Smaller text + light contrast register; this is dense legal copy that
+   PMs configure once and rarely revisit. Multi-paragraph supported via
+   split-on-blank-line in PdfTerms. */
+.pdf-tcs {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid oklch(0.88 0.012 85);
+}
+.pdf-tcs .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: oklch(0.50 0.015 255);
+  margin-bottom: 6px;
+}
+.pdf-tcs .tcs-body p {
+  margin: 0 0 6px;
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: oklch(0.30 0.015 255);
+}
+.pdf-tcs .tcs-body p:last-child { margin-bottom: 0; }
+
 /* Notes block */
 .pdf-notes {
   margin-top: 22px;

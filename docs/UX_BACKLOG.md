@@ -5,6 +5,184 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Multi-tenant quote-number sequence (post-MVP)]
+
+  **Slice:** Post-MVP / TBD (when multi-tenant becomes real)
+
+  **What:** RI.7's quote-number trigger lands as `CREATE SEQUENCE
+  quote_number_seq START 1000` — a single global Postgres sequence
+  shared across all firms. Single-tenant v1 (The DPS only) — safe
+  assumption. When Nexus is ever multi-tenant, the global sequence
+  would race + collide across firms (Firm A's `DPS-1042` could
+  accidentally be Firm B's `ACME-1042` if the sequence is shared).
+  Worse: counter exposure leaks aggregate quote volume across firms.
+
+  **Migration when it matters:**
+  - Option A: per-firm sequence — `CREATE SEQUENCE quote_number_seq_{firm_id}`
+    dynamically; bookkeeping in firm_settings or a separate
+    `firm_quote_counters` table
+  - Option B: `(firm_id, next_quote_number)` table with row-level
+    locking on increment (`SELECT ... FOR UPDATE` per assignment)
+  - Option B reads cleaner; Option A scales further (sequences are
+    cheaper than transactional updates at very high volume — not a
+    concern at Nexus scale)
+
+  **Why log it:** when multi-tenant becomes real, this is one of the
+  first things to fix. Single-tenant assumption is explicit in CR-SM
+  DEC-4 + the migration comment. Not a v1 concern.
+
+  Reference: `docs/ri7-state-machine.md` DEC-4; `docs/ri7-brief-amendment.md` §3.10.b.
+
+- [Audit log read-view: new action renderers for RI.7]
+
+  **Slice:** RI.7 (folded into base brief §3.12 implementation)
+
+  **What:** The audit log read view from brief §3.12 ships with an
+  action-renderer map (action enum → display function + chip color).
+  RI.7 adds five new action types (plus extended diff_json shapes
+  on an existing action) that need entries in that map, not just
+  storage:
+  - `quote_sent` — diff_json carries `{ quoteNumber, validUntil,
+    snapshots: {tcs, paymentTerms, leadTime, incoterms, daysValid},
+    preparedBy: {name, email, phone, derived_from} }`. Renderer:
+    "Quote sent · {quoteNumber} · valid until {date} · prepared by
+    {name} (resolved from {Nexus user|HubSpot one-shot})". Snapshot
+    details available on expand.
+  - `customer_acceptance_recorded` — diff_json carries
+    `{ customer_accepted_tier_id, recorded_by_user_id, email_ref? }`.
+    Renderer: "Customer accepted Tier N · recorded by [user] · email
+    ref: [string|—]".
+  - `customer_acceptance_cleared` — diff_json carries `{ from:
+    tier_id, to: null }`. Renderer: "Cleared customer acceptance ·
+    was Tier N".
+  - `user_phone_updated` — diff_json `{ from, to }`. Renderer:
+    "User phone updated · {from|—} → {to|—}".
+  - `firm_settings_updated` — existing action, new diff_json column
+    names for vendor identity / customer-facing defaults. Per-column
+    renderer extends with: vendor_name, vendor_tagline, vendor_address,
+    quote_number_prefix, tcs_default, payment_terms_default,
+    lead_time_default, incoterms_default, days_valid_default.
+
+  PreparedBy snapshot data lives inside `quote_sent.diff_json.preparedBy`
+  rather than a distinct `prepared_by_snapshotted` action (CR-SM §1.DEC-8
+  audit decision, May 2026 post-Edward-review): snapshots are immutable
+  for sent quotes and emit only inside sendQuote, so a distinct action
+  would duplicate the audit row. If a future slice introduces an
+  independent re-snapshot path, split back out.
+
+- [Admin surfaces visual rebuild (Round 5 + post-RI.0 token consolidation)]
+
+  **Slice:** RI.8 polish (or dedicated admin-rebuild slice)
+
+  **What:** Admin pages (`/admin/firm-settings`, `/admin/users`,
+  `/admin/audit-log`, `/admin/markup-defaults`) were built in Slice 8
+  with stock Tailwind utility classes (`bg-slate-900`, `border-slate-300`,
+  `text-slate-700`, etc.). RI.0's `@theme` token rebuild replaced
+  the default Tailwind palette with project-specific OKLCH tokens
+  (paper / ink / accent / good / warn / bad / internal / freight),
+  so the stock `slate-*` / `blue-*` palettes generate no CSS in Tailwind
+  v4 emission. Symptom: admin buttons render as unstyled `<button>`
+  elements, section cards have no visible borders/backgrounds, inputs
+  use browser-default chrome.
+
+  RI.7 surfaced this when Edward smoke-walked /admin/firm-settings
+  and reported "Save button doesn't look like a button." Spot-fix:
+  swapped the four Save / Search buttons to `.r2-btn primary` (loaded
+  globally; project's button primitive). Rest of the admin chrome
+  (card backgrounds, fieldset headers, input borders, dl summary
+  panels, history table) still uses broken stock Tailwind utilities.
+
+  **Scope when this slice runs:**
+  - Replace `bg-slate-*`, `border-slate-*`, `text-slate-*` utilities
+    on admin pages with `@theme`-token-backed alternatives (paper-N,
+    ink-N, rule). Or migrate to scoped CSS files following the
+    `r2-*.css` pattern used by other RI surfaces.
+  - Brief §3.10 specifies a richer Round 5 firm-settings design
+    (portfolio-effect strip, history rail, edit-mode preview-then-
+    commit). Rebuild firm-settings UI to match that design while
+    also fixing the palette issue.
+  - Apply the same visual rebuild to markup-defaults (§3.11),
+    audit-log (§3.12), and users (new RI.7 surface, no design
+    round source yet — extrapolate from Round 5 register).
+
+  **Why log it:** the spot-fix on the four buttons gets RI.7 to
+  smoke-pass-able, but the broader admin chrome is visually broken
+  across all four admin pages. PMs accessing admin during the RI.7
+  → RI.8 gap will see functionally-correct but visually-incomplete
+  surfaces. Acceptable for a v1 internal tool with limited admin
+  use; not acceptable past RI.8.
+
+  Reference: Edward's RI.7 smoke-walk surface, May 2026. Spot-fix
+  commits on `slice-ri.7`.
+
+- [T&Cs render: bullet-list support]
+
+  **Slice:** RI.8 polish / TBD
+
+  **What:** T&Cs commonly contain bulleted lists (logistics rate
+  validity periods, exclusion conditions, etc.). PdfTerms currently
+  splits on blank-line separators for paragraph rendering but has
+  no support for in-paragraph bulleted items. Edward's first T&Cs
+  paste hit this on the logistics rates section.
+
+  **Workaround in place:** prose-with-semicolons reformatting
+  (Edward's pasted version inlines the three logistics bullets into
+  a single sentence with `;` separators). Functional but loses
+  scannability for legal text where bullets aid review.
+
+  **Future state:** parse common bullet markers (`-`, `•`, `*` at
+  line start) within paragraph blocks into rendered `<ul>` lists
+  with PdfTerms' small-text legal register. Or full Markdown
+  rendering if other formatting (bold, headings) becomes needed.
+
+  **Why deferred:** Edward's current T&Cs prose-reformatting is
+  functional for v1. Bullet support is polish, not a blocker for
+  ship.
+
+  Reference: surfaced by Edward post-RI.7 T&Cs paste, May 2026.
+
+- [Audit log read-view: explicit renderers for pre-RI.7 action types]
+
+  **Slice:** RI.8 polish / TBD
+
+  **What:** RI.7 shipped the audit log read view MVP with explicit
+  renderer cases for the new RI.7 action types (quote_sent /
+  customer_acceptance_* / user_phone_updated / firm_settings_updated)
+  plus a handful of older ones (global_price_adj_updated,
+  cell_override_updated, scenario_dropped, create/created,
+  update/updated, delete/deleted). Self-smoke (May 2026) against the
+  live audit_log surfaced 5 action types that still fall through to
+  the generic action-key uppercased fallback:
+  - `raws_mode_updated` (RI.4)
+  - `production_policy_updated` (Slice 6)
+  - `tier_price_adj_updated` (Slice 9.2)
+  - `cell_target_updated` (Slice 9.4b)
+  - `quote_level_client_target_updated` (Slice 9.4c — pulled back;
+    7 stale audit rows persist as historical noise; explicit renderer
+    not needed but consider data cleanup if forensic queries get
+    confused)
+
+  **Why log it:** generic fallback renders correctly (chip label =
+  uppercased action key + neutral color + raw action key summary)
+  but loses the action-specific surface treatment PMs benefit from.
+  When RI.8 audit-log polish work happens (filters, time-grouped
+  headers, cascade chips, CSV export), add explicit renderer cases
+  for these five. Sample diff_json shapes available via
+  `scripts/verify/audit-log-renderer-smoke.ts`.
+
+  Reference: `src/app/admin/audit-log/renderers.ts`,
+  `scripts/verify/audit-log-renderer-smoke.ts`. Convention from
+  `docs/ri7-state-machine.md` §6.1 (audit log read-view rendering
+  scope).
+
+  **Why log it:** RI.7 implementation needs to extend the read-view
+  renderer map alongside the actions themselves — not just write to
+  audit_log and let the read view show "(unknown action)". The
+  rendering work is scoped here so it's not forgotten when the
+  state-machine actions are wired.
+
+  Reference: `docs/ri7-state-machine.md` §6.1; brief §3.12.
+
 - [Slice 13 — HubSpot library sync (vendors + products)]
 
   **Slice:** 13 (post-MVP enrichment)
@@ -27,6 +205,32 @@ Items here are intentionally deferred - capture, don't fix in the moment.
   **Why log it:** anyone working Cost Build section drilldowns between now and Slice 13 needs to know the free-text supplier fields are TEMPORARY. Don't build dependent UX (filtering, grouping by supplier, reports) on top of free-text — wait for the dropdown retrofit. RI.6 + RI.7 + Slice 11/12 work is unaffected; this is a future enrichment, not a refactor of in-flight scope.
 
   Reference: post-RI.6 surface, May 2026.
+
+- [Per-customer commercial defaults from NetSuite]
+
+  **Slice:** Post-MVP / TBD (likely paired with or after Slice 13 HubSpot library sync — same external-sync infrastructure shape)
+
+  **What:** Several "customer-facing defaults" in firm_settings vary per customer in The DPS's actual workflow — payment terms is the load-bearing example (Net 30 vs 50/50 deposit vs custom contractual). Incoterms and lead time often vary per customer relationship too. RI.7 ships firm-wide defaults with per-quote override as the only customization path, forcing PMs to re-enter the same customer-specific values for every quote to that customer.
+
+  **Source of truth:** NetSuite. Customer records carry payment terms (and arguably incoterms / lead time) at the customer level.
+
+  **Future state:** When a quote is created against a customer, pull customer-level commercial defaults from NetSuite and snapshot onto the quote at send. firm_settings defaults become the fallback for customers without customer-level configuration.
+
+  **Field split:**
+  - Per-customer (sync from NetSuite): payment terms, incoterms, lead time
+  - Firm-wide (stay in firm_settings): T&Cs, days valid, quote-number prefix, vendor identity
+
+  **Data flow:** NetSuite → Nexus (read sync). Could pair with Slice 13 HubSpot vendor library sync if sync infrastructure overlaps, or stand as its own slice.
+
+  **Open design questions for slice kickoff:**
+  - Customer-entity schema location in Nexus (new `customers` table? extend `projects`?)
+  - Sync cadence (on-demand at quote creation / periodic / webhook-driven)
+  - Fallback chain (customer terms → firm default → null)
+  - Whether Nexus admin UI writes back to NetSuite or NetSuite is read-only source-of-truth
+
+  **Why deferred:** RI.7 firm-wide-with-override is functional but friction-heavy for repeat customers. NetSuite sync is real infrastructure work (auth, sync model, conflict resolution); worth doing after Slice 13 establishes a HubSpot read-sync pattern Nexus can model NetSuite reads against.
+
+  Reference: flagged by Edward post-RI.7, May 2026. Confirms earlier prediction in Slice 13 scoping that NetSuite would become relevant once payment workflows entered scope.
 
 - [PreparedBy contact derivation (RI.7)]
 

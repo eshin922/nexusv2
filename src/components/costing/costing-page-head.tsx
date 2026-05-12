@@ -6,6 +6,7 @@ import {
   selectSkuRollups,
 } from "@/lib/costing-store";
 import { useCostingStore } from "@/components/costing-store-provider";
+import { CustomerAcceptToggle } from "./customer-accept-toggle";
 
 // Slice RI.5 — Costing Sheet page chrome per R2 source
 // (`docs/design-prototypes/dist/source/round-2/app/r2/costing.jsx:124-165`).
@@ -23,11 +24,19 @@ export function CostingPageHead({
   quoteId,
   project,
   quote,
+  tiers,
 }: {
   projectId: string;
   quoteId: string;
   project: { dealName: string; clientName: string | null };
-  quote: { scenarioLabel: string; versionNumber: number; status: string };
+  quote: {
+    scenarioLabel: string;
+    versionNumber: number;
+    status: string;
+    customerAcceptedAt: Date | null;
+    customerAcceptedTierId: string | null;
+  };
+  tiers: ReadonlyArray<{ id: string; label: string; qty: number | null }>;
 }) {
   const summary = useCostingStore(selectQuoteSummary);
   const skuRollups = useCostingStore(selectSkuRollups);
@@ -61,7 +70,7 @@ export function CostingPageHead({
         <p className="r2-page-sub">{subCopy}</p>
       </div>
 
-      <div className="r2-row r2-gap-2">
+      <div className="r2-row r2-gap-2" style={{ flexWrap: "wrap" }}>
         <Link
           href={`/projects/${projectId}/quotes/${quoteId}/cost-build`}
           className="r2-btn ghost sm"
@@ -74,6 +83,16 @@ export function CostingPageHead({
         >
           Preview customer quote
         </Link>
+        {/* Slice RI.7 — customer-acceptance toggle. Only renders on
+            sent quotes (pre-send: no customer signal; post-accept: locked). */}
+        {quote.status === "sent" && (
+          <CustomerAcceptToggle
+            quoteId={quoteId}
+            customerAcceptedAt={quote.customerAcceptedAt}
+            customerAcceptedTierId={quote.customerAcceptedTierId}
+            tiers={tiers}
+          />
+        )}
         <MarkAcceptedCluster
           projectId={projectId}
           quoteId={quoteId}

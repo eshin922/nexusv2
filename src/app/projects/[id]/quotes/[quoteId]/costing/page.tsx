@@ -141,7 +141,14 @@ export default async function CostingPage({
           projectId={projectId}
           quoteId={quoteId}
           project={project}
-          quote={quote}
+          quote={{
+            scenarioLabel: quote.scenarioLabel,
+            versionNumber: quote.versionNumber,
+            status: quote.status,
+            customerAcceptedAt: quote.customerAcceptedAt,
+            customerAcceptedTierId: quote.customerAcceptedTierId,
+          }}
+          tiers={tierBrief}
         />
 
         {!editable && (

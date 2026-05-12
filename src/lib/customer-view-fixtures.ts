@@ -1,33 +1,28 @@
-// Slice RI.6 — Customer-view fixture text for not-yet-schema fields.
+// Slice RI.6 — Customer-view fixture text. Slice RI.7 promoted vendor
+// identity + customer-facing commercial defaults to `firm_settings`
+// table columns + per-quote snapshot columns at sendQuote. The
+// customer-view page resolves the right value per quote status:
+//   - drafts: live read from firm_settings.*_default
+//   - sent+:  read from quote.*_snapshot (frozen at send)
 //
-// Per Q1+Q2 of the RI.6 PM-call resolution: fields that don't yet exist
-// on `quotes` (quote_number, payment_terms, lead_time, incoterms) and
-// the firm-level vendor block render against placeholder text that
-// reads as OBVIOUSLY placeholder. Slice 11 fills the quote-level
-// fields; RI.7 firm_settings extension fills the vendor block.
+// When the resolved value is NULL (firm setting not configured, or
+// pre-snapshot draft for status-only fields like quote_number),
+// PdfHeader / PdfTerms render `.pdf-stub` placeholders from
+// `QUOTE_STUBS` below. The stub text is visible-synthetic so PM
+// smoke catches unplumbed surfaces (RI.6 Q1 discipline).
 //
-// Stub-text discipline (Edward's Q1 follow-up): placeholder values
-// must be visibly synthetic — "{quote-number-pending}",
-// "{prepared-by-pending · derives from deal owner in RI.7}" — not
-// fake-real ("Maya Okafor · maya@halcyongoods.co · +1 562 555 0184").
-// Otherwise smoke misses that the surface isn't plumbed and we carry
-// the lie into Slice 11 review.
-//
-// VENDOR_FIXTURE carries FIRM-LEVEL identity only (name, tagline,
-// address — single-tenant v1 scope, promotes to firm_settings in RI.7).
-// PREPARED BY contact (name/email/phone) is per-deal data and derives
-// from the HubSpot deal owner — see UX_BACKLOG "PreparedBy contact
-// derivation (RI.7)". Until that lands, PdfHeader renders
-// QUOTE_STUBS.preparedBy as the visible-synthetic stub.
+// `VENDOR_FIXTURE` remains as graceful-degradation fallback for the
+// firm-level identity block when firm_settings.vendor_* columns are
+// NULL (shouldn't happen in production after the RI.7 migration
+// seed, but keeps the customer view from rendering empty vendor on
+// a misconfigured admin state).
 
-import type {
-  CustomerViewVendor,
-  CustomerViewQuote,
-} from "@/types/customer-view";
+import type { CustomerViewVendor } from "@/types/customer-view";
 
-// TODO(RI.7): move to firm_settings table once admin UI extension lands;
-// keep this fallback constant in place for graceful degradation when
-// firm_settings vendor identity columns are NULL.
+// Graceful-degradation fallback for firm-level identity. Used by the
+// customer-view page when `firm_settings.vendor_*` columns are NULL.
+// Post-migration the active firm_settings row carries these values
+// (seeded by migration 0020); the constant is the safety net.
 export const VENDOR_FIXTURE: CustomerViewVendor = {
   name: "The DPS",
   sub: "Turnkey product development & manufacturing for beauty, health & wellness brands",
@@ -35,38 +30,22 @@ export const VENDOR_FIXTURE: CustomerViewVendor = {
 };
 
 /**
- * Stub strings for fields not yet plumbed. Render against the
- * `.pdf-stub` dashed-underline visual marker so PM smoke catches
- * un-plumbed surfaces. Resolutions:
- *   - quoteNumber / paymentTerms / leadTime / incoterms → Slice 11
- *     (real columns on `quotes`)
- *   - preparedBy → RI.7 (deal-owner derivation + firm_settings vendor
- *     extension; see UX_BACKLOG "PreparedBy contact derivation")
+ * Visible-synthetic placeholder strings rendered with `.pdf-stub`
+ * dashed-underline styling. PdfHeader / PdfTerms / PdfFooter look up
+ * these when the resolved field is NULL.
+ *
+ * `quoteNumber` stub: pre-send drafts (number assigns at sendQuote).
+ * `paymentTerms` / `leadTime` / `incoterms` / `tcs` stubs: firm
+ * setting not configured, or sent quote snapshotted while a default
+ * was unset.
+ * `preparedBy` stub: rare — neither `projects.sales_rep_user_id`
+ * nor a HubSpot owner resolution succeeded.
  */
 export const QUOTE_STUBS = {
   quoteNumber: "{quote-number-pending}",
-  paymentTerms: "{payment-terms-pending · stub copy until Slice 11}",
-  leadTime: "{lead-time-pending · stub copy until Slice 11}",
-  incoterms: "{incoterms-pending · stub copy until Slice 11}",
-  preparedBy: "{prepared-by-pending · derives from deal owner in RI.7}",
+  paymentTerms: "{payment-terms-pending}",
+  leadTime: "{lead-time-pending}",
+  incoterms: "{incoterms-pending}",
+  tcs: "{tcs-pending — configure on /admin/firm-settings}",
+  preparedBy: "{prepared-by-pending — deal owner unresolved}",
 } as const;
-
-/**
- * Compose a CustomerViewQuote from a quote row + stubs. customerFacingNotes
- * + sentAt + validUntil are real columns; the rest are placeholder strings.
- */
-export function buildQuoteFixture(args: {
-  customerFacingNotes: string | null;
-  sentAt: Date | null;
-  validUntil: string | null;
-}): CustomerViewQuote {
-  return {
-    quoteNumber: QUOTE_STUBS.quoteNumber,
-    sentDate: args.sentAt ? args.sentAt.toISOString().slice(0, 10) : null,
-    validUntil: args.validUntil,
-    paymentTerms: QUOTE_STUBS.paymentTerms,
-    leadTime: QUOTE_STUBS.leadTime,
-    customerFacingNotes: args.customerFacingNotes,
-    incoterms: QUOTE_STUBS.incoterms,
-  };
-}

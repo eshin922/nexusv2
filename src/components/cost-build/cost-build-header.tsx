@@ -11,12 +11,21 @@
 // NOT a navigation row. Per Designer audit S-16: stripping the
 // breadcrumb links + status pill that drifted in earlier.
 // Right-cluster: View as customer + Save draft buttons.
+//
+// Slice RI.7 fix — the non-editable "quote in sent status" alert
+// previously rendered as a third flex item INSIDE the header's
+// flex container, squeezing the title column to 1-2-word wraps
+// once it appeared. Banner is now a sibling row, rendered by the
+// page below the header (semantically a page-level state notice,
+// not a header concern). Caller passes the alert separately.
+
+import Link from "next/link";
 
 export function CostBuildHeader({
   project,
   quote,
   tierCount,
-  editable,
+  editable: _editable, // signature preserved for back-compat; banner now lives on the page
   children,
 }: {
   project: { id: string; dealName: string; clientName: string | null };
@@ -25,9 +34,11 @@ export function CostBuildHeader({
     scenarioLabel: string;
     versionNumber: number;
     status: string;
+    projectId: string;
   };
   tierCount: number;
-  editable: boolean;
+  /** @deprecated banner moved out of this component; see SentStatusBanner below */
+  editable?: boolean;
   children?: React.ReactNode;
 }) {
   // Sub copy matches R6 verbatim (cost-build-page.jsx:84-86). R6
@@ -39,6 +50,10 @@ export function CostBuildHeader({
   // HubSpot sync timestamp — UX_BACKLOG entry "Pulse-dot live HubSpot
   // sync indicator" tracks wiring real timestamp + stage. v1: stub.
   const syncLabel = "synced just now";
+
+  // Suppress unused-param warning while we keep editable in the
+  // signature for one slice (callers don't have to change all at once).
+  void _editable;
 
   return (
     <header className="r6-page-head mb-[22px] flex items-end justify-between gap-6">
@@ -79,16 +94,17 @@ export function CostBuildHeader({
 
       <div className="flex shrink-0 items-center gap-2">
         {/* View as customer — default .btn variant per R6
-            (index.html:517-528). Sentence case, Instrument Sans 13px,
-            paper bg + rule-2 border + 6px radius + 7px×12px padding. */}
-        <button
-          type="button"
-          title="Customer preview ships in Slice 11"
+            (index.html:517-528). Slice RI.7 wired to /customer-view
+            (RI.6 surface, snapshot-aware reads). Sentence case,
+            Instrument Sans 13px, paper bg + rule-2 border + 6px
+            radius + 7px×12px padding. */}
+        <Link
+          href={`/projects/${quote.projectId}/quotes/${quote.id}/customer-view`}
           className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-rule-2 bg-paper text-[13px] font-medium text-ink transition-all hover:bg-paper-2 hover:border-ink-4"
           style={{ padding: "7px 12px" }}
         >
           View as customer →
-        </button>
+        </Link>
         {/* Save draft — .btn.primary per R6 (index.html:531-535).
             Ink bg + paper text. Nexus auto-saves; this is reinforcement. */}
         <button
@@ -106,17 +122,22 @@ export function CostBuildHeader({
         </button>
         {children}
       </div>
-
-      {!editable && (
-        <div
-          role="alert"
-          className="mt-3 rounded border border-warn/40 bg-warn-soft p-3 text-xs text-warn"
-        >
-          This quote is in <span className="font-mono">{quote.status}</span>{" "}
-          status. Editing is disabled. Create a new draft version from the
-          project page to make changes.
-        </div>
-      )}
     </header>
+  );
+}
+
+// Slice RI.7 — page-level state notice for non-draft quotes. Renders
+// as a full-width row below the header so the title + action cluster
+// keep their original layout proportions.
+export function SentStatusBanner({ status }: { status: string }) {
+  return (
+    <div
+      role="alert"
+      className="mb-[22px] rounded border border-warn/40 bg-warn-soft p-3 text-xs text-warn"
+    >
+      This quote is in <span className="font-mono">{status}</span> status.
+      Editing is disabled. Create a new draft version from the project page
+      to make changes.
+    </div>
   );
 }

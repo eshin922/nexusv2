@@ -15,12 +15,22 @@ const NAV: Array<{ href: string; label: string; description: string }> = [
   {
     href: "/admin/firm-settings",
     label: "Firm settings",
-    description: "Target & floor margin policy",
+    description: "Margin policy + customer-facing defaults",
   },
   {
     href: "/admin/markup-defaults",
     label: "Markup defaults",
     description: "Per-category markup percentages",
+  },
+  {
+    href: "/admin/users",
+    label: "Users",
+    description: "Manual phone entry for PreparedBy",
+  },
+  {
+    href: "/admin/audit-log",
+    label: "Audit log",
+    description: "Append-only write history",
   },
 ];
 
