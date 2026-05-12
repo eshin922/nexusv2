@@ -582,6 +582,13 @@ function FreightTierCell({
   const total = num(totalFreight);
   const units = cell.unitsInShipment ?? tierQty ?? 0;
   const perUnit = total !== null && units > 0 ? total / units : null;
+  // Slice RI.8 freight-markup feature — display marked-up per-unit
+  // below raw per-unit (mirrors packaging line "raw → marked-up"
+  // pattern). Container-only markup; D+T pass through. When markup
+  // is 0/null, marked-up equals raw and the arrow row is suppressed.
+  const lineMarkup = num(line.markupPct) ?? 0;
+  const markedUpPerUnit =
+    perUnit !== null && lineMarkup > 0 ? perUnit * (1 + lineMarkup) : null;
 
   return (
     <span
@@ -625,8 +632,24 @@ function FreightTierCell({
         />
       </span>
       {perUnit !== null && (
-        <span className="raw">
-          {fmtCurr2(perUnit)}/u · ${total?.toLocaleString()} ÷ {units.toLocaleString()}
+        <span
+          className="raw"
+          title={
+            total !== null
+              ? `${fmtCurr2(perUnit)}/u · $${total.toLocaleString()} ÷ ${units.toLocaleString()} units`
+              : undefined
+          }
+        >
+          {fmtCurr2(perUnit)}/u
+        </span>
+      )}
+      {markedUpPerUnit !== null && (
+        <span
+          className="raw"
+          style={{ color: "var(--ink-3)", display: "block" }}
+          title={`Marked-up per-unit = ${fmtCurr2(perUnit ?? 0)} × (1 + ${(lineMarkup * 100).toFixed(0)}%)`}
+        >
+          → {fmtCurr2(markedUpPerUnit)}
         </span>
       )}
     </span>
