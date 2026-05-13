@@ -57,6 +57,23 @@
 }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* ─── §6.b path-B nexus-specific override ───────────────────
+ * SKU label column min-width — forces product-name alignment
+ * across rows. Canonical r7b-setup.css uses flex .label-pack
+ * with no reserved width on .lbl; real DPS HubSpot data has
+ * variable-length SKU codes (8-14 chars: "UC-LC-04",
+ * "DPS-CFM-SOL", "LC-TUBE-04") so product names start at
+ * different x-positions per row. Pattern from CLAUDE.md
+ * "Design was illustrative; real data needs different
+ * proportions" (banked from RI.8 step 1.5 setup-grid widening).
+ *
+ * Local override scoped to .r7b-sku-row .name .lbl; canonical
+ * file (r7b-setup.css) unchanged.
+ */
+.r7b-sku-row .name .lbl {
+  min-width: 110px;
+}
+
 /* ─── Page head ─────────────────────────────────────── */
 .r1-setup-head {
   display: flex;
