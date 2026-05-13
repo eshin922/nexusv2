@@ -396,19 +396,18 @@ export function SkuRow({
           )}
         </div>
 
-        {/* Retail bench — kept as inline input (R6 carry-forward). */}
-        <input
+        {/* Retail bench — R6 inline-edit read↔edit cell (Pattern 29).
+            Read mode shows formatted $X.XX + "RETAIL" sub-caption.
+            Click switches to edit mode + focuses input; blur or
+            Enter commits + returns to read mode. Empty cell renders
+            em-dash. */}
+        <RetailBenchCell
           value={retailBenchmark}
-          type="number"
-          step="0.01"
           disabled={disabled}
-          onChange={(e) => {
-            const v = e.target.value;
+          onChange={(v) => {
             setRetailBenchmark(v);
             scheduleSave({ retailBenchmark: v });
           }}
-          placeholder="—"
-          className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
         />
 
         {/* Components — assemblies show count + "▸" pointer; clicking
@@ -934,6 +933,119 @@ function DrawerNotes({
         <span style={{ fontSize: 11, color: "var(--ink-4)" }}>saving…</span>
       )}
     </div>
+  );
+}
+
+// §6.b polish-amendment — R6 read↔edit numeric cell (Pattern 29).
+// Read mode: formatted $X.XX value + "RETAIL" mono caption.
+// Empty: em-dash placeholder.
+// Click: switches to edit mode + autofocuses.
+// Blur / Enter: commits + returns to read mode.
+// Esc: reverts + returns to read mode.
+//
+// Token discipline: --rule/--accent borders, --paper-2/--paper
+// backgrounds. No hardcoded Tailwind gray-*.
+//
+// If a third cell needs this pattern (e.g., Tier table qty or
+// price-adj column at Step 5), extract to a shared
+// <EditableNumericCell> primitive in src/components/nav/ or
+// src/components/setup/. Until then, scoped here.
+function RetailBenchCell({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled: boolean;
+  onChange: (v: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const lastCommitted = useRef(value);
+
+  // Keep draft in sync when value changes from outside (e.g., reset)
+  useEffect(() => {
+    if (!editing) {
+      setDraft(value);
+      lastCommitted.current = value;
+    }
+  }, [value, editing]);
+
+  function enterEdit() {
+    if (disabled) return;
+    setDraft(value);
+    setEditing(true);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  function commit() {
+    if (draft !== lastCommitted.current) {
+      lastCommitted.current = draft;
+      onChange(draft);
+    }
+    setEditing(false);
+  }
+
+  function revert() {
+    setDraft(lastCommitted.current);
+    setEditing(false);
+  }
+
+  const num = value ? Number(value) : NaN;
+  const formatted = Number.isFinite(num)
+    ? `$${num.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`
+    : null;
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="number"
+        step="0.01"
+        value={draft}
+        disabled={disabled}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            (e.currentTarget as HTMLInputElement).blur();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            revert();
+          }
+        }}
+        placeholder="—"
+        className="r6b-retail-input"
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={enterEdit}
+      disabled={disabled}
+      className="r6b-retail-read"
+      aria-label={
+        formatted
+          ? `Retail benchmark ${formatted}. Click to edit.`
+          : "Set retail benchmark"
+      }
+    >
+      {formatted ? (
+        <>
+          <span className="r6b-retail-value">{formatted}</span>
+          <span className="r6b-retail-caption">RETAIL</span>
+        </>
+      ) : (
+        <span className="r6b-retail-empty">—</span>
+      )}
+    </button>
   );
 }
 

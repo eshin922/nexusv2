@@ -327,6 +327,73 @@
   cursor: not-allowed;
 }
 
+/* ─── §6.b polish — R6 inline-edit read↔edit cell (Pattern 29) ── */
+/* Retail bench cell on Setup SKU table — first cell to ship the
+   true read↔edit pattern. Step 5 Tier table reuses; existing
+   Cost build cells stay always-input mode until v1.1/R7c
+   polish migrates them. */
+.r6b-retail-read {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+  padding: 4px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: text;
+  text-align: left;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.r6b-retail-read:hover:not(:disabled) {
+  background: var(--paper-2);
+  border-color: var(--rule);
+}
+.r6b-retail-read:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.r6b-retail-value {
+  font-family: var(--ui);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.15;
+}
+.r6b-retail-caption {
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--ink-4);
+  line-height: 1;
+  margin-top: 2px;
+}
+.r6b-retail-empty {
+  font-size: 14px;
+  color: var(--ink-4);
+}
+.r6b-retail-input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: 13px;
+}
+.r6b-retail-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.r6b-retail-input:disabled {
+  opacity: 0.6;
+  background: var(--paper-2);
+  cursor: not-allowed;
+}
+
 /* ─── §6.b Step 7 — Notes split (R7b §3.6) ──────────── */
 /* Two side-by-side cards. Left = internal (purple --internal),
    right = customer-facing (green --good). Stacked on narrow. */
