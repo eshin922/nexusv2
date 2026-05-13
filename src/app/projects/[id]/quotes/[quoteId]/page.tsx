@@ -19,9 +19,11 @@ import {
 // QuoteSummaryCard imports dropped along with the CostingSummary
 // helper component.
 import { buildTreeRenderOrder, getEligibleParents } from "@/lib/sku-tree";
-import { Eyebrow } from "@/components/nav/eyebrow";
+// §6.b path-B migration commit 2 — Eyebrow + ActionCluster imports
+// dropped: Setup now uses canonical .r7b-head inline structure
+// (no Eyebrow/ActionCluster components). The primitives stay shipped
+// for Costs / Pricing / Quote / Mark-Accepted (RI.9 work intact).
 import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
-import { ActionCluster } from "@/components/nav/action-cluster";
 import { NavShell } from "@/components/nav/nav-shell";
 import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
 import { SURFACE_META } from "@/lib/nav/surface-meta";
@@ -86,7 +88,12 @@ export default async function QuoteBuilderPage({
       quoteId={quoteId}
       activeScenarioLabel={quote.scenarioLabel}
     >
-    <main className="mx-auto max-w-6xl p-6">
+    {/* §6.b path-B migration — canonical .r7b-page class replaces
+        Tailwind `mx-auto max-w-6xl p-6`. Canonical: padding: 28px
+        40px 80px; max-width: 1480px (7bstyles.css line 24). Wider
+        max-width than my prior 6xl (~72rem ~1152px) matches R7b's
+        roomy single-screen composition. */}
+    <main className="r7b-page">
       <div className="mb-2 text-sm">
         <Link
           href={`/projects/${project.id}`}
@@ -96,65 +103,62 @@ export default async function QuoteBuilderPage({
         </Link>
       </div>
 
-      {/* §6.b Step 1 amendment — R7b page chrome canon.
-          Eyebrow stays per R7a (client · scenario · vN). Title +
-          sub-copy match R7b designer notes line 6-7 ("starting
-          shape of the quote"). Action cluster swaps "+ New scenario"
-          (RI.9 placeholder) for "+ Add SKU" (R7b canonical).
-          Quote-identifier strip (IdBadge + status badge + created
-          date) dropped — R7b page head doesn't carry it; status
-          + ID live elsewhere (rail / non-draft warning banner). */}
-      <header className="r1-setup-head">
-        <div>
-          <Eyebrow
-            segments={[
-              project.clientName ?? project.dealName,
-              quote.scenarioLabel,
-              `v${quote.versionNumber}`,
-            ]}
-          />
-          <h1 className="r1-setup-title">
-            Setup{" "}
-            <span style={{ color: "var(--ink-3)", fontWeight: 400 }}>
-              · SKUs, tiers, notes
-            </span>
+      {/* §6.b path-B migration commit 2 — page chrome restructured to
+          match canonical 7bsetup.jsx PageHead (lines 86-107). Inline
+          eyebrow + h1 + sub + actions per .r7b-head structure. Cross-
+          surface primitives (<Eyebrow>, <ActionCluster>) stay shipped
+          for Costs / Pricing / Quote / Mark-Accepted; Setup uses
+          canonical R7b CSS directly.
+
+          h1 italic 30px (canonical .r7b-head h1); em-wrapped suffix
+          renders non-italic 22px ink-3 (canonical .r7b-head h1 em).
+          Sub-copy preserves "we're" per Edward's earlier disposition
+          (designer notes line 7 + Edward's first-person-plural call;
+          canonical JSX has "you're" — Pattern 28 conflict, "we're"
+          wins per Edward directive).
+
+          ".actions" class matches the canonical CSS selector
+          (.r7b-head .actions) — JSX in 7bsetup.jsx line 101 uses
+          "r7b-actions" which is a CD prototype bug; the CSS rule
+          uses .actions inside .r7b-head, so that's what works. */}
+      <div className="r7b-head">
+        <div className="lhs">
+          <div className="eyebrow">
+            {project.clientName ?? project.dealName}
+            <span className="sep">·</span>
+            {quote.scenarioLabel}
+            <span className="sep">·</span>
+            v{quote.versionNumber} draft
+          </div>
+          <h1>
+            Setup <em>· SKUs, tiers, notes</em>
           </h1>
-          <p className="r1-setup-sub">
+          <p className="sub">
             The starting shape of the quote. What we&rsquo;re selling, in
             what quantities, with what context. Cost goes on the next
             surface.
             {pm?.name ? ` · PM ${pm.name}` : ""}
           </p>
         </div>
-        <ActionCluster
-          secondary={[
-            // + Add SKU — R7b canonical secondary affordance. Currently
-            // inert at the page-head level; the canonical write path is
-            // the table footer "+ Add Product" modal (Step 8 wires the
-            // modal). UX_BACKLOG: wire page-head button to focus the
-            // table-footer add-product affordance once modal lands.
-            <button
-              key="add-sku"
-              type="button"
-              className="r2-btn ghost"
-              disabled
-              title="+ Add SKU — wires to add-product modal in §6.b Step 8"
-            >
-              + Add SKU
-            </button>,
-          ]}
-          primary={
-            <button
-              type="button"
-              className="r2-btn primary"
-              title="Saved automatically as you edit."
-              disabled
-            >
-              Save draft
-            </button>
-          }
-        />
-      </header>
+        <div className="actions">
+          <button
+            type="button"
+            className="btn ghost sm"
+            disabled
+            title="+ Add SKU — wires to add-product modal in §6.b Step 8"
+          >
+            + Add SKU
+          </button>
+          <button
+            type="button"
+            className="btn primary"
+            title="Saved automatically as you edit."
+            disabled
+          >
+            Save draft
+          </button>
+        </div>
+      </div>
 
       {/* Slice RI.9 § 3.3 — YOUR NEXT MOVE banner. Setup → Cost build
           is the canonical forward step. R7b subtitle ("once SKUs and
@@ -180,39 +184,39 @@ export default async function QuoteBuilderPage({
         </div>
       )}
 
-      {/* §6.b polish-amendment — R7b rationale callout per
-          designer notes line 7 (verbatim). Pattern 21 §D
-          investigation: "DN · R7B" prefix tag is prototype-only
-          chrome (third instance — alongside STATES tab strips +
-          R7a/R7b widgets); not shipped. CC's prior "ⓘ" glyph
-          prefix also stripped per the same investigation — the
-          callout reads cleanly as a body-only orientation note. */}
-      <div
-        role="note"
-        aria-label="Setup orientation"
-        style={{
-          padding: "12px 18px",
-          marginBottom: 16,
-          background: "var(--warn-soft)",
-          border: "1px solid oklch(from var(--warn) l c h / 0.30)",
-          borderRadius: 8,
-          fontSize: 13,
-          color: "var(--ink-2)",
-          lineHeight: 1.5,
-        }}
-      >
-        <p style={{ margin: 0 }}>
-          Setup is the <strong>starting shape</strong> of the quote: what
-          we&rsquo;re selling, in what quantities, with what context. Cost goes on
-          Cost build (the next surface). Pricing goes on Costing sheet. The
-          customer-facing artifact lives on Customer view.
-        </p>
+      {/* §6.b path-B migration — Designer Note callout per canonical
+          7bsetup.jsx lines 464-467 + 7bstyles.css .r7b-dn rules.
+
+          Pattern 21 correction: my fidelity sweep §D incorrectly
+          flagged "DN · R7b" as prototype-only review chrome and
+          recommended strip. Now with canonical JSX available, the
+          callout IS production UI — designer-note vocabulary IS
+          part of the surface grammar. Restoring canonical structure
+          + copy verbatim.
+
+          Body copy includes the full coupled-pair + notes-split
+          sentences (my Step 1 amendment synthesized these from
+          designer notes lines 7+12+13; canonical confirms the
+          synthesis). "we're" vs canonical's "we're" — match.
+          "the row drawer" (not "the drawer") per canonical line 466. */}
+      <div className="r7b-dn">
+        <span className="lbl">DN · R7b</span>
+        Setup is the <strong>starting shape</strong> of the quote: what
+        we&rsquo;re selling, in what quantities, with what context. Cost goes
+        on Cost build. The SKU and Tier tables are a{" "}
+        <strong>coupled pair</strong> — same inline-edit pattern, same
+        register, paired action vocabularies. Notes split into{" "}
+        <strong>internal</strong> (PM-only) and{" "}
+        <strong>customer-facing</strong> (renders on Quote PDF); per-SKU
+        notes live in the row drawer.
       </div>
 
-      {/* Slice RI.8 step 1.5 — R1 two-column setup grid. SKUs
-          left (1.4fr), Volume tiers right (1fr) per R1 source.
-          Notes section follows full-width below the grid. */}
-      <div className="r1-setup-grid">
+      {/* §6.b path-B migration — canonical .r7b-grid replaces
+          .r1-setup-grid. Canonical: grid-template-columns: 2fr 1fr;
+          gap: 22px; margin-bottom: 24px (7bstyles.css line 75-79).
+          Cleaner than my prior 2fr 1fr (matched anyway, but class
+          name vocabulary now matches CD source). */}
+      <div className="r7b-grid">
 
       {/* §6.b Step 1 amendment — R7b SKUs section:
           • Section header carries count caption "{N} SKUs · {M} assemblies"
