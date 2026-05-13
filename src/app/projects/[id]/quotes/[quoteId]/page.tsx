@@ -302,7 +302,12 @@ export default async function QuoteBuilderPage({
         )}
         {editable && (
           <div className="border-t border-rule px-4 pt-3 pb-4">
-            <div className="mb-3 flex items-center gap-3">
+            {/* §6.b polish-amendment (sweep #11) — drag-hint
+                relocated to bottom-right of card per R7b
+                screenshot. Previous placement was inline with
+                "+ Add Product" button (row-1 left), competing for
+                attention with the primary affordance. */}
+            <div className="mb-3">
               <AddAssemblyButton
                 quoteId={quote.id}
                 eligibleParents={getEligibleParents(skus, null).map((p) => ({
@@ -313,7 +318,6 @@ export default async function QuoteBuilderPage({
                 }))}
                 triggerLabel="+ Add Product"
               />
-              <span className="text-xs text-ink-4">Drag rows to reorder</span>
             </div>
             <div>
               <p className="mb-1.5 font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3">
@@ -328,6 +332,11 @@ export default async function QuoteBuilderPage({
                   skuRole: p.skuRole,
                 }))}
               />
+            </div>
+            <div className="mt-3 flex justify-end">
+              <span className="text-xs italic text-ink-4">
+                Drag rows to reorder
+              </span>
             </div>
           </div>
         )}
