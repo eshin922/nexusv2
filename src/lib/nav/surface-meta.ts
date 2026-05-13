@@ -67,7 +67,12 @@ export const SURFACE_META: Record<SurfaceKey, SurfaceMeta> = {
       gatedLabel: "Resolve override before sending →",
     },
     primaryAction: "Mark accepted",
-    secondaryActions: ["Customer accepted (manual)", "Preview"],
+    // RI.9 step 10 smoke: cluster `Preview` dropped — redundant with
+    // banner default CTA ("Preview quote PDF →") which targets the
+    // same customer_view surface. R7a §5 placement canon: forward
+    // affordances belong in the banner; cluster carries
+    // workflow-state affordances only.
+    secondaryActions: ["Customer accepted (manual)"],
     backAction: null,
   },
   customer_view: {

@@ -112,11 +112,19 @@ export function PricingPageHead({
         </div>
 
         {/* Slice RI.9 § 3.4 — Action cluster. Primary "Mark accepted"
-            (gated by BELOW_FLOOR); secondary slots carry the
-            customer-response chip + Preview affordance. The R7a
-            workflow-cluster grouping (response → mark accepted with
-            visual divider) from RI.8 step 7 is preserved within the
-            secondary+primary arrangement. */}
+            (gated by BELOW_FLOOR); secondary slot carries only the
+            customer-response chip. The R7a workflow-cluster grouping
+            (response → mark accepted with visual divider) from RI.8
+            step 7 is preserved within the secondary+primary
+            arrangement.
+
+            Step 10 smoke (RI.9): cluster `Preview` dropped. It routed
+            to the same `customer_view` surface as the banner's
+            default CTA ("Preview quote PDF →"), so the two
+            affordances were redundant. R7a §5 placement canon
+            (forward affordances belong in the banner) resolves the
+            redundancy in favor of the banner — patch back to R7a
+            designer notes accompanies this commit. */}
         <ActionCluster
           secondary={[
             // § 5.2 — "Customer accepted (manual)" affordance.
@@ -146,13 +154,6 @@ export function PricingPageHead({
                 ① customer response · pending send
               </span>
             ),
-            <Link
-              key="preview"
-              href={`/projects/${projectId}/quotes/${quoteId}/quote`}
-              className="r2-btn ghost"
-            >
-              Preview
-            </Link>,
           ]}
           primary={
             <MarkAcceptedCluster
