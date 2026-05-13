@@ -57,21 +57,44 @@
 }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* ─── §6.b path-B nexus-specific override ───────────────────
- * SKU label column min-width — forces product-name alignment
- * across rows. Canonical r7b-setup.css uses flex .label-pack
- * with no reserved width on .lbl; real DPS HubSpot data has
- * variable-length SKU codes (8-14 chars: "UC-LC-04",
- * "DPS-CFM-SOL", "LC-TUBE-04") so product names start at
- * different x-positions per row. Pattern from CLAUDE.md
- * "Design was illustrative; real data needs different
- * proportions" (banked from RI.8 step 1.5 setup-grid widening).
- *
- * Local override scoped to .r7b-sku-row .name .lbl; canonical
- * file (r7b-setup.css) unchanged.
+/* ─── §6.b path-B nexus-specific overrides ───────────────────
+ * Local overrides scoped to canonical r7b-* classes. Canonical
+ * file (r7b-setup.css) unchanged per Pattern 30.
  */
+
+/* SKU label column min-width — forces product-name alignment
+   across rows. Canonical .label-pack is flex with no reserved
+   width on .lbl; real DPS HubSpot data has variable-length SKU
+   codes (8-14 chars: "UC-LC-04", "DPS-CFM-SOL", "LC-TUBE-04")
+   so product names start at different x-positions per row.
+   Pattern: CLAUDE.md "Design was illustrative; real data needs
+   different proportions" (banked from RI.8 step 1.5 setup-grid
+   widening). */
 .r7b-sku-row .name .lbl {
   min-width: 110px;
+}
+
+/* Grid alignment — canonical .r7b-grid default `align-items:
+   stretch` makes both cards (SKU left, Tier right) stretch to
+   the height of the tallest. Real PM data has variable SKU/Tier
+   counts, so heights diverge; the shorter card renders empty
+   white space at its bottom (paper bg showing through to the
+   stretched card boundary).
+
+   Fix: align-items: start lets each card sit at its natural
+   height. Grid row is just as tall as the tallest card; shorter
+   card ends cleanly at its footer.
+
+   Visual: matches R7b prototype where mock data was balanced
+   between cards. Production data isn't always balanced; this
+   override ensures clean termination per card.
+
+   Pattern: same shape as the .lbl override above — canonical
+   layout assumed balanced mock data; real data needs the
+   tweak. CLAUDE.md "Design was illustrative; real data needs
+   different proportions". */
+.r7b-grid {
+  align-items: start;
 }
 
 /* ─── Page head ─────────────────────────────────────── */
