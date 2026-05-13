@@ -679,6 +679,118 @@ fidelity-manifest.mjs` could parse the manifest from a commit
 range and surface MATCHED claims that touched no relevant files.
 Until that's needed, the discipline lives in commit-author care.
 
+## "Two-layer manifest: structural + polish"
+
+Pattern 26 ships a single MATCHED list. §6.b Step 4 exposed the
+gap: a commit can satisfy MATCHED for every structural primitive
+(layout, props, action wiring) while shipping zero of the design
+source's polish (accent borders, chips, audience labels, layout
+register). The structural primitive is implemented; the visual
+fidelity isn't. PM smoke catches this immediately; designer
+audit lands the same finding at Step 11.
+
+**Banked from §6.b Step 4 hand-off + Edward's directive (May 2026).**
+The Notes split first-ship rendered as two stacked plain
+textareas — structurally correct per brief §3.6 ("internal +
+customer-facing zones") but missing every polish element R7b
+designer notes specified (purple/green accent borders, INTERNAL/
+CUSTOMER chips, audience labels, side-by-side layout).
+
+**Pattern 27 update — manifest is two-layer:**
+
+```
+## Fidelity manifest
+
+**STRUCTURAL MATCHED (this commit ships against R<round> source):**
+- <primitives implemented this step>
+
+**POLISH MATCHED (visual treatment per R<round> designer notes + HTML):**
+- <accent borders, chips, subtitles, color tokens, typography, layout grammar>
+- e.g., "purple --internal left-accent border on Internal card"
+- e.g., "INTERNAL chip (purple-soft) top-right"
+- e.g., "audience footer with verbatim copy from R<round> designer notes §X.Y"
+- e.g., "side-by-side layout, not stacked"
+
+**DEFERRED:**
+- <element> → Step N
+
+**NOT-IN-ANY-STEP:**
+- <element>: <why no step home>
+```
+
+**Audit hint:** if POLISH MATCHED is empty for a step that has
+visual treatment in the design source, the step is incomplete
+regardless of structural correctness. Edward + Designer audit
+both read POLISH MATCHED first when smoke-checking against the
+prototype screenshot.
+
+## "Briefs are scope contracts; design docs are fidelity contracts"
+
+Pattern 28 — codified to survive context compaction.
+
+A brief specifies WHAT each step implements (column count, drawer
+behavior, schema commitments) and WHEN (sequencing, dependencies).
+A brief does NOT specify visual treatment in implementable detail —
+that lives in the design source: designer notes for the canonical
+treatment, prototype HTML for the layout grammar.
+
+**Working discipline:**
+
+For every step, CC reads:
+
+1. The brief §X.Y section — gets scope, mutability, schema
+   sources. Structural primitives.
+2. The design source designer notes section — gets accent
+   borders, chips, subtitles, audience labels, color tokens,
+   typography decisions. Polish layer.
+3. The design source prototype HTML — gets layout grammar,
+   side-by-side vs stacked, spacing, exact visual states.
+
+Implement both layers. Manifest both layers (Pattern 27 two-
+layer manifest).
+
+**Operating-standard pre-compaction; codified post-compaction.**
+This pattern was the implicit discipline during slice-ri.8 era
+when CD's prototypes + designer notes were the visual reference.
+It survived in CC's working memory but didn't survive context
+compaction. §6.b Step 4 surfaced the regression: CC implemented
+from brief summary alone, missed every polish element. Edward's
+directive (May 2026) codified the pattern so it doesn't
+regress again.
+
+**Standing protocol — applies to every future slice brief:**
+
+CA writing briefs MUST include a `§0 · Fidelity Discipline`
+section at the top, after the Companion docs block, before §1
+Scope. CC reading briefs MUST check for this section and follow
+the discipline per step. If §0 is missing from a brief, CC
+flags to CA before starting implementation.
+
+**Brief template snippet (paste into every new brief's §0):**
+
+```markdown
+## §0 · Fidelity Discipline (read before every step)
+
+This brief is a **scope contract**, not a fidelity contract.
+
+**Visual fidelity lives in:**
+- `docs/<round>-designer-notes.md` — canonical visual treatment
+- `docs/design-prototypes/dist/Nexus Round <round>.html` — prototype
+
+**Before implementing each step, CC MUST:**
+1. Read brief §X.Y for scope + schema sources
+2. Read designer notes §X.Y for polish layer + audience labels
+3. Inspect prototype HTML for layout grammar + visual states
+
+**Implement BOTH structural primitive AND polish layer.**
+Manifest both (Pattern 27 two-layer).
+```
+
+**Application:** §6.b brief was patched retroactively with §0 in
+the same commit that banked this pattern. R7c, §6.c, Slice 9,
+Slice 11, Slice 12, and every brief after that lands with §0
+already in place.
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**
