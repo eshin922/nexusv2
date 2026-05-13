@@ -904,15 +904,6 @@ function DrawerNotes({
           Per-SKU notes · internal-only
         </p>
       </div>
-      <p
-        style={{
-          margin: "6px 0 8px",
-          fontSize: 11.5,
-          color: "var(--ink-3)",
-        }}
-      >
-        Lives on this SKU. Never renders on the Quote PDF.
-      </p>
       <textarea
         value={value}
         onChange={(e) => setValue(e.target.value)}
