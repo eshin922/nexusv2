@@ -75,6 +75,10 @@ export function SkuRow({
   onDrawerToggle,
   projectId,
   quoteId,
+  isDragging = false,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
 }: {
   sku: Sku;
   depth: number;
@@ -94,6 +98,14 @@ export function SkuRow({
    * per child SKU. */
   projectId?: string;
   quoteId?: string;
+  /** §6.b Step 9 — HTML5 drag-and-drop wiring driven by SkuRowList.
+   * `isDragging` flags the row that's currently being dragged so the
+   * source row dims via inline opacity; drop handler lives on the
+   * list container (single onDragEnd). */
+  isDragging?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
 }) {
   // §6.b Step 1 — units_per_pack and notes inputs removed from row.
   // Notes returns in Step 4 (per-SKU drawer textarea); units_per_pack
@@ -275,10 +287,21 @@ export function SkuRow({
     <>
       <div
         className={`r7b-sku-row ${sku.skuRole}${isDrawerOpen ? " open" : ""}`}
+        draggable={!disabled && !!onDragStart}
+        onDragStart={onDragStart}
+        onDragOver={onDragOver}
+        onDragEnd={onDragEnd}
+        style={
+          isDragging
+            ? { opacity: 0.4, cursor: "grabbing" }
+            : undefined
+        }
       >
-        {/* Grip — static glyph; drag wires in §6.b Step 9. Canonical
-            .r7b-sku-row .grip rule. */}
-        <span className="grip" title="Drag to reorder (Step 9)">
+        {/* §6.b Step 9 — drag handle. The whole row is draggable
+            (HTML5 native), but the grip column anchors the visual
+            affordance via canonical `.r7b-sku-row .grip { cursor:
+            grab }` rule. */}
+        <span className="grip" title="Drag to reorder">
           ⠿
         </span>
 

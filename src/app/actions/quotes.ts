@@ -631,6 +631,106 @@ export async function addAssemblySku(
 }
 
 /**
+ * §6.b Step 9 — Drag-and-drop row reordering. Accepts a comma-
+ * separated list of SKU ids in the new display order; writes a
+ * sequential sort_order to each row (1, 2, 3, ...). Sequential
+ * over sparse-spacing chosen because nexus scale is small (typical
+ * quote: 5-30 SKUs) and the action layer's existing
+ * `max(sort_order) + 1` insert pattern (addSkuFromHubspotProduct,
+ * addAssemblySku, addProductSku) naturally continues forward from
+ * any sequential floor — no rebalance step needed.
+ *
+ * Validates all ids belong to the quote (defense against forged
+ * cross-quote payloads); refuses if any id is missing OR if there
+ * are stale ids the client doesn't know about (drag fired on a
+ * snapshot that's older than current state).
+ *
+ * Audit: one row written per quote with a from→to map of every
+ * shifted row's sort_order. Single timeline entry keeps the audit
+ * log readable for "what was reordered when"; per-row entries
+ * would explode the log on each drag.
+ */
+export async function reorderQuoteSkus(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    const orderRaw = String(formData.get("skuIds") ?? "").trim();
+    if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+    if (!orderRaw)
+      throw new ActionGuardError(ERR.VALIDATION, "skuIds (comma-separated) required");
+
+    const newOrder = orderRaw.split(",").map((s) => s.trim()).filter(Boolean);
+    if (newOrder.length === 0)
+      throw new ActionGuardError(ERR.VALIDATION, "skuIds must not be empty");
+
+    const user = await ensureUser();
+    const quote = await loadQuoteOrThrow(quoteId);
+    assertDraft(quote);
+
+    const existing = await db
+      .select({ id: quoteSkus.id, sortOrder: quoteSkus.sortOrder })
+      .from(quoteSkus)
+      .where(eq(quoteSkus.quoteId, quoteId));
+
+    const existingIds = new Set(existing.map((r) => r.id));
+    const incomingSet = new Set(newOrder);
+
+    // Every incoming id must belong to the quote.
+    for (const id of newOrder) {
+      if (!existingIds.has(id))
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `SKU ${id} does not belong to quote ${quoteId}`,
+        );
+    }
+    // Every existing id must appear in the incoming list (or we'd
+    // partially-reorder and leave stale rows behind on the old order).
+    if (incomingSet.size !== existing.length)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Reorder payload covers ${incomingSet.size} rows but quote has ${existing.length}. Refresh and retry.`,
+      );
+
+    const beforeMap = new Map(existing.map((r) => [r.id, r.sortOrder]));
+    const diff: Record<string, { from: number; to: number }> = {};
+    let touched = 0;
+
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < newOrder.length; i++) {
+        const id = newOrder[i];
+        const next = i + 1;
+        const prev = beforeMap.get(id);
+        if (prev === next) continue;
+        await tx
+          .update(quoteSkus)
+          .set({ sortOrder: next, updatedAt: new Date() })
+          .where(eq(quoteSkus.id, id));
+        if (prev !== undefined) diff[id] = { from: prev, to: next };
+        touched++;
+      }
+    });
+
+    if (touched > 0) {
+      await logAudit({
+        userId: user.id,
+        entityType: "quote",
+        entityId: quoteId,
+        action: "skus_reordered",
+        diffJson: {
+          quote_id: quoteId,
+          rows_touched: touched,
+          rows_total: newOrder.length,
+          changes: diff,
+        },
+      });
+    }
+
+    revalidateQuoteTree(quote.projectId, quoteId);
+  });
+}
+
+/**
  * §6.b Step 8 — Add-product modal action. Creates a top-level Nexus-
  * local SKU (no parent; assembly nesting + parent assignment lives in
  * the row drawer). Supports both `leaf` and `assembly` roles via the
