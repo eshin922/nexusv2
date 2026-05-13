@@ -60,6 +60,13 @@ function snapshotFromHubspotProduct(p: ProductSummary): {
 // ---------- tier presets (internal — "use server" disallows non-async exports) ----------
 
 type TierPresetKey =
+  // R7b §3.5 empty-state picker presets (§6.b Step 6).
+  | "pst_3step"
+  | "pst_4step"
+  | "pst_first"
+  | "pst_volume"
+  // Legacy presets (pre-§6.b TierPresetSelect dropdown). Retained
+  // for backward compat with any external bookmarks / saved URLs.
   | "single_volume"
   | "reorder"
   | "packaging_domestic"
@@ -67,10 +74,50 @@ type TierPresetKey =
   | "soft_goods"
   | "custom";
 
+type TierPresetRow = {
+  label: string;
+  qty: number | null;
+  recommended?: boolean;
+};
+
 const TIER_PRESETS: Record<
   TierPresetKey,
-  { label: string; tiers: Array<{ label: string; qty: number | null }> }
+  { label: string; tiers: Array<TierPresetRow> }
 > = {
+  // R7b §3.5 — 4 empty-state picker presets. Each marks one tier
+  // as recommended per the brief / 7bsetup.jsx fixture (lines
+  // 442-457). Action layer's "one recommended per quote" invariant
+  // is satisfied by-construction since the picker only fires on
+  // an empty tier set.
+  pst_3step: {
+    label: "3-tier step",
+    tiers: [
+      { label: "Tier 1", qty: 5000 },
+      { label: "Tier 2", qty: 10000, recommended: true },
+      { label: "Tier 3", qty: 25000 },
+    ],
+  },
+  pst_4step: {
+    label: "4-tier step",
+    tiers: [
+      { label: "Tier 1", qty: 5000 },
+      { label: "Tier 2", qty: 10000, recommended: true },
+      { label: "Tier 3", qty: 25000 },
+      { label: "Tier 4", qty: 50000 },
+    ],
+  },
+  pst_first: {
+    label: "First-PO",
+    tiers: [{ label: "Tier 1", qty: 10000, recommended: true }],
+  },
+  pst_volume: {
+    label: "Volume break",
+    tiers: [
+      { label: "Tier 1", qty: 10000 },
+      { label: "Tier 2", qty: 50000, recommended: true },
+      { label: "Tier 3", qty: 100000 },
+    ],
+  },
   single_volume: {
     label: "Single Volume",
     tiers: [{ label: "Tier 1", qty: null }],
@@ -1653,6 +1700,10 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
           label: t.label,
           qty: t.qty,
           sortOrder: i,
+          // §6.b Step 6 — R7b §3.5 presets mark one tier as
+          // recommended. "One per quote" invariant satisfied by
+          // construction (picker only fires on empty tier set).
+          recommended: t.recommended ?? false,
         })),
       )
       .returning({ id: quoteTiers.id });

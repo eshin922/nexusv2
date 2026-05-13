@@ -34,6 +34,7 @@ import { AddTierButton } from "./add-tier-button";
 import { SkuRowList, type SkuRowListItem } from "./sku-row-list";
 import { SkuFooter } from "./sku-footer";
 import { TierRow } from "./tier-row";
+import { TierPresetPicker } from "./tier-preset-picker";
 import { NotesEditor } from "./notes-editor";
 
 export default async function QuoteBuilderPage({
@@ -351,12 +352,12 @@ export default async function QuoteBuilderPage({
         </div>
 
         {tiers.length === 0 ? (
-          <p style={{ padding: "24px 16px", textAlign: "center", fontSize: 13, color: "var(--ink-3)", fontStyle: "italic", margin: 0 }}>
-            {/* §6.b Step 6 replaces this with the canonical
-                .r7b-presets picker (R7b §3.5 empty-state grammar).
-                For Step 5: minimal empty-state copy. */}
-            No tiers yet. Add the first one below.
-          </p>
+          // §6.b Step 6 — R7b §3.5 preset picker (empty state).
+          // Renders only when count === 0; mounts/unmounts on tier
+          // population. Brief: adding a 4th tier to a 3-tier preset
+          // does NOT re-show the picker — guaranteed by the count
+          // gate (any tier exists → picker unmounted).
+          <TierPresetPicker quoteId={quote.id} disabled={!editable} />
         ) : (
           <>
             {/* Canonical .r7b-tier-thead — 4 columns:
