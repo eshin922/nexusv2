@@ -32,12 +32,16 @@
 }
 .r1-setup-title {
   font-family: var(--display);
-  font-size: 36px;
+  /* §6.b Step 1 amendment — R7b page-title scale per Edward smoke.
+     Was 36px under R1 fidelity (RI.8 step 1.5); R7b renders the
+     title at ~28px, reading as a generous-but-not-shouty heading
+     that lets the sub-copy + banner share register weight. */
+  font-size: 28px;
   font-weight: 400;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.02em;
   margin: 0;
   color: var(--ink);
-  line-height: 1.05;
+  line-height: 1.1;
 }
 .r1-setup-title em {
   font-style: italic;

@@ -182,6 +182,52 @@ export default async function QuoteBuilderPage({
         </div>
       )}
 
+      {/* §6.b Step 1 amendment — R7b info strip per Edward smoke.
+          Reads as a brief context caption between banner and the
+          coupled SKU/Tier grid. Copy synthesized from R7b designer
+          notes lines 7 + 12-13. Warn-soft fill matches R7b
+          screenshot register; ⓘ glyph anchors the strip. NOT
+          Pattern 21 review-chrome (confirmed by Edward — production
+          element). */}
+      <div
+        role="note"
+        aria-label="Setup orientation"
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 12,
+          padding: "10px 16px",
+          marginBottom: 16,
+          background: "var(--warn-soft)",
+          border: "1px solid oklch(from var(--warn) l c h / 0.30)",
+          borderRadius: 8,
+          fontSize: 13,
+          color: "var(--ink-2)",
+          lineHeight: 1.5,
+        }}
+      >
+        <span
+          aria-hidden
+          style={{
+            flexShrink: 0,
+            fontSize: 14,
+            color: "var(--warn)",
+            marginTop: 1,
+          }}
+        >
+          ⓘ
+        </span>
+        <p style={{ margin: 0 }}>
+          Setup is the <strong>starting shape</strong> of the quote: what
+          you&rsquo;re selling, in what quantities, with what context. The SKU and
+          Tier tables are a <em>coupled pair</em> — same inline-edit pattern,
+          same register, paired action vocabularies. Notes split into{" "}
+          <strong>internal</strong> (PM-only) and{" "}
+          <strong>customer-facing</strong> (renders on Quote PDF); per-SKU notes
+          live in the drawer.
+        </p>
+      </div>
+
       {/* Slice RI.8 step 1.5 — R1 two-column setup grid. SKUs
           left (1.4fr), Volume tiers right (1fr) per R1 source.
           Notes section follows full-width below the grid. */}

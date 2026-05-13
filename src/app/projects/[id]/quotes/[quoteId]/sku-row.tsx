@@ -242,7 +242,7 @@ export function SkuRow({
           same width as transparent so vertical alignment is preserved
           (brief §3.1: "Left-border accent for assembly distinction"). */}
       <div
-        className="grid grid-cols-[36px_80px_2fr_120px_120px_36px] items-center gap-2 px-3 py-2 text-sm hover:bg-paper-2"
+        className="grid grid-cols-[36px_80px_2fr_120px_120px_36px] items-center gap-2 px-3 py-3 text-sm hover:bg-paper-2"
         style={{
           borderLeft: isAssembly
             ? "2px solid var(--accent)"
