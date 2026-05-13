@@ -146,7 +146,16 @@ export function FreightDrilldown({
 
   if (tiers.length === 0) {
     return (
-      <div className="rounded border border-warn/40 bg-warn-soft p-3 text-sm text-warn">
+      <div
+        style={{
+          padding: "12px 14px",
+          background: "var(--warn-soft)",
+          border: "1px solid oklch(from var(--warn) l c h / 0.40)",
+          borderRadius: 6,
+          fontSize: 13,
+          color: "var(--warn)",
+        }}
+      >
         Add at least one tier to the quote before entering freight inputs.
       </div>
     );
@@ -187,7 +196,9 @@ export function FreightDrilldown({
 
   return (
     <div>
-      <div className="r6-drawer-toolbar">
+      {/* Canonical .drawer-toolbar inside .r6-drawer (parent applies
+          .r6-drawer to the collapsible region). */}
+      <div className="drawer-toolbar">
         <div className="lhs">
           <span>
             <strong>{lines.length}</strong> freight line

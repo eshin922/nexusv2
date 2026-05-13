@@ -147,7 +147,7 @@ export function BulkRawDrilldown({
         </div>
       ) : (
         <>
-          <div className="r6-drawer-toolbar">
+          <div className="drawer-toolbar">
             <div className="lhs">
               <span>
                 <strong>{categories.length}</strong> raw categor
