@@ -994,6 +994,56 @@ the same commit that banked this pattern. R7c, §6.c, Slice 9,
 Slice 11, Slice 12, and every brief after that lands with §0
 already in place.
 
+## "Cross-chat handoff briefs may carry verbal-disposition gaps"
+
+Pattern 31 — banked during Phase 1 modal-rewrite prep (May 2026).
+
+When a brief is authored in one chat session and handed off to
+another (CA-drafted brief → CC implements; product-modal-brief.md
++ product-modal-cc-instructions.md are the reference moment), the
+brief's "Open Questions" list may contain items that were
+**verbally dispositioned in the originating transcript but never
+codified in the brief itself**. CC reading the handed-off brief
+sees the open questions and starts re-asking, costing a round-trip
+that was already resolved upstream.
+
+**Reference moment:** Phase 1 prep. product-modal-brief.md OQ2
+(Leaf · single-line vs hs_product_type) and OQ3 (units_per_pack)
+were both verbally dispositioned by Edward in CC's pre-Phase-1
+session, but the brief itself still listed them as open. CC
+read the brief, ran the verification pass, and re-asked both
+questions. Edward answered them again (cleanly, no friction), but
+the cycle was avoidable.
+
+**Discipline (CA-side):** during brief-integration step, scan the
+brief's open-question list against the handoff transcript for
+verbal dispositions. Then either:
+- (a) **Amend the brief inline** to reflect the verbal disposition
+  as RESOLVED, with the rationale captured. Future readers see
+  resolved state without transcript archaeology.
+- (b) **List the verbal dispositions in the CC follow-up** ("OQ2
+  resolved verbally as X; OQ3 resolved verbally as Y") so CC
+  doesn't re-ask. Brief itself stays as-was; the follow-up
+  carries the bridge.
+
+Option (a) is preferred when the disposition is durable (will be
+read by future maintainers). Option (b) is acceptable when the
+disposition is implementation-only (won't outlive the slice).
+
+**CC-side complement:** when CC encounters an open question, the
+correct pattern is still to surface (not decide). The decision
+authority hierarchy stays Edward decides → CA corroborates against
+discipline patterns → product-owner consulted for usage patterns
+when needed. CC's "surface rather than decide solo" instinct is
+correct — Pattern 31 doesn't replace it; it just trims the
+re-asking cost when the answer already exists upstream.
+
+**Practical retroactive fix:** when CC catches a verbal disposition
+that was banked in transcript but missing from the brief, CC
+amends the brief inline (Edward + CA sign-off implicit since the
+verbal disposition is the authority) AND surfaces the amendment in
+the implementation commit so the audit trail captures it.
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**
