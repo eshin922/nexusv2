@@ -29,7 +29,7 @@ import { SURFACE_META } from "@/lib/nav/surface-meta";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { AddTierButton } from "./add-tier-button";
 import { AddAssemblyButton } from "./add-assembly-button";
-import { SkuRow } from "./sku-row";
+import { SkuRowList, type SkuRowListItem } from "./sku-row-list";
 import { SkuSearchPanel } from "./sku-search-panel";
 import { TierRow } from "./tier-row";
 import { NotesEditor } from "./notes-editor";
@@ -266,8 +266,8 @@ export default async function QuoteBuilderPage({
         ) : (
           <>
             <SkuHeader />
-            <div className="divide-y divide-rule">
-              {buildTreeRenderOrder(skus).map(({ sku: s, depth }) => {
+            <SkuRowList
+              rows={buildTreeRenderOrder(skus).map(({ sku: s, depth }): SkuRowListItem => {
                 const eligibleParents = getEligibleParents(skus, s.id).map((p) => ({
                   id: p.id,
                   skuLabel: p.skuLabel,
@@ -276,32 +276,29 @@ export default async function QuoteBuilderPage({
                 }));
                 const hasChildren = skus.some((x) => x.parentSkuId === s.id);
                 const childCount = skus.filter((x) => x.parentSkuId === s.id).length;
-                return (
-                  <SkuRow
-                    key={s.id}
-                    sku={{
-                      id: s.id,
-                      hubspotProductId: s.hubspotProductId,
-                      skuLabel: s.skuLabel,
-                      productName: s.productName,
-                      unitsPerPack: s.unitsPerPack,
-                      retailBenchmark: s.retailBenchmark,
-                      notes: s.notes,
-                      lastHubspotRefreshAt: s.lastHubspotRefreshAt,
-                      skuRole: s.skuRole,
-                      parentSkuId: s.parentSkuId,
-                      qtyPerParent: s.qtyPerParent,
-                    }}
-                    depth={depth}
-                    hasChildren={hasChildren}
-                    childCount={childCount}
-                    eligibleParents={eligibleParents}
-                    hubspotPortalId={process.env.HUBSPOT_PROD_HUB_ID ?? null}
-                    disabled={!editable}
-                  />
-                );
+                return {
+                  sku: {
+                    id: s.id,
+                    hubspotProductId: s.hubspotProductId,
+                    skuLabel: s.skuLabel,
+                    productName: s.productName,
+                    unitsPerPack: s.unitsPerPack,
+                    retailBenchmark: s.retailBenchmark,
+                    notes: s.notes,
+                    lastHubspotRefreshAt: s.lastHubspotRefreshAt,
+                    skuRole: s.skuRole,
+                    parentSkuId: s.parentSkuId,
+                    qtyPerParent: s.qtyPerParent,
+                  },
+                  depth,
+                  hasChildren,
+                  childCount,
+                  eligibleParents,
+                };
               })}
-            </div>
+              hubspotPortalId={process.env.HUBSPOT_PROD_HUB_ID ?? null}
+              disabled={!editable}
+            />
           </>
         )}
         {editable && (

@@ -61,6 +61,8 @@ export function SkuRow({
   eligibleParents,
   hubspotPortalId,
   disabled = false,
+  isDrawerOpen = false,
+  onDrawerToggle,
 }: {
   sku: Sku;
   depth: number;
@@ -70,6 +72,9 @@ export function SkuRow({
   eligibleParents: EligibleParent[];
   hubspotPortalId: string | null;
   disabled?: boolean;
+  /** §6.b Step 3 — drawer expansion state (one-at-a-time via SkuRowList). */
+  isDrawerOpen?: boolean;
+  onDrawerToggle?: () => void;
 }) {
   // §6.b Step 1 — units_per_pack and notes inputs removed from row.
   // Notes returns in Step 4 (per-SKU drawer textarea); units_per_pack
@@ -358,14 +363,26 @@ export function SkuRow({
           className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
         />
 
-        {/* Components — assemblies show count + "▸" pointer (drawer wires
-            in Step 3); leaves show em-dash. Step 1 renders as visual
-            badge; click-to-open-drawer wires in Step 3. */}
+        {/* Components — assemblies show count + "▸" pointer; clicking
+            opens the per-row drawer (Step 3 infrastructure; Step 4
+            fills the drawer body). Leaves show em-dash; their drawer
+            entry point lands with Step 4 (HAS NOTE chip click or
+            similar inline affordance). */}
         <div className="text-xs text-ink-3">
           {isAssembly ? (
-            <span title="Click to expand components (drawer wires in §6.b step 3)">
-              {childCount} {childCount === 1 ? "comp" : "comps"} ▸
-            </span>
+            <button
+              type="button"
+              onClick={onDrawerToggle}
+              disabled={!onDrawerToggle}
+              aria-expanded={isDrawerOpen}
+              className="r6b-components-trigger"
+              title={
+                isDrawerOpen ? "Close component drawer" : "Open component drawer"
+              }
+            >
+              {childCount} {childCount === 1 ? "comp" : "comps"}{" "}
+              <span aria-hidden>{isDrawerOpen ? "▾" : "▸"}</span>
+            </button>
           ) : (
             <span aria-hidden>—</span>
           )}
@@ -507,6 +524,31 @@ export function SkuRow({
             </div>
         </div>
       </div>
+
+      {/* §6.b Step 3 — per-row drawer placeholder. Renders below the
+          row when isDrawerOpen. Step 4 fills the body (child-SKU
+          navigation list for assemblies + per-SKU notes textarea).
+          The placeholder establishes the drawer's spatial register
+          and click-out behavior so Step 4 can drop content into a
+          known container. */}
+      {isDrawerOpen && (
+        <div
+          className="r6b-drawer"
+          role="region"
+          aria-label={`Details for ${sku.skuLabel}`}
+        >
+          <div className="r6b-drawer-placeholder">
+            <p className="r2-eyebrow" style={{ marginBottom: 6 }}>
+              {isAssembly ? "Assembly components" : "Details"}
+            </p>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--ink-3)" }}>
+              Drawer body wires in §6.b Step 4 — child-SKU navigation
+              list {isAssembly ? "+ per-SKU notes textarea" : "(notes textarea only)"}
+              .
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Reassign panel — expands below the row when triggered */}
       {reassignOpen && !disabled && (

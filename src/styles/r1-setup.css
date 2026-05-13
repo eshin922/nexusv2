@@ -202,3 +202,46 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ─── §6.b Step 3 — Components trigger + drawer ─────── */
+/* Components ▸ cell click opens the per-row drawer. Visual:
+   reads as a quiet text-only affordance until hover, where it
+   surfaces accent color signaling interactivity. */
+.r6b-components-trigger {
+  background: transparent;
+  border: none;
+  padding: 4px 6px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.r6b-components-trigger:hover:not(:disabled) {
+  background: oklch(from var(--accent) l c h / 0.08);
+  color: var(--accent-ink);
+}
+.r6b-components-trigger[aria-expanded="true"] {
+  background: oklch(from var(--accent) l c h / 0.12);
+  color: var(--accent-ink);
+}
+.r6b-components-trigger:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* Drawer expansion below the row. Inline, full-width, soft
+   paper-2 background to read as a sub-zone of the row above. */
+.r6b-drawer {
+  background: var(--paper-2);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  padding: 16px 20px;
+}
+.r6b-drawer-placeholder {
+  background: var(--paper);
+  border: 1px dashed var(--rule);
+  border-radius: 6px;
+  padding: 14px 16px;
+}
