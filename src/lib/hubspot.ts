@@ -43,6 +43,45 @@ export class HubspotError extends Error {
 
 let _readClient: Client | null = null;
 let _writeClient: Client | null = null;
+let _productsClient: Client | null = null;
+
+/**
+ * Products-domain dev/prod-aware client. Phase 1 (May 2026) pulled
+ * the products-write path forward from the originally-planned Slice
+ * 12 work. In dev, all Products-domain ops (search, get, create)
+ * hit the DEV sandbox via HUBSPOT_DEV_ACCESS_TOKEN. In prod, they
+ * hit the PROD hub via HUBSPOT_WRITE_ACCESS_TOKEN (which carries
+ * both read + write scopes for Products since the dev token does).
+ *
+ * Wider HubSpot domain dev/prod split (deals, companies, owners,
+ * contacts) is deferred to a follow-up — those continue to use
+ * HUBSPOT_ACCESS_TOKEN (PROD read) in both dev and prod for now.
+ * Rationale: existing dev workflows (deal search, project import)
+ * depend on PROD deal data being visible; switching them to dev
+ * sandbox in dev would empty out those workflows. Phase 1 keeps
+ * the surgical scope: Products domain only.
+ *
+ * Pattern 32 applies — pre-existing dev `quote_skus` rows reference
+ * PROD `hubspot_product_id` values that won't resolve against the
+ * dev sandbox. No "refresh from HubSpot" path exists today so the
+ * orphan refs are invisible. Phase 2 (catalog parity) owns the
+ * orphan-handling story when refresh ships.
+ */
+function getProductsClient(): Client {
+  if (_productsClient) return _productsClient;
+  const isDev = process.env.NODE_ENV !== "production";
+  const token = isDev
+    ? process.env.HUBSPOT_DEV_ACCESS_TOKEN ?? process.env.HUBSPOT_ACCESS_TOKEN
+    : process.env.HUBSPOT_WRITE_ACCESS_TOKEN ?? process.env.HUBSPOT_ACCESS_TOKEN;
+  if (!token)
+    throw new HubspotError(
+      isDev
+        ? "Neither HUBSPOT_DEV_ACCESS_TOKEN nor HUBSPOT_ACCESS_TOKEN is set (dev Products-domain client requires at least one)"
+        : "Neither HUBSPOT_WRITE_ACCESS_TOKEN nor HUBSPOT_ACCESS_TOKEN is set (prod Products-domain client requires at least one)",
+    );
+  _productsClient = new Client({ accessToken: token });
+  return _productsClient;
+}
 
 export function getReadClient(): Client {
   if (_readClient) return _readClient;
@@ -138,15 +177,64 @@ export async function fetchOwnerDetails(
 
 // ---------- products ----------
 
+// Phase 1 (May 2026) — full HubSpot product property set per
+// product-modal-brief.md §"Reference: HubSpot property names" + the
+// existing Slice 5 minimal set. Read paths return ProductSummary
+// (legacy callers); ProductDetail (extended) and ProductFull (Phase 1)
+// expose the larger set as needed.
 const PRODUCT_PROPERTIES = [
   "name",
   "hs_sku",
+  "mf_sku",
   "hs_product_type",
   "hs_product_classification",
+  "hs_status",
   "description",
+  "hs_url",
+  "hs_images",
   "price",
   "hs_cost_of_goods_sold",
+  "markup",
+  "tax_schedule",
+  "hubspot_owner_id",
+  "fsc_claim_type",
+  "fsc_status",
+  "fsc_supplier_verified",
 ] as const;
+
+// Phase 1 hs_product_type enum. THREE label/value divergences per
+// brief — display label != stored value. Send the value to HubSpot;
+// display the label to PMs. Adding a value here without verifying
+// against HubSpot's actual enum list will silently 400 the create
+// call.
+export const HS_PRODUCT_TYPE_OPTIONS = [
+  { label: "Cards/Booklets", value: "Cards/Booklets" },
+  { label: "Design", value: "Design" },
+  { label: "Filling and Packout Services", value: "Filling and Packout Services" },
+  { label: "Finished Goods", value: "Finished Goods" },
+  { label: "Formulation", value: "Formulation" },
+  { label: "Freight", value: "Freight" },
+  { label: "Labels", value: "Labels" },
+  // DIVERGENCE — label "Logistics" but stored as "Third Party Logistics"
+  { label: "Logistics", value: "Third Party Logistics" },
+  { label: "One Time Charges", value: "One Time Charges" },
+  // DIVERGENCE — label "Primary Packaging" stored as "Primary"
+  { label: "Primary Packaging", value: "Primary" },
+  { label: "R&D / Testing", value: "R&D / Testing" },
+  { label: "Raw ingredients", value: "Raw ingredients" },
+  // DIVERGENCE — label "Secondary Packaging" stored as "Secondary"
+  { label: "Secondary Packaging", value: "Secondary" },
+  { label: "Soft Goods and Accessories", value: "Soft Goods and Accessories" },
+  { label: "Turnkey", value: "Turnkey" },
+] as const;
+
+export const TAX_SCHEDULE_OPTIONS = ["Taxable", "Non Taxable"] as const;
+export const FSC_CLAIM_TYPE_OPTIONS = [
+  "FSC Mix",
+  "FSC 100%",
+  "FSC Recycled",
+] as const;
+export const FSC_STATUS_OPTIONS = ["Yes", "No"] as const;
 
 function toSummary(p: {
   id: string;
@@ -167,7 +255,7 @@ export async function searchProducts(
   query: string,
   limit = 20,
 ): Promise<ProductSummary[]> {
-  const c = getReadClient();
+  const c = getProductsClient();
   const trimmed = query.trim();
   if (!trimmed) return [];
   try {
@@ -185,7 +273,7 @@ export async function searchProducts(
 }
 
 export async function getProduct(productId: string): Promise<ProductDetail | null> {
-  const c = getReadClient();
+  const c = getProductsClient();
   let p;
   try {
     p = await c.crm.products.basicApi.getById(productId, [...PRODUCT_PROPERTIES]);
@@ -200,6 +288,97 @@ export async function getProduct(productId: string): Promise<ProductDetail | nul
     cogs: props.hs_cost_of_goods_sold || null,
     classification: props.hs_product_classification || null,
   };
+}
+
+// Phase 1 — exact-match SKU lookup for the modal's blur duplicate
+// check. Returns the first product whose hs_sku === sku. The
+// search-by-keyword path doesn't enforce exact matching (it does
+// substring/token matching), so this uses the proper EQ filter.
+export async function findProductBySku(
+  sku: string,
+): Promise<ProductSummary | null> {
+  const trimmed = sku.trim();
+  if (!trimmed) return null;
+  const c = getProductsClient();
+  try {
+    const resp = await c.crm.products.searchApi.doSearch({
+      filterGroups: [
+        {
+          filters: [
+            {
+              propertyName: "hs_sku",
+              operator: "EQ" as never,
+              value: trimmed,
+            },
+          ],
+        },
+      ],
+      properties: [...PRODUCT_PROPERTIES],
+      limit: 1,
+      after: "0",
+      sorts: [],
+    });
+    const first = resp.results?.[0];
+    return first ? toSummary(first) : null;
+  } catch (err) {
+    throw new HubspotError(
+      `Failed to look up product by SKU ${trimmed}`,
+      err,
+    );
+  }
+}
+
+// Phase 1 — HubSpot Product create payload. All optional except
+// `name` which HubSpot itself requires (the modal's required-field
+// validation also gates Unit price + Product type at the form
+// boundary). Empty-string values are dropped before send; HubSpot
+// treats missing properties as unchanged.
+export type ProductCreateInput = {
+  name: string;
+  hs_sku?: string;
+  description?: string;
+  hs_images?: string;
+  hs_url?: string;
+  hubspot_owner_id?: string;
+  price?: string;
+  hs_cost_of_goods_sold?: string;
+  markup?: string;
+  hs_product_type?: string;
+  tax_schedule?: string;
+  fsc_claim_type?: string;
+  fsc_status?: string;
+  fsc_supplier_verified?: string;
+};
+
+export type ProductCreateResult = {
+  id: string;
+  hs_sku: string | null;
+  name: string;
+};
+
+export async function createProduct(
+  input: ProductCreateInput,
+): Promise<ProductCreateResult> {
+  const c = getProductsClient();
+  const properties: Record<string, string> = {};
+  for (const [k, v] of Object.entries(input)) {
+    if (v === undefined || v === null) continue;
+    const trimmed = typeof v === "string" ? v.trim() : String(v);
+    if (trimmed === "") continue;
+    properties[k] = trimmed;
+  }
+  if (!properties.name)
+    throw new HubspotError("createProduct requires `name`");
+  try {
+    const resp = await c.crm.products.basicApi.create({ properties });
+    return {
+      id: resp.id,
+      hs_sku: resp.properties?.hs_sku ?? null,
+      name: resp.properties?.name ?? properties.name,
+    };
+  } catch (err) {
+    throw new HubspotError("Failed to create HubSpot product", err);
+  }
 }
 
 export async function findHubspotOwnerByEmail(
