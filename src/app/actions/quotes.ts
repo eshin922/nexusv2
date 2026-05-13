@@ -82,27 +82,27 @@ const TIER_PRESETS: Record<
   packaging_domestic: {
     label: "Packaging — Domestic",
     tiers: [
-      { label: "Tier 1 — 5k", qty: 5000 },
-      { label: "Tier 2 — 10k", qty: 10000 },
-      { label: "Tier 3 — 25k", qty: 25000 },
-      { label: "Tier 4 — 50k", qty: 50000 },
+      { label: "Tier 1", qty: 5000 },
+      { label: "Tier 2", qty: 10000 },
+      { label: "Tier 3", qty: 25000 },
+      { label: "Tier 4", qty: 50000 },
     ],
   },
   packaging_overseas: {
     label: "Packaging — Overseas",
     tiers: [
-      { label: "Tier 1 — 25k", qty: 25000 },
-      { label: "Tier 2 — 50k", qty: 50000 },
-      { label: "Tier 3 — 100k", qty: 100000 },
-      { label: "Tier 4 — 250k", qty: 250000 },
+      { label: "Tier 1", qty: 25000 },
+      { label: "Tier 2", qty: 50000 },
+      { label: "Tier 3", qty: 100000 },
+      { label: "Tier 4", qty: 250000 },
     ],
   },
   soft_goods: {
     label: "Soft Goods",
     tiers: [
-      { label: "Tier 1 — 1k", qty: 1000 },
-      { label: "Tier 2 — 5k", qty: 5000 },
-      { label: "Tier 3 — 10k", qty: 10000 },
+      { label: "Tier 1", qty: 1000 },
+      { label: "Tier 2", qty: 5000 },
+      { label: "Tier 3", qty: 10000 },
     ],
   },
   custom: {
