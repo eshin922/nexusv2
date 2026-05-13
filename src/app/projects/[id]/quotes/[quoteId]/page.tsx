@@ -122,7 +122,7 @@ export default async function QuoteBuilderPage({
             </span>
           </h1>
           <p className="r1-setup-sub">
-            The starting shape of the quote. What you&rsquo;re selling, in
+            The starting shape of the quote. What we&rsquo;re selling, in
             what quantities, with what context. Cost goes on the next
             surface.
             {pm?.name ? ` · PM ${pm.name}` : ""}
@@ -169,7 +169,7 @@ export default async function QuoteBuilderPage({
           label={
             SURFACE_META.setup.nextMove?.label ?? "Continue to Cost build →"
           }
-          helpText="once SKUs and tiers are settled"
+          subtitle="once SKUs and tiers are settled"
           href={resolveSurfaceHref("cost_build", project.id, quote.id)}
         />
       ) : (
@@ -182,21 +182,18 @@ export default async function QuoteBuilderPage({
         </div>
       )}
 
-      {/* §6.b Step 1 amendment — R7b info strip per Edward smoke.
-          Reads as a brief context caption between banner and the
-          coupled SKU/Tier grid. Copy synthesized from R7b designer
-          notes lines 7 + 12-13. Warn-soft fill matches R7b
-          screenshot register; ⓘ glyph anchors the strip. NOT
-          Pattern 21 review-chrome (confirmed by Edward — production
-          element). */}
+      {/* §6.b polish-amendment — R7b rationale callout per
+          designer notes line 7 (verbatim). Pattern 21 §D
+          investigation: "DN · R7B" prefix tag is prototype-only
+          chrome (third instance — alongside STATES tab strips +
+          R7a/R7b widgets); not shipped. CC's prior "ⓘ" glyph
+          prefix also stripped per the same investigation — the
+          callout reads cleanly as a body-only orientation note. */}
       <div
         role="note"
         aria-label="Setup orientation"
         style={{
-          display: "flex",
-          alignItems: "flex-start",
-          gap: 12,
-          padding: "10px 16px",
+          padding: "12px 18px",
           marginBottom: 16,
           background: "var(--warn-soft)",
           border: "1px solid oklch(from var(--warn) l c h / 0.30)",
@@ -206,25 +203,11 @@ export default async function QuoteBuilderPage({
           lineHeight: 1.5,
         }}
       >
-        <span
-          aria-hidden
-          style={{
-            flexShrink: 0,
-            fontSize: 14,
-            color: "var(--warn)",
-            marginTop: 1,
-          }}
-        >
-          ⓘ
-        </span>
         <p style={{ margin: 0 }}>
           Setup is the <strong>starting shape</strong> of the quote: what
-          you&rsquo;re selling, in what quantities, with what context. The SKU and
-          Tier tables are a <em>coupled pair</em> — same inline-edit pattern,
-          same register, paired action vocabularies. Notes split into{" "}
-          <strong>internal</strong> (PM-only) and{" "}
-          <strong>customer-facing</strong> (renders on Quote PDF); per-SKU notes
-          live in the drawer.
+          we&rsquo;re selling, in what quantities, with what context. Cost goes on
+          Cost build (the next surface). Pricing goes on Costing sheet. The
+          customer-facing artifact lives on Customer view.
         </p>
       </div>
 

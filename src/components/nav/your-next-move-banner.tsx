@@ -32,6 +32,7 @@ export function YourNextMoveBanner({
   label,
   href,
   helpText,
+  subtitle,
   className,
 }: {
   state: BannerState;
@@ -39,8 +40,18 @@ export function YourNextMoveBanner({
   label?: string;
   /** CTA destination URL. Ignored when state = "terminal". */
   href?: string;
-  /** Optional sub-copy below the headline (e.g., "Below floor — admin override required"). */
+  /**
+   * Stacked-below explanatory line (e.g., "Below floor — admin
+   * override required"). Used by Pricing's gated state.
+   */
   helpText?: ReactNode;
+  /**
+   * §6.b polish — inline-italic qualifier after the CTA label on
+   * the SAME visual line (e.g., "Continue to Cost build → once
+   * SKUs and tiers are settled"). When both subtitle and helpText
+   * are provided, subtitle renders inline + helpText renders below.
+   */
+  subtitle?: ReactNode;
   className?: string;
 }) {
   const isTerminal = state === "terminal";
@@ -91,9 +102,26 @@ export function YourNextMoveBanner({
             lineHeight: 1.45,
           }}
         >
-          {isTerminal
-            ? "Return via Home or rail."
-            : label ?? "—"}
+          {isTerminal ? (
+            "Return via Home or rail."
+          ) : (
+            <>
+              {label ?? "—"}
+              {subtitle && (
+                <span
+                  style={{
+                    marginLeft: 8,
+                    fontStyle: "italic",
+                    fontWeight: 400,
+                    fontSize: 14,
+                    color: "var(--ink-3)",
+                  }}
+                >
+                  {subtitle}
+                </span>
+              )}
+            </>
+          )}
         </p>
         {helpText && !isTerminal && (
           <p
