@@ -28,7 +28,7 @@ export function AddTierButton({ quoteId }: { quoteId: string }) {
         disabled={pending}
         className="r6b-add-pill"
       >
-        {pending ? "Adding…" : "+ Add tier"}
+        {pending ? "ADDING…" : "+ ADD TIER"}
       </button>
       {error && (
         <span
