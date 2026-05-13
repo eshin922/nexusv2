@@ -1,18 +1,61 @@
 /*
  * Slice RI.8 step 1.5 — Setup polish++ stylesheet.
  *
- * Ports the relevant R1 classes from
- * docs/design-prototypes/dist/source/round-1/styles.css to apply
- * R1 fidelity on the Setup / Quote Builder page. Scope-capped to
- * Setup only — broader R5 admin rebuild lives in RI.8 steps 2-5
- * and uses its own register.
+ * §6.b path-B migration (May 2026): the canonical R7b CSS lives
+ * in src/styles/r7b-setup.css as a verbatim copy of
+ * docs/design-prototypes/dist/7bstyles.css. This file (r1-setup.css)
+ * is being progressively retired as the migration commits land —
+ * remaining content is:
  *
- * Class scope is intentionally narrow (`.r1-setup-*`) so other
- * surfaces' similar concepts (card, eyebrow, page-head) don't
- * collide with R1's specifically-Setup treatment. The existing
- * .r2-btn primitive serves as the button base; R1 buttons match
- * R2 closely.
+ *  1. Legacy `.r1-setup-*` rules (still active until JSX migrates)
+ *  2. Legacy `.r6b-*` rules I authored in early §6.b commits;
+ *     deleted as each JSX section migrates to canonical r7b-* classes
+ *  3. The `.btn` bridge below — narrow alias of nexus's existing
+ *     r2-btn rules to the .btn vocabulary R7b JSX expects (e.g.,
+ *     R7b's `<button className="btn ghost sm">+ Add SKU</button>`).
+ *     Avoids importing the full 2styles.css which would shadow
+ *     other surface classes.
+ *
+ * Eventually (post-§6.b) this file goes away entirely; r7b-setup.css
+ * + the surface-specific overrides take over.
  */
+
+/* ─── §6.b .btn bridge (path-B migration) ─────────────────── */
+/* R7b JSX uses `<button className="btn ghost sm">`. The canonical
+   .btn rules live in R2 base (docs/design-prototypes/dist/2styles.css
+   line 232+). Reproduced here with narrow scope — light-theme
+   tokens; matches R2 source. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-family: var(--ui);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  border: 1px solid var(--rule);
+  background: var(--paper-3);
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 80ms, border-color 80ms, color 80ms;
+}
+.btn:hover { background: var(--paper-4); }
+.btn.sm { padding: 5px 10px; font-size: 12px; border-radius: 5px; }
+.btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.btn.primary:hover { background: var(--ink-2); }
+.btn.accent { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+.btn.accent:hover { background: var(--accent-ink); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--ink-3); }
+.btn.ghost:hover { background: var(--paper-3); color: var(--ink); }
+.btn.bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+  border-color: oklch(from var(--bad) l c h / 0.4);
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ─── Page head ─────────────────────────────────────── */
 .r1-setup-head {

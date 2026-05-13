@@ -867,6 +867,76 @@ production service fees) should migrate to the read↔edit pattern
 for consistency. Bank as v1.1 / R7c polish — out of §6.b scope
 but on the radar.
 
+## "Canonical design-source CSS imported verbatim"
+
+Pattern 30 — banked from §6.b mid-slice path-B migration (May 2026).
+
+When CD ships an R-round prototype with un-bundled CSS source,
+import the relevant CSS file(s) **verbatim** into the codebase
+as source-of-truth stylesheets. JSX class names match the
+canonical class names. No translation layer.
+
+**Workflow:**
+
+1. CD ships `app/r<N>/styles.css` (or similar) as part of the
+   round's prototype deliverable.
+2. CC copies the file to `src/styles/r<N>-<surface>.css`
+   verbatim — no edits, no renames, no value tweaks.
+3. Header comment marks the file as canonical and points at the
+   upstream source.
+4. JSX uses canonical class names (e.g., `className="r7b-tier-row"`).
+5. Local overrides (Nexus-specific behavior or data shape
+   adaptations) live in a separate stylesheet, never in the
+   canonical file.
+
+**Fix flow when a canonical value proves wrong:**
+
+1. Surface to CD with the issue + screenshot.
+2. CD updates the upstream prototype CSS.
+3. CC re-copies the file. Commit message references the
+   upstream change.
+
+**Why this beats the alternative** (CC interpreting screenshots
+or designer notes into its own CSS):
+
+- **Pattern 28 becomes literal at the CSS level.** Brief =
+  scope, design = fidelity; CSS values ARE the design. No
+  paraphrase, no translation, no drift.
+- **Pattern 27 manifest's POLISH MATCHED becomes verifiable.**
+  Diff `src/styles/r<N>-<surface>.css` against the upstream
+  source → expect identical. Any divergence is a bug.
+- **Class-name vocabulary stays consistent with CD's source.**
+  Future audits grep against the prototype's class names and
+  hit production code immediately.
+- **R-round refreshes are clean drop-ins.** When CD ships R7c
+  refining R7b, the diff is just the canonical CSS file change
+  + the new class names if any. No "translate the new screenshot
+  into CC-invented classes" cycle.
+
+**Banked observation from §6.b Step 5 path-B trigger:** I shipped
+Steps 1-5 with CC-invented `r6b-*` class names + values
+interpreted from R7b screenshots. Each step had 2-4 polish
+amendment commits to close the gap between my interpretation
+and R7b reality. Path-B migration estimated to save 12-20
+polish commits across steps 6-9 by eliminating the translation
+step entirely.
+
+**Scope caveat:** Path-B applies per surface as CD ships the
+canonical CSS. Other surfaces using CC-interpreted CSS (Pricing
+`r2-*`, Customer view `r3-*`) stay as-is unless CD ships
+canonical sources for them. Not retroactively migrating older
+surfaces unless they're in slice scope.
+
+**`.btn` primitive bridge:** R7b JSX uses R2-base `.btn` /
+`.btn.ghost` / `.btn.primary` / `.btn.sm` classes that live in
+the upstream `2styles.css`. Importing the full R2 base would
+risk shadowing other surface classes (`.eyebrow`, etc.).
+Pragmatic workaround: reproduce the narrow `.btn` rule subset
+in `r1-setup.css` (or a dedicated bridge file) referencing
+nexus's existing `--ink`/`--paper`/`--accent` tokens. Local
+canonical-CSS-bridge pattern; document the source line in
+upstream CSS for traceability.
+
 **Working discipline:**
 
 For every step, CC reads:
