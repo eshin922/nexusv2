@@ -6,20 +6,28 @@ import { updateQuoteNotes } from "@/app/actions/quotes";
 
 // Slice RI.9 §6 step 7 — Pushback 2 disposition.
 //
-// "Edit notes" affordance on Customer view (Quote) renders as an
-// inline drawer overlay, NOT a jump-to-Setup. PM stays on the
-// surface for the edit-and-send loop. Closing the drawer returns
-// to Customer view with no breadcrumb shuffle.
+// "Edit notes" affordance on Customer view (Quote) renders as a
+// center-anchored modal overlay, NOT a jump-to-Setup. PM stays
+// on the surface for the edit-and-send loop. Closing the modal
+// returns to Customer view with no breadcrumb shuffle.
+//
+// RI.9 step 10 smoke: initial implementation bottom-anchored the
+// dialog (drawer pattern); recentered to standard modal position
+// because brief §4.2 didn't pin position and desktop convention
+// for a discrete edit dialog is center-anchored with backdrop.
+// File name retained for git history; component is a modal in
+// shape.
 //
 // Scope: edits ONLY `quote.customerFacingNotes`. Internal notes
 // stay on Setup; customer-facing notes is what the PM actually
 // reviews on this surface (they render in the PDF Notes block
 // under "Notes" header).
 //
-// Save pattern: blur-or-Enter autosave, matching the existing
-// quote notes flow. The shared `updateQuoteNotes` action takes
-// both notes fields; we pass `internalNotes` through unchanged
-// so a customer-notes edit doesn't clobber internal notes.
+// Save pattern: blur-or-⌘Enter autosave, matching the existing
+// quote notes flow. Plain Enter is reserved for newlines in the
+// textarea. The shared `updateQuoteNotes` action takes both notes
+// fields; we pass `internalNotes` through unchanged so a
+// customer-notes edit doesn't clobber internal notes.
 //
 // Quote status guard: only drafts are editable (assertDraft in
 // the action layer). Button hides for sent+ quotes.
@@ -87,8 +95,10 @@ export function CustomerNotesDrawer({
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Enter saves (plain Enter — multi-line via Shift+Enter to match
-    // common chat/notes pattern). Cmd/Ctrl+Enter also commits.
+    // Plain Enter is reserved for newlines in a textarea (R6 Blur+Enter
+    // pattern doesn't bind plain Enter on multi-line inputs); ⌘/Ctrl
+    // +Enter commits explicitly. Blur on Tab-out is the other save
+    // path.
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       save();
@@ -108,18 +118,19 @@ export function CustomerNotesDrawer({
         background: "oklch(from var(--ink) l c h / 0.35)",
         zIndex: 50,
         display: "flex",
-        alignItems: "flex-end",
+        alignItems: "center",
         justifyContent: "center",
+        padding: 16,
       }}
     >
       <div
         style={{
-          width: "min(680px, calc(100vw - 32px))",
+          width: "min(680px, 100%)",
           background: "var(--paper)",
           border: "1px solid var(--rule)",
-          borderRadius: "12px 12px 0 0",
+          borderRadius: 12,
           padding: "20px 22px 18px",
-          boxShadow: "0 -12px 32px oklch(from var(--ink) l c h / 0.18)",
+          boxShadow: "0 12px 40px oklch(from var(--ink) l c h / 0.22)",
         }}
       >
         <div
