@@ -19,6 +19,7 @@ import { PerTierOverrideCard } from "@/components/pricing/per-tier-override-card
 import { VerdictBand } from "@/components/pricing/verdict-band";
 import { PricingSectionHead } from "@/components/pricing/pricing-section-head";
 import { SkuSummaryRowList } from "./sku-summary-row";
+import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 
 // Slice RI.5 — Pricing rebuild per Designer comprehensive audit
 // + brief §3.3. Three rooms top-to-bottom:
@@ -51,6 +52,13 @@ export default async function CostingPage({
   params: Promise<{ id: string; quoteId: string }>;
 }) {
   const { id: projectId, quoteId } = await params;
+
+  // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
+  await recordSurfaceVisit({
+    projectId,
+    quoteId,
+    surfaceKey: "costing",
+  });
 
   const quoteRows = await db
     .select({ quote: quotes, project: projects })

@@ -9,6 +9,7 @@ import { Eyebrow } from "@/components/nav/eyebrow";
 import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
 import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
 import { SURFACE_META } from "@/lib/nav/surface-meta";
+import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import type { TierCardData } from "@/components/mark-accepted/tier-card";
 import type { FlaggedLine } from "@/components/mark-accepted/mark-accepted-both-gates";
 
@@ -49,6 +50,13 @@ export default async function MarkAcceptedPage({
 }) {
   const { id: projectId, quoteId } = await params;
   const { dev, state } = await searchParams;
+
+  // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
+  await recordSurfaceVisit({
+    projectId,
+    quoteId,
+    surfaceKey: "mark_accepted",
+  });
 
   const quoteRows = await db
     .select({ quote: quotes, project: projects })

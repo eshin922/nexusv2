@@ -8,6 +8,7 @@ import { ensureUser } from "@/lib/auth/ensure-user";
 import { findHubspotOwnerById } from "@/lib/hubspot";
 import { QuoteHost } from "@/components/quote/quote-host";
 import { Breadcrumb } from "@/components/nav/breadcrumb";
+import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { VENDOR_FIXTURE } from "@/lib/quote-fixtures";
 import type {
   CustomerView,
@@ -36,6 +37,13 @@ export default async function CustomerViewPage({
 }) {
   const { id: projectId, quoteId } = await params;
   const { dev } = await searchParams;
+
+  // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
+  await recordSurfaceVisit({
+    projectId,
+    quoteId,
+    surfaceKey: "customer_view",
+  });
 
   // Load quote, project, firm_settings (current), and costing bundle.
   // firm_settings is needed for both the vendor identity (live render)
@@ -253,6 +261,7 @@ export default async function CustomerViewPage({
         quoteStatus={quote.status}
         showStateSwitcher={showStateSwitcher}
         devSendEnabled={devSendEnabled}
+        internalNotes={quote.internalNotes}
       />
     </>
   );

@@ -26,6 +26,7 @@ import {
 import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
 import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
 import { SURFACE_META } from "@/lib/nav/surface-meta";
+import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { CostStackHeader } from "@/components/costs/cost-stack-header";
 import { CostBuildAccordion } from "@/components/costs/costs-accordion";
 import { ScenarioContextStrip } from "@/components/costs/scenario-context-strip";
@@ -79,6 +80,13 @@ export default async function CostBuildPage({
 }) {
   const { id: projectId, quoteId } = await params;
   const { section: expandedSection } = await searchParams;
+
+  // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
+  await recordSurfaceVisit({
+    projectId,
+    quoteId,
+    surfaceKey: "cost_build",
+  });
 
   const quoteRows = await db
     .select({ quote: quotes, project: projects })

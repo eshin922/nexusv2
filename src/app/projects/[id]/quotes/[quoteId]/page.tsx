@@ -26,6 +26,7 @@ import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
 import { ActionCluster } from "@/components/nav/action-cluster";
 import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
 import { SURFACE_META } from "@/lib/nav/surface-meta";
+import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { AddTierButton } from "./add-tier-button";
 import { AddAssemblyButton } from "./add-assembly-button";
 import { SkuRow } from "./sku-row";
@@ -52,6 +53,14 @@ export default async function QuoteBuilderPage({
   params: Promise<{ id: string; quoteId: string }>;
 }) {
   const { id: projectId, quoteId } = await params;
+
+  // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
+  // Fire-and-forget background op; never crashes the page.
+  await recordSurfaceVisit({
+    projectId,
+    quoteId,
+    surfaceKey: "setup",
+  });
 
   const quoteRows = await db
     .select({
