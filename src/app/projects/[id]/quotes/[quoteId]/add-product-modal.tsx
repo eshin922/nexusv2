@@ -1,33 +1,88 @@
 "use client";
 
-// §6.b Step 8 — Add-product modal (R7b §3.7).
+// Phase 1 (May 2026) — Add-product modal HubSpot-first rewrite.
+// Supersedes the §6.b Step 8 local-first modal.
 //
-// Canonical structure per 7bsetup.jsx L354-415 + 7bstyles.css
-// .r7b-modal-* / .r7b-writeback rules:
+// Brief inversion: HubSpot is the source of truth. Submit always
+// writes to HubSpot. No toggle. 13 fields per the HubSpot Products
+// schema. SKU duplicate check on blur with two CTAs ("Pull existing"
+// loads + attaches the existing record; "Use different SKU" clears
+// + re-focuses).
 //
-//   .r7b-modal-backdrop  fixed-fill scrim
-//     .r7b-modal         580px paper card with rule-2 border
-//       .r7b-modal-head  H2 + .sub explanatory line
-//       .r7b-modal-body  field grid (.row-pair 2-col + .field)
-//         .r7b-writeback consequence-sentence toggle
-//       .r7b-modal-foot  paper-2 actions (Cancel + Add product)
+// OQ2 disposition (Edward, Phase 1 prep): Leaf/Assembly dropped
+// from the modal — graph position vs taxonomy are orthogonal axes.
+// Modal handles taxonomy (hs_product_type); row drawer handles
+// graph position (Reassign, Add child SKU).
 //
-// Pattern 22 dispositions per §6.b carves:
-//   - `pack` (Slice 11) and `category` (Slice 9) columns don't exist
-//     yet. Modal fields are OMITTED for §6.b shipping shape — adding
-//     UI controls that don't persist would mislead PMs. Restored when
-//     the schema columns land (single-line addition each).
+// OQ3 disposition (Edward, Phase 1 prep): units_per_pack dropped
+// from the modal; default to 1 on insert; exposed as inline edit
+// on the SKU row in Phase 1.4 (R6 read↔edit pattern, Pattern 29).
 //
-// HubSpot writeback toggle ships per brief Q4 Option 3 fallback:
-// the UI is the canonical design (default ON, consequence-sentence,
-// pill toggle), but the ON path writes a `hubspot_writeback_pending:
-// true` audit-log flag — the actual HubSpot products-write happens
-// when that infrastructure lands. No "coming soon" copy in the
-// shipping UI because the toggle's intent is honest: PM is opting
-// into future writeback, not invoking it synchronously.
+// Phase 4 audit dimension banked: leaf→assembly promotion via row
+// drawer probably writes hs_product_classification: bundle back to
+// HubSpot for consistency. Explicit audit when that work lands.
 
-import { useState, useTransition } from "react";
-import { addProductSku } from "@/app/actions/quotes";
+import { useEffect, useState, useTransition } from "react";
+import {
+  addProductSku,
+  addSkuFromHubspotProduct,
+  checkProductSku,
+  getCurrentHubspotOwner,
+} from "@/app/actions/quotes";
+import type { ProductSummary } from "@/lib/hubspot";
+import {
+  FSC_CLAIM_TYPE_OPTIONS,
+  FSC_STATUS_OPTIONS,
+  HS_PRODUCT_TYPE_OPTIONS,
+  TAX_SCHEDULE_OPTIONS,
+} from "@/lib/hubspot";
+
+type Mode = "create" | "attach_existing";
+
+type FormState = {
+  name: string;
+  hs_sku: string;
+  description: string;
+  hs_images: string;
+  hs_url: string;
+  hubspot_owner_id: string;
+  hubspot_owner_label: string;
+  price: string;
+  hs_cost_of_goods_sold: string;
+  markup: string;
+  hs_product_type: string;
+  tax_schedule: string;
+  fsc_claim_type: string;
+  fsc_status: string;
+  fsc_supplier_verified: string;
+};
+
+const EMPTY_FORM: FormState = {
+  name: "",
+  hs_sku: "",
+  description: "",
+  hs_images: "",
+  hs_url: "",
+  hubspot_owner_id: "",
+  hubspot_owner_label: "",
+  price: "",
+  hs_cost_of_goods_sold: "",
+  markup: "",
+  hs_product_type: "",
+  tax_schedule: "",
+  fsc_claim_type: "",
+  fsc_status: "",
+  fsc_supplier_verified: "",
+};
+
+function fmtUsd(n: number): string {
+  return n.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
 
 export function AddProductModal({
   quoteId,
@@ -37,18 +92,45 @@ export function AddProductModal({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [productName, setProductName] = useState("");
-  const [skuRole, setSkuRole] = useState<"leaf" | "assembly">("leaf");
-  const [unitsPerPack, setUnitsPerPack] = useState("1");
-  const [writeback, setWriteback] = useState(true);
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [mode, setMode] = useState<Mode>("create");
+  // existingMatch is set when SKU blur finds a HubSpot product with the
+  // entered hs_sku. Renders the duplicate warning inline. Cleared on
+  // "Use different SKU" CTA or when the user edits the SKU again.
+  const [existingMatch, setExistingMatch] = useState<ProductSummary | null>(null);
+  const [skuChecking, setSkuChecking] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
+  // Resolve current HubSpot user as Owner default once per modal open.
+  // CC instructions: empty if unresolved; don't crash.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      const result = await getCurrentHubspotOwner();
+      if (cancelled) return;
+      if (result.ok && result.data) {
+        setForm((f) => ({
+          ...f,
+          hubspot_owner_id: result.data!.id,
+          hubspot_owner_label: result.data!.name ?? result.data!.id,
+        }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  function update<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
   function reset() {
-    setProductName("");
-    setSkuRole("leaf");
-    setUnitsPerPack("1");
-    setWriteback(true);
+    setForm(EMPTY_FORM);
+    setMode("create");
+    setExistingMatch(null);
     setError(null);
   }
 
@@ -58,18 +140,118 @@ export function AddProductModal({
     setOpen(false);
   }
 
+  async function handleSkuBlur() {
+    const sku = form.hs_sku.trim();
+    if (!sku) {
+      setExistingMatch(null);
+      return;
+    }
+    setSkuChecking(true);
+    const result = await checkProductSku(sku);
+    setSkuChecking(false);
+    if (result.ok && result.data.found && result.data.product) {
+      setExistingMatch(result.data.product);
+    } else {
+      setExistingMatch(null);
+    }
+  }
+
+  function handlePullExisting() {
+    if (!existingMatch) return;
+    // CC instructions §"Pull existing": loads matching record data,
+    // switches mode to attach. Submit then calls
+    // addSkuFromHubspotProduct with the matched productId.
+    setMode("attach_existing");
+    setForm((f) => ({
+      ...f,
+      name: existingMatch.name,
+      hs_sku: existingMatch.sku ?? "",
+      description: existingMatch.description ?? "",
+      hs_product_type: existingMatch.productType ?? "",
+      price: existingMatch.price ?? "",
+    }));
+    setExistingMatch(null);
+  }
+
+  function handleUseDifferentSku() {
+    setExistingMatch(null);
+    update("hs_sku", "");
+    const input = document.getElementById("ap-hs-sku") as HTMLInputElement | null;
+    input?.focus();
+  }
+
   function submit() {
-    if (!productName.trim()) {
+    setError(null);
+
+    if (mode === "attach_existing") {
+      // The "Pull existing" path: the existing HubSpot product is
+      // already canonical; attach to the quote without re-creating.
+      // The matched productId was preserved on the form by the
+      // Pull-existing CTA via existingMatch.id; we need to look it
+      // up again on submit since existingMatch was cleared on the
+      // mode switch. Re-resolve by hs_sku since SKU is what the
+      // user entered.
+      if (!form.hs_sku.trim()) {
+        setError(
+          "Cannot attach: the existing-product flow lost its SKU reference. Use a different SKU or cancel.",
+        );
+        return;
+      }
+      startTransition(async () => {
+        // Re-resolve to get the productId (existingMatch was cleared).
+        const lookup = await checkProductSku(form.hs_sku);
+        if (!lookup.ok || !lookup.data.found || !lookup.data.product) {
+          setError(
+            "Couldn't re-find the existing product. Refresh and try again.",
+          );
+          return;
+        }
+        const fd = new FormData();
+        fd.set("quoteId", quoteId);
+        fd.set("productId", lookup.data.product.id);
+        fd.set("skuRole", "leaf");
+        const result = await addSkuFromHubspotProduct(fd);
+        if (!result.ok) {
+          setError(result.error.message);
+          return;
+        }
+        reset();
+        setOpen(false);
+      });
+      return;
+    }
+
+    // Create mode — client-side required-field validation
+    // (re-validated in addProductSku for defense-in-depth).
+    if (!form.name.trim()) {
       setError("Product name is required.");
       return;
     }
-    setError(null);
+    if (!form.price.trim()) {
+      setError("Unit price is required.");
+      return;
+    }
+    if (!form.hs_product_type) {
+      setError("Product type is required.");
+      return;
+    }
+
     const fd = new FormData();
     fd.set("quoteId", quoteId);
-    fd.set("productName", productName.trim());
-    fd.set("skuRole", skuRole);
-    fd.set("unitsPerPack", unitsPerPack || "1");
-    fd.set("pushToHubspot", writeback ? "true" : "false");
+    fd.set("name", form.name);
+    fd.set("price", form.price);
+    fd.set("hs_product_type", form.hs_product_type);
+    fd.set("hs_sku", form.hs_sku);
+    fd.set("description", form.description);
+    fd.set("hs_images", form.hs_images);
+    fd.set("hs_url", form.hs_url);
+    fd.set("hubspot_owner_id", form.hubspot_owner_id);
+    fd.set("hs_cost_of_goods_sold", form.hs_cost_of_goods_sold);
+    fd.set("markup", form.markup);
+    fd.set("tax_schedule", form.tax_schedule);
+    fd.set("fsc_claim_type", form.fsc_claim_type);
+    fd.set("fsc_status", form.fsc_status);
+    fd.set("fsc_supplier_verified", form.fsc_supplier_verified);
     startTransition(async () => {
       const result = await addProductSku(fd);
       if (!result.ok) {
@@ -80,6 +262,14 @@ export function AddProductModal({
       setOpen(false);
     });
   }
+
+  // Margin = price - cost. Display only. Computed live.
+  const priceNum = Number(form.price);
+  const costNum = Number(form.hs_cost_of_goods_sold);
+  const marginVal =
+    Number.isFinite(priceNum) && Number.isFinite(costNum)
+      ? priceNum - costNum
+      : null;
 
   if (!open) {
     return (
@@ -94,6 +284,13 @@ export function AddProductModal({
     );
   }
 
+  const submitCta =
+    mode === "attach_existing" ? "Attach product" : "Add product";
+  const headSub =
+    mode === "attach_existing"
+      ? "Attaches an existing HubSpot product to this scenario. Edits to fields stay on this quote only — the canonical record in HubSpot is untouched."
+      : "Creates a new product in HubSpot and adds it to this scenario.";
+
   return (
     <div
       className="r7b-modal-backdrop"
@@ -105,93 +302,360 @@ export function AddProductModal({
       <div
         className="r7b-modal"
         onClick={(e) => e.stopPropagation()}
+        style={{ width: "min(640px, 100%)" }}
       >
         <div className="r7b-modal-head">
-          <h2 id="add-product-modal-title">Add product</h2>
-          <p className="sub">
-            Creates a new SKU on this scenario. If HubSpot writeback is on,
-            the product also gets registered in HubSpot as the canonical
-            record.
-          </p>
+          <h2 id="add-product-modal-title">
+            {mode === "attach_existing" ? "Attach existing product" : "Add product"}
+          </h2>
+          <p className="sub">{headSub}</p>
         </div>
 
-        <div className="r7b-modal-body">
+        <div
+          className="r7b-modal-body"
+          style={{ maxHeight: "min(70vh, 640px)", overflowY: "auto" }}
+        >
+          {/* Name + Product type (required) */}
           <div className="row-pair">
             <div className="field">
-              <label htmlFor="ap-product-name">Product name</label>
+              <label htmlFor="ap-name">Name *</label>
               <input
-                id="ap-product-name"
+                id="ap-name"
                 type="text"
-                value={productName}
-                onChange={(e) => setProductName(e.target.value)}
+                value={form.name}
+                onChange={(e) => update("name", e.target.value)}
                 placeholder="e.g., Hydra-Glow Vitamin C Serum"
                 autoFocus
                 disabled={pending}
               />
             </div>
             <div className="field">
-              <label htmlFor="ap-sku-role">Type</label>
+              <label htmlFor="ap-product-type">Product type *</label>
               <select
-                id="ap-sku-role"
-                value={skuRole}
-                onChange={(e) =>
-                  setSkuRole(e.target.value as "leaf" | "assembly")
-                }
+                id="ap-product-type"
+                value={form.hs_product_type}
+                onChange={(e) => update("hs_product_type", e.target.value)}
                 disabled={pending}
               >
-                <option value="leaf">Leaf · single-line</option>
-                <option value="assembly">Assembly · with components</option>
+                <option value="">— Select —</option>
+                {HS_PRODUCT_TYPE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
 
+          {/* Description (full width textarea) */}
+          <div className="field">
+            <label htmlFor="ap-description">Description</label>
+            <textarea
+              id="ap-description"
+              value={form.description}
+              onChange={(e) => update("description", e.target.value)}
+              placeholder="Optional"
+              disabled={pending}
+              rows={2}
+              style={{
+                resize: "vertical",
+                padding: "8px 10px",
+                border: "1px solid var(--rule)",
+                borderRadius: 6,
+                background: "var(--paper-2)",
+                color: "var(--ink)",
+                font: "inherit",
+              }}
+            />
+          </div>
+
+          {/* SKU + URL */}
           <div className="row-pair">
             <div className="field">
-              <label htmlFor="ap-units-per-pack">Units per pack</label>
+              <label htmlFor="ap-hs-sku">
+                SKU{" "}
+                {skuChecking && (
+                  <span
+                    style={{
+                      color: "var(--ink-4)",
+                      textTransform: "none",
+                      letterSpacing: 0,
+                      fontFamily: "var(--ui)",
+                      fontSize: 10,
+                      marginLeft: 6,
+                    }}
+                  >
+                    checking…
+                  </span>
+                )}
+              </label>
               <input
-                id="ap-units-per-pack"
-                type="number"
-                min={1}
-                step={1}
-                value={unitsPerPack}
-                onChange={(e) => setUnitsPerPack(e.target.value)}
+                id="ap-hs-sku"
+                type="text"
+                value={form.hs_sku}
+                onChange={(e) => {
+                  update("hs_sku", e.target.value);
+                  // Clear existing-match warning when user edits the SKU.
+                  if (existingMatch) setExistingMatch(null);
+                }}
+                onBlur={handleSkuBlur}
+                placeholder="Optional"
                 disabled={pending}
               />
             </div>
-            <div />
+            <div className="field">
+              <label htmlFor="ap-hs-url">URL</label>
+              <input
+                id="ap-hs-url"
+                type="url"
+                value={form.hs_url}
+                onChange={(e) => update("hs_url", e.target.value)}
+                placeholder="https://"
+                disabled={pending}
+              />
+            </div>
           </div>
 
-          {/* Canonical .r7b-writeback consequence-sentence toggle. Click
-              anywhere on the card flips state; .tog renders the pill
-              animation via CSS pseudo-element. */}
-          <button
-            type="button"
-            className={`r7b-writeback ${writeback ? "on" : ""}`}
-            onClick={() => setWriteback((v) => !v)}
-            disabled={pending}
-            aria-pressed={writeback}
-            style={{
-              textAlign: "left",
-              font: "inherit",
-              color: "inherit",
-              width: "100%",
-              cursor: "pointer",
-            }}
-          >
-            <span className="tog" aria-hidden />
-            <div className="body">
-              <div className="lab">Push to HubSpot</div>
-              <div className="desc">
-                Register this product in HubSpot as the canonical record.
-                Other projects can reuse it.
-              </div>
-              <div className="consequence">
-                {writeback
-                  ? "→ writes to HubSpot in background; row appears immediately"
-                  : "→ Nexus-local only; never syncs back to HubSpot"}
+          {/* SKU duplicate warning — renders inline below the row-pair
+              when blur surfaces an existing product with this SKU. */}
+          {existingMatch && (
+            <div
+              role="alert"
+              style={{
+                padding: "10px 12px",
+                background: "var(--warn-soft)",
+                border: "1px solid oklch(from var(--warn) l c h / 0.40)",
+                borderLeft: "3px solid var(--warn)",
+                borderRadius: 6,
+                fontSize: 12.5,
+                color: "var(--ink)",
+                lineHeight: 1.5,
+              }}
+            >
+              <strong style={{ color: "var(--warn)" }}>
+                This SKU already exists in HubSpot.
+              </strong>{" "}
+              {existingMatch.name}
+              {" "}
+              <span style={{ color: "var(--ink-3)" }}>
+                · {existingMatch.productType ?? "no product type"}
+              </span>
+              <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn primary sm"
+                  onClick={handlePullExisting}
+                  disabled={pending}
+                >
+                  Pull existing
+                </button>
+                <button
+                  type="button"
+                  className="btn sm"
+                  onClick={handleUseDifferentSku}
+                  disabled={pending}
+                >
+                  Use different SKU
+                </button>
               </div>
             </div>
-          </button>
+          )}
+
+          {/* Unit price (required) + Unit cost */}
+          <div className="row-pair">
+            <div className="field">
+              <label htmlFor="ap-price">Unit price *</label>
+              <input
+                id="ap-price"
+                type="number"
+                step="0.01"
+                min={0}
+                value={form.price}
+                onChange={(e) => update("price", e.target.value)}
+                placeholder="0.00"
+                disabled={pending}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="ap-cogs">Unit cost</label>
+              <input
+                id="ap-cogs"
+                type="number"
+                step="0.01"
+                min={0}
+                value={form.hs_cost_of_goods_sold}
+                onChange={(e) =>
+                  update("hs_cost_of_goods_sold", e.target.value)
+                }
+                placeholder="0.00"
+                disabled={pending}
+              />
+            </div>
+          </div>
+
+          {/* Margin display (calculated, read-only). Brief: "Margin is
+              calculated. Display only. Do not store. Do not send to
+              HubSpot. HubSpot has no `margin` property." */}
+          <div
+            style={{
+              padding: "8px 12px",
+              background: "var(--paper-2)",
+              border: "1px solid var(--rule)",
+              borderRadius: 6,
+              fontSize: 12,
+              color: "var(--ink-3)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "var(--mono)",
+                fontSize: 9.5,
+                letterSpacing: "0.10em",
+                textTransform: "uppercase",
+                color: "var(--ink-4)",
+              }}
+            >
+              Margin (price − cost)
+            </span>
+            <span
+              style={{
+                fontFamily: "var(--mono)",
+                color: marginVal !== null ? "var(--ink)" : "var(--ink-4)",
+              }}
+            >
+              {marginVal !== null ? fmtUsd(marginVal) : "—"}
+            </span>
+          </div>
+
+          {/* Markup + Tax Schedule */}
+          <div className="row-pair">
+            <div className="field">
+              <label htmlFor="ap-markup">Markup</label>
+              <input
+                id="ap-markup"
+                type="number"
+                step="0.01"
+                min={0}
+                value={form.markup}
+                onChange={(e) => update("markup", e.target.value)}
+                placeholder="e.g., 32"
+                disabled={pending}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="ap-tax-schedule">Tax schedule</label>
+              <select
+                id="ap-tax-schedule"
+                value={form.tax_schedule}
+                onChange={(e) => update("tax_schedule", e.target.value)}
+                disabled={pending}
+              >
+                <option value="">— Select —</option>
+                {TAX_SCHEDULE_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Owner (default current user) + Image URL */}
+          <div className="row-pair">
+            <div className="field">
+              <label htmlFor="ap-owner">Owner</label>
+              <input
+                id="ap-owner"
+                type="text"
+                value={form.hubspot_owner_label}
+                onChange={(e) =>
+                  // PMs typing here would need owner-search; v1 just
+                  // shows the default + lets them clear it.
+                  setForm((f) => ({
+                    ...f,
+                    hubspot_owner_label: e.target.value,
+                    // If user clears the label, clear the id too.
+                    hubspot_owner_id: e.target.value
+                      ? f.hubspot_owner_id
+                      : "",
+                  }))
+                }
+                placeholder="Default current user"
+                disabled={pending}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="ap-images">Image URL</label>
+              <input
+                id="ap-images"
+                type="url"
+                value={form.hs_images}
+                onChange={(e) => update("hs_images", e.target.value)}
+                placeholder="https://"
+                disabled={pending}
+              />
+            </div>
+          </div>
+
+          {/* FSC trio — 3-up grid */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gap: 12,
+            }}
+          >
+            <div className="field">
+              <label htmlFor="ap-fsc-claim">FSC claim</label>
+              <select
+                id="ap-fsc-claim"
+                value={form.fsc_claim_type}
+                onChange={(e) => update("fsc_claim_type", e.target.value)}
+                disabled={pending}
+              >
+                <option value="">—</option>
+                {FSC_CLAIM_TYPE_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="ap-fsc-status">FSC status</label>
+              <select
+                id="ap-fsc-status"
+                value={form.fsc_status}
+                onChange={(e) => update("fsc_status", e.target.value)}
+                disabled={pending}
+              >
+                <option value="">—</option>
+                {FSC_STATUS_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="ap-fsc-supplier">Supplier verified</label>
+              <select
+                id="ap-fsc-supplier"
+                value={form.fsc_supplier_verified}
+                onChange={(e) =>
+                  update("fsc_supplier_verified", e.target.value)
+                }
+                disabled={pending}
+              >
+                <option value="">—</option>
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </select>
+            </div>
+          </div>
 
           {error && (
             <p
@@ -220,9 +684,14 @@ export function AddProductModal({
             type="button"
             className="btn primary sm"
             onClick={submit}
-            disabled={pending || !productName.trim()}
+            disabled={
+              pending ||
+              !form.name.trim() ||
+              !form.price.trim() ||
+              !form.hs_product_type
+            }
           >
-            {pending ? "Adding…" : "Add product"}
+            {pending ? "Saving…" : submitCta}
           </button>
         </div>
       </div>
