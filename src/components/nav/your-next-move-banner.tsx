@@ -57,12 +57,20 @@ export function YourNextMoveBanner({
   const isTerminal = state === "terminal";
   const isGated = state === "gated";
 
+  // R7b .r7b-next-move canonical (r7b-setup.css L72-79) provides
+  // 1px accent-soft border all around PLUS a thicker 3px solid
+  // accent on the left edge — frame-color highlight the smoke
+  // surfaced as missing. Applied to default + gated states; terminal
+  // stays on the neutral paper-2 / rule register.
   const accentBorder = isTerminal
     ? "1px solid var(--rule)"
-    : "1px solid oklch(from var(--accent) l c h / 0.40)";
+    : "1px solid oklch(from var(--accent) l c h / 0.30)";
+  const accentBorderLeft = isTerminal
+    ? undefined
+    : "3px solid var(--accent)";
   const accentBg = isTerminal
     ? "var(--paper-2)"
-    : "oklch(from var(--accent) l c h / 0.05)";
+    : "oklch(from var(--accent) l c h / 0.07)";
 
   return (
     <section
@@ -78,6 +86,7 @@ export function YourNextMoveBanner({
         marginBottom: 18,
         background: accentBg,
         border: accentBorder,
+        borderLeft: accentBorderLeft,
         borderRadius: 10,
       }}
     >
