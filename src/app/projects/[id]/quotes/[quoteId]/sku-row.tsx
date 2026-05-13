@@ -340,7 +340,12 @@ export function SkuRow({
             {treeLine && (
               <span className="font-mono text-xs text-gray-400">{treeLine}</span>
             )}
-            <span className="truncate text-sm font-medium text-gray-900">
+            {/* §6.b polish-amendment (sweep #12) — SKU label
+                renders in mono register per R7b (e.g., "GLW-30"
+                reads as an identifier code, not a product name).
+                Mono treatment distinguishes it from the
+                productName below which uses UI sans. */}
+            <span className="truncate font-mono text-[13px] text-ink">
               {sku.skuLabel}
             </span>
             {hasNote &&
