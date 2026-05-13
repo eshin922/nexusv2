@@ -239,6 +239,7 @@ export default async function QuoteBuilderPage({
                   skuRole: p.skuRole,
                 }));
                 const hasChildren = skus.some((x) => x.parentSkuId === s.id);
+                const childCount = skus.filter((x) => x.parentSkuId === s.id).length;
                 return (
                   <SkuRow
                     key={s.id}
@@ -257,6 +258,7 @@ export default async function QuoteBuilderPage({
                     }}
                     depth={depth}
                     hasChildren={hasChildren}
+                    childCount={childCount}
                     eligibleParents={eligibleParents}
                     hubspotPortalId={process.env.HUBSPOT_PROD_HUB_ID ?? null}
                     disabled={!editable}
@@ -374,16 +376,20 @@ function Section({
   );
 }
 
+// §6.b Step 1 — 6-column SKU table layout per brief §3.1.
+// Columns: Grip · Type · Product · Retail bench · Components · ⋯
+// Category column dropped (Slice 9 cost_category deferral, Pattern 22 #5);
+// Pack sub-text renders NULL-safely inside Product cell (Slice 11 deferral,
+// Pattern 22 #6).
 function SkuHeader() {
   return (
-    <div className="grid grid-cols-[1.4fr_2fr_0.9fr_0.6fr_0.7fr_1.4fr_auto] gap-2 border-b border-rule bg-paper-2 px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-3">
-      <span>SKU</span>
-      <span>Product</span>
+    <div className="grid grid-cols-[36px_80px_2fr_120px_120px_36px] items-center gap-2 border-b border-rule bg-paper-2 px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-3">
+      <span aria-hidden></span>{/* Grip column header is intentionally blank */}
       <span>Type</span>
-      <span>Units/pk</span>
+      <span>Product</span>
       <span>Retail $</span>
-      <span>Notes</span>
-      <span className="text-right">Actions</span>
+      <span>Components</span>
+      <span aria-hidden></span>{/* ⋯ overflow column header is intentionally blank */}
     </div>
   );
 }

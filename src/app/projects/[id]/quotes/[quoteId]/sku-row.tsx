@@ -50,6 +50,7 @@ export function SkuRow({
   sku,
   depth,
   hasChildren,
+  childCount,
   eligibleParents,
   hubspotPortalId,
   disabled = false,
@@ -57,13 +58,17 @@ export function SkuRow({
   sku: Sku;
   depth: number;
   hasChildren: boolean;
+  /** §6.b Step 1 — children count for the Components column. */
+  childCount: number;
   eligibleParents: EligibleParent[];
   hubspotPortalId: string | null;
   disabled?: boolean;
 }) {
-  const [unitsPerPack, setUnitsPerPack] = useState(String(sku.unitsPerPack));
+  // §6.b Step 1 — units_per_pack and notes inputs removed from row.
+  // Notes returns in Step 4 (per-SKU drawer textarea); units_per_pack
+  // has no R7b body home post-creation (Add-product modal in Step 8
+  // sets it). Pre-existing data is preserved on the server side.
   const [retailBenchmark, setRetailBenchmark] = useState(sku.retailBenchmark ?? "");
-  const [notes, setNotes] = useState(sku.notes ?? "");
 
   const [pending, startTransition] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -77,8 +82,8 @@ export function SkuRow({
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stateRef = useRef({ unitsPerPack, retailBenchmark, notes });
-  stateRef.current = { unitsPerPack, retailBenchmark, notes };
+  const stateRef = useRef({ retailBenchmark });
+  stateRef.current = { retailBenchmark };
 
   useEffect(
     () => () => {
@@ -110,18 +115,20 @@ export function SkuRow({
   }, [overflowOpen]);
 
   type Overrides = Partial<{
-    unitsPerPack: string;
     retailBenchmark: string;
-    notes: string;
   }>;
 
+  // §6.b Step 1 — updateSku still takes the full input shape;
+  // pre-existing units_per_pack + notes pass through unchanged
+  // (read from props.sku snapshot) so the action layer doesn't
+  // null them out on a retail-benchmark-only save.
   function fireSave(overrides: Overrides = {}) {
     const s = { ...stateRef.current, ...overrides };
     const fd = new FormData();
     fd.set("skuId", sku.id);
-    fd.set("unitsPerPack", s.unitsPerPack);
+    fd.set("unitsPerPack", String(sku.unitsPerPack));
     fd.set("retailBenchmark", s.retailBenchmark);
-    fd.set("notes", s.notes);
+    fd.set("notes", sku.notes ?? "");
     startTransition(async () => {
       const result = await updateSku(fd);
       if (!result.ok) setSaveError(result.error.message);
@@ -223,42 +230,28 @@ export function SkuRow({
   // Both leaves and assemblies can have parents (assembly nesting supported).
   const canBeChild = true;
 
+  const hasNote = (sku.notes ?? "").trim() !== "";
+  const isAssembly = sku.skuRole === "assembly";
+
   return (
     <>
-      <div className="grid grid-cols-[1.4fr_2fr_0.9fr_0.6fr_0.7fr_1.4fr_auto] items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50">
-        {/* SKU column with tree indentation */}
-        <div className="flex items-center" style={{ paddingLeft: `${indentPx}px` }}>
-          {treeLine && (
-            <span className="font-mono text-xs text-gray-400 mr-1">{treeLine}</span>
-          )}
-          <div className="flex flex-col min-w-0">
-            <span className="truncate text-sm text-gray-900">{sku.skuLabel}</span>
-            {sku.hubspotProductId && (
-              <span className="text-[10px] uppercase tracking-wide text-gray-400">
-                from HubSpot
-              </span>
-            )}
-            {!sku.hubspotProductId && (
-              <span className="text-[10px] uppercase tracking-wide text-gray-400">
-                Nexus-local
-              </span>
-            )}
-          </div>
-        </div>
+      {/* §6.b Step 1 — 6-column row per brief §3.1.
+          Columns: Grip · Type · Product (stack) · Retail $ · Components · ⋯
+          Left-border accent distinguishes assembly rows (2px accent vs
+          transparent on leaves) per §3.1 grammar; not yet wired (Step 2
+          adds the Type badge + click-toggle, which the accent pairs with). */}
+      <div className="grid grid-cols-[36px_80px_2fr_120px_120px_36px] items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50">
+        {/* Grip — static glyph in Step 1; drag wires in Step 9. */}
+        <span
+          aria-hidden
+          className="select-none text-center text-base text-ink-4"
+          title="Drag to reorder (wires in §6.b step 9)"
+        >
+          ⠿
+        </span>
 
-        <div className="flex flex-col min-w-0">
-          <span className="truncate text-sm text-gray-900">{sku.productName}</span>
-          {sku.parentSkuId && (
-            <QtyPerParentInline
-              skuId={sku.id}
-              currentQty={sku.qtyPerParent}
-              disabled={disabled}
-            />
-          )}
-        </div>
-
-        {/* Type badge with role-convert dropdown — options filtered by
-            current state's valid transitions (defense in depth at server). */}
+        {/* Type — existing select dropdown in Step 1; Step 2 swaps for
+            badge + click-to-toggle. */}
         <div>
           <select
             value={sku.skuRole}
@@ -279,19 +272,41 @@ export function SkuRow({
           </select>
         </div>
 
-        <input
-          value={unitsPerPack}
-          type="number"
-          min={1}
-          required
-          disabled={disabled}
-          onChange={(e) => {
-            const v = e.target.value;
-            setUnitsPerPack(v);
-            scheduleSave({ unitsPerPack: v });
-          }}
-          className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
-        />
+        {/* Product — stacked label / product_name / {pack if non-null} +
+            HAS NOTE chip. Tree indentation preserved on label line. */}
+        <div className="flex flex-col min-w-0" style={{ paddingLeft: `${indentPx}px` }}>
+          <div className="flex items-center gap-2">
+            {treeLine && (
+              <span className="font-mono text-xs text-gray-400">{treeLine}</span>
+            )}
+            <span className="truncate text-sm font-medium text-gray-900">
+              {sku.skuLabel}
+            </span>
+            {hasNote && (
+              <span
+                className="rounded bg-warn-soft px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-warn"
+                title={sku.notes ?? undefined}
+              >
+                HAS NOTE
+              </span>
+            )}
+          </div>
+          <span className="truncate text-xs text-ink-3">
+            {sku.productName}
+            {/* §6.b Pattern 22 #6 — pack sub-text NULL-safe; appears the
+                moment Slice 11 lands quote_skus.pack. Until then, only
+                productName renders on this line. */}
+          </span>
+          {sku.parentSkuId && (
+            <QtyPerParentInline
+              skuId={sku.id}
+              currentQty={sku.qtyPerParent}
+              disabled={disabled}
+            />
+          )}
+        </div>
+
+        {/* Retail bench — kept as inline input (R6 carry-forward). */}
         <input
           value={retailBenchmark}
           type="number"
@@ -305,65 +320,31 @@ export function SkuRow({
           placeholder="—"
           className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
         />
-        <input
-          value={notes}
-          disabled={disabled}
-          onChange={(e) => {
-            const v = e.target.value;
-            setNotes(v);
-            scheduleSave({ notes: v });
-          }}
-          placeholder="—"
-          className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
-        />
 
-        {/* Slice RI.8 action cluster — Designer audit (c) lite:
-            always-visible ↑↓× + ⋯ overflow popover holding the four
-            conditional affordances (reassign / detach / refresh /
-            HubSpot link). Compresses 7-button cluster to a max of
-            5 visible elements (saving span + 3 always + ⋯). */}
-        <div className="flex items-center gap-1 justify-end">
+        {/* Components — assemblies show count + "▸" pointer (drawer wires
+            in Step 3); leaves show em-dash. Step 1 renders as visual
+            badge; click-to-open-drawer wires in Step 3. */}
+        <div className="text-xs text-ink-3">
+          {isAssembly ? (
+            <span title="Click to expand components (drawer wires in §6.b step 3)">
+              {childCount} {childCount === 1 ? "comp" : "comps"} ▸
+            </span>
+          ) : (
+            <span aria-hidden>—</span>
+          )}
+        </div>
+
+        {/* ⋯ overflow — Step 1 absorbs the displaced ↑↓× cluster buttons
+            (drag-drop replaces ↑↓ in Step 9). Conditional affordances
+            (reassign / detach / refresh / HubSpot link) remain. */}
+        <div className="flex items-center justify-end gap-1">
           {saveError ? (
             <span className="text-xs text-red-700 mr-1" role="alert">{saveError}</span>
           ) : pending ? (
             <span className="text-xs text-ink-4 mr-1">saving…</span>
           ) : null}
 
-          <button
-            type="button"
-            onClick={() => handleMove("up")}
-            disabled={disabled}
-            title="Move up"
-            className="rounded border border-rule px-1.5 py-0.5 text-xs disabled:opacity-30 hover:bg-paper-2"
-          >
-            ↑
-          </button>
-          <button
-            type="button"
-            onClick={() => handleMove("down")}
-            disabled={disabled}
-            title="Move down"
-            className="rounded border border-rule px-1.5 py-0.5 text-xs disabled:opacity-30 hover:bg-paper-2"
-          >
-            ↓
-          </button>
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={disabled}
-            title={sku.skuRole !== "leaf" ? "Delete (cascade)" : "Remove SKU"}
-            className="rounded border border-bad/40 bg-paper px-1.5 py-0.5 text-xs text-bad hover:bg-bad-soft disabled:opacity-30"
-          >
-            ×
-          </button>
-
-          {/* ⋯ overflow popover — conditional buttons live here.
-              Only renders when there's at least one item to show. */}
-          {((canBeChild && eligibleParents.length > 0) ||
-            sku.parentSkuId ||
-            sku.hubspotProductId ||
-            productUrl) && (
-            <div className="relative" ref={overflowRef}>
+          <div className="relative" ref={overflowRef}>
               <button
                 type="button"
                 onClick={() => setOverflowOpen((v) => !v)}
@@ -380,6 +361,48 @@ export function SkuRow({
                   role="menu"
                   className="absolute right-0 top-full mt-1 z-50 min-w-[200px] rounded border border-rule bg-paper py-1 shadow-md"
                 >
+                  {/* §6.b Step 1 — ↑↓ relocated into overflow until
+                      Step 9 wires drag-drop on the Grip column. */}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      handleMove("up");
+                      setOverflowOpen(false);
+                    }}
+                    disabled={disabled}
+                    className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2 disabled:opacity-30"
+                  >
+                    <span className="mr-2 font-mono text-ink-3">↑</span>
+                    Move up
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      handleMove("down");
+                      setOverflowOpen(false);
+                    }}
+                    disabled={disabled}
+                    className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2 disabled:opacity-30"
+                  >
+                    <span className="mr-2 font-mono text-ink-3">↓</span>
+                    Move down
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      handleDelete();
+                      setOverflowOpen(false);
+                    }}
+                    disabled={disabled}
+                    title={sku.skuRole !== "leaf" ? "Delete (cascade)" : "Remove SKU"}
+                    className="block w-full px-3 py-1.5 text-left text-xs text-bad hover:bg-bad-soft disabled:opacity-30"
+                  >
+                    <span className="mr-2 font-mono">×</span>
+                    {sku.skuRole !== "leaf" ? "Delete (cascade)" : "Remove SKU"}
+                  </button>
                   {canBeChild && eligibleParents.length > 0 && (
                     <button
                       type="button"
@@ -445,7 +468,6 @@ export function SkuRow({
                 </div>
               )}
             </div>
-          )}
         </div>
       </div>
 
