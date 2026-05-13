@@ -773,6 +773,54 @@ drawer". These were treated as paraphrase-acceptable instead of
 fidelity gaps. Updated pattern definition makes copy verbatim
 explicit alongside visual treatment.
 
+## "R6 inline-edit read↔edit cell pattern"
+
+Canonical for inline-editable numeric cells across Setup AND
+Cost build. Same component vocabulary; don't fork into
+surface-specific variants.
+
+**Pattern shape:**
+
+- **Read mode** — formatted value (USD, percent, etc.) in display
+  register + small mono sub-caption (e.g., `$48.50` / `RETAIL`).
+  Empty value renders as em-dash `—` placeholder.
+- **Click target** — the whole read-mode cell is clickable; click
+  switches to edit mode + focuses the input.
+- **Edit mode** — native `<input>` with raw numeric value, border
+  visible (rule token), accent border on focus.
+- **Commit** — blur OR Enter triggers save (R6 Blur+Enter
+  pattern); cell returns to read mode with the new formatted
+  value. Esc reverts + returns to read mode.
+- **Persistence** — committed value renders read-mode-formatted;
+  in-flight value during edit renders as raw input.
+
+**Why:** edit-mode-always inputs look like form fields in a table,
+which is read-hostile at scan speed (R7b's "table reads as data,
+not as a form" framing). Read mode lets PMs scan the table; edit
+mode appears only when they're ready to commit a change.
+
+**Token discipline:**
+
+- Border: `var(--rule)` resting; `var(--accent)` focused. Never
+  hardcoded `gray-*` Tailwind classes (dark-mode safety).
+- Background: `var(--paper-2)` resting; `var(--paper)` focused.
+- Sub-caption: mono uppercase 10px ink-3 tracking 0.08em.
+
+**Banked from §6.b polish-amendment (sweep §B.5 disposition).**
+Pre-§6.b state: cost-build cells use always-input mode (R6
+prototype design didn't get faithfully implemented in v1; current
+codebase has transparent-border-→-focused-border treatment but
+no read mode). Setup retail-bench cell is the first to ship the
+true read↔edit pattern. Step 5 (Tier table) reuses the same
+component. If a third cell needs it, extract to a shared
+`<EditableUsdCell>` / `<EditableNumericCell>` primitive.
+
+**Forward-looking polish target (not in §6.b):** existing
+cost-build cells (packaging unit_cost, freight per-line costs,
+production service fees) should migrate to the read↔edit pattern
+for consistency. Bank as v1.1 / R7c polish — out of §6.b scope
+but on the radar.
+
 **Working discipline:**
 
 For every step, CC reads:
