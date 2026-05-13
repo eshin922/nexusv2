@@ -142,12 +142,16 @@ export function QuoteHost({
   quoteStatus,
   showStateSwitcher,
   devSendEnabled,
+  internalNotes,
 }: {
   view: CustomerView;
   quoteId: string;
   quoteStatus: string;
   showStateSwitcher: boolean;
   devSendEnabled: boolean;
+  /** RI.9 §6 step 7 — pass-through so the inline customer-notes
+   * editor doesn't clobber internal notes on save. */
+  internalNotes: string | null;
 }) {
   const [subState, setSubState] = useState<CustomerViewSubState>("pure");
   const [pdfLayout, setPdfLayout] = useState<CustomerViewPdfLayout>(view.pdfLayout);
@@ -171,6 +175,8 @@ export function QuoteHost({
         onSubStateChange={setSubState}
         showStateSwitcher={showStateSwitcher}
         devSendEnabled={devSendEnabled}
+        customerFacingNotes={view.quote.customerFacingNotes}
+        internalNotes={internalNotes}
       />
 
       <BoundaryGuardNotice />
