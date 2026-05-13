@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AddAssemblyButton } from "./add-assembly-button";
+import { AddProductModal } from "./add-product-modal";
 import { SkuSearchPanel } from "./sku-search-panel";
 
 // §6.b path-B migration commit 3 follow-up — SKU footer client
@@ -13,6 +13,12 @@ import { SkuSearchPanel } from "./sku-search-panel";
 //
 // Confirmation C disposition: "Pull from Inventory" stripped from
 // v1 footer (own scoping slice). Two buttons + meta only.
+//
+// §6.b Step 8 — "+ Add product" trigger now opens the canonical
+// .r7b-modal Add-product modal (AddProductModal) instead of the
+// pre-Step-8 AddAssemblyButton inline form. The modal supports
+// both leaf + assembly via the Type select and includes the
+// HubSpot writeback toggle per R7b §3.7 / §3.7.1.
 //
 // "↗ Pull from HubSpot" is a button per canonical; clicking
 // expands the SkuSearchPanel below the footer. Prior impl
@@ -35,16 +41,17 @@ export function SkuFooter({
   quoteId: string;
   eligibleParents: EligibleParent[];
 }) {
+  // eligibleParents accepted for API stability — used by sku-search-panel.
+  // AddProductModal v1 creates top-level rows only; parent-child wiring
+  // happens in the row drawer (§6.b Step 4 / Mismatch 1 γ carve).
+  void eligibleParents;
+
   const [hubSpotOpen, setHubSpotOpen] = useState(false);
 
   return (
     <>
       <div className="r7b-sku-footer">
-        <AddAssemblyButton
-          quoteId={quoteId}
-          eligibleParents={eligibleParents}
-          triggerLabel="+ Add product"
-        />
+        <AddProductModal quoteId={quoteId} />
         <button
           type="button"
           className="add-sku"

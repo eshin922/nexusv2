@@ -631,6 +631,106 @@ export async function addAssemblySku(
 }
 
 /**
+ * §6.b Step 8 — Add-product modal action. Creates a top-level Nexus-
+ * local SKU (no parent; assembly nesting + parent assignment lives in
+ * the row drawer). Supports both `leaf` and `assembly` roles via the
+ * Type select in the modal.
+ *
+ * SKU label auto-generated as `LOCAL-${8 chars}`. Future Slice 11
+ * HubSpot writeback path will replace LOCAL- with the canonical
+ * HubSpot product code; until then, the auto-label keeps the row
+ * identifiable in the audit log + drilldowns.
+ *
+ * `pushToHubspot` is the writeback intent. Per brief Q4 Option 3
+ * fallback: the toggle UI ships as designed; ON path is currently a
+ * no-op stub (the row is inserted Nexus-local regardless). When the
+ * HubSpot products-writeback infrastructure lands, this branch
+ * activates without UI rework.
+ */
+export async function addProductSku(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    const productName = String(formData.get("productName") ?? "").trim();
+    const skuRoleRaw = String(formData.get("skuRole") ?? "leaf").trim();
+    const unitsPerPackRaw = String(formData.get("unitsPerPack") ?? "1").trim();
+    const pushToHubspot =
+      String(formData.get("pushToHubspot") ?? "false").trim() === "true";
+
+    if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+    if (!productName)
+      throw new ActionGuardError(ERR.VALIDATION, "Product name is required.");
+    if (skuRoleRaw !== "leaf" && skuRoleRaw !== "assembly")
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Unknown sku_role: ${skuRoleRaw}`,
+      );
+    const unitsPerPack = Number(unitsPerPackRaw);
+    if (!Number.isFinite(unitsPerPack) || unitsPerPack < 1)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Units per pack must be at least 1.",
+      );
+
+    const user = await ensureUser();
+    const quote = await loadQuoteOrThrow(quoteId);
+    assertDraft(quote);
+
+    const skuLabel = `LOCAL-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+
+    const maxRow = await db
+      .select({ max: max(quoteSkus.sortOrder) })
+      .from(quoteSkus)
+      .where(eq(quoteSkus.quoteId, quoteId));
+    const sortOrder = (maxRow[0]?.max ?? -1) + 1;
+
+    const [sku] = await db
+      .insert(quoteSkus)
+      .values({
+        quoteId,
+        hubspotProductId: null,
+        skuLabel,
+        productName,
+        unitsPerPack: Math.trunc(unitsPerPack),
+        sortOrder,
+        skuRole: skuRoleRaw as "leaf" | "assembly",
+        parentSkuId: null,
+        qtyPerParent: null,
+      })
+      .returning({ id: quoteSkus.id });
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_sku",
+      entityId: sku.id,
+      action: "created",
+      diffJson: {
+        quote_id: quoteId,
+        source: "add_product_modal",
+        sku_label: skuLabel,
+        product_name: productName,
+        sku_role: skuRoleRaw,
+        units_per_pack: Math.trunc(unitsPerPack),
+        push_to_hubspot: pushToHubspot,
+        hubspot_writeback_pending: pushToHubspot,
+      },
+    });
+
+    // Q4 Option 3 fallback — HubSpot products-writeback infra not yet
+    // wired (HUBSPOT_WRITE_ACCESS_TOKEN currently scoped to
+    // Mark-Accepted deal-line writes). Toggle ON is recorded in the
+    // audit log via `push_to_hubspot` + `hubspot_writeback_pending`
+    // for future replay; UI continues to render the toggle as
+    // designed. When products-writeback lands (Slice 11 follow-up
+    // or Slice 12 extension), this branch performs the async write
+    // and updates quote_skus.hubspot_product_id on success.
+
+    revalidateQuoteTree(quote.projectId, quoteId);
+  });
+}
+
+/**
  * Set parent_sku_id and qty_per_parent on an existing SKU.
  * Validates: parent in same quote, can have children, no cycle, qty>0.
  */
