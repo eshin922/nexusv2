@@ -519,6 +519,21 @@ architectural Mismatch 1:
    navigation list in v1; component-cost-data unification banked
    as `§6.c` candidate slice OR R7c carry-forward.
 
+**Fourth instance — §6.b Step 0 (same prep session).** Brief
+proposed adding a new `quote_skus.display_order INTEGER` column.
+Pre-DDL grep on `schema.ts` revealed `quote_skus.sort_order
+INTEGER NOT NULL DEFAULT 0` already exists at `schema.ts:423`,
+seeded by `actions/quotes.ts:436-450` with `max(sort_order) + 1`,
+read-ordered via `(sort_order ASC, created_at ASC)` in
+`actions/warnings.ts:124`. Same semantics as the brief's
+proposed column. Step 0 collapsed to no-op; drag-and-drop in
+step 9 writes the existing column.
+
+**Four instances in two slices.** Two pure architectural mismatches
+(scenarios table, packaging_inputs/quote_skus split), two notation
+errors (quote_meta, markup_categories), one duplicate-column
+proposal (display_order vs sort_order). The pattern keeps paying.
+
 **Three instances in two slices is the trigger.** Per the "third
 instance" threshold above, the schema-verification step should
 now be an explicit named gate in slice brief templates. Future

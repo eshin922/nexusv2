@@ -21,7 +21,7 @@
 - 8 R7b implementation primitives (§3 below)
 - 3 R7b pushback dispositions baked as implementation refinements (§4)
 - 3 confirmation refinements from CD R7b confirms (§5)
-- 1 new schema commitment (`quote_skus.display_order INTEGER`, §3.8)
+- 0 new schema commitments — drag-and-drop reorder reuses existing `quote_skus.sort_order` per Pattern 22 catch (§3.8)
 
 **Out of scope (defer to other slices or R7c):**
 - **R7B STATES tab strip** — review chrome only per confirmation B; do NOT ship as production UI (Pattern 21 compliance check)
@@ -195,10 +195,10 @@ Replaces v1's up/down arrow buttons in the action cluster. New mechanism:
 - Leftmost column on each SKU row is a `⠿` grip glyph
 - Hover shows `grab` cursor
 - Drag reorders rows
-- Drop writes `quote_skus.display_order` for affected rows
+- Drop writes `quote_skus.sort_order` for affected rows
 - Reorder logic: assign sequential integers (1, 2, 3, ...) on every reorder OR use sparse spacing (10, 20, 30, ...) to allow inserts without renumbering — implementation choice for CC, but **document the choice in commit message**
 
-**Schema commitment:** `quote_skus.display_order INTEGER` — defaults to row creation order if not explicitly set.
+**Schema commitment:** none — `quote_skus.sort_order INTEGER NOT NULL DEFAULT 0` already exists (`schema.ts:423`) and serves the user-controllable display-order role: existing `addQuoteSku` action seeds new rows with `max(sort_order) + 1` (`actions/quotes.ts:436-450`); read paths order by `(sort_order ASC, created_at ASC)`. Drag-and-drop writes to this same column. Pattern 22 fourth instance — original brief proposed a new `display_order` column that would duplicate the existing one.
 
 ---
 
@@ -277,7 +277,7 @@ The R7b design accommodates re-adding the affordance later; v1 SKU table footer 
 
 | Step | Work | Owner |
 |---|---|---|
-| 0 | Schema migration: `quote_skus.display_order INTEGER` column with default | CC |
+| 0 | ~~Schema migration~~ — no-op per §3.8 disposition; `quote_skus.sort_order` already exists | CC |
 | 1 | SKU table column restructure — new layout per §3.1 | CC |
 | 2 | Type badge + click-to-toggle `sku_role` mutation | CC |
 | 3 | Per-row drawer infrastructure — `openSkuId` local state, one-at-a-time enforcement | CC |
@@ -286,7 +286,7 @@ The R7b design accommodates re-adding the affordance later; v1 SKU table footer 
 | 6 | Tier preset picker — empty state with 4 presets per §3.5 | CC |
 | 7 | Notes split — internal + customer-facing zones with audience labels | CC |
 | 8 | Add-product modal with HubSpot writeback toggle (consequence-sentence pattern) | CC |
-| 9 | Drag-and-drop row reordering — `quote_skus.display_order` writes | CC |
+| 9 | Drag-and-drop row reordering — `quote_skus.sort_order` writes | CC |
 | 10 | Edward smoke pass (across all 4 R7b states + new affordances) | Edward |
 | 11 | Designer agent audit (full R7b fidelity pass + cross-surface coherence vs RI.9 primitives) — see §9 audit risks | CC + Designer |
 
@@ -307,7 +307,7 @@ The R7b design accommodates re-adding the affordance later; v1 SKU table footer 
 - **R6 inline-edit pattern (Blur+Enter)** — nested component table + tier table inline cells follow R6's commit-on-blur OR Enter convention.
 - **R6 consequence-sentence pattern** — HubSpot writeback toggle reads "→ writes to HubSpot in background; row appears immediately" / "→ Nexus-local only; never syncs back to HubSpot".
 - **Slice 12 HubSpot writeback infrastructure** — optional dependency for §3.7.1 writeback path. Fallback: deferred queue or "coming soon" tooltip on toggle.
-- **New `quote_skus.display_order` migration** — Step 0 prerequisite for Step 10.
+- ~~New `quote_skus.sort_order` migration~~ — column already exists; Step 0 is no-op (Pattern 22 fourth-instance catch).
 
 ---
 
@@ -336,7 +336,7 @@ Designer agent walks:
 4. **Tier table** — card chrome parity with SKU table, inline-edit affordances, ★ Recommended toggle (sibling unset on click), preset picker rendering when count=0
 5. **Notes split** — purple vs green accent borders, INTERNAL vs CUSTOMER chips, audience labels at bottom of each zone, Preview on Quote link (R7a breadcrumb routing)
 6. **Add-product modal** — fields, HubSpot writeback toggle with consequence-sentence pattern (R6 carry-forward)
-7. **Drag-and-drop** — grip glyph styling, grab cursor on hover, smooth reorder animation, `quote_skus.display_order` writes correctly
+7. **Drag-and-drop** — grip glyph styling, grab cursor on hover, smooth reorder animation, `quote_skus.sort_order` writes correctly
 8. **Cross-surface coherence** — Setup primitives (eyebrow, banner, action cluster) shipped in RI.9 still render correctly post-§6.b body work
 9. **Pattern 21 compliance** — R7B STATES tab strip is NOT shipped (review chrome only)
 10. **Pull from Inventory** — affordance is NOT present in v1 SKU table footer (per confirmation C)
@@ -374,7 +374,7 @@ Slice-ri.8 + RI.9 banked patterns 1-24 in CLAUDE.md. §6.b expected to exercise:
 - **Pattern 18 — Region-scope vs trigger-scope** — if smoke surfaces multiple drawer-related issues, scope the drawer region not individual triggers.
 - **Pattern 19 — Defer-with-rationale beats forcing uniformity** — Notes zones have different visual treatment (purple vs green) intentionally; preserve the divergence.
 - **Pattern 21 — R-round prototype state strips are review aids, not production UI** — R7B STATES tab strip mitigation per §5.B.
-- **Pattern 22 — Verify schema before encoding DDL** — `quote_skus.display_order` migration: verify the column doesn't already exist (it doesn't) and the default backfill strategy is sensible.
+- **Pattern 22 — Verify schema before encoding DDL** — `quote_skus.sort_order` migration was the original Step 0 commitment under the `display_order` name; pre-kickoff verification caught that the column already exists (fourth instance of the pattern firing). Step 0 collapsed to no-op; drag-and-drop writes the existing column.
 - **Pattern 23 — Action-cluster adoption sweep** — Setup action cluster reads from SURFACE_META.setup, doesn't hand-roll. Verify at audit.
 - **Pattern 24 — Helper reachability check** — any helpers added for drawer state, tier preset hydration, drag-drop should have call sites. Zero-call-site helpers lie about invariants.
 
@@ -395,7 +395,7 @@ Once Edward approves and commits, §6.b is unblocked.
 
 ## Quick reference card
 
-**What §6.b ships:** SKU table redesign + Tier table parallel register + per-row drawer + Notes split + Add-product modal + drag-drop reordering + `quote_skus.display_order` schema.
+**What §6.b ships:** SKU table redesign + Tier table parallel register + per-row drawer + Notes split + Add-product modal + drag-drop reordering (writes existing `quote_skus.sort_order`).
 
 **What §6.b does NOT ship:** R7B STATES tab strip, Pull from Inventory affordance, inline preview pane, multi-drawer mode, drag-drop nested components, bulk SKU import, other surfaces.
 
