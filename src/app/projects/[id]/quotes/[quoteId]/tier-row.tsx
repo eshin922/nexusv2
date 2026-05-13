@@ -18,25 +18,22 @@ type Tier = {
 
 const DEBOUNCE_MS = 500;
 
-// §6.b Step 5 — Tier table parallel register per R7b designer notes
-// §3.4 / Decision 5 ("SKU × Tier coupled register"). 5-column row:
-// Tier label · ★ Recommended · Qty · Price adj % · ×.
+// §6.b Step 5 polish-amendment (Edward smoke) — Tier table per
+// R7b screenshot fidelity. NOT a 5-column layout with ★ column.
 //
-// Inline-edit cells follow R7b's transparent-border-→-focused-border
-// pattern (always-input mode), not the read↔edit pattern (Pattern 29)
-// used for SKU retail bench. Rationale: tier rows are short (3-4
-// items max) and frequently edited; read-mode would add click
-// overhead. SKU rows can be 20+ items and rarely-edited per cell —
-// read↔edit fits there.
+// R7b reference (Screenshot 2026-05-12 225751):
+// - 3 data columns: TIER · QTY · PRICE ADJ + × action
+// - Recommended state renders as inline "★ RECOMMENDED" chip
+//   BELOW the tier label cell (not as a separate column header
+//   or per-row toggle)
+// - Header label "TIER", not "LABEL"
 //
-// ★ Recommended toggle calls setTierRecommended which clears
-// siblings (one per quote invariant; Pattern 22 #7).
-// Price adj % writes via Slice 9.2's existing updateTierPriceAdj.
-// Label + Qty write via updateTier.
-//
-// Footer "+ Add tier" lives on the parent Section, not per-row.
-// ↑↓ row reordering dropped per brief §3.4 column list (× only);
-// existing moveTier action retained but no UI surface.
+// Toggle path:
+// - When recommended=true: chip displays under label. Click chip
+//   to clear (sets recommended=false).
+// - When recommended=false: subtle hover-revealed "Mark as
+//   recommended" affordance appears in the same slot. Click to
+//   set (action layer clears siblings — one per quote).
 
 export function TierRow({
   tier,
@@ -50,9 +47,7 @@ export function TierRow({
   const [priceAdj, setPriceAdj] = useState(
     tier.tierPriceAdjPct === null
       ? ""
-      : // numeric(5,4) stored as decimal (0.0250 = 2.5%);
-        // surface as percent string for the inline input
-        (Number(tier.tierPriceAdjPct) * 100).toString(),
+      : (Number(tier.tierPriceAdjPct) * 100).toString(),
   );
 
   const [pending, startTransition] = useTransition();
@@ -111,10 +106,9 @@ export function TierRow({
     });
   }
 
-  function handleStarToggle() {
+  function handleToggleRecommended() {
     const fd = new FormData();
     fd.set("tierId", tier.id);
-    // Toggle: set true if not currently recommended, false if currently set
     fd.set("recommended", tier.recommended ? "false" : "true");
     startTransition(async () => {
       const r = await setTierRecommended(fd);
@@ -125,37 +119,48 @@ export function TierRow({
 
   return (
     <div className="r6b-tier-row">
-      <input
-        value={label}
-        disabled={disabled}
-        onChange={(e) => {
-          const v = e.target.value;
-          setLabel(v);
-          scheduleLabelQtySave({ label: v });
-        }}
-        className="r6b-tier-input r6b-tier-label"
-        aria-label="Tier label"
-      />
-      <button
-        type="button"
-        onClick={handleStarToggle}
-        disabled={disabled || pending}
-        aria-pressed={tier.recommended}
-        aria-label={
-          tier.recommended
-            ? "Recommended tier (click to clear)"
-            : "Mark as recommended tier"
-        }
-        title={
-          tier.recommended
-            ? "Recommended tier — click to clear"
-            : "Mark as recommended tier (clears siblings)"
-        }
-        className="r6b-tier-star"
-        data-active={tier.recommended ? "true" : "false"}
-      >
-        ★
-      </button>
+      <div className="r6b-tier-label-cell">
+        <input
+          value={label}
+          disabled={disabled}
+          onChange={(e) => {
+            const v = e.target.value;
+            setLabel(v);
+            scheduleLabelQtySave({ label: v });
+          }}
+          className="r6b-tier-input r6b-tier-label"
+          aria-label="Tier label"
+        />
+        {tier.recommended ? (
+          <button
+            type="button"
+            onClick={handleToggleRecommended}
+            disabled={disabled || pending}
+            className="r6b-tier-recommended-chip"
+            aria-label="Recommended tier — click to clear"
+            title="Recommended tier — click to clear"
+          >
+            <span aria-hidden style={{ marginRight: 4 }}>
+              ★
+            </span>
+            RECOMMENDED
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleToggleRecommended}
+            disabled={disabled || pending}
+            className="r6b-tier-recommend-set"
+            aria-label="Mark as recommended tier"
+            title="Mark as recommended tier (clears siblings)"
+          >
+            <span aria-hidden style={{ marginRight: 4 }}>
+              ☆
+            </span>
+            Mark as recommended
+          </button>
+        )}
+      </div>
       <input
         value={qty}
         type="number"
@@ -168,7 +173,7 @@ export function TierRow({
           setQty(v);
           scheduleLabelQtySave({ qty: v });
         }}
-        className="r6b-tier-input"
+        className="r6b-tier-input r6b-tier-numeric"
         aria-label="Quantity"
       />
       <input
@@ -182,7 +187,7 @@ export function TierRow({
           setPriceAdj(v);
           schedulePriceAdjSave({ priceAdj: v });
         }}
-        className="r6b-tier-input"
+        className="r6b-tier-input r6b-tier-numeric"
         aria-label="Per-tier price adjustment percent"
       />
       <button

@@ -18,11 +18,10 @@ export function AddTierButton({ quoteId }: { quoteId: string }) {
   }
 
   return (
-    <div className="flex items-center gap-2">
-      {/* §6.b Step 5 — dashed-border CTA pill per R7b designer notes
-          §3.4 line 97 ("Same footer treatment — dashed-border CTA
-          pill for `+ Add X`"). Matches the SKU footer affordance
-          grammar; theme-token styling for dark-mode safety. */}
+    <div>
+      {/* §6.b Step 5 polish-amendment — full-width dashed pill per
+          R7b screenshot 225751. Visual weight: spans most of card,
+          centered "+ Add tier" text in mono caps register. */}
       <button
         type="button"
         onClick={handleClick}
@@ -32,7 +31,11 @@ export function AddTierButton({ quoteId }: { quoteId: string }) {
         {pending ? "Adding…" : "+ Add tier"}
       </button>
       {error && (
-        <span className="text-xs" style={{ color: "var(--bad)" }} role="alert">
+        <span
+          className="mt-1 block text-xs"
+          style={{ color: "var(--bad)" }}
+          role="alert"
+        >
           {error}
         </span>
       )}

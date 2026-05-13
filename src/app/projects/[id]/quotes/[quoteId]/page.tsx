@@ -471,18 +471,18 @@ function SkuHeader() {
   );
 }
 
-// §6.b Step 5 — Tier table header per R7b §3.4 columns.
-// Polish-amendment (Edward smoke): "Price adj %" shortened to
-// "Adj %" so the header stays single-line in the narrower Tier
-// card; CSS-uppercase renders as "ADJ %" matching SKU-table
-// header register. Whitespace-nowrap on cells to enforce.
+// §6.b Step 5 polish-amendment — Tier table header per R7b
+// Screenshot 2026-05-12 225751. 3 data columns + delete:
+// TIER · QTY · PRICE ADJ · × (no separate ★ column —
+// recommended state renders as inline chip BELOW the tier label
+// per tier-row.tsx). Wider Qty column resolves the cut-off
+// values seen in pre-amendment smoke.
 function TierHeader() {
   return (
-    <div className="grid grid-cols-[2fr_36px_1fr_1fr_36px] items-center gap-2 border-b border-rule bg-paper-2 px-3 py-2 font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3 whitespace-nowrap">
-      <span>Label</span>
-      <span className="text-center" aria-label="Recommended">★</span>
+    <div className="grid grid-cols-[1.6fr_1fr_1fr_36px] items-center gap-2 border-b border-rule bg-paper-2 px-3 py-2 font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3 whitespace-nowrap">
+      <span>Tier</span>
       <span>Qty</span>
-      <span>Adj %</span>
+      <span>Price adj</span>
       <span aria-hidden></span>
     </div>
   );

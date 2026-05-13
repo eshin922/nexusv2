@@ -394,15 +394,14 @@
   cursor: not-allowed;
 }
 
-/* ─── §6.b Step 5 — Tier table (R7b §3.4) ──────────────── */
-/* 5-column row: Label · ★ · Qty · Price adj % · ×.
+/* ─── §6.b Step 5 — Tier table (R7b §3.4 + 225751 screenshot) ── */
+/* 4-column row: Label/chip stack · Qty · Price adj · ×.
+   Recommended state = inline chip below label (NOT a column).
    Always-input mode (transparent-→-focused border per R7b
-   designer notes line 96). Token-disciplined for dark-mode
-   safety. ★ star toggles recommended; one per quote via
-   action-layer invariant (Pattern 22 #7). */
+   designer notes line 96). Token-disciplined for dark-mode. */
 .r6b-tier-row {
   display: grid;
-  grid-template-columns: 2fr 36px 1fr 1fr 36px;
+  grid-template-columns: 1.6fr 1fr 1fr 36px;
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
@@ -411,6 +410,16 @@
 }
 .r6b-tier-row:hover {
   background: var(--paper-2);
+}
+/* Label cell stacks the input + recommended chip vertically.
+   Hover on the row reveals the "Mark as recommended" affordance
+   on non-recommended rows. */
+.r6b-tier-label-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
 }
 .r6b-tier-input {
   width: 100%;
@@ -436,45 +445,80 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+.r6b-tier-numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 
 /* §6.b Step 5 polish-amendment — tier label cell renders italic
    display register per R7b screenshot ("Tier 1", "Tier 2" in
-   serif italic). Overrides the base .r6b-tier-input UI-sans. */
+   serif italic). */
 .r6b-tier-label {
   font-family: var(--display);
   font-style: italic;
   font-size: 14px;
   color: var(--ink);
 }
-.r6b-tier-star {
+
+/* Recommended chip — inline below tier label cell when
+   recommended=true. Mirrors R7b screenshot 225751's
+   "★ RECOMMENDED" treatment. */
+.r6b-tier-recommended-chip {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  font-size: 18px;
-  line-height: 1;
-  background: transparent;
+  padding: 2px 6px;
+  margin-left: 6px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  color: var(--accent-ink);
+  background: oklch(from var(--accent) l c h / 0.10);
   border: 1px solid transparent;
   border-radius: 4px;
   cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.r6b-tier-recommended-chip:hover:not(:disabled) {
+  background: oklch(from var(--accent) l c h / 0.18);
+  border-color: oklch(from var(--accent) l c h / 0.40);
+}
+.r6b-tier-recommended-chip:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* "Mark as recommended" subtle affordance — hidden by default,
+   reveals on row hover when recommended=false. */
+.r6b-tier-recommend-set {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  margin-left: 6px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
   color: var(--ink-4);
-  transition: color 120ms ease, background 120ms ease,
+  background: transparent;
+  border: 1px dashed transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease,
     border-color 120ms ease;
 }
-.r6b-tier-star[data-active="true"] {
-  color: var(--accent);
+.r6b-tier-row:hover .r6b-tier-recommend-set,
+.r6b-tier-recommend-set:focus-visible {
+  opacity: 1;
 }
-.r6b-tier-star:hover:not(:disabled) {
-  background: var(--paper-2);
-  border-color: var(--rule);
-  color: var(--accent);
+.r6b-tier-recommend-set:hover:not(:disabled) {
+  color: var(--accent-ink);
+  border-color: oklch(from var(--accent) l c h / 0.40);
 }
-.r6b-tier-star:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
+.r6b-tier-recommend-set:disabled {
+  cursor: default;
 }
+
 .r6b-tier-delete {
   display: inline-flex;
   align-items: center;
@@ -508,17 +552,19 @@
   margin-top: 2px;
 }
 
-/* Dashed-border CTA pill per R7b §3.4 line 97 — "+ Add tier",
-   matches the SKU footer "+ Add Product" grammar in visual
-   weight + register. Theme tokens for dark-mode. */
+/* Dashed-border CTA pill per R7b screenshot 225751 — "+ Add tier"
+   spans most of the card width, centered text. Visual weight
+   matches "+ ADD TIER" treatment. Theme tokens for dark-mode. */
 .r6b-add-pill {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 14px;
+  justify-content: center;
+  width: 100%;
+  padding: 10px 16px;
   font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
   color: var(--accent-ink);
   background: transparent;
   border: 1px dashed oklch(from var(--accent) l c h / 0.40);
