@@ -78,16 +78,16 @@ export function AddAssemblyButton({
   }
 
   if (!open) {
-    // §6.b Step 1 amendment — R7b primary-blue treatment on the
-    // footer "+ Add Product" affordance. Step 4 adds the "ghost"
-    // variant for the in-drawer "+ Add child SKU" affordance so
-    // it doesn't compete visually with the table-footer primary.
+    // §6.b path-B migration — canonical .add-sku.primary (R7b
+    // sku-footer "+ Add product" button) per 7bsetup.jsx line 188
+    // + 7bstyles.css .r7b-sku-footer .add-sku rules. Ghost variant
+    // uses .add-sku alone (no primary modifier) for in-drawer use.
     return (
       <button
         type="button"
         onClick={() => setOpen(true)}
         className={
-          triggerVariant === "ghost" ? "r2-btn ghost" : "r2-btn primary"
+          triggerVariant === "ghost" ? "add-sku" : "add-sku primary"
         }
       >
         {triggerLabel}

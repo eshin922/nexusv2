@@ -264,124 +264,104 @@ export function SkuRow({
   const hasNote = (sku.notes ?? "").trim() !== "";
   const isAssembly = sku.skuRole === "assembly";
 
+  // §6.b path-B migration commit 3 — row migrates to canonical
+  // .r7b-sku-row structure (7bsetup.jsx SkuTable inner rows
+  // lines 145-179 + 7bstyles.css .r7b-sku-row rules at line 116).
+  // 7 columns: grip · type · name · category · retail · components ·
+  // actions. Variant modifiers `assembly` / `leaf` + state `open`.
+  // Assembly left-border accent now comes from canonical
+  // .r7b-sku-row.assembly rule (not inline style).
   return (
     <>
-      {/* §6.b Step 1 — 6-column row per brief §3.1.
-          Columns: Grip · Type · Product (stack) · Retail bench · Components · ⋯
-          Left-border accent (Step 1 amendment fidelity) — assembly rows
-          render a 2px var(--accent) left border; leaf rows render the
-          same width as transparent so vertical alignment is preserved
-          (brief §3.1: "Left-border accent for assembly distinction"). */}
       <div
-        className="grid grid-cols-[36px_80px_2fr_120px_120px_36px] items-center gap-2 px-3 py-3 text-sm hover:bg-paper-2"
-        style={{
-          borderLeft: isAssembly
-            ? "2px solid var(--accent)"
-            : "2px solid transparent",
-        }}
+        className={`r7b-sku-row ${sku.skuRole}${isDrawerOpen ? " open" : ""}`}
       >
-        {/* Grip — static glyph in Step 1; drag wires in Step 9. */}
-        <span
-          aria-hidden
-          className="select-none text-center text-base text-ink-4"
-          title="Drag to reorder (wires in §6.b step 9)"
-        >
+        {/* Grip — static glyph; drag wires in §6.b Step 9. Canonical
+            .r7b-sku-row .grip rule. */}
+        <span className="grip" title="Drag to reorder (Step 9)">
           ⠿
         </span>
 
-        {/* Type — R7b badge: glyph + short label, click-to-toggle.
-            Eligible-targets check: leaf → assembly is always allowed;
-            assembly → leaf is blocked when hasChildren (per
-            sku-tree.eligibleRoleTargets). Disabled state surfaces
-            why via title (no children-detach path here; existing
-            overflow menu carries the detach/reassign affordances). */}
-        <div>
-          {(() => {
-            const targetRole: Sku["skuRole"] =
-              sku.skuRole === "leaf" ? "assembly" : "leaf";
-            const canToggle = eligibleRoleTargets(
-              sku.skuRole,
-              sku.parentSkuId !== null,
-              hasChildren,
-            ).includes(targetRole);
-            const isAsy = sku.skuRole === "assembly";
-            return (
-              <button
-                type="button"
-                onClick={() => handleConvertRole(targetRole)}
-                disabled={disabled || pending || !canToggle}
-                aria-pressed={isAsy}
-                aria-label={`Type: ${ROLE_SHORT_LABEL[sku.skuRole]}. ${
-                  canToggle
-                    ? `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}.`
-                    : `Cannot convert — has children. Detach children first.`
-                }`}
-                title={
-                  canToggle
-                    ? `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}`
-                    : "Cannot convert to leaf — assembly has children. Detach via ⋯ menu first."
-                }
-                className="r6b-type-badge"
-                data-role={sku.skuRole}
-              >
-                <span aria-hidden style={{ marginRight: 4 }}>
-                  {ROLE_GLYPH[sku.skuRole]}
-                </span>
-                {ROLE_SHORT_LABEL[sku.skuRole]}
-              </button>
-            );
-          })()}
-        </div>
+        {/* Type — canonical .r7b-type badge with .glyph child + label.
+            Wraps button-semantics for click-to-toggle; CSS expects
+            <span> but button is functionally equivalent and adds a11y. */}
+        {(() => {
+          const targetRole: Sku["skuRole"] =
+            sku.skuRole === "leaf" ? "assembly" : "leaf";
+          const canToggle = eligibleRoleTargets(
+            sku.skuRole,
+            sku.parentSkuId !== null,
+            hasChildren,
+          ).includes(targetRole);
+          const isAsy = sku.skuRole === "assembly";
+          return (
+            <button
+              type="button"
+              onClick={() => handleConvertRole(targetRole)}
+              disabled={disabled || pending || !canToggle}
+              aria-pressed={isAsy}
+              aria-label={`Type: ${ROLE_SHORT_LABEL[sku.skuRole]}. ${
+                canToggle
+                  ? `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}.`
+                  : `Cannot convert — has children. Detach children first.`
+              }`}
+              title={
+                canToggle
+                  ? `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}`
+                  : "Cannot convert to leaf — assembly has children. Detach via ⋯ menu first."
+              }
+              className={`r7b-type ${sku.skuRole}`}
+            >
+              <span className="glyph">{ROLE_GLYPH[sku.skuRole]}</span>
+              {ROLE_SHORT_LABEL[sku.skuRole]}
+            </button>
+          );
+        })()}
 
-        {/* Product — stacked label / product_name / {pack if non-null} +
-            HAS NOTE chip. Tree indentation preserved on label line. */}
-        <div className="flex flex-col min-w-0" style={{ paddingLeft: `${indentPx}px` }}>
-          <div className="flex items-center gap-2">
+        {/* Product — canonical .name structure: .label-pack > .lbl +
+            .product, then separate .pack span. Tree indentation
+            preserved as paddingLeft on the wrapper. HAS NOTE chip
+            renders inside .pack as canonical .indicator.has-note. */}
+        <div className="name" style={{ paddingLeft: `${indentPx}px` }}>
+          <div className="label-pack">
             {treeLine && (
-              <span className="font-mono text-xs text-gray-400">{treeLine}</span>
+              <span className="lbl" style={{ color: "var(--ink-4)" }}>
+                {treeLine}
+              </span>
             )}
-            {/* §6.b polish-amendment (sweep #12) — SKU label
-                renders in mono register per R7b (e.g., "GLW-30"
-                reads as an identifier code, not a product name).
-                Mono treatment distinguishes it from the
-                productName below which uses UI sans. */}
-            <span className="truncate font-mono text-[13px] text-ink">
-              {sku.skuLabel}
-            </span>
+            <span className="lbl">{sku.skuLabel}</span>
+            <span className="product">{sku.productName}</span>
+          </div>
+          <span className="pack">
+            {/* Pack sub-text deferred to Slice 11 (Pattern 22 #6).
+                When quote_skus.pack lands, the value renders here
+                ahead of the HAS NOTE indicator. */}
             {hasNote &&
               (onDrawerToggle ? (
-                // §6.b Step 4 — HAS NOTE chip becomes drawer trigger on
-                // leaves (no Components-cell trigger for leaf rows;
-                // chip click opens the drawer to view/edit the note).
-                // On assemblies the Components cell is the primary
-                // trigger; chip click also opens drawer for parity.
-                <button
-                  type="button"
+                <span
+                  className="indicator has-note"
                   onClick={onDrawerToggle}
-                  className="rounded bg-warn-soft px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-warn hover:bg-warn-soft hover:ring-1 hover:ring-warn"
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onDrawerToggle();
+                    }
+                  }}
                   title={`${sku.notes ?? ""} (click to open notes)`}
+                  style={{ cursor: "pointer" }}
                 >
-                  HAS NOTE
-                </button>
+                  has note
+                </span>
               ) : (
                 <span
-                  className="rounded bg-warn-soft px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-warn"
+                  className="indicator has-note"
                   title={sku.notes ?? undefined}
                 >
-                  HAS NOTE
+                  has note
                 </span>
               ))}
-            {/* §6.b polish-amendment (sweep #10) — "+ note" CC
-                compensation removed. Leaves access drawer via
-                conditional "Open notes" / "Add notes" entry in
-                the ⋯ overflow menu below, restoring R7b's
-                ⋯-as-drawer-trigger fidelity. */}
-          </div>
-          <span className="truncate text-xs text-ink-3">
-            {sku.productName}
-            {/* §6.b Pattern 22 #6 — pack sub-text NULL-safe; appears the
-                moment Slice 11 lands quote_skus.pack. Until then, only
-                productName renders on this line. */}
           </span>
           {sku.parentSkuId && (
             <QtyPerParentInline
@@ -392,11 +372,18 @@ export function SkuRow({
           )}
         </div>
 
-        {/* Retail bench — R6 inline-edit read↔edit cell (Pattern 29).
-            Read mode shows formatted $X.XX + "RETAIL" sub-caption.
-            Click switches to edit mode + focuses input; blur or
-            Enter commits + returns to read mode. Empty cell renders
-            em-dash. */}
+        {/* Category — Slice 9 deferral (Pattern 22 #5). Em-dash
+            placeholder preserves canonical 7-column grid until
+            quote_skus.cost_category integration lands. */}
+        <span className="category" aria-hidden>
+          —
+        </span>
+
+        {/* Retail bench — Pattern 29 read↔edit cell wrapped in
+            canonical .retail span. Read mode renders $X.XX +
+            <span className="sub">retail</span> per canonical.
+            Edit mode swaps in an input but preserves the .retail
+            wrapper for grid alignment. */}
         <RetailBenchCell
           value={retailBenchmark}
           disabled={disabled}
@@ -406,39 +393,60 @@ export function SkuRow({
           }}
         />
 
-        {/* Components — assemblies show count + "▸" pointer; clicking
-            opens the per-row drawer (Step 3 infrastructure; Step 4
-            fills the drawer body). Leaves show em-dash; their drawer
-            entry point lands with Step 4 (HAS NOTE chip click or
-            similar inline affordance). */}
-        <div className="text-xs text-ink-3">
-          {isAssembly ? (
-            <button
-              type="button"
-              onClick={onDrawerToggle}
-              disabled={!onDrawerToggle}
-              aria-expanded={isDrawerOpen}
-              className="r6b-components-trigger"
-              title={
-                isDrawerOpen ? "Close component drawer" : "Open component drawer"
-              }
-            >
-              {childCount} {childCount === 1 ? "comp" : "comps"}{" "}
-              <span aria-hidden>{isDrawerOpen ? "▾" : "▸"}</span>
-            </button>
-          ) : (
-            <span aria-hidden>—</span>
-          )}
-        </div>
+        {/* Components — canonical .components class with .empty
+            modifier on leaf rows. Click-to-open-drawer on assemblies
+            only; canonical CSS handles cursor + hover color. */}
+        <span
+          className={`components${isAssembly ? "" : " empty"}`}
+          onClick={isAssembly && onDrawerToggle ? onDrawerToggle : undefined}
+          role={isAssembly && onDrawerToggle ? "button" : undefined}
+          tabIndex={isAssembly && onDrawerToggle ? 0 : undefined}
+          onKeyDown={
+            isAssembly && onDrawerToggle
+              ? (e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onDrawerToggle();
+                  }
+                }
+              : undefined
+          }
+          aria-expanded={isAssembly ? isDrawerOpen : undefined}
+          title={
+            isAssembly
+              ? isDrawerOpen
+                ? "Close component drawer"
+                : "Open component drawer"
+              : undefined
+          }
+        >
+          {isAssembly
+            ? `${childCount} comp${childCount === 1 ? "" : "s"} ${isDrawerOpen ? "▾" : "▸"}`
+            : "—"}
+        </span>
 
-        {/* ⋯ overflow — Step 1 absorbs the displaced ↑↓× cluster buttons
-            (drag-drop replaces ↑↓ in Step 9). Conditional affordances
-            (reassign / detach / refresh / HubSpot link) remain. */}
-        <div className="flex items-center justify-end gap-1">
+        {/* Actions — canonical .actions cluster. R7b prototype shows
+            single ⋯ button; nexus expands with overflow menu carrying
+            critical affordances (reassign / detach / refresh / HubSpot
+            link / move / delete) that don't have row-level homes yet.
+            Keeps the canonical .actions class wrapper so the cell
+            grid alignment matches; menu functionality is nexus-specific. */}
+        <div className="actions">
           {saveError ? (
-            <span className="text-xs text-red-700 mr-1" role="alert">{saveError}</span>
+            <span
+              className="text-xs"
+              style={{ color: "var(--bad)", marginRight: 4 }}
+              role="alert"
+            >
+              {saveError}
+            </span>
           ) : pending ? (
-            <span className="text-xs text-ink-4 mr-1">saving…</span>
+            <span
+              className="text-xs"
+              style={{ color: "var(--ink-4)", marginRight: 4 }}
+            >
+              saving…
+            </span>
           ) : null}
 
           <div className="relative" ref={overflowRef}>
@@ -449,7 +457,6 @@ export function SkuRow({
                 aria-expanded={overflowOpen}
                 aria-haspopup="menu"
                 title="More actions"
-                className="rounded border border-rule px-1.5 py-0.5 text-xs hover:bg-paper-2 disabled:opacity-30"
               >
                 ⋯
               </button>
@@ -590,17 +597,17 @@ export function SkuRow({
         </div>
       </div>
 
-      {/* §6.b Step 4 — drawer body. Two zones per brief §3.2/§3.3:
-          - Assemblies: child-SKU navigation list + per-SKU notes
-          - Leaves: per-SKU notes only
-          Mismatch 1 carve disposition (γ): drawer's first zone for
-          assemblies is a NAV LIST routing to each leaf's Cost build
-          packaging surface, not an inline-editable component table.
-          Per-component cost data lives on packaging_inputs (Cost
-          build) until §6.c unifies. */}
+      {/* §6.b path-B migration commit 3 — drawer body migrated to
+          canonical .r7b-sku-drawer (7bsetup.jsx SkuDrawer lines
+          197-246). Mismatch 1 carve disposition (γ) preserved:
+          assembly drawer renders a CHILD-SKU NAVIGATION LIST
+          (not the canonical inline-editable component table)
+          because per-component cost data lives on packaging_inputs
+          per §6.c carve. Notes textarea structure matches canonical
+          .r7b-sku-notes (label + textarea). */}
       {isDrawerOpen && (
         <div
-          className="r6b-drawer"
+          className="r7b-sku-drawer"
           role="region"
           aria-label={`Details for ${sku.skuLabel}`}
         >
@@ -613,6 +620,23 @@ export function SkuRow({
               childSkus={childSkus}
               disabled={disabled}
             />
+          )}
+          {!isAssembly && (
+            <div
+              className="drawer-title"
+              style={{
+                marginBottom: 12,
+                fontSize: 11,
+                color: "var(--ink-3)",
+                textTransform: "none",
+                letterSpacing: 0,
+                fontFamily: "var(--ui)",
+                fontStyle: "italic",
+              }}
+            >
+              Leaf SKU — single-line. Cost goes on Cost build; this
+              drawer is for notes and metadata.
+            </div>
           )}
           <DrawerNotes
             currentNote={sku.notes ?? ""}
@@ -894,6 +918,11 @@ function DrawerChildList({
   );
 }
 
+// §6.b path-B migration commit 3 — DrawerNotes renders canonical
+// .r7b-sku-notes structure (7bsetup.jsx lines 237-243 +
+// 7bstyles.css .r7b-sku-notes rules). <label> with "Per-SKU notes
+// · internal-only" suffix; <textarea> below. Pattern 29-style
+// blur+⌘Enter commit retained for accessibility.
 function DrawerNotes({
   currentNote,
   onSave,
@@ -916,12 +945,13 @@ function DrawerNotes({
   }
 
   return (
-    <div className="r6b-drawer-section">
-      <div className="r6b-drawer-section-head">
-        <p className="r2-eyebrow" style={{ margin: 0 }}>
-          Per-SKU notes · internal-only
-        </p>
-      </div>
+    <div className="r7b-sku-notes">
+      <label>
+        Per-SKU notes
+        <span style={{ color: "var(--ink-4)", marginLeft: 6 }}>
+          · internal-only
+        </span>
+      </label>
       <textarea
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -933,13 +963,19 @@ function DrawerNotes({
             (e.currentTarget as HTMLTextAreaElement).blur();
           }
         }}
-        rows={3}
         disabled={disabled}
-        placeholder="e.g., 'PM follow-up: confirm pack with supplier before quote send.'"
-        className="r6b-drawer-textarea"
+        placeholder="Anything about this SKU — sourcing notes, customer requests, R&D dependencies. Stays internal; not customer-visible."
       />
       {pending && (
-        <span style={{ fontSize: 11, color: "var(--ink-4)" }}>saving…</span>
+        <span
+          style={{
+            fontSize: 11,
+            color: "var(--ink-4)",
+            fontFamily: "var(--mono)",
+          }}
+        >
+          saving…
+        </span>
       )}
     </div>
   );
@@ -1009,52 +1045,65 @@ function RetailBenchCell({
       })}`
     : null;
 
+  // §6.b path-B migration commit 3 — render canonical .retail
+  // markup (7bstyles.css .r7b-sku-row .retail) for read mode.
+  // Pattern 29 read↔edit interaction layered on top: clicking
+  // the read-mode cell flips to <input>; blur/Enter commits.
+  // Canonical R7b is static; Nexus extends with edit affordance
+  // (Pattern 29 banked in CLAUDE.md).
   if (editing) {
     return (
-      <input
-        ref={inputRef}
-        type="number"
-        step="0.01"
-        value={draft}
-        disabled={disabled}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            (e.currentTarget as HTMLInputElement).blur();
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            revert();
-          }
-        }}
-        placeholder="—"
-        className="r6b-retail-input"
-      />
+      <span className="retail">
+        <input
+          ref={inputRef}
+          type="number"
+          step="0.01"
+          value={draft}
+          disabled={disabled}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              (e.currentTarget as HTMLInputElement).blur();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              revert();
+            }
+          }}
+          placeholder="—"
+          className="r6b-retail-input"
+        />
+      </span>
     );
   }
 
   return (
-    <button
-      type="button"
-      onClick={enterEdit}
-      disabled={disabled}
-      className="r6b-retail-read"
+    <span
+      className="retail"
+      onClick={disabled ? undefined : enterEdit}
+      role={disabled ? undefined : "button"}
+      tabIndex={disabled ? undefined : 0}
+      onKeyDown={
+        disabled
+          ? undefined
+          : (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                enterEdit();
+              }
+            }
+      }
       aria-label={
         formatted
           ? `Retail benchmark ${formatted}. Click to edit.`
           : "Set retail benchmark"
       }
+      style={disabled ? undefined : { cursor: "text" }}
     >
-      {formatted ? (
-        <>
-          <span className="r6b-retail-value">{formatted}</span>
-          <span className="r6b-retail-caption">RETAIL</span>
-        </>
-      ) : (
-        <span className="r6b-retail-empty">—</span>
-      )}
-    </button>
+      {formatted ?? "—"}
+      <span className="sub">retail</span>
+    </span>
   );
 }
 

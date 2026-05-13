@@ -227,30 +227,47 @@ export default async function QuoteBuilderPage({
           Existing components retained (AddAssemblyButton + SkuSearchPanel)
           with label/position adjustments. Step 8 replaces "+ Add Product"
           with the full add-product modal. */}
-      <Section
-        title="SKUs"
-        action={
-          <span
-            className="font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3"
-            aria-label="SKU count caption"
-          >
-            {skus.length} {skus.length === 1 ? "SKU" : "SKUs"}
-            {(() => {
-              const aCount = skus.filter((s) => s.skuRole === "assembly").length;
-              return ` · ${aCount} ${aCount === 1 ? "assembly" : "assemblies"}`;
-            })()}
-          </span>
-        }
-      >
+      {/* §6.b path-B migration commit 3 — SKU table → canonical
+          r7b-card / r7b-sku-* structure (7bsetup.jsx SkuTable
+          lines 125-195). Drops Section wrapper component; uses
+          canonical .r7b-card-head with .meta count caption. */}
+      <div className="r7b-card">
+        <div className="r7b-card-head">
+          <h3>SKUs</h3>
+          <div className="actions">
+            <span className="meta" aria-label="SKU count caption">
+              {skus.length} {skus.length === 1 ? "SKU" : "SKUs"}
+              {(() => {
+                const aCount = skus.filter((s) => s.skuRole === "assembly").length;
+                return ` · ${aCount} ${aCount === 1 ? "assembly" : "assemblies"}`;
+              })()}
+            </span>
+          </div>
+        </div>
+
         {skus.length === 0 ? (
-          <p className="px-4 py-6 text-center text-sm text-ink-3">
+          <p style={{ padding: "24px 16px", textAlign: "center", fontSize: 13, color: "var(--ink-3)", fontStyle: "italic", margin: 0 }}>
             {editable
-              ? 'No SKUs yet. Use "+ Add Product" or "↗ Pull from HubSpot" below to start.'
+              ? 'No SKUs yet. Use "+ Add product" or "↗ Pull from HubSpot" below to start.'
               : "No SKUs."}
           </p>
         ) : (
           <>
-            <SkuHeader />
+            {/* Canonical .r7b-sku-thead — 7 columns per 7bstyles.css
+                line 107: 24px grip · 64px type · minmax(220px,1.6fr)
+                product · minmax(120px,1fr) category · 90px retail
+                · 80px components · 40px actions. Category column
+                renders em-dash per row pending Slice 9
+                (Pattern 22 #5 deferral). */}
+            <div className="r7b-sku-thead">
+              <span></span>
+              <span>Type</span>
+              <span>Product</span>
+              <span>Category</span>
+              <span className="num">Retail bench</span>
+              <span className="num">Components</span>
+              <span></span>
+            </div>
             <SkuRowList
               rows={buildTreeRenderOrder(skus).map(({ sku: s, depth }): SkuRowListItem => {
                 const eligibleParents = getEligibleParents(skus, s.id).map((p) => ({
@@ -262,10 +279,6 @@ export default async function QuoteBuilderPage({
                 const directChildren = skus.filter((x) => x.parentSkuId === s.id);
                 const hasChildren = directChildren.length > 0;
                 const childCount = directChildren.length;
-                // §6.b Step 4 — children data for the assembly drawer's
-                // navigation list. Per-child component count computed
-                // for the drawer's display ("→ ASY with N nested
-                // children" style render in v1.1).
                 const childSkus = directChildren.map((c) => ({
                   id: c.id,
                   skuLabel: c.skuLabel,
@@ -303,46 +316,30 @@ export default async function QuoteBuilderPage({
           </>
         )}
         {editable && (
-          <div className="border-t border-rule px-4 pt-3 pb-4">
-            {/* §6.b polish-amendment (sweep #11) — drag-hint
-                relocated to bottom-right of card per R7b
-                screenshot. Previous placement was inline with
-                "+ Add Product" button (row-1 left), competing for
-                attention with the primary affordance. */}
-            <div className="mb-3">
-              <AddAssemblyButton
-                quoteId={quote.id}
-                eligibleParents={getEligibleParents(skus, null).map((p) => ({
-                  id: p.id,
-                  skuLabel: p.skuLabel,
-                  productName: p.productName,
-                  skuRole: p.skuRole as "leaf" | "assembly",
-                }))}
-                triggerLabel="+ Add Product"
-              />
-            </div>
-            <div>
-              <p className="mb-1.5 font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3">
-                ↗ Pull from HubSpot
-              </p>
-              <SkuSearchPanel
-                quoteId={quote.id}
-                eligibleParents={getEligibleParents(skus, null).map((p) => ({
-                  id: p.id,
-                  skuLabel: p.skuLabel,
-                  productName: p.productName,
-                  skuRole: p.skuRole,
-                }))}
-              />
-            </div>
-            <div className="mt-3 flex justify-end">
-              <span className="text-xs italic text-ink-4">
-                Drag rows to reorder
-              </span>
-            </div>
+          <div className="r7b-sku-footer">
+            <AddAssemblyButton
+              quoteId={quote.id}
+              eligibleParents={getEligibleParents(skus, null).map((p) => ({
+                id: p.id,
+                skuLabel: p.skuLabel,
+                productName: p.productName,
+                skuRole: p.skuRole as "leaf" | "assembly",
+              }))}
+              triggerLabel="+ Add product"
+            />
+            <SkuSearchPanel
+              quoteId={quote.id}
+              eligibleParents={getEligibleParents(skus, null).map((p) => ({
+                id: p.id,
+                skuLabel: p.skuLabel,
+                productName: p.productName,
+                skuRole: p.skuRole,
+              }))}
+            />
+            <span className="meta">Drag rows to reorder</span>
           </div>
         )}
-      </Section>
+      </div>
 
       {/* §6.b Step 5 — Tier table parallel register per R7b §3.4 /
           Decision 5. Same card chrome + footer pill grammar as the
@@ -457,23 +454,11 @@ function Section({
   );
 }
 
-// §6.b Step 1 — 6-column SKU table layout per brief §3.1.
-// Columns: Grip · Type · Product · Retail bench · Components · ⋯
-// Category column dropped (Slice 9 cost_category deferral, Pattern 22 #5);
-// Pack sub-text renders NULL-safely inside Product cell (Slice 11 deferral,
-// Pattern 22 #6).
-function SkuHeader() {
-  return (
-    <div className="grid grid-cols-[36px_80px_2fr_120px_120px_36px] items-center gap-2 border-b border-rule bg-paper-2 px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-3">
-      <span aria-hidden></span>{/* Grip column header is intentionally blank */}
-      <span>Type</span>
-      <span>Product</span>
-      <span>Retail bench</span>
-      <span>Components</span>
-      <span aria-hidden></span>{/* ⋯ overflow column header is intentionally blank */}
-    </div>
-  );
-}
+// §6.b path-B migration commit 3 — SkuHeader inline function
+// removed. SKU table header now uses canonical .r7b-sku-thead
+// markup inline in the JSX (7bsetup.jsx lines 135-143). 7-column
+// grid (grip · type · product · category · retail · components ·
+// actions) drives layout via .r7b-sku-thead CSS rules.
 
 // §6.b Step 5 polish-amendment — Tier table header per R7b
 // Screenshot 2026-05-12 225751. 3 data columns + delete:
