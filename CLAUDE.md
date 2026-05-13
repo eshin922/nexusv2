@@ -534,6 +534,27 @@ step 9 writes the existing column.
 errors (quote_meta, markup_categories), one duplicate-column
 proposal (display_order vs sort_order). The pattern keeps paying.
 
+**Fifth + sixth instances — §6.b Step 1 pre-flight (same prep
+session).** R7b §3.1 SKU table layout proposes `quote_skus.category`
++ `{pack}` rendering. Pre-Step-1 schema check revealed:
+
+5. `quote_skus.category` — does NOT exist. Schema comment at
+   `schema.ts:404` flags `cost_category` as Slice 9 / HubSpot
+   hs_product_type deferral. R7b layout assumed it shipped.
+   Carve disposition: drop standalone Category column from
+   §6.b 6-column SKU table; restore in 7-column form when
+   Slice 9 lands.
+6. `quote_skus.pack` — does NOT exist. RI.6 quote/page.tsx
+   comment ("Pack format not yet on quote_skus — Slice 11
+   schema add"). Carve disposition: render `{pack}` sub-text
+   NULL-safely inside Product cell — appears the moment Slice
+   11 lands, no §6.b-side rework needed.
+
+**Six instances across two slices.** Three architectural (scenarios,
+packaging_inputs/quote_skus, category), two notation (quote_meta,
+markup_categories), one duplicate (display_order), one
+schema-deferral (pack). The pattern catches all six shapes.
+
 **Three instances in two slices is the trigger.** Per the "third
 instance" threshold above, the schema-verification step should
 now be an explicit named gate in slice brief templates. Future
@@ -553,6 +574,31 @@ Bank in slice brief template once the next brief is drafted.
 The lesson is no longer "remember to verify" — it's "make
 verification a structural gate." Pattern 22 has earned its
 escalation.
+
+**Refinement banked during §6.b prep:** CC runs the schema-
+verification pass on briefs BEFORE Edward approval, not after.
+Adds ~30 min upfront; saves the disposition cycles that happen
+when the brief is already considered final ("can I really change
+this now?"). The earlier the schema-mismatch surfaces, the
+cheaper the carve. Edward's directive during §6.b prep: adopt as
+protocol for R7c + future slices.
+
+The full §0.5 gate now reads:
+
+```
+## §0.5 — Schema verification (pre-approval)
+
+Before Edward + CA approve the brief, CC runs a verification
+pass on every schema entity the brief references against
+current schema.ts. Each unmatched entity is logged as a
+mismatch with proposed disposition (carve / notation-fix /
+column-add / reuse-existing). Edward + CA disposition each
+mismatch in approval. Brief is patched inline before §0
+proceeds.
+
+Adopted post-§6.b after six Pattern 22 instances across two
+slices (RI.9 + §6.b).
+```
 
 # Single Supabase project — dev and prod share one DB
 

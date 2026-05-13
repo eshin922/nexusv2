@@ -31,6 +31,8 @@
 - **Drag-and-drop nested components** (drawer-internal reordering) — R7c candidate; v1 ships drag-drop on SKU rows only
 - **Bulk SKU import** from CSV or HubSpot product-list — separate slice
 - **Inline-editable nested component table in assembly drawer** — carved per Pattern 22 schema-architecture mismatch (R7b designer notes assume per-component cost data is "on the SKU row"; v1 stores it on `packaging_inputs` keyed to leaves). Replaced with child-SKU navigation list (§3.3); inline-edit affordance defers to `§6.c Component cost data unification` candidate slice OR R7c carry-forward.
+- **`Category` column on the SKU table** — dropped from §6.b 6-column layout per Pattern 22; restored when Slice 9 lands `quote_skus.cost_category` integration. R7b 7-column layout is the v1.1 / Slice-9-shipped target shape.
+- **`{pack}` sub-text rendering in Product cell** — Slice 11 carry-forward. §6.b implements NULL-safe rendering so the sub-text appears automatically the moment `quote_skus.pack` lands; no §6.b-side rework needed when Slice 11 ships.
 - **Other surfaces** (Cost build, Costing, Customer view, Mark Accepted) — RI.9 shipped these; §6.b doesn't touch them
 
 ---
@@ -56,14 +58,13 @@
 
 ### 3.1 SKU table redesign
 
-Replaces v1's seven-column SKU table. New column structure:
+Replaces v1's seven-column SKU table. New **six-column** structure (Pattern 22 carve disposition: `Category` column dropped pending Slice 9 `cost_category` integration; `pack` rendered conditionally inside Product cell rather than as own column dependency):
 
 | Column | Width | Content |
 |---|---|---|
 | Grip | 36px | `⠿` drag glyph; hover shows grab cursor; drag reorders |
 | Type | ~80px | Badge + glyph: `▤ ASY` (accent-tinted) or `○ LEAF` (paper-3 tinted); click toggles `sku_role` |
-| Product | flex (2fr) | Stacked: `{label}` `{product_name}` / `{pack}` + optional HAS NOTE chip |
-| Category | 1fr | `quote_skus.category` from `sku_categories` enum |
+| Product | flex (2fr) | Stacked: `{label}` `{product_name}` / `{pack}` + optional HAS NOTE chip. Pack sub-text renders only when `quote_skus.pack` is non-null (graceful absence pre-Slice-11). |
 | Retail bench | ~120px | `quote_skus.retail_benchmark` formatted as USD |
 | Components | ~120px | Assemblies: `{N} comps ▸` (clickable, opens drawer); Leaves: `—` |
 | ⋯ | 36px | Overflow menu (existing R6 pattern; future: actions like Assign/Detach/Refresh-from-HubSpot) |
@@ -322,6 +323,7 @@ The R7b design accommodates re-adding the affordance later; v1 SKU table footer 
 - **Drag-drop accessibility** — pure drag-drop without keyboard alternative is an a11y issue. R7b designer notes don't specify keyboard reorder; worth flagging for either §6.b implementation OR R7c carry-forward. v1 ships drag-drop only; a11y enhancement can land separately.
 - **Designer-agent harness truncation** (RI.9 precedent) — Step 11 audit is HIGH value on this slice (wholesale redesign, lots of fidelity surface area). Mitigation in §9 below.
 - **Component-cost-data unification (carved from §6.b per Pattern 22)** — R7b's inline-editable nested component table requires per-component cost columns on `quote_skus`, but v1 stores them on `packaging_inputs` keyed to leaves. Unifying the two locations is a Cost build coupling decision exceeding §6.b's Setup-only scope. Banked as candidate `§6.c Component cost data unification` slice OR R7c carry-forward. Decisions to resolve: (i) which storage location wins (quote_skus columns vs packaging_inputs); (ii) per-tier dimension treatment (collapse to single value, or keep packaging_inputs.qty as per-tier dimension); (iii) migration strategy (dual-write transition vs hard cutover). §6.b ships child-SKU navigation list as the v1 affordance per §3.3.
+- **Category + pack column carry-forwards (Pattern 22 instances #5 + #6)** — R7b §3.1 layout assumes `quote_skus.category` and `quote_skus.pack`; neither exists today. Schema comments note both as deferred (Slice 9 `cost_category` / Slice 11 `pack`). §6.b ships 6-column SKU table without standalone Category column; Product cell renders pack sub-text NULL-safely so it materializes the moment Slice 11 lands. Restore Category column to 7-column layout when Slice 9 lands `cost_category`.
 
 ---
 
