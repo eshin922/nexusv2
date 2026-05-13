@@ -326,3 +326,127 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ─── §6.b Step 7 — Notes split (R7b §3.6) ──────────── */
+/* Two side-by-side cards. Left = internal (purple --internal),
+   right = customer-facing (green --good). Stacked on narrow. */
+.r6b-notes-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 900px) {
+  .r6b-notes-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.r6b-notes-card {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-left-width: 3px;
+  border-radius: 10px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.r6b-notes-card[data-zone="internal"] {
+  border-left-color: var(--internal);
+}
+.r6b-notes-card[data-zone="customer"] {
+  border-left-color: var(--good);
+}
+.r6b-notes-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.r6b-notes-card-title {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+}
+.r6b-notes-card-subtitle {
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--ink-3);
+}
+.r6b-notes-chip {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.r6b-notes-chip[data-chip="internal"] {
+  background: var(--internal-soft);
+  color: var(--internal);
+}
+.r6b-notes-chip[data-chip="customer"] {
+  background: var(--good-soft);
+  color: var(--good);
+}
+.r6b-notes-textarea {
+  width: 100%;
+  min-height: 110px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper-2);
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.r6b-notes-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--paper);
+}
+.r6b-notes-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.r6b-notes-card-footer {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  line-height: 1.55;
+  padding-top: 4px;
+  border-top: 1px solid var(--rule);
+}
+.r6b-notes-audience-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+  margin-right: 2px;
+}
+.r6b-notes-preview-link {
+  display: inline-block;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--good);
+  text-decoration: none;
+}
+.r6b-notes-preview-link:hover {
+  text-decoration: underline;
+}
+.r6b-notes-status {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+}

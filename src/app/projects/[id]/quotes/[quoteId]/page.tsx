@@ -393,21 +393,17 @@ export default async function QuoteBuilderPage({
       </div>
       {/* end .r1-setup-grid */}
 
-      {/* Notes — full-width below the setup grid. R1 prototype
-          doesn't include this surface (it was illustrative), so
-          register matches the grid cards but the section spans
-          full width as the canonical "internal + customer-facing"
-          notes block. */}
-      <Section title="Notes">
-        <div className="p-[18px]">
-          <NotesEditor
-            quoteId={quote.id}
-            internalNotes={quote.internalNotes}
-            customerFacingNotes={quote.customerFacingNotes}
-            disabled={!editable}
-          />
-        </div>
-      </Section>
+      {/* §6.b Step 7 — Notes split per R7b designer notes §3.6.
+          Two side-by-side audience-distinct cards (internal purple
+          / customer-facing green). No wrapping Section card — the
+          NotesEditor renders its own card chrome per zone. */}
+      <NotesEditor
+        quoteId={quote.id}
+        projectId={projectId}
+        internalNotes={quote.internalNotes}
+        customerFacingNotes={quote.customerFacingNotes}
+        disabled={!editable}
+      />
 
       {/* Slice RI.8 step 1.5 — `Cost inputs` Section block removed.
           The "Continue to Costs →" CTA now lives in the
