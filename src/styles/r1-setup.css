@@ -324,97 +324,31 @@
   font-style: italic;
 }
 
-/* ─── §6.b Step 2 — Type badge (R7b) ────────────────── */
-/* Glyph + short label, click-to-toggle sku_role. Two visual
-   states keyed on data-role: ASY (accent-tinted) vs LEAF
-   (paper-3 tinted). Hover lifts the surface; disabled grays out
-   when the toggle target is blocked (assembly → leaf with
-   children). Always-visible at row scale (Decision 1). */
-.r6b-type-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0;
-  padding: 4px 10px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 120ms ease, border-color 120ms ease,
-    color 120ms ease;
-}
-.r6b-type-badge[data-role="assembly"] {
-  background: oklch(from var(--accent) l c h / 0.12);
-  color: var(--accent-ink);
-  border-color: oklch(from var(--accent) l c h / 0.30);
-}
-.r6b-type-badge[data-role="assembly"]:hover:not(:disabled) {
-  background: oklch(from var(--accent) l c h / 0.20);
-  border-color: oklch(from var(--accent) l c h / 0.45);
-}
-.r6b-type-badge[data-role="leaf"] {
-  background: var(--paper-3);
-  color: var(--ink-2);
-  border-color: var(--rule);
-}
-.r6b-type-badge[data-role="leaf"]:hover:not(:disabled) {
-  background: var(--paper-2);
-  border-color: var(--ink-4);
-  color: var(--ink);
-}
-.r6b-type-badge:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+/* §6.b path-B migration cleanup — .r6b-type-badge rules
+ * deleted; type badge now uses canonical .r7b-type per
+ * r7b-setup.css (line 139+). All references migrated to
+ * canonical class names in commit 3/5 (c6b8eef). */
 
 /* ─── §6.b Step 3 — Components trigger + drawer ─────── */
 /* Components ▸ cell click opens the per-row drawer. Visual:
    reads as a quiet text-only affordance until hover, where it
    surfaces accent color signaling interactivity. */
-.r6b-components-trigger {
-  background: transparent;
-  border: none;
-  padding: 4px 6px;
-  font-family: inherit;
-  font-size: 12px;
-  color: var(--ink-2);
-  cursor: pointer;
-  border-radius: 4px;
-  transition: background 120ms ease, color 120ms ease;
-}
-.r6b-components-trigger:hover:not(:disabled) {
-  background: oklch(from var(--accent) l c h / 0.08);
-  color: var(--accent-ink);
-}
-.r6b-components-trigger[aria-expanded="true"] {
-  background: oklch(from var(--accent) l c h / 0.12);
-  color: var(--accent-ink);
-}
-.r6b-components-trigger:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
+/* §6.b path-B migration cleanup — .r6b-components-trigger,
+ * .r6b-drawer, .r6b-drawer-placeholder rules deleted. Replaced
+ * by canonical .r7b-sku-row .components + .r7b-sku-drawer rules
+ * per r7b-setup.css (line 208+ / 226+).
+ *
+ * .r6b-drawer-section / .r6b-drawer-table / .r6b-drawer-label /
+ * .r6b-drawer-product / .r6b-drawer-link rules RETAINED — they
+ * style DrawerChildList, the Mismatch 1 carve (γ) read-only
+ * nav-list rendered inside the canonical .r7b-sku-drawer. The
+ * canonical .r7b-comp-table is an inline-editable component
+ * editor not applicable to the carved nav-list shape. */
 
-/* Drawer expansion below the row. Inline, full-width, soft
-   paper-2 background to read as a sub-zone of the row above. */
-.r6b-drawer {
-  background: var(--paper-2);
-  border-top: 1px solid var(--rule);
-  border-bottom: 1px solid var(--rule);
-  padding: 16px 20px;
-}
-.r6b-drawer-placeholder {
-  background: var(--paper);
-  border: 1px dashed var(--rule);
-  border-radius: 6px;
-  padding: 14px 16px;
-}
-
-/* §6.b Step 4 — drawer subsections (child list + notes). */
+/* DrawerChildList subsections (child-SKU nav list inside
+ * assembly drawer). Mismatch 1 γ carve — read-only nav with
+ * Cost build link per child. Canonical r7b-comp-table is
+ * inline-editable editor; doesn't fit the carve shape. */
 .r6b-drawer-section {
   background: var(--paper);
   border: 1px solid var(--rule);
@@ -472,76 +406,22 @@
 .r6b-drawer-link:hover {
   text-decoration: underline;
 }
-.r6b-drawer-textarea {
-  width: 100%;
-  min-height: 80px;
-  padding: 8px 10px;
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  background: var(--paper-2);
-  color: var(--ink);
-  font-family: var(--ui);
-  font-size: 13px;
-  line-height: 1.5;
-  resize: vertical;
-}
-.r6b-drawer-textarea:focus {
-  outline: none;
-  border-color: var(--accent);
-  background: var(--paper);
-}
-.r6b-drawer-textarea:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
+/* §6.b path-B migration cleanup — .r6b-drawer-textarea rules
+ * deleted. Per-SKU notes textarea now styled by canonical
+ * .r7b-sku-notes textarea rule (r7b-setup.css line 297+). */
 
 /* ─── §6.b polish — R6 inline-edit read↔edit cell (Pattern 29) ── */
-/* Retail bench cell on Setup SKU table — first cell to ship the
-   true read↔edit pattern. Step 5 Tier table reuses; existing
-   Cost build cells stay always-input mode until v1.1/R7c
-   polish migrates them. */
-.r6b-retail-read {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  width: 100%;
-  padding: 4px 6px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  cursor: text;
-  text-align: left;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-.r6b-retail-read:hover:not(:disabled) {
-  background: var(--paper-2);
-  border-color: var(--rule);
-}
-.r6b-retail-read:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-.r6b-retail-value {
-  font-family: var(--ui);
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--ink);
-  line-height: 1.15;
-}
-.r6b-retail-caption {
-  font-family: var(--mono);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.10em;
-  color: var(--ink-4);
-  line-height: 1;
-  margin-top: 2px;
-}
-.r6b-retail-empty {
-  font-size: 14px;
-  color: var(--ink-4);
-}
+/* Retail bench cell uses Pattern 29 read↔edit on top of
+ * canonical .r7b-sku-row .retail visual register (r7b-setup.css
+ * line 199+). Read mode renders inside canonical .retail wrapper;
+ * .r6b-retail-input (edit mode) is the only nexus-specific
+ * rule retained — handles the input chrome when PM clicks into
+ * the cell.
+ *
+ * Cleanup: .r6b-retail-read, .r6b-retail-value, .r6b-retail-caption,
+ * .r6b-retail-empty rules deleted — read mode visual now comes
+ * from canonical .retail + .retail .sub (commit 3/5 c6b8eef
+ * refactored RetailBenchCell to render canonical markup). */
 .r6b-retail-input {
   width: 100%;
   padding: 5px 8px;
@@ -562,328 +442,4 @@
   cursor: not-allowed;
 }
 
-/* ─── §6.b Step 5 — Tier table (R7b §3.4 + 225751 screenshot) ── */
-/* 4-column row: Label/chip stack · Qty · Price adj · ×.
-   Recommended state = inline chip below label (NOT a column).
-   Always-input mode (transparent-→-focused border per R7b
-   designer notes line 96). Token-disciplined for dark-mode. */
-.r6b-tier-row {
-  display: grid;
-  grid-template-columns: 1.6fr 1fr 1fr 36px;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  font-size: 13px;
-  transition: background 120ms ease;
-}
-.r6b-tier-row:hover {
-  background: var(--paper-2);
-}
-/* Label cell stacks the input + recommended chip vertically.
-   Polish-amendment 3: cell is `position: relative` so the
-   non-recommended "Mark as recommended" hover affordance can
-   absolute-position OUT of layout flow (doesn't reserve
-   vertical space when invisible — non-recommended rows stay
-   tight, matching R7b screenshot 225751 where Tier 1/3 are
-   shorter than Tier 2). */
-.r6b-tier-label-cell {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  min-width: 0;
-}
-.r6b-tier-input {
-  width: 100%;
-  padding: 5px 8px;
-  font-family: var(--ui);
-  font-size: 13px;
-  color: var(--ink);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  transition: border-color 120ms ease, background 120ms ease;
-}
-.r6b-tier-input:hover:not(:disabled) {
-  border-color: var(--rule);
-  background: var(--paper);
-}
-.r6b-tier-input:focus {
-  outline: none;
-  border-color: var(--accent);
-  background: var(--paper);
-}
-.r6b-tier-input:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.r6b-tier-numeric {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-/* §6.b Step 5 polish-amendment — tier label cell renders italic
-   display register per R7b screenshot ("Tier 1", "Tier 2" in
-   serif italic). */
-.r6b-tier-label {
-  font-family: var(--display);
-  font-style: italic;
-  font-size: 14px;
-  color: var(--ink);
-}
-
-/* Recommended chip — inline below tier label cell when
-   recommended=true. Mirrors R7b screenshot 225751's
-   "★ RECOMMENDED" treatment. */
-.r6b-tier-recommended-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 6px;
-  margin-left: 6px;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.10em;
-  color: var(--accent-ink);
-  background: oklch(from var(--accent) l c h / 0.10);
-  border: 1px solid transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-.r6b-tier-recommended-chip:hover:not(:disabled) {
-  background: oklch(from var(--accent) l c h / 0.18);
-  border-color: oklch(from var(--accent) l c h / 0.40);
-}
-.r6b-tier-recommended-chip:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
-/* "Mark as recommended" subtle affordance — absolute-positioned
-   so it doesn't reserve vertical space when invisible (non-
-   recommended rows stay tight; row only expands when the
-   chip-version renders). Hover-revealed on row hover or
-   focus-visible (keyboard a11y). */
-.r6b-tier-recommend-set {
-  position: absolute;
-  left: 8px;
-  top: calc(100% - 2px);
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 6px;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.06em;
-  color: var(--ink-4);
-  background: var(--paper);
-  border: 1px dashed transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease, color 120ms ease,
-    border-color 120ms ease;
-  z-index: 1;
-}
-.r6b-tier-row:hover .r6b-tier-recommend-set,
-.r6b-tier-recommend-set:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
-}
-.r6b-tier-recommend-set:hover:not(:disabled) {
-  color: var(--accent-ink);
-  border-color: oklch(from var(--accent) l c h / 0.40);
-}
-.r6b-tier-recommend-set:disabled {
-  cursor: default;
-}
-
-.r6b-tier-delete {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  font-size: 16px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  color: var(--ink-4);
-  transition: color 120ms ease, background 120ms ease,
-    border-color 120ms ease;
-}
-.r6b-tier-delete:hover:not(:disabled) {
-  background: var(--bad-soft);
-  color: var(--bad);
-  border-color: oklch(from var(--bad) l c h / 0.30);
-}
-.r6b-tier-delete:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
-}
-.r6b-tier-status {
-  grid-column: 1 / -1;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  margin-top: 2px;
-}
-
-/* Dashed-border CTA per R7b screenshot 225751 — full-width
-   RECTANGLE (not oval/pill) with subtle rounded corners.
-   Polish-amendment 3 fix: was border-radius 999px (rendered oval);
-   R7b shows ~8px rounded rectangle. Theme tokens for dark-mode. */
-.r6b-add-pill {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  padding: 10px 16px;
-  font-family: var(--mono);
-  font-size: 11.5px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent);
-  background: transparent;
-  border: 1px dashed oklch(from var(--accent) l c h / 0.45);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-.r6b-add-pill:hover:not(:disabled) {
-  background: oklch(from var(--accent) l c h / 0.08);
-  border-color: var(--accent);
-}
-.r6b-add-pill:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ─── §6.b Step 7 — Notes split (R7b §3.6) ──────────── */
-/* Two side-by-side cards. Left = internal (purple --internal),
-   right = customer-facing (green --good). Stacked on narrow. */
-.r6b-notes-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-@media (max-width: 900px) {
-  .r6b-notes-grid {
-    grid-template-columns: 1fr;
-  }
-}
-.r6b-notes-card {
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  border-left-width: 3px;
-  border-radius: 10px;
-  padding: 16px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.r6b-notes-card[data-zone="internal"] {
-  border-left-color: var(--internal);
-}
-.r6b-notes-card[data-zone="customer"] {
-  border-left-color: var(--good);
-}
-.r6b-notes-card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-.r6b-notes-card-title {
-  margin: 0;
-  font-family: var(--display);
-  font-size: 15px;
-  font-weight: 500;
-  letter-spacing: -0.005em;
-  color: var(--ink);
-}
-.r6b-notes-card-subtitle {
-  margin: 2px 0 0;
-  font-family: var(--mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.10em;
-  color: var(--ink-3);
-}
-.r6b-notes-chip {
-  flex-shrink: 0;
-  padding: 3px 8px;
-  border-radius: 999px;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-}
-.r6b-notes-chip[data-chip="internal"] {
-  background: var(--internal-soft);
-  color: var(--internal);
-}
-.r6b-notes-chip[data-chip="customer"] {
-  background: var(--good-soft);
-  color: var(--good);
-}
-.r6b-notes-textarea {
-  width: 100%;
-  min-height: 110px;
-  padding: 10px 12px;
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-  background: var(--paper-2);
-  color: var(--ink);
-  font-family: var(--ui);
-  font-size: 13px;
-  line-height: 1.5;
-  resize: vertical;
-}
-.r6b-notes-textarea:focus {
-  outline: none;
-  border-color: var(--accent);
-  background: var(--paper);
-}
-.r6b-notes-textarea:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.r6b-notes-card-footer {
-  font-size: 11.5px;
-  color: var(--ink-3);
-  line-height: 1.55;
-  padding-top: 4px;
-  border-top: 1px solid var(--rule);
-}
-.r6b-notes-audience-label {
-  font-family: var(--mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ink-2);
-  margin-right: 2px;
-}
-.r6b-notes-preview-link {
-  display: inline-block;
-  margin-top: 4px;
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: var(--good);
-  text-decoration: none;
-}
-.r6b-notes-preview-link:hover {
-  text-decoration: underline;
-}
-.r6b-notes-status {
-  grid-column: 1 / -1;
-  font-size: 11px;
-  font-family: var(--mono);
-  letter-spacing: 0.04em;
-}
+/* §6.b path-B migration cleanup (May 2026) — Step 5 Tier table\n * + Step 7 Notes split CSS rules deleted. Both surfaces now use\n * canonical r7b-* classes per r7b-setup.css. Tier table:\n * .r7b-tier-row / .r7b-tier-thead / .r7b-tier-footer / .add-tier\n * (Tier-specific nexus overrides for input.lab, .rec-clickable,\n * .rec-set live above in the path-B overrides block).\n * Notes split: .r7b-notes / .r7b-note-zone / .r7b-note-zone-head /\n * .r7b-note-zone-body / .helper.\n *\n * Pattern 30: canonical r7b-setup.css is source-of-truth; this\n * file holds nexus-specific overrides only.\n */

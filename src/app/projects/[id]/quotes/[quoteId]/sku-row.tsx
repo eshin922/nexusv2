@@ -871,11 +871,10 @@ function DrawerChildList({
                   <td className="r6b-drawer-product">{c.productName}</td>
                   <td>
                     <span
-                      className="r6b-type-badge"
-                      data-role={c.skuRole}
+                      className={`r7b-type ${c.skuRole}`}
                       style={{ pointerEvents: "none" }}
                     >
-                      <span aria-hidden style={{ marginRight: 4 }}>
+                      <span className="glyph" aria-hidden>
                         {c.skuRole === "assembly" ? "▤" : "○"}
                       </span>
                       {c.skuRole === "assembly" ? "ASY" : "LEAF"}
