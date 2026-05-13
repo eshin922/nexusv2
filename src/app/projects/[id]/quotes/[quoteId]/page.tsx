@@ -9,12 +9,11 @@ import {
   quoteTiers,
   users,
 } from "@/db/schema";
-import { countPackagingLinesForQuote } from "@/app/actions/packaging";
-import { countProductionCellsWithDataForQuote } from "@/app/actions/production";
-import {
-  countFreightCellsWithDataForQuote,
-  countFreightLinesForQuote,
-} from "@/app/actions/freight";
+// §6.b Step 5 — preset-related count helpers (countPackagingLinesForQuote,
+// countProductionCellsWithDataForQuote, countFreightCellsWithDataForQuote,
+// countFreightLinesForQuote) and TierPresetSelect previously used by the
+// Tier section's action slot are removed from imports. Step 6 ships the
+// proper R7b preset picker as the empty-state component.
 // Slice RI.8 step 1.5 — Pricing Control Summary moved off Setup
 // per brief §5 + §3.5. getCostingBundle / CostingStoreProvider /
 // QuoteSummaryCard imports dropped along with the CostingSummary
@@ -33,7 +32,6 @@ import { SkuRowList, type SkuRowListItem } from "./sku-row-list";
 import { SkuSearchPanel } from "./sku-search-panel";
 import { TierRow } from "./tier-row";
 import { NotesEditor } from "./notes-editor";
-import { TierPresetSelect } from "./tier-preset-select";
 
 export default async function QuoteBuilderPage({
   params,
@@ -342,44 +340,55 @@ export default async function QuoteBuilderPage({
         )}
       </Section>
 
-      {/* Tiers */}
+      {/* §6.b Step 5 — Tier table parallel register per R7b §3.4 /
+          Decision 5. Same card chrome + footer pill grammar as the
+          SKU table. 5-column layout: Label · ★ · Qty · Price adj % ·
+          ×. Tier preset picker lives in Step 6 (empty-state). */}
       <Section
         title="Tiers"
         action={
-          editable && (
-            <div className="flex items-center gap-2">
-              <TierPresetSelect
-                quoteId={quote.id}
-                existingTierCount={tiers.length}
-                existingPackagingLineCount={await countPackagingLinesForQuote(quote.id)}
-                existingProductionCellsWithData={await countProductionCellsWithDataForQuote(quote.id)}
-                existingFreightLineCount={await countFreightLinesForQuote(quote.id)}
-                existingFreightCellsWithData={await countFreightCellsWithDataForQuote(quote.id)}
-              />
-              <AddTierButton quoteId={quote.id} />
-            </div>
-          )
+          <span
+            className="font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3"
+            aria-label="Tier count caption"
+          >
+            {tiers.length} {tiers.length === 1 ? "tier" : "tiers"}
+          </span>
         }
       >
         {tiers.length === 0 ? (
-          <p className="px-4 py-6 text-center text-sm text-ink-3">
-            Add at least one tier to continue.
+          <p className="px-4 py-6 text-center text-sm italic text-ink-3">
+            {/* §6.b Step 6 replaces this with the preset picker per
+                R7b §3.5 empty-state grammar. For Step 5: minimal
+                empty-state copy + the "+ Add tier" footer below. */}
+            No tiers yet. Add the first one below.
           </p>
         ) : (
           <>
             <TierHeader />
             <div className="divide-y divide-rule">
-              {tiers.map((t, i) => (
+              {tiers.map((t) => (
                 <TierRow
                   key={t.id}
-                  tier={{ id: t.id, label: t.label, qty: t.qty }}
-                  isFirst={i === 0}
-                  isLast={i === tiers.length - 1}
+                  tier={{
+                    id: t.id,
+                    label: t.label,
+                    qty: t.qty,
+                    recommended: t.recommended,
+                    tierPriceAdjPct: t.tierPriceAdjPct,
+                  }}
                   disabled={!editable}
                 />
               ))}
             </div>
           </>
+        )}
+        {editable && (
+          <div className="border-t border-rule px-4 pt-3 pb-4">
+            <AddTierButton quoteId={quote.id} />
+            {/* Step 6 will add the "+ Add preset" sibling here per
+                R7b's paired action vocabulary (designer notes
+                §3.4 line 98: "+ Add product / + Add preset"). */}
+          </div>
         )}
       </Section>
       </div>
@@ -462,12 +471,17 @@ function SkuHeader() {
   );
 }
 
+// §6.b Step 5 — Tier table header per R7b §3.4 columns:
+// Label · ★ · Qty · Price adj % · ×. Grammar matches the SKU
+// table header (mono uppercase ink-3 tracking 0.13em).
 function TierHeader() {
   return (
-    <div className="grid grid-cols-[2fr_1fr_auto] gap-2 border-b border-rule bg-paper-2 px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-3">
+    <div className="grid grid-cols-[2fr_36px_1fr_1fr_36px] items-center gap-2 border-b border-rule bg-paper-2 px-3 py-2 font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3">
       <span>Label</span>
-      <span>Quantity</span>
-      <span className="text-right">Actions</span>
+      <span className="text-center" aria-label="Recommended">★</span>
+      <span>Qty</span>
+      <span>Price adj %</span>
+      <span aria-hidden></span>
     </div>
   );
 }

@@ -19,19 +19,23 @@ export function AddTierButton({ quoteId }: { quoteId: string }) {
 
   return (
     <div className="flex items-center gap-2">
-      {error && (
-        <span className="text-xs text-red-700" role="alert">
-          {error}
-        </span>
-      )}
+      {/* §6.b Step 5 — dashed-border CTA pill per R7b designer notes
+          §3.4 line 97 ("Same footer treatment — dashed-border CTA
+          pill for `+ Add X`"). Matches the SKU footer affordance
+          grammar; theme-token styling for dark-mode safety. */}
       <button
         type="button"
         onClick={handleClick}
         disabled={pending}
-        className="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+        className="r6b-add-pill"
       >
-        {pending ? "Adding…" : "Add Tier"}
+        {pending ? "Adding…" : "+ Add tier"}
       </button>
+      {error && (
+        <span className="text-xs" style={{ color: "var(--bad)" }} role="alert">
+          {error}
+        </span>
+      )}
     </div>
   );
 }

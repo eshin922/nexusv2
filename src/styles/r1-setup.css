@@ -394,6 +394,137 @@
   cursor: not-allowed;
 }
 
+/* ─── §6.b Step 5 — Tier table (R7b §3.4) ──────────────── */
+/* 5-column row: Label · ★ · Qty · Price adj % · ×.
+   Always-input mode (transparent-→-focused border per R7b
+   designer notes line 96). Token-disciplined for dark-mode
+   safety. ★ star toggles recommended; one per quote via
+   action-layer invariant (Pattern 22 #7). */
+.r6b-tier-row {
+  display: grid;
+  grid-template-columns: 2fr 36px 1fr 1fr 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  transition: background 120ms ease;
+}
+.r6b-tier-row:hover {
+  background: var(--paper-2);
+}
+.r6b-tier-input {
+  width: 100%;
+  padding: 5px 8px;
+  font-family: var(--ui);
+  font-size: 13px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.r6b-tier-input:hover:not(:disabled) {
+  border-color: var(--rule);
+  background: var(--paper);
+}
+.r6b-tier-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--paper);
+}
+.r6b-tier-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.r6b-tier-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--ink-4);
+  transition: color 120ms ease, background 120ms ease,
+    border-color 120ms ease;
+}
+.r6b-tier-star[data-active="true"] {
+  color: var(--accent);
+}
+.r6b-tier-star:hover:not(:disabled) {
+  background: var(--paper-2);
+  border-color: var(--rule);
+  color: var(--accent);
+}
+.r6b-tier-star:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.r6b-tier-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 16px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--ink-4);
+  transition: color 120ms ease, background 120ms ease,
+    border-color 120ms ease;
+}
+.r6b-tier-delete:hover:not(:disabled) {
+  background: var(--bad-soft);
+  color: var(--bad);
+  border-color: oklch(from var(--bad) l c h / 0.30);
+}
+.r6b-tier-delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.r6b-tier-status {
+  grid-column: 1 / -1;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+}
+
+/* Dashed-border CTA pill per R7b §3.4 line 97 — "+ Add tier",
+   matches the SKU footer "+ Add Product" grammar in visual
+   weight + register. Theme tokens for dark-mode. */
+.r6b-add-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--accent-ink);
+  background: transparent;
+  border: 1px dashed oklch(from var(--accent) l c h / 0.40);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.r6b-add-pill:hover:not(:disabled) {
+  background: oklch(from var(--accent) l c h / 0.08);
+  border-color: var(--accent);
+}
+.r6b-add-pill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ─── §6.b Step 7 — Notes split (R7b §3.6) ──────────── */
 /* Two side-by-side cards. Left = internal (purple --internal),
    right = customer-facing (green --good). Stacked on narrow. */
