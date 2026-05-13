@@ -23,7 +23,7 @@ type QuoteSku = typeof quoteSkus.$inferSelect;
 //
 // Structure:
 //   .r6-empty-drawer when no lines exist
-//   .r6-drawer-toolbar — line count + summary + + Line / From inventory
+//   .drawer-toolbar — line count + summary + + Line / From inventory
 //   .r6-dt.pkg — flat table:
 //     Component (name + sub) | Category | Supplier | Markup | per-tier | actions
 //   Total row at bottom
