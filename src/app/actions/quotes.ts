@@ -17,10 +17,14 @@ import {
 } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
+  createProduct,
   findHubspotOwnerById,
+  findHubspotOwnerByEmail,
+  findProductBySku,
   getProduct,
   HubspotError,
   searchProducts,
+  type ProductCreateInput,
   type ProductSummary,
 } from "@/lib/hubspot";
 import { revalidateQuoteTree } from "@/lib/revalidate";
@@ -731,53 +735,125 @@ export async function reorderQuoteSkus(
 }
 
 /**
- * §6.b Step 8 — Add-product modal action. Creates a top-level Nexus-
- * local SKU (no parent; assembly nesting + parent assignment lives in
- * the row drawer). Supports both `leaf` and `assembly` roles via the
- * Type select in the modal.
+ * Phase 1 (May 2026) — HubSpot-first add-product modal action.
+ * Supersedes the §6.b Step 8 local-first action of the same name.
  *
- * SKU label auto-generated as `LOCAL-${8 chars}`. Future Slice 11
- * HubSpot writeback path will replace LOCAL- with the canonical
- * HubSpot product code; until then, the auto-label keeps the row
- * identifiable in the audit log + drilldowns.
+ * Brief inversion: HubSpot is the source of truth for the product
+ * catalog. Every product originates in HubSpot. The local row is
+ * a thin reference (hubspot_product_id + denormalized snapshot
+ * of sku_label + product_name + units_per_pack).
  *
- * `pushToHubspot` is the writeback intent. Per brief Q4 Option 3
- * fallback: the toggle UI ships as designed; ON path is currently a
- * no-op stub (the row is inserted Nexus-local regardless). When the
- * HubSpot products-writeback infrastructure lands, this branch
- * activates without UI rework.
+ * Flow:
+ *   1. Validate required fields server-side (name, price,
+ *      hs_product_type) — modal also gates these at the form
+ *      boundary but the action revalidates per defense-in-depth.
+ *   2. Call createProduct() in HubSpot FIRST. On failure, throw
+ *      ActionGuardError → modal stays open, error visible, no
+ *      local row created (acceptance criterion).
+ *   3. On HubSpot success, insert quote_skus row with
+ *      hubspot_product_id populated from the returned product id.
+ *   4. Audit with source: "add_product_modal_phase1" so future
+ *      sweeps can filter Phase 1 creates from earlier flows.
+ *
+ * OQ2 disposition (Edward, Phase 1 prep): sku_role always "leaf"
+ * — Leaf/Assembly is graph position, hs_product_type is taxonomy;
+ * the modal handles taxonomy, the row drawer handles graph position.
+ *
+ * OQ3 disposition (Edward, Phase 1 prep): units_per_pack defaults
+ * to 1 — line-item attribute exposed as inline edit on the SKU row
+ * (Pattern 29), NOT a modal field.
+ *
+ * "Pull existing" CTA path: the modal calls addSkuFromHubspotProduct
+ * (existing action, Slice 2.5+) directly with the matched productId.
+ * This action handles the create branch only.
  */
 export async function addProductSku(
   formData: FormData,
 ): Promise<ActionResult<void>> {
   return runAction(async () => {
     const quoteId = String(formData.get("quoteId") ?? "").trim();
-    const productName = String(formData.get("productName") ?? "").trim();
-    const skuRoleRaw = String(formData.get("skuRole") ?? "leaf").trim();
-    const unitsPerPackRaw = String(formData.get("unitsPerPack") ?? "1").trim();
-    const pushToHubspot =
-      String(formData.get("pushToHubspot") ?? "false").trim() === "true";
-
     if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
-    if (!productName)
+
+    // Required (block submit if blank) — also gated client-side; defense
+    // in depth on the action layer.
+    const name = String(formData.get("name") ?? "").trim();
+    const price = String(formData.get("price") ?? "").trim();
+    const hsProductType = String(formData.get("hs_product_type") ?? "").trim();
+    if (!name)
       throw new ActionGuardError(ERR.VALIDATION, "Product name is required.");
-    if (skuRoleRaw !== "leaf" && skuRoleRaw !== "assembly")
+    if (!price)
+      throw new ActionGuardError(ERR.VALIDATION, "Unit price is required.");
+    if (!hsProductType)
       throw new ActionGuardError(
         ERR.VALIDATION,
-        `Unknown sku_role: ${skuRoleRaw}`,
+        "Product type is required.",
       );
-    const unitsPerPack = Number(unitsPerPackRaw);
-    if (!Number.isFinite(unitsPerPack) || unitsPerPack < 1)
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Units per pack must be at least 1.",
-      );
+
+    // Optional — pass-through to HubSpot. Empty strings are filtered
+    // by createProduct() before send.
+    const hsSku = String(formData.get("hs_sku") ?? "").trim();
+    const description = String(formData.get("description") ?? "").trim();
+    const hsImages = String(formData.get("hs_images") ?? "").trim();
+    const hsUrl = String(formData.get("hs_url") ?? "").trim();
+    const hubspotOwnerId = String(formData.get("hubspot_owner_id") ?? "").trim();
+    const hsCostOfGoodsSold = String(
+      formData.get("hs_cost_of_goods_sold") ?? "",
+    ).trim();
+    const markup = String(formData.get("markup") ?? "").trim();
+    const taxSchedule = String(formData.get("tax_schedule") ?? "").trim();
+    const fscClaimType = String(formData.get("fsc_claim_type") ?? "").trim();
+    const fscStatus = String(formData.get("fsc_status") ?? "").trim();
+    const fscSupplierVerified = String(
+      formData.get("fsc_supplier_verified") ?? "",
+    ).trim();
 
     const user = await ensureUser();
     const quote = await loadQuoteOrThrow(quoteId);
     assertDraft(quote);
 
-    const skuLabel = `LOCAL-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    // HubSpot is authoritative — create there first.
+    const createInput: ProductCreateInput = {
+      name,
+      price,
+      hs_product_type: hsProductType,
+      hs_sku: hsSku || undefined,
+      description: description || undefined,
+      hs_images: hsImages || undefined,
+      hs_url: hsUrl || undefined,
+      hubspot_owner_id: hubspotOwnerId || undefined,
+      hs_cost_of_goods_sold: hsCostOfGoodsSold || undefined,
+      markup: markup || undefined,
+      tax_schedule: taxSchedule || undefined,
+      fsc_claim_type: fscClaimType || undefined,
+      fsc_status: fscStatus || undefined,
+      fsc_supplier_verified: fscSupplierVerified || undefined,
+    };
+
+    let created;
+    try {
+      created = await createProduct(createInput);
+    } catch (err) {
+      // SKU-race fallback per CC instructions §"Gotchas / failure
+      // modes": if HubSpot rejects the create because another user
+      // claimed the SKU between blur and submit, surface the
+      // duplicate-handling error inline. Other create failures
+      // (validation, network, etc.) propagate the HubSpot message.
+      const message =
+        err instanceof HubspotError && err.cause
+          ? extractHubspotErrorMessage(err.cause) ??
+            "HubSpot rejected the product create. No local row was created."
+          : "HubSpot product create failed. No local row was created.";
+      throw new ActionGuardError(ERR.HUBSPOT, message);
+    }
+
+    const snap = snapshotFromHubspotProduct({
+      id: created.id,
+      name: created.name,
+      sku: created.hs_sku,
+      productType: hsProductType,
+      description: description || null,
+      price: price || null,
+    });
 
     const maxRow = await db
       .select({ max: max(quoteSkus.sortOrder) })
@@ -789,12 +865,13 @@ export async function addProductSku(
       .insert(quoteSkus)
       .values({
         quoteId,
-        hubspotProductId: null,
-        skuLabel,
-        productName,
-        unitsPerPack: Math.trunc(unitsPerPack),
+        hubspotProductId: created.id,
+        skuLabel: snap.skuLabel,
+        productName: snap.productName,
+        unitsPerPack: 1,
         sortOrder,
-        skuRole: skuRoleRaw as "leaf" | "assembly",
+        lastHubspotRefreshAt: new Date(),
+        skuRole: "leaf",
         parentSkuId: null,
         qtyPerParent: null,
       })
@@ -807,26 +884,92 @@ export async function addProductSku(
       action: "created",
       diffJson: {
         quote_id: quoteId,
-        source: "add_product_modal",
-        sku_label: skuLabel,
-        product_name: productName,
-        sku_role: skuRoleRaw,
-        units_per_pack: Math.trunc(unitsPerPack),
-        push_to_hubspot: pushToHubspot,
-        hubspot_writeback_pending: pushToHubspot,
+        source: "add_product_modal_phase1",
+        hubspot_product_id: created.id,
+        sku_label: snap.skuLabel,
+        product_name: snap.productName,
+        hs_product_type: hsProductType,
+        // Optional fields — captured for audit, not denormalized
+        // onto quote_skus (HubSpot remains authoritative).
+        hs_sku: hsSku || null,
+        hubspot_owner_id: hubspotOwnerId || null,
+        price,
+        hs_cost_of_goods_sold: hsCostOfGoodsSold || null,
+        markup: markup || null,
       },
     });
 
-    // Q4 Option 3 fallback — HubSpot products-writeback infra not yet
-    // wired (HUBSPOT_WRITE_ACCESS_TOKEN currently scoped to
-    // Mark-Accepted deal-line writes). Toggle ON is recorded in the
-    // audit log via `push_to_hubspot` + `hubspot_writeback_pending`
-    // for future replay; UI continues to render the toggle as
-    // designed. When products-writeback lands (Slice 11 follow-up
-    // or Slice 12 extension), this branch performs the async write
-    // and updates quote_skus.hubspot_product_id on success.
-
     revalidateQuoteTree(quote.projectId, quoteId);
+  });
+}
+
+/**
+ * Phase 1 — extract a human-readable error message from a HubSpot
+ * SDK error. SDK errors are `Error` instances with a `body` field
+ * carrying the API response; we read message + the first context
+ * error if present.
+ */
+function extractHubspotErrorMessage(cause: unknown): string | null {
+  if (!cause || typeof cause !== "object") return null;
+  const body = (cause as { body?: { message?: string; errors?: Array<{ message?: string }> } }).body;
+  if (!body) return null;
+  if (body.errors?.[0]?.message) return body.errors[0].message;
+  if (body.message) return body.message;
+  return null;
+}
+
+/**
+ * Phase 1 — SKU duplicate-check action. Modal calls this on the SKU
+ * input's blur. Returns { found: true, product } if a HubSpot product
+ * with hs_sku === sku exists; { found: false } otherwise.
+ *
+ * Read-only by design (uses findProductBySku which goes through the
+ * Products-domain dev/prod-aware client). Empty SKU returns
+ * { found: false } without hitting the API.
+ */
+export async function checkProductSku(
+  sku: string,
+): Promise<ActionResult<{ found: boolean; product: ProductSummary | null }>> {
+  return runAction(async () => {
+    const trimmed = sku.trim();
+    if (!trimmed) return { found: false, product: null };
+    try {
+      const product = await findProductBySku(trimmed);
+      return { found: product !== null, product };
+    } catch (err) {
+      throw new ActionGuardError(
+        ERR.HUBSPOT,
+        err instanceof HubspotError
+          ? err.message
+          : "HubSpot SKU lookup failed",
+      );
+    }
+  });
+}
+
+/**
+ * Phase 1 — Resolve the current HubSpot user (Owner default for the
+ * modal). Looks up the logged-in nexus user's email against HubSpot
+ * Owners. Returns null if the user has no email match in HubSpot
+ * (modal renders Owner empty per CC instructions: "If the current
+ * HubSpot user can't be resolved at modal open, the Owner field
+ * should be empty (not crash, not fall back to a random user).").
+ */
+export async function getCurrentHubspotOwner(): Promise<
+  ActionResult<{ id: string; name: string | null } | null>
+> {
+  return runAction(async () => {
+    const user = await ensureUser();
+    if (!user.email) return null;
+    try {
+      const owner = await findHubspotOwnerByEmail(user.email);
+      if (!owner) return null;
+      const name = [owner.firstName, owner.lastName].filter(Boolean).join(" ");
+      return { id: owner.id, name: name || null };
+    } catch {
+      // Non-fatal — modal renders Owner empty if lookup fails.
+      return null;
+    }
   });
 }
 
