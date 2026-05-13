@@ -7,6 +7,7 @@ import { getCostingBundle } from "@/app/actions/costing";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { findHubspotOwnerById } from "@/lib/hubspot";
 import { QuoteHost } from "@/components/quote/quote-host";
+import { Breadcrumb } from "@/components/nav/breadcrumb";
 import { VENDOR_FIXTURE } from "@/lib/quote-fixtures";
 import type {
   CustomerView,
@@ -66,14 +67,13 @@ export default async function CustomerViewPage({
   if (!bundle.ok) {
     return (
       <main style={{ padding: "32px 24px", maxWidth: 880, margin: "0 auto" }}>
-        <p className="r2-eyebrow" style={{ marginBottom: 16 }}>
-          <Link
-            href={`/projects/${project.id}/quotes/${quote.id}`}
-            style={{ color: "var(--ink-3)" }}
-          >
-            ← Setup
-          </Link>
-        </p>
+        <div style={{ marginBottom: 16 }}>
+          <Breadcrumb
+            target="customer_view"
+            projectId={project.id}
+            quoteId={quote.id}
+          />
+        </div>
         <h1>Quote unavailable</h1>
         <p style={{ color: "var(--bad)" }}>{bundle.error.message}</p>
       </main>
@@ -234,28 +234,19 @@ export default async function CustomerViewPage({
 
   return (
     <>
-      {/* F-7 (Slice RI.8 step 7): breadcrumb adopts mono-caption
-          register via .r2-eyebrow so it reads as nav-context, not
-          inline body text. */}
-      <p
-        className="r2-eyebrow"
-        style={{ padding: "16px 24px 0" }}
-      >
-        <Link
-          href={`/projects/${project.id}/quotes/${quote.id}`}
-          style={{ color: "var(--ink-3)" }}
-        >
-          ← Setup
-        </Link>
-        {" · "}
-        <Link
-          href={`/projects/${project.id}/quotes/${quote.id}/pricing`}
-          style={{ color: "var(--ink-3)" }}
-        >
-          Pricing
-        </Link>
-        {" · Quote"}
-      </p>
+      {/* Slice RI.9 § 3.2 — <Breadcrumb> primitive. Customer view
+          is rail-shed (Rule B: print-preview metaphor melts chrome);
+          breadcrumb compensates. RI.8 F-7's inline-text breadcrumb
+          replaced with the canonical component — `›` separator,
+          path derived from breadcrumbPath("customer_view"), every
+          segment except last is a Link. */}
+      <div style={{ padding: "16px 24px 0" }}>
+        <Breadcrumb
+          target="customer_view"
+          projectId={project.id}
+          quoteId={quote.id}
+        />
+      </div>
       <QuoteHost
         view={view}
         quoteId={quote.id}

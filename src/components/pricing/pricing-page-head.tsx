@@ -7,6 +7,11 @@ import {
 } from "@/lib/costing-store";
 import { useCostingStore } from "@/components/costing-store-provider";
 import { CustomerAcceptToggle } from "./customer-accept-toggle";
+import { Eyebrow } from "@/components/nav/eyebrow";
+import { ActionCluster } from "@/components/nav/action-cluster";
+import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
+import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
+import { SURFACE_META } from "@/lib/nav/surface-meta";
 
 // Slice RI.5 — Pricing page chrome per R2 source
 // (`docs/design-prototypes/dist/source/round-2/app/r2/costing.jsx:124-165`).
@@ -67,90 +72,114 @@ export function PricingPageHead({
         ? `${flaggedCount > 0 ? flaggedCount : "Some"} line${flaggedCount === 1 ? "" : "s"} below target — soft warning, sendable.`
         : "Below floor — admin override required to send.";
 
+  // Slice RI.9 § 3.3 — banner state derivation:
+  //   - BELOW_FLOOR → gated (CTA reads "Resolve override before sending")
+  //   - sent + accepted → terminal (already sent; banner shouldn't push to Quote)
+  //   - default → "Preview quote PDF →" (forward to customer_view)
+  const bannerState: "default" | "gated" | "terminal" =
+    quote.status === "accepted"
+      ? "terminal"
+      : status === "BELOW_FLOOR"
+        ? "gated"
+        : "default";
+  const bannerLabel =
+    bannerState === "gated"
+      ? SURFACE_META.costing.nextMove?.gatedLabel ??
+        SURFACE_META.costing.nextMove?.label ??
+        ""
+      : SURFACE_META.costing.nextMove?.label ?? "";
+  const bannerHref = resolveSurfaceHref("customer_view", projectId, quoteId);
+
   return (
-    <div className="r2-page-head">
-      <div>
-        {/* F-6: Back-to-Costs absorbed into the eyebrow breadcrumb.
-            R2 grammar — mono caption register, separator dots, the
-            arrow + link reads as "where I came from" not as an
-            action button. */}
-        <p className="r2-eyebrow">
-          <Link
-            href={`/projects/${projectId}/quotes/${quoteId}/costs`}
-            style={{ color: "var(--ink-3)" }}
-          >
-            ← Costs
-          </Link>
-          {" · "}
-          Pricing · {project.clientName ?? project.dealName} / Quote v
-          {quote.versionNumber}
-        </p>
-        <h1 className="r2-page-title">
-          Tune <em>price</em> & review.
-        </h1>
-        <p className="r2-page-sub">{subCopy}</p>
+    <>
+      <div className="r2-page-head">
+        <div>
+          {/* Slice RI.9 § 3.1 — Eyebrow per R7a canon. F-6 inline
+              backlink ("← Costs") removed — R7a's eyebrow is NEVER
+              navigable. PMs use inner rail to navigate to Costs
+              (rail.visible = true on Pricing). */}
+          <Eyebrow
+            segments={[
+              project.clientName ?? project.dealName,
+              quote.scenarioLabel,
+              `v${quote.versionNumber}`,
+            ]}
+          />
+          <h1 className="r2-page-title">
+            Tune <em>price</em> & review.
+          </h1>
+          <p className="r2-page-sub">{subCopy}</p>
+        </div>
+
+        {/* Slice RI.9 § 3.4 — Action cluster. Primary "Mark accepted"
+            (gated by BELOW_FLOOR); secondary slots carry the
+            customer-response chip + Preview affordance. The R7a
+            workflow-cluster grouping (response → mark accepted with
+            visual divider) from RI.8 step 7 is preserved within the
+            secondary+primary arrangement. */}
+        <ActionCluster
+          secondary={[
+            // § 5.2 — "Customer accepted (manual)" affordance.
+            // Renders as the existing CustomerAcceptToggle on sent
+            // quotes (the live signal-recording UI). Inert placeholder
+            // pre-send so the workflow sequence reads correctly.
+            quote.status === "sent" ? (
+              <CustomerAcceptToggle
+                key="customer-accept"
+                quoteId={quoteId}
+                customerAcceptedAt={quote.customerAcceptedAt}
+                customerAcceptedTierId={quote.customerAcceptedTierId}
+                tiers={tiers}
+              />
+            ) : (
+              <span
+                key="customer-accept-pending"
+                title="Customer response is recorded after the quote is sent"
+                style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 10.5,
+                  color: "var(--ink-4)",
+                  letterSpacing: "0.04em",
+                  padding: "4px 8px",
+                }}
+              >
+                ① customer response · pending send
+              </span>
+            ),
+            <Link
+              key="preview"
+              href={`/projects/${projectId}/quotes/${quoteId}/quote`}
+              className="r2-btn ghost"
+            >
+              Preview
+            </Link>,
+          ]}
+          primary={
+            <MarkAcceptedCluster
+              projectId={projectId}
+              quoteId={quoteId}
+              status={status}
+              editable={quote.status === "draft"}
+            />
+          }
+        />
       </div>
 
-      {/* Action cluster — sideways affordance + workflow cluster.
-          Preview sits alone (look-at, not workflow forward); the
-          customer-response chip + Mark Accepted bundle as a single
-          visual unit since they are sequenced steps in one workflow. */}
-      <div className="r2-row r2-gap-2" style={{ flexWrap: "wrap" }}>
-        <Link
-          href={`/projects/${projectId}/quotes/${quoteId}/quote`}
-          className="r2-btn ghost"
-        >
-          Preview customer quote
-        </Link>
-        <div
-          className="r2-workflow-cluster"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "4px 8px",
-            background: "var(--paper-2)",
-            border: "1px solid var(--rule)",
-            borderRadius: 8,
-          }}
-        >
-          {/* Slice RI.7 — customer-acceptance toggle. Renders inert
-              placeholder on drafts (so the workflow sequence reads
-              correctly even pre-send), live affordance on sent.
-              Mark Accepted is the gated terminal step; visual
-              grouping with the customer-response chip signals the
-              prereq relationship per Edward's step 7 disposition. */}
-          {quote.status === "sent" ? (
-            <CustomerAcceptToggle
-              quoteId={quoteId}
-              customerAcceptedAt={quote.customerAcceptedAt}
-              customerAcceptedTierId={quote.customerAcceptedTierId}
-              tiers={tiers}
-            />
-          ) : (
-            <span
-              title="Customer response is recorded after the quote is sent"
-              style={{
-                fontFamily: "var(--mono)",
-                fontSize: 10.5,
-                color: "var(--ink-4)",
-                letterSpacing: "0.04em",
-                padding: "4px 8px",
-              }}
-            >
-              ① customer response · pending send
-            </span>
-          )}
-          <span style={{ color: "var(--ink-4)", fontSize: 10 }}>→</span>
-          <MarkAcceptedCluster
-            projectId={projectId}
-            quoteId={quoteId}
-            status={status}
-            editable={quote.status === "draft"}
-          />
-        </div>
-      </div>
-    </div>
+      {/* Slice RI.9 § 3.3 — YOUR NEXT MOVE banner.
+          - default: "Preview quote PDF →" (forward to Quote)
+          - gated: "Resolve override before sending →" (BELOW_FLOOR)
+          - terminal: explicit silence post-acceptance */}
+      <YourNextMoveBanner
+        state={bannerState}
+        label={bannerLabel}
+        href={bannerHref}
+        helpText={
+          bannerState === "gated"
+            ? "Below floor — admin override required before quote can be sent."
+            : undefined
+        }
+      />
+    </>
   );
 }
 

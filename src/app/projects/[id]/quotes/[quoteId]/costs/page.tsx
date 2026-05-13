@@ -23,6 +23,9 @@ import {
   CostsHeader,
   SentStatusBanner,
 } from "@/components/costs/costs-header";
+import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
+import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
+import { SURFACE_META } from "@/lib/nav/surface-meta";
 import { CostStackHeader } from "@/components/costs/cost-stack-header";
 import { CostBuildAccordion } from "@/components/costs/costs-accordion";
 import { ScenarioContextStrip } from "@/components/costs/scenario-context-strip";
@@ -249,6 +252,17 @@ export default async function CostBuildPage({
             CostsHeader's flex container (was squeezing the title
             column to 1-2-word wraps once it appeared on sent quotes). */}
         {!editable && <SentStatusBanner status={quote.status} />}
+
+        {/* Slice RI.9 § 3.3 — YOUR NEXT MOVE banner. Cost build →
+            Costing (Pricing) is the canonical forward step. Hides on
+            non-draft quotes (banner makes no sense once sent). */}
+        {editable && (
+          <YourNextMoveBanner
+            state="default"
+            label={SURFACE_META.cost_build.nextMove?.label ?? "Review pricing →"}
+            href={resolveSurfaceHref("costing", project.id, quote.id)}
+          />
+        )}
 
         {/* Scenario context strip — anchor SKU + tier count + units
             total + scenario-switch affordance per Round 6 data-source-

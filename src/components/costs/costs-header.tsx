@@ -20,6 +20,8 @@
 // not a header concern). Caller passes the alert separately.
 
 import Link from "next/link";
+import { Eyebrow } from "@/components/nav/eyebrow";
+import { ActionCluster } from "@/components/nav/action-cluster";
 
 export function CostsHeader({
   project,
@@ -58,11 +60,20 @@ export function CostsHeader({
   return (
     <header className="r6-page-head mb-[22px] flex items-end justify-between gap-6">
       <div className="min-w-0 flex-1">
+        {/* Slice RI.9 § 3.1 — Eyebrow per R7a canon. R6 page-identity
+            H1 ("Costs · {scenario} v{N}" italic) was anchoring scenario
+            label inline; R7a moves project/scenario/version into the
+            Eyebrow above, leaving H1 as pure surface identity. */}
+        <Eyebrow
+          segments={[
+            project.clientName ?? project.dealName,
+            quote.scenarioLabel,
+            `v${quote.versionNumber}`,
+          ]}
+          style={{ marginBottom: 4 }}
+        />
         <h1 className="m-0 font-display text-[30px] font-medium italic leading-tight tracking-[-0.012em] text-ink">
-          Costs{" "}
-          <em className="not-italic font-normal text-ink-3">
-            · {quote.scenarioLabel} v{quote.versionNumber}
-          </em>
+          Costs
         </h1>
 
         {/* Sub copy — R6 verbatim (cost-build-page.jsx:84-86) */}
@@ -92,36 +103,50 @@ export function CostsHeader({
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2">
-        {/* View as customer — default .btn variant per R6
-            (index.html:517-528). Slice RI.7 wired to /quote
-            (RI.6 surface, snapshot-aware reads). Sentence case,
-            Instrument Sans 13px, paper bg + rule-2 border + 6px
-            radius + 7px×12px padding. */}
-        <Link
-          href={`/projects/${quote.projectId}/quotes/${quote.id}/quote`}
-          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-rule-2 bg-paper text-[13px] font-medium text-ink transition-all hover:bg-paper-2 hover:border-ink-4"
-          style={{ padding: "7px 12px" }}
-        >
-          View as customer →
-        </Link>
-        {/* Save draft — .btn.primary per R6 (index.html:531-535).
-            Ink bg + paper text. Nexus auto-saves; this is reinforcement. */}
-        <button
-          type="button"
-          title="Saved automatically"
-          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border text-[13px] font-medium transition-all"
-          style={{
-            padding: "7px 12px",
-            background: "var(--ink)",
-            color: "var(--paper)",
-            borderColor: "var(--ink)",
-          }}
-        >
-          Save draft
-        </button>
-        {children}
-      </div>
+      <ActionCluster
+        secondary={[
+          // Slice RI.9 § 5.1 — "View as customer" is the canonical
+          // sideways glance affordance on Cost build. Routes to
+          // Customer view (Quote), bypassing Costing. Pre-send.
+          <Link
+            key="view-as-customer"
+            href={`/projects/${quote.projectId}/quotes/${quote.id}/quote`}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-rule-2 bg-paper text-[13px] font-medium text-ink transition-all hover:bg-paper-2 hover:border-ink-4"
+            style={{ padding: "7px 12px" }}
+          >
+            View as customer
+          </Link>,
+          // + New version — secondary slot per R7a surface-render
+          // rules. Inert in v1; wiring lands with scenario versioning
+          // workflow (UX_BACKLOG).
+          <button
+            key="new-version"
+            type="button"
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-rule-2 bg-paper text-[13px] font-medium text-ink-3 transition-all hover:bg-paper-2 hover:border-ink-4 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ padding: "7px 12px" }}
+            disabled
+            title="+ New version — wiring lands with scenario versioning slice"
+          >
+            + New version
+          </button>,
+        ]}
+        primary={
+          <button
+            type="button"
+            title="Saved automatically"
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border text-[13px] font-medium transition-all"
+            style={{
+              padding: "7px 12px",
+              background: "var(--ink)",
+              color: "var(--paper)",
+              borderColor: "var(--ink)",
+            }}
+          >
+            Save draft
+          </button>
+        }
+      />
+      {children}
     </header>
   );
 }
