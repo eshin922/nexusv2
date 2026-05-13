@@ -1096,6 +1096,130 @@ at production scale. Pattern 32 covers dev-data tolerance pre-prod.
 Different scope, same family — engineering judgment about which
 problems are worth solving when.
 
+## "Scope expansion proposals need cost evaluation separate from architectural cleanliness"
+
+Pattern 33 — banked during the v1 release-path sequencing
+conversation (May 2026).
+
+When a slice scope expansion is proposed on architectural grounds
+("this is the right place to land it" / "this slice already has
+the state-machine extension; let's fold the NEW thing in"), the
+"cleaner process" framing is real but **doesn't price itself**.
+Cleanliness is one axis; cost (in work hours, blast-radius,
+review effort, smoke surface area, dependency tail) is another.
+Treating them as the same axis collapses an honest "include vs.
+sequence" decision into a vibes call.
+
+**Reference moment:** NetSuite integration proposal during §6.b
+era. Original framing: "Mark-Accepted writeback already needs a
+state-machine extension; NetSuite sales-order push should fold in
+because they share retry-and-surface UX and PM monitoring infra."
+Architecturally clean. Edward's discovery work (auth + sandbox
+already exists; customer/item ID sync already running;
+state-machine retry-and-surface UX already designed; PM monitoring
+infra assumed) materially dropped the cost. With those reductions,
+the combined slice now fits a 2-3 week focused window — making
+inclusion the right call. But the call only got there because the
+work breakdown got priced explicitly (auth, schema, error handling,
+testing) instead of inferred from the cleanliness vibe.
+
+**Discipline at proposal time (CA-side):**
+
+When proposing a scope expansion, surface concrete work breakdown
+as a sibling artifact to the cleanliness argument:
+
+- **Auth / credential plumbing** — does the new domain require
+  new tokens, scope expansions, OAuth flows? Is the sandbox
+  configured? (Pattern 32 territory if dev sandbox.)
+- **Schema verification** — Pattern 22 applies. Verify every
+  schema entity in both the new and existing domains. New
+  external schemas (NetSuite Sales Order, HubSpot deal-line)
+  often have surprises.
+- **Error handling + retry semantics** — what happens on
+  partial failure (one writeback succeeds, the other fails)?
+  Idempotency keys? Compensating transactions?
+- **Testing surface** — smoke against new sandbox; existing
+  smoke that may regress; production cutover plan.
+- **State-machine extension scope** — sharing infra is real
+  savings but only when the state shapes align; verify before
+  banking the savings.
+
+**Discipline at evaluation time (Edward + CA):**
+
+The honest answers split into three buckets:
+
+1. **Cost favors inclusion** — combined slice fits in the time
+   available; sharing infra prevents future duplication; the
+   savings are real.
+2. **Cost favors sequencing** — combined slice exceeds the
+   window; the cleanliness savings are smaller than the schedule
+   risk; defer to a follow-up.
+3. **Cost is unclear** — discovery work needed before disposition.
+   This is honest too; bank the discovery as a pre-brief task
+   (Edward's NetSuite pre-brief discovery list is the canonical
+   example).
+
+**Application notes from the NetSuite case:**
+
+- Pre-brief discovery (3 questions about HubSpot→NetSuite sync
+  coverage, current manual SO entry pattern, assembly pricing
+  model) sized as "answerable during §6.b + rest-of-app sweep,
+  not blocking." Pattern: discovery work that doesn't gate the
+  next slice can be parallelized; discovery work that DOES gate
+  the next slice needs to land first.
+- Combined-slice naming convention banked: "Mark-Accepted
+  external writebacks (NEW combined slice — supersedes original
+  Slice 12 scope) — HubSpot deal writeback + NetSuite sales
+  order push share Mark-Accepted state machine extension,
+  retry-and-surface UX, PM monitoring infrastructure."
+- Pattern 22 applies in the NetSuite slice: schema verification
+  before encoding, especially for NetSuite Sales Order schema
+  (which CC has never touched).
+
+**When NOT to apply Pattern 33:** trivial scope expansions
+(one-line change folded into an existing commit) don't need
+formal cost evaluation. The discipline is calibrated for
+slice-level proposals where the work breakdown is non-trivial
+and the cleanliness framing risks under-pricing the cost.
+
+## v1 release-path slice sequencing (banked May 2026)
+
+Captured here so the sequencing survives context compaction
+and future CC sessions see the queued shape. Subject to
+revision as discovery completes.
+
+1. **§6.b — Setup wholesale redesign + Add-product modal Phase 1
+   HubSpot-first rewrite** (in flight). Remaining work: Step 10
+   Edward smoke pass + Step 11 Designer audit + PR-to-main.
+2. **Rest-of-app fidelity sweep** — Cost build, Costing/Pricing,
+   Customer view/Quote, Mark Accepted, Home. Same Pattern 30
+   canonical-CSS-imported-verbatim discipline as §6.b's path-B
+   migration.
+3. **Mark-Accepted external writebacks** (combined slice
+   superseding original Slice 12 scope) — HubSpot deal writeback
+   + NetSuite sales order push share state machine, retry +
+   surface UX, PM monitoring. Pre-brief discovery covers
+   HubSpot→NetSuite sync coverage, current manual SO entry
+   pattern, NetSuite assembly pricing model. Cost evaluation
+   per Pattern 33 already done; expansion approved.
+4. **PDF render path** — Notes-above-T&Cs ordering + Customer
+   view PDF findings.
+5. **v1 release.**
+
+Discovery items parallelizable with §6.b + rest-of-app sweep
+(not blocking those slices):
+
+- Does the active HubSpot→NetSuite sync carry assembly metadata
+  or only leaves?
+- Firm's NetSuite admin: what's manually entered into Sales
+  Orders today (assemblies or leaves)?
+- NetSuite assembly pricing model: separate price vs. sum-of-
+  leaves?
+
+These three answers shape the assembly-structure architecture
+decision in the NetSuite portion of the combined writebacks
+slice. CA + Edward dispose once discovery completes.
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**
