@@ -107,10 +107,16 @@
 }
 .r1-setup-card-head h3 {
   margin: 0;
-  font-family: var(--ui);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: -0.005em;
+  /* §6.b Step 1 amendment — R7b section header treatment. RI.8
+     step 1.5 set this as UI-sans 13/600 for R1 fidelity; R7b
+     supersedes R1 for §6.b and renders section headers in
+     display-serif (Newsreader) at ~18px. Visible in screenshot
+     comparison: R7b SKUs/Tiers headers read as display-register
+     siblings of the page title, not as small UI labels. */
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   color: var(--ink);
 }
 .r1-setup-card-head .meta {
