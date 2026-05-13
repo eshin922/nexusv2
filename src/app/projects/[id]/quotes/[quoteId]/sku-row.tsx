@@ -236,11 +236,19 @@ export function SkuRow({
   return (
     <>
       {/* §6.b Step 1 — 6-column row per brief §3.1.
-          Columns: Grip · Type · Product (stack) · Retail $ · Components · ⋯
-          Left-border accent distinguishes assembly rows (2px accent vs
-          transparent on leaves) per §3.1 grammar; not yet wired (Step 2
-          adds the Type badge + click-toggle, which the accent pairs with). */}
-      <div className="grid grid-cols-[36px_80px_2fr_120px_120px_36px] items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50">
+          Columns: Grip · Type · Product (stack) · Retail bench · Components · ⋯
+          Left-border accent (Step 1 amendment fidelity) — assembly rows
+          render a 2px var(--accent) left border; leaf rows render the
+          same width as transparent so vertical alignment is preserved
+          (brief §3.1: "Left-border accent for assembly distinction"). */}
+      <div
+        className="grid grid-cols-[36px_80px_2fr_120px_120px_36px] items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50"
+        style={{
+          borderLeft: isAssembly
+            ? "2px solid var(--accent)"
+            : "2px solid transparent",
+        }}
+      >
         {/* Grip — static glyph in Step 1; drag wires in Step 9. */}
         <span
           aria-hidden

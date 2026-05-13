@@ -67,11 +67,14 @@ export function AddAssemblyButton({
   }
 
   if (!open) {
+    // §6.b Step 1 amendment — R7b primary-blue treatment on the footer
+    // "+ Add Product" affordance. Previous gray-ghost styling missed
+    // the R7b fidelity per Edward smoke screenshot.
     return (
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-md border border-gray-300 bg-white px-3 py-1 text-xs text-gray-700 hover:bg-gray-50"
+        className="r2-btn primary"
       >
         {triggerLabel}
       </button>
