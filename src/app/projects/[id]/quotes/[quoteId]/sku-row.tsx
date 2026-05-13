@@ -108,10 +108,14 @@ export function SkuRow({
   onDragEnd?: (e: React.DragEvent) => void;
 }) {
   // §6.b Step 1 — units_per_pack and notes inputs removed from row.
-  // Notes returns in Step 4 (per-SKU drawer textarea); units_per_pack
-  // has no R7b body home post-creation (Add-product modal in Step 8
-  // sets it). Pre-existing data is preserved on the server side.
+  // Notes returns in Step 4 (per-SKU drawer textarea).
+  // Phase 1.4 (OQ3 disposition) — units_per_pack inline-edit affordance
+  // restored as a Pattern 29 read↔edit cell inside the .pack sub-text
+  // of the product cell. Dropped from the Add-product modal; lives
+  // here as a line-item attribute (how the product is sold in THIS
+  // quote, not catalog metadata).
   const [retailBenchmark, setRetailBenchmark] = useState(sku.retailBenchmark ?? "");
+  const [unitsPerPack, setUnitsPerPack] = useState(String(sku.unitsPerPack));
 
   const [pending, startTransition] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -125,8 +129,8 @@ export function SkuRow({
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stateRef = useRef({ retailBenchmark });
-  stateRef.current = { retailBenchmark };
+  const stateRef = useRef({ retailBenchmark, unitsPerPack });
+  stateRef.current = { retailBenchmark, unitsPerPack };
 
   useEffect(
     () => () => {
@@ -159,17 +163,20 @@ export function SkuRow({
 
   type Overrides = Partial<{
     retailBenchmark: string;
+    unitsPerPack: string;
   }>;
 
-  // §6.b Step 1 — updateSku still takes the full input shape;
-  // pre-existing units_per_pack + notes pass through unchanged
-  // (read from props.sku snapshot) so the action layer doesn't
-  // null them out on a retail-benchmark-only save.
+  // §6.b Step 1 — updateSku takes the full input shape; pre-existing
+  // notes pass through unchanged (read from props.sku snapshot) so
+  // the action layer doesn't null them out on a partial save.
+  // Phase 1.4 — unitsPerPack now comes from local state (was
+  // sku.unitsPerPack snapshot; switched so the inline-edit cell
+  // can persist its own draft value).
   function fireSave(overrides: Overrides = {}) {
     const s = { ...stateRef.current, ...overrides };
     const fd = new FormData();
     fd.set("skuId", sku.id);
-    fd.set("unitsPerPack", String(sku.unitsPerPack));
+    fd.set("unitsPerPack", s.unitsPerPack);
     fd.set("retailBenchmark", s.retailBenchmark);
     fd.set("notes", sku.notes ?? "");
     startTransition(async () => {
@@ -358,7 +365,15 @@ export function SkuRow({
           <span className="pack">
             {/* Pack sub-text deferred to Slice 11 (Pattern 22 #6).
                 When quote_skus.pack lands, the value renders here
-                ahead of the HAS NOTE indicator. */}
+                ahead of the units-per-pack chip + HAS NOTE indicator. */}
+            <UnitsPerPackCell
+              value={unitsPerPack}
+              disabled={disabled}
+              onChange={(v) => {
+                setUnitsPerPack(v);
+                scheduleSave({ unitsPerPack: v });
+              }}
+            />
             {hasNote &&
               (onDrawerToggle ? (
                 <span
@@ -1125,6 +1140,136 @@ function RetailBenchCell({
     >
       {formatted ?? "—"}
       <span className="sub">retail</span>
+    </span>
+  );
+}
+
+// Phase 1.4 — units_per_pack inline-edit cell (Pattern 29 read↔edit).
+// Renders as a small mono "N/pk" chip inside the product cell's .pack
+// sub-text. Click flips to a number input; blur/Enter commits via the
+// row's scheduleSave plumbing through updateSku. Esc reverts. Default
+// value is "1" (per OQ3 disposition: modal dropped the field; default
+// to 1 on insert; this cell is the only authoring surface post-create).
+function UnitsPerPackCell({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled: boolean;
+  onChange: (v: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const lastCommitted = useRef(value);
+
+  useEffect(() => {
+    if (!editing) {
+      setDraft(value);
+      lastCommitted.current = value;
+    }
+  }, [value, editing]);
+
+  function enterEdit() {
+    if (disabled) return;
+    setDraft(value);
+    setEditing(true);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  function commit() {
+    const sanitized = draft.trim() === "" ? "1" : draft.trim();
+    if (sanitized !== lastCommitted.current) {
+      lastCommitted.current = sanitized;
+      onChange(sanitized);
+    }
+    setDraft(sanitized);
+    setEditing(false);
+  }
+
+  function revert() {
+    setDraft(lastCommitted.current);
+    setEditing(false);
+  }
+
+  const display = (() => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? `${n}/pk` : "1/pk";
+  })();
+
+  // Inline chip register — mono 10 / 0.04em / paper-3 bg / 1px rule /
+  // 2px padding / 3px radius. Sits next to the canonical .indicator
+  // chip so they read as a pair of small caption affordances.
+  const chipStyle: React.CSSProperties = {
+    fontFamily: "var(--mono)",
+    fontSize: 10,
+    letterSpacing: "0.04em",
+    background: "var(--paper-3)",
+    border: "1px solid var(--rule)",
+    borderRadius: 3,
+    padding: "1px 6px",
+    color: "var(--ink-3)",
+    marginRight: 6,
+    verticalAlign: "middle",
+  };
+
+  if (editing) {
+    return (
+      <span style={chipStyle}>
+        <input
+          ref={inputRef}
+          type="number"
+          min={1}
+          step={1}
+          value={draft}
+          disabled={disabled}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              (e.currentTarget as HTMLInputElement).blur();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              revert();
+            }
+          }}
+          aria-label="Units per pack"
+          style={{
+            background: "transparent",
+            border: "none",
+            font: "inherit",
+            color: "var(--ink)",
+            width: 36,
+            padding: 0,
+            textAlign: "right",
+          }}
+        />
+        <span style={{ color: "var(--ink-4)" }}>/pk</span>
+      </span>
+    );
+  }
+
+  return (
+    <span
+      style={{ ...chipStyle, cursor: disabled ? "default" : "text" }}
+      onClick={disabled ? undefined : enterEdit}
+      role={disabled ? undefined : "button"}
+      tabIndex={disabled ? undefined : 0}
+      onKeyDown={
+        disabled
+          ? undefined
+          : (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                enterEdit();
+              }
+            }
+      }
+      aria-label={`Units per pack: ${display}. Click to edit.`}
+    >
+      {display}
     </span>
   );
 }
