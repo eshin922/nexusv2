@@ -20,6 +20,8 @@ export function AddAssemblyButton({
   quoteId,
   eligibleParents,
   triggerLabel = "+ Add assembly (Nexus-local)",
+  triggerVariant = "primary",
+  forcedParentId = null,
 }: {
   quoteId: string;
   eligibleParents: EligibleParent[];
@@ -28,20 +30,28 @@ export function AddAssemblyButton({
    * Step 8 replaces with the full add-product modal (HubSpot
    * writeback toggle + Category/Pack/Units/pk fields). */
   triggerLabel?: string;
+  /** §6.b Step 4 — visual register for the trigger. Use "ghost"
+   * for in-drawer "+ Add child SKU" so it doesn't compete with
+   * the table-footer primary "+ Add Product" affordance. */
+  triggerVariant?: "primary" | "ghost";
+  /** §6.b Step 4 — when set, locks the parent select to this id
+   * (used for the assembly drawer's "+ Add child SKU" footer).
+   * Parent-picker UI hides; qty defaults to 1. */
+  forcedParentId?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [skuLabel, setSkuLabel] = useState("");
   const [productName, setProductName] = useState("");
-  const [parentSkuId, setParentSkuId] = useState("");
-  const [qtyPerParent, setQtyPerParent] = useState("");
+  const [parentSkuId, setParentSkuId] = useState(forcedParentId ?? "");
+  const [qtyPerParent, setQtyPerParent] = useState(forcedParentId ? "1" : "");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   function reset() {
     setSkuLabel("");
     setProductName("");
-    setParentSkuId("");
-    setQtyPerParent("");
+    setParentSkuId(forcedParentId ?? "");
+    setQtyPerParent(forcedParentId ? "1" : "");
     setError(null);
   }
 
@@ -51,9 +61,10 @@ export function AddAssemblyButton({
     fd.set("quoteId", quoteId);
     fd.set("skuLabel", skuLabel);
     fd.set("productName", productName);
-    if (parentSkuId) {
-      fd.set("parentSkuId", parentSkuId);
-      fd.set("qtyPerParent", qtyPerParent);
+    const effectiveParent = forcedParentId ?? parentSkuId;
+    if (effectiveParent) {
+      fd.set("parentSkuId", effectiveParent);
+      fd.set("qtyPerParent", qtyPerParent || "1");
     }
     startTransition(async () => {
       const result = await addAssemblySku(fd);
@@ -67,14 +78,17 @@ export function AddAssemblyButton({
   }
 
   if (!open) {
-    // §6.b Step 1 amendment — R7b primary-blue treatment on the footer
-    // "+ Add Product" affordance. Previous gray-ghost styling missed
-    // the R7b fidelity per Edward smoke screenshot.
+    // §6.b Step 1 amendment — R7b primary-blue treatment on the
+    // footer "+ Add Product" affordance. Step 4 adds the "ghost"
+    // variant for the in-drawer "+ Add child SKU" affordance so
+    // it doesn't compete visually with the table-footer primary.
     return (
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="r2-btn primary"
+        className={
+          triggerVariant === "ghost" ? "r2-btn ghost" : "r2-btn primary"
+        }
       >
         {triggerLabel}
       </button>
@@ -97,7 +111,22 @@ export function AddAssemblyButton({
           className="rounded border border-gray-300 bg-white px-2 py-1"
         />
       </div>
-      {eligibleParents.length > 0 && (
+      {forcedParentId ? (
+        // §6.b Step 4 — when forced (in-drawer "+ Add child SKU"),
+        // parent is locked; only qty per parent is editable.
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-xs text-ink-3">Qty per parent:</span>
+          <input
+            type="number"
+            step="0.0001"
+            min={0}
+            value={qtyPerParent}
+            onChange={(e) => setQtyPerParent(e.target.value)}
+            placeholder="1"
+            className="w-24 rounded border border-gray-300 bg-white px-2 py-1 text-sm"
+          />
+        </div>
+      ) : eligibleParents.length > 0 ? (
         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[2fr_1fr]">
           <select
             value={parentSkuId}
@@ -122,7 +151,7 @@ export function AddAssemblyButton({
             className="rounded border border-gray-300 bg-white px-2 py-1 disabled:bg-gray-100"
           />
         </div>
-      )}
+      ) : null}
       {error && (
         <p className="mt-2 text-xs text-red-700" role="alert">
           {error}

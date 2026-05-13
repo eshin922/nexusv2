@@ -33,6 +33,15 @@ import { SkuRow } from "./sku-row";
 // and passes the typed array. This client wrapper renders the
 // header + iterates.
 
+export type SkuChildRow = {
+  id: string;
+  skuLabel: string;
+  productName: string;
+  skuRole: "leaf" | "assembly";
+  qtyPerParent: string | null;
+  childCount: number;
+};
+
 export type SkuRowListItem = {
   sku: {
     id: string;
@@ -50,6 +59,9 @@ export type SkuRowListItem = {
   depth: number;
   hasChildren: boolean;
   childCount: number;
+  /** §6.b Step 4 — direct children for the assembly drawer's
+   * child-SKU navigation list. Empty array for leaves. */
+  childSkus: SkuChildRow[];
   eligibleParents: Array<{
     id: string;
     skuLabel: string;
@@ -62,10 +74,16 @@ export function SkuRowList({
   rows,
   hubspotPortalId,
   disabled,
+  projectId,
+  quoteId,
 }: {
   rows: SkuRowListItem[];
   hubspotPortalId: string | null;
   disabled: boolean;
+  /** §6.b Step 4 — needed for the drawer's "↗ Cost build" link
+   * per child SKU + the "+ Add child SKU" footer. */
+  projectId: string;
+  quoteId: string;
 }) {
   const [openSkuId, setOpenSkuId] = useState<string | null>(null);
 
@@ -75,20 +93,32 @@ export function SkuRowList({
 
   return (
     <div className="divide-y divide-rule">
-      {rows.map(({ sku, depth, hasChildren, childCount, eligibleParents }) => (
-        <SkuRow
-          key={sku.id}
-          sku={sku}
-          depth={depth}
-          hasChildren={hasChildren}
-          childCount={childCount}
-          eligibleParents={eligibleParents}
-          hubspotPortalId={hubspotPortalId}
-          disabled={disabled}
-          isDrawerOpen={openSkuId === sku.id}
-          onDrawerToggle={() => onDrawerToggle(sku.id)}
-        />
-      ))}
+      {rows.map(
+        ({
+          sku,
+          depth,
+          hasChildren,
+          childCount,
+          childSkus,
+          eligibleParents,
+        }) => (
+          <SkuRow
+            key={sku.id}
+            sku={sku}
+            depth={depth}
+            hasChildren={hasChildren}
+            childCount={childCount}
+            childSkus={childSkus}
+            eligibleParents={eligibleParents}
+            hubspotPortalId={hubspotPortalId}
+            disabled={disabled}
+            isDrawerOpen={openSkuId === sku.id}
+            onDrawerToggle={() => onDrawerToggle(sku.id)}
+            projectId={projectId}
+            quoteId={quoteId}
+          />
+        ),
+      )}
     </div>
   );
 }

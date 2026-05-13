@@ -53,28 +53,47 @@ const ROLE_SHORT_LABEL: Record<Sku["skuRole"], string> = {
   assembly: "ASY",
 };
 
+type ChildRow = {
+  id: string;
+  skuLabel: string;
+  productName: string;
+  skuRole: "leaf" | "assembly";
+  qtyPerParent: string | null;
+  childCount: number;
+};
+
 export function SkuRow({
   sku,
   depth,
   hasChildren,
   childCount,
+  childSkus = [],
   eligibleParents,
   hubspotPortalId,
   disabled = false,
   isDrawerOpen = false,
   onDrawerToggle,
+  projectId,
+  quoteId,
 }: {
   sku: Sku;
   depth: number;
   hasChildren: boolean;
   /** §6.b Step 1 — children count for the Components column. */
   childCount: number;
+  /** §6.b Step 4 — direct children for the assembly drawer's
+   * child-SKU navigation list. Empty / unused for leaf rows. */
+  childSkus?: ChildRow[];
   eligibleParents: EligibleParent[];
   hubspotPortalId: string | null;
   disabled?: boolean;
   /** §6.b Step 3 — drawer expansion state (one-at-a-time via SkuRowList). */
   isDrawerOpen?: boolean;
   onDrawerToggle?: () => void;
+  /** §6.b Step 4 — needed for the drawer's "↗ Cost build" link
+   * per child SKU. */
+  projectId?: string;
+  quoteId?: string;
 }) {
   // §6.b Step 1 — units_per_pack and notes inputs removed from row.
   // Notes returns in Step 4 (per-SKU drawer textarea); units_per_pack
@@ -324,13 +343,42 @@ export function SkuRow({
             <span className="truncate text-sm font-medium text-gray-900">
               {sku.skuLabel}
             </span>
-            {hasNote && (
-              <span
-                className="rounded bg-warn-soft px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-warn"
-                title={sku.notes ?? undefined}
+            {hasNote &&
+              (onDrawerToggle ? (
+                // §6.b Step 4 — HAS NOTE chip becomes drawer trigger on
+                // leaves (no Components-cell trigger for leaf rows;
+                // chip click opens the drawer to view/edit the note).
+                // On assemblies the Components cell is the primary
+                // trigger; chip click also opens drawer for parity.
+                <button
+                  type="button"
+                  onClick={onDrawerToggle}
+                  className="rounded bg-warn-soft px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-warn hover:bg-warn-soft hover:ring-1 hover:ring-warn"
+                  title={`${sku.notes ?? ""} (click to open notes)`}
+                >
+                  HAS NOTE
+                </button>
+              ) : (
+                <span
+                  className="rounded bg-warn-soft px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-warn"
+                  title={sku.notes ?? undefined}
+                >
+                  HAS NOTE
+                </span>
+              ))}
+            {!hasNote && !isAssembly && onDrawerToggle && (
+              // §6.b Step 4 — leaf rows without a note get a small
+              // subtle "+ note" affordance so PMs can add notes via
+              // the drawer without needing the chip first. Sized
+              // small to not compete with the SKU label.
+              <button
+                type="button"
+                onClick={onDrawerToggle}
+                className="font-mono text-[9px] uppercase tracking-wide text-ink-4 hover:text-ink-3"
+                title="Add a per-SKU note"
               >
-                HAS NOTE
-              </span>
+                + note
+              </button>
             )}
           </div>
           <span className="truncate text-xs text-ink-3">
@@ -525,28 +573,47 @@ export function SkuRow({
         </div>
       </div>
 
-      {/* §6.b Step 3 — per-row drawer placeholder. Renders below the
-          row when isDrawerOpen. Step 4 fills the body (child-SKU
-          navigation list for assemblies + per-SKU notes textarea).
-          The placeholder establishes the drawer's spatial register
-          and click-out behavior so Step 4 can drop content into a
-          known container. */}
+      {/* §6.b Step 4 — drawer body. Two zones per brief §3.2/§3.3:
+          - Assemblies: child-SKU navigation list + per-SKU notes
+          - Leaves: per-SKU notes only
+          Mismatch 1 carve disposition (γ): drawer's first zone for
+          assemblies is a NAV LIST routing to each leaf's Cost build
+          packaging surface, not an inline-editable component table.
+          Per-component cost data lives on packaging_inputs (Cost
+          build) until §6.c unifies. */}
       {isDrawerOpen && (
         <div
           className="r6b-drawer"
           role="region"
           aria-label={`Details for ${sku.skuLabel}`}
         >
-          <div className="r6b-drawer-placeholder">
-            <p className="r2-eyebrow" style={{ marginBottom: 6 }}>
-              {isAssembly ? "Assembly components" : "Details"}
-            </p>
-            <p style={{ margin: 0, fontSize: 13, color: "var(--ink-3)" }}>
-              Drawer body wires in §6.b Step 4 — child-SKU navigation
-              list {isAssembly ? "+ per-SKU notes textarea" : "(notes textarea only)"}
-              .
-            </p>
-          </div>
+          {isAssembly && projectId && quoteId && (
+            <DrawerChildList
+              parentSkuId={sku.id}
+              projectId={projectId}
+              quoteId={quoteId}
+              quoteIdForAdd={quoteId}
+              childSkus={childSkus}
+              disabled={disabled}
+            />
+          )}
+          <DrawerNotes
+            currentNote={sku.notes ?? ""}
+            onSave={(value) => {
+              const fd = new FormData();
+              fd.set("skuId", sku.id);
+              fd.set("unitsPerPack", String(sku.unitsPerPack));
+              fd.set("retailBenchmark", stateRef.current.retailBenchmark);
+              fd.set("notes", value);
+              startTransition(async () => {
+                const r = await updateSku(fd);
+                if (!r.ok) setSaveError(r.error.message);
+                else setSaveError(null);
+              });
+            }}
+            disabled={disabled}
+            pending={pending}
+          />
         </div>
       )}
 
@@ -690,6 +757,183 @@ function QtyPerParentInline({
         </span>
       )}
     </span>
+  );
+}
+
+// §6.b Step 4 — drawer subcomponents.
+//
+// DrawerChildList renders inside an assembly's drawer per Mismatch 1
+// carved disposition (γ): child-SKU navigation list, NOT inline
+// component editor. Each child row links to that leaf's Cost build
+// packaging drilldown (per-component cost data lives there until
+// §6.c unifies).
+//
+// DrawerNotes wraps the per-SKU notes textarea (Pushback 2 disposition
+// + brief §3.2 zone 2). Autosave on blur; Cmd/Ctrl+Enter explicit
+// commit. Always rendered (assembly + leaf).
+
+import { AddAssemblyButton } from "./add-assembly-button";
+
+function DrawerChildList({
+  parentSkuId,
+  projectId,
+  quoteId,
+  quoteIdForAdd,
+  childSkus,
+  disabled,
+}: {
+  parentSkuId: string;
+  projectId: string;
+  quoteId: string;
+  quoteIdForAdd: string;
+  childSkus: ChildRow[];
+  disabled: boolean;
+}) {
+  const _parentSkuId = parentSkuId; // for forcedParentId pass-through below
+  return (
+    <div className="r6b-drawer-section">
+      <div className="r6b-drawer-section-head">
+        <p className="r2-eyebrow" style={{ margin: 0 }}>
+          Components ({childSkus.length})
+        </p>
+      </div>
+      {childSkus.length === 0 ? (
+        <p
+          style={{
+            margin: "8px 0",
+            fontSize: 13,
+            color: "var(--ink-3)",
+            fontStyle: "italic",
+          }}
+        >
+          No child SKUs yet. Add one below or assign existing SKUs to this
+          assembly via the row&rsquo;s ⋯ menu.
+        </p>
+      ) : (
+        <table className="r6b-drawer-table">
+          <thead>
+            <tr>
+              <th>Label</th>
+              <th>Product</th>
+              <th>Type</th>
+              <th style={{ textAlign: "right" }}>Qty/parent</th>
+              <th style={{ textAlign: "right" }}>Open</th>
+            </tr>
+          </thead>
+          <tbody>
+            {childSkus.map((c) => {
+              const isLeaf = c.skuRole === "leaf";
+              const costsHref = `/projects/${projectId}/quotes/${quoteId}/costs?focus=${c.id}`;
+              return (
+                <tr key={c.id}>
+                  <td className="r6b-drawer-label">{c.skuLabel}</td>
+                  <td className="r6b-drawer-product">{c.productName}</td>
+                  <td>
+                    <span
+                      className="r6b-type-badge"
+                      data-role={c.skuRole}
+                      style={{ pointerEvents: "none" }}
+                    >
+                      <span aria-hidden style={{ marginRight: 4 }}>
+                        {c.skuRole === "assembly" ? "▤" : "○"}
+                      </span>
+                      {c.skuRole === "assembly" ? "ASY" : "LEAF"}
+                    </span>
+                  </td>
+                  <td style={{ textAlign: "right", color: "var(--ink-3)" }}>
+                    {c.qtyPerParent ?? "—"}
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    {isLeaf ? (
+                      <a
+                        href={costsHref}
+                        className="r6b-drawer-link"
+                        title="Edit packaging / cost components on Cost build"
+                      >
+                        ↗ Cost build
+                      </a>
+                    ) : (
+                      <span style={{ color: "var(--ink-4)" }}>—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      {!disabled && (
+        <div style={{ marginTop: 10 }}>
+          <AddAssemblyButton
+            quoteId={quoteIdForAdd}
+            eligibleParents={[]}
+            triggerLabel="+ Add child SKU"
+            triggerVariant="ghost"
+            forcedParentId={_parentSkuId}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DrawerNotes({
+  currentNote,
+  onSave,
+  disabled,
+  pending,
+}: {
+  currentNote: string;
+  onSave: (value: string) => void;
+  disabled: boolean;
+  pending: boolean;
+}) {
+  const [value, setValue] = useState(currentNote);
+  const initial = useRef(currentNote);
+
+  function fire() {
+    const next = value.trim();
+    if (next === initial.current.trim()) return;
+    initial.current = next;
+    onSave(next);
+  }
+
+  return (
+    <div className="r6b-drawer-section">
+      <div className="r6b-drawer-section-head">
+        <p className="r2-eyebrow" style={{ margin: 0 }}>
+          Per-SKU notes · internal-only
+        </p>
+      </div>
+      <p
+        style={{
+          margin: "6px 0 8px",
+          fontSize: 11.5,
+          color: "var(--ink-3)",
+        }}
+      >
+        Lives on this SKU. Never renders on the Quote PDF.
+      </p>
+      <textarea
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={fire}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            fire();
+            (e.currentTarget as HTMLTextAreaElement).blur();
+          }
+        }}
+        rows={3}
+        disabled={disabled}
+        placeholder="e.g., 'PM follow-up: confirm pack with supplier before quote send.'"
+        className="r6b-drawer-textarea"
+      />
+      {pending && (
+        <span style={{ fontSize: 11, color: "var(--ink-4)" }}>saving…</span>
+      )}
+    </div>
   );
 }
 

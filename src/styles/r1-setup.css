@@ -245,3 +245,84 @@
   border-radius: 6px;
   padding: 14px 16px;
 }
+
+/* §6.b Step 4 — drawer subsections (child list + notes). */
+.r6b-drawer-section {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.r6b-drawer-section:last-child {
+  margin-bottom: 0;
+}
+.r6b-drawer-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.r6b-drawer-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.r6b-drawer-table thead th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--rule);
+  font-weight: 500;
+}
+.r6b-drawer-table tbody td {
+  padding: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+.r6b-drawer-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.r6b-drawer-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+}
+.r6b-drawer-product {
+  color: var(--ink-2);
+}
+.r6b-drawer-link {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--accent-ink);
+  text-decoration: none;
+}
+.r6b-drawer-link:hover {
+  text-decoration: underline;
+}
+.r6b-drawer-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper-2);
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.r6b-drawer-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--paper);
+}
+.r6b-drawer-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

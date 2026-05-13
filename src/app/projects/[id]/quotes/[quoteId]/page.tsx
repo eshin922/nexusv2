@@ -274,8 +274,21 @@ export default async function QuoteBuilderPage({
                   productName: p.productName,
                   skuRole: p.skuRole,
                 }));
-                const hasChildren = skus.some((x) => x.parentSkuId === s.id);
-                const childCount = skus.filter((x) => x.parentSkuId === s.id).length;
+                const directChildren = skus.filter((x) => x.parentSkuId === s.id);
+                const hasChildren = directChildren.length > 0;
+                const childCount = directChildren.length;
+                // §6.b Step 4 — children data for the assembly drawer's
+                // navigation list. Per-child component count computed
+                // for the drawer's display ("→ ASY with N nested
+                // children" style render in v1.1).
+                const childSkus = directChildren.map((c) => ({
+                  id: c.id,
+                  skuLabel: c.skuLabel,
+                  productName: c.productName,
+                  skuRole: c.skuRole,
+                  qtyPerParent: c.qtyPerParent,
+                  childCount: skus.filter((x) => x.parentSkuId === c.id).length,
+                }));
                 return {
                   sku: {
                     id: s.id,
@@ -293,11 +306,14 @@ export default async function QuoteBuilderPage({
                   depth,
                   hasChildren,
                   childCount,
+                  childSkus,
                   eligibleParents,
                 };
               })}
               hubspotPortalId={process.env.HUBSPOT_PROD_HUB_ID ?? null}
               disabled={!editable}
+              projectId={projectId}
+              quoteId={quote.id}
             />
           </>
         )}
