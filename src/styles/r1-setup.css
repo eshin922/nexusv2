@@ -155,3 +155,50 @@
   color: var(--ink-3);
   font-style: italic;
 }
+
+/* ─── §6.b Step 2 — Type badge (R7b) ────────────────── */
+/* Glyph + short label, click-to-toggle sku_role. Two visual
+   states keyed on data-role: ASY (accent-tinted) vs LEAF
+   (paper-3 tinted). Hover lifts the surface; disabled grays out
+   when the toggle target is blocked (assembly → leaf with
+   children). Always-visible at row scale (Decision 1). */
+.r6b-type-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 4px 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease,
+    color 120ms ease;
+}
+.r6b-type-badge[data-role="assembly"] {
+  background: oklch(from var(--accent) l c h / 0.12);
+  color: var(--accent-ink);
+  border-color: oklch(from var(--accent) l c h / 0.30);
+}
+.r6b-type-badge[data-role="assembly"]:hover:not(:disabled) {
+  background: oklch(from var(--accent) l c h / 0.20);
+  border-color: oklch(from var(--accent) l c h / 0.45);
+}
+.r6b-type-badge[data-role="leaf"] {
+  background: var(--paper-3);
+  color: var(--ink-2);
+  border-color: var(--rule);
+}
+.r6b-type-badge[data-role="leaf"]:hover:not(:disabled) {
+  background: var(--paper-2);
+  border-color: var(--ink-4);
+  color: var(--ink);
+}
+.r6b-type-badge:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

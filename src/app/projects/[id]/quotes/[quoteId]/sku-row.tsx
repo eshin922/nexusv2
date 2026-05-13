@@ -36,14 +36,21 @@ type EligibleParent = {
 
 const DEBOUNCE_MS = 500;
 
-const ROLE_LABEL: Record<Sku["skuRole"], string> = {
-  leaf: "Leaf",
-  assembly: "Assembly",
+// §6.b Step 2 — R7b Type badge canon (brief §3.1 + designer notes
+// Decision 1). Glyph + label, click toggles sku_role. Assemblies
+// render `▤ ASY` accent-tinted; leaves render `○ LEAF` paper-3
+// tinted. Always visible at row scale — not buried in a drawer
+// or behind a hover affordance. Preserve-hidden semantics for
+// assembly → leaf toggle (with children) handled by the action
+// layer (convertSkuRole + sku-tree validation).
+const ROLE_GLYPH: Record<Sku["skuRole"], string> = {
+  leaf: "○",
+  assembly: "▤",
 };
 
-const ROLE_BADGE: Record<Sku["skuRole"], string> = {
-  leaf: "bg-gray-100 text-gray-700",
-  assembly: "bg-blue-100 text-blue-800",
+const ROLE_SHORT_LABEL: Record<Sku["skuRole"], string> = {
+  leaf: "LEAF",
+  assembly: "ASY",
 };
 
 export function SkuRow({
@@ -258,26 +265,48 @@ export function SkuRow({
           ⠿
         </span>
 
-        {/* Type — existing select dropdown in Step 1; Step 2 swaps for
-            badge + click-to-toggle. */}
+        {/* Type — R7b badge: glyph + short label, click-to-toggle.
+            Eligible-targets check: leaf → assembly is always allowed;
+            assembly → leaf is blocked when hasChildren (per
+            sku-tree.eligibleRoleTargets). Disabled state surfaces
+            why via title (no children-detach path here; existing
+            overflow menu carries the detach/reassign affordances). */}
         <div>
-          <select
-            value={sku.skuRole}
-            disabled={disabled || pending}
-            onChange={(e) => handleConvertRole(e.target.value as Sku["skuRole"])}
-            className={`rounded px-2 py-0.5 text-xs font-medium ${ROLE_BADGE[sku.skuRole]} disabled:opacity-50`}
-            title="Change SKU role"
-          >
-            {eligibleRoleTargets(
+          {(() => {
+            const targetRole: Sku["skuRole"] =
+              sku.skuRole === "leaf" ? "assembly" : "leaf";
+            const canToggle = eligibleRoleTargets(
               sku.skuRole,
               sku.parentSkuId !== null,
               hasChildren,
-            ).map((target) => (
-              <option key={target} value={target}>
-                {ROLE_LABEL[target]}
-              </option>
-            ))}
-          </select>
+            ).includes(targetRole);
+            const isAsy = sku.skuRole === "assembly";
+            return (
+              <button
+                type="button"
+                onClick={() => handleConvertRole(targetRole)}
+                disabled={disabled || pending || !canToggle}
+                aria-pressed={isAsy}
+                aria-label={`Type: ${ROLE_SHORT_LABEL[sku.skuRole]}. ${
+                  canToggle
+                    ? `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}.`
+                    : `Cannot convert — has children. Detach children first.`
+                }`}
+                title={
+                  canToggle
+                    ? `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}`
+                    : "Cannot convert to leaf — assembly has children. Detach via ⋯ menu first."
+                }
+                className="r6b-type-badge"
+                data-role={sku.skuRole}
+              >
+                <span aria-hidden style={{ marginRight: 4 }}>
+                  {ROLE_GLYPH[sku.skuRole]}
+                </span>
+                {ROLE_SHORT_LABEL[sku.skuRole]}
+              </button>
+            );
+          })()}
         </div>
 
         {/* Product — stacked label / product_name / {pack if non-null} +
