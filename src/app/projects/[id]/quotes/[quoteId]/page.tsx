@@ -29,9 +29,10 @@ import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
 import { SURFACE_META } from "@/lib/nav/surface-meta";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { AddTierButton } from "./add-tier-button";
-import { AddAssemblyButton } from "./add-assembly-button";
+// AddAssemblyButton import removed — now consumed by SkuFooter
+// client wrapper. SkuSearchPanel similarly moved into SkuFooter.
 import { SkuRowList, type SkuRowListItem } from "./sku-row-list";
-import { SkuSearchPanel } from "./sku-search-panel";
+import { SkuFooter } from "./sku-footer";
 import { TierRow } from "./tier-row";
 import { NotesEditor } from "./notes-editor";
 
@@ -316,28 +317,15 @@ export default async function QuoteBuilderPage({
           </>
         )}
         {editable && (
-          <div className="r7b-sku-footer">
-            <AddAssemblyButton
-              quoteId={quote.id}
-              eligibleParents={getEligibleParents(skus, null).map((p) => ({
-                id: p.id,
-                skuLabel: p.skuLabel,
-                productName: p.productName,
-                skuRole: p.skuRole as "leaf" | "assembly",
-              }))}
-              triggerLabel="+ Add product"
-            />
-            <SkuSearchPanel
-              quoteId={quote.id}
-              eligibleParents={getEligibleParents(skus, null).map((p) => ({
-                id: p.id,
-                skuLabel: p.skuLabel,
-                productName: p.productName,
-                skuRole: p.skuRole,
-              }))}
-            />
-            <span className="meta">Drag rows to reorder</span>
-          </div>
+          <SkuFooter
+            quoteId={quote.id}
+            eligibleParents={getEligibleParents(skus, null).map((p) => ({
+              id: p.id,
+              skuLabel: p.skuLabel,
+              productName: p.productName,
+              skuRole: p.skuRole as "leaf" | "assembly",
+            }))}
+          />
         )}
       </div>
 
