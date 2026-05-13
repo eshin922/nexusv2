@@ -313,7 +313,7 @@ export default async function QuoteBuilderPage({
                 }))}
                 triggerLabel="+ Add Product"
               />
-              <span className="text-xs text-ink-4">Drag rows to reorder · wires in Step 9</span>
+              <span className="text-xs text-ink-4">Drag rows to reorder</span>
             </div>
             <div>
               <p className="mb-1.5 font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3">
