@@ -696,7 +696,8 @@ customer-facing zones") but missing every polish element R7b
 designer notes specified (purple/green accent borders, INTERNAL/
 CUSTOMER chips, audience labels, side-by-side layout).
 
-**Pattern 27 update — manifest is two-layer:**
+**Pattern 27 update — manifest is two-layer (visual + copy folded
+under POLISH per the unified treatment in Pattern 28 refinement):**
 
 ```
 ## Fidelity manifest
@@ -704,12 +705,24 @@ CUSTOMER chips, audience labels, side-by-side layout).
 **STRUCTURAL MATCHED (this commit ships against R<round> source):**
 - <primitives implemented this step>
 
-**POLISH MATCHED (visual treatment per R<round> designer notes + HTML):**
-- <accent borders, chips, subtitles, color tokens, typography, layout grammar>
-- e.g., "purple --internal left-accent border on Internal card"
-- e.g., "INTERNAL chip (purple-soft) top-right"
-- e.g., "audience footer with verbatim copy from R<round> designer notes §X.Y"
-- e.g., "side-by-side layout, not stacked"
+**POLISH MATCHED (visual treatment + copy verbatim per R<round>
+designer notes + prototype HTML):**
+
+- Visual: <accent borders, chips, subtitles, color tokens,
+  typography, layout grammar>
+  - e.g., "purple --internal left-accent border on Internal card"
+  - e.g., "INTERNAL chip (purple-soft) top-right"
+  - e.g., "side-by-side layout, not stacked"
+
+- Copy (verbatim from designer notes §X.Y / prototype):
+  - e.g., banner subtitle: "once SKUs and tiers are settled"
+  - e.g., audience footer: "Audience: you, other PMs, and
+    admins. Sourcing dependencies, customer phone notes, R&D
+    blockers go here." (R7b §3.6 line 38)
+  - e.g., rationale callout: "Setup is the **starting shape**
+    of the quote: what we're selling, in what quantities, with
+    what context. Cost goes on Cost build (the next surface)."
+    (R7b designer notes line 7)
 
 **DEFERRED:**
 - <element> → Step N
@@ -733,6 +746,32 @@ behavior, schema commitments) and WHEN (sequencing, dependencies).
 A brief does NOT specify visual treatment in implementable detail —
 that lives in the design source: designer notes for the canonical
 treatment, prototype HTML for the layout grammar.
+
+**Fidelity is two-pronged:**
+
+1. **Visual treatment** — accent borders, chips, layouts, typography,
+   color tokens, spacing, side-by-side vs stacked, hover/focus
+   states. From designer notes + prototype HTML.
+2. **Copy verbatim** — subtitles, helper text, rationale callouts,
+   audience footers, banner copy, button labels. **Word-for-word
+   from the design source**, not brief paraphrase. Tone differences
+   (`we're` vs `you're`, missing sentences, `the drawer` vs `the
+   row drawer`) are fidelity gaps regardless of structural
+   correctness.
+
+Brief summary is convenient prose; the design source is authority.
+Treating brief paraphrase as scope (instead of R-prototype + notes
+as source of truth) is the failure mode this pattern prevents —
+visually OR textually.
+
+**Banked refinement from §6.b mid-slice sweep (May 2026).**
+Edward smoke surfaced copy gaps that Pattern 28 in its original
+form didn't explicitly call out: "what you're selling" vs R7b's
+"what we're selling"; missing "Cost goes on Cost build." sentence
+from the rationale callout; "the drawer" vs R7b's "the row
+drawer". These were treated as paraphrase-acceptable instead of
+fidelity gaps. Updated pattern definition makes copy verbatim
+explicit alongside visual treatment.
 
 **Working discipline:**
 
