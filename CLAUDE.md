@@ -468,6 +468,40 @@ Banked from RI.9 step 0 schema-mismatch catch (May 2026).
 Protocol working as intended — pre-build verification caught
 the issue before migration was written.
 
+**Second instance — §6.b step 0 (May 2026).** §6.b brief
+referenced four unverified schema entities pre-kickoff:
+
+1. `quote_skus_components` table for assembly drawer's nested
+   component rows (§3.3). Doesn't exist. Current schema has
+   `quote_skus` as a self-referencing tree (`parent_sku_id`)
+   per Slice 5.5 BOM. Per-component cost data is persisted on
+   `packaging_inputs` (Cost build's packaging-lines table) —
+   columns map nearly 1:1 to brief's nested-component shape
+   except no name field; lines identified by line_group_id +
+   supplier + category.
+2. `quote_meta.{internal,customer_facing}_notes` (§3.6). Should
+   be `quotes.{internal,customer_facing}_notes` (`schema.ts:255-256`).
+   Notation error.
+3. `markup_categories.markup_pct` (§3.3, §7). Should be
+   `markup_defaults.markup_pct` (`schema.ts:596`); category is
+   text PK on `markup_defaults`, not a separate `markup_categories`
+   table.
+4. Companion-doc paths assumed `docs/r7b-*.md` at top-level; files
+   were at `docs/design-prototypes/dist/docs/`. R7a's location
+   referenced in the brief was also incorrect.
+
+Items 2-4 patched inline pre-kickoff. Item 1 escalated to Edward
++ CA for disposition (hybrid path (c) chosen pre-investigation;
+sub-case to be confirmed once attachment convention + missing
+name field are dispositioned).
+
+**Pattern is paying for itself.** Two slices in a row caught
+load-bearing schema mismatches before any DDL was written. If
+a third instance lands the same way, consider making the
+schema-verification step explicit in slice brief templates —
+"§0.5 schema verification" as a named gate before §0 migration
+work.
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**
