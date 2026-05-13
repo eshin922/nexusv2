@@ -1044,6 +1044,58 @@ amends the brief inline (Edward + CA sign-off implicit since the
 verbal disposition is the authority) AND surfaces the amendment in
 the implementation commit so the audit trail captures it.
 
+## "Pre-production engineering tolerance"
+
+Pattern 32 — banked during Phase 1 modal-rewrite prep (May 2026).
+
+Transient dev-data states — mixed-ID references, orphaned foreign
+keys, stale snapshots, half-migrated rows — are **acceptable in
+pre-production** when one of these two conditions holds:
+
+1. The fix path is mechanical re-seed of dev (drop + reapply
+   fixtures; ~minutes of cost).
+2. The exposing feature doesn't exist yet (the broken edge case
+   has no UI path that surfaces it, so it never affects PM workflow
+   nor user-visible quality).
+
+**Don't engineer around hypothetical edge cases before the
+exposing feature ships.** Adding migration scripts, defensive
+guards, or schema cleanups for "what if a future feature needed
+this" is premature work — the future feature defines its own
+correctness requirements; speculative cleanup misses the point
+half the time anyway.
+
+**Reference moment:** Phase 1 modal rewrite prep. Switching the
+Products-domain HubSpot reads/writes to be dev/prod-aware leaves
+existing dev `quote_skus` rows pointing at PROD `hubspot_product_id`
+values that don't resolve against the DEV sandbox. CC raised this
+as a potential concern. Edward's call: pre-production engineering
+tolerance applies. No "refresh from HubSpot" path exists yet, so
+the orphan refs are invisible. When Phase 2 (catalog parity)
+adds a refresh path, that slice owns the orphan-handling story.
+Banking the concern in the PR description is enough; no migration
+or code change today.
+
+**Working test when uncertain:** ask "what current workflow
+breaks because of this transient state?" If the answer is "none
+— the workflow doesn't exist yet," the concern is speculative.
+Bank it as a PR-description finding so the future slice owner
+sees the context, then move on. If the answer is a real PM-facing
+workflow today, fix it now.
+
+**Contrast with production:** in prod, transient state is rarely
+tolerable because (a) the fix path isn't "re-seed" (data is real),
+(b) any feature that touches the data may surface the orphan, and
+(c) the cost of "unwind later" is higher. This pattern is
+explicitly scoped to **pre-production / dev** environments —
+production work follows different rules.
+
+**Adjacent patterns:** Pattern 1 ("Design was illustrative; real
+data needs different proportions") covers data-vs-design mismatch
+at production scale. Pattern 32 covers dev-data tolerance pre-prod.
+Different scope, same family — engineering judgment about which
+problems are worth solving when.
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**
