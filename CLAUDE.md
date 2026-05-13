@@ -383,6 +383,49 @@ Banked from Slice RI.8 step 11 smoke (May 2026). Strengthens the
 case for RI.9.5 Design Audit Slice scope to include
 cross-cutting dimensions, not just per-surface fidelity.
 
+## "R-round prototype state strips are review aids, not production UI"
+
+CD's R-round prototypes use top-of-screen tab/state strips to let
+reviewers (Edward, CA, CC) flip between surface variants and
+states quickly during prototype review. These strips are **review
+chrome**, NOT production UI. Implementation does NOT ship them.
+
+**Reference moments:**
+- **R7a** (May 2026, nav IA round): top tab strip
+  `R7A SURFACE · HOME · RULE TOUR · SETUP · COST BUILD · COSTING
+  · CUSTOMER VIEW · MARK ACCEPTED` lets the reviewer click
+  between surfaces in one HTML file. Production navigates via
+  outer + inner rail + breadcrumb per surface-render rules.
+- **R7b** (May 2026, banner states): state strip toggles between
+  default · gated · terminal-muted banner states. Production
+  derives state from `surfaceMeta.next_move.gated_label` +
+  acceptance status; no toggle UI.
+- **R5** earlier prototypes had similar tweaks panels (the
+  `__edit_mode_set_keys` postMessage chrome).
+
+**Recognition heuristic:** if a control's purpose is "let me
+preview different versions of the same surface" it's review
+chrome. Production users don't need that — they're in one state
+at a time, driven by data + surface route.
+
+**Production navigation source of truth:** outer rail (workspace)
++ inner rail (within-project) + per-surface chrome (Eyebrow OR
+Breadcrumb, never both — R7a's load-bearing rule). Routes derived
+from `surface-routes` config table. Surface-state visibility
+derived from `surface-render rules` table.
+
+**Future-CC failure mode to recognize:** seeing the strip in the
+prototype and porting it as a real component. The fix is to
+verify against the designer notes (R7a notes §93 explicitly
+rejected a "tabs-style next-move affordance" — the rail does
+that job; tabs would duplicate). When in doubt, ask: "is this
+control needed for normal use, or only to navigate prototype
+states during review?"
+
+Banked from R7b banner-state strip recognition during R7b review
+(May 2026); reinforced by R7a surface tab strip during RI.9
+kickoff.
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**
