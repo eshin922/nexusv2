@@ -97,6 +97,91 @@
   align-items: start;
 }
 
+/* Tier label input chrome reset — brief §3.4 keeps label
+   editable inline; canonical r7b prototype renders as
+   read-only <span class="lab">. Compromise: <input className="lab">
+   styled to LOOK like the canonical span at rest (no input
+   border, transparent bg), with focused border revealing
+   edit affordance (Pattern 29-style transparent-→-focused
+   border). */
+.r7b-tier-row .label input.lab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 1px 4px;
+  margin: -1px -4px;
+  width: 100%;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.r7b-tier-row .label input.lab:hover:not(:disabled) {
+  border-color: var(--rule);
+  background: var(--paper-2);
+}
+.r7b-tier-row .label input.lab:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--paper);
+}
+
+/* Recommended chip click-to-clear — canonical .rec is a static
+   span; nexus wraps it as a button for toggle-off interaction.
+   Same visual at rest; hover lifts subtly. */
+.r7b-tier-row .label .rec-clickable {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin: -1px -4px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+  /* Inherits .rec text styling from canonical */
+}
+.r7b-tier-row .label .rec-clickable:hover:not(:disabled) {
+  background: oklch(from var(--accent) l c h / 0.10);
+  border-color: oklch(from var(--accent) l c h / 0.30);
+}
+.r7b-tier-row .label .rec-clickable:disabled {
+  cursor: default;
+}
+
+/* "Mark as recommended" hover-revealed affordance — canonical
+   R7b has NO non-recommended-state toggle UI (display-only).
+   Nexus extends with hover-reveal in the same vertical slot
+   as canonical .rec marker. Hidden via opacity + pointer-events
+   when row not hovered; doesn't reserve layout space. */
+.r7b-tier-row .label .rec-set {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  background: transparent;
+  border: 1px dashed transparent;
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin: -1px -4px;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, color 120ms ease,
+    border-color 120ms ease;
+}
+.r7b-tier-row:hover .r7b-tier-row .label .rec-set,
+.r7b-tier-row:hover .rec-set,
+.r7b-tier-row .label .rec-set:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.r7b-tier-row .label .rec-set:hover:not(:disabled) {
+  color: var(--accent-ink);
+  border-color: oklch(from var(--accent) l c h / 0.40);
+}
+.r7b-tier-row .label .rec-set:disabled {
+  cursor: default;
+}
+
 /* ─── Page head ─────────────────────────────────────── */
 .r1-setup-head {
   display: flex;

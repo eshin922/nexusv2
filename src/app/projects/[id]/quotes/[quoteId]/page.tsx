@@ -333,53 +333,64 @@ export default async function QuoteBuilderPage({
           Decision 5. Same card chrome + footer pill grammar as the
           SKU table. 5-column layout: Label · ★ · Qty · Price adj % ·
           ×. Tier preset picker lives in Step 6 (empty-state). */}
-      <Section
-        title="Tiers"
-        action={
-          <span
-            className="font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3"
-            aria-label="Tier count caption"
-          >
-            {tiers.length} {tiers.length === 1 ? "tier" : "tiers"}
-          </span>
-        }
-      >
+      {/* §6.b path-B migration commit 4 — Tier table → canonical
+          r7b-card / r7b-tier-* structure (7bsetup.jsx TierRail
+          lines 250-309 + 7bstyles.css .r7b-tier-* rules at line
+          329). Drops Section wrapper; canonical .r7b-card-head
+          with .meta count caption + .r7b-tier-thead + .r7b-tier-row
+          + .r7b-tier-footer. Preset picker (.r7b-presets +
+          .r7b-presets-grid) deferred to Step 6 empty-state. */}
+      <div className="r7b-card">
+        <div className="r7b-card-head">
+          <h3>Tiers</h3>
+          <div className="actions">
+            <span className="meta" aria-label="Tier count caption">
+              {tiers.length} tier{tiers.length === 1 ? "" : "s"}
+            </span>
+          </div>
+        </div>
+
         {tiers.length === 0 ? (
-          <p className="px-4 py-6 text-center text-sm italic text-ink-3">
-            {/* §6.b Step 6 replaces this with the preset picker per
-                R7b §3.5 empty-state grammar. For Step 5: minimal
-                empty-state copy + the "+ Add tier" footer below. */}
+          <p style={{ padding: "24px 16px", textAlign: "center", fontSize: 13, color: "var(--ink-3)", fontStyle: "italic", margin: 0 }}>
+            {/* §6.b Step 6 replaces this with the canonical
+                .r7b-presets picker (R7b §3.5 empty-state grammar).
+                For Step 5: minimal empty-state copy. */}
             No tiers yet. Add the first one below.
           </p>
         ) : (
           <>
-            <TierHeader />
-            <div className="divide-y divide-rule">
-              {tiers.map((t) => (
-                <TierRow
-                  key={t.id}
-                  tier={{
-                    id: t.id,
-                    label: t.label,
-                    qty: t.qty,
-                    recommended: t.recommended,
-                    tierPriceAdjPct: t.tierPriceAdjPct,
-                  }}
-                  disabled={!editable}
-                />
-              ))}
+            {/* Canonical .r7b-tier-thead — 4 columns:
+                1fr · 100px · 90px · 28px (label · qty · adj · actions) */}
+            <div className="r7b-tier-thead">
+              <span>Tier</span>
+              <span className="num">Qty</span>
+              <span className="num">Price adj</span>
+              <span></span>
             </div>
+            {tiers.map((t) => (
+              <TierRow
+                key={t.id}
+                tier={{
+                  id: t.id,
+                  label: t.label,
+                  qty: t.qty,
+                  recommended: t.recommended,
+                  tierPriceAdjPct: t.tierPriceAdjPct,
+                }}
+                disabled={!editable}
+              />
+            ))}
           </>
         )}
         {editable && (
-          <div className="border-t border-rule px-4 pt-3 pb-4">
+          <div className="r7b-tier-footer">
             <AddTierButton quoteId={quote.id} />
-            {/* Step 6 will add the "+ Add preset" sibling here per
-                R7b's paired action vocabulary (designer notes
-                §3.4 line 98: "+ Add product / + Add preset"). */}
+            {/* Step 6 adds "+ Add preset" sibling here per R7b's
+                paired action vocabulary (designer notes §3.4 line
+                98: "+ Add product / + Add preset"). */}
           </div>
         )}
-      </Section>
+      </div>
       </div>
       {/* end .r1-setup-grid */}
 
@@ -454,16 +465,9 @@ function Section({
 // recommended state renders as inline chip BELOW the tier label
 // per tier-row.tsx). Wider Qty column resolves the cut-off
 // values seen in pre-amendment smoke.
-function TierHeader() {
-  return (
-    <div className="grid grid-cols-[1.6fr_1fr_1fr_36px] items-center gap-2 border-b border-rule bg-paper-2 px-3 py-2 font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3 whitespace-nowrap">
-      <span>Tier</span>
-      <span>Qty</span>
-      <span>Price adj</span>
-      <span aria-hidden></span>
-    </div>
-  );
-}
+// §6.b path-B migration commit 4 — TierHeader inline function
+// removed. Tier table header now uses canonical .r7b-tier-thead
+// markup inline in the JSX (7bsetup.jsx lines 277-282).
 
 
 // ReadOnlyNotes helper retained for future polish; not currently called.

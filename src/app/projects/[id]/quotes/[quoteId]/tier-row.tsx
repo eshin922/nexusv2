@@ -18,22 +18,27 @@ type Tier = {
 
 const DEBOUNCE_MS = 500;
 
-// §6.b Step 5 polish-amendment (Edward smoke) — Tier table per
-// R7b screenshot fidelity. NOT a 5-column layout with ★ column.
+// §6.b path-B migration commit 4 — Tier row renders canonical
+// .r7b-tier-row structure (7bsetup.jsx TierRail rows lines 284-300
+// + 7bstyles.css .r7b-tier-row rules at line 340).
 //
-// R7b reference (Screenshot 2026-05-12 225751):
-// - 3 data columns: TIER · QTY · PRICE ADJ + × action
-// - Recommended state renders as inline "★ RECOMMENDED" chip
-//   BELOW the tier label cell (not as a separate column header
-//   or per-row toggle)
-// - Header label "TIER", not "LABEL"
+// 4 grid columns per canonical: `1fr 100px 90px 28px` = label · qty
+// · adj · actions.
 //
-// Toggle path:
-// - When recommended=true: chip displays under label. Click chip
-//   to clear (sets recommended=false).
-// - When recommended=false: subtle hover-revealed "Mark as
-//   recommended" affordance appears in the same slot. Click to
-//   set (action layer clears siblings — one per quote).
+// Recommended state:
+// - Row gets `.recommended` modifier (canonical CSS adds
+//   accent-tinted bg)
+// - .label cell stacks .lab (italic display) + .rec (mono caps
+//   accent-ink) when recommended=true
+// - When recommended=false: hover-revealed "Mark as recommended"
+//   affordance in same slot (nexus-specific; canonical has no
+//   set affordance in JSX — display-only)
+//
+// Inline-edit pattern:
+// - Label: kept as <input> (brief §3.4 spec) but styled to look
+//   like canonical <span class="lab"> at rest. Pattern 29-style
+//   transparent-→-focused border.
+// - Qty + Price adj: canonical inputs already in JSX.
 
 export function TierRow({
   tier,
@@ -118,9 +123,10 @@ export function TierRow({
   }
 
   return (
-    <div className="r6b-tier-row">
-      <div className="r6b-tier-label-cell">
+    <div className={`r7b-tier-row${tier.recommended ? " recommended" : ""}`}>
+      <div className="label">
         <input
+          className="lab"
           value={label}
           disabled={disabled}
           onChange={(e) => {
@@ -128,80 +134,84 @@ export function TierRow({
             setLabel(v);
             scheduleLabelQtySave({ label: v });
           }}
-          className="r6b-tier-input r6b-tier-label"
           aria-label="Tier label"
         />
         {tier.recommended ? (
           <button
             type="button"
+            className="rec rec-clickable"
             onClick={handleToggleRecommended}
             disabled={disabled || pending}
-            className="r6b-tier-recommended-chip"
             aria-label="Recommended tier — click to clear"
             title="Recommended tier — click to clear"
           >
-            <span aria-hidden style={{ marginRight: 4 }}>
-              ★
-            </span>
-            RECOMMENDED
+            ★ recommended
           </button>
         ) : (
           <button
             type="button"
+            className="rec-set"
             onClick={handleToggleRecommended}
             disabled={disabled || pending}
-            className="r6b-tier-recommend-set"
             aria-label="Mark as recommended tier"
             title="Mark as recommended tier (clears siblings)"
           >
-            <span aria-hidden style={{ marginRight: 4 }}>
-              ☆
-            </span>
-            Mark as recommended
+            ☆ mark recommended
           </button>
         )}
       </div>
-      <input
-        value={qty}
-        type="number"
-        min={0}
-        step={1}
-        placeholder="—"
-        disabled={disabled}
-        onChange={(e) => {
-          const v = e.target.value;
-          setQty(v);
-          scheduleLabelQtySave({ qty: v });
-        }}
-        className="r6b-tier-input r6b-tier-numeric"
-        aria-label="Quantity"
-      />
-      <input
-        value={priceAdj}
-        type="number"
-        step="0.01"
-        placeholder="—"
-        disabled={disabled}
-        onChange={(e) => {
-          const v = e.target.value;
-          setPriceAdj(v);
-          schedulePriceAdjSave({ priceAdj: v });
-        }}
-        className="r6b-tier-input r6b-tier-numeric"
-        aria-label="Per-tier price adjustment percent"
-      />
-      <button
-        type="button"
-        onClick={handleDelete}
-        disabled={disabled}
-        title="Delete tier"
-        className="r6b-tier-delete"
-        aria-label={`Delete tier ${label}`}
-      >
-        ×
-      </button>
+      <div className="qty">
+        <input
+          type="number"
+          min={0}
+          step={1}
+          placeholder="—"
+          value={qty}
+          disabled={disabled}
+          onChange={(e) => {
+            const v = e.target.value;
+            setQty(v);
+            scheduleLabelQtySave({ qty: v });
+          }}
+          aria-label="Quantity"
+        />
+      </div>
+      <div className="adj">
+        <input
+          type="number"
+          step="0.01"
+          placeholder="—"
+          value={priceAdj}
+          disabled={disabled}
+          onChange={(e) => {
+            const v = e.target.value;
+            setPriceAdj(v);
+            schedulePriceAdjSave({ priceAdj: v });
+          }}
+          aria-label="Per-tier price adjustment percent"
+        />
+      </div>
+      <div className="actions">
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={disabled}
+          title="Remove tier"
+          aria-label={`Delete tier ${label}`}
+        >
+          ×
+        </button>
+      </div>
       {(saveError || pending) && (
-        <div className="r6b-tier-status">
+        <div
+          style={{
+            gridColumn: "1 / -1",
+            fontFamily: "var(--mono)",
+            fontSize: 10.5,
+            letterSpacing: "0.04em",
+            marginTop: 2,
+          }}
+        >
           {saveError ? (
             <span style={{ color: "var(--bad)" }} role="alert">
               {saveError}
