@@ -412,9 +412,14 @@
   background: var(--paper-2);
 }
 /* Label cell stacks the input + recommended chip vertically.
-   Hover on the row reveals the "Mark as recommended" affordance
-   on non-recommended rows. */
+   Polish-amendment 3: cell is `position: relative` so the
+   non-recommended "Mark as recommended" hover affordance can
+   absolute-position OUT of layout flow (doesn't reserve
+   vertical space when invisible — non-recommended rows stay
+   tight, matching R7b screenshot 225751 where Tier 1/3 are
+   shorter than Tier 2). */
 .r6b-tier-label-cell {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -488,28 +493,36 @@
   opacity: 0.6;
 }
 
-/* "Mark as recommended" subtle affordance — hidden by default,
-   reveals on row hover when recommended=false. */
+/* "Mark as recommended" subtle affordance — absolute-positioned
+   so it doesn't reserve vertical space when invisible (non-
+   recommended rows stay tight; row only expands when the
+   chip-version renders). Hover-revealed on row hover or
+   focus-visible (keyboard a11y). */
 .r6b-tier-recommend-set {
+  position: absolute;
+  left: 8px;
+  top: calc(100% - 2px);
   display: inline-flex;
   align-items: center;
   padding: 2px 6px;
-  margin-left: 6px;
   font-family: var(--mono);
   font-size: 9.5px;
   letter-spacing: 0.06em;
   color: var(--ink-4);
-  background: transparent;
+  background: var(--paper);
   border: 1px dashed transparent;
   border-radius: 4px;
   cursor: pointer;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 120ms ease, color 120ms ease,
     border-color 120ms ease;
+  z-index: 1;
 }
 .r6b-tier-row:hover .r6b-tier-recommend-set,
 .r6b-tier-recommend-set:focus-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 .r6b-tier-recommend-set:hover:not(:disabled) {
   color: var(--accent-ink);
@@ -552,9 +565,10 @@
   margin-top: 2px;
 }
 
-/* Dashed-border CTA pill per R7b screenshot 225751 — "+ Add tier"
-   spans most of the card width, centered text. Visual weight
-   matches "+ ADD TIER" treatment. Theme tokens for dark-mode. */
+/* Dashed-border CTA per R7b screenshot 225751 — full-width
+   RECTANGLE (not oval/pill) with subtle rounded corners.
+   Polish-amendment 3 fix: was border-radius 999px (rendered oval);
+   R7b shows ~8px rounded rectangle. Theme tokens for dark-mode. */
 .r6b-add-pill {
   display: flex;
   align-items: center;
@@ -568,7 +582,7 @@
   color: var(--accent-ink);
   background: transparent;
   border: 1px dashed oklch(from var(--accent) l c h / 0.40);
-  border-radius: 999px;
+  border-radius: 8px;
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease;
 }
