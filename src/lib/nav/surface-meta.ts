@@ -47,9 +47,12 @@ export type SurfaceMeta = {
 export const SURFACE_META: Record<SurfaceKey, SurfaceMeta> = {
   setup: {
     railVisible: true,
-    nextMove: { label: "Open costs →" },
+    // §6.b Step 1 amendment — R7b canon strings per Edward smoke
+    // (RI.9 shipped "Open costs →" / "+ New scenario"; R7b
+    // specifies "Continue to Cost build →" + "+ Add SKU").
+    nextMove: { label: "Continue to Cost build →" },
     primaryAction: "Save draft",
-    secondaryActions: ["+ New scenario"],
+    secondaryActions: ["+ Add SKU"],
     backAction: null,
   },
   cost_build: {

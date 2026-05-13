@@ -19,9 +19,15 @@ type EligibleParent = {
 export function AddAssemblyButton({
   quoteId,
   eligibleParents,
+  triggerLabel = "+ Add assembly (Nexus-local)",
 }: {
   quoteId: string;
   eligibleParents: EligibleParent[];
+  /** §6.b Step 1 amendment — R7b table-footer label override.
+   * Setup ships this as "+ Add Product" (footer affordance).
+   * Step 8 replaces with the full add-product modal (HubSpot
+   * writeback toggle + Category/Pack/Units/pk fields). */
+  triggerLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [skuLabel, setSkuLabel] = useState("");
@@ -67,7 +73,7 @@ export function AddAssemblyButton({
         onClick={() => setOpen(true)}
         className="rounded-md border border-gray-300 bg-white px-3 py-1 text-xs text-gray-700 hover:bg-gray-50"
       >
-        + Add assembly (Nexus-local)
+        {triggerLabel}
       </button>
     );
   }

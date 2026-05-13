@@ -600,6 +600,85 @@ Adopted post-§6.b after six Pattern 22 instances across two
 slices (RI.9 + §6.b).
 ```
 
+## "Per-commit fidelity manifest on multi-step design slices"
+
+When a slice ships many sequential commits against a complex
+design source (R-round prototype + designer notes + data-source
+map), per-step smoke checkpoints become expensive — Edward
+context-switches to the browser, walks the surface, returns,
+multiplied by N steps. Fidelity drift can also accumulate silently
+between checkpoints when smoke targets aren't pinned to source
+elements.
+
+The **per-commit fidelity manifest** is a structured trailer
+appended to every implementation commit message on a brief-driven
+slice. It gives Edward (and any auditor) a contract for what each
+commit claims to ship against the design source — without forcing
+a full smoke pass per step.
+
+**Manifest shape (mandatory on every implementation commit):**
+
+```
+## Fidelity manifest
+
+**MATCHED (this commit ships against R<round> source):**
+- <R-source element 1> — implemented as <how>
+- <R-source element 2> — implemented as <how>
+- ...
+
+**DEFERRED (R-source element not shipped this commit; target step):**
+- <R-source element X> → Step <N>: <one-line reason>
+- ...
+
+**NOT-IN-ANY-STEP (no step home; escalation needed if shipped):**
+- <element>: <why no step home>
+- ...
+```
+
+**Reading the manifest:** Edward (or anyone smoking) compares
+MATCHED claims against the rendered surface; checks DEFERRED
+items have a real future step; treats NOT-IN-ANY-STEP entries
+as fidelity gaps that need a step assignment (or a brief
+amendment with documented deferral rationale).
+
+**When the manifest is required:**
+
+- Every step commit on a slice with a CD-round design source
+  (R5+ briefs, R7a, R7b, R7c, etc.)
+- Brief-amendment commits that touch implementation code
+- Smoke-driven hotfix commits that re-touch fidelity surfaces
+
+**When NOT required:**
+
+- Pure refactor / dependency-bump / build-config commits
+- Documentation-only commits (briefs, designer notes, this file)
+- Branch-prep / merge commits
+
+**Smoke discipline this enables:**
+
+- Edward defaults to read-only manifest verification per commit
+  (~30 seconds: scan the MATCHED list, confirm names line up with
+  R-source elements)
+- Full smoke pass happens once, at Step 10 (or equivalent
+  "comprehensive smoke" step), with manifest history serving as
+  the PM-side audit trail
+- Designer agent (Step 11) cross-references manifests against
+  R-source elements as part of its rubric — any MATCHED claim
+  the rendered surface doesn't honor is a HIGH finding
+
+**Banked from Slice §6.b Step 1 amendment (May 2026).** Edward
++ CA dispositioned "run-through-then-audit" mode for §6.b Steps
+2-10: no per-step smoke; manifest contract carries the fidelity
+discipline. Pattern formalized so future slices opt in to the
+same mode without re-negotiating the convention.
+
+If future slices show that manifest accuracy degrades over many
+steps (CC drift between what manifest claims and what was
+shipped), introduce a manifest-cross-check tool — `scripts/audit/
+fidelity-manifest.mjs` could parse the manifest from a commit
+range and surface MATCHED claims that touched no relevant files.
+Until that's needed, the discipline lives in commit-author care.
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**

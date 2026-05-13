@@ -20,7 +20,6 @@ import {
 // QuoteSummaryCard imports dropped along with the CostingSummary
 // helper component.
 import { buildTreeRenderOrder, getEligibleParents } from "@/lib/sku-tree";
-import { IdBadge } from "@/components/id-badge";
 import { Eyebrow } from "@/components/nav/eyebrow";
 import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
 import { ActionCluster } from "@/components/nav/action-cluster";
@@ -35,18 +34,6 @@ import { SkuSearchPanel } from "./sku-search-panel";
 import { TierRow } from "./tier-row";
 import { NotesEditor } from "./notes-editor";
 import { TierPresetSelect } from "./tier-preset-select";
-
-// Slice RI.8 step 1 — token-backed status badges. Stock Tailwind
-// `gray-*` / `blue-*` / `green-*` / `amber-*` / `red-*` palettes
-// don't emit CSS under RI.0's @theme rebuild; mapped to project
-// design tokens for visible rendering.
-const STATUS_STYLES: Record<string, string> = {
-  draft: "bg-paper-3 text-ink-2",
-  sent: "bg-accent-soft text-accent-ink",
-  accepted: "bg-good-soft text-good",
-  superseded: "bg-warn-soft text-warn",
-  lost: "bg-bad-soft text-bad",
-};
 
 export default async function QuoteBuilderPage({
   params,
@@ -111,11 +98,14 @@ export default async function QuoteBuilderPage({
         </Link>
       </div>
 
-      {/* Slice RI.9 § 3 — page-head wired to R7a primitives.
-          Eyebrow follows R7a canonical format ({client/deal} ·
-          {scenarioLabel} · v{N}). Continue-to-Costs CTA moved into
-          <YourNextMoveBanner /> below; Save draft + + New scenario
-          stay in action cluster (R7a surface-render rules). */}
+      {/* §6.b Step 1 amendment — R7b page chrome canon.
+          Eyebrow stays per R7a (client · scenario · vN). Title +
+          sub-copy match R7b designer notes line 6-7 ("starting
+          shape of the quote"). Action cluster swaps "+ New scenario"
+          (RI.9 placeholder) for "+ Add SKU" (R7b canonical).
+          Quote-identifier strip (IdBadge + status badge + created
+          date) dropped — R7b page head doesn't carry it; status
+          + ID live elsewhere (rail / non-draft warning banner). */}
       <header className="r1-setup-head">
         <div>
           <Eyebrow
@@ -126,36 +116,33 @@ export default async function QuoteBuilderPage({
             ]}
           />
           <h1 className="r1-setup-title">
-            Define <em>SKUs &amp; volume tiers</em>
+            Setup{" "}
+            <span style={{ color: "var(--ink-3)", fontWeight: 400 }}>
+              · SKUs, tiers, notes
+            </span>
           </h1>
           <p className="r1-setup-sub">
-            Done once per quote. Tiers become first-class views — not
-            duplicate columns of inputs.
+            The starting shape of the quote. What you&rsquo;re selling, in
+            what quantities, with what context. Cost goes on the next
+            surface.
             {pm?.name ? ` · PM ${pm.name}` : ""}
           </p>
-          <div className="r1-setup-meta">
-            <IdBadge id={quote.id} />
-            <Badge
-              className={STATUS_STYLES[quote.status] ?? STATUS_STYLES.draft}
-            >
-              {quote.status}
-            </Badge>
-            <span>created {quote.createdAt.toLocaleDateString()}</span>
-          </div>
         </div>
         <ActionCluster
           secondary={[
-            // + New scenario — currently inert at Setup level; preserved
-            // for R7a secondary slot. UX_BACKLOG: wire to scenarioCopy
-            // action when CD R7 commits the affordance shape.
+            // + Add SKU — R7b canonical secondary affordance. Currently
+            // inert at the page-head level; the canonical write path is
+            // the table footer "+ Add Product" modal (Step 8 wires the
+            // modal). UX_BACKLOG: wire page-head button to focus the
+            // table-footer add-product affordance once modal lands.
             <button
-              key="new-scenario"
+              key="add-sku"
               type="button"
               className="r2-btn ghost"
               disabled
-              title="+ New scenario — wiring lands with Setup §6.b redesign"
+              title="+ Add SKU — wires to add-product modal in §6.b Step 8"
             >
-              + New scenario
+              + Add SKU
             </button>,
           ]}
           primary={
@@ -172,12 +159,17 @@ export default async function QuoteBuilderPage({
       </header>
 
       {/* Slice RI.9 § 3.3 — YOUR NEXT MOVE banner. Setup → Cost build
-          is the canonical forward step. When quote is non-draft, the
-          sent-status warning replaces the banner. */}
+          is the canonical forward step. R7b subtitle ("once SKUs and
+          tiers are settled") added via helpText prop per §6.b Step 1
+          amendment.  When quote is non-draft, the sent-status warning
+          replaces the banner. */}
       {editable ? (
         <YourNextMoveBanner
           state="default"
-          label={SURFACE_META.setup.nextMove?.label ?? "Open costs →"}
+          label={
+            SURFACE_META.setup.nextMove?.label ?? "Continue to Cost build →"
+          }
+          helpText="once SKUs and tiers are settled"
           href={resolveSurfaceHref("cost_build", project.id, quote.id)}
         />
       ) : (
@@ -195,36 +187,34 @@ export default async function QuoteBuilderPage({
           Notes section follows full-width below the grid. */}
       <div className="r1-setup-grid">
 
-      {/* SKUs — referenced from HubSpot Products */}
-      <Section title="SKUs">
-        {editable && (
-          <div className="border-b border-rule">
-            <SkuSearchPanel
-              quoteId={quote.id}
-              eligibleParents={getEligibleParents(skus, null).map((p) => ({
-                id: p.id,
-                skuLabel: p.skuLabel,
-                productName: p.productName,
-                skuRole: p.skuRole,
-              }))}
-            />
-            <div className="px-4 pb-3">
-              <AddAssemblyButton
-                quoteId={quote.id}
-                eligibleParents={getEligibleParents(skus, null).map((p) => ({
-                  id: p.id,
-                  skuLabel: p.skuLabel,
-                  productName: p.productName,
-                  skuRole: p.skuRole as "leaf" | "assembly",
-                }))}
-              />
-            </div>
-          </div>
-        )}
+      {/* §6.b Step 1 amendment — R7b SKUs section:
+          • Section header carries count caption "{N} SKUs · {M} assemblies"
+          • Table header + rows at top of card
+          • Footer affordances ("+ Add Product" + "↗ Pull from HubSpot")
+            relocated from top placement to below the table per R7b
+            grammar
+          Existing components retained (AddAssemblyButton + SkuSearchPanel)
+          with label/position adjustments. Step 8 replaces "+ Add Product"
+          with the full add-product modal. */}
+      <Section
+        title="SKUs"
+        action={
+          <span
+            className="font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3"
+            aria-label="SKU count caption"
+          >
+            {skus.length} {skus.length === 1 ? "SKU" : "SKUs"}
+            {(() => {
+              const aCount = skus.filter((s) => s.skuRole === "assembly").length;
+              return ` · ${aCount} ${aCount === 1 ? "assembly" : "assemblies"}`;
+            })()}
+          </span>
+        }
+      >
         {skus.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-ink-3">
             {editable
-              ? "Search HubSpot Products above to add the first SKU, or create a Nexus-local assembly."
+              ? 'No SKUs yet. Use "+ Add Product" or "↗ Pull from HubSpot" below to start.'
               : "No SKUs."}
           </p>
         ) : (
@@ -267,6 +257,37 @@ export default async function QuoteBuilderPage({
               })}
             </div>
           </>
+        )}
+        {editable && (
+          <div className="border-t border-rule px-4 pt-3 pb-4">
+            <div className="mb-3 flex items-center gap-3">
+              <AddAssemblyButton
+                quoteId={quote.id}
+                eligibleParents={getEligibleParents(skus, null).map((p) => ({
+                  id: p.id,
+                  skuLabel: p.skuLabel,
+                  productName: p.productName,
+                  skuRole: p.skuRole as "leaf" | "assembly",
+                }))}
+                triggerLabel="+ Add Product"
+              />
+              <span className="text-xs text-ink-4">Drag rows to reorder · wires in Step 9</span>
+            </div>
+            <div>
+              <p className="mb-1.5 font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3">
+                ↗ Pull from HubSpot
+              </p>
+              <SkuSearchPanel
+                quoteId={quote.id}
+                eligibleParents={getEligibleParents(skus, null).map((p) => ({
+                  id: p.id,
+                  skuLabel: p.skuLabel,
+                  productName: p.productName,
+                  skuRole: p.skuRole,
+                }))}
+              />
+            </div>
+          </div>
         )}
       </Section>
 
@@ -387,7 +408,7 @@ function SkuHeader() {
       <span aria-hidden></span>{/* Grip column header is intentionally blank */}
       <span>Type</span>
       <span>Product</span>
-      <span>Retail $</span>
+      <span>Retail bench</span>
       <span>Components</span>
       <span aria-hidden></span>{/* ⋯ overflow column header is intentionally blank */}
     </div>
@@ -404,23 +425,6 @@ function TierHeader() {
   );
 }
 
-function Badge({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <span
-      className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
-        className ?? ""
-      }`}
-    >
-      {children}
-    </span>
-  );
-}
 
 // ReadOnlyNotes helper retained for future polish; not currently called.
 // Slice RI.8 spot-fix updated styling to @theme tokens; rendering
