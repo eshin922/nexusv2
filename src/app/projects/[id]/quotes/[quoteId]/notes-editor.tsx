@@ -6,27 +6,28 @@ import { updateQuoteNotes } from "@/app/actions/quotes";
 
 const DEBOUNCE_MS = 800;
 
-// §6.b Step 7 (pulled forward to Step 1 amendment) — Notes split
-// per R7b designer notes §3.6 / Decision 2.
+// §6.b path-B migration commit 5/5 — Notes split renders canonical
+// .r7b-notes / .r7b-note-zone structure (7bsetup.jsx NotesSection
+// lines 313-350 + 7bstyles.css .r7b-notes / .r7b-note-zone rules
+// at line 426).
 //
-// Two side-by-side zones at bottom of Setup:
-//   Internal (left)   — `--internal` purple accent
-//                       INTERNAL chip
-//                       "PM-ONLY · NEVER CUSTOMER-VISIBLE" subtitle
-//                       audience footer
-//   Customer (right)  — `--good` green accent
-//                       CUSTOMER chip
-//                       "RENDERS ON THE QUOTE PDF" subtitle
-//                       audience footer
-//                       "Preview on Quote →" link
+// Two side-by-side audience-distinct zones at bottom of Setup:
+//   Internal (left)   — .r7b-note-zone.internal — purple --internal
+//                       accent border-left, INTERNAL chip
+//   Customer (right)  — .r7b-note-zone.customer — green --good
+//                       accent border-left, CUSTOMER chip
 //
-// Audience-decision-at-write-time per R7b: separate textareas with
-// distinct visual treatment makes accidental cross-pollination of
-// audiences hard. R7b explicitly rejected the v1 single-textarea-
-// with-checkboxes pattern.
+// Canonical DOM:
+//   .r7b-note-zone
+//     .r7b-note-zone-head
+//       .lhs > h4 + .audience
+//       .chip
+//     .r7b-note-zone-body
+//       <textarea>
+//       .helper > <strong>Audience:</strong> + text + (Preview link)
 //
-// Layout: CSS grid two-column on desktop, stacked on narrow. Card
-// chrome (paper bg + rule border + 10px radius) per R7b.
+// Autosave: blur-debounced (800ms) via updateQuoteNotes action.
+// R6 Blur+Enter carry-forward.
 
 export function NotesEditor({
   quoteId,
@@ -36,7 +37,6 @@ export function NotesEditor({
   disabled = false,
 }: {
   quoteId: string;
-  /** §6.b Step 7 — for the "Preview on Quote →" customer-zone link. */
   projectId: string;
   internalNotes: string | null;
   customerFacingNotes: string | null;
@@ -79,88 +79,79 @@ export function NotesEditor({
   }
 
   return (
-    <div className="r6b-notes-grid">
-      {/* Internal card — purple --internal accent */}
-      <section
-        className="r6b-notes-card"
-        data-zone="internal"
-        aria-label="Internal notes"
-      >
-        <header className="r6b-notes-card-head">
-          <div>
-            <h3 className="r6b-notes-card-title">Internal notes</h3>
-            <p className="r6b-notes-card-subtitle">
-              PM-only · never customer-visible
-            </p>
+    <div className="r7b-notes">
+      {/* Internal zone — purple --internal accent */}
+      <div className="r7b-note-zone internal" aria-label="Internal notes">
+        <div className="r7b-note-zone-head">
+          <div className="lhs">
+            <h4>Internal notes</h4>
+            <span className="audience">PM-only · never customer-visible</span>
           </div>
-          <span className="r6b-notes-chip" data-chip="internal">
-            INTERNAL
-          </span>
-        </header>
-        <textarea
-          value={internal}
-          rows={5}
-          disabled={disabled}
-          onChange={(e) => {
-            const v = e.target.value;
-            setInternal(v);
-            scheduleSave({ internal: v });
-          }}
-          placeholder="e.g., 'Customer requested matte tube finish in Apr 24 call; pending sourcing confirm.'"
-          className="r6b-notes-textarea"
-        />
-        <footer className="r6b-notes-card-footer">
-          <span className="r6b-notes-audience-label">Audience:</span>{" "}
-          you, other PMs, and admins. Sourcing dependencies, customer phone
-          notes, R&amp;D blockers go here.
-        </footer>
-      </section>
+          <span className="chip">Internal</span>
+        </div>
+        <div className="r7b-note-zone-body">
+          <textarea
+            value={internal}
+            disabled={disabled}
+            onChange={(e) => {
+              const v = e.target.value;
+              setInternal(v);
+              scheduleSave({ internal: v });
+            }}
+            placeholder="e.g., 'Customer requested matte tube finish in Apr 24 call; pending sourcing confirm.'"
+          />
+          <div className="helper">
+            <strong>Audience:</strong> you, other PMs, and admins. Sourcing
+            dependencies, customer phone notes, R&amp;D blockers go here.
+          </div>
+        </div>
+      </div>
 
-      {/* Customer-facing card — green --good accent */}
-      <section
-        className="r6b-notes-card"
-        data-zone="customer"
+      {/* Customer-facing zone — green --good accent */}
+      <div
+        className="r7b-note-zone customer"
         aria-label="Customer-facing notes"
       >
-        <header className="r6b-notes-card-head">
-          <div>
-            <h3 className="r6b-notes-card-title">Customer-facing notes</h3>
-            <p className="r6b-notes-card-subtitle">
-              Renders on the Quote PDF
-            </p>
+        <div className="r7b-note-zone-head">
+          <div className="lhs">
+            <h4>Customer-facing notes</h4>
+            <span className="audience">Renders on the Quote PDF</span>
           </div>
-          <span className="r6b-notes-chip" data-chip="customer">
-            CUSTOMER
-          </span>
-        </header>
-        <textarea
-          value={customer}
-          rows={5}
-          disabled={disabled}
-          onChange={(e) => {
-            const v = e.target.value;
-            setCustomer(v);
-            scheduleSave({ customer: v });
-          }}
-          placeholder="e.g., 'Pricing valid for 30 days. Lead time begins after artwork approval.'"
-          className="r6b-notes-textarea"
-        />
-        <footer className="r6b-notes-card-footer">
-          <span className="r6b-notes-audience-label">Audience:</span>{" "}
-          the customer (renders on the Quote PDF and Mark-Accepted snapshot).
-          Boundary-guard: this text travels with the quote artifact.
-          {" "}
-          <Link
-            href={`/projects/${projectId}/quotes/${quoteId}/quote`}
-            className="r6b-notes-preview-link"
-          >
-            Preview on Quote →
-          </Link>
-        </footer>
-      </section>
+          <span className="chip">Customer</span>
+        </div>
+        <div className="r7b-note-zone-body">
+          <textarea
+            value={customer}
+            disabled={disabled}
+            onChange={(e) => {
+              const v = e.target.value;
+              setCustomer(v);
+              scheduleSave({ customer: v });
+            }}
+            placeholder="e.g., 'Pricing valid for 30 days. Lead time begins after artwork approval.'"
+          />
+          <div className="helper">
+            <strong>Audience:</strong> the customer (renders on the Quote PDF
+            and Mark-Accepted snapshot). Boundary-guard: this text travels
+            with the quote artifact.{" "}
+            <Link href={`/projects/${projectId}/quotes/${quoteId}/quote`}>
+              Preview on Quote →
+            </Link>
+          </div>
+        </div>
+      </div>
 
       {(saveError || pending) && (
-        <div className="r6b-notes-status" role="status" aria-live="polite">
+        <div
+          style={{
+            gridColumn: "1 / -1",
+            fontFamily: "var(--mono)",
+            fontSize: 11,
+            letterSpacing: "0.04em",
+          }}
+          role="status"
+          aria-live="polite"
+        >
           {saveError ? (
             <span style={{ color: "var(--bad)" }}>{saveError}</span>
           ) : (
