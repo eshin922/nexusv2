@@ -24,6 +24,7 @@ import {
   SentStatusBanner,
 } from "@/components/costs/costs-header";
 import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
+import { NavShell } from "@/components/nav/nav-shell";
 import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
 import { SURFACE_META } from "@/lib/nav/surface-meta";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
@@ -198,6 +199,12 @@ export default async function CostBuildPage({
 
   if (!bundle.ok) {
     return (
+      <NavShell
+        surfaceKey="cost_build"
+        projectId={projectId}
+        quoteId={quoteId}
+        activeScenarioLabel={quote.scenarioLabel}
+      >
       <main className="p-6">
         <div
           role="alert"
@@ -206,6 +213,7 @@ export default async function CostBuildPage({
           Costing data unavailable: {bundle.error.message}
         </div>
       </main>
+      </NavShell>
     );
   }
 
@@ -230,6 +238,12 @@ export default async function CostBuildPage({
       : "packaging";
 
   return (
+    <NavShell
+      surfaceKey="cost_build"
+      projectId={projectId}
+      quoteId={quoteId}
+      activeScenarioLabel={quote.scenarioLabel}
+    >
     <CostingStoreProvider snapshot={bundle.data}>
       {/* URL ↔ store sync for active-tier selection. Suspense
           boundary required for useSearchParams in app router. */}
@@ -414,6 +428,7 @@ export default async function CostBuildPage({
         </CostBuildAccordion>
       </main>
     </CostingStoreProvider>
+    </NavShell>
   );
 }
 

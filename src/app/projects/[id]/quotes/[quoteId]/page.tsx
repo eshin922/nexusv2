@@ -24,6 +24,7 @@ import { IdBadge } from "@/components/id-badge";
 import { Eyebrow } from "@/components/nav/eyebrow";
 import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
 import { ActionCluster } from "@/components/nav/action-cluster";
+import { NavShell } from "@/components/nav/nav-shell";
 import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
 import { SURFACE_META } from "@/lib/nav/surface-meta";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
@@ -94,6 +95,12 @@ export default async function QuoteBuilderPage({
   const editable = quote.status === "draft";
 
   return (
+    <NavShell
+      surfaceKey="setup"
+      projectId={projectId}
+      quoteId={quoteId}
+      activeScenarioLabel={quote.scenarioLabel}
+    >
     <main className="mx-auto max-w-6xl p-6">
       <div className="mb-2 text-sm">
         <Link
@@ -333,6 +340,7 @@ export default async function QuoteBuilderPage({
           PMs reviewing margins navigate to Pricing (via
           page-head Continue button or inner-rail). */}
     </main>
+    </NavShell>
   );
 }
 

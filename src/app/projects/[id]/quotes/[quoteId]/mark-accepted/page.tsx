@@ -7,6 +7,7 @@ import { getCostingBundle } from "@/app/actions/costing";
 import { MarkAcceptedHost, type MarkAcceptedSubState } from "@/components/mark-accepted/mark-accepted-host";
 import { Eyebrow } from "@/components/nav/eyebrow";
 import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
+import { NavShell } from "@/components/nav/nav-shell";
 import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
 import { SURFACE_META } from "@/lib/nav/surface-meta";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
@@ -71,10 +72,17 @@ export default async function MarkAcceptedPage({
   const bundle = await getCostingBundle(quoteId);
   if (!bundle.ok) {
     return (
+      <NavShell
+        surfaceKey="mark_accepted"
+        projectId={projectId}
+        quoteId={quoteId}
+        activeScenarioLabel={quote.scenarioLabel}
+      >
       <main style={{ padding: "32px 24px" }}>
         <h1>Mark-Accepted unavailable</h1>
         <p style={{ color: "var(--bad)" }}>{bundle.error.message}</p>
       </main>
+      </NavShell>
     );
   }
 
@@ -185,7 +193,12 @@ export default async function MarkAcceptedPage({
     ? "terminal"
     : "default";
   return (
-    <>
+    <NavShell
+      surfaceKey="mark_accepted"
+      projectId={projectId}
+      quoteId={quoteId}
+      activeScenarioLabel={quote.scenarioLabel}
+    >
       {/* Slice RI.9 § 3.1 — Eyebrow per R7a canon. Replaces RI.8 F-7
           breadcrumb-style backlink chain. Mark-Accepted has
           rail.visible=true so inner rail is the where-am-I anchor;
@@ -234,6 +247,6 @@ export default async function MarkAcceptedPage({
         customerAcceptance={customerAcceptance}
         showStateSwitcher={showStateSwitcher}
       />
-    </>
+    </NavShell>
   );
 }

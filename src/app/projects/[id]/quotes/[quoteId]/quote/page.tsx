@@ -7,7 +7,7 @@ import { getCostingBundle } from "@/app/actions/costing";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { findHubspotOwnerById } from "@/lib/hubspot";
 import { QuoteHost } from "@/components/quote/quote-host";
-import { Breadcrumb } from "@/components/nav/breadcrumb";
+import { SurfaceChrome } from "@/components/nav/surface-chrome";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { VENDOR_FIXTURE } from "@/lib/quote-fixtures";
 import type {
@@ -76,8 +76,10 @@ export default async function CustomerViewPage({
     return (
       <main style={{ padding: "32px 24px", maxWidth: 880, margin: "0 auto" }}>
         <div style={{ marginBottom: 16 }}>
-          <Breadcrumb
-            target="customer_view"
+          <SurfaceChrome
+            surfaceKey="customer_view"
+            segments={[]}
+            breadcrumbTarget="customer_view"
             projectId={project.id}
             quoteId={quote.id}
           />
@@ -242,15 +244,19 @@ export default async function CustomerViewPage({
 
   return (
     <>
-      {/* Slice RI.9 § 3.2 — <Breadcrumb> primitive. Customer view
-          is rail-shed (Rule B: print-preview metaphor melts chrome);
-          breadcrumb compensates. RI.8 F-7's inline-text breadcrumb
-          replaced with the canonical component — `›` separator,
-          path derived from breadcrumbPath("customer_view"), every
-          segment except last is a Link. */}
+      {/* Slice RI.9 § 3.2 — <Breadcrumb> via <SurfaceChrome>.
+          Customer view is rail-shed (Rule B: print-preview metaphor
+          melts chrome); breadcrumb compensates. SurfaceChrome reads
+          `shouldShowBreadcrumb("customer_view") === true` from
+          SURFACE_META and renders the Breadcrumb primitive. Step 11
+          audit fix HIGH-2 — wires the previously dead-code helper
+          into a real caller so the XOR rule is structurally
+          enforced. */}
       <div style={{ padding: "16px 24px 0" }}>
-        <Breadcrumb
-          target="customer_view"
+        <SurfaceChrome
+          surfaceKey="customer_view"
+          segments={[]}
+          breadcrumbTarget="customer_view"
           projectId={project.id}
           quoteId={quote.id}
         />
