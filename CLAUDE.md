@@ -502,6 +502,43 @@ schema-verification step explicit in slice brief templates —
 "§0.5 schema verification" as a named gate before §0 migration
 work.
 
+**Third + fourth instances during §6.b prep (same session as #2).**
+Counted as three since #2's notation issues (quote_meta,
+markup_categories, companion paths) are distinct from the
+architectural Mismatch 1:
+
+3. **§6.b architectural mismatch (Mismatch 1):** R7b designer
+   notes line 79 claims "the schema is settled, the data is
+   already on the SKU row" for the assembly-drawer nested
+   component table. False — per-component cost data lives on
+   `packaging_inputs` keyed to LEAF SKUs only, not on
+   `quote_skus`. Three forks surfaced (add columns to quote_skus;
+   route writes to packaging_inputs; carve to follow-up). Edward
+   + CA dispositioned carve (option γ) to preserve §6.b
+   shipping discipline; inline-edit affordance becomes child-SKU
+   navigation list in v1; component-cost-data unification banked
+   as `§6.c` candidate slice OR R7c carry-forward.
+
+**Three instances in two slices is the trigger.** Per the "third
+instance" threshold above, the schema-verification step should
+now be an explicit named gate in slice brief templates. Future
+briefs should include:
+
+```
+## §0.5 — Schema verification (pre-DDL)
+
+Before Step 0 (migration), CC verifies every schema entity the
+brief references against current schema.ts. Each unmatched
+entity is logged; mismatches require disposition before §0
+proceeds. Notation errors patched inline; architectural
+mismatches escalate to CA.
+```
+
+Bank in slice brief template once the next brief is drafted.
+The lesson is no longer "remember to verify" — it's "make
+verification a structural gate." Pattern 22 has earned its
+escalation.
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**

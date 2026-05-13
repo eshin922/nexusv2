@@ -30,6 +30,7 @@
 - **Multi-drawer mode** for cross-SKU comparison workflows — R7c candidate (drawer is one-at-a-time in v1 per Pushback 2 disposition)
 - **Drag-and-drop nested components** (drawer-internal reordering) — R7c candidate; v1 ships drag-drop on SKU rows only
 - **Bulk SKU import** from CSV or HubSpot product-list — separate slice
+- **Inline-editable nested component table in assembly drawer** — carved per Pattern 22 schema-architecture mismatch (R7b designer notes assume per-component cost data is "on the SKU row"; v1 stores it on `packaging_inputs` keyed to leaves). Replaced with child-SKU navigation list (§3.3); inline-edit affordance defers to `§6.c Component cost data unification` candidate slice OR R7c carry-forward.
 - **Other surfaces** (Cost build, Costing, Customer view, Mark Accepted) — RI.9 shipped these; §6.b doesn't touch them
 
 ---
@@ -85,25 +86,27 @@ Drawer contains two zones (in order):
 
 **Implementation note:** drawer is per-row INLINE expansion, not a modal overlay. Same architectural pattern as R4 Copy Scenario picker and R6 section drill-downs.
 
-### 3.3 Inline-editable nested component table
+### 3.3 Assembly drawer — child-SKU navigation list (carved per Pattern 22)
 
-For assemblies, the drawer's first zone is a nested component table. Columns:
+**Pre-kickoff disposition (§6.b prep — May 2026):** R7b designer notes assumed per-component cost data lives "on the SKU row" (line 79). v1 schema places that data on `packaging_inputs` keyed to LEAF SKUs only — the brief's `quote_skus_components` shape doesn't exist. Three forks were surfaced (add columns to `quote_skus`; route drawer writes into `packaging_inputs`; carve to follow-up). Edward + CA dispositioned (γ) carve to honor §6.b slice-shipping discipline.
+
+For assemblies, the drawer's first zone is a **child-SKU navigation list**, not an inline editor. Rows:
 
 | Column | Source | Mutable |
 |---|---|---|
-| Component name | `quote_skus_components.product_name` | Yes — inline text input |
-| Supplier | `quote_skus_components.supplier` | Yes — inline text input |
-| Category | `quote_skus_components.category` → `markup_defaults.category` | Yes — inline select |
-| Unit cost | `quote_skus_components.unit_cost` | Yes — inline numeric |
-| Qty | `quote_skus_components.qty` | Yes — inline numeric |
-| Markup | `quote_skus_components.markup_pct` (defaults from category) | Yes — inline numeric |
-| × | n/a | Delete row |
+| Child SKU label | `quote_skus.label` (children where `parent_sku_id` = assembly id) | No (read-only here) |
+| Child SKU product name | `quote_skus.product_name` | No (read-only here) |
+| Type | `▤ ASY` / `○ LEAF` badge | No (toggle lives on the row in the outer SKU table) |
+| Components | leaf: count of `packaging_inputs` line groups for that leaf, "→" link | n/a |
+| Open in Cost build | `↗ Edit packaging at Cost build` link | n/a — navigates to Cost build packaging surface scoped to that leaf |
 
-**Inline-edit pattern (R5/R6 carry-forward):** `<input>` with transparent border that turns into focused border on hover/focus; commit on blur OR Enter (R6 Blur+Enter pattern). For numeric inputs in textarea-eligible contexts, follow RI.9 Pushback 2 precedent: ⌘+Enter to save explicitly (since plain Enter has different semantics in some contexts).
+**Click target:** clicking a child-SKU row routes to that leaf's Cost build packaging drilldown surface — same R7a breadcrumb routing as Customer view's "Preview on Quote →" link (§5.A precedent). PM edits packaging line items on the existing Cost build surface; returns to Setup via breadcrumb.
 
-**Markup default sourcing (R5 carry-forward):** new component rows default `markup_pct` from `markup_defaults.markup_pct` for the selected category. Editable per-line on Cost build downstream.
+**Footer:** `+ Add child SKU` (creates a new `quote_skus` row with `parent_sku_id` = current assembly id; row appears in the outer SKU table too).
 
-**Footer:** `+ Add component line` affordance (dashed border pill).
+**Per-SKU notes textarea** below the navigation list is unchanged from §3.2 — always present (assembly or leaf), writes `quote_skus.notes`.
+
+**Why the carve:** unifying per-component cost data storage (between `quote_skus` and `packaging_inputs`) is a Cost build coupling decision that exceeds §6.b's Setup-only scope. Banked as `§6.c Component cost data unification` candidate slice OR R7c carry-forward — see §8 risks for entry.
 
 ### 3.4 Tier table parallel register
 
@@ -278,15 +281,16 @@ The R7b design accommodates re-adding the affordance later; v1 SKU table footer 
 | 1 | SKU table column restructure — new layout per §3.1 | CC |
 | 2 | Type badge + click-to-toggle `sku_role` mutation | CC |
 | 3 | Per-row drawer infrastructure — `openSkuId` local state, one-at-a-time enforcement | CC |
-| 4 | Nested component table inside drawer — inline-editable per §3.3 (R5/R6 patterns) | CC |
-| 5 | Per-SKU notes textarea inside drawer + HAS NOTE chip indicator | CC |
-| 6 | Tier table parallel register — card chrome + inline edit + ★ Recommended toggle | CC |
-| 7 | Tier preset picker — empty state with 4 presets per §3.5 | CC |
-| 8 | Notes split — internal + customer-facing zones with audience labels | CC |
-| 9 | Add-product modal with HubSpot writeback toggle (consequence-sentence pattern) | CC |
-| 10 | Drag-and-drop row reordering — `quote_skus.display_order` writes | CC |
-| 11 | Edward smoke pass (across all 4 R7b states + new affordances) | Edward |
-| 12 | Designer agent audit (full R7b fidelity pass + cross-surface coherence vs RI.9 primitives) — see §9 audit risks | CC + Designer |
+| 4 | Assembly drawer child-SKU navigation list per §3.3 (carved from inline-edit per Pattern 22 disposition) + Per-SKU notes textarea inside drawer + HAS NOTE chip indicator | CC |
+| 5 | Tier table parallel register — card chrome + inline edit + ★ Recommended toggle | CC |
+| 6 | Tier preset picker — empty state with 4 presets per §3.5 | CC |
+| 7 | Notes split — internal + customer-facing zones with audience labels | CC |
+| 8 | Add-product modal with HubSpot writeback toggle (consequence-sentence pattern) | CC |
+| 9 | Drag-and-drop row reordering — `quote_skus.display_order` writes | CC |
+| 10 | Edward smoke pass (across all 4 R7b states + new affordances) | Edward |
+| 11 | Designer agent audit (full R7b fidelity pass + cross-surface coherence vs RI.9 primitives) — see §9 audit risks | CC + Designer |
+
+**Renumbering note:** step 4 in pre-disposition draft was "nested component table inline edit" — carved per §3.3 disposition; child-SKU navigation list folded into step 4 alongside the notes textarea. Slice is now 11 steps total (was 12).
 
 **Note: post-Step-12, fix audit findings + PR-to-main.** Following RI.9 precedent, audit findings disposition before merge.
 
@@ -317,6 +321,7 @@ The R7b design accommodates re-adding the affordance later; v1 SKU table footer 
 - **Type toggle on assembly with existing components** — toggling assembly → leaf hides nested components but PRESERVES them in DB (per R7b designer notes "same preserve-hidden rule as R6.1's tier-shape handling"). Toggle back → components reappear. Verify this carry-forward is implemented; banks Pattern 8 (snapshot-vs-live discipline).
 - **Drag-drop accessibility** — pure drag-drop without keyboard alternative is an a11y issue. R7b designer notes don't specify keyboard reorder; worth flagging for either §6.b implementation OR R7c carry-forward. v1 ships drag-drop only; a11y enhancement can land separately.
 - **Designer-agent harness truncation** (RI.9 precedent) — Step 11 audit is HIGH value on this slice (wholesale redesign, lots of fidelity surface area). Mitigation in §9 below.
+- **Component-cost-data unification (carved from §6.b per Pattern 22)** — R7b's inline-editable nested component table requires per-component cost columns on `quote_skus`, but v1 stores them on `packaging_inputs` keyed to leaves. Unifying the two locations is a Cost build coupling decision exceeding §6.b's Setup-only scope. Banked as candidate `§6.c Component cost data unification` slice OR R7c carry-forward. Decisions to resolve: (i) which storage location wins (quote_skus columns vs packaging_inputs); (ii) per-tier dimension treatment (collapse to single value, or keep packaging_inputs.qty as per-tier dimension); (iii) migration strategy (dual-write transition vs hard cutover). §6.b ships child-SKU navigation list as the v1 affordance per §3.3.
 
 ---
 
