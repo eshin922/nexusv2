@@ -1277,3 +1277,65 @@ export const costSectionDeposits = pgTable(
     index("cost_section_deposits_quote_id_idx").on(t.quoteId),
   ],
 );
+
+// ---------- Slice RI.9 — Navigation IA `user_surface_visits` ----------
+//
+// Records the LAST surface a user touched per (project, quote). Read
+// path is the Home Resume card ("continue where you left off"). Write
+// path is every quote-scoped server-rendered page-load, via UPSERT.
+//
+// Schema decision (CC + CA, May 2026, brief §3.7 patched inline):
+// `scenario_id` was originally part of the unique key per R7a designer
+// notes, but our v1 schema denormalizes scenarios onto `quotes`
+// (`quotes.scenario_label`, `quotes.scenario_status`,
+// `quotes.version_number`); there is no `scenarios` table yet. `quote_id`
+// is the natural FK target — each quote row IS a scenario version.
+// Resume card reads `quotes.scenario_label` via JOIN for display.
+// Slice 14 normalization may re-key to `(scenario_id)` later per the
+// schema.ts:1158 Slice 14 todo. Caught Pattern 22 pre-build.
+//
+// UPSERT growth model (CA refinement of CD's append + trim):
+// `unique (user_id, project_id, quote_id, surface_key)` + INSERT ...
+// ON CONFLICT DO UPDATE SET visited_at = NOW(). No cron trim needed —
+// table size bounded by user × surface × quote combinations
+// (~5 surfaces × N quotes per user). Trade-off accepted: loses
+// per-surface visit history beyond latest. Revisit if R7c surfaces a
+// "recent activity" use case requiring history.
+//
+// Both `project_id` and `quote_id` carry ON DELETE CASCADE so cleanup
+// is automatic when a project or quote is deleted (no stale resume
+// rows). `quote_id` is nullable on the column even though the typical
+// use case keys on it — leave room for future non-quote-scoped surfaces
+// (Setup before SKUs is currently `/projects/[id]/quotes/[quoteId]` so
+// the column is effectively NOT NULL in practice).
+export const userSurfaceVisits = pgTable(
+  "user_surface_visits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    quoteId: uuid("quote_id").references(() => quotes.id, {
+      onDelete: "cascade",
+    }),
+    surfaceKey: text("surface_key").notNull(),
+    visitedAt: timestamp("visited_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("user_surface_visits_unique_idx").on(
+      t.userId,
+      t.projectId,
+      t.quoteId,
+      t.surfaceKey,
+    ),
+    index("user_surface_visits_user_visited_idx").on(
+      t.userId,
+      t.visitedAt,
+    ),
+  ],
+);

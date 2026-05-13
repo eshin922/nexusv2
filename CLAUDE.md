@@ -426,6 +426,48 @@ Banked from R7b banner-state strip recognition during R7b review
 (May 2026); reinforced by R7a surface tab strip during RI.9
 kickoff.
 
+## "Design docs may make wishful schema assumptions; verify before encoding DDL"
+
+When a brief references a schema entity (table, column, FK), CC
+verifies the entity exists in current schema BEFORE writing
+migrations. Designer / CA doesn't always have full repo schema
+access at design time — what reads as natural in the design
+notes may not map cleanly to v1's actual normalization choices.
+Surfacing the mismatch pre-build saves the cost of a broken
+migration + refactor.
+
+**Recognition heuristic:** any DDL block in a brief that
+references a table you haven't grep'd in `src/db/schema.ts` is
+unverified. Cheap to verify; expensive to ship and undo.
+
+**Reference moment:** Slice RI.9 step 0 (May 2026). R7a designer
+notes + data-source map assumed a `scenarios` table; current
+schema has scenarios denormalized onto `quotes` (`quotes.
+scenario_label`, `quotes.scenario_status`, `quotes.
+version_number`). The `schema.ts:1158` todo explicitly defers
+the scenarios table to Slice 14. CC caught the FK mismatch
+pre-build, surfaced to CA, dispositioned option (a) — drop
+`scenario_id` from `user_surface_visits`, key on `quote_id`
+(which IS a scenario version in v1 schema). Brief + data-source
+map patched inline. No code thrown away.
+
+**Surface to CA, don't silently absorb.** The brief might be
+right and the schema needs updating; OR the brief might be
+slightly wrong and a small adjustment makes the design work
+against current schema; OR there's an architectural gap that
+needs Edward + CA disposition. CC's job is to flag, not to
+guess.
+
+**Tags this pattern applies to:**
+- `references <table>(id)` in DDL
+- Cross-table joins assumed in data-source maps
+- Schema migrations that touch entities not yet in production
+- Any "this column exists" claim in brief or designer notes
+
+Banked from RI.9 step 0 schema-mismatch catch (May 2026).
+Protocol working as intended — pre-build verification caught
+the issue before migration was written.
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**
