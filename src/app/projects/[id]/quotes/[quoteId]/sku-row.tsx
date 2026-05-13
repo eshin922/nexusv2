@@ -366,20 +366,11 @@ export function SkuRow({
                   HAS NOTE
                 </span>
               ))}
-            {!hasNote && !isAssembly && onDrawerToggle && (
-              // §6.b Step 4 — leaf rows without a note get a small
-              // subtle "+ note" affordance so PMs can add notes via
-              // the drawer without needing the chip first. Sized
-              // small to not compete with the SKU label.
-              <button
-                type="button"
-                onClick={onDrawerToggle}
-                className="font-mono text-[9px] uppercase tracking-wide text-ink-4 hover:text-ink-3"
-                title="Add a per-SKU note"
-              >
-                + note
-              </button>
-            )}
+            {/* §6.b polish-amendment (sweep #10) — "+ note" CC
+                compensation removed. Leaves access drawer via
+                conditional "Open notes" / "Add notes" entry in
+                the ⋯ overflow menu below, restoring R7b's
+                ⋯-as-drawer-trigger fidelity. */}
           </div>
           <span className="truncate text-xs text-ink-3">
             {sku.productName}
@@ -462,6 +453,28 @@ export function SkuRow({
                   role="menu"
                   className="absolute right-0 top-full mt-1 z-50 min-w-[200px] rounded border border-rule bg-paper py-1 shadow-md"
                 >
+                  {/* §6.b polish-amendment (sweep #10) — Open/Add
+                      notes entry restores R7b's ⋯-as-drawer-trigger
+                      fidelity for leaf rows. Assembly rows have the
+                      Components ▸ cell as primary drawer trigger so
+                      this entry is leaf-only. Label flips on
+                      hasNote: "Open notes" if note exists,
+                      "Add notes" if empty. */}
+                  {!isAssembly && onDrawerToggle && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        onDrawerToggle();
+                        setOverflowOpen(false);
+                      }}
+                      disabled={disabled}
+                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2 disabled:opacity-30"
+                    >
+                      <span className="mr-2 font-mono text-ink-3">📝</span>
+                      {hasNote ? "Open notes" : "Add notes"}
+                    </button>
+                  )}
                   {/* §6.b Step 1 — ↑↓ relocated into overflow until
                       Step 9 wires drag-drop on the Grip column. */}
                   <button
