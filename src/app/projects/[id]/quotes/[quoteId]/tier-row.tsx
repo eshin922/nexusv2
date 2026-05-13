@@ -133,7 +133,7 @@ export function TierRow({
           setLabel(v);
           scheduleLabelQtySave({ label: v });
         }}
-        className="r6b-tier-input"
+        className="r6b-tier-input r6b-tier-label"
         aria-label="Tier label"
       />
       <button

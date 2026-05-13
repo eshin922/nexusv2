@@ -471,16 +471,18 @@ function SkuHeader() {
   );
 }
 
-// §6.b Step 5 — Tier table header per R7b §3.4 columns:
-// Label · ★ · Qty · Price adj % · ×. Grammar matches the SKU
-// table header (mono uppercase ink-3 tracking 0.13em).
+// §6.b Step 5 — Tier table header per R7b §3.4 columns.
+// Polish-amendment (Edward smoke): "Price adj %" shortened to
+// "Adj %" so the header stays single-line in the narrower Tier
+// card; CSS-uppercase renders as "ADJ %" matching SKU-table
+// header register. Whitespace-nowrap on cells to enforce.
 function TierHeader() {
   return (
-    <div className="grid grid-cols-[2fr_36px_1fr_1fr_36px] items-center gap-2 border-b border-rule bg-paper-2 px-3 py-2 font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3">
+    <div className="grid grid-cols-[2fr_36px_1fr_1fr_36px] items-center gap-2 border-b border-rule bg-paper-2 px-3 py-2 font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-3 whitespace-nowrap">
       <span>Label</span>
       <span className="text-center" aria-label="Recommended">★</span>
       <span>Qty</span>
-      <span>Price adj %</span>
+      <span>Adj %</span>
       <span aria-hidden></span>
     </div>
   );

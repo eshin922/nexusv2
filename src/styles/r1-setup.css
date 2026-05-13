@@ -436,6 +436,16 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* §6.b Step 5 polish-amendment — tier label cell renders italic
+   display register per R7b screenshot ("Tier 1", "Tier 2" in
+   serif italic). Overrides the base .r6b-tier-input UI-sans. */
+.r6b-tier-label {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--ink);
+}
 .r6b-tier-star {
   display: inline-flex;
   align-items: center;
