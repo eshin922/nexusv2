@@ -1,69 +1,26 @@
-import "server-only";
-import { eq } from "drizzle-orm";
-import { db } from "@/db";
-import { quotes } from "@/db/schema";
-import { InnerRail } from "@/components/rails/inner-rail";
+// Slice RI.9 step 11 audit fix (HIGH-1) — rail moved out of shared
+// layout into `<NavShell>` (`src/components/nav/nav-shell.tsx`).
+// The shared layout for quote-scoped surfaces is now a thin
+// passthrough so Customer view can skip the rail per R7a's
+// load-bearing rail XOR breadcrumb rule.
+//
+// Each rail-needing page wraps its content in `<NavShell>` and
+// passes its own `activeScenarioLabel` (already in their existing
+// quote fetch). Customer view renders bare — no rail, no offset,
+// edge-to-edge under the outer workspace chrome.
+//
+// Why per-page rather than route-group: Next 15 layouts can't see
+// the active child route segment without middleware, so
+// conditional-rail-in-layout requires per-pathname headers. The
+// per-page prop pass is simpler. Route groups remain available
+// if a future surface joins (`(rail)/...` for the four working
+// surfaces; quote stays at outer level) — re-evaluate then.
 
-// Slice RI.8 F-1 fix — quote-scoped layout. Renders InnerRail with
-// `activeScenarioLabel` derived from a small DB lookup against the
-// quoteId route param. This is the load-bearing fix Round 4's
-// canonical sub-rail navigation has been waiting for —
-// `/projects/[id]/layout.tsx` never had access to quoteId, so
-// InnerRail received `activeQuoteId=undefined` and the per-scenario
-// sub-rail (Setup / Costs / Pricing / Quote)
-// never expanded for the active scenario.
-//
-// Why we resolve scenario_label here (not in InnerRail):
-//   - InnerRail's existing `getProjectScenarios` returns the
-//     latest version per scenario. Matching by `latestQuoteId`
-//     fails when PM is viewing an older version (common after
-//     re-sends create new draft versions while older sent
-//     versions stay reachable). Resolving scenario_label at the
-//     layout — one tiny indexed lookup by quote id — is the
-//     simpler and more correct contract.
-//
-// Layout composition (Next 15):
-//   /projects/[id]/layout.tsx                — records visit only (no rail)
-//   /projects/[id]/quotes/[quoteId]/layout.tsx — this file (rail + offset)
-//   /projects/[id]/page.tsx                  — Project Detail; renders its
-//                                              own rail (no active scenario)
-//
-// Double-rail render avoided because the project layout no longer
-// renders a rail (see comment in projects/[id]/layout.tsx).
-
-export default async function QuoteLayout({
+export default function QuoteLayout({
   children,
-  params,
 }: {
   children: React.ReactNode;
   params: Promise<{ id: string; quoteId: string }>;
 }) {
-  const { id, quoteId } = await params;
-
-  // Resolve scenario_label for the active quote. Single-row lookup
-  // by indexed PK; ~ms. Worst case (quoteId not found, e.g., bad
-  // URL): scenario_label stays undefined → no active highlight, no
-  // sub-rail expansion (graceful — the underlying page renders 404
-  // anyway).
-  const rows = await db
-    .select({ scenarioLabel: quotes.scenarioLabel })
-    .from(quotes)
-    .where(eq(quotes.id, quoteId))
-    .limit(1);
-  const activeScenarioLabel = rows[0]?.scenarioLabel;
-
-  return (
-    <div className="min-h-screen">
-      <InnerRail
-        projectId={id}
-        activeScenarioLabel={activeScenarioLabel}
-        activeQuoteId={quoteId}
-      />
-      {/* Main content offset by inner rail (240px) + 16px breathing
-          room → pl-64 (256px). Outer rail's 56px padding applied by
-          AppShell at the root. Issue 1 fix — pl-60 sat flush against
-          inner rail's right edge once F-1 made the rail render. */}
-      <div className="pl-64">{children}</div>
-    </div>
-  );
+  return <>{children}</>;
 }

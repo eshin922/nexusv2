@@ -7,6 +7,8 @@ import { getCostingBundle } from "@/app/actions/costing";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { findHubspotOwnerById } from "@/lib/hubspot";
 import { QuoteHost } from "@/components/quote/quote-host";
+import { SurfaceChrome } from "@/components/nav/surface-chrome";
+import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { VENDOR_FIXTURE } from "@/lib/quote-fixtures";
 import type {
   CustomerView,
@@ -35,6 +37,13 @@ export default async function CustomerViewPage({
 }) {
   const { id: projectId, quoteId } = await params;
   const { dev } = await searchParams;
+
+  // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
+  await recordSurfaceVisit({
+    projectId,
+    quoteId,
+    surfaceKey: "customer_view",
+  });
 
   // Load quote, project, firm_settings (current), and costing bundle.
   // firm_settings is needed for both the vendor identity (live render)
@@ -66,14 +75,15 @@ export default async function CustomerViewPage({
   if (!bundle.ok) {
     return (
       <main style={{ padding: "32px 24px", maxWidth: 880, margin: "0 auto" }}>
-        <p className="r2-eyebrow" style={{ marginBottom: 16 }}>
-          <Link
-            href={`/projects/${project.id}/quotes/${quote.id}`}
-            style={{ color: "var(--ink-3)" }}
-          >
-            ← Setup
-          </Link>
-        </p>
+        <div style={{ marginBottom: 16 }}>
+          <SurfaceChrome
+            surfaceKey="customer_view"
+            segments={[]}
+            breadcrumbTarget="customer_view"
+            projectId={project.id}
+            quoteId={quote.id}
+          />
+        </div>
         <h1>Quote unavailable</h1>
         <p style={{ color: "var(--bad)" }}>{bundle.error.message}</p>
       </main>
@@ -234,34 +244,30 @@ export default async function CustomerViewPage({
 
   return (
     <>
-      {/* F-7 (Slice RI.8 step 7): breadcrumb adopts mono-caption
-          register via .r2-eyebrow so it reads as nav-context, not
-          inline body text. */}
-      <p
-        className="r2-eyebrow"
-        style={{ padding: "16px 24px 0" }}
-      >
-        <Link
-          href={`/projects/${project.id}/quotes/${quote.id}`}
-          style={{ color: "var(--ink-3)" }}
-        >
-          ← Setup
-        </Link>
-        {" · "}
-        <Link
-          href={`/projects/${project.id}/quotes/${quote.id}/pricing`}
-          style={{ color: "var(--ink-3)" }}
-        >
-          Pricing
-        </Link>
-        {" · Quote"}
-      </p>
+      {/* Slice RI.9 § 3.2 — <Breadcrumb> via <SurfaceChrome>.
+          Customer view is rail-shed (Rule B: print-preview metaphor
+          melts chrome); breadcrumb compensates. SurfaceChrome reads
+          `shouldShowBreadcrumb("customer_view") === true` from
+          SURFACE_META and renders the Breadcrumb primitive. Step 11
+          audit fix HIGH-2 — wires the previously dead-code helper
+          into a real caller so the XOR rule is structurally
+          enforced. */}
+      <div style={{ padding: "16px 24px 0" }}>
+        <SurfaceChrome
+          surfaceKey="customer_view"
+          segments={[]}
+          breadcrumbTarget="customer_view"
+          projectId={project.id}
+          quoteId={quote.id}
+        />
+      </div>
       <QuoteHost
         view={view}
         quoteId={quote.id}
         quoteStatus={quote.status}
         showStateSwitcher={showStateSwitcher}
         devSendEnabled={devSendEnabled}
+        internalNotes={quote.internalNotes}
       />
     </>
   );

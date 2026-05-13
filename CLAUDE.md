@@ -383,6 +383,91 @@ Banked from Slice RI.8 step 11 smoke (May 2026). Strengthens the
 case for RI.9.5 Design Audit Slice scope to include
 cross-cutting dimensions, not just per-surface fidelity.
 
+## "R-round prototype state strips are review aids, not production UI"
+
+CD's R-round prototypes use top-of-screen tab/state strips to let
+reviewers (Edward, CA, CC) flip between surface variants and
+states quickly during prototype review. These strips are **review
+chrome**, NOT production UI. Implementation does NOT ship them.
+
+**Reference moments:**
+- **R7a** (May 2026, nav IA round): top tab strip
+  `R7A SURFACE · HOME · RULE TOUR · SETUP · COST BUILD · COSTING
+  · CUSTOMER VIEW · MARK ACCEPTED` lets the reviewer click
+  between surfaces in one HTML file. Production navigates via
+  outer + inner rail + breadcrumb per surface-render rules.
+- **R7b** (May 2026, banner states): state strip toggles between
+  default · gated · terminal-muted banner states. Production
+  derives state from `surfaceMeta.next_move.gated_label` +
+  acceptance status; no toggle UI.
+- **R5** earlier prototypes had similar tweaks panels (the
+  `__edit_mode_set_keys` postMessage chrome).
+
+**Recognition heuristic:** if a control's purpose is "let me
+preview different versions of the same surface" it's review
+chrome. Production users don't need that — they're in one state
+at a time, driven by data + surface route.
+
+**Production navigation source of truth:** outer rail (workspace)
++ inner rail (within-project) + per-surface chrome (Eyebrow OR
+Breadcrumb, never both — R7a's load-bearing rule). Routes derived
+from `surface-routes` config table. Surface-state visibility
+derived from `surface-render rules` table.
+
+**Future-CC failure mode to recognize:** seeing the strip in the
+prototype and porting it as a real component. The fix is to
+verify against the designer notes (R7a notes §93 explicitly
+rejected a "tabs-style next-move affordance" — the rail does
+that job; tabs would duplicate). When in doubt, ask: "is this
+control needed for normal use, or only to navigate prototype
+states during review?"
+
+Banked from R7b banner-state strip recognition during R7b review
+(May 2026); reinforced by R7a surface tab strip during RI.9
+kickoff.
+
+## "Design docs may make wishful schema assumptions; verify before encoding DDL"
+
+When a brief references a schema entity (table, column, FK), CC
+verifies the entity exists in current schema BEFORE writing
+migrations. Designer / CA doesn't always have full repo schema
+access at design time — what reads as natural in the design
+notes may not map cleanly to v1's actual normalization choices.
+Surfacing the mismatch pre-build saves the cost of a broken
+migration + refactor.
+
+**Recognition heuristic:** any DDL block in a brief that
+references a table you haven't grep'd in `src/db/schema.ts` is
+unverified. Cheap to verify; expensive to ship and undo.
+
+**Reference moment:** Slice RI.9 step 0 (May 2026). R7a designer
+notes + data-source map assumed a `scenarios` table; current
+schema has scenarios denormalized onto `quotes` (`quotes.
+scenario_label`, `quotes.scenario_status`, `quotes.
+version_number`). The `schema.ts:1158` todo explicitly defers
+the scenarios table to Slice 14. CC caught the FK mismatch
+pre-build, surfaced to CA, dispositioned option (a) — drop
+`scenario_id` from `user_surface_visits`, key on `quote_id`
+(which IS a scenario version in v1 schema). Brief + data-source
+map patched inline. No code thrown away.
+
+**Surface to CA, don't silently absorb.** The brief might be
+right and the schema needs updating; OR the brief might be
+slightly wrong and a small adjustment makes the design work
+against current schema; OR there's an architectural gap that
+needs Edward + CA disposition. CC's job is to flag, not to
+guess.
+
+**Tags this pattern applies to:**
+- `references <table>(id)` in DDL
+- Cross-table joins assumed in data-source maps
+- Schema migrations that touch entities not yet in production
+- Any "this column exists" claim in brief or designer notes
+
+Banked from RI.9 step 0 schema-mismatch catch (May 2026).
+Protocol working as intended — pre-build verification caught
+the issue before migration was written.
+
 # Single Supabase project — dev and prod share one DB
 
 Nexus v1 runs against **one Supabase project for both dev and prod.**

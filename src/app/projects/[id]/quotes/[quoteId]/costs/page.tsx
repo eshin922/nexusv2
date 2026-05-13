@@ -23,6 +23,11 @@ import {
   CostsHeader,
   SentStatusBanner,
 } from "@/components/costs/costs-header";
+import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
+import { NavShell } from "@/components/nav/nav-shell";
+import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
+import { SURFACE_META } from "@/lib/nav/surface-meta";
+import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { CostStackHeader } from "@/components/costs/cost-stack-header";
 import { CostBuildAccordion } from "@/components/costs/costs-accordion";
 import { ScenarioContextStrip } from "@/components/costs/scenario-context-strip";
@@ -76,6 +81,13 @@ export default async function CostBuildPage({
 }) {
   const { id: projectId, quoteId } = await params;
   const { section: expandedSection } = await searchParams;
+
+  // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
+  await recordSurfaceVisit({
+    projectId,
+    quoteId,
+    surfaceKey: "cost_build",
+  });
 
   const quoteRows = await db
     .select({ quote: quotes, project: projects })
@@ -187,6 +199,12 @@ export default async function CostBuildPage({
 
   if (!bundle.ok) {
     return (
+      <NavShell
+        surfaceKey="cost_build"
+        projectId={projectId}
+        quoteId={quoteId}
+        activeScenarioLabel={quote.scenarioLabel}
+      >
       <main className="p-6">
         <div
           role="alert"
@@ -195,6 +213,7 @@ export default async function CostBuildPage({
           Costing data unavailable: {bundle.error.message}
         </div>
       </main>
+      </NavShell>
     );
   }
 
@@ -219,6 +238,12 @@ export default async function CostBuildPage({
       : "packaging";
 
   return (
+    <NavShell
+      surfaceKey="cost_build"
+      projectId={projectId}
+      quoteId={quoteId}
+      activeScenarioLabel={quote.scenarioLabel}
+    >
     <CostingStoreProvider snapshot={bundle.data}>
       {/* URL ↔ store sync for active-tier selection. Suspense
           boundary required for useSearchParams in app router. */}
@@ -249,6 +274,17 @@ export default async function CostBuildPage({
             CostsHeader's flex container (was squeezing the title
             column to 1-2-word wraps once it appeared on sent quotes). */}
         {!editable && <SentStatusBanner status={quote.status} />}
+
+        {/* Slice RI.9 § 3.3 — YOUR NEXT MOVE banner. Cost build →
+            Costing (Pricing) is the canonical forward step. Hides on
+            non-draft quotes (banner makes no sense once sent). */}
+        {editable && (
+          <YourNextMoveBanner
+            state="default"
+            label={SURFACE_META.cost_build.nextMove?.label ?? "Review pricing →"}
+            href={resolveSurfaceHref("costing", project.id, quote.id)}
+          />
+        )}
 
         {/* Scenario context strip — anchor SKU + tier count + units
             total + scenario-switch affordance per Round 6 data-source-
@@ -392,6 +428,7 @@ export default async function CostBuildPage({
         </CostBuildAccordion>
       </main>
     </CostingStoreProvider>
+    </NavShell>
   );
 }
 

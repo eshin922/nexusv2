@@ -19,6 +19,8 @@ import { PerTierOverrideCard } from "@/components/pricing/per-tier-override-card
 import { VerdictBand } from "@/components/pricing/verdict-band";
 import { PricingSectionHead } from "@/components/pricing/pricing-section-head";
 import { SkuSummaryRowList } from "./sku-summary-row";
+import { NavShell } from "@/components/nav/nav-shell";
+import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 
 // Slice RI.5 — Pricing rebuild per Designer comprehensive audit
 // + brief §3.3. Three rooms top-to-bottom:
@@ -51,6 +53,13 @@ export default async function CostingPage({
   params: Promise<{ id: string; quoteId: string }>;
 }) {
   const { id: projectId, quoteId } = await params;
+
+  // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
+  await recordSurfaceVisit({
+    projectId,
+    quoteId,
+    surfaceKey: "costing",
+  });
 
   const quoteRows = await db
     .select({ quote: quotes, project: projects })
@@ -87,6 +96,12 @@ export default async function CostingPage({
 
   if (!bundle.ok) {
     return (
+      <NavShell
+        surfaceKey="costing"
+        projectId={projectId}
+        quoteId={quoteId}
+        activeScenarioLabel={quote.scenarioLabel}
+      >
       <main className="r2-page">
         <div style={{ marginBottom: 8, fontSize: 13 }}>
           <Link
@@ -119,6 +134,7 @@ export default async function CostingPage({
             )}
         </div>
       </main>
+      </NavShell>
     );
   }
 
@@ -129,6 +145,12 @@ export default async function CostingPage({
   }));
 
   return (
+    <NavShell
+      surfaceKey="costing"
+      projectId={projectId}
+      quoteId={quoteId}
+      activeScenarioLabel={quote.scenarioLabel}
+    >
     <CostingStoreProvider snapshot={bundle.data}>
       {/* URL ↔ store sync for active-tier selection. Visual selector
           UI removed — cost stack tier columns are the selector now. */}
@@ -191,5 +213,6 @@ export default async function CostingPage({
         <SkuSummaryRowList editable={editable} />
       </main>
     </CostingStoreProvider>
+    </NavShell>
   );
 }

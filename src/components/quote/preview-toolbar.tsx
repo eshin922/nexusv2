@@ -1,9 +1,10 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { CustomerViewPdfLayout } from "@/types/quote";
 import { sendQuote } from "@/app/actions/quotes";
+import { CustomerNotesDrawer } from "./customer-notes-drawer";
 
 export type CustomerViewSubState = "pure" | "passThrough" | "partial";
 
@@ -86,6 +87,8 @@ export function PreviewToolbar({
   onSubStateChange,
   showStateSwitcher,
   devSendEnabled,
+  customerFacingNotes,
+  internalNotes,
 }: {
   quoteId: string;
   quoteStatus: string;
@@ -99,7 +102,15 @@ export function PreviewToolbar({
   /** Dev-only send affordance. Hidden in production + only renders
    * when quote is a draft. Slice 11 replaces with PDF flow. */
   devSendEnabled: boolean;
+  /** RI.9 §6 step 7 — current customer-facing notes (passed
+   * through to the inline drawer; updates flow via updateQuoteNotes). */
+  customerFacingNotes: string | null;
+  /** Pass-through so the customer-notes save doesn't clobber
+   * internal notes (action layer updates both fields together). */
+  internalNotes: string | null;
 }) {
+  const [notesOpen, setNotesOpen] = useState(false);
+  const notesEditable = quoteStatus === "draft";
   return (
     <div className="preview-toolbar">
       <div className="left">
@@ -154,6 +165,16 @@ export function PreviewToolbar({
             </button>
           </div>
         )}
+        {notesEditable && (
+          <button
+            type="button"
+            className="btn sm"
+            title="Edit customer-facing notes inline. Internal notes stay on Setup."
+            onClick={() => setNotesOpen(true)}
+          >
+            ✎ Edit notes
+          </button>
+        )}
         <button
           type="button"
           className="btn sm"
@@ -174,6 +195,14 @@ export function PreviewToolbar({
           <DevSendButton quoteId={quoteId} />
         )}
       </div>
+      {notesOpen && (
+        <CustomerNotesDrawer
+          quoteId={quoteId}
+          initialCustomerFacingNotes={customerFacingNotes}
+          initialInternalNotes={internalNotes}
+          onClose={() => setNotesOpen(false)}
+        />
+      )}
     </div>
   );
 }

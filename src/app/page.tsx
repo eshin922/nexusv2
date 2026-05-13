@@ -5,6 +5,12 @@ import { redirect } from "next/navigation";
 import { AccessDeniedBanner } from "@/components/access-denied-banner";
 import { DealOrganizerProjectList } from "@/components/deal-organizer/project-list";
 import { getDealOrganizerProjects } from "@/lib/workspace-queries";
+import { ResumeCard } from "@/components/nav/resume-card";
+import {
+  getNowTierWarningCount,
+  getResumeContext,
+} from "@/lib/nav/home-queries";
+import { ensureUser } from "@/lib/auth/ensure-user";
 
 // Slice RI.2 — Home page rebuilt as the Round 4 Deal Organizer.
 // Three sections (top to bottom):
@@ -29,7 +35,15 @@ export default async function Home() {
   const user = await currentUser();
   const name = user?.firstName ?? user?.emailAddresses[0]?.emailAddress ?? "there";
 
-  const projectRows = await getDealOrganizerProjects();
+  // Slice RI.9 §6 step 4 — Resume card data. ensureUser() is the
+  // same Clerk→users-table bridge used elsewhere; needed for the
+  // user_surface_visits.userId FK shape.
+  const dbUser = await ensureUser();
+  const [resumeContext, nowTierCount, projectRows] = await Promise.all([
+    getResumeContext(dbUser.id),
+    getNowTierWarningCount(),
+    getDealOrganizerProjects(),
+  ]);
   const isEmpty = projectRows.length === 0;
 
   return (
@@ -71,16 +85,37 @@ export default async function Home() {
           </div>
         </div>
 
-        {/* "What's my move" inbox — DEFERRED placeholder. Per CD
-            Pushback #1: ships after Slice 9.5 signal coverage. */}
-        <section className="mb-6 rounded-md border border-dashed border-rule bg-paper-2 p-4">
-          <div className="font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-4">
-            What's my move
-          </div>
-          <p className="mt-1 text-sm italic text-ink-4">
-            Inbox shipping with the validation engine.
-          </p>
-        </section>
+        {/* Slice RI.9 §6 step 4 — Resume card + inbox stacked.
+            Resume card reads the latest user_surface_visits row;
+            inbox stays placeholder until Slice 9.5 validation
+            engine ships signal coverage. */}
+        <div className="mb-6 grid gap-4 md:grid-cols-2">
+          <ResumeCard
+            context={resumeContext}
+            nowTierCount={nowTierCount}
+          />
+
+          {/* "What's my move" inbox — DEFERRED placeholder. Per CD
+              Pushback #1: ships after Slice 9.5 signal coverage.
+              Anchor id matches Resume card's "Check inbox first"
+              chip target. */}
+          <section
+            id="whats-my-move"
+            className="rounded-md border border-dashed border-rule bg-paper-2 p-4"
+          >
+            <div className="font-mono text-[10.5px] uppercase tracking-[0.13em] text-ink-4">
+              What's my move
+              {nowTierCount > 0 && (
+                <span className="ml-2 text-ink-3">
+                  · {nowTierCount} now-tier item{nowTierCount === 1 ? "" : "s"}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-sm italic text-ink-4">
+              Inbox shipping with the validation engine.
+            </p>
+          </section>
+        </div>
 
         {/* Project list */}
         {isEmpty ? (

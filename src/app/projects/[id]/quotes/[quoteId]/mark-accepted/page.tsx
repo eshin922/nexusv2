@@ -5,6 +5,12 @@ import { db } from "@/db";
 import { projects, quotes } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { MarkAcceptedHost, type MarkAcceptedSubState } from "@/components/mark-accepted/mark-accepted-host";
+import { Eyebrow } from "@/components/nav/eyebrow";
+import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
+import { NavShell } from "@/components/nav/nav-shell";
+import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
+import { SURFACE_META } from "@/lib/nav/surface-meta";
+import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import type { TierCardData } from "@/components/mark-accepted/tier-card";
 import type { FlaggedLine } from "@/components/mark-accepted/mark-accepted-both-gates";
 
@@ -46,6 +52,13 @@ export default async function MarkAcceptedPage({
   const { id: projectId, quoteId } = await params;
   const { dev, state } = await searchParams;
 
+  // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
+  await recordSurfaceVisit({
+    projectId,
+    quoteId,
+    surfaceKey: "mark_accepted",
+  });
+
   const quoteRows = await db
     .select({ quote: quotes, project: projects })
     .from(quotes)
@@ -59,10 +72,17 @@ export default async function MarkAcceptedPage({
   const bundle = await getCostingBundle(quoteId);
   if (!bundle.ok) {
     return (
+      <NavShell
+        surfaceKey="mark_accepted"
+        projectId={projectId}
+        quoteId={quoteId}
+        activeScenarioLabel={quote.scenarioLabel}
+      >
       <main style={{ padding: "32px 24px" }}>
         <h1>Mark-Accepted unavailable</h1>
         <p style={{ color: "var(--bad)" }}>{bundle.error.message}</p>
       </main>
+      </NavShell>
     );
   }
 
@@ -160,37 +180,59 @@ export default async function MarkAcceptedPage({
   const quoteNumberLabel =
     quote.quoteNumber ?? `${quote.scenarioLabel} · v${quote.versionNumber}`;
 
+  // Slice RI.9 § 3.3 — banner state for Mark-Accepted.
+  //   - terminal (post-acceptance): explicit "Terminal — return via
+  //     Home or rail" copy, no CTA.
+  //   - default (pre-acceptance): "Confirm acceptance →" CTA (same
+  //     primary action). Banner reinforces the primary; cluster keeps
+  //     the primary button.
+  //   - Override-gated states render the banner with gated styling
+  //     (handled at sub-state level if needed); v1 default = default.
+  // Reuses `isAccepted` from the sub-state derivation above.
+  const bannerState: "default" | "terminal" = isAccepted
+    ? "terminal"
+    : "default";
   return (
-    <>
-      {/* F-7 (Slice RI.8 step 7): breadcrumb adopts mono-caption
-          register via .r2-eyebrow — same shape as Quote page,
-          consistent across customer-facing surface family. */}
-      <p
-        className="r2-eyebrow"
-        style={{ padding: "16px 24px 0" }}
-      >
-        <Link
-          href={`/projects/${project.id}/quotes/${quote.id}`}
-          style={{ color: "var(--ink-3)" }}
-        >
-          ← Setup
-        </Link>
-        {" · "}
-        <Link
-          href={`/projects/${project.id}/quotes/${quote.id}/pricing`}
-          style={{ color: "var(--ink-3)" }}
-        >
-          Pricing
-        </Link>
-        {" · "}
-        <Link
-          href={`/projects/${project.id}/quotes/${quote.id}/quote`}
-          style={{ color: "var(--ink-3)" }}
-        >
-          Quote
-        </Link>
-        {" · Mark accepted"}
-      </p>
+    <NavShell
+      surfaceKey="mark_accepted"
+      projectId={projectId}
+      quoteId={quoteId}
+      activeScenarioLabel={quote.scenarioLabel}
+    >
+      {/* Slice RI.9 § 3.1 — Eyebrow per R7a canon. Replaces RI.8 F-7
+          breadcrumb-style backlink chain. Mark-Accepted has
+          rail.visible=true so inner rail is the where-am-I anchor;
+          eyebrow carries surface context. */}
+      <div style={{ padding: "16px 24px 0" }}>
+        <Eyebrow
+          segments={[
+            project.clientName ?? project.dealName,
+            quote.scenarioLabel,
+            `v${quote.versionNumber}`,
+            "Mark accepted",
+          ]}
+        />
+      </div>
+      {/* Slice RI.9 § 3.3 — banner. Terminal state when accepted
+          (explicit silence per R7a); default pre-acceptance points
+          at primary CTA. */}
+      <div style={{ padding: "12px 24px 0" }}>
+        <YourNextMoveBanner
+          state={bannerState}
+          label={
+            bannerState === "default"
+              ? SURFACE_META.mark_accepted.nextMove?.label
+              : undefined
+          }
+          // Mark-Accepted's primary fires from within the host's
+          // sub-state components — the banner CTA links to the
+          // same surface (self) for now; sub-state components own
+          // the actual confirm action via accept-confirm-modal.
+          // UX_BACKLOG: wire banner CTA to open the confirm modal
+          // directly once Mark-Accepted refactor lands.
+          href={resolveSurfaceHref("mark_accepted", project.id, quote.id)}
+        />
+      </div>
       <MarkAcceptedHost
         initialSubState={initialSubState}
         blendedMarginPct={blendedPct}
@@ -205,6 +247,6 @@ export default async function MarkAcceptedPage({
         customerAcceptance={customerAcceptance}
         showStateSwitcher={showStateSwitcher}
       />
-    </>
+    </NavShell>
   );
 }

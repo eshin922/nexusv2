@@ -142,12 +142,16 @@ export function QuoteHost({
   quoteStatus,
   showStateSwitcher,
   devSendEnabled,
+  internalNotes,
 }: {
   view: CustomerView;
   quoteId: string;
   quoteStatus: string;
   showStateSwitcher: boolean;
   devSendEnabled: boolean;
+  /** RI.9 §6 step 7 — pass-through so the inline customer-notes
+   * editor doesn't clobber internal notes on save. */
+  internalNotes: string | null;
 }) {
   const [subState, setSubState] = useState<CustomerViewSubState>("pure");
   const [pdfLayout, setPdfLayout] = useState<CustomerViewPdfLayout>(view.pdfLayout);
@@ -171,6 +175,8 @@ export function QuoteHost({
         onSubStateChange={setSubState}
         showStateSwitcher={showStateSwitcher}
         devSendEnabled={devSendEnabled}
+        customerFacingNotes={view.quote.customerFacingNotes}
+        internalNotes={internalNotes}
       />
 
       <BoundaryGuardNotice />
@@ -214,12 +220,16 @@ export function QuoteHost({
             tiers={view.tiers}
           />
         ) : (
+          // RI.9 step 10 smoke — Notes ABOVE Terms. Customer-facing
+          // notes are quote-specific (PM-authored on this surface);
+          // T&Cs are boilerplate from firm_settings. Notes-first
+          // reads better for the customer.
           <>
+            <PdfNotes notes={view.quote.customerFacingNotes} />
             <PdfTerms
               quote={view.quote}
               includeIncoterms={includeIncoterms}
             />
-            <PdfNotes notes={view.quote.customerFacingNotes} />
           </>
         )}
       </PdfPage>
@@ -237,12 +247,18 @@ export function QuoteHost({
               />
             }
           >
-            <p className="pdf-eyebrow">Terms &amp; notes</p>
-            <h2 className="pdf-h2" style={{ marginTop: 0 }}>
+            {/* RI.9 step 10 smoke — Notes ABOVE Terms on page 2.
+                Eyebrow updated to "Notes & terms" to match reading
+                order; the H2 "Commercial terms" stays anchored to
+                PdfTerms (which still leads the structured terms
+                block). PdfNotes carries its own "Notes" label
+                internally, so no separate H2 needed. */}
+            <p className="pdf-eyebrow">Notes &amp; terms</p>
+            <PdfNotes notes={view.quote.customerFacingNotes} />
+            <h2 className="pdf-h2" style={{ marginTop: 24 }}>
               Commercial terms
             </h2>
             <PdfTerms quote={view.quote} includeIncoterms />
-            <PdfNotes notes={view.quote.customerFacingNotes} />
             <div style={{ marginTop: 28 }}>
               <h3 className="pdf-h3">How to accept</h3>
               <p>

@@ -21,6 +21,13 @@ import {
 // helper component.
 import { buildTreeRenderOrder, getEligibleParents } from "@/lib/sku-tree";
 import { IdBadge } from "@/components/id-badge";
+import { Eyebrow } from "@/components/nav/eyebrow";
+import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
+import { ActionCluster } from "@/components/nav/action-cluster";
+import { NavShell } from "@/components/nav/nav-shell";
+import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
+import { SURFACE_META } from "@/lib/nav/surface-meta";
+import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { AddTierButton } from "./add-tier-button";
 import { AddAssemblyButton } from "./add-assembly-button";
 import { SkuRow } from "./sku-row";
@@ -47,6 +54,14 @@ export default async function QuoteBuilderPage({
   params: Promise<{ id: string; quoteId: string }>;
 }) {
   const { id: projectId, quoteId } = await params;
+
+  // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
+  // Fire-and-forget background op; never crashes the page.
+  await recordSurfaceVisit({
+    projectId,
+    quoteId,
+    surfaceKey: "setup",
+  });
 
   const quoteRows = await db
     .select({
@@ -80,6 +95,12 @@ export default async function QuoteBuilderPage({
   const editable = quote.status === "draft";
 
   return (
+    <NavShell
+      surfaceKey="setup"
+      projectId={projectId}
+      quoteId={quoteId}
+      activeScenarioLabel={quote.scenarioLabel}
+    >
     <main className="mx-auto max-w-6xl p-6">
       <div className="mb-2 text-sm">
         <Link
@@ -90,21 +111,26 @@ export default async function QuoteBuilderPage({
         </Link>
       </div>
 
-      {/* Slice RI.8 step 1.5 — R1 page-head fidelity per
-          source/round-1/app/setup.jsx lines 8-18 + styles.css
-          .page-head / .page-title / .page-sub / .eyebrow. */}
+      {/* Slice RI.9 § 3 — page-head wired to R7a primitives.
+          Eyebrow follows R7a canonical format ({client/deal} ·
+          {scenarioLabel} · v{N}). Continue-to-Costs CTA moved into
+          <YourNextMoveBanner /> below; Save draft + + New scenario
+          stay in action cluster (R7a surface-render rules). */}
       <header className="r1-setup-head">
         <div>
-          <p className="r1-setup-eyebrow">
-            Quote setup · {quote.scenarioLabel} v{quote.versionNumber}
-          </p>
+          <Eyebrow
+            segments={[
+              project.clientName ?? project.dealName,
+              quote.scenarioLabel,
+              `v${quote.versionNumber}`,
+            ]}
+          />
           <h1 className="r1-setup-title">
             Define <em>SKUs &amp; volume tiers</em>
           </h1>
           <p className="r1-setup-sub">
             Done once per quote. Tiers become first-class views — not
             duplicate columns of inputs.
-            {project.clientName ? ` · ${project.clientName}` : ""}
             {pm?.name ? ` · PM ${pm.name}` : ""}
           </p>
           <div className="r1-setup-meta">
@@ -117,28 +143,44 @@ export default async function QuoteBuilderPage({
             <span>created {quote.createdAt.toLocaleDateString()}</span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Save draft — auto-save reinforcement; matches R1 line 15.
-              Tooltip explains the auto-save model. */}
-          <button
-            type="button"
-            className="r2-btn ghost"
-            title="Saved automatically as you edit."
-            disabled
-          >
-            Save draft
-          </button>
-          {/* Continue to Costs — primary CTA per R1 line 16. */}
-          <Link
-            href={`/projects/${project.id}/quotes/${quote.id}/costs`}
-            className="r2-btn primary"
-          >
-            Continue to Costs →
-          </Link>
-        </div>
+        <ActionCluster
+          secondary={[
+            // + New scenario — currently inert at Setup level; preserved
+            // for R7a secondary slot. UX_BACKLOG: wire to scenarioCopy
+            // action when CD R7 commits the affordance shape.
+            <button
+              key="new-scenario"
+              type="button"
+              className="r2-btn ghost"
+              disabled
+              title="+ New scenario — wiring lands with Setup §6.b redesign"
+            >
+              + New scenario
+            </button>,
+          ]}
+          primary={
+            <button
+              type="button"
+              className="r2-btn primary"
+              title="Saved automatically as you edit."
+              disabled
+            >
+              Save draft
+            </button>
+          }
+        />
       </header>
 
-      {!editable && (
+      {/* Slice RI.9 § 3.3 — YOUR NEXT MOVE banner. Setup → Cost build
+          is the canonical forward step. When quote is non-draft, the
+          sent-status warning replaces the banner. */}
+      {editable ? (
+        <YourNextMoveBanner
+          state="default"
+          label={SURFACE_META.setup.nextMove?.label ?? "Open costs →"}
+          href={resolveSurfaceHref("cost_build", project.id, quote.id)}
+        />
+      ) : (
         <div
           role="alert"
           className="mb-4 rounded-md border border-warn/40 bg-warn-soft p-3 text-sm text-warn"
@@ -298,6 +340,7 @@ export default async function QuoteBuilderPage({
           PMs reviewing margins navigate to Pricing (via
           page-head Continue button or inner-rail). */}
     </main>
+    </NavShell>
   );
 }
 
