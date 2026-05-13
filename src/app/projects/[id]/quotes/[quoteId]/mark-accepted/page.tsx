@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { projects, quotes } from "@/db/schema";
+import { projects, quoteTiers, quotes } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { MarkAcceptedHost, type MarkAcceptedSubState } from "@/components/mark-accepted/mark-accepted-host";
 import { Eyebrow } from "@/components/nav/eyebrow";
@@ -134,8 +134,25 @@ export default async function MarkAcceptedPage({
     };
   });
 
-  // Recommended tier: middle tier as placeholder. Slice 11/12 wires real flag.
-  if (tierData.length > 0) {
+  // §6.b Step 5 prep (Pattern 22 #7) — read recommended tier from
+  // quote_tiers.recommended. Replaces the prior "middle tier"
+  // hardcoded stub. Legacy fallback: when no tier is marked
+  // recommended (quotes created before §6.b), default to the middle
+  // tier so Mark-Accepted always surfaces a recommendation. PM
+  // overrides via the ★ toggle on Setup; once toggled, fallback
+  // doesn't run.
+  const tierRecommendedRows = await db
+    .select({ id: quoteTiers.id, recommended: quoteTiers.recommended })
+    .from(quoteTiers)
+    .where(eq(quoteTiers.quoteId, quote.id));
+  const recommendedTierId =
+    tierRecommendedRows.find((t) => t.recommended)?.id ?? null;
+  if (recommendedTierId) {
+    const idx = tierData.findIndex((t) => t.id === recommendedTierId);
+    if (idx !== -1) {
+      tierData[idx] = { ...tierData[idx], recommended: true };
+    }
+  } else if (tierData.length > 0) {
     const recIdx = Math.floor(tierData.length / 2);
     tierData[recIdx] = { ...tierData[recIdx], recommended: true };
   }

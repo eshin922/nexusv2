@@ -555,6 +555,27 @@ packaging_inputs/quote_skus, category), two notation (quote_meta,
 markup_categories), one duplicate (display_order), one
 schema-deferral (pack). The pattern catches all six shapes.
 
+**Seventh instance — §6.b Step 5 (Tier table prep).** R7b
+designer notes Decision 5 + brief §3.4 + data-source map all
+commit to a `quote_tiers.recommended` BOOL flag ("one per
+quote"; ★ star UI). Schema check: column doesn't exist. UI
+types (`src/types/quote.ts:143`) already expect it; Mark-Accepted
+stubs it via hardcoded "middle tier" placeholder
+(`src/app/projects/[id]/quotes/[quoteId]/mark-accepted/page.tsx:139`).
+Data-source map labels it "R4 commitment" — was scoped in R4 but
+never landed; the stub has been carrying the concept forward.
+
+Disposition (option a — ship migration as Step 5 prep): bounded
+single-BOOL migration; action layer enforces "one per quote"
+invariant by clearing siblings on set (no DB constraint v1);
+stub replaced with real read + legacy fallback to middle tier
+for pre-§6.b quotes. Audit log action: `recommended_updated`.
+
+**Seven instances across two slices.** Pattern is no longer
+"interesting observation" — it's the rule. Every brief crosses
+the schema-verification gate; nearly every time, something
+gets caught.
+
 **Three instances in two slices is the trigger.** Per the "third
 instance" threshold above, the schema-verification step should
 now be an explicit named gate in slice brief templates. Future
@@ -599,6 +620,31 @@ proceeds.
 Adopted post-§6.b after six Pattern 22 instances across two
 slices (RI.9 + §6.b).
 ```
+
+**Pattern 25 promoted to standing protocol — §6.b Step 5 prep
+(7th Pattern 22 instance).** No longer a "candidate
+recommendation" — it's the working discipline for every future
+brief. CA writing briefs runs (or asks CC to run) the
+verification pass before sending the brief for Edward approval.
+Edward's review reads the brief KNOWING the schema-mismatch
+disposition is settled, not pending. The §0.5 gate is the
+canonical placeholder in the brief template; mismatches and
+their disposition land inline before §1 Scope.
+
+Two failure modes the standing protocol prevents:
+
+1. CC starts implementation, hits a Pattern 22 mismatch
+   mid-step, has to escalate, ships partial work or backs out.
+   Cost: at least one round-trip per mismatch + cognitive
+   overhead from context-switching.
+2. Brief reads as final to Edward + CA, schema-mismatch
+   surfaces in CC implementation, brief gets amended
+   retroactively. "Brief was approved" becomes negotiable —
+   undermines the scope-contract framing in Pattern 28.
+
+Both fail the same way: schema-as-implementation-detail instead
+of schema-as-contract. Running the §0.5 pass pre-approval makes
+schema part of the contract.
 
 ## "Per-commit fidelity manifest on multi-step design slices"
 

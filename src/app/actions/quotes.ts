@@ -1357,6 +1357,71 @@ export async function updateTier(
   });
 }
 
+// §6.b Step 5 prep — set/clear the per-quote ★ Recommended tier flag.
+//
+// One tier per quote can be recommended. Setting recommended=true on
+// tier T clears recommended on all siblings in the same quote atomically.
+// Setting recommended=false on T just clears T (no sibling fan-out).
+//
+// Invariant enforced at the action layer; no DB constraint v1. Single-user
+// concurrency at Nexus scale makes the race-condition risk negligible.
+export async function setTierRecommended(
+  formData: FormData,
+): Promise<ActionResult<{ tierId: string; recommended: boolean }>> {
+  return runAction(async () => {
+    const tierId = String(formData.get("tierId") ?? "").trim();
+    if (!tierId) throw new ActionGuardError(ERR.VALIDATION, "tierId required");
+    const recommended =
+      String(formData.get("recommended") ?? "").toLowerCase() === "true";
+
+    const user = await ensureUser();
+    const tierRows = await db
+      .select()
+      .from(quoteTiers)
+      .where(eq(quoteTiers.id, tierId))
+      .limit(1);
+    if (tierRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "Tier not found");
+    const tier = tierRows[0];
+
+    const quote = await loadQuoteOrThrow(tier.quoteId);
+    assertDraft(quote);
+
+    if (tier.recommended === recommended) {
+      return { tierId, recommended };
+    }
+
+    if (recommended) {
+      // Clear sibling rows first (one-per-quote invariant), then set this row.
+      await db
+        .update(quoteTiers)
+        .set({ recommended: false, updatedAt: new Date() })
+        .where(
+          and(
+            eq(quoteTiers.quoteId, tier.quoteId),
+            eq(quoteTiers.recommended, true),
+          ),
+        );
+    }
+    await db
+      .update(quoteTiers)
+      .set({ recommended, updatedAt: new Date() })
+      .where(eq(quoteTiers.id, tierId));
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_tier",
+      entityId: tierId,
+      action: "recommended_updated",
+      diffJson: { recommended: { from: tier.recommended, to: recommended } },
+    });
+
+    revalidateQuoteTree(quote.projectId, tier.quoteId);
+
+    return { tierId, recommended };
+  });
+}
+
 export async function deleteTier(formData: FormData): Promise<ActionResult<void>> {
   return runAction(async () => {
   const tierId = String(formData.get("tierId") ?? "").trim();
