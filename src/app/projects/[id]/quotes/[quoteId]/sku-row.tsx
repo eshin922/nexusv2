@@ -603,7 +603,13 @@ export function SkuRow({
                 {treeLine}
               </span>
             )}
-            <span className="lbl">{sku.skuLabel}</span>
+            <span
+              className="lbl"
+              title={buildOriginTooltip(sku)}
+              style={{ cursor: "help" }}
+            >
+              {sku.skuLabel}
+            </span>
             <span className="product">{sku.productName}</span>
           </div>
           <span className="pack">
@@ -1906,6 +1912,36 @@ function UnitsPerPackCell({
       {display}
     </span>
   );
+}
+
+// Leaf-detach micro-slice Sub-item 3 follow-up (Edward smoke 2026-
+// 05-14) — hover-tooltip content on the SKU label cell. Three-line
+// origin summary varies by row state:
+//   - HubSpot-linked: source + product ID + last sync time
+//   - Nexus-local: "Nexus-local SKU · Not tied to HubSpot"
+//   - Auto-migrate child: marked + inherited HubSpot info OR
+//     "legacy auto-artifact pre-fix" callout when null
+// Native `title` attribute renders the tooltip; multi-line via
+// embedded \n characters (cross-browser standard).
+function buildOriginTooltip(sku: {
+  hubspotProductId: string | null;
+  lastHubspotRefreshAt: Date | null;
+  isAutoMigrateArtifact: boolean;
+}): string {
+  const hasHubspot = !!sku.hubspotProductId;
+  const syncLine = sku.lastHubspotRefreshAt
+    ? `Last synced ${formatRelative(sku.lastHubspotRefreshAt)}`
+    : "Never synced";
+  if (sku.isAutoMigrateArtifact) {
+    if (hasHubspot) {
+      return `Auto-migrate child\nHubSpot product · ID ${sku.hubspotProductId} (inherited)\n${syncLine}`;
+    }
+    return `Auto-migrate child\nNot tied to HubSpot (legacy auto-artifact pre-fix)`;
+  }
+  if (hasHubspot) {
+    return `HubSpot product · ID ${sku.hubspotProductId}\n${syncLine}`;
+  }
+  return `Nexus-local SKU\nNot tied to HubSpot`;
 }
 
 function formatRelative(d: Date): string {
