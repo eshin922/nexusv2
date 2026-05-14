@@ -287,6 +287,15 @@ export default async function QuoteBuilderPage({
                   skuRole: c.skuRole,
                   qtyPerParent: c.qtyPerParent,
                   childCount: skus.filter((x) => x.parentSkuId === c.id).length,
+                  // Leaf-detach micro-slice Sub-item 1b — server-
+                  // computed flag for the drawer's per-row Detach
+                  // confirmation modal gate. True when the child has
+                  // notes OR retailBenchmark to preserve; false for
+                  // clean detach (silent path).
+                  hasPreservableData:
+                    (c.notes !== null && c.notes.trim() !== "") ||
+                    (c.retailBenchmark !== null &&
+                      String(c.retailBenchmark).trim() !== ""),
                 }));
                 // Leaf-detach micro-slice Sub-item 1 — current parent
                 // label threaded into the row so the overflow menu can

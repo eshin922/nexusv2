@@ -61,6 +61,10 @@ type ChildRow = {
   skuRole: "leaf" | "assembly";
   qtyPerParent: string | null;
   childCount: number;
+  /** Leaf-detach micro-slice Sub-item 1b — drives the conditional
+   * confirmation modal on the drawer's per-row Detach affordance.
+   * Server-computed: notes non-empty OR retailBenchmark non-null. */
+  hasPreservableData: boolean;
 };
 
 export function SkuRow({
@@ -128,9 +132,21 @@ export function SkuRow({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [reassignOpen, setReassignOpen] = useState(false);
   // Leaf-detach micro-slice Sub-item 1 — detach confirmation modal
-  // state. Open only when the SKU has preservable data (notes OR
-  // retail bench); silent-detach path skips the modal entirely.
-  const [detachModalOpen, setDetachModalOpen] = useState(false);
+  // state. Two entry points feed the same modal:
+  //   - Overflow menu Detach (Sub-item 1a): targets sku.id; parent
+  //     label comes from currentParentLabel prop.
+  //   - Drawer child-list Detach (Sub-item 1b): targets a child's
+  //     id; parent label is THIS row's sku.skuLabel (since the
+  //     drawer is open inside this assembly row).
+  // Modal opens only when the target has preservable data; silent
+  // detach skips it entirely.
+  const [detachContext, setDetachContext] = useState<
+    | {
+        targetSkuId: string;
+        parentLabel: string | null;
+      }
+    | null
+  >(null);
   // Slice RI.8 — overflow menu state for action cluster compression
   // (Designer audit Q2 approved). Houses the four conditional
   // affordances (assembly reassign / detach / HubSpot refresh /
@@ -315,7 +331,7 @@ export function SkuRow({
   // design-time placeholder; existing implementation satisfies
   // intent. No rename — preserves audit-log continuity for prior
   // entries.
-  function hasPreservableDetachData(): boolean {
+  function rowHasPreservableDetachData(): boolean {
     return (
       (sku.notes !== null && sku.notes.trim() !== "") ||
       (sku.retailBenchmark !== null && String(sku.retailBenchmark).trim() !== "")
@@ -323,18 +339,35 @@ export function SkuRow({
   }
 
   function triggerDetach() {
-    if (hasPreservableDetachData()) {
-      setDetachModalOpen(true);
+    if (rowHasPreservableDetachData()) {
+      setDetachContext({
+        targetSkuId: sku.id,
+        parentLabel: currentParentLabel,
+      });
     } else {
-      runDetach();
+      runDetach(sku.id);
     }
   }
 
-  function runDetach() {
-    setDetachModalOpen(false);
+  // Sub-item 1b — drawer child-row Detach entry point. Same modal
+  // shape; target is the child SKU, parent label is THIS row's
+  // label (the drawer renders inside an assembly row).
+  function triggerChildDetach(childSkuId: string, childHasData: boolean) {
+    if (childHasData) {
+      setDetachContext({
+        targetSkuId: childSkuId,
+        parentLabel: sku.skuLabel,
+      });
+    } else {
+      runDetach(childSkuId);
+    }
+  }
+
+  function runDetach(targetSkuId: string) {
+    setDetachContext(null);
     setSaveError(null);
     const fd = new FormData();
-    fd.set("skuId", sku.id);
+    fd.set("skuId", targetSkuId);
     startTransition(async () => {
       const r = await unassignSkuFromParent(fd);
       if (!r.ok) setSaveError(r.error.message);
@@ -800,6 +833,7 @@ export function SkuRow({
                 quoteIdForAdd={quoteId}
                 childSkus={childSkus}
                 disabled={disabled}
+                onDetachChild={triggerChildDetach}
               />
             </>
           )}
@@ -852,15 +886,17 @@ export function SkuRow({
       )}
 
       {/* Leaf-detach micro-slice Sub-item 1 — confirmation modal.
-          Renders only when the SKU has preservable data (notes OR
-          retail bench); the silent-detach path bypasses this modal
-          entirely. Canonical .r7b-modal-* register (same chrome as
-          the §6.b Add-product modal). */}
-      {detachModalOpen && !disabled && (
+          Renders only when a detach target has preservable data
+          (notes OR retail bench); the silent-detach path bypasses
+          this modal entirely. Canonical .r7b-modal-* register (same
+          chrome as the §6.b Add-product modal). Both entry points
+          (overflow menu + drawer child-row) feed the same modal via
+          the detachContext state. */}
+      {detachContext && !disabled && (
         <DetachConfirmModal
-          parentLabel={currentParentLabel}
-          onCancel={() => setDetachModalOpen(false)}
-          onConfirm={runDetach}
+          parentLabel={detachContext.parentLabel}
+          onCancel={() => setDetachContext(null)}
+          onConfirm={() => runDetach(detachContext.targetSkuId)}
           pending={pending}
         />
       )}
@@ -1149,6 +1185,7 @@ function DrawerChildList({
   quoteIdForAdd,
   childSkus,
   disabled,
+  onDetachChild,
 }: {
   parentSkuId: string;
   projectId: string;
@@ -1156,6 +1193,11 @@ function DrawerChildList({
   quoteIdForAdd: string;
   childSkus: ChildRow[];
   disabled: boolean;
+  /** Leaf-detach micro-slice Sub-item 1b — per-row Detach button
+   * callback. Caller (SkuRow, the assembly's row) handles the
+   * confirmation modal + action dispatch; this list just signals
+   * which child to detach + whether it has preservable data. */
+  onDetachChild: (childSkuId: string, hasPreservableData: boolean) => void;
 }) {
   const _parentSkuId = parentSkuId; // for forcedParentId pass-through below
   return (
@@ -1208,7 +1250,10 @@ function DrawerChildList({
               <span className="num" style={{ color: "var(--ink-3)" }}>
                 {c.qtyPerParent ?? "—"}
               </span>
-              <span className="num">
+              <span
+                className="num"
+                style={{ display: "inline-flex", gap: 10, justifyContent: "flex-end", alignItems: "center" }}
+              >
                 {isLeaf ? (
                   <a
                     href={costsHref}
@@ -1225,6 +1270,30 @@ function DrawerChildList({
                   </a>
                 ) : (
                   <span style={{ color: "var(--ink-4)" }}>—</span>
+                )}
+                {/* Leaf-detach micro-slice Sub-item 1b — per-row
+                    Detach affordance. Brief Q3 LOCKED copy "✕ Detach".
+                    Click triggers the same confirmation-gated detach
+                    flow as the leaf row's overflow menu (Sub-item 1a)
+                    via the onDetachChild callback. */}
+                {!disabled && (
+                  <button
+                    type="button"
+                    onClick={() => onDetachChild(c.id, c.hasPreservableData)}
+                    style={{
+                      fontFamily: "var(--mono)",
+                      fontSize: 11,
+                      letterSpacing: "0.04em",
+                      color: "var(--ink-3)",
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: 0,
+                    }}
+                    title={`Detach ${c.skuLabel} from this assembly`}
+                  >
+                    ✕ Detach
+                  </button>
                 )}
               </span>
             </div>

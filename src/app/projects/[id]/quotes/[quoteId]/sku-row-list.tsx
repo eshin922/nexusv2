@@ -51,6 +51,10 @@ export type SkuChildRow = {
   skuRole: "leaf" | "assembly";
   qtyPerParent: string | null;
   childCount: number;
+  /** Leaf-detach micro-slice Sub-item 1b — drives the per-row
+   * Detach confirmation modal gate in DrawerChildList. Server-
+   * computed: notes non-empty OR retailBenchmark non-null. */
+  hasPreservableData: boolean;
 };
 
 export type SkuRowListItem = {
