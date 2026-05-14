@@ -202,39 +202,17 @@ const PRODUCT_PROPERTIES = [
   "fsc_supplier_verified",
 ] as const;
 
-// Phase 1 hs_product_type enum. THREE label/value divergences per
-// brief — display label != stored value. Send the value to HubSpot;
-// display the label to PMs. Adding a value here without verifying
-// against HubSpot's actual enum list will silently 400 the create
-// call.
-export const HS_PRODUCT_TYPE_OPTIONS = [
-  { label: "Cards/Booklets", value: "Cards/Booklets" },
-  { label: "Design", value: "Design" },
-  { label: "Filling and Packout Services", value: "Filling and Packout Services" },
-  { label: "Finished Goods", value: "Finished Goods" },
-  { label: "Formulation", value: "Formulation" },
-  { label: "Freight", value: "Freight" },
-  { label: "Labels", value: "Labels" },
-  // DIVERGENCE — label "Logistics" but stored as "Third Party Logistics"
-  { label: "Logistics", value: "Third Party Logistics" },
-  { label: "One Time Charges", value: "One Time Charges" },
-  // DIVERGENCE — label "Primary Packaging" stored as "Primary"
-  { label: "Primary Packaging", value: "Primary" },
-  { label: "R&D / Testing", value: "R&D / Testing" },
-  { label: "Raw ingredients", value: "Raw ingredients" },
-  // DIVERGENCE — label "Secondary Packaging" stored as "Secondary"
-  { label: "Secondary Packaging", value: "Secondary" },
-  { label: "Soft Goods and Accessories", value: "Soft Goods and Accessories" },
-  { label: "Turnkey", value: "Turnkey" },
-] as const;
-
-export const TAX_SCHEDULE_OPTIONS = ["Taxable", "Non Taxable"] as const;
-export const FSC_CLAIM_TYPE_OPTIONS = [
-  "FSC Mix",
-  "FSC 100%",
-  "FSC Recycled",
-] as const;
-export const FSC_STATUS_OPTIONS = ["Yes", "No"] as const;
+// HubSpot Product enum constants live in src/lib/hubspot-product-
+// options.ts (no `server-only`) so the Add-product modal client
+// component can import them without violating the boundary.
+// Re-exported here so existing server-side imports from
+// src/lib/hubspot.ts continue to work.
+export {
+  HS_PRODUCT_TYPE_OPTIONS,
+  TAX_SCHEDULE_OPTIONS,
+  FSC_CLAIM_TYPE_OPTIONS,
+  FSC_STATUS_OPTIONS,
+} from "./hubspot-product-options";
 
 function toSummary(p: {
   id: string;

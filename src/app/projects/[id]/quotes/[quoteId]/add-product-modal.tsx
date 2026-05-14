@@ -30,12 +30,15 @@ import {
   getCurrentHubspotOwner,
 } from "@/app/actions/quotes";
 import type { ProductSummary } from "@/lib/hubspot";
+// Enum constants live in a client-safe module (no "server-only"
+// directive) so this client component can import them without
+// pulling in the HubSpot SDK Client. Same values; same names.
 import {
   FSC_CLAIM_TYPE_OPTIONS,
   FSC_STATUS_OPTIONS,
   HS_PRODUCT_TYPE_OPTIONS,
   TAX_SCHEDULE_OPTIONS,
-} from "@/lib/hubspot";
+} from "@/lib/hubspot-product-options";
 
 type Mode = "create" | "attach_existing";
 
