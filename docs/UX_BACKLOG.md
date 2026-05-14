@@ -5,6 +5,70 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Leaf detach from parent assembly — v1 blocker]
+
+  **Slice:** Small enough to fold into the in-flight rest-of-app
+  fidelity sweep as an add-on commit, OR ship as its own micro-
+  slice between sweep PR and R6.2 freight implementation. Edward
+  + CA disposition.
+
+  **Problem:** Currently no UI path to disconnect a leaf from
+  its parent assembly once assigned. Workaround is to delete the
+  leaf and recreate — destructive, loses per-SKU notes, retail
+  bench data, drawer state, sort_order.
+
+  **Two affordance entry points** (both should ship):
+
+  1. **Parent's drawer child-SKU list** — per-row "✕ Detach" or
+     "Remove from assembly" action button in the action column
+     next to the existing "↗ Costs" link. Click → confirmation
+     (if leaf has notes / retail data) → detach.
+  2. **Leaf row's ⋯ overflow menu** — conditional "Detach from
+     {parent name}" item that renders only when the leaf has a
+     parent_sku_id set. Click → confirmation → detach.
+
+  **Implementation:**
+
+  - **Action:** new server action `detachLeafFromParent(skuId)`.
+    Writes `parent_sku_id = NULL` + `qty_per_parent = NULL` on
+    the leaf. Pattern 22 verify before encoding: confirm column
+    names against `src/db/schema.ts` `quote_skus.parentSkuId` +
+    `quote_skus.qtyPerParent` (current shape per Slice 5.5
+    assembly rules).
+  - **Audit:** action key `sku_detached_from_parent` with
+    diff_json carrying `{ before: { parent_sku_id, qty_per_parent
+    }, after: { parent_sku_id: null, qty_per_parent: null } }`
+    + the parent's sku_label snapshot for human-readable
+    forensics ("detached from PARENT-CODE").
+  - **Confirmation modal:** if leaf has any non-empty
+    per-SKU notes OR retail benchmark value, surface a
+    confirmation modal warning "Detaching preserves this leaf's
+    notes + retail benchmark, but it'll no longer roll up under
+    {parent}. Cost / pricing impacts:..." with Cancel + Confirm
+    CTAs. If leaf is empty (no notes, no retail), skip the modal
+    and detach immediately.
+  - **Tree validation:** `validateAssemblyOperation` from
+    `src/lib/sku-tree.ts` already handles parent unset (writes
+    parent_sku_id = NULL); reuse the validator path.
+
+  **Cross-references:**
+  - Slice 5.5 assembly rules (CLAUDE.md "Assembly rules"
+    section) — Detach already documented as the "assembly →
+    leaf" transition path; this entry is the UI for that.
+  - Pattern 22 schema verification before ANY column writes
+  - Pattern 39 nexus-extension precedent — if the canonical
+    R7b drawer doesn't render a Detach affordance, the addition
+    is a documented extension (most likely; canonical drawer
+    didn't anticipate the carved child-list shape we ship)
+
+  **Risk if not shipped:** PMs accumulate dead leaves under
+  assemblies they no longer want as children. Delete + recreate
+  loses cost-bench data (retail benchmark) + drawer state
+  (per-SKU notes) silently. Has come up in §6.b smoke + Edward
+  PM-workflow observation.
+
+  **Banked from Edward UX observation, May 2026.**
+
 - [Child SKU flat-list visibility — post-v1 usability watch (R7c candidate)]
 
   **Slice:** Post-v1 observation, not v1 work. Banked as R7c
