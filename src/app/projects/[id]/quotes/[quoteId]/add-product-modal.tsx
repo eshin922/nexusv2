@@ -212,6 +212,18 @@ export function AddProductModal({
         const fd = new FormData();
         fd.set("quoteId", quoteId);
         fd.set("productId", lookup.data.product.id);
+        // Designer audit Finding 13 (HIGH) — Phase 1 limitation banked:
+        // OQ2 disposition hardcoded sku_role = leaf for the CREATE path
+        // (a new product is always leaf at creation; children don't
+        // exist yet). The ATTACH-existing path inherits the same
+        // hardcoding for v1, even when the HubSpot product is classified
+        // hs_product_classification: "bundle". In that case the SKU
+        // lands in Nexus as leaf and PM must promote via the row
+        // drawer's Type badge — sub-optimal UX (extra click) but not
+        // broken. Phase 4 audit dimension (scenario/assembly model
+        // reconcile): read existingMatch.classification from HubSpot,
+        // pre-fill sku_role from it, and audit the auto-promote on
+        // attach. For Phase 1 v1 ship: leaf is fine.
         fd.set("skuRole", "leaf");
         const result = await addSkuFromHubspotProduct(fd);
         if (!result.ok) {

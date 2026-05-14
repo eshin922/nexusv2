@@ -355,7 +355,20 @@ export function SkuRow({
         <div className="name" style={{ paddingLeft: `${indentPx}px` }}>
           <div className="label-pack">
             {treeLine && (
-              <span className="lbl" style={{ color: "var(--ink-4)" }}>
+              // Designer audit Finding 02 — tree-line is a decorative
+              // connector, not a SKU label. Strip the .lbl className
+              // (which carried canonical .lbl typography that's wrong
+              // for the connector glyph) and use a dedicated mono-10
+              // ink-4 register.
+              <span
+                aria-hidden
+                style={{
+                  color: "var(--ink-4)",
+                  marginRight: 4,
+                  fontFamily: "var(--mono)",
+                  fontSize: 10,
+                }}
+              >
                 {treeLine}
               </span>
             )}
@@ -672,7 +685,7 @@ export function SkuRow({
                 fontStyle: "italic",
               }}
             >
-              Leaf SKU — single-line. Cost goes on Cost build; this
+              Leaf SKU — single-line. Cost goes on Costs; this
               drawer is for notes and metadata.
             </div>
           )}
@@ -811,8 +824,28 @@ function QtyPerParentInline({
     });
   }
 
+  // Designer audit Finding 02 (HIGH) — tokenize the qty-per-parent
+  // inline pill. Previous shape used hardcoded gray-* Tailwind which
+  // failed dark-mode + violated Pattern 19 (silent extension of
+  // canonical .name structure without documented rationale). Now
+  // uses var(--paper-3) bg + var(--rule) border + var(--ink-*) ink
+  // palette so the affordance themes correctly. Pattern 19 rationale
+  // for keeping the THIRD child of .name (canonical only has 2):
+  // assembly children rendered as nested rows are a Nexus extension
+  // — the data shape genuinely differs from canonical's flat SKU
+  // table; PMs need the qty editor adjacent to the child row.
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] text-gray-500">
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        fontFamily: "var(--mono)",
+        fontSize: 10,
+        color: "var(--ink-4)",
+        letterSpacing: "0.04em",
+      }}
+    >
       <span>×</span>
       <input
         type="number"
@@ -825,13 +858,23 @@ function QtyPerParentInline({
         onKeyDown={(e) => {
           if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
         }}
-        className="w-12 rounded border border-gray-200 bg-white px-1 py-0 text-[11px] focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400"
         title="qty per parent"
+        style={{
+          width: 44,
+          padding: "0 4px",
+          background: "var(--paper-3)",
+          border: "1px solid var(--rule)",
+          borderRadius: 3,
+          color: "var(--ink-2)",
+          fontFamily: "var(--mono)",
+          fontSize: 10,
+          textAlign: "right",
+        }}
       />
       <span>per parent</span>
-      {pending && <span className="text-gray-400">…</span>}
+      {pending && <span style={{ color: "var(--ink-4)" }}>…</span>}
       {error && (
-        <span className="text-red-700" role="alert">
+        <span style={{ color: "var(--bad)" }} role="alert">
           {error}
         </span>
       )}

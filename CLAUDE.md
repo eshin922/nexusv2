@@ -92,6 +92,35 @@ distinction early prevents drift in two directions: over-renaming
 clarity) or under-renaming (surface-anchored identifiers stay on
 the old name, creating drift between naming and label).
 
+## Pattern-28-vs-rename-canon collision (banked from §6.b Step 11 audit)
+
+When R-round designer notes / prototype copy refers to a surface by
+its OLD name AND a subsequent rename canon has rebranded the
+surface, the rename canon wins. Copy fidelity (Pattern 28) does NOT
+override the rename for surface-reference contexts (banner labels,
+helper text linking to a destination, eyebrow surface tags).
+
+Concept references (math layer naming, audit-log keys, schema
+columns, lifecycle enums) follow the original Pattern 28 / rename
+heuristic — preserve concept refs even if the surface gets renamed.
+
+**Reference moment:** §6.b Step 11 Designer audit Finding 10. R7b
+canonical JSX literal said "Cost build" for the setup nextMove
+label, the DN callout body ("Cost goes on Cost build"), and the
+leaf drawer helper ("Cost goes on Cost build"). The RI.8 surface
+rename canon ("Cost build → Costs") post-dated the R7b prototype.
+Pattern 28 verbatim copy would have shipped "Cost build" across
+the surface refs; surface rename canon supersedes — landed
+"Continue to Costs →" / "Cost goes on Costs" / "Cost goes on Costs"
+respectively.
+
+**Practical test for the auditor:** is the copy referring to a
+surface by name? If yes, apply rename canon. Is the copy describing
+a concept that happens to share a name with a renamed surface? If
+yes, preserve per Pattern 28. The earlier "Rename heuristic — surface
+refs vs concept refs" section is the source of truth for the
+distinction.
+
 ## "Design was illustrative; real data needs different proportions"
 
 CD's design prototypes are anchored on mock data. When real

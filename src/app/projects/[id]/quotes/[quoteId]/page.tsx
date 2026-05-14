@@ -205,7 +205,7 @@ export default async function QuoteBuilderPage({
         <span className="lbl">DN · R7b</span>
         Setup is the <strong>starting shape</strong> of the quote: what
         we&rsquo;re selling, in what quantities, with what context. Cost goes
-        on Cost build. The SKU and Tier tables are a{" "}
+        on Costs. The SKU and Tier tables are a{" "}
         <strong>coupled pair</strong> — same inline-edit pattern, same
         register, paired action vocabularies. Notes split into{" "}
         <strong>internal</strong> (PM-only) and{" "}
