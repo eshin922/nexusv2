@@ -5,6 +5,52 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Pricing surface — token-discipline migration of hardcoded gray-*/slate-* utilities — v1.1 cleanup]
+
+  **Slice:** v1.1 cleanup slice. Not on release-critical path.
+
+  **What:** 4 Pricing component files (`reverse-solve-dialog.tsx`,
+  `client-target-cell.tsx`, `active-tier-selector.tsx`,
+  `competitive-indicator.tsx`) carry 29 hardcoded
+  `bg-white` / `bg-gray-*` / `text-gray-*` / `border-gray-*` /
+  `text-slate-*` Tailwind utility refs. Other surfaces touched by
+  the rest-of-app fidelity sweep (Mark Accepted, Quote, Costs) are
+  already clean of these refs.
+
+  **Why not v1:** the globals.css central override layer (shipped
+  Slice RI.8 step 8 dark-mode sweep) maps `bg-white` → `var(--paper)`,
+  `text-gray-700` → `var(--ink-2)`, etc. via `!important` rules so
+  ALL hardcoded utilities swap correctly in dark mode at runtime.
+  Pricing renders correctly in both themes today. The cleanup is
+  cosmetic code-hygiene (replace `bg-white` with `bg-paper` etc.
+  for cleaner provenance + ability to eventually drop the central
+  override hack).
+
+  **Risk axis when revisited:** `text-gray-700` and `text-gray-600`
+  both map to ink-2/ink-3 depending on context — manual review of
+  each instance needed to pick the right token. Don't do this as a
+  pure search-and-replace.
+
+  **Mapping reference** (from `src/app/globals.css` central override):
+  - `bg-white` → `bg-paper`
+  - `bg-gray-50` / `bg-slate-50` → `bg-paper-2`
+  - `bg-gray-100` / `bg-slate-100` → `bg-paper-3`
+  - `border-gray-200` / `border-gray-300` / `border-slate-200` /
+    `border-slate-300` → `border-rule`
+  - `text-gray-900` / `text-slate-900` → `text-ink`
+  - `text-gray-700` / `text-gray-800` / `text-slate-700` /
+    `text-slate-800` → `text-ink-2`
+  - `text-gray-500` / `text-gray-600` / `text-slate-500` /
+    `text-slate-600` → `text-ink-3`
+  - `text-gray-400` / `text-slate-400` → `text-ink-4`
+  - `text-blue-*` → `text-accent-ink`
+  - `border-blue-*` → `border-accent`
+
+  **Estimated work:** 1-2 hours; per-file context-aware
+  search/replace + visual smoke pass on each touched file.
+
+  **Banked from rest-of-app fidelity sweep Step 8 audit, May 2026.**
+
 - [Pricing surface — blended margin reframe — v1.1 product thinking]
 
   **Slice:** v1.1 product-thinking slice. Not on release-critical
