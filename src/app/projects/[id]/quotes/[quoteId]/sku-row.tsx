@@ -142,6 +142,13 @@ export function SkuRow({
     { top: number; right: number } | null
   >(null);
   const overflowRef = useRef<HTMLDivElement>(null);
+  // Step 10 Edward smoke (2026-05-14) — separate ref for the
+  // portal-mounted menu container. The portal moves the menu out
+  // of `overflowRef`'s DOM ancestry; the outside-click handler
+  // needs to check both refs (trigger AND portaled menu) or every
+  // click inside the menu fires as an "outside click" and
+  // unmounts the menu before the button's onClick can run.
+  const overflowMenuRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef({ retailBenchmark, unitsPerPack });
   stateRef.current = { retailBenchmark, unitsPerPack };
@@ -176,13 +183,22 @@ export function SkuRow({
   }, [overflowOpen]);
 
   // Slice RI.8 — overflow menu close-on-outside-click + ESC.
+  // Step 10 Edward smoke fix (2026-05-14) — outside-click check now
+  // accepts EITHER the trigger ref (overflowRef) OR the portaled
+  // menu ref (overflowMenuRef). Previously only overflowRef was
+  // checked, but the v3 portal hotfix moved the menu DOM to
+  // document.body — descendants of the menu were no longer in
+  // overflowRef's tree, so every menu-item click fired as an
+  // "outside click" and unmounted the menu before React's onClick
+  // could run. All menu items appeared broken (Edward repro:
+  // "Assign to parent does nothing").
   useEffect(() => {
     if (!overflowOpen) return;
     function onClick(e: MouseEvent) {
-      if (
-        overflowRef.current &&
-        !overflowRef.current.contains(e.target as Node)
-      ) {
+      const target = e.target as Node;
+      const insideTrigger = overflowRef.current?.contains(target) ?? false;
+      const insideMenu = overflowMenuRef.current?.contains(target) ?? false;
+      if (!insideTrigger && !insideMenu) {
         setOverflowOpen(false);
       }
     }
@@ -559,6 +575,7 @@ export function SkuRow({
                 // register explicitly + wins selector specificity.
                 <div
                   role="menu"
+                  ref={overflowMenuRef}
                   className="r7b-overflow-menu"
                   style={{
                     position: "fixed",
