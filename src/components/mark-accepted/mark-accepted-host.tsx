@@ -67,7 +67,13 @@ export function MarkAcceptedHost({
     tiers.find((t) => t.recommended) ?? tiers[Math.floor(tiers.length / 2)];
 
   return (
-    <div className="macc-stage">
+    // Sweep Step 5/N — adopt `r3-shared` parent-scope class so the
+    // canonical R3 rules (now under .r3-shared { ... } in
+    // src/styles/r3-shared.css) resolve for Mark-Accepted's
+    // .macc-* / .state-sub / .mono / .muted vocabulary. Same shape
+    // Quote adopted in Step 4.1/N — the shared file serves both
+    // surfaces under the single namespace.
+    <div className="r3-shared macc-stage">
       <div
         style={{
           padding: "10px 24px",
