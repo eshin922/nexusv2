@@ -173,10 +173,19 @@ async function migrateOrphan(orphan: CleanupOrphan, userId: string) {
     // reparenting can't run before the child exists). Mirrors the
     // fix applied to convertLeafToAssemblyWithMigrate after Edward
     // smoke 2026-05-14.
+    // Look up the orphan's hubspot_product_id so the new child
+    // inherits it (Edward disposition (d) — auto-child inherits
+    // HubSpot reference; Slice 12 writeback filter handles the
+    // double-push concern).
+    const [orphanFull] = await db
+      .select({ hubspotProductId: quoteSkus.hubspotProductId })
+      .from(quoteSkus)
+      .where(eq(quoteSkus.id, orphan.quoteSkuId))
+      .limit(1);
     await tx.insert(quoteSkus).values({
       id: newChildId,
       quoteId: orphan.quoteId,
-      hubspotProductId: null,
+      hubspotProductId: orphanFull?.hubspotProductId ?? null,
       skuLabel: newChildSkuLabel,
       productName: orphan.productName,
       unitsPerPack: orphan.unitsPerPack,
@@ -186,6 +195,7 @@ async function migrateOrphan(orphan: CleanupOrphan, userId: string) {
       parentSkuId: orphan.quoteSkuId,
       qtyPerParent: "1",
       sortOrder: 0,
+      isAutoMigrateArtifact: true,
     });
 
     // Reparent the three per-SKU cost tables. Safe now —

@@ -70,6 +70,10 @@ export type SkuRowListItem = {
     skuRole: "leaf" | "assembly";
     parentSkuId: string | null;
     qtyPerParent: string | null;
+    /** Leaf-detach micro-slice Sub-item 3 follow-up — true when
+     * auto-created by smart-migrate; Type badge convert is
+     * disabled to prevent nested -CMP-CMP-... chains. */
+    isAutoMigrateArtifact: boolean;
   };
   depth: number;
   hasChildren: boolean;

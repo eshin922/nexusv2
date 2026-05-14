@@ -358,6 +358,7 @@ export default async function QuoteBuilderPage({
                     skuRole: s.skuRole,
                     parentSkuId: s.parentSkuId,
                     qtyPerParent: s.qtyPerParent,
+                    isAutoMigrateArtifact: s.isAutoMigrateArtifact,
                   },
                   depth,
                   hasChildren,

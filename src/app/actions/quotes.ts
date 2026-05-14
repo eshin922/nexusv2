@@ -1460,7 +1460,13 @@ export async function convertLeafToAssemblyWithMigrate(
       await tx.insert(quoteSkus).values({
         id: newChildId,
         quoteId: sku.quoteId,
-        hubspotProductId: null,
+        // Edward disposition (d): auto-child inherits
+        // hubspot_product_id from the original so HubSpot
+        // read-sync flows through to the cost-bearing SKU.
+        // Slice 12 Mark-Accepted writeback filters
+        // isAutoMigrateArtifact=true to avoid double-pushing
+        // the same HubSpot product.
+        hubspotProductId: sku.hubspotProductId,
         skuLabel: newChildSkuLabel,
         productName: sku.productName,
         unitsPerPack: sku.unitsPerPack,
@@ -1470,6 +1476,10 @@ export async function convertLeafToAssemblyWithMigrate(
         parentSkuId: skuId,
         qtyPerParent: "1",
         sortOrder: 0,
+        // Edward disposition (a): mark this row as an auto-
+        // generated cost-data artifact so the UI disables the
+        // Type badge (preventing nested -CMP-CMP-... chains).
+        isAutoMigrateArtifact: true,
       });
 
       // Step 2: reparent the three per-SKU cost-input tables

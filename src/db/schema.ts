@@ -439,6 +439,20 @@ export const quoteSkus = pgTable(
     ),
     skuRole: skuRole("sku_role").notNull().default("leaf"),
     qtyPerParent: numeric("qty_per_parent", { precision: 10, scale: 4 }),
+    // Leaf-detach micro-slice Sub-item 3 follow-up (May 2026) —
+    // marks SKUs created by `convertLeafToAssemblyWithMigrate` as
+    // auto-generated cost-data artifacts. PM-facing impact:
+    // (a) Type badge is disabled on these rows — preventing
+    //     nested -CMP-CMP-... chains (Edward smoke surfaced this).
+    // (b) Slice 12 Mark-Accepted writeback filters
+    //     `is_auto_migrate_artifact = true` to avoid pushing
+    //     internal artifacts to HubSpot.
+    // The auto-child STILL inherits hubspot_product_id from the
+    // original (Edward's call (d)) so HubSpot read-sync flows
+    // through; only writeback skips them.
+    isAutoMigrateArtifact: boolean("is_auto_migrate_artifact")
+      .notNull()
+      .default(false),
     // Customs / landed-cost data (Slice 6.5; CBM moved to freight_inputs
     // in Slice 8 pre-correction).
     //

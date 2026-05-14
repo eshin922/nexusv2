@@ -27,6 +27,11 @@ type Sku = {
   skuRole: "leaf" | "assembly";
   parentSkuId: string | null;
   qtyPerParent: string | null;
+  /** Leaf-detach micro-slice Sub-item 3 follow-up — true when this
+   * SKU was auto-created by `convertLeafToAssemblyWithMigrate` (or
+   * the cleanup-pass adapter). Type badge convert is disabled on
+   * these rows to prevent nested `-CMP-CMP-...` chains. */
+  isAutoMigrateArtifact: boolean;
 };
 
 type EligibleParent = {
@@ -533,7 +538,14 @@ export function SkuRow({
             sku.skuRole === "assembly" &&
             targetRole === "leaf" &&
             hasChildren;
-          const canToggle = canToggleViaValidator || isCascadeCase;
+          // Sub-item 3 follow-up (Edward disposition (a)):
+          // disable Type badge entirely on auto-created -CMP
+          // children to prevent nested -CMP-CMP-... chains.
+          // Tooltip explains why; PM flattens by converting the
+          // parent assembly back to leaf via the cascade path.
+          const isAutoArtifact = sku.isAutoMigrateArtifact;
+          const canToggle =
+            !isAutoArtifact && (canToggleViaValidator || isCascadeCase);
           const isAsy = sku.skuRole === "assembly";
           return (
             <button
@@ -542,18 +554,22 @@ export function SkuRow({
               disabled={disabled || pending || !canToggle}
               aria-pressed={isAsy}
               aria-label={`Type: ${ROLE_SHORT_LABEL[sku.skuRole]}. ${
-                canToggle
-                  ? isCascadeCase
-                    ? `Click to convert to leaf (will detach ${childCount} children).`
-                    : `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}.`
-                  : `Cannot convert.`
+                isAutoArtifact
+                  ? "Auto-generated cost-data artifact — type is locked."
+                  : canToggle
+                    ? isCascadeCase
+                      ? `Click to convert to leaf (will detach ${childCount} children).`
+                      : `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}.`
+                    : `Cannot convert.`
               }`}
               title={
-                canToggle
-                  ? isCascadeCase
-                    ? `Convert to leaf — children will be detached (confirmation modal)`
-                    : `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}`
-                  : "Cannot convert."
+                isAutoArtifact
+                  ? "Auto-generated cost-data child — convert the parent assembly back to leaf to flatten this hierarchy."
+                  : canToggle
+                    ? isCascadeCase
+                      ? `Convert to leaf — children will be detached (confirmation modal)`
+                      : `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}`
+                    : "Cannot convert."
               }
               className={`r7b-type ${sku.skuRole}`}
             >
