@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import {
   assignSkuToParent,
-  convertLeafToAssemblyWithMigrate,
+  convertLeafToAssemblyDestructive,
   convertSkuRole,
   deleteSku,
   moveSku,
@@ -27,11 +27,6 @@ type Sku = {
   skuRole: "leaf" | "assembly";
   parentSkuId: string | null;
   qtyPerParent: string | null;
-  /** Leaf-detach micro-slice Sub-item 3 follow-up — true when this
-   * SKU was auto-created by `convertLeafToAssemblyWithMigrate` (or
-   * the cleanup-pass adapter). Type badge convert is disabled on
-   * these rows to prevent nested `-CMP-CMP-...` chains. */
-  isAutoMigrateArtifact: boolean;
 };
 
 type EligibleParent = {
@@ -166,11 +161,14 @@ export function SkuRow({
   // leaf; atomic transaction.
   const [cascadeConvertModalOpen, setCascadeConvertModalOpen] =
     useState(false);
-  // Leaf-detach micro-slice Sub-item 3 — smart-migrate confirmation
-  // modal state. Open when PM clicks Type badge on a leaf row that
-  // has cost data. Confirm → server creates auto-named child leaf
-  // + reparents cost rows + flips original to assembly.
-  const [smartMigrateModalOpen, setSmartMigrateModalOpen] =
+  // Leaf-detach micro-slice (Edward 2026-05-14 simplification) —
+  // destructive convert modal state. Open when PM clicks Type
+  // badge on a leaf row with cost data OR a HubSpot link. PM
+  // must type "yes" exactly in the modal's confirmation input to
+  // enable the destructive action. Confirm → server DELETEs cost
+  // rows + strips HubSpot link + flips role to assembly.
+  // Replaces the prior smart-migrate auto-child flow.
+  const [destructiveConvertModalOpen, setDestructiveConvertModalOpen] =
     useState(false);
   // Slice RI.8 — overflow menu state for action cluster compression
   // (Designer audit Q2 approved). Houses the four conditional
@@ -340,17 +338,23 @@ export function SkuRow({
       return;
     }
 
-    // Leaf-detach micro-slice Sub-item 3 — leaf → assembly with
-    // cost data opens the smart-migrate confirmation modal.
-    // Confirm → server creates auto-named child leaf + reparents
-    // cost rows + flips original to assembly atomically. PM-
-    // visible scenario gate: no cost data → silent toggle through
-    // the default path below.
-    if (sku.skuRole === "leaf" && newRole === "assembly" && hasCostData) {
-      setSmartMigrateModalOpen(true);
+    // Leaf-detach micro-slice (Edward 2026-05-14 simplification) —
+    // leaf → assembly destructive convert. Opens type-yes
+    // confirmation modal when the leaf has preservable data (cost
+    // rows OR a HubSpot link). PM types "yes" exactly →
+    // destructive action fires (deletes cost rows + strips HubSpot
+    // link + flips role).
+    if (
+      sku.skuRole === "leaf" &&
+      newRole === "assembly" &&
+      (hasCostData || sku.hubspotProductId !== null)
+    ) {
+      setDestructiveConvertModalOpen(true);
       return;
     }
 
+    // Clean toggle path — no cost data, no HubSpot link. Silent
+    // role flip via the standard non-cascade `convertSkuRole`.
     const fd = new FormData();
     fd.set("skuId", sku.id);
     fd.set("newRole", newRole);
@@ -360,14 +364,18 @@ export function SkuRow({
     });
   }
 
-  function runSmartMigrate() {
-    setSmartMigrateModalOpen(false);
+  function runDestructiveConvert(confirmation: string) {
     setSaveError(null);
     const fd = new FormData();
     fd.set("skuId", sku.id);
+    fd.set("confirmation", confirmation);
     startTransition(async () => {
-      const r = await convertLeafToAssemblyWithMigrate(fd);
-      if (!r.ok) setSaveError(r.error.message);
+      const r = await convertLeafToAssemblyDestructive(fd);
+      if (!r.ok) {
+        setSaveError(r.error.message);
+        return;
+      }
+      setDestructiveConvertModalOpen(false);
     });
   }
 
@@ -538,14 +546,7 @@ export function SkuRow({
             sku.skuRole === "assembly" &&
             targetRole === "leaf" &&
             hasChildren;
-          // Sub-item 3 follow-up (Edward disposition (a)):
-          // disable Type badge entirely on auto-created -CMP
-          // children to prevent nested -CMP-CMP-... chains.
-          // Tooltip explains why; PM flattens by converting the
-          // parent assembly back to leaf via the cascade path.
-          const isAutoArtifact = sku.isAutoMigrateArtifact;
-          const canToggle =
-            !isAutoArtifact && (canToggleViaValidator || isCascadeCase);
+          const canToggle = canToggleViaValidator || isCascadeCase;
           const isAsy = sku.skuRole === "assembly";
           return (
             <button
@@ -554,22 +555,22 @@ export function SkuRow({
               disabled={disabled || pending || !canToggle}
               aria-pressed={isAsy}
               aria-label={`Type: ${ROLE_SHORT_LABEL[sku.skuRole]}. ${
-                isAutoArtifact
-                  ? "Auto-generated cost-data artifact — type is locked."
-                  : canToggle
-                    ? isCascadeCase
-                      ? `Click to convert to leaf (will detach ${childCount} children).`
-                      : `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}.`
-                    : `Cannot convert.`
+                canToggle
+                  ? isCascadeCase
+                    ? `Click to convert to leaf (will detach ${childCount} children).`
+                    : `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}.`
+                  : `Cannot convert.`
               }`}
               title={
-                isAutoArtifact
-                  ? "Auto-generated cost-data child — convert the parent assembly back to leaf to flatten this hierarchy."
-                  : canToggle
-                    ? isCascadeCase
-                      ? `Convert to leaf — children will be detached (confirmation modal)`
+                canToggle
+                  ? isCascadeCase
+                    ? `Convert to leaf — children will be detached (confirmation modal)`
+                    : sku.skuRole === "leaf" &&
+                      targetRole === "assembly" &&
+                      (hasCostData || sku.hubspotProductId !== null)
+                      ? "Convert to assembly — destructive: deletes cost data + HubSpot link (type-yes confirmation modal)"
                       : `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}`
-                    : "Cannot convert."
+                  : "Cannot convert."
               }
               className={`r7b-type ${sku.skuRole}`}
             >
@@ -1020,15 +1021,20 @@ export function SkuRow({
         />
       )}
 
-      {/* Leaf-detach micro-slice Sub-item 3 — smart-migrate
-          confirmation modal. Opens when PM clicks Type badge on a
-          leaf with cost data. Brief Q1 LOCKED: deterministic
-          silent auto-naming `{ORIGINAL-SKU}-CMP`. */}
-      {smartMigrateModalOpen && !disabled && (
-        <SmartMigrateConfirmModal
+      {/* Leaf-detach micro-slice (Edward 2026-05-14 simplification)
+          — destructive convert confirmation modal. Opens when PM
+          clicks Type badge on a leaf with cost data OR a HubSpot
+          link. PM must type "yes" exactly to enable the confirm
+          button — guards against accidental destruction. On
+          confirm, the server deletes cost rows + strips the
+          HubSpot link + flips the role atomically. */}
+      {destructiveConvertModalOpen && !disabled && (
+        <TypeYesConfirmModal
           skuLabel={sku.skuLabel}
-          onCancel={() => setSmartMigrateModalOpen(false)}
-          onConfirm={runSmartMigrate}
+          hasCostData={hasCostData}
+          hasHubspotLink={sku.hubspotProductId !== null}
+          onCancel={() => setDestructiveConvertModalOpen(false)}
+          onConfirm={runDestructiveConvert}
           pending={pending}
         />
       )}
@@ -1188,25 +1194,32 @@ function CascadeConvertConfirmModal({
   );
 }
 
-// Leaf-detach micro-slice Sub-item 3 — canonical R7b confirmation
-// modal for leaf → assembly smart-migrate. Brief copy: "Convert
-// {sku} to assembly? Cost data on this leaf will be moved to a
-// new child leaf '{auto-name}' (auto-created, all cost lines
-// preserved). You can rename the new child after." Brief Q1
-// LOCKED: deterministic silent auto-name `{ORIGINAL-SKU}-CMP`.
-// The auto-name is shown as info (not editable per Q1
-// disposition).
-function SmartMigrateConfirmModal({
+// Leaf-detach micro-slice (Edward 2026-05-14 simplification) —
+// destructive convert confirmation modal. Replaces the prior
+// SmartMigrateConfirmModal which created an auto-named child.
+// Requires PM to TYPE "yes" exactly in the confirmation input
+// to enable the destructive action button — high-friction gate
+// against accidental loss. Lists the specific data that will be
+// deleted (cost rows + HubSpot link, per row state) so PMs
+// understand the blast radius before committing.
+function TypeYesConfirmModal({
   skuLabel,
+  hasCostData,
+  hasHubspotLink,
   onCancel,
   onConfirm,
   pending,
 }: {
   skuLabel: string;
+  hasCostData: boolean;
+  hasHubspotLink: boolean;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (confirmation: string) => void;
   pending: boolean;
 }) {
+  const [confirmation, setConfirmation] = useState("");
+  const canConfirm = confirmation.trim().toLowerCase() === "yes";
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onCancel();
@@ -1215,43 +1228,107 @@ function SmartMigrateConfirmModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onCancel]);
 
+  // Compose the deletion-summary copy based on what's actually
+  // about to disappear. Keeps the warning concrete + scannable.
+  const losingItems: string[] = [];
+  if (hasCostData)
+    losingItems.push("Cost data (packaging, production, freight)");
+  if (hasHubspotLink) losingItems.push("HubSpot product link");
+  const losingCopy =
+    losingItems.length === 0
+      ? "No data to delete."
+      : `The following will be deleted from this SKU:`;
+
   return (
     <div className="r7b-modal-backdrop" onClick={onCancel}>
       <div
         className="r7b-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="Convert leaf to assembly"
+        aria-label="Destructive convert leaf to assembly"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="r7b-modal-head">
           <h2>Convert {skuLabel} to assembly?</h2>
           <p className="sub">
-            Cost data on this leaf will be moved to a new child leaf{" "}
-            <strong>{skuLabel}-CMP</strong> (auto-created, all cost lines
-            preserved). You can rename the new child after.
+            Assemblies are kit definitions without cost data of their own;
+            cost data lives on the leaf children you&rsquo;ll add via
+            &ldquo;+ Add child SKU&rdquo; in the row drawer.
           </p>
         </div>
         <div
           className="r7b-modal-body"
-          style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}
+          style={{ display: "flex", flexDirection: "column", gap: 12 }}
         >
-          <button
-            type="button"
-            className="btn ghost sm"
-            onClick={onCancel}
-            disabled={pending}
+          <div>
+            <p style={{ margin: "0 0 6px 0", color: "var(--ink-2)" }}>
+              {losingCopy}
+            </p>
+            {losingItems.length > 0 && (
+              <ul
+                style={{
+                  margin: 0,
+                  paddingLeft: 18,
+                  color: "var(--bad)",
+                  fontSize: 13,
+                }}
+              >
+                {losingItems.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
+            <p
+              style={{
+                margin: "10px 0 0 0",
+                fontSize: 12,
+                color: "var(--ink-3)",
+              }}
+            >
+              This cannot be undone. To proceed, type{" "}
+              <strong>yes</strong> below.
+            </p>
+          </div>
+          <input
+            type="text"
+            value={confirmation}
+            onChange={(e) => setConfirmation(e.target.value)}
+            placeholder='type "yes" to confirm'
+            autoFocus
+            style={{
+              padding: "8px 10px",
+              border: `1px solid ${canConfirm ? "var(--bad)" : "var(--rule)"}`,
+              borderRadius: 6,
+              fontFamily: "var(--mono)",
+              fontSize: 13,
+              background: "var(--paper)",
+            }}
+          />
+          <div
+            style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}
           >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn primary sm"
-            onClick={onConfirm}
-            disabled={pending}
-          >
-            {pending ? "Converting…" : "Convert and migrate cost data"}
-          </button>
+            <button
+              type="button"
+              className="btn ghost sm"
+              onClick={onCancel}
+              disabled={pending}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn primary sm"
+              onClick={() => onConfirm(confirmation.trim().toLowerCase())}
+              disabled={pending || !canConfirm}
+              style={{
+                background: canConfirm ? "var(--bad)" : undefined,
+                borderColor: canConfirm ? "var(--bad)" : undefined,
+                color: canConfirm ? "var(--paper)" : undefined,
+              }}
+            >
+              {pending ? "Converting…" : "Convert to assembly"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1918,30 +1995,23 @@ function UnitsPerPackCell({
   );
 }
 
-// Leaf-detach micro-slice Sub-item 3 follow-up (Edward smoke 2026-
-// 05-14) — hover-tooltip content on the SKU label cell. Three-line
-// origin summary varies by row state:
+// Leaf-detach micro-slice (Edward smoke 2026-05-14) — hover-tooltip
+// content on the SKU label cell. Two-line origin summary varies by
+// row state:
 //   - HubSpot-linked: source + product ID + last sync time
 //   - Nexus-local: "Nexus-local SKU · Not tied to HubSpot"
-//   - Auto-migrate child: marked + inherited HubSpot info OR
-//     "legacy auto-artifact pre-fix" callout when null
-// Native `title` attribute renders the tooltip; multi-line via
-// embedded \n characters (cross-browser standard).
+// Auto-migrate artifact branches removed alongside the smart-migrate
+// refactor (Edward 2026-05-14 simplification). Native `title`
+// attribute renders the tooltip; multi-line via embedded \n
+// characters (cross-browser standard).
 function buildOriginTooltip(sku: {
   hubspotProductId: string | null;
   lastHubspotRefreshAt: Date | null;
-  isAutoMigrateArtifact: boolean;
 }): string {
   const hasHubspot = !!sku.hubspotProductId;
   const syncLine = sku.lastHubspotRefreshAt
     ? `Last synced ${formatRelative(sku.lastHubspotRefreshAt)}`
     : "Never synced";
-  if (sku.isAutoMigrateArtifact) {
-    if (hasHubspot) {
-      return `Auto-migrate child\nHubSpot product · ID ${sku.hubspotProductId} (inherited)\n${syncLine}`;
-    }
-    return `Auto-migrate child\nNot tied to HubSpot (legacy auto-artifact pre-fix)`;
-  }
   if (hasHubspot) {
     return `HubSpot product · ID ${sku.hubspotProductId}\n${syncLine}`;
   }
