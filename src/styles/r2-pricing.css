@@ -17,7 +17,7 @@
  * Pattern 30 refinement — Path-B variant catalog:
  *   - Path-B-default: canonical CSS with prefix-clean selectors
  *     (.r6-*, .r7b-*). Adopted verbatim at file root. §6.b precedent
- *     (r6-cost-build.css, r7b-setup.css).
+ *     (r6-costs.css, r7b-setup.css).
  *   - Path-B-namespace-scoped: canonical CSS with unprefixed
  *     selectors. Adopted under a parent-selector scope to confine
  *     global match risk. R2 Pricing is the first instance.
@@ -33,7 +33,7 @@
  *
  * House-style divergence: this file uses CSS Nesting (Level 1) to
  * achieve the namespace scope without rewriting every selector. The
- * rest of the canonical CSS files (r7b-setup.css, r6-cost-build.css)
+ * rest of the canonical CSS files (r7b-setup.css, r6-costs.css)
  * use flat selectors. The nesting here is purely a Pattern 30
  * verbatim-content-preservation mechanism — content from upstream
  * lines 91-565 is unchanged; only the `.r2-pricing { ... }` wrap is

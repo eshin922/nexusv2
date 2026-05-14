@@ -18,7 +18,7 @@
 //   the R6 pulse-dot + sync-timestamp affordance. Distinct semantic
 //   from .eyebrow (identity); kept because data-freshness is a
 //   Costs-specific affordance PMs read at scan speed. Lives in
-//   r6-cost-build.css canonical CSS (already there as .r6-page-head
+//   r6-costs.css canonical CSS (already there as .r6-page-head
 //   .meta + .live rules); we preserve the markup so the canonical
 //   CSS still applies.
 //
@@ -78,7 +78,7 @@ export function CostsHeader({
         {/* Pattern 39 nexus extension — pulse-dot sync indicator
             specific to Costs (data freshness PMs read at scan speed).
             Canonical .r6-page-head .meta + .live rules apply via
-            r6-cost-build.css; markup preserved so CSS still binds.
+            r6-costs.css; markup preserved so CSS still binds.
             Sits below the .sub paragraph as a Costs-specific affordance,
             not a chrome canon element. */}
         <div className="meta">

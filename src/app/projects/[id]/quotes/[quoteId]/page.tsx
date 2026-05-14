@@ -165,7 +165,7 @@ export default async function QuoteBuilderPage({
         <YourNextMoveBanner
           state="default"
           label={
-            SURFACE_META.setup.nextMove?.label ?? "Continue to Cost build →"
+            SURFACE_META.setup.nextMove?.label ?? "Continue to Costs →"
           }
           subtitle="once SKUs and tiers are settled"
           href={resolveSurfaceHref("cost_build", project.id, quote.id)}
