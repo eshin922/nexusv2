@@ -7,17 +7,17 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 - [Leaf detach from parent assembly — v1 blocker]
 
-  **Slice:** Small enough to fold into the in-flight rest-of-app
-  fidelity sweep as an add-on commit, OR ship as its own micro-
-  slice between sweep PR and R6.2 freight implementation. Edward
-  + CA disposition.
+  **Slice (DISPOSITIONED, 2026-05-13):** Micro-slice queued
+  BETWEEN rest-of-app fidelity sweep PR and R6.2 freight
+  implementation. **NOT folded into sweep** — avoiding mid-flight
+  scope creep. Sweep ships clean; this lands immediately after.
 
   **Problem:** Currently no UI path to disconnect a leaf from
   its parent assembly once assigned. Workaround is to delete the
   leaf and recreate — destructive, loses per-SKU notes, retail
   bench data, drawer state, sort_order.
 
-  **Two affordance entry points** (both should ship):
+  **Two affordance entry points** (both implemented):
 
   1. **Parent's drawer child-SKU list** — per-row "✕ Detach" or
      "Remove from assembly" action button in the action column
@@ -31,25 +31,34 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
   - **Action:** new server action `detachLeafFromParent(skuId)`.
     Writes `parent_sku_id = NULL` + `qty_per_parent = NULL` on
-    the leaf. Pattern 22 verify before encoding: confirm column
-    names against `src/db/schema.ts` `quote_skus.parentSkuId` +
-    `quote_skus.qtyPerParent` (current shape per Slice 5.5
-    assembly rules).
+    the leaf. **Pattern 22 — verify exact column name in schema
+    BEFORE encoding** (confirm against `src/db/schema.ts`
+    `quote_skus.parentSkuId` + `quote_skus.qtyPerParent` current
+    shape per Slice 5.5 assembly rules).
   - **Audit:** action key `sku_detached_from_parent` with
     diff_json carrying `{ before: { parent_sku_id, qty_per_parent
     }, after: { parent_sku_id: null, qty_per_parent: null } }`
     + the parent's sku_label snapshot for human-readable
     forensics ("detached from PARENT-CODE").
-  - **Confirmation modal:** if leaf has any non-empty
-    per-SKU notes OR retail benchmark value, surface a
-    confirmation modal warning "Detaching preserves this leaf's
-    notes + retail benchmark, but it'll no longer roll up under
+  - **Confirmation modal:** if leaf has any non-empty per-SKU
+    notes OR retail benchmark value, surface a confirmation
+    modal warning "Detaching preserves this leaf's notes +
+    retail benchmark, but it'll no longer roll up under
     {parent}. Cost / pricing impacts:..." with Cancel + Confirm
-    CTAs. If leaf is empty (no notes, no retail), skip the modal
-    and detach immediately.
+    CTAs. If leaf is empty (no notes, no retail), skip the
+    modal and detach immediately.
   - **Tree validation:** `validateAssemblyOperation` from
     `src/lib/sku-tree.ts` already handles parent unset (writes
     parent_sku_id = NULL); reuse the validator path.
+  - **Leaf row visual updates on detach:** tree-line connector
+    (`└─` prefix in the .label-pack) is removed; the
+    QtyPerParentInline widget (renders inline `× N per parent`
+    on assigned leaves) is removed. The row becomes standalone
+    register — same visual shape as any never-assigned leaf.
+    Visual transition driven by `sku.parentSkuId === null`
+    branching already in place in `sku-row.tsx` (treeLine +
+    QtyPerParentInline are conditional on parentSkuId); revalidation
+    after detach flips the props.
 
   **Cross-references:**
   - Slice 5.5 assembly rules (CLAUDE.md "Assembly rules"
@@ -66,6 +75,123 @@ Items here are intentionally deferred - capture, don't fix in the moment.
   loses cost-bench data (retail benchmark) + drawer state
   (per-SKU notes) silently. Has come up in §6.b smoke + Edward
   PM-workflow observation.
+
+  **Release-critical-path placement:** between rest-of-app
+  fidelity sweep PR and R6.2 freight implementation. Must land
+  before v1 release. Carry forward into any CA session handoff
+  doc as a release-critical entry.
+
+  **Banked from Edward UX observation, May 2026.**
+
+- [ASY → LEAF conversion warning on assemblies with children — v1 blocker]
+
+  **Slice (DISPOSITIONED, 2026-05-13):** Extension to the queued
+  leaf-detach micro-slice. Same slice; shares confirmation-modal
+  + detach-action layer infrastructure. Net additional scope:
+  one warning modal + cascade-detach logic. Probably half-day
+  on top of the leaf-detach work.
+
+  **Problem:** Type badge click on an assembly with children
+  currently no-ops (silently rejected by `eligibleRoleTargets`
+  via `validateAssemblyOperation` since "assembly → leaf"
+  is refused when children exist per Slice 5.5 assembly rules
+  + CLAUDE.md "Assembly rules" section). PM clicks the badge,
+  nothing happens, no signal — confusing.
+
+  **Three improvements (all in scope):**
+
+  1. **Warning modal when ASY has ≥1 child.** Click on Type
+     badge surfaces a confirmation modal:
+       Title: "Convert to leaf?"
+       Body: "{N} children will be detached as standalone
+       leaves. Their data (notes, retail bench, sort_order) is
+       preserved. They'll appear as top-level SKUs in this
+       quote."
+       CTAs: Cancel · "Convert + detach {N} children"
+  2. **Cascade-to-detach on confirm.** Children's
+     `parent_sku_id` writes to NULL + `qty_per_parent` writes
+     to NULL. Their data (notes, retail, sort_order) preserved.
+     Tree-line connector + QtyPerParentInline visual updates
+     fire per the leaf-detach entry's visual-update spec.
+  3. **Silent toggle when ASY has 0 children.** No modal; just
+     the type change fires immediately. Existing flow shape
+     (Type badge click → action fires) preserved for the
+     empty-assembly case.
+
+  **Separate concern (NOT in this micro-slice):** "ASY is a
+  child of another ASY" — converting this ASY to LEAF does
+  NOT affect its OWN parent relationship. The parent_sku_id
+  + qty_per_parent on THIS sku stay intact; only the role
+  enum flips and the children get detached. To detach this
+  ASY from its own parent, PM uses the separate ⋯ → Detach
+  from parent action (the original leaf-detach micro-slice
+  scope above).
+
+  **Implementation:**
+
+  - **Action:** new server action `convertAssemblyToLeaf
+    (assemblySkuId)`. Inside a DB transaction:
+      a. Load all child SKUs of the assembly
+      b. For each child: write `parent_sku_id = NULL` +
+         `qty_per_parent = NULL`; audit
+         `sku_detached_from_parent` per child with
+         diff_json carrying the parent reference + cascade
+         context flag
+      c. Update the assembly's `sku_role` to 'leaf'; audit
+         `sku_type_changed_asy_to_leaf` with diff_json
+         carrying `{ cascaded_children: N, child_ids: [...] }`
+    Single transaction so partial-failure doesn't leave a tree
+    half-detached.
+  - **Pattern 22 verification:** confirm column names against
+    `src/db/schema.ts` `quote_skus.skuRole` enum +
+    `quote_skus.parentSkuId` + `quote_skus.qtyPerParent` —
+    shared check with the leaf-detach micro-slice.
+  - **Audit:** TWO action keys fire per ASY→LEAF conversion
+    with cascade:
+      `sku_detached_from_parent` × N (one per child detached)
+      `sku_type_changed_asy_to_leaf` × 1 (the assembly itself)
+    Separate keys per child detach so the audit-log timeline
+    reads clearly when reviewing "what got detached when."
+  - **Confirmation modal:** shared `.warn-band` primitive
+    (extracted in sweep Step 1) PLUS the canonical .r7b-modal
+    chrome (Add-product modal precedent). Cancel + Confirm CTAs
+    use .btn ghost sm + .btn primary sm primitives.
+  - **Empty-assembly case (silent toggle):** existing
+    `setSkuRole(skuId, "leaf")` action handles this when
+    childCount === 0; no UI changes needed for that path.
+    Modal gate fires only when childCount > 0.
+
+  **Visual updates after conversion:**
+
+  - The converted SKU's row: type badge flips ASY → LEAF
+    (canonical R7b style, same as a never-promoted leaf)
+  - Each cascaded child's row: tree-line connector removed,
+    QtyPerParentInline widget removed (mirrors the leaf-detach
+    spec's visual-update notes)
+
+  **Cross-references:**
+  - Companion to leaf-detach micro-slice above (shared
+    infrastructure)
+  - CLAUDE.md "Assembly rules" section — assembly→leaf
+    transition path documented; this entry is the UI for that
+    plus the cascade-detach safety
+  - Pattern 22 schema verification before action layer encoding
+  - Pattern 39 nexus-extension precedent — confirmation modal
+    is a Nexus-side addition (canonical R7b drawer doesn't
+    render a conversion-warning modal; the cascade-detach
+    semantics are a Slice-5.5 assembly-rule enforcement we
+    surface visually)
+
+  **Risk if not shipped:** PMs hit a silently-rejected Type
+  badge click on assemblies, mistake it for broken behavior,
+  workaround = delete + recreate each child as standalone (data
+  loss). Same risk class as the leaf-detach blocker.
+
+  **Release-critical-path placement:** same as leaf-detach —
+  between rest-of-app fidelity sweep PR and R6.2 freight
+  implementation. Must land before v1 release. Carry forward
+  in CA session handoff doc as a release-critical entry under
+  the leaf-detach micro-slice scope.
 
   **Banked from Edward UX observation, May 2026.**
 
