@@ -142,24 +142,18 @@ export default async function QuoteBuilderPage({
             {pm?.name ? ` · PM ${pm.name}` : ""}
           </p>
         </div>
-        <div className="actions">
-          <button
-            type="button"
-            className="btn ghost sm"
-            disabled
-            title="+ Add SKU — wires to add-product modal in §6.b Step 8"
-          >
-            + Add SKU
-          </button>
-          <button
-            type="button"
-            className="btn primary"
-            title="Saved automatically as you edit."
-            disabled
-          >
-            Save draft
-          </button>
-        </div>
+        {/* Rest-of-app sweep (post-§6.b Designer audit Finding 01
+            promoted to v1 blocker per Edward smoke 2026-05-13):
+            page-head action cluster intentionally empty. Removed:
+            (1) `+ Add SKU` — duplicative of `+ Add Product` in SKU
+            table footer (single canonical addition affordance lives
+            near the table). (2) `Save draft` — non-functional
+            placeholder; autosave is wired on field-blur (Slice 5
+            form-state pattern) so an explicit Save button just
+            implies functionality that doesn't exist. Empty `.actions`
+            div preserves canonical .r7b-head structure for the
+            future case where genuine page-head actions are needed. */}
+        <div className="actions" />
       </div>
 
       {/* Slice RI.9 § 3.3 — YOUR NEXT MOVE banner. Setup → Cost build

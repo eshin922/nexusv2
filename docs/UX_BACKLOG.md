@@ -5,6 +5,93 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Pricing surface — blended margin reframe — v1.1 product thinking]
+
+  **Slice:** v1.1 product-thinking slice. Not on release-critical
+  path. Trigger when bandwidth allows.
+
+  **Current state:** Pricing surface's headline reads `BLENDED
+  MARGIN · ALL SKUS · ALL TIERS` (e.g., 40.5%) — portfolio average
+  across all SKUs × all tiers. PM-confirmed reality is that
+  customers realize per-tier margin at acceptance time (~95% of
+  cases pick a single tier). Blended is decorative as a per-deal
+  decision tool but useful as a quote-construction sanity check.
+
+  **Why not v1:** functional and not actively misleading
+  day-to-day (PMs understand the model). Pricing's structural job
+  in v1 — single source of truth for adjustments + verdict — is
+  working. Reframe is product-thinking refinement, not bug.
+
+  **Three reframe options when revisited:**
+
+  1. **Demote blended to secondary; promote recommended-tier
+     margin to primary headline.** Uses ★ Recommended from Setup
+     (which already exists). Headline becomes "Margin at
+     recommended tier: X%" with blended kept as a secondary chip
+     for portfolio context. Closest to PM workflow today.
+  2. **Keep blended primary but reframe verdict copy** to
+     acknowledge uncertainty: "Range: X% — Y% · realized depends
+     on accepted tier." Lowest-touch change; preserves headline
+     real estate.
+  3. **Side-by-side equal weighting** of blended + recommended-
+     tier margins. Two-column verdict band. Highest design lift;
+     forces PM to read two numbers instead of one.
+
+  **Decision criteria when prioritized:** observe which margin PMs
+  actually quote during customer conversations (recommended-tier
+  is the hypothesis); calibrate the headline to match the spoken
+  number. If multiple PMs default differently, option 3 (side-
+  by-side) handles the ambiguity at the cost of cognitive load.
+
+  **Cross-references:**
+  - Setup ★ Recommended tier flag (Slice §6.b Step 5
+    `quote_tiers.recommended` BOOL) — already wired; reframe
+    option 1 reads it directly.
+  - Margin verdict pill primitive (Slice 9.2 GOOD / BELOW_TARGET
+    / BELOW_FLOOR) — semantic register stays; only the source
+    margin changes.
+  - Slice 9.4b CompetitiveIndicator pattern — verdict surfacing
+    convention (interpretation inline, raw values in tooltip)
+    applies if reframe changes either layer.
+
+  **Banked from Edward product-thinking observation, May 2026.**
+
+- [Setup page-head button removal — v1 blocker]
+
+  **Slice (DISPOSITIONED, 2026-05-13 — Edward at slice time):**
+  Fold into rest-of-app fidelity sweep slice (currently in progress)
+  as a small copy/removal commit. Promotes §6.b Designer audit
+  Finding 01 from MEDIUM banked to v1 blocker.
+
+  **What:** Two duplicative / non-functional buttons in the Setup
+  page header (`src/app/projects/[id]/quotes/[quoteId]/page.tsx`
+  lines 145-162) should be removed entirely:
+
+  1. **`+ Add SKU`** — duplicative of the working `+ Add Product`
+     button in SKU table footer. Single canonical affordance for
+     product addition belongs near the table.
+  2. **`Save draft`** — disabled (`cursor: not-allowed` on hover);
+     appears to be an autosave placeholder. Non-functional button
+     implies functionality that doesn't exist.
+
+  **Pre-removal verification (Pattern 28 fidelity-discipline):**
+  smoke-confirm Setup autosaves on field blur. **Verified
+  2026-05-13:** `sku-row.tsx` has 6 `onBlur` / `fireSave` /
+  `useActionState` references; Slice 5 form-state pattern
+  (CLAUDE.md `Form state pattern` + `Save handler pattern`) is
+  the canonical autosave wiring across Setup. Save-draft button's
+  own `title="Saved automatically as you edit."` confirms intent.
+
+  **Implementation:** copy/removal commit only. Drops the `.actions`
+  block contents in `.r7b-head` (cluster goes empty — keep the
+  `<div className="actions">` empty for now so CD canonical
+  structure is preserved). No schema or component restructure.
+
+  **Source reference:** §6.b Designer audit Finding 01 (was MEDIUM
+  banked; promoted to v1 blocker per Edward smoke).
+
+  **Banked from Edward smoke, May 2026.**
+
 - [Add Product button copy rename — small]
 
   **Slice (DISPOSITIONED, 2026-05-13 — Edward + CA at slice time):**
