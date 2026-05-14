@@ -1453,6 +1453,203 @@ UX value not in canon (= extension)? Or does it shortcut canon
 discipline at the cost of theme-safety / cross-surface
 consistency (= violation)?
 
+## Pattern 45 — "Customer-facing render data-source verification"
+
+Standing pattern — banked candidate during rest-of-app sweep
+Step 9 hotfix (May 2026); promoted to standing during Step 10
+Designer audit (2026-05-14) per Edward's disposition. Two
+reference moments in one sweep, structurally identical;
+discipline materially load-bearing for every Quote PDF /
+customer-view render.
+
+**The rule:** every block in the customer-facing render tree
+(`<PdfPage>` and all descendants) must trace to a real bundle
+data source. Hardcoded synthetic placeholder strings, fixture
+values, prototype-demo data, and "Slice N will wire this"
+stubs shipping through customer-facing components are
+**HIGH-severity findings**, regardless of slice they originated in.
+
+**Why:** the customer-view boundary is the only render path
+the firm doesn't get to apologize for after the fact. A
+synthetic "{pack-format-pending}" or a $5,250 mock service
+fee that escapes to a customer PDF is not a "we'll fix it next
+slice" surface — it's a deliverability error. The boundary
+deserves a sharper rule than the rest of the codebase.
+
+**Two canonical fix shapes:**
+
+1. **Synthetic-visible via `<Stub>` / `.pdf-stub` register.**
+   Useful when the field MUST render (layout depends on it),
+   but the data isn't wired yet. The `<Stub>` component from
+   `pdf-header.tsx` ships a dashed-underline mono caption
+   register that's visibly synthetic — PMs immediately
+   recognize the surface in smoke. Move the synthetic string
+   to `QUOTE_STUBS` in `quote-fixtures.ts` so future-CC
+   can grep for unwired surfaces. This is the right choice
+   when the absence of the value would break the layout.
+
+2. **Null-guard graceful degradation.** Useful when the field
+   is supplementary (caption, secondary metadata, optional
+   chrome). Type as `T | null`; conditionally render only when
+   truthy. Same shape as `preparedBy.phone === null` →
+   PdfHeader omits the phone line. This is the right choice
+   when the absence is a degradation, not a layout break.
+
+**Reference moments (the two-instance threshold):**
+
+1. **Step 9 hotfix (rest-of-app sweep)** — `quote-host.tsx`
+   substituted `PASS_THROUGH_CHARGES` fixtures (project setup
+   $5,250 / GLW-50 mold tooling $12,400 / CAP-60 R&D $3,200 /
+   outbound LTL $0.42 / inbound ocean $0.55) for real
+   `view.serviceFees` + `view.freightLines` arrays. PMs
+   toggling the dev sub-state switcher to "Pass-through"
+   shipped those mock values into customer PDFs. Fix: strip
+   the fixture-substitution layer; use `view.*` directly;
+   `isTwoPage` gated on real data presence.
+
+2. **Step 10 audit HIGH-2** — `quote/page.tsx:190` hardcoded
+   `pack: "{pack-format-pending}"`; `PdfPricingTable` rendered
+   the synthetic string verbatim in the SKU caption column.
+   Fix: `CustomerViewSku.pack` typed as `string | null`;
+   page.tsx sets `pack: null` per Slice 11 deferral;
+   `PdfPricingTable` conditionally suppresses the caption
+   when null (graceful-degradation shape, matching
+   `preparedBy.phone`).
+
+**Audit-rubric sweep criterion:** any future Designer audit
+on a slice that touches the customer-facing tree must include
+a grep pass for hardcoded numbers / strings / labels in
+`src/components/pdf/`, `src/components/quote/`, and `src/app/
+projects/[id]/quotes/[quoteId]/quote/`. Each hit gets evaluated
+against the two canonical fix shapes above. Pattern 22 §0.5
+schema-verification gate's analog — "code-source verification
+of the customer-facing tree" — applies here.
+
+**Prevention checklist when authoring new PDF blocks:**
+
+1. **Type the field as nullable when the data binding isn't
+   ready yet.** `T | null` forces the consumer to make an
+   explicit choice (render-empty vs synthetic-visible vs
+   layout-break-safe-default).
+2. **Default `null` over default `"{synthetic-string}"`.** The
+   compiler and linter will help catch null cases; synthetic
+   strings will silently ship.
+3. **Reach for `<Stub>` when layout depends on a value.** Don't
+   reinvent the dashed-underline register; consume the
+   primitive.
+4. **Bank "Slice N owns the wiring" in the consumer's prop type
+   doc comment.** Future-CC reading the type sees the deferral
+   explicit; future-Designer-audit reading the type catches the
+   binding gap.
+
+**Coverage gap signaling:** if a third instance of Pattern 45
+surfaces in a future slice, the prevention discipline isn't
+sticking — promote to a standing `prebuild` script check (grep
+the PDF subtree for hardcoded `${`-free string literals over N
+characters and flag for review).
+
+## Designer audit rubric expansions (banked from rest-of-app sweep Step 10, 2026-05-14)
+
+Each entry below is an additional sweep criterion future Designer
+audits should consume. Banked from coverage gaps the Step 10
+audit surfaced — findings that the rubric drove on grep, not on
+explicit sweep criteria. Folds into the existing CLAUDE.md "Audit
+rubric coverage gap signaling" discipline.
+
+### "Portal-escape from namespace scope"
+
+For any surface using Path-B-namespace-scoped variant (CSS
+canonical wrapped under `.r2-pricing { ... }` / `.r3-shared { ... }`
+/ similar parent scope), every portal-mounted descendant must
+either:
+
+(a) Carry the parent scope class on its portal root, OR
+
+(b) Explicitly opt into the cross-surface global primitive
+    register (`.r2-*` / `.r3-*` chrome primitives in
+    `r7b-primitives.css`).
+
+**Why:** `createPortal(..., document.body)` mounts children
+OUTSIDE the parent React tree's DOM ancestry; CSS parent-scope
+wraps don't follow. Canonical unprefixed classes (`.modal-head`,
+`.btn`, `.formfield`, etc.) that exist ONLY inside the namespace
+scope fail to resolve for portaled subtrees.
+
+**Reference moment:** Rest-of-app sweep Step 10 audit HIGH-1 —
+`ReverseSolveDialog` portaled to `document.body`, escaping
+`.r2-pricing` scope. Canonical R2 unprefixed primitives didn't
+resolve; component fell back to hardcoded Tailwind utilities.
+Fix: add `r2-pricing` className to the portal's root `<div>`.
+
+**Audit grep:** `grep -rn "createPortal" src/components` against
+the canonical CSS namespace scopes. Each hit gets verified for
+parent-scope class carry-through.
+
+### "Pattern 39 nexus extension hygiene"
+
+Every Pattern 39 nexus extension must:
+
+(a) **Document the delta from canon** in the relevant component
+    or CSS file header. Future audits reading the header see
+    "this diverges from R<N> canonical because…" without
+    transcript archaeology.
+
+(b) **Trace to real data** through the action layer / costing
+    store / props chain. Synthetic strings shipping through
+    extensions are HIGH findings under Pattern 45 — extensions
+    don't get a free pass on data-source verification.
+
+**Reference moments:**
+
+1. Cost-stack on Pricing surface (MEDIUM-4) — Pattern 39 banked
+   with full rationale in `pricing/page.tsx` header comment.
+   Real data binding intact (cost-stack reads from CostingStore).
+2. Costs pulse-dot sync indicator (MEDIUM-1) — initially Pattern
+   39 candidate, REVERSED to Pattern 21 dev-scaffolding because
+   the data binding was synthetic (`syncLabel = "synced just now"`
+   hardcoded). Synthetic = NOT Pattern 39; it's Pattern 21
+   visible-pending instead.
+
+**The distinction:** Pattern 39 documents *deliberate divergence
+from canonical design for workflow reasons* — the data is real,
+the affordance is correct, only the canon-vs-implementation
+visual register differs. Pattern 21 covers *unfilled data
+binding shipped as visible placeholder* — the affordance shape
+might be canonical, but the underlying data is synthetic. Don't
+collapse the two; they have different fix shapes (Pattern 39 →
+preserve; Pattern 21 → wire data before promoting).
+
+### "Component header comment drift after canonical migrations"
+
+After any canonical CSS migration (Path-B adoption, class rename,
+chrome substitution, namespace scope wrap), component header
+comments referencing the pre-migration state get re-read against
+current reality. **Comments lie longer than code does** — the
+rendered surface migrates in one commit; the comment claiming
+"this lives in r6-cost-build.css" stays correct until someone
+notices.
+
+**Reference moments:**
+
+1. LOW-1 — `costs-header.tsx` header referenced ".r6-page-head
+   .meta" selector that stopped binding when Step 2 migrated the
+   wrapper to `.r7b-head`.
+2. MEDIUM-6 — `pdf-page.tsx` header claimed "literal OKLCH only"
+   boundary invariant; Step 4 path-B made the Quote subtree
+   token-driven via `r3-shared.css`.
+
+**Audit grep:** after a Path-B migration commit lands, scan the
+touched component files' headers for references to the
+pre-migration CSS file name, class name, or cascade order. Any
+stale reference needs a rewrite OR a rebinding rule.
+
+**Audit-finding severity heuristic:** if the stale comment would
+mislead future-CC into wrong action (replacing a class that no
+longer exists, importing a file that's been renamed), it's at
+least LOW; if the stale comment claims a behavior invariant that
+no longer holds (boundary guard, token discipline, namespace
+scope), it's MEDIUM.
+
 ## v1 release-path slice sequencing (banked May 2026, updated
 2026-05-13)
 

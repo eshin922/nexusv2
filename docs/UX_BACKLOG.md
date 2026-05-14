@@ -76,6 +76,74 @@ Items here are intentionally deferred - capture, don't fix in the moment.
   **Banked from Edward observation 2026-05-13.** No immediate
   action; Slice 11 owns the conversation when it fires.
 
+- [Costs pulse-dot sync indicator — wire real HubSpot refresh source — Slice 11]
+
+  **Slice:** Slice 11 (HubSpot data binding cluster). Currently a
+  Pattern 21 dev-scaffolding visible-pending stub.
+
+  **Current state (post-rest-of-app-sweep Step 10):** CostsHeader
+  renders the pulse-dot affordance with `.meta.pending` modifier:
+  dimmed dot (no good-soft glow), copy reads "Sync status pending
+  · Slice 11", visual register signals not-yet-wired. Component
+  header documents the Pattern 21 framing.
+
+  **What Slice 11 owns:**
+
+  1. Wire actual `lastHubspotRefreshAt` source. Candidates:
+     `project.lastHubspotRefreshAt` (project-level, set when
+     project metadata last synced), `quote_skus.lastHubspotRefreshAt`
+     (per-SKU, set by the per-SKU refresh action), or a quote-level
+     rollup that aggregates across the quote's SKUs.
+  2. **Resolve the live-sync-vs-manual-pull semantic question.**
+     Currently HubSpot data is manually refreshed via per-SKU
+     refresh actions; "live" implies push-based sync we don't
+     have. Two semantic possibilities:
+     - **Pulse-dot stays pulsing** if we add a polling layer (e.g.,
+       background refresh every N minutes); copy reads "synced
+       N minutes ago" relative-time format.
+     - **Pulse-dot goes static** if we stay manual-pull; copy
+       reads "last refreshed N hours ago" with explicit PM-pull
+       semantic.
+  3. Remove the `.meta.pending` modifier once wired; the real
+     timestamp's presence/absence drives the visual state.
+
+  **Banked from rest-of-app fidelity sweep Step 10 audit MEDIUM-1
+  + Edward disposition 2026-05-14.**
+
+- [Pricing surface — cost-stack as mini-stack reference — v1.1 polish]
+
+  **Slice:** v1.1 polish slice. Not on release-critical path.
+
+  **Current state:** `pricing/page.tsx` Room 1 mounts the full R6
+  `CostStackHeader` component (reused from Costs surface). This is
+  a documented Pattern 39 nexus extension (header comment in
+  `pricing/page.tsx` carries full rationale per rest-of-app sweep
+  Step 10 audit MEDIUM-4 disposition).
+
+  **Future v1.1 work:** replace the full CostStackHeader on Pricing
+  with a **read-only mini-stack reference** + explicit caption
+  ("cost construction on Costs · this is read-only"). Cleaner
+  divergence than full component duplication; preserves at-a-glance
+  cost-vs-margin affordance with less surface area + complexity.
+
+  **Rationale for deferral:** sweep should land fidelity-and-
+  cleanup work, not redesign decisions. Mini-stack is the better
+  long-term answer but warrants its own design + smoke cycle —
+  needs CD design pass on mini-stack proportions, visual register,
+  and which cost-stack data points compress into the mini-view.
+
+  **Cross-references:**
+  - `pricing/page.tsx` header comment Pattern 39 rationale (read
+    first when starting this slice)
+  - CLAUDE.md Pattern 39 ("Nexus-side extension precedent") —
+    promotion path
+  - R2 designer notes lines 122-127 (cost-stack belongs at the
+    bottom of Cost Build per R2 canon — relevant if v1.1 design
+    pass revisits placement entirely vs mini-stack on Pricing)
+
+  **Banked from rest-of-app fidelity sweep Step 10 audit MEDIUM-4
+  + Edward disposition 2026-05-14.**
+
 - [Quote PDF Additional charges block — real-data binding — Slice 11 follow-up]
 
   **Slice:** Slice 11 (Quote PDF render path). Was the implicit
@@ -146,13 +214,46 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
   **Slice:** v1.1 cleanup slice. Not on release-critical path.
 
-  **What:** 4 Pricing component files (`reverse-solve-dialog.tsx`,
-  `client-target-cell.tsx`, `active-tier-selector.tsx`,
-  `competitive-indicator.tsx`) carry 29 hardcoded
-  `bg-white` / `bg-gray-*` / `text-gray-*` / `border-gray-*` /
-  `text-slate-*` Tailwind utility refs. Other surfaces touched by
-  the rest-of-app fidelity sweep (Mark Accepted, Quote, Costs) are
-  already clean of these refs.
+  **Scope updated 2026-05-14 per rest-of-app sweep Step 10 audit:**
+  Original entry banked 29 refs; designer audit re-counted **41
+  refs across 4 Pricing component files** (the original audit
+  undercounted; HIGH-1 expanded the scope).
+
+  **What:** 4 Pricing component files carry 41 hardcoded `bg-white`
+  / `bg-gray-*` / `text-gray-*` / `border-gray-*` / `bg-blue-*` /
+  `bg-amber-*` / `text-slate-*` Tailwind utility refs. Other
+  surfaces touched by the rest-of-app fidelity sweep (Mark Accepted,
+  Quote, Costs) are already clean of these refs.
+
+  **Per-file breakdown + priority:**
+
+  1. **`reverse-solve-dialog.tsx` — 24 refs (HIGHEST PRIORITY).**
+     Step 10 audit HIGH-1. Primary surface for one of Slice 9.4b's
+     three signature affordances (suggested-tier-adj reverse-solve).
+     PMs see this modal every time they apply a suggested tier
+     adjustment. Migrate to canonical R2 register: `.r2-chip
+     warn`/`bad`, `.r2-btn primary`, `.warn-band`, `.warn-band.bad`,
+     `.modal-head` / `.modal-body` / `.modal-foot`, `var(--rule)` /
+     `var(--paper-2)` for frame. Origin-row highlight maps to
+     `var(--accent-soft)`. **Sweep Step 10 hotfix landed the
+     namespace-wrap structural fix** (portal root carries
+     `r2-pricing` className) so canonical primitives resolve; this
+     entry covers the cosmetic register migration. Estimated lift:
+     ~150 LOC.
+  2. **`client-target-cell.tsx` — 9 refs.** Per-cell client target
+     affordance + reverse-solve "→ apply suggested adj" chip +
+     error-state pill. Migrate to canonical `.r2-chip` register;
+     Pattern 29 read↔edit affordance status documented in component
+     header per the brief §3.2 ACCEPTED NEXUS EXTENSION
+     disposition.
+  3. **`active-tier-selector.tsx` — 6 refs.** Tab pattern (≤4 tiers)
+     + dropdown (≥5 tiers). Both mounted on Pricing AND Cost-stack
+     pages (confirmed live, not dead code). Migrate to
+     `.r2-chip`/`.r2-btn.sm` primitive register; dropdown to
+     canonical `.r2-form` or equivalent.
+  4. **`competitive-indicator.tsx` — 2 refs.** Comment-only at this
+     point (refs to past `bg-white` removal). Spot-check during
+     migration.
 
   **Why not v1:** the globals.css central override layer (shipped
   Slice RI.8 step 8 dark-mode sweep) maps `bg-white` → `var(--paper)`,
