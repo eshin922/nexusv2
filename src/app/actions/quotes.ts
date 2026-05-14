@@ -1166,9 +1166,18 @@ export async function unassignSkuFromParent(
 }
 
 /**
- * Change a SKU's role between leaf and assembly. Demoting assembly →
- * leaf is refused if the SKU has children — PM must detach or delete
- * them explicitly first. No auto-detach.
+ * Change a SKU's role between leaf and assembly.
+ *
+ * **Default behavior** (no cascadeDetachChildren flag): demoting
+ * assembly → leaf is refused if the SKU has children. PM must detach
+ * or delete them explicitly first.
+ *
+ * **Cascade behavior** (cascadeDetachChildren='true'): leaf-detach
+ * micro-slice Sub-item 2 — when PM confirms the cascade modal,
+ * direct children are detached as standalone leaves (preserving
+ * notes, retail bench, sort_order) and the assembly's role flips to
+ * leaf, all within one atomic transaction. Sub-item 2's full
+ * specification covers the scenarios.
  */
 export async function convertSkuRole(
   formData: FormData,
@@ -1176,6 +1185,8 @@ export async function convertSkuRole(
   return runAction(async () => {
     const skuId = String(formData.get("skuId") ?? "").trim();
     const newRoleRaw = String(formData.get("newRole") ?? "") as SkuRoleValue;
+    const cascadeDetachChildren =
+      String(formData.get("cascadeDetachChildren") ?? "") === "true";
     if (!skuId) throw new ActionGuardError(ERR.VALIDATION, "skuId required");
     if (!["leaf", "assembly"].includes(newRoleRaw))
       throw new ActionGuardError(ERR.VALIDATION, `Invalid newRole: ${newRoleRaw}`);
@@ -1196,6 +1207,87 @@ export async function convertSkuRole(
     assertDraft(quote);
 
     const allSkus = await loadAllSkusForQuote(sku.quoteId);
+
+    // Leaf-detach micro-slice Sub-item 2 — cascade path for
+    // assembly → leaf with children. PM confirmed the modal;
+    // detach all direct children + flip role atomically.
+    if (
+      cascadeDetachChildren &&
+      sku.skuRole === "assembly" &&
+      newRoleRaw === "leaf"
+    ) {
+      const directChildren = allSkus.filter((s) => s.parentSkuId === skuId);
+      // (Empty-children case is unreachable here — validation below
+      // covers childless ASY → LEAF via the non-cascade path. Cascade
+      // flag is meaningful only when children > 0.)
+
+      await db.transaction(async (tx) => {
+        // 1. Detach each child: write parent_sku_id + qty_per_parent
+        //    to NULL. Per-child audit (same `unassigned_from_parent`
+        //    action key as Sub-item 1; diff_json.source flags origin
+        //    so timeline can distinguish cascade-from-manual).
+        for (const child of directChildren) {
+          await tx
+            .update(quoteSkus)
+            .set({
+              parentSkuId: null,
+              qtyPerParent: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(quoteSkus.id, child.id));
+          await tx.insert(auditLog).values({
+            userId: user.id,
+            entityType: "quote_sku",
+            entityId: child.id,
+            action: "unassigned_from_parent",
+            diffJson: {
+              parent_sku_id: { from: skuId, to: null },
+              qty_per_parent: { from: child.qtyPerParent, to: null },
+              source: "cascade_from_role_conversion",
+            },
+          });
+        }
+
+        // 2. Flip role to leaf.
+        await tx
+          .update(quoteSkus)
+          .set({ skuRole: newRoleRaw, updatedAt: new Date() })
+          .where(eq(quoteSkus.id, skuId));
+
+        // 3. Seed production_inputs rows for the now-leaf SKU
+        //    (per-tier). ON CONFLICT DO NOTHING handles re-promotion
+        //    where rows already exist from a prior leaf state.
+        const tiers = await tx
+          .select({ id: quoteTiers.id })
+          .from(quoteTiers)
+          .where(eq(quoteTiers.quoteId, sku.quoteId));
+        if (tiers.length > 0) {
+          await tx
+            .insert(productionInputs)
+            .values(
+              tiers.map((t) => ({ quoteSkuId: skuId, tierId: t.id })),
+            )
+            .onConflictDoNothing();
+        }
+
+        // 4. Audit the role conversion with cascade metadata.
+        await tx.insert(auditLog).values({
+          userId: user.id,
+          entityType: "quote_sku",
+          entityId: skuId,
+          action: "role_converted",
+          diffJson: {
+            sku_role: { from: sku.skuRole, to: newRoleRaw },
+            cascade_detached_count: directChildren.length,
+            cascade_detached_child_ids: directChildren.map((c) => c.id),
+          },
+        });
+      });
+
+      revalidateQuoteTree(quote.projectId, sku.quoteId);
+      return;
+    }
+
     const validation = validateAssemblyOperation({
       skuId,
       newParentId: sku.parentSkuId,

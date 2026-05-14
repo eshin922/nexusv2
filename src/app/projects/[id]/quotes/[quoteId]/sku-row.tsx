@@ -147,6 +147,13 @@ export function SkuRow({
       }
     | null
   >(null);
+  // Leaf-detach micro-slice Sub-item 2 — cascade-detach confirmation
+  // modal state. Open when PM clicks the Type badge on an assembly
+  // row with ≥1 children to demote it to leaf. PM confirms → all
+  // direct children detach as standalone leaves; role flips to
+  // leaf; atomic transaction.
+  const [cascadeConvertModalOpen, setCascadeConvertModalOpen] =
+    useState(false);
   // Slice RI.8 — overflow menu state for action cluster compression
   // (Designer audit Q2 approved). Houses the four conditional
   // affordances (assembly reassign / detach / HubSpot refresh /
@@ -305,9 +312,40 @@ export function SkuRow({
   function handleConvertRole(newRole: Sku["skuRole"]) {
     if (newRole === sku.skuRole) return;
     setSaveError(null);
+
+    // Leaf-detach micro-slice Sub-item 2 — assembly → leaf with
+    // children opens the cascade-detach confirmation modal instead
+    // of firing the action directly. PM confirms → cascade flag set
+    // on the action call; children detach atomically.
+    if (sku.skuRole === "assembly" && newRole === "leaf" && hasChildren) {
+      setCascadeConvertModalOpen(true);
+      return;
+    }
+
+    // Sub-item 3 territory — leaf → assembly with cost data opens
+    // the smart-migrate modal. The cost-data check happens in the
+    // SmartMigrateModal flow (server side computes the orphan-rows
+    // count for the user-facing copy + drives the action's
+    // smart-migrate behavior). For now, leaf → assembly always
+    // goes through the non-cascade path; Sub-item 3 wiring lands
+    // in the next commit.
+
     const fd = new FormData();
     fd.set("skuId", sku.id);
     fd.set("newRole", newRole);
+    startTransition(async () => {
+      const r = await convertSkuRole(fd);
+      if (!r.ok) setSaveError(r.error.message);
+    });
+  }
+
+  function runCascadeConvert() {
+    setCascadeConvertModalOpen(false);
+    setSaveError(null);
+    const fd = new FormData();
+    fd.set("skuId", sku.id);
+    fd.set("newRole", "leaf");
+    fd.set("cascadeDetachChildren", "true");
     startTransition(async () => {
       const r = await convertSkuRole(fd);
       if (!r.ok) setSaveError(r.error.message);
@@ -452,11 +490,23 @@ export function SkuRow({
         {(() => {
           const targetRole: Sku["skuRole"] =
             sku.skuRole === "leaf" ? "assembly" : "leaf";
-          const canToggle = eligibleRoleTargets(
+          const canToggleViaValidator = eligibleRoleTargets(
             sku.skuRole,
             sku.parentSkuId !== null,
             hasChildren,
           ).includes(targetRole);
+          // Leaf-detach micro-slice Sub-item 2 — assembly with
+          // children + clicking-to-leaf was REFUSED by the
+          // validator (canToggleViaValidator=false). The cascade
+          // path opens a confirmation modal so the click is
+          // semantically valid; the validator's refusal becomes a
+          // gate on the SILENT path only. The handler still gates
+          // server-side via the cascadeDetachChildren flag.
+          const isCascadeCase =
+            sku.skuRole === "assembly" &&
+            targetRole === "leaf" &&
+            hasChildren;
+          const canToggle = canToggleViaValidator || isCascadeCase;
           const isAsy = sku.skuRole === "assembly";
           return (
             <button
@@ -466,13 +516,17 @@ export function SkuRow({
               aria-pressed={isAsy}
               aria-label={`Type: ${ROLE_SHORT_LABEL[sku.skuRole]}. ${
                 canToggle
-                  ? `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}.`
-                  : `Cannot convert — has children. Detach children first.`
+                  ? isCascadeCase
+                    ? `Click to convert to leaf (will detach ${childCount} children).`
+                    : `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}.`
+                  : `Cannot convert.`
               }`}
               title={
                 canToggle
-                  ? `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}`
-                  : "Cannot convert to leaf — assembly has children. Detach via ⋯ menu first."
+                  ? isCascadeCase
+                    ? `Convert to leaf — children will be detached (confirmation modal)`
+                    : `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}`
+                  : "Cannot convert."
               }
               className={`r7b-type ${sku.skuRole}`}
             >
@@ -900,6 +954,22 @@ export function SkuRow({
           pending={pending}
         />
       )}
+
+      {/* Leaf-detach micro-slice Sub-item 2 — cascade-detach
+          confirmation modal. Opens when PM clicks Type badge on an
+          assembly row with ≥1 children to demote it to leaf.
+          Brief Q4 LOCKED copy: "Convert {sku} to leaf? {N}
+          children will be detached as standalone leaves (their
+          notes, retail bench, and data preserved)." */}
+      {cascadeConvertModalOpen && !disabled && (
+        <CascadeConvertConfirmModal
+          skuLabel={sku.skuLabel}
+          childCount={childCount}
+          onCancel={() => setCascadeConvertModalOpen(false)}
+          onConfirm={runCascadeConvert}
+          pending={pending}
+        />
+      )}
     </>
   );
 }
@@ -977,6 +1047,78 @@ function DetachConfirmModal({
             disabled={pending}
           >
             {pending ? "Detaching…" : "Detach"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Leaf-detach micro-slice Sub-item 2 — canonical R7b confirmation
+// modal for assembly → leaf cascade-detach. Brief Q4 LOCKED copy.
+// Same `.r7b-modal-*` chrome as DetachConfirmModal; primary CTA
+// label "Convert and detach {N} children" to make the cascade
+// outcome explicit (PM reads the button copy and knows what's
+// about to happen).
+function CascadeConvertConfirmModal({
+  skuLabel,
+  childCount,
+  onCancel,
+  onConfirm,
+  pending,
+}: {
+  skuLabel: string;
+  childCount: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+  pending: boolean;
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  const childWord = childCount === 1 ? "child" : "children";
+  return (
+    <div className="r7b-modal-backdrop" onClick={onCancel}>
+      <div
+        className="r7b-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Convert assembly to leaf"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="r7b-modal-head">
+          <h2>Convert {skuLabel} to leaf?</h2>
+          <p className="sub">
+            {childCount} {childWord} will be detached as standalone leaves
+            (their notes, retail bench, and data preserved).
+          </p>
+        </div>
+        <div
+          className="r7b-modal-body"
+          style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}
+        >
+          <button
+            type="button"
+            className="btn ghost sm"
+            onClick={onCancel}
+            disabled={pending}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn primary sm"
+            onClick={onConfirm}
+            disabled={pending}
+          >
+            {pending
+              ? "Converting…"
+              : `Convert and detach ${childCount} ${childWord}`}
           </button>
         </div>
       </div>
