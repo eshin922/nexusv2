@@ -168,7 +168,28 @@ async function migrateOrphan(orphan: CleanupOrphan, userId: string) {
   ]);
 
   await db.transaction(async (tx) => {
-    // Reparent the three per-SKU cost tables.
+    // INSERT child SKU FIRST (approach b ordering — Postgres
+    // checks FK on UPDATE when the FK column changes, so cost-row
+    // reparenting can't run before the child exists). Mirrors the
+    // fix applied to convertLeafToAssemblyWithMigrate after Edward
+    // smoke 2026-05-14.
+    await tx.insert(quoteSkus).values({
+      id: newChildId,
+      quoteId: orphan.quoteId,
+      hubspotProductId: null,
+      skuLabel: newChildSkuLabel,
+      productName: orphan.productName,
+      unitsPerPack: orphan.unitsPerPack,
+      retailBenchmark: null,
+      notes: null,
+      skuRole: "leaf",
+      parentSkuId: orphan.quoteSkuId,
+      qtyPerParent: "1",
+      sortOrder: 0,
+    });
+
+    // Reparent the three per-SKU cost tables. Safe now —
+    // newChildId exists in quote_skus.
     if (pkgCount.length > 0) {
       await tx
         .update(packagingInputs)
@@ -187,24 +208,6 @@ async function migrateOrphan(orphan: CleanupOrphan, userId: string) {
         .set({ quoteSkuId: newChildId, updatedAt: new Date() })
         .where(eq(freightInputs.quoteSkuId, orphan.quoteSkuId));
     }
-
-    // Insert the new child leaf SKU with the pre-allocated id.
-    // Original's sku_role stays 'assembly' (no flip needed; that
-    // was the orphan state we're remediating).
-    await tx.insert(quoteSkus).values({
-      id: newChildId,
-      quoteId: orphan.quoteId,
-      hubspotProductId: null,
-      skuLabel: newChildSkuLabel,
-      productName: orphan.productName,
-      unitsPerPack: orphan.unitsPerPack,
-      retailBenchmark: null,
-      notes: null,
-      skuRole: "leaf",
-      parentSkuId: orphan.quoteSkuId,
-      qtyPerParent: "1",
-      sortOrder: 0,
-    });
 
     // Audit trail. Per Sub-item 5 vs Sub-item 3 difference: no
     // `role_converted` here (original is already assembly). Just

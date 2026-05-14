@@ -1438,18 +1438,43 @@ export async function convertLeafToAssemblyWithMigrate(
     ]);
 
     await db.transaction(async (tx) => {
-      // Step 1: reparent the three per-SKU cost-input tables
-      //         from original.id → newChildId. Done BEFORE the
-      //         child SKU exists so that auto-create logic (which
-      //         fires on child insert via the seedProductionInputs
-      //         flow OR similar) finds (newChildId, tier_id)
-      //         rows already populated and ON CONFLICT DO NOTHING.
+      // Step 1: create the new child leaf SKU FIRST with the
+      //         pre-allocated id. parent_sku_id = original.id;
+      //         qty_per_parent = 1; sort_order = 0 (end of empty
+      //         child list since the original just became an
+      //         assembly with no other children); empty notes +
+      //         retailBenchmark.
       //
-      //         Note: the new child SKU doesn't yet exist when
-      //         this UPDATE runs, but Postgres doesn't check FK
-      //         existence on UPDATE — only INSERT. The child SKU
-      //         insert in step 4 satisfies the FK retroactively
-      //         within the same transaction.
+      // Edward smoke fix (2026-05-14): approach (b) ordering per
+      // brief Implementation Observation 1. Original approach (a)
+      // commented "Postgres doesn't check FK existence on UPDATE
+      // — only INSERT" was wrong — Postgres DOES check FK on
+      // UPDATE when the FK column itself changes. Updating
+      // production_inputs.quote_sku_id to a not-yet-existent
+      // newChildId raises FK violation. Approach (b): INSERT
+      // child first, then reparent cost rows. No auto-create
+      // collision because production_inputs is seeded
+      // application-level (not via DB trigger on quote_skus
+      // INSERT), so tx.insert(quoteSkus) below doesn't create
+      // collision rows.
+      await tx.insert(quoteSkus).values({
+        id: newChildId,
+        quoteId: sku.quoteId,
+        hubspotProductId: null,
+        skuLabel: newChildSkuLabel,
+        productName: sku.productName,
+        unitsPerPack: sku.unitsPerPack,
+        retailBenchmark: null,
+        notes: null,
+        skuRole: "leaf",
+        parentSkuId: skuId,
+        qtyPerParent: "1",
+        sortOrder: 0,
+      });
+
+      // Step 2: reparent the three per-SKU cost-input tables
+      //         from original.id → newChildId. Safe now because
+      //         the child SKU exists.
       if (pkgCount.length > 0) {
         await tx
           .update(packagingInputs)
@@ -1469,34 +1494,14 @@ export async function convertLeafToAssemblyWithMigrate(
           .where(eq(freightInputs.quoteSkuId, skuId));
       }
 
-      // Step 3: flip role on the original SKU to assembly.
-      // (Step 2 — child SKU's data-template prep — happens via the
-      // INSERT in step 4; nothing separate needed here.)
+      // Step 3: flip role on the original SKU to assembly. The
+      // original's cost rows were just moved to the child, so it's
+      // safe to leave as the now-empty assembly carrying the
+      // customer-facing reference (notes + retail bench preserved).
       await tx
         .update(quoteSkus)
         .set({ skuRole: "assembly", updatedAt: new Date() })
         .where(eq(quoteSkus.id, skuId));
-
-      // Step 4: create the new child leaf SKU with the pre-
-      //         allocated id. parent_sku_id = original.id;
-      //         qty_per_parent = 1; sort_order = 0 (end of empty
-      //         child list since the original just became an
-      //         assembly with no other children); empty notes +
-      //         retailBenchmark.
-      await tx.insert(quoteSkus).values({
-        id: newChildId,
-        quoteId: sku.quoteId,
-        hubspotProductId: null,
-        skuLabel: newChildSkuLabel,
-        productName: sku.productName,
-        unitsPerPack: sku.unitsPerPack,
-        retailBenchmark: null,
-        notes: null,
-        skuRole: "leaf",
-        parentSkuId: skuId,
-        qtyPerParent: "1",
-        sortOrder: 0,
-      });
 
       // Step 6: audit trail.
       await tx.insert(auditLog).values({
