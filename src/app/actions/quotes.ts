@@ -1254,45 +1254,49 @@ export async function convertSkuRole(
 }
 
 /**
- * Re-pull HubSpot Product data and overwrite ONLY the fields whose
-/**
- * Leaf-detach micro-slice Sub-item 3 — leaf → assembly smart-migrate
- * with auto-create child. PM clicks Type badge on a LEAF row that
- * has cost data; modal confirms; this action fires:
+ * Leaf-detach micro-slice — leaf → assembly DESTRUCTIVE conversion
+ * (Edward 2026-05-14 simplification; supersedes the
+ * `convertLeafToAssemblyWithMigrate` smart-migrate flow that
+ * created auto-named -CMP children — too complex; replaced).
  *
- *   1. Pre-allocate child SKU id (uuid generated app-side).
- *   2. Reparent the three per-SKU cost-input tables
- *      (packaging_inputs, production_inputs, freight_inputs) from
- *      original.id → pre-allocated child.id. Bulk raw cost rides
- *      along on production_inputs.bulk_raw_cost — no separate
- *      handling.
- *   3. Flip original SKU's sku_role from leaf to assembly.
- *   4. Create the child leaf SKU with the pre-allocated id and
- *      auto-generated name `{original.sku_label}-CMP` (collision
- *      handled with -CMP-2 / -CMP-3 / ... suffix). Empty notes +
- *      empty retail bench on the child; original's notes + retail
- *      bench stay as the assembly's customer-facing reference.
- *   5. Production auto-create logic for the new child no-ops
- *      because rows already exist at (newChild.id, tier_id) tuples
- *      from step 2's reparent — approach (a) per CA-approved
- *      Implementation Observation 1.
- *   6. Per-table audit `cost_data_reparented` + role-converted
- *      audit + `sku_created_auto_for_cost_migration` audit.
+ * PM clicks Type badge on a leaf with cost data OR a HubSpot link;
+ * modal requires PM to type "yes" exactly to enable the confirm
+ * button (high-friction destructive gate). On confirm, this action
+ * fires inside one atomic transaction:
  *
- * Atomic transaction; partial failure rolls everything back.
+ *   1. DELETE all per-SKU cost rows referencing this SKU
+ *      (packaging_inputs, production_inputs, freight_inputs).
+ *      Bulk raw cost is carried inside `production_inputs.
+ *      bulk_raw_cost` — disappears with the row.
+ *   2. UPDATE quote_skus on this row: skuRole → 'assembly',
+ *      hubspot_product_id → NULL. Assemblies are Nexus-local
+ *      kit definitions; the HubSpot link goes away because
+ *      leaves are the HubSpot-linked rows.
+ *   3. Audit `role_converted_destructive` with the deleted-row
+ *      counts in diff_json (forensic trail).
  *
- * Pattern 31: brief's `convertLeafToAssemblyWithMigrate` name
- * adopted as a new action (existing `convertSkuRole` couldn't
- * extend cleanly — too many divergent branches). The flag-based
- * cascade in convertSkuRole stays for ASY → leaf (Sub-item 2);
- * smart-migrate gets its own action.
+ * After the conversion, the assembly has no children. PM adds
+ * children via the row's drawer "+ Add child SKU" affordance
+ * (HubSpot-first via AddProductModal — every child is a HubSpot-
+ * linked leaf).
+ *
+ * If the leaf is "clean" (no cost data AND no HubSpot link), the
+ * UI silent-toggles via `convertSkuRole` instead — this action
+ * isn't called.
  */
-export async function convertLeafToAssemblyWithMigrate(
+export async function convertLeafToAssemblyDestructive(
   formData: FormData,
-): Promise<ActionResult<{ newChildId: string; newChildSkuLabel: string }>> {
+): Promise<ActionResult<void>> {
   return runAction(async () => {
     const skuId = String(formData.get("skuId") ?? "").trim();
+    const confirmation = String(formData.get("confirmation") ?? "").trim();
     if (!skuId) throw new ActionGuardError(ERR.VALIDATION, "skuId required");
+    if (confirmation !== "yes") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Destructive convert requires confirmation = "yes" (received "${confirmation}").`,
+      );
+    }
 
     const user = await ensureUser();
     const skuRows = await db
@@ -1306,46 +1310,13 @@ export async function convertLeafToAssemblyWithMigrate(
     if (sku.skuRole !== "leaf")
       throw new ActionGuardError(
         ERR.VALIDATION,
-        "Smart-migrate only valid for leaf → assembly conversion.",
+        "Destructive convert only valid for leaf → assembly.",
       );
 
     const quote = await loadQuoteOrThrow(sku.quoteId);
     assertDraft(quote);
 
-    // Collision-detect the auto-name. Walk -CMP, -CMP-2, -CMP-3,...
-    // until we find an sku_label that doesn't exist on this quote.
-    const existingLabels = new Set(
-      (
-        await db
-          .select({ skuLabel: quoteSkus.skuLabel })
-          .from(quoteSkus)
-          .where(eq(quoteSkus.quoteId, sku.quoteId))
-      ).map((r) => r.skuLabel),
-    );
-    let candidateLabel = `${sku.skuLabel}-CMP`;
-    if (existingLabels.has(candidateLabel)) {
-      for (let n = 2; ; n++) {
-        const next = `${sku.skuLabel}-CMP-${n}`;
-        if (!existingLabels.has(next)) {
-          candidateLabel = next;
-          break;
-        }
-        if (n > 1000) {
-          throw new ActionGuardError(
-            ERR.VALIDATION,
-            "Auto-name collision: more than 1000 -CMP variants exist. Rename original SKU first.",
-          );
-        }
-      }
-    }
-    const newChildSkuLabel = candidateLabel;
-    const newChildId = crypto.randomUUID();
-
-    // Pre-fetch cost-row counts per table — surfaces in audit
-    // diff_json for forensic clarity. (Counts are an approximate
-    // signal; the actual reparents happen via UPDATE WHERE
-    // quote_sku_id = original.id, which catches all rows even
-    // if the count is stale by the time the txn runs.)
+    // Pre-count rows for the audit trail.
     const [pkgCount, prodCount, frtCount] = await Promise.all([
       db
         .select({ id: packagingInputs.id })
@@ -1362,79 +1333,24 @@ export async function convertLeafToAssemblyWithMigrate(
     ]);
 
     await db.transaction(async (tx) => {
-      // Step 1: create the new child leaf SKU FIRST with the
-      //         pre-allocated id. parent_sku_id = original.id;
-      //         qty_per_parent = 1; sort_order = 0 (end of empty
-      //         child list since the original just became an
-      //         assembly with no other children); empty notes +
-      //         retailBenchmark.
-      //
-      // Edward smoke fix (2026-05-14): approach (b) ordering per
-      // brief Implementation Observation 1. Original approach (a)
-      // commented "Postgres doesn't check FK existence on UPDATE
-      // — only INSERT" was wrong — Postgres DOES check FK on
-      // UPDATE when the FK column itself changes. Updating
-      // production_inputs.quote_sku_id to a not-yet-existent
-      // newChildId raises FK violation. Approach (b): INSERT
-      // child first, then reparent cost rows. No auto-create
-      // collision because production_inputs is seeded
-      // application-level (not via DB trigger on quote_skus
-      // INSERT), so tx.insert(quoteSkus) below doesn't create
-      // collision rows.
-      await tx.insert(quoteSkus).values({
-        id: newChildId,
-        quoteId: sku.quoteId,
-        // Edward disposition (d): auto-child inherits
-        // hubspot_product_id from the original so HubSpot
-        // read-sync flows through to the cost-bearing SKU.
-        // Slice 12 Mark-Accepted writeback filters
-        // isAutoMigrateArtifact=true to avoid double-pushing
-        // the same HubSpot product.
-        hubspotProductId: sku.hubspotProductId,
-        skuLabel: newChildSkuLabel,
-        productName: sku.productName,
-        unitsPerPack: sku.unitsPerPack,
-        retailBenchmark: null,
-        notes: null,
-        skuRole: "leaf",
-        parentSkuId: skuId,
-        qtyPerParent: "1",
-        sortOrder: 0,
-        // Edward disposition (a): mark this row as an auto-
-        // generated cost-data artifact so the UI disables the
-        // Type badge (preventing nested -CMP-CMP-... chains).
-        isAutoMigrateArtifact: true,
-      });
-
-      // Step 2: reparent the three per-SKU cost-input tables
-      //         from original.id → newChildId. Safe now because
-      //         the child SKU exists.
+      // Step 1 — DELETE cost rows.
       if (pkgCount.length > 0) {
         await tx
-          .update(packagingInputs)
-          .set({ quoteSkuId: newChildId, updatedAt: new Date() })
+          .delete(packagingInputs)
           .where(eq(packagingInputs.quoteSkuId, skuId));
       }
       if (prodCount.length > 0) {
         await tx
-          .update(productionInputs)
-          .set({ quoteSkuId: newChildId, updatedAt: new Date() })
+          .delete(productionInputs)
           .where(eq(productionInputs.quoteSkuId, skuId));
       }
       if (frtCount.length > 0) {
         await tx
-          .update(freightInputs)
-          .set({ quoteSkuId: newChildId, updatedAt: new Date() })
+          .delete(freightInputs)
           .where(eq(freightInputs.quoteSkuId, skuId));
       }
 
-      // Step 3: flip role on the original SKU to assembly AND
-      // strip its hubspot_product_id (Edward disposition 2026-
-      // 05-14: every leaf needs a HubSpot link for the HubSpot↔
-      // NetSuite product library sync; assemblies are Nexus-local
-      // kit definitions and must NOT carry HubSpot links). The
-      // auto-child created above already inherited the HubSpot
-      // link — single source of truth, no duplication.
+      // Step 2 — flip role + strip HubSpot link.
       await tx
         .update(quoteSkus)
         .set({
@@ -1444,39 +1360,100 @@ export async function convertLeafToAssemblyWithMigrate(
         })
         .where(eq(quoteSkus.id, skuId));
 
-      // Step 6: audit trail.
+      // Step 3 — audit.
       await tx.insert(auditLog).values({
         userId: user.id,
         entityType: "quote_sku",
         entityId: skuId,
-        action: "role_converted",
+        action: "role_converted_destructive",
         diffJson: {
           sku_role: { from: "leaf", to: "assembly" },
-          cost_data_migrated_to_child_id: newChildId,
-          cost_lines_reparented: {
+          hubspot_product_id: { from: sku.hubspotProductId, to: null },
+          cost_rows_deleted: {
             packaging: pkgCount.length,
             production: prodCount.length,
             freight: frtCount.length,
           },
         },
       });
-      await tx.insert(auditLog).values({
-        userId: user.id,
-        entityType: "quote_sku",
-        entityId: newChildId,
-        action: "sku_created_auto_for_cost_migration",
-        diffJson: {
-          original_sku_id: skuId,
-          auto_named_from: sku.skuLabel,
-          new_child_sku_label: newChildSkuLabel,
-        },
-      });
     });
 
     revalidateQuoteTree(quote.projectId, sku.quoteId);
-    return { newChildId, newChildSkuLabel };
   });
 }
+
+/**
+ * Leaf-detach micro-slice — top-level Nexus-local assembly creation
+ * (Edward 2026-05-14: "+ Add assembly" button affordance). Creates
+ * an empty assembly with no children + no HubSpot link. PM names
+ * SKU label + product name; populates children later via the
+ * row's drawer "+ Add child SKU" affordance.
+ *
+ * Top-level only — no parent_sku_id supported. Assembly nesting
+ * works by promoting a child via the row drawer's add affordance.
+ *
+ * Different from the prior `addAssemblySku` (deleted 2026-05-14
+ * in Sub-task B) which supported drawer-child Nexus-local leaf
+ * creation. This action is scoped to top-level assemblies only;
+ * leaves go through AddProductModal (HubSpot-first).
+ */
+export async function addAssemblySku(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    const skuLabel = String(formData.get("skuLabel") ?? "").trim();
+    const productName = String(formData.get("productName") ?? "").trim();
+    if (!quoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+    if (!skuLabel)
+      throw new ActionGuardError(ERR.VALIDATION, "skuLabel required");
+    if (!productName)
+      throw new ActionGuardError(ERR.VALIDATION, "productName required");
+
+    const user = await ensureUser();
+    const quote = await loadQuoteOrThrow(quoteId);
+    assertDraft(quote);
+
+    const maxRow = await db
+      .select({ max: max(quoteSkus.sortOrder) })
+      .from(quoteSkus)
+      .where(eq(quoteSkus.quoteId, quoteId));
+    const sortOrder = (maxRow[0]?.max ?? -1) + 1;
+
+    const [sku] = await db
+      .insert(quoteSkus)
+      .values({
+        quoteId,
+        hubspotProductId: null,
+        skuLabel,
+        productName,
+        unitsPerPack: 1,
+        sortOrder,
+        skuRole: "assembly",
+        parentSkuId: null,
+        qtyPerParent: null,
+      })
+      .returning({ id: quoteSkus.id });
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_sku",
+      entityId: sku.id,
+      action: "created",
+      diffJson: {
+        quote_id: quoteId,
+        source: "add_assembly_button",
+        sku_label: skuLabel,
+        product_name: productName,
+        sku_role: "assembly",
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, quoteId);
+  });
+}
+
 
 /**
  * Re-pull HubSpot Product data and overwrite ONLY the fields whose
