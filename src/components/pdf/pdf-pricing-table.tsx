@@ -86,7 +86,15 @@ export function PdfPricingTable({
             <tr key={sku.label}>
               <td>
                 <div style={{ fontWeight: 500 }}>{sku.name}</div>
-                <div style={skuPackStyle}>{sku.pack}</div>
+                {/* Pattern 45 (customer-facing render data-source
+                    verification) — caption suppressed entirely when
+                    pack is null. Same graceful-degradation shape as
+                    preparedBy.phone in PdfHeader. Synthetic
+                    "{pack-format-pending}" placeholder removed in
+                    rest-of-app sweep Step 10 audit. */}
+                {sku.pack ? (
+                  <div style={skuPackStyle}>{sku.pack}</div>
+                ) : null}
               </td>
               {cols.map((_, ii) => {
                 const i = colIdx(ii);

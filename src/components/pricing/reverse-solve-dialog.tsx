@@ -257,11 +257,27 @@ export function ReverseSolveDialog({
   }
 
   return createPortal(
+    // Rest-of-app sweep Step 10 audit HIGH-1 (namespace-wrap fix) —
+    // `r2-pricing` className on portal root brings the canonical R2
+    // unprefixed primitives (.r2-chip / .r2-btn / .modal-head /
+    // .warn-band etc.) into scope for this portaled subtree.
+    // Without the wrap, createPortal(..., document.body) sat OUTSIDE
+    // the parent <main className="r2-pricing"> scope and canonical
+    // R2 classes scoped under .r2-pricing { ... } in r2-pricing.css
+    // failed to resolve. Same shape Mark Accepted's r3-shared
+    // adoption uses for its modal vocabulary.
+    //
+    // Cosmetic migration of the 24 hardcoded Tailwind utilities
+    // (gray-* / bg-blue-* / bg-amber-*) to canonical R2 register
+    // banked as v1.1 Pricing token cleanup expansion (UX_BACKLOG;
+    // ReverseSolveDialog called out as highest-impact unit). Central
+    // override in globals.css keeps the utilities dark-mode-safe
+    // until then.
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Apply suggested tier adjustment"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/20 p-4"
+      className="r2-pricing fixed inset-0 z-50 flex items-center justify-center bg-gray-900/20 p-4"
       onClick={(e) => {
         // Click on backdrop closes; click inside dialog body doesn't.
         if (e.target === e.currentTarget) onClose();

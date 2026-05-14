@@ -5,6 +5,1011 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Production input one-time-vs-recurring distinction — surface prominence audit — Slice 11 design question]
+
+  **Slice:** Slice 11 design conversation. No immediate code action.
+  Bank for the Slice 11 design-conversation phase to surface to CD
+  when Slice 11 fires; v1.1 polish for the smart-defaults / lint /
+  templates work.
+
+  **Architectural context:** `production_inputs.is_one_time` flag
+  drives whether a row surfaces in customer-facing Additional
+  charges (as a one-time service fee) or rolls into per-unit tier
+  prices (as recurring production cost). Same architectural pattern
+  as `freight_inputs.freight_treatment` (`bundled` vs `pass_through`)
+  — flag determines customer-facing visibility + accounting register
+  for the same underlying cost row.
+
+  Currently PM-set, no defaults derived from cost category, no
+  validation against row name patterns. Slice 11 wires the binding
+  cleanly (production_inputs.is_one_time = true → service fee row in
+  Quote PDF) but the binding correctness depends on PMs reliably
+  setting the flag right.
+
+  **CD design question for Slice 11:** does the Cost build's
+  Production section row UI give the one-time-vs-recurring
+  distinction enough visual prominence? If it's a buried checkbox
+  in a drilldown, the binding is silently easy to get wrong — and
+  the failure mode (recurring cost mislabeled as one-time, or
+  one-time fee silently amortized into per-unit price) is
+  customer-visible and PM-confusing.
+
+  Audit-worthy because: same pattern that bit Quote PDF Additional
+  charges (placeholder fixtures shipping) — flag-driven
+  customer-facing distinctions need surface-level visibility, not
+  drilldown-buried treatment.
+
+  **v1.1 polish candidates** (separate from the Slice 11 design
+  conversation):
+
+  1. **Smart defaults by `cost_category`** — tooling / setup /
+     R&D categories default `is_one_time = true`; labor / QC /
+     packout default false. Reduces PM cognitive load on the
+     most common cases.
+  2. **Inline lint warnings** when row name/category pattern
+     doesn't match the flag state. E.g., name contains "tooling"
+     + flag is false → warning; name contains "labor" + flag is
+     true → warning. Same lint shape as Cost build section
+     assignment validation (banked earlier in this UX_BACKLOG).
+  3. **Common one-time charge templates** — pre-configured rows
+     with flag values set ("Mold tooling," "Project setup,"
+     "Formulation R&D") that PMs add by template instead of
+     hand-building each row.
+
+  **Sequencing dependency on Quote PDF Additional charges block
+  real-data binding entry (above):** the customer-facing impact
+  of the is_one_time flag only becomes visible once Slice 11 wires
+  the binding. Until then, PMs can't see the flag's effect on the
+  customer PDF; lint + defaults + templates work is less urgent.
+  Once Slice 11 ships, mis-flagged rows become an immediate
+  customer-quality risk.
+
+  **Cross-references:**
+  - Quote PDF Additional charges block — real-data binding
+    (Slice 11 owner; this entry's parent)
+  - Cost build section assignment validation (banked v1 blocker
+    in the leaf-detach micro-slice scope)
+  - `freight_inputs.freight_treatment` parallel pattern — same
+    audit applies to whether the bundled/pass_through choice has
+    enough visual prominence on the Freight section UI.
+
+  **Banked from Edward observation 2026-05-13.** No immediate
+  action; Slice 11 owns the conversation when it fires.
+
+- [Costs pulse-dot sync indicator — wire real HubSpot refresh source — Slice 11]
+
+  **Slice:** Slice 11 (HubSpot data binding cluster). Currently a
+  Pattern 21 dev-scaffolding visible-pending stub.
+
+  **Current state (post-rest-of-app-sweep Step 10):** CostsHeader
+  renders the pulse-dot affordance with `.meta.pending` modifier:
+  dimmed dot (no good-soft glow), copy reads "Sync status pending
+  · Slice 11", visual register signals not-yet-wired. Component
+  header documents the Pattern 21 framing.
+
+  **What Slice 11 owns:**
+
+  1. Wire actual `lastHubspotRefreshAt` source. Candidates:
+     `project.lastHubspotRefreshAt` (project-level, set when
+     project metadata last synced), `quote_skus.lastHubspotRefreshAt`
+     (per-SKU, set by the per-SKU refresh action), or a quote-level
+     rollup that aggregates across the quote's SKUs.
+  2. **Resolve the live-sync-vs-manual-pull semantic question.**
+     Currently HubSpot data is manually refreshed via per-SKU
+     refresh actions; "live" implies push-based sync we don't
+     have. Two semantic possibilities:
+     - **Pulse-dot stays pulsing** if we add a polling layer (e.g.,
+       background refresh every N minutes); copy reads "synced
+       N minutes ago" relative-time format.
+     - **Pulse-dot goes static** if we stay manual-pull; copy
+       reads "last refreshed N hours ago" with explicit PM-pull
+       semantic.
+  3. Remove the `.meta.pending` modifier once wired; the real
+     timestamp's presence/absence drives the visual state.
+
+  **Banked from rest-of-app fidelity sweep Step 10 audit MEDIUM-1
+  + Edward disposition 2026-05-14.**
+
+- [Pricing surface — cost-stack as mini-stack reference — v1.1 polish]
+
+  **Slice:** v1.1 polish slice. Not on release-critical path.
+
+  **Current state:** `pricing/page.tsx` Room 1 mounts the full R6
+  `CostStackHeader` component (reused from Costs surface). This is
+  a documented Pattern 39 nexus extension (header comment in
+  `pricing/page.tsx` carries full rationale per rest-of-app sweep
+  Step 10 audit MEDIUM-4 disposition).
+
+  **Future v1.1 work:** replace the full CostStackHeader on Pricing
+  with a **read-only mini-stack reference** + explicit caption
+  ("cost construction on Costs · this is read-only"). Cleaner
+  divergence than full component duplication; preserves at-a-glance
+  cost-vs-margin affordance with less surface area + complexity.
+
+  **Rationale for deferral:** sweep should land fidelity-and-
+  cleanup work, not redesign decisions. Mini-stack is the better
+  long-term answer but warrants its own design + smoke cycle —
+  needs CD design pass on mini-stack proportions, visual register,
+  and which cost-stack data points compress into the mini-view.
+
+  **Cross-references:**
+  - `pricing/page.tsx` header comment Pattern 39 rationale (read
+    first when starting this slice)
+  - CLAUDE.md Pattern 39 ("Nexus-side extension precedent") —
+    promotion path
+  - R2 designer notes lines 122-127 (cost-stack belongs at the
+    bottom of Cost Build per R2 canon — relevant if v1.1 design
+    pass revisits placement entirely vs mini-stack on Pricing)
+
+  **Banked from rest-of-app fidelity sweep Step 10 audit MEDIUM-4
+  + Edward disposition 2026-05-14.**
+
+- [Quote PDF Additional charges block — real-data binding — Slice 11 follow-up]
+
+  **Slice:** Slice 11 (Quote PDF render path). Was the implicit
+  owner; Edward smoke 2026-05-13 promoted the Architectural concern
+  to a v1 blocker. Hotfix interim landed in rest-of-app sweep
+  Step 9 (this commit) strips the placeholder fixtures so production
+  PDFs no longer ship fake $5,250 / $12,400 / $3,200 charges to
+  customers; full real-data binding remains Slice 11's deliverable.
+
+  **What hotfix shipped (rest-of-app sweep Step 9):**
+
+  - Stripped `EMPTY_CHARGES` + `PASS_THROUGH_CHARGES` fixtures and
+    the `chargesForSubState` / `skusForSubState` mutator functions
+    from `quote-host.tsx`.
+  - `view.serviceFees` + `view.freightLines` + `view.skus` now flow
+    verbatim through to PdfChargesBlock + PdfPricingTable. Real
+    bundle data, no fixture substitution.
+  - `deriveDefaultSubState(view)` picks the conceptual register
+    (pure / passThrough / partial) from real data shape. Dev
+    switcher can still override for prototype preview; production
+    PMs never see it.
+  - `isTwoPage` gated on `hasAdditionalCharges = serviceFees.length
+    > 0 || freightLines.length > 0`. Dev toggle to "passThrough"
+    on a zero-charges quote no-ops rather than rendering an empty
+    second page.
+  - `introCopy` generalized — removed hardcoded fixture-SKU
+    references (Glow Capsule / CAP-60) and hardcoded tier labels
+    (Tier 2 / 25,000 units). `single_tier` layout now derives the
+    tier label from `view.tiers[recommendedTierIdx]`.
+
+  **What Slice 11 still owns:**
+
+  1. `production_inputs.is_one_time = true` rows → service-fee
+     line items (project setup, tooling, R&D). Group by
+     `production_inputs.scope` (project vs sku) for the qtyLabel
+     copy ("1 (per project)" vs "1 (SKU-LABEL only)").
+  2. `freight_inputs.freight_treatment = pass_through` lines →
+     freight charge rows with per-tier amounts. Compute
+     `tierAmounts[i]` from the line's lane × tier-qty + duty/tariff
+     when separable (vs bundled into per-unit price).
+  3. Customer/contact/role/address data — currently stubbed to
+     project.clientName; Slice 11 imports HubSpot contact data.
+  4. Pack format on quote_skus — currently "{pack-format-pending}";
+     Slice 11 schema add.
+  5. Recommended tier flag from real data (currently middle-tier
+     stub per page.tsx:200).
+
+  **Pattern 45 candidate — "customer-facing render data-source
+  verification":** Every customer-facing render block must trace
+  to a real bundle data source. Placeholder fixtures shipping to
+  production is a fidelity-sweep finding, not designer chrome.
+  Promote to standing pattern if a SECOND similar instance
+  surfaces in the rest-of-app sweep. CC discipline going forward
+  on any PDF / public-facing render: grep for hardcoded numbers,
+  hardcoded names, hardcoded labels in component bodies — those
+  should all derive from props.
+
+  **Pass-through Fix A dependency (banked earlier):** the
+  pass-through bundling/extraction logic fix had presumed real
+  freight data. With the placeholder fixtures stripped + real
+  binding deferred to Slice 11, the Pass-through Fix A
+  application also sequences AFTER Slice 11's data binding —
+  fix needs real data to verify end-to-end.
+
+  **Banked from Edward smoke 2026-05-13.**
+
+- [Pricing surface — token-discipline migration of hardcoded gray-*/slate-* utilities — v1.1 cleanup]
+
+  **Slice:** v1.1 cleanup slice. Not on release-critical path.
+
+  **Scope updated 2026-05-14 per rest-of-app sweep Step 10 audit:**
+  Original entry banked 29 refs; designer audit re-counted **41
+  refs across 4 Pricing component files** (the original audit
+  undercounted; HIGH-1 expanded the scope).
+
+  **What:** 4 Pricing component files carry 41 hardcoded `bg-white`
+  / `bg-gray-*` / `text-gray-*` / `border-gray-*` / `bg-blue-*` /
+  `bg-amber-*` / `text-slate-*` Tailwind utility refs. Other
+  surfaces touched by the rest-of-app fidelity sweep (Mark Accepted,
+  Quote, Costs) are already clean of these refs.
+
+  **Per-file breakdown + priority:**
+
+  1. **`reverse-solve-dialog.tsx` — 24 refs (HIGHEST PRIORITY).**
+     Step 10 audit HIGH-1. Primary surface for one of Slice 9.4b's
+     three signature affordances (suggested-tier-adj reverse-solve).
+     PMs see this modal every time they apply a suggested tier
+     adjustment. Migrate to canonical R2 register: `.r2-chip
+     warn`/`bad`, `.r2-btn primary`, `.warn-band`, `.warn-band.bad`,
+     `.modal-head` / `.modal-body` / `.modal-foot`, `var(--rule)` /
+     `var(--paper-2)` for frame. Origin-row highlight maps to
+     `var(--accent-soft)`. **Sweep Step 10 hotfix landed the
+     namespace-wrap structural fix** (portal root carries
+     `r2-pricing` className) so canonical primitives resolve; this
+     entry covers the cosmetic register migration. Estimated lift:
+     ~150 LOC.
+  2. **`client-target-cell.tsx` — 9 refs.** Per-cell client target
+     affordance + reverse-solve "→ apply suggested adj" chip +
+     error-state pill. Migrate to canonical `.r2-chip` register;
+     Pattern 29 read↔edit affordance status documented in component
+     header per the brief §3.2 ACCEPTED NEXUS EXTENSION
+     disposition.
+  3. **`active-tier-selector.tsx` — 6 refs.** Tab pattern (≤4 tiers)
+     + dropdown (≥5 tiers). Both mounted on Pricing AND Cost-stack
+     pages (confirmed live, not dead code). Migrate to
+     `.r2-chip`/`.r2-btn.sm` primitive register; dropdown to
+     canonical `.r2-form` or equivalent.
+  4. **`competitive-indicator.tsx` — 2 refs.** Comment-only at this
+     point (refs to past `bg-white` removal). Spot-check during
+     migration.
+
+  **Why not v1:** the globals.css central override layer (shipped
+  Slice RI.8 step 8 dark-mode sweep) maps `bg-white` → `var(--paper)`,
+  `text-gray-700` → `var(--ink-2)`, etc. via `!important` rules so
+  ALL hardcoded utilities swap correctly in dark mode at runtime.
+  Pricing renders correctly in both themes today. The cleanup is
+  cosmetic code-hygiene (replace `bg-white` with `bg-paper` etc.
+  for cleaner provenance + ability to eventually drop the central
+  override hack).
+
+  **Risk axis when revisited:** `text-gray-700` and `text-gray-600`
+  both map to ink-2/ink-3 depending on context — manual review of
+  each instance needed to pick the right token. Don't do this as a
+  pure search-and-replace.
+
+  **Mapping reference** (from `src/app/globals.css` central override):
+  - `bg-white` → `bg-paper`
+  - `bg-gray-50` / `bg-slate-50` → `bg-paper-2`
+  - `bg-gray-100` / `bg-slate-100` → `bg-paper-3`
+  - `border-gray-200` / `border-gray-300` / `border-slate-200` /
+    `border-slate-300` → `border-rule`
+  - `text-gray-900` / `text-slate-900` → `text-ink`
+  - `text-gray-700` / `text-gray-800` / `text-slate-700` /
+    `text-slate-800` → `text-ink-2`
+  - `text-gray-500` / `text-gray-600` / `text-slate-500` /
+    `text-slate-600` → `text-ink-3`
+  - `text-gray-400` / `text-slate-400` → `text-ink-4`
+  - `text-blue-*` → `text-accent-ink`
+  - `border-blue-*` → `border-accent`
+
+  **Estimated work:** 1-2 hours; per-file context-aware
+  search/replace + visual smoke pass on each touched file.
+
+  **Banked from rest-of-app fidelity sweep Step 8 audit, May 2026.**
+
+- [Pricing surface — blended margin reframe — v1.1 product thinking]
+
+  **Slice:** v1.1 product-thinking slice. Not on release-critical
+  path. Trigger when bandwidth allows.
+
+  **Current state:** Pricing surface's headline reads `BLENDED
+  MARGIN · ALL SKUS · ALL TIERS` (e.g., 40.5%) — portfolio average
+  across all SKUs × all tiers. PM-confirmed reality is that
+  customers realize per-tier margin at acceptance time (~95% of
+  cases pick a single tier). Blended is decorative as a per-deal
+  decision tool but useful as a quote-construction sanity check.
+
+  **Why not v1:** functional and not actively misleading
+  day-to-day (PMs understand the model). Pricing's structural job
+  in v1 — single source of truth for adjustments + verdict — is
+  working. Reframe is product-thinking refinement, not bug.
+
+  **Three reframe options when revisited:**
+
+  1. **Demote blended to secondary; promote recommended-tier
+     margin to primary headline.** Uses ★ Recommended from Setup
+     (which already exists). Headline becomes "Margin at
+     recommended tier: X%" with blended kept as a secondary chip
+     for portfolio context. Closest to PM workflow today.
+  2. **Keep blended primary but reframe verdict copy** to
+     acknowledge uncertainty: "Range: X% — Y% · realized depends
+     on accepted tier." Lowest-touch change; preserves headline
+     real estate.
+  3. **Side-by-side equal weighting** of blended + recommended-
+     tier margins. Two-column verdict band. Highest design lift;
+     forces PM to read two numbers instead of one.
+
+  **Decision criteria when prioritized:** observe which margin PMs
+  actually quote during customer conversations (recommended-tier
+  is the hypothesis); calibrate the headline to match the spoken
+  number. If multiple PMs default differently, option 3 (side-
+  by-side) handles the ambiguity at the cost of cognitive load.
+
+  **Cross-references:**
+  - Setup ★ Recommended tier flag (Slice §6.b Step 5
+    `quote_tiers.recommended` BOOL) — already wired; reframe
+    option 1 reads it directly.
+  - Margin verdict pill primitive (Slice 9.2 GOOD / BELOW_TARGET
+    / BELOW_FLOOR) — semantic register stays; only the source
+    margin changes.
+  - Slice 9.4b CompetitiveIndicator pattern — verdict surfacing
+    convention (interpretation inline, raw values in tooltip)
+    applies if reframe changes either layer.
+
+  **Banked from Edward product-thinking observation, May 2026.**
+
+- [Setup page-head button removal — v1 blocker]
+
+  **Slice (DISPOSITIONED, 2026-05-13 — Edward at slice time):**
+  Fold into rest-of-app fidelity sweep slice (currently in progress)
+  as a small copy/removal commit. Promotes §6.b Designer audit
+  Finding 01 from MEDIUM banked to v1 blocker.
+
+  **What:** Two duplicative / non-functional buttons in the Setup
+  page header (`src/app/projects/[id]/quotes/[quoteId]/page.tsx`
+  lines 145-162) should be removed entirely:
+
+  1. **`+ Add SKU`** — duplicative of the working `+ Add Product`
+     button in SKU table footer. Single canonical affordance for
+     product addition belongs near the table.
+  2. **`Save draft`** — disabled (`cursor: not-allowed` on hover);
+     appears to be an autosave placeholder. Non-functional button
+     implies functionality that doesn't exist.
+
+  **Pre-removal verification (Pattern 28 fidelity-discipline):**
+  smoke-confirm Setup autosaves on field blur. **Verified
+  2026-05-13:** `sku-row.tsx` has 6 `onBlur` / `fireSave` /
+  `useActionState` references; Slice 5 form-state pattern
+  (CLAUDE.md `Form state pattern` + `Save handler pattern`) is
+  the canonical autosave wiring across Setup. Save-draft button's
+  own `title="Saved automatically as you edit."` confirms intent.
+
+  **Implementation:** copy/removal commit only. Drops the `.actions`
+  block contents in `.r7b-head` (cluster goes empty — keep the
+  `<div className="actions">` empty for now so CD canonical
+  structure is preserved). No schema or component restructure.
+
+  **Source reference:** §6.b Designer audit Finding 01 (was MEDIUM
+  banked; promoted to v1 blocker per Edward smoke).
+
+  **Banked from Edward smoke, May 2026.**
+
+- [Add Product button copy rename — small]
+
+  **Slice (DISPOSITIONED, 2026-05-13 — Edward + CA at slice time):**
+  Fold into rest-of-app fidelity sweep slice (currently in progress)
+  as a small copy commit, OR carry into the queued leaf-detach
+  micro-slice. Either fits.
+
+  **What:** Setup surface SKU footer button copy change:
+  `+ ADD PRODUCT` → `+ CREATE NEW PRODUCT`.
+
+  **Rationale:** clarifies action shape — distinguishes from
+  `↗ PULL FROM HUBSPOT` (which also "adds a product" in user-
+  mental-model terms but is a different operation: attach
+  existing vs create new). "Create new" makes the create-vs-
+  attach distinction explicit at the affordance level.
+
+  **Affected:** SKU footer trigger button in
+  `src/app/projects/[id]/quotes/[quoteId]/sku-footer.tsx`
+  (and the matching default `triggerLabel` value in
+  `AddProductModal` if PMs see it before clicking).
+
+  **Implementation:** copy-only change; no schema, no component
+  restructure, no canonical-CSS impact. 2-line diff (button
+  text + modal-trigger default label).
+
+  **Cross-references:** Designer audit Finding 01 already
+  flagged the page-head `+ Add SKU` button as duplicative of
+  the footer affordance — this rename is unrelated but
+  complementary; clarifies the footer affordance's intent
+  while §6.b separately decides the page-head deduplication
+  story.
+
+  **Banked from Edward UX observation, May 2026.**
+
+- [Mobile / iPad responsive support — v2]
+
+  **Slice:** Dedicated v2 work. Prerequisite: full design round
+  (R9 or equivalent) per Pattern 41 — multi-surface architectural
+  features warrant a dedicated R-round design pass before
+  implementation. Implementation slice follows R9.
+
+  **What:** Today the app is desktop-only (per CLAUDE.md role-as-
+  affordance + grid layouts assuming 1380px max-width on Costs,
+  640px modal width on Add-product, etc.). Mobile / iPad
+  workflows surface in customer-facing review contexts: PMs
+  showing quotes on iPads in client meetings, sales-rep
+  on-the-go status checks, etc.
+
+  **Surfaces affected (every quote-scoped surface + admin):**
+    - Setup (R7b) — SKU table grid, tier rail, Notes split
+    - Costs (R6) — cost stack grid, section drilldowns, drawer
+      toolbar grids
+    - Pricing (R2) — verdict band two-column, per-tier table
+    - Quote (R3) — PDF preview (already paged + responsive-ish),
+      preview chrome
+    - Mark Accepted (R3) — verdict band, tier card grid, CTA
+      cluster
+    - Home (R4) — outer + inner rail (240px collapsible),
+      organizer grid, project detail
+    - Future R6.2 freight panel — multi-leg shipping editor
+    - Admin (R5) — firm settings, markup defaults, audit log
+
+  **R9 design round dispositions needed:**
+    - Touch-vs-pointer affordance differences (hover-reveal
+      patterns like the §6.b ⋯ overflow menu need touch-
+      friendly alternatives)
+    - Breakpoint strategy (one mobile breakpoint vs tablet +
+      phone vs adaptive component-level)
+    - Inner rail behavior on narrow viewports (collapsible
+      already shipped per UX_BACKLOG; reuse for mobile?)
+    - Modal sizing on narrow viewports (Add-product modal is
+      640px; needs to adapt below 768px)
+    - Cost stack rendering on narrow viewports (5-tier grid
+      doesn't fit; horizontal scroll vs stacked rendering?)
+    - Type badge / click targets (44px minimum tap target
+      recommendation; current sizes are pointer-optimized)
+
+  **v1 component primitives that likely need mobile-aware
+  variants** (surface during R9 design pass, NOT as v2
+  implementation findings):
+    - `.calc-display` (cross-surface calculated-value row)
+    - `.warn-band` (inline warning band; touch CTA sizes)
+    - `.r7b-empty-state` (empty list register)
+    - `.r2-pricing` namespace (Pricing surface body)
+    - `.r3-shared` namespace (Quote + Mark Accepted body)
+    - `.r4-home` namespace (Home; future)
+    - `.r7b-head` (page chrome — eyebrow + h1 + action cluster)
+    - `.r7b-sku-row` (SKU row grid)
+    - `.r7b-tier-row` (Tier row grid)
+    - `.r6-stack` (cost stack grid)
+
+  **Pattern 30 implementation discipline:** R9 design ships
+  responsive canonical CSS per surface; CC implements via
+  Pattern 30 path-B verbatim adoption (or namespace-scoped
+  variant if R9 uses unprefixed mobile selectors). Touch
+  affordances likely come as new canonical classes
+  (.r7b-sku-row.mobile-stack etc.) — CC adopts under same
+  Pattern 30 verbatim discipline.
+
+  **No code action.** Banked as v2 reference for the
+  eventual R9 design round + implementation slice.
+
+  **Banked from Edward UX observation post-§6.b, May 2026.**
+
+- [Leaf detach from parent assembly — v1 blocker]
+
+  **Slice (DISPOSITIONED, 2026-05-13):** Micro-slice queued
+  BETWEEN rest-of-app fidelity sweep PR and R6.2 freight
+  implementation. **NOT folded into sweep** — avoiding mid-flight
+  scope creep. Sweep ships clean; this lands immediately after.
+
+  **Problem:** Currently no UI path to disconnect a leaf from
+  its parent assembly once assigned. Workaround is to delete the
+  leaf and recreate — destructive, loses per-SKU notes, retail
+  bench data, drawer state, sort_order.
+
+  **Two affordance entry points** (both implemented):
+
+  1. **Parent's drawer child-SKU list** — per-row "✕ Detach" or
+     "Remove from assembly" action button in the action column
+     next to the existing "↗ Costs" link. Click → confirmation
+     (if leaf has notes / retail data) → detach.
+  2. **Leaf row's ⋯ overflow menu** — conditional "Detach from
+     {parent name}" item that renders only when the leaf has a
+     parent_sku_id set. Click → confirmation → detach.
+
+  **Implementation:**
+
+  - **Action:** new server action `detachLeafFromParent(skuId)`.
+    Writes `parent_sku_id = NULL` + `qty_per_parent = NULL` on
+    the leaf. **Pattern 22 — verify exact column name in schema
+    BEFORE encoding** (confirm against `src/db/schema.ts`
+    `quote_skus.parentSkuId` + `quote_skus.qtyPerParent` current
+    shape per Slice 5.5 assembly rules).
+  - **Audit:** action key `sku_detached_from_parent` with
+    diff_json carrying `{ before: { parent_sku_id, qty_per_parent
+    }, after: { parent_sku_id: null, qty_per_parent: null } }`
+    + the parent's sku_label snapshot for human-readable
+    forensics ("detached from PARENT-CODE").
+  - **Confirmation modal:** if leaf has any non-empty per-SKU
+    notes OR retail benchmark value, surface a confirmation
+    modal warning "Detaching preserves this leaf's notes +
+    retail benchmark, but it'll no longer roll up under
+    {parent}. Cost / pricing impacts:..." with Cancel + Confirm
+    CTAs. If leaf is empty (no notes, no retail), skip the
+    modal and detach immediately.
+  - **Tree validation:** `validateAssemblyOperation` from
+    `src/lib/sku-tree.ts` already handles parent unset (writes
+    parent_sku_id = NULL); reuse the validator path.
+  - **Leaf row visual updates on detach:** tree-line connector
+    (`└─` prefix in the .label-pack) is removed; the
+    QtyPerParentInline widget (renders inline `× N per parent`
+    on assigned leaves) is removed. The row becomes standalone
+    register — same visual shape as any never-assigned leaf.
+    Visual transition driven by `sku.parentSkuId === null`
+    branching already in place in `sku-row.tsx` (treeLine +
+    QtyPerParentInline are conditional on parentSkuId); revalidation
+    after detach flips the props.
+
+  **Cross-references:**
+  - Slice 5.5 assembly rules (CLAUDE.md "Assembly rules"
+    section) — Detach already documented as the "assembly →
+    leaf" transition path; this entry is the UI for that.
+  - Pattern 22 schema verification before ANY column writes
+  - Pattern 39 nexus-extension precedent — if the canonical
+    R7b drawer doesn't render a Detach affordance, the addition
+    is a documented extension (most likely; canonical drawer
+    didn't anticipate the carved child-list shape we ship)
+
+  **Risk if not shipped:** PMs accumulate dead leaves under
+  assemblies they no longer want as children. Delete + recreate
+  loses cost-bench data (retail benchmark) + drawer state
+  (per-SKU notes) silently. Has come up in §6.b smoke + Edward
+  PM-workflow observation.
+
+  **Release-critical-path placement:** between rest-of-app
+  fidelity sweep PR and R6.2 freight implementation. Must land
+  before v1 release. Carry forward into any CA session handoff
+  doc as a release-critical entry.
+
+  **Banked from Edward UX observation, May 2026.**
+
+- [ASY → LEAF conversion warning on assemblies with children — v1 blocker]
+
+  **Slice (DISPOSITIONED, 2026-05-13):** Extension to the queued
+  leaf-detach micro-slice. Same slice; shares confirmation-modal
+  + detach-action layer infrastructure. Net additional scope:
+  one warning modal + cascade-detach logic. Probably half-day
+  on top of the leaf-detach work.
+
+  **Problem:** Type badge click on an assembly with children
+  currently no-ops (silently rejected by `eligibleRoleTargets`
+  via `validateAssemblyOperation` since "assembly → leaf"
+  is refused when children exist per Slice 5.5 assembly rules
+  + CLAUDE.md "Assembly rules" section). PM clicks the badge,
+  nothing happens, no signal — confusing.
+
+  **Three improvements (all in scope):**
+
+  1. **Warning modal when ASY has ≥1 child.** Click on Type
+     badge surfaces a confirmation modal:
+       Title: "Convert to leaf?"
+       Body: "{N} children will be detached as standalone
+       leaves. Their data (notes, retail bench, sort_order) is
+       preserved. They'll appear as top-level SKUs in this
+       quote."
+       CTAs: Cancel · "Convert + detach {N} children"
+  2. **Cascade-to-detach on confirm.** Children's
+     `parent_sku_id` writes to NULL + `qty_per_parent` writes
+     to NULL. Their data (notes, retail, sort_order) preserved.
+     Tree-line connector + QtyPerParentInline visual updates
+     fire per the leaf-detach entry's visual-update spec.
+  3. **Silent toggle when ASY has 0 children.** No modal; just
+     the type change fires immediately. Existing flow shape
+     (Type badge click → action fires) preserved for the
+     empty-assembly case.
+
+  **Separate concern (NOT in this micro-slice):** "ASY is a
+  child of another ASY" — converting this ASY to LEAF does
+  NOT affect its OWN parent relationship. The parent_sku_id
+  + qty_per_parent on THIS sku stay intact; only the role
+  enum flips and the children get detached. To detach this
+  ASY from its own parent, PM uses the separate ⋯ → Detach
+  from parent action (the original leaf-detach micro-slice
+  scope above).
+
+  **Implementation:**
+
+  - **Action:** new server action `convertAssemblyToLeaf
+    (assemblySkuId)`. Inside a DB transaction:
+      a. Load all child SKUs of the assembly
+      b. For each child: write `parent_sku_id = NULL` +
+         `qty_per_parent = NULL`; audit
+         `sku_detached_from_parent` per child with
+         diff_json carrying the parent reference + cascade
+         context flag
+      c. Update the assembly's `sku_role` to 'leaf'; audit
+         `sku_type_changed_asy_to_leaf` with diff_json
+         carrying `{ cascaded_children: N, child_ids: [...] }`
+    Single transaction so partial-failure doesn't leave a tree
+    half-detached.
+  - **Pattern 22 verification:** confirm column names against
+    `src/db/schema.ts` `quote_skus.skuRole` enum +
+    `quote_skus.parentSkuId` + `quote_skus.qtyPerParent` —
+    shared check with the leaf-detach micro-slice.
+  - **Audit:** TWO action keys fire per ASY→LEAF conversion
+    with cascade:
+      `sku_detached_from_parent` × N (one per child detached)
+      `sku_type_changed_asy_to_leaf` × 1 (the assembly itself)
+    Separate keys per child detach so the audit-log timeline
+    reads clearly when reviewing "what got detached when."
+  - **Confirmation modal:** shared `.warn-band` primitive
+    (extracted in sweep Step 1) PLUS the canonical .r7b-modal
+    chrome (Add-product modal precedent). Cancel + Confirm CTAs
+    use .btn ghost sm + .btn primary sm primitives.
+  - **Empty-assembly case (silent toggle):** existing
+    `setSkuRole(skuId, "leaf")` action handles this when
+    childCount === 0; no UI changes needed for that path.
+    Modal gate fires only when childCount > 0.
+
+  **Visual updates after conversion:**
+
+  - The converted SKU's row: type badge flips ASY → LEAF
+    (canonical R7b style, same as a never-promoted leaf)
+  - Each cascaded child's row: tree-line connector removed,
+    QtyPerParentInline widget removed (mirrors the leaf-detach
+    spec's visual-update notes)
+
+  **Cross-references:**
+  - Companion to leaf-detach micro-slice above (shared
+    infrastructure)
+  - CLAUDE.md "Assembly rules" section — assembly→leaf
+    transition path documented; this entry is the UI for that
+    plus the cascade-detach safety
+  - Pattern 22 schema verification before action layer encoding
+  - Pattern 39 nexus-extension precedent — confirmation modal
+    is a Nexus-side addition (canonical R7b drawer doesn't
+    render a conversion-warning modal; the cascade-detach
+    semantics are a Slice-5.5 assembly-rule enforcement we
+    surface visually)
+
+  **Risk if not shipped:** PMs hit a silently-rejected Type
+  badge click on assemblies, mistake it for broken behavior,
+  workaround = delete + recreate each child as standalone (data
+  loss). Same risk class as the leaf-detach blocker.
+
+  **Release-critical-path placement:** same as leaf-detach —
+  between rest-of-app fidelity sweep PR and R6.2 freight
+  implementation. Must land before v1 release. Carry forward
+  in CA session handoff doc as a release-critical entry under
+  the leaf-detach micro-slice scope.
+
+  **Banked from Edward UX observation, May 2026.**
+
+- [LEAF → ASY conversion warning when cost data exists — v1 blocker]
+
+  **Slice (DISPOSITIONED, 2026-05-13):** Extension to the queued
+  leaf-detach micro-slice (sister entry to ASY→LEAF conversion
+  above). Same modal + action-layer infrastructure; same
+  release-critical-path placement.
+
+  **Problem:** When PM toggles Type badge LEAF → ASY on a SKU
+  that has cost inputs in Cost build's Packaging / Production /
+  Bulk Raw / Freight sections, current behavior either no-ops
+  silently OR flips the role and orphans the cost data. Either
+  way violates the architectural invariant that **cost inputs
+  are strictly inherited from leaves** — ASY rows are
+  computed-only (sum of child contributions); they can't
+  themselves carry packaging lines, production fees, freight
+  rows, or bulk-raw assignments.
+
+  **Confirmation modal copy:**
+
+  > ⚠️ This SKU has cost data on the Costs surface (Packaging:
+  > T&L $2.00/tier-1, ...). Converting to assembly will leave
+  > that cost data orphaned. Move or remove the cost data
+  > first, then re-toggle.
+
+  Modal body enumerates the existing cost lines (section +
+  line summary) so PM sees exactly what they're routing
+  around.
+
+  **Three implementation options surfaced:**
+
+  - **(a) Block conversion until cost data is moved/removed.**
+    Safer; adds friction. PM must navigate to Costs surface,
+    find each cost line, delete/move via existing affordances,
+    return to Setup, re-toggle. Modal shows the cost data
+    inventory + "Remove these on Costs first" copy with no
+    Confirm CTA (just Cancel + "Open Costs to fix").
+  - **(b) Confirm and detach cost data.** Faster; destructive
+    — cost lines become orphaned OR get deleted on confirm.
+    Modal carries the warning + a "Delete cost data + convert"
+    destructive CTA.
+  - **(c) Confirm and migrate cost data to a new auto-created
+    child leaf.** Smartest; complex. Modal carries "Convert
+    + move cost data into new child SKU 'name + " — child'"
+    CTA; on confirm, server creates a leaf child, re-points
+    each cost line's quote_sku_id to the new child, sets the
+    converted SKU's role to assembly. Preserves PM intent
+    + data.
+
+  **Disposition (Edward, 2026-05-13):** **(c) APPROVED — smart-
+  migrate to auto-created child leaf.** Smartest path; preserves
+  PM intent + data. Implementation complexity is contained by
+  reusing the leaf-detach action infrastructure + a new
+  auto-create-child action.
+
+  **Auto-naming convention:** new child leaf gets sku_label
+  `{ORIGINAL-SKU}-CMP` (suffix signals "auto-generated, rename
+  me"; PM can rename via the SKU table's inline-edit affordance
+  any time post-creation).
+
+  **Cost line distribution:** single auto-created child holds
+  ALL cost lines across packaging / production / freight / bulk
+  raw sections. PM can split later if needed (manual move via
+  Cost build's per-row SKU-target picker).
+
+  **Child inheritance defaults:**
+    - `qty_per_parent = 1` (one auto-child per parent)
+    - `sort_order = max(siblings.sort_order) + 1` (placed at end
+      of parent's component list)
+    - `notes = NULL` (empty)
+    - `retail_benchmark = NULL` (empty)
+    - `parent_sku_id = original SKU's id` (relationship attached
+      atomically with the parent's role flip)
+
+  **Original SKU preservation on convert:**
+    - `sku_role` flips LEAF → assembly
+    - `notes` PRESERVED (still useful as finished-product
+      customer reference)
+    - `retail_benchmark` PRESERVED (same — finished-product
+      level retail data)
+    - `parent_sku_id` unchanged (this conversion doesn't affect
+      the original's own parent relationship)
+
+  **Implementation (Option c):**
+
+  - **Action:** new server action `convertLeafToAssembly
+    (skuId)`. Inside a DB transaction:
+      a. Load all cost-input rows where quote_sku_id = skuId
+         (packaging_inputs + production_inputs + freight_inputs)
+      b. Check existing cost data; if none, fire silent toggle
+         (no child creation, no modal). If yes, surface the
+         pre-confirm modal with the migrate summary
+      c. On PM confirm: create new child SKU row with auto-
+         naming convention + child inheritance defaults +
+         parent_sku_id pointing at the original
+      d. Re-point each cost-input row's quote_sku_id → new
+         child SKU's id
+      e. Flip original SKU's sku_role to 'assembly'
+    Single transaction so partial-failure can't leave a half-
+    converted state.
+  - **Modal copy on cost-data presence:**
+      Title: "Convert to assembly?"
+      Body: "This SKU has {N} cost lines across {sections}.
+      They'll be moved to a new auto-created child SKU named
+      '{ORIGINAL}-CMP' so the data stays connected to the
+      assembly's rollup. You can rename the child after
+      conversion."
+      CTAs: Cancel · "Convert + migrate cost data"
+  - **Pre-conversion check action:** `checkSkuCostData(skuId)`
+    returns the cost-line inventory across packaging /
+    production / freight inputs. Used by the modal to render
+    the "{N} cost lines across {sections}" summary.
+  - **Audit:** three action keys fire on a cost-data
+    conversion:
+      `sku_type_changed_leaf_to_asy` × 1 (original SKU)
+      `sku_created_auto_for_cost_migration` × 1 (new child)
+      `cost_data_reparented` × N (one per re-pointed
+      cost-input row; diff_json carries old quote_sku_id +
+      new quote_sku_id + section name)
+    Separate keys per re-parent so the audit-log timeline
+    reads clearly when reviewing the conversion forensically.
+  - **Pattern 22 verification:** confirm column names against
+    `src/db/schema.ts` — `packaging_inputs.quoteSkuId`,
+    `production_inputs.quoteSkuId`, `freight_inputs.quoteSkuId`
+    all confirmed (uuid foreign-key references to
+    `quote_skus.id`); `quote_skus.skuRole` enum confirmed;
+    `quote_skus.parentSkuId` + `quote_skus.qtyPerParent` +
+    `quote_skus.sortOrder` confirmed.
+
+  **Cross-references:**
+  - Sister to ASY→LEAF entry above (opposite direction)
+  - Architectural invariant: "cost inputs strictly inherited
+    from leaves" — documented in CLAUDE.md "Assembly rules"
+    section + Slice 5.5 assembly schema commitment
+  - Pattern 39 nexus-extension precedent — the
+    block-with-warning modal is a Nexus-side enforcement of
+    the architectural invariant; canonical R7b drawer
+    doesn't render this affordance because R7b didn't
+    anticipate cross-surface data validation
+
+  **Risk if not shipped:** PMs flip LEAF → ASY on a SKU with
+  cost data; orphaned cost lines silently survive in
+  packaging_inputs / production_inputs / freight_inputs;
+  cost rollups break silently (ASY can't carry these inputs;
+  the rows become invisible to compute). Same data-quality
+  risk as the leaf-detach blocker.
+
+  **Release-critical-path placement:** same as leaf-detach
+  + ASY→LEAF entries — micro-slice between rest-of-app
+  fidelity sweep PR and R6.2 freight implementation.
+
+  **Banked from Edward UX observation, May 2026.**
+
+- [Cost build section assignment validation — v1 blocker]
+
+  **Slice (DISPOSITIONED, 2026-05-13):** Extension to the queued
+  leaf-detach micro-slice. Sister to the LEAF→ASY entry above
+  — same architectural invariant ("cost inputs strictly
+  inherited from leaves"); different enforcement surface.
+  Where LEAF→ASY guards the type-toggle path, this entry
+  guards the cost-input creation path on Cost build.
+
+  **Problem:** Cost build's section row pickers (Packaging /
+  Production / Bulk Raw / Freight) currently accept ASY
+  SKUs as cost-input targets. Architecturally invalid —
+  cost data on ASY rows orphans on first leaf-promotion or
+  cost-rollup attempt. Bug shape: action layer accepts an
+  ASY target; row gets created; compute path silently
+  skips it; PM thinks data is in the system but rollup is
+  wrong.
+
+  **Implementation:**
+
+  - **UI-level filter:** pickers in each cost section
+    (`src/app/projects/[id]/quotes/[quoteId]/costs/...`
+    drilldown + add-line affordances) filter the SKU list
+    to `sku_role === "leaf"` only. ASY SKUs don't appear in
+    the picker. Display caption: "Select a leaf SKU
+    (assemblies inherit cost from leaves)."
+  - **Action-layer enforcement:** every cost-input create
+    action (packaging-add-line, production-input-set,
+    freight-add-line, bulk-raw-assignment) validates target
+    SKU role at the action boundary; throws
+    ActionGuardError(ERR.VALIDATION, "Cost inputs can only
+    be assigned to leaf SKUs.") if target is ASY. Defense
+    in depth even if the UI filter is bypassed.
+  - **First-load surfacing for existing ASY-attached rows:**
+    on Cost build page load, query for any cost-input rows
+    where target SKU's role is ASY (one-time data audit
+    below). If found, render a warning band on each affected
+    row + a summary count at the top of Cost build:
+      ⚠️ {N} cost lines target assembly SKUs — needs
+      reassignment to a leaf. [Show me]
+    Click "Show me" → highlights/scrolls to each affected
+    row. PM resolves by reassigning the target SKU on the
+    row (existing affordance, may need a small extension to
+    support cross-SKU re-target).
+  - **Pattern 22 verification:** confirm the schema column on
+    each Cost build section table that references the target
+    SKU (`quote_sku_id` text uuid on packaging_inputs /
+    production_inputs / freight_inputs / bulk_raw_section_*).
+    Filter logic enforces `target_sku.skuRole === 'leaf'` at
+    both layers.
+
+  **One-time automated cleanup pass (5-step process):**
+
+  Edward dispositioned: automated migration over manual cleanup,
+  using the LEAF→ASY smart-migrate infrastructure (Option c)
+  from the sister entry above. Steps:
+
+  - **Step 1 — Audit query (DONE, 2026-05-13):** CC ran the
+    query against the shared dev/prod DB. Pattern 22 column
+    verification confirmed (packaging_inputs.quote_sku_id +
+    production_inputs.quote_sku_id + freight_inputs.quote_sku_id
+    all uuid FK to quote_skus.id; quote_skus.sku_role enum
+    'leaf' | 'assembly' per Slice 5.5). Bulk_raw_*
+    tables are quote-keyed, NOT sku-keyed; out of scope for
+    this audit.
+
+    **Findings (current dev/prod DB state):**
+
+    | Section | Rows | ASY SKUs | Quotes affected |
+    |---|---|---|---|
+    | packaging_inputs | 4 | 1 | 1 |
+    | production_inputs | 4 | 1 | 1 |
+    | freight_inputs | 4 | 1 | 1 |
+    | **TOTAL** | **12** | **1** | **1** |
+
+    Same 1 ASY SKU × 4 tier rows × 3 sections = 12 rows total.
+    Pattern strongly suggests stale dev/seed data — one ASY
+    SKU used as cost-input target during early testing before
+    the architectural invariant was enforced.
+
+  - **Step 2 — Dry-run output:** CC writes
+    `docs/orphaned-cost-data-audit.md` listing per-SKU what
+    would be migrated + auto-generated child leaf name +
+    affected rows per section. Output schema mirrors the
+    smart-migrate logic from the LEAF→ASY entry — one
+    `{ORIGINAL-SKU}-CMP` auto-child per ASY SKU, ALL cost
+    lines (across all sections) re-pointed to that child,
+    original ASY's role + relationships preserved.
+
+  - **Step 3 — Edward review:** spot-check naming + line
+    distribution feel against the dry-run output. Approve OR
+    request adjustments (e.g., different naming convention,
+    per-section child split, manual cleanup for some rows).
+
+  - **Step 4 — Migration run:** on Edward approval, CC runs
+    the migration with one audit-log entry per affected row:
+      `sku_type_changed_leaf_to_asy` × 1 per converted SKU
+      `sku_created_auto_for_cost_migration` × 1 per auto-child
+      `cost_data_reparented` × N per re-pointed cost row
+    Wrapped in a single DB transaction per SKU so partial
+    failure can't leave half-migrated state.
+
+  - **Step 5 — Post-migration re-query:** rerun the audit
+    query; confirm zero remaining orphans. Output the result
+    + the count of converted SKUs to docs/orphaned-cost-data-
+    audit.md as a closing log.
+
+  Audit query stays in `scripts/q.mjs` or extracted to a
+  dedicated script if Edward wants reusability — single-use
+  utility otherwise.
+
+  **Cross-references:**
+  - Sister to LEAF→ASY entry above (opposite enforcement
+    surface for the same invariant)
+  - Pattern 22 schema verification (extended to "code
+    architecture" per CLAUDE.md Pattern 22 refinement,
+    2026-05-13 banking)
+  - Architectural invariant per CLAUDE.md "Assembly rules"
+  - Pattern 32 pre-production tolerance — dev sandbox may
+    have stale ASY-attached rows that are safe to clean up
+    or ignore depending on disposition
+
+  **Risk if not shipped:** Silent data inconsistency. Cost
+  inputs target ASY SKUs; compute path skips them; rollup
+  silently wrong; PMs trust the displayed cost which is
+  missing contributions. Same data-quality risk class as
+  leaf-detach + LEAF→ASY blockers.
+
+  **Release-critical-path placement:** same as the other
+  three entries in the leaf-detach micro-slice umbrella.
+
+  **Banked from Edward UX observation, May 2026.**
+
+- [Child SKU flat-list visibility — post-v1 usability watch (R7c candidate)]
+
+  **Slice:** Post-v1 observation, not v1 work. Banked as R7c
+  future consideration if a third design round on Setup ships.
+  No code action.
+
+  **Observation:** Child SKUs appear in TWO places on the Setup
+  SKU table today:
+  1. **Top-level flat list** with tree-line connector (`└─ ` prefix
+     on the label) and indentation. PM scrolls the flat list and
+     sees nested children inline beneath their parent assembly.
+  2. **Assembly drawer's child-SKU list** (the `.r7b-comp-table.
+     child-list` register added in §6.b pre-PR fidelity check).
+     PM expands an assembly's drawer and sees the same children
+     in a more-structured table with the canonical grid grammar.
+
+  The duplication is intentional today (each view answers a
+  different read-mode question — flat scan vs nested drill-in),
+  but may cause workflow confusion: PMs editing a child via the
+  drawer expect it to update, but they might also try to edit
+  via the flat-list row and get a different affordance set
+  (Reassign-via-overflow-menu vs in-drawer Reassign-via-form).
+
+  **Watch dimension:** PM workflow confusion specifically —
+  "where is the child SKU really" / "which view is authoritative
+  for editing." Track via PM-observed error reports + the cross-
+  surface autosave refactor watch (already in backlog).
+
+  **Possible R7c remediations** (if confusion materializes):
+
+  - **(a) Drawer-only by default + flat-list toggle.** Children
+    render only inside the assembly drawer; flat list shows
+    parents only. A "show all children inline" toggle on the
+    SKU table head exposes the flat tree-view on demand. PMs
+    who think in flat lists toggle on; PMs who think in
+    drawers stay on the default.
+
+  - **(b) Collapse children into parent on default render +
+    expansion affordance.** Flat list shows the parent assembly
+    row with a `▸ N children` indicator; clicking expands the
+    children inline (same component, different default state).
+    Drawer still works for in-context editing. Children only
+    visible when explicitly expanded.
+
+  - **(c) Defer entirely.** If PM observation doesn't surface
+    real confusion in production, the duplication is fine and
+    nothing changes. Most likely outcome — the flat-list
+    tree-line + drawer table serve different scan modes and PMs
+    learn the distinction quickly.
+
+  **Banked from Edward UX observation, post-§6.b smoke (May
+  2026).** No code action; observation logged as a R7c future
+  consideration. If/when R7c (Setup refinement) ships, this
+  entry is the input to the design-round disposition.
+
 - [Scenario name inline edit — eyebrow read↔edit]
 
   **Slice:** v1.1 candidate. Best decided when rest-of-app

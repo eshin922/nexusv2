@@ -30,6 +30,32 @@ import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 //   ROOM 1 — Cost stack panel (R6 cost-stack-header reused). "How
 //            this number is built." Multi-tier columns; tier columns
 //            are the active-tier selector (no separate selector UI).
+//
+//          **Pattern 39 nexus extension (banked 2026-05-14):** R2
+//          canonical (r2_costing.jsx) does NOT mount a cost-stack
+//          on Pricing — R2 designer notes lines 122-127 explicitly
+//          situate the cost-stack at the bottom of Cost Build, not
+//          Pricing. Mounting the R6 CostStackHeader here is a
+//          documented nexus-side divergence from canon, accepted
+//          per the rest-of-app sweep Step 10 audit (MEDIUM-4
+//          disposition by Edward + CC).
+//
+//          Rationale: PMs need to see the cost stack while making
+//          pricing decisions (verify margin against actual cost
+//          construction without surface-switching back to Costs).
+//          R2 canon predates the workflow learning — R2 was
+//          originally pure pricing-only; production PM workflow
+//          surfaced the need for cost visibility during pricing.
+//          Pattern 39 exists precisely for this case (Nexus-side
+//          extension when production workflow demands divergence
+//          from canonical design; see CLAUDE.md Pattern 39).
+//
+//          Future cleanup banked as v1.1 polish (UX_BACKLOG): replace
+//          full CostStackHeader on Pricing with a read-only
+//          mini-stack reference + caption ("cost construction on
+//          Costs · this is read-only"). Cleaner divergence than
+//          full component duplication; preserves at-a-glance
+//          affordance with less surface area.
 //   ROOM 2 — Margin verdict band: 96px display blended margin number
 //            + status text + admin-override-path BELOW_FLOOR + global
 //            price adj slider with system-suggestion banner. Healthy
@@ -102,7 +128,7 @@ export default async function CostingPage({
         quoteId={quoteId}
         activeScenarioLabel={quote.scenarioLabel}
       >
-      <main className="r2-page">
+      <main className="r2-pricing r2-page">
         <div style={{ marginBottom: 8, fontSize: 13 }}>
           <Link
             href={`/projects/${project.id}/quotes/${quote.id}`}
@@ -158,7 +184,7 @@ export default async function CostingPage({
         <ActiveTierUrlSync />
       </Suspense>
 
-      <main className="r2-page">
+      <main className="r2-pricing r2-page">
         <PricingPageHead
           projectId={projectId}
           quoteId={quoteId}

@@ -1,29 +1,112 @@
 /*
- * Slice RI.6 — Quote + Mark-Accepted styles per Round 3 source
- * (docs/design-prototypes/dist/source/round-3/index.html lines 902-1712).
+ * R3 shared — canonical CSS from upstream prototype.
  *
- * Two register groups in this file:
+ * Source: docs/design-prototypes/dist/3styles.css (CD canonical R3
+ * shipment, May 2026). Verbatim content per Pattern 30 working
+ * discipline — diff-against-upstream stays clean for future R-round
+ * refreshes.
  *
- * 1. .pdf-* classes (Quote PDF subtree) — LITERAL OKLCH values.
- *    NO var() references. PDF must render identically regardless of
- *    theme/dark mode because customers never see the theme.
- *    See CLAUDE.md "PDF token lock" + Designer memory
- *    reference_r3_pdf_token_lock.md.
+ * Sweep Step 4.1/N — adopted under a `.r3-shared { ... }` parent
+ * scope per Edward + CA disposition (2026-05-13). R3 was designed
+ * as the body canon for BOTH Quote (Customer view) AND Mark
+ * Accepted surfaces — one canonical CSS file serving both. Shared
+ * scope `.r3-shared` lets both surfaces consume the same rules
+ * without per-surface duplication (Pattern 30 refinement Path-B-
+ * namespace-scoped, second instance after R2 Pricing).
  *
- * 2. .macc-*, .preview-*, .tier-card, .modal-*, .version-warning,
- *    .locked-ribbon, .pending-banner, .state-sub, .formfield,
- *    .slack-preview, .page-break-marker — PM-only chrome. Theme tokens
- *    used freely (var(--paper), var(--ink), etc).
+ * R3's canonical CSS uses a mix of selector shapes:
+ *   - `.r3-*` prefixed (surface chrome — already namespace-safe)
+ *   - `.pdf-page` descendants (auto-scoped under PDF preview)
+ *   - `.macc-*` prefixed (Mark Accepted-specific)
+ *   - Unprefixed generic (`.modal-*`, `.formfield`, `.btn`,
+ *     `.chip`, `.eyebrow`, `.mono`, `.tier-card`, etc.)
  *
- * .dn-inline scaffolding from R3 prototype is NOT ported — designer
- * notes are not customer-facing or PM-facing copy.
+ * The unprefixed generics would cross-pollute on global load
+ * (collide with Setup's .btn, RI.9 Eyebrow primitive's class,
+ * etc.). Wrapping the entire file under .r3-shared confines all
+ * rules to elements rendered inside <main className="r3-shared">.
+ *
+ * Pre-flight verification (DONE 2026-05-13):
+ *   - Token coverage: 3styles.css doesn't declare any tokens
+ *     (starts directly with class rules); all var(--*) references
+ *     resolve from design-tokens.css. No drop step needed.
+ *   - Reset coverage: 3styles.css doesn't include body/html
+ *     resets (R3 designed to layer on r2 tokens per upstream
+ *     header comment). No drop step needed.
+ *   - Cross-surface collision check: bare `.btn`, `.chip`,
+ *     `.eyebrow`, `.mono` classes in r3-quote.css currently
+ *     load globally and override matching classes in
+ *     r1-setup.css (cascade order: r3-quote.css loads after).
+ *     Wrapping under .r3-shared corrects this — Setup's .btn
+ *     stays Setup's; R3's .btn applies only inside .r3-shared.
+ *
+ * House-style: uses CSS Nesting (Level 1) for the scope wrap.
+ * Same approach as r2-pricing.css; supported by lightningcss
+ * (Next.js 15 bundler) + all modern browsers.
+ *
+ * Consumers (both surfaces add `r3-shared` class to their main
+ * element):
+ *   - Quote (Customer view): src/app/projects/[id]/quotes/
+ *     [quoteId]/quote/page.tsx
+ *   - Mark Accepted: src/app/projects/[id]/quotes/[quoteId]/
+ *     mark-accepted/page.tsx (Step 5 work)
+ *
+ * Path-B-namespace-scoped variant per Pattern 30 refinement —
+ * R3 is the second instance (R2 Pricing was first).
  */
 
-/* ─── Customer-view preview chrome (PM-only) ─────────────── */
-/* Diagonal-stripe pattern field around the PdfPage card. R3 source
-   index.html:902-908. The pattern is on the WRAPPER, not inside
-   PdfPage — boundary-guard-safe since .preview-chrome is in
-   src/components/customer-view/ (UNGUARDED). */
+.r3-shared {
+/* Nexus Round 3 — Customer view + Mark-Accepted
+   Customer view uses print-preview chrome to communicate "this isn't your app."
+   Mark-Accepted lives inside the existing Nexus shell, so reuses r2 tokens.
+   ─────────────────────────────────────────────────────────────────────── */
+
+/* ─── Round 3 surface switcher (top of page) ────────────── */
+.r3-surface-bar {
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--rule);
+  padding: 10px 24px;
+  display: flex; align-items: center; gap: 16px;
+  position: sticky; top: 0; z-index: 20;
+}
+.r3-surface-bar .crumb {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.r3-surface-bar .crumb a { color: var(--ink-3); text-decoration: none; }
+.r3-surface-bar .crumb a:hover { color: var(--ink); }
+.r3-surface-bar .crumb strong { color: var(--ink); font-weight: 500; }
+
+.r3-tabs {
+  display: flex;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+.r3-tabs button {
+  background: transparent;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.r3-tabs button.active {
+  background: var(--paper-3);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
+/* ─── Print-preview chrome (Surface A wrapper) ──────────── */
 .preview-chrome {
   background:
     repeating-linear-gradient(45deg,
@@ -32,19 +115,14 @@
   min-height: calc(100vh - 50px);
   padding: 32px 40px 80px;
 }
-
-/* Toolbar floats as a centered card on the diagonal field —
-   max-width matches PdfPage so the visual rhythm aligns. */
 .preview-toolbar {
   max-width: 880px;
   margin: 0 auto 18px;
-  display: flex; justify-content: space-between; align-items: center;
-  gap: 16px;
+  display: flex; align-items: center; justify-content: space-between;
   padding: 10px 16px;
   background: var(--paper-2);
   border: 1px solid var(--rule);
   border-radius: 8px;
-  flex-wrap: wrap;
 }
 .preview-toolbar .left {
   display: flex; align-items: center; gap: 12px;
@@ -54,50 +132,28 @@
   font-size: 9.5px;
   letter-spacing: 0.10em;
   text-transform: uppercase;
-  color: var(--ink-3);
-  background: var(--paper-3);
-  padding: 4px 10px;
+  color: var(--internal);
+  background: var(--internal-soft);
+  border: 1px solid var(--internal-rule);
+  padding: 4px 8px;
   border-radius: 4px;
 }
 .preview-toolbar .meta {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--ink-3);
   letter-spacing: 0.04em;
 }
 .preview-toolbar .meta strong { color: var(--ink); font-weight: 500; }
 .preview-toolbar .right {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 8px;
 }
 
-/* Send-as: tier table | single tier — text-toggle inline in toolbar */
-.preview-toolbar .send-as {
-  color: var(--ink-3);
-  text-transform: none;
-  letter-spacing: 0;
-}
-.preview-toolbar .send-as button {
-  background: transparent;
-  border: none;
-  padding: 2px 6px;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: inherit;
-  color: var(--ink-4);
-}
-.preview-toolbar .send-as button.active {
-  color: var(--ink);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.preview-toolbar .send-as .sep { color: var(--ink-4); padding: 0 2px; }
-
-/* ─── PDF page wrapper + descendants — PDF TOKEN LOCK ────── */
-/* Every value below is a literal OKLCH or sRGB. NO var() — see header. */
+/* ─── The PDF page itself ───────────────────────────────── */
 .pdf-page {
-  max-width: 880px;
+  max-width: 880px;     /* US Letter approx scaled for screen */
   margin: 0 auto;
-  background: oklch(0.985 0.005 85);
+  background: oklch(0.985 0.005 85);   /* paper-light, fixed regardless of theme */
   color: oklch(0.20 0.015 255);
   font-family: "Newsreader", Georgia, serif;
   padding: 56px 64px 64px;
@@ -110,44 +166,10 @@
   position: relative;
 }
 .pdf-page + .pdf-page { margin-top: 24px; }
+
 .pdf-page * { box-sizing: border-box; }
 
-/* ─── Dark-mode shadow override (screen-only) ──────────────── */
-/* R3 source's pure-black shadow stack (oklch(0 0 0 / ...)) renders
-   invisible against the dark workspace — black-on-near-black has
-   no visible contrast, so the white PDF abuts the dark mat at
-   full white-to-dark glare with zero lift. Reported by Edward in
-   step 8 dark-mode smoke; logged in step-8 backlog.
-
-   Override adds a paper-tinted rim + soft warm halo specifically
-   for dark-theme rendering. The four shadow layers (top-to-bottom):
-     1. 1px paper-tinted outline rim — defines edge against dark bg
-     2. Standard close shadow — pushed deeper (0.65 alpha) since it
-        has to read through a dark workspace
-     3. Standard far shadow — same logic
-     4. Warm-paper halo glow — simulates ambient light bouncing off
-        a sheet of white paper into a darkened room. Pulls the PDF
-        forward as a "lit artifact" rather than a stamped-on plate.
-
-   PDF token-lock preserved: this rule lives on the WRAPPER's
-   theme attribute and only adjusts box-shadow, which is a screen
-   presentation effect that never enters the PDF render output.
-   All values are literal OKLCH; no var() references — same
-   discipline as the base .pdf-page rule. */
-[data-theme="dark"] .pdf-page {
-  box-shadow:
-    0 0 0 1px oklch(0.55 0.018 85 / 0.30),
-    0 30px 60px oklch(0 0 0 / 0.65),
-    0 60px 120px oklch(0 0 0 / 0.40),
-    0 0 100px oklch(0.92 0.02 85 / 0.06);
-}
-/* Slight padding bump on the workspace in dark mode — more breathing
-   room helps the "white page on dark mat" register feel intentional
-   rather than cramped. */
-[data-theme="dark"] .preview-chrome {
-  padding: 40px 48px 96px;
-}
-
+/* PDF typography */
 .pdf-page .pdf-eyebrow {
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 10px;
@@ -198,7 +220,7 @@
   margin: 24px 0;
 }
 
-/* PDF header */
+/* PDF header block */
 .pdf-header {
   display: flex; align-items: flex-start; justify-content: space-between;
   border-bottom: 2px solid oklch(0.20 0.02 255);
@@ -257,7 +279,7 @@
   color: oklch(0.40 0.015 255);
 }
 
-/* Pricing table */
+/* The pricing table — the room */
 .pdf-pricing {
   margin: 14px 0;
   border-collapse: collapse;
@@ -328,7 +350,7 @@
   text-align: left;
 }
 
-/* Per-SKU block (multi-SKU pass-through layout) */
+/* Per-SKU block (multi-SKU rendering) */
 .pdf-sku-block {
   margin: 22px 0 0;
   padding-top: 14px;
@@ -352,7 +374,7 @@
   letter-spacing: 0.04em;
 }
 
-/* Charges */
+/* Charges section (one-time fees + freight) */
 .pdf-charges {
   margin-top: 18px;
   border-top: 1px solid oklch(0.88 0.012 85);
@@ -422,54 +444,7 @@
   font-size: 12.5px;
 }
 
-/* Slice RI.7 — T&Cs body block (full-width, after the .pdf-terms grid).
-   Smaller text + light contrast register; this is dense legal copy that
-   PMs configure once and rarely revisit. Multi-paragraph supported via
-   split-on-blank-line in PdfTerms. */
-.pdf-tcs {
-  margin-top: 18px;
-  padding-top: 12px;
-  border-top: 1px solid oklch(0.88 0.012 85);
-}
-.pdf-tcs .label {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 9.5px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: oklch(0.50 0.015 255);
-  margin-bottom: 6px;
-}
-.pdf-tcs .tcs-body p {
-  margin: 0 0 6px;
-  font-family: "Newsreader", Georgia, serif;
-  font-size: 10.5px;
-  line-height: 1.5;
-  color: oklch(0.30 0.015 255);
-}
-.pdf-tcs .tcs-body p:last-child { margin-bottom: 0; }
-/* Slice RI.8 step 6 — bullet list rendering within T&Cs.
-   Same typographic register as the surrounding <p> (small serif legal
-   register); markers indented from the paragraph baseline so the eye
-   tracks the list separately without breaking the prose flow. */
-.pdf-tcs .tcs-body ul {
-  margin: 0 0 6px;
-  padding-left: 16px;
-  list-style: disc;
-}
-.pdf-tcs .tcs-body ul:last-child { margin-bottom: 0; }
-.pdf-tcs .tcs-body li {
-  font-family: "Newsreader", Georgia, serif;
-  font-size: 10.5px;
-  line-height: 1.5;
-  color: oklch(0.30 0.015 255);
-  margin: 0 0 2px;
-}
-.pdf-tcs .tcs-body li::marker {
-  color: oklch(0.50 0.015 255);
-  font-size: 9px;
-}
-
-/* Notes block */
+/* Notes block — customer-facing notes */
 .pdf-notes {
   margin-top: 22px;
   padding: 14px 18px;
@@ -504,21 +479,13 @@
   letter-spacing: 0.04em;
 }
 
-/* Stub-text discipline marker — used when a PDF field renders against
-   not-yet-schema fixture data. Renders the value with a subtle dashed
-   underline so visual smoke distinguishes plumbed-from-DB vs stubbed. */
-.pdf-page .pdf-stub {
-  border-bottom: 1px dashed oklch(0.55 0.13 75 / 0.55);
-  padding-bottom: 1px;
-}
-
-/* Page-break marker — preview only, NOT in PDF render path */
+/* Page break indicator (visual only — between PDF pages in preview) */
 .page-break-marker {
   max-width: 880px;
   margin: 14px auto 0;
   display: flex; align-items: center; gap: 12px;
   padding: 0 4px;
-  font-family: var(--mono);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 9.5px;
   letter-spacing: 0.10em;
   text-transform: uppercase;
@@ -528,13 +495,14 @@
   content: ""; flex: 1; border-top: 1px dashed var(--rule-2);
 }
 
-/* ─── Mark-Accepted (Surface B) — PM-only chrome ─────────── */
+/* ─── Mark-Accepted flow (Surface B) ────────────────────── */
 .macc-stage {
   padding: 0;
   background: var(--paper);
   min-height: calc(100vh - 50px);
 }
 
+/* Costing-sheet header strip — reused vibe from r2 but with mark-accepted CTA */
 .macc-header {
   padding: 24px 32px 18px;
   border-bottom: 1px solid var(--rule);
@@ -602,12 +570,15 @@
   color: var(--ink-3);
 }
 
+/* The "preview before accepting" rail */
 .macc-preview-rail {
   display: grid;
   grid-template-columns: 1fr 380px;
   gap: 0;
 }
-.macc-tier-list { padding: 24px 32px; }
+.macc-tier-list {
+  padding: 24px 32px;
+}
 .macc-side-rail {
   background: var(--paper-2);
   border-left: 1px solid var(--rule);
@@ -677,7 +648,10 @@
 .tier-card .tmargin.good { color: var(--good); }
 .tier-card .tmargin.warn { color: var(--warn); }
 .tier-card .tmargin.bad  { color: var(--bad); }
-.tier-card.disabled { opacity: 0.45; cursor: not-allowed; }
+.tier-card.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .tier-card.disabled:hover { border-color: var(--rule); }
 
 /* ─── Modal primitives ──────────────────────────────────── */
@@ -725,6 +699,7 @@
   gap: 16px;
 }
 
+/* Form fields inside modal */
 .formfield { display: flex; flex-direction: column; gap: 6px; }
 .formfield label {
   font-family: var(--mono);
@@ -756,7 +731,7 @@
   color: var(--ink-4);
 }
 
-/* Slack DM preview */
+/* Slack-DM preview */
 .slack-preview {
   background: var(--paper-2);
   border: 1px solid var(--rule);
@@ -860,7 +835,7 @@
   display: flex; align-items: center; gap: 10px;
 }
 
-/* Sent-vs-draft version mismatch banner */
+/* ─── Sent-vs-draft version mismatch ────────────────────── */
 .version-warning {
   background: oklch(from var(--warn) l c h / 0.10);
   border: 1px solid oklch(from var(--warn) l c h / 0.45);
@@ -891,30 +866,36 @@
 .version-warning .text strong { color: var(--ink); font-weight: 500; }
 .version-warning .actions { display: flex; gap: 8px; margin-top: 10px; }
 
-/* Boundary-guard notice (preview-only callout) */
-.boundary-guard-notice {
-  max-width: 880px;
-  margin: 0 auto 14px;
-  padding: 10px 14px;
-  background: var(--internal-soft);
-  border: 1px dashed var(--internal-rule);
+/* Designer-note inline (for Round 3 prototype) */
+.dn-inline {
+  background: oklch(0.96 0.04 88);
+  border-left: 3px solid oklch(0.65 0.16 75);
+  padding: 12px 16px;
   border-radius: 4px;
-  color: var(--internal);
-  font-family: var(--mono);
-  font-size: 11px;
+  color: oklch(0.30 0.05 80);
+  font-size: 12px;
   line-height: 1.55;
-  letter-spacing: 0.02em;
+  margin-bottom: 16px;
 }
-.boundary-guard-notice .eyebrow {
+[data-theme="dark"] .dn-inline {
+  background: oklch(0.22 0.05 80);
+  color: oklch(0.85 0.04 85);
+  border-left-color: oklch(0.70 0.16 75);
+}
+.dn-inline strong { color: oklch(0.20 0.05 80); }
+[data-theme="dark"] .dn-inline strong { color: oklch(0.95 0.02 85); }
+.dn-inline .dn-eyebrow {
+  font-family: var(--mono);
   font-size: 9.5px;
   text-transform: uppercase;
   letter-spacing: 0.10em;
-  color: var(--internal);
+  color: oklch(0.45 0.10 75);
   margin-bottom: 4px;
-  font-weight: 600;
 }
+[data-theme="dark"] .dn-inline .dn-eyebrow { color: oklch(0.75 0.12 75); }
+.dn-inline.compact { padding: 8px 14px; font-size: 11.5px; margin-bottom: 12px; }
 
-/* State sub-switcher (dev-only — guarded at component level) */
+/* ─── State sub-switcher (within each surface) ─────────── */
 .state-sub {
   display: flex;
   gap: 1px;
@@ -937,56 +918,4 @@
 .state-sub button:first-child { border-radius: 5px 0 0 5px; }
 .state-sub button:last-child { border-radius: 0 5px 5px 0; }
 .state-sub button.active { background: var(--paper-3); color: var(--ink); }
-
-/* Generic small button used in Mark-Accepted side rails + version warning */
-.btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--rule);
-  background: var(--paper);
-  color: var(--ink-2);
-  font-size: 12px;
-}
-.btn:hover { border-color: var(--ink-4); }
-.btn.sm { padding: 4px 10px; font-size: 11.5px; }
-.btn.ghost { border-color: transparent; background: transparent; }
-.btn.bad { color: var(--bad); border-color: var(--bad); }
-.btn.bad:hover { background: var(--bad-soft); }
-.btn.primary {
-  background: var(--ink);
-  color: var(--paper);
-  border-color: var(--ink);
-}
-.btn.primary:hover { background: var(--ink-2); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn .row, .row.gap-2 { display: flex; align-items: center; gap: 8px; }
-
-/* Generic chip */
-.chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--paper-2);
-  border: 1px solid var(--rule);
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  color: var(--ink-2);
-}
-.chip.good { background: var(--good-soft); border-color: oklch(from var(--good) l c h / 0.35); color: var(--good); }
-.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-
-/* Eyebrow utility used widely */
-.eyebrow {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.10em;
-  text-transform: uppercase;
-  color: var(--ink-4);
-  margin: 0;
-}
-.mono {
-  font-family: var(--mono);
-  letter-spacing: 0.04em;
 }

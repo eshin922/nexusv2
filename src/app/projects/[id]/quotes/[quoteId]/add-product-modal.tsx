@@ -454,30 +454,19 @@ export function AddProductModal({
           </div>
 
           {/* SKU duplicate warning — renders inline below the row-pair
-              when blur surfaces an existing product with this SKU. */}
+              when blur surfaces an existing product with this SKU.
+              Sweep Step 1 — migrated to canonical `.warn-band`
+              primitive (extracted from inline-styled block per
+              Designer audit Finding 18). */}
           {existingMatch && (
-            <div
-              role="alert"
-              style={{
-                padding: "10px 12px",
-                background: "var(--warn-soft)",
-                border: "1px solid oklch(from var(--warn) l c h / 0.40)",
-                borderLeft: "3px solid var(--warn)",
-                borderRadius: 6,
-                fontSize: 12.5,
-                color: "var(--ink)",
-                lineHeight: 1.5,
-              }}
-            >
-              <strong style={{ color: "var(--warn)" }}>
-                This SKU already exists in HubSpot.
-              </strong>{" "}
+            <div className="warn-band" role="alert">
+              <strong>This SKU already exists in HubSpot.</strong>{" "}
               {existingMatch.name}
               {" "}
               <span style={{ color: "var(--ink-3)" }}>
                 · {existingMatch.productType ?? "no product type"}
               </span>
-              <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+              <div className="actions">
                 <button
                   type="button"
                   className="btn primary sm"
@@ -532,37 +521,13 @@ export function AddProductModal({
 
           {/* Margin display (calculated, read-only). Brief: "Margin is
               calculated. Display only. Do not store. Do not send to
-              HubSpot. HubSpot has no `margin` property." */}
-          <div
-            style={{
-              padding: "8px 12px",
-              background: "var(--paper-2)",
-              border: "1px solid var(--rule)",
-              borderRadius: 6,
-              fontSize: 12,
-              color: "var(--ink-3)",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "baseline",
-            }}
-          >
-            <span
-              style={{
-                fontFamily: "var(--mono)",
-                fontSize: 9.5,
-                letterSpacing: "0.10em",
-                textTransform: "uppercase",
-                color: "var(--ink-4)",
-              }}
-            >
-              Margin
-            </span>
-            <span
-              style={{
-                fontFamily: "var(--mono)",
-                color: marginVal !== null ? "var(--ink)" : "var(--ink-4)",
-              }}
-            >
+              HubSpot. HubSpot has no `margin` property."
+              Sweep Step 1 — migrated to canonical `.calc-display`
+              primitive (extracted from inline-styled block per
+              Designer audit Finding 17). */}
+          <div className="calc-display">
+            <span className="lab">Margin</span>
+            <span className={`v${marginVal === null ? " empty" : ""}`}>
               {marginVal !== null ? fmtMarginPct(marginVal) : "—"}
             </span>
           </div>

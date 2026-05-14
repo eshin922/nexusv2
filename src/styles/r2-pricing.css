@@ -1,19 +1,50 @@
 /*
- * R2 Pricing CSS — extracted verbatim from
- * docs/design-prototypes/dist/source/round-2/app/r2/styles.css.
+ * R2 Pricing — canonical CSS from upstream prototype.
  *
- * Loaded via globals.css for the Pricing rebuild (RI.5).
- * Classes prefixed `r2-` to avoid collision with R6 `r6-` cost-build
- * classes (RI.4). Token references are unchanged — same OKLCH palette
- * lives in design-tokens.css.
+ * Source: docs/design-prototypes/dist/2styles.css (CD canonical R2
+ * shipment, May 2026). Verbatim content per Pattern 30 working
+ * discipline — diff-against-upstream stays clean for future R-round
+ * refreshes.
  *
- * Used by:
- *   - src/app/projects/[id]/quotes/[quoteId]/costing/page.tsx (Pricing)
- *   - src/components/costing/* (Pricing rooms + chrome)
+ * Sweep Step 3.1/5 — adopted under a `.r2-pricing { ... }` parent
+ * scope per Edward + CA disposition (2026-05-13). R2's canonical
+ * CSS uses unprefixed generic class names (.eyebrow, .shell, .main,
+ * .mono, .muted, .dim, .brand, .crumbs, .topbar, etc.) that would
+ * collide with the rest of the app on global load. Scoping under a
+ * single parent selector confines every R2 rule to elements rendered
+ * inside a `<div className="r2-pricing">` tree.
+ *
+ * Pattern 30 refinement — Path-B variant catalog:
+ *   - Path-B-default: canonical CSS with prefix-clean selectors
+ *     (.r6-*, .r7b-*). Adopted verbatim at file root. §6.b precedent
+ *     (r6-costs.css, r7b-setup.css).
+ *   - Path-B-namespace-scoped: canonical CSS with unprefixed
+ *     selectors. Adopted under a parent-selector scope to confine
+ *     global match risk. R2 Pricing is the first instance.
+ *
+ * Drops from upstream 2styles.css (intentional, cross-cutting,
+ * already in design-tokens.css + globals.css):
+ *   - Lines 1-75: `:root` + `[data-theme="dark"]` + `[data-theme=
+ *     "light"]` token overrides. All 29 tokens verified present in
+ *     `src/styles/design-tokens.css`; nothing to redeclare.
+ *   - Lines 77-90: `*` reset + `html`/`body` reset + `button`/
+ *     `input`/`select`/`textarea` reset + `a` reset. All already in
+ *     `src/app/globals.css` body element rules.
+ *
+ * House-style divergence: this file uses CSS Nesting (Level 1) to
+ * achieve the namespace scope without rewriting every selector. The
+ * rest of the canonical CSS files (r7b-setup.css, r6-costs.css)
+ * use flat selectors. The nesting here is purely a Pattern 30
+ * verbatim-content-preservation mechanism — content from upstream
+ * lines 91-565 is unchanged; only the `.r2-pricing { ... }` wrap is
+ * nexus-added. CSS Nesting Level 1 is supported by lightningcss
+ * (Next.js 15 bundler) + all modern browsers.
  */
 
+.r2-pricing {
+
 /* Type primitives */
-.r2-eyebrow {
+.eyebrow {
   font-family: var(--mono);
   font-size: 10.5px;
   letter-spacing: 0.13em;
@@ -21,38 +52,125 @@
   color: var(--ink-3);
   margin: 0;
 }
-.r2-mono {
-  font-family: var(--mono);
+.mono { font-family: var(--mono); }
+.muted { color: var(--ink-3); }
+.dim   { color: var(--ink-4); }
+
+/* ─── Shell ────────────────────────────────────── */
+.shell {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  min-height: 100vh;
 }
-.r2-muted {
+.sidebar {
+  background: var(--paper-2);
+  border-right: 1px solid var(--rule);
+  padding: 20px 14px;
+  display: flex; flex-direction: column; gap: 22px;
+  position: sticky; top: 0; height: 100vh;
+}
+.brand { display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; }
+.brand .mark { width: 22px; height: 22px; color: var(--ink); align-self: center; display: block; }
+.brand .name { font-family: var(--display); font-size: 22px; font-weight: 500; letter-spacing: -0.02em; }
+.brand .ver { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--ink-4); margin-left: 2px; }
+
+.side-section { display: flex; flex-direction: column; gap: 2px; }
+.side-section h6 {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin: 0 6px 6px;
+  font-weight: 500;
+}
+.side-link {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--ink-2);
+  width: 100%;
+  text-align: left;
+}
+.side-link .glyph { color: var(--ink-4); width: 14px; text-align: center; font-size: 12px; }
+.side-link:hover { background: var(--paper-3); color: var(--ink); }
+.side-link.active { background: var(--paper-3); color: var(--ink); }
+.side-link.active .glyph { color: var(--accent); }
+.side-link .badge {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  background: var(--paper-4);
+  padding: 1px 6px;
+  border-radius: 999px;
   color: var(--ink-3);
 }
-.r2-dim {
-  color: var(--ink-4);
+.side-link .badge.warn { background: var(--warn-soft); color: var(--warn); }
+.side-foot {
+  margin-top: auto;
+  padding: 10px;
+  border-top: 1px solid var(--rule);
+  display: flex; gap: 10px; align-items: center;
+  font-size: 12px;
 }
 
+.avatar {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--paper-4);
+  color: var(--ink-2);
+  display: inline-grid; place-items: center;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.avatar.sm { width: 22px; height: 22px; font-size: 9.5px; }
+
+/* ─── Main ─────────────────────────────────────── */
+.main { display: flex; flex-direction: column; min-width: 0; }
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 32px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
+  position: sticky; top: 0; z-index: 5;
+}
+.crumbs { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-3); }
+.crumbs .here { color: var(--ink); }
+.crumbs .sep { color: var(--ink-4); font-family: var(--mono); }
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+
+/* Presence chip */
+.presence-chip {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  padding: 4px 10px 4px 4px;
+  background: var(--paper-2);
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+}
+.presence-chip .stack {
+  display: flex;
+}
+.presence-chip .stack .avatar { margin-right: -6px; border: 2px solid var(--paper-2); }
+
 /* Page wrapper */
-.r2-page {
+.page {
   padding: 28px 32px 60px;
   max-width: 1380px;
-  margin-left: auto;
-  margin-right: auto;
 }
-.r2-page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+.page-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
   gap: 24px;
   margin-bottom: 22px;
 }
-.r2-page-head > div:first-child {
-  min-width: 0;
-  flex: 1;
-}
-.r2-page-head > .r2-row {
-  flex-shrink: 0;
-}
-.r2-page-title {
+.page-head > div:first-child { min-width: 0; flex: 1; }
+.page-head > .row { flex-shrink: 0; }
+.page-title {
   font-family: var(--display);
   font-size: 36px;
   font-weight: 400;
@@ -61,23 +179,12 @@
   line-height: 1.15;
   text-wrap: pretty;
 }
-.r2-page-title em {
-  font-style: italic;
-  color: var(--ink-3);
-  font-weight: 400;
-}
-.r2-page-sub {
-  color: var(--ink-3);
-  font-size: 13px;
-  margin: 0;
-  max-width: 60ch;
-}
+.page-title em { font-style: italic; color: var(--ink-3); font-weight: 400; }
+.page-sub { color: var(--ink-3); font-size: 13px; margin: 0; max-width: 60ch; }
 
 /* Buttons */
-.r2-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
   padding: 8px 14px;
   border-radius: 7px;
   font-size: 13px;
@@ -85,57 +192,22 @@
   color: var(--ink);
   border: 1px solid var(--rule);
   transition: background 100ms;
-  cursor: pointer;
-  font-family: var(--ui);
 }
-.r2-btn:hover {
-  background: var(--paper-4);
-}
-.r2-btn.sm {
-  padding: 5px 10px;
-  font-size: 12px;
-  border-radius: 5px;
-}
-.r2-btn.primary {
-  background: var(--ink);
-  color: var(--paper);
-  border-color: var(--ink);
-}
-.r2-btn.primary:hover {
-  background: var(--ink-2);
-}
-.r2-btn.accent {
-  background: var(--accent);
-  color: var(--paper);
-  border-color: var(--accent);
-}
-.r2-btn.accent:hover {
-  background: var(--accent-ink);
-}
-.r2-btn.ghost {
-  background: transparent;
-  border-color: transparent;
-  color: var(--ink-3);
-}
-.r2-btn.ghost:hover {
-  background: var(--paper-3);
-  color: var(--ink);
-}
-.r2-btn.bad {
-  background: var(--bad-soft);
-  color: var(--bad);
-  border-color: oklch(from var(--bad) l c h / 0.4);
-}
-.r2-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.btn:hover { background: var(--paper-4); }
+.btn.sm { padding: 5px 10px; font-size: 12px; border-radius: 5px; }
+.btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.btn.primary:hover { background: var(--ink-2); }
+.btn.accent  { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+.btn.accent:hover { background: var(--accent-ink); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--ink-3); }
+.btn.ghost:hover { background: var(--paper-3); color: var(--ink); }
+.btn.bad { background: var(--bad-soft); color: var(--bad); border-color: oklch(from var(--bad) l c h / 0.4); }
+
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Chips */
-.r2-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
   font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.04em;
@@ -147,102 +219,302 @@
   border: 1px solid var(--rule);
   white-space: nowrap;
 }
-.r2-chip.good {
-  background: var(--good-soft);
-  color: var(--good);
-  border-color: oklch(from var(--good) l c h / 0.4);
-}
-.r2-chip.warn {
-  background: var(--warn-soft);
-  color: var(--warn);
-  border-color: oklch(from var(--warn) l c h / 0.4);
-}
-.r2-chip.bad {
-  background: var(--bad-soft);
-  color: var(--bad);
-  border-color: oklch(from var(--bad) l c h / 0.4);
-}
-.r2-chip.accent {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  border-color: oklch(from var(--accent) l c h / 0.4);
-}
-.r2-chip.internal {
-  background: var(--internal-soft);
-  color: var(--internal);
-  border-color: var(--internal-rule);
-}
-.r2-chip .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
+.chip.good { background: var(--good-soft); color: var(--good); border-color: oklch(from var(--good) l c h / 0.4); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); border-color: oklch(from var(--warn) l c h / 0.4); }
+.chip.bad  { background: var(--bad-soft);  color: var(--bad);  border-color: oklch(from var(--bad) l c h / 0.4); }
+.chip.accent { background: var(--accent-soft); color: var(--accent-ink); border-color: oklch(from var(--accent) l c h / 0.4); }
+.chip.internal { background: var(--internal-soft); color: var(--internal); border-color: var(--internal-rule); }
+.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
-/* Card primitive — R2 source specs paper-2 bg, but CC's body bg is
-   paper-2 globally (matches R6 body convention from RI.4). Shifted to
-   --paper here so cards read as visibly lighter on the page bg, same
-   pattern R6 cost stack + section row cards use. */
-.r2-card {
-  background: var(--paper);
+/* ─── Card primitive ───────────────────────────── */
+.card {
+  background: var(--paper-2);
   border: 1px solid var(--rule);
   border-radius: 10px;
   overflow: hidden;
 }
-.r2-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.card-head {
+  display: flex; align-items: center; justify-content: space-between;
   padding: 12px 16px;
   border-bottom: 1px solid var(--rule);
 }
-.r2-card-head h3 {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--ink);
-}
-.r2-card-head .meta {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--ink-4);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.r2-card-body {
+.card-head h3 { margin: 0; font-size: 13px; font-weight: 500; color: var(--ink); }
+.card-head .meta { font-family: var(--mono); font-size: 10px; color: var(--ink-4); letter-spacing: 0.06em; text-transform: uppercase; }
+.card-body { padding: 14px 16px; }
+
+/* ─── Internal-only zone ───────────────────────── */
+/* Load-bearing visual treatment for "this never goes to the customer" */
+.internal-zone {
+  background:
+    repeating-linear-gradient(
+      45deg,
+      var(--internal-soft) 0 8px,
+      transparent 8px 14px
+    ),
+    var(--paper-2);
+  border: 1px dashed var(--internal-rule);
+  border-radius: 8px;
   padding: 14px 16px;
+  position: relative;
+}
+.internal-zone .ribbon {
+  position: absolute; top: -1px; right: 12px;
+  background: var(--internal);
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 3px 8px 4px;
+  border-radius: 0 0 4px 4px;
 }
 
-/* Section head with italic-em annotation */
-.r2-section-head {
+/* Helpers */
+.row { display: flex; align-items: center; }
+.col { display: flex; flex-direction: column; }
+.gap-1 { gap: 4px; } .gap-2 { gap: 8px; } .gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; } .gap-5 { gap: 20px; } .gap-6 { gap: 24px; }
+
+/* Diff dot — for "fresh" values */
+.fresh-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+/* Field shells (used in cost build) */
+.field {
+  display: grid;
+  grid-template-columns: 1fr 90px 110px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border-top: 1px solid var(--rule);
+  font-size: 13px;
+}
+.field:first-child { border-top: none; }
+.field.empty { background: oklch(from var(--paper-3) l c h / 0.5); }
+.field .label { display: flex; align-items: center; gap: 8px; }
+.field .label .name { color: var(--ink); }
+.field .label .meta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-4);
+  letter-spacing: 0.04em;
+}
+.field .markup {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  text-align: right;
+}
+.field .markup.override { color: var(--accent-ink); font-weight: 500; }
+.field .value {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+  text-align: right;
+  font-weight: 500;
+}
+.field .value.empty { color: var(--ink-4); font-weight: 400; font-style: italic; }
+.field.read-only { opacity: 0.78; cursor: default; }
+.field.read-only .label::after {
+  content: "read-only · your role can't edit";
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-left: 12px;
+}
+.field:not(.read-only):hover { background: var(--paper-3); cursor: text; }
+
+/* Cost stack — vertical per-component rows.
+   Earlier horizontal layout broke at full-data density (Pkg + Prod + Frt + D+T + Pass + Adj
+   crammed into one bar = label clipping). Vertical is more legible, printable, and honest
+   to the "markup is per-line, not a tail" insight: each row's geometry === one component. */
+.cstack {
+  display: grid;
+  grid-template-columns: 56px 1fr 90px;
+  column-gap: 12px;
+  row-gap: 4px;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.cstack .row-label {
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 10px;
+  text-align: right;
+}
+.cstack .row-label.pass { color: var(--ink-4); font-style: italic; text-transform: none; letter-spacing: 0; }
+.cstack .row-amount {
+  color: var(--ink-2);
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+}
+.cstack .bar {
+  position: relative;
+  height: 24px;
+  border-radius: 4px;
+  background: var(--paper-3);
+  overflow: hidden;
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+}
+.cstack .bar .seg-base {
+  align-self: stretch;
+  display: flex; align-items: center;
+  padding: 0 9px;
+  color: oklch(0.97 0.008 85);
+  font-size: 10.5px;
+  white-space: nowrap; overflow: hidden;
+  min-width: 0;
+}
+/* Hide in-bar dollar labels when the bar is too narrow to show them legibly.
+   Right-side amount column already shows the full value, so suppression is safe. */
+.cstack .bar .seg-base > * { opacity: 1; transition: opacity 0.1s; }
+.cstack .bar.tiny .seg-base { padding: 0; }
+.cstack .bar.tiny .seg-base > * { opacity: 0; }
+.cstack .bar .seg-markup {
+  align-self: stretch;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255,255,255,0.20) 0 4px,
+    rgba(255,255,255,0)    4px 8px
+  );
+  border-left: 1px dashed rgba(255,255,255,0.40);
+  display: flex; align-items: center;
+  padding: 0 8px;
+  font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: rgba(255,255,255,0.92);
+  white-space: nowrap; overflow: hidden;
+  min-width: 0;
+}
+.cstack .bar.tiny .seg-markup { padding: 0; }
+.cstack .bar.tiny .seg-markup > * { opacity: 0; }
+.cstack .bar.pkg  .seg-base, .cstack .bar.pkg  .seg-markup-bg { background-color: oklch(0.55 0.10 250); }
+.cstack .bar.prod .seg-base, .cstack .bar.prod .seg-markup-bg { background-color: oklch(0.50 0.10 215); }
+.cstack .bar.frt  .seg-base, .cstack .bar.frt  .seg-markup-bg { background-color: oklch(0.55 0.10 195); }
+.cstack .bar.duty .seg-base, .cstack .bar.duty .seg-markup-bg { background-color: var(--internal); }
+.cstack .bar.pass .seg-base { background-color: oklch(0.55 0.10 195 / 0.55); font-style: italic; }
+.cstack .bar .seg-markup    { background-color: transparent; }
+.cstack .bar.pkg  .seg-markup { background-color: oklch(0.55 0.10 250); }
+.cstack .bar.prod .seg-markup { background-color: oklch(0.50 0.10 215); }
+.cstack .bar.frt  .seg-markup { background-color: oklch(0.55 0.10 195); }
+.cstack .bar.duty .seg-markup { background-color: var(--internal); }
+
+/* Adjustment row — last row, distinct color, stretches across the contribution+markup total */
+.cstack .bar.adj  .seg-base   { background-color: var(--accent); color: var(--paper); }
+.cstack .row-divider {
+  grid-column: 1 / -1;
+  height: 1px;
+  background: var(--rule);
+  margin: 6px 0 2px;
+}
+.cstack .row-total .row-label { color: var(--ink); font-weight: 500; font-size: 10.5px; }
+.cstack .row-total .row-amount { color: var(--ink); font-weight: 500; font-size: 13px; }
+
+/* Legacy horizontal stack still used in some compact contexts (tier rail, etc.) */
+.stack {
+  display: flex;
+  height: 36px;
+  border-radius: 6px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+.stack .seg {
+  display: flex; align-items: center; justify-content: center;
+  color: oklch(0.96 0.008 85);
+  white-space: nowrap;
+  padding: 0 8px;
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stack .seg.pkg    { background: oklch(0.55 0.10 250); }
+.stack .seg.prod   { background: oklch(0.50 0.10 215); }
+.stack .seg.frt    { background: oklch(0.55 0.10 195); }
+.stack .seg.duty   { background: var(--internal); }
+.stack .seg.adj    { background: var(--accent); color: var(--paper); }
+
+/* Margin meter (re-used from v1) */
+.margin-meter {
+  position: relative;
+  height: 22px;
+}
+.margin-meter .track {
+  position: absolute; top: 9px; left: 0; right: 0; height: 4px;
+  border-radius: 2px;
+}
+.margin-meter .needle {
+  position: absolute; top: 0;
+  width: 2px; height: 22px;
+  transform: translateX(-1px);
+}
+.margin-meter .tick {
+  position: absolute; top: 4px;
+  width: 1px; height: 14px;
+  background: oklch(from var(--ink) l c h / 0.4);
+}
+.margin-meter .tick-label {
+  position: absolute; top: -4px;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  color: var(--ink-4);
+  letter-spacing: 0.04em;
+  transform: translateX(-50%);
+}
+
+/* Inline cell-edit (focused state) */
+.cell-edit {
+  background: var(--accent-soft);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+/* Range input — shared */
+input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  background: transparent;
+  width: 100%;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--paper-4);
+  border-radius: 2px;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px;
+  margin-top: -6px;
+  background: var(--ink);
+  border: 2px solid var(--paper);
+  border-radius: 50%;
+  cursor: grab;
+}
+input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
+
+/* Section headers inside pages */
+.section-head {
+  display: flex; align-items: baseline; justify-content: space-between;
   margin: 32px 0 12px;
 }
-.r2-section-head h2 {
+.section-head h2 {
   font-family: var(--display);
   font-size: 22px;
   font-weight: 400;
   letter-spacing: -0.02em;
   margin: 0;
 }
-.r2-section-head h2 em {
-  font-style: italic;
-  color: var(--ink-3);
-  font-weight: 400;
+.section-head h2 em { font-style: italic; color: var(--ink-3); font-weight: 400; }
 }
-
-/* Layout helpers — match R2's row/col/gap utilities */
-.r2-row {
-  display: flex;
-  align-items: center;
-}
-.r2-col {
-  display: flex;
-  flex-direction: column;
-}
-.r2-gap-1 { gap: 4px; }
-.r2-gap-2 { gap: 8px; }
-.r2-gap-3 { gap: 12px; }
-.r2-gap-4 { gap: 16px; }

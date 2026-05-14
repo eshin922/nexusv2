@@ -1,16 +1,44 @@
-// §6.b path-B Costs migration commit 2/5 — canonical r6-page-head
-// structure per r6_page.jsx lines 81-98 + 6styles.css .r6-page-head
-// rules. Drops Eyebrow + ActionCluster primitives in favor of inline
-// canonical structure (matches Setup path-B precedent).
+// Sweep Step 2 — Costs page chrome migration. Migrated from
+// canonical `.r6-page-head` (R6 body canon's own chrome) to
+// canonical `.r7b-head` (R7b chrome canon per the dual-canon
+// discipline declared in `docs/rest-of-app-fidelity-sweep-brief.md`
+// §0). Setup ships this structure post-§6.b; Costs adopts it now
+// for chrome parity across all quote-scoped surfaces.
 //
-// Title: "Costs" preserves Slice RI.8 surface naming canon
-// ("Cost build → Costs" rename); canonical R6 prototype predates the
-// rename. The scenario · vN tag renders inline as <em> per canonical
-// h1 grammar; canonical CSS handles the non-italic ink-3 styling.
+// Chrome canon (R7b):
+//   .r7b-head — 1fr/auto grid + 18px padding-bottom + bottom rule
+//     .lhs — flex column 6px gap min-width:0
+//       .eyebrow — mono 10/0.16em uppercase ink-3 with .sep dividers
+//       <h1> — display 30 italic 500 -0.012em; <em> 22 ink-3 normal
+//       <p class="sub"> — 13 ink-3 max-width 64ch
+//     .actions — flex 8px gap flex-shrink:0
+//
+// Pre-Slice-11 data-binding stub — Pattern 21 dev-scaffolding (NOT
+// Pattern 39 — this isn't a workflow-ergonomics divergence from
+// canon, it's an unfilled data binding that ships visible-pending).
+//
+// Originally: `const syncLabel = "synced just now"` hardcoded
+// + active pulse-dot via .live rule. Rest-of-app sweep Step 10
+// Designer audit MEDIUM-1 + Edward disposition (May 2026): synthetic
+// "synced just now" is PM-facing fake-current state that risks
+// PMs skipping a manual pull, trusting fake freshness. Worse than
+// no indicator.
+//
+// Bank-as-is treatment: keep the affordance shape, swap the active
+// register for a visible "not-yet-wired" register. Pulse-dot
+// dimmed via .meta.pending modifier (.live rule short-circuited
+// via opacity); copy reads "Sync status pending · Slice 11" so
+// PMs immediately register this isn't a real freshness signal.
+//
+// Slice 11 scope item (banked UX_BACKLOG): wire the actual
+// HubSpot refresh timestamp source + resolve the semantic
+// question (live-sync vs manual-pull pattern → drives whether
+// pulsing dot or static freshness indicator is right). Until
+// then: visible-pending.
 //
 // Slice RI.7 fix preserved — non-editable banner stays as separate
-// page-level row (SentStatusBanner below), not jammed into the header
-// flex container.
+// page-level row (SentStatusBanner below), not jammed into the
+// header flex container.
 
 import Link from "next/link";
 
@@ -35,14 +63,18 @@ export function CostsHeader({
   children?: React.ReactNode;
 }) {
   const tierWord = tierCount === 1 ? "tier" : "tiers";
-  // HubSpot sync timestamp — UX_BACKLOG entry "Pulse-dot live HubSpot
-  // sync indicator" tracks wiring real timestamp + stage. v1: stub.
-  const syncLabel = "synced just now";
   void _editable;
 
   return (
-    <div className="r6-page-head">
-      <div>
+    <div className="r7b-head">
+      <div className="lhs">
+        <div className="eyebrow">
+          {project.clientName ?? project.dealName}
+          <span className="sep">·</span>
+          {quote.scenarioLabel}
+          <span className="sep">·</span>
+          v{quote.versionNumber} {quote.status}
+        </div>
         <h1>
           Costs{" "}
           <em>
@@ -54,14 +86,20 @@ export function CostsHeader({
           stack across {tierCount} {tierWord}. Drill in to edit; the stack
           updates live.
         </p>
-        <div className="meta">
+        {/* Pattern 21 dev-scaffolding (visible-pending) — pulse-dot
+            sync indicator is shipped as a placeholder pending Slice 11
+            HubSpot data binding. `.pending` modifier dims the dot
+            (no animation) + copy reads "Sync status pending" so PMs
+            don't read a fake-current freshness signal. Slice 11
+            replaces this with real `lastHubspotRefreshAt` wiring +
+            resolves the live-sync-vs-manual-pull semantic question.
+            See header comment for full rationale. */}
+        <div className="meta pending">
           <span className="live" aria-hidden />
-          <span>Synced to HubSpot · {syncLabel}</span>
-          <span>·</span>
-          <span>{project.clientName ?? project.dealName}</span>
+          <span>Sync status pending · Slice 11</span>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 8 }}>
+      <div className="actions">
         {/* Slice RI.9 § 5.1 — "View as customer" canonical sideways
             glance affordance. Routes to Quote, bypassing Pricing. */}
         <Link

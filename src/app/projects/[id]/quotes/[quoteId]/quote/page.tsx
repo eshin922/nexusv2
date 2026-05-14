@@ -187,7 +187,14 @@ export default async function CustomerViewPage({
       label: rollup.skuLabel,
       name: rollup.productName,
       // Pack format not yet on quote_skus — Slice 11 schema add.
-      pack: "{pack-format-pending}",
+      // Until then `pack: null` triggers graceful-degradation in
+      // PdfPricingTable (caption suppressed entirely) rather than
+      // shipping a synthetic "{pack-format-pending}" string to real
+      // customer PDFs. Same shape as `preparedBy.phone === null`
+      // handling in PdfHeader (line 77). Pattern 45 (customer-
+      // facing render data-source verification — promoted to
+      // standing during the rest-of-app sweep, Step 10 audit).
+      pack: null,
       unitsPerPack: 1,
       retailBenchmark: skuMeta?.retailBenchmark ?? null,
       tierPrices,

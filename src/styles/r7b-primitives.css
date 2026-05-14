@@ -1,0 +1,661 @@
+/*
+ * R7b cross-surface primitives — extracted during the rest-of-app
+ * fidelity sweep, May 2026. NOT canonical-from-CD; these are nexus-
+ * side cross-surface extractions consolidating inline-styled patterns
+ * that appeared in multiple places during §6.b. Banked per Designer
+ * audit Findings 17, 18, 22 (modal margin row, modal SKU warn band,
+ * SKU/tier empty states).
+ *
+ * Load after canonical CSS in globals.css so these can co-exist
+ * with surface-specific canonical CSS without collision. Class
+ * names use the `.r7b-` prefix consistently with the rest of the
+ * nexus extension register; future R-round refreshes don't touch
+ * this file.
+ *
+ * Each primitive has a single class + light modifier surface area;
+ * resist scope creep (Pattern 33 — every extension proposal needs
+ * cost evaluation separate from architectural cleanliness).
+ */
+
+/* ─── .calc-display ──────────────────────────────────────────
+ *
+ * Read-only calculated-value display row. Used for derived
+ * read-only values that aren't user inputs but need a stable
+ * visual register adjacent to the inputs that drive them.
+ *
+ * Origin: §6.b Add-product modal margin row
+ * (price - cost) / price * 100 = whole-number percentage.
+ *
+ * Cross-surface candidates:
+ *   - Pricing: per-tier blended margin display next to
+ *     adjustment cells
+ *   - Costs: cost-stack subtotal-vs-sell adjustment row
+ *     (currently inline-styled in cost-stack-header.tsx)
+ *   - Mark Accepted: blended-margin verdict row in the
+ *     accept-confirm modal
+ *   - Future: any "computed read-only" cell adjacent to
+ *     user inputs in a form or modal context.
+ *
+ * Layout: flex space-between, baseline-aligned.
+ *   .lab — mono uppercase ink-4 label on the left
+ *   .v   — mono value on the right (ink default; .empty
+ *          variant for ink-4 em-dash placeholder)
+ */
+.calc-display {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 8px 12px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.calc-display .lab {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.calc-display .v {
+  font-family: var(--mono);
+  color: var(--ink);
+}
+.calc-display .v.empty {
+  color: var(--ink-4);
+}
+
+/* ─── .warn-band ─────────────────────────────────────────────
+ *
+ * Inline warning band rendered alongside form inputs or
+ * within modals. Distinct from the dedicated YourNextMoveBanner
+ * (which is a structural surface affordance); .warn-band is
+ * a tactical "your input triggered something the user should
+ * know about" surface.
+ *
+ * Origin: §6.b Add-product modal SKU duplicate-check band
+ * (when blur finds an existing HubSpot product with the
+ * entered SKU).
+ *
+ * Cross-surface candidates:
+ *   - Slice 9.5 validation surfacing (when validation rules
+ *     fire on Pricing)
+ *   - Mark Accepted sent-vs-draft mismatch band
+ *   - Pricing below-floor / over-target warnings
+ *   - Scenario-name uniqueness validation (UX_BACKLOG)
+ *   - Any inline error / heads-up that needs more visual
+ *     weight than a single sentence but less than a banner.
+ *
+ * Variants (additive modifiers):
+ *   .bad   — error tone (uses --bad palette)
+ *   .accent — informational tone (uses --accent palette)
+ * Default tone is --warn (caution / heads-up).
+ *
+ * Structure:
+ *   .warn-band
+ *     <strong> for the headline phrase (renders in tone color)
+ *     plain text for body
+ *     .actions — optional CTA row at the bottom
+ */
+.warn-band {
+  padding: 10px 12px;
+  background: var(--warn-soft);
+  border: 1px solid oklch(from var(--warn) l c h / 0.40);
+  border-left: 3px solid var(--warn);
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--ink);
+  line-height: 1.5;
+}
+.warn-band strong {
+  color: var(--warn);
+}
+.warn-band .actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* .warn-band.bad — error tone (e.g., HubSpot create failed,
+ * validation rule blocking submit, irrecoverable error in flow). */
+.warn-band.bad {
+  background: var(--bad-soft);
+  border-color: oklch(from var(--bad) l c h / 0.40);
+  border-left-color: var(--bad);
+}
+.warn-band.bad strong {
+  color: var(--bad);
+}
+
+/* .warn-band.accent — informational tone (e.g., "this is the
+ * recommended path" callout, gentle UI guidance). */
+.warn-band.accent {
+  background: oklch(from var(--accent) l c h / 0.07);
+  border-color: oklch(from var(--accent) l c h / 0.30);
+  border-left-color: var(--accent);
+}
+.warn-band.accent strong {
+  color: var(--accent-ink);
+}
+
+/* ─── .r7b-empty-state ───────────────────────────────────────
+ *
+ * Inline empty-state copy for tables / lists that render with
+ * no rows. Lightweight register; doesn't compete with the
+ * heavier .r6-empty-drawer pattern (which has glyph + h4 + p
+ * + actions structure for drawer-level emptiness).
+ *
+ * Origin: §6.b SKU table + tier table empty states
+ * (pre-Step-6 placeholder copy "No tiers yet. Add the first
+ * one below." superseded by TierPresetPicker; this primitive
+ * is for the remaining empty-row contexts and future-cross-
+ * surface empty-list rendering).
+ *
+ * Cross-surface candidates:
+ *   - SKU table when count=0 (before any HubSpot pull or
+ *     "+ Add product" click)
+ *   - Pricing per-tier empty table when no tiers configured
+ *   - Assembly drawer's child list when no children
+ *     (currently rendered as a .r7b-comp-row with single
+ *     gridTemplateColumns: 1fr override; could simplify to
+ *     this primitive)
+ *   - Mark Accepted scenario list when no sent scenarios
+ *   - Home recent-projects list when fresh account
+ *
+ * Layout: vertically padded, centered italic ink-3 paragraph.
+ * No glyph (use .r6-empty-drawer for glyph + title + actions
+ * shapes).
+ */
+.r7b-empty-state {
+  padding: 24px 16px;
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-3);
+  font-style: italic;
+  line-height: 1.5;
+}
+
+/* ─── Cross-canon em-in-H1 override (Pricing) ────────────────
+ *
+ * Banked from Edward smoke 2026-05-13 — dual-canon collision on
+ * the H1 em element when Pricing's R7b-chrome-wrapped H1 inherits
+ * the wrong em sizing.
+ *
+ * Chrome canon (.r7b-head h1 em) sets `font-size: 22px` because
+ * R7b's H1 grammar uses em as a SUBTITLE SUFFIX:
+ *   Setup:  `<h1>Setup <em>· SKUs, tiers, notes</em></h1>`
+ *   Costs:  `<h1>Costs <em>· {scenario} v{N}</em></h1>`
+ * Smaller em = secondary subtitle treatment. Intended.
+ *
+ * Pricing's H1 (R2 body canon) uses em for WORD-LEVEL EMPHASIS,
+ * not a subtitle:
+ *   Pricing: `<h1>Tune <em>price</em> & review.</h1>`
+ * "price" should be the same size as "Tune", just italic — R2 body
+ * grammar (canonical 2styles.css `.page-title em { font-style:
+ * italic; ... }` deliberately doesn't override font-size, expecting
+ * inheritance from .page-title's 36px).
+ *
+ * Without this override, .r7b-head h1 em wins font-size by default
+ * (canonical R2 rule under .r2-pricing scope doesn't declare
+ * font-size, so .r7b-head's 22px cascades through). Result is
+ * mixed: italic from R2, size from R7b — visually broken.
+ *
+ * Fix: declare `font-size: inherit` on the R2-side selector so
+ * specificity (0,2,1 > 0,1,2) wins both font-style AND font-size.
+ * Em inherits 36px from .page-title; renders italic at full
+ * heading size.
+ *
+ * Pattern 39 nexus extension instance — documented as accepted
+ * dual-canon-collision override. Other surfaces consuming similar
+ * em-as-word-emphasis grammar would add the same rule shape under
+ * their own scope (e.g., `.r3-quote .page-title em { font-size:
+ * inherit }` if Quote needs it).
+ */
+.r2-pricing .page-title em {
+  font-size: inherit;
+}
+
+/* ─── .r2-* RI.0-era global chrome primitives ──────────────
+ *
+ * Restored 2026-05-13 during sweep Step 3 after Step 3.1/5
+ * discard surfaced cross-surface impact. The pre-discard
+ * src/styles/r2-pricing.css partial served as the global home
+ * for .r2-* prefixed chrome primitives referenced by:
+ *   - <Eyebrow> primitive (src/components/nav/eyebrow.tsx)
+ *     emits .r2-eyebrow class cross-surface
+ *   - MarkAcceptedCluster + customer-accept-toggle + per-
+ *     surface CTA buttons use .r2-btn primary/ghost/accent/
+ *     bad variants
+ *   - Quote, Pricing, Admin all consume .r2-chip primitives
+ *     for status indicators
+ *   - .r2-row, .r2-gap-* utility flex layouts on per-surface
+ *     action clusters
+ *
+ * Discarding Pricing's path-B file removed these as a side-
+ * effect. Pattern 30 application discovery: the old partial
+ * had a dual role — Pricing surface body styling AND global
+ * chrome primitives — and "discard partial" assumed only the
+ * first role.
+ *
+ * Disposition: chrome primitives live here in r7b-primitives.css
+ * (global cross-surface home). The r2-pricing.css file under
+ * .r2-pricing scope holds ONLY canonical R2 surface body.
+ * Clean separation per Pattern 30 + dual-canon discipline.
+ */
+
+/* Type primitives */
+.r2-eyebrow {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0;
+}
+.r2-mono {
+  font-family: var(--mono);
+}
+.r2-muted {
+  color: var(--ink-3);
+}
+.r2-dim {
+  color: var(--ink-4);
+}
+
+/* Page wrapper */
+.r2-page {
+  padding: 28px 32px 60px;
+  max-width: 1380px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.r2-page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  margin-bottom: 22px;
+}
+.r2-page-head > div:first-child {
+  min-width: 0;
+  flex: 1;
+}
+.r2-page-head > .r2-row {
+  flex-shrink: 0;
+}
+.r2-page-title {
+  font-family: var(--display);
+  font-size: 36px;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  margin: 4px 0 6px;
+  line-height: 1.15;
+  text-wrap: pretty;
+}
+.r2-page-title em {
+  font-style: italic;
+  color: var(--ink-3);
+  font-weight: 400;
+}
+.r2-page-sub {
+  color: var(--ink-3);
+  font-size: 13px;
+  margin: 0;
+  max-width: 60ch;
+}
+
+/* Buttons */
+.r2-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 7px;
+  font-size: 13px;
+  background: var(--paper-3);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  transition: background 100ms;
+  cursor: pointer;
+  font-family: var(--ui);
+}
+.r2-btn:hover {
+  background: var(--paper-4);
+}
+.r2-btn.sm {
+  padding: 5px 10px;
+  font-size: 12px;
+  border-radius: 5px;
+}
+.r2-btn.primary {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+.r2-btn.primary:hover {
+  background: var(--ink-2);
+}
+.r2-btn.accent {
+  background: var(--accent);
+  color: var(--paper);
+  border-color: var(--accent);
+}
+.r2-btn.accent:hover {
+  background: var(--accent-ink);
+}
+.r2-btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink-3);
+}
+.r2-btn.ghost:hover {
+  background: var(--paper-3);
+  color: var(--ink);
+}
+.r2-btn.bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+  border-color: oklch(from var(--bad) l c h / 0.4);
+}
+.r2-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Chips */
+.r2-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--paper-3);
+  color: var(--ink-3);
+  border: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.r2-chip.good {
+  background: var(--good-soft);
+  color: var(--good);
+  border-color: oklch(from var(--good) l c h / 0.4);
+}
+.r2-chip.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-color: oklch(from var(--warn) l c h / 0.4);
+}
+.r2-chip.bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+  border-color: oklch(from var(--bad) l c h / 0.4);
+}
+.r2-chip.accent {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border-color: oklch(from var(--accent) l c h / 0.4);
+}
+.r2-chip.internal {
+  background: var(--internal-soft);
+  color: var(--internal);
+  border-color: var(--internal-rule);
+}
+.r2-chip .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* Card primitive — R2 source specs paper-2 bg, but CC's body bg is
+   paper-2 globally (matches R6 body convention from RI.4). Shifted to
+   --paper here so cards read as visibly lighter on the page bg, same
+   pattern R6 cost stack + section row cards use. */
+.r2-card {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.r2-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rule);
+}
+.r2-card-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.r2-card-head .meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-4);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.r2-card-body {
+  padding: 14px 16px;
+}
+
+/* Section head with italic-em annotation */
+.r2-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 32px 0 12px;
+}
+.r2-section-head h2 {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.r2-section-head h2 em {
+  font-style: italic;
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+/* Layout helpers — match R2's row/col/gap utilities */
+.r2-row {
+  display: flex;
+  align-items: center;
+}
+.r2-col {
+  display: flex;
+  flex-direction: column;
+}
+.r2-gap-1 { gap: 4px; }
+.r2-gap-2 { gap: 8px; }
+.r2-gap-3 { gap: 12px; }
+
+/* ─── SKU overflow menu — portal-mounted ───────────────────
+ *
+ * Step 9 hotfix v3 portals the SKU row's `⋯` overflow menu to
+ * `document.body` to escape `.r7b-card { overflow: hidden }` +
+ * `.r7b-sku-row { display: grid }` ancestor structural
+ * constraints. Step 10 Edward smoke (2026-05-14): the v3 portal
+ * works (all 6 menu items visible) but Tailwind utility classes
+ * on the menu items (`text-xs`, `px-3`, `py-1.5`, etc.) aren't
+ * winning the cascade post-portal — items render at body-default
+ * 14px without canonical padding/spacing register.
+ *
+ * Canonical rules below define the menu's visual register
+ * explicitly. Same shape as Pattern 30 canonical adoption:
+ * stop relying on Tailwind utility class resolution and own the
+ * visual register via dedicated CSS classes. Menu JSX consumes
+ * these classes directly; Tailwind utility classes preserved on
+ * the elements as a co-occurring layer (the canonical rules win
+ * on selector specificity AND post-load cascade order).
+ */
+.r7b-overflow-menu {
+  min-width: 200px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 2px 8px oklch(0 0 0 / 0.08), 0 1px 2px oklch(0 0 0 / 0.04);
+  font-family: var(--ui);
+}
+.r7b-overflow-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-2);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: none;
+}
+.r7b-overflow-menu-item:hover {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.r7b-overflow-menu-item:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.r7b-overflow-menu-item .glyph {
+  display: inline-block;
+  width: 16px;
+  margin-right: 8px;
+  font-family: var(--mono);
+  color: var(--ink-4);
+  font-size: 11px;
+}
+.r7b-overflow-menu-item.danger {
+  color: var(--bad);
+}
+.r7b-overflow-menu-item.danger:hover {
+  background: var(--bad-soft);
+}
+
+/* ─── Costs pulse-dot sync meta — Pattern 21 dev-scaffolding ──
+ *
+ * Canonical R6 ships `.r6-page-head .meta` + `.r6-page-head .meta
+ * .live` rules (r6-costs.css:64-72). Step 2 of the rest-of-app
+ * sweep migrated Costs chrome to `.r7b-head`, breaking the
+ * `.r6-page-head` parent selector — the canonical rules stopped
+ * binding to the markup. Step 10 Designer audit LOW-1 flagged the
+ * dangling reference.
+ *
+ * Two-purpose rule set here:
+ * (a) Rebind canonical .meta + .live visual register to the new
+ *     `.r7b-head` wrapper so the pulse-dot affordance shipped in
+ *     §6.b stays visually consistent.
+ * (b) Add `.pending` modifier for the visible-pending state
+ *     (Pattern 21 dev-scaffolding per Edward's MEDIUM-1 disposition
+ *     2026-05-14). Dot dimmed (no good-soft glow); copy ink-4 so
+ *     PMs read the meta strip as "not-yet-wired," not "synced."
+ *
+ * Slice 11 wires real `lastHubspotRefreshAt` and resolves the
+ * live-sync-vs-manual-pull semantic — at that point the .pending
+ * modifier comes off automatically (real timestamp drives whether
+ * the dot pulses or stays static).
+ */
+.r7b-head .meta {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-4);
+  letter-spacing: 0.04em;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.r7b-head .meta .live {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 3px var(--good-soft);
+}
+.r7b-head .meta.pending .live {
+  background: var(--ink-4);
+  box-shadow: none;
+  opacity: 0.5;
+}
+.r7b-head .meta.pending {
+  color: var(--ink-4);
+  font-style: italic;
+}
+
+/* ─── Quote preview-chrome dark-mode adaptation — Pattern 39 ──
+ *
+ * R3 canonical (r3-shared.css) defines .preview-chrome's diagonal
+ * background as:
+ *   repeating-linear-gradient(45deg,
+ *     oklch(from var(--paper) calc(l - 0.02) c h) 0 12px,
+ *     var(--paper) 12px 24px)
+ *
+ * In light mode this works — base paper L=0.985, stripe L=0.965,
+ * visible 0.02 delta against the light field. In dark mode the
+ * same formula computes base L=0.16, stripe L=0.14 — same numeric
+ * delta but perceptually compressed at low L; the diagonal pattern
+ * disappears.
+ *
+ * R3 canonical was designed for light mode only (R-rounds typically
+ * ship single-mode prototypes). Pattern 39 nexus extension overrides
+ * the gradient to use `var(--paper-2)` for the stripe color, which
+ * auto-themes:
+ *   light: --paper-2 = oklch(0.965 ...) — same as the formula result
+ *   dark:  --paper-2 = oklch(0.19 ...)  — slightly LIGHTER than --paper
+ *
+ * Same visual in light mode (numeric equivalence); visible diagonal
+ * pattern preserved in dark mode (stripe lighter than base).
+ *
+ * Override wins over canonical via source-order cascade
+ * (r7b-primitives.css loads after r3-shared.css in globals.css).
+ *
+ * Banked from Edward smoke 2026-05-14 — diagonal pattern present in
+ * light, near-invisible in dark.
+ */
+.r3-shared .preview-chrome {
+  background:
+    repeating-linear-gradient(45deg,
+      var(--paper-2) 0 12px,
+      var(--paper) 12px 24px);
+}
+
+/* ─── Quote preview-toolbar — nexus extension (Pattern 39) ──
+ *
+ * Canonical R3 3styles.css defines .preview-toolbar with
+ * display:flex + justify-content:space-between but NO flex-wrap.
+ * Production button density on the right (Edit notes + Download
+ * PDF + Download+mail + DevSendButton in dev) overflows the
+ * 880px max-width, pushing controls past the viewport edge.
+ *
+ * Documented nexus-side extension: flex-wrap:wrap + row-gap so
+ * the right cluster wraps to a new line on density-overflow.
+ * Canonical visual register preserved — single-row layout is the
+ * default; wrapping only fires when needed.
+ *
+ * Banked from Edward smoke during rest-of-app fidelity sweep,
+ * May 2026. If/when CD's R3 source ships flex-wrap, drop this
+ * extension and roll back to verbatim canonical.
+ */
+.r3-shared .preview-toolbar {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.r3-shared .preview-toolbar .right {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}

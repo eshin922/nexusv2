@@ -142,24 +142,18 @@ export default async function QuoteBuilderPage({
             {pm?.name ? ` · PM ${pm.name}` : ""}
           </p>
         </div>
-        <div className="actions">
-          <button
-            type="button"
-            className="btn ghost sm"
-            disabled
-            title="+ Add SKU — wires to add-product modal in §6.b Step 8"
-          >
-            + Add SKU
-          </button>
-          <button
-            type="button"
-            className="btn primary"
-            title="Saved automatically as you edit."
-            disabled
-          >
-            Save draft
-          </button>
-        </div>
+        {/* Rest-of-app sweep (post-§6.b Designer audit Finding 01
+            promoted to v1 blocker per Edward smoke 2026-05-13):
+            page-head action cluster intentionally empty. Removed:
+            (1) `+ Add SKU` — duplicative of `+ Add Product` in SKU
+            table footer (single canonical addition affordance lives
+            near the table). (2) `Save draft` — non-functional
+            placeholder; autosave is wired on field-blur (Slice 5
+            form-state pattern) so an explicit Save button just
+            implies functionality that doesn't exist. Empty `.actions`
+            div preserves canonical .r7b-head structure for the
+            future case where genuine page-head actions are needed. */}
+        <div className="actions" />
       </div>
 
       {/* Slice RI.9 § 3.3 — YOUR NEXT MOVE banner. Setup → Cost build
@@ -171,7 +165,7 @@ export default async function QuoteBuilderPage({
         <YourNextMoveBanner
           state="default"
           label={
-            SURFACE_META.setup.nextMove?.label ?? "Continue to Cost build →"
+            SURFACE_META.setup.nextMove?.label ?? "Continue to Costs →"
           }
           subtitle="once SKUs and tiers are settled"
           href={resolveSurfaceHref("cost_build", project.id, quote.id)}
@@ -248,7 +242,12 @@ export default async function QuoteBuilderPage({
         </div>
 
         {skus.length === 0 ? (
-          <p style={{ padding: "24px 16px", textAlign: "center", fontSize: 13, color: "var(--ink-3)", fontStyle: "italic", margin: 0 }}>
+          // Sweep Step 1 — migrated to canonical .r7b-empty-state
+          // primitive (Designer audit Finding 22). Inline-styled
+          // earlier; primitive consolidates this with the assembly
+          // drawer's child-list empty state and future SKU-table-
+          // empty cases.
+          <p className="r7b-empty-state">
             {editable
               ? 'No SKUs yet. Use "+ Add product" or "↗ Pull from HubSpot" below to start.'
               : "No SKUs."}

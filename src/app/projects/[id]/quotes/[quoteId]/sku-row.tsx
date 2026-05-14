@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import {
   assignSkuToParent,
   convertSkuRole,
@@ -127,7 +128,27 @@ export function SkuRow({
   // outside-click closes. Full keyboard arrow nav is polish,
   // deferred per Designer's drop-and-defer fallback.
   const [overflowOpen, setOverflowOpen] = useState(false);
+  // Sweep mid-slice hotfix v3 — createPortal escapes the row's DOM
+  // entirely. v1 (position:absolute + flip-logic) and v2 (position:
+  // fixed + computed coords) both clipped because the menu was still
+  // a descendant of .r7b-card (overflow:hidden) inside .r7b-sku-row
+  // (display:grid). Even with position:fixed, the menu was clipped
+  // (Edward smoke v2 found only Add notes + Move up visible, missing
+  // Move down + Delete). Root cause was likely a grid-cell overflow
+  // chain that pinned the menu's effective render box. v3 portals
+  // the menu directly into document.body so it has zero structural
+  // dependencies on the row's parent tree.
+  const [overflowMenuPos, setOverflowMenuPos] = useState<
+    { top: number; right: number } | null
+  >(null);
   const overflowRef = useRef<HTMLDivElement>(null);
+  // Step 10 Edward smoke (2026-05-14) — separate ref for the
+  // portal-mounted menu container. The portal moves the menu out
+  // of `overflowRef`'s DOM ancestry; the outside-click handler
+  // needs to check both refs (trigger AND portaled menu) or every
+  // click inside the menu fires as an "outside click" and
+  // unmounts the menu before the button's onClick can run.
+  const overflowMenuRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef({ retailBenchmark, unitsPerPack });
   stateRef.current = { retailBenchmark, unitsPerPack };
@@ -139,14 +160,45 @@ export function SkuRow({
     [],
   );
 
+  // Sweep mid-slice hotfix v2 — fixed-position menu coords.
+  // On open, measure trigger's getBoundingClientRect. Compute
+  // menu's top/right coords for position:fixed render. If
+  // remaining viewport space below is insufficient (estimated
+  // 240px menu height), position menu ABOVE the trigger instead
+  // — top = trigger.top - 240 - 4 (mb-1 gap).
+  // Re-measures on each open so scroll position changes between
+  // opens get the right coords.
+  useEffect(() => {
+    if (!overflowOpen || !overflowRef.current) return;
+    const rect = overflowRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const ESTIMATED_MENU_HEIGHT = 240;
+    const GAP = 4;
+    const top =
+      spaceBelow < ESTIMATED_MENU_HEIGHT
+        ? rect.top - ESTIMATED_MENU_HEIGHT - GAP
+        : rect.bottom + GAP;
+    const right = window.innerWidth - rect.right;
+    setOverflowMenuPos({ top, right });
+  }, [overflowOpen]);
+
   // Slice RI.8 — overflow menu close-on-outside-click + ESC.
+  // Step 10 Edward smoke fix (2026-05-14) — outside-click check now
+  // accepts EITHER the trigger ref (overflowRef) OR the portaled
+  // menu ref (overflowMenuRef). Previously only overflowRef was
+  // checked, but the v3 portal hotfix moved the menu DOM to
+  // document.body — descendants of the menu were no longer in
+  // overflowRef's tree, so every menu-item click fired as an
+  // "outside click" and unmounted the menu before React's onClick
+  // could run. All menu items appeared broken (Edward repro:
+  // "Assign to parent does nothing").
   useEffect(() => {
     if (!overflowOpen) return;
     function onClick(e: MouseEvent) {
-      if (
-        overflowRef.current &&
-        !overflowRef.current.contains(e.target as Node)
-      ) {
+      const target = e.target as Node;
+      const insideTrigger = overflowRef.current?.contains(target) ?? false;
+      const insideMenu = overflowMenuRef.current?.contains(target) ?? false;
+      if (!insideTrigger && !insideMenu) {
         setOverflowOpen(false);
       }
     }
@@ -511,10 +563,26 @@ export function SkuRow({
               >
                 ⋯
               </button>
-              {overflowOpen && (
+              {overflowOpen && overflowMenuPos && createPortal(
+                // Step 10 Edward smoke (2026-05-14) — migrated from
+                // Tailwind utility classes (text-xs / px-3 / py-1.5
+                // etc.) to canonical .r7b-overflow-menu register in
+                // r7b-primitives.css. The v3 portal hotfix moves the
+                // menu to document.body; Tailwind utilities weren't
+                // winning the cascade post-portal (items rendered at
+                // body-default 14px without canonical padding/spacing).
+                // Canonical CSS class register defines the visual
+                // register explicitly + wins selector specificity.
                 <div
                   role="menu"
-                  className="absolute right-0 top-full mt-1 z-50 min-w-[200px] rounded border border-rule bg-paper py-1 shadow-md"
+                  ref={overflowMenuRef}
+                  className="r7b-overflow-menu"
+                  style={{
+                    position: "fixed",
+                    top: overflowMenuPos.top,
+                    right: overflowMenuPos.right,
+                    zIndex: 1000,
+                  }}
                 >
                   {/* §6.b polish-amendment (sweep #10) — Open/Add
                       notes entry restores R7b's ⋯-as-drawer-trigger
@@ -532,9 +600,9 @@ export function SkuRow({
                         setOverflowOpen(false);
                       }}
                       disabled={disabled}
-                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2 disabled:opacity-30"
+                      className="r7b-overflow-menu-item"
                     >
-                      <span className="mr-2 font-mono text-ink-3">📝</span>
+                      <span className="glyph">📝</span>
                       {hasNote ? "Open notes" : "Add notes"}
                     </button>
                   )}
@@ -548,9 +616,9 @@ export function SkuRow({
                       setOverflowOpen(false);
                     }}
                     disabled={disabled}
-                    className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2 disabled:opacity-30"
+                    className="r7b-overflow-menu-item"
                   >
-                    <span className="mr-2 font-mono text-ink-3">↑</span>
+                    <span className="glyph">↑</span>
                     Move up
                   </button>
                   <button
@@ -561,9 +629,9 @@ export function SkuRow({
                       setOverflowOpen(false);
                     }}
                     disabled={disabled}
-                    className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2 disabled:opacity-30"
+                    className="r7b-overflow-menu-item"
                   >
-                    <span className="mr-2 font-mono text-ink-3">↓</span>
+                    <span className="glyph">↓</span>
                     Move down
                   </button>
                   <button
@@ -575,9 +643,9 @@ export function SkuRow({
                     }}
                     disabled={disabled}
                     title={sku.skuRole !== "leaf" ? "Delete (cascade)" : "Remove SKU"}
-                    className="block w-full px-3 py-1.5 text-left text-xs text-bad hover:bg-bad-soft disabled:opacity-30"
+                    className="r7b-overflow-menu-item danger"
                   >
-                    <span className="mr-2 font-mono">×</span>
+                    <span className="glyph">×</span>
                     {sku.skuRole !== "leaf" ? "Delete (cascade)" : "Remove SKU"}
                   </button>
                   {canBeChild && eligibleParents.length > 0 && (
@@ -588,9 +656,9 @@ export function SkuRow({
                         setReassignOpen(true);
                         setOverflowOpen(false);
                       }}
-                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2"
+                      className="r7b-overflow-menu-item"
                     >
-                      <span className="mr-2 font-mono text-ink-3">
+                      <span className="glyph">
                         {sku.parentSkuId ? "↔" : "↳"}
                       </span>
                       {sku.parentSkuId ? "Reassign parent" : "Assign to parent"}
@@ -604,9 +672,9 @@ export function SkuRow({
                         handleDetach();
                         setOverflowOpen(false);
                       }}
-                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2"
+                      className="r7b-overflow-menu-item"
                     >
-                      <span className="mr-2 font-mono text-ink-3">⤴</span>
+                      <span className="glyph">⤴</span>
                       Detach from parent
                     </button>
                   )}
@@ -623,9 +691,9 @@ export function SkuRow({
                           ? `Last synced ${formatRelative(sku.lastHubspotRefreshAt)}`
                           : undefined
                       }
-                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2"
+                      className="r7b-overflow-menu-item"
                     >
-                      <span className="mr-2 font-mono text-ink-3">↻</span>
+                      <span className="glyph">↻</span>
                       Refresh from HubSpot
                     </button>
                   )}
@@ -636,13 +704,14 @@ export function SkuRow({
                       rel="noreferrer"
                       role="menuitem"
                       onClick={() => setOverflowOpen(false)}
-                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2"
+                      className="r7b-overflow-menu-item"
                     >
-                      <span className="mr-2 font-mono text-ink-3">↗</span>
+                      <span className="glyph">↗</span>
                       Open in HubSpot
                     </a>
                   )}
-                </div>
+                </div>,
+                document.body,
               )}
             </div>
         </div>
@@ -961,21 +1030,16 @@ function DrawerChildList({
         <span className="num">Open</span>
       </div>
       {childSkus.length === 0 ? (
-        <div
-          className="r7b-comp-row"
-          style={{ gridTemplateColumns: "1fr" }}
-        >
-          <span
-            style={{
-              color: "var(--ink-3)",
-              fontStyle: "italic",
-              fontSize: 12,
-            }}
-          >
-            No child SKUs yet. Add one below or assign existing SKUs to this
-            assembly via the row&rsquo;s ⋯ menu.
-          </span>
-        </div>
+        // Sweep Step 1 — migrated to canonical .r7b-empty-state
+        // primitive. Earlier shape used .r7b-comp-row + single-column
+        // grid override which worked but was structurally weird
+        // (empty-state inside a comp-row). Pattern 19 disposition:
+        // the data shape really IS different — "no rows" ≠ "one
+        // special row" — so the primitive matches the semantic.
+        <p className="r7b-empty-state">
+          No child SKUs yet. Add one below or assign existing SKUs to this
+          assembly via the row&rsquo;s ⋯ menu.
+        </p>
       ) : (
         childSkus.map((c) => {
           const isLeaf = c.skuRole === "leaf";

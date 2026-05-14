@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
@@ -257,6 +258,20 @@ export default async function CostBuildPage({
           interpreted the canonical values. Now via canonical CSS
           directly. */}
       <main className="r6-page">
+        {/* Sweep Step 2 — back-link above the page chrome, mirroring
+            Setup's pattern. Edward seed finding: Costs page chrome
+            missing eyebrow + back-link. Same Tailwind-styled
+            register Setup uses; both will get extracted to a shared
+            primitive in a follow-up (Designer audit Finding 12). */}
+        <div style={{ marginBottom: 12, fontSize: 13 }}>
+          <Link
+            href={`/projects/${project.id}`}
+            className="text-ink-3 hover:text-ink"
+          >
+            ← {project.dealName}
+          </Link>
+        </div>
+
         <CostsHeader
           project={project}
           quote={{
