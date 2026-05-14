@@ -81,8 +81,12 @@ export type CustomerViewSku = {
   label: string;
   /** Product family name (e.g. "Hydra-Glow Serum"). */
   name: string;
-  /** Pack-format string (e.g. "30 ml glass dropper"). */
-  pack: string;
+  /** Pack-format string (e.g. "30 ml glass dropper"). NULL when the
+   * field isn't populated yet (Slice 11 schema add); PdfPricingTable
+   * suppresses the caption entirely rather than rendering a synthetic
+   * placeholder string (Pattern 45 — customer-facing render data-
+   * source verification). */
+  pack: string | null;
   unitsPerPack: number;
   /** Optional MSRP context. NULL hides retail column for this row. */
   retailBenchmark: number | null;
