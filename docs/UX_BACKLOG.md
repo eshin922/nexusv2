@@ -195,6 +195,291 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
   **Banked from Edward UX observation, May 2026.**
 
+- [LEAF → ASY conversion warning when cost data exists — v1 blocker]
+
+  **Slice (DISPOSITIONED, 2026-05-13):** Extension to the queued
+  leaf-detach micro-slice (sister entry to ASY→LEAF conversion
+  above). Same modal + action-layer infrastructure; same
+  release-critical-path placement.
+
+  **Problem:** When PM toggles Type badge LEAF → ASY on a SKU
+  that has cost inputs in Cost build's Packaging / Production /
+  Bulk Raw / Freight sections, current behavior either no-ops
+  silently OR flips the role and orphans the cost data. Either
+  way violates the architectural invariant that **cost inputs
+  are strictly inherited from leaves** — ASY rows are
+  computed-only (sum of child contributions); they can't
+  themselves carry packaging lines, production fees, freight
+  rows, or bulk-raw assignments.
+
+  **Confirmation modal copy:**
+
+  > ⚠️ This SKU has cost data on the Costs surface (Packaging:
+  > T&L $2.00/tier-1, ...). Converting to assembly will leave
+  > that cost data orphaned. Move or remove the cost data
+  > first, then re-toggle.
+
+  Modal body enumerates the existing cost lines (section +
+  line summary) so PM sees exactly what they're routing
+  around.
+
+  **Three implementation options surfaced:**
+
+  - **(a) Block conversion until cost data is moved/removed.**
+    Safer; adds friction. PM must navigate to Costs surface,
+    find each cost line, delete/move via existing affordances,
+    return to Setup, re-toggle. Modal shows the cost data
+    inventory + "Remove these on Costs first" copy with no
+    Confirm CTA (just Cancel + "Open Costs to fix").
+  - **(b) Confirm and detach cost data.** Faster; destructive
+    — cost lines become orphaned OR get deleted on confirm.
+    Modal carries the warning + a "Delete cost data + convert"
+    destructive CTA.
+  - **(c) Confirm and migrate cost data to a new auto-created
+    child leaf.** Smartest; complex. Modal carries "Convert
+    + move cost data into new child SKU 'name + " — child'"
+    CTA; on confirm, server creates a leaf child, re-points
+    each cost line's quote_sku_id to the new child, sets the
+    converted SKU's role to assembly. Preserves PM intent
+    + data.
+
+  **Disposition (Edward, 2026-05-13):** **(c) APPROVED — smart-
+  migrate to auto-created child leaf.** Smartest path; preserves
+  PM intent + data. Implementation complexity is contained by
+  reusing the leaf-detach action infrastructure + a new
+  auto-create-child action.
+
+  **Auto-naming convention:** new child leaf gets sku_label
+  `{ORIGINAL-SKU}-CMP` (suffix signals "auto-generated, rename
+  me"; PM can rename via the SKU table's inline-edit affordance
+  any time post-creation).
+
+  **Cost line distribution:** single auto-created child holds
+  ALL cost lines across packaging / production / freight / bulk
+  raw sections. PM can split later if needed (manual move via
+  Cost build's per-row SKU-target picker).
+
+  **Child inheritance defaults:**
+    - `qty_per_parent = 1` (one auto-child per parent)
+    - `sort_order = max(siblings.sort_order) + 1` (placed at end
+      of parent's component list)
+    - `notes = NULL` (empty)
+    - `retail_benchmark = NULL` (empty)
+    - `parent_sku_id = original SKU's id` (relationship attached
+      atomically with the parent's role flip)
+
+  **Original SKU preservation on convert:**
+    - `sku_role` flips LEAF → assembly
+    - `notes` PRESERVED (still useful as finished-product
+      customer reference)
+    - `retail_benchmark` PRESERVED (same — finished-product
+      level retail data)
+    - `parent_sku_id` unchanged (this conversion doesn't affect
+      the original's own parent relationship)
+
+  **Implementation (Option c):**
+
+  - **Action:** new server action `convertLeafToAssembly
+    (skuId)`. Inside a DB transaction:
+      a. Load all cost-input rows where quote_sku_id = skuId
+         (packaging_inputs + production_inputs + freight_inputs)
+      b. Check existing cost data; if none, fire silent toggle
+         (no child creation, no modal). If yes, surface the
+         pre-confirm modal with the migrate summary
+      c. On PM confirm: create new child SKU row with auto-
+         naming convention + child inheritance defaults +
+         parent_sku_id pointing at the original
+      d. Re-point each cost-input row's quote_sku_id → new
+         child SKU's id
+      e. Flip original SKU's sku_role to 'assembly'
+    Single transaction so partial-failure can't leave a half-
+    converted state.
+  - **Modal copy on cost-data presence:**
+      Title: "Convert to assembly?"
+      Body: "This SKU has {N} cost lines across {sections}.
+      They'll be moved to a new auto-created child SKU named
+      '{ORIGINAL}-CMP' so the data stays connected to the
+      assembly's rollup. You can rename the child after
+      conversion."
+      CTAs: Cancel · "Convert + migrate cost data"
+  - **Pre-conversion check action:** `checkSkuCostData(skuId)`
+    returns the cost-line inventory across packaging /
+    production / freight inputs. Used by the modal to render
+    the "{N} cost lines across {sections}" summary.
+  - **Audit:** three action keys fire on a cost-data
+    conversion:
+      `sku_type_changed_leaf_to_asy` × 1 (original SKU)
+      `sku_created_auto_for_cost_migration` × 1 (new child)
+      `cost_data_reparented` × N (one per re-pointed
+      cost-input row; diff_json carries old quote_sku_id +
+      new quote_sku_id + section name)
+    Separate keys per re-parent so the audit-log timeline
+    reads clearly when reviewing the conversion forensically.
+  - **Pattern 22 verification:** confirm column names against
+    `src/db/schema.ts` — `packaging_inputs.quoteSkuId`,
+    `production_inputs.quoteSkuId`, `freight_inputs.quoteSkuId`
+    all confirmed (uuid foreign-key references to
+    `quote_skus.id`); `quote_skus.skuRole` enum confirmed;
+    `quote_skus.parentSkuId` + `quote_skus.qtyPerParent` +
+    `quote_skus.sortOrder` confirmed.
+
+  **Cross-references:**
+  - Sister to ASY→LEAF entry above (opposite direction)
+  - Architectural invariant: "cost inputs strictly inherited
+    from leaves" — documented in CLAUDE.md "Assembly rules"
+    section + Slice 5.5 assembly schema commitment
+  - Pattern 39 nexus-extension precedent — the
+    block-with-warning modal is a Nexus-side enforcement of
+    the architectural invariant; canonical R7b drawer
+    doesn't render this affordance because R7b didn't
+    anticipate cross-surface data validation
+
+  **Risk if not shipped:** PMs flip LEAF → ASY on a SKU with
+  cost data; orphaned cost lines silently survive in
+  packaging_inputs / production_inputs / freight_inputs;
+  cost rollups break silently (ASY can't carry these inputs;
+  the rows become invisible to compute). Same data-quality
+  risk as the leaf-detach blocker.
+
+  **Release-critical-path placement:** same as leaf-detach
+  + ASY→LEAF entries — micro-slice between rest-of-app
+  fidelity sweep PR and R6.2 freight implementation.
+
+  **Banked from Edward UX observation, May 2026.**
+
+- [Cost build section assignment validation — v1 blocker]
+
+  **Slice (DISPOSITIONED, 2026-05-13):** Extension to the queued
+  leaf-detach micro-slice. Sister to the LEAF→ASY entry above
+  — same architectural invariant ("cost inputs strictly
+  inherited from leaves"); different enforcement surface.
+  Where LEAF→ASY guards the type-toggle path, this entry
+  guards the cost-input creation path on Cost build.
+
+  **Problem:** Cost build's section row pickers (Packaging /
+  Production / Bulk Raw / Freight) currently accept ASY
+  SKUs as cost-input targets. Architecturally invalid —
+  cost data on ASY rows orphans on first leaf-promotion or
+  cost-rollup attempt. Bug shape: action layer accepts an
+  ASY target; row gets created; compute path silently
+  skips it; PM thinks data is in the system but rollup is
+  wrong.
+
+  **Implementation:**
+
+  - **UI-level filter:** pickers in each cost section
+    (`src/app/projects/[id]/quotes/[quoteId]/costs/...`
+    drilldown + add-line affordances) filter the SKU list
+    to `sku_role === "leaf"` only. ASY SKUs don't appear in
+    the picker. Display caption: "Select a leaf SKU
+    (assemblies inherit cost from leaves)."
+  - **Action-layer enforcement:** every cost-input create
+    action (packaging-add-line, production-input-set,
+    freight-add-line, bulk-raw-assignment) validates target
+    SKU role at the action boundary; throws
+    ActionGuardError(ERR.VALIDATION, "Cost inputs can only
+    be assigned to leaf SKUs.") if target is ASY. Defense
+    in depth even if the UI filter is bypassed.
+  - **First-load surfacing for existing ASY-attached rows:**
+    on Cost build page load, query for any cost-input rows
+    where target SKU's role is ASY (one-time data audit
+    below). If found, render a warning band on each affected
+    row + a summary count at the top of Cost build:
+      ⚠️ {N} cost lines target assembly SKUs — needs
+      reassignment to a leaf. [Show me]
+    Click "Show me" → highlights/scrolls to each affected
+    row. PM resolves by reassigning the target SKU on the
+    row (existing affordance, may need a small extension to
+    support cross-SKU re-target).
+  - **Pattern 22 verification:** confirm the schema column on
+    each Cost build section table that references the target
+    SKU (`quote_sku_id` text uuid on packaging_inputs /
+    production_inputs / freight_inputs / bulk_raw_section_*).
+    Filter logic enforces `target_sku.skuRole === 'leaf'` at
+    both layers.
+
+  **One-time automated cleanup pass (5-step process):**
+
+  Edward dispositioned: automated migration over manual cleanup,
+  using the LEAF→ASY smart-migrate infrastructure (Option c)
+  from the sister entry above. Steps:
+
+  - **Step 1 — Audit query (DONE, 2026-05-13):** CC ran the
+    query against the shared dev/prod DB. Pattern 22 column
+    verification confirmed (packaging_inputs.quote_sku_id +
+    production_inputs.quote_sku_id + freight_inputs.quote_sku_id
+    all uuid FK to quote_skus.id; quote_skus.sku_role enum
+    'leaf' | 'assembly' per Slice 5.5). Bulk_raw_*
+    tables are quote-keyed, NOT sku-keyed; out of scope for
+    this audit.
+
+    **Findings (current dev/prod DB state):**
+
+    | Section | Rows | ASY SKUs | Quotes affected |
+    |---|---|---|---|
+    | packaging_inputs | 4 | 1 | 1 |
+    | production_inputs | 4 | 1 | 1 |
+    | freight_inputs | 4 | 1 | 1 |
+    | **TOTAL** | **12** | **1** | **1** |
+
+    Same 1 ASY SKU × 4 tier rows × 3 sections = 12 rows total.
+    Pattern strongly suggests stale dev/seed data — one ASY
+    SKU used as cost-input target during early testing before
+    the architectural invariant was enforced.
+
+  - **Step 2 — Dry-run output:** CC writes
+    `docs/orphaned-cost-data-audit.md` listing per-SKU what
+    would be migrated + auto-generated child leaf name +
+    affected rows per section. Output schema mirrors the
+    smart-migrate logic from the LEAF→ASY entry — one
+    `{ORIGINAL-SKU}-CMP` auto-child per ASY SKU, ALL cost
+    lines (across all sections) re-pointed to that child,
+    original ASY's role + relationships preserved.
+
+  - **Step 3 — Edward review:** spot-check naming + line
+    distribution feel against the dry-run output. Approve OR
+    request adjustments (e.g., different naming convention,
+    per-section child split, manual cleanup for some rows).
+
+  - **Step 4 — Migration run:** on Edward approval, CC runs
+    the migration with one audit-log entry per affected row:
+      `sku_type_changed_leaf_to_asy` × 1 per converted SKU
+      `sku_created_auto_for_cost_migration` × 1 per auto-child
+      `cost_data_reparented` × N per re-pointed cost row
+    Wrapped in a single DB transaction per SKU so partial
+    failure can't leave half-migrated state.
+
+  - **Step 5 — Post-migration re-query:** rerun the audit
+    query; confirm zero remaining orphans. Output the result
+    + the count of converted SKUs to docs/orphaned-cost-data-
+    audit.md as a closing log.
+
+  Audit query stays in `scripts/q.mjs` or extracted to a
+  dedicated script if Edward wants reusability — single-use
+  utility otherwise.
+
+  **Cross-references:**
+  - Sister to LEAF→ASY entry above (opposite enforcement
+    surface for the same invariant)
+  - Pattern 22 schema verification (extended to "code
+    architecture" per CLAUDE.md Pattern 22 refinement,
+    2026-05-13 banking)
+  - Architectural invariant per CLAUDE.md "Assembly rules"
+  - Pattern 32 pre-production tolerance — dev sandbox may
+    have stale ASY-attached rows that are safe to clean up
+    or ignore depending on disposition
+
+  **Risk if not shipped:** Silent data inconsistency. Cost
+  inputs target ASY SKUs; compute path skips them; rollup
+  silently wrong; PMs trust the displayed cost which is
+  missing contributions. Same data-quality risk class as
+  leaf-detach + LEAF→ASY blockers.
+
+  **Release-critical-path placement:** same as the other
+  three entries in the leaf-detach micro-slice umbrella.
+
+  **Banked from Edward UX observation, May 2026.**
+
 - [Child SKU flat-list visibility — post-v1 usability watch (R7c candidate)]
 
   **Slice:** Post-v1 observation, not v1 work. Banked as R7c
