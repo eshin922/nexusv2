@@ -5,6 +5,40 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Add Product button copy rename — small]
+
+  **Slice (DISPOSITIONED, 2026-05-13 — Edward + CA at slice time):**
+  Fold into rest-of-app fidelity sweep slice (currently in progress)
+  as a small copy commit, OR carry into the queued leaf-detach
+  micro-slice. Either fits.
+
+  **What:** Setup surface SKU footer button copy change:
+  `+ ADD PRODUCT` → `+ CREATE NEW PRODUCT`.
+
+  **Rationale:** clarifies action shape — distinguishes from
+  `↗ PULL FROM HUBSPOT` (which also "adds a product" in user-
+  mental-model terms but is a different operation: attach
+  existing vs create new). "Create new" makes the create-vs-
+  attach distinction explicit at the affordance level.
+
+  **Affected:** SKU footer trigger button in
+  `src/app/projects/[id]/quotes/[quoteId]/sku-footer.tsx`
+  (and the matching default `triggerLabel` value in
+  `AddProductModal` if PMs see it before clicking).
+
+  **Implementation:** copy-only change; no schema, no component
+  restructure, no canonical-CSS impact. 2-line diff (button
+  text + modal-trigger default label).
+
+  **Cross-references:** Designer audit Finding 01 already
+  flagged the page-head `+ Add SKU` button as duplicative of
+  the footer affordance — this rename is unrelated but
+  complementary; clarifies the footer affordance's intent
+  while §6.b separately decides the page-head deduplication
+  story.
+
+  **Banked from Edward UX observation, May 2026.**
+
 - [Mobile / iPad responsive support — v2]
 
   **Slice:** Dedicated v2 work. Prerequisite: full design round
