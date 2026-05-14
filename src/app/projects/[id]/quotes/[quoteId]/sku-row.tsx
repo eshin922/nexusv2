@@ -662,15 +662,26 @@ export function SkuRow({
           role="region"
           aria-label={`Details for ${sku.skuLabel}`}
         >
+          {/* Canonical R7b drawer pattern: <div class="drawer-title">
+              announces the section, then the body table sits below.
+              Pattern 19 carve preserved — Mismatch 1 γ replaces
+              canonical inline-editable .r7b-comp-table with a
+              child-SKU navigation list (DrawerChildList). The
+              drawer-title header stays canonical-aligned. */}
           {isAssembly && projectId && quoteId && (
-            <DrawerChildList
-              parentSkuId={sku.id}
-              projectId={projectId}
-              quoteId={quoteId}
-              quoteIdForAdd={quoteId}
-              childSkus={childSkus}
-              disabled={disabled}
-            />
+            <>
+              <div className="drawer-title">
+                Components ({childSkus.length})
+              </div>
+              <DrawerChildList
+                parentSkuId={sku.id}
+                projectId={projectId}
+                quoteId={quoteId}
+                quoteIdForAdd={quoteId}
+                childSkus={childSkus}
+                disabled={disabled}
+              />
+            </>
           )}
           {!isAssembly && (
             <div
@@ -898,6 +909,32 @@ function QtyPerParentInline({
 
 import { AddAssemblyButton } from "./add-assembly-button";
 
+// Edward pre-PR fidelity check 2 (May 2026) — DrawerChildList
+// rewritten to use canonical `.r7b-comp-table` grid grammar
+// VERBATIM. Previous attempt renamed classes to .r7b-child-list-*
+// but kept HTML <table> semantics; visual register didn't match
+// canonical (different padding, different thead/row registers,
+// table-collapse behavior differs from grid-aligned columns).
+//
+// Now uses canonical `.r7b-comp-table` outer + `.r7b-comp-thead` /
+// `.r7b-comp-row` / `.r7b-comp-foot` children, all grid-based.
+// Same grammar canonical R7b uses for the inline-editable
+// component editor AND R6 `.r6-dt` data tables use across the
+// Costs drilldowns — single consistent table register across
+// the app.
+//
+// Carve-specific deviations (Mismatch 1 γ):
+//   - Column count: 5 (Label, Product, Type, Qty/parent, Open)
+//     instead of canonical 7. Nexus-override grid-template-columns
+//     applied via .r7b-comp-table.child-list modifier in
+//     r1-setup.css.
+//   - Cell content: display-only (no .input class on children) —
+//     per-component cost data lives on packaging_inputs keyed to
+//     leaf SKUs; inline editing across the boundary deferred to
+//     §6.c.
+//   - Foot's `.add-line` action carries the "+ Add child SKU"
+//     trigger to a child-creation form (AddAssemblyButton with
+//     forcedParentId).
 function DrawerChildList({
   parentSkuId,
   projectId,
@@ -915,85 +952,98 @@ function DrawerChildList({
 }) {
   const _parentSkuId = parentSkuId; // for forcedParentId pass-through below
   return (
-    <div className="r6b-drawer-section">
-      <div className="r6b-drawer-section-head">
-        <p className="r2-eyebrow" style={{ margin: 0 }}>
-          Components ({childSkus.length})
-        </p>
+    <div className="r7b-comp-table child-list">
+      <div className="r7b-comp-thead">
+        <span>Label</span>
+        <span>Product</span>
+        <span>Type</span>
+        <span className="num">Qty / parent</span>
+        <span className="num">Open</span>
       </div>
       {childSkus.length === 0 ? (
-        <p
-          style={{
-            margin: "8px 0",
-            fontSize: 13,
-            color: "var(--ink-3)",
-            fontStyle: "italic",
-          }}
+        <div
+          className="r7b-comp-row"
+          style={{ gridTemplateColumns: "1fr" }}
         >
-          No child SKUs yet. Add one below or assign existing SKUs to this
-          assembly via the row&rsquo;s ⋯ menu.
-        </p>
+          <span
+            style={{
+              color: "var(--ink-3)",
+              fontStyle: "italic",
+              fontSize: 12,
+            }}
+          >
+            No child SKUs yet. Add one below or assign existing SKUs to this
+            assembly via the row&rsquo;s ⋯ menu.
+          </span>
+        </div>
       ) : (
-        <table className="r6b-drawer-table">
-          <thead>
-            <tr>
-              <th>Label</th>
-              <th>Product</th>
-              <th>Type</th>
-              <th style={{ textAlign: "right" }}>Qty/parent</th>
-              <th style={{ textAlign: "right" }}>Open</th>
-            </tr>
-          </thead>
-          <tbody>
-            {childSkus.map((c) => {
-              const isLeaf = c.skuRole === "leaf";
-              const costsHref = `/projects/${projectId}/quotes/${quoteId}/costs?focus=${c.id}`;
-              return (
-                <tr key={c.id}>
-                  <td className="r6b-drawer-label">{c.skuLabel}</td>
-                  <td className="r6b-drawer-product">{c.productName}</td>
-                  <td>
-                    <span
-                      className={`r7b-type ${c.skuRole}`}
-                      style={{ pointerEvents: "none" }}
-                    >
-                      <span className="glyph" aria-hidden>
-                        {c.skuRole === "assembly" ? "▤" : "○"}
-                      </span>
-                      {c.skuRole === "assembly" ? "ASY" : "LEAF"}
-                    </span>
-                  </td>
-                  <td style={{ textAlign: "right", color: "var(--ink-3)" }}>
-                    {c.qtyPerParent ?? "—"}
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    {isLeaf ? (
-                      <a
-                        href={costsHref}
-                        className="r6b-drawer-link"
-                        title="Edit packaging / cost components on Cost build"
-                      >
-                        ↗ Cost build
-                      </a>
-                    ) : (
-                      <span style={{ color: "var(--ink-4)" }}>—</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        childSkus.map((c) => {
+          const isLeaf = c.skuRole === "leaf";
+          const costsHref = `/projects/${projectId}/quotes/${quoteId}/costs?focus=${c.id}`;
+          return (
+            <div key={c.id} className="r7b-comp-row">
+              <span
+                style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 12,
+                  color: "var(--ink)",
+                }}
+              >
+                {c.skuLabel}
+              </span>
+              <span style={{ color: "var(--ink-2)" }}>{c.productName}</span>
+              <span>
+                <span
+                  className={`r7b-type ${c.skuRole}`}
+                  style={{ pointerEvents: "none" }}
+                >
+                  <span className="glyph" aria-hidden>
+                    {c.skuRole === "assembly" ? "▤" : "○"}
+                  </span>
+                  {c.skuRole === "assembly" ? "ASY" : "LEAF"}
+                </span>
+              </span>
+              <span className="num" style={{ color: "var(--ink-3)" }}>
+                {c.qtyPerParent ?? "—"}
+              </span>
+              <span className="num">
+                {isLeaf ? (
+                  <a
+                    href={costsHref}
+                    style={{
+                      fontFamily: "var(--mono)",
+                      fontSize: 11,
+                      letterSpacing: "0.04em",
+                      color: "var(--accent-ink)",
+                      textDecoration: "none",
+                    }}
+                    title="Edit packaging / cost components on Costs"
+                  >
+                    ↗ Costs
+                  </a>
+                ) : (
+                  <span style={{ color: "var(--ink-4)" }}>—</span>
+                )}
+              </span>
+            </div>
+          );
+        })
       )}
       {!disabled && (
-        <div style={{ marginTop: 10 }}>
-          <AddAssemblyButton
-            quoteId={quoteIdForAdd}
-            eligibleParents={[]}
-            triggerLabel="+ Add child SKU"
-            triggerVariant="ghost"
-            forcedParentId={_parentSkuId}
-          />
+        <div className="r7b-comp-foot">
+          {/* Canonical `.add-line` register: full-width grid span +
+              accent-ink mono uppercase. AddAssemblyButton renders
+              the closed-state trigger here; clicking it expands
+              the .r7b-child-add-form below the foot. */}
+          <span className="add-line" style={{ padding: 0 }}>
+            <AddAssemblyButton
+              quoteId={quoteIdForAdd}
+              eligibleParents={[]}
+              triggerLabel="+ Add child SKU"
+              triggerVariant="ghost"
+              forcedParentId={_parentSkuId}
+            />
+          </span>
         </div>
       )}
     </div>

@@ -557,9 +557,17 @@ async function seedProductionInputsForNewLeaf(args: {
 }
 
 /**
- * Create a Nexus-local assembly SKU — no HubSpot Product reference.
- * Used when PMs design an assembly before (or instead of) creating it
- * in HubSpot. Leaf SKUs should still go through addSkuFromHubspotProduct.
+ * Create a Nexus-local SKU — no HubSpot Product reference. Used as
+ * the in-drawer "+ Add child SKU" trigger inside an assembly drawer.
+ * Accepts a sku_role override via FormData; defaults to "leaf" per
+ * Edward's pre-PR smoke directive: when adding a child to an
+ * existing assembly, the new SKU is almost always a leaf (the
+ * unit-level BOM item). PM can promote to assembly later via the
+ * row's Type badge if they want nested assemblies.
+ *
+ * Action name retained for back-compat with callers; the legacy
+ * "+ Add assembly" footer affordance is retired (replaced by the
+ * Phase 1 HubSpot-first modal which routes through addProductSku).
  */
 export async function addAssemblySku(
   formData: FormData,
@@ -570,6 +578,18 @@ export async function addAssemblySku(
     const productName = String(formData.get("productName") ?? "").trim();
     const parentSkuIdRaw = trimOrNull(formData.get("parentSkuId"));
     const qtyPerParentRaw = trimOrNull(formData.get("qtyPerParent"));
+    // sku_role override per Edward smoke May 2026 — default leaf
+    // (in-drawer "+ Add child SKU" case). Form can pass "assembly"
+    // if the PM is creating a nested assembly child explicitly.
+    const skuRoleRaw = String(
+      formData.get("skuRole") ?? "leaf",
+    ).trim();
+    if (skuRoleRaw !== "leaf" && skuRoleRaw !== "assembly")
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Unknown sku_role: ${skuRoleRaw}`,
+      );
+    const skuRole: "leaf" | "assembly" = skuRoleRaw;
 
     if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
     if (!skuLabel) throw new ActionGuardError(ERR.VALIDATION, "skuLabel required");
@@ -585,7 +605,7 @@ export async function addAssemblySku(
         skuId: null,
         newParentId: parentSkuIdRaw,
         newQtyPerParent: qtyPerParentRaw,
-        newRole: "assembly",
+        newRole: skuRole,
         quoteId,
         allSkus,
       });
@@ -608,7 +628,7 @@ export async function addAssemblySku(
         productName,
         unitsPerPack: 1,
         sortOrder,
-        skuRole: "assembly",
+        skuRole,
         parentSkuId: parentSkuIdRaw,
         qtyPerParent: qtyPerParentRaw,
       })
@@ -624,7 +644,7 @@ export async function addAssemblySku(
         hubspot_product_id: null,
         sku_label: skuLabel,
         product_name: productName,
-        sku_role: "assembly",
+        sku_role: skuRole,
         parent_sku_id: parentSkuIdRaw,
         qty_per_parent: qtyPerParentRaw,
       },

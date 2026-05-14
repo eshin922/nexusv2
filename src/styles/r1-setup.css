@@ -391,73 +391,107 @@
  * by canonical .r7b-sku-row .components + .r7b-sku-drawer rules
  * per r7b-setup.css (line 208+ / 226+).
  *
- * .r6b-drawer-section / .r6b-drawer-table / .r6b-drawer-label /
- * .r6b-drawer-product / .r6b-drawer-link rules RETAINED — they
- * style DrawerChildList, the Mismatch 1 carve (γ) read-only
- * nav-list rendered inside the canonical .r7b-sku-drawer. The
- * canonical .r7b-comp-table is an inline-editable component
- * editor not applicable to the carved nav-list shape. */
+ * §6.b pre-PR fidelity check 2 (Edward, May 2026) — DrawerChildList
+ * now uses canonical .r7b-comp-table grid grammar VERBATIM with a
+ * carve-specific column-count modifier (.child-list). Single
+ * source of truth for the visual register (canonical
+ * .r7b-comp-thead / .r7b-comp-row / .r7b-comp-foot rules carry
+ * thead bg + row hover + foot register). This rule overrides
+ * only grid-template-columns to match the carved 5-column shape
+ * (Label / Product / Type / Qty/parent / Open) instead of
+ * canonical 7-column (Component / Supplier / Category / Unit
+ * cost / Qty / Markup / actions).
+ *
+ * Pattern 19 rationale: the inline-editable canonical shape
+ * doesn't apply because per-component cost data lives on
+ * packaging_inputs keyed to leaf SKUs (Mismatch 1 γ — inline
+ * editing across the boundary deferred to §6.c). Display-only
+ * cells preserve canonical visual register without inheriting
+ * the .input class chrome. */
+.r7b-comp-table.child-list .r7b-comp-thead,
+.r7b-comp-table.child-list .r7b-comp-row,
+.r7b-comp-table.child-list .r7b-comp-foot {
+  grid-template-columns: 1fr 1.6fr 80px 90px 90px;
+}
+/* AddAssemblyButton trigger inside .add-line carries its own
+ * button chrome (.add-sku canonical). The .add-line wrapper
+ * shouldn't add its own button styling — reset padding/cursor
+ * inheritance for this nested-button case. */
+.r7b-comp-table.child-list .r7b-comp-foot .add-line button {
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
 
-/* DrawerChildList subsections (child-SKU nav list inside
- * assembly drawer). Mismatch 1 γ carve — read-only nav with
- * Cost build link per child. Canonical r7b-comp-table is
- * inline-editable editor; doesn't fit the carve shape. */
-.r6b-drawer-section {
-  background: var(--paper);
+/* §6.b pre-PR fidelity check (Edward) — AddAssemblyButton inline
+ * form expands when PM clicks "+ Add child SKU" inside the
+ * assembly drawer (forcedParentId mode) OR when the standalone
+ * "+ Add assembly" affordance is used elsewhere. Replaces pre-
+ * path-B Tailwind gray-* hardcoding (bg-gray-50, bg-gray-900,
+ * border-gray-300) with canonical-token-aware register matching
+ * the .r7b-sku-reassign pattern. Same dark-mode safety lever as
+ * the Reassign panel fix (Finding 05). */
+.r7b-child-add-form {
+  background: var(--paper-2);
   border: 1px solid var(--rule);
   border-radius: 8px;
   padding: 12px 14px;
-  margin-bottom: 10px;
+  font-size: 12.5px;
+  margin-top: 10px;
 }
-.r6b-drawer-section:last-child {
-  margin-bottom: 0;
+.r7b-child-add-form .row {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 8px;
 }
-.r6b-drawer-section-head {
-  display: flex;
+.r7b-child-add-form .row.two-col {
+  grid-template-columns: 1fr 2fr;
+}
+.r7b-child-add-form .row.parent-qty {
+  grid-template-columns: 2fr 1fr;
+}
+.r7b-child-add-form .row.qty-only {
+  grid-template-columns: auto auto;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
 }
-.r6b-drawer-table {
-  width: 100%;
-  border-collapse: collapse;
+.r7b-child-add-form input,
+.r7b-child-add-form select {
+  padding: 5px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
   font-size: 12.5px;
 }
-.r6b-drawer-table thead th {
-  text-align: left;
+.r7b-child-add-form input:focus,
+.r7b-child-add-form select:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--paper-2);
+}
+.r7b-child-add-form input:disabled,
+.r7b-child-add-form select:disabled {
+  background: var(--paper-3);
+  color: var(--ink-4);
+  cursor: not-allowed;
+}
+.r7b-child-add-form .qty-label {
   font-family: var(--mono);
   font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
   color: var(--ink-3);
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--rule);
-  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
-.r6b-drawer-table tbody td {
-  padding: 8px;
-  border-bottom: 1px solid var(--rule);
+.r7b-child-add-form .err {
+  color: var(--bad);
+  font-size: 11.5px;
+  margin: 6px 0 0;
 }
-.r6b-drawer-table tbody tr:last-child td {
-  border-bottom: none;
-}
-.r6b-drawer-label {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--ink);
-}
-.r6b-drawer-product {
-  color: var(--ink-2);
-}
-.r6b-drawer-link {
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: var(--accent-ink);
-  text-decoration: none;
-}
-.r6b-drawer-link:hover {
-  text-decoration: underline;
+.r7b-child-add-form .foot {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
 }
 /* §6.b path-B migration cleanup — .r6b-drawer-textarea rules
  * deleted. Per-SKU notes textarea now styled by canonical

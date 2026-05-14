@@ -5,6 +5,54 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Scenario name inline edit — eyebrow read↔edit]
+
+  **Slice:** v1.1 candidate. Best decided when rest-of-app
+  fidelity sweep brief drafts. Could fold into that sweep if the
+  eyebrow gets touched there anyway, OR a small standalone slice.
+
+  **What:** Edit scenario/quote variant names after creation
+  in-place. Today the eyebrow renders the variant label as
+  display-only (e.g., `EPICUREN · PRIMARY · V2`). PMs who want
+  to rename "Primary" to "Alt" or similar have no row-level
+  affordance.
+
+  **Pattern:** Pattern 29 R6 read↔edit (same vocabulary already
+  in use across Setup retail bench, tier qty, tier label,
+  units_per_pack chip). Click the scenario-name segment of the
+  eyebrow → switches to input → blur/Enter commits → returns to
+  formatted read mode.
+
+  **Surface:** Eyebrow line on each quote-scoped surface (Setup,
+  Costs, Pricing, Quote, Mark-Accepted). Single primitive
+  reused across all five.
+
+  **Schema (Pattern 22 verify at slice time):** likely
+  `quotes.scenario_label` (already on the table per RI.7 work).
+  Audit action via existing audit-log mechanism; new
+  `scenario_label_updated` action key.
+
+  **Open questions for slice-time disposition (not blocking
+  backlog logging):**
+  1. **Just the variant name, or also version handling?**
+     `PRIMARY · V2` has both a variant name and a version number.
+     Version is presumably system-managed (auto-increments on
+     quote modifications). Edit-in-place likely scoped to
+     variant name only; version stays system-managed. Confirm at
+     slice time.
+  2. **Uniqueness scope?** Variant names probably need to be
+     unique per project (can't have two "Primary" quotes on the
+     same project). Validation surfaces on blur — same shape as
+     the SKU dup-check warn band (Designer audit Finding 18
+     cross-surface primitive opportunity; if `.warn-band`
+     extraction lands first, this consumes it).
+
+  **Cross-references:**
+  - Pattern 29 (R6 read↔edit cell)
+  - Designer audit Finding 18 (`.warn-band` cross-surface
+    primitive — uniqueness validation candidate)
+  - Pattern 22 (schema verification before encoding)
+
 - [Multi-route shipping support — v1 or v1.1, pending Edward's call]
 
   **Slice:** Pending R8 design round + dispositions before any
