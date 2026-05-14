@@ -127,6 +127,12 @@ export function SkuRow({
   // outside-click closes. Full keyboard arrow nav is polish,
   // deferred per Designer's drop-and-defer fallback.
   const [overflowOpen, setOverflowOpen] = useState(false);
+  // Sweep mid-slice hotfix — smart-positioning for overflow menu.
+  // .r7b-card has `overflow: hidden` (canonical r7b-setup.css L110)
+  // which clips the absolute-positioned menu when the trigger is
+  // close to the card's bottom edge (last SKU row case). Measure
+  // space-below on open; flip render direction if insufficient.
+  const [overflowMenuAbove, setOverflowMenuAbove] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef({ retailBenchmark, unitsPerPack });
@@ -138,6 +144,18 @@ export function SkuRow({
     },
     [],
   );
+
+  // Sweep mid-slice hotfix — smart-positioning measurement.
+  // When the menu opens, measure the trigger's distance from the
+  // viewport bottom. If insufficient for a ~240px-tall menu, flip
+  // to render-above. Fires on every open so the direction adapts
+  // to scroll position changes between opens.
+  useEffect(() => {
+    if (!overflowOpen || !overflowRef.current) return;
+    const rect = overflowRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    setOverflowMenuAbove(spaceBelow < 240);
+  }, [overflowOpen]);
 
   // Slice RI.8 — overflow menu close-on-outside-click + ESC.
   useEffect(() => {
@@ -514,7 +532,11 @@ export function SkuRow({
               {overflowOpen && (
                 <div
                   role="menu"
-                  className="absolute right-0 top-full mt-1 z-50 min-w-[200px] rounded border border-rule bg-paper py-1 shadow-md"
+                  className={`absolute right-0 z-50 min-w-[200px] rounded border border-rule bg-paper py-1 shadow-md ${
+                    overflowMenuAbove
+                      ? "bottom-full mb-1"
+                      : "top-full mt-1"
+                  }`}
                 >
                   {/* §6.b polish-amendment (sweep #10) — Open/Add
                       notes entry restores R7b's ⋯-as-drawer-trigger
