@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import {
   assignSkuToParent,
   convertSkuRole,
@@ -127,12 +128,16 @@ export function SkuRow({
   // outside-click closes. Full keyboard arrow nav is polish,
   // deferred per Designer's drop-and-defer fallback.
   const [overflowOpen, setOverflowOpen] = useState(false);
-  // Sweep mid-slice hotfix v2 — position:fixed for overflow menu.
-  // The v1 hotfix used position:absolute + viewport-based flip logic,
-  // but the clipping container is .r7b-card (overflow:hidden canonical
-  // r7b-setup.css L110), NOT the viewport. v2 switches to position:
-  // fixed so the menu escapes all ancestor overflow boundaries; coords
-  // computed from trigger's getBoundingClientRect at open time.
+  // Sweep mid-slice hotfix v3 — createPortal escapes the row's DOM
+  // entirely. v1 (position:absolute + flip-logic) and v2 (position:
+  // fixed + computed coords) both clipped because the menu was still
+  // a descendant of .r7b-card (overflow:hidden) inside .r7b-sku-row
+  // (display:grid). Even with position:fixed, the menu was clipped
+  // (Edward smoke v2 found only Add notes + Move up visible, missing
+  // Move down + Delete). Root cause was likely a grid-cell overflow
+  // chain that pinned the menu's effective render box. v3 portals
+  // the menu directly into document.body so it has zero structural
+  // dependencies on the row's parent tree.
   const [overflowMenuPos, setOverflowMenuPos] = useState<
     { top: number; right: number } | null
   >(null);
@@ -542,13 +547,15 @@ export function SkuRow({
               >
                 ⋯
               </button>
-              {overflowOpen && overflowMenuPos && (
+              {overflowOpen && overflowMenuPos && createPortal(
                 <div
                   role="menu"
                   className="fixed z-50 min-w-[200px] rounded border border-rule bg-paper py-1 shadow-md"
                   style={{
+                    position: "fixed",
                     top: overflowMenuPos.top,
                     right: overflowMenuPos.right,
+                    zIndex: 1000,
                   }}
                 >
                   {/* §6.b polish-amendment (sweep #10) — Open/Add
@@ -677,7 +684,8 @@ export function SkuRow({
                       Open in HubSpot
                     </a>
                   )}
-                </div>
+                </div>,
+                document.body,
               )}
             </div>
         </div>
