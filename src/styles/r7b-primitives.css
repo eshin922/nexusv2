@@ -481,3 +481,29 @@
 .r2-gap-1 { gap: 4px; }
 .r2-gap-2 { gap: 8px; }
 .r2-gap-3 { gap: 12px; }
+
+/* ─── Quote preview-toolbar — nexus extension (Pattern 39) ──
+ *
+ * Canonical R3 3styles.css defines .preview-toolbar with
+ * display:flex + justify-content:space-between but NO flex-wrap.
+ * Production button density on the right (Edit notes + Download
+ * PDF + Download+mail + DevSendButton in dev) overflows the
+ * 880px max-width, pushing controls past the viewport edge.
+ *
+ * Documented nexus-side extension: flex-wrap:wrap + row-gap so
+ * the right cluster wraps to a new line on density-overflow.
+ * Canonical visual register preserved — single-row layout is the
+ * default; wrapping only fires when needed.
+ *
+ * Banked from Edward smoke during rest-of-app fidelity sweep,
+ * May 2026. If/when CD's R3 source ships flex-wrap, drop this
+ * extension and roll back to verbatim canonical.
+ */
+.r3-shared .preview-toolbar {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.r3-shared .preview-toolbar .right {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
