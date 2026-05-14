@@ -5,6 +5,67 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Drag-and-drop nesting — leaf into assembly]
+
+  **Slice:** Setup-affordance polish (small standalone or fold
+  into post-§6.b rest-of-app fidelity sweep). Estimated ~50 LOC
+  in `sku-row-list.tsx` + small visual prop on `sku-row.tsx`.
+
+  **What:** Today, attaching an existing leaf SKU to an assembly
+  requires the leaf's `⋯` overflow menu → "Reassign to parent" →
+  inline parent picker + qty input. The §6.b Step 9 drag-and-drop
+  reorder mechanism makes the inline reorder feel natural but
+  leaves the reassign flow as a clunky modal-like sub-form.
+
+  **Future state:** extend drag-and-drop with 3-zone hit detection
+  on each row — top 33% = insert-above (current reorder), bottom
+  33% = insert-below (current reorder), middle 33% = **nest into**
+  (only when the hovered row is an assembly AND the dragged row
+  is a leaf). Drop on the middle zone calls `assignSkuToParent`
+  with `qty_per_parent` defaulting to 1; PM edits via the existing
+  inline `QtyPerParentInline` cell after the drop. Assembly row
+  highlights with an accent border while a leaf hovers in its
+  middle zone so PMs discover the affordance.
+
+  **Tradeoff:** un-nesting (assembly child → top level) stays in
+  the overflow `⋯` menu as "Detach" — drag-and-drop is naturally
+  one-directional. Detach isn't a frequent op so the asymmetry
+  is acceptable.
+
+  **Server-side:** `assignSkuToParent` action already exists and
+  handles cycle detection + parent eligibility validation. No
+  schema changes needed. Pattern 32 doesn't apply — production
+  ready; just deferred for scope.
+
+  **Banked:** Edward's smoke during §6.b Phase 1 (May 2026).
+  PM workflow observation: the overflow-menu Reassign flow feels
+  clunky vs the natural drag affordance for reorder. Drag-nest
+  is the cohesive extension.
+
+- [Attach existing leaf via assembly drawer]
+
+  **Slice:** Same as drag-nest above — natural co-bundle.
+  Estimated ~30 LOC alongside the drag-nest work.
+
+  **What:** Assembly drawer currently has `+ Add child SKU` which
+  creates a NEW Nexus-local SKU as a child. There's no in-drawer
+  affordance to attach an EXISTING leaf — PMs have to use the
+  overflow menu Reassign flow (or, post-drag-nest above, drag the
+  leaf onto the assembly).
+
+  **Future state:** add `+ Attach existing leaf` ghost button
+  next to `+ Add child SKU` in the drawer footer. Clicking
+  expands a small inline picker (search by sku_label / product_
+  name) → select → submit → `assignSkuToParent` with `qty_per_
+  parent` default 1. Cleaner than the row-level overflow menu
+  for PMs already exploring an assembly's contents.
+
+  **Tradeoff:** picker UI duplicates some of the row-level
+  Reassign inline form. Acceptable if drag-nest above ships
+  alongside — the overflow menu Reassign becomes the rarely-used
+  fallback path, the drag + drawer-attach become the discoverable
+  paths.
+
 - [Audit log activity comprehensiveness — rail + page entries]
 
   **Slice:** Audit log polish slice (~3-5 days, bundled scope).
