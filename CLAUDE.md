@@ -1262,6 +1262,41 @@ Until promoted, treat as a candidate guideline: surface to
 Edward when a feature looks multi-surface; let Edward + CA
 dispose whether an R-round is warranted.
 
+## Pattern numbering reconciliation (May 2026)
+
+This branch banked patterns 30–34 from CC side during §6.b
+implementation. CA's advisory session in parallel had banked
+two further patterns informally — "prototype source files
+first-class" and "cross-chat coordination" — under the same
+number range. Edward's directive at audit-followup-2 time:
+**preserve the most commit-message references**. CC's 30 + 31
+have explicit commit-message back-references (Pattern 30 via
+the §6.b path-B migration commits; Pattern 31 via the
+"§6.b housekeeping — Pattern 31 + brief disposition + scope
+probe" commit). CA's session-banked patterns have no commit
+history yet.
+
+**Resolution:** CC banked patterns stay at their current numbers
+(30, 31, 32, 33, 34-candidate). CA's prior-session patterns are
+**reserved for 35 + 36** when they land in CLAUDE.md:
+
+- **Pattern 35 (reserved):** Prototype source files first-class
+  (CA advisory bank — anchor canonical CSS/JSX/data files as
+  load-bearing repo assets, not throwaway design references).
+- **Pattern 36 (reserved):** Cross-chat coordination (CA advisory
+  bank — how multi-chat work hands off between CC + CA + Edward
+  + Designer sessions; related to but distinct from Pattern 31's
+  brief-disposition gap handling).
+
+Reservation note exists so future CC doesn't claim 35 + 36 for
+unrelated patterns before CA's bank lands. When CA's patterns
+arrive, they slot into the reserved slots and the reservation
+note can be removed.
+
+If a third numbering collision arises, the same rule applies:
+preserve the most commit-message back-references; renumber the
+side with fewer historical references.
+
 ## v1 release-path slice sequencing (banked May 2026)
 
 Captured here so the sequencing survives context compaction
