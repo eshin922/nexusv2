@@ -1331,6 +1331,209 @@ export async function convertSkuRole(
 
 /**
  * Re-pull HubSpot Product data and overwrite ONLY the fields whose
+/**
+ * Leaf-detach micro-slice Sub-item 3 — leaf → assembly smart-migrate
+ * with auto-create child. PM clicks Type badge on a LEAF row that
+ * has cost data; modal confirms; this action fires:
+ *
+ *   1. Pre-allocate child SKU id (uuid generated app-side).
+ *   2. Reparent the three per-SKU cost-input tables
+ *      (packaging_inputs, production_inputs, freight_inputs) from
+ *      original.id → pre-allocated child.id. Bulk raw cost rides
+ *      along on production_inputs.bulk_raw_cost — no separate
+ *      handling.
+ *   3. Flip original SKU's sku_role from leaf to assembly.
+ *   4. Create the child leaf SKU with the pre-allocated id and
+ *      auto-generated name `{original.sku_label}-CMP` (collision
+ *      handled with -CMP-2 / -CMP-3 / ... suffix). Empty notes +
+ *      empty retail bench on the child; original's notes + retail
+ *      bench stay as the assembly's customer-facing reference.
+ *   5. Production auto-create logic for the new child no-ops
+ *      because rows already exist at (newChild.id, tier_id) tuples
+ *      from step 2's reparent — approach (a) per CA-approved
+ *      Implementation Observation 1.
+ *   6. Per-table audit `cost_data_reparented` + role-converted
+ *      audit + `sku_created_auto_for_cost_migration` audit.
+ *
+ * Atomic transaction; partial failure rolls everything back.
+ *
+ * Pattern 31: brief's `convertLeafToAssemblyWithMigrate` name
+ * adopted as a new action (existing `convertSkuRole` couldn't
+ * extend cleanly — too many divergent branches). The flag-based
+ * cascade in convertSkuRole stays for ASY → leaf (Sub-item 2);
+ * smart-migrate gets its own action.
+ */
+export async function convertLeafToAssemblyWithMigrate(
+  formData: FormData,
+): Promise<ActionResult<{ newChildId: string; newChildSkuLabel: string }>> {
+  return runAction(async () => {
+    const skuId = String(formData.get("skuId") ?? "").trim();
+    if (!skuId) throw new ActionGuardError(ERR.VALIDATION, "skuId required");
+
+    const user = await ensureUser();
+    const skuRows = await db
+      .select()
+      .from(quoteSkus)
+      .where(eq(quoteSkus.id, skuId))
+      .limit(1);
+    if (skuRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "SKU not found");
+    const sku = skuRows[0];
+    if (sku.skuRole !== "leaf")
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Smart-migrate only valid for leaf → assembly conversion.",
+      );
+
+    const quote = await loadQuoteOrThrow(sku.quoteId);
+    assertDraft(quote);
+
+    // Collision-detect the auto-name. Walk -CMP, -CMP-2, -CMP-3,...
+    // until we find an sku_label that doesn't exist on this quote.
+    const existingLabels = new Set(
+      (
+        await db
+          .select({ skuLabel: quoteSkus.skuLabel })
+          .from(quoteSkus)
+          .where(eq(quoteSkus.quoteId, sku.quoteId))
+      ).map((r) => r.skuLabel),
+    );
+    let candidateLabel = `${sku.skuLabel}-CMP`;
+    if (existingLabels.has(candidateLabel)) {
+      for (let n = 2; ; n++) {
+        const next = `${sku.skuLabel}-CMP-${n}`;
+        if (!existingLabels.has(next)) {
+          candidateLabel = next;
+          break;
+        }
+        if (n > 1000) {
+          throw new ActionGuardError(
+            ERR.VALIDATION,
+            "Auto-name collision: more than 1000 -CMP variants exist. Rename original SKU first.",
+          );
+        }
+      }
+    }
+    const newChildSkuLabel = candidateLabel;
+    const newChildId = crypto.randomUUID();
+
+    // Pre-fetch cost-row counts per table — surfaces in audit
+    // diff_json for forensic clarity. (Counts are an approximate
+    // signal; the actual reparents happen via UPDATE WHERE
+    // quote_sku_id = original.id, which catches all rows even
+    // if the count is stale by the time the txn runs.)
+    const [pkgCount, prodCount, frtCount] = await Promise.all([
+      db
+        .select({ id: packagingInputs.id })
+        .from(packagingInputs)
+        .where(eq(packagingInputs.quoteSkuId, skuId)),
+      db
+        .select({ id: productionInputs.id })
+        .from(productionInputs)
+        .where(eq(productionInputs.quoteSkuId, skuId)),
+      db
+        .select({ id: freightInputs.id })
+        .from(freightInputs)
+        .where(eq(freightInputs.quoteSkuId, skuId)),
+    ]);
+
+    await db.transaction(async (tx) => {
+      // Step 1: reparent the three per-SKU cost-input tables
+      //         from original.id → newChildId. Done BEFORE the
+      //         child SKU exists so that auto-create logic (which
+      //         fires on child insert via the seedProductionInputs
+      //         flow OR similar) finds (newChildId, tier_id)
+      //         rows already populated and ON CONFLICT DO NOTHING.
+      //
+      //         Note: the new child SKU doesn't yet exist when
+      //         this UPDATE runs, but Postgres doesn't check FK
+      //         existence on UPDATE — only INSERT. The child SKU
+      //         insert in step 4 satisfies the FK retroactively
+      //         within the same transaction.
+      if (pkgCount.length > 0) {
+        await tx
+          .update(packagingInputs)
+          .set({ quoteSkuId: newChildId, updatedAt: new Date() })
+          .where(eq(packagingInputs.quoteSkuId, skuId));
+      }
+      if (prodCount.length > 0) {
+        await tx
+          .update(productionInputs)
+          .set({ quoteSkuId: newChildId, updatedAt: new Date() })
+          .where(eq(productionInputs.quoteSkuId, skuId));
+      }
+      if (frtCount.length > 0) {
+        await tx
+          .update(freightInputs)
+          .set({ quoteSkuId: newChildId, updatedAt: new Date() })
+          .where(eq(freightInputs.quoteSkuId, skuId));
+      }
+
+      // Step 3: flip role on the original SKU to assembly.
+      // (Step 2 — child SKU's data-template prep — happens via the
+      // INSERT in step 4; nothing separate needed here.)
+      await tx
+        .update(quoteSkus)
+        .set({ skuRole: "assembly", updatedAt: new Date() })
+        .where(eq(quoteSkus.id, skuId));
+
+      // Step 4: create the new child leaf SKU with the pre-
+      //         allocated id. parent_sku_id = original.id;
+      //         qty_per_parent = 1; sort_order = 0 (end of empty
+      //         child list since the original just became an
+      //         assembly with no other children); empty notes +
+      //         retailBenchmark.
+      await tx.insert(quoteSkus).values({
+        id: newChildId,
+        quoteId: sku.quoteId,
+        hubspotProductId: null,
+        skuLabel: newChildSkuLabel,
+        productName: sku.productName,
+        unitsPerPack: sku.unitsPerPack,
+        retailBenchmark: null,
+        notes: null,
+        skuRole: "leaf",
+        parentSkuId: skuId,
+        qtyPerParent: "1",
+        sortOrder: 0,
+      });
+
+      // Step 6: audit trail.
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote_sku",
+        entityId: skuId,
+        action: "role_converted",
+        diffJson: {
+          sku_role: { from: "leaf", to: "assembly" },
+          cost_data_migrated_to_child_id: newChildId,
+          cost_lines_reparented: {
+            packaging: pkgCount.length,
+            production: prodCount.length,
+            freight: frtCount.length,
+          },
+        },
+      });
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote_sku",
+        entityId: newChildId,
+        action: "sku_created_auto_for_cost_migration",
+        diffJson: {
+          original_sku_id: skuId,
+          auto_named_from: sku.skuLabel,
+          new_child_sku_label: newChildSkuLabel,
+        },
+      });
+    });
+
+    revalidateQuoteTree(quote.projectId, sku.quoteId);
+    return { newChildId, newChildSkuLabel };
+  });
+}
+
+/**
+ * Re-pull HubSpot Product data and overwrite ONLY the fields whose
  * field_source_json[field] === "hubspot". Nexus-local fields stay intact.
  * Audit records the diff of what changed.
  */

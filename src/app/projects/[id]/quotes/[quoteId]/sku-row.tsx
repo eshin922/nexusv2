@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import {
   assignSkuToParent,
+  convertLeafToAssemblyWithMigrate,
   convertSkuRole,
   deleteSku,
   moveSku,
@@ -75,6 +76,7 @@ export function SkuRow({
   childSkus = [],
   eligibleParents,
   currentParentLabel = null,
+  hasCostData = false,
   hubspotPortalId,
   disabled = false,
   isDrawerOpen = false,
@@ -100,6 +102,11 @@ export function SkuRow({
    * overflow menu's "Detach from {parent name}" copy and the
    * confirmation modal's prompt. */
   currentParentLabel?: string | null;
+  /** Leaf-detach micro-slice Sub-item 3 — true when this SKU has
+   * any per-SKU cost-input row. Gates the smart-migrate modal on
+   * leaf → assembly Type-badge clicks: cost data present → modal
+   * opens; cost data absent → silent toggle. */
+  hasCostData?: boolean;
   hubspotPortalId: string | null;
   disabled?: boolean;
   /** §6.b Step 3 — drawer expansion state (one-at-a-time via SkuRowList). */
@@ -153,6 +160,12 @@ export function SkuRow({
   // direct children detach as standalone leaves; role flips to
   // leaf; atomic transaction.
   const [cascadeConvertModalOpen, setCascadeConvertModalOpen] =
+    useState(false);
+  // Leaf-detach micro-slice Sub-item 3 — smart-migrate confirmation
+  // modal state. Open when PM clicks Type badge on a leaf row that
+  // has cost data. Confirm → server creates auto-named child leaf
+  // + reparents cost rows + flips original to assembly.
+  const [smartMigrateModalOpen, setSmartMigrateModalOpen] =
     useState(false);
   // Slice RI.8 — overflow menu state for action cluster compression
   // (Designer audit Q2 approved). Houses the four conditional
@@ -322,19 +335,33 @@ export function SkuRow({
       return;
     }
 
-    // Sub-item 3 territory — leaf → assembly with cost data opens
-    // the smart-migrate modal. The cost-data check happens in the
-    // SmartMigrateModal flow (server side computes the orphan-rows
-    // count for the user-facing copy + drives the action's
-    // smart-migrate behavior). For now, leaf → assembly always
-    // goes through the non-cascade path; Sub-item 3 wiring lands
-    // in the next commit.
+    // Leaf-detach micro-slice Sub-item 3 — leaf → assembly with
+    // cost data opens the smart-migrate confirmation modal.
+    // Confirm → server creates auto-named child leaf + reparents
+    // cost rows + flips original to assembly atomically. PM-
+    // visible scenario gate: no cost data → silent toggle through
+    // the default path below.
+    if (sku.skuRole === "leaf" && newRole === "assembly" && hasCostData) {
+      setSmartMigrateModalOpen(true);
+      return;
+    }
 
     const fd = new FormData();
     fd.set("skuId", sku.id);
     fd.set("newRole", newRole);
     startTransition(async () => {
       const r = await convertSkuRole(fd);
+      if (!r.ok) setSaveError(r.error.message);
+    });
+  }
+
+  function runSmartMigrate() {
+    setSmartMigrateModalOpen(false);
+    setSaveError(null);
+    const fd = new FormData();
+    fd.set("skuId", sku.id);
+    startTransition(async () => {
+      const r = await convertLeafToAssemblyWithMigrate(fd);
       if (!r.ok) setSaveError(r.error.message);
     });
   }
@@ -970,6 +997,19 @@ export function SkuRow({
           pending={pending}
         />
       )}
+
+      {/* Leaf-detach micro-slice Sub-item 3 — smart-migrate
+          confirmation modal. Opens when PM clicks Type badge on a
+          leaf with cost data. Brief Q1 LOCKED: deterministic
+          silent auto-naming `{ORIGINAL-SKU}-CMP`. */}
+      {smartMigrateModalOpen && !disabled && (
+        <SmartMigrateConfirmModal
+          skuLabel={sku.skuLabel}
+          onCancel={() => setSmartMigrateModalOpen(false)}
+          onConfirm={runSmartMigrate}
+          pending={pending}
+        />
+      )}
     </>
   );
 }
@@ -1119,6 +1159,76 @@ function CascadeConvertConfirmModal({
             {pending
               ? "Converting…"
               : `Convert and detach ${childCount} ${childWord}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Leaf-detach micro-slice Sub-item 3 — canonical R7b confirmation
+// modal for leaf → assembly smart-migrate. Brief copy: "Convert
+// {sku} to assembly? Cost data on this leaf will be moved to a
+// new child leaf '{auto-name}' (auto-created, all cost lines
+// preserved). You can rename the new child after." Brief Q1
+// LOCKED: deterministic silent auto-name `{ORIGINAL-SKU}-CMP`.
+// The auto-name is shown as info (not editable per Q1
+// disposition).
+function SmartMigrateConfirmModal({
+  skuLabel,
+  onCancel,
+  onConfirm,
+  pending,
+}: {
+  skuLabel: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  pending: boolean;
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  return (
+    <div className="r7b-modal-backdrop" onClick={onCancel}>
+      <div
+        className="r7b-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Convert leaf to assembly"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="r7b-modal-head">
+          <h2>Convert {skuLabel} to assembly?</h2>
+          <p className="sub">
+            Cost data on this leaf will be moved to a new child leaf{" "}
+            <strong>{skuLabel}-CMP</strong> (auto-created, all cost lines
+            preserved). You can rename the new child after.
+          </p>
+        </div>
+        <div
+          className="r7b-modal-body"
+          style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}
+        >
+          <button
+            type="button"
+            className="btn ghost sm"
+            onClick={onCancel}
+            disabled={pending}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn primary sm"
+            onClick={onConfirm}
+            disabled={pending}
+          >
+            {pending ? "Converting…" : "Convert and migrate cost data"}
           </button>
         </div>
       </div>

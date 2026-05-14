@@ -89,6 +89,11 @@ export type SkuRowListItem = {
    * {parent name}" and the detach confirmation modal can name the
    * parent. Null when SKU has no parent. */
   currentParentLabel: string | null;
+  /** Leaf-detach micro-slice Sub-item 3 — true when this SKU has
+   * any per-SKU cost-input row (packaging / production / freight).
+   * Drives the smart-migrate modal gate on leaf → assembly Type-
+   * badge clicks. */
+  hasCostData: boolean;
 };
 
 export function SkuRowList({
@@ -202,6 +207,7 @@ export function SkuRowList({
           childSkus,
           eligibleParents,
           currentParentLabel,
+          hasCostData,
         }) => (
           <SkuRow
             key={sku.id}
@@ -212,6 +218,7 @@ export function SkuRowList({
             childSkus={childSkus}
             eligibleParents={eligibleParents}
             currentParentLabel={currentParentLabel}
+            hasCostData={hasCostData}
             hubspotPortalId={hubspotPortalId}
             disabled={disabled}
             isDrawerOpen={openSkuId === sku.id}
