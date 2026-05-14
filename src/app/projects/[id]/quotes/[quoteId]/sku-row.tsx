@@ -723,6 +723,13 @@ export function SkuRow({
   );
 }
 
+// Designer audit Finding 05 (MEDIUM) — rewrote with canonical
+// .r7b-sku-reassign tokens (var(--paper-2) bg + var(--rule) +
+// .btn primitives). Previous shape used hardcoded gray-* Tailwind
+// that failed dark-mode: bg-gray-50 didn't theme; bg-gray-900 on
+// the Save button was darker than var(--ink) so the button read
+// black-on-black in dark mode. Now uses .btn primary sm + .btn
+// ghost sm primitives same as the Add-product modal foot.
 function ReassignPanel({
   eligibleParents,
   currentParentId,
@@ -740,13 +747,12 @@ function ReassignPanel({
   const [qty, setQty] = useState(currentQty ?? "");
 
   return (
-    <div className="grid grid-cols-[1fr_auto_auto] gap-2 border-l-2 border-gray-300 bg-gray-50 px-3 py-2 text-sm">
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-600">Parent:</span>
+    <div className="r7b-sku-reassign">
+      <div className="form">
+        <label>Parent</label>
         <select
           value={parentId}
           onChange={(e) => setParentId(e.target.value)}
-          className="flex-1 rounded border border-gray-300 bg-white px-2 py-1 text-sm"
         >
           <option value="">— select parent —</option>
           {eligibleParents.map((p) => (
@@ -755,29 +761,25 @@ function ReassignPanel({
             </option>
           ))}
         </select>
-        <span className="text-xs text-gray-600">Qty:</span>
+        <label>Qty</label>
         <input
+          className="qty"
           type="number"
           step="0.0001"
           min={0}
           value={qty}
           onChange={(e) => setQty(e.target.value)}
           placeholder="qty per parent"
-          className="w-32 rounded border border-gray-300 bg-white px-2 py-1 text-sm"
         />
       </div>
       <button
         type="button"
+        className="btn primary sm"
         onClick={() => onSubmit(parentId, qty)}
-        className="rounded-md bg-gray-900 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700"
       >
         Save
       </button>
-      <button
-        type="button"
-        onClick={onCancel}
-        className="rounded-md border border-gray-300 px-3 py-1 text-xs hover:bg-white"
-      >
+      <button type="button" className="btn ghost sm" onClick={onCancel}>
         Cancel
       </button>
     </div>

@@ -144,35 +144,32 @@
   cursor: default;
 }
 
-/* "Mark as recommended" hover-revealed affordance — canonical
-   R7b has NO non-recommended-state toggle UI (display-only).
-   Nexus extends with hover-reveal in the same vertical slot
-   as canonical .rec marker. Hidden via opacity + pointer-events
-   when row not hovered; doesn't reserve layout space. */
+/* "Mark as recommended" always-visible ghost affordance —
+   canonical R7b has NO non-recommended-state toggle UI
+   (display-only). Nexus extends with an always-visible ghost
+   pip per Designer audit Finding 08 (MEDIUM): the prior
+   hover-reveal pattern lost discoverability for PMs scanning
+   a fresh tier table — they had to serially hover each row
+   to find the affordance. Always-visible reads as a quiet
+   ink-4 register at rest; hovers up to accent-ink + soft
+   accent border. Co-exists with .rec (filled marker) on the
+   recommended row. Designer audit fix May 2026. */
 .r7b-tier-row .label .rec-set {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 0.10em;
   text-transform: uppercase;
   color: var(--ink-4);
   background: transparent;
-  border: 1px dashed transparent;
+  border: 1px solid transparent;
   border-radius: 3px;
   padding: 1px 4px;
   margin: -1px -4px;
   cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease, color 120ms ease,
-    border-color 120ms ease;
-}
-.r7b-tier-row:hover .r7b-tier-row .label .rec-set,
-.r7b-tier-row:hover .rec-set,
-.r7b-tier-row .label .rec-set:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
+  transition: color 120ms ease, border-color 120ms ease;
 }
 .r7b-tier-row .label .rec-set:hover:not(:disabled) {
   color: var(--accent-ink);
@@ -180,6 +177,62 @@
 }
 .r7b-tier-row .label .rec-set:disabled {
   cursor: default;
+  opacity: 0.4;
+}
+
+/* §6.b Designer audit Finding 05 (MEDIUM) — SKU reassign panel
+   (nexus extension; expands below row when PM clicks "Reassign
+   parent" in the ⋯ overflow menu). Replaces the pre-audit
+   hardcoded gray-* Tailwind register with canonical-token-aware
+   chrome so dark-mode themes correctly. Same accent-left-border
+   register as other temp-expanded affordances. */
+.r7b-sku-reassign {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--paper-2);
+  border-left: 2px solid var(--accent);
+  border-bottom: 1px solid var(--rule);
+  font-size: 12.5px;
+}
+.r7b-sku-reassign .form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.r7b-sku-reassign label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.r7b-sku-reassign select,
+.r7b-sku-reassign input {
+  padding: 4px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+.r7b-sku-reassign select {
+  flex: 1;
+  min-width: 0;
+}
+.r7b-sku-reassign input.qty {
+  width: 90px;
+  text-align: right;
+  font-family: var(--mono);
+}
+.r7b-sku-reassign .err {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--bad);
 }
 
 /* ─── Page head ─────────────────────────────────────── */

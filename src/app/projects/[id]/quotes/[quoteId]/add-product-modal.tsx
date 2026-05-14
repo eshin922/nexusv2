@@ -101,6 +101,13 @@ export function AddProductModal({
   // entered hs_sku. Renders the duplicate warning inline. Cleared on
   // "Use different SKU" CTA or when the user edits the SKU again.
   const [existingMatch, setExistingMatch] = useState<ProductSummary | null>(null);
+  // Designer audit Finding 14 (MEDIUM) — preserve the matched HubSpot
+  // productId across mode transitions so the attach-existing submit
+  // path doesn't have to re-resolve via a second API call. Set on
+  // handlePullExisting; cleared on Use-different-SKU + on SKU edits
+  // after Pull-existing (which revert mode to "create"). Race-safe
+  // against HubSpot-side product deletes between blur and submit.
+  const [matchedProductId, setMatchedProductId] = useState<string | null>(null);
   const [skuChecking, setSkuChecking] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -134,6 +141,7 @@ export function AddProductModal({
     setForm(EMPTY_FORM);
     setMode("create");
     setExistingMatch(null);
+    setMatchedProductId(null);
     setError(null);
   }
 
@@ -164,6 +172,13 @@ export function AddProductModal({
     // CC instructions §"Pull existing": loads matching record data,
     // switches mode to attach. Submit then calls
     // addSkuFromHubspotProduct with the matched productId.
+    //
+    // Designer audit Finding 14 — preserve the productId so submit
+    // doesn't need a second checkProductSku call. Race-safe: if
+    // HubSpot deletes the product between blur and submit, the
+    // attach action will surface the error rather than us silently
+    // matching a different product on re-resolve.
+    setMatchedProductId(existingMatch.id);
     setMode("attach_existing");
     setForm((f) => ({
       ...f,
@@ -178,6 +193,8 @@ export function AddProductModal({
 
   function handleUseDifferentSku() {
     setExistingMatch(null);
+    setMatchedProductId(null);
+    setMode("create");
     update("hs_sku", "");
     const input = document.getElementById("ap-hs-sku") as HTMLInputElement | null;
     input?.focus();
@@ -189,29 +206,24 @@ export function AddProductModal({
     if (mode === "attach_existing") {
       // The "Pull existing" path: the existing HubSpot product is
       // already canonical; attach to the quote without re-creating.
-      // The matched productId was preserved on the form by the
-      // Pull-existing CTA via existingMatch.id; we need to look it
-      // up again on submit since existingMatch was cleared on the
-      // mode switch. Re-resolve by hs_sku since SKU is what the
-      // user entered.
-      if (!form.hs_sku.trim()) {
+      //
+      // Designer audit Finding 14 (MEDIUM) — productId is preserved
+      // across the mode transition via matchedProductId state. No
+      // second checkProductSku call needed; race-safe against
+      // HubSpot-side deletes between blur and submit. If the user
+      // edited the SKU after Pull-existing, mode reverts to "create"
+      // (see onChange handler below), so we never get here with a
+      // stale match.
+      if (!matchedProductId) {
         setError(
-          "Cannot attach: the existing-product flow lost its SKU reference. Use a different SKU or cancel.",
+          "Lost the product reference. Re-enter the SKU and pick from the duplicate warning.",
         );
         return;
       }
       startTransition(async () => {
-        // Re-resolve to get the productId (existingMatch was cleared).
-        const lookup = await checkProductSku(form.hs_sku);
-        if (!lookup.ok || !lookup.data.found || !lookup.data.product) {
-          setError(
-            "Couldn't re-find the existing product. Refresh and try again.",
-          );
-          return;
-        }
         const fd = new FormData();
         fd.set("quoteId", quoteId);
-        fd.set("productId", lookup.data.product.id);
+        fd.set("productId", matchedProductId);
         // Designer audit Finding 13 (HIGH) — Phase 1 limitation banked:
         // OQ2 disposition hardcoded sku_role = leaf for the CREATE path
         // (a new product is always leaf at creation; children don't
@@ -414,6 +426,14 @@ export function AddProductModal({
                   update("hs_sku", e.target.value);
                   // Clear existing-match warning when user edits the SKU.
                   if (existingMatch) setExistingMatch(null);
+                  // Designer audit Finding 14 — if user edits SKU after
+                  // pulling existing, intent flipped to create-with-new-
+                  // SKU. Revert mode + clear the matched productId so
+                  // submit doesn't attach the wrong product.
+                  if (mode === "attach_existing") {
+                    setMatchedProductId(null);
+                    setMode("create");
+                  }
                 }}
                 onBlur={handleSkuBlur}
                 placeholder="Optional"
