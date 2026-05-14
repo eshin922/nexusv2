@@ -74,40 +74,29 @@ export function MarkAcceptedHost({
     // Quote adopted in Step 4.1/N — the shared file serves both
     // surfaces under the single namespace.
     <div className="r3-shared macc-stage">
+      {/* Step 10 audit MEDIUM-7 fix — top breadcrumb strip migrated
+          from inline-style hardcodes to canonical `.r3-surface-bar`
+          register from r3-shared.css. Same shape as the Quote
+          surface's preview-toolbar (sticky top, paper-2 background,
+          rule border, mono crumb copy). `.r3-surface-bar` provides
+          all the visual register; `justify-content: space-between`
+          + `flex-1` on .crumb let the state-switcher cluster sit
+          right-aligned in the dev mode. */}
       <div
-        style={{
-          padding: "10px 24px",
-          borderBottom: "1px solid var(--rule)",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          background: "var(--paper-2)",
-        }}
+        className="r3-surface-bar"
+        style={{ justifyContent: "space-between" }}
       >
-        <div
-          className="mono"
-          style={{
-            fontSize: 11,
-            color: "var(--ink-3)",
-            letterSpacing: 0.04,
-          }}
-        >
-          <span style={{ color: "var(--ink-4)" }}>
-            Pricing · {customerName} · {quoteNumber} ·{" "}
-          </span>
-          <strong style={{ color: "var(--ink)" }}>Mark accepted</strong>
+        <div className="crumb">
+          Pricing · {customerName} · {quoteNumber} ·{" "}
+          <strong>Mark accepted</strong>
         </div>
         {showStateSwitcher && (
           <div
             style={{ display: "flex", alignItems: "center", gap: 10 }}
           >
             <span
-              className="mono"
-              style={{
-                fontSize: 9.5,
-                color: "var(--ink-4)",
-                letterSpacing: 0.06,
-              }}
+              className="mono muted"
+              style={{ fontSize: 9.5, letterSpacing: 0.06 }}
             >
               prototype state →
             </span>
