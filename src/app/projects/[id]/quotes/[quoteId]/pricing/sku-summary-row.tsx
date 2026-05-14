@@ -172,14 +172,26 @@ function SkuSummaryRow({
   const skuInput = skus.find((s) => s.id === sku.skuId);
   const retailBenchmark = skuInput?.retailBenchmark ?? null;
 
+  // Edward smoke (2026-05-13) — extend left-accent frame to ALL
+  // margin states (not just BELOW_FLOOR). Color-codes match the
+  // verdict pill on the same row: GOOD=good, BELOW_TARGET=warn,
+  // BELOW_FLOOR=bad. Provides at-a-glance row scanability across
+  // the per-SKU breakdown table.
+  const accentColor = (() => {
+    switch (perTier.marginStatus) {
+      case "BELOW_FLOOR":
+        return "var(--bad)";
+      case "BELOW_TARGET":
+        return "var(--warn)";
+      case "GOOD":
+        return "var(--good)";
+    }
+  })();
+
   return (
     <article
       className="r2-card"
-      style={
-        isBelowFloor
-          ? { borderLeft: "3px solid var(--bad)" }
-          : undefined
-      }
+      style={{ borderLeft: `3px solid ${accentColor}` }}
     >
       <div
         style={{
