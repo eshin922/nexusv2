@@ -482,6 +482,56 @@
 .r2-gap-2 { gap: 8px; }
 .r2-gap-3 { gap: 12px; }
 
+/* ─── Costs pulse-dot sync meta — Pattern 21 dev-scaffolding ──
+ *
+ * Canonical R6 ships `.r6-page-head .meta` + `.r6-page-head .meta
+ * .live` rules (r6-costs.css:64-72). Step 2 of the rest-of-app
+ * sweep migrated Costs chrome to `.r7b-head`, breaking the
+ * `.r6-page-head` parent selector — the canonical rules stopped
+ * binding to the markup. Step 10 Designer audit LOW-1 flagged the
+ * dangling reference.
+ *
+ * Two-purpose rule set here:
+ * (a) Rebind canonical .meta + .live visual register to the new
+ *     `.r7b-head` wrapper so the pulse-dot affordance shipped in
+ *     §6.b stays visually consistent.
+ * (b) Add `.pending` modifier for the visible-pending state
+ *     (Pattern 21 dev-scaffolding per Edward's MEDIUM-1 disposition
+ *     2026-05-14). Dot dimmed (no good-soft glow); copy ink-4 so
+ *     PMs read the meta strip as "not-yet-wired," not "synced."
+ *
+ * Slice 11 wires real `lastHubspotRefreshAt` and resolves the
+ * live-sync-vs-manual-pull semantic — at that point the .pending
+ * modifier comes off automatically (real timestamp drives whether
+ * the dot pulses or stays static).
+ */
+.r7b-head .meta {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-4);
+  letter-spacing: 0.04em;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.r7b-head .meta .live {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 3px var(--good-soft);
+}
+.r7b-head .meta.pending .live {
+  background: var(--ink-4);
+  box-shadow: none;
+  opacity: 0.5;
+}
+.r7b-head .meta.pending {
+  color: var(--ink-4);
+  font-style: italic;
+}
+
 /* ─── Quote preview-toolbar — nexus extension (Pattern 39) ──
  *
  * Canonical R3 3styles.css defines .preview-toolbar with

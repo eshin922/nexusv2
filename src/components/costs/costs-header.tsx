@@ -13,14 +13,28 @@
 //       <p class="sub"> — 13 ink-3 max-width 64ch
 //     .actions — flex 8px gap flex-shrink:0
 //
-// Surface-extension (Pattern 39 nexus extension):
-//   .r6-page-head-sync — small below-eyebrow status strip preserving
-//   the R6 pulse-dot + sync-timestamp affordance. Distinct semantic
-//   from .eyebrow (identity); kept because data-freshness is a
-//   Costs-specific affordance PMs read at scan speed. Lives in
-//   r6-costs.css canonical CSS (already there as .r6-page-head
-//   .meta + .live rules); we preserve the markup so the canonical
-//   CSS still applies.
+// Pre-Slice-11 data-binding stub — Pattern 21 dev-scaffolding (NOT
+// Pattern 39 — this isn't a workflow-ergonomics divergence from
+// canon, it's an unfilled data binding that ships visible-pending).
+//
+// Originally: `const syncLabel = "synced just now"` hardcoded
+// + active pulse-dot via .live rule. Rest-of-app sweep Step 10
+// Designer audit MEDIUM-1 + Edward disposition (May 2026): synthetic
+// "synced just now" is PM-facing fake-current state that risks
+// PMs skipping a manual pull, trusting fake freshness. Worse than
+// no indicator.
+//
+// Bank-as-is treatment: keep the affordance shape, swap the active
+// register for a visible "not-yet-wired" register. Pulse-dot
+// dimmed via .meta.pending modifier (.live rule short-circuited
+// via opacity); copy reads "Sync status pending · Slice 11" so
+// PMs immediately register this isn't a real freshness signal.
+//
+// Slice 11 scope item (banked UX_BACKLOG): wire the actual
+// HubSpot refresh timestamp source + resolve the semantic
+// question (live-sync vs manual-pull pattern → drives whether
+// pulsing dot or static freshness indicator is right). Until
+// then: visible-pending.
 //
 // Slice RI.7 fix preserved — non-editable banner stays as separate
 // page-level row (SentStatusBanner below), not jammed into the
@@ -49,9 +63,6 @@ export function CostsHeader({
   children?: React.ReactNode;
 }) {
   const tierWord = tierCount === 1 ? "tier" : "tiers";
-  // HubSpot sync timestamp — UX_BACKLOG entry "Pulse-dot live HubSpot
-  // sync indicator" tracks wiring real timestamp + stage. v1: stub.
-  const syncLabel = "synced just now";
   void _editable;
 
   return (
@@ -75,15 +86,17 @@ export function CostsHeader({
           stack across {tierCount} {tierWord}. Drill in to edit; the stack
           updates live.
         </p>
-        {/* Pattern 39 nexus extension — pulse-dot sync indicator
-            specific to Costs (data freshness PMs read at scan speed).
-            Canonical .r6-page-head .meta + .live rules apply via
-            r6-costs.css; markup preserved so CSS still binds.
-            Sits below the .sub paragraph as a Costs-specific affordance,
-            not a chrome canon element. */}
-        <div className="meta">
+        {/* Pattern 21 dev-scaffolding (visible-pending) — pulse-dot
+            sync indicator is shipped as a placeholder pending Slice 11
+            HubSpot data binding. `.pending` modifier dims the dot
+            (no animation) + copy reads "Sync status pending" so PMs
+            don't read a fake-current freshness signal. Slice 11
+            replaces this with real `lastHubspotRefreshAt` wiring +
+            resolves the live-sync-vs-manual-pull semantic question.
+            See header comment for full rationale. */}
+        <div className="meta pending">
           <span className="live" aria-hidden />
-          <span>Synced to HubSpot · {syncLabel}</span>
+          <span>Sync status pending · Slice 11</span>
         </div>
       </div>
       <div className="actions">
