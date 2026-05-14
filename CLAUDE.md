@@ -1297,29 +1297,88 @@ If a third numbering collision arises, the same rule applies:
 preserve the most commit-message back-references; renumber the
 side with fewer historical references.
 
-## v1 release-path slice sequencing (banked May 2026)
+## "Nexus-side extension precedent" (candidate Pattern 39)
+
+Candidate Pattern 39 — banked during rest-of-app fidelity sweep
+brief approval (May 2026). Promotion criteria: a second
+ergonomic-extension instance lands in the same sweep with the
+same disposition shape.
+
+**Hypothesis:** when implementation adds an ergonomic improvement
+that the design source doesn't specify — e.g., Pattern 29
+click-to-edit on cells where canonical shows display-only —
+the disposition is **accepted nexus extension, not violation**.
+The extension is documented as an explicit delta from canon in
+the per-component source header + (for CSS-touching extensions)
+the relevant overrides-file header comment. Audit findings that
+flag the divergence get re-labeled as "intentional extension"
+rather than re-arbitrated each sweep.
+
+**Reference moment:** Rest-of-app sweep brief approval, Open
+Question 3 disposition. R2 canonical likely renders per-cell
+sell-price overrides as display-only; current Pricing
+implementation uses Pattern 29 read↔edit. Edward's call:
+ACCEPTED NEXUS EXTENSION; document the delta from R2 canon.
+
+**Practical rules:**
+
+- **Document at the extension site.** Per-component source
+  header comment + (if CSS-touching) the matching overrides-file
+  header comment. The reader of either should see "this diverges
+  from R2 canonical because…" without transcript archaeology.
+- **Keep the canonical CSS pristine.** Per Pattern 30, the
+  canonical CSS file is verbatim-from-upstream. Nexus extensions
+  live in a separate overrides file (`r2-pricing-overrides.css`,
+  `r4-home-overrides.css`, etc.) — never edited into the
+  canonical file. Future R-round refreshes drop-in cleanly.
+- **Audit findings that flag extension as "doesn't match canon"
+  are re-labeled, not re-arbitrated.** The Designer agent's job
+  is to surface deltas; Edward + CA's job is to disposition
+  delta vs intentional extension. Once dispositioned as
+  extension, the finding moves from "fix required" to "banked
+  extension; preserve as-is."
+- **Promotion threshold:** when the extension class spreads
+  across multiple surfaces / multiple cell types (e.g., Pattern
+  29 read↔edit on Pricing per-cell overrides AND target-price
+  cells AND tier qty AND retail bench — already four instances
+  on Setup + Pricing), the pattern is durable. Pattern 39
+  promotion candidate.
+
+**Contrast with violations:** Pre-Pattern-29 hardcoded `gray-*`
+Tailwind classes (Designer audit Findings 02, 04, 05) are
+violations — they're not ergonomic improvements, they're token-
+discipline gaps. The line: does the extension add functional /
+UX value not in canon (= extension)? Or does it shortcut canon
+discipline at the cost of theme-safety / cross-surface
+consistency (= violation)?
+
+## v1 release-path slice sequencing (banked May 2026, updated
+2026-05-13)
 
 Captured here so the sequencing survives context compaction
 and future CC sessions see the queued shape. Subject to
 revision as discovery completes.
 
-1. **§6.b — Setup wholesale redesign + Add-product modal Phase 1
-   HubSpot-first rewrite** (in flight). Remaining work: Step 10
-   Edward smoke pass + Step 11 Designer audit + PR-to-main.
+1. ~~**§6.b — Setup wholesale redesign + Add-product modal Phase 1
+   HubSpot-first rewrite**~~ ✅ merged (PR #25, 2026-05-13)
 2. **Rest-of-app fidelity sweep** — Cost build, Costing/Pricing,
    Customer view/Quote, Mark Accepted, Home. Same Pattern 30
    canonical-CSS-imported-verbatim discipline as §6.b's path-B
-   migration.
-3. **Mark-Accepted external writebacks** (combined slice
+   migration. Brief approved 2026-05-13;
+   `docs/rest-of-app-fidelity-sweep-brief.md`.
+3. **MS OAuth slice** (new — slotted 2026-05-13). Microsoft
+   OAuth integration for production deployment; blocks
+   downstream slices that depend on organization-tenant SSO.
+4. **Mark-Accepted external writebacks** (combined slice
    superseding original Slice 12 scope) — HubSpot deal writeback
    + NetSuite sales order push share state machine, retry +
    surface UX, PM monitoring. Pre-brief discovery covers
    HubSpot→NetSuite sync coverage, current manual SO entry
    pattern, NetSuite assembly pricing model. Cost evaluation
    per Pattern 33 already done; expansion approved.
-4. **PDF render path** — Notes-above-T&Cs ordering + Customer
+5. **PDF render path** — Notes-above-T&Cs ordering + Customer
    view PDF findings.
-5. **v1 release.**
+6. **v1 release.**
 
 Discovery items parallelizable with §6.b + rest-of-app sweep
 (not blocking those slices):

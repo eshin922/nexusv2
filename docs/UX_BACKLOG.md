@@ -5,6 +5,61 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Child SKU flat-list visibility — post-v1 usability watch (R7c candidate)]
+
+  **Slice:** Post-v1 observation, not v1 work. Banked as R7c
+  future consideration if a third design round on Setup ships.
+  No code action.
+
+  **Observation:** Child SKUs appear in TWO places on the Setup
+  SKU table today:
+  1. **Top-level flat list** with tree-line connector (`└─ ` prefix
+     on the label) and indentation. PM scrolls the flat list and
+     sees nested children inline beneath their parent assembly.
+  2. **Assembly drawer's child-SKU list** (the `.r7b-comp-table.
+     child-list` register added in §6.b pre-PR fidelity check).
+     PM expands an assembly's drawer and sees the same children
+     in a more-structured table with the canonical grid grammar.
+
+  The duplication is intentional today (each view answers a
+  different read-mode question — flat scan vs nested drill-in),
+  but may cause workflow confusion: PMs editing a child via the
+  drawer expect it to update, but they might also try to edit
+  via the flat-list row and get a different affordance set
+  (Reassign-via-overflow-menu vs in-drawer Reassign-via-form).
+
+  **Watch dimension:** PM workflow confusion specifically —
+  "where is the child SKU really" / "which view is authoritative
+  for editing." Track via PM-observed error reports + the cross-
+  surface autosave refactor watch (already in backlog).
+
+  **Possible R7c remediations** (if confusion materializes):
+
+  - **(a) Drawer-only by default + flat-list toggle.** Children
+    render only inside the assembly drawer; flat list shows
+    parents only. A "show all children inline" toggle on the
+    SKU table head exposes the flat tree-view on demand. PMs
+    who think in flat lists toggle on; PMs who think in
+    drawers stay on the default.
+
+  - **(b) Collapse children into parent on default render +
+    expansion affordance.** Flat list shows the parent assembly
+    row with a `▸ N children` indicator; clicking expands the
+    children inline (same component, different default state).
+    Drawer still works for in-context editing. Children only
+    visible when explicitly expanded.
+
+  - **(c) Defer entirely.** If PM observation doesn't surface
+    real confusion in production, the duplication is fine and
+    nothing changes. Most likely outcome — the flat-list
+    tree-line + drawer table serve different scan modes and PMs
+    learn the distinction quickly.
+
+  **Banked from Edward UX observation, post-§6.b smoke (May
+  2026).** No code action; observation logged as a R7c future
+  consideration. If/when R7c (Setup refinement) ships, this
+  entry is the input to the design-round disposition.
+
 - [Scenario name inline edit — eyebrow read↔edit]
 
   **Slice:** v1.1 candidate. Best decided when rest-of-app
