@@ -78,13 +78,13 @@ const EMPTY_FORM: FormState = {
   fsc_supplier_verified: "",
 };
 
-function fmtUsd(n: number): string {
-  return n.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+// Margin display per Edward smoke (May 2026): whole-number percentage.
+// Formula: (price - cost) / price * 100, rounded to whole int.
+// Brief originally specified `margin = price - cost` as a dollar
+// amount; Edward's smoke clarified margin should read as a
+// percentage (30% as 30) since that's how PMs talk margins.
+function fmtMarginPct(n: number): string {
+  return `${Math.round(n)}%`;
 }
 
 export function AddProductModal({
@@ -266,12 +266,14 @@ export function AddProductModal({
     });
   }
 
-  // Margin = price - cost. Display only. Computed live.
+  // Margin as a whole-number percentage. Display only.
+  // (price - cost) / price * 100. Null when price is 0 or NaN
+  // (divide-by-zero guard + invalid-input guard).
   const priceNum = Number(form.price);
   const costNum = Number(form.hs_cost_of_goods_sold);
   const marginVal =
-    Number.isFinite(priceNum) && Number.isFinite(costNum)
-      ? priceNum - costNum
+    Number.isFinite(priceNum) && priceNum > 0 && Number.isFinite(costNum)
+      ? ((priceNum - costNum) / priceNum) * 100
       : null;
 
   if (!open) {
@@ -521,7 +523,7 @@ export function AddProductModal({
                 color: "var(--ink-4)",
               }}
             >
-              Margin (price − cost)
+              Margin
             </span>
             <span
               style={{
@@ -529,7 +531,7 @@ export function AddProductModal({
                 color: marginVal !== null ? "var(--ink)" : "var(--ink-4)",
               }}
             >
-              {marginVal !== null ? fmtUsd(marginVal) : "—"}
+              {marginVal !== null ? fmtMarginPct(marginVal) : "—"}
             </span>
           </div>
 
