@@ -79,6 +79,12 @@ export type SkuRowListItem = {
     productName: string;
     skuRole: "leaf" | "assembly";
   }>;
+  /** Leaf-detach micro-slice Sub-item 1 — current parent's skuLabel
+   * (only meaningful when sku.parentSkuId !== null). Threaded
+   * through so the row's overflow menu can render "Detach from
+   * {parent name}" and the detach confirmation modal can name the
+   * parent. Null when SKU has no parent. */
+  currentParentLabel: string | null;
 };
 
 export function SkuRowList({
@@ -191,6 +197,7 @@ export function SkuRowList({
           childCount,
           childSkus,
           eligibleParents,
+          currentParentLabel,
         }) => (
           <SkuRow
             key={sku.id}
@@ -200,6 +207,7 @@ export function SkuRowList({
             childCount={childCount}
             childSkus={childSkus}
             eligibleParents={eligibleParents}
+            currentParentLabel={currentParentLabel}
             hubspotPortalId={hubspotPortalId}
             disabled={disabled}
             isDrawerOpen={openSkuId === sku.id}

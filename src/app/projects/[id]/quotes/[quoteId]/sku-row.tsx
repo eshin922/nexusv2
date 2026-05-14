@@ -70,6 +70,7 @@ export function SkuRow({
   childCount,
   childSkus = [],
   eligibleParents,
+  currentParentLabel = null,
   hubspotPortalId,
   disabled = false,
   isDrawerOpen = false,
@@ -90,6 +91,11 @@ export function SkuRow({
    * child-SKU navigation list. Empty / unused for leaf rows. */
   childSkus?: ChildRow[];
   eligibleParents: EligibleParent[];
+  /** Leaf-detach micro-slice Sub-item 1 — current parent's skuLabel
+   * (only meaningful when sku.parentSkuId !== null). Drives the
+   * overflow menu's "Detach from {parent name}" copy and the
+   * confirmation modal's prompt. */
+  currentParentLabel?: string | null;
   hubspotPortalId: string | null;
   disabled?: boolean;
   /** §6.b Step 3 — drawer expansion state (one-at-a-time via SkuRowList). */
@@ -121,6 +127,10 @@ export function SkuRow({
   const [pending, startTransition] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
   const [reassignOpen, setReassignOpen] = useState(false);
+  // Leaf-detach micro-slice Sub-item 1 — detach confirmation modal
+  // state. Open only when the SKU has preservable data (notes OR
+  // retail bench); silent-detach path skips the modal entirely.
+  const [detachModalOpen, setDetachModalOpen] = useState(false);
   // Slice RI.8 — overflow menu state for action cluster compression
   // (Designer audit Q2 approved). Houses the four conditional
   // affordances (assembly reassign / detach / HubSpot refresh /
@@ -288,8 +298,40 @@ export function SkuRow({
     });
   }
 
-  function handleDetach() {
-    if (!confirm("Detach from parent? The SKU becomes top-level.")) return;
+  // Leaf-detach micro-slice Sub-item 1 — detach trigger split into
+  // a confirmation-gated dispatcher + the actual action call.
+  //
+  // Confirmation gate: if the SKU carries preservable data (notes
+  // OR retail bench), open the canonical confirmation modal so the
+  // PM sees what'll be preserved. If the SKU is empty, fire the
+  // action silently — no modal overhead for a clean detach.
+  //
+  // Pattern 31 disposition (Edward + CA, May 2026): brief specified
+  // a new action `detachLeafFromParent` with audit key
+  // `sku_detached_from_parent`. Existing `unassignSkuFromParent`
+  // (since Slice 5.5) provides the same semantics — writes
+  // parent_sku_id + qty_per_parent to NULL on the child row, audit
+  // key `unassigned_from_parent`. Brief's action/audit naming was a
+  // design-time placeholder; existing implementation satisfies
+  // intent. No rename — preserves audit-log continuity for prior
+  // entries.
+  function hasPreservableDetachData(): boolean {
+    return (
+      (sku.notes !== null && sku.notes.trim() !== "") ||
+      (sku.retailBenchmark !== null && String(sku.retailBenchmark).trim() !== "")
+    );
+  }
+
+  function triggerDetach() {
+    if (hasPreservableDetachData()) {
+      setDetachModalOpen(true);
+    } else {
+      runDetach();
+    }
+  }
+
+  function runDetach() {
+    setDetachModalOpen(false);
     setSaveError(null);
     const fd = new FormData();
     fd.set("skuId", sku.id);
@@ -297,6 +339,13 @@ export function SkuRow({
       const r = await unassignSkuFromParent(fd);
       if (!r.ok) setSaveError(r.error.message);
     });
+  }
+
+  // Legacy callers; preserved for back-compat (overflow menu calls
+  // triggerDetach; older non-conditional callers can keep
+  // handleDetach).
+  function handleDetach() {
+    triggerDetach();
   }
 
   function handleReassignSubmit(parentId: string, qty: string) {
@@ -669,13 +718,15 @@ export function SkuRow({
                       type="button"
                       role="menuitem"
                       onClick={() => {
-                        handleDetach();
                         setOverflowOpen(false);
+                        triggerDetach();
                       }}
                       className="r7b-overflow-menu-item"
                     >
                       <span className="glyph">⤴</span>
-                      Detach from parent
+                      {currentParentLabel
+                        ? `Detach from ${currentParentLabel}`
+                        : "Detach from parent"}
                     </button>
                   )}
                   {sku.hubspotProductId && (
@@ -799,6 +850,20 @@ export function SkuRow({
           onSubmit={handleReassignSubmit}
         />
       )}
+
+      {/* Leaf-detach micro-slice Sub-item 1 — confirmation modal.
+          Renders only when the SKU has preservable data (notes OR
+          retail bench); the silent-detach path bypasses this modal
+          entirely. Canonical .r7b-modal-* register (same chrome as
+          the §6.b Add-product modal). */}
+      {detachModalOpen && !disabled && (
+        <DetachConfirmModal
+          parentLabel={currentParentLabel}
+          onCancel={() => setDetachModalOpen(false)}
+          onConfirm={runDetach}
+          pending={pending}
+        />
+      )}
     </>
   );
 }
@@ -810,6 +875,79 @@ export function SkuRow({
 // the Save button was darker than var(--ink) so the button read
 // black-on-black in dark mode. Now uses .btn primary sm + .btn
 // ghost sm primitives same as the Add-product modal foot.
+// Leaf-detach micro-slice Sub-item 1 — canonical R7b confirmation
+// modal for detach-with-preservable-data. Renders inline via
+// `.r7b-modal-backdrop` + `.r7b-modal` chrome (same shape as
+// §6.b Add-product modal). Brief Q4 LOCKED copy: "Convert {sku}
+// to leaf? {N} children..." for cascade-detach; here for the
+// single-leaf detach the copy is "Detach this leaf from
+// {parent}? Notes, retail bench, and drawer state will be
+// preserved on the standalone leaf." per brief Sub-item 1.
+//
+// The modal is structurally separate from ReassignPanel (which is
+// the inline-expanding parent-picker). Detach is a confirmation,
+// not a multi-input form.
+function DetachConfirmModal({
+  parentLabel,
+  onCancel,
+  onConfirm,
+  pending,
+}: {
+  parentLabel: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+  pending: boolean;
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  return (
+    <div className="r7b-modal-backdrop" onClick={onCancel}>
+      <div
+        className="r7b-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Detach from parent"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="r7b-modal-head">
+          <h2>Detach from {parentLabel ?? "parent"}?</h2>
+          <p className="sub">
+            Notes, retail bench, and drawer state will be preserved on the
+            standalone leaf.
+          </p>
+        </div>
+        <div
+          className="r7b-modal-body"
+          style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}
+        >
+          <button
+            type="button"
+            className="btn ghost sm"
+            onClick={onCancel}
+            disabled={pending}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn primary sm"
+            onClick={onConfirm}
+            disabled={pending}
+          >
+            {pending ? "Detaching…" : "Detach"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReassignPanel({
   eligibleParents,
   currentParentId,

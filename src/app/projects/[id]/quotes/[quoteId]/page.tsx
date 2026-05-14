@@ -288,6 +288,17 @@ export default async function QuoteBuilderPage({
                   qtyPerParent: c.qtyPerParent,
                   childCount: skus.filter((x) => x.parentSkuId === c.id).length,
                 }));
+                // Leaf-detach micro-slice Sub-item 1 — current parent
+                // label threaded into the row so the overflow menu can
+                // render "Detach from {parent name}" (Q3 LOCKED copy)
+                // and the detach confirmation modal can name the
+                // parent in its prompt copy. Null when SKU has no
+                // parent (the detach affordance is conditionally
+                // hidden upstream).
+                const parent = s.parentSkuId
+                  ? skus.find((x) => x.id === s.parentSkuId)
+                  : null;
+                const currentParentLabel = parent?.skuLabel ?? null;
                 return {
                   sku: {
                     id: s.id,
@@ -307,6 +318,7 @@ export default async function QuoteBuilderPage({
                   childCount,
                   childSkus,
                   eligibleParents,
+                  currentParentLabel,
                 };
               })}
               hubspotPortalId={process.env.HUBSPOT_PROD_HUB_ID ?? null}
