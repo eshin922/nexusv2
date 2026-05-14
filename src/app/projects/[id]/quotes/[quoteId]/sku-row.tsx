@@ -127,12 +127,15 @@ export function SkuRow({
   // outside-click closes. Full keyboard arrow nav is polish,
   // deferred per Designer's drop-and-defer fallback.
   const [overflowOpen, setOverflowOpen] = useState(false);
-  // Sweep mid-slice hotfix — smart-positioning for overflow menu.
-  // .r7b-card has `overflow: hidden` (canonical r7b-setup.css L110)
-  // which clips the absolute-positioned menu when the trigger is
-  // close to the card's bottom edge (last SKU row case). Measure
-  // space-below on open; flip render direction if insufficient.
-  const [overflowMenuAbove, setOverflowMenuAbove] = useState(false);
+  // Sweep mid-slice hotfix v2 — position:fixed for overflow menu.
+  // The v1 hotfix used position:absolute + viewport-based flip logic,
+  // but the clipping container is .r7b-card (overflow:hidden canonical
+  // r7b-setup.css L110), NOT the viewport. v2 switches to position:
+  // fixed so the menu escapes all ancestor overflow boundaries; coords
+  // computed from trigger's getBoundingClientRect at open time.
+  const [overflowMenuPos, setOverflowMenuPos] = useState<
+    { top: number; right: number } | null
+  >(null);
   const overflowRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef({ retailBenchmark, unitsPerPack });
@@ -145,16 +148,26 @@ export function SkuRow({
     [],
   );
 
-  // Sweep mid-slice hotfix — smart-positioning measurement.
-  // When the menu opens, measure the trigger's distance from the
-  // viewport bottom. If insufficient for a ~240px-tall menu, flip
-  // to render-above. Fires on every open so the direction adapts
-  // to scroll position changes between opens.
+  // Sweep mid-slice hotfix v2 — fixed-position menu coords.
+  // On open, measure trigger's getBoundingClientRect. Compute
+  // menu's top/right coords for position:fixed render. If
+  // remaining viewport space below is insufficient (estimated
+  // 240px menu height), position menu ABOVE the trigger instead
+  // — top = trigger.top - 240 - 4 (mb-1 gap).
+  // Re-measures on each open so scroll position changes between
+  // opens get the right coords.
   useEffect(() => {
     if (!overflowOpen || !overflowRef.current) return;
     const rect = overflowRef.current.getBoundingClientRect();
     const spaceBelow = window.innerHeight - rect.bottom;
-    setOverflowMenuAbove(spaceBelow < 240);
+    const ESTIMATED_MENU_HEIGHT = 240;
+    const GAP = 4;
+    const top =
+      spaceBelow < ESTIMATED_MENU_HEIGHT
+        ? rect.top - ESTIMATED_MENU_HEIGHT - GAP
+        : rect.bottom + GAP;
+    const right = window.innerWidth - rect.right;
+    setOverflowMenuPos({ top, right });
   }, [overflowOpen]);
 
   // Slice RI.8 — overflow menu close-on-outside-click + ESC.
@@ -529,14 +542,14 @@ export function SkuRow({
               >
                 ⋯
               </button>
-              {overflowOpen && (
+              {overflowOpen && overflowMenuPos && (
                 <div
                   role="menu"
-                  className={`absolute right-0 z-50 min-w-[200px] rounded border border-rule bg-paper py-1 shadow-md ${
-                    overflowMenuAbove
-                      ? "bottom-full mb-1"
-                      : "top-full mt-1"
-                  }`}
+                  className="fixed z-50 min-w-[200px] rounded border border-rule bg-paper py-1 shadow-md"
+                  style={{
+                    top: overflowMenuPos.top,
+                    right: overflowMenuPos.right,
+                  }}
                 >
                   {/* §6.b polish-amendment (sweep #10) — Open/Add
                       notes entry restores R7b's ⋯-as-drawer-trigger
