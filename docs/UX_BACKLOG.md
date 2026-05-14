@@ -5,6 +5,53 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Multi-route shipping support — v1 or v1.1, pending Edward's call]
+
+  **Slice:** Pending R8 design round + dispositions before any
+  implementation slice opens. NOT scoped into v1 release path
+  until R8 completes.
+
+  **Reference workflow:** Korea production → China packaging →
+  US final delivery. Three destinations, two transit legs.
+
+  **Specifications:**
+  - Max 3 destinations (2 transit legs)
+  - Currently single-destination model across the stack
+  - Requires UI state for single-route vs multi-route
+
+  **Surfaces affected:**
+  - Cost build freight section — multi-leg cost rollup, lead time
+    composition, per-leg supplier/mode
+  - Customer view / Quote PDF — shipping terms presentation,
+    which destinations are customer-facing vs internal
+  - Setup (possibly) — route declaration as a quote-level config
+    vs per-SKU
+  - Mark-Accepted NetSuite SO ship-to defaulting — final-
+    destination selection logic when SO is generated
+
+  **R8 dispositions needed before implementation:**
+  - IA placement — does multi-route live on Setup (declarative)
+    or Cost build (operational)?
+  - Single-route vs multi-route UI state — collapsed by default
+    with expand-to-multi toggle? Or always-visible legs with
+    "add leg" affordance? Inline editing register?
+  - Customer-PDF presentation — show all legs or just final
+    destination? Lead time aggregation copy?
+  - NetSuite SO final-destination defaulting — which destination
+    flows to ship-to on SO creation; PM override path?
+
+  **Sequencing:**
+  1. R8 design round (CD)
+  2. R8 dispositions (Edward + CA)
+  3. Implementation slice (CC) — multi-surface; estimate after
+     R8 lands
+  4. Mark-Accepted external writebacks slice consumes
+     the destination model for NetSuite ship-to defaulting
+
+  **Banked:** Edward's directive during §6.b Phase 1 era (May
+  2026). Pattern 34 (candidate) applies — multi-surface feature
+  warrants dedicated R-round before piecemeal implementation.
+
 - [Drag-and-drop nesting — leaf into assembly]
 
   **Slice:** Setup-affordance polish (small standalone or fold

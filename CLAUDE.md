@@ -1182,6 +1182,57 @@ formal cost evaluation. The discipline is calibrated for
 slice-level proposals where the work breakdown is non-trivial
 and the cleanliness framing risks under-pricing the cost.
 
+## "Multi-surface architectural features warrant a dedicated R-round design pass before implementation" (candidate Pattern 34)
+
+Candidate Pattern 34 — banked as candidate during the multi-route
+shipping support deferral conversation (May 2026). Promotion to
+standing pattern pending a second reference moment that
+demonstrates the discipline holds.
+
+**Hypothesis:** features that touch multiple surfaces (e.g.,
+Cost build + Customer view + Mark-Accepted + Setup) warrant a
+dedicated R-round design pass before any implementation slice
+opens. Single-surface features can scope into implementation
+directly off a brief; multi-surface features risk inconsistent
+treatment if scoped piecemeal — different surfaces resolve the
+same architectural question in different ways, locking in
+inconsistencies that are expensive to undo.
+
+**Reference moment:** Multi-route shipping support (Korea →
+China → US workflow). Touches Cost build (freight legs +
+lead time), Customer view PDF (which destinations show, lead
+time aggregation), possibly Setup (route declaration), and
+Mark-Accepted (NetSuite SO ship-to defaulting). Per Edward's
+directive: hold for R8 design round to dispose IA placement,
+UI state shape, customer-PDF presentation, NetSuite SO
+defaulting BEFORE the implementation slice opens. Otherwise
+each surface's PM walks the design alone and the resulting
+shape doesn't compose.
+
+**Working test when uncertain:** count the surfaces the feature
+touches. 1 surface = scope into implementation off a brief.
+2+ surfaces = R-round candidate. The cost of an R-round (design
+deliverable + designer-notes + data-source map) is real but
+small compared to the cost of re-shipping a feature that ships
+inconsistently across surfaces.
+
+**Contrast with single-surface features:** Slice 9 series
+(Pricing surface only — control summary, suggestions, sparkline,
+verdict) shipped fine as direct implementation off briefs.
+RI.9 nav primitives were multi-surface but the scope was
+deliberately narrow (just nav, not surface bodies) — that
+narrow scope is itself a form of the R-round discipline,
+just not labeled as one.
+
+**Promotion criteria** (candidate → standing):
+- Second multi-surface feature surfaces and the R-round
+  discipline (or its absence) demonstrably affects the outcome
+- Edward + CA confirm the pattern at that second reference
+
+Until promoted, treat as a candidate guideline: surface to
+Edward when a feature looks multi-surface; let Edward + CA
+dispose whether an R-round is warranted.
+
 ## v1 release-path slice sequencing (banked May 2026)
 
 Captured here so the sequencing survives context compaction
