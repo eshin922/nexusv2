@@ -556,103 +556,16 @@ async function seedProductionInputsForNewLeaf(args: {
     .onConflictDoNothing();
 }
 
-/**
- * Create a Nexus-local SKU — no HubSpot Product reference. Used as
- * the in-drawer "+ Add child SKU" trigger inside an assembly drawer.
- * Accepts a sku_role override via FormData; defaults to "leaf" per
- * Edward's pre-PR smoke directive: when adding a child to an
- * existing assembly, the new SKU is almost always a leaf (the
- * unit-level BOM item). PM can promote to assembly later via the
- * row's Type badge if they want nested assemblies.
- *
- * Action name retained for back-compat with callers; the legacy
- * "+ Add assembly" footer affordance is retired (replaced by the
- * Phase 1 HubSpot-first modal which routes through addProductSku).
- */
-export async function addAssemblySku(
-  formData: FormData,
-): Promise<ActionResult<void>> {
-  return runAction(async () => {
-    const quoteId = String(formData.get("quoteId") ?? "").trim();
-    const skuLabel = String(formData.get("skuLabel") ?? "").trim();
-    const productName = String(formData.get("productName") ?? "").trim();
-    const parentSkuIdRaw = trimOrNull(formData.get("parentSkuId"));
-    const qtyPerParentRaw = trimOrNull(formData.get("qtyPerParent"));
-    // sku_role override per Edward smoke May 2026 — default leaf
-    // (in-drawer "+ Add child SKU" case). Form can pass "assembly"
-    // if the PM is creating a nested assembly child explicitly.
-    const skuRoleRaw = String(
-      formData.get("skuRole") ?? "leaf",
-    ).trim();
-    if (skuRoleRaw !== "leaf" && skuRoleRaw !== "assembly")
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        `Unknown sku_role: ${skuRoleRaw}`,
-      );
-    const skuRole: "leaf" | "assembly" = skuRoleRaw;
-
-    if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
-    if (!skuLabel) throw new ActionGuardError(ERR.VALIDATION, "skuLabel required");
-    if (!productName) throw new ActionGuardError(ERR.VALIDATION, "productName required");
-
-    const user = await ensureUser();
-    const quote = await loadQuoteOrThrow(quoteId);
-    assertDraft(quote);
-
-    if (parentSkuIdRaw) {
-      const allSkus = await loadAllSkusForQuote(quoteId);
-      const validation = validateAssemblyOperation({
-        skuId: null,
-        newParentId: parentSkuIdRaw,
-        newQtyPerParent: qtyPerParentRaw,
-        newRole: skuRole,
-        quoteId,
-        allSkus,
-      });
-      if (!validation.ok)
-        throw new ActionGuardError(validation.code, validation.message);
-    }
-
-    const maxRow = await db
-      .select({ max: max(quoteSkus.sortOrder) })
-      .from(quoteSkus)
-      .where(eq(quoteSkus.quoteId, quoteId));
-    const sortOrder = (maxRow[0]?.max ?? -1) + 1;
-
-    const [sku] = await db
-      .insert(quoteSkus)
-      .values({
-        quoteId,
-        hubspotProductId: null,
-        skuLabel,
-        productName,
-        unitsPerPack: 1,
-        sortOrder,
-        skuRole,
-        parentSkuId: parentSkuIdRaw,
-        qtyPerParent: qtyPerParentRaw,
-      })
-      .returning({ id: quoteSkus.id });
-
-    await logAudit({
-      userId: user.id,
-      entityType: "quote_sku",
-      entityId: sku.id,
-      action: "created",
-      diffJson: {
-        quote_id: quoteId,
-        hubspot_product_id: null,
-        sku_label: skuLabel,
-        product_name: productName,
-        sku_role: skuRole,
-        parent_sku_id: parentSkuIdRaw,
-        qty_per_parent: qtyPerParentRaw,
-      },
-    });
-
-    revalidateQuoteTree(quote.projectId, quoteId);
-  });
-}
+// `addAssemblySku` removed 2026-05-14 per leaf-detach micro-slice
+// Sub-task B (Edward disposition): every leaf must have a HubSpot
+// link for HubSpot↔NetSuite product library sync. The Nexus-local
+// leaf-creation path that this action provided ("+ Add child SKU"
+// inside the assembly drawer) is replaced with `AddProductModal`
+// in HubSpot-first mode (forcedParentId). The component file
+// `add-assembly-button.tsx` and its DrawerChildList caller were
+// removed in the same commit. `addProductSku` + `addSkuFromHubspotProduct`
+// now accept parent_sku_id + qty_per_parent so the modal can
+// create children inheriting the HubSpot link.
 
 /**
  * §6.b Step 9 — Drag-and-drop row reordering. Accepts a comma-
@@ -826,6 +739,14 @@ export async function addProductSku(
     const fscSupplierVerified = String(
       formData.get("fsc_supplier_verified") ?? "",
     ).trim();
+    // Leaf-detach micro-slice Sub-task B — accept assembly child-add
+    // mode. When AddProductModal is rendered with forcedParentId
+    // (DrawerChildList's "+ Add child SKU" affordance), these
+    // fields are populated; the new HubSpot-backed leaf lands as
+    // a child of the assembly. Default qty_per_parent=1; PM can
+    // adjust via the QtyPerParentInline widget post-create.
+    const parentSkuIdRaw = trimOrNull(formData.get("parentSkuId"));
+    const qtyPerParentRaw = trimOrNull(formData.get("qtyPerParent"));
 
     const user = await ensureUser();
     const quote = await loadQuoteOrThrow(quoteId);
@@ -892,8 +813,8 @@ export async function addProductSku(
         sortOrder,
         lastHubspotRefreshAt: new Date(),
         skuRole: "leaf",
-        parentSkuId: null,
-        qtyPerParent: null,
+        parentSkuId: parentSkuIdRaw,
+        qtyPerParent: qtyPerParentRaw,
       })
       .returning({ id: quoteSkus.id });
 
@@ -916,6 +837,9 @@ export async function addProductSku(
         price,
         hs_cost_of_goods_sold: hsCostOfGoodsSold || null,
         markup: markup || null,
+        // Sub-task B — assembly child-add context.
+        parent_sku_id: parentSkuIdRaw,
+        qty_per_parent: qtyPerParentRaw,
       },
     });
 

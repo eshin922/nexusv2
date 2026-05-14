@@ -1424,7 +1424,7 @@ function QtyPerParentInline({
 // + brief §3.2 zone 2). Autosave on blur; Cmd/Ctrl+Enter explicit
 // commit. Always rendered (assembly + leaf).
 
-import { AddAssemblyButton } from "./add-assembly-button";
+import { AddProductModal } from "./add-product-modal";
 
 // Edward pre-PR fidelity check 2 (May 2026) — DrawerChildList
 // rewritten to use canonical `.r7b-comp-table` grid grammar
@@ -1577,16 +1577,20 @@ function DrawerChildList({
       {!disabled && (
         <div className="r7b-comp-foot">
           {/* Canonical `.add-line` register: full-width grid span +
-              accent-ink mono uppercase. AddAssemblyButton renders
-              the closed-state trigger here; clicking it expands
-              the .r7b-child-add-form below the foot. */}
+              accent-ink mono uppercase. AddProductModal renders the
+              closed-state trigger here; click opens the HubSpot-
+              first picker (Sub-task B). Previously used
+              AddAssemblyButton which created Nexus-local leaves;
+              Edward smoke 2026-05-14 surfaced that every leaf
+              needs a HubSpot link for the HubSpot↔NetSuite product
+              library sync. AddProductModal's PullExisting +
+              CreateNew flows both produce HubSpot-tied SKUs. */}
           <span className="add-line" style={{ padding: 0 }}>
-            <AddAssemblyButton
+            <AddProductModal
               quoteId={quoteIdForAdd}
-              eligibleParents={[]}
+              forcedParentId={_parentSkuId}
               triggerLabel="+ Add child SKU"
               triggerVariant="ghost"
-              forcedParentId={_parentSkuId}
             />
           </span>
         </div>

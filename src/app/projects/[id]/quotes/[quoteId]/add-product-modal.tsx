@@ -90,9 +90,25 @@ function fmtMarginPct(n: number): string {
 export function AddProductModal({
   quoteId,
   disabled,
+  forcedParentId = null,
+  triggerLabel = "+ Add product",
+  triggerVariant = "primary",
 }: {
   quoteId: string;
   disabled?: boolean;
+  /** Leaf-detach micro-slice Sub-task B — when set, the new SKU
+   * is created as a child of this parent assembly with
+   * `qty_per_parent = 1`. Used by DrawerChildList's "+ Add child
+   * SKU" affordance to force HubSpot-first leaf creation under
+   * an assembly. Replaces the prior Nexus-local AddAssemblyButton
+   * for child creation. */
+  forcedParentId?: string | null;
+  /** Trigger button copy override — DrawerChildList uses
+   * "+ Add child SKU" inside the assembly drawer. */
+  triggerLabel?: string;
+  /** Trigger button visual variant — "ghost" for in-drawer use
+   * so it doesn't compete with the table-footer primary. */
+  triggerVariant?: "primary" | "ghost";
 }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -237,6 +253,10 @@ export function AddProductModal({
         // pre-fill sku_role from it, and audit the auto-promote on
         // attach. For Phase 1 v1 ship: leaf is fine.
         fd.set("skuRole", "leaf");
+        if (forcedParentId) {
+          fd.set("parentSkuId", forcedParentId);
+          fd.set("qtyPerParent", "1");
+        }
         const result = await addSkuFromHubspotProduct(fd);
         if (!result.ok) {
           setError(result.error.message);
@@ -279,6 +299,10 @@ export function AddProductModal({
     fd.set("fsc_claim_type", form.fsc_claim_type);
     fd.set("fsc_status", form.fsc_status);
     fd.set("fsc_supplier_verified", form.fsc_supplier_verified);
+    if (forcedParentId) {
+      fd.set("parentSkuId", forcedParentId);
+      fd.set("qtyPerParent", "1");
+    }
     startTransition(async () => {
       const result = await addProductSku(fd);
       if (!result.ok) {
@@ -304,11 +328,13 @@ export function AddProductModal({
     return (
       <button
         type="button"
-        className="add-sku primary"
+        className={
+          triggerVariant === "ghost" ? "add-sku" : "add-sku primary"
+        }
         onClick={() => setOpen(true)}
         disabled={disabled}
       >
-        + Add product
+        {triggerLabel}
       </button>
     );
   }
