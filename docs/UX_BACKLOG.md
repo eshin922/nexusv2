@@ -5,6 +5,76 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Mobile / iPad responsive support — v2]
+
+  **Slice:** Dedicated v2 work. Prerequisite: full design round
+  (R9 or equivalent) per Pattern 41 — multi-surface architectural
+  features warrant a dedicated R-round design pass before
+  implementation. Implementation slice follows R9.
+
+  **What:** Today the app is desktop-only (per CLAUDE.md role-as-
+  affordance + grid layouts assuming 1380px max-width on Costs,
+  640px modal width on Add-product, etc.). Mobile / iPad
+  workflows surface in customer-facing review contexts: PMs
+  showing quotes on iPads in client meetings, sales-rep
+  on-the-go status checks, etc.
+
+  **Surfaces affected (every quote-scoped surface + admin):**
+    - Setup (R7b) — SKU table grid, tier rail, Notes split
+    - Costs (R6) — cost stack grid, section drilldowns, drawer
+      toolbar grids
+    - Pricing (R2) — verdict band two-column, per-tier table
+    - Quote (R3) — PDF preview (already paged + responsive-ish),
+      preview chrome
+    - Mark Accepted (R3) — verdict band, tier card grid, CTA
+      cluster
+    - Home (R4) — outer + inner rail (240px collapsible),
+      organizer grid, project detail
+    - Future R6.2 freight panel — multi-leg shipping editor
+    - Admin (R5) — firm settings, markup defaults, audit log
+
+  **R9 design round dispositions needed:**
+    - Touch-vs-pointer affordance differences (hover-reveal
+      patterns like the §6.b ⋯ overflow menu need touch-
+      friendly alternatives)
+    - Breakpoint strategy (one mobile breakpoint vs tablet +
+      phone vs adaptive component-level)
+    - Inner rail behavior on narrow viewports (collapsible
+      already shipped per UX_BACKLOG; reuse for mobile?)
+    - Modal sizing on narrow viewports (Add-product modal is
+      640px; needs to adapt below 768px)
+    - Cost stack rendering on narrow viewports (5-tier grid
+      doesn't fit; horizontal scroll vs stacked rendering?)
+    - Type badge / click targets (44px minimum tap target
+      recommendation; current sizes are pointer-optimized)
+
+  **v1 component primitives that likely need mobile-aware
+  variants** (surface during R9 design pass, NOT as v2
+  implementation findings):
+    - `.calc-display` (cross-surface calculated-value row)
+    - `.warn-band` (inline warning band; touch CTA sizes)
+    - `.r7b-empty-state` (empty list register)
+    - `.r2-pricing` namespace (Pricing surface body)
+    - `.r3-shared` namespace (Quote + Mark Accepted body)
+    - `.r4-home` namespace (Home; future)
+    - `.r7b-head` (page chrome — eyebrow + h1 + action cluster)
+    - `.r7b-sku-row` (SKU row grid)
+    - `.r7b-tier-row` (Tier row grid)
+    - `.r6-stack` (cost stack grid)
+
+  **Pattern 30 implementation discipline:** R9 design ships
+  responsive canonical CSS per surface; CC implements via
+  Pattern 30 path-B verbatim adoption (or namespace-scoped
+  variant if R9 uses unprefixed mobile selectors). Touch
+  affordances likely come as new canonical classes
+  (.r7b-sku-row.mobile-stack etc.) — CC adopts under same
+  Pattern 30 verbatim discipline.
+
+  **No code action.** Banked as v2 reference for the
+  eventual R9 design round + implementation slice.
+
+  **Banked from Edward UX observation post-§6.b, May 2026.**
+
 - [Leaf detach from parent assembly — v1 blocker]
 
   **Slice (DISPOSITIONED, 2026-05-13):** Micro-slice queued

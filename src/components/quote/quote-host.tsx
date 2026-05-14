@@ -163,7 +163,11 @@ export function QuoteHost({
   const copy = introCopy(subState, pdfLayout);
 
   return (
-    <div className="preview-chrome">
+    // Sweep Step 4.1/N — adopt `r3-shared` parent-scope class so the
+    // canonical R3 rules (now under .r3-shared { ... } in
+    // src/styles/r3-shared.css) resolve for this Quote tree.
+    // Same shape Mark Accepted will adopt in Step 5.
+    <div className="r3-shared preview-chrome">
       <PreviewToolbar
         quoteId={quoteId}
         quoteStatus={quoteStatus}
