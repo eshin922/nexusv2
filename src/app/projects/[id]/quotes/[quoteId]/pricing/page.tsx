@@ -102,7 +102,7 @@ export default async function CostingPage({
         quoteId={quoteId}
         activeScenarioLabel={quote.scenarioLabel}
       >
-      <main className="r2-page">
+      <main className="r2-pricing r2-page">
         <div style={{ marginBottom: 8, fontSize: 13 }}>
           <Link
             href={`/projects/${project.id}/quotes/${quote.id}`}
@@ -158,7 +158,7 @@ export default async function CostingPage({
         <ActiveTierUrlSync />
       </Suspense>
 
-      <main className="r2-page">
+      <main className="r2-pricing r2-page">
         <PricingPageHead
           projectId={projectId}
           quoteId={quoteId}

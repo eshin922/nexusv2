@@ -675,6 +675,45 @@ Both fail the same way: schema-as-implementation-detail instead
 of schema-as-contract. Running the §0.5 pass pre-approval makes
 schema part of the contract.
 
+### Pattern 22 extension — verification covers code architecture (refinement, 2026-05-13)
+
+§0.5 verification was originally scoped to **DB schema** (tables,
+columns, FKs, enums). The rest-of-app fidelity sweep Step 3 R2
+CSS adoption surfaced a parallel discovery shape: the brief's
+verbatim-adoption directive assumed prefix-clean canonical CSS
+(per §6.b R6 precedent), but R2's canonical CSS uses unprefixed
+generic class names that would cross-pollute on global load.
+Same fail mode as a phantom schema column — discovered mid-
+implementation, requires Edward + CA disposition, costs a
+round-trip.
+
+The verification scope extends to **code architecture** as well:
+
+- **DB schema** (tables, columns, FKs, enums, indices, constraints)
+- **Module boundaries** (`server-only` import constraints; client/
+  server boundary; build-time invariants like the customer-view
+  boundary guard)
+- **CSS namespace conventions** (prefix-clean selectors per
+  Pattern 30 Path-B-default vs unprefixed-collision-risk per
+  Path-B-namespace-scoped; verify before adoption)
+- **API contract shapes** (HubSpot API scope requirements; OAuth
+  scope grants; third-party rate limits)
+- **Token coverage** (Pre-flight check that every token an
+  imported CSS file references exists in `design-tokens.css`)
+
+The pre-approval pass now reads as **"code-architecture
+verification, of which DB schema is the most common form."**
+Failure mode is the same regardless of the architecture
+dimension: brief assumes something the codebase doesn't yet
+support, CC builds against the assumption, discovers the gap
+mid-build, requires disposition.
+
+**Banked from Pricing path-B sub-commit 1/5 disposition (2026-
+05-13).** Edward's directive: "schema verification covers code
+architecture, not just DB schema." The §0.5 brief gate now
+covers DB + CSS namespace + module boundaries + API contracts +
+token coverage uniformly.
+
 ## "Per-commit fidelity manifest on multi-step design slices"
 
 When a slice ships many sequential commits against a complex
@@ -1022,6 +1061,68 @@ Manifest both (Pattern 27 two-layer).
 the same commit that banked this pattern. R7c, §6.c, Slice 9,
 Slice 11, Slice 12, and every brief after that lands with §0
 already in place.
+
+### Path-B variant catalog (refinement, 2026-05-13)
+
+The canonical-CSS-verbatim discipline works cleanly when the
+upstream CSS uses prefix-clean selectors. Two variants now exist
+depending on what CD shipped:
+
+**Path-B-default — canonical CSS with prefix-clean selectors.**
+Adopted verbatim at file root. The R6 (`r6-cost-build.css`) and
+R7b (`r7b-setup.css`) cases applied this directly: every selector
+already carries an `.r6-` / `.r7b-` prefix, so dropping the
+upstream CSS into `src/styles/` is namespace-safe out of the box.
+§6.b precedent. This is the default expectation when CD prepares
+a Pattern 30-conscious round.
+
+**Path-B-namespace-scoped — canonical CSS with unprefixed selectors.**
+Adopted under a single parent-selector scope (`.r2-pricing { ... }`,
+etc.) to confine global match risk. Used when upstream CSS uses
+generic class names (`.eyebrow`, `.shell`, `.main`, `.mono`,
+`.muted`, etc.) — typical of early-round prototypes designed as
+standalone single-page apps before cross-surface concerns
+surfaced.
+
+**R2 Pricing is the first instance of Path-B-namespace-scoped**
+(rest-of-app fidelity sweep Step 3.1/5, 2026-05-13). Disposition
+specifics:
+
+- Upstream `2styles.css` rules from line 91 onward wrapped under
+  a single `.r2-pricing { ... }` parent in `src/styles/r2-
+  pricing.css`. Content unchanged; only the outer wrap is nexus-
+  added.
+- Lines 1-90 of upstream (`:root` / `[data-theme]` token
+  declarations + `*` / `html` / `body` / `button` / `input` /
+  `select` / `textarea` / `a` resets) DROPPED from import. All
+  29 tokens verified present in `design-tokens.css`; all resets
+  already in `globals.css`. Cross-cutting concerns shouldn't
+  duplicate per-surface.
+- House-style divergence: uses CSS Nesting (Level 1) for the
+  scope wrap. The rest of the canonical CSS files use flat
+  selectors. Nesting is purely a content-preservation mechanism
+  here; supported by lightningcss (Next 15 bundler) + all
+  modern browsers.
+- Pricing-tree JSX entry component adopts `<main className="r2-
+  pricing r2-page">` so canonical rules resolve.
+
+**Pre-flight verification step** (mandatory for Path-B-namespace-
+scoped):
+
+1. Diff upstream `:root` + `[data-theme]` token declarations
+   against `design-tokens.css`. Every token referenced by
+   upstream rules must already be present, or fonts/colors won't
+   resolve. Missing tokens surface to Edward + CA as a token-
+   gap finding BEFORE the path-B sub-commit lands.
+2. Confirm resets in upstream don't conflict with `globals.css`
+   body element rules. Resets that ARE present in globals
+   stay; resets specific to upstream that aren't in globals get
+   evaluated case-by-case (often safe to drop, occasionally
+   need lift into globals.css).
+3. Grep upstream for selectors that collide with existing
+   global classes (`.eyebrow`, `.btn`, `.main`, etc.). Every
+   collision is contained by the parent-scope wrap, but the
+   audit confirms the wrap is correctly positioned.
 
 ## "Cross-chat handoff briefs may carry verbal-disposition gaps"
 

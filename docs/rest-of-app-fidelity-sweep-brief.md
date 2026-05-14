@@ -326,19 +326,23 @@ discipline:
 6. **Suggested-GPA banner** (Slice 9.2) — verify banner register
    matches RI.9 banner primitive grammar.
 7. **Path-B migration commits** (parallel to §6.b 1-5/5 shape):
-   - 1/5: Adopt R2 canonical CSS as verbatim `src/styles/r2-pricing.css`.
-     **Footnote on existing partial `r2-pricing.css`:** the current
-     file in `src/styles/r2-pricing.css` is a CC-interpreted partial
-     written pre-Pattern-30 era (before the canonical-CSS-imported-
-     verbatim discipline was banked). Step 1/5 DISCARDS the existing
-     partial file entirely and replaces with verbatim
-     `docs/design-prototypes/dist/2styles.css` per Pattern 30 working
-     discipline. Same pattern §6.b applied for Costs (legacy
-     `r6-costs.css` deleted in Costs path-B commit 5/5 in favor of
-     verbatim `r6-cost-build.css`). Any nexus-specific overrides
-     extracted to a separate `r2-pricing-overrides.css` file if
-     needed; canonical file stays verbatim-pristine for diff-against-
-     upstream when CD ships R-round refreshes.
+   - 1/5: Adopt R2 canonical CSS verbatim under `.r2-pricing { ...
+     }` parent scope (Path-B-namespace-scoped variant per Pattern 30
+     refinement, 2026-05-13). The current file in
+     `src/styles/r2-pricing.css` is a CC-interpreted partial written
+     pre-Pattern-30 era; Step 1/5 DISCARDS the existing partial
+     entirely. Drop `:root` + `[data-theme]` token overrides + body/
+     html resets from upstream import (cross-cutting; already in
+     `design-tokens.css` + `globals.css`; pre-flight verification
+     confirms all 29 R2 tokens present in `design-tokens.css`).
+     Path-B-default (`.r6-cost-build.css` precedent) doesn't apply
+     because R2's canonical CSS uses unprefixed generic selectors
+     (`.eyebrow`, `.shell`, `.main`, `.mono`, `.muted`, `.dim`,
+     `.brand`, `.crumbs`, `.topbar`, etc.) that would cross-pollute
+     on global load; the `.r2-pricing` parent scope confines them to
+     the Pricing tree. Pricing-page JSX entry component adopts
+     `<main className="r2-pricing r2-page">` so canonical rules
+     resolve.
    - 2/5: Pricing page chrome → canonical r2-* (or r7b-head where
      dual-canon overlap applies).
    - 3/5: Two-axis verdict + margin verdict band → canonical R2
