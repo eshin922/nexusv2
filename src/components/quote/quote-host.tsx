@@ -140,8 +140,18 @@ export function QuoteHost({
     // Sweep Step 4.1/N — adopt `r3-shared` parent-scope class so the
     // canonical R3 rules (now under .r3-shared { ... } in
     // src/styles/r3-shared.css) resolve for this Quote tree.
-    // Same shape Mark Accepted will adopt in Step 5.
-    <div className="r3-shared preview-chrome">
+    //
+    // Step 10 Edward smoke fix (2026-05-14) — `r3-shared` lives on a
+    // dedicated PARENT div, separate from `preview-chrome`. CSS
+    // Nesting Level 1 compiles `.r3-shared { .preview-chrome { ... } }`
+    // to `.r3-shared .preview-chrome` (descendant combinator), which
+    // doesn't match same-element compound `<div className="r3-shared
+    // preview-chrome">`. Splitting into nested divs makes the rule
+    // resolve correctly. Edward repro: diagonal-pattern background
+    // on preview-chrome was missing post-Step-4 because the rule
+    // wasn't binding.
+    <div className="r3-shared">
+    <div className="preview-chrome">
       <PreviewToolbar
         quoteId={quoteId}
         quoteStatus={quoteStatus}
@@ -248,6 +258,7 @@ export function QuoteHost({
           </PdfPage>
         </>
       )}
+    </div>
     </div>
   );
 }

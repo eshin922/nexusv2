@@ -73,7 +73,16 @@ export function MarkAcceptedHost({
     // .macc-* / .state-sub / .mono / .muted vocabulary. Same shape
     // Quote adopted in Step 4.1/N — the shared file serves both
     // surfaces under the single namespace.
-    <div className="r3-shared macc-stage">
+    //
+    // Step 10 Edward smoke fix (2026-05-14) — `r3-shared` lives on a
+    // dedicated PARENT div, separate from `macc-stage`. CSS Nesting
+    // Level 1 compiles `.r3-shared { .macc-stage { ... } }` to
+    // `.r3-shared .macc-stage` (descendant combinator), not same-
+    // element compound. Splitting into nested divs makes the rule
+    // resolve. Same regression Quote caught (diagonal-pattern
+    // .preview-chrome background was missing).
+    <div className="r3-shared">
+    <div className="macc-stage">
       {/* Step 10 audit MEDIUM-7 fix — top breadcrumb strip migrated
           from inline-style hardcodes to canonical `.r3-surface-bar`
           register from r3-shared.css. Same shape as the Quote
@@ -206,6 +215,7 @@ export function MarkAcceptedHost({
           sentVersion="v1 (sent)"
         />
       )}
+    </div>
     </div>
   );
 }
