@@ -71,13 +71,21 @@ export async function quoteForSku(
   return { quote, sku };
 }
 
-// quoteForSku + leaf-only check. Used by production (Slice 6) and freight
-// (Slice 7) — both apply only to leaf SKUs; assemblies render as read-only
-// banners. The action layer enforces server-side; the UI hides controls
-// proactively (defense in depth).
+// quoteForSku + leaf-only check. Used by all three per-SKU cost-input
+// domains: packaging (Slice 5), production (Slice 6), freight (Slice 7).
+// Assemblies render as read-only banners on Cost build drilldowns;
+// the action layer enforces server-side rejection here as defense in
+// depth alongside UI filtering.
+//
+// Leaf-detach micro-slice (May 2026) Sub-item 4 — `packaging`
+// added to the inputDomain union. Pre-micro-slice, `addPackagingLine`
+// used the unqualified `quoteForSku` and would have accepted assembly
+// targets server-side (UI was already filtered to leaves so PM-driven
+// paths were safe, but direct POSTs would have bypassed). Now packaging
+// has the same defense-in-depth gate as production + freight.
 export async function quoteForLeafSku(
   quoteSkuId: string,
-  inputDomain: "production" | "freight",
+  inputDomain: "packaging" | "production" | "freight",
 ): Promise<{ quote: Quote; sku: Sku }> {
   const result = await quoteForSku(quoteSkuId);
   if (result.sku.skuRole !== "leaf") {

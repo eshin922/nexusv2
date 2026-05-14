@@ -1964,6 +1964,15 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
   // Slice 6 — production policy snapshot, keyed by quote_sku_id. One row
   // per leaf SKU; values come from any existing production_inputs row for
   // that SKU (denormalized, so any row carries the policy).
+  //
+  // Leaf-detach micro-slice Sub-item 4 — defense-in-depth filter:
+  // production_inputs is leaf-only by architectural commitment, but the
+  // bulk-reseed source query previously carried forward whatever rows
+  // exist (including any pre-cleanup orphan assembly-attached rows from
+  // legacy state). Filter here ensures the reseed populates only leaf
+  // SKUs even if orphans haven't been cleaned up yet. Sub-item 5
+  // cleanup pass remediates the existing orphans; this guard prevents
+  // them from re-propagating through a tier-replace.
   const preservedProductionPolicy = await db
     .selectDistinctOn([productionInputs.quoteSkuId], {
       quoteSkuId: productionInputs.quoteSkuId,
@@ -1973,7 +1982,12 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
     })
     .from(productionInputs)
     .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
-    .where(eq(quoteSkus.quoteId, quoteId));
+    .where(
+      and(
+        eq(quoteSkus.quoteId, quoteId),
+        eq(quoteSkus.skuRole, "leaf"),
+      ),
+    );
 
   // Forensic snapshot — capture every (sku, tier) row with non-null cost
   // data or actual_units_produced before the cascade wipes them. Filter
