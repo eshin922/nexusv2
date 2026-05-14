@@ -12,26 +12,28 @@
 
 export type MarginStatus = "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
 
-// Slice RI.0 — palette swapped from raw Tailwind sRGB hex (bg-green-100
-// etc.) to CD's OKLCH-tuned semantic tokens. --good-soft / --good for
-// GOOD, --warn-soft / --warn for BELOW_TARGET, --bad-soft / --bad for
-// BELOW_FLOOR. Light + dark mode adapt automatically via design-tokens.css.
-// Smoke-target wiring for the token foundation.
-const STATUS_STYLES: Record<
-  MarginStatus,
-  { label: string; cls: string }
-> = {
-  GOOD: { label: "GOOD", cls: "bg-good-soft text-good" },
-  BELOW_TARGET: {
-    label: "BELOW TARGET",
-    cls: "bg-warn-soft text-warn",
-  },
-  BELOW_FLOOR: { label: "BELOW FLOOR", cls: "bg-bad-soft text-bad" },
+// Sweep Step 3.3/5 — migrated to canonical `.r2-chip` primitive
+// from r7b-primitives.css (restored chrome primitives section).
+// Visual register: mono uppercase chip with tone-soft bg + tone
+// border + tone-color ink. Matches the canonical R2 verdict-chip
+// shape used cross-surface (Pricing margin verdict + Mark Accepted
+// margin verdict + future surfaces).
+//
+// Token discipline upgrade: previous shape used Tailwind utility
+// classes (`inline-block rounded font-medium uppercase tracking-
+// wide bg-good-soft text-good` etc.) which work in light mode but
+// require token-shim alignment for dark mode. Canonical `.r2-chip`
+// uses --good-soft / --good / --warn-* / --bad-* tokens directly
+// + flex grammar consistent with other chips across surfaces.
+const STATUS_TONE: Record<MarginStatus, string> = {
+  GOOD: "good",
+  BELOW_TARGET: "warn",
+  BELOW_FLOOR: "bad",
 };
-
-const SIZE_STYLES: Record<"sm" | "md", string> = {
-  sm: "px-1.5 py-0.5 text-[9px]",
-  md: "px-2 py-0.5 text-[10px]",
+const STATUS_LABEL: Record<MarginStatus, string> = {
+  GOOD: "GOOD",
+  BELOW_TARGET: "BELOW TARGET",
+  BELOW_FLOOR: "BELOW FLOOR",
 };
 
 export function MarginVerdictPill({
@@ -41,12 +43,16 @@ export function MarginVerdictPill({
   status: MarginStatus;
   size?: "sm" | "md";
 }) {
-  const style = STATUS_STYLES[status];
+  // size "sm" → tighter padding; canonical .r2-chip has fixed
+  // padding so the sm variant is a small inline override.
+  const sizeStyle: React.CSSProperties | undefined =
+    size === "sm" ? { padding: "2px 6px", fontSize: 9 } : undefined;
   return (
     <span
-      className={`inline-block rounded font-medium uppercase tracking-wide ${SIZE_STYLES[size]} ${style.cls}`}
+      className={`r2-chip ${STATUS_TONE[status]}`}
+      style={sizeStyle}
     >
-      {style.label}
+      {STATUS_LABEL[status]}
     </span>
   );
 }
