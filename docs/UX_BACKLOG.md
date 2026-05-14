@@ -5,6 +5,77 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Production input one-time-vs-recurring distinction — surface prominence audit — Slice 11 design question]
+
+  **Slice:** Slice 11 design conversation. No immediate code action.
+  Bank for the Slice 11 design-conversation phase to surface to CD
+  when Slice 11 fires; v1.1 polish for the smart-defaults / lint /
+  templates work.
+
+  **Architectural context:** `production_inputs.is_one_time` flag
+  drives whether a row surfaces in customer-facing Additional
+  charges (as a one-time service fee) or rolls into per-unit tier
+  prices (as recurring production cost). Same architectural pattern
+  as `freight_inputs.freight_treatment` (`bundled` vs `pass_through`)
+  — flag determines customer-facing visibility + accounting register
+  for the same underlying cost row.
+
+  Currently PM-set, no defaults derived from cost category, no
+  validation against row name patterns. Slice 11 wires the binding
+  cleanly (production_inputs.is_one_time = true → service fee row in
+  Quote PDF) but the binding correctness depends on PMs reliably
+  setting the flag right.
+
+  **CD design question for Slice 11:** does the Cost build's
+  Production section row UI give the one-time-vs-recurring
+  distinction enough visual prominence? If it's a buried checkbox
+  in a drilldown, the binding is silently easy to get wrong — and
+  the failure mode (recurring cost mislabeled as one-time, or
+  one-time fee silently amortized into per-unit price) is
+  customer-visible and PM-confusing.
+
+  Audit-worthy because: same pattern that bit Quote PDF Additional
+  charges (placeholder fixtures shipping) — flag-driven
+  customer-facing distinctions need surface-level visibility, not
+  drilldown-buried treatment.
+
+  **v1.1 polish candidates** (separate from the Slice 11 design
+  conversation):
+
+  1. **Smart defaults by `cost_category`** — tooling / setup /
+     R&D categories default `is_one_time = true`; labor / QC /
+     packout default false. Reduces PM cognitive load on the
+     most common cases.
+  2. **Inline lint warnings** when row name/category pattern
+     doesn't match the flag state. E.g., name contains "tooling"
+     + flag is false → warning; name contains "labor" + flag is
+     true → warning. Same lint shape as Cost build section
+     assignment validation (banked earlier in this UX_BACKLOG).
+  3. **Common one-time charge templates** — pre-configured rows
+     with flag values set ("Mold tooling," "Project setup,"
+     "Formulation R&D") that PMs add by template instead of
+     hand-building each row.
+
+  **Sequencing dependency on Quote PDF Additional charges block
+  real-data binding entry (above):** the customer-facing impact
+  of the is_one_time flag only becomes visible once Slice 11 wires
+  the binding. Until then, PMs can't see the flag's effect on the
+  customer PDF; lint + defaults + templates work is less urgent.
+  Once Slice 11 ships, mis-flagged rows become an immediate
+  customer-quality risk.
+
+  **Cross-references:**
+  - Quote PDF Additional charges block — real-data binding
+    (Slice 11 owner; this entry's parent)
+  - Cost build section assignment validation (banked v1 blocker
+    in the leaf-detach micro-slice scope)
+  - `freight_inputs.freight_treatment` parallel pattern — same
+    audit applies to whether the bundled/pass_through choice has
+    enough visual prominence on the Freight section UI.
+
+  **Banked from Edward observation 2026-05-13.** No immediate
+  action; Slice 11 owns the conversation when it fires.
+
 - [Quote PDF Additional charges block — real-data binding — Slice 11 follow-up]
 
   **Slice:** Slice 11 (Quote PDF render path). Was the implicit
