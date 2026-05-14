@@ -597,6 +597,43 @@
   font-style: italic;
 }
 
+/* ─── Quote preview-chrome dark-mode adaptation — Pattern 39 ──
+ *
+ * R3 canonical (r3-shared.css) defines .preview-chrome's diagonal
+ * background as:
+ *   repeating-linear-gradient(45deg,
+ *     oklch(from var(--paper) calc(l - 0.02) c h) 0 12px,
+ *     var(--paper) 12px 24px)
+ *
+ * In light mode this works — base paper L=0.985, stripe L=0.965,
+ * visible 0.02 delta against the light field. In dark mode the
+ * same formula computes base L=0.16, stripe L=0.14 — same numeric
+ * delta but perceptually compressed at low L; the diagonal pattern
+ * disappears.
+ *
+ * R3 canonical was designed for light mode only (R-rounds typically
+ * ship single-mode prototypes). Pattern 39 nexus extension overrides
+ * the gradient to use `var(--paper-2)` for the stripe color, which
+ * auto-themes:
+ *   light: --paper-2 = oklch(0.965 ...) — same as the formula result
+ *   dark:  --paper-2 = oklch(0.19 ...)  — slightly LIGHTER than --paper
+ *
+ * Same visual in light mode (numeric equivalence); visible diagonal
+ * pattern preserved in dark mode (stripe lighter than base).
+ *
+ * Override wins over canonical via source-order cascade
+ * (r7b-primitives.css loads after r3-shared.css in globals.css).
+ *
+ * Banked from Edward smoke 2026-05-14 — diagonal pattern present in
+ * light, near-invisible in dark.
+ */
+.r3-shared .preview-chrome {
+  background:
+    repeating-linear-gradient(45deg,
+      var(--paper-2) 0 12px,
+      var(--paper) 12px 24px);
+}
+
 /* ─── Quote preview-toolbar — nexus extension (Pattern 39) ──
  *
  * Canonical R3 3styles.css defines .preview-toolbar with
