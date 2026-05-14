@@ -961,21 +961,16 @@ function DrawerChildList({
         <span className="num">Open</span>
       </div>
       {childSkus.length === 0 ? (
-        <div
-          className="r7b-comp-row"
-          style={{ gridTemplateColumns: "1fr" }}
-        >
-          <span
-            style={{
-              color: "var(--ink-3)",
-              fontStyle: "italic",
-              fontSize: 12,
-            }}
-          >
-            No child SKUs yet. Add one below or assign existing SKUs to this
-            assembly via the row&rsquo;s ⋯ menu.
-          </span>
-        </div>
+        // Sweep Step 1 — migrated to canonical .r7b-empty-state
+        // primitive. Earlier shape used .r7b-comp-row + single-column
+        // grid override which worked but was structurally weird
+        // (empty-state inside a comp-row). Pattern 19 disposition:
+        // the data shape really IS different — "no rows" ≠ "one
+        // special row" — so the primitive matches the semantic.
+        <p className="r7b-empty-state">
+          No child SKUs yet. Add one below or assign existing SKUs to this
+          assembly via the row&rsquo;s ⋯ menu.
+        </p>
       ) : (
         childSkus.map((c) => {
           const isLeaf = c.skuRole === "leaf";

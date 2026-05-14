@@ -248,7 +248,12 @@ export default async function QuoteBuilderPage({
         </div>
 
         {skus.length === 0 ? (
-          <p style={{ padding: "24px 16px", textAlign: "center", fontSize: 13, color: "var(--ink-3)", fontStyle: "italic", margin: 0 }}>
+          // Sweep Step 1 — migrated to canonical .r7b-empty-state
+          // primitive (Designer audit Finding 22). Inline-styled
+          // earlier; primitive consolidates this with the assembly
+          // drawer's child-list empty state and future SKU-table-
+          // empty cases.
+          <p className="r7b-empty-state">
             {editable
               ? 'No SKUs yet. Use "+ Add product" or "↗ Pull from HubSpot" below to start.'
               : "No SKUs."}

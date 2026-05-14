@@ -6,6 +6,7 @@
 @import "../styles/r7b-setup.css";
 @import "../styles/r3-quote.css";
 @import "../styles/r5-admin.css";
+@import "../styles/r7b-primitives.css";
 
 /*
  * Tailwind v4 @theme block — exposes CD's design tokens to utility
