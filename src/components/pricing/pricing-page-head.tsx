@@ -92,8 +92,17 @@ export function PricingPageHead({
 
   return (
     <>
-      <div className="r2-page-head">
-        <div>
+      {/* Sweep Step 3.2/5 — Pricing page chrome migrated from
+          legacy .r2-page-head to canonical .r7b-head (chrome canon
+          per dual-canon discipline). Inner H1 + sub-paragraph
+          retain R2 body register via .page-title / .page-sub (now
+          resolved under the .r2-pricing parent scope per Step 3.1/5
+          CSS adoption). RI.9 nav primitives (Eyebrow, ActionCluster,
+          YourNextMoveBanner) preserved — they ARE the chrome canon
+          per RI.9 + R7a/R7b implementation, and the new .r7b-head
+          structure wraps around them via .lhs / .actions slots. */}
+      <div className="r7b-head">
+        <div className="lhs">
           {/* Slice RI.9 § 3.1 — Eyebrow per R7a canon. F-6 inline
               backlink ("← Costs") removed — R7a's eyebrow is NEVER
               navigable. PMs use inner rail to navigate to Costs
@@ -105,12 +114,13 @@ export function PricingPageHead({
               `v${quote.versionNumber}`,
             ]}
           />
-          <h1 className="r2-page-title">
+          <h1 className="page-title">
             Tune <em>price</em> & review.
           </h1>
-          <p className="r2-page-sub">{subCopy}</p>
+          <p className="page-sub">{subCopy}</p>
         </div>
 
+        <div className="actions">
         {/* Slice RI.9 § 3.4 — Action cluster. Primary "Mark accepted"
             (gated by BELOW_FLOOR); secondary slot carries only the
             customer-response chip. The R7a workflow-cluster grouping
@@ -164,6 +174,7 @@ export function PricingPageHead({
             />
           }
         />
+        </div>
       </div>
 
       {/* Slice RI.9 § 3.3 — YOUR NEXT MOVE banner.
