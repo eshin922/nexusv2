@@ -180,6 +180,46 @@
   line-height: 1.5;
 }
 
+/* ─── Cross-canon em-in-H1 override (Pricing) ────────────────
+ *
+ * Banked from Edward smoke 2026-05-13 — dual-canon collision on
+ * the H1 em element when Pricing's R7b-chrome-wrapped H1 inherits
+ * the wrong em sizing.
+ *
+ * Chrome canon (.r7b-head h1 em) sets `font-size: 22px` because
+ * R7b's H1 grammar uses em as a SUBTITLE SUFFIX:
+ *   Setup:  `<h1>Setup <em>· SKUs, tiers, notes</em></h1>`
+ *   Costs:  `<h1>Costs <em>· {scenario} v{N}</em></h1>`
+ * Smaller em = secondary subtitle treatment. Intended.
+ *
+ * Pricing's H1 (R2 body canon) uses em for WORD-LEVEL EMPHASIS,
+ * not a subtitle:
+ *   Pricing: `<h1>Tune <em>price</em> & review.</h1>`
+ * "price" should be the same size as "Tune", just italic — R2 body
+ * grammar (canonical 2styles.css `.page-title em { font-style:
+ * italic; ... }` deliberately doesn't override font-size, expecting
+ * inheritance from .page-title's 36px).
+ *
+ * Without this override, .r7b-head h1 em wins font-size by default
+ * (canonical R2 rule under .r2-pricing scope doesn't declare
+ * font-size, so .r7b-head's 22px cascades through). Result is
+ * mixed: italic from R2, size from R7b — visually broken.
+ *
+ * Fix: declare `font-size: inherit` on the R2-side selector so
+ * specificity (0,2,1 > 0,1,2) wins both font-style AND font-size.
+ * Em inherits 36px from .page-title; renders italic at full
+ * heading size.
+ *
+ * Pattern 39 nexus extension instance — documented as accepted
+ * dual-canon-collision override. Other surfaces consuming similar
+ * em-as-word-emphasis grammar would add the same rule shape under
+ * their own scope (e.g., `.r3-quote .page-title em { font-size:
+ * inherit }` if Quote needs it).
+ */
+.r2-pricing .page-title em {
+  font-size: inherit;
+}
+
 /* ─── .r2-* RI.0-era global chrome primitives ──────────────
  *
  * Restored 2026-05-13 during sweep Step 3 after Step 3.1/5
