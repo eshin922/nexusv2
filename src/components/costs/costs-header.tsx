@@ -1,16 +1,30 @@
-// §6.b path-B Costs migration commit 2/5 — canonical r6-page-head
-// structure per r6_page.jsx lines 81-98 + 6styles.css .r6-page-head
-// rules. Drops Eyebrow + ActionCluster primitives in favor of inline
-// canonical structure (matches Setup path-B precedent).
+// Sweep Step 2 — Costs page chrome migration. Migrated from
+// canonical `.r6-page-head` (R6 body canon's own chrome) to
+// canonical `.r7b-head` (R7b chrome canon per the dual-canon
+// discipline declared in `docs/rest-of-app-fidelity-sweep-brief.md`
+// §0). Setup ships this structure post-§6.b; Costs adopts it now
+// for chrome parity across all quote-scoped surfaces.
 //
-// Title: "Costs" preserves Slice RI.8 surface naming canon
-// ("Cost build → Costs" rename); canonical R6 prototype predates the
-// rename. The scenario · vN tag renders inline as <em> per canonical
-// h1 grammar; canonical CSS handles the non-italic ink-3 styling.
+// Chrome canon (R7b):
+//   .r7b-head — 1fr/auto grid + 18px padding-bottom + bottom rule
+//     .lhs — flex column 6px gap min-width:0
+//       .eyebrow — mono 10/0.16em uppercase ink-3 with .sep dividers
+//       <h1> — display 30 italic 500 -0.012em; <em> 22 ink-3 normal
+//       <p class="sub"> — 13 ink-3 max-width 64ch
+//     .actions — flex 8px gap flex-shrink:0
+//
+// Surface-extension (Pattern 39 nexus extension):
+//   .r6-page-head-sync — small below-eyebrow status strip preserving
+//   the R6 pulse-dot + sync-timestamp affordance. Distinct semantic
+//   from .eyebrow (identity); kept because data-freshness is a
+//   Costs-specific affordance PMs read at scan speed. Lives in
+//   r6-cost-build.css canonical CSS (already there as .r6-page-head
+//   .meta + .live rules); we preserve the markup so the canonical
+//   CSS still applies.
 //
 // Slice RI.7 fix preserved — non-editable banner stays as separate
-// page-level row (SentStatusBanner below), not jammed into the header
-// flex container.
+// page-level row (SentStatusBanner below), not jammed into the
+// header flex container.
 
 import Link from "next/link";
 
@@ -41,8 +55,15 @@ export function CostsHeader({
   void _editable;
 
   return (
-    <div className="r6-page-head">
-      <div>
+    <div className="r7b-head">
+      <div className="lhs">
+        <div className="eyebrow">
+          {project.clientName ?? project.dealName}
+          <span className="sep">·</span>
+          {quote.scenarioLabel}
+          <span className="sep">·</span>
+          v{quote.versionNumber} {quote.status}
+        </div>
         <h1>
           Costs{" "}
           <em>
@@ -54,14 +75,18 @@ export function CostsHeader({
           stack across {tierCount} {tierWord}. Drill in to edit; the stack
           updates live.
         </p>
+        {/* Pattern 39 nexus extension — pulse-dot sync indicator
+            specific to Costs (data freshness PMs read at scan speed).
+            Canonical .r6-page-head .meta + .live rules apply via
+            r6-cost-build.css; markup preserved so CSS still binds.
+            Sits below the .sub paragraph as a Costs-specific affordance,
+            not a chrome canon element. */}
         <div className="meta">
           <span className="live" aria-hidden />
           <span>Synced to HubSpot · {syncLabel}</span>
-          <span>·</span>
-          <span>{project.clientName ?? project.dealName}</span>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 8 }}>
+      <div className="actions">
         {/* Slice RI.9 § 5.1 — "View as customer" canonical sideways
             glance affordance. Routes to Quote, bypassing Pricing. */}
         <Link
