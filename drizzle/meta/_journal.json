@@ -162,6 +162,13 @@
       "when": 1778632906911,
       "tag": "0022_careful_ogun",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1778651054196,
+      "tag": "0023_tier_recommended",
+      "breakpoints": true
     }
   ]
 }

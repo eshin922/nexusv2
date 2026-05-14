@@ -1,0 +1,1 @@
+ALTER TABLE "quote_tiers" ADD COLUMN "recommended" boolean DEFAULT false NOT NULL;

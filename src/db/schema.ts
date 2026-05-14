@@ -369,6 +369,13 @@ export const quoteTiers = pgTable(
     // PMs use this when one tier needs a different markup than the
     // quote-level adjustment. Wired up in Slice 9.2.
     tierPriceAdjPct: numeric("tier_price_adj_pct", { precision: 5, scale: 4 }),
+    // §6.b Step 5 prep (Pattern 22 #7) — R7b "★ Recommended" flag.
+    // One tier per quote can be marked recommended; PMs surface
+    // the recommendation to customers via the Quote PDF +
+    // Mark-Accepted flow. "One per quote" invariant enforced at
+    // the action layer (setTierRecommended clears sibling rows on
+    // set); no DB constraint v1.
+    recommended: boolean("recommended").notNull().default(false),
     // (Slice 9.1's `client_target_price_per_unit` lived here originally;
     // moved to a dedicated `quote_sku_tier_targets` table in Slice 9.4b
     // migration 0016 once the IA spec settled per-(SKU, tier) granularity.

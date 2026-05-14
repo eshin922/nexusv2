@@ -128,71 +128,51 @@ export function SectionWithDrilldown({
     setOpenId(isOpen ? null : id);
   };
 
+  // Canonical .r6-section rules (6styles.css L324-329) provide paper bg
+  // + 1px rule border + 12px radius + overflow hidden. .r6-section.open
+  // descendant rules drive the row bg-shift + bottom rule (L340-343).
+  // .r6-section-row rules (L331-338) provide the 32/1fr/auto×4 grid +
+  // 16px gap + 16/22 padding + cursor + 80ms transition; :hover bg
+  // shift (L339). Chevron rotation handled by .r6-section.open .chev
+  // (L350). Class register matches canonical verbatim.
   return (
-    <article
-      className={`r6-section overflow-hidden rounded-xl transition-colors ${
-        isOpen ? "[&_.r6-section-row]:bg-paper-2 [&_.r6-section-row]:border-b [&_.r6-section-row]:border-rule" : ""
-      }`}
-      style={{
-        background: "var(--paper)",
-        border: "1px solid var(--rule)",
-      }}
-    >
+    <article className={`r6-section${isOpen ? " open" : ""}`}>
       <button
         type="button"
         onClick={handleToggle}
-        className="r6-section-row grid w-full cursor-pointer items-center text-left transition-colors hover:bg-paper-2"
+        className="r6-section-row"
         style={{
-          gridTemplateColumns: "32px 1fr auto auto auto auto",
-          gap: "16px",
-          padding: "16px 22px",
+          width: "100%",
+          textAlign: "left",
+          border: "none",
+          outline: "none",
+          font: "inherit",
+          color: "inherit",
         }}
         aria-expanded={isOpen}
         aria-controls={`section-${id}-drawer`}
       >
-        {/* Chevron (own track) */}
-        <span
-          aria-hidden
-          className={`grid h-full place-items-center font-mono text-[12px] text-ink-3 transition-transform ${
-            isOpen ? "rotate-90" : ""
-          }`}
-        >
+        <span aria-hidden className="chev">
           ›
         </span>
 
-        {/* Head — name + meta sublabel + (deposit chip when present).
-            R6 source `index.html:2643-2653`: head is flex column,
-            gap 3px between name/meta. Name inherits body line-height
-            (1.5) for vertical breathing — NOT leading-tight. */}
-        <div
-          className="flex min-w-0 flex-col"
-          style={{ gap: "3px" }}
-        >
+        {/* Head — canonical .head provides flex column + 3px gap;
+            .head .name supplies display 18/500/-0.005em ink; .head
+            .meta supplies mono 11 ink-3 / 0.04em letter-spacing. */}
+        <div className="head" style={{ minWidth: 0 }}>
+          <div className="name">{name}</div>
           <div
-            className="font-display text-ink"
+            className="meta"
             style={{
-              fontSize: "18px",
-              fontWeight: 500,
-              letterSpacing: "-0.005em",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
-          >
-            {name}
-          </div>
-          <div
-            className="truncate font-mono text-ink-3"
-            style={{ fontSize: "11px", letterSpacing: "0.04em" }}
           >
             {sublabel}
           </div>
           {(indicatorChip || (deposit && deposit.depositStatus !== "none")) && (
-            <div
-              style={{
-                marginTop: "4px",
-                display: "flex",
-                gap: "6px",
-                flexWrap: "wrap",
-              }}
-            >
+            <div className="r6-badges" style={{ marginTop: 4 }}>
               {indicatorChip && <IndicatorChip chip={indicatorChip} />}
               {deposit && deposit.depositStatus !== "none" && (
                 <DepositChip deposit={deposit} />
@@ -201,19 +181,17 @@ export function SectionWithDrilldown({
           )}
         </div>
 
-        {/* Status chip */}
         <StatusChipView chip={statusChip} />
 
-        {/* Owner — placeholder when no data per Path A.
-            UX_BACKLOG entry "Cost section ownership data model"
-            tracks the schema + assignment surface. */}
         <Owner initials={ownerInitials} name={ownerName} lineCount={lineCount} />
 
-        {/* Mini-stack — flex group of tier-mini cells. Values are
-            PER-UNIT (R6 cost-build-page.jsx lines 53-77 — tier values
-            are per-unit cost contribution because that's the metric
-            PMs negotiate with). Per-unit = costBreakdown / tier.qty. */}
-        <div className="mini-stack flex items-center gap-3 font-mono text-[10.5px]">
+        {/* Mini-stack — canonical .mini-stack provides flex + 12px gap
+            + mono 10.5; .tier-mini flex column right-aligned with 2px
+            gap; .tier-mini .lbl 9/0.08em uppercase ink-4 + .tier-mini
+            .val 12 ink-3; .tier-mini.active .val ink + 500; .val.empty
+            ink-4 italic 10.5. Per-unit = costBreakdown / tier.qty
+            (PMs negotiate at per-unit). */}
+        <div className="mini-stack">
           {tiers.map((t) => {
             const rollup = quoteRollup.find((r) => r.tierId === t.id);
             const tierTotal = rollup ? valueFor(sectionKind, rollup) : 0;
@@ -224,21 +202,11 @@ export function SectionWithDrilldown({
             return (
               <div
                 key={t.id}
-                className="tier-mini flex flex-col items-end gap-[2px]"
+                className={`tier-mini${isActive ? " active" : ""}`}
                 title={`${t.label}${t.qty !== null ? ` · ${t.qty.toLocaleString()} units` : ""}`}
               >
-                <span className="text-[9px] uppercase tracking-[0.08em] text-ink-4">
-                  {t.label}
-                </span>
-                <span
-                  className={
-                    isEmpty
-                      ? "italic text-[10.5px] text-ink-4"
-                      : isActive
-                        ? "text-[12px] font-medium text-ink"
-                        : "text-[12px] text-ink-3"
-                  }
-                >
+                <span className="lbl">{t.label}</span>
+                <span className={`val${isEmpty ? " empty" : ""}`}>
                   {isEmpty ? "—" : fmtPerUnit(perUnit)}
                 </span>
               </div>
@@ -246,25 +214,19 @@ export function SectionWithDrilldown({
           })}
         </div>
 
-        {/* Open/Close cta — accent-ink when open */}
-        <span
-          className={`font-mono text-[10.5px] uppercase tracking-[0.05em] ${
-            isOpen ? "text-accent-ink" : "text-ink-3"
-          }`}
-        >
+        {/* Open/Close cta — canonical .open-cta sets mono 10.5 / 0.05em
+            uppercase; .r6-section.open .open-cta shifts to accent-ink. */}
+        <span className="open-cta">
           {isOpen ? "Close ↑" : "Open ↓"}
         </span>
       </button>
 
-      {/* Drawer — paper-2 bg + 18px×22px padding per R6 lines 2706-2709.
-          Always mounted; CSS toggles visibility (RI.4 perf fix). */}
+      {/* Drawer — canonical .r6-drawer provides paper-2 bg + 18/22/22
+          padding (L415-418). Hidden when closed (CSS toggle preserved
+          for perf). */}
       <div
         id={`section-${id}-drawer`}
-        className={
-          isOpen
-            ? "r6-drawer bg-paper-2 px-[22px] pt-[18px] pb-[22px]"
-            : "hidden"
-        }
+        className={isOpen ? "r6-drawer" : "hidden"}
         role="region"
       >
         {children}
@@ -273,31 +235,15 @@ export function SectionWithDrilldown({
   );
 }
 
+// Canonical .status-chip rules (6styles.css L364-374) provide mono 10
+// / 0.06em / 3-8 padding / pill radius / paper-3 bg / ink-3 / 1px rule
+// border / uppercase / inline-flex / 5px gap. Modifier classes (empty
+// / in_progress / complete) shift bg + color per kind. No inline.
 function StatusChipView({ chip }: { chip: StatusChip }) {
-  // R6 status-chip lines 2655-2665 + section-summary-row.jsx:18-23.
-  // Text rendered = kind enum with underscore replaced (so "in_progress"
-  // → "in progress", uppercased via CSS). No custom labels.
-  const cls = (() => {
-    switch (chip.kind) {
-      case "empty":
-        return "border-rule bg-paper-3 text-ink-4";
-      case "in_progress":
-        return "border-transparent bg-warn-soft text-warn";
-      case "complete":
-        return "border-transparent bg-good-soft text-good";
-    }
-  })();
   const dot =
     chip.kind === "complete" ? "●" : chip.kind === "in_progress" ? "◐" : "○";
   return (
-    <span
-      className={`status-chip inline-flex items-center gap-[5px] rounded-full border font-mono uppercase ${cls}`}
-      style={{
-        padding: "3px 8px",
-        fontSize: "10px",
-        letterSpacing: "0.06em",
-      }}
-    >
+    <span className={`status-chip ${chip.kind}`}>
       <span aria-hidden style={{ fontSize: "9px" }}>
         {dot}
       </span>
@@ -306,6 +252,9 @@ function StatusChipView({ chip }: { chip: StatusChip }) {
   );
 }
 
+// Canonical .owner rules (6styles.css L376-387) provide flex + 6px gap
+// + mono 10.5 / 0.04em ink-3; .owner .av is 22×22 paper-3 / 1px rule /
+// 50% radius / mono 9.5 ink-2 600. No inline.
 function Owner({
   initials,
   name,
@@ -315,34 +264,10 @@ function Owner({
   name?: string;
   lineCount?: number;
 }) {
-  // R6 owner block lines 2667-2678. 22px paper-3 circle with rule
-  // border. Inline-style bg/border to bypass Tailwind v4 @theme
-  // utility resolution issue (same pattern as cost stack outer).
   const hasOwner = !!initials && !!name;
   return (
-    <div
-      className="owner flex items-center font-mono"
-      style={{
-        gap: "6px",
-        fontSize: "10.5px",
-        letterSpacing: "0.04em",
-        color: "var(--ink-3)",
-      }}
-    >
-      <span
-        aria-hidden
-        className="inline-grid place-items-center rounded-full font-mono"
-        style={{
-          width: "22px",
-          height: "22px",
-          flexShrink: 0,
-          background: "var(--paper-3)",
-          border: "1px solid var(--rule)",
-          fontSize: "9.5px",
-          fontWeight: 600,
-          color: "var(--ink-2)",
-        }}
-      >
+    <div className="owner">
+      <span aria-hidden className="av">
         {hasOwner ? initials : ""}
       </span>
       <span style={{ color: hasOwner ? "var(--ink-3)" : "var(--ink-4)" }}>
@@ -357,30 +282,22 @@ function Owner({
   );
 }
 
-// Slice RI.8 Option A hotfix — generic indicator chip for surfacing
-// "why em-dash" semantic context next to the sublabel. Used by
-// Production section when services are billed separately
-// (allocate_service_fees_to_cost=false) — explains the otherwise-
-// confusing zero in the cost-stack PROD column.
+// Canonical .r6-badge rules (6styles.css L822-831) provide inline-flex
+// + 4px gap + mono 10 / 0.05em / 2-7 padding / pill radius / paper-3 +
+// ink-3 + 1px rule base; .warn / .good / .accent variant shifts bg +
+// color (transparent border for soft variants). Slice RI.8 Option A
+// hotfix — generic indicator chip for surfacing "why em-dash" semantic
+// context next to the sublabel.
 function IndicatorChip({
   chip,
 }: {
   chip: { label: string; tone: "warn" | "neutral" | "accent" };
 }) {
-  const cls =
-    chip.tone === "warn"
-      ? "border-transparent bg-warn-soft text-warn"
-      : chip.tone === "accent"
-        ? "border-transparent bg-accent-soft text-accent-ink"
-        : "border-rule bg-paper-3 text-ink-3";
+  const variant =
+    chip.tone === "warn" ? "warn" : chip.tone === "accent" ? "accent" : "";
   return (
     <span
-      className={`inline-flex items-center gap-[5px] rounded-full border font-mono uppercase ${cls}`}
-      style={{
-        padding: "3px 7px",
-        fontSize: "9.5px",
-        letterSpacing: "0.06em",
-      }}
+      className={`r6-badge${variant ? ` ${variant}` : ""}`}
       title={chip.label}
     >
       {chip.label}
@@ -388,11 +305,10 @@ function IndicatorChip({
   );
 }
 
+// Canonical .r6-badge with warn/good/neutral variant per status. R6
+// source content-audit Concern 4: due → warn, invoiced/paid → good,
+// reconciled/base → neutral (paper-3 + ink-3 + rule).
 function DepositChip({ deposit }: { deposit: DepositRow }) {
-  // R6 deposit-chip lines 3281-3296: base = paper-3 + ink-3 + rule border;
-  // outstanding = warn-soft + warn (transparent border); invoiced/paid =
-  // good-soft + good (transparent border). NOT accent-soft for invoiced
-  // (that was CC's drift). Per Designer content audit Concern 4.
   const { depositStatus, depositInvoiceId, depositAmount } = deposit;
   const label = (() => {
     switch (depositStatus) {
@@ -414,28 +330,15 @@ function DepositChip({ deposit }: { deposit: DepositRow }) {
         return "";
     }
   })();
-  const cls = (() => {
-    switch (depositStatus) {
-      case "due":
-        return "border-transparent bg-warn-soft text-warn";
-      case "invoiced":
-        return "border-transparent bg-good-soft text-good";
-      case "paid":
-        return "border-transparent bg-good-soft text-good";
-      case "reconciled":
-        return "border-rule bg-paper-3 text-ink-3";
-      default:
-        return "border-rule bg-paper-3 text-ink-3";
-    }
-  })();
+  const variant =
+    depositStatus === "due"
+      ? "warn"
+      : depositStatus === "invoiced" || depositStatus === "paid"
+        ? "good"
+        : "";
   return (
     <span
-      className={`r6-deposit-chip inline-flex items-center gap-[5px] rounded-full border font-mono uppercase ${cls}`}
-      style={{
-        padding: "3px 7px",
-        fontSize: "9.5px",
-        letterSpacing: "0.06em",
-      }}
+      className={`r6-badge${variant ? ` ${variant}` : ""}`}
       title={`Deposit status: ${depositStatus}`}
     >
       {label}

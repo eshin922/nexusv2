@@ -92,6 +92,35 @@ distinction early prevents drift in two directions: over-renaming
 clarity) or under-renaming (surface-anchored identifiers stay on
 the old name, creating drift between naming and label).
 
+## Pattern-28-vs-rename-canon collision (banked from §6.b Step 11 audit)
+
+When R-round designer notes / prototype copy refers to a surface by
+its OLD name AND a subsequent rename canon has rebranded the
+surface, the rename canon wins. Copy fidelity (Pattern 28) does NOT
+override the rename for surface-reference contexts (banner labels,
+helper text linking to a destination, eyebrow surface tags).
+
+Concept references (math layer naming, audit-log keys, schema
+columns, lifecycle enums) follow the original Pattern 28 / rename
+heuristic — preserve concept refs even if the surface gets renamed.
+
+**Reference moment:** §6.b Step 11 Designer audit Finding 10. R7b
+canonical JSX literal said "Cost build" for the setup nextMove
+label, the DN callout body ("Cost goes on Cost build"), and the
+leaf drawer helper ("Cost goes on Cost build"). The RI.8 surface
+rename canon ("Cost build → Costs") post-dated the R7b prototype.
+Pattern 28 verbatim copy would have shipped "Cost build" across
+the surface refs; surface rename canon supersedes — landed
+"Continue to Costs →" / "Cost goes on Costs" / "Cost goes on Costs"
+respectively.
+
+**Practical test for the auditor:** is the copy referring to a
+surface by name? If yes, apply rename canon. Is the copy describing
+a concept that happens to share a name with a renamed surface? If
+yes, preserve per Pattern 28. The earlier "Rename heuristic — surface
+refs vs concept refs" section is the source of truth for the
+distinction.
+
 ## "Design was illustrative; real data needs different proportions"
 
 CD's design prototypes are anchored on mock data. When real
@@ -467,6 +496,844 @@ guess.
 Banked from RI.9 step 0 schema-mismatch catch (May 2026).
 Protocol working as intended — pre-build verification caught
 the issue before migration was written.
+
+**Second instance — §6.b step 0 (May 2026).** §6.b brief
+referenced four unverified schema entities pre-kickoff:
+
+1. `quote_skus_components` table for assembly drawer's nested
+   component rows (§3.3). Doesn't exist. Current schema has
+   `quote_skus` as a self-referencing tree (`parent_sku_id`)
+   per Slice 5.5 BOM. Per-component cost data is persisted on
+   `packaging_inputs` (Cost build's packaging-lines table) —
+   columns map nearly 1:1 to brief's nested-component shape
+   except no name field; lines identified by line_group_id +
+   supplier + category.
+2. `quote_meta.{internal,customer_facing}_notes` (§3.6). Should
+   be `quotes.{internal,customer_facing}_notes` (`schema.ts:255-256`).
+   Notation error.
+3. `markup_categories.markup_pct` (§3.3, §7). Should be
+   `markup_defaults.markup_pct` (`schema.ts:596`); category is
+   text PK on `markup_defaults`, not a separate `markup_categories`
+   table.
+4. Companion-doc paths assumed `docs/r7b-*.md` at top-level; files
+   were at `docs/design-prototypes/dist/docs/`. R7a's location
+   referenced in the brief was also incorrect.
+
+Items 2-4 patched inline pre-kickoff. Item 1 escalated to Edward
++ CA for disposition (hybrid path (c) chosen pre-investigation;
+sub-case to be confirmed once attachment convention + missing
+name field are dispositioned).
+
+**Pattern is paying for itself.** Two slices in a row caught
+load-bearing schema mismatches before any DDL was written. If
+a third instance lands the same way, consider making the
+schema-verification step explicit in slice brief templates —
+"§0.5 schema verification" as a named gate before §0 migration
+work.
+
+**Third + fourth instances during §6.b prep (same session as #2).**
+Counted as three since #2's notation issues (quote_meta,
+markup_categories, companion paths) are distinct from the
+architectural Mismatch 1:
+
+3. **§6.b architectural mismatch (Mismatch 1):** R7b designer
+   notes line 79 claims "the schema is settled, the data is
+   already on the SKU row" for the assembly-drawer nested
+   component table. False — per-component cost data lives on
+   `packaging_inputs` keyed to LEAF SKUs only, not on
+   `quote_skus`. Three forks surfaced (add columns to quote_skus;
+   route writes to packaging_inputs; carve to follow-up). Edward
+   + CA dispositioned carve (option γ) to preserve §6.b
+   shipping discipline; inline-edit affordance becomes child-SKU
+   navigation list in v1; component-cost-data unification banked
+   as `§6.c` candidate slice OR R7c carry-forward.
+
+**Fourth instance — §6.b Step 0 (same prep session).** Brief
+proposed adding a new `quote_skus.display_order INTEGER` column.
+Pre-DDL grep on `schema.ts` revealed `quote_skus.sort_order
+INTEGER NOT NULL DEFAULT 0` already exists at `schema.ts:423`,
+seeded by `actions/quotes.ts:436-450` with `max(sort_order) + 1`,
+read-ordered via `(sort_order ASC, created_at ASC)` in
+`actions/warnings.ts:124`. Same semantics as the brief's
+proposed column. Step 0 collapsed to no-op; drag-and-drop in
+step 9 writes the existing column.
+
+**Four instances in two slices.** Two pure architectural mismatches
+(scenarios table, packaging_inputs/quote_skus split), two notation
+errors (quote_meta, markup_categories), one duplicate-column
+proposal (display_order vs sort_order). The pattern keeps paying.
+
+**Fifth + sixth instances — §6.b Step 1 pre-flight (same prep
+session).** R7b §3.1 SKU table layout proposes `quote_skus.category`
++ `{pack}` rendering. Pre-Step-1 schema check revealed:
+
+5. `quote_skus.category` — does NOT exist. Schema comment at
+   `schema.ts:404` flags `cost_category` as Slice 9 / HubSpot
+   hs_product_type deferral. R7b layout assumed it shipped.
+   Carve disposition: drop standalone Category column from
+   §6.b 6-column SKU table; restore in 7-column form when
+   Slice 9 lands.
+6. `quote_skus.pack` — does NOT exist. RI.6 quote/page.tsx
+   comment ("Pack format not yet on quote_skus — Slice 11
+   schema add"). Carve disposition: render `{pack}` sub-text
+   NULL-safely inside Product cell — appears the moment Slice
+   11 lands, no §6.b-side rework needed.
+
+**Six instances across two slices.** Three architectural (scenarios,
+packaging_inputs/quote_skus, category), two notation (quote_meta,
+markup_categories), one duplicate (display_order), one
+schema-deferral (pack). The pattern catches all six shapes.
+
+**Seventh instance — §6.b Step 5 (Tier table prep).** R7b
+designer notes Decision 5 + brief §3.4 + data-source map all
+commit to a `quote_tiers.recommended` BOOL flag ("one per
+quote"; ★ star UI). Schema check: column doesn't exist. UI
+types (`src/types/quote.ts:143`) already expect it; Mark-Accepted
+stubs it via hardcoded "middle tier" placeholder
+(`src/app/projects/[id]/quotes/[quoteId]/mark-accepted/page.tsx:139`).
+Data-source map labels it "R4 commitment" — was scoped in R4 but
+never landed; the stub has been carrying the concept forward.
+
+Disposition (option a — ship migration as Step 5 prep): bounded
+single-BOOL migration; action layer enforces "one per quote"
+invariant by clearing siblings on set (no DB constraint v1);
+stub replaced with real read + legacy fallback to middle tier
+for pre-§6.b quotes. Audit log action: `recommended_updated`.
+
+**Seven instances across two slices.** Pattern is no longer
+"interesting observation" — it's the rule. Every brief crosses
+the schema-verification gate; nearly every time, something
+gets caught.
+
+**Three instances in two slices is the trigger.** Per the "third
+instance" threshold above, the schema-verification step should
+now be an explicit named gate in slice brief templates. Future
+briefs should include:
+
+```
+## §0.5 — Schema verification (pre-DDL)
+
+Before Step 0 (migration), CC verifies every schema entity the
+brief references against current schema.ts. Each unmatched
+entity is logged; mismatches require disposition before §0
+proceeds. Notation errors patched inline; architectural
+mismatches escalate to CA.
+```
+
+Bank in slice brief template once the next brief is drafted.
+The lesson is no longer "remember to verify" — it's "make
+verification a structural gate." Pattern 22 has earned its
+escalation.
+
+**Refinement banked during §6.b prep:** CC runs the schema-
+verification pass on briefs BEFORE Edward approval, not after.
+Adds ~30 min upfront; saves the disposition cycles that happen
+when the brief is already considered final ("can I really change
+this now?"). The earlier the schema-mismatch surfaces, the
+cheaper the carve. Edward's directive during §6.b prep: adopt as
+protocol for R7c + future slices.
+
+The full §0.5 gate now reads:
+
+```
+## §0.5 — Schema verification (pre-approval)
+
+Before Edward + CA approve the brief, CC runs a verification
+pass on every schema entity the brief references against
+current schema.ts. Each unmatched entity is logged as a
+mismatch with proposed disposition (carve / notation-fix /
+column-add / reuse-existing). Edward + CA disposition each
+mismatch in approval. Brief is patched inline before §0
+proceeds.
+
+Adopted post-§6.b after six Pattern 22 instances across two
+slices (RI.9 + §6.b).
+```
+
+**Pattern 25 promoted to standing protocol — §6.b Step 5 prep
+(7th Pattern 22 instance).** No longer a "candidate
+recommendation" — it's the working discipline for every future
+brief. CA writing briefs runs (or asks CC to run) the
+verification pass before sending the brief for Edward approval.
+Edward's review reads the brief KNOWING the schema-mismatch
+disposition is settled, not pending. The §0.5 gate is the
+canonical placeholder in the brief template; mismatches and
+their disposition land inline before §1 Scope.
+
+Two failure modes the standing protocol prevents:
+
+1. CC starts implementation, hits a Pattern 22 mismatch
+   mid-step, has to escalate, ships partial work or backs out.
+   Cost: at least one round-trip per mismatch + cognitive
+   overhead from context-switching.
+2. Brief reads as final to Edward + CA, schema-mismatch
+   surfaces in CC implementation, brief gets amended
+   retroactively. "Brief was approved" becomes negotiable —
+   undermines the scope-contract framing in Pattern 28.
+
+Both fail the same way: schema-as-implementation-detail instead
+of schema-as-contract. Running the §0.5 pass pre-approval makes
+schema part of the contract.
+
+## "Per-commit fidelity manifest on multi-step design slices"
+
+When a slice ships many sequential commits against a complex
+design source (R-round prototype + designer notes + data-source
+map), per-step smoke checkpoints become expensive — Edward
+context-switches to the browser, walks the surface, returns,
+multiplied by N steps. Fidelity drift can also accumulate silently
+between checkpoints when smoke targets aren't pinned to source
+elements.
+
+The **per-commit fidelity manifest** is a structured trailer
+appended to every implementation commit message on a brief-driven
+slice. It gives Edward (and any auditor) a contract for what each
+commit claims to ship against the design source — without forcing
+a full smoke pass per step.
+
+**Manifest shape (mandatory on every implementation commit):**
+
+```
+## Fidelity manifest
+
+**MATCHED (this commit ships against R<round> source):**
+- <R-source element 1> — implemented as <how>
+- <R-source element 2> — implemented as <how>
+- ...
+
+**DEFERRED (R-source element not shipped this commit; target step):**
+- <R-source element X> → Step <N>: <one-line reason>
+- ...
+
+**NOT-IN-ANY-STEP (no step home; escalation needed if shipped):**
+- <element>: <why no step home>
+- ...
+```
+
+**Reading the manifest:** Edward (or anyone smoking) compares
+MATCHED claims against the rendered surface; checks DEFERRED
+items have a real future step; treats NOT-IN-ANY-STEP entries
+as fidelity gaps that need a step assignment (or a brief
+amendment with documented deferral rationale).
+
+**When the manifest is required:**
+
+- Every step commit on a slice with a CD-round design source
+  (R5+ briefs, R7a, R7b, R7c, etc.)
+- Brief-amendment commits that touch implementation code
+- Smoke-driven hotfix commits that re-touch fidelity surfaces
+
+**When NOT required:**
+
+- Pure refactor / dependency-bump / build-config commits
+- Documentation-only commits (briefs, designer notes, this file)
+- Branch-prep / merge commits
+
+**Smoke discipline this enables:**
+
+- Edward defaults to read-only manifest verification per commit
+  (~30 seconds: scan the MATCHED list, confirm names line up with
+  R-source elements)
+- Full smoke pass happens once, at Step 10 (or equivalent
+  "comprehensive smoke" step), with manifest history serving as
+  the PM-side audit trail
+- Designer agent (Step 11) cross-references manifests against
+  R-source elements as part of its rubric — any MATCHED claim
+  the rendered surface doesn't honor is a HIGH finding
+
+**Banked from Slice §6.b Step 1 amendment (May 2026).** Edward
++ CA dispositioned "run-through-then-audit" mode for §6.b Steps
+2-10: no per-step smoke; manifest contract carries the fidelity
+discipline. Pattern formalized so future slices opt in to the
+same mode without re-negotiating the convention.
+
+If future slices show that manifest accuracy degrades over many
+steps (CC drift between what manifest claims and what was
+shipped), introduce a manifest-cross-check tool — `scripts/audit/
+fidelity-manifest.mjs` could parse the manifest from a commit
+range and surface MATCHED claims that touched no relevant files.
+Until that's needed, the discipline lives in commit-author care.
+
+## "Two-layer manifest: structural + polish"
+
+Pattern 26 ships a single MATCHED list. §6.b Step 4 exposed the
+gap: a commit can satisfy MATCHED for every structural primitive
+(layout, props, action wiring) while shipping zero of the design
+source's polish (accent borders, chips, audience labels, layout
+register). The structural primitive is implemented; the visual
+fidelity isn't. PM smoke catches this immediately; designer
+audit lands the same finding at Step 11.
+
+**Banked from §6.b Step 4 hand-off + Edward's directive (May 2026).**
+The Notes split first-ship rendered as two stacked plain
+textareas — structurally correct per brief §3.6 ("internal +
+customer-facing zones") but missing every polish element R7b
+designer notes specified (purple/green accent borders, INTERNAL/
+CUSTOMER chips, audience labels, side-by-side layout).
+
+**Pattern 27 update — manifest is two-layer (visual + copy folded
+under POLISH per the unified treatment in Pattern 28 refinement):**
+
+```
+## Fidelity manifest
+
+**STRUCTURAL MATCHED (this commit ships against R<round> source):**
+- <primitives implemented this step>
+
+**POLISH MATCHED (visual treatment + copy verbatim per R<round>
+designer notes + prototype HTML):**
+
+- Visual: <accent borders, chips, subtitles, color tokens,
+  typography, layout grammar>
+  - e.g., "purple --internal left-accent border on Internal card"
+  - e.g., "INTERNAL chip (purple-soft) top-right"
+  - e.g., "side-by-side layout, not stacked"
+
+- Copy (verbatim from designer notes §X.Y / prototype):
+  - e.g., banner subtitle: "once SKUs and tiers are settled"
+  - e.g., audience footer: "Audience: you, other PMs, and
+    admins. Sourcing dependencies, customer phone notes, R&D
+    blockers go here." (R7b §3.6 line 38)
+  - e.g., rationale callout: "Setup is the **starting shape**
+    of the quote: what we're selling, in what quantities, with
+    what context. Cost goes on Cost build (the next surface)."
+    (R7b designer notes line 7)
+
+**DEFERRED:**
+- <element> → Step N
+
+**NOT-IN-ANY-STEP:**
+- <element>: <why no step home>
+```
+
+**Audit hint:** if POLISH MATCHED is empty for a step that has
+visual treatment in the design source, the step is incomplete
+regardless of structural correctness. Edward + Designer audit
+both read POLISH MATCHED first when smoke-checking against the
+prototype screenshot.
+
+## "Briefs are scope contracts; design docs are fidelity contracts"
+
+Pattern 28 — codified to survive context compaction.
+
+A brief specifies WHAT each step implements (column count, drawer
+behavior, schema commitments) and WHEN (sequencing, dependencies).
+A brief does NOT specify visual treatment in implementable detail —
+that lives in the design source: designer notes for the canonical
+treatment, prototype HTML for the layout grammar.
+
+**Fidelity is two-pronged:**
+
+1. **Visual treatment** — accent borders, chips, layouts, typography,
+   color tokens, spacing, side-by-side vs stacked, hover/focus
+   states. From designer notes + prototype HTML.
+2. **Copy verbatim** — subtitles, helper text, rationale callouts,
+   audience footers, banner copy, button labels. **Word-for-word
+   from the design source**, not brief paraphrase. Tone differences
+   (`we're` vs `you're`, missing sentences, `the drawer` vs `the
+   row drawer`) are fidelity gaps regardless of structural
+   correctness.
+
+Brief summary is convenient prose; the design source is authority.
+Treating brief paraphrase as scope (instead of R-prototype + notes
+as source of truth) is the failure mode this pattern prevents —
+visually OR textually.
+
+**Banked refinement from §6.b mid-slice sweep (May 2026).**
+Edward smoke surfaced copy gaps that Pattern 28 in its original
+form didn't explicitly call out: "what you're selling" vs R7b's
+"what we're selling"; missing "Cost goes on Cost build." sentence
+from the rationale callout; "the drawer" vs R7b's "the row
+drawer". These were treated as paraphrase-acceptable instead of
+fidelity gaps. Updated pattern definition makes copy verbatim
+explicit alongside visual treatment.
+
+## "R6 inline-edit read↔edit cell pattern"
+
+Canonical for inline-editable numeric cells across Setup AND
+Cost build. Same component vocabulary; don't fork into
+surface-specific variants.
+
+**Pattern shape:**
+
+- **Read mode** — formatted value (USD, percent, etc.) in display
+  register + small mono sub-caption (e.g., `$48.50` / `RETAIL`).
+  Empty value renders as em-dash `—` placeholder.
+- **Click target** — the whole read-mode cell is clickable; click
+  switches to edit mode + focuses the input.
+- **Edit mode** — native `<input>` with raw numeric value, border
+  visible (rule token), accent border on focus.
+- **Commit** — blur OR Enter triggers save (R6 Blur+Enter
+  pattern); cell returns to read mode with the new formatted
+  value. Esc reverts + returns to read mode.
+- **Persistence** — committed value renders read-mode-formatted;
+  in-flight value during edit renders as raw input.
+
+**Why:** edit-mode-always inputs look like form fields in a table,
+which is read-hostile at scan speed (R7b's "table reads as data,
+not as a form" framing). Read mode lets PMs scan the table; edit
+mode appears only when they're ready to commit a change.
+
+**Token discipline:**
+
+- Border: `var(--rule)` resting; `var(--accent)` focused. Never
+  hardcoded `gray-*` Tailwind classes (dark-mode safety).
+- Background: `var(--paper-2)` resting; `var(--paper)` focused.
+- Sub-caption: mono uppercase 10px ink-3 tracking 0.08em.
+
+**Banked from §6.b polish-amendment (sweep §B.5 disposition).**
+Pre-§6.b state: cost-build cells use always-input mode (R6
+prototype design didn't get faithfully implemented in v1; current
+codebase has transparent-border-→-focused-border treatment but
+no read mode). Setup retail-bench cell is the first to ship the
+true read↔edit pattern. Step 5 (Tier table) reuses the same
+component. If a third cell needs it, extract to a shared
+`<EditableUsdCell>` / `<EditableNumericCell>` primitive.
+
+**Forward-looking polish target (not in §6.b):** existing
+cost-build cells (packaging unit_cost, freight per-line costs,
+production service fees) should migrate to the read↔edit pattern
+for consistency. Bank as v1.1 / R7c polish — out of §6.b scope
+but on the radar.
+
+## "Canonical design-source CSS imported verbatim"
+
+Pattern 30 — banked from §6.b mid-slice path-B migration (May 2026).
+
+When CD ships an R-round prototype with un-bundled CSS source,
+import the relevant CSS file(s) **verbatim** into the codebase
+as source-of-truth stylesheets. JSX class names match the
+canonical class names. No translation layer.
+
+**Workflow:**
+
+1. CD ships `app/r<N>/styles.css` (or similar) as part of the
+   round's prototype deliverable.
+2. CC copies the file to `src/styles/r<N>-<surface>.css`
+   verbatim — no edits, no renames, no value tweaks.
+3. Header comment marks the file as canonical and points at the
+   upstream source.
+4. JSX uses canonical class names (e.g., `className="r7b-tier-row"`).
+5. Local overrides (Nexus-specific behavior or data shape
+   adaptations) live in a separate stylesheet, never in the
+   canonical file.
+
+**Fix flow when a canonical value proves wrong:**
+
+1. Surface to CD with the issue + screenshot.
+2. CD updates the upstream prototype CSS.
+3. CC re-copies the file. Commit message references the
+   upstream change.
+
+**Why this beats the alternative** (CC interpreting screenshots
+or designer notes into its own CSS):
+
+- **Pattern 28 becomes literal at the CSS level.** Brief =
+  scope, design = fidelity; CSS values ARE the design. No
+  paraphrase, no translation, no drift.
+- **Pattern 27 manifest's POLISH MATCHED becomes verifiable.**
+  Diff `src/styles/r<N>-<surface>.css` against the upstream
+  source → expect identical. Any divergence is a bug.
+- **Class-name vocabulary stays consistent with CD's source.**
+  Future audits grep against the prototype's class names and
+  hit production code immediately.
+- **R-round refreshes are clean drop-ins.** When CD ships R7c
+  refining R7b, the diff is just the canonical CSS file change
+  + the new class names if any. No "translate the new screenshot
+  into CC-invented classes" cycle.
+
+**Banked observation from §6.b Step 5 path-B trigger:** I shipped
+Steps 1-5 with CC-invented `r6b-*` class names + values
+interpreted from R7b screenshots. Each step had 2-4 polish
+amendment commits to close the gap between my interpretation
+and R7b reality. Path-B migration estimated to save 12-20
+polish commits across steps 6-9 by eliminating the translation
+step entirely.
+
+**Scope caveat:** Path-B applies per surface as CD ships the
+canonical CSS. Other surfaces using CC-interpreted CSS (Pricing
+`r2-*`, Customer view `r3-*`) stay as-is unless CD ships
+canonical sources for them. Not retroactively migrating older
+surfaces unless they're in slice scope.
+
+**`.btn` primitive bridge:** R7b JSX uses R2-base `.btn` /
+`.btn.ghost` / `.btn.primary` / `.btn.sm` classes that live in
+the upstream `2styles.css`. Importing the full R2 base would
+risk shadowing other surface classes (`.eyebrow`, etc.).
+Pragmatic workaround: reproduce the narrow `.btn` rule subset
+in `r1-setup.css` (or a dedicated bridge file) referencing
+nexus's existing `--ink`/`--paper`/`--accent` tokens. Local
+canonical-CSS-bridge pattern; document the source line in
+upstream CSS for traceability.
+
+**Working discipline:**
+
+For every step, CC reads:
+
+1. The brief §X.Y section — gets scope, mutability, schema
+   sources. Structural primitives.
+2. The design source designer notes section — gets accent
+   borders, chips, subtitles, audience labels, color tokens,
+   typography decisions. Polish layer.
+3. The design source prototype HTML — gets layout grammar,
+   side-by-side vs stacked, spacing, exact visual states.
+
+Implement both layers. Manifest both layers (Pattern 27 two-
+layer manifest).
+
+**Operating-standard pre-compaction; codified post-compaction.**
+This pattern was the implicit discipline during slice-ri.8 era
+when CD's prototypes + designer notes were the visual reference.
+It survived in CC's working memory but didn't survive context
+compaction. §6.b Step 4 surfaced the regression: CC implemented
+from brief summary alone, missed every polish element. Edward's
+directive (May 2026) codified the pattern so it doesn't
+regress again.
+
+**Standing protocol — applies to every future slice brief:**
+
+CA writing briefs MUST include a `§0 · Fidelity Discipline`
+section at the top, after the Companion docs block, before §1
+Scope. CC reading briefs MUST check for this section and follow
+the discipline per step. If §0 is missing from a brief, CC
+flags to CA before starting implementation.
+
+**Brief template snippet (paste into every new brief's §0):**
+
+```markdown
+## §0 · Fidelity Discipline (read before every step)
+
+This brief is a **scope contract**, not a fidelity contract.
+
+**Visual fidelity lives in:**
+- `docs/<round>-designer-notes.md` — canonical visual treatment
+- `docs/design-prototypes/dist/Nexus Round <round>.html` — prototype
+
+**Before implementing each step, CC MUST:**
+1. Read brief §X.Y for scope + schema sources
+2. Read designer notes §X.Y for polish layer + audience labels
+3. Inspect prototype HTML for layout grammar + visual states
+
+**Implement BOTH structural primitive AND polish layer.**
+Manifest both (Pattern 27 two-layer).
+```
+
+**Application:** §6.b brief was patched retroactively with §0 in
+the same commit that banked this pattern. R7c, §6.c, Slice 9,
+Slice 11, Slice 12, and every brief after that lands with §0
+already in place.
+
+## "Cross-chat handoff briefs may carry verbal-disposition gaps"
+
+Pattern 31 — banked during Phase 1 modal-rewrite prep (May 2026).
+
+When a brief is authored in one chat session and handed off to
+another (CA-drafted brief → CC implements; product-modal-brief.md
++ product-modal-cc-instructions.md are the reference moment), the
+brief's "Open Questions" list may contain items that were
+**verbally dispositioned in the originating transcript but never
+codified in the brief itself**. CC reading the handed-off brief
+sees the open questions and starts re-asking, costing a round-trip
+that was already resolved upstream.
+
+**Reference moment:** Phase 1 prep. product-modal-brief.md OQ2
+(Leaf · single-line vs hs_product_type) and OQ3 (units_per_pack)
+were both verbally dispositioned by Edward in CC's pre-Phase-1
+session, but the brief itself still listed them as open. CC
+read the brief, ran the verification pass, and re-asked both
+questions. Edward answered them again (cleanly, no friction), but
+the cycle was avoidable.
+
+**Discipline (CA-side):** during brief-integration step, scan the
+brief's open-question list against the handoff transcript for
+verbal dispositions. Then either:
+- (a) **Amend the brief inline** to reflect the verbal disposition
+  as RESOLVED, with the rationale captured. Future readers see
+  resolved state without transcript archaeology.
+- (b) **List the verbal dispositions in the CC follow-up** ("OQ2
+  resolved verbally as X; OQ3 resolved verbally as Y") so CC
+  doesn't re-ask. Brief itself stays as-was; the follow-up
+  carries the bridge.
+
+Option (a) is preferred when the disposition is durable (will be
+read by future maintainers). Option (b) is acceptable when the
+disposition is implementation-only (won't outlive the slice).
+
+**CC-side complement:** when CC encounters an open question, the
+correct pattern is still to surface (not decide). The decision
+authority hierarchy stays Edward decides → CA corroborates against
+discipline patterns → product-owner consulted for usage patterns
+when needed. CC's "surface rather than decide solo" instinct is
+correct — Pattern 31 doesn't replace it; it just trims the
+re-asking cost when the answer already exists upstream.
+
+**Practical retroactive fix:** when CC catches a verbal disposition
+that was banked in transcript but missing from the brief, CC
+amends the brief inline (Edward + CA sign-off implicit since the
+verbal disposition is the authority) AND surfaces the amendment in
+the implementation commit so the audit trail captures it.
+
+## "Pre-production engineering tolerance"
+
+Pattern 32 — banked during Phase 1 modal-rewrite prep (May 2026).
+
+Transient dev-data states — mixed-ID references, orphaned foreign
+keys, stale snapshots, half-migrated rows — are **acceptable in
+pre-production** when one of these two conditions holds:
+
+1. The fix path is mechanical re-seed of dev (drop + reapply
+   fixtures; ~minutes of cost).
+2. The exposing feature doesn't exist yet (the broken edge case
+   has no UI path that surfaces it, so it never affects PM workflow
+   nor user-visible quality).
+
+**Don't engineer around hypothetical edge cases before the
+exposing feature ships.** Adding migration scripts, defensive
+guards, or schema cleanups for "what if a future feature needed
+this" is premature work — the future feature defines its own
+correctness requirements; speculative cleanup misses the point
+half the time anyway.
+
+**Reference moment:** Phase 1 modal rewrite prep. Switching the
+Products-domain HubSpot reads/writes to be dev/prod-aware leaves
+existing dev `quote_skus` rows pointing at PROD `hubspot_product_id`
+values that don't resolve against the DEV sandbox. CC raised this
+as a potential concern. Edward's call: pre-production engineering
+tolerance applies. No "refresh from HubSpot" path exists yet, so
+the orphan refs are invisible. When Phase 2 (catalog parity)
+adds a refresh path, that slice owns the orphan-handling story.
+Banking the concern in the PR description is enough; no migration
+or code change today.
+
+**Working test when uncertain:** ask "what current workflow
+breaks because of this transient state?" If the answer is "none
+— the workflow doesn't exist yet," the concern is speculative.
+Bank it as a PR-description finding so the future slice owner
+sees the context, then move on. If the answer is a real PM-facing
+workflow today, fix it now.
+
+**Contrast with production:** in prod, transient state is rarely
+tolerable because (a) the fix path isn't "re-seed" (data is real),
+(b) any feature that touches the data may surface the orphan, and
+(c) the cost of "unwind later" is higher. This pattern is
+explicitly scoped to **pre-production / dev** environments —
+production work follows different rules.
+
+**Adjacent patterns:** Pattern 1 ("Design was illustrative; real
+data needs different proportions") covers data-vs-design mismatch
+at production scale. Pattern 32 covers dev-data tolerance pre-prod.
+Different scope, same family — engineering judgment about which
+problems are worth solving when.
+
+## "Scope expansion proposals need cost evaluation separate from architectural cleanliness"
+
+Pattern 33 — banked during the v1 release-path sequencing
+conversation (May 2026).
+
+When a slice scope expansion is proposed on architectural grounds
+("this is the right place to land it" / "this slice already has
+the state-machine extension; let's fold the NEW thing in"), the
+"cleaner process" framing is real but **doesn't price itself**.
+Cleanliness is one axis; cost (in work hours, blast-radius,
+review effort, smoke surface area, dependency tail) is another.
+Treating them as the same axis collapses an honest "include vs.
+sequence" decision into a vibes call.
+
+**Reference moment:** NetSuite integration proposal during §6.b
+era. Original framing: "Mark-Accepted writeback already needs a
+state-machine extension; NetSuite sales-order push should fold in
+because they share retry-and-surface UX and PM monitoring infra."
+Architecturally clean. Edward's discovery work (auth + sandbox
+already exists; customer/item ID sync already running;
+state-machine retry-and-surface UX already designed; PM monitoring
+infra assumed) materially dropped the cost. With those reductions,
+the combined slice now fits a 2-3 week focused window — making
+inclusion the right call. But the call only got there because the
+work breakdown got priced explicitly (auth, schema, error handling,
+testing) instead of inferred from the cleanliness vibe.
+
+**Discipline at proposal time (CA-side):**
+
+When proposing a scope expansion, surface concrete work breakdown
+as a sibling artifact to the cleanliness argument:
+
+- **Auth / credential plumbing** — does the new domain require
+  new tokens, scope expansions, OAuth flows? Is the sandbox
+  configured? (Pattern 32 territory if dev sandbox.)
+- **Schema verification** — Pattern 22 applies. Verify every
+  schema entity in both the new and existing domains. New
+  external schemas (NetSuite Sales Order, HubSpot deal-line)
+  often have surprises.
+- **Error handling + retry semantics** — what happens on
+  partial failure (one writeback succeeds, the other fails)?
+  Idempotency keys? Compensating transactions?
+- **Testing surface** — smoke against new sandbox; existing
+  smoke that may regress; production cutover plan.
+- **State-machine extension scope** — sharing infra is real
+  savings but only when the state shapes align; verify before
+  banking the savings.
+
+**Discipline at evaluation time (Edward + CA):**
+
+The honest answers split into three buckets:
+
+1. **Cost favors inclusion** — combined slice fits in the time
+   available; sharing infra prevents future duplication; the
+   savings are real.
+2. **Cost favors sequencing** — combined slice exceeds the
+   window; the cleanliness savings are smaller than the schedule
+   risk; defer to a follow-up.
+3. **Cost is unclear** — discovery work needed before disposition.
+   This is honest too; bank the discovery as a pre-brief task
+   (Edward's NetSuite pre-brief discovery list is the canonical
+   example).
+
+**Application notes from the NetSuite case:**
+
+- Pre-brief discovery (3 questions about HubSpot→NetSuite sync
+  coverage, current manual SO entry pattern, assembly pricing
+  model) sized as "answerable during §6.b + rest-of-app sweep,
+  not blocking." Pattern: discovery work that doesn't gate the
+  next slice can be parallelized; discovery work that DOES gate
+  the next slice needs to land first.
+- Combined-slice naming convention banked: "Mark-Accepted
+  external writebacks (NEW combined slice — supersedes original
+  Slice 12 scope) — HubSpot deal writeback + NetSuite sales
+  order push share Mark-Accepted state machine extension,
+  retry-and-surface UX, PM monitoring infrastructure."
+- Pattern 22 applies in the NetSuite slice: schema verification
+  before encoding, especially for NetSuite Sales Order schema
+  (which CC has never touched).
+
+**When NOT to apply Pattern 33:** trivial scope expansions
+(one-line change folded into an existing commit) don't need
+formal cost evaluation. The discipline is calibrated for
+slice-level proposals where the work breakdown is non-trivial
+and the cleanliness framing risks under-pricing the cost.
+
+## "Multi-surface architectural features warrant a dedicated R-round design pass before implementation" (candidate Pattern 34)
+
+Candidate Pattern 34 — banked as candidate during the multi-route
+shipping support deferral conversation (May 2026). Promotion to
+standing pattern pending a second reference moment that
+demonstrates the discipline holds.
+
+**Hypothesis:** features that touch multiple surfaces (e.g.,
+Cost build + Customer view + Mark-Accepted + Setup) warrant a
+dedicated R-round design pass before any implementation slice
+opens. Single-surface features can scope into implementation
+directly off a brief; multi-surface features risk inconsistent
+treatment if scoped piecemeal — different surfaces resolve the
+same architectural question in different ways, locking in
+inconsistencies that are expensive to undo.
+
+**Reference moment:** Multi-route shipping support (Korea →
+China → US workflow). Touches Cost build (freight legs +
+lead time), Customer view PDF (which destinations show, lead
+time aggregation), possibly Setup (route declaration), and
+Mark-Accepted (NetSuite SO ship-to defaulting). Per Edward's
+directive: hold for R8 design round to dispose IA placement,
+UI state shape, customer-PDF presentation, NetSuite SO
+defaulting BEFORE the implementation slice opens. Otherwise
+each surface's PM walks the design alone and the resulting
+shape doesn't compose.
+
+**Working test when uncertain:** count the surfaces the feature
+touches. 1 surface = scope into implementation off a brief.
+2+ surfaces = R-round candidate. The cost of an R-round (design
+deliverable + designer-notes + data-source map) is real but
+small compared to the cost of re-shipping a feature that ships
+inconsistently across surfaces.
+
+**Contrast with single-surface features:** Slice 9 series
+(Pricing surface only — control summary, suggestions, sparkline,
+verdict) shipped fine as direct implementation off briefs.
+RI.9 nav primitives were multi-surface but the scope was
+deliberately narrow (just nav, not surface bodies) — that
+narrow scope is itself a form of the R-round discipline,
+just not labeled as one.
+
+**Promotion criteria** (candidate → standing):
+- Second multi-surface feature surfaces and the R-round
+  discipline (or its absence) demonstrably affects the outcome
+- Edward + CA confirm the pattern at that second reference
+
+Until promoted, treat as a candidate guideline: surface to
+Edward when a feature looks multi-surface; let Edward + CA
+dispose whether an R-round is warranted.
+
+## Pattern numbering reconciliation (May 2026)
+
+This branch banked patterns 30–34 from CC side during §6.b
+implementation. CA's advisory session in parallel had banked
+two further patterns informally — "prototype source files
+first-class" and "cross-chat coordination" — under the same
+number range. Edward's directive at audit-followup-2 time:
+**preserve the most commit-message references**. CC's 30 + 31
+have explicit commit-message back-references (Pattern 30 via
+the §6.b path-B migration commits; Pattern 31 via the
+"§6.b housekeeping — Pattern 31 + brief disposition + scope
+probe" commit). CA's session-banked patterns have no commit
+history yet.
+
+**Resolution:** CC banked patterns stay at their current numbers
+(30, 31, 32, 33, 34-candidate). CA's prior-session patterns are
+**reserved for 35 + 36** when they land in CLAUDE.md:
+
+- **Pattern 35 (reserved):** Prototype source files first-class
+  (CA advisory bank — anchor canonical CSS/JSX/data files as
+  load-bearing repo assets, not throwaway design references).
+- **Pattern 36 (reserved):** Cross-chat coordination (CA advisory
+  bank — how multi-chat work hands off between CC + CA + Edward
+  + Designer sessions; related to but distinct from Pattern 31's
+  brief-disposition gap handling).
+
+Reservation note exists so future CC doesn't claim 35 + 36 for
+unrelated patterns before CA's bank lands. When CA's patterns
+arrive, they slot into the reserved slots and the reservation
+note can be removed.
+
+If a third numbering collision arises, the same rule applies:
+preserve the most commit-message back-references; renumber the
+side with fewer historical references.
+
+## v1 release-path slice sequencing (banked May 2026)
+
+Captured here so the sequencing survives context compaction
+and future CC sessions see the queued shape. Subject to
+revision as discovery completes.
+
+1. **§6.b — Setup wholesale redesign + Add-product modal Phase 1
+   HubSpot-first rewrite** (in flight). Remaining work: Step 10
+   Edward smoke pass + Step 11 Designer audit + PR-to-main.
+2. **Rest-of-app fidelity sweep** — Cost build, Costing/Pricing,
+   Customer view/Quote, Mark Accepted, Home. Same Pattern 30
+   canonical-CSS-imported-verbatim discipline as §6.b's path-B
+   migration.
+3. **Mark-Accepted external writebacks** (combined slice
+   superseding original Slice 12 scope) — HubSpot deal writeback
+   + NetSuite sales order push share state machine, retry +
+   surface UX, PM monitoring. Pre-brief discovery covers
+   HubSpot→NetSuite sync coverage, current manual SO entry
+   pattern, NetSuite assembly pricing model. Cost evaluation
+   per Pattern 33 already done; expansion approved.
+4. **PDF render path** — Notes-above-T&Cs ordering + Customer
+   view PDF findings.
+5. **v1 release.**
+
+Discovery items parallelizable with §6.b + rest-of-app sweep
+(not blocking those slices):
+
+- Does the active HubSpot→NetSuite sync carry assembly metadata
+  or only leaves?
+- Firm's NetSuite admin: what's manually entered into Sales
+  Orders today (assemblies or leaves)?
+- NetSuite assembly pricing model: separate price vs. sum-of-
+  leaves?
+
+These three answers shape the assembly-structure architecture
+decision in the NetSuite portion of the combined writebacks
+slice. CA + Edward dispose once discovery completes.
 
 # Single Supabase project — dev and prod share one DB
 

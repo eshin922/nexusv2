@@ -250,14 +250,13 @@ export default async function CostBuildPage({
       <Suspense fallback={null}>
         <ActiveTierUrlSync />
       </Suspense>
-      {/* Body bg is now paper-2 globally (matches R6); cost-stack +
-          section bg-paper cards read as contrast field. Max-width
-          1480px + 40px horizontal padding per R6 `.r6-page`
-          (Designer audit C-6). 28px top + 80px bottom matches R6. */}
-      <main
-        className="mx-auto px-10 pt-7 pb-20"
-        style={{ maxWidth: "1480px" }}
-      >
+      {/* §6.b path-B Costs migration commit 2/5 — canonical
+          .r6-page wrapper (6styles.css line 19: padding 28px 40px
+          80px, max-width 1480px). Replaces Tailwind utility chrome
+          (mx-auto px-10 pt-7 pb-20 max-width: 1480px) which
+          interpreted the canonical values. Now via canonical CSS
+          directly. */}
+      <main className="r6-page">
         <CostsHeader
           project={project}
           quote={{

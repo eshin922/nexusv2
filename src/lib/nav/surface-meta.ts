@@ -47,9 +47,22 @@ export type SurfaceMeta = {
 export const SURFACE_META: Record<SurfaceKey, SurfaceMeta> = {
   setup: {
     railVisible: true,
-    nextMove: { label: "Open costs →" },
+    // §6.b Step 1 amendment — R7b canon strings per Edward smoke
+    // (RI.9 shipped "Open costs →" / "+ New scenario"; R7b
+    // specifies "Continue to Cost build →" + "+ Add SKU").
+    //
+    // Designer audit Finding 10 (MEDIUM, §6.b Step 11) — surface
+    // rename canon supersedes R7b literal copy: "Cost build → Costs"
+    // applies to surface references (banner labels, helper text
+    // pointing at a destination, eyebrow surface tags). R7b
+    // canonical JSX literal said "Cost build" because the prototype
+    // pre-dated the rename canon. Pattern 28 verbatim-copy rule is
+    // scoped to concept references; surface references follow the
+    // rename canon. See CLAUDE.md "Pattern-28-vs-rename-canon
+    // collision" for the discipline.
+    nextMove: { label: "Continue to Costs →" },
     primaryAction: "Save draft",
-    secondaryActions: ["+ New scenario"],
+    secondaryActions: ["+ Add SKU"],
     backAction: null,
   },
   cost_build: {

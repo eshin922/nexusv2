@@ -139,7 +139,7 @@ export function BulkRawDrilldown({
               type="button"
               disabled
               title="CRUD UI ships in RI.4 follow-up · schema is in place"
-              className="r6-btn primary"
+              className="btn primary"
             >
               + Add raw category
             </button>
@@ -147,7 +147,7 @@ export function BulkRawDrilldown({
         </div>
       ) : (
         <>
-          <div className="r6-drawer-toolbar">
+          <div className="drawer-toolbar">
             <div className="lhs">
               <span>
                 <strong>{categories.length}</strong> raw categor
@@ -166,7 +166,7 @@ export function BulkRawDrilldown({
                 type="button"
                 disabled
                 title="CRUD UI ships in RI.4 follow-up"
-                className="r6-btn sm"
+                className="btn sm"
               >
                 + Category
               </button>

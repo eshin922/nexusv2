@@ -5,6 +5,162 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Scenario name inline edit — eyebrow read↔edit]
+
+  **Slice:** v1.1 candidate. Best decided when rest-of-app
+  fidelity sweep brief drafts. Could fold into that sweep if the
+  eyebrow gets touched there anyway, OR a small standalone slice.
+
+  **What:** Edit scenario/quote variant names after creation
+  in-place. Today the eyebrow renders the variant label as
+  display-only (e.g., `EPICUREN · PRIMARY · V2`). PMs who want
+  to rename "Primary" to "Alt" or similar have no row-level
+  affordance.
+
+  **Pattern:** Pattern 29 R6 read↔edit (same vocabulary already
+  in use across Setup retail bench, tier qty, tier label,
+  units_per_pack chip). Click the scenario-name segment of the
+  eyebrow → switches to input → blur/Enter commits → returns to
+  formatted read mode.
+
+  **Surface:** Eyebrow line on each quote-scoped surface (Setup,
+  Costs, Pricing, Quote, Mark-Accepted). Single primitive
+  reused across all five.
+
+  **Schema (Pattern 22 verify at slice time):** likely
+  `quotes.scenario_label` (already on the table per RI.7 work).
+  Audit action via existing audit-log mechanism; new
+  `scenario_label_updated` action key.
+
+  **Open questions for slice-time disposition (not blocking
+  backlog logging):**
+  1. **Just the variant name, or also version handling?**
+     `PRIMARY · V2` has both a variant name and a version number.
+     Version is presumably system-managed (auto-increments on
+     quote modifications). Edit-in-place likely scoped to
+     variant name only; version stays system-managed. Confirm at
+     slice time.
+  2. **Uniqueness scope?** Variant names probably need to be
+     unique per project (can't have two "Primary" quotes on the
+     same project). Validation surfaces on blur — same shape as
+     the SKU dup-check warn band (Designer audit Finding 18
+     cross-surface primitive opportunity; if `.warn-band`
+     extraction lands first, this consumes it).
+
+  **Cross-references:**
+  - Pattern 29 (R6 read↔edit cell)
+  - Designer audit Finding 18 (`.warn-band` cross-surface
+    primitive — uniqueness validation candidate)
+  - Pattern 22 (schema verification before encoding)
+
+- [Multi-route shipping support — v1 or v1.1, pending Edward's call]
+
+  **Slice:** Pending R8 design round + dispositions before any
+  implementation slice opens. NOT scoped into v1 release path
+  until R8 completes.
+
+  **Reference workflow:** Korea production → China packaging →
+  US final delivery. Three destinations, two transit legs.
+
+  **Specifications:**
+  - Max 3 destinations (2 transit legs)
+  - Currently single-destination model across the stack
+  - Requires UI state for single-route vs multi-route
+
+  **Surfaces affected:**
+  - Cost build freight section — multi-leg cost rollup, lead time
+    composition, per-leg supplier/mode
+  - Customer view / Quote PDF — shipping terms presentation,
+    which destinations are customer-facing vs internal
+  - Setup (possibly) — route declaration as a quote-level config
+    vs per-SKU
+  - Mark-Accepted NetSuite SO ship-to defaulting — final-
+    destination selection logic when SO is generated
+
+  **R8 dispositions needed before implementation:**
+  - IA placement — does multi-route live on Setup (declarative)
+    or Cost build (operational)?
+  - Single-route vs multi-route UI state — collapsed by default
+    with expand-to-multi toggle? Or always-visible legs with
+    "add leg" affordance? Inline editing register?
+  - Customer-PDF presentation — show all legs or just final
+    destination? Lead time aggregation copy?
+  - NetSuite SO final-destination defaulting — which destination
+    flows to ship-to on SO creation; PM override path?
+
+  **Sequencing:**
+  1. R8 design round (CD)
+  2. R8 dispositions (Edward + CA)
+  3. Implementation slice (CC) — multi-surface; estimate after
+     R8 lands
+  4. Mark-Accepted external writebacks slice consumes
+     the destination model for NetSuite ship-to defaulting
+
+  **Banked:** Edward's directive during §6.b Phase 1 era (May
+  2026). Pattern 34 (candidate) applies — multi-surface feature
+  warrants dedicated R-round before piecemeal implementation.
+
+- [Drag-and-drop nesting — leaf into assembly]
+
+  **Slice:** Setup-affordance polish (small standalone or fold
+  into post-§6.b rest-of-app fidelity sweep). Estimated ~50 LOC
+  in `sku-row-list.tsx` + small visual prop on `sku-row.tsx`.
+
+  **What:** Today, attaching an existing leaf SKU to an assembly
+  requires the leaf's `⋯` overflow menu → "Reassign to parent" →
+  inline parent picker + qty input. The §6.b Step 9 drag-and-drop
+  reorder mechanism makes the inline reorder feel natural but
+  leaves the reassign flow as a clunky modal-like sub-form.
+
+  **Future state:** extend drag-and-drop with 3-zone hit detection
+  on each row — top 33% = insert-above (current reorder), bottom
+  33% = insert-below (current reorder), middle 33% = **nest into**
+  (only when the hovered row is an assembly AND the dragged row
+  is a leaf). Drop on the middle zone calls `assignSkuToParent`
+  with `qty_per_parent` defaulting to 1; PM edits via the existing
+  inline `QtyPerParentInline` cell after the drop. Assembly row
+  highlights with an accent border while a leaf hovers in its
+  middle zone so PMs discover the affordance.
+
+  **Tradeoff:** un-nesting (assembly child → top level) stays in
+  the overflow `⋯` menu as "Detach" — drag-and-drop is naturally
+  one-directional. Detach isn't a frequent op so the asymmetry
+  is acceptable.
+
+  **Server-side:** `assignSkuToParent` action already exists and
+  handles cycle detection + parent eligibility validation. No
+  schema changes needed. Pattern 32 doesn't apply — production
+  ready; just deferred for scope.
+
+  **Banked:** Edward's smoke during §6.b Phase 1 (May 2026).
+  PM workflow observation: the overflow-menu Reassign flow feels
+  clunky vs the natural drag affordance for reorder. Drag-nest
+  is the cohesive extension.
+
+- [Attach existing leaf via assembly drawer]
+
+  **Slice:** Same as drag-nest above — natural co-bundle.
+  Estimated ~30 LOC alongside the drag-nest work.
+
+  **What:** Assembly drawer currently has `+ Add child SKU` which
+  creates a NEW Nexus-local SKU as a child. There's no in-drawer
+  affordance to attach an EXISTING leaf — PMs have to use the
+  overflow menu Reassign flow (or, post-drag-nest above, drag the
+  leaf onto the assembly).
+
+  **Future state:** add `+ Attach existing leaf` ghost button
+  next to `+ Add child SKU` in the drawer footer. Clicking
+  expands a small inline picker (search by sku_label / product_
+  name) → select → submit → `assignSkuToParent` with `qty_per_
+  parent` default 1. Cleaner than the row-level overflow menu
+  for PMs already exploring an assembly's contents.
+
+  **Tradeoff:** picker UI duplicates some of the row-level
+  Reassign inline form. Acceptable if drag-nest above ships
+  alongside — the overflow menu Reassign becomes the rarely-used
+  fallback path, the drag + drawer-attach become the discoverable
+  paths.
+
 - [Audit log activity comprehensiveness — rail + page entries]
 
   **Slice:** Audit log polish slice (~3-5 days, bundled scope).

@@ -1,35 +1,65 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { deleteTier, moveTier, updateTier } from "@/app/actions/quotes";
+import {
+  deleteTier,
+  setTierRecommended,
+  updateTier,
+} from "@/app/actions/quotes";
+import { updateTierPriceAdj } from "@/app/actions/costing";
 
 type Tier = {
   id: string;
   label: string;
   qty: number | null;
+  recommended: boolean;
+  tierPriceAdjPct: string | null;
 };
 
 const DEBOUNCE_MS = 500;
 
+// §6.b path-B migration commit 4 — Tier row renders canonical
+// .r7b-tier-row structure (7bsetup.jsx TierRail rows lines 284-300
+// + 7bstyles.css .r7b-tier-row rules at line 340).
+//
+// 4 grid columns per canonical: `1fr 100px 90px 28px` = label · qty
+// · adj · actions.
+//
+// Recommended state:
+// - Row gets `.recommended` modifier (canonical CSS adds
+//   accent-tinted bg)
+// - .label cell stacks .lab (italic display) + .rec (mono caps
+//   accent-ink) when recommended=true
+// - When recommended=false: hover-revealed "Mark as recommended"
+//   affordance in same slot (nexus-specific; canonical has no
+//   set affordance in JSX — display-only)
+//
+// Inline-edit pattern:
+// - Label: kept as <input> (brief §3.4 spec) but styled to look
+//   like canonical <span class="lab"> at rest. Pattern 29-style
+//   transparent-→-focused border.
+// - Qty + Price adj: canonical inputs already in JSX.
+
 export function TierRow({
   tier,
-  isFirst,
-  isLast,
   disabled = false,
 }: {
   tier: Tier;
-  isFirst: boolean;
-  isLast: boolean;
   disabled?: boolean;
 }) {
   const [label, setLabel] = useState(tier.label);
   const [qty, setQty] = useState(tier.qty == null ? "" : String(tier.qty));
+  const [priceAdj, setPriceAdj] = useState(
+    tier.tierPriceAdjPct === null
+      ? ""
+      : (Number(tier.tierPriceAdjPct) * 100).toString(),
+  );
 
   const [pending, startTransition] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stateRef = useRef({ label, qty });
-  stateRef.current = { label, qty };
+  const stateRef = useRef({ label, qty, priceAdj });
+  stateRef.current = { label, qty, priceAdj };
 
   useEffect(
     () => () => {
@@ -38,24 +68,37 @@ export function TierRow({
     [],
   );
 
-  type Overrides = Partial<{ label: string; qty: string }>;
+  type Overrides = Partial<{ label: string; qty: string; priceAdj: string }>;
 
-  function fireSave(overrides: Overrides = {}) {
-    const s = { ...stateRef.current, ...overrides };
-    const fd = new FormData();
-    fd.set("tierId", tier.id);
-    fd.set("label", s.label);
-    fd.set("qty", s.qty);
-    startTransition(async () => {
-      const r = await updateTier(fd);
-      if (!r.ok) setSaveError(r.error.message);
-      else setSaveError(null);
-    });
+  function scheduleLabelQtySave(overrides: Overrides = {}) {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const s = { ...stateRef.current, ...overrides };
+      const fd = new FormData();
+      fd.set("tierId", tier.id);
+      fd.set("label", s.label);
+      fd.set("qty", s.qty);
+      startTransition(async () => {
+        const r = await updateTier(fd);
+        if (!r.ok) setSaveError(r.error.message);
+        else setSaveError(null);
+      });
+    }, DEBOUNCE_MS);
   }
 
-  function scheduleSave(overrides: Overrides = {}) {
+  function schedulePriceAdjSave(overrides: Overrides = {}) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => fireSave(overrides), DEBOUNCE_MS);
+    debounceRef.current = setTimeout(() => {
+      const s = { ...stateRef.current, ...overrides };
+      const fd = new FormData();
+      fd.set("tierId", tier.id);
+      fd.set("tierPriceAdjPct", s.priceAdj);
+      startTransition(async () => {
+        const r = await updateTierPriceAdj(fd);
+        if (!r.ok) setSaveError(r.error.message);
+        else setSaveError(null);
+      });
+    }, DEBOUNCE_MS);
   }
 
   function handleDelete() {
@@ -68,77 +111,116 @@ export function TierRow({
     });
   }
 
-  function handleMove(direction: "up" | "down") {
+  function handleToggleRecommended() {
     const fd = new FormData();
     fd.set("tierId", tier.id);
-    fd.set("direction", direction);
+    fd.set("recommended", tier.recommended ? "false" : "true");
     startTransition(async () => {
-      const r = await moveTier(fd);
+      const r = await setTierRecommended(fd);
       if (!r.ok) setSaveError(r.error.message);
+      else setSaveError(null);
     });
   }
 
   return (
-    <div className="grid grid-cols-[2fr_1fr_auto] items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50">
-      <input
-        value={label}
-        disabled={disabled}
-        onChange={(e) => {
-          const v = e.target.value;
-          setLabel(v);
-          scheduleSave({ label: v });
-        }}
-        className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
-      />
-      <input
-        value={qty}
-        type="number"
-        min={0}
-        placeholder="—"
-        disabled={disabled}
-        onChange={(e) => {
-          const v = e.target.value;
-          setQty(v);
-          scheduleSave({ qty: v });
-        }}
-        className="w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
-      />
-      <div className="flex items-center gap-1 justify-end">
-        {saveError ? (
-          <span className="text-xs text-red-700 mr-1" role="alert">
-            {saveError}
-          </span>
-        ) : pending ? (
-          <span className="text-xs text-gray-400 mr-1">saving…</span>
-        ) : null}
-        <button
-          type="button"
-          onClick={() => handleMove("up")}
-          disabled={disabled || isFirst}
-          title="Move up"
-          className="rounded border border-gray-200 px-1.5 py-0.5 text-xs disabled:opacity-30 hover:bg-white"
-        >
-          ↑
-        </button>
-        <button
-          type="button"
-          onClick={() => handleMove("down")}
-          disabled={disabled || isLast}
-          title="Move down"
-          className="rounded border border-gray-200 px-1.5 py-0.5 text-xs disabled:opacity-30 hover:bg-white"
-        >
-          ↓
-        </button>
+    <div className={`r7b-tier-row${tier.recommended ? " recommended" : ""}`}>
+      <div className="label">
+        <input
+          className="lab"
+          value={label}
+          disabled={disabled}
+          onChange={(e) => {
+            const v = e.target.value;
+            setLabel(v);
+            scheduleLabelQtySave({ label: v });
+          }}
+          aria-label="Tier label"
+        />
+        {tier.recommended ? (
+          <button
+            type="button"
+            className="rec rec-clickable"
+            onClick={handleToggleRecommended}
+            disabled={disabled || pending}
+            aria-label="Recommended tier — click to clear"
+            title="Recommended tier — click to clear"
+          >
+            ★ recommended
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="rec-set"
+            onClick={handleToggleRecommended}
+            disabled={disabled || pending}
+            aria-label="Mark as recommended tier"
+            title="Mark as recommended tier (clears siblings)"
+          >
+            ☆ mark recommended
+          </button>
+        )}
+      </div>
+      <div className="qty">
+        <input
+          type="number"
+          min={0}
+          step={1}
+          placeholder="—"
+          value={qty}
+          disabled={disabled}
+          onChange={(e) => {
+            const v = e.target.value;
+            setQty(v);
+            scheduleLabelQtySave({ qty: v });
+          }}
+          aria-label="Quantity"
+        />
+      </div>
+      <div className="adj">
+        <input
+          type="number"
+          step="0.01"
+          placeholder="—"
+          value={priceAdj}
+          disabled={disabled}
+          onChange={(e) => {
+            const v = e.target.value;
+            setPriceAdj(v);
+            schedulePriceAdjSave({ priceAdj: v });
+          }}
+          aria-label="Per-tier price adjustment percent"
+        />
+      </div>
+      <div className="actions">
         <button
           type="button"
           onClick={handleDelete}
           disabled={disabled}
-          title="Delete tier"
-          className="rounded border border-red-200 bg-white px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-30"
+          title="Remove tier"
+          aria-label={`Delete tier ${label}`}
         >
           ×
         </button>
       </div>
+      {(saveError || pending) && (
+        <div
+          style={{
+            gridColumn: "1 / -1",
+            fontFamily: "var(--mono)",
+            fontSize: 10.5,
+            letterSpacing: "0.04em",
+            marginTop: 2,
+          }}
+        >
+          {saveError ? (
+            <span style={{ color: "var(--bad)" }} role="alert">
+              {saveError}
+            </span>
+          ) : (
+            <span style={{ color: "var(--ink-4)" }}>saving…</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

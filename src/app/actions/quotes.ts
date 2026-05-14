@@ -17,10 +17,14 @@ import {
 } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
+  createProduct,
   findHubspotOwnerById,
+  findHubspotOwnerByEmail,
+  findProductBySku,
   getProduct,
   HubspotError,
   searchProducts,
+  type ProductCreateInput,
   type ProductSummary,
 } from "@/lib/hubspot";
 import { revalidateQuoteTree } from "@/lib/revalidate";
@@ -60,6 +64,13 @@ function snapshotFromHubspotProduct(p: ProductSummary): {
 // ---------- tier presets (internal — "use server" disallows non-async exports) ----------
 
 type TierPresetKey =
+  // R7b §3.5 empty-state picker presets (§6.b Step 6).
+  | "pst_3step"
+  | "pst_4step"
+  | "pst_first"
+  | "pst_volume"
+  // Legacy presets (pre-§6.b TierPresetSelect dropdown). Retained
+  // for backward compat with any external bookmarks / saved URLs.
   | "single_volume"
   | "reorder"
   | "packaging_domestic"
@@ -67,10 +78,50 @@ type TierPresetKey =
   | "soft_goods"
   | "custom";
 
+type TierPresetRow = {
+  label: string;
+  qty: number | null;
+  recommended?: boolean;
+};
+
 const TIER_PRESETS: Record<
   TierPresetKey,
-  { label: string; tiers: Array<{ label: string; qty: number | null }> }
+  { label: string; tiers: Array<TierPresetRow> }
 > = {
+  // R7b §3.5 — 4 empty-state picker presets. Each marks one tier
+  // as recommended per the brief / 7bsetup.jsx fixture (lines
+  // 442-457). Action layer's "one recommended per quote" invariant
+  // is satisfied by-construction since the picker only fires on
+  // an empty tier set.
+  pst_3step: {
+    label: "3-tier step",
+    tiers: [
+      { label: "Tier 1", qty: 5000 },
+      { label: "Tier 2", qty: 10000, recommended: true },
+      { label: "Tier 3", qty: 25000 },
+    ],
+  },
+  pst_4step: {
+    label: "4-tier step",
+    tiers: [
+      { label: "Tier 1", qty: 5000 },
+      { label: "Tier 2", qty: 10000, recommended: true },
+      { label: "Tier 3", qty: 25000 },
+      { label: "Tier 4", qty: 50000 },
+    ],
+  },
+  pst_first: {
+    label: "First-PO",
+    tiers: [{ label: "Tier 1", qty: 10000, recommended: true }],
+  },
+  pst_volume: {
+    label: "Volume break",
+    tiers: [
+      { label: "Tier 1", qty: 10000 },
+      { label: "Tier 2", qty: 50000, recommended: true },
+      { label: "Tier 3", qty: 100000 },
+    ],
+  },
   single_volume: {
     label: "Single Volume",
     tiers: [{ label: "Tier 1", qty: null }],
@@ -82,27 +133,27 @@ const TIER_PRESETS: Record<
   packaging_domestic: {
     label: "Packaging — Domestic",
     tiers: [
-      { label: "Tier 1 — 5k", qty: 5000 },
-      { label: "Tier 2 — 10k", qty: 10000 },
-      { label: "Tier 3 — 25k", qty: 25000 },
-      { label: "Tier 4 — 50k", qty: 50000 },
+      { label: "Tier 1", qty: 5000 },
+      { label: "Tier 2", qty: 10000 },
+      { label: "Tier 3", qty: 25000 },
+      { label: "Tier 4", qty: 50000 },
     ],
   },
   packaging_overseas: {
     label: "Packaging — Overseas",
     tiers: [
-      { label: "Tier 1 — 25k", qty: 25000 },
-      { label: "Tier 2 — 50k", qty: 50000 },
-      { label: "Tier 3 — 100k", qty: 100000 },
-      { label: "Tier 4 — 250k", qty: 250000 },
+      { label: "Tier 1", qty: 25000 },
+      { label: "Tier 2", qty: 50000 },
+      { label: "Tier 3", qty: 100000 },
+      { label: "Tier 4", qty: 250000 },
     ],
   },
   soft_goods: {
     label: "Soft Goods",
     tiers: [
-      { label: "Tier 1 — 1k", qty: 1000 },
-      { label: "Tier 2 — 5k", qty: 5000 },
-      { label: "Tier 3 — 10k", qty: 10000 },
+      { label: "Tier 1", qty: 1000 },
+      { label: "Tier 2", qty: 5000 },
+      { label: "Tier 3", qty: 10000 },
     ],
   },
   custom: {
@@ -506,9 +557,17 @@ async function seedProductionInputsForNewLeaf(args: {
 }
 
 /**
- * Create a Nexus-local assembly SKU — no HubSpot Product reference.
- * Used when PMs design an assembly before (or instead of) creating it
- * in HubSpot. Leaf SKUs should still go through addSkuFromHubspotProduct.
+ * Create a Nexus-local SKU — no HubSpot Product reference. Used as
+ * the in-drawer "+ Add child SKU" trigger inside an assembly drawer.
+ * Accepts a sku_role override via FormData; defaults to "leaf" per
+ * Edward's pre-PR smoke directive: when adding a child to an
+ * existing assembly, the new SKU is almost always a leaf (the
+ * unit-level BOM item). PM can promote to assembly later via the
+ * row's Type badge if they want nested assemblies.
+ *
+ * Action name retained for back-compat with callers; the legacy
+ * "+ Add assembly" footer affordance is retired (replaced by the
+ * Phase 1 HubSpot-first modal which routes through addProductSku).
  */
 export async function addAssemblySku(
   formData: FormData,
@@ -519,6 +578,18 @@ export async function addAssemblySku(
     const productName = String(formData.get("productName") ?? "").trim();
     const parentSkuIdRaw = trimOrNull(formData.get("parentSkuId"));
     const qtyPerParentRaw = trimOrNull(formData.get("qtyPerParent"));
+    // sku_role override per Edward smoke May 2026 — default leaf
+    // (in-drawer "+ Add child SKU" case). Form can pass "assembly"
+    // if the PM is creating a nested assembly child explicitly.
+    const skuRoleRaw = String(
+      formData.get("skuRole") ?? "leaf",
+    ).trim();
+    if (skuRoleRaw !== "leaf" && skuRoleRaw !== "assembly")
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Unknown sku_role: ${skuRoleRaw}`,
+      );
+    const skuRole: "leaf" | "assembly" = skuRoleRaw;
 
     if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
     if (!skuLabel) throw new ActionGuardError(ERR.VALIDATION, "skuLabel required");
@@ -534,7 +605,7 @@ export async function addAssemblySku(
         skuId: null,
         newParentId: parentSkuIdRaw,
         newQtyPerParent: qtyPerParentRaw,
-        newRole: "assembly",
+        newRole: skuRole,
         quoteId,
         allSkus,
       });
@@ -557,7 +628,7 @@ export async function addAssemblySku(
         productName,
         unitsPerPack: 1,
         sortOrder,
-        skuRole: "assembly",
+        skuRole,
         parentSkuId: parentSkuIdRaw,
         qtyPerParent: qtyPerParentRaw,
       })
@@ -573,13 +644,352 @@ export async function addAssemblySku(
         hubspot_product_id: null,
         sku_label: skuLabel,
         product_name: productName,
-        sku_role: "assembly",
+        sku_role: skuRole,
         parent_sku_id: parentSkuIdRaw,
         qty_per_parent: qtyPerParentRaw,
       },
     });
 
     revalidateQuoteTree(quote.projectId, quoteId);
+  });
+}
+
+/**
+ * §6.b Step 9 — Drag-and-drop row reordering. Accepts a comma-
+ * separated list of SKU ids in the new display order; writes a
+ * sequential sort_order to each row (1, 2, 3, ...). Sequential
+ * over sparse-spacing chosen because nexus scale is small (typical
+ * quote: 5-30 SKUs) and the action layer's existing
+ * `max(sort_order) + 1` insert pattern (addSkuFromHubspotProduct,
+ * addAssemblySku, addProductSku) naturally continues forward from
+ * any sequential floor — no rebalance step needed.
+ *
+ * Validates all ids belong to the quote (defense against forged
+ * cross-quote payloads); refuses if any id is missing OR if there
+ * are stale ids the client doesn't know about (drag fired on a
+ * snapshot that's older than current state).
+ *
+ * Audit: one row written per quote with a from→to map of every
+ * shifted row's sort_order. Single timeline entry keeps the audit
+ * log readable for "what was reordered when"; per-row entries
+ * would explode the log on each drag.
+ */
+export async function reorderQuoteSkus(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    const orderRaw = String(formData.get("skuIds") ?? "").trim();
+    if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+    if (!orderRaw)
+      throw new ActionGuardError(ERR.VALIDATION, "skuIds (comma-separated) required");
+
+    const newOrder = orderRaw.split(",").map((s) => s.trim()).filter(Boolean);
+    if (newOrder.length === 0)
+      throw new ActionGuardError(ERR.VALIDATION, "skuIds must not be empty");
+
+    const user = await ensureUser();
+    const quote = await loadQuoteOrThrow(quoteId);
+    assertDraft(quote);
+
+    const existing = await db
+      .select({ id: quoteSkus.id, sortOrder: quoteSkus.sortOrder })
+      .from(quoteSkus)
+      .where(eq(quoteSkus.quoteId, quoteId));
+
+    const existingIds = new Set(existing.map((r) => r.id));
+    const incomingSet = new Set(newOrder);
+
+    // Every incoming id must belong to the quote.
+    for (const id of newOrder) {
+      if (!existingIds.has(id))
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `SKU ${id} does not belong to quote ${quoteId}`,
+        );
+    }
+    // Every existing id must appear in the incoming list (or we'd
+    // partially-reorder and leave stale rows behind on the old order).
+    if (incomingSet.size !== existing.length)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Reorder payload covers ${incomingSet.size} rows but quote has ${existing.length}. Refresh and retry.`,
+      );
+
+    const beforeMap = new Map(existing.map((r) => [r.id, r.sortOrder]));
+    const diff: Record<string, { from: number; to: number }> = {};
+    let touched = 0;
+
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < newOrder.length; i++) {
+        const id = newOrder[i];
+        const next = i + 1;
+        const prev = beforeMap.get(id);
+        if (prev === next) continue;
+        await tx
+          .update(quoteSkus)
+          .set({ sortOrder: next, updatedAt: new Date() })
+          .where(eq(quoteSkus.id, id));
+        if (prev !== undefined) diff[id] = { from: prev, to: next };
+        touched++;
+      }
+    });
+
+    if (touched > 0) {
+      await logAudit({
+        userId: user.id,
+        entityType: "quote",
+        entityId: quoteId,
+        action: "skus_reordered",
+        diffJson: {
+          quote_id: quoteId,
+          rows_touched: touched,
+          rows_total: newOrder.length,
+          changes: diff,
+        },
+      });
+    }
+
+    revalidateQuoteTree(quote.projectId, quoteId);
+  });
+}
+
+/**
+ * Phase 1 (May 2026) — HubSpot-first add-product modal action.
+ * Supersedes the §6.b Step 8 local-first action of the same name.
+ *
+ * Brief inversion: HubSpot is the source of truth for the product
+ * catalog. Every product originates in HubSpot. The local row is
+ * a thin reference (hubspot_product_id + denormalized snapshot
+ * of sku_label + product_name + units_per_pack).
+ *
+ * Flow:
+ *   1. Validate required fields server-side (name, price,
+ *      hs_product_type) — modal also gates these at the form
+ *      boundary but the action revalidates per defense-in-depth.
+ *   2. Call createProduct() in HubSpot FIRST. On failure, throw
+ *      ActionGuardError → modal stays open, error visible, no
+ *      local row created (acceptance criterion).
+ *   3. On HubSpot success, insert quote_skus row with
+ *      hubspot_product_id populated from the returned product id.
+ *   4. Audit with source: "add_product_modal_phase1" so future
+ *      sweeps can filter Phase 1 creates from earlier flows.
+ *
+ * OQ2 disposition (Edward, Phase 1 prep): sku_role always "leaf"
+ * — Leaf/Assembly is graph position, hs_product_type is taxonomy;
+ * the modal handles taxonomy, the row drawer handles graph position.
+ *
+ * OQ3 disposition (Edward, Phase 1 prep): units_per_pack defaults
+ * to 1 — line-item attribute exposed as inline edit on the SKU row
+ * (Pattern 29), NOT a modal field.
+ *
+ * "Pull existing" CTA path: the modal calls addSkuFromHubspotProduct
+ * (existing action, Slice 2.5+) directly with the matched productId.
+ * This action handles the create branch only.
+ */
+export async function addProductSku(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+
+    // Required (block submit if blank) — also gated client-side; defense
+    // in depth on the action layer.
+    const name = String(formData.get("name") ?? "").trim();
+    const price = String(formData.get("price") ?? "").trim();
+    const hsProductType = String(formData.get("hs_product_type") ?? "").trim();
+    if (!name)
+      throw new ActionGuardError(ERR.VALIDATION, "Product name is required.");
+    if (!price)
+      throw new ActionGuardError(ERR.VALIDATION, "Unit price is required.");
+    if (!hsProductType)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Product type is required.",
+      );
+
+    // Optional — pass-through to HubSpot. Empty strings are filtered
+    // by createProduct() before send.
+    const hsSku = String(formData.get("hs_sku") ?? "").trim();
+    const description = String(formData.get("description") ?? "").trim();
+    const hsImages = String(formData.get("hs_images") ?? "").trim();
+    const hsUrl = String(formData.get("hs_url") ?? "").trim();
+    const hubspotOwnerId = String(formData.get("hubspot_owner_id") ?? "").trim();
+    const hsCostOfGoodsSold = String(
+      formData.get("hs_cost_of_goods_sold") ?? "",
+    ).trim();
+    const markup = String(formData.get("markup") ?? "").trim();
+    const taxSchedule = String(formData.get("tax_schedule") ?? "").trim();
+    const fscClaimType = String(formData.get("fsc_claim_type") ?? "").trim();
+    const fscStatus = String(formData.get("fsc_status") ?? "").trim();
+    const fscSupplierVerified = String(
+      formData.get("fsc_supplier_verified") ?? "",
+    ).trim();
+
+    const user = await ensureUser();
+    const quote = await loadQuoteOrThrow(quoteId);
+    assertDraft(quote);
+
+    // HubSpot is authoritative — create there first.
+    const createInput: ProductCreateInput = {
+      name,
+      price,
+      hs_product_type: hsProductType,
+      hs_sku: hsSku || undefined,
+      description: description || undefined,
+      hs_images: hsImages || undefined,
+      hs_url: hsUrl || undefined,
+      hubspot_owner_id: hubspotOwnerId || undefined,
+      hs_cost_of_goods_sold: hsCostOfGoodsSold || undefined,
+      markup: markup || undefined,
+      tax_schedule: taxSchedule || undefined,
+      fsc_claim_type: fscClaimType || undefined,
+      fsc_status: fscStatus || undefined,
+      fsc_supplier_verified: fscSupplierVerified || undefined,
+    };
+
+    let created;
+    try {
+      created = await createProduct(createInput);
+    } catch (err) {
+      // SKU-race fallback per CC instructions §"Gotchas / failure
+      // modes": if HubSpot rejects the create because another user
+      // claimed the SKU between blur and submit, surface the
+      // duplicate-handling error inline. Other create failures
+      // (validation, network, etc.) propagate the HubSpot message.
+      const message =
+        err instanceof HubspotError && err.cause
+          ? extractHubspotErrorMessage(err.cause) ??
+            "HubSpot rejected the product create. No local row was created."
+          : "HubSpot product create failed. No local row was created.";
+      throw new ActionGuardError(ERR.HUBSPOT, message);
+    }
+
+    const snap = snapshotFromHubspotProduct({
+      id: created.id,
+      name: created.name,
+      sku: created.hs_sku,
+      productType: hsProductType,
+      description: description || null,
+      price: price || null,
+    });
+
+    const maxRow = await db
+      .select({ max: max(quoteSkus.sortOrder) })
+      .from(quoteSkus)
+      .where(eq(quoteSkus.quoteId, quoteId));
+    const sortOrder = (maxRow[0]?.max ?? -1) + 1;
+
+    const [sku] = await db
+      .insert(quoteSkus)
+      .values({
+        quoteId,
+        hubspotProductId: created.id,
+        skuLabel: snap.skuLabel,
+        productName: snap.productName,
+        unitsPerPack: 1,
+        sortOrder,
+        lastHubspotRefreshAt: new Date(),
+        skuRole: "leaf",
+        parentSkuId: null,
+        qtyPerParent: null,
+      })
+      .returning({ id: quoteSkus.id });
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_sku",
+      entityId: sku.id,
+      action: "created",
+      diffJson: {
+        quote_id: quoteId,
+        source: "add_product_modal_phase1",
+        hubspot_product_id: created.id,
+        sku_label: snap.skuLabel,
+        product_name: snap.productName,
+        hs_product_type: hsProductType,
+        // Optional fields — captured for audit, not denormalized
+        // onto quote_skus (HubSpot remains authoritative).
+        hs_sku: hsSku || null,
+        hubspot_owner_id: hubspotOwnerId || null,
+        price,
+        hs_cost_of_goods_sold: hsCostOfGoodsSold || null,
+        markup: markup || null,
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, quoteId);
+  });
+}
+
+/**
+ * Phase 1 — extract a human-readable error message from a HubSpot
+ * SDK error. SDK errors are `Error` instances with a `body` field
+ * carrying the API response; we read message + the first context
+ * error if present.
+ */
+function extractHubspotErrorMessage(cause: unknown): string | null {
+  if (!cause || typeof cause !== "object") return null;
+  const body = (cause as { body?: { message?: string; errors?: Array<{ message?: string }> } }).body;
+  if (!body) return null;
+  if (body.errors?.[0]?.message) return body.errors[0].message;
+  if (body.message) return body.message;
+  return null;
+}
+
+/**
+ * Phase 1 — SKU duplicate-check action. Modal calls this on the SKU
+ * input's blur. Returns { found: true, product } if a HubSpot product
+ * with hs_sku === sku exists; { found: false } otherwise.
+ *
+ * Read-only by design (uses findProductBySku which goes through the
+ * Products-domain dev/prod-aware client). Empty SKU returns
+ * { found: false } without hitting the API.
+ */
+export async function checkProductSku(
+  sku: string,
+): Promise<ActionResult<{ found: boolean; product: ProductSummary | null }>> {
+  return runAction(async () => {
+    const trimmed = sku.trim();
+    if (!trimmed) return { found: false, product: null };
+    try {
+      const product = await findProductBySku(trimmed);
+      return { found: product !== null, product };
+    } catch (err) {
+      throw new ActionGuardError(
+        ERR.HUBSPOT,
+        err instanceof HubspotError
+          ? err.message
+          : "HubSpot SKU lookup failed",
+      );
+    }
+  });
+}
+
+/**
+ * Phase 1 — Resolve the current HubSpot user (Owner default for the
+ * modal). Looks up the logged-in nexus user's email against HubSpot
+ * Owners. Returns null if the user has no email match in HubSpot
+ * (modal renders Owner empty per CC instructions: "If the current
+ * HubSpot user can't be resolved at modal open, the Owner field
+ * should be empty (not crash, not fall back to a random user).").
+ */
+export async function getCurrentHubspotOwner(): Promise<
+  ActionResult<{ id: string; name: string | null } | null>
+> {
+  return runAction(async () => {
+    const user = await ensureUser();
+    if (!user.email) return null;
+    try {
+      const owner = await findHubspotOwnerByEmail(user.email);
+      if (!owner) return null;
+      const name = [owner.firstName, owner.lastName].filter(Boolean).join(" ");
+      return { id: owner.id, name: name || null };
+    } catch {
+      // Non-fatal — modal renders Owner empty if lookup fails.
+      return null;
+    }
   });
 }
 
@@ -1357,6 +1767,71 @@ export async function updateTier(
   });
 }
 
+// §6.b Step 5 prep — set/clear the per-quote ★ Recommended tier flag.
+//
+// One tier per quote can be recommended. Setting recommended=true on
+// tier T clears recommended on all siblings in the same quote atomically.
+// Setting recommended=false on T just clears T (no sibling fan-out).
+//
+// Invariant enforced at the action layer; no DB constraint v1. Single-user
+// concurrency at Nexus scale makes the race-condition risk negligible.
+export async function setTierRecommended(
+  formData: FormData,
+): Promise<ActionResult<{ tierId: string; recommended: boolean }>> {
+  return runAction(async () => {
+    const tierId = String(formData.get("tierId") ?? "").trim();
+    if (!tierId) throw new ActionGuardError(ERR.VALIDATION, "tierId required");
+    const recommended =
+      String(formData.get("recommended") ?? "").toLowerCase() === "true";
+
+    const user = await ensureUser();
+    const tierRows = await db
+      .select()
+      .from(quoteTiers)
+      .where(eq(quoteTiers.id, tierId))
+      .limit(1);
+    if (tierRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "Tier not found");
+    const tier = tierRows[0];
+
+    const quote = await loadQuoteOrThrow(tier.quoteId);
+    assertDraft(quote);
+
+    if (tier.recommended === recommended) {
+      return { tierId, recommended };
+    }
+
+    if (recommended) {
+      // Clear sibling rows first (one-per-quote invariant), then set this row.
+      await db
+        .update(quoteTiers)
+        .set({ recommended: false, updatedAt: new Date() })
+        .where(
+          and(
+            eq(quoteTiers.quoteId, tier.quoteId),
+            eq(quoteTiers.recommended, true),
+          ),
+        );
+    }
+    await db
+      .update(quoteTiers)
+      .set({ recommended, updatedAt: new Date() })
+      .where(eq(quoteTiers.id, tierId));
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_tier",
+      entityId: tierId,
+      action: "recommended_updated",
+      diffJson: { recommended: { from: tier.recommended, to: recommended } },
+    });
+
+    revalidateQuoteTree(quote.projectId, tier.quoteId);
+
+    return { tierId, recommended };
+  });
+}
+
 export async function deleteTier(formData: FormData): Promise<ActionResult<void>> {
   return runAction(async () => {
   const tierId = String(formData.get("tierId") ?? "").trim();
@@ -1588,6 +2063,10 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
           label: t.label,
           qty: t.qty,
           sortOrder: i,
+          // §6.b Step 6 — R7b §3.5 presets mark one tier as
+          // recommended. "One per quote" invariant satisfied by
+          // construction (picker only fires on empty tier set).
+          recommended: t.recommended ?? false,
         })),
       )
       .returning({ id: quoteTiers.id });

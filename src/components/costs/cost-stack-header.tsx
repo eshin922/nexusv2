@@ -138,7 +138,15 @@ export function CostStackHeader({
 
   if (tiers.length === 0) {
     return (
-      <div className="rounded-xl border border-rule bg-paper p-5 text-sm italic text-ink-4">
+      <div
+        className="r6-stack"
+        style={{
+          padding: "20px",
+          fontSize: "14px",
+          fontStyle: "italic",
+          color: "var(--ink-4)",
+        }}
+      >
         Add at least one tier to see the cost stack.
       </div>
     );
@@ -167,54 +175,42 @@ export function CostStackHeader({
     0.01,
   );
 
+  // §6.b path-B Costs migration commit 3/5 — canonical .r6-stack
+  // structure per r6_cost-stack.jsx lines 24-55 + 6styles.css
+  // .r6-stack rules. Drops Tailwind utility chrome that canonical
+  // CSS now provides via descendant selectors (.r6-stack /
+  // .r6-stack-head / .r6-stack-head h2 / .r6-stack-head .legend).
   return (
-    <div
-      className="r6-stack overflow-hidden rounded-xl"
-      style={{
-        background: "var(--paper)",
-        border: "1px solid var(--rule)",
-        marginBottom: "24px",
-      }}
-    >
-      {/* Head bar: H2 + component legend */}
-      <div
-        className="r6-stack-head grid items-center gap-4 px-[22px] py-3.5"
-        style={{
-          gridTemplateColumns: "1fr auto",
-          background: "var(--paper)",
-          borderBottom: "1px solid var(--rule)",
-        }}
-      >
-        <h2 className="m-0 font-display text-[17px] font-medium tracking-[-0.005em] text-ink">
-          Cost stack
-        </h2>
-        <div className="flex items-center gap-3.5 font-mono text-[10px] uppercase tracking-[0.06em] text-ink-4">
-          <LegendItem label="Packaging" color="var(--comp-pkg)" />
-          <LegendItem label="Production" color="var(--comp-prod)" />
+    <div className="r6-stack">
+      {/* Head bar: H2 + component legend. Canonical .r6-stack-head
+          provides grid + padding + bottom-rule; LegendItem children
+          render .swatch + label per canonical .legend grammar. */}
+      <div className="r6-stack-head">
+        <h2>Cost stack</h2>
+        <div className="legend">
+          <LegendItem label="Packaging" variant="pkg" />
+          <LegendItem label="Production" variant="prod" />
           {showRaw && (
-            <LegendItem label="Raws" tail="(DPS-sourced)" color="var(--comp-raw)" />
+            <LegendItem label="Raws" tail="(DPS-sourced)" variant="raw" />
           )}
-          <LegendItem label="Freight" color="var(--comp-frt)" />
-          <LegendItem label="D+T" tail="internal" hatched />
+          <LegendItem label="Freight" variant="frt" />
+          <LegendItem label="D+T" tail="internal" variant="dt" />
           {/* Passthrough legend slot — R6 commitment to stack grammar
               consistency across states (the PASS row may render empty
               but the legend slot stays present). Restored per Designer
               audit M1 — slot was dropped during Option B+ fold-in
               alongside the row; row stays dropped pending companion
-              math layer split (UX_BACKLOG: RAW + PASS restoration).
-              The legend slot is cheap and preserves R6 grammar even
-              with the row deferred. */}
-          <LegendItem label="Passthrough" color="var(--ink-4)" />
+              math layer split (UX_BACKLOG: RAW + PASS restoration). */}
+          <LegendItem label="Passthrough" variant="pass" />
         </div>
       </div>
 
-      {/* Grid: 1px gap on --rule bg renders hairline tier dividers */}
+      {/* Grid: canonical .r6-stack-grid provides 1px gap on --rule bg
+          for hairline tier dividers; only column count is dynamic. */}
       <div
-        className="r6-stack-grid grid"
+        className="r6-stack-grid"
         style={{
           gridTemplateColumns: `repeat(${tiers.length}, 1fr)`,
-          gap: "1px",
-          background: "var(--rule)",
         }}
       >
         {tiers.map((tier) => {
@@ -238,32 +234,25 @@ export function CostStackHeader({
   );
 }
 
+// Canonical .r6-stack-head .legend grammar: each item is
+// <span><span class="swatch {variant}" />Label [tail]</span>.
+// CSS provides variant-specific swatch fill (.pkg/.prod/.frt/.dt/
+// .pass/.raw) — no inline color. DT swatch uses repeating-linear-
+// gradient pattern; others are solid component colors.
 function LegendItem({
   label,
   tail,
-  color,
-  hatched,
+  variant,
 }: {
   label: string;
   tail?: string;
-  color?: string;
-  hatched?: boolean;
+  variant: "pkg" | "prod" | "frt" | "dt" | "pass" | "raw";
 }) {
-  const swatchStyle: React.CSSProperties = hatched
-    ? {
-        background:
-          "repeating-linear-gradient(135deg, var(--comp-dt) 0 3px, var(--comp-dt-stripe) 3px 6px)",
-      }
-    : { background: color };
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <span
-        aria-hidden
-        className="inline-block h-[9px] w-[9px] rounded-[2px] align-middle"
-        style={swatchStyle}
-      />
-      <span>{label}</span>
-      {tail && <span className="opacity-70">{tail}</span>}
+    <span>
+      <span aria-hidden className={`swatch ${variant}`} />
+      {label}
+      {tail && <span style={{ opacity: 0.7, marginLeft: 4 }}>{tail}</span>}
     </span>
   );
 }
@@ -319,8 +308,10 @@ function TierColumn({
   );
   const adjustmentPerUnit = totalRevenuePerUnit - subtotalPerUnit;
 
-  // R6 tier-col: paper bg + cursor + active = inset bottom underline.
-  // No border on the column; gap-as-rule from parent grid renders dividers.
+  // Canonical .r6-tier-col rules (6styles.css L155-166) provide paper
+  // bg, flex column, cursor, hover bg-shift, and .active inset-bottom
+  // underline. JSX uses native `<button>` for role=tab affordance +
+  // applies .active modifier for the underline.
   return (
     <button
       type="button"
@@ -328,27 +319,24 @@ function TierColumn({
       aria-selected={isActive}
       aria-label={`Select ${tier.label} as active tier`}
       onClick={onSelect}
-      className="r6-tier-col flex flex-col text-left transition-colors hover:bg-paper-2 focus:outline-none"
+      className={`r6-tier-col${isActive ? " active" : ""}`}
       style={{
-        background: "var(--paper)",
-        boxShadow: isActive ? "inset 0 -3px 0 var(--ink)" : undefined,
+        textAlign: "left",
+        border: "none",
+        outline: "none",
+        font: "inherit",
+        color: "inherit",
       }}
     >
-      <div className="r6-tier-col-head flex flex-col gap-1 px-[18px] pt-3.5 pb-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-[0.10em] text-ink-4">
-          {tier.label}
-        </span>
-        <span className="font-display text-[22px] font-medium leading-none tracking-[-0.015em] text-ink">
+      <div className="r6-tier-col-head">
+        <span className="label">{tier.label}</span>
+        <span className="qty">
           {tier.qty !== null ? tier.qty.toLocaleString() : "—"}
-          {tier.qty !== null && (
-            <span className="ml-1.5 align-super font-mono text-[10px] tracking-[0.04em] text-ink-4">
-              units
-            </span>
-          )}
+          {tier.qty !== null && <span className="units">units</span>}
         </span>
       </div>
 
-      <div className="r6-tier-col-bars flex flex-1 flex-col gap-0.5 px-[18px] pt-3 pb-1.5">
+      <div className="r6-tier-col-bars">
         {componentValues.map((c) => (
           <CompRow
             key={c.key}
@@ -360,29 +348,29 @@ function TierColumn({
         ))}
       </div>
 
-      <div className="r6-tier-col-foot mt-auto flex flex-col gap-1.5 border-t border-rule px-[18px] pt-3.5 pb-4">
+      <div className="r6-tier-col-foot">
         {!isEmpty ? (
           <>
-            <div className="flex items-baseline justify-between text-[11px] text-ink-4">
+            <div
+              className="row sub"
+              title="Sum of (cost + markup) across component rows above"
+            >
               <span>Subtotal</span>
-              <span
-                className="font-mono text-[11px] text-ink-3"
-                title="Sum of (cost + markup) across component rows above"
-              >
+              <span className="v">
                 {subtotalPerUnit > 0 ? fmtCurr2(subtotalPerUnit) : "—"}
               </span>
             </div>
             {Math.abs(adjustmentPerUnit) >= 0.005 && (
               <div
-                className="flex items-baseline justify-between text-[11px] text-ink-4"
+                className="row sub"
                 title="Difference between Sell and the sum of component rows. Non-zero when a cell override is set, when a per-tier price adjustment applies, or when there are hidden cost components (passthrough services) not rendered above."
               >
                 <span>{adjustmentPerUnit < 0 ? "Override" : "Adjustment"}</span>
                 <span
-                  className="font-mono text-[11px]"
+                  className="v"
                   style={{
                     color:
-                      adjustmentPerUnit < 0 ? "var(--bad)" : "var(--ink-3)",
+                      adjustmentPerUnit < 0 ? "var(--bad)" : undefined,
                   }}
                 >
                   {adjustmentPerUnit >= 0 ? "+" : "−"}
@@ -390,11 +378,9 @@ function TierColumn({
                 </span>
               </div>
             )}
-            <div className="mt-1 flex items-baseline justify-between border-t border-rule pt-1.5">
-              <span className="font-display text-[14px] text-ink">Sell</span>
-              <span className="font-display text-[22px] font-medium leading-none tracking-[-0.02em] text-ink">
-                {fmtCurr2(totalRevenuePerUnit)}
-              </span>
+            <div className="row sell">
+              <span className="lab">Sell</span>
+              <span className="v">{fmtCurr2(totalRevenuePerUnit)}</span>
             </div>
             <MarginRow
               status={marginStatus}
@@ -404,11 +390,9 @@ function TierColumn({
           </>
         ) : (
           <>
-            <div className="flex items-baseline justify-between border-t border-rule pt-1.5">
-              <span className="font-display text-[14px] text-ink">Sell</span>
-              <span className="font-display text-[22px] italic font-normal text-ink-4">
-                —
-              </span>
+            <div className="row sell">
+              <span className="lab">Sell</span>
+              <span className="v empty">—</span>
             </div>
             <MarginRow
               status="incomplete"
@@ -422,6 +406,17 @@ function TierColumn({
   );
 }
 
+// Canonical .r6-comp-row grammar:
+//   <div class="r6-comp-row {dt|raw|empty}">
+//     <span class="key">PKG</span>
+//     <span class="r6-bar [.empty]">
+//       <span class="seg cost {pkg|prod|frt|raw|dt|pass}" style="width:%"/>
+//       <span class="seg markup" style="width:%"/>
+//     </span>
+//     <span class="price">$1.23</span>
+//   </div>
+// CSS provides grid columns, font-mono register, key/price colors per
+// modifier, and bar/seg sizing. JSX only sets dynamic segment widths.
 function CompRow({
   componentKey,
   cost,
@@ -434,81 +429,35 @@ function CompRow({
   maxPerUnitCost: number;
 }) {
   const meta = COMPONENT_TOKENS[componentKey];
-  const isInternal = componentKey === "internal";
-  const isRaw = componentKey === "raw";
   const isPassthrough = componentKey === "passthrough";
   const totalValue = cost + markup;
   const isEmpty = totalValue <= 0;
 
-  // R6 bar: always 100% of grid cell. Segments scale via width:% of the
-  // cell's max per-unit subtotal. Two segments per bar (R6 source
-  // cost-stack-header.jsx:196-199 + index.html:2541-2544):
-  //   .seg.cost.{key} → component color
-  //   .seg.markup    → --ink with --paper border-left (1px hairline)
-  // Passthrough never has markup per R6 source.
+  // R6 bar: segments scale via width:% of the cell's max per-unit
+  // subtotal. Passthrough never has markup per R6 source.
   const costPct = Math.max(0.5, (cost / maxPerUnitCost) * 100);
   const markupPct = isPassthrough ? 0 : Math.max(0, (markup / maxPerUnitCost) * 100);
 
+  const rowMods = [
+    componentKey === "internal" ? "dt" : "",
+    componentKey === "raw" ? "raw" : "",
+    isEmpty ? "empty" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div
-      className={`r6-comp-row grid items-center gap-2 font-mono text-[10.5px] ${
-        isRaw ? "r6-comp-row-raw relative pl-[14px]" : ""
-      }`}
-      style={{ gridTemplateColumns: "38px 1fr 64px" }}
-    >
-      <span
-        className={`uppercase tracking-[0.06em] font-medium ${
-          isInternal ? "text-internal" : "text-ink-4"
-        }`}
-      >
-        {isRaw && (
-          <span
-            aria-hidden
-            className="absolute"
-            style={{
-              left: "4px",
-              top: "50%",
-              width: "7px",
-              height: "7px",
-              borderLeft: "1px solid var(--rule-2)",
-              borderBottom: "1px solid var(--rule-2)",
-              transform: "translateY(-90%)",
-              borderBottomLeftRadius: "2px",
-            }}
-          />
-        )}
-        {meta.label}
-      </span>
+    <div className={`r6-comp-row${rowMods ? ` ${rowMods}` : ""}`}>
+      <span className="key">{meta.label}</span>
 
       {isEmpty ? (
-        <span
-          className="r6-bar empty"
-          style={{
-            display: "block",
-            height: "18px",
-            background: "var(--paper-2)",
-            border: "1px dashed var(--rule-2)",
-            borderRadius: "3px",
-          }}
-        />
+        <span className="r6-bar empty" />
       ) : (
-        <span
-          className="r6-bar"
-          style={{
-            display: "flex",
-            height: "18px",
-            background: "var(--paper-3)",
-            borderRadius: "3px",
-            overflow: "hidden",
-          }}
-        >
+        <span className="r6-bar">
           <span
-            className="seg cost"
+            className={`seg cost ${meta.key}`}
             style={{
-              display: "block",
-              height: "100%",
               width: `${costPct}%`,
-              ...segCostStyle(meta.key),
               transition: "width 200ms ease-out",
             }}
           />
@@ -516,11 +465,7 @@ function CompRow({
             <span
               className="seg markup"
               style={{
-                display: "block",
-                height: "100%",
                 width: `${markupPct}%`,
-                background: "var(--ink)",
-                borderLeft: "1px solid var(--paper)",
                 transition: "width 200ms ease-out",
               }}
             />
@@ -528,39 +473,21 @@ function CompRow({
         </span>
       )}
 
-      <span
-        className={`text-right font-mono text-[11px] tracking-[-0.005em] ${
-          isEmpty ? "italic text-ink-4" : "text-ink-2"
-        }`}
-      >
+      <span className="price">
         {isEmpty ? "—" : fmtCurr2(totalValue)}
       </span>
     </div>
   );
 }
 
-function segCostStyle(key: string): React.CSSProperties {
-  switch (key) {
-    case "pkg":
-      return { background: "var(--comp-pkg)" };
-    case "prod":
-      return { background: "var(--comp-prod)" };
-    case "frt":
-      return { background: "var(--comp-frt)" };
-    case "raw":
-      return { background: "var(--comp-raw)" };
-    case "dt":
-      return {
-        background:
-          "repeating-linear-gradient(135deg, var(--comp-dt) 0 4px, var(--comp-dt-stripe) 4px 8px)",
-      };
-    case "pass":
-      return { background: "var(--ink-4)" };
-    default:
-      return {};
-  }
-}
-
+// Canonical .r6-tier-col-foot .margin grammar:
+//   <div class="margin {good|warn|bad|below_target|incomplete}">
+//     <span class="pip" />
+//     {text}
+//     [<span class="below">BELOW 35</span>]
+//   </div>
+// CSS provides flex layout, font-mono register, color per status,
+// pip background per status, and italic for incomplete.
 function MarginRow({
   status,
   pct,
@@ -570,43 +497,29 @@ function MarginRow({
   pct: number | null;
   targetPct: number;
 }) {
-  const cls = (() => {
-    switch (status) {
-      case "GOOD":
-        return "text-good";
-      case "BELOW_TARGET":
-        return "text-warn";
-      case "BELOW_FLOOR":
-        return "text-bad";
-      case "incomplete":
-        return "italic text-ink-4";
-    }
-  })();
+  const statusClass =
+    status === "GOOD"
+      ? "good"
+      : status === "BELOW_TARGET"
+        ? "below_target"
+        : status === "BELOW_FLOOR"
+          ? "bad"
+          : "incomplete";
   return (
-    <div
-      className={`flex items-center gap-2 font-mono text-[11px] tracking-[0.04em] ${cls}`}
-    >
-      <span
-        aria-hidden
-        className="inline-block h-1.5 w-1.5 rounded-full"
-        style={{
-          background:
-            status === "incomplete" ? "var(--rule-2)" : "currentColor",
-          border: status === "incomplete" ? "1px dashed var(--ink-4)" : undefined,
-        }}
-      />
+    <div className={`margin ${statusClass}`}>
+      <span className="pip" aria-hidden />
       {status === "incomplete"
         ? "awaiting inputs"
         : pct != null
           ? `${fmtPct(pct)} margin`
           : "—"}
       {status === "BELOW_TARGET" && (
-        <span className="ml-auto text-[9.5px] tracking-[0.06em]">
+        <span style={{ marginLeft: "auto", fontSize: "9.5px", letterSpacing: "0.06em" }}>
           BELOW {Math.round(targetPct)}
         </span>
       )}
       {status === "BELOW_FLOOR" && (
-        <span className="ml-auto text-[9.5px] tracking-[0.06em]">
+        <span style={{ marginLeft: "auto", fontSize: "9.5px", letterSpacing: "0.06em" }}>
           BELOW FLOOR
         </span>
       )}

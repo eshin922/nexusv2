@@ -1,18 +1,239 @@
 /*
  * Slice RI.8 step 1.5 — Setup polish++ stylesheet.
  *
- * Ports the relevant R1 classes from
- * docs/design-prototypes/dist/source/round-1/styles.css to apply
- * R1 fidelity on the Setup / Quote Builder page. Scope-capped to
- * Setup only — broader R5 admin rebuild lives in RI.8 steps 2-5
- * and uses its own register.
+ * §6.b path-B migration (May 2026): the canonical R7b CSS lives
+ * in src/styles/r7b-setup.css as a verbatim copy of
+ * docs/design-prototypes/dist/7bstyles.css. This file (r1-setup.css)
+ * is being progressively retired as the migration commits land —
+ * remaining content is:
  *
- * Class scope is intentionally narrow (`.r1-setup-*`) so other
- * surfaces' similar concepts (card, eyebrow, page-head) don't
- * collide with R1's specifically-Setup treatment. The existing
- * .r2-btn primitive serves as the button base; R1 buttons match
- * R2 closely.
+ *  1. Legacy `.r1-setup-*` rules (still active until JSX migrates)
+ *  2. Legacy `.r6b-*` rules I authored in early §6.b commits;
+ *     deleted as each JSX section migrates to canonical r7b-* classes
+ *  3. The `.btn` bridge below — narrow alias of nexus's existing
+ *     r2-btn rules to the .btn vocabulary R7b JSX expects (e.g.,
+ *     R7b's `<button className="btn ghost sm">+ Add SKU</button>`).
+ *     Avoids importing the full 2styles.css which would shadow
+ *     other surface classes.
+ *
+ * Eventually (post-§6.b) this file goes away entirely; r7b-setup.css
+ * + the surface-specific overrides take over.
  */
+
+/* ─── §6.b .btn bridge (path-B migration) ─────────────────── */
+/* R7b JSX uses `<button className="btn ghost sm">`. The canonical
+   .btn rules live in R2 base (docs/design-prototypes/dist/2styles.css
+   line 232+). Reproduced here with narrow scope — light-theme
+   tokens; matches R2 source. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-family: var(--ui);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  border: 1px solid var(--rule);
+  background: var(--paper-3);
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 80ms, border-color 80ms, color 80ms;
+}
+.btn:hover { background: var(--paper-4); }
+.btn.sm { padding: 5px 10px; font-size: 12px; border-radius: 5px; }
+.btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.btn.primary:hover { background: var(--ink-2); }
+.btn.accent { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+.btn.accent:hover { background: var(--accent-ink); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--ink-3); }
+.btn.ghost:hover { background: var(--paper-3); color: var(--ink); }
+.btn.bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+  border-color: oklch(from var(--bad) l c h / 0.4);
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ─── §6.b path-B nexus-specific overrides ───────────────────
+ * Local overrides scoped to canonical r7b-* classes. Canonical
+ * file (r7b-setup.css) unchanged per Pattern 30.
+ */
+
+/* SKU label column min-width — forces product-name alignment
+   across rows. Canonical .label-pack is flex with no reserved
+   width on .lbl; real DPS HubSpot data has variable-length SKU
+   codes (8-14 chars: "UC-LC-04", "DPS-CFM-SOL", "LC-TUBE-04")
+   so product names start at different x-positions per row.
+   Pattern: CLAUDE.md "Design was illustrative; real data needs
+   different proportions" (banked from RI.8 step 1.5 setup-grid
+   widening). */
+.r7b-sku-row .name .lbl {
+  min-width: 110px;
+}
+
+/* Grid alignment — canonical .r7b-grid default `align-items:
+   stretch` makes both cards (SKU left, Tier right) stretch to
+   the height of the tallest. Real PM data has variable SKU/Tier
+   counts, so heights diverge; the shorter card renders empty
+   white space at its bottom (paper bg showing through to the
+   stretched card boundary).
+
+   Fix: align-items: start lets each card sit at its natural
+   height. Grid row is just as tall as the tallest card; shorter
+   card ends cleanly at its footer.
+
+   Visual: matches R7b prototype where mock data was balanced
+   between cards. Production data isn't always balanced; this
+   override ensures clean termination per card.
+
+   Pattern: same shape as the .lbl override above — canonical
+   layout assumed balanced mock data; real data needs the
+   tweak. CLAUDE.md "Design was illustrative; real data needs
+   different proportions". */
+.r7b-grid {
+  align-items: start;
+}
+
+/* Tier label input chrome reset — brief §3.4 keeps label
+   editable inline; canonical r7b prototype renders as
+   read-only <span class="lab">. Compromise: <input className="lab">
+   styled to LOOK like the canonical span at rest (no input
+   border, transparent bg), with focused border revealing
+   edit affordance (Pattern 29-style transparent-→-focused
+   border). */
+.r7b-tier-row .label input.lab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 1px 4px;
+  margin: -1px -4px;
+  width: 100%;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.r7b-tier-row .label input.lab:hover:not(:disabled) {
+  border-color: var(--rule);
+  background: var(--paper-2);
+}
+.r7b-tier-row .label input.lab:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--paper);
+}
+
+/* Recommended chip click-to-clear — canonical .rec is a static
+   span; nexus wraps it as a button for toggle-off interaction.
+   Same visual at rest; hover lifts subtly. */
+.r7b-tier-row .label .rec-clickable {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin: -1px -4px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+  /* Inherits .rec text styling from canonical */
+}
+.r7b-tier-row .label .rec-clickable:hover:not(:disabled) {
+  background: oklch(from var(--accent) l c h / 0.10);
+  border-color: oklch(from var(--accent) l c h / 0.30);
+}
+.r7b-tier-row .label .rec-clickable:disabled {
+  cursor: default;
+}
+
+/* "Mark as recommended" always-visible ghost affordance —
+   canonical R7b has NO non-recommended-state toggle UI
+   (display-only). Nexus extends with an always-visible ghost
+   pip per Designer audit Finding 08 (MEDIUM): the prior
+   hover-reveal pattern lost discoverability for PMs scanning
+   a fresh tier table — they had to serially hover each row
+   to find the affordance. Always-visible reads as a quiet
+   ink-4 register at rest; hovers up to accent-ink + soft
+   accent border. Co-exists with .rec (filled marker) on the
+   recommended row. Designer audit fix May 2026. */
+.r7b-tier-row .label .rec-set {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin: -1px -4px;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.r7b-tier-row .label .rec-set:hover:not(:disabled) {
+  color: var(--accent-ink);
+  border-color: oklch(from var(--accent) l c h / 0.40);
+}
+.r7b-tier-row .label .rec-set:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* §6.b Designer audit Finding 05 (MEDIUM) — SKU reassign panel
+   (nexus extension; expands below row when PM clicks "Reassign
+   parent" in the ⋯ overflow menu). Replaces the pre-audit
+   hardcoded gray-* Tailwind register with canonical-token-aware
+   chrome so dark-mode themes correctly. Same accent-left-border
+   register as other temp-expanded affordances. */
+.r7b-sku-reassign {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--paper-2);
+  border-left: 2px solid var(--accent);
+  border-bottom: 1px solid var(--rule);
+  font-size: 12.5px;
+}
+.r7b-sku-reassign .form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.r7b-sku-reassign label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.r7b-sku-reassign select,
+.r7b-sku-reassign input {
+  padding: 4px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+.r7b-sku-reassign select {
+  flex: 1;
+  min-width: 0;
+}
+.r7b-sku-reassign input.qty {
+  width: 90px;
+  text-align: right;
+  font-family: var(--mono);
+}
+.r7b-sku-reassign .err {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--bad);
+}
 
 /* ─── Page head ─────────────────────────────────────── */
 .r1-setup-head {
@@ -32,12 +253,16 @@
 }
 .r1-setup-title {
   font-family: var(--display);
-  font-size: 36px;
+  /* §6.b Step 1 amendment — R7b page-title scale per Edward smoke.
+     Was 36px under R1 fidelity (RI.8 step 1.5); R7b renders the
+     title at ~28px, reading as a generous-but-not-shouty heading
+     that lets the sub-copy + banner share register weight. */
+  font-size: 28px;
   font-weight: 400;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.02em;
   margin: 0;
   color: var(--ink);
-  line-height: 1.05;
+  line-height: 1.1;
 }
 .r1-setup-title em {
   font-style: italic;
@@ -107,10 +332,16 @@
 }
 .r1-setup-card-head h3 {
   margin: 0;
-  font-family: var(--ui);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: -0.005em;
+  /* §6.b Step 1 amendment — R7b section header treatment. RI.8
+     step 1.5 set this as UI-sans 13/600 for R1 fidelity; R7b
+     supersedes R1 for §6.b and renders section headers in
+     display-serif (Newsreader) at ~18px. Visible in screenshot
+     comparison: R7b SKUs/Tiers headers read as display-register
+     siblings of the page title, not as small UI labels. */
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   color: var(--ink);
 }
 .r1-setup-card-head .meta {
@@ -145,3 +376,157 @@
   color: var(--ink-3);
   font-style: italic;
 }
+
+/* §6.b path-B migration cleanup — .r6b-type-badge rules
+ * deleted; type badge now uses canonical .r7b-type per
+ * r7b-setup.css (line 139+). All references migrated to
+ * canonical class names in commit 3/5 (c6b8eef). */
+
+/* ─── §6.b Step 3 — Components trigger + drawer ─────── */
+/* Components ▸ cell click opens the per-row drawer. Visual:
+   reads as a quiet text-only affordance until hover, where it
+   surfaces accent color signaling interactivity. */
+/* §6.b path-B migration cleanup — .r6b-components-trigger,
+ * .r6b-drawer, .r6b-drawer-placeholder rules deleted. Replaced
+ * by canonical .r7b-sku-row .components + .r7b-sku-drawer rules
+ * per r7b-setup.css (line 208+ / 226+).
+ *
+ * §6.b pre-PR fidelity check 2 (Edward, May 2026) — DrawerChildList
+ * now uses canonical .r7b-comp-table grid grammar VERBATIM with a
+ * carve-specific column-count modifier (.child-list). Single
+ * source of truth for the visual register (canonical
+ * .r7b-comp-thead / .r7b-comp-row / .r7b-comp-foot rules carry
+ * thead bg + row hover + foot register). This rule overrides
+ * only grid-template-columns to match the carved 5-column shape
+ * (Label / Product / Type / Qty/parent / Open) instead of
+ * canonical 7-column (Component / Supplier / Category / Unit
+ * cost / Qty / Markup / actions).
+ *
+ * Pattern 19 rationale: the inline-editable canonical shape
+ * doesn't apply because per-component cost data lives on
+ * packaging_inputs keyed to leaf SKUs (Mismatch 1 γ — inline
+ * editing across the boundary deferred to §6.c). Display-only
+ * cells preserve canonical visual register without inheriting
+ * the .input class chrome. */
+.r7b-comp-table.child-list .r7b-comp-thead,
+.r7b-comp-table.child-list .r7b-comp-row,
+.r7b-comp-table.child-list .r7b-comp-foot {
+  grid-template-columns: 1fr 1.6fr 80px 90px 90px;
+}
+/* AddAssemblyButton trigger inside .add-line carries its own
+ * button chrome (.add-sku canonical). The .add-line wrapper
+ * shouldn't add its own button styling — reset padding/cursor
+ * inheritance for this nested-button case. */
+.r7b-comp-table.child-list .r7b-comp-foot .add-line button {
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+/* §6.b pre-PR fidelity check (Edward) — AddAssemblyButton inline
+ * form expands when PM clicks "+ Add child SKU" inside the
+ * assembly drawer (forcedParentId mode) OR when the standalone
+ * "+ Add assembly" affordance is used elsewhere. Replaces pre-
+ * path-B Tailwind gray-* hardcoding (bg-gray-50, bg-gray-900,
+ * border-gray-300) with canonical-token-aware register matching
+ * the .r7b-sku-reassign pattern. Same dark-mode safety lever as
+ * the Reassign panel fix (Finding 05). */
+.r7b-child-add-form {
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 12.5px;
+  margin-top: 10px;
+}
+.r7b-child-add-form .row {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.r7b-child-add-form .row.two-col {
+  grid-template-columns: 1fr 2fr;
+}
+.r7b-child-add-form .row.parent-qty {
+  grid-template-columns: 2fr 1fr;
+}
+.r7b-child-add-form .row.qty-only {
+  grid-template-columns: auto auto;
+  align-items: center;
+}
+.r7b-child-add-form input,
+.r7b-child-add-form select {
+  padding: 5px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+.r7b-child-add-form input:focus,
+.r7b-child-add-form select:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--paper-2);
+}
+.r7b-child-add-form input:disabled,
+.r7b-child-add-form select:disabled {
+  background: var(--paper-3);
+  color: var(--ink-4);
+  cursor: not-allowed;
+}
+.r7b-child-add-form .qty-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.r7b-child-add-form .err {
+  color: var(--bad);
+  font-size: 11.5px;
+  margin: 6px 0 0;
+}
+.r7b-child-add-form .foot {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+/* §6.b path-B migration cleanup — .r6b-drawer-textarea rules
+ * deleted. Per-SKU notes textarea now styled by canonical
+ * .r7b-sku-notes textarea rule (r7b-setup.css line 297+). */
+
+/* ─── §6.b polish — R6 inline-edit read↔edit cell (Pattern 29) ── */
+/* Retail bench cell uses Pattern 29 read↔edit on top of
+ * canonical .r7b-sku-row .retail visual register (r7b-setup.css
+ * line 199+). Read mode renders inside canonical .retail wrapper;
+ * .r6b-retail-input (edit mode) is the only nexus-specific
+ * rule retained — handles the input chrome when PM clicks into
+ * the cell.
+ *
+ * Cleanup: .r6b-retail-read, .r6b-retail-value, .r6b-retail-caption,
+ * .r6b-retail-empty rules deleted — read mode visual now comes
+ * from canonical .retail + .retail .sub (commit 3/5 c6b8eef
+ * refactored RetailBenchCell to render canonical markup). */
+.r6b-retail-input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: 13px;
+}
+.r6b-retail-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.r6b-retail-input:disabled {
+  opacity: 0.6;
+  background: var(--paper-2);
+  cursor: not-allowed;
+}
+
+/* §6.b path-B migration cleanup (May 2026) — Step 5 Tier table\n * + Step 7 Notes split CSS rules deleted. Both surfaces now use\n * canonical r7b-* classes per r7b-setup.css. Tier table:\n * .r7b-tier-row / .r7b-tier-thead / .r7b-tier-footer / .add-tier\n * (Tier-specific nexus overrides for input.lab, .rec-clickable,\n * .rec-set live above in the path-B overrides block).\n * Notes split: .r7b-notes / .r7b-note-zone / .r7b-note-zone-head /\n * .r7b-note-zone-body / .helper.\n *\n * Pattern 30: canonical r7b-setup.css is source-of-truth; this\n * file holds nexus-specific overrides only.\n */

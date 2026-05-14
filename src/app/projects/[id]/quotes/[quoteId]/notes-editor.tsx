@@ -1,17 +1,43 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { updateQuoteNotes } from "@/app/actions/quotes";
 
 const DEBOUNCE_MS = 800;
 
+// §6.b path-B migration commit 5/5 — Notes split renders canonical
+// .r7b-notes / .r7b-note-zone structure (7bsetup.jsx NotesSection
+// lines 313-350 + 7bstyles.css .r7b-notes / .r7b-note-zone rules
+// at line 426).
+//
+// Two side-by-side audience-distinct zones at bottom of Setup:
+//   Internal (left)   — .r7b-note-zone.internal — purple --internal
+//                       accent border-left, INTERNAL chip
+//   Customer (right)  — .r7b-note-zone.customer — green --good
+//                       accent border-left, CUSTOMER chip
+//
+// Canonical DOM:
+//   .r7b-note-zone
+//     .r7b-note-zone-head
+//       .lhs > h4 + .audience
+//       .chip
+//     .r7b-note-zone-body
+//       <textarea>
+//       .helper > <strong>Audience:</strong> + text + (Preview link)
+//
+// Autosave: blur-debounced (800ms) via updateQuoteNotes action.
+// R6 Blur+Enter carry-forward.
+
 export function NotesEditor({
   quoteId,
+  projectId,
   internalNotes,
   customerFacingNotes,
   disabled = false,
 }: {
   quoteId: string;
+  projectId: string;
   internalNotes: string | null;
   customerFacingNotes: string | null;
   disabled?: boolean;
@@ -53,65 +79,86 @@ export function NotesEditor({
   }
 
   return (
-    <div className="grid gap-4">
-      <Field label="Internal notes" hint="Never appears on the customer PDF.">
-        <textarea
-          value={internal}
-          rows={4}
-          disabled={disabled}
-          onChange={(e) => {
-            const v = e.target.value;
-            setInternal(v);
-            scheduleSave({ internal: v });
-          }}
-          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-gray-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
-        />
-      </Field>
-      <Field
-        label="Customer-facing notes"
-        hint="Renders on the quote PDF; visible to the customer."
-      >
-        <textarea
-          value={customer}
-          rows={4}
-          disabled={disabled}
-          onChange={(e) => {
-            const v = e.target.value;
-            setCustomer(v);
-            scheduleSave({ customer: v });
-          }}
-          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-gray-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
-        />
-      </Field>
-      {saveError ? (
-        <span className="text-xs text-red-700" role="alert">
-          {saveError}
-        </span>
-      ) : pending ? (
-        <span className="text-xs text-gray-500" aria-live="polite">
-          Saving…
-        </span>
-      ) : null}
-    </div>
-  );
-}
+    <div className="r7b-notes">
+      {/* Internal zone — purple --internal accent */}
+      <div className="r7b-note-zone internal" aria-label="Internal notes">
+        <div className="r7b-note-zone-head">
+          <div className="lhs">
+            <h4>Internal notes</h4>
+            <span className="audience">PM-only · never customer-visible</span>
+          </div>
+          <span className="chip">Internal</span>
+        </div>
+        <div className="r7b-note-zone-body">
+          <textarea
+            value={internal}
+            disabled={disabled}
+            onChange={(e) => {
+              const v = e.target.value;
+              setInternal(v);
+              scheduleSave({ internal: v });
+            }}
+            placeholder="e.g., 'Customer requested matte tube finish in Apr 24 call; pending sourcing confirm.'"
+          />
+          <div className="helper">
+            <strong>Audience:</strong> you, other PMs, and admins. Sourcing
+            dependencies, customer phone notes, R&amp;D blockers go here.
+          </div>
+        </div>
+      </div>
 
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-0.5 block text-xs font-medium text-gray-700">
-        {label}
-      </span>
-      <span className="mb-1 block text-xs text-gray-500">{hint}</span>
-      {children}
-    </label>
+      {/* Customer-facing zone — green --good accent */}
+      <div
+        className="r7b-note-zone customer"
+        aria-label="Customer-facing notes"
+      >
+        <div className="r7b-note-zone-head">
+          <div className="lhs">
+            <h4>Customer-facing notes</h4>
+            <span className="audience">Renders on the Quote PDF</span>
+          </div>
+          <span className="chip">Customer</span>
+        </div>
+        <div className="r7b-note-zone-body">
+          <textarea
+            value={customer}
+            disabled={disabled}
+            onChange={(e) => {
+              const v = e.target.value;
+              setCustomer(v);
+              scheduleSave({ customer: v });
+            }}
+            placeholder="e.g., 'Pricing valid for 30 days. Lead time begins after artwork approval.'"
+          />
+          <div className="helper">
+            <strong>Audience:</strong> the customer (renders on the Quote PDF
+            and Mark-Accepted snapshot). Boundary-guard: this text travels
+            with the quote artifact.{" "}
+            <Link href={`/projects/${projectId}/quotes/${quoteId}/quote`}>
+              Preview on Quote →
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {(saveError || pending) && (
+        <div
+          style={{
+            gridColumn: "1 / -1",
+            fontFamily: "var(--mono)",
+            fontSize: 11,
+            letterSpacing: "0.04em",
+          }}
+          role="status"
+          aria-live="polite"
+        >
+          {saveError ? (
+            <span style={{ color: "var(--bad)" }}>{saveError}</span>
+          ) : (
+            <span style={{ color: "var(--ink-3)" }}>Saving…</span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
