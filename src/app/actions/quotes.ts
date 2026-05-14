@@ -1504,13 +1504,20 @@ export async function convertLeafToAssemblyWithMigrate(
           .where(eq(freightInputs.quoteSkuId, skuId));
       }
 
-      // Step 3: flip role on the original SKU to assembly. The
-      // original's cost rows were just moved to the child, so it's
-      // safe to leave as the now-empty assembly carrying the
-      // customer-facing reference (notes + retail bench preserved).
+      // Step 3: flip role on the original SKU to assembly AND
+      // strip its hubspot_product_id (Edward disposition 2026-
+      // 05-14: every leaf needs a HubSpot link for the HubSpot↔
+      // NetSuite product library sync; assemblies are Nexus-local
+      // kit definitions and must NOT carry HubSpot links). The
+      // auto-child created above already inherited the HubSpot
+      // link — single source of truth, no duplication.
       await tx
         .update(quoteSkus)
-        .set({ skuRole: "assembly", updatedAt: new Date() })
+        .set({
+          skuRole: "assembly",
+          hubspotProductId: null,
+          updatedAt: new Date(),
+        })
         .where(eq(quoteSkus.id, skuId));
 
       // Step 6: audit trail.

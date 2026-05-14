@@ -219,6 +219,18 @@ async function migrateOrphan(orphan: CleanupOrphan, userId: string) {
         .where(eq(freightInputs.quoteSkuId, orphan.quoteSkuId));
     }
 
+    // Strip hubspot_product_id from the original (now-confirmed-
+    // assembly). Same disposition as interactive smart-migrate:
+    // assemblies are Nexus-local kit definitions; the HubSpot link
+    // moved to the new auto-child leaf above. No-op when the
+    // original already had a NULL link (e.g., pre-Sub-item-3
+    // Nexus-local assembly that happened to acquire orphan cost
+    // rows via some other path).
+    await tx
+      .update(quoteSkus)
+      .set({ hubspotProductId: null, updatedAt: new Date() })
+      .where(eq(quoteSkus.id, orphan.quoteSkuId));
+
     // Audit trail. Per Sub-item 5 vs Sub-item 3 difference: no
     // `role_converted` here (original is already assembly). Just
     // the create + reparent log entries.
