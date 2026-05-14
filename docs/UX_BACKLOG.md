@@ -5,6 +5,72 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Quote PDF Additional charges block — real-data binding — Slice 11 follow-up]
+
+  **Slice:** Slice 11 (Quote PDF render path). Was the implicit
+  owner; Edward smoke 2026-05-13 promoted the Architectural concern
+  to a v1 blocker. Hotfix interim landed in rest-of-app sweep
+  Step 9 (this commit) strips the placeholder fixtures so production
+  PDFs no longer ship fake $5,250 / $12,400 / $3,200 charges to
+  customers; full real-data binding remains Slice 11's deliverable.
+
+  **What hotfix shipped (rest-of-app sweep Step 9):**
+
+  - Stripped `EMPTY_CHARGES` + `PASS_THROUGH_CHARGES` fixtures and
+    the `chargesForSubState` / `skusForSubState` mutator functions
+    from `quote-host.tsx`.
+  - `view.serviceFees` + `view.freightLines` + `view.skus` now flow
+    verbatim through to PdfChargesBlock + PdfPricingTable. Real
+    bundle data, no fixture substitution.
+  - `deriveDefaultSubState(view)` picks the conceptual register
+    (pure / passThrough / partial) from real data shape. Dev
+    switcher can still override for prototype preview; production
+    PMs never see it.
+  - `isTwoPage` gated on `hasAdditionalCharges = serviceFees.length
+    > 0 || freightLines.length > 0`. Dev toggle to "passThrough"
+    on a zero-charges quote no-ops rather than rendering an empty
+    second page.
+  - `introCopy` generalized — removed hardcoded fixture-SKU
+    references (Glow Capsule / CAP-60) and hardcoded tier labels
+    (Tier 2 / 25,000 units). `single_tier` layout now derives the
+    tier label from `view.tiers[recommendedTierIdx]`.
+
+  **What Slice 11 still owns:**
+
+  1. `production_inputs.is_one_time = true` rows → service-fee
+     line items (project setup, tooling, R&D). Group by
+     `production_inputs.scope` (project vs sku) for the qtyLabel
+     copy ("1 (per project)" vs "1 (SKU-LABEL only)").
+  2. `freight_inputs.freight_treatment = pass_through` lines →
+     freight charge rows with per-tier amounts. Compute
+     `tierAmounts[i]` from the line's lane × tier-qty + duty/tariff
+     when separable (vs bundled into per-unit price).
+  3. Customer/contact/role/address data — currently stubbed to
+     project.clientName; Slice 11 imports HubSpot contact data.
+  4. Pack format on quote_skus — currently "{pack-format-pending}";
+     Slice 11 schema add.
+  5. Recommended tier flag from real data (currently middle-tier
+     stub per page.tsx:200).
+
+  **Pattern 45 candidate — "customer-facing render data-source
+  verification":** Every customer-facing render block must trace
+  to a real bundle data source. Placeholder fixtures shipping to
+  production is a fidelity-sweep finding, not designer chrome.
+  Promote to standing pattern if a SECOND similar instance
+  surfaces in the rest-of-app sweep. CC discipline going forward
+  on any PDF / public-facing render: grep for hardcoded numbers,
+  hardcoded names, hardcoded labels in component bodies — those
+  should all derive from props.
+
+  **Pass-through Fix A dependency (banked earlier):** the
+  pass-through bundling/extraction logic fix had presumed real
+  freight data. With the placeholder fixtures stripped + real
+  binding deferred to Slice 11, the Pass-through Fix A
+  application also sequences AFTER Slice 11's data binding —
+  fix needs real data to verify end-to-end.
+
+  **Banked from Edward smoke 2026-05-13.**
+
 - [Pricing surface — token-discipline migration of hardcoded gray-*/slate-* utilities — v1.1 cleanup]
 
   **Slice:** v1.1 cleanup slice. Not on release-critical path.
