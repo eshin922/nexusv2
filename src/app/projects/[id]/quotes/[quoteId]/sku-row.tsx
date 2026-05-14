@@ -548,9 +548,18 @@ export function SkuRow({
                 ⋯
               </button>
               {overflowOpen && overflowMenuPos && createPortal(
+                // Step 10 Edward smoke (2026-05-14) — migrated from
+                // Tailwind utility classes (text-xs / px-3 / py-1.5
+                // etc.) to canonical .r7b-overflow-menu register in
+                // r7b-primitives.css. The v3 portal hotfix moves the
+                // menu to document.body; Tailwind utilities weren't
+                // winning the cascade post-portal (items rendered at
+                // body-default 14px without canonical padding/spacing).
+                // Canonical CSS class register defines the visual
+                // register explicitly + wins selector specificity.
                 <div
                   role="menu"
-                  className="fixed z-50 min-w-[200px] rounded border border-rule bg-paper py-1 shadow-md"
+                  className="r7b-overflow-menu"
                   style={{
                     position: "fixed",
                     top: overflowMenuPos.top,
@@ -574,9 +583,9 @@ export function SkuRow({
                         setOverflowOpen(false);
                       }}
                       disabled={disabled}
-                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2 disabled:opacity-30"
+                      className="r7b-overflow-menu-item"
                     >
-                      <span className="mr-2 font-mono text-ink-3">📝</span>
+                      <span className="glyph">📝</span>
                       {hasNote ? "Open notes" : "Add notes"}
                     </button>
                   )}
@@ -590,9 +599,9 @@ export function SkuRow({
                       setOverflowOpen(false);
                     }}
                     disabled={disabled}
-                    className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2 disabled:opacity-30"
+                    className="r7b-overflow-menu-item"
                   >
-                    <span className="mr-2 font-mono text-ink-3">↑</span>
+                    <span className="glyph">↑</span>
                     Move up
                   </button>
                   <button
@@ -603,9 +612,9 @@ export function SkuRow({
                       setOverflowOpen(false);
                     }}
                     disabled={disabled}
-                    className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2 disabled:opacity-30"
+                    className="r7b-overflow-menu-item"
                   >
-                    <span className="mr-2 font-mono text-ink-3">↓</span>
+                    <span className="glyph">↓</span>
                     Move down
                   </button>
                   <button
@@ -617,9 +626,9 @@ export function SkuRow({
                     }}
                     disabled={disabled}
                     title={sku.skuRole !== "leaf" ? "Delete (cascade)" : "Remove SKU"}
-                    className="block w-full px-3 py-1.5 text-left text-xs text-bad hover:bg-bad-soft disabled:opacity-30"
+                    className="r7b-overflow-menu-item danger"
                   >
-                    <span className="mr-2 font-mono">×</span>
+                    <span className="glyph">×</span>
                     {sku.skuRole !== "leaf" ? "Delete (cascade)" : "Remove SKU"}
                   </button>
                   {canBeChild && eligibleParents.length > 0 && (
@@ -630,9 +639,9 @@ export function SkuRow({
                         setReassignOpen(true);
                         setOverflowOpen(false);
                       }}
-                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2"
+                      className="r7b-overflow-menu-item"
                     >
-                      <span className="mr-2 font-mono text-ink-3">
+                      <span className="glyph">
                         {sku.parentSkuId ? "↔" : "↳"}
                       </span>
                       {sku.parentSkuId ? "Reassign parent" : "Assign to parent"}
@@ -646,9 +655,9 @@ export function SkuRow({
                         handleDetach();
                         setOverflowOpen(false);
                       }}
-                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2"
+                      className="r7b-overflow-menu-item"
                     >
-                      <span className="mr-2 font-mono text-ink-3">⤴</span>
+                      <span className="glyph">⤴</span>
                       Detach from parent
                     </button>
                   )}
@@ -665,9 +674,9 @@ export function SkuRow({
                           ? `Last synced ${formatRelative(sku.lastHubspotRefreshAt)}`
                           : undefined
                       }
-                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2"
+                      className="r7b-overflow-menu-item"
                     >
-                      <span className="mr-2 font-mono text-ink-3">↻</span>
+                      <span className="glyph">↻</span>
                       Refresh from HubSpot
                     </button>
                   )}
@@ -678,9 +687,9 @@ export function SkuRow({
                       rel="noreferrer"
                       role="menuitem"
                       onClick={() => setOverflowOpen(false)}
-                      className="block w-full px-3 py-1.5 text-left text-xs text-ink-2 hover:bg-paper-2"
+                      className="r7b-overflow-menu-item"
                     >
-                      <span className="mr-2 font-mono text-ink-3">↗</span>
+                      <span className="glyph">↗</span>
                       Open in HubSpot
                     </a>
                   )}

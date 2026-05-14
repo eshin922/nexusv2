@@ -482,6 +482,71 @@
 .r2-gap-2 { gap: 8px; }
 .r2-gap-3 { gap: 12px; }
 
+/* ─── SKU overflow menu — portal-mounted ───────────────────
+ *
+ * Step 9 hotfix v3 portals the SKU row's `⋯` overflow menu to
+ * `document.body` to escape `.r7b-card { overflow: hidden }` +
+ * `.r7b-sku-row { display: grid }` ancestor structural
+ * constraints. Step 10 Edward smoke (2026-05-14): the v3 portal
+ * works (all 6 menu items visible) but Tailwind utility classes
+ * on the menu items (`text-xs`, `px-3`, `py-1.5`, etc.) aren't
+ * winning the cascade post-portal — items render at body-default
+ * 14px without canonical padding/spacing register.
+ *
+ * Canonical rules below define the menu's visual register
+ * explicitly. Same shape as Pattern 30 canonical adoption:
+ * stop relying on Tailwind utility class resolution and own the
+ * visual register via dedicated CSS classes. Menu JSX consumes
+ * these classes directly; Tailwind utility classes preserved on
+ * the elements as a co-occurring layer (the canonical rules win
+ * on selector specificity AND post-load cascade order).
+ */
+.r7b-overflow-menu {
+  min-width: 200px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 2px 8px oklch(0 0 0 / 0.08), 0 1px 2px oklch(0 0 0 / 0.04);
+  font-family: var(--ui);
+}
+.r7b-overflow-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-2);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: none;
+}
+.r7b-overflow-menu-item:hover {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.r7b-overflow-menu-item:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.r7b-overflow-menu-item .glyph {
+  display: inline-block;
+  width: 16px;
+  margin-right: 8px;
+  font-family: var(--mono);
+  color: var(--ink-4);
+  font-size: 11px;
+}
+.r7b-overflow-menu-item.danger {
+  color: var(--bad);
+}
+.r7b-overflow-menu-item.danger:hover {
+  background: var(--bad-soft);
+}
+
 /* ─── Costs pulse-dot sync meta — Pattern 21 dev-scaffolding ──
  *
  * Canonical R6 ships `.r6-page-head .meta` + `.r6-page-head .meta
