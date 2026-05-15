@@ -63,28 +63,19 @@ export const markupPctSource = pgEnum("markup_pct_source", [
   "manual_override",
 ]);
 
-// Slice 7 — freight ops vocabulary.
-export const freightMode = pgEnum("freight_mode", [
-  "parcel",
-  "ltl",
-  "ftl",
-  "ocean",
-  "air",
-  "courier",
-  "other",
-]);
+// Slice 7 / R6.2 — freight treatment (bundled vs pass-through).
+// Carries forward from Slice 7 unchanged; per-leg in the R6.2 model.
 export const freightTreatment = pgEnum("freight_treatment", [
   "bundled",
   "pass_through",
 ]);
 
-// Slice R6.2 — multi-leg journey freight vocabulary (additive).
-// Co-exists with the Slice 7 `freight_mode` enum during the
-// commit-1 additive phase. Commit 2 destructive sweep retires
-// `freight_inputs` + the Slice 7 `freight_mode` enum, then
-// renames `freight_leg_mode` → `freight_mode` as the canonical
-// name. Per Pattern 25 disposition A (R6.2 gap dispositions,
-// May 2026).
+// Slice R6.2 — multi-leg journey freight vocabulary. Replaces the
+// Slice 7 `freight_mode` 7-value enum (retired commit 3) with a
+// 10-value mode enum that matches the R6.2 prototype data.js modes
+// list (parcel · ocean_fcl/lcl · air_freight/express · ltl_truck ·
+// truckload · drayage · exw_pickup · other). Per Pattern 25
+// disposition A (R6.2 gap dispositions, May 2026).
 export const freightDirection = pgEnum("freight_direction", [
   "inbound",
   "outbound",
@@ -97,12 +88,6 @@ export const freightIncoterm = pgEnum("freight_incoterm", [
   "FCA",
   "CIF",
 ]);
-// 10-value vocabulary matching the R6.2 prototype data.js modes
-// list. Per Gap 8 disposition, the legacy 7-value freightMode
-// maps as parcel→parcel, ltl→ltl_truck, ftl→truckload,
-// ocean→ocean_fcl, air→air_freight, courier→air_express,
-// other→other. PMs reclassify Ocean (FCL/LCL) post-migration
-// if needed.
 export const freightLegMode = pgEnum("freight_leg_mode", [
   "parcel",
   "ocean_fcl",
@@ -477,31 +462,13 @@ export const quoteSkus = pgTable(
     ),
     skuRole: skuRole("sku_role").notNull().default("leaf"),
     qtyPerParent: numeric("qty_per_parent", { precision: 10, scale: 4 }),
-    // Customs / landed-cost data (Slice 6.5; CBM moved to freight_inputs
-    // in Slice 8 pre-correction).
-    //
-    // CUSTOMER-INVISIBLE. These values are NEVER shown to customers — no
-    // PDF, no quote view, no email. They are inputs to Slice 8's
-    // landed-freight rollup:
-    //
-    //   duty_per_unit   = sku_factory_cost × sku.duty_pct
-    //   tariff_per_unit = sku_factory_cost × sku.tariff_pct
-    //
-    // sku_factory_cost = packaging_inputs.unit_cost (per-unit) +
-    //                    production_inputs amortized service fees +
-    //                    production_inputs raw costs
-    //                    (respecting allocate_service_fees_to_cost flag)
-    //
-    // Often NULL during early quote drafting; PM populates after
-    // confirming with freight forwarder. See docs/CUSTOMS_AND_FREIGHT.md
-    // for the full convention and the "Internal — not shown to customer"
-    // UI badge requirement.
-    //
-    // CBM is captured on freight_inputs (per-(SKU, line, tier)) instead
-    // of here — see freight_inputs.sku_total_cbm comment. The earlier
-    // per-unit modeling on quote_skus was wrong: PMs work in total CBM
-    // per shipment per SKU, derived from pallet inspection, not per-unit
-    // volume.
+    // Customs / landed-cost data (Slice 6.5 original; Slice R6.2
+    // retired the per-SKU model in favor of per-leg customs JSONB
+    // on `freight_legs.customs`). These columns persist as orphan
+    // data post-R6.2 (pre-prod tolerance per Pattern 32 — no UI
+    // writes them, the math layer ignores them). A future cleanup
+    // can drop them once any forensic value is exhausted; until
+    // then they're harmless null/legacy-value columns.
     dutyPct: numeric("duty_pct", { precision: 5, scale: 4 }),
     tariffPct: numeric("tariff_pct", { precision: 5, scale: 4 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -834,103 +801,15 @@ export const productionInputs = pgTable(
   ],
 );
 
-// ---------- inputs (Slice 7: freight) ----------
-
-// PM-added freight lines, one per logical shipment. Each line spans every
-// active tier (one row per (line_group_id, tier) pair). Per-line metadata
-// — supplier, shipment_id, mode, markup, treatment, notes — is denormalized
-// across this line's tier rows; updateFreightLineMetadata fans out across
-// all rows of one line_group_id in a single UPDATE. Same shape as
-// packaging_inputs.
-//
-// Freight lines are PM-added (not auto-seeded on SKU creation), unlike
-// production_inputs. The cascade pattern in addTier walks existing
-// line_group_ids and seeds new tier rows; if a SKU has no freight lines
-// yet, no rows are created.
-//
-// markup_pct is NULLABLE here even though addFreightLine writes 0.30 at
-// insert time. Matches packaging convention — captures "unset" as a
-// meaningful state, doesn't silently apply 30% to a row no PM has touched.
-//
-// units_in_shipment is nullable. NULL = "use tier.qty for amortization in
-// cost rollup" (the typical case). Populated only when shipment units
-// differ from tier qty (yield-mismatch: ship 10k raws to produce 5k
-// finished). Slice 8 cost rollup MUST honor: NULL → tier.qty.
-//
-// sku_total_cbm (Slice 8 pre-correction): total CBM this SKU occupies in
-// THIS shipment, at THIS tier. PMs derive this from pallet inspection —
-// clean pallets × pallet CBM, mixed pallets allocated by judgment. We
-// don't model pallet structure or per-unit CBM in the schema; the column
-// just stores the resulting total. Per-(line, SKU, tier) because
-// different tiers ship different volumes (50k bottles take more pallets
-// than 10k).
-//
-// Slice 8 freight rollup uses it to compute container freight share:
-//   total_shipment_cbm   = sum across SKUs in same line_group_id × tier
-//                          of sku_total_cbm
-//   this_sku_freight_$   = (sku_total_cbm / total_shipment_cbm)
-//                          × line.total_freight
-//   container_freight/u  = this_sku_freight_$ / effective_units
-// In v1 each line is per-SKU, so total_shipment_cbm = this row's
-// sku_total_cbm and the formula collapses to total_freight / effective_units.
-export const freightInputs = pgTable(
-  "freight_inputs",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    quoteSkuId: uuid("quote_sku_id")
-      .notNull()
-      .references(() => quoteSkus.id, { onDelete: "cascade" }),
-    tierId: uuid("tier_id")
-      .notNull()
-      .references(() => quoteTiers.id, { onDelete: "cascade" }),
-    lineGroupId: uuid("line_group_id").notNull(),
-
-    // Per-line metadata (denormalized across tier rows of the same line).
-    shipmentId: text("shipment_id"),
-    supplier: text("supplier"),
-    freightMode: freightMode("freight_mode"),
-    freightTreatment: freightTreatment("freight_treatment")
-      .notNull()
-      .default("bundled"),
-    markupPct: numeric("markup_pct", { precision: 5, scale: 4 }),
-    notes: text("notes"),
-    sortOrder: integer("sort_order").notNull().default(0),
-
-    // Per-tier.
-    totalFreight: numeric("total_freight", { precision: 12, scale: 2 }),
-    unitsInShipment: integer("units_in_shipment"),
-    skuTotalCbm: numeric("sku_total_cbm", { precision: 10, scale: 4 }),
-
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => [
-    uniqueIndex("freight_inputs_line_tier_idx").on(
-      t.quoteSkuId,
-      t.lineGroupId,
-      t.tierId,
-    ),
-    index("freight_inputs_quote_sku_id_idx").on(t.quoteSkuId),
-    index("freight_inputs_tier_id_idx").on(t.tierId),
-    index("freight_inputs_line_group_id_idx").on(t.lineGroupId),
-  ],
-);
-
 // ---------- R6.2 freight legs (multi-leg journey model) ----------
 //
-// Slice R6.2 (additive commit) — new freight model replaces
-// the flat freight_inputs table with a multi-leg journey
-// structure: leg_groups → legs → per-(leg, tier) cost rows.
-//
-// Commit 1 of the slice ships these tables alongside
-// freight_inputs. Action layer + math + UI in commit 2;
-// commit 2 also drops freight_inputs and the legacy 7-value
-// freight_mode enum. Per Pattern 25 disposition A (R6.2 gap
-// dispositions, May 2026).
+// Slice R6.2 replaces the Slice 7 flat `freight_inputs` table with a
+// multi-leg journey structure: leg_groups → legs → per-(leg, tier)
+// cost rows + customer-arranges-meta. Per Pattern 25 disposition A
+// (R6.2 gap dispositions, May 2026). Commit 1 shipped the additive
+// schema, commit 2 swept every consumer, commit 3 closed out the
+// migration by dropping the legacy `freight_inputs` table + the
+// `freight_mode` 7-value enum.
 
 // Journey container. One row per logical journey (e.g.,
 // "Outbound · Shenzhen → Busan → Long Beach"). Legs in the

@@ -34,13 +34,11 @@ const TABLES = [
   "quote_tiers",
   "packaging_inputs",
   "production_inputs",
-  // `freight_inputs` retained in the check list until the cleanup
-  // migration drops the table. Slice R6.2 commit 2 stops reading it
-  // but the row stays in the realtime publication so legacy listeners
-  // (if any) don't silently break.
-  "freight_inputs",
   // Slice R6.2 — multi-leg freight tables added to the publication
   // via drizzle/manual/0002_supabase_realtime_r6_2_freight.sql.
+  // Legacy `freight_inputs` retired commit 3 (drop SQL
+  // drizzle/manual/0003_supabase_realtime_drop_freight_inputs.sql
+  // + drizzle migration 0027); table no longer exists.
   "freight_leg_groups",
   "freight_legs",
   "freight_leg_tiers",

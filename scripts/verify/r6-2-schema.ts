@@ -71,8 +71,13 @@ for (const [enumName, expectedValues] of Object.entries(expectedEnums)) {
   }
 }
 
-// freight_inputs and legacy freight_mode should STILL exist (additive
-// migration; destructive sweep happens in commit 2).
+// Commit 3 retirement check — legacy `freight_inputs` table + legacy
+// `freight_mode` enum should NO LONGER exist. Migration 0027 dropped
+// both; the publication-drop manual SQL (drizzle/manual/0003_*) ran
+// against the shared DB first. This commit-1 script was originally
+// written to assert "additive co-existence preserved post-commit-1";
+// it now asserts the closure-out post-commit-3 by flipping the
+// expected sense on these two checks.
 const legacyTable = await sql<{ exists: boolean }[]>`
   SELECT EXISTS (
     SELECT 1 FROM information_schema.tables
@@ -80,9 +85,9 @@ const legacyTable = await sql<{ exists: boolean }[]>`
   ) AS exists
 `;
 console.log(
-  `${legacyTable[0]?.exists ? "✓" : "✗"} legacy freight_inputs preserved (commit 2 will drop)`,
+  `${!legacyTable[0]?.exists ? "✓" : "✗"} legacy freight_inputs retired (commit 3 dropped)`,
 );
-if (!legacyTable[0]?.exists) failures++;
+if (legacyTable[0]?.exists) failures++;
 
 const legacyEnum = await sql<{ enumlabel: string }[]>`
   SELECT enumlabel FROM pg_enum e
@@ -92,9 +97,9 @@ const legacyEnum = await sql<{ enumlabel: string }[]>`
 `;
 const legacyEnumValues = legacyEnum.map((r) => r.enumlabel);
 console.log(
-  `${legacyEnumValues.length === 7 ? "✓" : "✗"} legacy freight_mode enum preserved [${legacyEnumValues.join(", ")}]`,
+  `${legacyEnumValues.length === 0 ? "✓" : "✗"} legacy freight_mode enum retired (commit 3 dropped)`,
 );
-if (legacyEnumValues.length !== 7) failures++;
+if (legacyEnumValues.length !== 0) failures++;
 
 await sql.end();
 
