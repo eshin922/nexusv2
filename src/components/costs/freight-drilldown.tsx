@@ -620,6 +620,34 @@ function LegBlock({
             />
           </BodyField>
         )}
+        {/* Slice R6.2 commit 4 — forwarder ETA + actual delivery date.
+            Both nullable, never required by incoterm class. */}
+        {!isCustomerArranges && (
+          <BodyField label="Vessel ETA">
+            <input
+              type="date"
+              defaultValue={leg.vesselEta ?? ""}
+              disabled={!editable || pending}
+              onChange={(e) => {
+                const v = e.target.value || null;
+                updateLegMeta(legId, { vesselEta: v });
+                fireMetaSave({ vesselEta: v });
+              }}
+            />
+          </BodyField>
+        )}
+        <BodyField label="Actual delivery">
+          <input
+            type="date"
+            defaultValue={leg.actualDeliveryDate ?? ""}
+            disabled={!editable || pending}
+            onChange={(e) => {
+              const v = e.target.value || null;
+              updateLegMeta(legId, { actualDeliveryDate: v });
+              fireMetaSave({ actualDeliveryDate: v });
+            }}
+          />
+        </BodyField>
       </div>
 
       {/* Freight markup + transit caption row (DPS-arranges modes only) */}
@@ -1468,6 +1496,10 @@ function AddLegModal({
   const [incoterm, setIncoterm] = useState<string>("DDP");
   const [cargoReadyDate, setCargoReadyDate] = useState("");
   const [vesselEtd, setVesselEtd] = useState("");
+  // Slice R6.2 commit 4 — forwarder ETA + actual delivery date.
+  // Both nullable; no incoterm-class required-fields rule.
+  const [vesselEta, setVesselEta] = useState("");
+  const [actualDeliveryDate, setActualDeliveryDate] = useState("");
   const [crossesBorder, setCrossesBorder] = useState(true);
   const [treatment, setTreatment] = useState<"bundled" | "pass_through">(
     "bundled",
@@ -1509,6 +1541,8 @@ function AddLegModal({
     fd.set("incoterm", incoterm);
     fd.set("cargoReadyDate", cargoReadyDate);
     fd.set("vesselEtd", vesselEtd);
+    fd.set("vesselEta", vesselEta);
+    fd.set("actualDeliveryDate", actualDeliveryDate);
     // Per-component markup decimals → percent-display for the action
     // layer's parseMarkupPct helper (divides by 100 on store).
     fd.set("freightMarkupPct", (freightMk * 100).toFixed(2));
@@ -1668,6 +1702,56 @@ function AddLegModal({
               type="date"
               value={vesselEtd}
               onChange={(e) => setVesselEtd(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Slice R6.2 commit 4 — forwarder ETA + actual delivery date.
+            Both nullable; actual_delivery_date typically filled in
+            post-shipment, not at quote time. */}
+        <div className="row-pair">
+          <div className="field">
+            <div className="lbl">
+              Vessel ETA
+              <span
+                style={{
+                  marginLeft: 4,
+                  fontSize: 9,
+                  color: "var(--ink-4)",
+                  fontStyle: "italic",
+                  textTransform: "none",
+                  letterSpacing: 0,
+                }}
+              >
+                · forwarder estimate
+              </span>
+            </div>
+            <input
+              type="date"
+              value={vesselEta}
+              onChange={(e) => setVesselEta(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <div className="lbl">
+              Actual delivery date
+              <span
+                style={{
+                  marginLeft: 4,
+                  fontSize: 9,
+                  color: "var(--ink-4)",
+                  fontStyle: "italic",
+                  textTransform: "none",
+                  letterSpacing: 0,
+                }}
+              >
+                · post-shipment
+              </span>
+            </div>
+            <input
+              type="date"
+              value={actualDeliveryDate}
+              onChange={(e) => setActualDeliveryDate(e.target.value)}
             />
           </div>
         </div>

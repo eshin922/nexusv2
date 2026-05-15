@@ -92,6 +92,8 @@ export type FreightLegSnapshot = {
   incoterm: IncotermValue | null;
   cargoReadyDate: string | null;
   vesselEtd: string | null;
+  vesselEta: string | null;
+  actualDeliveryDate: string | null;
   freightMarkupPct: string;
   dutyMarkupPct: string;
   tariffMarkupPct: string;
@@ -488,6 +490,10 @@ export async function addLeg(
     const incoterm = parseIncoterm(formData.get("incoterm"));
     const cargoReadyDate = parseDateOrNull(formData.get("cargoReadyDate"));
     const vesselEtd = parseDateOrNull(formData.get("vesselEtd"));
+    const vesselEta = parseDateOrNull(formData.get("vesselEta"));
+    const actualDeliveryDate = parseDateOrNull(
+      formData.get("actualDeliveryDate"),
+    );
     // Markup pcts default 0.3000 when omitted; parseMarkupPct returns
     // "0.3000" on empty input.
     const freightMarkupPct = parseMarkupPct(formData.get("freightMarkupPct"));
@@ -537,6 +543,8 @@ export async function addLeg(
         incoterm,
         cargoReadyDate,
         vesselEtd,
+        vesselEta,
+        actualDeliveryDate,
         freightMarkupPct,
         dutyMarkupPct,
         tariffMarkupPct,
@@ -639,6 +647,12 @@ export async function updateLegMetadata(
       next.cargoReadyDate = parseDateOrNull(formData.get("cargoReadyDate"));
     if (formData.has("vesselEtd"))
       next.vesselEtd = parseDateOrNull(formData.get("vesselEtd"));
+    if (formData.has("vesselEta"))
+      next.vesselEta = parseDateOrNull(formData.get("vesselEta"));
+    if (formData.has("actualDeliveryDate"))
+      next.actualDeliveryDate = parseDateOrNull(
+        formData.get("actualDeliveryDate"),
+      );
 
     // Gap 5 — required-fields gate when incoterm transitions to DDP/DAP.
     const effectiveIncoterm = (next.incoterm ?? leg.incoterm) as
@@ -680,6 +694,8 @@ export async function updateLegMetadata(
       incoterm: leg.incoterm,
       cargo_ready_date: leg.cargoReadyDate,
       vessel_etd: leg.vesselEtd,
+      vessel_eta: leg.vesselEta,
+      actual_delivery_date: leg.actualDeliveryDate,
     };
     const diffKeyMap: Record<string, string> = {
       direction: "direction",
@@ -693,6 +709,8 @@ export async function updateLegMetadata(
       incoterm: "incoterm",
       cargoReadyDate: "cargo_ready_date",
       vesselEtd: "vessel_etd",
+      vesselEta: "vessel_eta",
+      actualDeliveryDate: "actual_delivery_date",
     };
 
     const diff: Diff = {};
@@ -1186,6 +1204,8 @@ function shapeLegSnapshot(
     incoterm: leg.incoterm,
     cargoReadyDate: leg.cargoReadyDate,
     vesselEtd: leg.vesselEtd,
+    vesselEta: leg.vesselEta,
+    actualDeliveryDate: leg.actualDeliveryDate,
     freightMarkupPct: leg.freightMarkupPct,
     dutyMarkupPct: leg.dutyMarkupPct,
     tariffMarkupPct: leg.tariffMarkupPct,

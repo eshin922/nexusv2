@@ -187,6 +187,8 @@ function projectFreightInputs(args: {
       incoterm: leg.incoterm,
       cargoReadyDate: leg.cargoReadyDate,
       vesselEtd: leg.vesselEtd,
+      vesselEta: leg.vesselEta,
+      actualDeliveryDate: leg.actualDeliveryDate,
       freightMarkupPct: num(leg.freightMarkupPct, 0.3),
       dutyMarkupPct: num(leg.dutyMarkupPct, 0.3),
       tariffMarkupPct: num(leg.tariffMarkupPct, 0.3),

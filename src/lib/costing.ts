@@ -238,6 +238,10 @@ export type CostingFreightLeg = {
   incoterm: "DDP" | "DAP" | "FOB" | "EXW" | "FCA" | "CIF" | null;
   cargoReadyDate: string | null;
   vesselEtd: string | null;
+  // Slice R6.2 commit 4 — additive forwarder-visibility metadata.
+  // Both nullable; no math impact (PM-reference only).
+  vesselEta: string | null;
+  actualDeliveryDate: string | null;
   freightMarkupPct: number;
   dutyMarkupPct: number;
   tariffMarkupPct: number;

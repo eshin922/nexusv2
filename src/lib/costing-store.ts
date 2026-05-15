@@ -361,6 +361,8 @@ export type FreightLegMetaFields = Partial<
     | "incoterm"
     | "cargoReadyDate"
     | "vesselEtd"
+    | "vesselEta"
+    | "actualDeliveryDate"
   >
 >;
 // Customs JSONB shape. Either field nullable; the action layer rejects

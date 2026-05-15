@@ -882,6 +882,17 @@ export const freightLegs = pgTable(
     incoterm: freightIncoterm("incoterm"),
     cargoReadyDate: date("cargo_ready_date"),
     vesselEtd: date("vessel_etd"),
+    // Slice R6.2 commit 4 — additive forwarder-visibility metadata
+    // per PM ask post-smoke. Both nullable, never required by
+    // incoterm class (ETA is a forwarder estimate; actual delivery
+    // only known post-shipment). Designer notes Pushback 3 banked
+    // vessel_eta for v2 as part of forwarder ETA-confidence framing;
+    // pulled forward to v1 per PM demand. No math impact — both are
+    // PM-reference fields; cross-leg sequential validation (Gap 5,
+    // deferred to v1.1 per Gap 21) will prefer ETA over ETD when
+    // present once the validation engine is re-introduced.
+    vesselEta: date("vessel_eta"),
+    actualDeliveryDate: date("actual_delivery_date"),
 
     // Per-component markup pills
     freightMarkupPct: numeric("freight_markup_pct", { precision: 5, scale: 4 })
