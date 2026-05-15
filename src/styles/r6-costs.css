@@ -326,6 +326,19 @@
   overflow: hidden;
 }
 
+/* Visual tweak (Edward 2026-05-14, CD-aligned): clarify the OPEN
+   section panel. Without this, the open card reads as inactive
+   because it shares the page's --paper background; the chevron
+   rotation alone is too quiet a signal at scan distance. The
+   left-edge accent is the load-bearing "this is active" signal;
+   the 4% cool wash is a whisper-tint by design — don't bump above
+   4% in light mode. If dark mode reads near-invisible (not just
+   faint), bump to 6% in a `[data-theme="dark"]` override only. */
+.r6-section.open {
+  border-left: 3px solid var(--accent);
+  background: oklch(0.42 0.14 255 / 0.04);
+}
+
 .r6-section-row {
   display: grid;
   grid-template-columns: 32px 1fr auto auto auto auto;
