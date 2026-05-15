@@ -1482,6 +1482,11 @@ function AddLegModal({
   // stores them in the leg's customs JSONB.
   const [dutyPct, setDutyPct] = useState("");
   const [tariffPct, setTariffPct] = useState("");
+  // Per-tier rate seed values. Keyed by tierId; raw string per input
+  // (kept as string so partial typed values don't get round-tripped
+  // through Number() on every keystroke). Sent to addLeg as
+  // `tierRate_<tierId>` formdata keys.
+  const [tierRates, setTierRates] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -1512,6 +1517,12 @@ function AddLegModal({
     if (showCustoms) {
       if (dutyPct.trim() !== "") fd.set("dutyPct", dutyPct);
       if (tariffPct.trim() !== "") fd.set("tariffPct", tariffPct);
+    }
+    // Per-tier rate seed values. Only forward non-empty entries;
+    // the action layer treats absent/empty as null total_freight.
+    for (const t of tiers) {
+      const raw = (tierRates[t.id] ?? "").trim();
+      if (raw !== "") fd.set(`tierRate_${t.id}`, raw);
     }
     startTransition(async () => {
       const result = await addLeg(fd);
@@ -1776,28 +1787,58 @@ function AddLegModal({
         </div>
 
         {/* Rates per tier — canonical .r62-drawer-rates mini-table.
-            Visual fidelity in v1; enter values on the rendered leg's
-            per-tier rate table after add (the leg's leg-tier rows
-            are seeded null at insert time). Banked for v1.1 wiring:
-            send per-tier seed values into addLeg's action contract. */}
+            Enabled inputs; values seed `freight_leg_tiers.total_freight`
+            on add. Per-unit billable caption recomputes live from
+            tier.qty + freightMk pill so PMs see the marked-up
+            per-unit before they commit. */}
         <div className="r62-drawer-section">
           <h4>Rates per tier</h4>
           <div className="r62-drawer-rates">
             <span className="h">Tier</span>
             <span className="h num">Total freight</span>
             <span className="h num">Per unit (billable)</span>
-            {tiers.map((t) => (
-              <React.Fragment key={t.id}>
-                <span className="t-lab">{t.label}</span>
-                <input
-                  type="number"
-                  disabled
-                  placeholder="$ — "
-                  title="Enter rates on the leg's per-tier table after adding"
-                />
-                <span className="per-unit">—</span>
-              </React.Fragment>
-            ))}
+            {tiers.map((t) => {
+              const raw = tierRates[t.id] ?? "";
+              const totalNum = raw.trim() === "" ? null : Number(raw);
+              const billablePerUnit =
+                totalNum !== null &&
+                Number.isFinite(totalNum) &&
+                totalNum > 0 &&
+                t.qty !== null &&
+                t.qty > 0
+                  ? (totalNum * (1 + freightMk)) / t.qty
+                  : null;
+              return (
+                <React.Fragment key={t.id}>
+                  <span className="t-lab">{t.label}</span>
+                  <input
+                    type="number"
+                    step="1"
+                    min={0}
+                    value={raw}
+                    placeholder="$ — "
+                    aria-label={`Total freight cost for ${t.label}`}
+                    onChange={(e) =>
+                      setTierRates((prev) => ({
+                        ...prev,
+                        [t.id]: e.target.value,
+                      }))
+                    }
+                  />
+                  <span
+                    className={
+                      billablePerUnit !== null
+                        ? "per-unit computed"
+                        : "per-unit"
+                    }
+                  >
+                    {billablePerUnit !== null
+                      ? fmtCurr2(billablePerUnit)
+                      : "—"}
+                  </span>
+                </React.Fragment>
+              );
+            })}
           </div>
           <p
             style={{
@@ -1808,7 +1849,7 @@ function AddLegModal({
               color: "var(--ink-4)",
             }}
           >
-            Enter per-tier rates on the leg row after adding · v1
+            Per unit = total × (1 + freight markup) ÷ tier units
           </p>
         </div>
 

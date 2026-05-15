@@ -545,21 +545,33 @@ export async function addLeg(
       })
       .returning();
 
-    // Seed per-tier rate rows for every active tier on the quote
-    // so the per-tier table renders with placeholders post-add.
+    // Seed per-tier rate rows for every active tier on the quote.
+    // Optional per-tier seed values from the Add Leg modal arrive as
+    // `tierRate_<tierId>` formdata entries — PMs typically know rates
+    // up-front from the forwarder quote and enter them in the modal.
+    // Non-positive / non-finite values silently fall back to null so
+    // PMs can still leave a tier blank from the modal.
     const tiers = await db
       .select({ id: quoteTiers.id })
       .from(quoteTiers)
       .where(eq(quoteTiers.quoteId, quote.id))
       .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt));
+    let seededCount = 0;
     if (tiers.length > 0) {
       await db.insert(freightLegTiers).values(
-        tiers.map((t) => ({
-          freightLegId: inserted.id,
-          tierId: t.id,
-          totalFreight: null,
-          unitsInShipment: null,
-        })),
+        tiers.map((t) => {
+          const raw = parseNumericOrNull(formData.get(`tierRate_${t.id}`));
+          const n = raw === null ? null : Number(raw);
+          const totalFreight =
+            n !== null && Number.isFinite(n) && n >= 0 ? raw : null;
+          if (totalFreight !== null) seededCount += 1;
+          return {
+            freightLegId: inserted.id,
+            tierId: t.id,
+            totalFreight,
+            unitsInShipment: null,
+          };
+        }),
       );
     }
 
@@ -576,6 +588,7 @@ export async function addLeg(
         incoterm,
         crosses_international_border: crossesBorder,
         tier_count: tiers.length,
+        tier_rates_seeded: seededCount,
         display_order: displayOrder,
       },
     });
