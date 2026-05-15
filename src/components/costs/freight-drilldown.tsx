@@ -576,12 +576,10 @@ function LegBlock({
           </select>
         </BodyField>
         <BodyField label="Cargo ready">
-          <input
-            type="date"
-            defaultValue={leg.cargoReadyDate ?? ""}
-            disabled={!editable || pending}
-            onChange={(e) => {
-              const v = e.target.value || null;
+          <LegDateInput
+            value={leg.cargoReadyDate}
+            disabled={!editable}
+            onCommit={(v) => {
               updateLegMeta(legId, { cargoReadyDate: v });
               fireMetaSave({ cargoReadyDate: v });
             }}
@@ -608,12 +606,10 @@ function LegBlock({
               </>
             }
           >
-            <input
-              type="date"
-              defaultValue={leg.vesselEtd ?? ""}
-              disabled={!editable || pending}
-              onChange={(e) => {
-                const v = e.target.value || null;
+            <LegDateInput
+              value={leg.vesselEtd}
+              disabled={!editable}
+              onCommit={(v) => {
                 updateLegMeta(legId, { vesselEtd: v });
                 fireMetaSave({ vesselEtd: v });
               }}
@@ -624,12 +620,10 @@ function LegBlock({
             Both nullable, never required by incoterm class. */}
         {!isCustomerArranges && (
           <BodyField label="Vessel ETA">
-            <input
-              type="date"
-              defaultValue={leg.vesselEta ?? ""}
-              disabled={!editable || pending}
-              onChange={(e) => {
-                const v = e.target.value || null;
+            <LegDateInput
+              value={leg.vesselEta}
+              disabled={!editable}
+              onCommit={(v) => {
                 updateLegMeta(legId, { vesselEta: v });
                 fireMetaSave({ vesselEta: v });
               }}
@@ -637,12 +631,10 @@ function LegBlock({
           </BodyField>
         )}
         <BodyField label="Actual delivery">
-          <input
-            type="date"
-            defaultValue={leg.actualDeliveryDate ?? ""}
-            disabled={!editable || pending}
-            onChange={(e) => {
-              const v = e.target.value || null;
+          <LegDateInput
+            value={leg.actualDeliveryDate}
+            disabled={!editable}
+            onCommit={(v) => {
               updateLegMeta(legId, { actualDeliveryDate: v });
               fireMetaSave({ actualDeliveryDate: v });
             }}
@@ -1389,6 +1381,63 @@ function BodyField({
       <div className="lbl">{label}</div>
       {children}
     </div>
+  );
+}
+
+// ---- leg-body date input (blur-commit) ----
+//
+// Slice R6.2 commit 4 hotfix — every leg-body date field was wired
+// to save on every onChange, which wrapped the action in
+// startTransition and flipped `pending` to true → `disabled` toggled
+// mid-typing → focus kicked off the date segment. Same shape as the
+// RI.8 numeric-autosave focus-loss issue; same fix: local state per
+// keystroke, persist at commit boundaries (blur + Enter). Used by
+// cargo_ready, vessel_etd, vessel_eta, actual_delivery on the leg
+// body. Modal-side date inputs are local-state-only (no server save
+// per keystroke) so they don't need this primitive.
+function LegDateInput({
+  value,
+  disabled,
+  onCommit,
+}: {
+  value: string | null;
+  disabled: boolean;
+  onCommit: (value: string | null) => void;
+}) {
+  const [draft, setDraft] = useState(value ?? "");
+  // Re-hydrate when the leg's stored value changes from outside
+  // (Realtime reconcile, store-driven snapshot update).
+  useEffect(() => {
+    setDraft(value ?? "");
+  }, [value]);
+
+  function commitIfChanged() {
+    const next = draft === "" ? null : draft;
+    if (next === value) return;
+    // Reject invalid partial dates (browser sometimes lets them
+    // through if focus moves before completion). Same regex the
+    // action layer uses.
+    if (next !== null && !/^\d{4}-\d{2}-\d{2}$/.test(next)) {
+      setDraft(value ?? "");
+      return;
+    }
+    onCommit(next);
+  }
+
+  return (
+    <input
+      type="date"
+      value={draft}
+      disabled={disabled}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commitIfChanged}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          (e.currentTarget as HTMLInputElement).blur();
+        }
+      }}
+    />
   );
 }
 
