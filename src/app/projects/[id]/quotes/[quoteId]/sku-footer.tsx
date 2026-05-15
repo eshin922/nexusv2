@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AddAssemblyButton } from "./add-assembly-button";
 import { AddProductModal } from "./add-product-modal";
 import { SkuSearchPanel } from "./sku-search-panel";
 
@@ -52,6 +53,7 @@ export function SkuFooter({
     <>
       <div className="r7b-sku-footer">
         <AddProductModal quoteId={quoteId} />
+        <AddAssemblyButton quoteId={quoteId} />
         <button
           type="button"
           className="add-sku"

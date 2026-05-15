@@ -51,6 +51,10 @@ export type SkuChildRow = {
   skuRole: "leaf" | "assembly";
   qtyPerParent: string | null;
   childCount: number;
+  /** Leaf-detach micro-slice Sub-item 1b — drives the per-row
+   * Detach confirmation modal gate in DrawerChildList. Server-
+   * computed: notes non-empty OR retailBenchmark non-null. */
+  hasPreservableData: boolean;
 };
 
 export type SkuRowListItem = {
@@ -79,6 +83,17 @@ export type SkuRowListItem = {
     productName: string;
     skuRole: "leaf" | "assembly";
   }>;
+  /** Leaf-detach micro-slice Sub-item 1 — current parent's skuLabel
+   * (only meaningful when sku.parentSkuId !== null). Threaded
+   * through so the row's overflow menu can render "Detach from
+   * {parent name}" and the detach confirmation modal can name the
+   * parent. Null when SKU has no parent. */
+  currentParentLabel: string | null;
+  /** Leaf-detach micro-slice Sub-item 3 — true when this SKU has
+   * any per-SKU cost-input row (packaging / production / freight).
+   * Drives the smart-migrate modal gate on leaf → assembly Type-
+   * badge clicks. */
+  hasCostData: boolean;
 };
 
 export function SkuRowList({
@@ -191,6 +206,8 @@ export function SkuRowList({
           childCount,
           childSkus,
           eligibleParents,
+          currentParentLabel,
+          hasCostData,
         }) => (
           <SkuRow
             key={sku.id}
@@ -200,6 +217,8 @@ export function SkuRowList({
             childCount={childCount}
             childSkus={childSkus}
             eligibleParents={eligibleParents}
+            currentParentLabel={currentParentLabel}
+            hasCostData={hasCostData}
             hubspotPortalId={hubspotPortalId}
             disabled={disabled}
             isDrawerOpen={openSkuId === sku.id}

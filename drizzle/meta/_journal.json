@@ -169,6 +169,20 @@
       "when": 1778651054196,
       "tag": "0023_tier_recommended",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1778830000000,
+      "tag": "0024_leaf_detach_auto_migrate_artifact",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1778840000000,
+      "tag": "0025_drop_auto_migrate_artifact",
+      "breakpoints": true
     }
   ]
 }

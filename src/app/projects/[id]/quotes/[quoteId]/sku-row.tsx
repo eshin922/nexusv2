@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import {
   assignSkuToParent,
+  convertLeafToAssemblyDestructive,
   convertSkuRole,
   deleteSku,
   moveSku,
@@ -61,6 +62,10 @@ type ChildRow = {
   skuRole: "leaf" | "assembly";
   qtyPerParent: string | null;
   childCount: number;
+  /** Leaf-detach micro-slice Sub-item 1b — drives the conditional
+   * confirmation modal on the drawer's per-row Detach affordance.
+   * Server-computed: notes non-empty OR retailBenchmark non-null. */
+  hasPreservableData: boolean;
 };
 
 export function SkuRow({
@@ -70,6 +75,8 @@ export function SkuRow({
   childCount,
   childSkus = [],
   eligibleParents,
+  currentParentLabel = null,
+  hasCostData = false,
   hubspotPortalId,
   disabled = false,
   isDrawerOpen = false,
@@ -90,6 +97,16 @@ export function SkuRow({
    * child-SKU navigation list. Empty / unused for leaf rows. */
   childSkus?: ChildRow[];
   eligibleParents: EligibleParent[];
+  /** Leaf-detach micro-slice Sub-item 1 — current parent's skuLabel
+   * (only meaningful when sku.parentSkuId !== null). Drives the
+   * overflow menu's "Detach from {parent name}" copy and the
+   * confirmation modal's prompt. */
+  currentParentLabel?: string | null;
+  /** Leaf-detach micro-slice Sub-item 3 — true when this SKU has
+   * any per-SKU cost-input row. Gates the smart-migrate modal on
+   * leaf → assembly Type-badge clicks: cost data present → modal
+   * opens; cost data absent → silent toggle. */
+  hasCostData?: boolean;
   hubspotPortalId: string | null;
   disabled?: boolean;
   /** §6.b Step 3 — drawer expansion state (one-at-a-time via SkuRowList). */
@@ -121,6 +138,46 @@ export function SkuRow({
   const [pending, startTransition] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
   const [reassignOpen, setReassignOpen] = useState(false);
+  // Leaf-detach micro-slice Sub-item 1 — detach confirmation modal
+  // state. Two entry points feed the same modal:
+  //   - Overflow menu Detach (Sub-item 1a): targets sku.id; parent
+  //     label comes from currentParentLabel prop.
+  //   - Drawer child-list Detach (Sub-item 1b): targets a child's
+  //     id; parent label is THIS row's sku.skuLabel (since the
+  //     drawer is open inside this assembly row).
+  // Modal opens only when the target has preservable data; silent
+  // detach skips it entirely.
+  const [detachContext, setDetachContext] = useState<
+    | {
+        targetSkuId: string;
+        parentLabel: string | null;
+      }
+    | null
+  >(null);
+  // Leaf-detach micro-slice Sub-item 2 — cascade-detach confirmation
+  // modal state. Open when PM clicks the Type badge on an assembly
+  // row with ≥1 children to demote it to leaf. PM confirms → all
+  // direct children detach as standalone leaves; role flips to
+  // leaf; atomic transaction.
+  const [cascadeConvertModalOpen, setCascadeConvertModalOpen] =
+    useState(false);
+  // Leaf-detach micro-slice (Edward 2026-05-14 simplification) —
+  // destructive convert modal state. Open when PM clicks Type
+  // badge on a leaf row with cost data OR a HubSpot link. PM
+  // must type "yes" exactly in the modal's confirmation input to
+  // enable the destructive action. Confirm → server DELETEs cost
+  // rows + strips HubSpot link + flips role to assembly.
+  // Replaces the prior smart-migrate auto-child flow.
+  const [destructiveConvertModalOpen, setDestructiveConvertModalOpen] =
+    useState(false);
+  // Attach-and-convert modal state (Edward 2026-05-14). Open when
+  // PM clicks Type badge on an assembly row with NULL
+  // hubspot_product_id, attempting to convert to leaf. The new
+  // modal launches AddProductModal in attach-and-convert mode —
+  // PM picks/creates HubSpot product; server UPDATEs this SKU +
+  // flips role to leaf atomically.
+  const [attachConvertModalOpen, setAttachConvertModalOpen] =
+    useState(false);
   // Slice RI.8 — overflow menu state for action cluster compression
   // (Designer audit Q2 approved). Houses the four conditional
   // affordances (assembly reassign / detach / HubSpot refresh /
@@ -279,6 +336,49 @@ export function SkuRow({
   function handleConvertRole(newRole: Sku["skuRole"]) {
     if (newRole === sku.skuRole) return;
     setSaveError(null);
+
+    // Leaf-detach micro-slice Sub-item 2 — assembly → leaf with
+    // children opens the cascade-detach confirmation modal instead
+    // of firing the action directly. PM confirms → cascade flag set
+    // on the action call; children detach atomically.
+    if (sku.skuRole === "assembly" && newRole === "leaf" && hasChildren) {
+      setCascadeConvertModalOpen(true);
+      return;
+    }
+
+    // Leaf-detach micro-slice (Edward 2026-05-14 simplification) —
+    // leaf → assembly destructive convert. Opens type-yes
+    // confirmation modal when the leaf has preservable data (cost
+    // rows OR a HubSpot link). PM types "yes" exactly →
+    // destructive action fires (deletes cost rows + strips HubSpot
+    // link + flips role).
+    if (
+      sku.skuRole === "leaf" &&
+      newRole === "assembly" &&
+      (hasCostData || sku.hubspotProductId !== null)
+    ) {
+      setDestructiveConvertModalOpen(true);
+      return;
+    }
+
+    // Attach-and-convert (Edward 2026-05-14): assembly → leaf on
+    // an assembly that has no HubSpot link would produce an orphan
+    // leaf (violates every-leaf-needs-HubSpot rule). Block the
+    // silent toggle; open the attach-and-convert modal instead.
+    // PM picks/creates a HubSpot product → server UPDATEs this
+    // SKU + flips role to leaf atomically.
+    if (
+      sku.skuRole === "assembly" &&
+      newRole === "leaf" &&
+      sku.hubspotProductId === null &&
+      !hasChildren
+    ) {
+      setAttachConvertModalOpen(true);
+      return;
+    }
+
+    // Clean toggle path — no cost data, no HubSpot link. Silent
+    // role flip via the standard non-cascade `convertSkuRole`.
     const fd = new FormData();
     fd.set("skuId", sku.id);
     fd.set("newRole", newRole);
@@ -288,15 +388,99 @@ export function SkuRow({
     });
   }
 
-  function handleDetach() {
-    if (!confirm("Detach from parent? The SKU becomes top-level.")) return;
+  function runDestructiveConvert(confirmation: string) {
     setSaveError(null);
     const fd = new FormData();
     fd.set("skuId", sku.id);
+    fd.set("confirmation", confirmation);
+    startTransition(async () => {
+      const r = await convertLeafToAssemblyDestructive(fd);
+      if (!r.ok) {
+        setSaveError(r.error.message);
+        return;
+      }
+      setDestructiveConvertModalOpen(false);
+    });
+  }
+
+  function runCascadeConvert() {
+    setCascadeConvertModalOpen(false);
+    setSaveError(null);
+    const fd = new FormData();
+    fd.set("skuId", sku.id);
+    fd.set("newRole", "leaf");
+    fd.set("cascadeDetachChildren", "true");
+    startTransition(async () => {
+      const r = await convertSkuRole(fd);
+      if (!r.ok) setSaveError(r.error.message);
+    });
+  }
+
+  // Leaf-detach micro-slice Sub-item 1 — detach trigger split into
+  // a confirmation-gated dispatcher + the actual action call.
+  //
+  // Confirmation gate: if the SKU carries preservable data (notes
+  // OR retail bench), open the canonical confirmation modal so the
+  // PM sees what'll be preserved. If the SKU is empty, fire the
+  // action silently — no modal overhead for a clean detach.
+  //
+  // Pattern 31 disposition (Edward + CA, May 2026): brief specified
+  // a new action `detachLeafFromParent` with audit key
+  // `sku_detached_from_parent`. Existing `unassignSkuFromParent`
+  // (since Slice 5.5) provides the same semantics — writes
+  // parent_sku_id + qty_per_parent to NULL on the child row, audit
+  // key `unassigned_from_parent`. Brief's action/audit naming was a
+  // design-time placeholder; existing implementation satisfies
+  // intent. No rename — preserves audit-log continuity for prior
+  // entries.
+  function rowHasPreservableDetachData(): boolean {
+    return (
+      (sku.notes !== null && sku.notes.trim() !== "") ||
+      (sku.retailBenchmark !== null && String(sku.retailBenchmark).trim() !== "")
+    );
+  }
+
+  function triggerDetach() {
+    if (rowHasPreservableDetachData()) {
+      setDetachContext({
+        targetSkuId: sku.id,
+        parentLabel: currentParentLabel,
+      });
+    } else {
+      runDetach(sku.id);
+    }
+  }
+
+  // Sub-item 1b — drawer child-row Detach entry point. Same modal
+  // shape; target is the child SKU, parent label is THIS row's
+  // label (the drawer renders inside an assembly row).
+  function triggerChildDetach(childSkuId: string, childHasData: boolean) {
+    if (childHasData) {
+      setDetachContext({
+        targetSkuId: childSkuId,
+        parentLabel: sku.skuLabel,
+      });
+    } else {
+      runDetach(childSkuId);
+    }
+  }
+
+  function runDetach(targetSkuId: string) {
+    setDetachContext(null);
+    setSaveError(null);
+    const fd = new FormData();
+    fd.set("skuId", targetSkuId);
     startTransition(async () => {
       const r = await unassignSkuFromParent(fd);
       if (!r.ok) setSaveError(r.error.message);
     });
+  }
+
+  // Legacy callers; preserved for back-compat (overflow menu calls
+  // triggerDetach; older non-conditional callers can keep
+  // handleDetach).
+  function handleDetach() {
+    triggerDetach();
   }
 
   function handleReassignSubmit(parentId: string, qty: string) {
@@ -370,11 +554,23 @@ export function SkuRow({
         {(() => {
           const targetRole: Sku["skuRole"] =
             sku.skuRole === "leaf" ? "assembly" : "leaf";
-          const canToggle = eligibleRoleTargets(
+          const canToggleViaValidator = eligibleRoleTargets(
             sku.skuRole,
             sku.parentSkuId !== null,
             hasChildren,
           ).includes(targetRole);
+          // Leaf-detach micro-slice Sub-item 2 — assembly with
+          // children + clicking-to-leaf was REFUSED by the
+          // validator (canToggleViaValidator=false). The cascade
+          // path opens a confirmation modal so the click is
+          // semantically valid; the validator's refusal becomes a
+          // gate on the SILENT path only. The handler still gates
+          // server-side via the cascadeDetachChildren flag.
+          const isCascadeCase =
+            sku.skuRole === "assembly" &&
+            targetRole === "leaf" &&
+            hasChildren;
+          const canToggle = canToggleViaValidator || isCascadeCase;
           const isAsy = sku.skuRole === "assembly";
           return (
             <button
@@ -384,13 +580,21 @@ export function SkuRow({
               aria-pressed={isAsy}
               aria-label={`Type: ${ROLE_SHORT_LABEL[sku.skuRole]}. ${
                 canToggle
-                  ? `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}.`
-                  : `Cannot convert — has children. Detach children first.`
+                  ? isCascadeCase
+                    ? `Click to convert to leaf (will detach ${childCount} children).`
+                    : `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}.`
+                  : `Cannot convert.`
               }`}
               title={
                 canToggle
-                  ? `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}`
-                  : "Cannot convert to leaf — assembly has children. Detach via ⋯ menu first."
+                  ? isCascadeCase
+                    ? `Convert to leaf — children will be detached (confirmation modal)`
+                    : sku.skuRole === "leaf" &&
+                      targetRole === "assembly" &&
+                      (hasCostData || sku.hubspotProductId !== null)
+                      ? "Convert to assembly — destructive: deletes cost data + HubSpot link (type-yes confirmation modal)"
+                      : `Click to convert to ${ROLE_SHORT_LABEL[targetRole]}`
+                  : "Cannot convert."
               }
               className={`r7b-type ${sku.skuRole}`}
             >
@@ -424,7 +628,13 @@ export function SkuRow({
                 {treeLine}
               </span>
             )}
-            <span className="lbl">{sku.skuLabel}</span>
+            <span
+              className="lbl"
+              title={buildOriginTooltip(sku)}
+              style={{ cursor: "help" }}
+            >
+              {sku.skuLabel}
+            </span>
             <span className="product">{sku.productName}</span>
           </div>
           <span className="pack">
@@ -669,13 +879,15 @@ export function SkuRow({
                       type="button"
                       role="menuitem"
                       onClick={() => {
-                        handleDetach();
                         setOverflowOpen(false);
+                        triggerDetach();
                       }}
                       className="r7b-overflow-menu-item"
                     >
                       <span className="glyph">⤴</span>
-                      Detach from parent
+                      {currentParentLabel
+                        ? `Detach from ${currentParentLabel}`
+                        : "Detach from parent"}
                     </button>
                   )}
                   {sku.hubspotProductId && (
@@ -749,6 +961,7 @@ export function SkuRow({
                 quoteIdForAdd={quoteId}
                 childSkus={childSkus}
                 disabled={disabled}
+                onDetachChild={triggerChildDetach}
               />
             </>
           )}
@@ -799,6 +1012,71 @@ export function SkuRow({
           onSubmit={handleReassignSubmit}
         />
       )}
+
+      {/* Leaf-detach micro-slice Sub-item 1 — confirmation modal.
+          Renders only when a detach target has preservable data
+          (notes OR retail bench); the silent-detach path bypasses
+          this modal entirely. Canonical .r7b-modal-* register (same
+          chrome as the §6.b Add-product modal). Both entry points
+          (overflow menu + drawer child-row) feed the same modal via
+          the detachContext state. */}
+      {detachContext && !disabled && (
+        <DetachConfirmModal
+          parentLabel={detachContext.parentLabel}
+          onCancel={() => setDetachContext(null)}
+          onConfirm={() => runDetach(detachContext.targetSkuId)}
+          pending={pending}
+        />
+      )}
+
+      {/* Leaf-detach micro-slice Sub-item 2 — cascade-detach
+          confirmation modal. Opens when PM clicks Type badge on an
+          assembly row with ≥1 children to demote it to leaf.
+          Brief Q4 LOCKED copy: "Convert {sku} to leaf? {N}
+          children will be detached as standalone leaves (their
+          notes, retail bench, and data preserved)." */}
+      {cascadeConvertModalOpen && !disabled && (
+        <CascadeConvertConfirmModal
+          skuLabel={sku.skuLabel}
+          childCount={childCount}
+          onCancel={() => setCascadeConvertModalOpen(false)}
+          onConfirm={runCascadeConvert}
+          pending={pending}
+        />
+      )}
+
+      {/* Leaf-detach micro-slice (Edward 2026-05-14 simplification)
+          — destructive convert confirmation modal. Opens when PM
+          clicks Type badge on a leaf with cost data OR a HubSpot
+          link. PM must type "yes" exactly to enable the confirm
+          button — guards against accidental destruction. On
+          confirm, the server deletes cost rows + strips the
+          HubSpot link + flips the role atomically. */}
+      {destructiveConvertModalOpen && !disabled && (
+        <TypeYesConfirmModal
+          skuLabel={sku.skuLabel}
+          hasCostData={hasCostData}
+          hasHubspotLink={sku.hubspotProductId !== null}
+          onCancel={() => setDestructiveConvertModalOpen(false)}
+          onConfirm={runDestructiveConvert}
+          pending={pending}
+        />
+      )}
+
+      {/* Attach-and-convert flow (Edward 2026-05-14): opens when
+          PM clicks Type badge on a Nexus-local assembly (no
+          HubSpot link) to convert to leaf. AddProductModal
+          launches in controlled-open + attach mode. On submit,
+          server UPDATEs THIS sku with the picked/created HubSpot
+          product + flips role to leaf atomically. */}
+      {attachConvertModalOpen && !disabled && quoteId && (
+        <AddProductModal
+          quoteId={quoteId}
+          attachToSkuId={sku.id}
+          controlledOpen={true}
+          onControlledClose={() => setAttachConvertModalOpen(false)}
+        />
+      )}
     </>
   );
 }
@@ -810,6 +1088,292 @@ export function SkuRow({
 // the Save button was darker than var(--ink) so the button read
 // black-on-black in dark mode. Now uses .btn primary sm + .btn
 // ghost sm primitives same as the Add-product modal foot.
+// Leaf-detach micro-slice Sub-item 1 — canonical R7b confirmation
+// modal for detach-with-preservable-data. Renders inline via
+// `.r7b-modal-backdrop` + `.r7b-modal` chrome (same shape as
+// §6.b Add-product modal). Brief Q4 LOCKED copy: "Convert {sku}
+// to leaf? {N} children..." for cascade-detach; here for the
+// single-leaf detach the copy is "Detach this leaf from
+// {parent}? Notes, retail bench, and drawer state will be
+// preserved on the standalone leaf." per brief Sub-item 1.
+//
+// The modal is structurally separate from ReassignPanel (which is
+// the inline-expanding parent-picker). Detach is a confirmation,
+// not a multi-input form.
+function DetachConfirmModal({
+  parentLabel,
+  onCancel,
+  onConfirm,
+  pending,
+}: {
+  parentLabel: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+  pending: boolean;
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  return (
+    <div className="r7b-modal-backdrop" onClick={onCancel}>
+      <div
+        className="r7b-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Detach from parent"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="r7b-modal-head">
+          <h2>Detach from {parentLabel ?? "parent"}?</h2>
+          <p className="sub">
+            Notes, retail bench, and drawer state will be preserved on the
+            standalone leaf.
+          </p>
+        </div>
+        <div
+          className="r7b-modal-body"
+          style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}
+        >
+          <button
+            type="button"
+            className="btn ghost sm"
+            onClick={onCancel}
+            disabled={pending}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn primary sm"
+            onClick={onConfirm}
+            disabled={pending}
+          >
+            {pending ? "Detaching…" : "Detach"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Leaf-detach micro-slice Sub-item 2 — canonical R7b confirmation
+// modal for assembly → leaf cascade-detach. Brief Q4 LOCKED copy.
+// Same `.r7b-modal-*` chrome as DetachConfirmModal; primary CTA
+// label "Convert and detach {N} children" to make the cascade
+// outcome explicit (PM reads the button copy and knows what's
+// about to happen).
+function CascadeConvertConfirmModal({
+  skuLabel,
+  childCount,
+  onCancel,
+  onConfirm,
+  pending,
+}: {
+  skuLabel: string;
+  childCount: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+  pending: boolean;
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  const childWord = childCount === 1 ? "child" : "children";
+  return (
+    <div className="r7b-modal-backdrop" onClick={onCancel}>
+      <div
+        className="r7b-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Convert assembly to leaf"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="r7b-modal-head">
+          <h2>Convert {skuLabel} to leaf?</h2>
+          <p className="sub">
+            {childCount} {childWord} will be detached as standalone leaves
+            (their notes, retail bench, and data preserved).
+          </p>
+        </div>
+        <div
+          className="r7b-modal-body"
+          style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}
+        >
+          <button
+            type="button"
+            className="btn ghost sm"
+            onClick={onCancel}
+            disabled={pending}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn primary sm"
+            onClick={onConfirm}
+            disabled={pending}
+          >
+            {pending
+              ? "Converting…"
+              : `Convert and detach ${childCount} ${childWord}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Leaf-detach micro-slice (Edward 2026-05-14 simplification) —
+// destructive convert confirmation modal. Replaces the prior
+// SmartMigrateConfirmModal which created an auto-named child.
+// Requires PM to TYPE "yes" exactly in the confirmation input
+// to enable the destructive action button — high-friction gate
+// against accidental loss. Lists the specific data that will be
+// deleted (cost rows + HubSpot link, per row state) so PMs
+// understand the blast radius before committing.
+function TypeYesConfirmModal({
+  skuLabel,
+  hasCostData,
+  hasHubspotLink,
+  onCancel,
+  onConfirm,
+  pending,
+}: {
+  skuLabel: string;
+  hasCostData: boolean;
+  hasHubspotLink: boolean;
+  onCancel: () => void;
+  onConfirm: (confirmation: string) => void;
+  pending: boolean;
+}) {
+  const [confirmation, setConfirmation] = useState("");
+  const canConfirm = confirmation.trim().toLowerCase() === "yes";
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  // Compose the deletion-summary copy based on what's actually
+  // about to disappear. Keeps the warning concrete + scannable.
+  const losingItems: string[] = [];
+  if (hasCostData)
+    losingItems.push("Cost data (packaging, production, freight)");
+  if (hasHubspotLink) losingItems.push("HubSpot product link");
+  const losingCopy =
+    losingItems.length === 0
+      ? "No data to delete."
+      : `The following will be deleted from this SKU:`;
+
+  return (
+    <div className="r7b-modal-backdrop" onClick={onCancel}>
+      <div
+        className="r7b-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Destructive convert leaf to assembly"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="r7b-modal-head">
+          <h2>Convert {skuLabel} to assembly?</h2>
+          <p className="sub">
+            Assemblies are kit definitions without cost data of their own;
+            cost data lives on the leaf children you&rsquo;ll add via
+            &ldquo;+ Add child SKU&rdquo; in the row drawer.
+          </p>
+        </div>
+        <div
+          className="r7b-modal-body"
+          style={{ display: "flex", flexDirection: "column", gap: 12 }}
+        >
+          <div>
+            <p style={{ margin: "0 0 6px 0", color: "var(--ink-2)" }}>
+              {losingCopy}
+            </p>
+            {losingItems.length > 0 && (
+              <ul
+                style={{
+                  margin: 0,
+                  paddingLeft: 18,
+                  color: "var(--bad)",
+                  fontSize: 13,
+                }}
+              >
+                {losingItems.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
+            <p
+              style={{
+                margin: "10px 0 0 0",
+                fontSize: 12,
+                color: "var(--ink-3)",
+              }}
+            >
+              This cannot be undone. To proceed, type{" "}
+              <strong>yes</strong> below.
+            </p>
+          </div>
+          <input
+            type="text"
+            value={confirmation}
+            onChange={(e) => setConfirmation(e.target.value)}
+            placeholder='type "yes" to confirm'
+            autoFocus
+            style={{
+              padding: "8px 10px",
+              border: `1px solid ${canConfirm ? "var(--bad)" : "var(--rule)"}`,
+              borderRadius: 6,
+              fontFamily: "var(--mono)",
+              fontSize: 13,
+              background: "var(--paper)",
+            }}
+          />
+          <div
+            style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}
+          >
+            <button
+              type="button"
+              className="btn ghost sm"
+              onClick={onCancel}
+              disabled={pending}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn primary sm"
+              onClick={() => onConfirm(confirmation.trim().toLowerCase())}
+              disabled={pending || !canConfirm}
+              style={{
+                background: canConfirm ? "var(--bad)" : undefined,
+                borderColor: canConfirm ? "var(--bad)" : undefined,
+                color: canConfirm ? "var(--paper)" : undefined,
+              }}
+            >
+              {pending ? "Converting…" : "Convert to assembly"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReassignPanel({
   eligibleParents,
   currentParentId,
@@ -976,7 +1540,7 @@ function QtyPerParentInline({
 // + brief §3.2 zone 2). Autosave on blur; Cmd/Ctrl+Enter explicit
 // commit. Always rendered (assembly + leaf).
 
-import { AddAssemblyButton } from "./add-assembly-button";
+import { AddProductModal } from "./add-product-modal";
 
 // Edward pre-PR fidelity check 2 (May 2026) — DrawerChildList
 // rewritten to use canonical `.r7b-comp-table` grid grammar
@@ -1011,6 +1575,7 @@ function DrawerChildList({
   quoteIdForAdd,
   childSkus,
   disabled,
+  onDetachChild,
 }: {
   parentSkuId: string;
   projectId: string;
@@ -1018,6 +1583,11 @@ function DrawerChildList({
   quoteIdForAdd: string;
   childSkus: ChildRow[];
   disabled: boolean;
+  /** Leaf-detach micro-slice Sub-item 1b — per-row Detach button
+   * callback. Caller (SkuRow, the assembly's row) handles the
+   * confirmation modal + action dispatch; this list just signals
+   * which child to detach + whether it has preservable data. */
+  onDetachChild: (childSkuId: string, hasPreservableData: boolean) => void;
 }) {
   const _parentSkuId = parentSkuId; // for forcedParentId pass-through below
   return (
@@ -1070,7 +1640,10 @@ function DrawerChildList({
               <span className="num" style={{ color: "var(--ink-3)" }}>
                 {c.qtyPerParent ?? "—"}
               </span>
-              <span className="num">
+              <span
+                className="num"
+                style={{ display: "inline-flex", gap: 10, justifyContent: "flex-end", alignItems: "center" }}
+              >
                 {isLeaf ? (
                   <a
                     href={costsHref}
@@ -1088,6 +1661,30 @@ function DrawerChildList({
                 ) : (
                   <span style={{ color: "var(--ink-4)" }}>—</span>
                 )}
+                {/* Leaf-detach micro-slice Sub-item 1b — per-row
+                    Detach affordance. Brief Q3 LOCKED copy "✕ Detach".
+                    Click triggers the same confirmation-gated detach
+                    flow as the leaf row's overflow menu (Sub-item 1a)
+                    via the onDetachChild callback. */}
+                {!disabled && (
+                  <button
+                    type="button"
+                    onClick={() => onDetachChild(c.id, c.hasPreservableData)}
+                    style={{
+                      fontFamily: "var(--mono)",
+                      fontSize: 11,
+                      letterSpacing: "0.04em",
+                      color: "var(--ink-3)",
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: 0,
+                    }}
+                    title={`Detach ${c.skuLabel} from this assembly`}
+                  >
+                    ✕ Detach
+                  </button>
+                )}
               </span>
             </div>
           );
@@ -1096,16 +1693,20 @@ function DrawerChildList({
       {!disabled && (
         <div className="r7b-comp-foot">
           {/* Canonical `.add-line` register: full-width grid span +
-              accent-ink mono uppercase. AddAssemblyButton renders
-              the closed-state trigger here; clicking it expands
-              the .r7b-child-add-form below the foot. */}
+              accent-ink mono uppercase. AddProductModal renders the
+              closed-state trigger here; click opens the HubSpot-
+              first picker (Sub-task B). Previously used
+              AddAssemblyButton which created Nexus-local leaves;
+              Edward smoke 2026-05-14 surfaced that every leaf
+              needs a HubSpot link for the HubSpot↔NetSuite product
+              library sync. AddProductModal's PullExisting +
+              CreateNew flows both produce HubSpot-tied SKUs. */}
           <span className="add-line" style={{ padding: 0 }}>
-            <AddAssemblyButton
+            <AddProductModal
               quoteId={quoteIdForAdd}
-              eligibleParents={[]}
+              forcedParentId={_parentSkuId}
               triggerLabel="+ Add child SKU"
               triggerVariant="ghost"
-              forcedParentId={_parentSkuId}
             />
           </span>
         </div>
@@ -1431,6 +2032,29 @@ function UnitsPerPackCell({
       {display}
     </span>
   );
+}
+
+// Leaf-detach micro-slice (Edward smoke 2026-05-14) — hover-tooltip
+// content on the SKU label cell. Two-line origin summary varies by
+// row state:
+//   - HubSpot-linked: source + product ID + last sync time
+//   - Nexus-local: "Nexus-local SKU · Not tied to HubSpot"
+// Auto-migrate artifact branches removed alongside the smart-migrate
+// refactor (Edward 2026-05-14 simplification). Native `title`
+// attribute renders the tooltip; multi-line via embedded \n
+// characters (cross-browser standard).
+function buildOriginTooltip(sku: {
+  hubspotProductId: string | null;
+  lastHubspotRefreshAt: Date | null;
+}): string {
+  const hasHubspot = !!sku.hubspotProductId;
+  const syncLine = sku.lastHubspotRefreshAt
+    ? `Last synced ${formatRelative(sku.lastHubspotRefreshAt)}`
+    : "Never synced";
+  if (hasHubspot) {
+    return `HubSpot product · ID ${sku.hubspotProductId}\n${syncLine}`;
+  }
+  return `Nexus-local SKU\nNot tied to HubSpot`;
 }
 
 function formatRelative(d: Date): string {

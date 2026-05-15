@@ -556,103 +556,16 @@ async function seedProductionInputsForNewLeaf(args: {
     .onConflictDoNothing();
 }
 
-/**
- * Create a Nexus-local SKU — no HubSpot Product reference. Used as
- * the in-drawer "+ Add child SKU" trigger inside an assembly drawer.
- * Accepts a sku_role override via FormData; defaults to "leaf" per
- * Edward's pre-PR smoke directive: when adding a child to an
- * existing assembly, the new SKU is almost always a leaf (the
- * unit-level BOM item). PM can promote to assembly later via the
- * row's Type badge if they want nested assemblies.
- *
- * Action name retained for back-compat with callers; the legacy
- * "+ Add assembly" footer affordance is retired (replaced by the
- * Phase 1 HubSpot-first modal which routes through addProductSku).
- */
-export async function addAssemblySku(
-  formData: FormData,
-): Promise<ActionResult<void>> {
-  return runAction(async () => {
-    const quoteId = String(formData.get("quoteId") ?? "").trim();
-    const skuLabel = String(formData.get("skuLabel") ?? "").trim();
-    const productName = String(formData.get("productName") ?? "").trim();
-    const parentSkuIdRaw = trimOrNull(formData.get("parentSkuId"));
-    const qtyPerParentRaw = trimOrNull(formData.get("qtyPerParent"));
-    // sku_role override per Edward smoke May 2026 — default leaf
-    // (in-drawer "+ Add child SKU" case). Form can pass "assembly"
-    // if the PM is creating a nested assembly child explicitly.
-    const skuRoleRaw = String(
-      formData.get("skuRole") ?? "leaf",
-    ).trim();
-    if (skuRoleRaw !== "leaf" && skuRoleRaw !== "assembly")
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        `Unknown sku_role: ${skuRoleRaw}`,
-      );
-    const skuRole: "leaf" | "assembly" = skuRoleRaw;
-
-    if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
-    if (!skuLabel) throw new ActionGuardError(ERR.VALIDATION, "skuLabel required");
-    if (!productName) throw new ActionGuardError(ERR.VALIDATION, "productName required");
-
-    const user = await ensureUser();
-    const quote = await loadQuoteOrThrow(quoteId);
-    assertDraft(quote);
-
-    if (parentSkuIdRaw) {
-      const allSkus = await loadAllSkusForQuote(quoteId);
-      const validation = validateAssemblyOperation({
-        skuId: null,
-        newParentId: parentSkuIdRaw,
-        newQtyPerParent: qtyPerParentRaw,
-        newRole: skuRole,
-        quoteId,
-        allSkus,
-      });
-      if (!validation.ok)
-        throw new ActionGuardError(validation.code, validation.message);
-    }
-
-    const maxRow = await db
-      .select({ max: max(quoteSkus.sortOrder) })
-      .from(quoteSkus)
-      .where(eq(quoteSkus.quoteId, quoteId));
-    const sortOrder = (maxRow[0]?.max ?? -1) + 1;
-
-    const [sku] = await db
-      .insert(quoteSkus)
-      .values({
-        quoteId,
-        hubspotProductId: null,
-        skuLabel,
-        productName,
-        unitsPerPack: 1,
-        sortOrder,
-        skuRole,
-        parentSkuId: parentSkuIdRaw,
-        qtyPerParent: qtyPerParentRaw,
-      })
-      .returning({ id: quoteSkus.id });
-
-    await logAudit({
-      userId: user.id,
-      entityType: "quote_sku",
-      entityId: sku.id,
-      action: "created",
-      diffJson: {
-        quote_id: quoteId,
-        hubspot_product_id: null,
-        sku_label: skuLabel,
-        product_name: productName,
-        sku_role: skuRole,
-        parent_sku_id: parentSkuIdRaw,
-        qty_per_parent: qtyPerParentRaw,
-      },
-    });
-
-    revalidateQuoteTree(quote.projectId, quoteId);
-  });
-}
+// `addAssemblySku` removed 2026-05-14 per leaf-detach micro-slice
+// Sub-task B (Edward disposition): every leaf must have a HubSpot
+// link for HubSpot↔NetSuite product library sync. The Nexus-local
+// leaf-creation path that this action provided ("+ Add child SKU"
+// inside the assembly drawer) is replaced with `AddProductModal`
+// in HubSpot-first mode (forcedParentId). The component file
+// `add-assembly-button.tsx` and its DrawerChildList caller were
+// removed in the same commit. `addProductSku` + `addSkuFromHubspotProduct`
+// now accept parent_sku_id + qty_per_parent so the modal can
+// create children inheriting the HubSpot link.
 
 /**
  * §6.b Step 9 — Drag-and-drop row reordering. Accepts a comma-
@@ -826,6 +739,14 @@ export async function addProductSku(
     const fscSupplierVerified = String(
       formData.get("fsc_supplier_verified") ?? "",
     ).trim();
+    // Leaf-detach micro-slice Sub-task B — accept assembly child-add
+    // mode. When AddProductModal is rendered with forcedParentId
+    // (DrawerChildList's "+ Add child SKU" affordance), these
+    // fields are populated; the new HubSpot-backed leaf lands as
+    // a child of the assembly. Default qty_per_parent=1; PM can
+    // adjust via the QtyPerParentInline widget post-create.
+    const parentSkuIdRaw = trimOrNull(formData.get("parentSkuId"));
+    const qtyPerParentRaw = trimOrNull(formData.get("qtyPerParent"));
 
     const user = await ensureUser();
     const quote = await loadQuoteOrThrow(quoteId);
@@ -892,8 +813,8 @@ export async function addProductSku(
         sortOrder,
         lastHubspotRefreshAt: new Date(),
         skuRole: "leaf",
-        parentSkuId: null,
-        qtyPerParent: null,
+        parentSkuId: parentSkuIdRaw,
+        qtyPerParent: qtyPerParentRaw,
       })
       .returning({ id: quoteSkus.id });
 
@@ -916,6 +837,9 @@ export async function addProductSku(
         price,
         hs_cost_of_goods_sold: hsCostOfGoodsSold || null,
         markup: markup || null,
+        // Sub-task B — assembly child-add context.
+        parent_sku_id: parentSkuIdRaw,
+        qty_per_parent: qtyPerParentRaw,
       },
     });
 
@@ -1166,9 +1090,18 @@ export async function unassignSkuFromParent(
 }
 
 /**
- * Change a SKU's role between leaf and assembly. Demoting assembly →
- * leaf is refused if the SKU has children — PM must detach or delete
- * them explicitly first. No auto-detach.
+ * Change a SKU's role between leaf and assembly.
+ *
+ * **Default behavior** (no cascadeDetachChildren flag): demoting
+ * assembly → leaf is refused if the SKU has children. PM must detach
+ * or delete them explicitly first.
+ *
+ * **Cascade behavior** (cascadeDetachChildren='true'): leaf-detach
+ * micro-slice Sub-item 2 — when PM confirms the cascade modal,
+ * direct children are detached as standalone leaves (preserving
+ * notes, retail bench, sort_order) and the assembly's role flips to
+ * leaf, all within one atomic transaction. Sub-item 2's full
+ * specification covers the scenarios.
  */
 export async function convertSkuRole(
   formData: FormData,
@@ -1176,6 +1109,8 @@ export async function convertSkuRole(
   return runAction(async () => {
     const skuId = String(formData.get("skuId") ?? "").trim();
     const newRoleRaw = String(formData.get("newRole") ?? "") as SkuRoleValue;
+    const cascadeDetachChildren =
+      String(formData.get("cascadeDetachChildren") ?? "") === "true";
     if (!skuId) throw new ActionGuardError(ERR.VALIDATION, "skuId required");
     if (!["leaf", "assembly"].includes(newRoleRaw))
       throw new ActionGuardError(ERR.VALIDATION, `Invalid newRole: ${newRoleRaw}`);
@@ -1196,6 +1131,87 @@ export async function convertSkuRole(
     assertDraft(quote);
 
     const allSkus = await loadAllSkusForQuote(sku.quoteId);
+
+    // Leaf-detach micro-slice Sub-item 2 — cascade path for
+    // assembly → leaf with children. PM confirmed the modal;
+    // detach all direct children + flip role atomically.
+    if (
+      cascadeDetachChildren &&
+      sku.skuRole === "assembly" &&
+      newRoleRaw === "leaf"
+    ) {
+      const directChildren = allSkus.filter((s) => s.parentSkuId === skuId);
+      // (Empty-children case is unreachable here — validation below
+      // covers childless ASY → LEAF via the non-cascade path. Cascade
+      // flag is meaningful only when children > 0.)
+
+      await db.transaction(async (tx) => {
+        // 1. Detach each child: write parent_sku_id + qty_per_parent
+        //    to NULL. Per-child audit (same `unassigned_from_parent`
+        //    action key as Sub-item 1; diff_json.source flags origin
+        //    so timeline can distinguish cascade-from-manual).
+        for (const child of directChildren) {
+          await tx
+            .update(quoteSkus)
+            .set({
+              parentSkuId: null,
+              qtyPerParent: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(quoteSkus.id, child.id));
+          await tx.insert(auditLog).values({
+            userId: user.id,
+            entityType: "quote_sku",
+            entityId: child.id,
+            action: "unassigned_from_parent",
+            diffJson: {
+              parent_sku_id: { from: skuId, to: null },
+              qty_per_parent: { from: child.qtyPerParent, to: null },
+              source: "cascade_from_role_conversion",
+            },
+          });
+        }
+
+        // 2. Flip role to leaf.
+        await tx
+          .update(quoteSkus)
+          .set({ skuRole: newRoleRaw, updatedAt: new Date() })
+          .where(eq(quoteSkus.id, skuId));
+
+        // 3. Seed production_inputs rows for the now-leaf SKU
+        //    (per-tier). ON CONFLICT DO NOTHING handles re-promotion
+        //    where rows already exist from a prior leaf state.
+        const tiers = await tx
+          .select({ id: quoteTiers.id })
+          .from(quoteTiers)
+          .where(eq(quoteTiers.quoteId, sku.quoteId));
+        if (tiers.length > 0) {
+          await tx
+            .insert(productionInputs)
+            .values(
+              tiers.map((t) => ({ quoteSkuId: skuId, tierId: t.id })),
+            )
+            .onConflictDoNothing();
+        }
+
+        // 4. Audit the role conversion with cascade metadata.
+        await tx.insert(auditLog).values({
+          userId: user.id,
+          entityType: "quote_sku",
+          entityId: skuId,
+          action: "role_converted",
+          diffJson: {
+            sku_role: { from: sku.skuRole, to: newRoleRaw },
+            cascade_detached_count: directChildren.length,
+            cascade_detached_child_ids: directChildren.map((c) => c.id),
+          },
+        });
+      });
+
+      revalidateQuoteTree(quote.projectId, sku.quoteId);
+      return;
+    }
+
     const validation = validateAssemblyOperation({
       skuId,
       newParentId: sku.parentSkuId,
@@ -1236,6 +1252,408 @@ export async function convertSkuRole(
     revalidateQuoteTree(quote.projectId, sku.quoteId);
   });
 }
+
+/**
+ * Leaf-detach micro-slice — leaf → assembly DESTRUCTIVE conversion
+ * (Edward 2026-05-14 simplification; supersedes the
+ * `convertLeafToAssemblyWithMigrate` smart-migrate flow that
+ * created auto-named -CMP children — too complex; replaced).
+ *
+ * PM clicks Type badge on a leaf with cost data OR a HubSpot link;
+ * modal requires PM to type "yes" exactly to enable the confirm
+ * button (high-friction destructive gate). On confirm, this action
+ * fires inside one atomic transaction:
+ *
+ *   1. DELETE all per-SKU cost rows referencing this SKU
+ *      (packaging_inputs, production_inputs, freight_inputs).
+ *      Bulk raw cost is carried inside `production_inputs.
+ *      bulk_raw_cost` — disappears with the row.
+ *   2. UPDATE quote_skus on this row: skuRole → 'assembly',
+ *      hubspot_product_id → NULL. Assemblies are Nexus-local
+ *      kit definitions; the HubSpot link goes away because
+ *      leaves are the HubSpot-linked rows.
+ *   3. Audit `role_converted_destructive` with the deleted-row
+ *      counts in diff_json (forensic trail).
+ *
+ * After the conversion, the assembly has no children. PM adds
+ * children via the row's drawer "+ Add child SKU" affordance
+ * (HubSpot-first via AddProductModal — every child is a HubSpot-
+ * linked leaf).
+ *
+ * If the leaf is "clean" (no cost data AND no HubSpot link), the
+ * UI silent-toggles via `convertSkuRole` instead — this action
+ * isn't called.
+ */
+export async function convertLeafToAssemblyDestructive(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const skuId = String(formData.get("skuId") ?? "").trim();
+    const confirmation = String(formData.get("confirmation") ?? "").trim();
+    if (!skuId) throw new ActionGuardError(ERR.VALIDATION, "skuId required");
+    if (confirmation !== "yes") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Destructive convert requires confirmation = "yes" (received "${confirmation}").`,
+      );
+    }
+
+    const user = await ensureUser();
+    const skuRows = await db
+      .select()
+      .from(quoteSkus)
+      .where(eq(quoteSkus.id, skuId))
+      .limit(1);
+    if (skuRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "SKU not found");
+    const sku = skuRows[0];
+    if (sku.skuRole !== "leaf")
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Destructive convert only valid for leaf → assembly.",
+      );
+
+    const quote = await loadQuoteOrThrow(sku.quoteId);
+    assertDraft(quote);
+
+    // Pre-count rows for the audit trail.
+    const [pkgCount, prodCount, frtCount] = await Promise.all([
+      db
+        .select({ id: packagingInputs.id })
+        .from(packagingInputs)
+        .where(eq(packagingInputs.quoteSkuId, skuId)),
+      db
+        .select({ id: productionInputs.id })
+        .from(productionInputs)
+        .where(eq(productionInputs.quoteSkuId, skuId)),
+      db
+        .select({ id: freightInputs.id })
+        .from(freightInputs)
+        .where(eq(freightInputs.quoteSkuId, skuId)),
+    ]);
+
+    await db.transaction(async (tx) => {
+      // Step 1 — DELETE cost rows.
+      if (pkgCount.length > 0) {
+        await tx
+          .delete(packagingInputs)
+          .where(eq(packagingInputs.quoteSkuId, skuId));
+      }
+      if (prodCount.length > 0) {
+        await tx
+          .delete(productionInputs)
+          .where(eq(productionInputs.quoteSkuId, skuId));
+      }
+      if (frtCount.length > 0) {
+        await tx
+          .delete(freightInputs)
+          .where(eq(freightInputs.quoteSkuId, skuId));
+      }
+
+      // Step 2 — flip role + strip HubSpot link.
+      await tx
+        .update(quoteSkus)
+        .set({
+          skuRole: "assembly",
+          hubspotProductId: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(quoteSkus.id, skuId));
+
+      // Step 3 — audit.
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote_sku",
+        entityId: skuId,
+        action: "role_converted_destructive",
+        diffJson: {
+          sku_role: { from: "leaf", to: "assembly" },
+          hubspot_product_id: { from: sku.hubspotProductId, to: null },
+          cost_rows_deleted: {
+            packaging: pkgCount.length,
+            production: prodCount.length,
+            freight: frtCount.length,
+          },
+        },
+      });
+    });
+
+    revalidateQuoteTree(quote.projectId, sku.quoteId);
+  });
+}
+
+/**
+ * Leaf-detach micro-slice — top-level Nexus-local assembly creation
+ * (Edward 2026-05-14: "+ Add assembly" button affordance). Creates
+ * an empty assembly with no children + no HubSpot link. PM names
+ * SKU label + product name; populates children later via the
+ * row's drawer "+ Add child SKU" affordance.
+ *
+ * Top-level only — no parent_sku_id supported. Assembly nesting
+ * works by promoting a child via the row drawer's add affordance.
+ *
+ * Different from the prior `addAssemblySku` (deleted 2026-05-14
+ * in Sub-task B) which supported drawer-child Nexus-local leaf
+ * creation. This action is scoped to top-level assemblies only;
+ * leaves go through AddProductModal (HubSpot-first).
+ */
+/**
+ * Leaf-detach micro-slice (Edward 2026-05-14) — attach a HubSpot
+ * product to an existing Nexus-local assembly AND convert it to
+ * leaf, atomically. Triggered when PM clicks Type badge on an
+ * assembly with no `hubspot_product_id` (created via "+ Add
+ * assembly"); the UI opens AddProductModal in attach-and-convert
+ * mode; on submit, this action fires.
+ *
+ * Two modes (mirror AddProductModal's existing submit paths):
+ *  - **Attach-existing** (`productId` provided): looks up the
+ *    HubSpot product; UPDATEs the assembly with the product's id +
+ *    name + sku; flips role to leaf. Single HubSpot read.
+ *  - **Create-new** (full form data provided, no `productId`):
+ *    creates the HubSpot product first; UPDATEs the assembly
+ *    with the new product's id + fields; flips role to leaf.
+ *    One HubSpot write + one DB UPDATE in atomic transaction.
+ *
+ * HubSpot is source of truth: the assembly's existing
+ * `sku_label` + `product_name` are OVERWRITTEN with the HubSpot
+ * product's values (PM's placeholder label gets replaced by
+ * HubSpot's hs_sku per Edward's Q1 disposition).
+ *
+ * Audit: `role_converted_with_hubspot_attach` on the SKU with
+ * diff_json carrying the attached HubSpot product id + mode +
+ * the from/to field values.
+ */
+export async function attachAndConvertToLeaf(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const skuId = String(formData.get("attachToSkuId") ?? "").trim();
+    if (!skuId)
+      throw new ActionGuardError(ERR.VALIDATION, "attachToSkuId required");
+
+    const user = await ensureUser();
+    const skuRows = await db
+      .select()
+      .from(quoteSkus)
+      .where(eq(quoteSkus.id, skuId))
+      .limit(1);
+    if (skuRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "SKU not found");
+    const sku = skuRows[0];
+    if (sku.skuRole !== "assembly")
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Attach-and-convert only valid for assemblies.",
+      );
+    if (sku.hubspotProductId !== null)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "This SKU already has a HubSpot product attached.",
+      );
+
+    const quote = await loadQuoteOrThrow(sku.quoteId);
+    assertDraft(quote);
+
+    // Branch on mode: presence of productId field signals
+    // attach-existing; absence signals create-new (same shape as
+    // AddProductModal's submit paths).
+    const productIdRaw = String(formData.get("productId") ?? "").trim();
+    let attachedHubspotProductId: string;
+    let attachedSkuLabel: string;
+    let attachedProductName: string;
+    let mode: "attach_existing" | "create_new";
+
+    if (productIdRaw) {
+      // Attach-existing mode.
+      mode = "attach_existing";
+      const product = await getProduct(productIdRaw);
+      if (!product)
+        throw new ActionGuardError(
+          ERR.HUBSPOT,
+          `HubSpot product ${productIdRaw} not found`,
+        );
+      const snap = snapshotFromHubspotProduct(product);
+      attachedHubspotProductId = product.id;
+      attachedSkuLabel = snap.skuLabel;
+      attachedProductName = snap.productName;
+    } else {
+      // Create-new mode. Reuse the addProductSku create form data
+      // (name, price, hs_product_type required + optional pass-
+      // through fields). HubSpot create happens BEFORE the DB
+      // UPDATE so we don't end up with a half-committed state on
+      // HubSpot-side failure.
+      mode = "create_new";
+      const name = String(formData.get("name") ?? "").trim();
+      const price = String(formData.get("price") ?? "").trim();
+      const hsProductType = String(formData.get("hs_product_type") ?? "").trim();
+      if (!name)
+        throw new ActionGuardError(ERR.VALIDATION, "Product name is required.");
+      if (!price)
+        throw new ActionGuardError(ERR.VALIDATION, "Unit price is required.");
+      if (!hsProductType)
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Product type is required.",
+        );
+      const hsSku = String(formData.get("hs_sku") ?? "").trim();
+      const description = String(formData.get("description") ?? "").trim();
+      const hsImages = String(formData.get("hs_images") ?? "").trim();
+      const hsUrl = String(formData.get("hs_url") ?? "").trim();
+      const hubspotOwnerId = String(
+        formData.get("hubspot_owner_id") ?? "",
+      ).trim();
+      const hsCostOfGoodsSold = String(
+        formData.get("hs_cost_of_goods_sold") ?? "",
+      ).trim();
+      const markup = String(formData.get("markup") ?? "").trim();
+      const taxSchedule = String(formData.get("tax_schedule") ?? "").trim();
+      const fscClaimType = String(formData.get("fsc_claim_type") ?? "").trim();
+      const fscStatus = String(formData.get("fsc_status") ?? "").trim();
+      const fscSupplierVerified = String(
+        formData.get("fsc_supplier_verified") ?? "",
+      ).trim();
+
+      let created;
+      try {
+        created = await createProduct({
+          name,
+          price,
+          hs_product_type: hsProductType,
+          hs_sku: hsSku || undefined,
+          description: description || undefined,
+          hs_images: hsImages || undefined,
+          hs_url: hsUrl || undefined,
+          hubspot_owner_id: hubspotOwnerId || undefined,
+          hs_cost_of_goods_sold: hsCostOfGoodsSold || undefined,
+          markup: markup || undefined,
+          tax_schedule: taxSchedule || undefined,
+          fsc_claim_type: fscClaimType || undefined,
+          fsc_status: fscStatus || undefined,
+          fsc_supplier_verified: fscSupplierVerified || undefined,
+        });
+      } catch (err) {
+        const message =
+          err instanceof HubspotError && err.cause
+            ? (extractHubspotErrorMessage(err.cause) ??
+              "HubSpot rejected the product create. No local row was updated.")
+            : "HubSpot product create failed. No local row was updated.";
+        throw new ActionGuardError(ERR.HUBSPOT, message);
+      }
+
+      const snap = snapshotFromHubspotProduct({
+        id: created.id,
+        name: created.name,
+        sku: created.hs_sku,
+        productType: hsProductType,
+        description: description || null,
+        price: price || null,
+      });
+      attachedHubspotProductId = created.id;
+      attachedSkuLabel = snap.skuLabel;
+      attachedProductName = snap.productName;
+    }
+
+    // UPDATE the assembly: set hubspot_product_id + overwrite sku_label
+    // + product_name (HubSpot is source of truth) + flip role to leaf.
+    // Single statement; transaction wrapping is overkill for one row.
+    await db
+      .update(quoteSkus)
+      .set({
+        hubspotProductId: attachedHubspotProductId,
+        skuLabel: attachedSkuLabel,
+        productName: attachedProductName,
+        skuRole: "leaf",
+        lastHubspotRefreshAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(quoteSkus.id, skuId));
+
+    // Seed production_inputs rows for the now-leaf per tier (per the
+    // architectural invariant that every leaf has production_inputs
+    // rows). ON CONFLICT DO NOTHING handles re-attach edge cases.
+    await seedProductionInputsForNewLeaf({
+      quoteId: sku.quoteId,
+      skuId,
+    });
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_sku",
+      entityId: skuId,
+      action: "role_converted_with_hubspot_attach",
+      diffJson: {
+        mode,
+        sku_role: { from: "assembly", to: "leaf" },
+        hubspot_product_id: {
+          from: null,
+          to: attachedHubspotProductId,
+        },
+        sku_label: { from: sku.skuLabel, to: attachedSkuLabel },
+        product_name: { from: sku.productName, to: attachedProductName },
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, sku.quoteId);
+  });
+}
+
+export async function addAssemblySku(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    const skuLabel = String(formData.get("skuLabel") ?? "").trim();
+    const productName = String(formData.get("productName") ?? "").trim();
+    if (!quoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+    if (!skuLabel)
+      throw new ActionGuardError(ERR.VALIDATION, "skuLabel required");
+    if (!productName)
+      throw new ActionGuardError(ERR.VALIDATION, "productName required");
+
+    const user = await ensureUser();
+    const quote = await loadQuoteOrThrow(quoteId);
+    assertDraft(quote);
+
+    const maxRow = await db
+      .select({ max: max(quoteSkus.sortOrder) })
+      .from(quoteSkus)
+      .where(eq(quoteSkus.quoteId, quoteId));
+    const sortOrder = (maxRow[0]?.max ?? -1) + 1;
+
+    const [sku] = await db
+      .insert(quoteSkus)
+      .values({
+        quoteId,
+        hubspotProductId: null,
+        skuLabel,
+        productName,
+        unitsPerPack: 1,
+        sortOrder,
+        skuRole: "assembly",
+        parentSkuId: null,
+        qtyPerParent: null,
+      })
+      .returning({ id: quoteSkus.id });
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_sku",
+      entityId: sku.id,
+      action: "created",
+      diffJson: {
+        quote_id: quoteId,
+        source: "add_assembly_button",
+        sku_label: skuLabel,
+        product_name: productName,
+        sku_role: "assembly",
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, quoteId);
+  });
+}
+
 
 /**
  * Re-pull HubSpot Product data and overwrite ONLY the fields whose
@@ -1964,6 +2382,15 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
   // Slice 6 — production policy snapshot, keyed by quote_sku_id. One row
   // per leaf SKU; values come from any existing production_inputs row for
   // that SKU (denormalized, so any row carries the policy).
+  //
+  // Leaf-detach micro-slice Sub-item 4 — defense-in-depth filter:
+  // production_inputs is leaf-only by architectural commitment, but the
+  // bulk-reseed source query previously carried forward whatever rows
+  // exist (including any pre-cleanup orphan assembly-attached rows from
+  // legacy state). Filter here ensures the reseed populates only leaf
+  // SKUs even if orphans haven't been cleaned up yet. Sub-item 5
+  // cleanup pass remediates the existing orphans; this guard prevents
+  // them from re-propagating through a tier-replace.
   const preservedProductionPolicy = await db
     .selectDistinctOn([productionInputs.quoteSkuId], {
       quoteSkuId: productionInputs.quoteSkuId,
@@ -1973,7 +2400,12 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
     })
     .from(productionInputs)
     .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
-    .where(eq(quoteSkus.quoteId, quoteId));
+    .where(
+      and(
+        eq(quoteSkus.quoteId, quoteId),
+        eq(quoteSkus.skuRole, "leaf"),
+      ),
+    );
 
   // Forensic snapshot — capture every (sku, tier) row with non-null cost
   // data or actual_units_produced before the cascade wipes them. Filter

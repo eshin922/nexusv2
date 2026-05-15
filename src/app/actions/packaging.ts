@@ -19,6 +19,7 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import {
+  quoteForLeafSku,
   quoteForLineGroup,
   quoteForSku,
   requireDraft,
@@ -116,7 +117,12 @@ export async function addPackagingLine(
     if (!quoteSkuId) throw new ActionGuardError(ERR.VALIDATION, "quoteSkuId required");
 
     const user = await ensureUser();
-    const { quote, sku } = await quoteForSku(quoteSkuId);
+    // Leaf-detach micro-slice Sub-item 4 — defense-in-depth leaf-only
+    // gate. UI (packaging-drilldown.tsx:157) already filters to leaf
+    // SKUs before rendering the AddLineButton; this server-side check
+    // rejects direct POSTs against the action endpoint that bypass
+    // the UI filter. Same gate shape as production / freight.
+    const { quote, sku } = await quoteForLeafSku(quoteSkuId, "packaging");
 
     const tiers = await db
       .select({ id: quoteTiers.id })
