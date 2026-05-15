@@ -78,6 +78,44 @@ export const freightTreatment = pgEnum("freight_treatment", [
   "pass_through",
 ]);
 
+// Slice R6.2 — multi-leg journey freight vocabulary (additive).
+// Co-exists with the Slice 7 `freight_mode` enum during the
+// commit-1 additive phase. Commit 2 destructive sweep retires
+// `freight_inputs` + the Slice 7 `freight_mode` enum, then
+// renames `freight_leg_mode` → `freight_mode` as the canonical
+// name. Per Pattern 25 disposition A (R6.2 gap dispositions,
+// May 2026).
+export const freightDirection = pgEnum("freight_direction", [
+  "inbound",
+  "outbound",
+]);
+export const freightIncoterm = pgEnum("freight_incoterm", [
+  "DDP",
+  "DAP",
+  "FOB",
+  "EXW",
+  "FCA",
+  "CIF",
+]);
+// 10-value vocabulary matching the R6.2 prototype data.js modes
+// list. Per Gap 8 disposition, the legacy 7-value freightMode
+// maps as parcel→parcel, ltl→ltl_truck, ftl→truckload,
+// ocean→ocean_fcl, air→air_freight, courier→air_express,
+// other→other. PMs reclassify Ocean (FCL/LCL) post-migration
+// if needed.
+export const freightLegMode = pgEnum("freight_leg_mode", [
+  "parcel",
+  "ocean_fcl",
+  "ocean_lcl",
+  "air_freight",
+  "air_express",
+  "ltl_truck",
+  "truckload",
+  "drayage",
+  "exw_pickup",
+  "other",
+]);
+
 // Slice 5.5 — assembly support. A SKU is one of:
 //   - leaf: terminal SKU (no children); the typical orderable item.
 //   - assembly: a SKU that holds child SKUs (kit, BOM, formulation
@@ -880,6 +918,181 @@ export const freightInputs = pgTable(
     index("freight_inputs_tier_id_idx").on(t.tierId),
     index("freight_inputs_line_group_id_idx").on(t.lineGroupId),
   ],
+);
+
+// ---------- R6.2 freight legs (multi-leg journey model) ----------
+//
+// Slice R6.2 (additive commit) — new freight model replaces
+// the flat freight_inputs table with a multi-leg journey
+// structure: leg_groups → legs → per-(leg, tier) cost rows.
+//
+// Commit 1 of the slice ships these tables alongside
+// freight_inputs. Action layer + math + UI in commit 2;
+// commit 2 also drops freight_inputs and the legacy 7-value
+// freight_mode enum. Per Pattern 25 disposition A (R6.2 gap
+// dispositions, May 2026).
+
+// Journey container. One row per logical journey (e.g.,
+// "Outbound · Shenzhen → Busan → Long Beach"). Legs in the
+// group form a sequence; cross-leg date drift produces inline
+// warnings (per Gap 5 disposition: warn, not reject).
+// `display_order` orders groups within a quote.
+export const freightLegGroups = pgTable(
+  "freight_leg_groups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    displayOrder: integer("display_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("freight_leg_groups_quote_id_idx").on(t.quoteId)],
+);
+
+// One row per physical leg within a journey. The math contract
+// carries the markup-on-amount semantics:
+//   freight_billable = freight_cost × (1 + freight_markup_pct)
+//   duty_billable    = duty_pct × goods_cost_base × (1 + duty_markup_pct)
+//   tariff_billable  = parallel
+//
+// `customs` is JSONB per CD commitment — leaves room for
+// additional rates (broker fees, classification annotations)
+// without schema churn. Shape: { duty_pct?, tariff_pct? }.
+//
+// `crosses_international_border` is PM-set in v1; v1.x will
+// derive from country-coded origin/destination once those
+// fields get structure (Pushback 2 of designer notes).
+//
+// Customs cluster visibility rule:
+//   crosses_international_border AND incoterm = 'DDP'
+//
+// Per-component markup pcts default 0.3000. Range per Gap 5:
+// 0.0000 - 9.9999 (covers Cally's tariff-anomaly zero-markup
+// case and forwarder edge weirdness).
+//
+// `forwarder_quote_pdf_id` deferred to P2 with the attachments
+// table (Gap 24) — column not added yet to avoid stale FK.
+export const freightLegs = pgTable(
+  "freight_legs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    legGroupId: uuid("leg_group_id")
+      .notNull()
+      .references(() => freightLegGroups.id, { onDelete: "cascade" }),
+
+    // Head
+    direction: freightDirection("direction").notNull().default("outbound"),
+    label: text("label"),
+    origin: text("origin"),
+    destination: text("destination"),
+    crossesInternationalBorder: boolean("crosses_international_border")
+      .notNull()
+      .default(false),
+    treatment: freightTreatment("treatment").notNull().default("bundled"),
+
+    // Body grid
+    mode: freightLegMode("mode"),
+    carrier: text("carrier"),
+    incoterm: freightIncoterm("incoterm"),
+    cargoReadyDate: date("cargo_ready_date"),
+    vesselEtd: date("vessel_etd"),
+
+    // Per-component markup pills
+    freightMarkupPct: numeric("freight_markup_pct", { precision: 5, scale: 4 })
+      .notNull()
+      .default("0.3000"),
+    dutyMarkupPct: numeric("duty_markup_pct", { precision: 5, scale: 4 })
+      .notNull()
+      .default("0.3000"),
+    tariffMarkupPct: numeric("tariff_markup_pct", { precision: 5, scale: 4 })
+      .notNull()
+      .default("0.3000"),
+
+    // Customs JSONB (per CD commitment)
+    customs: jsonb("customs").notNull().default(sql`'{}'::jsonb`),
+
+    displayOrder: integer("display_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("freight_legs_leg_group_id_idx").on(t.legGroupId)],
+);
+
+// Per-(leg, tier) cost data. PM enters `total_freight` from
+// forwarder quotes; `units_in_shipment` overrides tier.qty
+// when a leg ships a different volume than the tier qty
+// (rare — partial container, yield mismatch). The math layer
+// applies `effective_units = units_in_shipment ?? tier.qty`
+// per leg.
+//
+// Sparse: rows exist only after PM has started entering data
+// for the (leg, tier). UNIQUE(leg, tier) — one row per
+// intersection.
+export const freightLegTiers = pgTable(
+  "freight_leg_tiers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    freightLegId: uuid("freight_leg_id")
+      .notNull()
+      .references(() => freightLegs.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+    totalFreight: numeric("total_freight", { precision: 12, scale: 2 }),
+    unitsInShipment: integer("units_in_shipment"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("freight_leg_tiers_leg_tier_idx").on(
+      t.freightLegId,
+      t.tierId,
+    ),
+    index("freight_leg_tiers_freight_leg_id_idx").on(t.freightLegId),
+    index("freight_leg_tiers_tier_id_idx").on(t.tierId),
+  ],
+);
+
+// Customer-arranges-mode metadata per leg. Separate table per
+// Gap 18 disposition (rather than JSONB on freight_legs) —
+// fields have independent audit lifecycles and audit_note is
+// a multi-line TEXT field.
+//
+// `freight_leg_id` is PK + FK; one meta row per leg. Created
+// only when the leg's panel mode = 'customer_arranges'.
+// `cargo_ready_date` for customer-arranges legs lives on
+// freight_legs.cargo_ready_date — unified across modes per
+// the rev-1 promotion (designer notes Pushback 3).
+export const freightCustomerArrangesMeta = pgTable(
+  "freight_customer_arranges_meta",
+  {
+    freightLegId: uuid("freight_leg_id")
+      .primaryKey()
+      .references(() => freightLegs.id, { onDelete: "cascade" }),
+    customerContact: text("customer_contact"),
+    auditNote: text("audit_note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
 );
 
 // ---------- validation engine (Slice 9.5) ----------
