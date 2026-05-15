@@ -1491,273 +1491,256 @@ function AddLegModal({
   return (
     <Modal open onClose={onClose} size="lg">
       <ModalHead>
-        <div>
-          <h2
-            style={{
-              fontFamily: "var(--display)",
-              fontWeight: 500,
-              fontSize: 19,
-              margin: 0,
-              letterSpacing: "-0.01em",
-              fontStyle: "italic",
-            }}
-          >
-            Add freight leg
-          </h2>
-          <p
-            style={{
-              fontSize: 12.5,
-              color: "var(--ink-3)",
-              margin: "4px 0 0",
-            }}
-          >
-            Customs cluster appears when this leg crosses an international
-            border with DPS-customs obligation.
-          </p>
+        <div className="titles">
+          <p className="eyebrow">R6.2 freight · new leg</p>
+          <h2>Add freight leg</h2>
         </div>
+        <button
+          type="button"
+          className="btn ghost sm"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          ✕
+        </button>
       </ModalHead>
       <ModalBody>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 12,
-            }}
-          >
-            <ModalField label="Direction">
-              <select
-                value={direction}
-                onChange={(e) =>
-                  setDirection(e.target.value as "inbound" | "outbound")
-                }
-              >
-                <option value="inbound">Inbound</option>
-                <option value="outbound">Outbound</option>
-              </select>
-            </ModalField>
-            <ModalField label="Incoterm">
-              <select
-                value={incoterm}
-                onChange={(e) => setIncoterm(e.target.value)}
-              >
-                {INCOTERMS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.value} — {t.desc}
-                  </option>
-                ))}
-              </select>
-            </ModalField>
-          </div>
-          <ModalField label="Label">
-            <input
-              type="text"
-              value={label}
-              placeholder="e.g., Shenzhen → Busan · Bulk container"
-              onChange={(e) => setLabel(e.target.value)}
-            />
-          </ModalField>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 12,
-            }}
-          >
-            <ModalField label="Mode">
-              <select
-                value={mode}
-                onChange={(e) => setMode(e.target.value)}
-              >
-                {FREIGHT_LEG_MODES.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </ModalField>
-            <ModalField label="Carrier">
-              <input
-                type="text"
-                value={carrier}
-                placeholder="Sino Logistics"
-                onChange={(e) => setCarrier(e.target.value)}
-              />
-            </ModalField>
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 12,
-            }}
-          >
-            <ModalField label="Origin">
-              <input
-                type="text"
-                value={origin}
-                placeholder="Shenzhen Yantian Port"
-                onChange={(e) => setOrigin(e.target.value)}
-              />
-            </ModalField>
-            <ModalField label="Destination">
-              <input
-                type="text"
-                value={destination}
-                placeholder="Long Beach Port"
-                onChange={(e) => setDestination(e.target.value)}
-              />
-            </ModalField>
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 12,
-            }}
-          >
-            <ModalField label="Cargo ready date">
-              <input
-                type="date"
-                value={cargoReadyDate}
-                onChange={(e) => setCargoReadyDate(e.target.value)}
-              />
-            </ModalField>
-            <ModalField
-              label={
-                <>
-                  Vessel ETD
-                  {(incoterm === "FOB" || incoterm === "EXW") && (
-                    <span
-                      style={{
-                        marginLeft: 4,
-                        fontSize: 9,
-                        color: "var(--ink-4)",
-                        fontStyle: "italic",
-                      }}
-                    >
-                      · optional
-                    </span>
-                  )}
-                </>
+        <p
+          style={{
+            margin: 0,
+            fontSize: 12.5,
+            color: "var(--ink-3)",
+            lineHeight: 1.5,
+          }}
+        >
+          Customs cluster appears when this leg crosses an international
+          border with DPS-customs obligation.
+        </p>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 12,
+          }}
+        >
+          <div className="formfield">
+            <label htmlFor="addleg-direction">Direction</label>
+            <select
+              id="addleg-direction"
+              value={direction}
+              onChange={(e) =>
+                setDirection(e.target.value as "inbound" | "outbound")
               }
             >
-              <input
-                type="date"
-                value={vesselEtd}
-                onChange={(e) => setVesselEtd(e.target.value)}
-              />
-            </ModalField>
+              <option value="inbound">Inbound</option>
+              <option value="outbound">Outbound</option>
+            </select>
           </div>
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "10px 14px",
-              background: "var(--paper-2)",
-              border: "1px solid var(--rule)",
-              borderRadius: 6,
-              fontSize: 12,
-            }}
-          >
+          <div className="formfield">
+            <label htmlFor="addleg-incoterm">Incoterm</label>
+            <select
+              id="addleg-incoterm"
+              value={incoterm}
+              onChange={(e) => setIncoterm(e.target.value)}
+            >
+              {INCOTERMS.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.value} — {t.desc}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="formfield">
+          <label htmlFor="addleg-label">Label</label>
+          <input
+            id="addleg-label"
+            type="text"
+            value={label}
+            placeholder="e.g., Shenzhen → Busan · Bulk container"
+            onChange={(e) => setLabel(e.target.value)}
+          />
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 12,
+          }}
+        >
+          <div className="formfield">
+            <label htmlFor="addleg-mode">Mode</label>
+            <select
+              id="addleg-mode"
+              value={mode}
+              onChange={(e) => setMode(e.target.value)}
+            >
+              {FREIGHT_LEG_MODES.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="formfield">
+            <label htmlFor="addleg-carrier">Carrier</label>
             <input
-              type="checkbox"
-              checked={crossesBorder}
-              onChange={(e) => setCrossesBorder(e.target.checked)}
+              id="addleg-carrier"
+              type="text"
+              value={carrier}
+              placeholder="Sino Logistics"
+              onChange={(e) => setCarrier(e.target.value)}
             />
-            <span>Crosses international border with DPS-customs obligation</span>
-            <span
-              style={{
-                marginLeft: "auto",
-                fontFamily: "var(--mono)",
-                fontSize: 9.5,
-                color: "var(--ink-4)",
-                letterSpacing: 0.06,
-                textTransform: "uppercase",
-              }}
-            >
-              drives customs visibility
-            </span>
-          </label>
-          <div
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 12,
+          }}
+        >
+          <div className="formfield">
+            <label htmlFor="addleg-origin">Origin</label>
+            <input
+              id="addleg-origin"
+              type="text"
+              value={origin}
+              placeholder="Shenzhen Yantian Port"
+              onChange={(e) => setOrigin(e.target.value)}
+            />
+          </div>
+          <div className="formfield">
+            <label htmlFor="addleg-destination">Destination</label>
+            <input
+              id="addleg-destination"
+              type="text"
+              value={destination}
+              placeholder="Long Beach Port"
+              onChange={(e) => setDestination(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 12,
+          }}
+        >
+          <div className="formfield">
+            <label htmlFor="addleg-cargo-ready">Cargo ready date</label>
+            <input
+              id="addleg-cargo-ready"
+              type="date"
+              value={cargoReadyDate}
+              onChange={(e) => setCargoReadyDate(e.target.value)}
+            />
+          </div>
+          <div className="formfield">
+            <label htmlFor="addleg-vessel-etd">
+              Vessel ETD
+              {(incoterm === "FOB" || incoterm === "EXW") && (
+                <span
+                  style={{
+                    marginLeft: 6,
+                    fontSize: 9,
+                    color: "var(--ink-4)",
+                    fontStyle: "italic",
+                    textTransform: "none",
+                    letterSpacing: 0,
+                  }}
+                >
+                  · optional
+                </span>
+              )}
+            </label>
+            <input
+              id="addleg-vessel-etd"
+              type="date"
+              value={vesselEtd}
+              onChange={(e) => setVesselEtd(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "10px 14px",
+            background: "var(--paper-2)",
+            border: "1px solid var(--rule)",
+            borderRadius: 6,
+            fontSize: 12,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={crossesBorder}
+            onChange={(e) => setCrossesBorder(e.target.checked)}
+          />
+          <span>Crosses international border with DPS-customs obligation</span>
+          <span
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
+              marginLeft: "auto",
+              fontFamily: "var(--mono)",
+              fontSize: 9.5,
+              color: "var(--ink-4)",
+              letterSpacing: 0.06,
+              textTransform: "uppercase",
             }}
           >
-            <span
-              style={{
-                fontFamily: "var(--mono)",
-                fontSize: 9.5,
-                letterSpacing: 0.1,
-                color: "var(--ink-4)",
-                textTransform: "uppercase",
-              }}
-            >
-              Treatment
-            </span>
+            drives customs visibility
+          </span>
+        </label>
+
+        <div className="formfield">
+          <label>Treatment</label>
+          <div style={{ display: "flex", gap: 8 }}>
             <button
               type="button"
+              className={
+                treatment === "bundled" ? "btn primary" : "btn ghost"
+              }
               onClick={() => setTreatment("bundled")}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 4,
-                background:
-                  treatment === "bundled"
-                    ? "oklch(0.55 0.07 215)"
-                    : "var(--paper-2)",
-                color: treatment === "bundled" ? "var(--paper)" : "var(--ink)",
-                border: "1px solid var(--rule)",
-                cursor: "pointer",
-                fontFamily: "var(--mono)",
-                fontSize: 10.5,
-                letterSpacing: 0.04,
-                textTransform: "uppercase",
-              }}
             >
               Bundled
             </button>
             <button
               type="button"
+              className={
+                treatment === "pass_through" ? "btn primary" : "btn ghost"
+              }
               onClick={() => setTreatment("pass_through")}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 4,
-                background:
-                  treatment === "pass_through"
-                    ? "var(--ink)"
-                    : "var(--paper-2)",
-                color:
-                  treatment === "pass_through" ? "var(--paper)" : "var(--ink)",
-                border: "1px solid var(--rule)",
-                cursor: "pointer",
-                fontFamily: "var(--mono)",
-                fontSize: 10.5,
-                letterSpacing: 0.04,
-                textTransform: "uppercase",
-              }}
             >
               Passthrough
             </button>
           </div>
-          {error && (
-            <div
-              role="alert"
-              style={{
-                padding: "10px 14px",
-                background: "var(--bad-soft)",
-                border: "1px solid oklch(from var(--bad) l c h / 0.40)",
-                borderRadius: 6,
-                fontSize: 12,
-                color: "var(--bad)",
-              }}
-            >
-              {error}
-            </div>
-          )}
         </div>
+
+        {error && (
+          <div
+            role="alert"
+            style={{
+              padding: "10px 14px",
+              background: "var(--bad-soft)",
+              border: "1px solid oklch(from var(--bad) l c h / 0.40)",
+              borderRadius: 6,
+              fontSize: 12,
+              color: "var(--bad)",
+            }}
+          >
+            {error}
+          </div>
+        )}
       </ModalBody>
       <ModalFoot>
         <span
@@ -1770,14 +1753,19 @@ function AddLegModal({
             textTransform: "uppercase",
           }}
         >
-          ⌥ Border + incoterm drive customs visibility · markup applied to amount
+          Border + incoterm drive customs visibility
         </span>
-        <button type="button" onClick={onClose} disabled={pending}>
+        <button
+          type="button"
+          className="btn ghost"
+          onClick={onClose}
+          disabled={pending}
+        >
           Cancel
         </button>
         <button
           type="button"
-          className="primary"
+          className="btn primary"
           onClick={handleSubmit}
           disabled={pending}
         >
@@ -1785,36 +1773,6 @@ function AddLegModal({
         </button>
       </ModalFoot>
     </Modal>
-  );
-}
-
-function ModalField({
-  label,
-  children,
-}: {
-  label: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="formfield">
-      <label
-        style={{
-          fontFamily: "var(--mono)",
-          fontSize: 9.5,
-          letterSpacing: 0.1,
-          textTransform: "uppercase",
-          color: "var(--ink-4)",
-          fontWeight: 500,
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          marginBottom: 4,
-        }}
-      >
-        {label}
-      </label>
-      {children}
-    </div>
   );
 }
 
