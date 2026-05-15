@@ -5,6 +5,54 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Drizzle journal hygiene — retire `drizzle-kit push` for shared infra; hash-match-on-disk verification before any journal-row mutation]
+
+  **Slice:** Dev-hygiene; non-blocking. Bank for the next dev-tooling
+  pass.
+
+  **Reference moment:** R6.2 commit 1 (2026-05-15). Shared Supabase
+  `drizzle.__drizzle_migrations` had three rows whose hashes
+  matched no on-disk file (ids 19, 20, 24). When CC's
+  `0026_r6_2_freight_legs_additive.sql` was generated and Edward
+  ran `npm run db:migrate`, drizzle's position-based comparison
+  silently skipped the new migration. CC mis-diagnosed the
+  surface-visible orphan rows (ids 26/27/28), Edward
+  rubber-stamped the null-op claim, and a DELETE of ids 26/27/28
+  removed the journal records for migrations 0023/0024/0025 —
+  whose schema effects were still in the DB. The mistake was
+  recovered cleanly from a captured backup. Final correct
+  diagnosis: hash-match every DB row against on-disk files
+  (LF-normalized SHA-256). The genuine orphans were ids 19, 20,
+  24 — different rows entirely.
+
+  **Two lessons banked from the incident:**
+
+  1. **`drizzle-kit push` retirement for shared infra.** Push
+     writes to `__drizzle_migrations` without going through the
+     normal migration flow. That's exactly how an entry ends up
+     in the journal with no corresponding file. On a single
+     shared dev/prod project the orphan persists forever and
+     confuses future migrate runs. Convention: only use
+     `drizzle-kit generate` + `npm run db:migrate`. If schema
+     experimentation is needed, do it locally against a sandbox
+     DB, not the shared project.
+
+  2. **Drizzle journal nullity test = hash match, not end-state
+     schema match.** Add-then-drop net-zero migrations leave the
+     end-state schema clean but the intermediate journal rows
+     are still load-bearing for drizzle's "what's next" sequence.
+     Before deleting a journal row, compute SHA-256 (LF-normalized)
+     of every on-disk migration file and confirm the target row's
+     hash doesn't match any. Schema-state inventory is necessary
+     but not sufficient.
+
+  **Forensic artifact:** `docs/r6-2-journal-cleanup-backup.md`
+  retains the SQL needed to recover the three rows that were
+  briefly deleted in this incident (now restored). The three
+  genuine orphans (ids 19, 20, 24) remain in the DB; their
+  cleanup can be tackled separately once R6.2 lands, this time
+  with hash-match verification.
+
 - [Production input one-time-vs-recurring distinction — surface prominence audit — Slice 11 design question]
 
   **Slice:** Slice 11 design conversation. No immediate code action.
