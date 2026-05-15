@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
-import { Modal, ModalBody, ModalFoot, ModalHead } from "@/components/modal/modal";
+import React, { useEffect, useRef, useState, useTransition } from "react";
+import { Modal } from "@/components/modal/modal";
 import {
   addLeg,
   addLegGroup,
@@ -178,6 +178,7 @@ export function FreightDrilldown({
         {addLegOpen && (
           <AddLegModal
             legGroupId={addLegOpen.legGroupId}
+            tiers={tiers}
             onClose={() => setAddLegOpen(null)}
           />
         )}
@@ -203,6 +204,7 @@ export function FreightDrilldown({
       {addLegOpen && (
         <AddLegModal
           legGroupId={addLegOpen.legGroupId}
+          tiers={tiers}
           onClose={() => setAddLegOpen(null)}
         />
       )}
@@ -1438,11 +1440,21 @@ function DebouncedTextarea({
 
 // ---- add-leg modal ----
 
+// Slice R6.2 — Add Leg modal uses the canonical .r62-drawer-* form
+// register inside a centered Modal overlay (per kickoff: same field
+// set as the slide-in drawer, different chrome). Modal primitive
+// provides the portal + overlay positioning; the inner sections
+// (.r62-drawer-head/body/foot, .field/.lbl, .row-pair, .row-route,
+// .r62-drawer-section, .r62-drawer-rates, .r62-drawer-customs,
+// .r62-drawer-pdf) match the canonical R6.2 prototype's AddLegDrawer
+// design 1:1.
 function AddLegModal({
   legGroupId,
+  tiers,
   onClose,
 }: {
   legGroupId: string;
+  tiers: Tier[];
   onClose: () => void;
 }) {
   const [direction, setDirection] = useState<"inbound" | "outbound">(
@@ -1460,8 +1472,22 @@ function AddLegModal({
   const [treatment, setTreatment] = useState<"bundled" | "pass_through">(
     "bundled",
   );
+  // Per-component markup pcts (canonical: default 0.30, overridable
+  // per-leg, per Cally's tariff-anomaly case). Sent to addLeg as
+  // decimals already wired in the action layer.
+  const [freightMk, setFreightMk] = useState(0.3);
+  const [dutyMk, setDutyMk] = useState(0.3);
+  const [tariffMk, setTariffMk] = useState(0.3);
+  // Customs rates (canonical: percent-display). Sent to addLeg which
+  // stores them in the leg's customs JSONB.
+  const [dutyPct, setDutyPct] = useState("");
+  const [tariffPct, setTariffPct] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // Customs cluster visibility — same rule as the rendered leg
+  // (crosses_international_border AND incoterm === 'DDP').
+  const showCustoms = crossesBorder && incoterm === "DDP";
 
   function handleSubmit() {
     setError(null);
@@ -1478,6 +1504,15 @@ function AddLegModal({
     fd.set("incoterm", incoterm);
     fd.set("cargoReadyDate", cargoReadyDate);
     fd.set("vesselEtd", vesselEtd);
+    // Per-component markup decimals → percent-display for the action
+    // layer's parseMarkupPct helper (divides by 100 on store).
+    fd.set("freightMarkupPct", (freightMk * 100).toFixed(2));
+    fd.set("dutyMarkupPct", (dutyMk * 100).toFixed(2));
+    fd.set("tariffMarkupPct", (tariffMk * 100).toFixed(2));
+    if (showCustoms) {
+      if (dutyPct.trim() !== "") fd.set("dutyPct", dutyPct);
+      if (tariffPct.trim() !== "") fd.set("tariffPct", tariffPct);
+    }
     startTransition(async () => {
       const result = await addLeg(fd);
       if (result.ok) {
@@ -1490,44 +1525,29 @@ function AddLegModal({
 
   return (
     <Modal open onClose={onClose} size="lg">
-      <ModalHead>
-        <div className="titles">
-          <p className="eyebrow">R6.2 freight · new leg</p>
+      <div className="r62-drawer-head">
+        <div>
           <h2>Add freight leg</h2>
+          <p className="sub">
+            Customs cluster appears when this leg crosses an international
+            border with DPS-customs obligation.
+          </p>
         </div>
         <button
           type="button"
-          className="btn ghost sm"
+          className="close"
           onClick={onClose}
           aria-label="Close"
         >
           ✕
         </button>
-      </ModalHead>
-      <ModalBody>
-        <p
-          style={{
-            margin: 0,
-            fontSize: 12.5,
-            color: "var(--ink-3)",
-            lineHeight: 1.5,
-          }}
-        >
-          Customs cluster appears when this leg crosses an international
-          border with DPS-customs obligation.
-        </p>
+      </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 12,
-          }}
-        >
-          <div className="formfield">
-            <label htmlFor="addleg-direction">Direction</label>
+      <div className="r62-drawer-body">
+        <div className="row-pair">
+          <div className="field">
+            <div className="lbl">Direction</div>
             <select
-              id="addleg-direction"
               value={direction}
               onChange={(e) =>
                 setDirection(e.target.value as "inbound" | "outbound")
@@ -1537,10 +1557,9 @@ function AddLegModal({
               <option value="outbound">Outbound</option>
             </select>
           </div>
-          <div className="formfield">
-            <label htmlFor="addleg-incoterm">Incoterm</label>
+          <div className="field">
+            <div className="lbl">Incoterm</div>
             <select
-              id="addleg-incoterm"
               value={incoterm}
               onChange={(e) => setIncoterm(e.target.value)}
             >
@@ -1553,10 +1572,9 @@ function AddLegModal({
           </div>
         </div>
 
-        <div className="formfield">
-          <label htmlFor="addleg-label">Label</label>
+        <div className="field">
+          <div className="lbl">Label</div>
           <input
-            id="addleg-label"
             type="text"
             value={label}
             placeholder="e.g., Shenzhen → Busan · Bulk container"
@@ -1564,20 +1582,10 @@ function AddLegModal({
           />
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 12,
-          }}
-        >
-          <div className="formfield">
-            <label htmlFor="addleg-mode">Mode</label>
-            <select
-              id="addleg-mode"
-              value={mode}
-              onChange={(e) => setMode(e.target.value)}
-            >
+        <div className="row-pair">
+          <div className="field">
+            <div className="lbl">Mode</div>
+            <select value={mode} onChange={(e) => setMode(e.target.value)}>
               {FREIGHT_LEG_MODES.map((m) => (
                 <option key={m.value} value={m.value}>
                   {m.label}
@@ -1585,10 +1593,9 @@ function AddLegModal({
               ))}
             </select>
           </div>
-          <div className="formfield">
-            <label htmlFor="addleg-carrier">Carrier</label>
+          <div className="field">
+            <div className="lbl">Carrier</div>
             <input
-              id="addleg-carrier"
               type="text"
               value={carrier}
               placeholder="Sino Logistics"
@@ -1597,27 +1604,20 @@ function AddLegModal({
           </div>
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 12,
-          }}
-        >
-          <div className="formfield">
-            <label htmlFor="addleg-origin">Origin</label>
+        <div className="row-route">
+          <div className="field">
+            <div className="lbl">Origin</div>
             <input
-              id="addleg-origin"
               type="text"
               value={origin}
               placeholder="Shenzhen Yantian Port"
               onChange={(e) => setOrigin(e.target.value)}
             />
           </div>
-          <div className="formfield">
-            <label htmlFor="addleg-destination">Destination</label>
+          <span className="arrow">→</span>
+          <div className="field">
+            <div className="lbl">Destination</div>
             <input
-              id="addleg-destination"
               type="text"
               value={destination}
               placeholder="Long Beach Port"
@@ -1626,29 +1626,22 @@ function AddLegModal({
           </div>
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 12,
-          }}
-        >
-          <div className="formfield">
-            <label htmlFor="addleg-cargo-ready">Cargo ready date</label>
+        <div className="row-pair">
+          <div className="field">
+            <div className="lbl">Cargo ready date</div>
             <input
-              id="addleg-cargo-ready"
               type="date"
               value={cargoReadyDate}
               onChange={(e) => setCargoReadyDate(e.target.value)}
             />
           </div>
-          <div className="formfield">
-            <label htmlFor="addleg-vessel-etd">
+          <div className="field">
+            <div className="lbl">
               Vessel ETD
               {(incoterm === "FOB" || incoterm === "EXW") && (
                 <span
                   style={{
-                    marginLeft: 6,
+                    marginLeft: 4,
                     fontSize: 9,
                     color: "var(--ink-4)",
                     fontStyle: "italic",
@@ -1659,9 +1652,8 @@ function AddLegModal({
                   · optional
                 </span>
               )}
-            </label>
+            </div>
             <input
-              id="addleg-vessel-etd"
               type="date"
               value={vesselEtd}
               onChange={(e) => setVesselEtd(e.target.value)}
@@ -1669,6 +1661,7 @@ function AddLegModal({
           </div>
         </div>
 
+        {/* Crosses-border checkbox — canonical inline paper-2 box */}
         <label
           style={{
             display: "flex",
@@ -1702,14 +1695,13 @@ function AddLegModal({
           </span>
         </label>
 
-        <div className="formfield">
-          <label>Treatment</label>
-          <div style={{ display: "flex", gap: 8 }}>
+        {/* Treatment toggle — canonical .r62-treat per-line shape */}
+        <div className="field">
+          <div className="lbl">Treatment</div>
+          <div className="r62-treat" style={{ alignSelf: "flex-start" }}>
             <button
               type="button"
-              className={
-                treatment === "bundled" ? "btn primary" : "btn ghost"
-              }
+              className={treatment === "bundled" ? "on bundled" : ""}
               onClick={() => setTreatment("bundled")}
             >
               Bundled
@@ -1717,13 +1709,154 @@ function AddLegModal({
             <button
               type="button"
               className={
-                treatment === "pass_through" ? "btn primary" : "btn ghost"
+                treatment === "pass_through" ? "on passthrough" : ""
               }
               onClick={() => setTreatment("pass_through")}
             >
               Passthrough
             </button>
           </div>
+        </div>
+
+        {/* Markup pcts panel — canonical: three inline pills,
+            paper-2 box, mono caption "per-component · default 0.30" */}
+        <div
+          style={{
+            padding: "10px 14px",
+            background: "var(--paper-2)",
+            border: "1px solid var(--rule)",
+            borderRadius: 6,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "var(--mono)",
+              fontSize: 9.5,
+              letterSpacing: 0.1,
+              textTransform: "uppercase",
+              color: "var(--ink-4)",
+              marginBottom: 8,
+            }}
+          >
+            Markup pcts · per-component · default 0.30
+          </div>
+          <div
+            style={{
+              display: "flex",
+              gap: 18,
+              alignItems: "center",
+              fontSize: 12,
+            }}
+          >
+            <span>
+              Freight{" "}
+              <MarkupPill
+                value={freightMk}
+                disabled={false}
+                onCommit={setFreightMk}
+              />
+            </span>
+            <span>
+              Duty{" "}
+              <MarkupPill
+                value={dutyMk}
+                disabled={false}
+                onCommit={setDutyMk}
+              />
+            </span>
+            <span>
+              Tariff{" "}
+              <MarkupPill
+                value={tariffMk}
+                disabled={false}
+                onCommit={setTariffMk}
+              />
+            </span>
+          </div>
+        </div>
+
+        {/* Rates per tier — canonical .r62-drawer-rates mini-table.
+            Visual fidelity in v1; enter values on the rendered leg's
+            per-tier rate table after add (the leg's leg-tier rows
+            are seeded null at insert time). Banked for v1.1 wiring:
+            send per-tier seed values into addLeg's action contract. */}
+        <div className="r62-drawer-section">
+          <h4>Rates per tier</h4>
+          <div className="r62-drawer-rates">
+            <span className="h">Tier</span>
+            <span className="h num">Total freight</span>
+            <span className="h num">Per unit (billable)</span>
+            {tiers.map((t) => (
+              <React.Fragment key={t.id}>
+                <span className="t-lab">{t.label}</span>
+                <input
+                  type="number"
+                  disabled
+                  placeholder="$ — "
+                  title="Enter rates on the leg's per-tier table after adding"
+                />
+                <span className="per-unit">—</span>
+              </React.Fragment>
+            ))}
+          </div>
+          <p
+            style={{
+              margin: 0,
+              fontFamily: "var(--mono)",
+              fontSize: 9.5,
+              letterSpacing: 0.04,
+              color: "var(--ink-4)",
+            }}
+          >
+            Enter per-tier rates on the leg row after adding · v1
+          </p>
+        </div>
+
+        {/* Customs section — canonical .r62-drawer-section with
+            .grid3 layout. Visible only when crosses_border + DDP. */}
+        {showCustoms && (
+          <div className="r62-drawer-section">
+            <h4>Customs · {incoterm} · border</h4>
+            <div
+              className="grid3"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 12,
+              }}
+            >
+              <div className="field">
+                <div className="lbl">Duty %</div>
+                <input
+                  type="number"
+                  step="0.1"
+                  min={0}
+                  value={dutyPct}
+                  placeholder="5.8"
+                  onChange={(e) => setDutyPct(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <div className="lbl">Tariff %</div>
+                <input
+                  type="number"
+                  step="0.1"
+                  min={0}
+                  value={tariffPct}
+                  placeholder="7.5"
+                  onChange={(e) => setTariffPct(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* PDF attachment slot — visual P1; upload P2 per Gap 24 */}
+        <div className="r62-drawer-pdf">
+          ↑ Attach forwarder quote PDF{" "}
+          <span className="r62-phase-tag p2" style={{ marginLeft: 8 }}>
+            upload · P2
+          </span>
         </div>
 
         {error && (
@@ -1741,37 +1874,26 @@ function AddLegModal({
             {error}
           </div>
         )}
-      </ModalBody>
-      <ModalFoot>
-        <span
-          style={{
-            flex: 1,
-            fontFamily: "var(--mono)",
-            fontSize: 10,
-            color: "var(--ink-4)",
-            letterSpacing: 0.06,
-            textTransform: "uppercase",
-          }}
-        >
-          Border + incoterm drive customs visibility
+      </div>
+
+      <div className="r62-drawer-foot">
+        <span className="left">
+          Border + incoterm drive customs visibility · markup applied to amount
         </span>
-        <button
-          type="button"
-          className="btn ghost"
-          onClick={onClose}
-          disabled={pending}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          className="btn primary"
-          onClick={handleSubmit}
-          disabled={pending}
-        >
-          {pending ? "Adding…" : "Add leg"}
-        </button>
-      </ModalFoot>
+        <div className="right">
+          <button type="button" onClick={onClose} disabled={pending}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="primary"
+            onClick={handleSubmit}
+            disabled={pending}
+          >
+            {pending ? "Adding…" : "Add leg"}
+          </button>
+        </div>
+      </div>
     </Modal>
   );
 }
