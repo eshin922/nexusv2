@@ -26,6 +26,7 @@ import { useEffect, useState, useTransition } from "react";
 import {
   addProductSku,
   addSkuFromHubspotProduct,
+  attachAndConvertToLeaf,
   checkProductSku,
   getCurrentHubspotOwner,
 } from "@/app/actions/quotes";
@@ -93,6 +94,9 @@ export function AddProductModal({
   forcedParentId = null,
   triggerLabel = "+ Add product",
   triggerVariant = "primary",
+  attachToSkuId = null,
+  controlledOpen = null,
+  onControlledClose,
 }: {
   quoteId: string;
   disabled?: boolean;
@@ -109,8 +113,35 @@ export function AddProductModal({
   /** Trigger button visual variant — "ghost" for in-drawer use
    * so it doesn't compete with the table-footer primary. */
   triggerVariant?: "primary" | "ghost";
+  /** Leaf-detach micro-slice attach-and-convert mode (Edward
+   * 2026-05-14): when set, submit dispatches to the
+   * `attachAndConvertToLeaf` action which UPDATEs the existing
+   * assembly SKU with the picked-or-created HubSpot product +
+   * flips role to leaf atomically. Mutually exclusive with
+   * `forcedParentId` (attaching is about THIS sku, not creating
+   * a new one). */
+  attachToSkuId?: string | null;
+  /** Controlled-open mode (Edward 2026-05-14): when set, the
+   * modal's open state is owned by the parent. Parent renders
+   * <AddProductModal controlledOpen={true} onControlledClose={...} />
+   * and the modal opens immediately without rendering a trigger
+   * button. Used by sku-row.tsx's attach-and-convert flow which
+   * triggers the modal in response to a Type-badge click on an
+   * assembly with no HubSpot link. */
+  controlledOpen?: boolean | null;
+  onControlledClose?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  // When controlledOpen is set (non-null), parent owns the state.
+  // When null (default), internal state drives.
+  const open = controlledOpen !== null ? controlledOpen : internalOpen;
+  const setOpen = (v: boolean) => {
+    if (controlledOpen !== null) {
+      if (!v && onControlledClose) onControlledClose();
+    } else {
+      setInternalOpen(v);
+    }
+  };
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [mode, setMode] = useState<Mode>("create");
   // existingMatch is set when SKU blur finds a HubSpot product with the
@@ -257,7 +288,15 @@ export function AddProductModal({
           fd.set("parentSkuId", forcedParentId);
           fd.set("qtyPerParent", "1");
         }
-        const result = await addSkuFromHubspotProduct(fd);
+        // Attach-and-convert mode: dispatch to a different action
+        // that UPDATEs the existing assembly + flips role to leaf
+        // instead of INSERTing a new SKU.
+        const result = attachToSkuId
+          ? await (async () => {
+              fd.set("attachToSkuId", attachToSkuId);
+              return attachAndConvertToLeaf(fd);
+            })()
+          : await addSkuFromHubspotProduct(fd);
         if (!result.ok) {
           setError(result.error.message);
           return;
@@ -303,8 +342,13 @@ export function AddProductModal({
       fd.set("parentSkuId", forcedParentId);
       fd.set("qtyPerParent", "1");
     }
+    if (attachToSkuId) {
+      fd.set("attachToSkuId", attachToSkuId);
+    }
     startTransition(async () => {
-      const result = await addProductSku(fd);
+      const result = attachToSkuId
+        ? await attachAndConvertToLeaf(fd)
+        : await addProductSku(fd);
       if (!result.ok) {
         setError(result.error.message);
         return;
@@ -339,10 +383,20 @@ export function AddProductModal({
     );
   }
 
-  const submitCta =
-    mode === "attach_existing" ? "Attach product" : "Add product";
-  const headSub =
-    mode === "attach_existing"
+  // Attach-and-convert mode (Edward 2026-05-14): when set, copy
+  // reframes the modal as a HubSpot attach for an existing Nexus-
+  // local assembly. Submit will UPDATE the existing SKU + flip
+  // role to leaf instead of INSERTing a new row.
+  const submitCta = attachToSkuId
+    ? mode === "attach_existing"
+      ? "Attach and convert to leaf"
+      : "Create and convert to leaf"
+    : mode === "attach_existing"
+      ? "Attach product"
+      : "Add product";
+  const headSub = attachToSkuId
+    ? "This assembly isn't backed by a HubSpot product. Search HubSpot for an existing product OR create a new one — either path attaches it to this row and converts the assembly to a leaf so it syncs to NetSuite."
+    : mode === "attach_existing"
       ? "Attaches an existing HubSpot product to this scenario. Edits to fields stay on this quote only — the canonical record in HubSpot is untouched."
       : "Creates a new product in HubSpot and adds it to this scenario.";
 

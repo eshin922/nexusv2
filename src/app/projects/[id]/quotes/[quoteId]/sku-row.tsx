@@ -170,6 +170,14 @@ export function SkuRow({
   // Replaces the prior smart-migrate auto-child flow.
   const [destructiveConvertModalOpen, setDestructiveConvertModalOpen] =
     useState(false);
+  // Attach-and-convert modal state (Edward 2026-05-14). Open when
+  // PM clicks Type badge on an assembly row with NULL
+  // hubspot_product_id, attempting to convert to leaf. The new
+  // modal launches AddProductModal in attach-and-convert mode —
+  // PM picks/creates HubSpot product; server UPDATEs this SKU +
+  // flips role to leaf atomically.
+  const [attachConvertModalOpen, setAttachConvertModalOpen] =
+    useState(false);
   // Slice RI.8 — overflow menu state for action cluster compression
   // (Designer audit Q2 approved). Houses the four conditional
   // affordances (assembly reassign / detach / HubSpot refresh /
@@ -350,6 +358,22 @@ export function SkuRow({
       (hasCostData || sku.hubspotProductId !== null)
     ) {
       setDestructiveConvertModalOpen(true);
+      return;
+    }
+
+    // Attach-and-convert (Edward 2026-05-14): assembly → leaf on
+    // an assembly that has no HubSpot link would produce an orphan
+    // leaf (violates every-leaf-needs-HubSpot rule). Block the
+    // silent toggle; open the attach-and-convert modal instead.
+    // PM picks/creates a HubSpot product → server UPDATEs this
+    // SKU + flips role to leaf atomically.
+    if (
+      sku.skuRole === "assembly" &&
+      newRole === "leaf" &&
+      sku.hubspotProductId === null &&
+      !hasChildren
+    ) {
+      setAttachConvertModalOpen(true);
       return;
     }
 
@@ -1036,6 +1060,21 @@ export function SkuRow({
           onCancel={() => setDestructiveConvertModalOpen(false)}
           onConfirm={runDestructiveConvert}
           pending={pending}
+        />
+      )}
+
+      {/* Attach-and-convert flow (Edward 2026-05-14): opens when
+          PM clicks Type badge on a Nexus-local assembly (no
+          HubSpot link) to convert to leaf. AddProductModal
+          launches in controlled-open + attach mode. On submit,
+          server UPDATEs THIS sku with the picked/created HubSpot
+          product + flips role to leaf atomically. */}
+      {attachConvertModalOpen && !disabled && quoteId && (
+        <AddProductModal
+          quoteId={quoteId}
+          attachToSkuId={sku.id}
+          controlledOpen={true}
+          onControlledClose={() => setAttachConvertModalOpen(false)}
         />
       )}
     </>

@@ -1397,6 +1397,206 @@ export async function convertLeafToAssemblyDestructive(
  * creation. This action is scoped to top-level assemblies only;
  * leaves go through AddProductModal (HubSpot-first).
  */
+/**
+ * Leaf-detach micro-slice (Edward 2026-05-14) — attach a HubSpot
+ * product to an existing Nexus-local assembly AND convert it to
+ * leaf, atomically. Triggered when PM clicks Type badge on an
+ * assembly with no `hubspot_product_id` (created via "+ Add
+ * assembly"); the UI opens AddProductModal in attach-and-convert
+ * mode; on submit, this action fires.
+ *
+ * Two modes (mirror AddProductModal's existing submit paths):
+ *  - **Attach-existing** (`productId` provided): looks up the
+ *    HubSpot product; UPDATEs the assembly with the product's id +
+ *    name + sku; flips role to leaf. Single HubSpot read.
+ *  - **Create-new** (full form data provided, no `productId`):
+ *    creates the HubSpot product first; UPDATEs the assembly
+ *    with the new product's id + fields; flips role to leaf.
+ *    One HubSpot write + one DB UPDATE in atomic transaction.
+ *
+ * HubSpot is source of truth: the assembly's existing
+ * `sku_label` + `product_name` are OVERWRITTEN with the HubSpot
+ * product's values (PM's placeholder label gets replaced by
+ * HubSpot's hs_sku per Edward's Q1 disposition).
+ *
+ * Audit: `role_converted_with_hubspot_attach` on the SKU with
+ * diff_json carrying the attached HubSpot product id + mode +
+ * the from/to field values.
+ */
+export async function attachAndConvertToLeaf(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const skuId = String(formData.get("attachToSkuId") ?? "").trim();
+    if (!skuId)
+      throw new ActionGuardError(ERR.VALIDATION, "attachToSkuId required");
+
+    const user = await ensureUser();
+    const skuRows = await db
+      .select()
+      .from(quoteSkus)
+      .where(eq(quoteSkus.id, skuId))
+      .limit(1);
+    if (skuRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "SKU not found");
+    const sku = skuRows[0];
+    if (sku.skuRole !== "assembly")
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Attach-and-convert only valid for assemblies.",
+      );
+    if (sku.hubspotProductId !== null)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "This SKU already has a HubSpot product attached.",
+      );
+
+    const quote = await loadQuoteOrThrow(sku.quoteId);
+    assertDraft(quote);
+
+    // Branch on mode: presence of productId field signals
+    // attach-existing; absence signals create-new (same shape as
+    // AddProductModal's submit paths).
+    const productIdRaw = String(formData.get("productId") ?? "").trim();
+    let attachedHubspotProductId: string;
+    let attachedSkuLabel: string;
+    let attachedProductName: string;
+    let mode: "attach_existing" | "create_new";
+
+    if (productIdRaw) {
+      // Attach-existing mode.
+      mode = "attach_existing";
+      const product = await getProduct(productIdRaw);
+      if (!product)
+        throw new ActionGuardError(
+          ERR.HUBSPOT,
+          `HubSpot product ${productIdRaw} not found`,
+        );
+      const snap = snapshotFromHubspotProduct(product);
+      attachedHubspotProductId = product.id;
+      attachedSkuLabel = snap.skuLabel;
+      attachedProductName = snap.productName;
+    } else {
+      // Create-new mode. Reuse the addProductSku create form data
+      // (name, price, hs_product_type required + optional pass-
+      // through fields). HubSpot create happens BEFORE the DB
+      // UPDATE so we don't end up with a half-committed state on
+      // HubSpot-side failure.
+      mode = "create_new";
+      const name = String(formData.get("name") ?? "").trim();
+      const price = String(formData.get("price") ?? "").trim();
+      const hsProductType = String(formData.get("hs_product_type") ?? "").trim();
+      if (!name)
+        throw new ActionGuardError(ERR.VALIDATION, "Product name is required.");
+      if (!price)
+        throw new ActionGuardError(ERR.VALIDATION, "Unit price is required.");
+      if (!hsProductType)
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Product type is required.",
+        );
+      const hsSku = String(formData.get("hs_sku") ?? "").trim();
+      const description = String(formData.get("description") ?? "").trim();
+      const hsImages = String(formData.get("hs_images") ?? "").trim();
+      const hsUrl = String(formData.get("hs_url") ?? "").trim();
+      const hubspotOwnerId = String(
+        formData.get("hubspot_owner_id") ?? "",
+      ).trim();
+      const hsCostOfGoodsSold = String(
+        formData.get("hs_cost_of_goods_sold") ?? "",
+      ).trim();
+      const markup = String(formData.get("markup") ?? "").trim();
+      const taxSchedule = String(formData.get("tax_schedule") ?? "").trim();
+      const fscClaimType = String(formData.get("fsc_claim_type") ?? "").trim();
+      const fscStatus = String(formData.get("fsc_status") ?? "").trim();
+      const fscSupplierVerified = String(
+        formData.get("fsc_supplier_verified") ?? "",
+      ).trim();
+
+      let created;
+      try {
+        created = await createProduct({
+          name,
+          price,
+          hs_product_type: hsProductType,
+          hs_sku: hsSku || undefined,
+          description: description || undefined,
+          hs_images: hsImages || undefined,
+          hs_url: hsUrl || undefined,
+          hubspot_owner_id: hubspotOwnerId || undefined,
+          hs_cost_of_goods_sold: hsCostOfGoodsSold || undefined,
+          markup: markup || undefined,
+          tax_schedule: taxSchedule || undefined,
+          fsc_claim_type: fscClaimType || undefined,
+          fsc_status: fscStatus || undefined,
+          fsc_supplier_verified: fscSupplierVerified || undefined,
+        });
+      } catch (err) {
+        const message =
+          err instanceof HubspotError && err.cause
+            ? (extractHubspotErrorMessage(err.cause) ??
+              "HubSpot rejected the product create. No local row was updated.")
+            : "HubSpot product create failed. No local row was updated.";
+        throw new ActionGuardError(ERR.HUBSPOT, message);
+      }
+
+      const snap = snapshotFromHubspotProduct({
+        id: created.id,
+        name: created.name,
+        sku: created.hs_sku,
+        productType: hsProductType,
+        description: description || null,
+        price: price || null,
+      });
+      attachedHubspotProductId = created.id;
+      attachedSkuLabel = snap.skuLabel;
+      attachedProductName = snap.productName;
+    }
+
+    // UPDATE the assembly: set hubspot_product_id + overwrite sku_label
+    // + product_name (HubSpot is source of truth) + flip role to leaf.
+    // Single statement; transaction wrapping is overkill for one row.
+    await db
+      .update(quoteSkus)
+      .set({
+        hubspotProductId: attachedHubspotProductId,
+        skuLabel: attachedSkuLabel,
+        productName: attachedProductName,
+        skuRole: "leaf",
+        lastHubspotRefreshAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(quoteSkus.id, skuId));
+
+    // Seed production_inputs rows for the now-leaf per tier (per the
+    // architectural invariant that every leaf has production_inputs
+    // rows). ON CONFLICT DO NOTHING handles re-attach edge cases.
+    await seedProductionInputsForNewLeaf({
+      quoteId: sku.quoteId,
+      skuId,
+    });
+
+    await logAudit({
+      userId: user.id,
+      entityType: "quote_sku",
+      entityId: skuId,
+      action: "role_converted_with_hubspot_attach",
+      diffJson: {
+        mode,
+        sku_role: { from: "assembly", to: "leaf" },
+        hubspot_product_id: {
+          from: null,
+          to: attachedHubspotProductId,
+        },
+        sku_label: { from: sku.skuLabel, to: attachedSkuLabel },
+        product_name: { from: sku.productName, to: attachedProductName },
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, sku.quoteId);
+  });
+}
+
 export async function addAssemblySku(
   formData: FormData,
 ): Promise<ActionResult<void>> {
