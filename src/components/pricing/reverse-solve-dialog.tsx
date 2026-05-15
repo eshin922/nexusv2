@@ -208,7 +208,10 @@ export function ReverseSolveDialog({
     tiers: state.tiers,
     packaging: state.packaging,
     production: state.production,
-    freight: state.freight,
+    // Slice R6.2 — multi-leg journey freight.
+    freightLegGroups: state.freightLegGroups,
+    freightLegs: state.freightLegs,
+    freightLegTiers: state.freightLegTiers,
     cellOverrides: state.cellOverrides,
     cellTargets: state.cellTargets,
   };

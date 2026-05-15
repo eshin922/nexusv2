@@ -2,7 +2,7 @@
 
 import { InternalOnlyBadge } from "@/components/internal-only-badge";
 import type {
-  FreightLineBreakdown,
+  FreightLegBreakdown,
   QuoteCostingResult,
   SkuPerTierRollup,
   SkuRollup,
@@ -306,25 +306,27 @@ function FreightLines({
   sku: SkuRollup;
   tiers: QuoteCostingResult["tiers"];
 }) {
-  const lineIds = new Set<string>();
+  // Slice R6.2 — breakdown is now per-leg (`freightLegs`) rather than
+  // per legacy line_group. Same display grammar; ID key is `legId`.
+  const legIds = new Set<string>();
   for (const pt of sku.perTier) {
-    for (const fl of pt.freightLines) lineIds.add(fl.lineGroupId);
+    for (const fl of pt.freightLegs) legIds.add(fl.legId);
   }
-  if (lineIds.size === 0) return null;
+  if (legIds.size === 0) return null;
 
   return (
     <>
-      {Array.from(lineIds).map((lineId, idx) => {
-        const linesByTier = new Map<string, FreightLineBreakdown>();
+      {Array.from(legIds).map((legId, idx) => {
+        const linesByTier = new Map<string, FreightLegBreakdown>();
         for (const pt of sku.perTier) {
-          const fl = pt.freightLines.find((f) => f.lineGroupId === lineId);
+          const fl = pt.freightLegs.find((f) => f.legId === legId);
           if (fl) linesByTier.set(pt.tierId, fl);
         }
         const treatment =
-          [...linesByTier.values()][0]?.freightTreatment ?? "bundled";
+          [...linesByTier.values()][0]?.treatment ?? "bundled";
         return (
           <tr
-            key={lineId}
+            key={legId}
             style={{
               borderTop: "1px solid var(--rule)",
               background: "var(--paper-3)",
@@ -347,7 +349,7 @@ function FreightLines({
                   color: "var(--ink-4)",
                 }}
               >
-                <span>Freight line #{idx + 1}</span>
+                <span>Freight leg #{idx + 1}</span>
                 <span
                   className={
                     treatment === "pass_through"
@@ -420,8 +422,8 @@ function FreightSubRow({
   label: string;
   badge?: boolean;
   tiers: QuoteCostingResult["tiers"];
-  linesByTier: Map<string, FreightLineBreakdown>;
-  pick: (fl: FreightLineBreakdown) => string;
+  linesByTier: Map<string, FreightLegBreakdown>;
+  pick: (fl: FreightLegBreakdown) => string;
 }) {
   return (
     <tr>

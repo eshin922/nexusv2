@@ -2,7 +2,8 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  freightInputs,
+  freightLegGroups,
+  freightLegs,
   packagingInputs,
   quotes,
   quoteSkus,
@@ -23,8 +24,16 @@ import {
 
 type Quote = typeof quotes.$inferSelect;
 type Sku = typeof quoteSkus.$inferSelect;
+type FreightLeg = typeof freightLegs.$inferSelect;
+type FreightLegGroup = typeof freightLegGroups.$inferSelect;
 
-export type LineGroupTable = "packaging_inputs" | "freight_inputs";
+// Pre-R6.2 `LineGroupTable` discriminated packaging vs freight line
+// groups. R6.2 retires the `freight_inputs` line-group shape entirely;
+// packaging is the only remaining domain that uses line-group identity.
+// `quoteForLineGroup` below now takes packaging implicitly (no other
+// table uses the line-group pattern). Freight's analog is
+// `quoteForLeg` / `quoteForLegGroup`.
+export type LineGroupTable = "packaging_inputs";
 
 // Asserts the quote is editable (status === 'draft'). Used by callers that
 // already have the quote loaded.
@@ -71,21 +80,13 @@ export async function quoteForSku(
   return { quote, sku };
 }
 
-// quoteForSku + leaf-only check. Used by all three per-SKU cost-input
-// domains: packaging (Slice 5), production (Slice 6), freight (Slice 7).
-// Assemblies render as read-only banners on Cost build drilldowns;
-// the action layer enforces server-side rejection here as defense in
-// depth alongside UI filtering.
-//
-// Leaf-detach micro-slice (May 2026) Sub-item 4 — `packaging`
-// added to the inputDomain union. Pre-micro-slice, `addPackagingLine`
-// used the unqualified `quoteForSku` and would have accepted assembly
-// targets server-side (UI was already filtered to leaves so PM-driven
-// paths were safe, but direct POSTs would have bypassed). Now packaging
-// has the same defense-in-depth gate as production + freight.
+// quoteForSku + leaf-only check. Used by per-SKU cost-input domains
+// (packaging, production). Slice R6.2 retires the freight per-SKU
+// binding (Gap 22: freight is per-quote, not per-SKU) — the third
+// caller pre-R6.2 was freight; post-R6.2 it's not.
 export async function quoteForLeafSku(
   quoteSkuId: string,
-  inputDomain: "packaging" | "production" | "freight",
+  inputDomain: "packaging" | "production",
 ): Promise<{ quote: Quote; sku: Sku }> {
   const result = await quoteForSku(quoteSkuId);
   if (result.sku.skuRole !== "leaf") {
@@ -97,46 +98,71 @@ export async function quoteForLeafSku(
   return result;
 }
 
-// Resolve quote ownership through a line_group_id. The line group lives in
-// either packaging_inputs or freight_inputs; caller specifies which via
-// `table` discriminator.
+// Resolve quote ownership through a packaging line_group_id. Pre-R6.2
+// this was overloaded for packaging vs freight; R6.2 narrows it to
+// packaging only (freight uses leg / leg-group guards below).
 export async function quoteForLineGroup(
   lineGroupId: string,
-  table: LineGroupTable,
+  _table: LineGroupTable = "packaging_inputs",
 ): Promise<{ quote: Quote; sku: Sku; lineGroupId: string }> {
-  if (table === "packaging_inputs") {
-    const rows = await db
-      .select({
-        quote: quotes,
-        sku: quoteSkus,
-        lineGroupId: packagingInputs.lineGroupId,
-      })
-      .from(packagingInputs)
-      .innerJoin(quoteSkus, eq(quoteSkus.id, packagingInputs.quoteSkuId))
-      .innerJoin(quotes, eq(quotes.id, quoteSkus.quoteId))
-      .where(eq(packagingInputs.lineGroupId, lineGroupId))
-      .limit(1);
-    if (rows.length === 0)
-      throw new ActionGuardError(ERR.NOT_FOUND, "Packaging line not found");
-    const { quote, sku } = rows[0];
-    requireDraft(quote);
-    return { quote, sku, lineGroupId };
-  }
-  // freight_inputs
   const rows = await db
     .select({
       quote: quotes,
       sku: quoteSkus,
-      lineGroupId: freightInputs.lineGroupId,
+      lineGroupId: packagingInputs.lineGroupId,
     })
-    .from(freightInputs)
-    .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
+    .from(packagingInputs)
+    .innerJoin(quoteSkus, eq(quoteSkus.id, packagingInputs.quoteSkuId))
     .innerJoin(quotes, eq(quotes.id, quoteSkus.quoteId))
-    .where(eq(freightInputs.lineGroupId, lineGroupId))
+    .where(eq(packagingInputs.lineGroupId, lineGroupId))
     .limit(1);
   if (rows.length === 0)
-    throw new ActionGuardError(ERR.NOT_FOUND, "Freight line not found");
+    throw new ActionGuardError(ERR.NOT_FOUND, "Packaging line not found");
   const { quote, sku } = rows[0];
   requireDraft(quote);
   return { quote, sku, lineGroupId };
+}
+
+// Slice R6.2 — resolve quote ownership through (leg-group → quote).
+// Used by leg-group lifecycle actions (add / update / delete a group).
+export async function quoteForLegGroup(
+  legGroupId: string,
+): Promise<{ quote: Quote; group: FreightLegGroup }> {
+  const rows = await db
+    .select({ quote: quotes, group: freightLegGroups })
+    .from(freightLegGroups)
+    .innerJoin(quotes, eq(quotes.id, freightLegGroups.quoteId))
+    .where(eq(freightLegGroups.id, legGroupId))
+    .limit(1);
+  if (rows.length === 0)
+    throw new ActionGuardError(ERR.NOT_FOUND, "Leg group not found");
+  const { quote, group } = rows[0];
+  requireDraft(quote);
+  return { quote, group };
+}
+
+// Slice R6.2 — resolve quote ownership through (leg → leg-group →
+// quote). Used by leg lifecycle + per-tier rate cell actions.
+export async function quoteForLeg(
+  legId: string,
+): Promise<{ quote: Quote; group: FreightLegGroup; leg: FreightLeg }> {
+  const rows = await db
+    .select({
+      quote: quotes,
+      group: freightLegGroups,
+      leg: freightLegs,
+    })
+    .from(freightLegs)
+    .innerJoin(
+      freightLegGroups,
+      eq(freightLegGroups.id, freightLegs.legGroupId),
+    )
+    .innerJoin(quotes, eq(quotes.id, freightLegGroups.quoteId))
+    .where(eq(freightLegs.id, legId))
+    .limit(1);
+  if (rows.length === 0)
+    throw new ActionGuardError(ERR.NOT_FOUND, "Leg not found");
+  const { quote, group, leg } = rows[0];
+  requireDraft(quote);
+  return { quote, group, leg };
 }

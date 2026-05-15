@@ -4,48 +4,61 @@
 // Same pattern as src/lib/sku-tree.ts — client-safe in principle; the
 // server-only concern lives at the data-fetching wrapping action layer.
 //
-// Math reference (canonical formulas; mirror docs/CLAUDE.md
-// "Customs / landed-cost data"):
+// Math reference (Slice R6.2 commit 2 — multi-leg journey model
+// replaces the per-SKU per-tier `freight_inputs` row shape):
 //
 //   factoryCost/unit  = packagingCost/unit
 //                       + productionCost/unit (when allocate_service_fees=true)
 //                       + rawCost/unit (when not customer_ships_raws)
 //
-//   Two-step container freight formula (split for unambiguous algebra
-//   — earlier "÷ effective_units" wording invited misreading):
+//   Freight is per-quote, not per-SKU (R6.2 Gap 22 disposition). The
+//   journey is a sequence of legs grouped into one or more
+//   `freight_leg_groups`. Each leg carries:
+//     · mode / carrier / incoterm / dates / crosses_international_border
+//     · per-component markups (freight / duty / tariff — default 0.3000)
+//     · customs JSONB { duty_pct, tariff_pct } when DPS owes customs
+//     · per-tier rate row(s) in `freight_leg_tiers` with PM-entered
+//       `total_freight` + optional `units_in_shipment` override.
 //
-//   container_freight_per_sku  = (freight.sku_total_cbm / total_shipment_cbm)
-//                                × line.total_freight
-//   container_freight_per_unit = container_freight_per_sku / effective_units
+//   Per leg, per tier (the math contract Edward signed off):
 //
-//     where total_shipment_cbm = sum across SKUs in the same freight line
-//     × tier of sku_total_cbm; in v1 each freight line is per-SKU so
-//     total_cbm = this row's sku_total_cbm and the per-SKU share is the
-//     full line.total_freight; per_unit = line.total_freight / effective_units.
+//     freight_cost      = freight_leg_tiers.total_freight
+//     freight_billable  = freight_cost × (1 + leg.freight_markup_pct)
+//     effective_units   = freight_leg_tiers.units_in_shipment ?? tier.qty
+//     container/unit    = freight_cost / effective_units
+//     container_billable/unit = container/unit × (1 + leg.freight_markup_pct)
 //
-//     effective_units = freight_inputs.units_in_shipment ?? tier.qty.
+//     duty_cost/unit    = factoryCost/unit × leg.customs.duty_pct
+//     duty_billable/unit = duty_cost/unit × (1 + leg.duty_markup_pct)
+//     tariff_cost/unit  = factoryCost/unit × leg.customs.tariff_pct
+//     tariff_billable/unit = tariff_cost/unit × (1 + leg.tariff_markup_pct)
 //
-// Per-SKU CI value semantics (duty/tariff):
+//   `customs-eligible` per leg = crosses_international_border AND
+//   incoterm = 'DDP'. Each leg evaluates independently — a Shenzhen
+//   → Busan → Long Beach journey renders customs on BOTH legs (Korea
+//   entry + US entry); a Shenzhen → Shanghai → LA journey renders
+//   customs only on the international leg. Markup is on the AMOUNT,
+//   not the rate, per Cally's tariff-anomaly case (when tariff hit
+//   125% the per-component markup model lets PMs zero out
+//   `tariff_markup_pct` without losing margin on freight or duty).
 //
-//   duty_per_unit/tariff_per_unit are computed as factory_cost_per_unit
-//   × pct, which is algebraically equivalent to
-//   (factory_cost × tier.qty × pct) / tier.qty, where the numerator
-//   (factory_cost × tier.qty) is this SKU's CI value (Customs Invoice)
-//   at that tier. Per-SKU duty_pct + tariff_pct live on quote_skus and
-//   apply at whatever SKU level the actual customs declaration is filed
-//   — the PM's call. Roman gummies pattern: jars + caps shipped together,
-//   each declared separately, each carries its own duty/tariff against
-//   its own CI. Fully-assembled finished goods declared as one HS code
-//   put duty/tariff on the assembly SKU instead, and the leaves under
-//   that assembly should NOT also carry customs (would double-count).
-//   v1 schema permits both shapes; data integrity is the PM's
-//   responsibility (UI surfaces customs on every SKU; rollup math
-//   applies at whichever level it's set).
+//   Per-leaf, per-tier freight contribution accretes across all legs
+//   in all leg-groups for the quote:
 //
-//   duty/unit         = factoryCost/unit × sku.duty_pct
-//   tariff/unit       = factoryCost/unit × sku.tariff_pct
-//   landed_before     = container + duty + tariff
-//   landed_with_markup = landed_before × (1 + freight.markup_pct)
+//     container_per_unit = Σ legs of freight_cost / effective_units
+//     duty_per_unit      = factoryCost/unit × Σ customs-eligible
+//                                          leg.customs.duty_pct
+//     tariff_per_unit    = (parallel)
+//     (the with-markup sums apply leg-specific component markups
+//      before summing — see implementation)
+//
+//   Every leaf at a given tier gets the SAME per-unit container
+//   contribution (freight is per-journey, not per-SKU). D+T scales
+//   with the leaf's own factoryCost (each leaf carries its own
+//   customs invoice value).
+//
+//   landed_before/unit = container + duty + tariff
+//   landed_with_markup/unit = container_billable + duty_billable + tariff_billable
 //
 //   contribution_cost/unit = factoryCost + sum(landed_before across lines)
 //                            + separateServiceFees
@@ -127,10 +140,12 @@ export type CostingSku = {
   skuLabel: string;
   productName: string;
   sortOrder: number;
-  // Slice 8 schema correction: cbm_per_unit moved to freight_inputs.sku_total_cbm.
-  // duty_pct + tariff_pct stay per-SKU (don't change with shipment/tier).
-  dutyPct: number | null;
-  tariffPct: number | null;
+  // Slice R6.2 commit 2 — duty_pct / tariff_pct dropped from
+  // CostingSku. Customs is now per-leg (freight_legs.customs JSONB),
+  // not per-SKU. The DB columns quote_skus.duty_pct / tariff_pct still
+  // exist post-additive-commit but no UI writes them and the math
+  // layer ignores them. Drop migration retires the columns in a
+  // follow-up cleanup commit.
   // Slice 9.5 — surfaced for validation engine's
   // retail_benchmark_no_cost rule (info-level: SKU has retail target
   // but no cost data yet; ambient nudge).
@@ -175,19 +190,66 @@ export type CostingProductionInput = {
   actualUnitsProduced: number | null;
 };
 
-export type CostingFreightInput = {
-  quoteSkuId: string;
+// ---------- R6.2 freight inputs (multi-leg journey model) ----------
+//
+// Slice R6.2 commit 2 replaces the per-(SKU, line, tier)
+// `CostingFreightInput` shape with a leg-group → leg → leg-tier
+// structure. See top-of-file comment for the math contract.
+//
+// `CostingFreightLegGroup` is the journey container ("Outbound ·
+// Shenzhen → Busan → Long Beach"). v1 quotes typically have one
+// group; multi-route is P2.
+export type CostingFreightLegGroup = {
+  id: string;
+  label: string;
+  displayOrder: number;
+};
+
+// Customs is JSONB per CD commitment — extensible to broker fees /
+// classification annotations later without schema churn. Shape v1:
+// { duty_pct?, tariff_pct? } as decimal fractions (0.058 = 5.8%).
+export type CostingLegCustoms = {
+  dutyPct?: number;
+  tariffPct?: number;
+};
+
+export type CostingFreightLeg = {
+  id: string;
+  legGroupId: string;
+  direction: "inbound" | "outbound";
+  label: string | null;
+  origin: string | null;
+  destination: string | null;
+  crossesInternationalBorder: boolean;
+  treatment: "bundled" | "pass_through";
+  mode:
+    | "parcel"
+    | "ocean_fcl"
+    | "ocean_lcl"
+    | "air_freight"
+    | "air_express"
+    | "ltl_truck"
+    | "truckload"
+    | "drayage"
+    | "exw_pickup"
+    | "other"
+    | null;
+  carrier: string | null;
+  incoterm: "DDP" | "DAP" | "FOB" | "EXW" | "FCA" | "CIF" | null;
+  cargoReadyDate: string | null;
+  vesselEtd: string | null;
+  freightMarkupPct: number;
+  dutyMarkupPct: number;
+  tariffMarkupPct: number;
+  customs: CostingLegCustoms;
+  displayOrder: number;
+};
+
+export type CostingFreightLegTier = {
+  freightLegId: string;
   tierId: string;
-  lineGroupId: string;
   totalFreight: number | null;
   unitsInShipment: number | null;
-  // Slice 8 — total CBM this SKU occupies in this shipment at this tier.
-  // Per-(SKU, line, tier). PMs derive from pallet inspection. NULL = no
-  // CBM data → no container freight contribution (treated as 0; rest of
-  // landed-freight components, duty + tariff, still apply).
-  skuTotalCbm: number | null;
-  markupPct: number | null;
-  freightTreatment: "bundled" | "pass_through";
 };
 
 // Slice 9.3 — per-cell sell-price override. Sparse: rows exist ONLY
@@ -243,7 +305,15 @@ export type QuoteCostingInput = {
   tiers: CostingTier[];
   packaging: CostingPackagingInput[];
   production: CostingProductionInput[];
-  freight: CostingFreightInput[];
+  // Slice R6.2 — multi-leg journey freight model. Three sparse arrays
+  // describing the quote's journey(s); see CostingFreightLeg /
+  // CostingFreightLegTier types. Empty = no freight entered yet.
+  // Math is per-(leaf, tier) but accumulates over all legs in all
+  // groups; every leaf at a given tier gets the same per-unit
+  // container contribution (freight is per-quote, not per-SKU).
+  freightLegGroups: CostingFreightLegGroup[];
+  freightLegs: CostingFreightLeg[];
+  freightLegTiers: CostingFreightLegTier[];
   // Slice 9.3 — sparse per-cell sell-price overrides. Empty array =
   // no overrides anywhere. Order doesn't matter; computeQuoteCosting
   // builds a `${skuId}::${tierId}` lookup map internally.
@@ -253,15 +323,32 @@ export type QuoteCostingInput = {
   cellTargets: CostingCellTarget[];
 };
 
-export type FreightLineBreakdown = {
-  lineGroupId: string;
+// Slice R6.2 — per-leg breakdown surfaced to UI for the cost-stack
+// drilldown. One entry per leg in the journey, with this leaf's
+// per-unit contribution from that leg. `dutyPerUnit` / `tariffPerUnit`
+// are zero on legs that aren't customs-eligible
+// (!crosses_international_border OR incoterm !== 'DDP').
+//
+// Pre-R6.2 the breakdown was per-`lineGroupId` (per freight line);
+// the new model surfaces per-leg so PMs see which border-crossing
+// leg contributes which D+T burden. legGroupId is included so UIs
+// can group legs by journey.
+export type FreightLegBreakdown = {
+  legId: string;
+  legGroupId: string;
   containerFreightPerUnit: number;
+  containerFreightWithMarkupPerUnit: number;
   dutyPerUnit: number;
+  dutyWithMarkupPerUnit: number;
   tariffPerUnit: number;
+  tariffWithMarkupPerUnit: number;
   landedFreightBeforeMarkup: number;
   landedFreightWithMarkup: number;
   freightMarkupPct: number;
-  freightTreatment: "bundled" | "pass_through";
+  dutyMarkupPct: number;
+  tariffMarkupPct: number;
+  customsEligible: boolean;
+  treatment: "bundled" | "pass_through";
 };
 
 // Slice 9.3 — `sellSource` is an open enum. New override layers may
@@ -277,7 +364,14 @@ export type SkuPerTierRollup = {
   productionCostPerUnit: number;
   rawCostPerUnit: number; // bulk_raw_cost amortized when not customer-shipped
   factoryCostPerUnit: number;
-  freightLines: FreightLineBreakdown[];
+  // Slice R6.2 — `freightLines` renamed to `freightLegs` (one entry
+  // per leg, not per legacy line_group). UIs that need the per-leg
+  // surface read here; cost-stack rows read the aggregate sums below.
+  freightLegs: FreightLegBreakdown[];
+  // Slice R6.2 — count of customs-eligible legs in the journey for
+  // the per-leaf cost-stack render. Gap 16: D+T row gets a
+  // "· N customs legs" mono sub-caption when N > 1.
+  customsLegCount: number;
   totalLandedFreightBeforeMarkup: number;
   totalLandedFreightWithMarkup: number;
   // Slice RI.8 Option B+ — D+T (duty + tariff) is broken out from the
@@ -873,7 +967,11 @@ function computeLeafPerTier(args: {
   tier: CostingTier;
   packaging: CostingPackagingInput[];
   production: CostingProductionInput | null;
-  freight: CostingFreightInput[];
+  // Slice R6.2 — multi-leg freight. The leg-group/leg/leg-tier
+  // arrays are passed in pre-filtered to this quote; the math layer
+  // iterates legs and resolves per-tier rate rows by tierId.
+  freightLegs: CostingFreightLeg[];
+  freightLegTiers: CostingFreightLegTier[];
   globalAdj: number;
   markupDefaults: Record<string, number>;
   // Slice 9.3 — per-cell sell-price override. null = no override
@@ -896,7 +994,8 @@ function computeLeafPerTier(args: {
     tier,
     packaging,
     production,
-    freight,
+    freightLegs,
+    freightLegTiers,
     globalAdj,
     markupDefaults,
     cellOverride,
@@ -969,110 +1068,92 @@ function computeLeafPerTier(args: {
   // ---------- factory cost ----------
   const factoryCostPerUnit = packagingCostSum + productionCostSum + rawCost;
 
-  // ---------- freight ----------
-  // For each freight line on this leaf in this tier:
-  //   effective_units    = freight_inputs.units_in_shipment ?? tier.qty
-  //   total_shipment_cbm = sum across SKUs in same line_group_id × tier
-  //                        of sku_total_cbm. In v1 each freight line is
-  //                        per-SKU (single quote_sku_id) so this
-  //                        simplifies to just this row's sku_total_cbm.
-  //   this_sku_freight_$  = (sku_total_cbm / total_shipment_cbm)
-  //                         × line.total_freight
-  //   container/unit      = this_sku_freight_$ / effective_units
-  //   duty/unit           = factoryCostPerUnit × sku.duty_pct
-  //   tariff/unit         = factoryCostPerUnit × sku.tariff_pct
-  //   landed_before       = container + duty + tariff
-  //   landed_with_markup  = landed_before × (1 + freight.markup_pct)
+  // ---------- freight (Slice R6.2 multi-leg model) ----------
+  // For each leg in this quote's journey(s), look up the leg's per-tier
+  // rate row (`freight_leg_tiers` indexed by (legId, tierId)) and accrue
+  // container + customs contribution to this leaf per unit:
   //
-  // NULL handling:
-  //   sku_total_cbm null → container freight = 0 (cost rollup proceeds
-  //     with duty + tariff only; UI surfaces "incomplete landed cost")
-  //   total_shipment_cbm = 0 (all rows null or genuinely zero) →
-  //     container = 0; division-by-zero is guarded.
-  //   total_freight null/0 → entire freight line contributes 0.
-  const freightLines: FreightLineBreakdown[] = [];
+  //   container/unit            = leg.totalFreight / effective_units
+  //   container_billable/unit   = container/unit × (1 + leg.freight_markup_pct)
+  //   effective_units           = leg.unitsInShipment ?? tier.qty
+  //
+  // Customs eligibility per leg: crosses_international_border AND
+  // incoterm = 'DDP'. Eligible legs add D+T against THIS leaf's
+  // factoryCost (each leaf carries its own customs-invoice value):
+  //
+  //   duty/unit                 = factoryCost × leg.customs.duty_pct
+  //   duty_billable/unit        = duty/unit × (1 + leg.duty_markup_pct)
+  //   tariff/unit               = factoryCost × leg.customs.tariff_pct
+  //   tariff_billable/unit      = tariff/unit × (1 + leg.tariff_markup_pct)
+  //
+  // Markup is on the AMOUNT, not the rate — Cally's tariff-anomaly
+  // case requires that PMs can zero `tariff_markup_pct` independently
+  // without losing margin on duty or freight.
+  //
+  // NULL handling: totalFreight null/0 → container = 0 (leg has no
+  // rate data for this tier yet). customs JSONB missing keys → 0.
+  // effective_units 0 (tier.qty unset and no override) → container = 0.
+  const freightLegBreakdowns: FreightLegBreakdown[] = [];
   let totalLandedBefore = 0;
   let totalLandedWithMarkup = 0;
-  // Slice RI.8 Option B+ — track container + D+T separately so the
-  // cost-stack can render them as their own rows. Sum still rolls
-  // up into totalLandedBefore for backwards-compat with existing
-  // consumers; the two parallel accumulators expose the split.
   let totalContainerBefore = 0;
   let totalDutyTariffBefore = 0;
-  // Slice RI.8 Option 2 — per-component marked-up sums (cost ×
-  // (1 + freight markup) per line). The cost-stack rows + section
-  // mini-stack + drilldown TOTAL all read these primitives.
   let totalContainerWithMarkup = 0;
   let totalDutyTariffWithMarkup = 0;
-  for (const f of freight) {
-    const total = num(f.totalFreight);
-    if (total <= 0) {
-      // Empty freight line — record breakdown but no contribution.
-      freightLines.push({
-        lineGroupId: f.lineGroupId,
-        containerFreightPerUnit: 0,
-        dutyPerUnit: 0,
-        tariffPerUnit: 0,
-        landedFreightBeforeMarkup: 0,
-        landedFreightWithMarkup: 0,
-        freightMarkupPct: num(f.markupPct, FALLBACK_MARKUP),
-        freightTreatment: f.freightTreatment,
-      });
-      continue;
+  let customsLegCount = 0;
+  for (const leg of freightLegs) {
+    const legTier = freightLegTiers.find(
+      (lt) => lt.freightLegId === leg.id && lt.tierId === tier.id,
+    );
+    const total = num(legTier?.totalFreight ?? null);
+    const effectiveUnits = num(legTier?.unitsInShipment ?? null, tierQty);
+    const container = total > 0 && effectiveUnits > 0 ? total / effectiveUnits : 0;
+    const containerWithMarkup = container * (1 + leg.freightMarkupPct);
+
+    const customsEligible =
+      leg.crossesInternationalBorder && leg.incoterm === "DDP";
+    let duty = 0;
+    let tariff = 0;
+    let dutyWithMarkup = 0;
+    let tariffWithMarkup = 0;
+    if (customsEligible) {
+      customsLegCount += 1;
+      const dutyPct = num(leg.customs.dutyPct ?? null);
+      const tariffPct = num(leg.customs.tariffPct ?? null);
+      duty = factoryCostPerUnit * dutyPct;
+      tariff = factoryCostPerUnit * tariffPct;
+      dutyWithMarkup = duty * (1 + leg.dutyMarkupPct);
+      tariffWithMarkup = tariff * (1 + leg.tariffMarkupPct);
     }
-    const effectiveUnits = num(f.unitsInShipment, tierQty);
-    const skuTotalCbm = num(f.skuTotalCbm);
-    // v1 simplification: each line is per-SKU, so total_shipment_cbm
-    // for this (line, tier) is just this row's sku_total_cbm. When v1.5
-    // adds shared shipments, the caller will pre-compute the sum across
-    // sibling rows and pass it via a future field on CostingFreightInput.
-    const totalShipmentCbm = skuTotalCbm;
-    // Slice RI.8 Option B+ — domestic-freight fallback.
-    // When CBM is unset (typical for parcel/LTL/FTL domestic moves
-    // where volume doesn't drive cost allocation), the line's full
-    // total_freight allocates to this SKU. v1's "each line is
-    // per-SKU" assumption makes this safe: this SKU absorbs the
-    // full freight line either way. Without this fallback, PMs
-    // entering domestic freight see 0 contribution unless they
-    // also fabricate a CBM value, which is meaningless for parcel.
-    // Ocean / air paths still drive container = (cbm share) × total
-    // when skuTotalCbm > 0.
-    const thisSkuShare =
-      totalShipmentCbm > 0
-        ? (skuTotalCbm / totalShipmentCbm) * total
-        : total;
-    const container = effectiveUnits > 0 ? thisSkuShare / effectiveUnits : 0;
-    const duty = factoryCostPerUnit * num(sku.dutyPct);
-    const tariff = factoryCostPerUnit * num(sku.tariffPct);
+
     const landedBefore = container + duty + tariff;
-    const freightMarkup = num(f.markupPct, FALLBACK_MARKUP);
-    // Slice RI.8 freight-markup feature — CA + Edward decision:
-    // markup applies to the CONTAINER (DPS-controlled shipping fee)
-    // only, NOT to duty/tariff which pass through at customs-stated
-    // rates. Customer pays customs-rate D+T as is; we mark up our
-    // shipping/freight service.
-    const containerWithMarkup = container * (1 + freightMarkup);
-    const landedWithMarkup = containerWithMarkup + duty + tariff;
-    freightLines.push({
-      lineGroupId: f.lineGroupId,
+    const landedWithMarkup =
+      containerWithMarkup + dutyWithMarkup + tariffWithMarkup;
+
+    freightLegBreakdowns.push({
+      legId: leg.id,
+      legGroupId: leg.legGroupId,
       containerFreightPerUnit: container,
+      containerFreightWithMarkupPerUnit: containerWithMarkup,
       dutyPerUnit: duty,
+      dutyWithMarkupPerUnit: dutyWithMarkup,
       tariffPerUnit: tariff,
+      tariffWithMarkupPerUnit: tariffWithMarkup,
       landedFreightBeforeMarkup: landedBefore,
       landedFreightWithMarkup: landedWithMarkup,
-      freightMarkupPct: freightMarkup,
-      freightTreatment: f.freightTreatment,
+      freightMarkupPct: leg.freightMarkupPct,
+      dutyMarkupPct: leg.dutyMarkupPct,
+      tariffMarkupPct: leg.tariffMarkupPct,
+      customsEligible,
+      treatment: leg.treatment,
     });
+
     totalLandedBefore += landedBefore;
     totalLandedWithMarkup += landedWithMarkup;
     totalContainerBefore += container;
     totalDutyTariffBefore += duty + tariff;
-    // Marked-up split (Option 2 + freight-markup feature). Markup
-    // applies to container only (see CA decision above); D+T's
-    // "marked-up" sum equals its cost — pass-through, no margin
-    // added on customs.
     totalContainerWithMarkup += containerWithMarkup;
-    totalDutyTariffWithMarkup += duty + tariff;
+    totalDutyTariffWithMarkup += dutyWithMarkup + tariffWithMarkup;
   }
 
   // ---------- contribution + required sell ----------
@@ -1120,7 +1201,8 @@ function computeLeafPerTier(args: {
     productionCostPerUnit: productionCostSum,
     rawCostPerUnit: rawCost,
     factoryCostPerUnit,
-    freightLines,
+    freightLegs: freightLegBreakdowns,
+    customsLegCount,
     totalLandedFreightBeforeMarkup: totalLandedBefore,
     totalLandedFreightWithMarkup: totalLandedWithMarkup,
     totalContainerFreightBeforeMarkup: totalContainerBefore,
@@ -1159,7 +1241,8 @@ function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
     productionCostPerUnit: 0,
     rawCostPerUnit: 0,
     factoryCostPerUnit: 0,
-    freightLines: [],
+    freightLegs: [],
+    customsLegCount: 0,
     totalLandedFreightBeforeMarkup: 0,
     totalLandedFreightWithMarkup: 0,
     totalContainerFreightBeforeMarkup: 0,
@@ -1259,7 +1342,11 @@ function rollUpAssemblyPerTier(
     productionCostPerUnit: production,
     rawCostPerUnit: raw,
     factoryCostPerUnit: packaging + production + raw,
-    freightLines: [],
+    freightLegs: [],
+    // Assembly rollups don't carry their own customs-leg count.
+    // The leaf rollup is where customsLegCount is meaningful;
+    // assembly-level UI reads from leaf rows.
+    customsLegCount: 0,
     totalLandedFreightBeforeMarkup: landedFreight,
     // Markup-applied freight isn't roll-up-meaningful at the assembly
     // level (markup math runs per-line on leaves); skip.
@@ -1341,13 +1428,19 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
   for (const p of input.production) {
     productionBySkuTier.set(`${p.quoteSkuId}::${p.tierId}`, p);
   }
-  const freightBySkuTier = new Map<string, CostingFreightInput[]>();
-  for (const f of input.freight) {
-    const k = `${f.quoteSkuId}::${f.tierId}`;
-    const arr = freightBySkuTier.get(k) ?? [];
-    arr.push(f);
-    freightBySkuTier.set(k, arr);
-  }
+  // Slice R6.2 — freight is per-quote, not per-SKU. Every leaf at a
+  // given tier sees the same legs; computeLeafPerTier filters
+  // freightLegTiers by tierId internally. legs are sorted by their
+  // group + display_order so the per-leg breakdown surfaces in
+  // journey-narrative order.
+  const sortedLegs = [...input.freightLegs].sort((a, b) => {
+    if (a.legGroupId !== b.legGroupId) {
+      const ga = input.freightLegGroups.find((g) => g.id === a.legGroupId);
+      const gb = input.freightLegGroups.find((g) => g.id === b.legGroupId);
+      return (ga?.displayOrder ?? 0) - (gb?.displayOrder ?? 0);
+    }
+    return a.displayOrder - b.displayOrder;
+  });
   // Slice 9.3 — per-cell sell-price overrides indexed by `${skuId}::${tierId}`.
   // Sparse: cells without overrides have no entry; lookup returns
   // undefined → null cellOverride → use computed sell.
@@ -1375,7 +1468,6 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
           (p) => p.tierId === tier.id,
         );
         const prod = productionBySkuTier.get(`${sku.id}::${tier.id}`) ?? null;
-        const frt = freightBySkuTier.get(`${sku.id}::${tier.id}`) ?? [];
         // Slice 9.2 — per-tier price-adjustment override REPLACES
         // global (does not stack). NULL = inherit global.
         const effectiveAdj =
@@ -1402,7 +1494,8 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
           tier,
           packaging: pkgs,
           production: prod,
-          freight: frt,
+          freightLegs: sortedLegs,
+          freightLegTiers: input.freightLegTiers,
           globalAdj: effectiveAdj,
           markupDefaults,
           cellOverride,

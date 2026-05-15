@@ -36,9 +36,6 @@
 //   shapes; engine and UI both use the identity tuple unambiguously.
 
 import type {
-  CostingFreightInput,
-  CostingPackagingInput,
-  CostingProductionInput,
   QuoteCostingInput,
   QuoteCostingResult,
   SkuRollup,
@@ -61,11 +58,15 @@ export type WarningKind =
   // Completeness — line-level
   | "tier_coverage_mismatch"
   | "production_without_packaging"
-  | "pass_through_freight_missing_customs"
+  // Slice R6.2 — `pass_through_freight_missing_customs` retired
+  // (customs now per-leg JSONB; rule will be re-introduced against
+  // the new shape in a follow-up slice per Gap 21 — validation
+  // engine integration out of R6.2 P1 scope).
   | "retail_benchmark_no_cost"
   // Anomalies — per-field
   | "service_fee_tier_variance"
-  | "cbm_cross_tier_variance"
+  // Slice R6.2 — `cbm_cross_tier_variance` retired with CBM/unit
+  // (returns at P3 with the freight calculator).
   | "markup_above_5x_default"
   | "negative_cost"
   | "zero_cost_populated_row"
@@ -134,8 +135,10 @@ function skuColKey(skuId: string, column: string): string {
   return `sku:${skuId}:col:${column}`;
 }
 
-function freightLineSkuKey(lineGroupId: string, skuId: string): string {
-  return `freight:${lineGroupId}:sku:${skuId}`;
+// Slice R6.2 — freight identity is now per-leg (legId text PK).
+// Replaces the legacy line-group + SKU composite key.
+function freightLegKey(legId: string): string {
+  return `freight_leg:${legId}`;
 }
 
 // Find a tier label by id; falls back to id if missing (defensive —
@@ -190,7 +193,7 @@ function checkQuoteLevelCompleteness(
         p.bulkRawCost,
       ].some((v) => v !== null),
     ) ||
-    input.freight.length > 0;
+    input.freightLegs.length > 0;
   if (!hasAnyCost && leafSkus(input).length > 0) {
     warnings.push({
       scope: "quote",
@@ -341,42 +344,13 @@ function checkLineLevelCompleteness(
     }
   }
 
-  // Rule: pass-through freight missing customs (action_required).
-  // Per CR-7 architect verdict + brief §4.1 + Slice 6.5 customs
-  // schema (duty_pct + tariff_pct on quote_skus; sku_total_cbm on
-  // freight_inputs). Each pass-through freight row needs all three
-  // populated — otherwise landed-cost math produces zero or wrong
-  // values in the customer PDF.
-  for (const f of input.freight.filter(
-    (f) => f.freightTreatment === "pass_through",
-  )) {
-    const sku = input.skus.find((s) => s.id === f.quoteSkuId);
-    if (!sku) continue;
-    const missing: string[] = [];
-    if (sku.dutyPct === null) missing.push("duty_pct");
-    if (sku.tariffPct === null) missing.push("tariff_pct");
-    if (f.skuTotalCbm === null) missing.push("sku_total_cbm");
-    if (missing.length === 0) continue;
-    warnings.push({
-      scope: "line",
-      table_name: "freight_inputs",
-      // Composite key: line_group + sku, NOT a specific row id —
-      // missing customs is a (line, SKU) issue, not a tier-specific
-      // row issue. UI uses lineGroupId + skuId to scroll to the
-      // relevant freight line.
-      row_id: freightLineSkuKey(f.lineGroupId, f.quoteSkuId),
-      field_name: null,
-      tier_id: f.tierId,
-      kind: "pass_through_freight_missing_customs",
-      severity: "action_required",
-      message: `Pass-through freight needs CBM, duty %, and tariff % to compute landed cost · ${sku.skuLabel} is missing values.`,
-      detail_json: {
-        line_group_id: f.lineGroupId,
-        sku_id: f.quoteSkuId,
-        missing_fields: missing,
-      },
-    });
-  }
+  // Slice R6.2 — `pass_through_freight_missing_customs` rule retired.
+  // Pre-R6.2 it checked per-(line, SKU) for duty_pct/tariff_pct/cbm;
+  // R6.2 puts customs per-leg in JSONB and drops CBM from P1.
+  // Per Gap 21 disposition: validation engine integration for the new
+  // freight shape is out of R6.2 P1 scope; inline UI error chips
+  // (per Gap 5) carry the surface signal in commit 2. A v1.1 sub-slice
+  // re-introduces the engine-side rule against the new shape.
 
   return warnings;
 }
@@ -431,61 +405,8 @@ function checkAnomalies(input: QuoteCostingInput): WarningSpec[] {
     }
   }
 
-  // Rule: CBM cross-tier variance (per-(SKU, line)). With the
-  // units_in_shipment match suppression caveat (architect added):
-  // only flag when units_in_shipment is identical (or both NULL)
-  // across the rows being compared. Yield-mismatch shipments
-  // legitimately vary CBM by tier.
-  // Group freight rows by (lineGroupId, quoteSkuId).
-  const freightByLineSku = new Map<string, CostingFreightInput[]>();
-  for (const f of input.freight) {
-    const k = `${f.lineGroupId}::${f.quoteSkuId}`;
-    const arr = freightByLineSku.get(k) ?? [];
-    arr.push(f);
-    freightByLineSku.set(k, arr);
-  }
-  for (const [, rows] of freightByLineSku) {
-    if (rows.length < 2) continue;
-    const cbms = rows
-      .map((r) => ({
-        tierId: r.tierId,
-        cbm: r.skuTotalCbm,
-        unitsInShipment: r.unitsInShipment,
-      }))
-      .filter((r) => r.cbm !== null);
-    if (cbms.length < 2) continue;
-    // units_in_shipment match suppression: only flag if
-    // units_in_shipment is identical across the rows being compared.
-    // If even one row has a different (or non-null where others are
-    // null) units_in_shipment, yield-mismatch explains the variance.
-    const distinctUnits = new Set(
-      cbms.map((r) => r.unitsInShipment ?? "null"),
-    );
-    if (distinctUnits.size > 1) continue;
-    const distinctCbm = new Set(cbms.map((r) => Number(r.cbm)));
-    if (distinctCbm.size <= 1) continue;
-    const sku = input.skus.find((s) => s.id === rows[0].quoteSkuId);
-    if (!sku) continue;
-    warnings.push({
-      scope: "line",
-      table_name: "freight_inputs",
-      row_id: freightLineSkuKey(rows[0].lineGroupId, rows[0].quoteSkuId),
-      field_name: "sku_total_cbm",
-      tier_id: null,
-      kind: "cbm_cross_tier_variance",
-      severity: "review",
-      message: `CBM differs across tiers for ${sku.skuLabel} on this freight line · CBM is normally constant per (SKU, shipment).`,
-      detail_json: {
-        line_group_id: rows[0].lineGroupId,
-        sku_id: rows[0].quoteSkuId,
-        per_tier_cbms: cbms,
-        suggested_fix: {
-          kind: "apply_value_to_all_tiers",
-          source_tier_id: cbms[0].tierId,
-        },
-      },
-    });
-  }
+  // Slice R6.2 — CBM cross-tier variance rule retired. CBM/unit is
+  // dropped from P1 (returns at P3 with the freight calculator).
 
   // Rule: markup above 5× firm default. Severity: review. The firm
   // default for each category lives in input.markupDefaults; the
@@ -566,15 +487,23 @@ function checkAnomalies(input: QuoteCostingInput): WarningSpec[] {
       }
     }
   }
-  for (const f of input.freight) {
-    if (f.totalFreight !== null && f.totalFreight < 0) {
+  // Slice R6.2 — negative-cost check against per-(leg, tier) rate
+  // rows. Pre-R6.2 keyed on (line_group, SKU); R6.2 keys on legId.
+  // The cost-check shape carries `skuId` for human messaging; for
+  // freight (per-quote, not per-SKU) we use the leg-group's first
+  // leaf SKU as the messaging anchor — the warning surfaces at the
+  // leg-tier row, not on a specific SKU. Empty leafSkus → "freight
+  // line" fallback in messaging.
+  const freightAnchorSku = input.skus.find((s) => s.skuRole === "leaf");
+  for (const lt of input.freightLegTiers) {
+    if (lt.totalFreight !== null && lt.totalFreight < 0) {
       costChecks.push({
-        table: "freight_inputs",
-        rowKey: freightLineSkuKey(f.lineGroupId, f.quoteSkuId),
+        table: "freight_leg_tiers",
+        rowKey: freightLegKey(lt.freightLegId),
         field: "total_freight",
-        tierId: f.tierId,
-        value: f.totalFreight,
-        skuId: f.quoteSkuId,
+        tierId: lt.tierId,
+        value: lt.totalFreight,
+        skuId: freightAnchorSku?.id ?? "freight",
       });
     }
   }

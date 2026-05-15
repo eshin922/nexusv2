@@ -16,7 +16,7 @@ import { PdfFooter } from "@/components/pdf/pdf-footer";
 // Slice 11 wires the action-layer queries that populate
 // `view.serviceFees` + `view.freightLines` from real cost-input rows
 // (production_inputs.is_one_time → tooling/setup service fees;
-// freight_inputs.freight_treatment = pass_through → freight lines).
+// Slice R6.2 freight_legs.treatment = pass_through → freight lines).
 // Today page.tsx sets both arrays to `[]` — empty until Slice 11.
 //
 // Rest-of-app sweep Step 9 hotfix (May 2026) — Edward smoke caught
