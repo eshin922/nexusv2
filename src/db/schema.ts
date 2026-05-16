@@ -63,19 +63,42 @@ export const markupPctSource = pgEnum("markup_pct_source", [
   "manual_override",
 ]);
 
-// Slice 7 — freight ops vocabulary.
-export const freightMode = pgEnum("freight_mode", [
-  "parcel",
-  "ltl",
-  "ftl",
-  "ocean",
-  "air",
-  "courier",
-  "other",
-]);
+// Slice 7 / R6.2 — freight treatment (bundled vs pass-through).
+// Carries forward from Slice 7 unchanged; per-leg in the R6.2 model.
 export const freightTreatment = pgEnum("freight_treatment", [
   "bundled",
   "pass_through",
+]);
+
+// Slice R6.2 — multi-leg journey freight vocabulary. Replaces the
+// Slice 7 `freight_mode` 7-value enum (retired commit 3) with a
+// 10-value mode enum that matches the R6.2 prototype data.js modes
+// list (parcel · ocean_fcl/lcl · air_freight/express · ltl_truck ·
+// truckload · drayage · exw_pickup · other). Per Pattern 25
+// disposition A (R6.2 gap dispositions, May 2026).
+export const freightDirection = pgEnum("freight_direction", [
+  "inbound",
+  "outbound",
+]);
+export const freightIncoterm = pgEnum("freight_incoterm", [
+  "DDP",
+  "DAP",
+  "FOB",
+  "EXW",
+  "FCA",
+  "CIF",
+]);
+export const freightLegMode = pgEnum("freight_leg_mode", [
+  "parcel",
+  "ocean_fcl",
+  "ocean_lcl",
+  "air_freight",
+  "air_express",
+  "ltl_truck",
+  "truckload",
+  "drayage",
+  "exw_pickup",
+  "other",
 ]);
 
 // Slice 5.5 — assembly support. A SKU is one of:
@@ -439,31 +462,13 @@ export const quoteSkus = pgTable(
     ),
     skuRole: skuRole("sku_role").notNull().default("leaf"),
     qtyPerParent: numeric("qty_per_parent", { precision: 10, scale: 4 }),
-    // Customs / landed-cost data (Slice 6.5; CBM moved to freight_inputs
-    // in Slice 8 pre-correction).
-    //
-    // CUSTOMER-INVISIBLE. These values are NEVER shown to customers — no
-    // PDF, no quote view, no email. They are inputs to Slice 8's
-    // landed-freight rollup:
-    //
-    //   duty_per_unit   = sku_factory_cost × sku.duty_pct
-    //   tariff_per_unit = sku_factory_cost × sku.tariff_pct
-    //
-    // sku_factory_cost = packaging_inputs.unit_cost (per-unit) +
-    //                    production_inputs amortized service fees +
-    //                    production_inputs raw costs
-    //                    (respecting allocate_service_fees_to_cost flag)
-    //
-    // Often NULL during early quote drafting; PM populates after
-    // confirming with freight forwarder. See docs/CUSTOMS_AND_FREIGHT.md
-    // for the full convention and the "Internal — not shown to customer"
-    // UI badge requirement.
-    //
-    // CBM is captured on freight_inputs (per-(SKU, line, tier)) instead
-    // of here — see freight_inputs.sku_total_cbm comment. The earlier
-    // per-unit modeling on quote_skus was wrong: PMs work in total CBM
-    // per shipment per SKU, derived from pallet inspection, not per-unit
-    // volume.
+    // Customs / landed-cost data (Slice 6.5 original; Slice R6.2
+    // retired the per-SKU model in favor of per-leg customs JSONB
+    // on `freight_legs.customs`). These columns persist as orphan
+    // data post-R6.2 (pre-prod tolerance per Pattern 32 — no UI
+    // writes them, the math layer ignores them). A future cleanup
+    // can drop them once any forensic value is exhausted; until
+    // then they're harmless null/legacy-value columns.
     dutyPct: numeric("duty_pct", { precision: 5, scale: 4 }),
     tariffPct: numeric("tariff_pct", { precision: 5, scale: 4 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -796,73 +801,146 @@ export const productionInputs = pgTable(
   ],
 );
 
-// ---------- inputs (Slice 7: freight) ----------
+// ---------- R6.2 freight legs (multi-leg journey model) ----------
+//
+// Slice R6.2 replaces the Slice 7 flat `freight_inputs` table with a
+// multi-leg journey structure: leg_groups → legs → per-(leg, tier)
+// cost rows + customer-arranges-meta. Per Pattern 25 disposition A
+// (R6.2 gap dispositions, May 2026). Commit 1 shipped the additive
+// schema, commit 2 swept every consumer, commit 3 closed out the
+// migration by dropping the legacy `freight_inputs` table + the
+// `freight_mode` 7-value enum.
 
-// PM-added freight lines, one per logical shipment. Each line spans every
-// active tier (one row per (line_group_id, tier) pair). Per-line metadata
-// — supplier, shipment_id, mode, markup, treatment, notes — is denormalized
-// across this line's tier rows; updateFreightLineMetadata fans out across
-// all rows of one line_group_id in a single UPDATE. Same shape as
-// packaging_inputs.
-//
-// Freight lines are PM-added (not auto-seeded on SKU creation), unlike
-// production_inputs. The cascade pattern in addTier walks existing
-// line_group_ids and seeds new tier rows; if a SKU has no freight lines
-// yet, no rows are created.
-//
-// markup_pct is NULLABLE here even though addFreightLine writes 0.30 at
-// insert time. Matches packaging convention — captures "unset" as a
-// meaningful state, doesn't silently apply 30% to a row no PM has touched.
-//
-// units_in_shipment is nullable. NULL = "use tier.qty for amortization in
-// cost rollup" (the typical case). Populated only when shipment units
-// differ from tier qty (yield-mismatch: ship 10k raws to produce 5k
-// finished). Slice 8 cost rollup MUST honor: NULL → tier.qty.
-//
-// sku_total_cbm (Slice 8 pre-correction): total CBM this SKU occupies in
-// THIS shipment, at THIS tier. PMs derive this from pallet inspection —
-// clean pallets × pallet CBM, mixed pallets allocated by judgment. We
-// don't model pallet structure or per-unit CBM in the schema; the column
-// just stores the resulting total. Per-(line, SKU, tier) because
-// different tiers ship different volumes (50k bottles take more pallets
-// than 10k).
-//
-// Slice 8 freight rollup uses it to compute container freight share:
-//   total_shipment_cbm   = sum across SKUs in same line_group_id × tier
-//                          of sku_total_cbm
-//   this_sku_freight_$   = (sku_total_cbm / total_shipment_cbm)
-//                          × line.total_freight
-//   container_freight/u  = this_sku_freight_$ / effective_units
-// In v1 each line is per-SKU, so total_shipment_cbm = this row's
-// sku_total_cbm and the formula collapses to total_freight / effective_units.
-export const freightInputs = pgTable(
-  "freight_inputs",
+// Journey container. One row per logical journey (e.g.,
+// "Outbound · Shenzhen → Busan → Long Beach"). Legs in the
+// group form a sequence; cross-leg date drift produces inline
+// warnings (per Gap 5 disposition: warn, not reject).
+// `display_order` orders groups within a quote.
+export const freightLegGroups = pgTable(
+  "freight_leg_groups",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    quoteSkuId: uuid("quote_sku_id")
+    quoteId: uuid("quote_id")
       .notNull()
-      .references(() => quoteSkus.id, { onDelete: "cascade" }),
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    displayOrder: integer("display_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("freight_leg_groups_quote_id_idx").on(t.quoteId)],
+);
+
+// One row per physical leg within a journey. The math contract
+// carries the markup-on-amount semantics:
+//   freight_billable = freight_cost × (1 + freight_markup_pct)
+//   duty_billable    = duty_pct × goods_cost_base × (1 + duty_markup_pct)
+//   tariff_billable  = parallel
+//
+// `customs` is JSONB per CD commitment — leaves room for
+// additional rates (broker fees, classification annotations)
+// without schema churn. Shape: { duty_pct?, tariff_pct? }.
+//
+// `crosses_international_border` is PM-set in v1; v1.x will
+// derive from country-coded origin/destination once those
+// fields get structure (Pushback 2 of designer notes).
+//
+// Customs cluster visibility rule:
+//   crosses_international_border AND incoterm = 'DDP'
+//
+// Per-component markup pcts default 0.3000. Range per Gap 5:
+// 0.0000 - 9.9999 (covers Cally's tariff-anomaly zero-markup
+// case and forwarder edge weirdness).
+//
+// `forwarder_quote_pdf_id` deferred to P2 with the attachments
+// table (Gap 24) — column not added yet to avoid stale FK.
+export const freightLegs = pgTable(
+  "freight_legs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    legGroupId: uuid("leg_group_id")
+      .notNull()
+      .references(() => freightLegGroups.id, { onDelete: "cascade" }),
+
+    // Head
+    direction: freightDirection("direction").notNull().default("outbound"),
+    label: text("label"),
+    origin: text("origin"),
+    destination: text("destination"),
+    crossesInternationalBorder: boolean("crosses_international_border")
+      .notNull()
+      .default(false),
+    treatment: freightTreatment("treatment").notNull().default("bundled"),
+
+    // Body grid
+    mode: freightLegMode("mode"),
+    carrier: text("carrier"),
+    incoterm: freightIncoterm("incoterm"),
+    cargoReadyDate: date("cargo_ready_date"),
+    vesselEtd: date("vessel_etd"),
+    // Slice R6.2 commit 4 — additive forwarder-visibility metadata
+    // per PM ask post-smoke. Both nullable, never required by
+    // incoterm class (ETA is a forwarder estimate; actual delivery
+    // only known post-shipment). Designer notes Pushback 3 banked
+    // vessel_eta for v2 as part of forwarder ETA-confidence framing;
+    // pulled forward to v1 per PM demand. No math impact — both are
+    // PM-reference fields; cross-leg sequential validation (Gap 5,
+    // deferred to v1.1 per Gap 21) will prefer ETA over ETD when
+    // present once the validation engine is re-introduced.
+    vesselEta: date("vessel_eta"),
+    actualDeliveryDate: date("actual_delivery_date"),
+
+    // Per-component markup pills
+    freightMarkupPct: numeric("freight_markup_pct", { precision: 5, scale: 4 })
+      .notNull()
+      .default("0.3000"),
+    dutyMarkupPct: numeric("duty_markup_pct", { precision: 5, scale: 4 })
+      .notNull()
+      .default("0.3000"),
+    tariffMarkupPct: numeric("tariff_markup_pct", { precision: 5, scale: 4 })
+      .notNull()
+      .default("0.3000"),
+
+    // Customs JSONB (per CD commitment)
+    customs: jsonb("customs").notNull().default(sql`'{}'::jsonb`),
+
+    displayOrder: integer("display_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("freight_legs_leg_group_id_idx").on(t.legGroupId)],
+);
+
+// Per-(leg, tier) cost data. PM enters `total_freight` from
+// forwarder quotes; `units_in_shipment` overrides tier.qty
+// when a leg ships a different volume than the tier qty
+// (rare — partial container, yield mismatch). The math layer
+// applies `effective_units = units_in_shipment ?? tier.qty`
+// per leg.
+//
+// Sparse: rows exist only after PM has started entering data
+// for the (leg, tier). UNIQUE(leg, tier) — one row per
+// intersection.
+export const freightLegTiers = pgTable(
+  "freight_leg_tiers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    freightLegId: uuid("freight_leg_id")
+      .notNull()
+      .references(() => freightLegs.id, { onDelete: "cascade" }),
     tierId: uuid("tier_id")
       .notNull()
       .references(() => quoteTiers.id, { onDelete: "cascade" }),
-    lineGroupId: uuid("line_group_id").notNull(),
-
-    // Per-line metadata (denormalized across tier rows of the same line).
-    shipmentId: text("shipment_id"),
-    supplier: text("supplier"),
-    freightMode: freightMode("freight_mode"),
-    freightTreatment: freightTreatment("freight_treatment")
-      .notNull()
-      .default("bundled"),
-    markupPct: numeric("markup_pct", { precision: 5, scale: 4 }),
-    notes: text("notes"),
-    sortOrder: integer("sort_order").notNull().default(0),
-
-    // Per-tier.
     totalFreight: numeric("total_freight", { precision: 12, scale: 2 }),
     unitsInShipment: integer("units_in_shipment"),
-    skuTotalCbm: numeric("sku_total_cbm", { precision: 10, scale: 4 }),
-
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -871,15 +949,40 @@ export const freightInputs = pgTable(
       .defaultNow(),
   },
   (t) => [
-    uniqueIndex("freight_inputs_line_tier_idx").on(
-      t.quoteSkuId,
-      t.lineGroupId,
+    uniqueIndex("freight_leg_tiers_leg_tier_idx").on(
+      t.freightLegId,
       t.tierId,
     ),
-    index("freight_inputs_quote_sku_id_idx").on(t.quoteSkuId),
-    index("freight_inputs_tier_id_idx").on(t.tierId),
-    index("freight_inputs_line_group_id_idx").on(t.lineGroupId),
+    index("freight_leg_tiers_freight_leg_id_idx").on(t.freightLegId),
+    index("freight_leg_tiers_tier_id_idx").on(t.tierId),
   ],
+);
+
+// Customer-arranges-mode metadata per leg. Separate table per
+// Gap 18 disposition (rather than JSONB on freight_legs) —
+// fields have independent audit lifecycles and audit_note is
+// a multi-line TEXT field.
+//
+// `freight_leg_id` is PK + FK; one meta row per leg. Created
+// only when the leg's panel mode = 'customer_arranges'.
+// `cargo_ready_date` for customer-arranges legs lives on
+// freight_legs.cargo_ready_date — unified across modes per
+// the rev-1 promotion (designer notes Pushback 3).
+export const freightCustomerArrangesMeta = pgTable(
+  "freight_customer_arranges_meta",
+  {
+    freightLegId: uuid("freight_leg_id")
+      .primaryKey()
+      .references(() => freightLegs.id, { onDelete: "cascade" }),
+    customerContact: text("customer_contact"),
+    auditNote: text("audit_note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
 );
 
 // ---------- validation engine (Slice 9.5) ----------

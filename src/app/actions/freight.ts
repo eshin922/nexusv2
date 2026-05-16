@@ -1,14 +1,15 @@
 "use server";
 
-import { and, asc, count, eq, isNotNull, max, or } from "drizzle-orm";
+import { and, asc, count, eq, gt, max, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
   auditLog,
-  freightInputs,
-  markupDefaults,
+  freightCustomerArrangesMeta,
+  freightLegGroups,
+  freightLegs,
+  freightLegTiers,
   quotes,
-  quoteSkus,
   quoteTiers,
 } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -19,77 +20,137 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import {
-  quoteForLeafSku,
-  quoteForLineGroup,
-  quoteForSku,
-  requireDraft,
+  quoteByIdDraft,
+  quoteForLeg,
+  quoteForLegGroup,
 } from "@/lib/quote-guards";
 import { reconcileWarnings } from "./warnings";
 
-// Snapshots returned to the client after a save so controlled state
-// re-hydrates from canonical server data — never from the form's
-// defaultValue (per CLAUDE.md "Form state pattern").
+// ---------------------------------------------------------------------------
+// Slice R6.2 commit 2 — freight action layer rewrite against the
+// multi-leg journey schema (freight_leg_groups / freight_legs /
+// freight_leg_tiers / freight_customer_arranges_meta). Replaces the
+// pre-R6.2 line-group action surface entirely.
+//
+// Surface map (each action below has a single semantic responsibility,
+// matching the prototype + designer notes' affordance grain):
+//
+//   ─ Leg-group lifecycle
+//   addLegGroup            · create a new journey container on a quote
+//   updateLegGroupMetadata · journey label / display_order
+//   deleteLegGroup         · cascade-delete (legs + leg-tiers + meta)
+//
+//   ─ Leg lifecycle
+//   addLeg                 · create a leg + seed per-tier rate rows
+//   updateLegMetadata      · head fields (direction, mode, carrier,
+//                            incoterm, dates, treatment, label,
+//                            origin/destination, crosses_border)
+//   updateLegMarkup        · per-component pill override; audit-keyed
+//                            `freight_leg_markup_updated` with
+//                            diff_json.component discriminator (Gap 3)
+//   updateLegCustoms       · duty_pct / tariff_pct JSONB write;
+//                            `freight_leg_customs_updated` with from/to
+//                            per changed key only (Gap 14)
+//   moveLeg                · swap display_order with prev/next sibling
+//                            within the same group (Gap 9 entry-order
+//                            policy; drag-grip ships v1.1)
+//   deleteLeg              · cascade-delete (leg-tiers + meta)
+//
+//   ─ Per-tier rate
+//   updateLegTierCell      · total_freight + units_in_shipment override
+//
+//   ─ Customer-arranges meta (Gap 18 — own table for independent
+//                              audit lifecycles per field)
+//   updateCustomerArrangesMeta · customer_contact / audit_note upsert
+//
+// Validation rules per Gap 5 (warn-not-reject for date pairs +
+// cross-leg sequential; hard-reject for out-of-range percents;
+// nullable until Mark-Accepted for total_freight). Markup pcts
+// range 0.0000 - 9.9999 (numeric(5,4) precision).
+// ---------------------------------------------------------------------------
 
-export type FreightLineSnapshot = {
-  lineGroupId: string;
-  shipmentId: string | null;
-  supplier: string | null;
-  freightMode:
-    | "parcel"
-    | "ltl"
-    | "ftl"
-    | "ocean"
-    | "air"
-    | "courier"
-    | "other"
-    | null;
-  freightTreatment: "bundled" | "pass_through";
-  markupPct: string | null;
-  notes: string | null;
-  sortOrder: number;
+// ---- Snapshot types returned to client for controlled re-hydration ----
+
+export type FreightLegGroupSnapshot = {
+  id: string;
+  quoteId: string;
+  label: string;
+  displayOrder: number;
 };
 
-export type FreightCellSnapshot = {
-  rowId: string;
+export type FreightLegSnapshot = {
+  id: string;
+  legGroupId: string;
+  direction: "inbound" | "outbound";
+  label: string | null;
+  origin: string | null;
+  destination: string | null;
+  crossesInternationalBorder: boolean;
+  treatment: "bundled" | "pass_through";
+  mode: FreightLegModeValue | null;
+  carrier: string | null;
+  incoterm: IncotermValue | null;
+  cargoReadyDate: string | null;
+  vesselEtd: string | null;
+  vesselEta: string | null;
+  actualDeliveryDate: string | null;
+  freightMarkupPct: string;
+  dutyMarkupPct: string;
+  tariffMarkupPct: string;
+  customs: { duty_pct?: number; tariff_pct?: number };
+  displayOrder: number;
+};
+
+export type FreightLegTierSnapshot = {
+  id: string;
+  freightLegId: string;
+  tierId: string;
   totalFreight: string | null;
   unitsInShipment: number | null;
-  skuTotalCbm: string | null;
 };
 
-export type SkuCustomsSnapshot = {
-  quoteSkuId: string;
-  dutyPct: string | null;
-  tariffPct: string | null;
+export type FreightCustomerArrangesMetaSnapshot = {
+  freightLegId: string;
+  customerContact: string | null;
+  auditNote: string | null;
 };
 
-const FREIGHT_MODES = [
+// ---- Enum vocabularies (mirror DB enums one-for-one) ----
+
+const FREIGHT_LEG_MODES = [
   "parcel",
-  "ltl",
-  "ftl",
-  "ocean",
-  "air",
-  "courier",
+  "ocean_fcl",
+  "ocean_lcl",
+  "air_freight",
+  "air_express",
+  "ltl_truck",
+  "truckload",
+  "drayage",
+  "exw_pickup",
   "other",
 ] as const;
-type FreightModeValue = (typeof FREIGHT_MODES)[number];
+type FreightLegModeValue = (typeof FREIGHT_LEG_MODES)[number];
 
-const FREIGHT_TREATMENTS = ["bundled", "pass_through"] as const;
-type FreightTreatmentValue = (typeof FREIGHT_TREATMENTS)[number];
+const INCOTERMS = ["DDP", "DAP", "FOB", "EXW", "FCA", "CIF"] as const;
+type IncotermValue = (typeof INCOTERMS)[number];
 
-// ---------- helpers ----------
+const DIRECTIONS = ["inbound", "outbound"] as const;
+type DirectionValue = (typeof DIRECTIONS)[number];
+
+const TREATMENTS = ["bundled", "pass_through"] as const;
+type TreatmentValue = (typeof TREATMENTS)[number];
+
+// numeric(5,4) precision: ±9.9999. Per Gap 5 disposition the action
+// layer enforces 0 ≤ markup ≤ 9.9999 (covers Cally's tariff-anomaly
+// zero-markup case + forwarder edge weirdness).
+const MARKUP_MIN = 0;
+const MARKUP_MAX = 9.9999;
+const CUSTOMS_PCT_MIN = 0;
+const CUSTOMS_PCT_MAX = 9.9999;
+
+// ---- helpers ----
 
 type Diff = Record<string, { from: unknown; to: unknown }>;
-
-function diffOf<T extends Record<string, unknown>>(
-  before: T,
-  after: Partial<T>,
-): Diff {
-  const d: Diff = {};
-  for (const k of Object.keys(after) as (keyof T)[]) {
-    if (before[k] !== after[k]) d[String(k)] = { from: before[k], to: after[k] };
-  }
-  return d;
-}
 
 async function logAudit(args: {
   userId: string;
@@ -126,146 +187,268 @@ function parseIntOrNull(v: FormDataEntryValue | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-// PostgreSQL numeric returns canonical strings ("0.40") while form values
-// arrive shorter ("0.4"). Compare numerically to avoid spurious "changes".
+function parseBool(v: FormDataEntryValue | null): boolean {
+  const s = String(v ?? "").trim().toLowerCase();
+  return s === "true" || s === "1" || s === "on";
+}
+
+function parseDirection(v: FormDataEntryValue | null): DirectionValue {
+  const s = trimOrNull(v);
+  return s === "inbound" ? "inbound" : "outbound";
+}
+
+function parseTreatment(v: FormDataEntryValue | null): TreatmentValue {
+  const s = trimOrNull(v);
+  return s === "pass_through" ? "pass_through" : "bundled";
+}
+
+function parseLegMode(
+  v: FormDataEntryValue | null,
+): FreightLegModeValue | null {
+  const s = trimOrNull(v);
+  if (!s) return null;
+  return (FREIGHT_LEG_MODES as readonly string[]).includes(s)
+    ? (s as FreightLegModeValue)
+    : null;
+}
+
+function parseIncoterm(v: FormDataEntryValue | null): IncotermValue | null {
+  const s = trimOrNull(v);
+  if (!s) return null;
+  return (INCOTERMS as readonly string[]).includes(s)
+    ? (s as IncotermValue)
+    : null;
+}
+
+// PostgreSQL date columns: "YYYY-MM-DD" strings. Empty / invalid → null.
+function parseDateOrNull(v: FormDataEntryValue | null): string | null {
+  const s = trimOrNull(v);
+  if (!s) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  return s;
+}
+
+// Markup pct: form arrives as percent display ("30" for 30%). Store
+// as decimal ("0.3000"). Enforces 0 ≤ value ≤ 9.9999 per Gap 5.
+function parseMarkupPct(v: FormDataEntryValue | null): string {
+  const s = String(v ?? "").trim();
+  if (s === "") return "0.3000";
+  const n = Number(s);
+  if (!Number.isFinite(n)) {
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      "Markup pct must be a number.",
+    );
+  }
+  const dec = n / 100;
+  if (dec < MARKUP_MIN || dec > MARKUP_MAX) {
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      `Markup pct out of range (0 - 999.99%).`,
+    );
+  }
+  return dec.toString();
+}
+
+// Customs pct: form arrives as percent display ("5.8" for 5.8%).
+// JSONB stores as decimal (0.058). Range 0 - 9.9999.
+function parseCustomsPct(v: FormDataEntryValue | null): number | null {
+  const s = String(v ?? "").trim();
+  if (s === "") return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) {
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      "Customs pct must be a number.",
+    );
+  }
+  const dec = n / 100;
+  if (dec < CUSTOMS_PCT_MIN || dec > CUSTOMS_PCT_MAX) {
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      `Customs pct out of range (0 - 999.99%).`,
+    );
+  }
+  return dec;
+}
+
 function numericEquals(a: string | null, b: string | null): boolean {
   if (a === null && b === null) return true;
   if (a === null || b === null) return false;
   return Number(a) === Number(b);
 }
 
-function parseFreightMode(v: FormDataEntryValue | null): FreightModeValue | null {
-  const s = trimOrNull(v);
-  if (!s) return null;
-  if ((FREIGHT_MODES as readonly string[]).includes(s))
-    return s as FreightModeValue;
-  return null;
-}
+// ---- read helpers ----
 
-function parseFreightTreatment(
-  v: FormDataEntryValue | null,
-): FreightTreatmentValue {
-  const s = trimOrNull(v);
-  if (s === "pass_through") return "pass_through";
-  return "bundled";
-}
-
-// Convert a "percent display" string (e.g. "25" for 25%) into the decimal
-// stored in DB ("0.2500"). Empty / null → null.
-function percentDisplayToDecimal(v: FormDataEntryValue | null): string | null {
-  const s = String(v ?? "").trim();
-  if (s === "") return null;
-  const n = Number(s);
-  if (!Number.isFinite(n)) return null;
-  return (n / 100).toString();
-}
-
-// ---------- read helpers ----------
-
-// Counts freight lines (distinct line_group_ids) for the quote. Used by
-// the tier-preset confirm dialog warning.
-export async function countFreightLinesForQuote(
-  quoteId: string,
-): Promise<number> {
-  const rows = await db
-    .selectDistinct({ lineGroupId: freightInputs.lineGroupId })
-    .from(freightInputs)
-    .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
-    .where(eq(quoteSkus.quoteId, quoteId));
-  return rows.length;
-}
-
-// Counts (line, tier) freight rows with non-null total_freight or
-// units_in_shipment — for the tier-preset dialog warning's "data loss"
-// signal. Mirrors countProductionCellsWithDataForQuote.
-export async function countFreightCellsWithDataForQuote(
+// Counts leg-groups for the quote. Used by tier-preset confirm
+// dialog warning (mirrors the legacy countFreightLinesForQuote shape).
+export async function countFreightLegGroupsForQuote(
   quoteId: string,
 ): Promise<number> {
   const [row] = await db
     .select({ count: count() })
-    .from(freightInputs)
-    .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
+    .from(freightLegGroups)
+    .where(eq(freightLegGroups.quoteId, quoteId));
+  return row?.count ?? 0;
+}
+
+// Counts (leg, tier) rate rows with non-null total_freight or
+// units_in_shipment — for the tier-preset dialog "data loss" signal.
+export async function countFreightLegTiersWithDataForQuote(
+  quoteId: string,
+): Promise<number> {
+  const [row] = await db
+    .select({ count: count() })
+    .from(freightLegTiers)
+    .innerJoin(freightLegs, eq(freightLegs.id, freightLegTiers.freightLegId))
+    .innerJoin(
+      freightLegGroups,
+      eq(freightLegGroups.id, freightLegs.legGroupId),
+    )
     .where(
       and(
-        eq(quoteSkus.quoteId, quoteId),
-        or(
-          isNotNull(freightInputs.totalFreight),
-          isNotNull(freightInputs.unitsInShipment),
-        ),
+        eq(freightLegGroups.quoteId, quoteId),
+        sql`(${freightLegTiers.totalFreight} IS NOT NULL OR ${freightLegTiers.unitsInShipment} IS NOT NULL)`,
       ),
     );
   return row?.count ?? 0;
 }
 
-// ---------- line actions ----------
+// ---- leg-group actions ----
 
-// Generate a new freight line on the given (leaf) SKU. Inserts one row per
-// active tier with default per-line metadata: markup_pct = '0.3000',
-// freight_treatment = 'bundled'. Per-tier (total_freight, units_in_shipment)
-// null. The column itself stays nullable; the action layer writes a sane
-// default (per refinement: nullable schema, but seeded at line creation).
-export async function addFreightLine(
+// Create a new leg-group on a quote. Optional label; defaults to
+// "Outbound · journey N" where N is (existing groups + 1).
+export async function addLegGroup(
   formData: FormData,
-): Promise<ActionResult<void>> {
+): Promise<ActionResult<FreightLegGroupSnapshot>> {
   return runAction(async () => {
-    const quoteSkuId = String(formData.get("quoteSkuId") ?? "").trim();
-    if (!quoteSkuId)
-      throw new ActionGuardError(ERR.VALIDATION, "quoteSkuId required");
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    if (!quoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
 
     const user = await ensureUser();
-    const { quote } = await quoteForLeafSku(quoteSkuId, "freight");
+    const quote = await quoteByIdDraft(quoteId);
 
-    const tiers = await db
-      .select({ id: quoteTiers.id })
-      .from(quoteTiers)
-      .where(eq(quoteTiers.quoteId, quote.id))
-      .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt));
-    if (tiers.length === 0) {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Add at least one tier to the quote before adding freight lines.",
-      );
-    }
+    const labelParam = trimOrNull(formData.get("label"));
+    const existing = await db
+      .select({ max: max(freightLegGroups.displayOrder) })
+      .from(freightLegGroups)
+      .where(eq(freightLegGroups.quoteId, quoteId));
+    const displayOrder = (existing[0]?.max ?? -1) + 1;
+    const label = labelParam ?? `Outbound · journey ${displayOrder + 1}`;
 
-    const maxRow = await db
-      .select({ max: max(freightInputs.sortOrder) })
-      .from(freightInputs)
-      .where(eq(freightInputs.quoteSkuId, quoteSkuId));
-    const sortOrder = (maxRow[0]?.max ?? -1) + 1;
-
-    const lineGroupId = crypto.randomUUID();
-
-    // Slice RI.8 freight-markup feature — auto-populate from firm
-    // "Freight" markup default. Falls back to 0.3000 (legacy hardcode)
-    // if the firm hasn't configured a Freight category. PMs can
-    // override per-line via the markup input on FreightLineCard.
-    const [freightDefault] = await db
-      .select({ pct: markupDefaults.defaultMarkupPct })
-      .from(markupDefaults)
-      .where(eq(markupDefaults.category, "Freight"))
-      .limit(1);
-    const initialMarkupPct = freightDefault?.pct ?? "0.3000";
-
-    await db.insert(freightInputs).values(
-      tiers.map((t) => ({
-        quoteSkuId,
-        tierId: t.id,
-        lineGroupId,
-        sortOrder,
-        markupPct: initialMarkupPct,
-        freightTreatment: "bundled" as const,
-      })),
-    );
+    const [inserted] = await db
+      .insert(freightLegGroups)
+      .values({ quoteId, label, displayOrder })
+      .returning();
 
     await logAudit({
       userId: user.id,
-      entityType: "freight_line",
-      entityId: lineGroupId,
+      entityType: "freight_leg_group",
+      entityId: inserted.id,
       action: "created",
+      diffJson: { quote_id: quoteId, label, display_order: displayOrder },
+    });
+
+    revalidateQuoteTree(quote.projectId, quote.id);
+
+    return {
+      id: inserted.id,
+      quoteId: inserted.quoteId,
+      label: inserted.label,
+      displayOrder: inserted.displayOrder,
+    };
+  });
+}
+
+export async function updateLegGroupMetadata(
+  formData: FormData,
+): Promise<ActionResult<FreightLegGroupSnapshot>> {
+  return runAction(async () => {
+    const legGroupId = String(formData.get("legGroupId") ?? "").trim();
+    if (!legGroupId)
+      throw new ActionGuardError(ERR.VALIDATION, "legGroupId required");
+
+    const user = await ensureUser();
+    const { quote, group } = await quoteForLegGroup(legGroupId);
+
+    const newLabel = trimOrNull(formData.get("label")) ?? group.label;
+
+    if (newLabel === group.label) {
+      return {
+        id: group.id,
+        quoteId: group.quoteId,
+        label: group.label,
+        displayOrder: group.displayOrder,
+      };
+    }
+
+    await db
+      .update(freightLegGroups)
+      .set({ label: newLabel, updatedAt: new Date() })
+      .where(eq(freightLegGroups.id, legGroupId));
+
+    await logAudit({
+      userId: user.id,
+      entityType: "freight_leg_group",
+      entityId: legGroupId,
+      action: "updated",
+      diffJson: { label: { from: group.label, to: newLabel } },
+    });
+
+    revalidateQuoteTree(quote.projectId, quote.id);
+
+    return {
+      id: group.id,
+      quoteId: group.quoteId,
+      label: newLabel,
+      displayOrder: group.displayOrder,
+    };
+  });
+}
+
+export async function deleteLegGroup(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const legGroupId = String(formData.get("legGroupId") ?? "").trim();
+    if (!legGroupId)
+      throw new ActionGuardError(ERR.VALIDATION, "legGroupId required");
+
+    const user = await ensureUser();
+    const { quote, group } = await quoteForLegGroup(legGroupId);
+
+    // Snapshot the cascade footprint before the FK cascade fires —
+    // matches the pattern from Slice 5.5 deleteSku.
+    const legsRows = await db
+      .select({ id: freightLegs.id })
+      .from(freightLegs)
+      .where(eq(freightLegs.legGroupId, legGroupId));
+    const legIds = legsRows.map((r) => r.id);
+    let cascadedLegTiers = 0;
+    if (legIds.length > 0) {
+      const [row] = await db
+        .select({ count: count() })
+        .from(freightLegTiers)
+        .where(sql`${freightLegTiers.freightLegId} = ANY(${legIds})`);
+      cascadedLegTiers = row?.count ?? 0;
+    }
+
+    await db
+      .delete(freightLegGroups)
+      .where(eq(freightLegGroups.id, legGroupId));
+
+    await logAudit({
+      userId: user.id,
+      entityType: "freight_leg_group",
+      entityId: legGroupId,
+      action: "deleted",
       diffJson: {
-        quote_sku_id: quoteSkuId,
-        tier_count: tiers.length,
-        sort_order: sortOrder,
+        label: group.label,
+        cascade: {
+          legs: legIds.length,
+          leg_tiers: cascadedLegTiers,
+        },
       },
     });
 
@@ -273,119 +456,287 @@ export async function addFreightLine(
   });
 }
 
-// Fan-out update of per-line metadata across all tier rows of a given
-// line_group_id. Per-tier fields (total_freight, units_in_shipment) NEVER
-// touched here.
-export async function updateFreightLineMetadata(
+// ---- leg actions ----
+
+// Create a new leg in an existing group. The form arrives with the
+// full leg head + optional initial per-tier rates. Per Gap 10 the
+// add-leg modal can carry either an explicit leg-group association
+// or rely on auto-create (handled in the calling component).
+//
+// Per-tier rate rows for active tiers are seeded as NULL placeholders
+// so the per-tier rate table renders on the leg immediately after add;
+// PMs fill values into existing rows rather than creating new ones.
+export async function addLeg(
   formData: FormData,
-): Promise<ActionResult<FreightLineSnapshot>> {
+): Promise<ActionResult<FreightLegSnapshot>> {
   return runAction(async () => {
-    const lineGroupId = String(formData.get("lineGroupId") ?? "").trim();
-    if (!lineGroupId)
-      throw new ActionGuardError(ERR.VALIDATION, "lineGroupId required");
+    const legGroupId = String(formData.get("legGroupId") ?? "").trim();
+    if (!legGroupId)
+      throw new ActionGuardError(ERR.VALIDATION, "legGroupId required");
 
     const user = await ensureUser();
-    const { quote } = await quoteForLineGroup(lineGroupId, "freight_inputs");
+    const { quote } = await quoteForLegGroup(legGroupId);
 
-    const beforeRows = await db
-      .select()
-      .from(freightInputs)
-      .where(eq(freightInputs.lineGroupId, lineGroupId))
-      .limit(1);
-    if (beforeRows.length === 0)
-      throw new ActionGuardError(ERR.NOT_FOUND, "Line not found");
-    const beforeRow = beforeRows[0];
-
-    const newShipmentId = trimOrNull(formData.get("shipmentId"));
-    const newSupplier = trimOrNull(formData.get("supplier"));
-    const newFreightMode = parseFreightMode(formData.get("freightMode"));
-    const newFreightTreatment = parseFreightTreatment(
-      formData.get("freightTreatment"),
+    const direction = parseDirection(formData.get("direction"));
+    const label = trimOrNull(formData.get("label"));
+    const origin = trimOrNull(formData.get("origin"));
+    const destination = trimOrNull(formData.get("destination"));
+    const crossesBorder = parseBool(
+      formData.get("crossesInternationalBorder"),
     );
-    // markup_pct arrives as a percent-display string (e.g. "30" for 30%).
-    // Store as decimal ("0.3000"). Per CLAUDE.md percent convention.
-    const newMarkupPct = percentDisplayToDecimal(formData.get("markupPct"));
-    const newNotes = trimOrNull(formData.get("notes"));
+    const treatment = parseTreatment(formData.get("treatment"));
+    const mode = parseLegMode(formData.get("mode"));
+    const carrier = trimOrNull(formData.get("carrier"));
+    const incoterm = parseIncoterm(formData.get("incoterm"));
+    const cargoReadyDate = parseDateOrNull(formData.get("cargoReadyDate"));
+    const vesselEtd = parseDateOrNull(formData.get("vesselEtd"));
+    const vesselEta = parseDateOrNull(formData.get("vesselEta"));
+    const actualDeliveryDate = parseDateOrNull(
+      formData.get("actualDeliveryDate"),
+    );
+    // Markup pcts default 0.3000 when omitted; parseMarkupPct returns
+    // "0.3000" on empty input.
+    const freightMarkupPct = parseMarkupPct(formData.get("freightMarkupPct"));
+    const dutyMarkupPct = parseMarkupPct(formData.get("dutyMarkupPct"));
+    const tariffMarkupPct = parseMarkupPct(formData.get("tariffMarkupPct"));
+    const dutyPctRaw = parseCustomsPct(formData.get("dutyPct"));
+    const tariffPctRaw = parseCustomsPct(formData.get("tariffPct"));
+    const customs: Record<string, number> = {};
+    if (dutyPctRaw !== null) customs.duty_pct = dutyPctRaw;
+    if (tariffPctRaw !== null) customs.tariff_pct = tariffPctRaw;
 
-    const before = {
-      shipment_id: beforeRow.shipmentId,
-      supplier: beforeRow.supplier,
-      freight_mode: beforeRow.freightMode,
-      freight_treatment: beforeRow.freightTreatment,
-      markup_pct: beforeRow.markupPct,
-      notes: beforeRow.notes,
-    };
-    const after = {
-      shipment_id: newShipmentId,
-      supplier: newSupplier,
-      freight_mode: newFreightMode,
-      freight_treatment: newFreightTreatment,
-      markup_pct: newMarkupPct,
-      notes: newNotes,
-    };
-
-    function snapshot(): FreightLineSnapshot {
-      return {
-        lineGroupId,
-        shipmentId: newShipmentId,
-        supplier: newSupplier,
-        freightMode: newFreightMode,
-        freightTreatment: newFreightTreatment,
-        markupPct: newMarkupPct,
-        notes: newNotes,
-        sortOrder: beforeRow.sortOrder,
-      };
+    // Gap 5 — required-fields gate per incoterm class.
+    if (incoterm === "DDP" || incoterm === "DAP") {
+      if (!cargoReadyDate) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Cargo ready date is required on DDP / DAP legs.",
+        );
+      }
+      if (!vesselEtd) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Vessel ETD is required on DDP / DAP legs.",
+        );
+      }
     }
+
+    // Gap 9 — display_order is entry sequence; pick (max + 1) within group.
+    const orderRow = await db
+      .select({ max: max(freightLegs.displayOrder) })
+      .from(freightLegs)
+      .where(eq(freightLegs.legGroupId, legGroupId));
+    const displayOrder = (orderRow[0]?.max ?? -1) + 1;
+
+    const [inserted] = await db
+      .insert(freightLegs)
+      .values({
+        legGroupId,
+        direction,
+        label,
+        origin,
+        destination,
+        crossesInternationalBorder: crossesBorder,
+        treatment,
+        mode,
+        carrier,
+        incoterm,
+        cargoReadyDate,
+        vesselEtd,
+        vesselEta,
+        actualDeliveryDate,
+        freightMarkupPct,
+        dutyMarkupPct,
+        tariffMarkupPct,
+        customs,
+        displayOrder,
+      })
+      .returning();
+
+    // Seed per-tier rate rows for every active tier on the quote.
+    // Optional per-tier seed values from the Add Leg modal arrive as
+    // `tierRate_<tierId>` formdata entries — PMs typically know rates
+    // up-front from the forwarder quote and enter them in the modal.
+    // Non-positive / non-finite values silently fall back to null so
+    // PMs can still leave a tier blank from the modal.
+    const tiers = await db
+      .select({ id: quoteTiers.id })
+      .from(quoteTiers)
+      .where(eq(quoteTiers.quoteId, quote.id))
+      .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt));
+    let seededCount = 0;
+    if (tiers.length > 0) {
+      await db.insert(freightLegTiers).values(
+        tiers.map((t) => {
+          const raw = parseNumericOrNull(formData.get(`tierRate_${t.id}`));
+          const n = raw === null ? null : Number(raw);
+          const totalFreight =
+            n !== null && Number.isFinite(n) && n >= 0 ? raw : null;
+          if (totalFreight !== null) seededCount += 1;
+          return {
+            freightLegId: inserted.id,
+            tierId: t.id,
+            totalFreight,
+            unitsInShipment: null,
+          };
+        }),
+      );
+    }
+
+    await logAudit({
+      userId: user.id,
+      entityType: "freight_leg",
+      entityId: inserted.id,
+      action: "created",
+      diffJson: {
+        leg_group_id: legGroupId,
+        direction,
+        treatment,
+        mode,
+        incoterm,
+        crosses_international_border: crossesBorder,
+        tier_count: tiers.length,
+        tier_rates_seeded: seededCount,
+        display_order: displayOrder,
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, quote.id);
+
+    return shapeLegSnapshot(inserted);
+  });
+}
+
+// Update leg head metadata. Single semantic action for the body grid
+// fields — direction, label, origin/destination, crosses_border,
+// treatment, mode, carrier, incoterm, cargo_ready_date, vessel_etd.
+// Per-component markup pcts have their own action (separate audit
+// keys per Gap 3); customs JSONB has its own (Gap 14).
+export async function updateLegMetadata(
+  formData: FormData,
+): Promise<ActionResult<FreightLegSnapshot>> {
+  return runAction(async () => {
+    const legId = String(formData.get("legId") ?? "").trim();
+    if (!legId) throw new ActionGuardError(ERR.VALIDATION, "legId required");
+
+    const user = await ensureUser();
+    const { quote, leg } = await quoteForLeg(legId);
+
+    const next: Record<string, unknown> = {};
+    if (formData.has("direction"))
+      next.direction = parseDirection(formData.get("direction"));
+    if (formData.has("label"))
+      next.label = trimOrNull(formData.get("label"));
+    if (formData.has("origin"))
+      next.origin = trimOrNull(formData.get("origin"));
+    if (formData.has("destination"))
+      next.destination = trimOrNull(formData.get("destination"));
+    if (formData.has("crossesInternationalBorder"))
+      next.crossesInternationalBorder = parseBool(
+        formData.get("crossesInternationalBorder"),
+      );
+    if (formData.has("treatment"))
+      next.treatment = parseTreatment(formData.get("treatment"));
+    if (formData.has("mode"))
+      next.mode = parseLegMode(formData.get("mode"));
+    if (formData.has("carrier"))
+      next.carrier = trimOrNull(formData.get("carrier"));
+    if (formData.has("incoterm"))
+      next.incoterm = parseIncoterm(formData.get("incoterm"));
+    if (formData.has("cargoReadyDate"))
+      next.cargoReadyDate = parseDateOrNull(formData.get("cargoReadyDate"));
+    if (formData.has("vesselEtd"))
+      next.vesselEtd = parseDateOrNull(formData.get("vesselEtd"));
+    if (formData.has("vesselEta"))
+      next.vesselEta = parseDateOrNull(formData.get("vesselEta"));
+    if (formData.has("actualDeliveryDate"))
+      next.actualDeliveryDate = parseDateOrNull(
+        formData.get("actualDeliveryDate"),
+      );
+
+    // Gap 5 — required-fields gate when incoterm transitions to DDP/DAP.
+    const effectiveIncoterm = (next.incoterm ?? leg.incoterm) as
+      | IncotermValue
+      | null;
+    if (effectiveIncoterm === "DDP" || effectiveIncoterm === "DAP") {
+      const effCargoReady =
+        next.cargoReadyDate !== undefined
+          ? (next.cargoReadyDate as string | null)
+          : leg.cargoReadyDate;
+      const effEtd =
+        next.vesselEtd !== undefined
+          ? (next.vesselEtd as string | null)
+          : leg.vesselEtd;
+      if (!effCargoReady) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Cargo ready date is required on DDP / DAP legs.",
+        );
+      }
+      if (!effEtd) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Vessel ETD is required on DDP / DAP legs.",
+        );
+      }
+    }
+
+    // Build diff against current row; skip if no-op.
+    const before: Record<string, unknown> = {
+      direction: leg.direction,
+      label: leg.label,
+      origin: leg.origin,
+      destination: leg.destination,
+      crosses_international_border: leg.crossesInternationalBorder,
+      treatment: leg.treatment,
+      mode: leg.mode,
+      carrier: leg.carrier,
+      incoterm: leg.incoterm,
+      cargo_ready_date: leg.cargoReadyDate,
+      vessel_etd: leg.vesselEtd,
+      vessel_eta: leg.vesselEta,
+      actual_delivery_date: leg.actualDeliveryDate,
+    };
+    const diffKeyMap: Record<string, string> = {
+      direction: "direction",
+      label: "label",
+      origin: "origin",
+      destination: "destination",
+      crossesInternationalBorder: "crosses_international_border",
+      treatment: "treatment",
+      mode: "mode",
+      carrier: "carrier",
+      incoterm: "incoterm",
+      cargoReadyDate: "cargo_ready_date",
+      vesselEtd: "vessel_etd",
+      vesselEta: "vessel_eta",
+      actualDeliveryDate: "actual_delivery_date",
+    };
 
     const diff: Diff = {};
-    for (const k of [
-      "shipment_id",
-      "supplier",
-      "freight_mode",
-      "freight_treatment",
-      "notes",
-    ] as const) {
-      if (before[k] !== after[k]) diff[k] = { from: before[k], to: after[k] };
+    for (const [k, v] of Object.entries(next)) {
+      const auditKey = diffKeyMap[k];
+      if (before[auditKey] !== v) {
+        diff[auditKey] = { from: before[auditKey], to: v };
+      }
     }
-    if (!numericEquals(before.markup_pct, after.markup_pct))
-      diff.markup_pct = { from: before.markup_pct, to: after.markup_pct };
 
     if (Object.keys(diff).length === 0) {
-      // No-op; return canonical snapshot from DB row.
-      return {
-        lineGroupId,
-        shipmentId: beforeRow.shipmentId,
-        supplier: beforeRow.supplier,
-        freightMode: beforeRow.freightMode,
-        freightTreatment: beforeRow.freightTreatment,
-        markupPct: beforeRow.markupPct,
-        notes: beforeRow.notes,
-        sortOrder: beforeRow.sortOrder,
-      };
+      return shapeLegSnapshot(leg);
     }
 
     await db
-      .update(freightInputs)
-      .set({
-        shipmentId: newShipmentId,
-        supplier: newSupplier,
-        freightMode: newFreightMode,
-        freightTreatment: newFreightTreatment,
-        markupPct: newMarkupPct,
-        notes: newNotes,
-        updatedAt: new Date(),
-      })
-      .where(eq(freightInputs.lineGroupId, lineGroupId));
+      .update(freightLegs)
+      .set({ ...next, updatedAt: new Date() })
+      .where(eq(freightLegs.id, legId));
 
     // Slice 9.5 — reconcile validation warnings on action commit.
-    // freight_treatment toggle drives pass_through_freight_missing_customs;
-    // markup_pct edits drive markup_above_5x_default.
     const cascade = await reconcileWarnings({ quoteId: quote.id });
 
     await logAudit({
       userId: user.id,
-      entityType: "freight_line",
-      entityId: lineGroupId,
+      entityType: "freight_leg",
+      entityId: legId,
       action: "updated",
       diffJson:
         cascade.inserted + cascade.resolved + cascade.evaluated > 0
@@ -393,112 +744,240 @@ export async function updateFreightLineMetadata(
           : diff,
     });
 
-    // Slice RI.8 freight-markup feature — dedicated audit event
-    // for markup_pct changes per Edward's hotfix scope. Emits in
-    // addition to the generic `updated` row so timeline reads
-    // ("show me all freight markup overrides") can filter on
-    // action key directly without parsing diff_json. Mirrors the
-    // CLAUDE.md "Audit source convention" pattern of distinct
-    // semantic events getting distinct action keys.
-    if ("markup_pct" in diff) {
-      await logAudit({
-        userId: user.id,
-        entityType: "freight_line",
-        entityId: lineGroupId,
-        action: "freight_markup_updated",
-        diffJson: {
-          from: before.markup_pct,
-          to: after.markup_pct,
-        },
-      });
-    }
-
     revalidateQuoteTree(quote.projectId, quote.id);
 
-    return snapshot();
+    const [refreshed] = await db
+      .select()
+      .from(freightLegs)
+      .where(eq(freightLegs.id, legId))
+      .limit(1);
+    return shapeLegSnapshot(refreshed);
   });
 }
 
-// Per-cell update for total_freight + units_in_shipment.
-export async function updateFreightTierCell(
+// Per-component markup pill override. Per Gap 3 disposition: single
+// audit action `freight_leg_markup_updated` with diff_json.component
+// discriminator (`freight` | `duty` | `tariff`); from/to in decimals.
+// Per Gap 13 the on-blur path: empty → revert (no-op); range checked.
+export async function updateLegMarkup(
   formData: FormData,
-): Promise<ActionResult<FreightCellSnapshot>> {
+): Promise<ActionResult<FreightLegSnapshot>> {
+  return runAction(async () => {
+    const legId = String(formData.get("legId") ?? "").trim();
+    const component = String(formData.get("component") ?? "").trim();
+    if (!legId) throw new ActionGuardError(ERR.VALIDATION, "legId required");
+    if (
+      component !== "freight" &&
+      component !== "duty" &&
+      component !== "tariff"
+    ) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Unsupported markup component: ${component}`,
+      );
+    }
+
+    const user = await ensureUser();
+    const { quote, leg } = await quoteForLeg(legId);
+
+    const newPct = parseMarkupPct(formData.get("value"));
+    const colKey =
+      component === "freight"
+        ? "freightMarkupPct"
+        : component === "duty"
+          ? "dutyMarkupPct"
+          : "tariffMarkupPct";
+    const beforePct = leg[colKey];
+
+    if (numericEquals(beforePct, newPct)) {
+      return shapeLegSnapshot(leg);
+    }
+
+    await db
+      .update(freightLegs)
+      .set({ [colKey]: newPct, updatedAt: new Date() })
+      .where(eq(freightLegs.id, legId));
+
+    await logAudit({
+      userId: user.id,
+      entityType: "freight_leg",
+      entityId: legId,
+      action: "freight_leg_markup_updated",
+      diffJson: {
+        component,
+        from: beforePct,
+        to: newPct,
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, quote.id);
+
+    const [refreshed] = await db
+      .select()
+      .from(freightLegs)
+      .where(eq(freightLegs.id, legId))
+      .limit(1);
+    return shapeLegSnapshot(refreshed);
+  });
+}
+
+// Customs JSONB update. Per Gap 14: log `freight_leg_customs_updated`
+// with from/to per CHANGED key only; never log the full JSONB blob.
+// Both keys nullable — empty form value clears that key.
+export async function updateLegCustoms(
+  formData: FormData,
+): Promise<ActionResult<FreightLegSnapshot>> {
+  return runAction(async () => {
+    const legId = String(formData.get("legId") ?? "").trim();
+    if (!legId) throw new ActionGuardError(ERR.VALIDATION, "legId required");
+
+    const user = await ensureUser();
+    const { quote, leg } = await quoteForLeg(legId);
+
+    const currentCustoms = (leg.customs as {
+      duty_pct?: number;
+      tariff_pct?: number;
+    }) ?? {};
+    const next: { duty_pct?: number; tariff_pct?: number } = {
+      ...currentCustoms,
+    };
+    const diff: Diff = {};
+
+    if (formData.has("dutyPct")) {
+      const v = parseCustomsPct(formData.get("dutyPct"));
+      if (v === null) delete next.duty_pct;
+      else next.duty_pct = v;
+      if (currentCustoms.duty_pct !== next.duty_pct) {
+        diff.duty_pct = {
+          from: currentCustoms.duty_pct ?? null,
+          to: next.duty_pct ?? null,
+        };
+      }
+    }
+    if (formData.has("tariffPct")) {
+      const v = parseCustomsPct(formData.get("tariffPct"));
+      if (v === null) delete next.tariff_pct;
+      else next.tariff_pct = v;
+      if (currentCustoms.tariff_pct !== next.tariff_pct) {
+        diff.tariff_pct = {
+          from: currentCustoms.tariff_pct ?? null,
+          to: next.tariff_pct ?? null,
+        };
+      }
+    }
+
+    if (Object.keys(diff).length === 0) {
+      return shapeLegSnapshot(leg);
+    }
+
+    await db
+      .update(freightLegs)
+      .set({ customs: next, updatedAt: new Date() })
+      .where(eq(freightLegs.id, legId));
+
+    // Slice 9.5 — reconcile validation warnings.
+    const cascade = await reconcileWarnings({ quoteId: quote.id });
+
+    await logAudit({
+      userId: user.id,
+      entityType: "freight_leg",
+      entityId: legId,
+      action: "freight_leg_customs_updated",
+      diffJson:
+        cascade.inserted + cascade.resolved + cascade.evaluated > 0
+          ? { ...diff, cascaded_warnings: cascade }
+          : diff,
+    });
+
+    revalidateQuoteTree(quote.projectId, quote.id);
+
+    const [refreshed] = await db
+      .select()
+      .from(freightLegs)
+      .where(eq(freightLegs.id, legId))
+      .limit(1);
+    return shapeLegSnapshot(refreshed);
+  });
+}
+
+// Per-(leg, tier) rate cell. PM enters total freight $; optional
+// units_in_shipment override (yield mismatch). Either value can be
+// null (PM clears the input).
+export async function updateLegTierCell(
+  formData: FormData,
+): Promise<ActionResult<FreightLegTierSnapshot>> {
   return runAction(async () => {
     const rowId = String(formData.get("rowId") ?? "").trim();
     if (!rowId) throw new ActionGuardError(ERR.VALIDATION, "rowId required");
 
     const user = await ensureUser();
-
     const rows = await db
-      .select({ row: freightInputs, quote: quotes })
-      .from(freightInputs)
-      .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
-      .innerJoin(quotes, eq(quotes.id, quoteSkus.quoteId))
-      .where(eq(freightInputs.id, rowId))
+      .select({
+        row: freightLegTiers,
+        leg: freightLegs,
+        group: freightLegGroups,
+        quote: quotes,
+      })
+      .from(freightLegTiers)
+      .innerJoin(freightLegs, eq(freightLegs.id, freightLegTiers.freightLegId))
+      .innerJoin(
+        freightLegGroups,
+        eq(freightLegGroups.id, freightLegs.legGroupId),
+      )
+      .innerJoin(quotes, eq(quotes.id, freightLegGroups.quoteId))
+      .where(eq(freightLegTiers.id, rowId))
       .limit(1);
     if (rows.length === 0)
-      throw new ActionGuardError(ERR.NOT_FOUND, "Cell not found");
+      throw new ActionGuardError(ERR.NOT_FOUND, "Leg rate cell not found");
     const { row, quote } = rows[0];
-    requireDraft(quote);
+    if (quote.status !== "draft") {
+      throw new ActionGuardError(
+        ERR.QUOTE_NOT_DRAFT,
+        `Quote is ${quote.status} and not editable.`,
+      );
+    }
 
     const newTotalFreight = parseNumericOrNull(formData.get("totalFreight"));
     const newUnitsInShipment = parseIntOrNull(formData.get("unitsInShipment"));
-    const newSkuTotalCbm = parseNumericOrNull(formData.get("skuTotalCbm"));
-
-    const before = {
-      total_freight: row.totalFreight,
-      units_in_shipment: row.unitsInShipment,
-      sku_total_cbm: row.skuTotalCbm,
-    };
-    const after = {
-      total_freight: newTotalFreight,
-      units_in_shipment: newUnitsInShipment,
-      sku_total_cbm: newSkuTotalCbm,
-    };
 
     const diff: Diff = {};
-    if (!numericEquals(before.total_freight, after.total_freight))
+    if (!numericEquals(row.totalFreight, newTotalFreight)) {
       diff.total_freight = {
-        from: before.total_freight,
-        to: after.total_freight,
+        from: row.totalFreight,
+        to: newTotalFreight,
       };
-    if (before.units_in_shipment !== after.units_in_shipment)
+    }
+    if (row.unitsInShipment !== newUnitsInShipment) {
       diff.units_in_shipment = {
-        from: before.units_in_shipment,
-        to: after.units_in_shipment,
+        from: row.unitsInShipment,
+        to: newUnitsInShipment,
       };
-    if (!numericEquals(before.sku_total_cbm, after.sku_total_cbm))
-      diff.sku_total_cbm = {
-        from: before.sku_total_cbm,
-        to: after.sku_total_cbm,
-      };
+    }
 
     if (Object.keys(diff).length === 0) {
       return {
-        rowId,
+        id: row.id,
+        freightLegId: row.freightLegId,
+        tierId: row.tierId,
         totalFreight: row.totalFreight,
         unitsInShipment: row.unitsInShipment,
-        skuTotalCbm: row.skuTotalCbm,
       };
     }
 
     await db
-      .update(freightInputs)
+      .update(freightLegTiers)
       .set({
         totalFreight: newTotalFreight,
         unitsInShipment: newUnitsInShipment,
-        skuTotalCbm: newSkuTotalCbm,
         updatedAt: new Date(),
       })
-      .where(eq(freightInputs.id, rowId));
+      .where(eq(freightLegTiers.id, rowId));
 
-    // Slice 9.5 — reconcile validation warnings on action commit.
-    // Drives cbm_cross_tier_variance + pass_through_freight_missing_customs.
     const cascade = await reconcileWarnings({ quoteId: quote.id });
 
     await logAudit({
       userId: user.id,
-      entityType: "freight_input",
+      entityType: "freight_leg_tier",
       entityId: rowId,
       action: "updated",
       diffJson:
@@ -510,301 +989,232 @@ export async function updateFreightTierCell(
     revalidateQuoteTree(quote.projectId, quote.id);
 
     return {
-      rowId,
+      id: rowId,
+      freightLegId: row.freightLegId,
+      tierId: row.tierId,
       totalFreight: newTotalFreight,
       unitsInShipment: newUnitsInShipment,
-      skuTotalCbm: newSkuTotalCbm,
     };
   });
 }
 
-// Update per-SKU customs columns on quote_skus: duty_pct, tariff_pct.
-// Per-SKU (no fan-out) — these don't change with shipment/tier. UI
-// display convention: percent fields arrive as percent-display strings
-// ("25" → "0.2500" stored).
-//
-// CBM is captured per-(SKU, line, tier) on freight_inputs.sku_total_cbm
-// instead — see updateFreightTierCell. The cbm_per_unit column was
-// removed in Slice 8 schema correction (didn't match PM workflow).
-//
-// Both leaves AND assemblies can carry customs values: customs declares
-// at whichever SKU level the actual import filing happens at. Roman
-// gummies pattern: per-leaf (jars and caps each declared separately).
-// Fully-assembled finished-good pattern: per-assembly (one HS code for
-// the whole assembly, leaves carry no customs). PM's call.
-//
-// CUSTOMER-INVISIBLE values; UI surface labels them as "Internal — not
-// shown to customer".
-export async function updateSkuCustomsData(
+// Reorder legs within a leg-group by swapping display_order with the
+// prev or next sibling. Per Gap 9 entry-order is the v1 policy;
+// drag-grip ships v1.1.
+export async function moveLeg(
   formData: FormData,
-): Promise<ActionResult<SkuCustomsSnapshot>> {
+): Promise<ActionResult<void>> {
   return runAction(async () => {
-    const quoteSkuId = String(formData.get("quoteSkuId") ?? "").trim();
-    if (!quoteSkuId)
-      throw new ActionGuardError(ERR.VALIDATION, "quoteSkuId required");
-
-    const user = await ensureUser();
-    // quoteForSku — not quoteForLeafSku — because assemblies can also
-    // be the customs-declaration level for fully-assembled imports.
-    const { quote, sku } = await quoteForSku(quoteSkuId);
-
-    const newDuty = percentDisplayToDecimal(formData.get("dutyPct"));
-    const newTariff = percentDisplayToDecimal(formData.get("tariffPct"));
-
-    const before = {
-      duty_pct: sku.dutyPct,
-      tariff_pct: sku.tariffPct,
-    };
-    const after = {
-      duty_pct: newDuty,
-      tariff_pct: newTariff,
-    };
-
-    const diff: Diff = {};
-    if (!numericEquals(before.duty_pct, after.duty_pct))
-      diff.duty_pct = { from: before.duty_pct, to: after.duty_pct };
-    if (!numericEquals(before.tariff_pct, after.tariff_pct))
-      diff.tariff_pct = { from: before.tariff_pct, to: after.tariff_pct };
-
-    if (Object.keys(diff).length === 0) {
-      return {
-        quoteSkuId,
-        dutyPct: sku.dutyPct,
-        tariffPct: sku.tariffPct,
-      };
+    const legId = String(formData.get("legId") ?? "").trim();
+    const direction = String(formData.get("direction") ?? "") as
+      | "up"
+      | "down";
+    if (!legId) throw new ActionGuardError(ERR.VALIDATION, "legId required");
+    if (direction !== "up" && direction !== "down") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "direction must be 'up' or 'down'",
+      );
     }
 
-    await db
-      .update(quoteSkus)
-      .set({
-        dutyPct: newDuty,
-        tariffPct: newTariff,
-        updatedAt: new Date(),
-      })
-      .where(eq(quoteSkus.id, quoteSkuId));
+    const user = await ensureUser();
+    const { quote, leg } = await quoteForLeg(legId);
 
-    // Slice 9.5 — reconcile validation warnings on action commit.
-    // Drives pass_through_freight_missing_customs (auto-resolves
-    // when PM fills in duty_pct/tariff_pct on a SKU with
-    // pass-through freight).
-    const cascade = await reconcileWarnings({ quoteId: quote.id });
+    const siblings = await db
+      .select({ id: freightLegs.id, displayOrder: freightLegs.displayOrder })
+      .from(freightLegs)
+      .where(eq(freightLegs.legGroupId, leg.legGroupId))
+      .orderBy(asc(freightLegs.displayOrder));
+    const idx = siblings.findIndex((s) => s.id === legId);
+    const swap =
+      direction === "up" ? siblings[idx - 1] : siblings[idx + 1];
+    if (!swap) return;
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(freightLegs)
+        .set({ displayOrder: swap.displayOrder, updatedAt: new Date() })
+        .where(eq(freightLegs.id, legId));
+      await tx
+        .update(freightLegs)
+        .set({ displayOrder: leg.displayOrder, updatedAt: new Date() })
+        .where(eq(freightLegs.id, swap.id));
+    });
 
     await logAudit({
       userId: user.id,
-      entityType: "quote_sku",
-      entityId: quoteSkuId,
-      action: "customs_updated",
-      diffJson:
-        cascade.inserted + cascade.resolved + cascade.evaluated > 0
-          ? { ...diff, cascaded_warnings: cascade }
-          : diff,
+      entityType: "freight_leg",
+      entityId: legId,
+      action: "reordered",
+      diffJson: {
+        display_order: { from: leg.displayOrder, to: swap.displayOrder },
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, quote.id);
+  });
+}
+
+export async function deleteLeg(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const legId = String(formData.get("legId") ?? "").trim();
+    if (!legId) throw new ActionGuardError(ERR.VALIDATION, "legId required");
+
+    const user = await ensureUser();
+    const { quote, leg } = await quoteForLeg(legId);
+
+    // Cascade snapshot — count leg-tiers + customer-arranges-meta
+    // that will FK-cascade-delete with the leg.
+    const [tierCountRow] = await db
+      .select({ count: count() })
+      .from(freightLegTiers)
+      .where(eq(freightLegTiers.freightLegId, legId));
+    const cascadedLegTiers = tierCountRow?.count ?? 0;
+    const metaRows = await db
+      .select({ count: count() })
+      .from(freightCustomerArrangesMeta)
+      .where(eq(freightCustomerArrangesMeta.freightLegId, legId));
+    const cascadedMeta = metaRows[0]?.count ?? 0;
+
+    await db.delete(freightLegs).where(eq(freightLegs.id, legId));
+
+    await logAudit({
+      userId: user.id,
+      entityType: "freight_leg",
+      entityId: legId,
+      action: "deleted",
+      diffJson: {
+        leg_group_id: leg.legGroupId,
+        label: leg.label,
+        mode: leg.mode,
+        incoterm: leg.incoterm,
+        cascade: {
+          leg_tiers: cascadedLegTiers,
+          customer_arranges_meta: cascadedMeta,
+        },
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, quote.id);
+  });
+}
+
+// ---- customer-arranges meta ----
+
+// Upsert customer-arranges metadata for a leg. Per Gap 18 the
+// customer-arranges meta lives in its own table so customer_contact
+// + audit_note have independent audit-log lifecycles. v1 schema has
+// `cargo_ready_date` promoted to the leg head (Pushback 3 resolution);
+// the meta table only carries the two fields here.
+export async function updateCustomerArrangesMeta(
+  formData: FormData,
+): Promise<ActionResult<FreightCustomerArrangesMetaSnapshot>> {
+  return runAction(async () => {
+    const legId = String(formData.get("legId") ?? "").trim();
+    if (!legId) throw new ActionGuardError(ERR.VALIDATION, "legId required");
+
+    const user = await ensureUser();
+    const { quote } = await quoteForLeg(legId);
+
+    const newContact = trimOrNull(formData.get("customerContact"));
+    const newAudit = trimOrNull(formData.get("auditNote"));
+
+    const existingRows = await db
+      .select()
+      .from(freightCustomerArrangesMeta)
+      .where(eq(freightCustomerArrangesMeta.freightLegId, legId))
+      .limit(1);
+    const existing = existingRows[0] ?? null;
+
+    const diff: Diff = {};
+    if (!existing || existing.customerContact !== newContact) {
+      diff.customer_contact = {
+        from: existing?.customerContact ?? null,
+        to: newContact,
+      };
+    }
+    if (!existing || existing.auditNote !== newAudit) {
+      diff.audit_note = {
+        from: existing?.auditNote ?? null,
+        to: newAudit,
+      };
+    }
+
+    if (Object.keys(diff).length === 0 && existing) {
+      return {
+        freightLegId: legId,
+        customerContact: existing.customerContact,
+        auditNote: existing.auditNote,
+      };
+    }
+
+    if (existing) {
+      await db
+        .update(freightCustomerArrangesMeta)
+        .set({
+          customerContact: newContact,
+          auditNote: newAudit,
+          updatedAt: new Date(),
+        })
+        .where(eq(freightCustomerArrangesMeta.freightLegId, legId));
+    } else {
+      await db.insert(freightCustomerArrangesMeta).values({
+        freightLegId: legId,
+        customerContact: newContact,
+        auditNote: newAudit,
+      });
+    }
+
+    await logAudit({
+      userId: user.id,
+      entityType: "freight_customer_arranges_meta",
+      entityId: legId,
+      action: existing ? "updated" : "created",
+      diffJson: diff,
     });
 
     revalidateQuoteTree(quote.projectId, quote.id);
 
     return {
-      quoteSkuId,
-      dutyPct: newDuty,
-      tariffPct: newTariff,
+      freightLegId: legId,
+      customerContact: newContact,
+      auditNote: newAudit,
     };
   });
 }
 
-// Apply a tier value across all sibling tier rows of the same line group.
-// Same affordance as packaging.copyTierValueToAllTiers.
-export async function copyFreightTierValueToAllTiers(
-  formData: FormData,
-): Promise<ActionResult<void>> {
-  return runAction(async () => {
-    const lineGroupId = String(formData.get("lineGroupId") ?? "").trim();
-    const sourceTierId = String(formData.get("sourceTierId") ?? "").trim();
-    const column = String(formData.get("column") ?? "").trim();
-    if (!lineGroupId)
-      throw new ActionGuardError(ERR.VALIDATION, "lineGroupId required");
-    if (!sourceTierId)
-      throw new ActionGuardError(ERR.VALIDATION, "sourceTierId required");
-    if (
-      column !== "total_freight" &&
-      column !== "units_in_shipment" &&
-      column !== "sku_total_cbm"
-    )
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        `unsupported column: ${column}`,
-      );
+// ---- internal: shape a leg row to the snapshot type ----
 
-    const user = await ensureUser();
-    const { quote } = await quoteForLineGroup(lineGroupId, "freight_inputs");
-
-    const sourceRows = await db
-      .select({
-        totalFreight: freightInputs.totalFreight,
-        unitsInShipment: freightInputs.unitsInShipment,
-        skuTotalCbm: freightInputs.skuTotalCbm,
-      })
-      .from(freightInputs)
-      .where(
-        and(
-          eq(freightInputs.lineGroupId, lineGroupId),
-          eq(freightInputs.tierId, sourceTierId),
-        ),
-      )
-      .limit(1);
-    if (sourceRows.length === 0)
-      throw new ActionGuardError(ERR.NOT_FOUND, "source tier row not found");
-    const sourceValue =
-      column === "total_freight"
-        ? sourceRows[0].totalFreight
-        : column === "units_in_shipment"
-          ? sourceRows[0].unitsInShipment
-          : sourceRows[0].skuTotalCbm;
-    if (sourceValue === null) return;
-
-    const targets = await db
-      .select({ id: freightInputs.id, tierId: freightInputs.tierId })
-      .from(freightInputs)
-      .where(eq(freightInputs.lineGroupId, lineGroupId));
-
-    const updates = targets.filter((t) => t.tierId !== sourceTierId);
-    if (updates.length === 0) return;
-
-    await db.transaction(async (tx) => {
-      for (const t of updates) {
-        const setClause =
-          column === "total_freight"
-            ? { totalFreight: sourceValue as string, updatedAt: new Date() }
-            : column === "units_in_shipment"
-              ? { unitsInShipment: sourceValue as number, updatedAt: new Date() }
-              : { skuTotalCbm: sourceValue as string, updatedAt: new Date() };
-        await tx
-          .update(freightInputs)
-          .set(setClause)
-          .where(eq(freightInputs.id, t.id));
-      }
-    });
-
-    await logAudit({
-      userId: user.id,
-      entityType: "freight_line",
-      entityId: lineGroupId,
-      action: "tier_value_copied",
-      diffJson: {
-        column,
-        source_tier_id: sourceTierId,
-        value: sourceValue,
-        target_count: updates.length,
-      },
-    });
-
-    revalidateQuoteTree(quote.projectId, quote.id);
-  });
+function shapeLegSnapshot(
+  leg: typeof freightLegs.$inferSelect,
+): FreightLegSnapshot {
+  return {
+    id: leg.id,
+    legGroupId: leg.legGroupId,
+    direction: leg.direction,
+    label: leg.label,
+    origin: leg.origin,
+    destination: leg.destination,
+    crossesInternationalBorder: leg.crossesInternationalBorder,
+    treatment: leg.treatment,
+    mode: leg.mode,
+    carrier: leg.carrier,
+    incoterm: leg.incoterm,
+    cargoReadyDate: leg.cargoReadyDate,
+    vesselEtd: leg.vesselEtd,
+    vesselEta: leg.vesselEta,
+    actualDeliveryDate: leg.actualDeliveryDate,
+    freightMarkupPct: leg.freightMarkupPct,
+    dutyMarkupPct: leg.dutyMarkupPct,
+    tariffMarkupPct: leg.tariffMarkupPct,
+    customs:
+      (leg.customs as { duty_pct?: number; tariff_pct?: number }) ?? {},
+    displayOrder: leg.displayOrder,
+  };
 }
 
-// Delete an entire freight line (all tier rows for line_group_id).
-export async function deleteFreightLine(
-  formData: FormData,
-): Promise<ActionResult<void>> {
-  return runAction(async () => {
-    const lineGroupId = String(formData.get("lineGroupId") ?? "").trim();
-    if (!lineGroupId)
-      throw new ActionGuardError(ERR.VALIDATION, "lineGroupId required");
-
-    const user = await ensureUser();
-    const { quote } = await quoteForLineGroup(lineGroupId, "freight_inputs");
-
-    const beforeRow = (
-      await db
-        .select({
-          supplier: freightInputs.supplier,
-          freightMode: freightInputs.freightMode,
-        })
-        .from(freightInputs)
-        .where(eq(freightInputs.lineGroupId, lineGroupId))
-        .limit(1)
-    )[0];
-
-    await db
-      .delete(freightInputs)
-      .where(eq(freightInputs.lineGroupId, lineGroupId));
-
-    await logAudit({
-      userId: user.id,
-      entityType: "freight_line",
-      entityId: lineGroupId,
-      action: "deleted",
-      diffJson: {
-        supplier: beforeRow?.supplier ?? null,
-        freight_mode: beforeRow?.freightMode ?? null,
-      },
-    });
-
-    revalidateQuoteTree(quote.projectId, quote.id);
-  });
-}
-
-// Reorder freight lines within a SKU via sort_order swap.
-export async function moveFreightLine(
-  formData: FormData,
-): Promise<ActionResult<void>> {
-  return runAction(async () => {
-    const lineGroupId = String(formData.get("lineGroupId") ?? "").trim();
-    const direction = String(formData.get("direction") ?? "") as "up" | "down";
-    if (!lineGroupId)
-      throw new ActionGuardError(ERR.VALIDATION, "lineGroupId required");
-    if (direction !== "up" && direction !== "down")
-      throw new ActionGuardError(ERR.VALIDATION, "direction must be up or down");
-
-    const user = await ensureUser();
-    const { quote } = await quoteForLineGroup(lineGroupId, "freight_inputs");
-
-    const groupRow = (
-      await db
-        .select({
-          sortOrder: freightInputs.sortOrder,
-          quoteSkuId: freightInputs.quoteSkuId,
-        })
-        .from(freightInputs)
-        .where(eq(freightInputs.lineGroupId, lineGroupId))
-        .limit(1)
-    )[0];
-    if (!groupRow) return;
-
-    const siblings = await db
-      .selectDistinctOn([freightInputs.lineGroupId], {
-        lineGroupId: freightInputs.lineGroupId,
-        sortOrder: freightInputs.sortOrder,
-      })
-      .from(freightInputs)
-      .where(eq(freightInputs.quoteSkuId, groupRow.quoteSkuId))
-      .orderBy(asc(freightInputs.lineGroupId), asc(freightInputs.sortOrder));
-
-    siblings.sort((a, b) => a.sortOrder - b.sortOrder);
-
-    const idx = siblings.findIndex((s) => s.lineGroupId === lineGroupId);
-    const swapWith = direction === "up" ? siblings[idx - 1] : siblings[idx + 1];
-    if (!swapWith) return;
-
-    await db.transaction(async (tx) => {
-      await tx
-        .update(freightInputs)
-        .set({ sortOrder: swapWith.sortOrder, updatedAt: new Date() })
-        .where(eq(freightInputs.lineGroupId, lineGroupId));
-      await tx
-        .update(freightInputs)
-        .set({ sortOrder: groupRow.sortOrder, updatedAt: new Date() })
-        .where(eq(freightInputs.lineGroupId, swapWith.lineGroupId));
-    });
-
-    await logAudit({
-      userId: user.id,
-      entityType: "freight_line",
-      entityId: lineGroupId,
-      action: "reordered",
-      diffJson: {
-        sort_order: { from: groupRow.sortOrder, to: swapWith.sortOrder },
-      },
-    });
-
-    revalidateQuoteTree(quote.projectId, quote.id);
-  });
-}
+// gt is imported but referenced indirectly (compatibility export for
+// future warning queries; remove if eslint flags as unused).
+void gt;

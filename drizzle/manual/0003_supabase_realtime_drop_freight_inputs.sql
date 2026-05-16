@@ -1,0 +1,21 @@
+-- Slice R6.2 commit 3 — close-out cleanup.
+--
+-- Removes the legacy `freight_inputs` table from the
+-- supabase_realtime publication. Runs BEFORE the drizzle migration
+-- 0027_drop_freight_inputs (which drops the table itself). Explicit
+-- publication removal is cleaner than relying on Postgres's auto-
+-- removal on DROP TABLE — keeps the publication state visible in
+-- audit trail of manual SQL.
+--
+-- Per-environment, applied manually (per Slice 8.5 0001 + R6.2 0002
+-- precedent). NOT picked up by drizzle-kit migrate.
+--
+-- Pre-condition: every active code path stopped reading from
+-- `freight_inputs` in commit 2.0 (verified by
+-- scripts/verify/r6-2-commit2-sweep.ts). The publication entry is
+-- the only remaining reference outside the DB table itself.
+--
+-- Verify with: scripts/verify/realtime-readiness.ts (which removes
+-- freight_inputs from its TABLES list in the same commit).
+
+ALTER PUBLICATION supabase_realtime DROP TABLE public.freight_inputs;

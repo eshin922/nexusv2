@@ -7,7 +7,8 @@ import {
   bulkRawIngredients,
   bulkRawSectionMeta,
   costSectionDeposits,
-  freightInputs,
+  freightLegGroups,
+  freightLegs,
   packagingInputs,
   productionInputs,
   projects,
@@ -69,9 +70,10 @@ import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
 // What's preserved (delegated to existing line-row components):
 //   - PackagingLineRow + AddLineButton (packaging input UI)
 //   - ProductionSection (production toggles + table + bulk raw cost)
-//   - FreightLineRow + CustomsRow + AddFreightLineButton (freight UI)
-//   These components are token-aware after RI.0 and don't need rebuilding
-//   for RI.4. They'll be polished in a later sub-slice.
+// Slice R6.2 — FreightDrilldown rebuilt against the multi-leg journey
+// schema; the original /freight subroute components were retired in
+// commit 2. New surface lives in src/components/costs/freight-drilldown.tsx
+// + canonical CSS at src/styles/r6-2-freight.css (Pattern 30 verbatim).
 
 export default async function CostBuildPage({
   params,
@@ -114,7 +116,8 @@ export default async function CostBuildPage({
     tiers,
     pkgRows,
     prodRows,
-    frtRows,
+    freightGroupRows,
+    freightLegRows,
     categories,
     bulkRawMeta,
   ] = await Promise.all([
@@ -143,16 +146,24 @@ export default async function CostBuildPage({
       .from(productionInputs)
       .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
       .where(eq(quoteSkus.quoteId, quote.id)),
+    // Slice R6.2 — multi-leg journey freight: load groups + legs for
+    // the sublabel / section-count rendering. The drilldown component
+    // pulls leg-tier data from the CostingStore (already hydrated via
+    // bundle.data above), so we don't need to re-load it here.
     db
       .select()
-      .from(freightInputs)
-      .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
-      .where(eq(quoteSkus.quoteId, quote.id))
-      .orderBy(
-        asc(freightInputs.sortOrder),
-        asc(freightInputs.lineGroupId),
-        asc(freightInputs.createdAt),
-      ),
+      .from(freightLegGroups)
+      .where(eq(freightLegGroups.quoteId, quote.id))
+      .orderBy(asc(freightLegGroups.displayOrder)),
+    db
+      .select({ leg: freightLegs })
+      .from(freightLegs)
+      .innerJoin(
+        freightLegGroups,
+        eq(freightLegGroups.id, freightLegs.legGroupId),
+      )
+      .where(eq(freightLegGroups.quoteId, quote.id))
+      .orderBy(asc(freightLegs.displayOrder)),
     listMarkupDefaults(),
     db
       .select()
@@ -160,6 +171,7 @@ export default async function CostBuildPage({
       .where(eq(bulkRawSectionMeta.quoteId, quote.id))
       .limit(1),
   ]);
+  const freightLegList = freightLegRows.map((r) => r.leg);
 
   // Phase 2: Bulk Raw categories/ingredients only when in dps_sources
   // mode (the only time the data is rendered). Skip otherwise — saves
@@ -426,16 +438,15 @@ export default async function CostBuildPage({
           <SectionWithDrilldown
             id="freight"
             name="Freight"
-            sublabel={freightSublabel(frtRows)}
-            statusChip={freightStatusChip(frtRows.length)}
+            sublabel={freightSublabel(freightGroupRows, freightLegList)}
+            statusChip={freightStatusChip(freightLegList.length)}
             tiers={tierBrief}
             sectionKind="freight"
-            lineCount={frtRows.length}
+            lineCount={freightLegList.length}
           >
             <FreightDrilldown
-              skus={skus}
+              quoteId={quote.id}
               tiers={tiers}
-              inputRows={frtRows}
               editable={editable}
             />
           </SectionWithDrilldown>
@@ -556,20 +567,32 @@ function productionIndicatorChip(
   };
 }
 
+// Slice R6.2 — sublabel describes the journey shape: total legs +
+// treatment split + customs-eligible count. Replaces the legacy
+// per-(line, SKU) phrasing.
 function freightSublabel(
-  rows: Array<{ freight_inputs: { lineGroupId: string; freightTreatment: "bundled" | "pass_through" } }>,
+  groups: Array<{ id: string; label: string }>,
+  legs: Array<{
+    id: string;
+    legGroupId: string;
+    treatment: "bundled" | "pass_through";
+    crossesInternationalBorder: boolean;
+    incoterm: "DDP" | "DAP" | "FOB" | "EXW" | "FCA" | "CIF" | null;
+  }>,
 ): string {
-  if (rows.length === 0)
-    return "Inbound, outbound, customs — per-line treatment";
-  // Dedup by lineGroupId. Count bundled vs passthrough.
-  const lines = new Map<string, "bundled" | "pass_through">();
-  for (const r of rows) {
-    if (!lines.has(r.freight_inputs.lineGroupId)) {
-      lines.set(r.freight_inputs.lineGroupId, r.freight_inputs.freightTreatment);
-    }
-  }
-  const bundled = [...lines.values()].filter((t) => t === "bundled").length;
-  const pass = [...lines.values()].filter((t) => t === "pass_through").length;
-  const lineCount = lines.size;
-  return `${lineCount} line${lineCount === 1 ? "" : "s"} · ${bundled} bundled, ${pass} passthrough · customs on DDP`;
+  if (legs.length === 0)
+    return "Multi-leg journey, per-component markup — customs on DDP border-crossing legs";
+  const bundled = legs.filter((l) => l.treatment === "bundled").length;
+  const pass = legs.filter((l) => l.treatment === "pass_through").length;
+  const customsCount = legs.filter(
+    (l) => l.crossesInternationalBorder && l.incoterm === "DDP",
+  ).length;
+  const groupCount = groups.length;
+  const groupPhrase =
+    groupCount === 1
+      ? `${legs.length} leg${legs.length === 1 ? "" : "s"}`
+      : `${groupCount} journeys · ${legs.length} legs`;
+  const treatmentPhrase = `${bundled} bundled, ${pass} passthrough`;
+  const customsPhrase = customsCount > 0 ? ` · ${customsCount} customs` : "";
+  return `${groupPhrase} · ${treatmentPhrase}${customsPhrase}`;
 }

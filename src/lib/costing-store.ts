@@ -3,7 +3,10 @@ import {
   computeQuoteCosting,
   type CostingCellOverride,
   type CostingCellTarget,
-  type CostingFreightInput,
+  type CostingFreightLeg,
+  type CostingFreightLegGroup,
+  type CostingFreightLegTier,
+  type CostingLegCustoms,
   type CostingPackagingInput,
   type CostingProductionInput,
   type CostingSku,
@@ -81,8 +84,23 @@ import { validateQuote, type WarningSpec } from "./validation";
 // (extra fields are ignored by the pure function).
 
 export type StoredPackagingRow = CostingPackagingInput & { rowId: string };
-export type StoredFreightRow = CostingFreightInput & { rowId: string };
 export type StoredProductionRow = CostingProductionInput; // keyed by (skuId, tierId)
+
+// Slice R6.2 — freight is per-quote, not per-SKU. Stored rows mirror
+// the pure-math types 1:1; identity is by leg-group id, leg id,
+// leg-tier id. The store mutators key on these directly.
+export type StoredFreightLegGroup = CostingFreightLegGroup;
+export type StoredFreightLeg = CostingFreightLeg;
+export type StoredFreightLegTier = CostingFreightLegTier & { rowId: string };
+
+// Customer-arranges-mode metadata per leg. Mirrors the DB shape on
+// `freight_customer_arranges_meta` 1:1. Optional entries — only legs
+// in customer-arranges mode have a row.
+export type StoredFreightCustomerArrangesMeta = {
+  freightLegId: string;
+  customerContact: string | null;
+  auditNote: string | null;
+};
 
 // ============================================================================
 // State shape
@@ -105,7 +123,14 @@ export type CostingStoreState = {
   tiers: CostingTier[];
   packaging: StoredPackagingRow[];
   production: StoredProductionRow[];
-  freight: StoredFreightRow[];
+  // Slice R6.2 — multi-leg journey freight model. Three sparse arrays
+  // (groups → legs → leg-tiers) + customer-arranges-meta. The store
+  // mutates one array at a time on PM edit; recompute pipes through
+  // all three into the pure rollup.
+  freightLegGroups: StoredFreightLegGroup[];
+  freightLegs: StoredFreightLeg[];
+  freightLegTiers: StoredFreightLegTier[];
+  freightCustomerArrangesMeta: StoredFreightCustomerArrangesMeta[];
   // Slice 9.3 — sparse per-cell sell-price overrides. Empty array =
   // no overrides. Mutated by `updateCellOverride(skuId, tierId, value)`
   // (upsert / clear pattern; see action below).
@@ -176,12 +201,38 @@ export type CostingStoreState = {
     quoteSkuId: string,
     fields: ProductionPolicyFields,
   ) => void;
-  updateFreightCell: (rowId: string, fields: FreightCellFields) => void;
-  updateFreightLineMeta: (
-    lineGroupId: string,
-    fields: FreightLineMetaFields,
+  // Slice R6.2 — freight mutators against the multi-leg journey
+  // model. Five actions, mirroring the action-layer surface:
+  //   · updateFreightLegTier — PM enters per-tier total_freight /
+  //     units_in_shipment on a leg's rate row
+  //   · updateFreightLegMeta — leg head fields (mode, carrier,
+  //     incoterm, dates, treatment, crosses_international_border)
+  //   · updateFreightLegMarkup — per-component markup pill override
+  //     (component = 'freight' | 'duty' | 'tariff')
+  //   · updateFreightLegCustoms — duty_pct / tariff_pct in JSONB
+  //   · updateFreightCustomerArrangesMeta — customer contact +
+  //     audit note for customer-arranges legs
+  updateFreightLegTier: (
+    rowId: string,
+    fields: FreightLegTierFields,
   ) => void;
-  updateCustoms: (quoteSkuId: string, fields: CustomsFields) => void;
+  updateFreightLegMeta: (
+    legId: string,
+    fields: FreightLegMetaFields,
+  ) => void;
+  updateFreightLegMarkup: (
+    legId: string,
+    component: "freight" | "duty" | "tariff",
+    value: number,
+  ) => void;
+  updateFreightLegCustoms: (
+    legId: string,
+    fields: FreightLegCustomsFields,
+  ) => void;
+  updateFreightCustomerArrangesMeta: (
+    legId: string,
+    fields: FreightCustomerArrangesMetaFields,
+  ) => void;
   updateGlobalAdj: (value: number) => void;
   // Slice 9.2 — per-tier price-adj override (NULL = inherit global).
   updateTierPriceAdj: (tierId: string, value: number | null) => void;
@@ -224,7 +275,10 @@ export type HydrateSnapshot = {
   tiers: CostingTier[];
   packaging: StoredPackagingRow[];
   production: StoredProductionRow[];
-  freight: StoredFreightRow[];
+  freightLegGroups: StoredFreightLegGroup[];
+  freightLegs: StoredFreightLeg[];
+  freightLegTiers: StoredFreightLegTier[];
+  freightCustomerArrangesMeta: StoredFreightCustomerArrangesMeta[];
   // Slice 9.3 — sparse per-cell sell-price overrides (rows that exist
   // in DB at hydration time). Empty array if no overrides on this quote.
   cellOverrides: CostingCellOverride[];
@@ -286,13 +340,40 @@ export type ProductionPolicyFields = Partial<
     "customerShipsRaws" | "allocateServiceFeesToCost"
   >
 >;
-export type FreightCellFields = Partial<
-  Pick<StoredFreightRow, "totalFreight" | "unitsInShipment" | "skuTotalCbm">
+// Slice R6.2 — per-(leg, tier) rate fields. PM enters total freight
+// cost; units_in_shipment overrides tier.qty when yield mismatch.
+export type FreightLegTierFields = Partial<
+  Pick<StoredFreightLegTier, "totalFreight" | "unitsInShipment">
 >;
-export type FreightLineMetaFields = Partial<
-  Pick<StoredFreightRow, "markupPct" | "freightTreatment">
+// Leg head fields. Excludes the per-component markup pcts + customs
+// JSONB (separate mutators per Gap 3 / 14 audit-key dispositions).
+export type FreightLegMetaFields = Partial<
+  Pick<
+    StoredFreightLeg,
+    | "direction"
+    | "label"
+    | "origin"
+    | "destination"
+    | "crossesInternationalBorder"
+    | "treatment"
+    | "mode"
+    | "carrier"
+    | "incoterm"
+    | "cargoReadyDate"
+    | "vesselEtd"
+    | "vesselEta"
+    | "actualDeliveryDate"
+  >
 >;
-export type CustomsFields = Partial<Pick<CostingSku, "dutyPct" | "tariffPct">>;
+// Customs JSONB shape. Either field nullable; the action layer rejects
+// out-of-range values per Gap 5.
+export type FreightLegCustomsFields = Partial<CostingLegCustoms>;
+// Customer-arranges metadata; legs only render this in customer-
+// arranges mode. Per Gap 18 the meta lives in its own table for
+// independent audit-log diff per field.
+export type FreightCustomerArrangesMetaFields = Partial<
+  Pick<StoredFreightCustomerArrangesMeta, "customerContact" | "auditNote">
+>;
 
 // ============================================================================
 // Internal recompute helper
@@ -326,7 +407,9 @@ function recompute(
     tiers: s.tiers,
     packaging: s.packaging,
     production: s.production,
-    freight: s.freight,
+    freightLegGroups: s.freightLegGroups,
+    freightLegs: s.freightLegs,
+    freightLegTiers: s.freightLegTiers,
     cellOverrides: s.cellOverrides,
     cellTargets: s.cellTargets,
   };
@@ -353,7 +436,9 @@ function warningsFromSnapshot(snapshot: HydrateSnapshot): WarningSpec[] {
     tiers: snapshot.tiers,
     packaging: snapshot.packaging,
     production: snapshot.production,
-    freight: snapshot.freight,
+    freightLegGroups: snapshot.freightLegGroups,
+    freightLegs: snapshot.freightLegs,
+    freightLegTiers: snapshot.freightLegTiers,
     cellOverrides: snapshot.cellOverrides,
     cellTargets: snapshot.cellTargets,
   };
@@ -382,7 +467,10 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     tiers: initial.tiers,
     packaging: initial.packaging,
     production: initial.production,
-    freight: initial.freight,
+    freightLegGroups: initial.freightLegGroups,
+    freightLegs: initial.freightLegs,
+    freightLegTiers: initial.freightLegTiers,
+    freightCustomerArrangesMeta: initial.freightCustomerArrangesMeta,
     cellOverrides: initial.cellOverrides,
     cellTargets: initial.cellTargets,
     // Slice 9.4a — view-state. Defaults to null on store creation;
@@ -410,7 +498,10 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         tiers: snapshot.tiers,
         packaging: snapshot.packaging,
         production: snapshot.production,
-        freight: snapshot.freight,
+        freightLegGroups: snapshot.freightLegGroups,
+        freightLegs: snapshot.freightLegs,
+        freightLegTiers: snapshot.freightLegTiers,
+        freightCustomerArrangesMeta: snapshot.freightCustomerArrangesMeta,
         cellOverrides: snapshot.cellOverrides,
         cellTargets: snapshot.cellTargets,
         costing: snapshot.costing,
@@ -439,7 +530,10 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         tiers: snapshot.tiers,
         packaging: snapshot.packaging,
         production: snapshot.production,
-        freight: snapshot.freight,
+        freightLegGroups: snapshot.freightLegGroups,
+        freightLegs: snapshot.freightLegs,
+        freightLegTiers: snapshot.freightLegTiers,
+        freightCustomerArrangesMeta: snapshot.freightCustomerArrangesMeta,
         cellOverrides: snapshot.cellOverrides,
         cellTargets: snapshot.cellTargets,
         costing: snapshot.costing,
@@ -510,38 +604,96 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         };
       }),
 
-    updateFreightCell: (rowId, fields) =>
+    // Slice R6.2 — per-(leg, tier) rate row: total_freight + units_in_shipment.
+    updateFreightLegTier: (rowId, fields) =>
       set((s) => {
-        const freight = s.freight.map((f) =>
-          f.rowId === rowId ? { ...f, ...fields } : f,
+        const freightLegTiers = s.freightLegTiers.map((lt) =>
+          lt.rowId === rowId ? { ...lt, ...fields } : lt,
         );
         return {
-          freight,
-          ...recompute({ ...s, freight }),
+          freightLegTiers,
+          ...recompute({ ...s, freightLegTiers }),
           lastUserEditAt: Date.now(),
         };
       }),
 
-    updateFreightLineMeta: (lineGroupId, fields) =>
+    // Slice R6.2 — leg head fields (mode, carrier, incoterm, dates,
+    // treatment, crosses_international_border).
+    updateFreightLegMeta: (legId, fields) =>
       set((s) => {
-        const freight = s.freight.map((f) =>
-          f.lineGroupId === lineGroupId ? { ...f, ...fields } : f,
+        const freightLegs = s.freightLegs.map((leg) =>
+          leg.id === legId ? { ...leg, ...fields } : leg,
         );
         return {
-          freight,
-          ...recompute({ ...s, freight }),
+          freightLegs,
+          ...recompute({ ...s, freightLegs }),
           lastUserEditAt: Date.now(),
         };
       }),
 
-    updateCustoms: (quoteSkuId, fields) =>
+    // Slice R6.2 — per-component markup pill override. Component
+    // discriminator keys which of the three markup pct fields to
+    // mutate. Per Gap 3 disposition the audit-log action is shared
+    // (`freight_leg_markup_updated`) with diff_json.component flag.
+    updateFreightLegMarkup: (legId, component, value) =>
       set((s) => {
-        const skus = s.skus.map((sk) =>
-          sk.id === quoteSkuId ? { ...sk, ...fields } : sk,
+        const key =
+          component === "freight"
+            ? "freightMarkupPct"
+            : component === "duty"
+              ? "dutyMarkupPct"
+              : "tariffMarkupPct";
+        const freightLegs = s.freightLegs.map((leg) =>
+          leg.id === legId ? { ...leg, [key]: value } : leg,
         );
         return {
-          skus,
-          ...recompute({ ...s, skus }),
+          freightLegs,
+          ...recompute({ ...s, freightLegs }),
+          lastUserEditAt: Date.now(),
+        };
+      }),
+
+    // Slice R6.2 — customs JSONB update. Merges fields into the leg's
+    // existing customs object. Both keys nullable.
+    updateFreightLegCustoms: (legId, fields) =>
+      set((s) => {
+        const freightLegs = s.freightLegs.map((leg) =>
+          leg.id === legId
+            ? { ...leg, customs: { ...leg.customs, ...fields } }
+            : leg,
+        );
+        return {
+          freightLegs,
+          ...recompute({ ...s, freightLegs }),
+          lastUserEditAt: Date.now(),
+        };
+      }),
+
+    // Slice R6.2 — customer-arranges metadata. Per Gap 18 the meta
+    // lives in its own table for independent audit-log diff per
+    // field. Upsert: if no row exists for this leg, prepend a new
+    // one (server action ensures the row exists at write time).
+    updateFreightCustomerArrangesMeta: (legId, fields) =>
+      set((s) => {
+        const existing = s.freightCustomerArrangesMeta.find(
+          (m) => m.freightLegId === legId,
+        );
+        const freightCustomerArrangesMeta = existing
+          ? s.freightCustomerArrangesMeta.map((m) =>
+              m.freightLegId === legId ? { ...m, ...fields } : m,
+            )
+          : [
+              ...s.freightCustomerArrangesMeta,
+              {
+                freightLegId: legId,
+                customerContact: null,
+                auditNote: null,
+                ...fields,
+              },
+            ];
+        return {
+          freightCustomerArrangesMeta,
+          ...recompute({ ...s, freightCustomerArrangesMeta }),
           lastUserEditAt: Date.now(),
         };
       }),
@@ -725,11 +877,35 @@ export const selectUpdateProductionCell = (s: CostingStoreState) =>
   s.updateProductionCell;
 export const selectUpdateProductionPolicy = (s: CostingStoreState) =>
   s.updateProductionPolicy;
-export const selectUpdateFreightCell = (s: CostingStoreState) =>
-  s.updateFreightCell;
-export const selectUpdateFreightLineMeta = (s: CostingStoreState) =>
-  s.updateFreightLineMeta;
-export const selectUpdateCustoms = (s: CostingStoreState) => s.updateCustoms;
+// Slice R6.2 — per-leg-tier rate update (total_freight, units_in_shipment).
+export const selectUpdateFreightLegTier = (s: CostingStoreState) =>
+  s.updateFreightLegTier;
+// Slice R6.2 — leg head metadata (mode, carrier, incoterm, dates,
+// treatment, crosses_international_border).
+export const selectUpdateFreightLegMeta = (s: CostingStoreState) =>
+  s.updateFreightLegMeta;
+// Slice R6.2 — per-component markup pill override.
+export const selectUpdateFreightLegMarkup = (s: CostingStoreState) =>
+  s.updateFreightLegMarkup;
+// Slice R6.2 — customs JSONB update (duty_pct, tariff_pct).
+export const selectUpdateFreightLegCustoms = (s: CostingStoreState) =>
+  s.updateFreightLegCustoms;
+// Slice R6.2 — customer-arranges metadata.
+export const selectUpdateFreightCustomerArrangesMeta = (
+  s: CostingStoreState,
+) => s.updateFreightCustomerArrangesMeta;
+
+// Slice R6.2 — freight reads. UI consumers grab the full sets;
+// further filtering is per-component. (Granular per-leg selectors
+// would explode the surface area; v1 reads are coarse and re-renders
+// are bounded by the store's recompute granularity.)
+export const selectFreightLegGroups = (s: CostingStoreState) =>
+  s.freightLegGroups;
+export const selectFreightLegs = (s: CostingStoreState) => s.freightLegs;
+export const selectFreightLegTiers = (s: CostingStoreState) =>
+  s.freightLegTiers;
+export const selectFreightCustomerArrangesMeta = (s: CostingStoreState) =>
+  s.freightCustomerArrangesMeta;
 export const selectUpdateGlobalAdj = (s: CostingStoreState) =>
   s.updateGlobalAdj;
 export const selectUpdateTierPriceAdj = (s: CostingStoreState) =>

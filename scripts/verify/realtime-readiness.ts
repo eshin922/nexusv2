@@ -34,7 +34,15 @@ const TABLES = [
   "quote_tiers",
   "packaging_inputs",
   "production_inputs",
-  "freight_inputs",
+  // Slice R6.2 — multi-leg freight tables added to the publication
+  // via drizzle/manual/0002_supabase_realtime_r6_2_freight.sql.
+  // Legacy `freight_inputs` retired commit 3 (drop SQL
+  // drizzle/manual/0003_supabase_realtime_drop_freight_inputs.sql
+  // + drizzle migration 0027); table no longer exists.
+  "freight_leg_groups",
+  "freight_legs",
+  "freight_leg_tiers",
+  "freight_customer_arranges_meta",
   "quotes",
   "firm_settings",
   "markup_defaults",
@@ -115,7 +123,7 @@ console.log(`  RLS:         ${rlsOn} / ${TABLES.length} tables have RLS enabled`
 
 console.log("\n=== Decision branch ===");
 if (rlsOn === 0 && pubMissing === 0) {
-  console.log("  ✓ RLS off across all 8 tables, all in publication.");
+  console.log(`  ✓ RLS off across all ${TABLES.length} tables, all in publication.`);
   console.log("    Proceed with anon-key browser client (#46+).");
   console.log("    CLAUDE.md (#56) must document the RLS-off assumption");
   console.log("    as a latent dependency: if RLS is ever turned on, the");

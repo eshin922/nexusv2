@@ -367,9 +367,10 @@ export async function getProjectScenarioCards(
           WHERE qs.quote_id = q.id
         )
         OR EXISTS (
-          SELECT 1 FROM freight_inputs fi
-          JOIN quote_skus qs ON qs.id = fi.quote_sku_id
-          WHERE qs.quote_id = q.id
+          -- Slice R6.2 — freight is per-quote (leg-group → leg);
+          -- presence of any leg-group counts as cost-input data.
+          SELECT 1 FROM freight_leg_groups flg
+          WHERE flg.quote_id = q.id
         )
         OR EXISTS (SELECT 1 FROM bulk_raw_categories WHERE quote_id = q.id)
       ) AS has_cost_inputs

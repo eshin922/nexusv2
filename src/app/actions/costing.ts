@@ -5,7 +5,10 @@ import { db } from "@/db";
 import {
   auditLog,
   firmSettings,
-  freightInputs,
+  freightCustomerArrangesMeta,
+  freightLegGroups,
+  freightLegs,
+  freightLegTiers,
   markupDefaults,
   packagingInputs,
   productionInputs,
@@ -82,6 +85,149 @@ function num(v: string | null, fallback = 0): number {
   return numOrNull(v) ?? fallback;
 }
 
+// Slice R6.2 — shared loader for the multi-leg journey freight model.
+// Returns four arrays in DB-shape order (groups → legs → leg-tiers →
+// customer-arranges-meta) plus the math-input projections the
+// computeQuoteCosting / HydrateSnapshot consumers expect. All three
+// freight-loading call sites in this file go through this helper.
+async function loadFreightForQuote(quoteId: string): Promise<{
+  legGroupRows: Array<typeof freightLegGroups.$inferSelect>;
+  legRows: Array<typeof freightLegs.$inferSelect>;
+  legTierRows: Array<typeof freightLegTiers.$inferSelect>;
+  custMetaRows: Array<typeof freightCustomerArrangesMeta.$inferSelect>;
+}> {
+  const [legGroupRows, legJoinRows, legTierJoinRows, metaJoinRows] =
+    await Promise.all([
+      db
+        .select()
+        .from(freightLegGroups)
+        .where(eq(freightLegGroups.quoteId, quoteId))
+        .orderBy(asc(freightLegGroups.displayOrder)),
+      db
+        .select({ freight_legs: freightLegs })
+        .from(freightLegs)
+        .innerJoin(
+          freightLegGroups,
+          eq(freightLegGroups.id, freightLegs.legGroupId),
+        )
+        .where(eq(freightLegGroups.quoteId, quoteId))
+        .orderBy(asc(freightLegs.displayOrder)),
+      db
+        .select({ freight_leg_tiers: freightLegTiers })
+        .from(freightLegTiers)
+        .innerJoin(
+          freightLegs,
+          eq(freightLegs.id, freightLegTiers.freightLegId),
+        )
+        .innerJoin(
+          freightLegGroups,
+          eq(freightLegGroups.id, freightLegs.legGroupId),
+        )
+        .where(eq(freightLegGroups.quoteId, quoteId)),
+      db
+        .select({
+          freight_customer_arranges_meta: freightCustomerArrangesMeta,
+        })
+        .from(freightCustomerArrangesMeta)
+        .innerJoin(
+          freightLegs,
+          eq(freightLegs.id, freightCustomerArrangesMeta.freightLegId),
+        )
+        .innerJoin(
+          freightLegGroups,
+          eq(freightLegGroups.id, freightLegs.legGroupId),
+        )
+        .where(eq(freightLegGroups.quoteId, quoteId)),
+    ]);
+  return {
+    legGroupRows,
+    legRows: legJoinRows.map((r) => r.freight_legs),
+    legTierRows: legTierJoinRows.map((r) => r.freight_leg_tiers),
+    custMetaRows: metaJoinRows.map((r) => r.freight_customer_arranges_meta),
+  };
+}
+
+// Project DB rows into the math-input shape (CostingFreightLeg*).
+// Pure projection; no DB access. Used by all three call sites.
+function projectFreightInputs(args: {
+  legGroupRows: Array<typeof freightLegGroups.$inferSelect>;
+  legRows: Array<typeof freightLegs.$inferSelect>;
+  legTierRows: Array<typeof freightLegTiers.$inferSelect>;
+  custMetaRows: Array<typeof freightCustomerArrangesMeta.$inferSelect>;
+}): {
+  freightLegGroups: QuoteCostingInput["freightLegGroups"];
+  freightLegs: QuoteCostingInput["freightLegs"];
+  freightLegTiers: QuoteCostingInput["freightLegTiers"];
+  storedLegTiers: Array<
+    QuoteCostingInput["freightLegTiers"][number] & { rowId: string }
+  >;
+  customerArrangesMeta: Array<{
+    freightLegId: string;
+    customerContact: string | null;
+    auditNote: string | null;
+  }>;
+} {
+  return {
+    freightLegGroups: args.legGroupRows.map((g) => ({
+      id: g.id,
+      label: g.label,
+      displayOrder: g.displayOrder,
+    })),
+    freightLegs: args.legRows.map((leg) => ({
+      id: leg.id,
+      legGroupId: leg.legGroupId,
+      direction: leg.direction,
+      label: leg.label,
+      origin: leg.origin,
+      destination: leg.destination,
+      crossesInternationalBorder: leg.crossesInternationalBorder,
+      treatment: leg.treatment,
+      mode: leg.mode,
+      carrier: leg.carrier,
+      incoterm: leg.incoterm,
+      cargoReadyDate: leg.cargoReadyDate,
+      vesselEtd: leg.vesselEtd,
+      vesselEta: leg.vesselEta,
+      actualDeliveryDate: leg.actualDeliveryDate,
+      freightMarkupPct: num(leg.freightMarkupPct, 0.3),
+      dutyMarkupPct: num(leg.dutyMarkupPct, 0.3),
+      tariffMarkupPct: num(leg.tariffMarkupPct, 0.3),
+      customs: (() => {
+        // DB JSONB shape uses snake_case keys (duty_pct, tariff_pct);
+        // the math-layer type uses camelCase (dutyPct, tariffPct) for
+        // consistency with the rest of the costing types. Translate
+        // at the boundary.
+        const raw = (leg.customs as
+          | { duty_pct?: number; tariff_pct?: number }
+          | undefined) ?? {};
+        const out: { dutyPct?: number; tariffPct?: number } = {};
+        if (raw.duty_pct !== undefined) out.dutyPct = raw.duty_pct;
+        if (raw.tariff_pct !== undefined) out.tariffPct = raw.tariff_pct;
+        return out;
+      })(),
+      displayOrder: leg.displayOrder,
+    })),
+    freightLegTiers: args.legTierRows.map((lt) => ({
+      freightLegId: lt.freightLegId,
+      tierId: lt.tierId,
+      totalFreight: numOrNull(lt.totalFreight),
+      unitsInShipment: lt.unitsInShipment,
+    })),
+    storedLegTiers: args.legTierRows.map((lt) => ({
+      rowId: lt.id,
+      freightLegId: lt.freightLegId,
+      tierId: lt.tierId,
+      totalFreight: numOrNull(lt.totalFreight),
+      unitsInShipment: lt.unitsInShipment,
+    })),
+    customerArrangesMeta: args.custMetaRows.map((m) => ({
+      freightLegId: m.freightLegId,
+      customerContact: m.customerContact,
+      auditNote: m.auditNote,
+    })),
+  };
+}
+
 // ---------- read action: getQuoteCosting ----------
 
 // Pure read. Assembles QuoteCostingInput from the DB, calls the pure
@@ -121,7 +267,7 @@ export async function getQuoteCosting(
       );
     }
 
-    const [skus, tiers, pkgs, prods, frts, mks, cellOvr, cellTgt] = await Promise.all([
+    const [skus, tiers, pkgs, prods, freightLoad, mks, cellOvr, cellTgt] = await Promise.all([
       db
         .select()
         .from(quoteSkus)
@@ -142,11 +288,8 @@ export async function getQuoteCosting(
         .from(productionInputs)
         .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
         .where(eq(quoteSkus.quoteId, quoteId)),
-      db
-        .select()
-        .from(freightInputs)
-        .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId)),
+      // Slice R6.2 — multi-leg journey freight load (4 joined tables).
+      loadFreightForQuote(quoteId),
       db.select().from(markupDefaults),
       // Slice 9.3 — sparse load: only rows that exist for this quote's
       // SKUs. Empty result = no overrides anywhere. INNER JOIN on
@@ -180,6 +323,8 @@ export async function getQuoteCosting(
       mks.map((m) => [m.category, Number(m.defaultMarkupPct)]),
     );
 
+    const freightProjection = projectFreightInputs(freightLoad);
+
     const input: QuoteCostingInput = {
       quote: {
         id: quote.id,
@@ -199,8 +344,6 @@ export async function getQuoteCosting(
         skuLabel: s.skuLabel,
         productName: s.productName,
         sortOrder: s.sortOrder,
-        dutyPct: numOrNull(s.dutyPct),
-        tariffPct: numOrNull(s.tariffPct),
         retailBenchmark: numOrNull(s.retailBenchmark),
       })),
       tiers: tiers.map((t) => ({
@@ -249,19 +392,9 @@ export async function getQuoteCosting(
           actualUnitsProduced: p.actualUnitsProduced,
         };
       }),
-      freight: frts.map((r) => {
-        const f = r.freight_inputs;
-        return {
-          quoteSkuId: f.quoteSkuId,
-          tierId: f.tierId,
-          lineGroupId: f.lineGroupId,
-          totalFreight: numOrNull(f.totalFreight),
-          unitsInShipment: f.unitsInShipment,
-          skuTotalCbm: numOrNull(f.skuTotalCbm),
-          markupPct: numOrNull(f.markupPct),
-          freightTreatment: f.freightTreatment,
-        };
-      }),
+      freightLegGroups: freightProjection.freightLegGroups,
+      freightLegs: freightProjection.freightLegs,
+      freightLegTiers: freightProjection.freightLegTiers,
     };
 
     return computeQuoteCosting(input);
@@ -966,7 +1099,7 @@ export async function applyClientTargetSolveTierAdj(
         "firm_settings has no current row.",
       );
     }
-    const [skus, tiersFresh, pkgs, prods, frts, mks, cellOvr, cellTgt] =
+    const [skus, tiersFresh, pkgs, prods, freightLoad, mks, cellOvr, cellTgt] =
       await Promise.all([
         db
           .select()
@@ -988,11 +1121,8 @@ export async function applyClientTargetSolveTierAdj(
           .from(productionInputs)
           .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
           .where(eq(quoteSkus.quoteId, quoteId)),
-        db
-          .select()
-          .from(freightInputs)
-          .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
-          .where(eq(quoteSkus.quoteId, quoteId)),
+        // Slice R6.2 — multi-leg journey freight load.
+        loadFreightForQuote(quoteId),
         db.select().from(markupDefaults),
         db
           .select({
@@ -1022,6 +1152,8 @@ export async function applyClientTargetSolveTierAdj(
       mks.map((m) => [m.category, Number(m.defaultMarkupPct)]),
     );
 
+    const freightProjection = projectFreightInputs(freightLoad);
+
     const input: QuoteCostingInput = {
       quote: {
         id: quote.id,
@@ -1041,8 +1173,6 @@ export async function applyClientTargetSolveTierAdj(
         skuLabel: s.skuLabel,
         productName: s.productName,
         sortOrder: s.sortOrder,
-        dutyPct: numOrNull(s.dutyPct),
-        tariffPct: numOrNull(s.tariffPct),
         retailBenchmark: numOrNull(s.retailBenchmark),
       })),
       tiers: tiersFresh.map((t) => ({
@@ -1091,19 +1221,9 @@ export async function applyClientTargetSolveTierAdj(
           actualUnitsProduced: p.actualUnitsProduced,
         };
       }),
-      freight: frts.map((r) => {
-        const f = r.freight_inputs;
-        return {
-          quoteSkuId: f.quoteSkuId,
-          tierId: f.tierId,
-          lineGroupId: f.lineGroupId,
-          totalFreight: numOrNull(f.totalFreight),
-          unitsInShipment: f.unitsInShipment,
-          skuTotalCbm: numOrNull(f.skuTotalCbm),
-          markupPct: numOrNull(f.markupPct),
-          freightTreatment: f.freightTreatment,
-        };
-      }),
+      freightLegGroups: freightProjection.freightLegGroups,
+      freightLegs: freightProjection.freightLegs,
+      freightLegTiers: freightProjection.freightLegTiers,
     };
 
     // Defense in depth — leaf-only invariant on the origin cell.
@@ -1288,7 +1408,7 @@ export async function getCostingBundle(
       );
     }
 
-    const [skus, tiers, pkgs, prods, frts, mks, cellOvr, cellTgt] = await Promise.all([
+    const [skus, tiers, pkgs, prods, freightLoad, mks, cellOvr, cellTgt] = await Promise.all([
       db
         .select()
         .from(quoteSkus)
@@ -1309,11 +1429,8 @@ export async function getCostingBundle(
         .from(productionInputs)
         .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
         .where(eq(quoteSkus.quoteId, quoteId)),
-      db
-        .select()
-        .from(freightInputs)
-        .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId)),
+      // Slice R6.2 — multi-leg journey freight load.
+      loadFreightForQuote(quoteId),
       db.select().from(markupDefaults),
       // Slice 9.3 — sparse load of cell-level sell-price overrides.
       db
@@ -1343,6 +1460,8 @@ export async function getCostingBundle(
       mks.map((m) => [m.category, Number(m.defaultMarkupPct)]),
     );
 
+    const freightProjection = projectFreightInputs(freightLoad);
+
     const skuList = skus.map((s) => ({
       id: s.id,
       parentSkuId: s.parentSkuId,
@@ -1351,8 +1470,6 @@ export async function getCostingBundle(
       skuLabel: s.skuLabel,
       productName: s.productName,
       sortOrder: s.sortOrder,
-      dutyPct: numOrNull(s.dutyPct),
-      tariffPct: numOrNull(s.tariffPct),
       retailBenchmark: numOrNull(s.retailBenchmark),
     }));
 
@@ -1396,20 +1513,15 @@ export async function getCostingBundle(
       };
     });
 
-    const freightList = frts.map((r) => {
-      const f = r.freight_inputs;
-      return {
-        rowId: f.id,
-        quoteSkuId: f.quoteSkuId,
-        tierId: f.tierId,
-        lineGroupId: f.lineGroupId,
-        totalFreight: numOrNull(f.totalFreight),
-        unitsInShipment: f.unitsInShipment,
-        skuTotalCbm: numOrNull(f.skuTotalCbm),
-        markupPct: numOrNull(f.markupPct),
-        freightTreatment: f.freightTreatment,
-      };
-    });
+    // Slice R6.2 — freight projections (per-quote leg-group / leg /
+    // leg-tier / customer-arranges-meta). The store hydrates the
+    // grouped arrays directly; the math input consumes the same
+    // projection sans `rowId`.
+    const freightLegGroupList = freightProjection.freightLegGroups;
+    const freightLegList = freightProjection.freightLegs;
+    const freightLegTierList = freightProjection.storedLegTiers;
+    const freightCustomerArrangesMetaList =
+      freightProjection.customerArrangesMeta;
 
     // Slice 9.3 — shape DB rows into pure-math input. Sparse: empty
     // array if no overrides anywhere on this quote.
@@ -1440,7 +1552,14 @@ export async function getCostingBundle(
       tiers: tierList,
       packaging: packagingList,
       production: productionList,
-      freight: freightList,
+      freightLegGroups: freightLegGroupList,
+      freightLegs: freightLegList,
+      freightLegTiers: freightLegTierList.map((lt) => ({
+        freightLegId: lt.freightLegId,
+        tierId: lt.tierId,
+        totalFreight: lt.totalFreight,
+        unitsInShipment: lt.unitsInShipment,
+      })),
       cellOverrides: cellOverrideList,
       cellTargets: cellTargetList,
     };
@@ -1486,7 +1605,10 @@ export async function getCostingBundle(
       tiers: tierList,
       packaging: packagingList,
       production: productionList,
-      freight: freightList,
+      freightLegGroups: freightLegGroupList,
+      freightLegs: freightLegList,
+      freightLegTiers: freightLegTierList,
+      freightCustomerArrangesMeta: freightCustomerArrangesMetaList,
       cellOverrides: cellOverrideList,
       cellTargets: cellTargetList,
       costing: result,

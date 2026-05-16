@@ -20,11 +20,13 @@
 
 const MAX_DECIMAL = 9.99;
 
-// markup: packaging_inputs.markup_pct, freight_inputs.markup_pct
+// markup: packaging_inputs.markup_pct,
+//         freight_legs.{freight,duty,tariff}_markup_pct (Slice R6.2
+//         per-component pills)
 //         (natural min 0; never negative).
 // adj:    quotes.global_price_adj_pct
 //         (negative discounts are valid; bounds are symmetric).
-// rate:   quote_skus.duty_pct, quote_skus.tariff_pct,
+// rate:   freight_legs.customs.{duty_pct,tariff_pct} (Slice R6.2 JSONB),
 //         firm_settings.target_margin_pct, firm_settings.floor_margin_pct
 //         (natural min 0; never negative).
 export type PercentFieldType = "markup" | "adj" | "rate";

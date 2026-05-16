@@ -31,7 +31,10 @@ import { db } from "@/db";
 import {
   auditLog,
   firmSettings,
-  freightInputs,
+  freightCustomerArrangesMeta,
+  freightLegGroups,
+  freightLegs,
+  freightLegTiers,
   markupDefaults,
   packagingInputs,
   productionInputs,
@@ -115,8 +118,19 @@ async function loadCostingForQuote(
   const fs = fsRows[0];
   if (!fs) return null;
 
-  const [skus, tiers, pkgs, prods, frts, mks, cellOvr, cellTgt] =
-    await Promise.all([
+  const [
+    skus,
+    tiers,
+    pkgs,
+    prods,
+    legGroupRows,
+    legRows,
+    legTierRows,
+    custMetaRows,
+    mks,
+    cellOvr,
+    cellTgt,
+  ] = await Promise.all([
       db
         .select()
         .from(quoteSkus)
@@ -137,11 +151,42 @@ async function loadCostingForQuote(
         .from(productionInputs)
         .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
         .where(eq(quoteSkus.quoteId, quoteId)),
+      // Slice R6.2 — multi-leg journey freight: three joined tables.
       db
         .select()
-        .from(freightInputs)
-        .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId)),
+        .from(freightLegGroups)
+        .where(eq(freightLegGroups.quoteId, quoteId))
+        .orderBy(asc(freightLegGroups.displayOrder)),
+      db
+        .select()
+        .from(freightLegs)
+        .innerJoin(
+          freightLegGroups,
+          eq(freightLegGroups.id, freightLegs.legGroupId),
+        )
+        .where(eq(freightLegGroups.quoteId, quoteId))
+        .orderBy(asc(freightLegs.displayOrder)),
+      db
+        .select()
+        .from(freightLegTiers)
+        .innerJoin(freightLegs, eq(freightLegs.id, freightLegTiers.freightLegId))
+        .innerJoin(
+          freightLegGroups,
+          eq(freightLegGroups.id, freightLegs.legGroupId),
+        )
+        .where(eq(freightLegGroups.quoteId, quoteId)),
+      db
+        .select()
+        .from(freightCustomerArrangesMeta)
+        .innerJoin(
+          freightLegs,
+          eq(freightLegs.id, freightCustomerArrangesMeta.freightLegId),
+        )
+        .innerJoin(
+          freightLegGroups,
+          eq(freightLegGroups.id, freightLegs.legGroupId),
+        )
+        .where(eq(freightLegGroups.quoteId, quoteId)),
       db.select().from(markupDefaults),
       db
         .select({
@@ -195,8 +240,8 @@ async function loadCostingForQuote(
       skuLabel: s.skuLabel,
       productName: s.productName,
       sortOrder: s.sortOrder,
-      dutyPct: numOrNull(s.dutyPct),
-      tariffPct: numOrNull(s.tariffPct),
+      // Slice R6.2 — dutyPct/tariffPct dropped from CostingSku.
+      // Customs lives per-leg now (freight_legs.customs JSONB).
       retailBenchmark: numOrNull(s.retailBenchmark),
     })),
     tiers: tiers.map((t) => ({
@@ -245,20 +290,61 @@ async function loadCostingForQuote(
         actualUnitsProduced: p.actualUnitsProduced,
       };
     }),
-    freight: frts.map((r) => {
-      const f = r.freight_inputs;
+    // Slice R6.2 — multi-leg journey freight: three sparse arrays
+    // mirroring the DB shape. Math layer accumulates over all legs.
+    freightLegGroups: legGroupRows.map((g) => ({
+      id: g.id,
+      label: g.label,
+      displayOrder: g.displayOrder,
+    })),
+    freightLegs: legRows.map((r) => {
+      const leg = r.freight_legs;
       return {
-        quoteSkuId: f.quoteSkuId,
-        tierId: f.tierId,
-        lineGroupId: f.lineGroupId,
-        totalFreight: numOrNull(f.totalFreight),
-        unitsInShipment: f.unitsInShipment,
-        skuTotalCbm: numOrNull(f.skuTotalCbm),
-        markupPct: numOrNull(f.markupPct),
-        freightTreatment: f.freightTreatment,
+        id: leg.id,
+        legGroupId: leg.legGroupId,
+        direction: leg.direction,
+        label: leg.label,
+        origin: leg.origin,
+        destination: leg.destination,
+        crossesInternationalBorder: leg.crossesInternationalBorder,
+        treatment: leg.treatment,
+        mode: leg.mode,
+        carrier: leg.carrier,
+        incoterm: leg.incoterm,
+        cargoReadyDate: leg.cargoReadyDate,
+        vesselEtd: leg.vesselEtd,
+        vesselEta: leg.vesselEta,
+        actualDeliveryDate: leg.actualDeliveryDate,
+        freightMarkupPct: num(leg.freightMarkupPct, 0.3),
+        dutyMarkupPct: num(leg.dutyMarkupPct, 0.3),
+        tariffMarkupPct: num(leg.tariffMarkupPct, 0.3),
+        customs: (() => {
+          const raw = (leg.customs as
+            | { duty_pct?: number; tariff_pct?: number }
+            | undefined) ?? {};
+          const out: { dutyPct?: number; tariffPct?: number } = {};
+          if (raw.duty_pct !== undefined) out.dutyPct = raw.duty_pct;
+          if (raw.tariff_pct !== undefined) out.tariffPct = raw.tariff_pct;
+          return out;
+        })(),
+        displayOrder: leg.displayOrder,
+      };
+    }),
+    freightLegTiers: legTierRows.map((r) => {
+      const lt = r.freight_leg_tiers;
+      return {
+        freightLegId: lt.freightLegId,
+        tierId: lt.tierId,
+        totalFreight: numOrNull(lt.totalFreight),
+        unitsInShipment: lt.unitsInShipment,
       };
     }),
   };
+  // Customer-arranges-meta is loaded but not consumed by the
+  // costing math; it's surfaced separately for UI hydration. The
+  // shape includes the meta row; warnings.ts only needs the math
+  // inputs above, so we drop the meta load result here.
+  void custMetaRows;
 
   const costing = computeQuoteCosting(input);
   return { input, costing };

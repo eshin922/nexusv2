@@ -183,6 +183,27 @@
       "when": 1778840000000,
       "tag": "0025_drop_auto_migrate_artifact",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1778820829302,
+      "tag": "0026_r6_2_freight_legs_additive",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1778873124706,
+      "tag": "0027_r6_2_drop_freight_inputs",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1778873717908,
+      "tag": "0028_r6_2_vessel_eta_actual_delivery",
+      "breakpoints": true
     }
   ]
 }

@@ -464,15 +464,28 @@ function warningMetaLine(w: WarningSpec): string {
 }
 
 function countByPage(warnings: WarningSpec[]): string {
+  // Slice R6.2 — freight table_name aggregates new freight_leg_tiers
+  // and any legacy freight_inputs rows (still possible from accepted
+  // warnings carried across the migration). Both roll into "freight".
   const byPage: Record<string, number> = {
     packaging_inputs: 0,
     production_inputs: 0,
-    freight_inputs: 0,
+    freight: 0,
     quote_skus: 0,
     other: 0,
   };
   for (const w of warnings) {
-    if (w.table_name && w.table_name in byPage) {
+    if (!w.table_name) {
+      byPage.other += 1;
+      continue;
+    }
+    if (
+      w.table_name === "freight_inputs" ||
+      w.table_name === "freight_leg_tiers" ||
+      w.table_name === "freight_legs"
+    ) {
+      byPage.freight += 1;
+    } else if (w.table_name in byPage) {
       byPage[w.table_name] += 1;
     } else {
       byPage.other += 1;
@@ -481,7 +494,7 @@ function countByPage(warnings: WarningSpec[]): string {
   const labels = [
     `${byPage.packaging_inputs} packaging`,
     `${byPage.production_inputs} production`,
-    `${byPage.freight_inputs} freight`,
+    `${byPage.freight} freight`,
   ];
   if (byPage.quote_skus > 0) labels.push(`${byPage.quote_skus} customs`);
   return labels.join(" · ");

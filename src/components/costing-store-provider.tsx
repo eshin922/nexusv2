@@ -212,6 +212,34 @@ export function CostingStoreProvider({
       return skus.some((s) => s.id === skuId);
     };
 
+    // Slice R6.2 — freight_legs membership check via leg-group id.
+    const isFreightLegForThisQuote = (
+      newRow: Record<string, unknown> | null | undefined,
+      oldRow: Record<string, unknown> | null | undefined,
+    ): boolean => {
+      const legGroupId =
+        (newRow?.leg_group_id as string | undefined) ??
+        (oldRow?.leg_group_id as string | undefined);
+      if (!legGroupId) return false;
+      const groups = storeRef.current?.getState().freightLegGroups ?? [];
+      return groups.some((g) => g.id === legGroupId);
+    };
+
+    // freight_leg_tiers + freight_customer_arranges_meta key on
+    // freight_leg_id; membership check resolves against the known
+    // leg set in the local store.
+    const isFreightLegTierForThisQuote = (
+      newRow: Record<string, unknown> | null | undefined,
+      oldRow: Record<string, unknown> | null | undefined,
+    ): boolean => {
+      const legId =
+        (newRow?.freight_leg_id as string | undefined) ??
+        (oldRow?.freight_leg_id as string | undefined);
+      if (!legId) return false;
+      const legs = storeRef.current?.getState().freightLegs ?? [];
+      return legs.some((l) => l.id === legId);
+    };
+
     const channel = supabase
       .channel(`quote:${quoteId}`)
       // Quote-scoped tables: filter by quote_id at the DB layer.
@@ -264,11 +292,50 @@ export function CostingStoreProvider({
           }
         },
       )
+      // Slice R6.2 — freight is per-quote (Gap 22). Subscribe at the
+      // leg-group level filtered by quote_id; legs + leg-tiers + meta
+      // FK-cascade-trigger reconciles via the leg-group changes
+      // anyway, but we listen to each table to catch direct rate-row
+      // edits without a leg-group write. legs / leg-tiers / meta have
+      // no `quote_id` column, so we use the broad-subscribe pattern
+      // and filter client-side by membership in the known leg-id set.
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "freight_inputs" },
+        {
+          event: "*",
+          schema: "public",
+          table: "freight_leg_groups",
+          filter: `quote_id=eq.${quoteId}`,
+        },
+        triggerCoalescedReconcile,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "freight_legs" },
         (payload) => {
-          if (isInputForThisQuote(payload.new, payload.old)) {
+          if (isFreightLegForThisQuote(payload.new, payload.old)) {
+            triggerCoalescedReconcile();
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "freight_leg_tiers" },
+        (payload) => {
+          if (isFreightLegTierForThisQuote(payload.new, payload.old)) {
+            triggerCoalescedReconcile();
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "freight_customer_arranges_meta",
+        },
+        (payload) => {
+          if (isFreightLegTierForThisQuote(payload.new, payload.old)) {
             triggerCoalescedReconcile();
           }
         },

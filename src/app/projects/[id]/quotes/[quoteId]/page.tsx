@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  freightInputs,
   packagingInputs,
   productionInputs,
   projects,
@@ -71,7 +70,7 @@ export default async function QuoteBuilderPage({
   const { quote, project, pm } = quoteRows[0];
   if (project.id !== projectId) notFound(); // URL tampering
 
-  const [skus, tiers, pkgSkuIds, prodSkuIds, frtSkuIds] = await Promise.all([
+  const [skus, tiers, pkgSkuIds, prodSkuIds] = await Promise.all([
     db
       .select()
       .from(quoteSkus)
@@ -84,9 +83,11 @@ export default async function QuoteBuilderPage({
       .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt)),
     // Leaf-detach micro-slice Sub-item 3 — pre-compute per-SKU
     // `hasCostData` flag for the smart-migrate confirmation modal
-    // gate (Sub-item 3 scenario A vs B). Three queries — one per
-    // per-SKU cost-input table — parallelized with the SKUs +
-    // tiers fetch so the round-trip cost is amortized.
+    // gate (Sub-item 3 scenario A vs B). Two queries — packaging +
+    // production. Slice R6.2 retired the per-SKU freight binding
+    // (Gap 22: freight is per-quote, not per-SKU); leaf-to-assembly
+    // conversion never orphans freight data so it's excluded from
+    // the per-SKU cost-data check.
     db
       .selectDistinct({ skuId: packagingInputs.quoteSkuId })
       .from(packagingInputs)
@@ -97,17 +98,11 @@ export default async function QuoteBuilderPage({
       .from(productionInputs)
       .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
       .where(eq(quoteSkus.quoteId, quote.id)),
-    db
-      .selectDistinct({ skuId: freightInputs.quoteSkuId })
-      .from(freightInputs)
-      .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
-      .where(eq(quoteSkus.quoteId, quote.id)),
   ]);
 
   const skuIdsWithCostData = new Set([
     ...pkgSkuIds.map((r) => r.skuId),
     ...prodSkuIds.map((r) => r.skuId),
-    ...frtSkuIds.map((r) => r.skuId),
   ]);
 
   const editable = quote.status === "draft";

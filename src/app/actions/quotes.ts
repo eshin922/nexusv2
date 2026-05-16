@@ -6,7 +6,9 @@ import { db } from "@/db";
 import {
   auditLog,
   firmSettings,
-  freightInputs,
+  freightLegGroups,
+  freightLegs,
+  freightLegTiers,
   packagingInputs,
   productionInputs,
   projects,
@@ -1265,7 +1267,9 @@ export async function convertSkuRole(
  * fires inside one atomic transaction:
  *
  *   1. DELETE all per-SKU cost rows referencing this SKU
- *      (packaging_inputs, production_inputs, freight_inputs).
+ *      (packaging_inputs, production_inputs). Slice R6.2: freight
+ *      is per-quote, not per-SKU; leaf→assembly conversion no
+ *      longer needs to touch freight rows.
  *      Bulk raw cost is carried inside `production_inputs.
  *      bulk_raw_cost` — disappears with the row.
  *   2. UPDATE quote_skus on this row: skuRole → 'assembly',
@@ -1316,8 +1320,9 @@ export async function convertLeafToAssemblyDestructive(
     const quote = await loadQuoteOrThrow(sku.quoteId);
     assertDraft(quote);
 
-    // Pre-count rows for the audit trail.
-    const [pkgCount, prodCount, frtCount] = await Promise.all([
+    // Pre-count rows for the audit trail. Slice R6.2 dropped the
+    // per-SKU freight binding — freight rows aren't gathered here.
+    const [pkgCount, prodCount] = await Promise.all([
       db
         .select({ id: packagingInputs.id })
         .from(packagingInputs)
@@ -1326,10 +1331,6 @@ export async function convertLeafToAssemblyDestructive(
         .select({ id: productionInputs.id })
         .from(productionInputs)
         .where(eq(productionInputs.quoteSkuId, skuId)),
-      db
-        .select({ id: freightInputs.id })
-        .from(freightInputs)
-        .where(eq(freightInputs.quoteSkuId, skuId)),
     ]);
 
     await db.transaction(async (tx) => {
@@ -1343,11 +1344,6 @@ export async function convertLeafToAssemblyDestructive(
         await tx
           .delete(productionInputs)
           .where(eq(productionInputs.quoteSkuId, skuId));
-      }
-      if (frtCount.length > 0) {
-        await tx
-          .delete(freightInputs)
-          .where(eq(freightInputs.quoteSkuId, skuId));
       }
 
       // Step 2 — flip role + strip HubSpot link.
@@ -1372,7 +1368,6 @@ export async function convertLeafToAssemblyDestructive(
           cost_rows_deleted: {
             packaging: pkgCount.length,
             production: prodCount.length,
-            freight: frtCount.length,
           },
         },
       });
@@ -1878,11 +1873,9 @@ export async function deleteSku(formData: FormData): Promise<ActionResult<void>>
       .from(productionInputs)
       .where(inArray(productionInputs.quoteSkuId, allDeletedSkuIds));
     const cascadedProductionCount = prodRows.length;
-    const frtRows = await db
-      .select({ id: freightInputs.id })
-      .from(freightInputs)
-      .where(inArray(freightInputs.quoteSkuId, allDeletedSkuIds));
-    const cascadedFreightCount = frtRows.length;
+    // Slice R6.2 — freight is per-quote (Gap 22). SKU deletion no
+    // longer touches freight rows; the journey persists at the
+    // quote level.
 
     await db.delete(quoteSkus).where(eq(quoteSkus.id, skuId));
 
@@ -1897,7 +1890,6 @@ export async function deleteSku(formData: FormData): Promise<ActionResult<void>>
         cascaded_descendant_count: descendants.length,
         cascaded_packaging_inputs_count: cascadedPackagingCount,
         cascaded_production_inputs_count: cascadedProductionCount,
-        cascaded_freight_inputs_count: cascadedFreightCount,
       },
     });
 
@@ -2074,42 +2066,30 @@ export async function addTier(formData: FormData): Promise<ActionResult<void>> {
     productionRowsSeeded = newProdRows.length;
   }
 
-  // Slice 7: freight_inputs rows for every existing line_group_id × the
-  // new tier. Per-line metadata cloned from any existing tier row (any row
-  // of the line carries the line metadata, denormalized).
-  const existingFreightLines = await db
-    .selectDistinctOn([freightInputs.lineGroupId], {
-      lineGroupId: freightInputs.lineGroupId,
-      quoteSkuId: freightInputs.quoteSkuId,
-      sortOrder: freightInputs.sortOrder,
-      shipmentId: freightInputs.shipmentId,
-      supplier: freightInputs.supplier,
-      freightMode: freightInputs.freightMode,
-      freightTreatment: freightInputs.freightTreatment,
-      markupPct: freightInputs.markupPct,
-      notes: freightInputs.notes,
-    })
-    .from(freightInputs)
-    .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
-    .where(eq(quoteSkus.quoteId, quoteId));
+  // Slice R6.2 — seed `freight_leg_tiers` rows for the new tier
+  // across every existing leg in the quote. Per-(leg, tier) rate
+  // data starts null; PM enters totals after the tier lands. Replaces
+  // the legacy `freight_inputs` per-line tier fanout (which encoded
+  // freight as per-(SKU, line)).
+  const existingLegs = await db
+    .select({ id: freightLegs.id })
+    .from(freightLegs)
+    .innerJoin(
+      freightLegGroups,
+      eq(freightLegGroups.id, freightLegs.legGroupId),
+    )
+    .where(eq(freightLegGroups.quoteId, quoteId));
   let freightRowsSeeded = 0;
-  if (existingFreightLines.length > 0) {
-    await db.insert(freightInputs).values(
-      existingFreightLines.map((l) => ({
-        quoteSkuId: l.quoteSkuId,
+  if (existingLegs.length > 0) {
+    await db.insert(freightLegTiers).values(
+      existingLegs.map((leg) => ({
+        freightLegId: leg.id,
         tierId: tier.id,
-        lineGroupId: l.lineGroupId,
-        sortOrder: l.sortOrder,
-        shipmentId: l.shipmentId,
-        supplier: l.supplier,
-        freightMode: l.freightMode,
-        freightTreatment: l.freightTreatment,
-        markupPct: l.markupPct,
-        notes: l.notes,
-        // total_freight, units_in_shipment intentionally null — PM fills in.
+        totalFreight: null,
+        unitsInShipment: null,
       })),
     );
-    freightRowsSeeded = existingFreightLines.length;
+    freightRowsSeeded = existingLegs.length;
   }
 
   await logAudit({
@@ -2441,37 +2421,35 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
       bulk_raw_cost: r.bulkRawCost,
     }));
 
-  // Slice 7 — freight line metadata snapshot, keyed by line_group_id.
-  const preservedFreightLines = await db
-    .selectDistinctOn([freightInputs.lineGroupId], {
-      lineGroupId: freightInputs.lineGroupId,
-      quoteSkuId: freightInputs.quoteSkuId,
-      sortOrder: freightInputs.sortOrder,
-      shipmentId: freightInputs.shipmentId,
-      supplier: freightInputs.supplier,
-      freightMode: freightInputs.freightMode,
-      freightTreatment: freightInputs.freightTreatment,
-      markupPct: freightInputs.markupPct,
-      notes: freightInputs.notes,
-    })
-    .from(freightInputs)
-    .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
-    .where(eq(quoteSkus.quoteId, quoteId));
+  // Slice R6.2 — freight legs survive the tier-replace (legs FK to
+  // quote, not to tier). Only per-(leg, tier) rate rows cascade-delete
+  // with the tier wipe. We re-seed them after the new tiers land.
+  const preservedFreightLegs = await db
+    .select({ id: freightLegs.id })
+    .from(freightLegs)
+    .innerJoin(
+      freightLegGroups,
+      eq(freightLegGroups.id, freightLegs.legGroupId),
+    )
+    .where(eq(freightLegGroups.quoteId, quoteId));
 
-  // Forensic snapshot — capture every (line, tier) row with non-null
+  // Forensic snapshot — capture every (leg, tier) row with non-null
   // total_freight or units_in_shipment before cascade wipes them.
-  const allFreightRows = await db
-    .select()
-    .from(freightInputs)
-    .innerJoin(quoteSkus, eq(quoteSkus.id, freightInputs.quoteSkuId))
-    .where(eq(quoteSkus.quoteId, quoteId));
-  const freightDataLost = allFreightRows
-    .map((r) => r.freight_inputs)
+  const allLegTierRows = await db
+    .select({ row: freightLegTiers })
+    .from(freightLegTiers)
+    .innerJoin(freightLegs, eq(freightLegs.id, freightLegTiers.freightLegId))
+    .innerJoin(
+      freightLegGroups,
+      eq(freightLegGroups.id, freightLegs.legGroupId),
+    )
+    .where(eq(freightLegGroups.quoteId, quoteId));
+  const freightDataLost = allLegTierRows
+    .map((r) => r.row)
     .filter((r) => r.totalFreight !== null || r.unitsInShipment !== null)
     .map((r) => ({
-      quote_sku_id: r.quoteSkuId,
+      freight_leg_id: r.freightLegId,
       tier_id: r.tierId,
-      line_group_id: r.lineGroupId,
       total_freight: r.totalFreight,
       units_in_shipment: r.unitsInShipment,
     }));
@@ -2549,27 +2527,23 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
       productionCellsSeeded = seedRows.length;
     }
 
-    // Reseed freight_inputs: each preserved line × each new tier.
-    // Per-tier costs intentionally null.
-    if (preservedFreightLines.length > 0) {
-      const seedRows: (typeof freightInputs.$inferInsert)[] = [];
-      for (const line of preservedFreightLines) {
+    // Slice R6.2 — reseed `freight_leg_tiers`: each preserved leg ×
+    // each new tier. Per-tier costs intentionally null; PM re-enters
+    // (different tier volumes typically mean different freight $
+    // totals anyway, mirroring the packaging/production policy).
+    if (preservedFreightLegs.length > 0) {
+      const seedRows: (typeof freightLegTiers.$inferInsert)[] = [];
+      for (const leg of preservedFreightLegs) {
         for (const tier of newTiers) {
           seedRows.push({
-            quoteSkuId: line.quoteSkuId,
+            freightLegId: leg.id,
             tierId: tier.id,
-            lineGroupId: line.lineGroupId,
-            sortOrder: line.sortOrder,
-            shipmentId: line.shipmentId,
-            supplier: line.supplier,
-            freightMode: line.freightMode,
-            freightTreatment: line.freightTreatment,
-            markupPct: line.markupPct,
-            notes: line.notes,
+            totalFreight: null,
+            unitsInShipment: null,
           });
         }
       }
-      await tx.insert(freightInputs).values(seedRows);
+      await tx.insert(freightLegTiers).values(seedRows);
       freightCellsSeeded = seedRows.length;
     }
   });
@@ -2590,7 +2564,7 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
       production_skus_preserved: preservedProductionPolicy.length,
       production_cells_seeded: productionCellsSeeded,
       production_data_lost: productionDataLost,
-      freight_lines_preserved: preservedFreightLines.length,
+      freight_legs_preserved: preservedFreightLegs.length,
       freight_cells_seeded: freightCellsSeeded,
       freight_data_lost: freightDataLost,
     },
