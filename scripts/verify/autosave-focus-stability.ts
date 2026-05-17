@@ -29,6 +29,15 @@ const SRC_DIR = join(ROOT, "src");
 // (closing of the opening tag), including any attribute that contains
 // `disabled={...pending...}`. Multiline DOTALL via `s` flag because
 // attributes commonly span multiple lines.
+//
+// Known limitation (INFO-1 per Architect Step 11 review): the
+// `[^}]*` inside the `disabled={...}` segment cannot cross a `}`
+// boundary, so a `disabled` expression containing a JSX object
+// literal (e.g., `disabled={cond({a:1}) && pending}`) would not
+// match and could false-negative. Not realistic in the current
+// codebase; if a future bypass shape surfaces, extend the regex
+// per the "Coverage gap signaling" framing in CLAUDE.md Pattern 47.
+// Native AST-level eslint rule would be the robust escalation.
 const VIOLATION_RE =
   /<(input|textarea|select)\b[^>]*?disabled=\{[^}]*\bpending\b[^}]*\}[^>]*\/?>/gs;
 

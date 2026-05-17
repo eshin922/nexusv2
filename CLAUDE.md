@@ -1713,13 +1713,22 @@ a server roundtrip.
   (hook race, registration gap, snapshot-prop re-render) were
   not firing on the surfaced symptom.
 
-**Coverage gap signaling:** if a future slice adds an editable
-input that violates rule (e), the prevention discipline isn't
-sticking — promote to a standing eslint rule or `prebuild`
-script grep on `disabled=\{.*pending\}` over `<input>`/`<textarea>`
-elements specifically. Until that's needed, the discipline lives
-in code review + the audit step (Step 11 / Architect review at
-impl completion).
+**Prevention layer.** A prebuild verifier
+(`scripts/verify/autosave-focus-stability.ts`, wired May 2026)
+greps the `src/` tree for `<input|textarea|select>` elements with
+`disabled` attributes containing `pending`; `next build` fails
+with file:line citations on any violation. Hooked into
+`npm run prebuild` alongside the customer-view boundary verifier.
+
+**Coverage gap signaling:** if a future slice introduces a bypass
+shape the regex doesn't catch — object-literal disabled
+expressions (`disabled={cond({a:1})}`), dynamically-spread
+`disabled` attributes via `{...rest}`, etc. — extend the regex
+and bank the new shape. Further escalation would be a standing
+eslint rule with native AST-level input-element targeting (more
+robust than text-grep against JSX edge cases). Until that's
+needed, the prebuild grep + Architect impl-completion review
+(Step 11) carry the discipline.
 
 ## Designer audit rubric expansions (banked from rest-of-app sweep Step 10, 2026-05-14)
 
