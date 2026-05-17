@@ -64,6 +64,8 @@ This is friction that erodes stakeholder confidence during tool rollout. Aisha i
 > Pattern applies to BOTH statically-rendered fields AND dynamically-generated fields. Add-affordances (add tier, add SKU, add cost row, add freight line, add assembly, add child leaf, etc.) verify pattern attachment before permitting user input.
 >
 > Verified at brief time (Architect) and at impl completion (Architect or CC self-audit + Edward review if Architect not yet restored).
+>
+> **Rule 1 interaction clause: TBD post-diagnosis** (placeholder per Architect §0.5 Finding E, May 2026). Slice 8 Architectural Rule 1 (`src/lib/costing-store.ts:41-52`) bans optimistic add operations; Pattern 47's interaction with Rule 1 finalizes after diagnosis identifies the root cause category and viable fix path. Final Pattern 47 wording lands at Step 4 (Pattern 47 promotion to CLAUDE.md), after Step 2 diagnosis.
 
 ### 4.2 Two-pass audit shape
 
@@ -81,8 +83,8 @@ For each non-compliant dynamic affordance, CC instruments the three suspected ro
 
 Root cause fixes applied per affordance:
 - **Hook race** → ensure useEffect mounts before first render OR initialize hook state synchronously in the component (`useState(() => initializer())` pattern)
-- **Registration gap** → optimistic store registration of new tier/SKU/row at add-action time, before server response returns; server reconciles after wait-for-quiet
-- **Mutation yank** → eliminate `router.refresh()` from add-affordance actions; rely on optimistic store update + Zustand subscribers to surface the new affordance without full tree re-render
+- **Registration gap → fix shape gated on diagnosis** (REVISED per Architect §0.5 Finding A, May 2026). Slice 8 Architectural Rule 1 (`src/lib/costing-store.ts:41-52`) bans optimistic add operations. If diagnosis pins category 2 (registration gap), the candidate fix is **"make synchronous render tolerate a brief no-store-row interlude"** rather than optimistic register. If that path is unviable per-affordance, return to brief for Pattern 47 + Rule 1 interaction call before fix application. Default posture: preserve Rule 1.
+- **Mutation yank → snapshot-prop re-render after server save returns**, NOT client `router.refresh()` (REVISED per Architect §0.5 Finding C, May 2026; verified zero `router.refresh` calls in action files — all routes through `revalidateQuoteTree`). Fix path: identify the re-render source per affordance; either **stabilize the snapshot reference across the add operation** OR **hoist focus state above the re-render boundary**.
 
 Fixes propagate to all affected surfaces; verification runs the canonical scenario against each.
 
@@ -101,7 +103,9 @@ This sweep is largely behavioral. Most likely no schema changes required.
 
 **Pattern 25 verification at brief approval:** CC confirms whether any new schema touches are required. Most likely answer: none. If schema touches surface during diagnosis, brief gets a schema-verification amendment before fix application proceeds.
 
-**Audit-log namespace convention (Amendment A, May 2026).** If the fix path introduces new server actions writing columns with existing manual write paths (e.g., new optimistic-registration actions writing to `quote_tiers` or `quote_skus`), follow the Slice 9.2 `diff_json.source` namespace convention. Architect's MEMORY.md `slice_9_2_patterns` entry documents the discipline: reuse the manual `audit_log.action` value; add a namespaced `source` key to disambiguate origin; absence = manual; new `source` values for new origins (don't reuse `system_suggestion`). For optimistic-registration actions, candidate source values: `optimistic_registration` (CC chooses at brief-verification time; Architect signs off).
+**Audit-log namespace convention (Amendment A, May 2026).** If the fix path introduces new server actions writing columns with existing manual write paths (e.g., new optimistic-registration actions writing to `quote_tiers` or `quote_skus`), follow the Slice 9.2 `diff_json.source` namespace convention. Architect's MEMORY.md `slice_9_2_patterns` entry documents the discipline: reuse the manual `audit_log.action` value; add a namespaced `source` key to disambiguate origin; absence = manual; new `source` values for new origins (don't reuse `system_suggestion`).
+
+**Specific source value (e.g., `optimistic_registration`) reserved-pending-diagnosis** (per Architect §0.5 Finding D, May 2026). If fix is purely client-side with no new audit row, no namespace value needed. The discipline above stays — only the specific value commitment defers to Step 7 confirmation.
 
 ## 6. Workflow scenarios to test against
 
@@ -115,7 +119,7 @@ This sweep is largely behavioral. Most likely no schema changes required.
 - Add tier on Pricing → immediately type per-tier qty in new column → focus persists, value commits
 - Add SKU on Setup → immediately type units_per_pack in new row → focus persists, value commits
 - Add cost row in Costs (packaging) → immediately type unit cost → focus persists, value commits
-- Add cost row in Costs (production) → immediately type → focus persists
+- ~~Add cost row in Costs (production)~~ **— REMOVED per Architect §0.5 Finding B, May 2026.** Production has no user-driven add affordance; rows materialize automatically per (SKU, tier) via `upsertProductionInputs`. Production input fields remain in **Pass 1 (static field coverage)** — they're still editable autosave fields and need Pattern 47 verification.
 - Add cost row in Costs (freight) → immediately type rate → focus persists
 - Add freight line → immediately type total freight → focus persists
 - Add assembly on Setup → immediately type qty_per_parent on first child → focus persists
@@ -158,7 +162,8 @@ Briefs for redesigns use Pattern 41 (design discovery questions). For behavioral
 - CA rec: **hook-level first.** Escalate to store-architecture only if hook-level doesn't generalize. Smaller blast radius; lower regression risk.
 
 **Q4: Should add-affordance actions explicitly register new entities (tier, SKU, row) in the optimistic store BEFORE the server response returns?**
-- CA rec: **yes.** Optimistic registration is the canonical pattern; server confirmation reconciles after wait-for-quiet. This matches how the optimistic store already works for value edits. The registration-gap root cause category disappears if optimistic registration is universal.
+- CA rec (original): **yes.** Optimistic registration is the canonical pattern.
+- **RESOLVED (May 2026, post-Architect §0.5 Finding A): gate on diagnosis.** Slice 8 Architectural Rule 1 (`src/lib/costing-store.ts:41-52`) explicitly bans optimistic add operations; CA's prior "yes" recommendation drifted from canon and Architect §0.5 caught it. Run Step 2 diagnosis without pre-committing. If category 2 (registration gap) is the root cause AND no non-optimistic fix exists, return to brief for Pattern 47 vs. Rule 1 interaction call before fix application. **Default posture: preserve Rule 1.**
 
 **Q5: Should the sweep include a lightweight regression test suite for the canonical scenarios?**
 - CA rec: **yes.** Playwright (or equivalent) covering add-affordance scenarios. Prevents future regressions when slices introduce new affordances. Architect (once restored) verifies tests cover all known affordances at slice impl time.
@@ -194,6 +199,19 @@ If diagnosis surfaces a UX implication (e.g., loading state on add-affordance, p
 ## 11. Sequencing within the slice
 
 **Step 1: Inventory.** CC catalogs all editable input surfaces (static) and all add-affordances (dynamic). Output: `docs/autosave-audit-inventory.md`.
+
+**Pre-flight catalog from Architect §0.5 (May 2026)** — Step 1 starts from this list, not from scratch:
+
+1. `addTier` (`actions/quotes.ts:1956`) — Pricing surface
+2. `addSkuFromHubspotProduct` (`actions/quotes.ts:444`) — Setup HubSpot-anchored SKU
+3. `addProductSku` (`actions/quotes.ts:705`) — Setup modal Phase 1
+4. `addAssemblySku` (`actions/quotes.ts:1595`) — Setup assembly creation
+5. Add child leaf to assembly — likely uses `addSkuFromHubspotProduct` or `addProductSku` with `parent_sku_id` set. **Step 1 confirms whether this is a distinct action or just a parameter on the existing add actions.** If distinct, treat as 9th affordance; if not, fold into the parent add scenario.
+6. `addPackagingLine` (`actions/packaging.ts:112`) — Costs packaging
+7. `addLegGroup` (`actions/freight.ts:321`) — Costs freight (mode chooser → first leg group)
+8. `addLeg` (`actions/freight.ts:469`) — Costs freight (subsequent legs)
+
+Production has no user-driven add affordance (Architect §0.5 Finding B; Production input fields stay in Pass 1 static coverage).
 
 **Step 2: Diagnose tier 6 symptom.** CC reproduces the Aisha-demo symptom on Pricing tier add. Instruments the three root cause categories (hook race / registration gap / mutation yank). Identifies which is firing. Output: root cause documented.
 
