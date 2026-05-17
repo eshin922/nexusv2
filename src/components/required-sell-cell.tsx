@@ -206,7 +206,6 @@ export function RequiredSellCell({
           type="text"
           inputMode="decimal"
           value={draft}
-          disabled={pending}
           onChange={(e) => {
             setDraft(e.target.value);
             setError(null);

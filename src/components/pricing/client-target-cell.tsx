@@ -260,7 +260,6 @@ export function ClientTargetCell({
           type="text"
           inputMode="decimal"
           value={draft}
-          disabled={pending}
           placeholder="(empty = clear)"
           onChange={(e) => {
             setDraft(e.target.value);

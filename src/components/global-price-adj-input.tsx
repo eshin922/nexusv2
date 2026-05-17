@@ -174,7 +174,7 @@ export function GlobalPriceAdjInput({
               inputMode="decimal"
               step="0.01"
               value={value}
-              disabled={disabled || pending}
+              disabled={disabled}
               onChange={(e) => {
                 const v = e.target.value;
                 setValue(v);

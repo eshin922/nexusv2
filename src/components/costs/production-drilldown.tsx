@@ -593,7 +593,7 @@ function ProductionTierCell({
         step="0.01"
         min={0}
         value={value}
-        disabled={disabled || pending}
+        disabled={disabled}
         onChange={(e) => handleChange(e.target.value)}
         placeholder="—"
         title={

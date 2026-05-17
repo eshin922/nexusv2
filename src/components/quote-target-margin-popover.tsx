@@ -263,7 +263,6 @@ export function QuoteTargetMarginPopover({
                 inputMode="decimal"
                 step="0.1"
                 value={draft}
-                disabled={pending}
                 onChange={(e) => {
                   setDraft(e.target.value);
                   setValidationError(null);

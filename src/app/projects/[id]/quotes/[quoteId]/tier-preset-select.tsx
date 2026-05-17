@@ -87,7 +87,6 @@ export function TierPresetSelect({
     <div className="inline-flex items-center gap-2">
       <select
         value={selected}
-        disabled={pending}
         onChange={handleChange}
         className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm focus:border-gray-500 focus:outline-none disabled:opacity-50"
       >

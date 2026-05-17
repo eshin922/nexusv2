@@ -520,7 +520,7 @@ function LegBlock({
           ) : (
             <select
               defaultValue={leg.mode ?? ""}
-              disabled={!editable || pending}
+              disabled={!editable}
               onChange={(e) => {
                 const v = e.target.value || null;
                 updateLegMeta(legId, { mode: v as typeof leg.mode });
@@ -560,7 +560,7 @@ function LegBlock({
         <BodyField label="Incoterm">
           <select
             defaultValue={leg.incoterm ?? ""}
-            disabled={!editable || pending}
+            disabled={!editable}
             onChange={(e) => {
               const v = e.target.value || null;
               updateLegMeta(legId, { incoterm: v as typeof leg.incoterm });
