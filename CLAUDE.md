@@ -1,13 +1,43 @@
-# Surface naming canon (Slice RI.8)
+# Surface naming canon (Slice RI.8 + Operations expansion May 2026)
 
-The four customer-facing surfaces between Setup and Mark Accepted
-were renamed during RI.8 for clearer labels. Old → new:
+Nexus has **six core surfaces** in the quote-to-fulfillment lifecycle:
+
+1. **Setup** — quote authoring (SKUs, tiers, context)
+2. **Costs** — cost inputs (packaging, production, freight legs)
+3. **Pricing** — sell-price negotiation + margin verdicts
+4. **Quote** — customer-facing render (preview + PDF generator)
+5. **Mark Accepted** — transition-event surface (acceptance gate +
+   external writebacks + audit)
+6. **Operations** — post-acceptance lifecycle hub (v1.1+; gated by
+   `quote.status = accepted`)
+
+**Surfaces 2-4** were renamed during RI.8 for clearer labels. Old → new:
 
 - **Cost build → Costs** (URL `/cost-build` → `/costs`)
 - **Costing sheet → Pricing** (URL `/costing` → `/pricing`)
 - **Customer view → Quote** (URL `/customer-view` → `/quote`)
 
-Setup + Mark Accepted unchanged.
+Setup + Mark Accepted unchanged. Operations added May 2026 as
+canon-expansion item (5 → 6); not yet built.
+
+**Mark Accepted's sharpened identity (May 2026):** Mark Accepted is
+the **transition-event surface** — acceptance gate, external
+writebacks (HubSpot deal stage + NetSuite SO), and audit. It is
+NOT the post-acceptance hub. Post-acceptance operational artifacts
+(BoM, BoM Compliance Claims, packing list, procurement/production/
+shipment status, invoice link, actuals-vs-estimate reconciliation)
+live in the Operations surface (v1.1+). This distinction prevents
+Mark Accepted from accreting unrelated lifecycle responsibilities
+and gives the operational hub its own dedicated IA.
+
+**Operations surface — strategic frame:** Nexus owns the assembly-
+aware operational spine across the lifecycle; HubSpot stays CRM;
+NetSuite stays GL/inventory. Operations is where Nexus's unique
+value (assembly-aware lifecycle tracking) renders post-acceptance.
+Design round: R8 — Operations IA (coupled with multi-route
+shipping, which is itself an Operations concern). See UX_BACKLOG
+entry "Operations surface — post-acceptance lifecycle hub" for the
+full scope inventory + open boundary questions.
 
 **What's renamed:**
 - Route folders, component folders, page-level component names
