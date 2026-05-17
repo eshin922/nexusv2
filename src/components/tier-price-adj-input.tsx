@@ -130,7 +130,7 @@ export function TierPriceAdjInput({
           inputMode="decimal"
           step="0.01"
           value={value}
-          disabled={disabled || pending}
+          disabled={disabled}
           onChange={onChange}
           placeholder={decimalToPercentDisplay(globalAdj)}
           aria-label="Per-tier price adjustment override"

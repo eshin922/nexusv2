@@ -1498,7 +1498,7 @@ function QtyPerParentInline({
         step="0.0001"
         min={0}
         value={value}
-        disabled={disabled || pending}
+        disabled={disabled}
         onChange={(e) => setValue(e.target.value)}
         onBlur={fire}
         onKeyDown={(e) => {

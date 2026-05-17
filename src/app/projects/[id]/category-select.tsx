@@ -27,7 +27,6 @@ export function CategorySelect({
       <select
         name="category"
         defaultValue={value}
-        disabled={pending}
         onChange={() => {
           startTransition(() => formRef.current?.requestSubmit());
         }}

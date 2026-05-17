@@ -1578,6 +1578,158 @@ sticking — promote to a standing `prebuild` script check (grep
 the PDF subtree for hardcoded `${`-free string literals over N
 characters and flag for review).
 
+## Pattern 47 — "Autosave focus-stability"
+
+Standing pattern — promoted directly to standing on first
+instance during the autosave focus-stability sweep (v1 release-
+critical path item 3, May 2026). Promoted-not-candidate because
+(a) the symptom is stakeholder-visible (Aisha Manjra demo, May 15
+2026), (b) the coverage gap is structural and widespread (~20
+INPUT instances across Pricing + Costs surfaces), and (c) R6.2
+commit 4.1's `LegDateInput` fix had already solved the same
+anti-pattern for date inputs but wasn't banked as a structural
+pattern, so it didn't propagate to number inputs.
+
+**Unifies and supersedes the operational standard of "Form state
+pattern" + "Save handler pattern" + "Realtime ↔ optimistic
+store contract" entries below.** Those entries are preserved
+with original framing for grep-discoverability of
+`useActionState`, `wait-for-quiet`, `Zustand`, etc., each with
+a one-line `See Pattern 47` cross-reference at the top. Pattern
+47 is authoritative; prior entries are navigation aids.
+
+**The rule.** Every editable field in Nexus that triggers
+autosave requires:
+
+(a) **Controlled input.** Value bound to React state or store;
+    no uncontrolled inputs with onBlur-only save where per-
+    keystroke save is the right UX.
+
+(b) **Optimistic store update at <16ms.** Keystroke updates the
+    local store before any network call. Subscribers reflect
+    new state on the same frame.
+
+(c) **Debounced server save.** Server action fires after user
+    pause (typically 300-500ms), not on every keystroke. New
+    keystrokes during the debounce window clear the prior
+    timeout and re-schedule. `clearTimeout` on every change.
+
+(d) **Wait-for-quiet reconcile.** Server-truth reconciliation
+    defers until user has been idle 800ms; never interrupts
+    active typing. The `scheduleReconcile` pipe in
+    `src/components/costing-store-provider.tsx:21-67` is the
+    canonical implementation. Realtime triggers + snapshot-prop
+    triggers + global ref-changed events all route through it.
+
+(e) **`disabled` attribute MUST NOT include `pending` on input
+    elements.** Use `disabled={disabled}` (or `disabled={!editable}`)
+    on `<input>`, `<textarea>`, `<select>`. NEVER
+    `disabled={disabled || pending}` or `disabled={pending}` on
+    autosave inputs. The `pending` flag is for UI status
+    indicators (a "saving…" caption alongside the input), not
+    for blocking the input element. **Blocking the input mid-
+    save drops focus** and breaks the autosave UX (browsers
+    drop focus on disabled elements; the user's next keystroke
+    goes nowhere).
+
+    Buttons may still use `disabled={pending}` to prevent
+    double-click — focus-stability concern doesn't apply to
+    buttons, and double-click protection is real. The rule is
+    input-specific.
+
+**Sub-pattern for fields where per-keystroke save is wrong UX**
+(dates, currency-with-mid-typing-partials, multi-character atomic
+values): use **blur/Enter commit pattern**. `LegDateInput` in
+`src/components/costs/freight-drilldown.tsx` (R6.2 commit 4.1) is
+the canonical example:
+
+```tsx
+function LegDateInput({ value, disabled, onCommit }) {
+  const [draft, setDraft] = useState(value ?? "");
+  useEffect(() => { setDraft(value ?? ""); }, [value]);
+  function commitIfChanged() {
+    const next = draft === "" ? null : draft;
+    if (next === value) return;
+    if (next !== null && !/^\d{4}-\d{2}-\d{2}$/.test(next)) {
+      setDraft(value ?? ""); return;
+    }
+    onCommit(next);
+  }
+  return (
+    <input
+      type="date"
+      value={draft}
+      disabled={disabled}  // NOT disabled || pending
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commitIfChanged}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+```
+
+Save fires only on explicit commit (blur OR Enter); `pending`
+flips post-commit, by which time focus has already moved off
+the input.
+
+**Pattern applies to BOTH statically-rendered fields AND
+dynamically-generated fields.** Add-affordances (add tier, add
+SKU, add cost row, add freight line, add assembly, add child
+leaf, etc.) verify pattern attachment before permitting user
+input. New components born with Pattern 47 compliance; the
+sweep enforces it on existing surfaces.
+
+**Slice 8 Architectural Rule 1 (`src/lib/costing-store.ts:41-52`)
+is PRESERVED.** Pattern 47 does NOT require optimistic add
+operations or any inversion of the "no temp IDs, no optimistic
+add" discipline. The structural fix is in the input element's
+`disabled` attribute and the choice of per-keystroke vs.
+blur/Enter commit — orthogonal to whether new rows go through
+a server roundtrip.
+
+**Verified at:**
+
+- Brief time (Architect §0.5 schema/code verification per Pattern
+  22 standing protocol)
+- Impl completion (Architect or CC self-audit + Edward review)
+- Future Pass 1/Pass 2 audits when new editable surfaces ship
+
+**Reference moments:**
+
+- Aisha Manjra demo, May 15 2026: tier-6 add on Pricing → typing
+  in tier-price-adj input → focus yanked mid-keystroke.
+- R6.2 commit 4.1 (May 2026): `LegDateInput` introduced as a
+  primitive to fix the same anti-pattern on freight leg date
+  inputs. Fix was scoped to date inputs; not promoted to
+  structural pattern; didn't propagate to number inputs.
+- Step 2 diagnosis (`docs/autosave-step-2-diagnosis.md`):
+  identified `disabled={... || pending}` on INPUT elements as
+  the dominant root cause. Brief's original three categories
+  (hook race, registration gap, snapshot-prop re-render) were
+  not firing on the surfaced symptom.
+
+**Prevention layer.** A prebuild verifier
+(`scripts/verify/autosave-focus-stability.ts`, wired May 2026)
+greps the `src/` tree for `<input|textarea|select>` elements with
+`disabled` attributes containing `pending`; `next build` fails
+with file:line citations on any violation. Hooked into
+`npm run prebuild` alongside the customer-view boundary verifier.
+
+**Coverage gap signaling:** if a future slice introduces a bypass
+shape the regex doesn't catch — object-literal disabled
+expressions (`disabled={cond({a:1})}`), dynamically-spread
+`disabled` attributes via `{...rest}`, etc. — extend the regex
+and bank the new shape. Further escalation would be a standing
+eslint rule with native AST-level input-element targeting (more
+robust than text-grep against JSX edge cases). Until that's
+needed, the prebuild grep + Architect impl-completion review
+(Step 11) carry the discipline.
+
 ## Designer audit rubric expansions (banked from rest-of-app sweep Step 10, 2026-05-14)
 
 Each entry below is an additional sweep criterion future Designer
@@ -1921,6 +2073,14 @@ client code, never call `createClient` (Supabase) from server code
 unless adding a separate explicit purpose.
 
 # Realtime ↔ optimistic store contract (Slice 8.5)
+
+> **See Pattern 47 (Autosave focus-stability) for the autosave
+> focus-stability invariant that depends on this contract.**
+> Pattern 47 rule (d) cites the wait-for-quiet reconcile pipe
+> documented here as the canonical implementation. This entry
+> stays for the full architectural picture (three trigger
+> sources, coalesce window, RLS-off dependency, etc.); Pattern 47
+> is the focus-stability-specific contract that consumes it.
 
 The realtime sync introduced in Slice 8.5 is not a standalone
 module — it is **two ends of one rope** with the optimistic
@@ -2580,6 +2740,11 @@ guard build invariant" for implementation details.
 
 ## Form state pattern (added Slice 5)
 
+> **See Pattern 47 (Autosave focus-stability) for the unified pattern
+> this is part of.** Pattern 47 supersedes the operational standard
+> here; this entry is preserved for grep-discoverability of
+> `useActionState`, controlled-input framing, etc.
+
 All auto-saving forms in Nexus use **controlled inputs + useActionState**,
 not uncontrolled forms with onBlur handlers. This avoids React 19's
 implicit form-reset behavior racing against RSC updates after server
@@ -2596,6 +2761,11 @@ Do not introduce uncontrolled forms with onBlur auto-save in any slice.
 Same bug pattern, same fix.
 
 ## Save handler pattern (added Slice 5)
+
+> **See Pattern 47 (Autosave focus-stability) for the unified pattern
+> this is part of.** Pattern 47 supersedes the operational standard
+> here; this entry is preserved for grep-discoverability of save-
+> handler-stale-ref framing.
 
 When a controlled input change triggers a save, the save function must
 receive the new value as an explicit parameter from the change event —

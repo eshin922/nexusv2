@@ -423,7 +423,7 @@ function PackagingRow({
       <div className="cat">
         <select
           value={category}
-          disabled={disabled || pending}
+          disabled={disabled}
           onChange={(e) => {
             const v = e.target.value;
             setCategory(v);
@@ -461,7 +461,7 @@ function PackagingRow({
         <input
           type="text"
           value={supplier}
-          disabled={disabled || pending}
+          disabled={disabled}
           onChange={(e) => {
             const v = e.target.value;
             setSupplier(v);
@@ -487,7 +487,7 @@ function PackagingRow({
             step="0.01"
             min={0}
             value={markupPct === "" ? "" : (Number(markupPct) * 100).toString()}
-            disabled={disabled || pending}
+            disabled={disabled}
             onChange={(e) => {
               const v = e.target.value;
               const decimal = v === "" ? "" : (Number(v) / 100).toString();
@@ -624,7 +624,7 @@ function PackagingTierCell({
         step="0.0001"
         min={0}
         value={unitCost}
-        disabled={disabled || pending}
+        disabled={disabled}
         onChange={(e) => handleChange(e.target.value)}
         placeholder="—"
         style={{
