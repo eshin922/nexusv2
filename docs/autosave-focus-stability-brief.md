@@ -40,7 +40,7 @@ This is friction that erodes stakeholder confidence during tool rollout. Aisha i
 **Scope IN:**
 - Every editable input that triggers autosave (text, number, select, toggle, slider)
 - Every add-affordance that introduces new input components dynamically (add tier, add SKU, add cost row, add freight line, add assembly, add child leaf, etc. — CC catalogs the complete list)
-- Pattern 47 unified definition promoted to CLAUDE.md, replacing or absorbing Form pattern + Optimistic computation pattern as separate entries
+- Pattern 47 unified definition promoted to CLAUDE.md as the authoritative standing pattern; Form pattern + Optimistic computation pattern entries preserved as "see Pattern 47" cross-reference stubs (original framing retained for grep-discoverability of "useActionState," "wait-for-quiet," "Zustand," etc.)
 
 **Scope OUT:**
 - Ephemeral controls (modal forms with explicit submit) — these don't autosave
@@ -101,6 +101,8 @@ This sweep is largely behavioral. Most likely no schema changes required.
 
 **Pattern 25 verification at brief approval:** CC confirms whether any new schema touches are required. Most likely answer: none. If schema touches surface during diagnosis, brief gets a schema-verification amendment before fix application proceeds.
 
+**Audit-log namespace convention (Amendment A, May 2026).** If the fix path introduces new server actions writing columns with existing manual write paths (e.g., new optimistic-registration actions writing to `quote_tiers` or `quote_skus`), follow the Slice 9.2 `diff_json.source` namespace convention. Architect's MEMORY.md `slice_9_2_patterns` entry documents the discipline: reuse the manual `audit_log.action` value; add a namespaced `source` key to disambiguate origin; absence = manual; new `source` values for new origins (don't reuse `system_suggestion`). For optimistic-registration actions, candidate source values: `optimistic_registration` (CC chooses at brief-verification time; Architect signs off).
+
 ## 6. Workflow scenarios to test against
 
 **Static field scenarios:**
@@ -120,9 +122,17 @@ This sweep is largely behavioral. Most likely no schema changes required.
 - Add child leaf to assembly → immediately type bench unit qty → focus persists
 - (CC catalogs any remaining add-affordances during Pass 2)
 
-**Race scenarios (edge cases):**
+**Race scenarios and edge cases — explicit dispositions required at brief verification, not implementation-time guesses (Slice 9.4b edge-case-enumeration discipline):**
+
+1. **Add tier → server save of add fails → optimistic value disposition: retain with retry surface (CA rec).** Losing user input is the worse failure; optimistic value persists; auto-retry with backoff OR user-triggered retry via UI. Consistent with how wait-for-quiet pattern handles field-edit save failures.
+2. **Add tier while another tier save in flight → queue order: FIFO (CA rec).** Tiers added in order; saves complete in order. Coalesce would batch but breaks per-action `audit_log` granularity.
+3. **Add affordance double-click / rapid retrigger → disable add button while previous add save in flight (CA rec).** UI affordance prevents the race honestly; no time-window debounce needed. Button shows it's busy.
+4. **Add affordance during component unmount → cancel optimistic registration if no save fired yet; complete save if fired; reconcile-or-discard on remount (CA rec).** Don't leak in-flight saves; don't orphan optimistic state.
+5. **Add affordance on offline state → fail visibly with offline indicator (CA rec).** Don't silently queue (confusing). Surface "Cannot add while offline" or equivalent; user retries when online.
+
+Plus the original scenarios:
+
 - Add tier → type into new column → ALSO add another tier while typing → original input focus persists OR is gracefully transferred
-- Add tier → server save of add fails → retry surfaces; user input not lost
 - Add tier on slow network → typing into new column before server response returns → optimistic value preserved on reconcile
 
 ## 7. Discovery questions (Pattern 41 analogue)
@@ -133,7 +143,16 @@ Briefs for redesigns use Pattern 41 (design discovery questions). For behavioral
 - CA rec: **exhaustive.** Symptom-driven misses silent gaps. This is a sweep, not a bug fix.
 
 **Q2: Should Pattern 47 replace Form pattern + Optimistic computation pattern entries in CLAUDE.md, or sit alongside them as a unification reference?**
-- CA rec: **replace.** Pattern 47 is the unified pattern; keeping all three creates ambiguity about which is the source of truth. Reference the prior entries in Pattern 47's history note so the lineage is preserved.
+- CA rec (original): **replace.** Pattern 47 is the unified pattern; keeping all three creates ambiguity about which is the source of truth.
+- **REFINED (May 2026, post-Architect MEMORY surface): preserve with cross-reference.** Architect's `pattern_destination_heuristic` MEMORY entry argues "discoverability beats minor duplication." Pattern 47 is promoted as the authoritative standing pattern in CLAUDE.md; Form pattern + Optimistic computation pattern entries are preserved with their original framing intact (grep-discoverability of `useActionState`, `wait-for-quiet`, `Zustand`, etc. retained), each with a one-line `See Pattern 47 (Autosave focus-stability) for the unified pattern this is part of.` cross-reference. Pattern 47 is authoritative; prior entries are navigation aids.
+
+  Reference cross-reference shape (Form pattern entry):
+
+  > **Form pattern** — controlled inputs + useActionState; never uncontrolled forms with onBlur. Save handlers receive new value as explicit parameter, not via stale ref reads.
+  >
+  > See Pattern 47 (Autosave focus-stability) for the unified pattern this is part of.
+
+  Same shape for Optimistic computation pattern entry. Brief content unchanged; one-line cross-reference added.
 
 **Q3: Should fixes prefer hook-level changes (smallest surface) or store-architecture changes (broadest fix)?**
 - CA rec: **hook-level first.** Escalate to store-architecture only if hook-level doesn't generalize. Smaller blast radius; lower regression risk.
@@ -155,11 +174,11 @@ If diagnosis surfaces a UX implication (e.g., loading state on add-affordance, p
 
 ## 9. Open items / pending Edward dispositions
 
-1. **Approve Pattern 47 promotion replacing Form pattern + Optimistic computation entries in CLAUDE.md** (CA rec: yes)
-2. **Approve exhaustive audit scope** (CA rec: yes)
-3. **Approve lightweight regression test suite addition** (CA rec: yes)
-4. **Approve sequencing as new item 3 on v1 path, before Pricing reframe** (Edward already disposed: yes)
-5. **Confirm: any schema touches expected, or purely client-side?** (CA expectation: purely client-side; CC verifies during diagnosis)
+1. **Approve Pattern 47 promotion in CLAUDE.md with preserve-with-cross-reference posture** (REFINED disposition, May 2026 post-Architect MEMORY surface; was originally "replace"). Pattern 47 is authoritative standing pattern; Form pattern + Optimistic computation pattern entries preserved as `See Pattern 47` cross-reference stubs with original framing retained for grep-discoverability. See Section 7 Q2 for cross-reference wording template.
+2. **Approve exhaustive audit scope** (CA rec: yes — APPROVED)
+3. **Approve lightweight regression test suite addition** (CA rec: yes — APPROVED)
+4. **Approve sequencing as new item 3 on v1 path, before Pricing reframe** (Edward already disposed: yes — APPROVED)
+5. **Confirm: any schema touches expected, or purely client-side?** (CA expectation: purely client-side; CC verifies during diagnosis; Architect §0.5 confirms — APPROVED expectation, verification pending)
 
 ## 10. Connections to other slices
 
@@ -180,7 +199,7 @@ If diagnosis surfaces a UX implication (e.g., loading state on add-affordance, p
 
 **Step 3: Draft Pattern 47 unified definition.** CC drafts the unified pattern incorporating diagnosis findings. Reviews with Edward + CA. Architect (if restored) verifies against CLAUDE.md conventions.
 
-**Step 4: Promote Pattern 47 to CLAUDE.md.** Pattern 47 lands; Form pattern + Optimistic computation entries updated or replaced per Q2 disposition.
+**Step 4: Promote Pattern 47 to CLAUDE.md.** Pattern 47 lands as the authoritative standing pattern. Form pattern + Optimistic computation pattern entries gain one-line `See Pattern 47 (Autosave focus-stability) for the unified pattern this is part of.` cross-references; original framing preserved for grep-discoverability of `useActionState`, `wait-for-quiet`, `Zustand`, etc. (REFINED Q2 disposition.)
 
 **Step 5: Static field audit (Pass 1).** CC verifies each cataloged static field against Pattern 47. Findings batched. Output: `docs/autosave-audit-pass-1.md`.
 
@@ -211,3 +230,5 @@ If diagnosis surfaces a UX implication (e.g., loading state on add-affordance, p
 4. **Regression test scope.** Lightweight. The goal is "future slices that add affordances don't regress this sweep." Don't gold-plate the test suite; keep it focused on add-affordance canonical scenarios.
 
 5. **Connection to parallel branch experiment.** This sweep is the last slice before potential parallel-pair kickoff (Pricing reframe + Leaf-detach). Anything surfaced here that suggests parallel work is risky — flag to Edward via CA before parallel kickoff.
+
+6. **Slice 9.4b single-concern helper naming applies (Amendment C, May 2026).** If diagnosis surfaces a need for new hooks or helpers (dynamic-field registration, add-affordance focus handoff, etc.), name them per-concern: `useAutosaveRegistration`, `useDynamicFieldFocus`, `useAddAffordanceGuard`. NOT generalized with discriminated unions: `useDynamicField(goal: FieldGoal, ...)`. Architect MEMORY.md `slice_9_4b_patterns` entry documents the discipline — math is shared; operational meaning + microcopy differ per goal; naming reads clearer at the call site. Extract a shared utility (e.g., `computeDynamicFieldKey`) on the second instance, not the first.
