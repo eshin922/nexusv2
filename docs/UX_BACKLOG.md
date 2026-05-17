@@ -5,6 +5,169 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
+- [Operations surface — post-acceptance lifecycle hub — v1.1+]
+
+  **Slice:** v1.1+. New 6th surface in the canon. Canon updated
+  May 2026 (CLAUDE.md surface naming canon section).
+
+  **Scope (current vision):** Operations is the post-acceptance
+  lifecycle hub. Gated by `quote.status = accepted`. Hosts:
+  - BoM (v1.1 — assembly-aware bill of materials)
+  - BoM Compliance Claims (v1.1)
+  - Packing list (v2 pending data gaps + NetSuite-ownership
+    disposition)
+  - Future lifecycle stages: procurement status, production
+    status, shipment status, delivery confirmation, invoice link,
+    actuals-vs-estimate reconciliation
+
+  **Strategic frame:** Nexus owns the assembly-aware operational
+  spine; HubSpot stays CRM; NetSuite stays GL/inventory.
+  Operations is where Nexus's unique value (assembly-aware
+  lifecycle tracking) renders. See STRATEGIC_VISION.md lifecycle
+  ambition section.
+
+  **V1 design constraint:** Mark-Accepted writebacks slice (v1
+  path item — combined HubSpot + NetSuite SO push slice) emits
+  lifecycle events compatible with Operations consumption. Schema
+  shape (lifecycle_events table OR extended audit_log) Pattern
+  25-verified when that brief lands. Decision deferred until the
+  writebacks brief drafts; the constraint is "emit events the
+  Operations surface can later consume," not a specific schema.
+
+  **Design round:** R8 — Operations IA. Coupled with multi-route
+  shipping (which is itself an Operations concern; the route
+  declaration + per-leg lifecycle tracking spans both). Single
+  R-round addresses both per Pattern 34 (multi-surface features
+  warrant a dedicated R-round before implementation).
+
+  **Open boundary questions banked for R8 brief:**
+  - Packing list ownership: Nexus authors the packing list vs.
+    NetSuite Fulfillment authors and Nexus mirrors. Data gaps
+    (per-package contents, per-package weights, carrier
+    interface) need disposition first.
+  - Procurement status: Nexus inbound from NetSuite POs (read-
+    only feed) vs. read-only embed (iframe-like) vs. Nexus
+    becomes the authoring surface and writes to NetSuite. Same
+    question shape applies to production status.
+  - Returns / change orders / revisions: in Operations scope or
+    separate workflow? RMAs intersect quote lifecycle but may
+    deserve their own surface.
+  - Lifecycle event emission: which mutations are events
+    (acceptance, BoM-generated, PO-cut, shipment-departed, etc.)
+    vs. which are derived state? Affects schema choice between
+    a dedicated `lifecycle_events` table vs. extending audit_log.
+
+  **Validated against ops-analyst feedback May 15 2026** — Aisha
+  Manjra independently identified "operational dashboard to
+  replace Monday.com + SharePoint" as the post-acceptance hub
+  need. Convergence between Edward's lifecycle ambition + Aisha's
+  ops-side surface request is strong signal Operations is the
+  right v1.1+ canon expansion.
+
+- [Product specs storage + customer-facing Quote PDF toggle — v1.1]
+
+  **Slice:** v1.1. SKU-attached specs field plus customer-facing
+  visibility control on Quote PDF.
+
+  **Schema sketch:** `quote_skus.specs jsonb` (recommended given
+  beauty/wellness spec variability — fragrance notes, ingredient
+  lists, fill volumes, regulatory claims, etc. Structure later if
+  patterns emerge across categories. JSONB beats early-typed
+  columns when the shape is unknown). Customer-facing Quote PDF
+  gains optional show/hide toggle (per-quote initial scope; per-
+  SKU is v2 refinement if the use case surfaces).
+
+  **Pattern 25 verification at brief time:** spec field shape
+  (JSONB column, NULL default), Quote PDF binding path (specs
+  optionally consumed in PdfPricingTable or a dedicated spec
+  sub-block), toggle storage (`quotes.show_specs_on_pdf bool`
+  default false vs. surface in Quote chrome only).
+
+  **Pattern 45 verification:** specs are real binding through
+  action layer → quote-fixtures → customer-view boundary. No
+  placeholder strings on the customer-facing render. Empty specs
+  → block renders empty (not "{specs-pending}").
+
+  **Validated against ops-analyst feedback May 15 2026** — Aisha
+  + Edward agreed specs live under each SKU in Nexus with
+  optional visibility toggle on quote documents. Removes the
+  "spec sheet lives elsewhere, has to be cross-referenced"
+  friction.
+
+- [Quote attachments — file storage for manufacturing quotes + accounting docs — v1.1]
+
+  **Slice:** v1.1. New architectural piece — first surface that
+  writes user files to Supabase Storage. Operational document
+  archive on the quote.
+
+  **Stack addition:** Supabase Storage layer (already in the
+  Supabase project; no new vendor). New `quote_attachments`
+  table:
+  - `id uuid pk`
+  - `quote_id uuid fk → quotes(id) on delete cascade`
+  - `type` enum (`manufacturing_quote | accounting_doc | other`)
+  - `original_filename text not null`
+  - `supabase_storage_path text not null` (bucket + path)
+  - `uploaded_by uuid fk → users(id)`
+  - `uploaded_at timestamptz`
+  - `size_bytes int`
+  - `content_type text`
+  - `is_archived bool default false` (soft delete for version
+    handling)
+
+  **UI placement:** attachments panel on Quote (or Setup —
+  disposition at brief time; depends on whether PMs upload pre-
+  or post-acceptance more often). Probably Setup — uploads tend
+  to happen during quote authoring.
+
+  **Boundary explicitly excluded:** artwork stays on SharePoint.
+  Scope is internal/operational documents only — manufacturing
+  quotes from suppliers, accounting docs, internal worksheets.
+  Artwork has its own workflow that doesn't fit a quote-scoped
+  attachment model.
+
+  **Operational concerns to scope at brief:**
+  - File size limits (Supabase Storage default 50MB per file;
+    raise per-bucket if needed).
+  - Retention policy (delete-on-quote-delete via cascade vs. soft
+    archive forever for audit).
+  - RLS policies on the storage bucket (Clerk-Supabase JWT bridge
+    not yet in place — see broader RLS-off framing in CLAUDE.md
+    "Realtime ↔ optimistic store contract / RLS-off latent
+    dependency" section).
+  - Downloadable-vs-viewable (PDF/image inline; other types
+    download-only).
+  - Version handling on re-upload (new row with `is_archived`
+    flag on previous vs. overwrite vs. version chain).
+
+  **Validated against ops-analyst feedback May 15 2026** — Aisha
+  + Edward agreed manufacturing quotes + accounting docs
+  uploadable to Nexus directly. Eliminates the "where did Sarah
+  save that PDF" SharePoint hunt.
+
+- [AI-based price optimization — v2+]
+
+  **Slice:** v2+. Bank only — no design needed today.
+
+  **Concept:** AI layer that recommends sell-price adjustments
+  given quote inputs + historical win/loss + market signals.
+  Adjacent to Slice 9 anomaly detection but inverted in
+  direction:
+  - Anomaly detection (Slice 9): warns when a price looks wrong
+    given the cost stack.
+  - Optimization (v2+): recommends a price given win-likelihood
+    + margin targets.
+
+  Two-layer architecture is intentional. Anomaly layer is
+  load-bearing for trust (PMs can't ship at obviously-wrong
+  prices); optimization layer is opportunistic uplift. Ship
+  trust-layer first.
+
+  **Surfaced in ops-analyst feedback May 15 2026** — Edward
+  referenced future AI optimization capability as part of the
+  quoting tool roadmap. Bank for visibility; no implementation
+  scoping today.
+
 - [Drizzle journal hygiene — retire `drizzle-kit push` for shared infra; hash-match-on-disk verification before any journal-row mutation]
 
   **Slice:** Dev-hygiene; non-blocking. Bank for the next dev-tooling

@@ -73,6 +73,86 @@ longer the canonical source.
 - v2 backlog items (in `UX_BACKLOG.md`): the three NetSuite/HubSpot
   pivot tickets capture the work to flip the integration direction.
 
+## Lifecycle ambition — Nexus as the assembly-aware operational spine
+
+The v1/v2 boundary above is product-master direction (HubSpot vs.
+NetSuite). Sitting alongside it is a longer-arc **lifecycle
+ambition** that operates on a different axis: where the
+quote-to-fulfillment workflow lives over time.
+
+**Position:** Nexus owns the assembly-aware operational spine
+across the quote-to-fulfillment lifecycle. HubSpot stays CRM for
+pre-quote / deal pipeline. NetSuite stays GL/inventory backbone
+and absorbs the operational artifacts it handles natively (sales
+orders, POs, fulfillments, invoices). Nexus owns everything
+*between* pre-quote and GL/inventory — the assembly-aware
+operational work that neither HubSpot nor NetSuite handles well.
+
+**HubSpot deprecation path:** post-quote operations moves fully
+to Nexus over time. HubSpot stays CRM for deal pipeline,
+contacts, account hierarchy, and pre-quote conversation history.
+Post-acceptance lifecycle tracking — currently scattered across
+Monday.com boards, SharePoint folders, and HubSpot deal-stage
+hacks — consolidates in Nexus.
+
+**Operations surface is the v1.1+ entry point.** Canon expanded
+5 → 6 surfaces in May 2026. Operations is gated by
+`quote.status = accepted` and hosts BoM (v1.1), BoM Compliance
+Claims (v1.1), packing list (v2 pending NetSuite-ownership
+disposition), and future lifecycle stages: procurement status,
+production status, shipment status, delivery confirmation,
+invoice link, actuals-vs-estimate reconciliation. See
+`CLAUDE.md` surface naming canon section + UX_BACKLOG entry
+"Operations surface — post-acceptance lifecycle hub" for the
+canonical scope inventory.
+
+**NetSuite continues as GL/inventory backbone.** Nexus → NetSuite
+direct integration (the v2 commitment above) absorbs the
+assembly-aware operational artifacts NetSuite handles poorly
+today — assemblies, BOMs, nested costing. NetSuite retains the
+ledger-of-truth role for transactions; Nexus retains the
+operational-process role for assembly-aware work.
+
+### Corroborating signal — ops-analyst feedback (May 15 2026)
+
+Ops-analyst Aisha Manjra independently surfaced two corroborating
+observations during a May 15 2026 workflow review:
+
+1. "HubSpot remains as syncing and reporting middleman for now
+   but will be phased out later." Aligns with HubSpot
+   deprecation path above.
+2. "Operational dashboard to replace Monday.com and SharePoint."
+   Aligns with the Operations surface scope — the post-
+   acceptance hub that consolidates the lifecycle tracking
+   currently scattered across external tools.
+
+The convergence between Edward's product-direction framing and an
+independent ops-side surface request is strong signal that the
+lifecycle ambition is the right v1.1+ direction.
+
+### Relationship to the v1/v2 boundary
+
+The v1/v2 product-master boundary is still load-bearing. The
+lifecycle ambition rides *on top of* that boundary — it doesn't
+replace it.
+
+- **v1 (today):** HubSpot is product-master; Nexus consumes
+  HubSpot products; Nexus → HubSpot writeback (Slice 12) is the
+  peak of HubSpot integration depth. Operations surface ships
+  v1.1+ in the HubSpot-master regime; lifecycle events
+  consumed by Operations can be emitted whether the product
+  source is HubSpot or NetSuite.
+- **v2 (later):** NetSuite becomes product-master; Nexus →
+  NetSuite direct integration replaces the HubSpot writeback.
+  Operations surface continues operating on the same
+  `quote.status = accepted` gate; the product-master switch
+  doesn't disturb the lifecycle hub.
+
+The two axes are independent: lifecycle expansion (Operations
+surface + assembly-aware tracking) can advance on the v1 product-
+master regime; product-master switch (HubSpot → NetSuite) can
+advance independently of lifecycle scope.
+
 ## Migration path (sketched)
 
 1. **Slices 6–11.** Continue building the cost/quote model on the v1
