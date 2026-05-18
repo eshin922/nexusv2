@@ -13,6 +13,7 @@ import {
   selectFirmSettings,
   selectQuoteRollup,
 } from "@/lib/costing-store";
+import { useReframeState } from "@/components/pricing-reframe/reframe-state-context";
 
 const fmtPct = (v: number | null) =>
   v == null ? "—" : (v * 100).toFixed(1);
@@ -34,6 +35,7 @@ export function TierComplianceBlock({
 }) {
   const rollup = useCostingStore(selectQuoteRollup);
   const firm = useCostingStore(selectFirmSettings);
+  const { applyingTierIds, lastApply } = useReframeState();
 
   if (rollup.length === 0) return null;
 
@@ -81,6 +83,11 @@ export function TierComplianceBlock({
               ? "warn"
               : "good";
         const isRecommended = recById.get(t.tierId) ?? false;
+        const isApplying = applyingTierIds.has(t.tierId);
+        const isChanged =
+          !isApplying &&
+          lastApply !== null &&
+          lastApply.tierIds.includes(t.tierId);
 
         // Sell per unit (weighted) — derived from totalRevenue / qty per
         // brief §3 data-source map clarification (margin_pct and
@@ -88,9 +95,10 @@ export function TierComplianceBlock({
         const sellPerUnit = t.qty > 0 ? t.totalRevenue / t.qty : null;
 
         // Inline callout for below-target (warn); below-floor renders an
-        // additional separate FloorBlock above. Step 4 / Step 8 refine.
-        const showInlineCallout = state === "warn";
-        const showFloorRow = state === "bad";
+        // additional separate FloorBlock above. Suppressed while applying
+        // (the APPLYING… chip carries the live signal instead).
+        const showInlineCallout = state === "warn" && !isApplying;
+        const showFloorRow = state === "bad" && !isApplying;
         const breachPp =
           state === "warn"
             ? (target - t.blendedMarginPct) * 100
@@ -98,13 +106,43 @@ export function TierComplianceBlock({
               ? (target - t.blendedMarginPct) * 100
               : 0;
 
+        // Compose row class. Canonical CSS supports modifiers:
+        // `pr-tier-row ${state}` plus optional `applying` (Step 8) and
+        // `changed` (Step 9). `changed` overrides the state-based bg
+        // tint via cascade order in pricing_styles.css.
+        const rowClass = [
+          "pr-tier-row",
+          state,
+          isApplying ? "applying" : "",
+          isChanged ? "changed" : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+        const deltaPp = isChanged
+          ? (lastApply?.deltaPpByTier[t.tierId] ?? 0)
+          : 0;
+
         return (
-          <div key={t.tierId} className={`pr-tier-row ${state}`}>
+          <div key={t.tierId} className={rowClass}>
             <div className="tier-label">
               {t.label}
               {isRecommended && (
                 <span className="recommended-star" title="Recommended tier">
                   ★
+                </span>
+              )}
+              {isApplying && (
+                <span
+                  style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 9.5,
+                    color: "var(--accent-ink)",
+                    letterSpacing: "0.06em",
+                    marginLeft: 6,
+                  }}
+                >
+                  APPLYING…
                 </span>
               )}
             </div>
@@ -135,6 +173,12 @@ export function TierComplianceBlock({
             <div className={`margin ${state}`}>
               <span className="num">{fmtPct(t.blendedMarginPct)}</span>
               <span className="pct">%</span>
+              {isChanged && (
+                <span className="delta-chip">
+                  {deltaPp >= 0 ? "+" : ""}
+                  {deltaPp.toFixed(1)}pp
+                </span>
+              )}
             </div>
             <div className="sell">
               {sellPerUnit != null ? `$${sellPerUnit.toFixed(2)}` : "—"}

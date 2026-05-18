@@ -36,6 +36,10 @@ import {
   applyGlobalAdj,
   applySurgicalAdj,
 } from "@/app/actions/pricing-apply";
+import {
+  useReframeState,
+  type LastApplySummary,
+} from "@/components/pricing-reframe/reframe-state-context";
 
 type Props = {
   // ★ recommended tier id (from quote_tiers.recommended). Passed
@@ -139,6 +143,7 @@ export function SuggestionEngine({ recommendedTierId }: Props) {
               key={opt.id}
               option={opt}
               quoteId={quoteId}
+              optionLabel={opt.label}
             />
           ))}
         {!suggestions.acceptRiskGating.available &&
@@ -158,12 +163,22 @@ export function SuggestionEngine({ recommendedTierId }: Props) {
 function SuggestionOptionRow({
   option,
   quoteId,
+  optionLabel,
 }: {
   option: SuggestionOption;
   quoteId: string;
+  optionLabel: string;
 }) {
   const [pending, startApply] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const { beginApply, finishApply, abortApply, applyingTierIds } =
+    useReframeState();
+
+  // Other suggestion rows disable while ANY apply is in flight so PMs
+  // can't fire two applies in parallel mid-transition. The button's
+  // pending state covers the row that fired; this covers siblings.
+  const otherApplyInFlight =
+    !pending && applyingTierIds.size > 0;
 
   function onApplyClick() {
     setError(null);
@@ -172,23 +187,47 @@ function SuggestionOptionRow({
     fd.set("applyDelta", String(option.applyDelta));
     fd.set("optionRecommended", option.recommended ? "true" : "false");
 
+    // Build deltaPpByTier from option.preview for the post-apply toast.
+    const deltaPpByTier: Record<string, number> = {};
+    for (const p of option.preview ?? []) {
+      deltaPpByTier[p.tierId] = p.deltaPp;
+    }
+
+    const buildSummary = (auditRef: string | null): LastApplySummary => ({
+      tierIds: option.applyTo,
+      deltaPpByTier,
+      optionLabel,
+      auditRef,
+    });
+
     if (option.id === "surgical") {
-      // Surgical writes a single tier — the (only) entry in applyTo.
       const tierId = option.applyTo[0];
       if (!tierId) {
         setError("Surgical option missing tier");
         return;
       }
       fd.set("tierId", tierId);
+      beginApply(option.applyTo);
       startApply(async () => {
         const r = await applySurgicalAdj(fd);
-        if (!r.ok) setError(r.error.message);
+        if (!r.ok) {
+          setError(r.error.message);
+          abortApply();
+          return;
+        }
+        finishApply(buildSummary(null));
       });
     } else if (option.id === "global") {
       fd.set("applyTo", option.applyTo.join(","));
+      beginApply(option.applyTo);
       startApply(async () => {
         const r = await applyGlobalAdj(fd);
-        if (!r.ok) setError(r.error.message);
+        if (!r.ok) {
+          setError(r.error.message);
+          abortApply();
+          return;
+        }
+        finishApply(buildSummary(null));
       });
     } else if (option.id === "accept_risk") {
       // Accept-risk doesn't write tier_price_adj_pct; it's an in-session
@@ -221,7 +260,7 @@ function SuggestionOptionRow({
         className="apply"
         type="button"
         onClick={onApplyClick}
-        disabled={pending}
+        disabled={pending || otherApplyInFlight}
       >
         {pending
           ? "Applying…"

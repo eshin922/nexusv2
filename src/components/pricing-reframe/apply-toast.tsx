@@ -2,17 +2,60 @@
 
 // Pricing Reframe v1 — ApplyToast
 //
-// Scaffold component. Step 7 (brief §11) fills in real post-apply state —
-// toast appears for the duration-until-next-action window after a
-// surgical/global apply lands, showing the delta + audit-log ref.
+// Renders after a successful apply per brief §4.6. Reads lastApply
+// from ReframeStateProvider. Persists until next apply (no fade
+// timer; CD disposition).
 //
 // Pattern 30 path-B-default — `.pr-toast` class from canonical CSS.
-//
-// In production, this component will read post-apply state from the
-// costing store (which apply just fired, delta vs prior, audit_log row
-// id). For Step 3 it renders nothing.
 
-export function ApplyToast() {
-  // Step 7 wires real state. Returning null for Step 3 scaffold.
-  return null;
+import { useReframeState } from "@/components/pricing-reframe/reframe-state-context";
+
+type TierLite = {
+  id: string;
+  label: string;
+};
+
+const fmtDelta = (v: number) =>
+  (v >= 0 ? "+" : "") + v.toFixed(1) + "pp";
+
+export function ApplyToast({ tiers }: { tiers: TierLite[] }) {
+  const { lastApply } = useReframeState();
+  if (!lastApply) return null;
+
+  const labelById = new Map(tiers.map((t) => [t.id, t.label]));
+  const affectedLabels = lastApply.tierIds.map(
+    (tid) => labelById.get(tid) ?? tid,
+  );
+
+  // Summary copy. For single-tier (surgical), "Lifted T1 by +2.9pp."
+  // For N-tier (global), "Lifted 4 tiers (T1 +2.3pp, T2 +2.1pp, ...)."
+  let message: string;
+  if (lastApply.tierIds.length === 1) {
+    const tid = lastApply.tierIds[0];
+    const label = labelById.get(tid) ?? tid;
+    const delta = lastApply.deltaPpByTier[tid] ?? 0;
+    message = `Lifted ${label} by ${fmtDelta(delta)} (${lastApply.optionLabel}).`;
+  } else {
+    const deltas = lastApply.tierIds
+      .map((tid) => {
+        const label = labelById.get(tid) ?? tid;
+        const delta = lastApply.deltaPpByTier[tid] ?? 0;
+        return `${label} ${fmtDelta(delta)}`;
+      })
+      .join(", ");
+    message = `Lifted ${affectedLabels.length} tiers (${deltas}) — ${lastApply.optionLabel}.`;
+  }
+
+  return (
+    <div className="pr-toast">
+      <span className="glyph">✓</span>
+      <span className="msg">
+        <strong>Applied · </strong>
+        {message}
+      </span>
+      {lastApply.auditRef && (
+        <span className="audit">audit_id={lastApply.auditRef}</span>
+      )}
+    </div>
+  );
 }

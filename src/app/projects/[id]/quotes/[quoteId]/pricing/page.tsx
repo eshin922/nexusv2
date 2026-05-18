@@ -21,12 +21,7 @@ import { PricingSectionHead } from "@/components/pricing/pricing-section-head";
 import { SkuSummaryRowList } from "./sku-summary-row";
 import { NavShell } from "@/components/nav/nav-shell";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
-import { BlendedHeadline } from "@/components/pricing-reframe/blended-headline";
-import { TierComplianceBlock } from "@/components/pricing-reframe/tier-compliance-block";
-import { FloorBlock } from "@/components/pricing-reframe/floor-block";
-import { SuggestionEngine } from "@/components/pricing-reframe/suggestion-engine";
-import { ApplyToast } from "@/components/pricing-reframe/apply-toast";
-import { EmptyState } from "@/components/pricing-reframe/empty-state";
+import { PricingReframeShell } from "@/components/pricing-reframe/shell";
 
 // Slice RI.5 — Pricing rebuild per Designer comprehensive audit
 // + brief §3.3. Three rooms top-to-bottom:
@@ -253,13 +248,17 @@ export default async function CostingPage({
             ROOM 0/1/2/3 components per Edward's interim (b) call.
             CD redesign for Quote umbrella IA will revisit displaced
             components in a follow-up slice.
+
+            Shell wrapper holds the cross-component applying/last-apply
+            state (Steps 8 + 9) via React Context. Server-component
+            page.tsx passes the tier list + recommended-tier id;
+            client shell renders the 6 top-band components under
+            shared state.
             ───────────────────────────────────────────────────────────── */}
-        <ApplyToast />
-        <BlendedHeadline />
-        <FloorBlock />
-        <EmptyState />
-        <TierComplianceBlock tiers={tiersForReframe} />
-        <SuggestionEngine recommendedTierId={recommendedTierId} />
+        <PricingReframeShell
+          tiersForReframe={tiersForReframe}
+          recommendedTierId={recommendedTierId}
+        />
 
         {/* ROOM 0 — Lines Requiring Review (BELOW_FLOOR only) — preserved */}
         <LinesRequiringReview />
