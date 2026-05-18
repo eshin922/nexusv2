@@ -73,85 +73,130 @@ longer the canonical source.
 - v2 backlog items (in `UX_BACKLOG.md`): the three NetSuite/HubSpot
   pivot tickets capture the work to flip the integration direction.
 
-## Lifecycle ambition — Nexus as the assembly-aware operational spine
+## Lifecycle ambition — two-layer architecture (revised May 2026)
 
 The v1/v2 boundary above is product-master direction (HubSpot vs.
 NetSuite). Sitting alongside it is a longer-arc **lifecycle
-ambition** that operates on a different axis: where the
-quote-to-fulfillment workflow lives over time.
+ambition** that operates on a different axis: how the quote-to-
+fulfillment workflow is structured over time.
 
-**Position:** Nexus owns the assembly-aware operational spine
-across the quote-to-fulfillment lifecycle. HubSpot stays CRM for
-pre-quote / deal pipeline. NetSuite stays GL/inventory backbone
-and absorbs the operational artifacts it handles natively (sales
-orders, POs, fulfillments, invoices). Nexus owns everything
-*between* pre-quote and GL/inventory — the assembly-aware
-operational work that neither HubSpot nor NetSuite handles well.
+**Revision note (2026-05-17):** This section previously framed
+Operations as a v1.1+ peer surface (6th surface in the canon).
+That framing was the wrong shape. The lifecycle ambition is
+structurally a **two-layer architecture** — a per-quote flow
+(Layer 1) and an orchestration wrapper above it (Layer 2). v1
+ships Layer 1; Layer 2 is post-v1. See revised framing below.
 
-**HubSpot deprecation path:** post-quote operations moves fully
-to Nexus over time. HubSpot stays CRM for deal pipeline,
-contacts, account hierarchy, and pre-quote conversation history.
-Post-acceptance lifecycle tracking — currently scattered across
-Monday.com boards, SharePoint folders, and HubSpot deal-stage
-hacks — consolidates in Nexus.
+### v1 strategic frame — per-quote lifecycle, HubSpot → Nexus → NetSuite
 
-**Operations surface is the v1.1+ entry point.** Canon expanded
-5 → 6 surfaces in May 2026. Operations is gated by
-`quote.status = accepted` and hosts BoM (v1.1), BoM Compliance
-Claims (v1.1), packing list (v2 pending NetSuite-ownership
-disposition), and future lifecycle stages: procurement status,
-production status, shipment status, delivery confirmation,
-invoice link, actuals-vs-estimate reconciliation. See
-`CLAUDE.md` surface naming canon section + UX_BACKLOG entry
-"Operations surface — post-acceptance lifecycle hub" for the
-canonical scope inventory.
+v1 ships the per-quote lifecycle as a coherent flow from inquiry
+through NetSuite SO push:
 
-**NetSuite continues as GL/inventory backbone.** Nexus → NetSuite
-direct integration (the v2 commitment above) absorbs the
-assembly-aware operational artifacts NetSuite handles poorly
-today — assemblies, BOMs, nested costing. NetSuite retains the
-ledger-of-truth role for transactions; Nexus retains the
-operational-process role for assembly-aware work.
+- **HubSpot** seeds the data (read-only at v1)
+- **Nexus** owns the build → send → accept → tier-select →
+  advance-to-NetSuite lifecycle
+- **NetSuite** receives the SO as the operational handoff
 
-### Corroborating signal — ops-analyst feedback (May 15 2026)
+The Quote umbrella surface (4th peer surface) is where the
+execute phase lives, with internal sub-tab structure: **Preview
+Quote · Send to Client · Mark Accepted · Tier Selection**. Each
+sub-tab carries an explicit Advance action; HubSpot deal stage
+push fires on Mark Accepted Advance; NetSuite SO push fires on
+Tier Selection Advance (the irreversible commit).
+
+**v1 ends at NetSuite SO push.** Post-acceptance operational
+artifacts (BoM, packing list, freight tracking, procurement /
+production / shipment status, actuals-vs-estimate reconciliation,
+etc.) are post-v1 scope — they belong to Layer 2, not the per-
+quote flow.
+
+See `CLAUDE.md` "Surface naming canon" section + "Quote umbrella
+structure" subsection. See `docs/quote-umbrella-brief.md` (v1
+path item 4 — combined slice).
+
+### v1.1+ / v2 strategic frame — orchestration wrapper above per-quote flow
+
+Post-v1, Nexus grows a second architectural layer:
+
+**Layer 1 — per-quote flow (v1 scope).** Setup → Costs → Pricing
+→ Quote (umbrella with sub-tabs). Build and execute one quote at
+a time. Linear sequence; each surface is a phase of work on a
+single internal quote artifact.
+
+**Layer 2 — orchestration wrapper (v1.1+ / v2).** Cross-cutting
+dashboard layer that sits ABOVE the per-quote flow. Different
+KIND of surface — it manages many quotes/deals from above, not
+the work inside any single one. Concept includes:
+
+- Home dashboard
+- Items in flight (cross-quote view)
+- Post-acceptance tracking (procurement, production, shipment,
+  delivery, invoice)
+- BOM generation
+- Packing list
+- Freight tracker
+- Cross-quote views
+- Actuals-vs-estimate reconciliation
+
+Placement TBD (home-page level? deal organizer level? separate
+workspace concept?) — design call when scoped post-v1. See
+UX_BACKLOG entry "Operations wrapper / orchestration layer" for
+the full scope inventory + open boundary questions.
+
+### HubSpot deprecation path
+
+Post-quote operations moves fully to Nexus over time. HubSpot
+stays CRM for pre-quote deal pipeline, contacts, account
+hierarchy, and pre-quote conversation history. Post-acceptance
+lifecycle tracking — currently scattered across Monday.com
+boards, SharePoint folders, and HubSpot deal-stage hacks —
+consolidates in Nexus's Layer 2 orchestration wrapper.
+
+NetSuite continues as GL/inventory backbone. The v2 commitment
+(Nexus → NetSuite direct integration, replacing the HubSpot
+writeback) absorbs the assembly-aware operational artifacts
+NetSuite handles poorly today — assemblies, BOMs, nested
+costing. NetSuite retains the ledger-of-truth role for
+transactions; Nexus retains the operational-process role for
+assembly-aware work.
+
+### Corroborating signal — Aisha 1:1 (May 15 2026)
 
 Ops-analyst Aisha Manjra independently surfaced two corroborating
-observations during a May 15 2026 workflow review:
+observations during the May 15 2026 workflow review:
 
 1. "HubSpot remains as syncing and reporting middleman for now
-   but will be phased out later." Aligns with HubSpot
+   but will be phased out later." Aligns with the HubSpot
    deprecation path above.
 2. "Operational dashboard to replace Monday.com and SharePoint."
-   Aligns with the Operations surface scope — the post-
-   acceptance hub that consolidates the lifecycle tracking
-   currently scattered across external tools.
+   Aligns with the Layer 2 orchestration wrapper scope — the
+   wrapper IS Aisha's operational dashboard need.
 
-The convergence between Edward's product-direction framing and an
-independent ops-side surface request is strong signal that the
-lifecycle ambition is the right v1.1+ direction.
+The convergence between Edward's two-layer architectural framing
+and Aisha's independent ops-side dashboard request is strong
+signal that the orchestration wrapper is the right post-v1
+direction.
 
-### Relationship to the v1/v2 boundary
+### Relationship to the v1/v2 product-master boundary
 
 The v1/v2 product-master boundary is still load-bearing. The
 lifecycle ambition rides *on top of* that boundary — it doesn't
 replace it.
 
 - **v1 (today):** HubSpot is product-master; Nexus consumes
-  HubSpot products; Nexus → HubSpot writeback (Slice 12) is the
-  peak of HubSpot integration depth. Operations surface ships
-  v1.1+ in the HubSpot-master regime; lifecycle events
-  consumed by Operations can be emitted whether the product
-  source is HubSpot or NetSuite.
+  HubSpot products; the Quote umbrella slice (v1 path item 4)
+  is the peak of HubSpot integration depth. Layer 2
+  orchestration wrapper builds out post-v1 in the HubSpot-master
+  regime initially.
 - **v2 (later):** NetSuite becomes product-master; Nexus →
   NetSuite direct integration replaces the HubSpot writeback.
-  Operations surface continues operating on the same
-  `quote.status = accepted` gate; the product-master switch
-  doesn't disturb the lifecycle hub.
+  Layer 2 orchestration wrapper continues operating; the
+  product-master switch doesn't disturb the lifecycle layer.
 
-The two axes are independent: lifecycle expansion (Operations
-surface + assembly-aware tracking) can advance on the v1 product-
-master regime; product-master switch (HubSpot → NetSuite) can
-advance independently of lifecycle scope.
+The two axes are independent: layer expansion (Layer 1 → Layer
+1+2) can advance on the v1 product-master regime; product-master
+switch (HubSpot → NetSuite) can advance independently of layer
+scope.
 
 ## Migration path (sketched)
 
