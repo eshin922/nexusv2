@@ -5,64 +5,124 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
 ## Open
 
-- [Operations surface — post-acceptance lifecycle hub — v1.1+]
+- [Quote umbrella + NetSuite finalization — v1 path item 4]
 
-  **Slice:** v1.1+. New 6th surface in the canon. Canon updated
-  May 2026 (CLAUDE.md surface naming canon section).
+  **Slice:** v1 release-critical path item 4 (absorbs former
+  standalone Mark-Accepted external writebacks scope).
 
-  **Scope (current vision):** Operations is the post-acceptance
-  lifecycle hub. Gated by `quote.status = accepted`. Hosts:
-  - BoM (v1.1 — assembly-aware bill of materials)
-  - BoM Compliance Claims (v1.1)
-  - Packing list (v2 pending data gaps + NetSuite-ownership
-    disposition)
-  - Future lifecycle stages: procurement status, production
-    status, shipment status, delivery confirmation, invoice link,
-    actuals-vs-estimate reconciliation
+  **Combined slice covering:** Quote sub-tab IA restructure
+  (Preview Quote · Send to Client · Mark Accepted · Tier
+  Selection) + Advance action mechanism + HubSpot deal stage
+  push (on Mark Accepted sub-tab Advance) + NetSuite SO push
+  (on Tier Selection sub-tab Advance) + finalization warning.
 
-  **Strategic frame:** Nexus owns the assembly-aware operational
-  spine; HubSpot stays CRM; NetSuite stays GL/inventory.
-  Operations is where Nexus's unique value (assembly-aware
-  lifecycle tracking) renders. See STRATEGIC_VISION.md lifecycle
-  ambition section.
+  **Brief:** `docs/quote-umbrella-brief.md`. Edward + CA
+  disposition: combined slice (no X/Y split).
 
-  **V1 design constraint:** Mark-Accepted writebacks slice (v1
-  path item — combined HubSpot + NetSuite SO push slice) emits
-  lifecycle events compatible with Operations consumption. Schema
-  shape (lifecycle_events table OR extended audit_log) Pattern
-  25-verified when that brief lands. Decision deferred until the
-  writebacks brief drafts; the constraint is "emit events the
-  Operations surface can later consume," not a specific schema.
+  **Prereqs before kickoff:**
+  - Pricing reframe v1 ships
+  - Leaf-detach micro-slice ships
+  - CA-drafted frame doc (`docs/post-pricing-flow-ia-frame.md`)
+    locks
+  - CD R7 design round ships Pattern 30 deliverables
+  - Edward dispositions Q1-Q7 from brief §7 (especially HubSpot
+    deal stage mapping + NetSuite SO creation status)
+  - Architect Pattern 22 §0.5 verification against post-revision
+    canon
 
-  **Design round:** R8 — Operations IA. Coupled with multi-route
-  shipping (which is itself an Operations concern; the route
-  declaration + per-leg lifecycle tracking spans both). Single
-  R-round addresses both per Pattern 34 (multi-surface features
-  warrant a dedicated R-round before implementation).
+  **Scope IN:** Sub-tab IA + structural UI; state enum extension
+  (`preview_ready`, `complete`); new schema columns
+  (`selected_tier_id`, `netsuite_so_id`, `netsuite_pushed_at`);
+  finalization warning; HubSpot writeback on Mark Accepted
+  Advance; NetSuite SO push on Tier Selection Advance with
+  idempotency key (`quote_id + quote_version`).
 
-  **Open boundary questions banked for R8 brief:**
-  - Packing list ownership: Nexus authors the packing list vs.
-    NetSuite Fulfillment authors and Nexus mirrors. Data gaps
-    (per-package contents, per-package weights, carrier
-    interface) need disposition first.
+  **Scope OUT:** Operations wrapper artifacts (BoM, packing
+  list, freight tracker — see Operations wrapper entry below);
+  customer self-serve flows; quote versioning workflow for
+  post-Complete changes (v1.5+ backlog); multi-tier orders.
+
+  **Absorbed scope:** This slice subsumes the standalone Mark-
+  Accepted external writebacks slice that previously sat at v1
+  path item 9. HubSpot deal stage push moves to Mark Accepted
+  sub-tab Advance; NetSuite SO push moves to Tier Selection
+  sub-tab Advance. Net +1 slice on v1 path; timeline shifts
+  ~1-2 weeks. Updated v1 release window: late July to early
+  August 2026.
+
+- [Operations wrapper / orchestration layer — post-v1]
+
+  **Slice:** post-v1 (v1.1+ / v2). NOT a peer surface; NOT v1
+  scope.
+
+  **Concept:** Future cross-cutting surface that sits **above**
+  the per-quote flow. Different KIND of surface than the per-
+  quote linear sequence — a wrapper / dashboard / orchestration
+  layer that manages many quotes/deals from above.
+
+  **Conceptual contents:**
+  - Home dashboard
+  - Items in flight (cross-quote view)
+  - Post-acceptance tracking (procurement status, production
+    status, shipment status, delivery confirmation, invoice link)
+  - BoM generation (assembly-aware bill of materials)
+  - BoM Compliance Claims
+  - Packing list
+  - Freight tracker
+  - Cross-shipment views
+  - Actuals-vs-estimate reconciliation
+
+  **Strategic frame:** Nexus's per-quote flow ends at NetSuite
+  SO push (v1, per Quote umbrella slice). Operations wrapper is
+  where Nexus's assembly-aware operational spine renders as a
+  managed-across-flows dashboard layer. Replaces the operational
+  fragmentation Aisha identified (Monday.com + SharePoint +
+  bouncing between HubSpot / NetSuite for status).
+
+  **Validated against ops-analyst feedback May 15 2026** — Aisha
+  Manjra independently identified "operational dashboard to
+  replace Monday.com + SharePoint" as the wrapper need.
+
+  **Placement TBD.** Three candidate options banked:
+  1. Home-page-level dashboard above the per-quote flow
+  2. Deal organizer level inside workspace concept (Round 4
+     backlog)
+  3. Separate workspace concept entirely
+
+  Design round (R8+) determines placement when scoped post-v1.
+
+  **Open boundary questions banked:**
+  - Packing list ownership: Nexus authors vs. NetSuite
+    Fulfillment authors and Nexus mirrors. Data gaps (per-
+    package contents, per-package weights, carrier interface)
+    need disposition first.
   - Procurement status: Nexus inbound from NetSuite POs (read-
     only feed) vs. read-only embed (iframe-like) vs. Nexus
     becomes the authoring surface and writes to NetSuite. Same
     question shape applies to production status.
-  - Returns / change orders / revisions: in Operations scope or
+  - Returns / change orders / revisions: wrapper scope vs.
     separate workflow? RMAs intersect quote lifecycle but may
     deserve their own surface.
+  - HubSpot deal pipeline display: read-only vs. bidirectional
+    vs. agnostic.
   - Lifecycle event emission: which mutations are events
     (acceptance, BoM-generated, PO-cut, shipment-departed, etc.)
-    vs. which are derived state? Affects schema choice between
-    a dedicated `lifecycle_events` table vs. extending audit_log.
+    vs. derived state? Affects schema choice between a dedicated
+    `lifecycle_events` table vs. extending `audit_log`. Quote
+    umbrella slice (item 4) should emit events compatible with
+    Operations wrapper consumption when it ships; specific
+    schema decision deferred until Operations wrapper design
+    round.
 
-  **Validated against ops-analyst feedback May 15 2026** — Aisha
-  Manjra independently identified "operational dashboard to
-  replace Monday.com + SharePoint" as the post-acceptance hub
-  need. Convergence between Edward's lifecycle ambition + Aisha's
-  ops-side surface request is strong signal Operations is the
-  right v1.1+ canon expansion.
+  **Revision note (2026-05-17):** This entry replaces an earlier
+  "Operations surface — post-acceptance lifecycle hub" entry that
+  framed Operations as a 6th peer surface in v1.1+. That framing
+  was the wrong shape. Operations is a wrapper layer above the
+  per-quote flow, not a peer in the per-quote linear sequence —
+  different KIND of surface. v1 surface canon stays at 4 peer
+  surfaces (Setup / Costs / Pricing / Quote). See CLAUDE.md
+  "Surface naming canon" section + Quote umbrella structure
+  subsection.
 
 - [Product specs storage + customer-facing Quote PDF toggle — v1.1]
 
@@ -94,9 +154,19 @@ Items here are intentionally deferred - capture, don't fix in the moment.
   "spec sheet lives elsewhere, has to be cross-referenced"
   friction.
 
-- [Quote attachments — file storage for manufacturing quotes + accounting docs — v1.1]
+- [Quote attachments — file storage for manufacturing quotes + accounting docs — post-v1]
 
-  **Slice:** v1.1. New architectural piece — first surface that
+  **Slice:** Lives in Operations wrapper layer (post-v1). Surface
+  details depend on Operations wrapper design (R8+). Previously
+  scoped as a v1.1 per-quote feature; reframed 2026-05-17 per
+  canon revision — attachments are an operational artifact that
+  fits the wrapper's document-archive concept better than a
+  per-quote-surface bolt-on.
+
+  Original design notes preserved below for the eventual
+  Operations wrapper design pass.
+
+  **Concept:** New architectural piece — first surface that
   writes user files to Supabase Storage. Operational document
   archive on the quote.
 

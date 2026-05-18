@@ -1,15 +1,17 @@
-# Surface naming canon (Slice RI.8 + Operations expansion May 2026)
+# Surface naming canon (Slice RI.8 + canon revision May 2026)
 
-Nexus has **six core surfaces** in the quote-to-fulfillment lifecycle:
+**Surface canon: 4 peer top-level surfaces — Setup → Costs → Pricing → Quote.**
 
 1. **Setup** — quote authoring (SKUs, tiers, context)
 2. **Costs** — cost inputs (packaging, production, freight legs)
 3. **Pricing** — sell-price negotiation + margin verdicts
-4. **Quote** — customer-facing render (preview + PDF generator)
-5. **Mark Accepted** — transition-event surface (acceptance gate +
-   external writebacks + audit)
-6. **Operations** — post-acceptance lifecycle hub (v1.1+; gated by
-   `quote.status = accepted`)
+4. **Quote** — umbrella surface for the execute phase; internal
+   sub-tab structure (see "Quote umbrella structure" below)
+
+Build phase (Setup, Costs, Pricing) is sequential dedicated work
+on the internal quote artifact. Quote is an umbrella surface for
+the execute phase — internal sub-tabs capture the discrete
+operational phases between PM-finished-building and quote-complete.
 
 **Surfaces 2-4** were renamed during RI.8 for clearer labels. Old → new:
 
@@ -17,27 +19,56 @@ Nexus has **six core surfaces** in the quote-to-fulfillment lifecycle:
 - **Costing sheet → Pricing** (URL `/costing` → `/pricing`)
 - **Customer view → Quote** (URL `/customer-view` → `/quote`)
 
-Setup + Mark Accepted unchanged. Operations added May 2026 as
-canon-expansion item (5 → 6); not yet built.
+Setup unchanged.
 
-**Mark Accepted's sharpened identity (May 2026):** Mark Accepted is
-the **transition-event surface** — acceptance gate, external
-writebacks (HubSpot deal stage + NetSuite SO), and audit. It is
-NOT the post-acceptance hub. Post-acceptance operational artifacts
-(BoM, BoM Compliance Claims, packing list, procurement/production/
-shipment status, invoice link, actuals-vs-estimate reconciliation)
-live in the Operations surface (v1.1+). This distinction prevents
-Mark Accepted from accreting unrelated lifecycle responsibilities
-and gives the operational hub its own dedicated IA.
+## Quote umbrella structure (post-Quote-restructure slice)
 
-**Operations surface — strategic frame:** Nexus owns the assembly-
-aware operational spine across the lifecycle; HubSpot stays CRM;
-NetSuite stays GL/inventory. Operations is where Nexus's unique
-value (assembly-aware lifecycle tracking) renders post-acceptance.
-Design round: R8 — Operations IA (coupled with multi-route
-shipping, which is itself an Operations concern). See UX_BACKLOG
-entry "Operations surface — post-acceptance lifecycle hub" for the
-full scope inventory + open boundary questions.
+See `docs/quote-umbrella-brief.md` (Quote umbrella + NetSuite
+finalization slice; v1 path item 4).
+
+Quote contains 4 sequential sub-tabs reflecting the execute-phase
+lifecycle:
+
+1. **Preview Quote** — internal review of the quote before
+   sending; PDF preview, version selection, edit-or-finalize choice
+2. **Send to Client** — sending action + post-send waiting state
+3. **Mark Accepted** — record customer's acceptance (PM proxy);
+   HubSpot deal stage push fires on Advance
+4. **Tier Selection** — capture customer's chosen tier (PM proxy);
+   finalization warning; NetSuite SO push fires on Advance;
+   quote completes
+
+Each sub-tab has an explicit **Advance action button**
+(progression action between sub-tabs). Earlier sub-tabs become
+read-only after their Advance has fired. Tier Selection Advance
+is the **irreversible commit point** — quote transitions to
+`complete` state; admin override required to revert.
+
+**Note on Mark Accepted** (formerly framed as a peer surface in
+the pre-revision canon): Mark Accepted is now a Quote sub-tab,
+not a peer surface. State machine + external writebacks (HubSpot
+deal stage push) are scoped to the sub-tab's Advance action.
+NetSuite SO push lives on Tier Selection sub-tab's Advance, not
+on Mark Accepted's. Idempotency keys are scoped per-sub-tab-
+Advance; see brief for schema details.
+
+## Operations wrapper (post-v1; placement and scope TBD)
+
+Operations is a future orchestration layer that sits **above** the
+per-quote flow — not a peer surface in the per-quote linear
+sequence. Concept includes: home dashboard, items in flight
+(cross-quote view), BOM generation, packing list, freight tracker,
+post-acceptance tracking. Operations is a wrapper / dashboard /
+orchestration layer; the per-quote flow is what it manages from
+above.
+
+Operations is **explicitly NOT v1 scope.** v1 ships the per-quote
+lifecycle through NetSuite SO push (per Quote umbrella structure
+above). Operations wrapper builds out in v1.1+ / v2; placement
+(home page level? deal organizer level? separate workspace
+concept?) is post-v1 design call. See UX_BACKLOG entry
+"Operations wrapper / orchestration layer" for the scope
+inventory + placement candidates + open boundary questions.
 
 **What's renamed:**
 - Route folders, component folders, page-level component names
@@ -1832,36 +1863,53 @@ least LOW; if the stale comment claims a behavior invariant that
 no longer holds (boundary guard, token discipline, namespace
 scope), it's MEDIUM.
 
-## v1 release-path slice sequencing (banked May 2026, updated
-2026-05-13)
+## v1 release-path slice sequencing (banked May 2026; revised
+2026-05-17 per canon revision)
 
 Captured here so the sequencing survives context compaction
 and future CC sessions see the queued shape. Subject to
 revision as discovery completes.
 
-1. ~~**§6.b — Setup wholesale redesign + Add-product modal Phase 1
-   HubSpot-first rewrite**~~ ✅ merged (PR #25, 2026-05-13)
-2. **Rest-of-app fidelity sweep** — Cost build, Costing/Pricing,
-   Customer view/Quote, Mark Accepted, Home. Same Pattern 30
-   canonical-CSS-imported-verbatim discipline as §6.b's path-B
-   migration. Brief approved 2026-05-13;
-   `docs/rest-of-app-fidelity-sweep-brief.md`.
-3. **MS OAuth slice** (new — slotted 2026-05-13). Microsoft
-   OAuth integration for production deployment; blocks
-   downstream slices that depend on organization-tenant SSO.
-4. **Mark-Accepted external writebacks** (combined slice
-   superseding original Slice 12 scope) — HubSpot deal writeback
-   + NetSuite sales order push share state machine, retry +
-   surface UX, PM monitoring. Pre-brief discovery covers
-   HubSpot→NetSuite sync coverage, current manual SO entry
-   pattern, NetSuite assembly pricing model. Cost evaluation
-   per Pattern 33 already done; expansion approved.
-5. **PDF render path** — Notes-above-T&Cs ordering + Customer
-   view PDF findings.
-6. **v1 release.**
+**Previously shipped** (chronological, not numbered as v1-path
+items — these are historical milestones the v1 path built on):
+§6.b Setup wholesale redesign + Add-product modal Phase 1 ✅
+(PR #25); Rest-of-app fidelity sweep ✅; R6.2 freight legs ✅
+(PR #29); Operations canon doc updates ✅ (PR #30, since revised
+— see canon revision PR); Autosave focus-stability brief ✅
+(PR #31).
 
-Discovery items parallelizable with §6.b + rest-of-app sweep
-(not blocking those slices):
+Current v1 path (post-canon-revision; numbered from the first
+not-yet-shipped item):
+
+1. ~~**Autosave focus-stability sweep + Pattern 47 promotion**~~
+   ✅ merged (PR #32, 2026-05-17)
+2. **Pricing reframe v1** — next; kickoff after canon revision
+   lands. CD prototype + designer notes already shipped (see
+   `docs/design-prototypes/dist/`). Architect §0.5 verification
+   against post-revision canon.
+3. **Leaf-detach micro-slice** — adds detach affordance for
+   misclassified leaves; sequenced post-Pricing-reframe per
+   parallel-pair experiment disposition (TBD by Edward).
+4. **Quote umbrella + NetSuite finalization** (combined slice;
+   absorbs former Mark-Accepted external writebacks scope).
+   Sub-tab IA restructure (Preview Quote · Send to Client · Mark
+   Accepted · Tier Selection) + Advance action mechanism +
+   HubSpot deal stage push on Mark Accepted Advance + NetSuite
+   SO push on Tier Selection Advance + finalization warning.
+   Brief at `docs/quote-umbrella-brief.md`. Prereqs before
+   kickoff: items 2-3 ship; CA frame doc locks
+   (`docs/post-pricing-flow-ia-frame.md`); CD R7 ships Pattern
+   30 deliverables; Edward dispositions Q1-Q7 from brief §7.
+5. **Slice 11 PDF customer-facing data bindings** — lands into
+   Preview Quote sub-tab post-Quote-restructure.
+6. **Microsoft OAuth** (Clerk-managed) — organization-tenant SSO
+   for production deployment.
+7. **Pre-launch review**.
+8. **v1 release** (estimated window: late July to early August
+   2026).
+
+Discovery items parallelizable with upcoming slices (not
+blocking the queue):
 
 - Does the active HubSpot→NetSuite sync carry assembly metadata
   or only leaves?
@@ -1871,8 +1919,17 @@ Discovery items parallelizable with §6.b + rest-of-app sweep
   leaves?
 
 These three answers shape the assembly-structure architecture
-decision in the NetSuite portion of the combined writebacks
-slice. CA + Edward dispose once discovery completes.
+decision in the NetSuite push portion of the Quote umbrella
+slice (item 4 Tier Selection Advance). CA + Edward dispose once
+discovery completes.
+
+**Operations wrapper / orchestration layer (post-v1).** Not
+shown in the v1 path above. Operations is a future cross-cutting
+dashboard layer that sits above the per-quote flow — different
+KIND of surface than the per-quote linear sequence. v1 ends at
+NetSuite SO push (item 4). Operations wrapper builds out in
+v1.1+ / v2; see UX_BACKLOG "Operations wrapper / orchestration
+layer" for scope inventory + placement candidates.
 
 # Single Supabase project — dev and prod share one DB
 
