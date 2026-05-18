@@ -185,6 +185,12 @@ export default async function CostingPage({
     recommended: t.recommended,
   }));
 
+  // Pricing reframe v1 — SuggestionEngine needs the ★ recommended tier
+  // id for accept-risk gating per Pushback 3 disposition. Pass through
+  // from the same quote_tiers query.
+  const recommendedTier = tiers.find((t) => t.recommended);
+  const recommendedTierId = recommendedTier?.id ?? null;
+
   return (
     <NavShell
       surfaceKey="costing"
@@ -253,7 +259,7 @@ export default async function CostingPage({
         <FloorBlock />
         <EmptyState />
         <TierComplianceBlock tiers={tiersForReframe} />
-        <SuggestionEngine />
+        <SuggestionEngine recommendedTierId={recommendedTierId} />
 
         {/* ROOM 0 — Lines Requiring Review (BELOW_FLOOR only) — preserved */}
         <LinesRequiringReview />
