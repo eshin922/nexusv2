@@ -1,6 +1,6 @@
 # Quote umbrella — sub-tab restructure + NetSuite finalization — Brief
 
-**Slice position:** v1 release-critical path, item 5 (after Leaf-detach micro-slice; before Slice 11 PDF customer-facing data bindings)
+**Slice position:** v1 release-critical path, item 4 (after Leaf-detach micro-slice; before Slice 11 PDF customer-facing data bindings)
 **Slice type:** Combined IA + structural UI + integration slice (does not split into X/Y per Edward disposition)
 **Status:** Draft for Edward review; pending Architect Pattern 22 §0.5 verification post-canon-revision landing
 
@@ -313,11 +313,11 @@ CA lean for #7: frame doc locks first (small artifact; CA drafts during Pricing 
 
 ## 10. Connections to other slices
 
-- **Pricing reframe v1 (item 4 on v1 path)** — must ship first. Pricing reframe surfaces per-tier compliance; Tier Selection sub-tab REUSES the per-tier compliance summary as read-only context. Pricing reframe's `pricing_events` telemetry table is independent (no interaction with this slice).
-- **Leaf-detach micro-slice (item 5)** — must ship first or in parallel. Leaf-detach doesn't touch Quote surface; no direct interaction.
-- **Slice 11 PDF customer-facing data bindings (item 6 — formerly 4)** — lands AFTER this slice. PDF lives in Preview Quote sub-tab; Slice 11 implements customer-facing data bindings against the restructured sub-tab IA. Slice 11 brief should reference this slice's Preview Quote structure.
-- **Microsoft OAuth (item 7)** — no direct interaction; sequentially independent.
-- **Pre-launch review (item 8)** — verifies this slice's HubSpot + NetSuite integration error handling, finalization warning copy, audit log coverage. Customer-facing render verification (Pattern 45) covers Preview Quote sub-tab.
+- **Pricing reframe v1 (item 2 on v1 path)** — must ship first. Pricing reframe surfaces per-tier compliance; Tier Selection sub-tab REUSES the per-tier compliance summary as read-only context. Pricing reframe's `pricing_events` telemetry table is independent (no interaction with this slice).
+- **Leaf-detach micro-slice (item 3)** — must ship first or in parallel. Leaf-detach doesn't touch Quote surface; no direct interaction.
+- **Slice 11 PDF customer-facing data bindings (item 5 — formerly 4)** — lands AFTER this slice. PDF lives in Preview Quote sub-tab; Slice 11 implements customer-facing data bindings against the restructured sub-tab IA. Slice 11 brief should reference this slice's Preview Quote structure.
+- **Microsoft OAuth (item 6)** — no direct interaction; sequentially independent.
+- **Pre-launch review (item 7)** — verifies this slice's HubSpot + NetSuite integration error handling, finalization warning copy, audit log coverage. Customer-facing render verification (Pattern 45) covers Preview Quote sub-tab.
 - **Old Mark-Accepted writebacks slice (was item 9)** — **absorbed into this slice.** HubSpot push (Mark Accepted Advance) and NetSuite push (Tier Selection Advance) are now part of Quote umbrella scope.
 - **Operations wrapper (post-v1)** — this slice produces the v1 lifecycle state foundation that Operations wrapper consumes. Audit log captures all state transitions; Operations wrapper reads them when built. No forward-compat schema commitment in v1 (lifecycle_events table is Operations slice scope).
 - **Quote versioning (v1.5+ backlog)** — referenced in finalization warning ("rollbacks require admin approval"). v1.5+ versioning slice implements the rollback workflow; v1 just commits to the irreversibility model.
@@ -374,4 +374,4 @@ Step 21: PR to main.
 
 9. **Pattern 30 deliverable check at R7 ship.** Verify unbundled prototype source, designer notes, data-source map per standing pattern. Pattern 30 deliverable confirmation is part of pre-kickoff readiness.
 
-10. **Pre-launch review (item 8 on v1 path) covers this slice's customer-facing render** (Preview Quote sub-tab, PDF preview) at Pattern 45 verification time. Customer-view boundary guard pattern applies — no costing data leaks into Preview render.
+10. **Pre-launch review (item 7 on v1 path) covers this slice's customer-facing render** (Preview Quote sub-tab, PDF preview) at Pattern 45 verification time. Customer-view boundary guard pattern applies — no costing data leaks into Preview render.
