@@ -10,7 +10,7 @@
 | Canon revision PR | ✅ merged (5→6 reverted to 4 + Quote sub-structure; Operations reframed as wrapper) |
 | Pricing reframe brief | ✅ approved (substance distributed across designer notes + data-source map + this kickoff comm — no standalone CA brief artifact; Architect §0.5 verifies against the bundle). **Workflow exception — Pricing reframe is grandfathered. Forward precedent: every slice has a CA brief per autosave (PR #31) and Quote umbrella (PR #34).** |
 | CD design deliverables | ✅ complete — Pattern 30 package, all 3 pushbacks dispositioned, scenario ③ fixture corrections applied |
-| Pattern 30 deliverable check | ✅ confirmed — bundled HTML at `docs/design-prototypes/dist/Nexus Pricing Reframe v1.html`; unbundled source (`dist/pricing.jsx`, `dist/pricing_data.js`, `dist/pricing_styles.css`); designer notes + data-source map at `docs/design-prototypes/dist/docs/pricing-reframe-{designer-notes,data-source-map}.md` |
+| Pattern 30 deliverable check | ✅ confirmed — bundled HTML at `docs/design-prototypes/dist/Nexus Pricing Reframe v1.html`; unbundled source (`dist/pricing.jsx`, `dist/pricing_data.js`, `dist/pricing_styles.css`); designer notes + data-source map at `docs/pricing-reframe-{designer-notes,data-source-map}.md` (moved to docs/ root per single-canonical-location convention) |
 | Architect Pattern 22 §0.5 verification | ⏳ pending — run against post-canon-revision state |
 | Edward dispositions on 5 Section-9 items | ✅ all dispositioned with CA recommendations accepted |
 
@@ -48,8 +48,8 @@ Scope per the approved brief:
 Run against the four-artifact bundle (Pricing reframe brief substance distributed across these, not a single artifact):
 
 - This kickoff comm (`docs/cc-pricing-reframe-kickoff-comm.md`) — scope + sequencing + pattern coverage + dispositions
-- Designer notes (`docs/design-prototypes/dist/docs/pricing-reframe-designer-notes.md`) — design decisions, pushback dispositions, schema commitments, Q1-Q7 dispositions, scenario ⑥/⑦ token-level specs addendum
-- Data-source map (`docs/design-prototypes/dist/docs/pricing-reframe-data-source-map.md`) — every UI field traced to schema
+- Designer notes (`docs/pricing-reframe-designer-notes.md`) — design decisions, pushback dispositions, schema commitments, Q1-Q7 dispositions, scenario ⑥/⑦ token-level specs addendum
+- Data-source map (`docs/pricing-reframe-data-source-map.md`) — every UI field traced to schema
 - Unbundled source at `docs/design-prototypes/dist/` (`pricing.jsx`, `pricing_data.js`, `pricing_styles.css`) and bundled prototype (`Nexus Pricing Reframe v1.html`) — visual/behavioral spec
 - `pricing_events` table schema commitment (per designer notes)
 - Post-canon-revision CLAUDE.md state (4 peer surfaces, Quote umbrella sub-structure documented)
