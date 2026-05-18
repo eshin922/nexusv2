@@ -41,8 +41,13 @@ export type LastApplySummary = {
 type ReframeState = {
   applyingTierIds: ReadonlySet<string>;
   lastApply: LastApplySummary | null;
+  // Bug #3 fix: error toast surfaces failed apply at the same level
+  // as the success toast. Ephemeral; cleared on next beginApply or
+  // explicit dismiss.
+  lastApplyError: string | null;
   beginApply: (tierIds: string[]) => void;
   finishApply: (summary: LastApplySummary) => void;
+  failApply: (message: string) => void;
   abortApply: () => void;
 };
 
@@ -53,16 +58,26 @@ export function ReframeStateProvider({ children }: { children: ReactNode }) {
     () => new Set(),
   );
   const [lastApply, setLastApply] = useState<LastApplySummary | null>(null);
+  const [lastApplyError, setLastApplyError] = useState<string | null>(null);
 
   const beginApply = useCallback((tierIds: string[]) => {
     setApplyingTierIds(new Set(tierIds));
-    // Clear last-apply when a new apply starts (persist-until-next-action).
+    // Clear both toasts when a new apply starts (persist-until-next-
+    // action; new action begins → prior surface clears).
     setLastApply(null);
+    setLastApplyError(null);
   }, []);
 
   const finishApply = useCallback((summary: LastApplySummary) => {
     setApplyingTierIds(new Set());
     setLastApply(summary);
+    setLastApplyError(null);
+  }, []);
+
+  const failApply = useCallback((message: string) => {
+    setApplyingTierIds(new Set());
+    setLastApply(null);
+    setLastApplyError(message);
   }, []);
 
   const abortApply = useCallback(() => {
@@ -73,11 +88,21 @@ export function ReframeStateProvider({ children }: { children: ReactNode }) {
     () => ({
       applyingTierIds,
       lastApply,
+      lastApplyError,
       beginApply,
       finishApply,
+      failApply,
       abortApply,
     }),
-    [applyingTierIds, lastApply, beginApply, finishApply, abortApply],
+    [
+      applyingTierIds,
+      lastApply,
+      lastApplyError,
+      beginApply,
+      finishApply,
+      failApply,
+      abortApply,
+    ],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

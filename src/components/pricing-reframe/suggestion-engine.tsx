@@ -23,8 +23,10 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useCostingStore } from "@/components/costing-store-provider";
 import {
   selectFirmSettings,
+  selectGlobalAdj,
   selectQuoteId,
   selectQuoteRollup,
+  selectQuoteTierInputs,
 } from "@/lib/costing-store";
 import {
   type SuggestionOption,
@@ -57,9 +59,25 @@ export function SuggestionEngine({ recommendedTierId }: Props) {
   const rollup = useCostingStore(selectQuoteRollup);
   const firm = useCostingStore(selectFirmSettings);
   const quoteId = useCostingStore(selectQuoteId);
+  const tiers = useCostingStore(selectQuoteTierInputs);
+  const globalAdj = useCostingStore(selectGlobalAdj);
 
   const target = Number(firm?.targetMarginPct ?? 0.35);
   const floor = Number(firm?.floorMarginPct ?? 0.25);
+
+  // Bug #2 fix (β): build effective per-tier adj map (override or
+  // inherited global) so rankPricingSuggestions can pre-check whether
+  // each option's composed new_adj exceeds the numeric(5,4) field
+  // bound. When an option would exceed, it surfaces with
+  // `disabledReason` set; UI renders disabled with reason.
+  const currentAdjByTier = new Map<string, number>();
+  for (const t of tiers) {
+    const eff =
+      t.tierPriceAdjPct !== null
+        ? Number(t.tierPriceAdjPct)
+        : globalAdj;
+    currentAdjByTier.set(t.id, eff);
+  }
 
   const suggestions =
     rollup.length === 0
@@ -69,6 +87,8 @@ export function SuggestionEngine({ recommendedTierId }: Props) {
           recommendedTierId,
           target,
           floor,
+          currentAdjByTier,
+          globalAdj,
         });
 
   // Telemetry — fire `recommended_fired` once per surfacing of the
@@ -171,7 +191,7 @@ function SuggestionOptionRow({
 }) {
   const [pending, startApply] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const { beginApply, finishApply, abortApply, applyingTierIds } =
+  const { beginApply, finishApply, failApply, applyingTierIds } =
     useReframeState();
 
   // Other suggestion rows disable while ANY apply is in flight so PMs
@@ -181,6 +201,12 @@ function SuggestionOptionRow({
     !pending && applyingTierIds.size > 0;
 
   function onApplyClick() {
+    // Bug #2 fix (β) belt-and-suspenders: shouldn't fire when disabled,
+    // but guard anyway in case of accidental DOM-level click.
+    if (option.disabledReason) {
+      setError(option.disabledReason);
+      return;
+    }
     setError(null);
     const fd = new FormData();
     fd.set("quoteId", quoteId);
@@ -212,7 +238,7 @@ function SuggestionOptionRow({
         const r = await applySurgicalAdj(fd);
         if (!r.ok) {
           setError(r.error.message);
-          abortApply();
+          failApply(r.error.message);
           return;
         }
         finishApply(buildSummary(null));
@@ -224,7 +250,7 @@ function SuggestionOptionRow({
         const r = await applyGlobalAdj(fd);
         if (!r.ok) {
           setError(r.error.message);
-          abortApply();
+          failApply(r.error.message);
           return;
         }
         finishApply(buildSummary(null));
@@ -238,16 +264,39 @@ function SuggestionOptionRow({
     }
   }
 
+  const isDisabledByBound = option.disabledReason !== null;
+  const rowClass = [
+    "pr-suggestion",
+    option.recommended ? "recommended" : "",
+    isDisabledByBound ? "disabled" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div className={`pr-suggestion ${option.recommended ? "recommended" : ""}`}>
+    <div className={rowClass}>
       <div className="lhs">
         <div className="label-row">
           <span className="label">{option.label}</span>
-          {option.recommended && (
+          {option.recommended && !isDisabledByBound && (
             <span className="ranked-chip">★ Recommended</span>
           )}
         </div>
         <div className="description">{option.description}</div>
+        {option.disabledReason && (
+          <div
+            role="alert"
+            style={{
+              fontFamily: "var(--mono)",
+              fontSize: 10.5,
+              color: "var(--warn)",
+              letterSpacing: "0.04em",
+              marginTop: 2,
+            }}
+          >
+            ⚠ {option.disabledReason}
+          </div>
+        )}
         {option.preview && (
           <div className="preview">
             {option.preview.map((p) => (
@@ -260,7 +309,7 @@ function SuggestionOptionRow({
         className="apply"
         type="button"
         onClick={onApplyClick}
-        disabled={pending || otherApplyInFlight}
+        disabled={pending || otherApplyInFlight || isDisabledByBound}
       >
         {pending
           ? "Applying…"

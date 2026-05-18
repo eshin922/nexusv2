@@ -47,6 +47,12 @@ export type SuggestionOption = {
   applyDelta: number;
   // Per-tier preview tiles. null for accept_risk (no preview row).
   preview: SuggestionPreview[] | null;
+  // Bug #2 fix (β): pre-check the composed new_adj per affected tier
+  // against the numeric(5,4) schema bound (±9.9999). If any affected
+  // tier would overflow on apply, disabledReason is populated; UI
+  // renders the option disabled with the reason surfaced. null when
+  // the option is applicable.
+  disabledReason: string | null;
 };
 
 export type SuggestionPreview = {
@@ -72,7 +78,49 @@ type RankingInput = {
   recommendedTierId: string | null;
   target: number;
   floor: number;
+  // Bug #2 fix (β): effective per-tier adj (tier_price_adj_pct override
+  // OR inherited globalPriceAdjPct). Used to pre-check whether a
+  // suggestion would compose to an out-of-bounds new_adj. Null map →
+  // skip pre-check (legacy callers).
+  currentAdjByTier?: Map<string, number>;
+  // Quote-level globalPriceAdjPct fallback when a tier has no override.
+  // Defaults to 0 when not provided.
+  globalAdj?: number;
 };
+
+// numeric(5,4) effective range ±9.9999. Small buffer for safety.
+const FIELD_BOUND = 9.99;
+
+function composedNewAdj(
+  currentAdj: number,
+  applyDelta: number,
+): number {
+  return (1 + currentAdj) * (1 + applyDelta) - 1;
+}
+
+function disabledReasonForOption(
+  option: SuggestionOption,
+  rollup: QuotePerTierRollup[],
+  currentAdjByTier: Map<string, number>,
+  globalAdj: number,
+): string | null {
+  if (option.id === "accept_risk") return null;
+  for (const tid of option.applyTo) {
+    const currentAdj = currentAdjByTier.get(tid) ?? globalAdj;
+    const newAdj = composedNewAdj(currentAdj, option.applyDelta);
+    if (Math.abs(newAdj) > FIELD_BOUND) {
+      const tier = rollup.find((t) => t.tierId === tid);
+      const label = tier?.label ?? tid;
+      const pct = (newAdj * 100).toFixed(0);
+      return (
+        `Cannot reach target — required ${label} adjustment is ${pct}%, ` +
+        `exceeds ±999% field range. Cost on ${label} is too high relative ` +
+        `to base revenue; adjust cost inputs before applying.`
+      );
+    }
+  }
+  return null;
+}
 
 // Closed-form lift to bring a tier with (revenue, cost) to target margin.
 // Returns null on degenerate inputs (zero revenue, infeasible target).
@@ -159,6 +207,7 @@ function buildSurgical(
     applyTo: [worst.tierId],
     applyDelta: delta,
     preview,
+    disabledReason: null, // set by ranker
   };
 }
 
@@ -193,6 +242,7 @@ function buildGlobal(
     applyTo: rollup.map((t) => t.tierId),
     applyDelta: delta,
     preview,
+    disabledReason: null, // set by ranker
   };
 }
 
@@ -272,6 +322,7 @@ export function rankPricingSuggestions(
     applyTo: [],
     applyDelta: 0,
     preview: null,
+    disabledReason: null,
   };
 
   // Build options in ranking order, marking the first as recommended.
@@ -284,6 +335,25 @@ export function rankPricingSuggestions(
     if (surgical) options.push(surgical);
   }
   options.push(acceptRisk);
+
+  // Bug #2 fix (β): pre-check each non-accept-risk option's composed
+  // new_adj against the schema bound. If the apply would exceed
+  // numeric(5,4), surface disabledReason so the UI can render the
+  // option disabled with the reason — discoverability preserved, not
+  // hidden. Only runs when caller passes currentAdjByTier.
+  if (input.currentAdjByTier) {
+    const globalAdj = input.globalAdj ?? 0;
+    const checked: SuggestionOption[] = options.map((opt) => {
+      const reason = disabledReasonForOption(
+        opt,
+        rollup,
+        input.currentAdjByTier!,
+        globalAdj,
+      );
+      return reason ? { ...opt, disabledReason: reason } : opt;
+    });
+    return { options: checked, ranking, acceptRiskGating };
+  }
 
   return { options, ranking, acceptRiskGating };
 }

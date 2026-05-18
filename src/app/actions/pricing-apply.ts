@@ -71,6 +71,44 @@ function computeNewAdj(
   return next.toString();
 }
 
+// Bug #2 fix (α): pre-check composed new_adj fits the numeric(5,4)
+// field bound (±9.9999 = ±999.99%) BEFORE write. Raw Postgres overflow
+// surfaces as the generic action-result.ts pgValidationError message
+// ("Value out of allowed range. Percent fields must be between -999%
+// and 999%") — accurate but uninformative. This pre-check produces a
+// diagnostic message naming the tier + the computed adj + the reason.
+//
+// Math note: this is NOT a math defect. The compose formula is
+// correct — new_adj IS the absolute adj that lands the tier at
+// target. The bound is a SCHEMA limit. When cost is high relative
+// to base revenue (e.g., tier in a deep margin hole with a prior
+// large override applied), the absolute new_adj exceeds the field
+// bound. No adj alone can reach target; cost-stack adjustment
+// needed first.
+const FIELD_BOUND = 9.99; // numeric(5,4) cap ±9.9999, small buffer
+function assertNewAdjFitsBound(
+  newAdj: string,
+  tierLabel: string,
+): void {
+  const n = Number(newAdj);
+  if (!Number.isFinite(n)) {
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      `Computed adjustment for ${tierLabel} is not a finite number.`,
+    );
+  }
+  if (Math.abs(n) > FIELD_BOUND) {
+    const pct = (n * 100).toFixed(0);
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      `Cannot apply suggestion — required ${tierLabel} adjustment is ${pct}%, ` +
+        `exceeds ±999% field range. The cost stack on ${tierLabel} is too high ` +
+        `relative to base revenue. Reduce cost inputs or change the target ` +
+        `margin before applying suggestion.`,
+    );
+  }
+}
+
 // ---------- applySurgicalAdj ----------
 
 export async function applySurgicalAdj(
@@ -114,6 +152,11 @@ export async function applySurgicalAdj(
         ? Number(tier.tierPriceAdjPct)
         : Number(quote.globalPriceAdjPct ?? 0);
     const newAdj = computeNewAdj(currentEffectiveAdj, applyDelta);
+
+    // Bug #2 fix (α): contextual error if composed new_adj exceeds
+    // numeric(5,4) field bound. Replaces Postgres overflow with
+    // diagnostic message naming the tier + reason.
+    assertNewAdjFitsBound(newAdj, tier.label);
 
     // 1. Update the tier row.
     await db
@@ -208,6 +251,28 @@ export async function applyGlobalAdj(
 
     const globalAdj = Number(quote.globalPriceAdjPct ?? 0);
 
+    // Bug #2 fix (α): pre-check ALL tier new_adj values BEFORE any
+    // writes (including root audit). Atomic-fail semantic — if any
+    // tier's composed new_adj exceeds field bound, the entire global
+    // apply rejects with the first offending tier's diagnostic.
+    // Avoids partial-write state where the root audit + some tiers
+    // landed successfully and one tier failed.
+    const newAdjPlanned: Array<{
+      tierId: string;
+      tier: typeof tierRows[number];
+      newAdj: string;
+    }> = [];
+    for (const tid of applyTo) {
+      const tier = tierMap.get(tid)!;
+      const currentEffectiveAdj =
+        tier.tierPriceAdjPct !== null
+          ? Number(tier.tierPriceAdjPct)
+          : globalAdj;
+      const newAdj = computeNewAdj(currentEffectiveAdj, applyDelta);
+      assertNewAdjFitsBound(newAdj, tier.label);
+      newAdjPlanned.push({ tierId: tid, tier, newAdj });
+    }
+
     // 1. Cascade audit root row — entity = quote; new action value
     //    (pricing_suggestion_global_applied) namespaces the user-action
     //    summary distinct from per-tier writes that follow.
@@ -229,18 +294,7 @@ export async function applyGlobalAdj(
 
     // 2. Per-tier writes + derived audit rows.
     const newAdjByTier: Array<{ tierId: string; from: string | null; to: string }> = [];
-    for (const tid of applyTo) {
-      const tier = tierMap.get(tid)!;
-      const currentEffectiveAdj =
-        tier.tierPriceAdjPct !== null
-          ? Number(tier.tierPriceAdjPct)
-          : globalAdj;
-      const newAdj = computeNewAdj(currentEffectiveAdj, applyDelta);
-      newAdjByTier.push({
-        tierId: tid,
-        from: tier.tierPriceAdjPct,
-        to: newAdj,
-      });
+    for (const { tierId: tid, tier, newAdj } of newAdjPlanned) {
 
       await db
         .update(quoteTiers)
