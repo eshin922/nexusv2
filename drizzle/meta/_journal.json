@@ -204,6 +204,13 @@
       "when": 1778873717908,
       "tag": "0028_r6_2_vessel_eta_actual_delivery",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1779083401356,
+      "tag": "0029_pricing_events_table",
+      "breakpoints": true
     }
   ]
 }

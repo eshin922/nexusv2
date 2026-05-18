@@ -1449,3 +1449,62 @@ export const userSurfaceVisits = pgTable(
     ),
   ],
 );
+
+// ---------- pricing_events (Pricing reframe v1) ----------
+
+// Pricing-surface telemetry. Single table, five event_type values:
+//   - 'surgical_apply'         — PM applied a single-tier suggestion
+//   - 'request_override'       — PM hit "Request override" on below-floor
+//   - 'recommended_fired'      — ★ Recommended suggestion surfaced
+//   - 'recommended_accepted'   — PM accepted the ★ Recommended path
+//   - 'recommended_overridden' — PM picked non-recommended path
+// CHECK constraint enforced in migration (drizzle-kit doesn't generate
+// CHECK from comments; manual ALTER added to the migration).
+//
+// FK semantics (per Disposition A from §0.5):
+//   - quote_id          → CASCADE (sibling-table consistency)
+//   - user_id           → SET NULL (audit_log.user_id precedent)
+//   - violation_tier_id → SET NULL (telemetry survives tier deletion
+//                                   for cohort analysis)
+//
+// suggestion_target_tier_ids uuid[]: Postgres array, per-element FK
+// constraints not supported. App-layer validation enforces; Pattern 32
+// pre-prod tolerance applies.
+//
+// Indexes for cohort analysis (per Disposition):
+//   - (quote_id, event_type, created_at) — per-quote analytics
+//   - (event_type, created_at)            — cross-quote cohort queries
+//
+// Not in realtime publication. RLS off (matches codebase posture).
+// Write-only from server actions; no client reads.
+export const pricingEvents = pgTable(
+  "pricing_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    eventType: text("event_type").notNull(),
+    violationTierId: uuid("violation_tier_id").references(
+      () => quoteTiers.id,
+      { onDelete: "set null" },
+    ),
+    suggestionTargetTierIds: uuid("suggestion_target_tier_ids").array(),
+    floorBreachPp: numeric("floor_breach_pp", { precision: 4, scale: 2 }),
+    overrideReason: text("override_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("pricing_events_quote_event_created_idx").on(
+      t.quoteId,
+      t.eventType,
+      t.createdAt,
+    ),
+    index("pricing_events_event_created_idx").on(t.eventType, t.createdAt),
+  ],
+);
