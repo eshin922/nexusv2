@@ -19,7 +19,7 @@
 //
 // Pattern 30 path-B-default — class names match canonical pricing.jsx.
 
-import { useEffect, useRef, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useCostingStore } from "@/components/costing-store-provider";
 import {
   selectFirmSettings,
@@ -32,6 +32,10 @@ import {
   rankPricingSuggestions,
 } from "@/lib/pricing-suggestions";
 import { logPricingEvent } from "@/app/actions/pricing-events";
+import {
+  applyGlobalAdj,
+  applySurgicalAdj,
+} from "@/app/actions/pricing-apply";
 
 type Props = {
   // ★ recommended tier id (from quote_tiers.recommended). Passed
@@ -131,7 +135,11 @@ export function SuggestionEngine({ recommendedTierId }: Props) {
             return true;
           })
           .map((opt) => (
-            <SuggestionOptionRow key={opt.id} option={opt} />
+            <SuggestionOptionRow
+              key={opt.id}
+              option={opt}
+              quoteId={quoteId}
+            />
           ))}
         {!suggestions.acceptRiskGating.available &&
           suggestions.acceptRiskGating.reason && (
@@ -147,12 +155,48 @@ export function SuggestionEngine({ recommendedTierId }: Props) {
   );
 }
 
-function SuggestionOptionRow({ option }: { option: SuggestionOption }) {
+function SuggestionOptionRow({
+  option,
+  quoteId,
+}: {
+  option: SuggestionOption;
+  quoteId: string;
+}) {
+  const [pending, startApply] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
   function onApplyClick() {
-    // Step 7 swaps this for the server action call. For now the button
-    // surfaces the option id only; useful to confirm wiring.
-    // eslint-disable-next-line no-console
-    console.log("[suggestion-engine] apply clicked:", option.id);
+    setError(null);
+    const fd = new FormData();
+    fd.set("quoteId", quoteId);
+    fd.set("applyDelta", String(option.applyDelta));
+    fd.set("optionRecommended", option.recommended ? "true" : "false");
+
+    if (option.id === "surgical") {
+      // Surgical writes a single tier — the (only) entry in applyTo.
+      const tierId = option.applyTo[0];
+      if (!tierId) {
+        setError("Surgical option missing tier");
+        return;
+      }
+      fd.set("tierId", tierId);
+      startApply(async () => {
+        const r = await applySurgicalAdj(fd);
+        if (!r.ok) setError(r.error.message);
+      });
+    } else if (option.id === "global") {
+      fd.set("applyTo", option.applyTo.join(","));
+      startApply(async () => {
+        const r = await applyGlobalAdj(fd);
+        if (!r.ok) setError(r.error.message);
+      });
+    } else if (option.id === "accept_risk") {
+      // Accept-risk doesn't write tier_price_adj_pct; it's an in-session
+      // signal captured later via gate_overridden when PM hits Send.
+      // No action fires here; brief §4.4 line 145-146.
+      // eslint-disable-next-line no-console
+      console.log("[suggestion-engine] accept-risk: no write");
+    }
   }
 
   return (
@@ -173,9 +217,32 @@ function SuggestionOptionRow({ option }: { option: SuggestionOption }) {
           </div>
         )}
       </div>
-      <button className="apply" type="button" onClick={onApplyClick}>
-        {option.id === "accept_risk" ? "Send as-is" : "Apply"}
+      <button
+        className="apply"
+        type="button"
+        onClick={onApplyClick}
+        disabled={pending}
+      >
+        {pending
+          ? "Applying…"
+          : option.id === "accept_risk"
+            ? "Send as-is"
+            : "Apply"}
       </button>
+      {error && (
+        <div
+          role="alert"
+          style={{
+            gridColumn: "1 / -1",
+            fontFamily: "var(--mono)",
+            fontSize: 10.5,
+            color: "var(--bad)",
+            marginTop: 4,
+          }}
+        >
+          {error}
+        </div>
+      )}
     </div>
   );
 }
