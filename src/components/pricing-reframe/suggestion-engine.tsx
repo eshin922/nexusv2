@@ -7,15 +7,23 @@
 // component wires the helper to live store state and renders the option
 // list.
 //
-// Apply paths land in Step 7 (brief §11). For now, the Apply button
-// is wired but only logs the option id; Step 7 swaps the onClick for
-// the server action.
+// Step 6 — telemetry: `recommended_fired` fires once per render-of-
+// recommended event. Ref-based dedupe so the same continuous
+// surfacing doesn't double-fire on rerender. Tier-context capture
+// (violation_tier_id + suggestion_target_tier_ids) is load-bearing
+// for v1.1 Path 2 promotion analysis per brief Notes §4.
+//
+// Step 7 wires the apply paths (Disposition B: pricing_suggestion_surgical
+// / pricing_suggestion_global). For now the Apply button surfaces a
+// server-action stub.
 //
 // Pattern 30 path-B-default — class names match canonical pricing.jsx.
 
+import { useEffect, useRef, useTransition } from "react";
 import { useCostingStore } from "@/components/costing-store-provider";
 import {
   selectFirmSettings,
+  selectQuoteId,
   selectQuoteRollup,
 } from "@/lib/costing-store";
 import {
@@ -23,6 +31,7 @@ import {
   type SuggestionPreview,
   rankPricingSuggestions,
 } from "@/lib/pricing-suggestions";
+import { logPricingEvent } from "@/app/actions/pricing-events";
 
 type Props = {
   // ★ recommended tier id (from quote_tiers.recommended). Passed
@@ -39,18 +48,63 @@ const fmtDelta = (v: number) =>
 export function SuggestionEngine({ recommendedTierId }: Props) {
   const rollup = useCostingStore(selectQuoteRollup);
   const firm = useCostingStore(selectFirmSettings);
-
-  if (rollup.length === 0) return null;
+  const quoteId = useCostingStore(selectQuoteId);
 
   const target = Number(firm?.targetMarginPct ?? 0.35);
   const floor = Number(firm?.floorMarginPct ?? 0.25);
 
-  const suggestions = rankPricingSuggestions({
-    rollup,
-    recommendedTierId,
-    target,
-    floor,
-  });
+  const suggestions =
+    rollup.length === 0
+      ? null
+      : rankPricingSuggestions({
+          rollup,
+          recommendedTierId,
+          target,
+          floor,
+        });
+
+  // Telemetry — fire `recommended_fired` once per surfacing of the
+  // recommended option. Ref tracks "last fired state" so the same
+  // continuous-has-recommended state doesn't double-fire on rerender.
+  // If recommended disappears (e.g., PM applies and tier moves GOOD)
+  // and then reappears, that's a second surfacing.
+  const recommendedOpt = suggestions?.options.find((o) => o.recommended) ?? null;
+  const lastFiredRef = useRef(false);
+  const [, startTelemetry] = useTransition();
+
+  useEffect(() => {
+    if (recommendedOpt && !lastFiredRef.current) {
+      // Identify the worst-below-target tier (violation context).
+      const worstBelow = rollup
+        .filter((t) => t.blendedMarginPct < target)
+        .sort((a, b) => a.blendedMarginPct - b.blendedMarginPct)[0];
+
+      const belowFloor = rollup.find((t) => t.blendedMarginPct < floor);
+      const floorBreachPp =
+        belowFloor != null
+          ? (floor - belowFloor.blendedMarginPct) * 100
+          : null;
+
+      const fd = new FormData();
+      fd.set("quoteId", quoteId);
+      fd.set("eventType", "recommended_fired");
+      if (worstBelow) fd.set("violationTierId", worstBelow.tierId);
+      if (recommendedOpt.applyTo.length > 0) {
+        fd.set("suggestionTargetTierIds", recommendedOpt.applyTo.join(","));
+      }
+      if (floorBreachPp != null) {
+        fd.set("floorBreachPp", floorBreachPp.toFixed(2));
+      }
+      startTelemetry(async () => {
+        await logPricingEvent(fd);
+      });
+      lastFiredRef.current = true;
+    }
+    if (!recommendedOpt) {
+      lastFiredRef.current = false;
+    }
+  }, [recommendedOpt, rollup, quoteId, target, floor, startTelemetry]);
+
   if (!suggestions) return null;
 
   const belowFloor = rollup.filter((t) => t.blendedMarginPct < floor).length;
@@ -95,8 +149,8 @@ export function SuggestionEngine({ recommendedTierId }: Props) {
 
 function SuggestionOptionRow({ option }: { option: SuggestionOption }) {
   function onApplyClick() {
-    // Step 7 swaps this for the server action call. For Step 5 the
-    // button surfaces the option id only; useful to confirm wiring.
+    // Step 7 swaps this for the server action call. For now the button
+    // surfaces the option id only; useful to confirm wiring.
     // eslint-disable-next-line no-console
     console.log("[suggestion-engine] apply clicked:", option.id);
   }
