@@ -7,6 +7,8 @@ import { CompletenessChip } from "@/components/assembly-tree/completeness-chip";
 import { SpecPanel } from "./spec-panel";
 import { PlaceholderPanel } from "./placeholder-panel";
 import { TypePicker } from "./type-picker";
+import { ChangeTypeModal } from "./change-type-modal";
+import { CascadeWarning } from "./cascade-warning";
 
 // Phase A.1 v2 impl-3 Step 3 — SpecEntry surface (server wrapper).
 //
@@ -47,6 +49,13 @@ export function SpecEntrySurface({
             but inputs are disabled.
           </div>
         </div>
+      ) : null}
+      {!readOnly ? (
+        <CascadeWarning
+          references={references}
+          leafName={leaf.name}
+          currentVersion={currentSpec?.versionNumber ?? 1}
+        />
       ) : null}
       <div className="a1v2-card">
         <div className="a1v2-leaf-header">
@@ -94,6 +103,14 @@ export function SpecEntrySurface({
               >
                 {productType.name}
               </span>
+            ) : null}
+            {productType && !readOnly ? (
+              <ChangeTypeModal
+                leafId={leaf.id}
+                currentType={productType}
+                availableTypes={data.availableLeafTypes}
+                disabled={readOnly}
+              />
             ) : null}
           </div>
         </div>

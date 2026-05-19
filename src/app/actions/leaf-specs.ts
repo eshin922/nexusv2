@@ -308,3 +308,166 @@ export async function assignLeafProductType(
     return { leafId, productTypeId };
   });
 }
+
+/**
+ * Phase A.1 v2 impl-3 Step 9 — change a leaf's Product Type
+ * (destructive; clears spec_values).
+ *
+ * Per CD designer notes §4.10: type changes discard prior
+ * spec_values since fields don't translate across types. PM must
+ * confirm via the modal before this action fires.
+ *
+ * Cascade audit pattern (per CLAUDE.md namespace + Phase A.1 v2):
+ *   - Root audit row: `leaf_spec_type_change` on entity_id=leaves.id
+ *     with diff_json carrying {from_type, to_type, cleared_field_count}
+ *   - Derived audit rows: one `leaf_spec_field_edit` per non-null
+ *     spec value cleared, with caused_by_audit_id pointing at the
+ *     root row
+ */
+export async function changeLeafProductType(
+  formData: FormData,
+): Promise<
+  ActionResult<{
+    leafId: string;
+    fromTypeId: string;
+    toTypeId: string;
+    clearedFieldCount: number;
+  }>
+> {
+  return runAction(async () => {
+    const leafId = String(formData.get("leafId") ?? "").trim();
+    const toTypeId = String(formData.get("productTypeId") ?? "").trim();
+
+    if (!leafId)
+      throw new ActionGuardError(ERR.VALIDATION, "leafId required");
+    if (!toTypeId)
+      throw new ActionGuardError(ERR.VALIDATION, "productTypeId required");
+
+    const user = await assertCanEditSpecs();
+
+    const leafRows = await db
+      .select()
+      .from(leaves)
+      .where(eq(leaves.id, leafId))
+      .limit(1);
+    if (leafRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "Leaf not found");
+    const leaf = leafRows[0];
+
+    if (!leaf.productTypeId)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Leaf has no current product type. Use the type-picker assign flow instead.",
+      );
+    if (leaf.productTypeId === toTypeId)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Target type matches the current type — nothing to change.",
+      );
+
+    const typeRows = await db
+      .select()
+      .from(productTypes)
+      .where(eq(productTypes.id, toTypeId))
+      .limit(1);
+    if (typeRows.length === 0)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Target product type not found.",
+      );
+    if (typeRows[0].scope !== "leaf")
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Target type is not a leaf-scope type.",
+      );
+
+    const fromTypeId = leaf.productTypeId;
+
+    // Load current spec row + extract cleared fields for cascade audit.
+    const currentRows = await db
+      .select()
+      .from(leafSpecs)
+      .where(and(eq(leafSpecs.leafId, leafId), eq(leafSpecs.isCurrent, true)))
+      .limit(1);
+    const current = currentRows[0];
+    const priorValues = (current?.specValues as
+      | Record<string, unknown>
+      | undefined) ?? {};
+    const clearedFields = Object.entries(priorValues).filter(
+      ([, v]) =>
+        v !== null &&
+        v !== undefined &&
+        !(typeof v === "string" && v.trim() === ""),
+    );
+
+    // Transaction: update leaves.product_type_id + clear spec_values
+    // + emit cascade audit rows atomically.
+    await db.transaction(async (tx) => {
+      await tx
+        .update(leaves)
+        .set({ productTypeId: toTypeId, updatedAt: new Date() })
+        .where(eq(leaves.id, leafId));
+
+      if (current) {
+        await tx
+          .update(leafSpecs)
+          .set({
+            specValues: sql`'{}'::jsonb`,
+            updatedAt: new Date(),
+            updatedBy: user.id,
+          })
+          .where(eq(leafSpecs.id, current.id));
+      }
+
+      // Root audit row.
+      const root = await tx
+        .insert(auditLog)
+        .values({
+          userId: user.id,
+          entityType: "leaf",
+          entityId: leafId,
+          action: "leaf_spec_type_change",
+          diffJson: {
+            from_type_id: fromTypeId,
+            to_type_id: toTypeId,
+            cleared_field_count: clearedFields.length,
+            current_spec_id: current?.id ?? null,
+          },
+        })
+        .returning({ id: auditLog.id });
+      const rootId = root[0].id;
+
+      // Derived audit rows per cleared field (cascade pattern).
+      if (current && clearedFields.length > 0) {
+        await tx.insert(auditLog).values(
+          clearedFields.map(([fieldKey, value]) => ({
+            userId: user.id,
+            entityType: "leaf_spec",
+            entityId: current.id,
+            action: "leaf_spec_field_edit",
+            causedByAuditId: rootId,
+            diffJson: {
+              leaf_id: leafId,
+              field: fieldKey,
+              from: value,
+              to: null,
+              source: "type_change_clear",
+            },
+          })),
+        );
+      }
+    });
+
+    revalidatePath(
+      "/projects/[id]/quotes/[quoteId]/leaves/[leafId]/specs",
+      "page",
+    );
+
+    return {
+      leafId,
+      fromTypeId,
+      toTypeId,
+      clearedFieldCount: clearedFields.length,
+    };
+  });
+}
