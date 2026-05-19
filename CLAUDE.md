@@ -2459,6 +2459,12 @@ on action-name namespacing.
 'leaf_archive'              -- soft-archive (sets archived=true).
                             -- entity_id = leaf.id; diff_json carries
                             -- {reason} when PM provides one.
+'leaf_product_type_assigned' -- initial type assignment on a
+                            -- previously-untyped leaf (impl-3
+                            -- TypePicker flow). NOT for type changes;
+                            -- those emit leaf_spec_type_change instead.
+                            -- entity_id = leaf.id; diff_json carries
+                            -- {from: null, to: typeId}.
 
 -- ASY-leaf association lifecycle (writes against assembly_leaves)
 'assembly_leaf_attach'      -- leaf added to an ASY. entity_id =
