@@ -17,14 +17,16 @@
 //     components" affordance footer
 
 import type { AssemblyTree } from "@/lib/assembly-tree";
-import { AsyRow } from "./asy-row";
+import { AssemblyTreeBody } from "./assembly-tree-body";
 
 export function AssemblyTreeView({
   tree,
   editable,
+  quoteId,
 }: {
   tree: AssemblyTree;
   editable: boolean;
+  quoteId: string;
 }) {
   // Rollup-state counters for the tree summary header (scenario ④).
   // good = all_complete, warn = partial or mixed_with_placeholders,
@@ -75,19 +77,7 @@ export function AssemblyTreeView({
         </span>
       </div>
 
-      <div className="a1v2-tree">
-        {tree.assemblies.length === 0 ? (
-          <p className="r7b-empty-state">
-            {editable
-              ? "No assemblies yet. Use the buttons above to add a product."
-              : "No assemblies."}
-          </p>
-        ) : (
-          tree.assemblies.map((asy) => (
-            <AsyRow key={asy.id} asy={asy} editable={editable} />
-          ))
-        )}
-      </div>
+      <AssemblyTreeBody tree={tree} editable={editable} quoteId={quoteId} />
 
       {/* Step 5 of Phase 5 (impl-5) wires the library browse modal.
           Step 4 ships the affordance button as inert visual; clicking

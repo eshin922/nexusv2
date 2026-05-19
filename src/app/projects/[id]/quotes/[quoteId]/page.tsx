@@ -270,7 +270,11 @@ export default async function QuoteBuilderPage({
           view via <AssemblyTreeView>. Otherwise fall through to the
           legacy quote_skus card below (no change for existing quotes). */}
       {usesNewSchema && assemblyTree ? (
-        <AssemblyTreeView tree={assemblyTree} editable={editable} />
+        <AssemblyTreeView
+          tree={assemblyTree}
+          editable={editable}
+          quoteId={quoteId}
+        />
       ) : (
       <div className="r7b-card">
         <div className="r7b-card-head">
