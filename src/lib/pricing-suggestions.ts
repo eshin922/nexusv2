@@ -91,6 +91,24 @@ type RankingInput = {
 // numeric(5,4) effective range ±9.9999. Small buffer for safety.
 const FIELD_BOUND = 9.99;
 
+// Bug #D fix — float-precision tolerance + minimum-delta backstop.
+//
+// TARGET_TOLERANCE: tiers within 0.1% (one decimal beyond display
+// precision) of target/floor are treated as at-bound, not below.
+// Prevents the no-op loop where a tier displays as "40.0%" (raw
+// 39.99997%) but the predicate flags below-target → suggestion
+// engine surfaces a +0.0% lift → PM clicks Apply → audit-log noise
+// + stuck-state.
+//
+// MIN_DELTA_PP: even if the predicate passes, suggestions whose
+// applyDelta produces less than 0.5pp margin movement don't surface.
+// Backstop against any threshold-path edge case the predicate misses.
+//
+// Both starting values; calibrate up/down if CB re-smoke surfaces
+// edge cases on real data.
+const TARGET_TOLERANCE = 0.001;
+const MIN_DELTA_PP = 0.5;
+
 function composedNewAdj(
   currentAdj: number,
   applyDelta: number,
@@ -152,6 +170,17 @@ function deltaPp(currentMarginPct: number, newMarginPct: number): number {
   return (newMarginPct - currentMarginPct) * 100;
 }
 
+// Below-target / below-floor predicates with TARGET_TOLERANCE applied
+// per Bug #D fix. Use these wherever the "is this tier below X?"
+// question gets asked.
+function isBelowTarget(marginPct: number, target: number): boolean {
+  return marginPct < target - TARGET_TOLERANCE;
+}
+
+function isBelowFloor(marginPct: number, floor: number): boolean {
+  return marginPct < floor - TARGET_TOLERANCE;
+}
+
 // Identify the worst below-target tier. Returns null when no tier is
 // below target.
 function worstBelowTarget(
@@ -160,7 +189,7 @@ function worstBelowTarget(
 ): QuotePerTierRollup | null {
   let worst: QuotePerTierRollup | null = null;
   for (const t of rollup) {
-    if (t.blendedMarginPct >= target) continue;
+    if (!isBelowTarget(t.blendedMarginPct, target)) continue;
     if (worst === null || t.blendedMarginPct < worst.blendedMarginPct) {
       worst = t;
     }
@@ -178,6 +207,23 @@ function buildSurgical(
   if (!worst) return null;
   const delta = liftToTarget(worst.totalRevenue, worst.totalCost, target);
   if (delta === null) return null;
+
+  // Bug #D fix backstop — minimum-delta guard. Even if the
+  // worst-below-target predicate flagged this tier (e.g., due to a
+  // threshold path the tolerance check missed), the suggestion only
+  // surfaces if the apply would move margin ≥ MIN_DELTA_PP. Otherwise
+  // it's a no-op + audit-log noise + stuck-state. Compute the predicted
+  // margin pp delta on the targeted tier (closed-form: same math as
+  // projectMargin).
+  const newMarginPctCheck = projectMargin(
+    worst.totalRevenue,
+    worst.totalCost,
+    delta,
+  );
+  if (newMarginPctCheck !== null) {
+    const pp = deltaPp(worst.blendedMarginPct, newMarginPctCheck);
+    if (Math.abs(pp) < MIN_DELTA_PP) return null;
+  }
 
   const preview: SuggestionPreview[] = rollup.map((t) => {
     if (t.tierId === worst.tierId) {
@@ -222,6 +268,20 @@ function buildGlobal(
   const delta = liftToTarget(worst.totalRevenue, worst.totalCost, target);
   if (delta === null) return null;
 
+  // Bug #D fix backstop — minimum-delta guard. Same shape as buildSurgical;
+  // measure the worst-tier predicted margin movement (worst tier is the
+  // anchor for the global lift; if it would move < MIN_DELTA_PP, the
+  // entire option is a no-op on the worst tier — suppress).
+  const newMarginPctCheck = projectMargin(
+    worst.totalRevenue,
+    worst.totalCost,
+    delta,
+  );
+  if (newMarginPctCheck !== null) {
+    const pp = deltaPp(worst.blendedMarginPct, newMarginPctCheck);
+    if (Math.abs(pp) < MIN_DELTA_PP) return null;
+  }
+
   const preview: SuggestionPreview[] = rollup.map((t) => {
     const newMargin = projectMargin(t.totalRevenue, t.totalCost, delta);
     const pct = newMargin ?? t.blendedMarginPct;
@@ -253,8 +313,8 @@ function computeAcceptRiskGating(
   input: RankingInput,
 ): AcceptRiskGating {
   const { rollup, recommendedTierId, target, floor } = input;
-  const belowTarget = rollup.filter((t) => t.blendedMarginPct < target);
-  const belowFloor = rollup.filter((t) => t.blendedMarginPct < floor);
+  const belowTarget = rollup.filter((t) => isBelowTarget(t.blendedMarginPct, target));
+  const belowFloor = rollup.filter((t) => isBelowFloor(t.blendedMarginPct, floor));
 
   if (belowTarget.length === 0) {
     return { available: false, reason: "No tier below target — accept-risk not relevant" };
@@ -274,7 +334,7 @@ function computeAcceptRiskGating(
     // Recommended flag points at a tier not in rollup. Treat as unset.
     return { available: true, reason: null };
   }
-  if (recommended.blendedMarginPct < target) {
+  if (isBelowTarget(recommended.blendedMarginPct, target)) {
     return {
       available: false,
       reason: `Recommended tier (${recommended.label}) is below target — accept-risk requires the recommended tier above target`,
@@ -289,8 +349,8 @@ export function rankPricingSuggestions(
   input: RankingInput,
 ): PricingSuggestions | null {
   const { rollup, target, floor, recommendedTierId } = input;
-  const belowTarget = rollup.filter((t) => t.blendedMarginPct < target);
-  const belowFloor = rollup.filter((t) => t.blendedMarginPct < floor);
+  const belowTarget = rollup.filter((t) => isBelowTarget(t.blendedMarginPct, target));
+  const belowFloor = rollup.filter((t) => isBelowFloor(t.blendedMarginPct, floor));
 
   if (belowTarget.length === 0 && belowFloor.length === 0) {
     return null;
@@ -298,9 +358,9 @@ export function rankPricingSuggestions(
 
   // Q3 ranking: one-below or below-floor → surgical first;
   //             multiple-below → global first.
-  const isBelowFloor = belowFloor.length > 0;
+  const anyBelowFloor = belowFloor.length > 0;
   const ranking: PricingSuggestions["ranking"] =
-    isBelowFloor || belowTarget.length === 1
+    anyBelowFloor || belowTarget.length === 1
       ? "surgical_first"
       : "global_first";
 
