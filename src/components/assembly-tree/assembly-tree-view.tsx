@@ -17,18 +17,24 @@
 //     components" affordance footer
 
 import type { AssemblyTree } from "@/lib/assembly-tree";
+import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AssemblyTreeBody } from "./assembly-tree-body";
+import { AddProductTrigger } from "@/components/add-product/add-product-trigger";
 
 export function AssemblyTreeView({
   tree,
   editable,
   projectId,
   quoteId,
+  assemblyTypes,
+  leafTypes,
 }: {
   tree: AssemblyTree;
   editable: boolean;
   projectId: string;
   quoteId: string;
+  assemblyTypes: { id: string; name: string }[];
+  leafTypes: LeafSpecEntryProductType[];
 }) {
   // Rollup-state counters for the tree summary header (scenario ④).
   // good = all_complete, warn = partial or mixed_with_placeholders,
@@ -85,18 +91,16 @@ export function AssemblyTreeView({
           >
             ↗ Pull from HubSpot
           </button>
-          {/* + Add product — visual button per canonical line 147.
-              Inert until impl-4 ships the Add Product modal with
-              ASY/LEAF mode toggle (brief §5.4 Phase 4 scope). */}
-          <button
-            type="button"
-            className="a1v2-btn primary sm"
-            disabled={!editable}
-            aria-disabled={!editable}
-            title="Add Product modal lands in impl-4 (Phase 4 mode toggle)"
-          >
-            + Add product
-          </button>
+          {/* + Add product — wired in impl-4 Step 8. Trigger button
+              + modal host live in the AddProductTrigger client
+              component; this server wrapper threads the prop chain. */}
+          <AddProductTrigger
+            quoteId={quoteId}
+            projectId={projectId}
+            editable={editable}
+            assemblyTypes={assemblyTypes}
+            leafTypes={leafTypes}
+          />
         </div>
       </div>
 

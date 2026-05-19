@@ -1,12 +1,13 @@
 "use server";
 
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblies,
   assemblyLeaves,
   auditLog,
   leaves,
+  productTypes,
   quotes,
 } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -60,6 +61,135 @@ function assertDraft(quote: { status: string }) {
       quoteNotDraftMessage(quote.status),
     );
   }
+}
+
+/**
+ * Phase A.1 v2 impl-4 Step 2 — create an ASY row in the target
+ * quote.
+ *
+ * Permission: any authenticated user can add an ASY to a draft
+ * quote they have access to. Permission scoping refines in v1
+ * polish slice (role-affordance per CLAUDE.md "Role gating —
+ * affordance, not architecture").
+ *
+ * Auto-assigns position = max(position) + 1 across the quote's
+ * existing assemblies. SKU uniqueness per quote is enforced by
+ * the `assemblies_quote_sku_idx` unique index (impl-1 schema);
+ * duplicate SKU within a quote surfaces as VALIDATION_ERROR via
+ * the 22001/22003 -> validation translator OR as a Drizzle
+ * unique-violation error (re-thrown by runAction; client sees
+ * generic error message).
+ *
+ * Audit: `assembly_created` on assemblies entity; diff_json
+ * carries the full identity + commercial fields the modal wrote.
+ * Mirrors the assembly_deleted snapshot pattern.
+ */
+export async function createAssembly(
+  formData: FormData,
+): Promise<ActionResult<{ assemblyId: string }>> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    const sku = String(formData.get("sku") ?? "").trim();
+    const name = String(formData.get("name") ?? "").trim();
+    const productTypeId =
+      String(formData.get("productTypeId") ?? "").trim() || null;
+    const description =
+      String(formData.get("description") ?? "").trim() || null;
+    const unitPriceRaw = String(formData.get("unitPrice") ?? "").trim();
+    const unitCostRaw = String(formData.get("unitCost") ?? "").trim();
+    const markupPctRaw = String(formData.get("markupPct") ?? "").trim();
+    const ownerIdRaw = String(formData.get("ownerId") ?? "").trim();
+
+    if (!quoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+    if (!name)
+      throw new ActionGuardError(ERR.VALIDATION, "name required");
+
+    // Validate product type if provided (must be assembly-scope).
+    if (productTypeId) {
+      const typeRows = await db
+        .select()
+        .from(productTypes)
+        .where(eq(productTypes.id, productTypeId))
+        .limit(1);
+      if (typeRows.length === 0)
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Selected product type not found.",
+        );
+      if (typeRows[0].scope !== "assembly")
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Selected type is not an ASY-scope type.",
+        );
+    }
+
+    const user = await ensureUser();
+
+    const quote = await loadQuoteOrThrow(quoteId);
+    assertDraft(quote);
+
+    // Auto-assign position = max existing + 1 for this quote.
+    const posRow = await db
+      .select({ maxPos: sql<number>`coalesce(max(${assemblies.position}), -1)::int` })
+      .from(assemblies)
+      .where(eq(assemblies.quoteId, quoteId));
+    const nextPosition = (posRow[0]?.maxPos ?? -1) + 1;
+
+    // Normalize numeric inputs. Empty → null; otherwise pass
+    // through as string (Drizzle accepts string for numeric col
+    // and Postgres handles the cast; out-of-range surfaces via
+    // 22003 translator). Auto-generated SKU when blank: simple
+    // "ASY-{quote-short}-{position+1}" pattern as a placeholder
+    // (PMs can rename via Edit product flow once shipped). NULL
+    // SKU isn't allowed (assemblies.sku is NOT NULL); use the
+    // generated default to avoid surfacing this error path in
+    // the modal UX.
+    const skuValue =
+      sku.length > 0
+        ? sku
+        : `ASY-${quoteId.slice(0, 8)}-${nextPosition + 1}`;
+
+    const inserted = await db
+      .insert(assemblies)
+      .values({
+        quoteId,
+        sku: skuValue,
+        name,
+        productTypeId,
+        description,
+        unitPrice: unitPriceRaw === "" ? null : unitPriceRaw,
+        unitCost: unitCostRaw === "" ? null : unitCostRaw,
+        markupPct: markupPctRaw === "" ? null : markupPctRaw,
+        ownerId: ownerIdRaw === "" ? null : ownerIdRaw,
+        position: nextPosition,
+      })
+      .returning();
+    const newRow = inserted[0];
+
+    await db.insert(auditLog).values({
+      userId: user.id,
+      entityType: "assembly",
+      entityId: newRow.id,
+      action: "assembly_created",
+      diffJson: {
+        quote_id: quoteId,
+        sku: newRow.sku,
+        name: newRow.name,
+        product_type_id: newRow.productTypeId,
+        description: newRow.description,
+        unit_price: newRow.unitPrice,
+        unit_cost: newRow.unitCost,
+        markup_pct: newRow.markupPct,
+        owner_id: newRow.ownerId,
+        position: newRow.position,
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, quoteId);
+
+    return { assemblyId: newRow.id };
+  });
 }
 
 export async function deleteAssembly(

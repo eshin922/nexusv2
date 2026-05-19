@@ -23,6 +23,7 @@ import {
 import { buildTreeRenderOrder, getEligibleParents } from "@/lib/sku-tree";
 import { loadAssemblyTree } from "@/lib/assembly-tree";
 import { AssemblyTreeView } from "@/components/assembly-tree/assembly-tree-view";
+import { loadProductTypeOptions } from "@/lib/product-type-options";
 // §6.b path-B migration commit 2 — Eyebrow + ActionCluster imports
 // dropped: Setup now uses canonical .r7b-head inline structure
 // (no Eyebrow/ActionCluster components). The primitives stay shipped
@@ -81,6 +82,12 @@ export default async function QuoteBuilderPage({
   // via the assembly tree.
   const assemblyTree = await loadAssemblyTree(quoteId);
   const usesNewSchema = assemblyTree !== null;
+
+  // Phase A.1 v2 impl-4 — product-type options for the Add Product
+  // modal's ASY/LEAF type selectors. Loaded unconditionally (cheap
+  // single-table read; 17 rows) so the legacy render path can also
+  // consume them in the future when migration lands.
+  const productTypeOptions = await loadProductTypeOptions();
 
   const [skus, tiers, pkgSkuIds, prodSkuIds] = await Promise.all([
     db
@@ -246,15 +253,20 @@ export default async function QuoteBuilderPage({
       {/* §6.b path-B migration — canonical .r7b-grid replaces
           .r1-setup-grid. Canonical: grid-template-columns: 2fr 1fr;
           gap: 22px; margin-bottom: 24px (7bstyles.css line 75-79).
-          Cleaner than my prior 2fr 1fr (matched anyway, but class
-          name vocabulary now matches CD source).
 
           Phase A.1 v2 impl-2 Step 3 — Setup IA shift per brief §5.2:
-          SKUs to top, Tiers below. Conditional `.r-a1v2-stack`
-          modifier converts the grid to a single full-width column
-          when the quote uses the new ASY/LEAF schema. Legacy quotes
-          (usesNewSchema=false) keep the 2fr 1fr §6.b composition. */}
-      <div className={`r7b-grid${usesNewSchema ? " r-a1v2-stack" : ""}`}>
+          SKUs to top, Tiers below. The `.r-a1v2-stack` modifier
+          converts the grid to a single full-width column.
+
+          impl-4 patch round (Bug, pre-prod-quote layout): applied
+          UNCONDITIONALLY. Impl-2 originally gated this on
+          usesNewSchema=true (Pattern 32 pre-prod tolerance);
+          observation that every legacy quote_skus quote in v1
+          retains the legacy ROOM-based renderer + thus the
+          horizontal 2fr/1fr layout makes the inconsistency a
+          permanent regression through v1 lifetime. Per brief intent,
+          the IA shift was always meant for ALL Setup surfaces. */}
+      <div className="r7b-grid r-a1v2-stack">
 
       {/* §6.b Step 1 amendment — R7b SKUs section:
           • Section header carries count caption "{N} SKUs · {M} assemblies"
@@ -275,6 +287,8 @@ export default async function QuoteBuilderPage({
           editable={editable}
           projectId={projectId}
           quoteId={quoteId}
+          assemblyTypes={productTypeOptions.assemblyTypes}
+          leafTypes={productTypeOptions.leafTypes}
         />
       ) : (
       <div className="r7b-card">

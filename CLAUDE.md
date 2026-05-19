@@ -2478,6 +2478,14 @@ on action-name namespacing.
 -- ASY lifecycle (writes against assemblies) — added during impl-2
 -- (not in original 8-action set but discovered during build; banked
 -- here for the namespace to stay complete).
+'assembly_created'          -- ASY added to a quote via the Add
+                            -- Product modal (impl-4). entity_id =
+                            -- assembly.id; diff_json carries
+                            -- {quote_id, sku, name, product_type_id,
+                            -- description, unit_price, unit_cost,
+                            -- markup_pct, owner_id, position} — full
+                            -- snapshot at creation for forensic
+                            -- audit + replay.
 'assembly_deleted'          -- ASY removed from a quote. entity_id =
                             -- assembly.id; diff_json carries pre-delete
                             -- snapshot of the ASY + cascaded junctions
