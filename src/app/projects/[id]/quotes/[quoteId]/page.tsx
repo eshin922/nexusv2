@@ -23,6 +23,7 @@ import {
 import { buildTreeRenderOrder, getEligibleParents } from "@/lib/sku-tree";
 import { loadAssemblyTree } from "@/lib/assembly-tree";
 import { AssemblyTreeView } from "@/components/assembly-tree/assembly-tree-view";
+import { loadProductTypeOptions } from "@/lib/product-type-options";
 // §6.b path-B migration commit 2 — Eyebrow + ActionCluster imports
 // dropped: Setup now uses canonical .r7b-head inline structure
 // (no Eyebrow/ActionCluster components). The primitives stay shipped
@@ -81,6 +82,12 @@ export default async function QuoteBuilderPage({
   // via the assembly tree.
   const assemblyTree = await loadAssemblyTree(quoteId);
   const usesNewSchema = assemblyTree !== null;
+
+  // Phase A.1 v2 impl-4 — product-type options for the Add Product
+  // modal's ASY/LEAF type selectors. Loaded unconditionally (cheap
+  // single-table read; 17 rows) so the legacy render path can also
+  // consume them in the future when migration lands.
+  const productTypeOptions = await loadProductTypeOptions();
 
   const [skus, tiers, pkgSkuIds, prodSkuIds] = await Promise.all([
     db
@@ -275,6 +282,8 @@ export default async function QuoteBuilderPage({
           editable={editable}
           projectId={projectId}
           quoteId={quoteId}
+          assemblyTypes={productTypeOptions.assemblyTypes}
+          leafTypes={productTypeOptions.leafTypes}
         />
       ) : (
       <div className="r7b-card">
