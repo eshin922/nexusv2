@@ -211,6 +211,13 @@
       "when": 1779083401356,
       "tag": "0029_pricing_events_table",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1779212886053,
+      "tag": "0030_phase_a1_v2_schema_create",
+      "breakpoints": true
     }
   ]
 }

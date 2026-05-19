@@ -63,6 +63,15 @@ export const markupPctSource = pgEnum("markup_pct_source", [
   "manual_override",
 ]);
 
+// Phase A.1 v2 — Product Type taxonomy scope discriminator.
+// Per Architect §0.5 Gate 1: unified `product_types` table with
+// scope flag (Path A) accepted; pgEnum recommended over CHECK for
+// house-style alignment with userRole + projectCategory + others.
+export const productTypeScope = pgEnum("product_type_scope", [
+  "assembly",
+  "leaf",
+]);
+
 // Slice 7 / R6.2 — freight treatment (bundled vs pass-through).
 // Carries forward from Slice 7 unchanged; per-leg in the R6.2 model.
 export const freightTreatment = pgEnum("freight_treatment", [
@@ -190,6 +199,14 @@ export const users = pgTable(
     // (sync extension lands in RI.7). Admin manual entry affordance for
     // users whose HubSpot owner record has no phone.
     phone: text("phone"),
+    // Phase A.1 v2 — permission flags for ASY/LEAF/library model.
+    // Per Architect §0.5 Gate 5 (Path B): action-layer guards
+    // enforce these flags (see src/lib/spec-permission-guard.ts);
+    // NOT Postgres RLS policies. Matches existing admin-guard.ts
+    // pattern. Default false; per-user grants applied via migration
+    // seed (§15.3 dispositions).
+    canEditSpecs: boolean("can_edit_specs").notNull().default(false),
+    canCreateLeaves: boolean("can_create_leaves").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1506,5 +1523,353 @@ export const pricingEvents = pgTable(
       t.createdAt,
     ),
     index("pricing_events_event_created_idx").on(t.eventType, t.createdAt),
+  ],
+);
+
+// ═════════════════════════════════════════════════════════════════
+// Phase A.1 v2 — ASY/LEAF/library spec model
+// ═════════════════════════════════════════════════════════════════
+//
+// Path A (Architect §0.5 disposition + Edward locked): NEW parallel
+// structure layered over existing quote_skus. Six new tables ship in
+// impl-1; existing quote_skus stays untouched. Existing quotes
+// continue to use quote_skus; new quotes use the new model.
+// Migration (impl-1 §4.2) backfills quote_leaves from quote_skus for
+// sent quotes.
+//
+// Brief: docs/cc-phase-a1-v2-impl-brief.md §3
+// Architect commit: docs/architect/phase-a1-v2-schema-commit.md
+// Dispositions: docs/cc-phase-a1-v2-edward-dispositions.md (§15)
+//
+// Naming convention: tables named per CD designer notes vocabulary
+// — `assemblies` (ASY = quotable SKU) + `leaves` (LEAF = reusable
+// component under ASYs). Library scope = no quote_id on `leaves`;
+// per-quote pinning via `quote_leaves`.
+
+// ---------- product_types (taxonomy; Phase A.1 v2) ----------
+
+// Unified Product Type table with scope discriminator. Seeds 9 ASY
+// categories + 8 LEAF types (3 first-class + 1 placeholder + 4
+// hidden) at migration time per Edward §15.1 + §15.2.
+//
+// `field_schema` JSONB is null for placeholder + hidden types; set
+// for first-class leaf types (PP / SP / TP — Edward §15.2 TP starter
+// schema). PP + SP schemas inherited from CD designer notes; CD
+// refines at SpecEntry design time.
+//
+// Validation strategy (Architect Gate 1): app-side validation
+// against field_schema; no Postgres-side JSON schema enforcement.
+//
+// `placeholder` flag: type-picker renders placeholder treatment
+// (empty fields + "schema pending" copy) for these in v1.
+// `hidden` flag: type doesn't appear in type-picker dropdowns;
+// legacy data referencing them still renders correctly.
+export const productTypes = pgTable(
+  "product_types",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    scope: productTypeScope("scope").notNull(),
+    description: text("description"),
+    fieldSchema: jsonb("field_schema"),
+    placeholder: boolean("placeholder").notNull().default(false),
+    hidden: boolean("hidden").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Type-picker queries filter visible types by scope
+    // (Architect Gate 1 recommended index).
+    index("product_types_scope_idx").on(t.scope).where(sql`hidden = false`),
+  ],
+);
+
+// ---------- assemblies (per-quote quotable SKUs; Phase A.1 v2) ----------
+
+// ASY = quotable SKU. Has commercial fields (unit_price, margin,
+// markup, tax_schedule_id). ASY-level Product Type for
+// categorization (Skincare / Supplement / Body / etc.). NO specs at
+// the ASY level — specs live on child LEAFs.
+//
+// Per Architect §0.5 Gate 1 amendment: keyed on `quote_id`, not on
+// a phantom `scenario_id`. Scenarios are denormalized onto `quotes`
+// (per CLAUDE.md Pattern 22 RI.9 precedent); assemblies follow the
+// same model. Matches `bulk_raw_section_meta` pattern.
+//
+// `internal_notes` surfaces in Setup tree view's HAS NOTE chip.
+// `position` drives tree-order rendering.
+export const assemblies = pgTable(
+  "assemblies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    sku: text("sku").notNull(),
+    name: text("name").notNull(),
+    packLabel: text("pack_label"),
+    productTypeId: text("product_type_id").references(() => productTypes.id),
+    description: text("description"),
+    url: text("url"),
+    imageUrl: text("image_url"),
+    unitPrice: numeric("unit_price"),
+    unitCost: numeric("unit_cost"),
+    marginPct: numeric("margin_pct"),
+    markupPct: numeric("markup_pct"),
+    taxScheduleId: uuid("tax_schedule_id"),
+    ownerId: uuid("owner_id").references(() => users.id),
+    fscClaim: boolean("fsc_claim"),
+    fscStatus: text("fsc_status"),
+    supplierVerified: boolean("supplier_verified"),
+    internalNotes: text("internal_notes"),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Unique SKU per quote (allows same SKU across different quotes).
+    uniqueIndex("assemblies_quote_sku_idx").on(t.quoteId, t.sku),
+    // Tree-order rendering on Setup surface.
+    index("assemblies_quote_position_idx").on(t.quoteId, t.position),
+  ],
+);
+
+// ---------- leaves (globally-scoped reusable library; Phase A.1 v2) ----------
+
+// LEAF = reusable component nested under ASYs via assembly_leaves.
+// Has identity + leaf-level Product Type for spec rendering + spec
+// values (in leaf_specs). **No quote_id** — globally scoped library
+// shared across quotes/scenarios. References tracked via
+// assembly_leaves (which keys on assembly_id → quote_id).
+//
+// `archived` soft-delete flag: ON DELETE RESTRICT on leaf_id in
+// assembly_leaves + quote_leaves prevents hard delete when refs
+// exist; `archived = true` is the recommended retire path. Indexes
+// filter on `archived = false` for library browse performance.
+export const leaves = pgTable(
+  "leaves",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    sku: text("sku"),
+    url: text("url"),
+    imageUrl: text("image_url"),
+    productTypeId: text("product_type_id").references(() => productTypes.id),
+    unitCost: numeric("unit_cost"),
+    fscClaim: boolean("fsc_claim"),
+    fscStatus: text("fsc_status"),
+    supplierVerified: boolean("supplier_verified"),
+    ownerId: uuid("owner_id").references(() => users.id),
+    archived: boolean("archived").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Library browse by type (filter on archived for active set).
+    index("leaves_product_type_idx")
+      .on(t.productTypeId)
+      .where(sql`archived = false`),
+    // Library search by SKU.
+    index("leaves_sku_idx").on(t.sku).where(sql`archived = false`),
+  ],
+);
+
+// ---------- assembly_leaves (M:N junction; Phase A.1 v2) ----------
+
+// Junction table linking assemblies (per-quote ASYs) to leaves
+// (global library). One row per (assembly, leaf) attachment.
+//
+// `parent_assembly_leaf_id` self-referential FK supports future
+// deeper-nesting workflows (leaves under leaves). Per Architect
+// Gate 3 + Edward §15 disposition: v1 ALWAYS NULL — app-side guard
+// in attach actions prevents non-NULL parent. Schema allows
+// nesting; workflow not yet designed.
+//
+// **Architect Gate 3 unique-index disposition**: the broad
+// `unique (assembly_id, leaf_id, parent_assembly_leaf_id)`
+// constraint from the brief is permissive for non-NULL parents
+// (Postgres treats NULLs as distinct by default). For v1 (always-
+// NULL parent), the canonical "one row per (assembly, leaf) at
+// top level" guarantee comes from a partial unique INDEX (not
+// constraint):
+//
+//   create unique index assembly_leaves_top_level_unique_idx
+//     on assembly_leaves (assembly_id, leaf_id)
+//     where parent_assembly_leaf_id is null;
+//
+// This enforces uniqueness at top level (the only v1 case) while
+// leaving future nested cases unconstrained until the workflow
+// lands.
+//
+// `ON DELETE RESTRICT` on leaf_id: prevents accidental library
+// leaf deletion when references exist. Soft archive is the path.
+// `ON DELETE CASCADE` on assembly_id + parent_assembly_leaf_id:
+// when an ASY is deleted, its assembly_leaves rows cascade; when
+// a parent assembly_leaf is removed, its children cascade.
+export const assemblyLeaves = pgTable(
+  "assembly_leaves",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    assemblyId: uuid("assembly_id")
+      .notNull()
+      .references(() => assemblies.id, { onDelete: "cascade" }),
+    leafId: uuid("leaf_id")
+      .notNull()
+      .references(() => leaves.id, { onDelete: "restrict" }),
+    quantity: numeric("quantity").notNull().default("1"),
+    position: integer("position").notNull().default(0),
+    // Self-referential FK; nullable; ALWAYS NULL in v1 (app-side
+    // guard). Type annotation via AnyPgColumn to satisfy Drizzle's
+    // type-checker on the self-reference.
+    parentAssemblyLeafId: uuid("parent_assembly_leaf_id").references(
+      (): AnyPgColumn => assemblyLeaves.id,
+      { onDelete: "cascade" },
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Partial unique index — v1 enforcement of one-row-per-(ASY,
+    // leaf) at top level. Future deeper-nesting workflow can
+    // extend without retrofitting this index.
+    uniqueIndex("assembly_leaves_top_level_unique_idx")
+      .on(t.assemblyId, t.leafId)
+      .where(sql`parent_assembly_leaf_id IS NULL`),
+    // Tree-order rendering.
+    index("assembly_leaves_assembly_position_idx").on(
+      t.assemblyId,
+      t.position,
+    ),
+    // Reference-count + cascade-warning queries (count refs per
+    // library leaf across ASYs / scenarios).
+    index("assembly_leaves_leaf_idx").on(t.leafId),
+  ],
+);
+
+// ---------- leaf_specs (versioned spec values; Phase A.1 v2) ----------
+
+// Per-leaf spec values, versioned. ONE current row per leaf via
+// partial unique index on (leaf_id) where is_current = true.
+//
+// Versioning semantics (Architect Gate 2 + brief §3.5 clarification):
+//
+// - First spec entry: insert with version_number=1, is_current=true.
+// - Subsequent EDITS between pin events: UPDATE the current row's
+//   spec_values in place. Same row; no version bump. This is the
+//   common case (PMs iterate on specs during quote authoring).
+// - At quote pin event (quote send time): close current row by
+//   setting effective_to = now() + is_current = false; INSERT new
+//   row with bumped version_number + is_current = true + initial
+//   spec_values copied from prior current. Audit emits
+//   `leaf_spec_version_pin` action (system event).
+// - Historical pinned versions queryable by version_number. quote_
+//   leaves.leaf_spec_version_id pins to a specific historical
+//   leaf_specs row.
+//
+// Validation: app-side `spec_values` validation against the leaf's
+// product_type.field_schema. Unknown keys rejected. Required fields
+// (when type schema declares `required: true`) enforced at save.
+//
+// Per Architect Gate 2: chose single-table-with-is_current over
+// separate `leaf_spec_versions` history. Acceptable for v1 scale
+// (~100s of leaves × ~12 users); revisit if performance surfaces.
+export const leafSpecs = pgTable(
+  "leaf_specs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leafId: uuid("leaf_id")
+      .notNull()
+      .references(() => leaves.id, { onDelete: "cascade" }),
+    specValues: jsonb("spec_values").notNull().default(sql`'{}'::jsonb`),
+    versionNumber: integer("version_number").notNull().default(1),
+    isCurrent: boolean("is_current").notNull().default(true),
+    effectiveFrom: timestamp("effective_from", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    effectiveTo: timestamp("effective_to", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    updatedBy: uuid("updated_by").references(() => users.id),
+  },
+  (t) => [
+    // Partial unique — one current row per leaf. Enforces "the
+    // current spec for leaf X is unique" while allowing multiple
+    // historical versions.
+    uniqueIndex("leaf_specs_current_idx")
+      .on(t.leafId)
+      .where(sql`is_current = true`),
+    // Historical version lookup (pin-time queries +
+    // version-comparison views).
+    index("leaf_specs_leaf_version_idx").on(t.leafId, t.versionNumber),
+  ],
+);
+
+// ---------- quote_leaves (per-quote pinning; Phase A.1 v2) ----------
+
+// Per-quote pinning of leaf-spec versions. One row per
+// (quote, assembly, leaf) triple. `leaf_spec_version_id` references
+// the specific leaf_specs row pinned at send time; NULL for draft
+// quotes (drafts auto-update; sent quotes stay pinned).
+//
+// `assembly_id` carried alongside `leaf_id` for query convenience
+// (per-quote per-ASY views read directly without re-joining
+// assembly_leaves).
+//
+// `pinned_at` records the timestamp the leaf was pinned (matches
+// send_event audit row).
+//
+// ON DELETE behavior:
+//   - quote_id CASCADE — quote delete cascades pinnings
+//   - assembly_id CASCADE — ASY delete within quote cascades
+//   - leaf_id RESTRICT — prevents accidental library leaf delete
+//     when pinnings reference it
+//   - leaf_spec_version_id no FK action — pinned version stays
+//     even if it's no longer current
+export const quoteLeaves = pgTable(
+  "quote_leaves",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    assemblyId: uuid("assembly_id")
+      .notNull()
+      .references(() => assemblies.id, { onDelete: "cascade" }),
+    leafId: uuid("leaf_id")
+      .notNull()
+      .references(() => leaves.id, { onDelete: "restrict" }),
+    leafSpecVersionId: uuid("leaf_spec_version_id").references(
+      () => leafSpecs.id,
+    ),
+    pinnedAt: timestamp("pinned_at", { withTimezone: true }),
+    quantity: numeric("quantity").notNull().default("1"),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Per-quote queries (PDF render, soft-gate check, etc.).
+    index("quote_leaves_quote_idx").on(t.quoteId),
+    // "Where is this spec version pinned?" queries (replenishment
+    // view + cascade-warning lookups).
+    index("quote_leaves_leaf_version_idx").on(t.leafId, t.leafSpecVersionId),
   ],
 );
