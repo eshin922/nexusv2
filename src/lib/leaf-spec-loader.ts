@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblies,
@@ -9,6 +9,7 @@ import {
   productTypes,
   quotes,
 } from "@/db/schema";
+import { productTypeOrderExpression } from "@/lib/product-type-order";
 
 // Phase A.1 v2 impl-3 — Spec entry surface data loader.
 //
@@ -99,7 +100,10 @@ export async function loadLeafForSpecEntry(
       .from(leafSpecs)
       .where(and(eq(leafSpecs.leafId, leafId), eq(leafSpecs.isCurrent, true)))
       .limit(1),
-    db.select().from(productTypes),
+    db
+      .select()
+      .from(productTypes)
+      .orderBy(productTypeOrderExpression, asc(productTypes.name)),
     db
       .select({
         junctionId: assemblyLeaves.id,

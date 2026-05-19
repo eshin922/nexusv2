@@ -20,6 +20,7 @@ import type { AssemblyTree } from "@/lib/assembly-tree";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AssemblyTreeBody } from "./assembly-tree-body";
 import { AddProductTrigger } from "@/components/add-product/add-product-trigger";
+import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
 
 export function AssemblyTreeView({
   tree,
@@ -28,6 +29,7 @@ export function AssemblyTreeView({
   quoteId,
   assemblyTypes,
   leafTypes,
+  leafTypesForFilter,
 }: {
   tree: AssemblyTree;
   editable: boolean;
@@ -35,6 +37,7 @@ export function AssemblyTreeView({
   quoteId: string;
   assemblyTypes: { id: string; name: string }[];
   leafTypes: LeafSpecEntryProductType[];
+  leafTypesForFilter: { id: string; name: string; placeholder: boolean }[];
 }) {
   // Rollup-state counters for the tree summary header (scenario ④).
   // good = all_complete, warn = partial or mixed_with_placeholders,
@@ -125,13 +128,21 @@ export function AssemblyTreeView({
         quoteId={quoteId}
       />
 
-      {/* Step 5 of Phase 5 (impl-5) wires the library browse modal.
-          Step 4 ships the affordance button as inert visual; clicking
-          is a no-op until impl-5. */}
+      {/* Phase A.1 v2 impl-5 Step 4 — wire the library browse modal
+          trigger. Replaces the impl-2 inert button. Per-ASY attach
+          target picked inside the modal (nexus extension vs canonical
+          hardcoded "+ Add to GLW-30"). */}
       <div className="a1v2-library-affordance">
-        <button className="a1v2-btn ghost sm" disabled aria-disabled="true">
-          + Add leaf from library →
-        </button>
+        <LibraryBrowseTrigger
+          quoteId={quoteId}
+          editable={editable}
+          assemblies={tree.assemblies.map((a) => ({
+            id: a.id,
+            sku: a.sku,
+            name: a.name,
+          }))}
+          leafTypes={leafTypesForFilter}
+        />
         <span className="meta">browse globally-reusable components</span>
       </div>
     </div>
