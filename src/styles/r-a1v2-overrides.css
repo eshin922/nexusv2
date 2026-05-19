@@ -162,3 +162,124 @@
 .a1v2-asy-notes-meta .saving { color: var(--ink-3); }
 .a1v2-asy-notes-meta .saved { color: var(--good); }
 .a1v2-asy-notes-meta .error { color: var(--bad); }
+
+/*
+ * Spec-cell autosave status (impl-3 Step 4-5). Canonical
+ * .a1v2-spec-cell doesn't include a status indicator (the
+ * prototype uses defaultValue + no save wiring). Nexus extension
+ * adds a 1-line status alongside the input/textarea.
+ */
+.a1v2-spec-cell .a1v2-spec-status {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  display: block;
+  margin-top: 2px;
+  min-height: 12px;
+}
+.a1v2-spec-cell .a1v2-spec-status.saving { color: var(--ink-3); }
+.a1v2-spec-cell .a1v2-spec-status.saved { color: var(--good); }
+.a1v2-spec-cell .a1v2-spec-status.error { color: var(--bad); }
+
+/*
+ * Change-type modal trigger + radio options (impl-3 Step 9).
+ * The canonical CD prototype doesn't show a type-change UI flow;
+ * this is a nexus extension to support the rare-but-required
+ * type-change workflow with destructive confirmation.
+ */
+.a1v2-change-type-trigger {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: background 80ms ease, border-color 80ms ease;
+}
+.a1v2-change-type-trigger:hover {
+  border-color: var(--ink-4);
+  color: var(--ink);
+  background: var(--paper-3);
+}
+.a1v2-change-type-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.a1v2-change-type-options {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.a1v2-change-type-options legend {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.a1v2-change-type-option {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 80ms ease, border-color 80ms ease;
+}
+.a1v2-change-type-option:hover {
+  background: var(--paper-2);
+}
+.a1v2-change-type-option.selected {
+  background: oklch(from var(--accent) l c h / 0.06);
+  border-color: var(--accent);
+}
+.a1v2-change-type-option.placeholder .desc {
+  color: var(--warn);
+}
+.a1v2-change-type-option .lab {
+  font-family: var(--ui, var(--sans));
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.a1v2-change-type-option .desc {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+
+/*
+ * Bug #K (impl-3 smoke) — .a1v2-btn.primary disabled visual.
+ * Canonical .a1v2-btn.primary (r-a1v2-setup.css line 87) has no
+ * :disabled rule; the type-change modal's Confirm button rendered
+ * fully-opaque even when no target type was selected. Nexus
+ * extension adds opacity mute + cursor not-allowed.
+ *
+ * Generic enough to cover other .a1v2-btn.primary disabled cases
+ * across the surface (TypePicker pending, future modals).
+ */
+.a1v2-btn.primary:disabled,
+.a1v2-btn.primary[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.a1v2-btn.primary:disabled:hover,
+.a1v2-btn.primary[aria-disabled="true"]:hover {
+  background: var(--accent);
+}
+.a1v2-btn.ghost:disabled,
+.a1v2-btn.ghost[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

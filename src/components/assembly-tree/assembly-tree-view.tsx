@@ -22,10 +22,12 @@ import { AssemblyTreeBody } from "./assembly-tree-body";
 export function AssemblyTreeView({
   tree,
   editable,
+  projectId,
   quoteId,
 }: {
   tree: AssemblyTree;
   editable: boolean;
+  projectId: string;
   quoteId: string;
 }) {
   // Rollup-state counters for the tree summary header (scenario ④).
@@ -112,7 +114,12 @@ export function AssemblyTreeView({
         </span>
       </div>
 
-      <AssemblyTreeBody tree={tree} editable={editable} quoteId={quoteId} />
+      <AssemblyTreeBody
+        tree={tree}
+        editable={editable}
+        projectId={projectId}
+        quoteId={quoteId}
+      />
 
       {/* Step 5 of Phase 5 (impl-5) wires the library browse modal.
           Step 4 ships the affordance button as inert visual; clicking
