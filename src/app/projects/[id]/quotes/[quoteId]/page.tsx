@@ -21,6 +21,7 @@ import {
 // QuoteSummaryCard imports dropped along with the CostingSummary
 // helper component.
 import { buildTreeRenderOrder, getEligibleParents } from "@/lib/sku-tree";
+import { loadAssemblyTree } from "@/lib/assembly-tree";
 // §6.b path-B migration commit 2 — Eyebrow + ActionCluster imports
 // dropped: Setup now uses canonical .r7b-head inline structure
 // (no Eyebrow/ActionCluster components). The primitives stay shipped
@@ -69,6 +70,16 @@ export default async function QuoteBuilderPage({
   if (quoteRows.length === 0) notFound();
   const { quote, project, pm } = quoteRows[0];
   if (project.id !== projectId) notFound(); // URL tampering
+
+  // Phase A.1 v2 impl-2 — read-path branching (brief §4.2 Step 6).
+  // loadAssemblyTree returns null when the quote has zero `assemblies`
+  // rows; non-null means the new ASY/LEAF schema is in use and the
+  // legacy quote_skus render path should be skipped. Existing quotes
+  // (created pre-Phase-A.1-v2) keep working unchanged via the null
+  // branch. New quotes that go through the impl-2 write path render
+  // via the assembly tree.
+  const assemblyTree = await loadAssemblyTree(quoteId);
+  const usesNewSchema = assemblyTree !== null;
 
   const [skus, tiers, pkgSkuIds, prodSkuIds] = await Promise.all([
     db
