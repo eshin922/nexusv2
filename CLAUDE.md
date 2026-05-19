@@ -2429,6 +2429,67 @@ Reference: `src/app/actions/costing.ts` `applySuggestedGlobalAdj`
 vs `updateQuoteGlobalPriceAdj` (cross-surface origin disambiguation),
 `updateSellPriceOverride` (single-surface variant via from/to).
 
+## audit_log action namespace — Phase A.1 v2 additions
+
+Phase A.1 v2 (ASY/LEAF/library spec model) introduces 8 new action
+values on `audit_log.action`. The column is text per the "audit_log.entity_id
+is text" entry above; no enum extension required — just discipline
+on action-name namespacing.
+
+```
+-- Spec lifecycle (writes against leaf_specs)
+'leaf_spec_field_edit'      -- single-field update; most common.
+                            -- entity_id = leaf_spec.id; diff_json
+                            -- carries {field, from, to}.
+'leaf_spec_type_change'     -- Product Type changed on a leaf; rare,
+                            -- discards prior spec_values (PMs warned
+                            -- before commit). entity_id = leaf.id.
+'leaf_spec_create'          -- first-time spec values on a leaf.
+                            -- entity_id = leaf_spec.id.
+'leaf_spec_version_pin'     -- system event on quote send; version_number
+                            -- bumps + effective_until closes prior row.
+                            -- entity_id = leaf_spec.id; diff_json
+                            -- carries {quote_id, prior_version,
+                            -- new_version}.
+
+-- Library lifecycle (writes against leaves)
+'leaf_create'               -- new library leaf added. entity_id =
+                            -- leaf.id; diff_json carries {name,
+                            -- product_type_id, created_by}.
+'leaf_archive'              -- soft-archive (sets archived=true).
+                            -- entity_id = leaf.id; diff_json carries
+                            -- {reason} when PM provides one.
+
+-- ASY-leaf association lifecycle (writes against assembly_leaves)
+'assembly_leaf_attach'      -- leaf added to an ASY. entity_id =
+                            -- assembly_leaf.id; diff_json carries
+                            -- {assembly_id, leaf_id, quantity, position}.
+'assembly_leaf_detach'      -- leaf removed from an ASY; the library
+                            -- leaf itself stays (library/quote-tree
+                            -- separation per brief §3.4). entity_id =
+                            -- assembly_leaf.id (the deleted row's PK).
+```
+
+**Cascade pattern.** A single PM action that touches N spec fields
+writes one root `leaf_spec_field_edit` row with the canonical change
+list in `diff_json.fields`, AND N derived rows (one per field) with
+`caused_by_audit_id` pointing at the root. Same shape as the
+Pricing reframe cascade audit pattern; tooling that reconstructs
+the change list reads root + derived together.
+
+**`diff_json.source` per Slice 9.2 namespace convention.** When a
+spec edit comes via a non-default origin (e.g., bulk migration,
+sync-driven version pin, NetSuite-side reconcile), the source key
+disambiguates:
+- absent → manual PM edit (the common case)
+- `'migration_backfill'` → impl-1 historical-data backfill
+- `'system_version_pin'` → automatic version pin on quote send
+- (future) `'netsuite_reconcile'` → v1.1+ reconcile flow if it lands
+
+Reference: `src/app/actions/leaf-specs.ts`,
+`src/app/actions/leaves.ts`, `src/app/actions/assembly-leaves.ts`
+(land in impl-2 onward).
+
 ## Versioned-table carry-forward audit (added Slice RI.7)
 
 When a versioned table — one where every update is a fresh row
@@ -2456,9 +2517,14 @@ Search for `insert(<table>).values(...)` and verify each call site
 either carries forward unchanged columns OR is intentionally
 resetting them. Don't trust the action layer — search comprehensively.
 
-**Tables where this rule applies today:** `firm_settings` (versioned
-via `effective_from / effective_until`). Add to this list when new
-versioned tables land.
+**Tables where this rule applies today:**
+- `firm_settings` (versioned via `effective_from / effective_until`)
+- `leaf_specs` (Phase A.1 v2 — versioned via `is_current` boolean
+  + `effective_from / effective_to`; carry-forward applies to every
+  field outside the explicit edit when a new is_current row is
+  inserted)
+
+Add to this list when new versioned tables land.
 
 Caught Slice RI.7 implementation. Pre-existing `updateFirmSettings`
 needed a 30-line refactor to carry-forward all 9 new columns before
