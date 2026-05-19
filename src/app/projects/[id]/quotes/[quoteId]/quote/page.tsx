@@ -7,6 +7,7 @@ import { getCostingBundle } from "@/app/actions/costing";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { findHubspotOwnerById } from "@/lib/hubspot";
 import { QuoteHost } from "@/components/quote/quote-host";
+import { loadQuoteAddendum } from "@/lib/addendum-loader";
 import { SurfaceChrome } from "@/components/nav/surface-chrome";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { VENDOR_FIXTURE } from "@/lib/quote-fixtures";
@@ -70,6 +71,13 @@ export default async function CustomerViewPage({
     .orderBy(desc(firmSettings.effectiveFrom))
     .limit(1);
   const firm = firmRows[0] ?? null;
+
+  // Phase A.1 v2 impl-6 — addendum data loader runs alongside the
+  // costing bundle. Returns the typed shape for the addendum render
+  // tree (Pattern 45 boundary-safe; types cross via QuoteAddendumData).
+  // No prebuild verifier violation since the loader lives in src/lib/
+  // (outside the boundary) and the page is also outside.
+  const addendumData = await loadQuoteAddendum(quoteId);
 
   const bundle = await getCostingBundle(quoteId);
   if (!bundle.ok) {
@@ -275,6 +283,7 @@ export default async function CustomerViewPage({
         showStateSwitcher={showStateSwitcher}
         devSendEnabled={devSendEnabled}
         internalNotes={quote.internalNotes}
+        addendumData={addendumData}
       />
     </>
   );

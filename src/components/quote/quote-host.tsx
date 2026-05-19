@@ -3,6 +3,9 @@
 import { useState } from "react";
 import type { CustomerView, CustomerViewPdfLayout } from "@/types/quote";
 import { PreviewToolbar, type CustomerViewSubState } from "./preview-toolbar";
+import { AddendumToggle } from "./addendum-toggle";
+import { PdfAddendumAssemblies } from "@/components/pdf/pdf-addendum";
+import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import { BoundaryGuardNotice } from "./boundary-guard-notice";
 import { PageBreakMarker } from "./page-break-marker";
 import { PdfPage } from "@/components/pdf/pdf-page";
@@ -102,6 +105,7 @@ export function QuoteHost({
   showStateSwitcher,
   devSendEnabled,
   internalNotes,
+  addendumData,
 }: {
   view: CustomerView;
   quoteId: string;
@@ -111,11 +115,22 @@ export function QuoteHost({
   /** RI.9 §6 step 7 — pass-through so the inline customer-notes
    * editor doesn't clobber internal notes on save. */
   internalNotes: string | null;
+  /** Phase A.1 v2 impl-6 — addendum data crosses the customer-view
+   * boundary via this typed prop. Optional (null when the quote has
+   * zero ASYs OR uses legacy quote_skus schema with no addendum
+   * support); QuoteHost suppresses the addendum render in that case. */
+  addendumData: QuoteAddendumData | null;
 }) {
   const [subState, setSubState] = useState<CustomerViewSubState>(() =>
     deriveDefaultSubState(view),
   );
   const [pdfLayout, setPdfLayout] = useState<CustomerViewPdfLayout>(view.pdfLayout);
+  // Phase A.1 v2 impl-6 — Addendum toggle state. Defaults ON when
+  // addendumData has meaningful content (parallels CD canonical
+  // default-on UX); transient per Pattern 32 (no persistence yet).
+  const [addendumOn, setAddendumOn] = useState<boolean>(() =>
+    Boolean(addendumData?.hasMeaningfulContent),
+  );
 
   // Data flows from `view` directly — no fixture substitution.
   const serviceFees = view.serviceFees;
@@ -168,6 +183,42 @@ export function QuoteHost({
       />
 
       <BoundaryGuardNotice />
+
+      {/* Phase A.1 v2 impl-6 Step 6 — Addendum toggle.
+          Renders only when addendum data has been loaded
+          (new-schema quote). State is session-transient per
+          Pattern 32; default-on when hasMeaningfulContent.
+
+          impl-6 patch round (Bug #N) — wrapper styled to match
+          BoundaryGuardNotice chrome (maxWidth 880, margin auto,
+          paper-2 background, padding). Pre-fix the toggle floated
+          in the unstyled `display: flex; justifyContent: flex-end`
+          gutter and visually appeared on the PDF surface rather
+          than as PM preview chrome. Now anchored as a sibling
+          chrome element alongside BoundaryGuardNotice. */}
+      {addendumData ? (
+        <div
+          className="addendum-toggle-chrome"
+          style={{
+            maxWidth: 880,
+            margin: "0 auto 18px",
+            padding: "10px 14px",
+            background: "var(--paper-2)",
+            border: "1px solid var(--rule)",
+            borderRadius: 6,
+            display: "flex",
+            justifyContent: "flex-end",
+          }}
+        >
+          <AddendumToggle
+            on={addendumOn}
+            onToggle={() => setAddendumOn((v) => !v)}
+            totalLeaves={addendumData.totalLeaves}
+            totalAssemblies={addendumData.totalAssemblies}
+            hasMeaningfulContent={addendumData.hasMeaningfulContent}
+          />
+        </div>
+      ) : null}
 
       <PdfPage
         footer={
@@ -258,6 +309,18 @@ export function QuoteHost({
           </PdfPage>
         </>
       )}
+
+      {/* Phase A.1 v2 impl-6 Step 7 — Addendum pages render
+          BELOW the pricing PdfPage(s) when toggle is on AND
+          there's meaningful content. PdfAddendumAssemblies
+          internally suppresses on !hasMeaningfulContent or
+          zero assemblies. */}
+      {addendumOn && addendumData ? (
+        <PdfAddendumAssemblies
+          data={addendumData}
+          clientName={view.customer.name ?? null}
+        />
+      ) : null}
     </div>
     </div>
   );
