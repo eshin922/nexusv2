@@ -34,6 +34,10 @@
 // 'pricing_suggestion_global'`). See brief §4.4.
 
 import type { QuotePerTierRollup } from "@/lib/costing";
+import {
+  isBelowFloor,
+  isBelowTarget,
+} from "@/lib/pricing-predicates";
 
 export type SuggestionOption = {
   id: "surgical" | "global" | "accept_risk";
@@ -91,22 +95,22 @@ type RankingInput = {
 // numeric(5,4) effective range ±9.9999. Small buffer for safety.
 const FIELD_BOUND = 9.99;
 
-// Bug #D fix — float-precision tolerance + minimum-delta backstop.
+// Bug #D fix — minimum-delta backstop.
 //
-// TARGET_TOLERANCE: tiers within 0.1% (one decimal beyond display
-// precision) of target/floor are treated as at-bound, not below.
-// Prevents the no-op loop where a tier displays as "40.0%" (raw
-// 39.99997%) but the predicate flags below-target → suggestion
-// engine surfaces a +0.0% lift → PM clicks Apply → audit-log noise
-// + stuck-state.
+// MIN_DELTA_PP: even if the tolerance predicate passes, suggestions
+// whose applyDelta produces less than 0.5pp margin movement don't
+// surface. Backstop against any threshold-path edge case the
+// predicate misses.
 //
-// MIN_DELTA_PP: even if the predicate passes, suggestions whose
-// applyDelta produces less than 0.5pp margin movement don't surface.
-// Backstop against any threshold-path edge case the predicate misses.
+// TARGET_TOLERANCE (extracted to pricing-predicates.ts in
+// commit 2026-05-19 after the same float-precision no-op bug
+// surfaced on TierComplianceBlock + BlendedHeadline — three
+// surfaces consuming cloned predicates was the signal for shared
+// extraction). TARGET_TOLERANCE imported above is the canonical
+// value; this comment marks the relationship for future readers.
 //
-// Both starting values; calibrate up/down if CB re-smoke surfaces
-// edge cases on real data.
-const TARGET_TOLERANCE = 0.001;
+// MIN_DELTA_PP value is a starting point; calibrate up/down if CB
+// re-smoke surfaces edge cases on real data.
 const MIN_DELTA_PP = 0.5;
 
 function composedNewAdj(
@@ -170,16 +174,10 @@ function deltaPp(currentMarginPct: number, newMarginPct: number): number {
   return (newMarginPct - currentMarginPct) * 100;
 }
 
-// Below-target / below-floor predicates with TARGET_TOLERANCE applied
-// per Bug #D fix. Use these wherever the "is this tier below X?"
-// question gets asked.
-function isBelowTarget(marginPct: number, target: number): boolean {
-  return marginPct < target - TARGET_TOLERANCE;
-}
-
-function isBelowFloor(marginPct: number, floor: number): boolean {
-  return marginPct < floor - TARGET_TOLERANCE;
-}
+// isBelowTarget / isBelowFloor predicates imported from
+// pricing-predicates.ts (canonical source as of 2026-05-19).
+// TARGET_TOLERANCE is referenced via the predicates' implementation
+// + locally for any direct comparison use.
 
 // Identify the worst below-target tier. Returns null when no tier is
 // below target.

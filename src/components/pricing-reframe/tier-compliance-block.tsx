@@ -13,6 +13,10 @@ import {
   selectFirmSettings,
   selectQuoteRollup,
 } from "@/lib/costing-store";
+import {
+  isBelowFloor,
+  isBelowTarget,
+} from "@/lib/pricing-predicates";
 import { useReframeState } from "@/components/pricing-reframe/reframe-state-context";
 
 const fmtPct = (v: number | null) =>
@@ -42,8 +46,12 @@ export function TierComplianceBlock({
   const target = Number(firm?.targetMarginPct ?? 0.35);
   const floor = Number(firm?.floorMarginPct ?? 0.25);
 
-  const belowTarget = rollup.filter((t) => t.blendedMarginPct < target).length;
-  const belowFloor = rollup.filter((t) => t.blendedMarginPct < floor).length;
+  const belowTarget = rollup.filter((t) =>
+    isBelowTarget(t.blendedMarginPct, target),
+  ).length;
+  const belowFloor = rollup.filter((t) =>
+    isBelowFloor(t.blendedMarginPct, floor),
+  ).length;
   const allHealthy = belowTarget === 0 && belowFloor === 0;
 
   const recById = new Map(tiers.map((t) => [t.id, t.recommended]));
@@ -76,12 +84,17 @@ export function TierComplianceBlock({
       </div>
 
       {rollup.map((t) => {
-        const state: "good" | "warn" | "bad" =
-          t.blendedMarginPct < floor
-            ? "bad"
-            : t.blendedMarginPct < target
-              ? "warn"
-              : "good";
+        // Per-row state class uses canonical tolerance-aware
+        // predicates (Bug #D propagation, round 3). Tier displaying
+        // "40.0%" with raw 39.99997% no longer flags amber.
+        const state: "good" | "warn" | "bad" = isBelowFloor(
+          t.blendedMarginPct,
+          floor,
+        )
+          ? "bad"
+          : isBelowTarget(t.blendedMarginPct, target)
+            ? "warn"
+            : "good";
         const isRecommended = recById.get(t.tierId) ?? false;
         const isApplying = applyingTierIds.has(t.tierId);
         const isChanged =

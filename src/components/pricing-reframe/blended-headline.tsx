@@ -17,6 +17,10 @@ import {
   selectQuoteRollup,
   selectQuoteSummary,
 } from "@/lib/costing-store";
+import {
+  isBelowFloor,
+  isBelowTarget,
+} from "@/lib/pricing-predicates";
 
 const fmtPct = (v: number | null) =>
   v == null ? "—" : (v * 100).toFixed(1);
@@ -36,12 +40,14 @@ export function BlendedHeadline() {
   const blended = summary?.blendedMarginPct ?? null;
 
   // ROOM-state derivation from live state. Per brief §11 Step 4 / ③ lesson:
-  // counts compute from rollup, not from fixtures.
-  const belowTarget = rollup.filter(
-    (t) => t.blendedMarginPct < target,
+  // counts compute from rollup, not from fixtures. Predicates use the
+  // canonical TARGET_TOLERANCE-aware helpers per round-3 fix (Bug #D
+  // propagation to display surfaces).
+  const belowTarget = rollup.filter((t) =>
+    isBelowTarget(t.blendedMarginPct, target),
   ).length;
-  const belowFloor = rollup.filter(
-    (t) => t.blendedMarginPct < floor,
+  const belowFloor = rollup.filter((t) =>
+    isBelowFloor(t.blendedMarginPct, floor),
   ).length;
 
   const { tone, pillCopy, roomLine } = derivePillAndRoom({
@@ -117,7 +123,7 @@ function derivePillAndRoom({
       ),
     };
   }
-  if (blended != null && blended < target) {
+  if (blended != null && isBelowTarget(blended, target)) {
     return {
       tone: "warn",
       pillCopy: `BLENDED BELOW TARGET · ${belowTarget} TIER RISK`,

@@ -33,6 +33,10 @@ import {
   type SuggestionPreview,
   rankPricingSuggestions,
 } from "@/lib/pricing-suggestions";
+import {
+  isBelowFloor,
+  isBelowTarget,
+} from "@/lib/pricing-predicates";
 import { logPricingEvent } from "@/app/actions/pricing-events";
 import {
   applyGlobalAdj,
@@ -103,14 +107,17 @@ export function SuggestionEngine({ recommendedTierId }: Props) {
   useEffect(() => {
     if (recommendedOpt && !lastFiredRef.current) {
       // Identify the worst-below-target tier (violation context).
+      // Canonical tolerance-aware predicates per round-3 fix.
       const worstBelow = rollup
-        .filter((t) => t.blendedMarginPct < target)
+        .filter((t) => isBelowTarget(t.blendedMarginPct, target))
         .sort((a, b) => a.blendedMarginPct - b.blendedMarginPct)[0];
 
-      const belowFloor = rollup.find((t) => t.blendedMarginPct < floor);
+      const belowFloorTier = rollup.find((t) =>
+        isBelowFloor(t.blendedMarginPct, floor),
+      );
       const floorBreachPp =
-        belowFloor != null
-          ? (floor - belowFloor.blendedMarginPct) * 100
+        belowFloorTier != null
+          ? (floor - belowFloorTier.blendedMarginPct) * 100
           : null;
 
       const fd = new FormData();
@@ -135,7 +142,9 @@ export function SuggestionEngine({ recommendedTierId }: Props) {
 
   if (!suggestions) return null;
 
-  const belowFloor = rollup.filter((t) => t.blendedMarginPct < floor).length;
+  const belowFloor = rollup.filter((t) =>
+    isBelowFloor(t.blendedMarginPct, floor),
+  ).length;
   const className = `pr-suggestions${belowFloor > 0 ? " below-floor" : ""}`;
 
   return (

@@ -13,13 +13,14 @@ import {
   selectFirmSettings,
   selectQuoteRollup,
 } from "@/lib/costing-store";
+import { isBelowFloor } from "@/lib/pricing-predicates";
 
 export function FloorBlock() {
   const rollup = useCostingStore(selectQuoteRollup);
   const firm = useCostingStore(selectFirmSettings);
 
   const floor = Number(firm?.floorMarginPct ?? 0.25);
-  const breach = rollup.find((t) => t.blendedMarginPct < floor);
+  const breach = rollup.find((t) => isBelowFloor(t.blendedMarginPct, floor));
   if (!breach) return null;
 
   const breachPp = (floor - breach.blendedMarginPct) * 100;
