@@ -79,21 +79,14 @@ export function AssemblyTreeView({
             {tree.totalAssemblies}{" "}
             {tree.totalAssemblies === 1 ? "assembly" : "assemblies"}
           </span>
-          {/* Pull from HubSpot — visual button per canonical
-              qw_a1v2.jsx line 146. Inert until impl-4 wires the
-              HubSpot pull flow against the new assemblies + leaves
-              schema (legacy SkuSearchPanel writes against
-              quote_skus; needs adaptation for Path A parallel
-              structure). */}
-          <button
-            type="button"
-            className="a1v2-btn ghost sm"
-            disabled
-            aria-disabled="true"
-            title="Pull from HubSpot wires to the new ASY/LEAF schema in impl-4 (Phase 4)"
-          >
-            ↗ Pull from HubSpot
-          </button>
+          {/* Pull from HubSpot — temporarily REMOVED per Edward
+              polish-round disposition. The inert button was creating
+              PM-facing training friction (visible disabled affordance
+              hints at a function that doesn't exist). Lift back via
+              the dedicated Pull-from-HubSpot micro-slice (slot α
+              between impl-6 + impl-7) where the action is real.
+              Canonical .a1v2-card-head .actions placement preserved
+              by AddProductTrigger sibling. */}
           {/* + Add product — wired in impl-4 Step 8. Trigger button
               + modal host live in the AddProductTrigger client
               component; this server wrapper threads the prop chain. */}
