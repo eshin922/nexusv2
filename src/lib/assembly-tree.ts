@@ -42,6 +42,11 @@ export type AssemblyLeafNode = {
   productType: ProductTypeRef | null;
   unitCost: string | null;
   archived: boolean;
+  // Global reference count — total assembly_leaves rows pointing at
+  // this leaf across all quotes. Drives "+ N other ASYs" vs "this
+  // scenario only" caption per CD designer notes §3.4. Includes the
+  // current junction; consumers subtract 1 for "other refs".
+  globalRefCount: number;
   // Spec completeness — derived from current leaf_specs row + the
   // product type's field_schema. Null when no product_type assigned.
   specCompleteness: SpecCompleteness | null;
@@ -149,11 +154,12 @@ export async function loadAssemblyTree(
   if (leafIds.length === 0) {
     // Edge case: ASYs exist but no junction rows — all assemblies
     // have empty children. Skip leaf + spec queries.
-    return assembleTree(asmRows, junctionRows, [], [], typeMap);
+    return assembleTree(asmRows, junctionRows, [], [], new Map(), typeMap);
   }
 
-  // Third wave: library leaves + current spec rows for those leaves.
-  const [leafRows, specRows] = await Promise.all([
+  // Third wave: library leaves + current spec rows for those leaves
+  // + global ref count per leaf.
+  const [leafRows, specRows, globalRefRows] = await Promise.all([
     db.select().from(leaves).where(inArray(leaves.id, leafIds)),
     db
       .select()
@@ -161,9 +167,19 @@ export async function loadAssemblyTree(
       .where(
         and(inArray(leafSpecs.leafId, leafIds), eq(leafSpecs.isCurrent, true)),
       ),
+    db
+      .select({
+        leafId: assemblyLeaves.leafId,
+        n: sql<number>`count(*)::int`,
+      })
+      .from(assemblyLeaves)
+      .where(inArray(assemblyLeaves.leafId, leafIds))
+      .groupBy(assemblyLeaves.leafId),
   ]);
 
-  return assembleTree(asmRows, junctionRows, leafRows, specRows, typeMap);
+  const refCountMap = new Map(globalRefRows.map((r) => [r.leafId, r.n] as const));
+
+  return assembleTree(asmRows, junctionRows, leafRows, specRows, refCountMap, typeMap);
 }
 
 function assembleTree(
@@ -171,6 +187,7 @@ function assembleTree(
   junctionRows: (typeof assemblyLeaves.$inferSelect)[],
   leafRows: (typeof leaves.$inferSelect)[],
   specRows: (typeof leafSpecs.$inferSelect)[],
+  refCountMap: Map<string, number>,
   typeMap: Map<string, typeof productTypes.$inferSelect>,
 ): AssemblyTree {
   const leafMap = new Map(leafRows.map((r) => [r.id, r] as const));
@@ -219,6 +236,7 @@ function assembleTree(
           productType,
           unitCost: leaf.unitCost,
           archived: leaf.archived,
+          globalRefCount: refCountMap.get(leaf.id) ?? 1,
           specCompleteness: computeSpecCompleteness(leafType, specMap.get(leaf.id)),
         } satisfies AssemblyLeafNode;
       });
