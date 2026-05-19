@@ -19,10 +19,11 @@
 --      the Setup surface renders the new ASY/LEAF tree.
 
 -- ============================================================
--- PARAMETER
+-- TARGET QUOTE
 -- ============================================================
-
-\set target_quote_id '\'f84334bd-afa1-4016-9511-71f7d5600e35\''
+-- Edit this literal if you want to point at a different draft
+-- quote. The `\set` psql meta-command isn't supported by the
+-- postgres-js applier, so we inline the literal across the file.
 
 -- ============================================================
 -- LEAVES (library — globally scoped; idempotent on sku)
@@ -67,8 +68,9 @@ on conflict (id) do nothing;
 -- LEAF_SPECS (versioned; is_current=true)
 -- ============================================================
 
--- Spec values for the PP leaf — all 10 fields filled → "complete"
-insert into leaf_specs (id, leaf_id, spec_values, version_number, is_current, effective_from)
+-- created_by points at Edward's user row in the dev DB. If running
+-- against a different DB, substitute another existing user UUID.
+insert into leaf_specs (id, leaf_id, spec_values, version_number, is_current, effective_from, created_by)
 values
   ('22222222-2222-2222-2222-222222222201',
     '11111111-1111-1111-1111-111111111101',
@@ -84,7 +86,8 @@ values
       'pp_factory_2',          'Bormioli Luigi (backup)',
       'pp_packout_details',    '20 per inner; 240 per master'
     ),
-    1, true, now()),
+    1, true, now(),
+    '029e5318-9991-4b26-90cb-6710e892f743'::uuid),
 
   -- SP leaf — 6 of 11 fields filled → "partial"
   ('22222222-2222-2222-2222-222222222202',
@@ -97,7 +100,8 @@ values
       'sp_coating',      'matte lamination',
       'sp_finishing',    'embossed logo + holographic stamp'
     ),
-    1, true, now())
+    1, true, now(),
+    '029e5318-9991-4b26-90cb-6710e892f743'::uuid)
 on conflict (id) do nothing;
 
 -- ============================================================
@@ -113,23 +117,23 @@ on conflict (id) do nothing;
 insert into assemblies (id, quote_id, sku, name, pack_label, product_type_id, position, internal_notes)
 values
   ('33333333-3333-3333-3333-333333333301',
-    :target_quote_id, 'GLW-30',
+    'f84334bd-afa1-4016-9511-71f7d5600e35'::uuid, 'GLW-30',
     'Hydra-Glow Vitamin C Serum 30ml',
     'pack of 12', 'asy_skincare', 0,
     'Sourcing dependency: Hangzhou Sealwell confirmed lead time 12 weeks. Customer requested expedite — see phone call 2026-05-15.'),
 
   ('33333333-3333-3333-3333-333333333302',
-    :target_quote_id, 'GLW-50',
+    'f84334bd-afa1-4016-9511-71f7d5600e35'::uuid, 'GLW-50',
     'Hydra-Glow Vitamin C Serum 50ml',
     'pack of 12', 'asy_skincare', 1, null),
 
   ('33333333-3333-3333-3333-333333333303',
-    :target_quote_id, 'CAP-60',
+    'f84334bd-afa1-4016-9511-71f7d5600e35'::uuid, 'CAP-60',
     'Glow Capsule 60ct',
     'pack of 6', 'asy_supplement', 2, null),
 
   ('33333333-3333-3333-3333-333333333304',
-    :target_quote_id, 'RPL-200',
+    'f84334bd-afa1-4016-9511-71f7d5600e35'::uuid, 'RPL-200',
     'Replenish Body Lotion 200ml',
     'pack of 6', 'asy_body', 3, null)
 on conflict (id) do nothing;
@@ -190,7 +194,7 @@ on conflict (id) do nothing;
 --   a.sku, a.name, a.position, count(al.id) as leaf_count
 -- from assemblies a
 -- left join assembly_leaves al on al.assembly_id = a.id
--- where a.quote_id = :target_quote_id
+-- where a.quote_id = 'f84334bd-afa1-4016-9511-71f7d5600e35'::uuid
 -- group by a.id, a.sku, a.name, a.position
 -- order by a.position;
 -- ============================================================
