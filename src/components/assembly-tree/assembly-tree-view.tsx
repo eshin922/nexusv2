@@ -54,13 +54,48 @@ export function AssemblyTreeView({
   return (
     <div className="a1v2-card">
       <div className="a1v2-card-head">
-        {/* Step 10 fills `.actions` with the Add product + Pull from
-            HubSpot buttons + the "N SKUs · M assemblies" counter
-            caption. Step 4 shipped the structural skeleton. */}
         <h3>
           SKUs <em>· cost-stack tree</em>
         </h3>
-        <div className="actions" />
+        <div className="actions">
+          {/* Step 10 — "N SKUs · M assemblies" counter caption per
+              brief §5.2. Reads off the same totals the tree-summary
+              header uses (totalSkus = leaf children across all
+              assemblies; totalAssemblies = top-level ASY count). */}
+          <span className="meta" aria-label="SKU + assembly count caption">
+            {tree.totalSkus} {tree.totalSkus === 1 ? "SKU" : "SKUs"}
+            {" · "}
+            {tree.totalAssemblies}{" "}
+            {tree.totalAssemblies === 1 ? "assembly" : "assemblies"}
+          </span>
+          {/* Pull from HubSpot — visual button per canonical
+              qw_a1v2.jsx line 146. Inert until impl-4 wires the
+              HubSpot pull flow against the new assemblies + leaves
+              schema (legacy SkuSearchPanel writes against
+              quote_skus; needs adaptation for Path A parallel
+              structure). */}
+          <button
+            type="button"
+            className="a1v2-btn ghost sm"
+            disabled
+            aria-disabled="true"
+            title="Pull from HubSpot wires to the new ASY/LEAF schema in impl-4 (Phase 4)"
+          >
+            ↗ Pull from HubSpot
+          </button>
+          {/* + Add product — visual button per canonical line 147.
+              Inert until impl-4 ships the Add Product modal with
+              ASY/LEAF mode toggle (brief §5.4 Phase 4 scope). */}
+          <button
+            type="button"
+            className="a1v2-btn primary sm"
+            disabled={!editable}
+            aria-disabled={!editable}
+            title="Add Product modal lands in impl-4 (Phase 4 mode toggle)"
+          >
+            + Add product
+          </button>
+        </div>
       </div>
 
       <div className="a1v2-tree-summary">
