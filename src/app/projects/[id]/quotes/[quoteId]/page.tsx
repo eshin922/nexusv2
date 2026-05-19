@@ -246,8 +246,14 @@ export default async function QuoteBuilderPage({
           .r1-setup-grid. Canonical: grid-template-columns: 2fr 1fr;
           gap: 22px; margin-bottom: 24px (7bstyles.css line 75-79).
           Cleaner than my prior 2fr 1fr (matched anyway, but class
-          name vocabulary now matches CD source). */}
-      <div className="r7b-grid">
+          name vocabulary now matches CD source).
+
+          Phase A.1 v2 impl-2 Step 3 — Setup IA shift per brief §5.2:
+          SKUs to top, Tiers below. Conditional `.r-a1v2-stack`
+          modifier converts the grid to a single full-width column
+          when the quote uses the new ASY/LEAF schema. Legacy quotes
+          (usesNewSchema=false) keep the 2fr 1fr §6.b composition. */}
+      <div className={`r7b-grid${usesNewSchema ? " r-a1v2-stack" : ""}`}>
 
       {/* §6.b Step 1 amendment — R7b SKUs section:
           • Section header carries count caption "{N} SKUs · {M} assemblies"

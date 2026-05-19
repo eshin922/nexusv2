@@ -1,0 +1,27 @@
+/* Quote Workflow A.1 v2 — nexus-side overrides + extensions
+ *
+ * Sister file to src/styles/r-a1v2-setup.css (canonical verbatim).
+ * Pattern 30 discipline: canonical CSS stays pristine; nexus
+ * extensions live here so future CD refreshes drop-in cleanly.
+ *
+ * Each rule below documents the rationale for the extension:
+ *   - workflow gap (canonical didn't address it)
+ *   - Pattern 39 nexus extension (Edward dispositioned delta from canon)
+ *   - layout adaptation (canonical assumed standalone prototype; nexus
+ *     embeds within shared chrome that imposes additional constraints)
+ *
+ * Class naming convention: `.r-a1v2-*` (matches the file's `r-a1v2-`
+ * prefix and distinguishes from the canonical `.a1v2-*` selectors).
+ */
+
+/*
+ * Setup IA shift (brief §5.2 Phase 2): SKUs section moves to top;
+ * Tiers section moves below. The §6.b R7b layout used `.r7b-grid`
+ * with `grid-template-columns: 2fr 1fr` for SKUs-left / Tiers-right.
+ * Phase A.1 v2 stacks the two cards full-width. Override applies via
+ * `.r7b-grid.r-a1v2-stack` modifier; canonical r7b-setup.css stays
+ * untouched.
+ */
+.r7b-grid.r-a1v2-stack {
+  grid-template-columns: 1fr;
+}
