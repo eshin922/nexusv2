@@ -1,6 +1,6 @@
 "use server";
 
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblies,
@@ -259,6 +259,122 @@ export async function deleteAssembly(
     });
 
     revalidateQuoteTree(quote.projectId, asm.quoteId);
+  });
+}
+
+/**
+ * Phase A.1 v2 impl-5 — attach an existing library leaf to an ASY.
+ *
+ * Counterpart to detachAssemblyLeaf (impl-2 Step 7). Auto-assigns
+ * position = max(existing) + 1 within the assembly. Duplicate
+ * attaches are rejected by the partial unique index on
+ * (assembly_id, leaf_id) WHERE parent_assembly_leaf_id IS NULL
+ * (impl-1 schema); friendly error surfaces via runAction's
+ * 23505 translator OR generic re-throw.
+ *
+ * Permission: any authenticated user with access to the draft
+ * quote. Library leaf doesn't need can_edit_specs (we're not
+ * editing spec values; just adding a junction).
+ *
+ * Audit: `assembly_leaf_attach` per CLAUDE.md namespace (first
+ * canonical wire of the impl-1-banked action). diff_json carries
+ * {assembly_id, leaf_id, quantity, position}.
+ */
+export async function attachAssemblyLeaf(
+  formData: FormData,
+): Promise<ActionResult<{ junctionId: string }>> {
+  return runAction(async () => {
+    const assemblyId = String(formData.get("assemblyId") ?? "").trim();
+    const leafId = String(formData.get("leafId") ?? "").trim();
+    const quantityRaw = String(formData.get("quantity") ?? "1").trim();
+
+    if (!assemblyId)
+      throw new ActionGuardError(ERR.VALIDATION, "assemblyId required");
+    if (!leafId)
+      throw new ActionGuardError(ERR.VALIDATION, "leafId required");
+
+    const user = await ensureUser();
+
+    const asmRows = await db
+      .select()
+      .from(assemblies)
+      .where(eq(assemblies.id, assemblyId))
+      .limit(1);
+    if (asmRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "Assembly not found");
+    const asm = asmRows[0];
+
+    const quote = await loadQuoteOrThrow(asm.quoteId);
+    assertDraft(quote);
+
+    // Verify leaf exists + not archived.
+    const leafRows = await db
+      .select()
+      .from(leaves)
+      .where(eq(leaves.id, leafId))
+      .limit(1);
+    if (leafRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "Leaf not found");
+    if (leafRows[0].archived)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Archived leaves can't be attached.",
+      );
+
+    // Reject duplicate attach (friendly error vs raw unique-violation).
+    const existingRows = await db
+      .select({ id: assemblyLeaves.id })
+      .from(assemblyLeaves)
+      .where(
+        and(
+          eq(assemblyLeaves.assemblyId, assemblyId),
+          eq(assemblyLeaves.leafId, leafId),
+        ),
+      )
+      .limit(1);
+    if (existingRows.length > 0)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "This leaf is already attached to this assembly.",
+      );
+
+    // Auto-position = max + 1.
+    const posRow = await db
+      .select({
+        maxPos: sql<number>`coalesce(max(${assemblyLeaves.position}), -1)::int`,
+      })
+      .from(assemblyLeaves)
+      .where(eq(assemblyLeaves.assemblyId, assemblyId));
+    const nextPosition = (posRow[0]?.maxPos ?? -1) + 1;
+
+    const inserted = await db
+      .insert(assemblyLeaves)
+      .values({
+        assemblyId,
+        leafId,
+        quantity: quantityRaw === "" ? "1" : quantityRaw,
+        position: nextPosition,
+      })
+      .returning();
+    const newJunction = inserted[0];
+
+    // Audit: `assembly_leaf_attach` per CLAUDE.md namespace.
+    await db.insert(auditLog).values({
+      userId: user.id,
+      entityType: "assembly_leaf",
+      entityId: newJunction.id,
+      action: "assembly_leaf_attach",
+      diffJson: {
+        assembly_id: assemblyId,
+        leaf_id: leafId,
+        quantity: newJunction.quantity,
+        position: newJunction.position,
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, asm.quoteId);
+
+    return { junctionId: newJunction.id };
   });
 }
 
