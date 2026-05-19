@@ -218,6 +218,13 @@
       "when": 1779212886053,
       "tag": "0030_phase_a1_v2_schema_create",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1779235056466,
+      "tag": "0031_canonical_scenario_create_schema",
+      "breakpoints": true
     }
   ]
 }
