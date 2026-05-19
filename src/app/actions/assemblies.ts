@@ -131,3 +131,56 @@ export async function deleteAssembly(
     revalidateQuoteTree(quote.projectId, asm.quoteId);
   });
 }
+
+export async function detachAssemblyLeaf(
+  formData: FormData,
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const junctionId = String(formData.get("junctionId") ?? "").trim();
+    if (!junctionId)
+      throw new ActionGuardError(ERR.VALIDATION, "junctionId required");
+
+    const user = await ensureUser();
+
+    // Load the junction + parent assembly (for quote_id + draft check).
+    const rows = await db
+      .select({
+        junction: assemblyLeaves,
+        assembly: assemblies,
+      })
+      .from(assemblyLeaves)
+      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
+      .where(eq(assemblyLeaves.id, junctionId))
+      .limit(1);
+    if (rows.length === 0) return;
+    const { junction, assembly } = rows[0];
+
+    const quote = await loadQuoteOrThrow(assembly.quoteId);
+    assertDraft(quote);
+
+    // Junction-only delete. Library leaf stays (assembly_leaves.leaf_id
+    // is ON DELETE RESTRICT — couldn't cascade-delete the leaf even
+    // if we wanted to). Spec values persist; reattach via library
+    // browse (impl-5) preserves them.
+    await db.delete(assemblyLeaves).where(eq(assemblyLeaves.id, junctionId));
+
+    // Per CLAUDE.md audit_log namespace — `assembly_leaf_detach`:
+    // entity_id = the deleted junction row's PK; diff_json carries
+    // assembly + leaf identity so reconstruction of the workflow is
+    // possible from audit alone.
+    await db.insert(auditLog).values({
+      userId: user.id,
+      entityType: "assembly_leaf",
+      entityId: junctionId,
+      action: "assembly_leaf_detach",
+      diffJson: {
+        assembly_id: junction.assemblyId,
+        leaf_id: junction.leafId,
+        quantity: junction.quantity,
+        position: junction.position,
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, assembly.quoteId);
+  });
+}

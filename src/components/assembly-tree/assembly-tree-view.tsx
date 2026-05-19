@@ -28,6 +28,7 @@ import type {
   AssemblyCompletenessRollup,
 } from "@/lib/assembly-tree";
 import { AsyContextMenu } from "./asy-context-menu";
+import { LeafContextMenu } from "./leaf-context-menu";
 
 type EditableProps = { editable: boolean };
 
@@ -145,14 +146,17 @@ function AsyRow({ asy, editable }: { asy: AssemblyNode } & EditableProps) {
       </div>
       <div className="a1v2-leaves">
         {asy.children.map((leaf) => (
-          <LeafRow key={leaf.junctionId} leaf={leaf} />
+          <LeafRow key={leaf.junctionId} leaf={leaf} editable={editable} />
         ))}
       </div>
     </>
   );
 }
 
-function LeafRow({ leaf }: { leaf: AssemblyLeafNode }) {
+function LeafRow({
+  leaf,
+  editable,
+}: { leaf: AssemblyLeafNode } & EditableProps) {
   const otherRefs = Math.max(0, leaf.globalRefCount - 1);
   const refsCopy =
     otherRefs > 0
@@ -194,16 +198,11 @@ function LeafRow({ leaf }: { leaf: AssemblyLeafNode }) {
         }}
       >
         <LeafCompletenessChip completeness={leaf.specCompleteness} />
-        {/* Step 7 wires this ⋯ button to LeafContextMenu. */}
-        <button
-          className="context-trigger"
-          type="button"
-          disabled
-          aria-disabled="true"
-          aria-label="Leaf context menu (wired in Step 7)"
-        >
-          ⋯
-        </button>
+        <LeafContextMenu
+          junctionId={leaf.junctionId}
+          leafName={leaf.name}
+          disabled={!editable}
+        />
       </div>
     </div>
   );
