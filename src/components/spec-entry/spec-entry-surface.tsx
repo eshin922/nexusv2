@@ -5,6 +5,8 @@ import type {
 } from "@/lib/leaf-spec-loader";
 import { CompletenessChip } from "@/components/assembly-tree/completeness-chip";
 import { SpecPanel } from "./spec-panel";
+import { PlaceholderPanel } from "./placeholder-panel";
+import { TypePicker } from "./type-picker";
 
 // Phase A.1 v2 impl-3 Step 3 — SpecEntry surface (server wrapper).
 //
@@ -97,27 +99,13 @@ export function SpecEntrySurface({
         </div>
         <div className="a1v2-card-body">
           {!productType ? (
-            // Scenario ⑨ — TypePicker empty state lands in Step 7.
-            <p
-              style={{
-                color: "var(--ink-3)",
-                fontSize: 13,
-                padding: "8px 0",
-              }}
-            >
-              TypePicker (scenario ⑨) renders here in Step 7.
-            </p>
+            <TypePicker
+              leafId={leaf.id}
+              availableTypes={data.availableLeafTypes}
+              disabled={readOnly}
+            />
           ) : productType.placeholder ? (
-            // Scenarios ⑦/⑧ — PlaceholderPanel lands in Step 6.
-            <p
-              style={{
-                color: "var(--ink-3)",
-                fontSize: 13,
-                padding: "8px 0",
-              }}
-            >
-              PlaceholderPanel (scenarios ⑦/⑧) renders here in Step 6.
-            </p>
+            <PlaceholderPanel productType={productType} />
           ) : productType.fieldSchema ? (
             // Scenarios ⑤/⑥ — SpecPanel field grid (Step 4-5).
             <SpecPanel

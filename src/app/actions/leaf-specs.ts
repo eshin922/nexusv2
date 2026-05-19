@@ -3,7 +3,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, leafSpecs, leaves, productTypes } from "@/db/schema";
-import { ensureUser } from "@/lib/auth/ensure-user";
 import {
   ActionGuardError,
   ERR,
@@ -209,5 +208,103 @@ export async function updateLeafSpec(
     );
 
     return { leafId, specId, specValues, versionNumber };
+  });
+}
+
+/**
+ * Phase A.1 v2 impl-3 Step 7 — set/change Product Type on a leaf.
+ *
+ * Two modes:
+ *   - Initial assignment: leaf had no product_type_id → assigning a
+ *     type just writes the column; no spec_values impact since no
+ *     spec row exists yet. Audit: no `leaf_spec_type_change` (there
+ *     was no prior type); `leaves` table gets the column write.
+ *   - Type change: leaf already had a type → switching discards
+ *     prior spec_values (per CD designer notes §4.10 — fields don't
+ *     translate across types). The current leaf_spec row's
+ *     spec_values is cleared to `{}` in-place. Audit emits both
+ *     `leaf_spec_type_change` (root, on leaves.id entity) AND a
+ *     derived `leaf_spec_field_edit` row clearing spec_values
+ *     (caused_by_audit_id linking).
+ *
+ * Step 7 wires Mode 1 (initial assignment). Mode 2 (type change with
+ * destructive clear) wires in Step 9 with the confirmation modal —
+ * we explicitly reject type changes here so PMs can't bypass the
+ * modal by re-submitting.
+ */
+export async function assignLeafProductType(
+  formData: FormData,
+): Promise<ActionResult<{ leafId: string; productTypeId: string }>> {
+  return runAction(async () => {
+    const leafId = String(formData.get("leafId") ?? "").trim();
+    const productTypeId = String(formData.get("productTypeId") ?? "").trim();
+
+    if (!leafId)
+      throw new ActionGuardError(ERR.VALIDATION, "leafId required");
+    if (!productTypeId)
+      throw new ActionGuardError(ERR.VALIDATION, "productTypeId required");
+
+    const user = await assertCanEditSpecs();
+
+    const leafRows = await db
+      .select()
+      .from(leaves)
+      .where(eq(leaves.id, leafId))
+      .limit(1);
+    if (leafRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "Leaf not found");
+    const leaf = leafRows[0];
+
+    // Step 7 covers initial assignment only. Type-change requires
+    // confirmation modal (Step 9). Reject here if the leaf already
+    // has a type to prevent bypass.
+    if (leaf.productTypeId)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "This leaf already has a product type. Use the type-change flow (impl-3 Step 9) to switch.",
+      );
+
+    // Validate target type exists and is leaf-scope.
+    const typeRows = await db
+      .select()
+      .from(productTypes)
+      .where(eq(productTypes.id, productTypeId))
+      .limit(1);
+    if (typeRows.length === 0)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Product type not found.",
+      );
+    if (typeRows[0].scope !== "leaf")
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Selected type is not a leaf-scope type.",
+      );
+
+    await db
+      .update(leaves)
+      .set({ productTypeId, updatedAt: new Date() })
+      .where(eq(leaves.id, leafId));
+
+    // No `leaf_spec_type_change` audit on initial assignment —
+    // that action is reserved for actual type SWITCHES (Step 9).
+    // Use a generic write on the leaf entity.
+    await db.insert(auditLog).values({
+      userId: user.id,
+      entityType: "leaf",
+      entityId: leafId,
+      action: "leaf_product_type_assigned",
+      diffJson: {
+        from: null,
+        to: productTypeId,
+      },
+    });
+
+    revalidatePath(
+      "/projects/[id]/quotes/[quoteId]/leaves/[leafId]/specs",
+      "page",
+    );
+
+    return { leafId, productTypeId };
   });
 }
