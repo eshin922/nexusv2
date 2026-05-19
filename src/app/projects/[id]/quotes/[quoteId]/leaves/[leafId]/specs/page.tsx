@@ -5,6 +5,8 @@ import { db } from "@/db";
 import { projects, quotes } from "@/db/schema";
 import { NavShell } from "@/components/nav/nav-shell";
 import { loadLeafForSpecEntry } from "@/lib/leaf-spec-loader";
+import { SpecEntrySurface } from "@/components/spec-entry/spec-entry-surface";
+import { ensureUser } from "@/lib/auth/ensure-user";
 
 // Phase A.1 v2 impl-3 — Spec entry surface route.
 //
@@ -45,6 +47,13 @@ export default async function SpecEntryPage({
   const data = await loadLeafForSpecEntry(leafId);
   if (!data) notFound();
 
+  // Permission gate at render time. Non-admin users without
+  // can_edit_specs render the read-only state (scenario ⑩).
+  // Admin role implicit-passes per spec-permission-guard.ts.
+  const user = await ensureUser();
+  const canEdit = user.role === "admin" || user.canEditSpecs;
+  const readOnly = !canEdit;
+
   return (
     <NavShell
       surfaceKey="setup"
@@ -62,43 +71,7 @@ export default async function SpecEntryPage({
           </Link>
         </div>
 
-        {/* Step 3+ replace this placeholder with the canonical
-            SpecEntry surface (header chrome + body panels). For
-            Step 2 we render a structured stub so the route is
-            reachable + data fetch is verified. */}
-        <div className="r7b-card" style={{ padding: 24 }}>
-          <h2 style={{ fontFamily: "var(--display)", fontSize: 22, marginBottom: 8 }}>
-            Edit specs <em style={{ color: "var(--ink-3)", fontWeight: 400 }}>· {data.leaf.name}</em>
-          </h2>
-          <p style={{ color: "var(--ink-3)", fontSize: 13 }}>
-            Spec entry surface scaffold (impl-3 Step 2). Step 3 renders
-            the canonical .a1v2-card chrome; Step 4 ships the SpecPanel
-            field grid.
-          </p>
-
-          <dl style={{ marginTop: 16, fontFamily: "var(--mono)", fontSize: 11.5, color: "var(--ink-2)", display: "grid", gridTemplateColumns: "180px 1fr", rowGap: 6 }}>
-            <dt>Leaf ID</dt>
-            <dd>{data.leaf.id}</dd>
-            <dt>SKU</dt>
-            <dd>{data.leaf.sku ?? "—"}</dd>
-            <dt>Product type</dt>
-            <dd>{data.productType?.name ?? "(none — TypePicker scenario)"}</dd>
-            <dt>Placeholder</dt>
-            <dd>{data.productType?.placeholder ? "yes" : "no"}</dd>
-            <dt>Field schema fields</dt>
-            <dd>{data.productType?.fieldSchema?.fields.length ?? 0}</dd>
-            <dt>Current spec row</dt>
-            <dd>
-              {data.currentSpec
-                ? `v${data.currentSpec.versionNumber} · ${Object.keys(data.currentSpec.specValues).length} keys`
-                : "(none yet)"}
-            </dd>
-            <dt>References</dt>
-            <dd>{data.references.length} ASY{data.references.length === 1 ? "" : "s"}</dd>
-            <dt>Available leaf types</dt>
-            <dd>{data.availableLeafTypes.length}</dd>
-          </dl>
-        </div>
+        <SpecEntrySurface data={data} readOnly={readOnly} />
       </main>
     </NavShell>
   );

@@ -273,6 +273,7 @@ export default async function QuoteBuilderPage({
         <AssemblyTreeView
           tree={assemblyTree}
           editable={editable}
+          projectId={projectId}
           quoteId={quoteId}
         />
       ) : (

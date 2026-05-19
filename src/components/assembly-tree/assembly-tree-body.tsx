@@ -21,10 +21,12 @@ import { reorderAssemblies } from "@/app/actions/assemblies";
 export function AssemblyTreeBody({
   tree,
   editable,
+  projectId,
   quoteId,
 }: {
   tree: AssemblyTree;
   editable: boolean;
+  projectId: string;
   quoteId: string;
 }) {
   const serverOrder = useMemo(
@@ -114,6 +116,8 @@ export function AssemblyTreeBody({
             key={asy.id}
             asy={asy}
             editable={editable}
+            projectId={projectId}
+            quoteId={quoteId}
             isDragging={dragId === asy.id}
             onDragStart={(e) => handleAsyDragStart(e, asy.id)}
             onDragOver={(e) => handleAsyDragOver(e, asy.id)}

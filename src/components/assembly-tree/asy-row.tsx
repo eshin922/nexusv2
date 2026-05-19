@@ -4,12 +4,12 @@ import { useMemo, useState, useTransition } from "react";
 import type {
   AssemblyNode,
   AssemblyLeafNode,
-  SpecCompleteness,
   AssemblyCompletenessRollup,
 } from "@/lib/assembly-tree";
 import { AsyContextMenu } from "./asy-context-menu";
 import { LeafContextMenu } from "./leaf-context-menu";
 import { AsyNotesDrawerPanel, AsyNotesTrigger } from "./asy-notes-drawer";
+import { CompletenessChip } from "./completeness-chip";
 import { reorderAssemblyLeaves } from "@/app/actions/assemblies";
 
 // Phase A.1 v2 impl-2 Step 4-9 — AsyRow client component
@@ -27,12 +27,16 @@ import { reorderAssemblyLeaves } from "@/app/actions/assemblies";
 export function AsyRow({
   asy,
   editable,
+  projectId,
+  quoteId,
   isDragging,
   onDragStart,
   onDragOver,
 }: {
   asy: AssemblyNode;
   editable: boolean;
+  projectId: string;
+  quoteId: string;
   isDragging: boolean;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
@@ -177,6 +181,7 @@ export function AsyRow({
             key={leaf.junctionId}
             leaf={leaf}
             editable={editable}
+            editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${leaf.leafId}/specs`}
             isDragging={leafDragId === leaf.junctionId}
             onDragStart={(e) => handleLeafDragStart(e, leaf.junctionId)}
             onDragOver={(e) => handleLeafDragOver(e, leaf.junctionId)}
@@ -203,12 +208,14 @@ export function AsyRow({
 function LeafRow({
   leaf,
   editable,
+  editSpecsHref,
   isDragging,
   onDragStart,
   onDragOver,
 }: {
   leaf: AssemblyLeafNode;
   editable: boolean;
+  editSpecsHref: string;
   isDragging: boolean;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
@@ -260,10 +267,11 @@ function LeafRow({
           gap: 6,
         }}
       >
-        <LeafCompletenessChip completeness={leaf.specCompleteness} />
+        <CompletenessChip completeness={leaf.specCompleteness} />
         <LeafContextMenu
           junctionId={leaf.junctionId}
           leafName={leaf.name}
+          editSpecsHref={editSpecsHref}
           disabled={!editable}
         />
       </div>
@@ -299,32 +307,5 @@ function AsyRollupChip({ rollup }: { rollup: AssemblyCompletenessRollup }) {
   return <span className={`a1v2-chip ${state}`}>{copy}</span>;
 }
 
-function LeafCompletenessChip({
-  completeness,
-}: {
-  completeness: SpecCompleteness | null;
-}) {
-  if (!completeness) {
-    return <span className="a1v2-chip empty">— No specs entered</span>;
-  }
-  switch (completeness.kind) {
-    case "complete":
-      return (
-        <span className="a1v2-chip complete">
-          <span className="dot" />✓ Complete
-        </span>
-      );
-    case "partial":
-      return (
-        <span className="a1v2-chip partial">
-          ⚠ {completeness.total - completeness.filled} fields pending
-        </span>
-      );
-    case "placeholder":
-      return <span className="a1v2-chip partial">⚠ Fields pending</span>;
-    case "empty":
-      return <span className="a1v2-chip empty">— No specs entered</span>;
-    case "no_type":
-      return <span className="a1v2-chip no_type">⚠ No type set</span>;
-  }
-}
+// LeafCompletenessChip extracted to ./completeness-chip.tsx for
+// reuse on the SpecEntry surface (impl-3 Step 3).

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { detachAssemblyLeaf } from "@/app/actions/assemblies";
 
 // Phase A.1 v2 impl-2 Step 7 — LEAF context menu (scenario ②)
@@ -31,10 +32,12 @@ import { detachAssemblyLeaf } from "@/app/actions/assemblies";
 export function LeafContextMenu({
   junctionId,
   leafName,
+  editSpecsHref,
   disabled,
 }: {
   junctionId: string;
   leafName: string;
+  editSpecsHref: string;
   disabled: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -105,16 +108,14 @@ export function LeafContextMenu({
           aria-label="Leaf actions"
         >
           <div className="header">Leaf actions</div>
-          <button
-            type="button"
+          <Link
+            href={editSpecsHref}
             className="item accent"
             role="menuitem"
-            disabled
-            aria-disabled="true"
-            title="Spec entry surface ships in impl-3"
+            onClick={() => setOpen(false)}
           >
             Edit specs
-          </button>
+          </Link>
           <div className="sep" />
           <button
             type="button"
