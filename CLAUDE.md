@@ -2468,6 +2468,28 @@ on action-name namespacing.
                             -- leaf itself stays (library/quote-tree
                             -- separation per brief §3.4). entity_id =
                             -- assembly_leaf.id (the deleted row's PK).
+
+-- ASY lifecycle (writes against assemblies) — added during impl-2
+-- (not in original 8-action set but discovered during build; banked
+-- here for the namespace to stay complete).
+'assembly_deleted'          -- ASY removed from a quote. entity_id =
+                            -- assembly.id; diff_json carries pre-delete
+                            -- snapshot of the ASY + cascaded junctions
+                            -- (with dereferenced leaf SKU/name for
+                            -- forensic readability). Cascade pattern
+                            -- mirrors quote_skus.deleted; library leaves
+                            -- themselves untouched (assembly_leaves.leaf_id
+                            -- ON DELETE RESTRICT prevents leaf cascade).
+'assemblies_reordered'      -- drag-to-reorder ASY rows at quote level.
+                            -- entity_type = 'quote', entity_id = quote.id
+                            -- (the change is quote-scoped, not per-ASY).
+                            -- diff_json carries {ordered_assembly_ids}
+                            -- — single audit row captures the full new
+                            -- order, no per-position derived rows.
+'assembly_leaves_reordered' -- drag-to-reorder LEAF rows within an ASY.
+                            -- entity_type = 'assembly', entity_id =
+                            -- assembly.id (ASY-scoped). diff_json carries
+                            -- {ordered_junction_ids}.
 ```
 
 **Cascade pattern.** A single PM action that touches N spec fields
