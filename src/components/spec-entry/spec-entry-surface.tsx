@@ -4,6 +4,7 @@ import type {
   LeafSpecEntryProductType,
 } from "@/lib/leaf-spec-loader";
 import { CompletenessChip } from "@/components/assembly-tree/completeness-chip";
+import { SpecPanel } from "./spec-panel";
 
 // Phase A.1 v2 impl-3 Step 3 — SpecEntry surface (server wrapper).
 //
@@ -95,26 +96,72 @@ export function SpecEntrySurface({
           </div>
         </div>
         <div className="a1v2-card-body">
-          {/* Step 4-8 fill the body per scenario. Step 3 ships a
-              placeholder so the surface is reachable + shape is
-              verifiable. */}
-          <p
-            style={{
-              color: "var(--ink-3)",
-              fontSize: 13,
-              padding: "8px 0",
-            }}
-          >
-            {!productType
-              ? "TypePicker (scenario ⑨) renders here in Step 7."
-              : productType.placeholder
-                ? "PlaceholderPanel (scenarios ⑦/⑧) renders here in Step 6."
-                : "SpecPanel field grid (scenarios ⑤/⑥) renders here in Step 4."}
-          </p>
+          {!productType ? (
+            // Scenario ⑨ — TypePicker empty state lands in Step 7.
+            <p
+              style={{
+                color: "var(--ink-3)",
+                fontSize: 13,
+                padding: "8px 0",
+              }}
+            >
+              TypePicker (scenario ⑨) renders here in Step 7.
+            </p>
+          ) : productType.placeholder ? (
+            // Scenarios ⑦/⑧ — PlaceholderPanel lands in Step 6.
+            <p
+              style={{
+                color: "var(--ink-3)",
+                fontSize: 13,
+                padding: "8px 0",
+              }}
+            >
+              PlaceholderPanel (scenarios ⑦/⑧) renders here in Step 6.
+            </p>
+          ) : productType.fieldSchema ? (
+            // Scenarios ⑤/⑥ — SpecPanel field grid (Step 4-5).
+            <SpecPanel
+              title={productType.name}
+              fields={productType.fieldSchema.fields}
+              leafId={leaf.id}
+              initialValues={currentSpec?.specValues ?? {}}
+              filled={getFilledCount(completeness)}
+              total={productType.fieldSchema.fields.length}
+              readOnly={readOnly}
+            />
+          ) : (
+            <p
+              style={{
+                color: "var(--ink-3)",
+                fontSize: 13,
+                padding: "8px 0",
+              }}
+            >
+              Product type has no field schema configured.
+            </p>
+          )}
         </div>
       </div>
     </>
   );
+}
+
+/**
+ * Read the filled count out of a completeness state. SpecPanel
+ * needs the raw filled number for its panel-head caption.
+ */
+function getFilledCount(c: SpecCompleteness | null): number {
+  if (!c) return 0;
+  switch (c.kind) {
+    case "complete":
+      return c.total;
+    case "partial":
+      return c.filled;
+    case "empty":
+    case "no_type":
+    case "placeholder":
+      return 0;
+  }
 }
 
 /**

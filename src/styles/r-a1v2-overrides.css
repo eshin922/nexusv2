@@ -162,3 +162,21 @@
 .a1v2-asy-notes-meta .saving { color: var(--ink-3); }
 .a1v2-asy-notes-meta .saved { color: var(--good); }
 .a1v2-asy-notes-meta .error { color: var(--bad); }
+
+/*
+ * Spec-cell autosave status (impl-3 Step 4-5). Canonical
+ * .a1v2-spec-cell doesn't include a status indicator (the
+ * prototype uses defaultValue + no save wiring). Nexus extension
+ * adds a 1-line status alongside the input/textarea.
+ */
+.a1v2-spec-cell .a1v2-spec-status {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  display: block;
+  margin-top: 2px;
+  min-height: 12px;
+}
+.a1v2-spec-cell .a1v2-spec-status.saving { color: var(--ink-3); }
+.a1v2-spec-cell .a1v2-spec-status.saved { color: var(--good); }
+.a1v2-spec-cell .a1v2-spec-status.error { color: var(--bad); }
