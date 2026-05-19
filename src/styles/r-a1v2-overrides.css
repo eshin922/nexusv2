@@ -27,6 +27,40 @@
 }
 
 /*
+ * Drag handle scope (Phase A.1 v2 impl-2 polish). The canonical
+ * .twirl + .leaf-icon glyphs are styled via the canonical CSS;
+ * this rule adds the grab cursor + tighter hit area so PMs see the
+ * handle clearly. Hover gets a subtle background to telegraph the
+ * draggable affordance.
+ */
+.a1v2-asy-row .drag-handle,
+.a1v2-leaf-row .drag-handle {
+  cursor: grab;
+  user-select: none;
+  border-radius: 3px;
+  padding: 2px 4px;
+  transition: background 80ms ease;
+}
+.a1v2-asy-row .drag-handle:hover,
+.a1v2-leaf-row .drag-handle:hover {
+  background: var(--paper-3);
+}
+.a1v2-asy-row .drag-handle:active,
+.a1v2-leaf-row .drag-handle:active {
+  cursor: grabbing;
+}
+/* Disabled state — when editable is false, the parent element
+ * doesn't set draggable; ensure the cursor reflects the state too. */
+.a1v2-asy-row .drag-handle:not([draggable="true"]),
+.a1v2-leaf-row .drag-handle:not([draggable="true"]) {
+  cursor: default;
+}
+.a1v2-asy-row .drag-handle:not([draggable="true"]):hover,
+.a1v2-leaf-row .drag-handle:not([draggable="true"]):hover {
+  background: transparent;
+}
+
+/*
  * Per-ASY notes drawer (Step 8, brief §5.2). Canonical CD prototype
  * doesn't include a notes drawer treatment for Phase A.1 v2; carried
  * forward from R7b's per-SKU drawer pattern. The trigger renders

@@ -120,15 +120,20 @@ export function AsyRow({
     <>
       <div
         className={`a1v2-asy-row${isExpanded ? " expanded" : ""}${isDragging ? " dragging" : ""}`}
-        draggable={editable}
-        onDragStart={onDragStart}
         onDragOver={onDragOver}
       >
+        {/* Phase A.1 v2 impl-2 polish — drag handle scoped to the
+            twirl glyph only (was previously the whole row, which
+            risked accidental drags when PMs clicked nearby controls
+            like the Notes trigger or context menu). The row is still
+            the drop target (onDragOver above); only the source
+            initiator narrowed. */}
         <span
-          className="twirl"
+          className="twirl drag-handle"
           aria-hidden="true"
           title={editable ? "Drag to reorder" : undefined}
-          style={{ cursor: editable ? "grab" : "default" }}
+          draggable={editable}
+          onDragStart={editable ? onDragStart : undefined}
         >
           ▾
         </span>
@@ -222,14 +227,15 @@ function LeafRow({
   return (
     <div
       className={`a1v2-leaf-row${isDragging ? " dragging" : ""}`}
-      draggable={editable}
-      onDragStart={onDragStart}
       onDragOver={onDragOver}
     >
+      {/* Same drag-scope discipline as AsyRow — handle is the
+          leaf-icon glyph only; the row stays as the drop target. */}
       <span
-        className="leaf-icon"
+        className="leaf-icon drag-handle"
         aria-hidden="true"
-        style={{ cursor: editable ? "grab" : "default" }}
+        draggable={editable}
+        onDragStart={editable ? onDragStart : undefined}
       >
         ◦
       </span>
