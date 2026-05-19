@@ -1,8 +1,9 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { asc } from "drizzle-orm";
 import { db } from "@/db";
 import { productTypes } from "@/db/schema";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
+import { productTypeOrderExpression } from "@/lib/product-type-order";
 
 // Phase A.1 v2 impl-4 — Product-type options loader for the Add
 // Product modal.
@@ -20,7 +21,11 @@ export async function loadProductTypeOptions(): Promise<{
   assemblyTypes: { id: string; name: string }[];
   leafTypes: LeafSpecEntryProductType[];
 }> {
-  const rows = await db.select().from(productTypes);
+  // Canonical ordering per Edward §15.1 + §15.2 (Bug #L fix).
+  const rows = await db
+    .select()
+    .from(productTypes)
+    .orderBy(productTypeOrderExpression, asc(productTypes.name));
 
   const assemblyTypes = rows
     .filter((t) => t.scope === "assembly" && !t.hidden)

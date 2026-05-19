@@ -7,6 +7,7 @@ import {
   leaves,
   productTypes,
 } from "@/db/schema";
+import { productTypeOrderExpression } from "@/lib/product-type-order";
 
 // Phase A.1 v2 impl-5 — Library browse data loader.
 //
@@ -153,10 +154,12 @@ export async function loadLibraryBrowse(
 export async function loadLeafTypesForFilter(): Promise<
   { id: string; name: string; placeholder: boolean }[]
 > {
+  // Canonical ordering per Edward §15.2 (Bug #L fix).
   const rows = await db
     .select()
     .from(productTypes)
-    .where(and(eq(productTypes.scope, "leaf"), eq(productTypes.hidden, false)));
+    .where(and(eq(productTypes.scope, "leaf"), eq(productTypes.hidden, false)))
+    .orderBy(productTypeOrderExpression, asc(productTypes.name));
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
