@@ -21,6 +21,8 @@ import {
 // QuoteSummaryCard imports dropped along with the CostingSummary
 // helper component.
 import { buildTreeRenderOrder, getEligibleParents } from "@/lib/sku-tree";
+import { loadAssemblyTree } from "@/lib/assembly-tree";
+import { AssemblyTreeView } from "@/components/assembly-tree/assembly-tree-view";
 // §6.b path-B migration commit 2 — Eyebrow + ActionCluster imports
 // dropped: Setup now uses canonical .r7b-head inline structure
 // (no Eyebrow/ActionCluster components). The primitives stay shipped
@@ -69,6 +71,16 @@ export default async function QuoteBuilderPage({
   if (quoteRows.length === 0) notFound();
   const { quote, project, pm } = quoteRows[0];
   if (project.id !== projectId) notFound(); // URL tampering
+
+  // Phase A.1 v2 impl-2 — read-path branching (brief §4.2 Step 6).
+  // loadAssemblyTree returns null when the quote has zero `assemblies`
+  // rows; non-null means the new ASY/LEAF schema is in use and the
+  // legacy quote_skus render path should be skipped. Existing quotes
+  // (created pre-Phase-A.1-v2) keep working unchanged via the null
+  // branch. New quotes that go through the impl-2 write path render
+  // via the assembly tree.
+  const assemblyTree = await loadAssemblyTree(quoteId);
+  const usesNewSchema = assemblyTree !== null;
 
   const [skus, tiers, pkgSkuIds, prodSkuIds] = await Promise.all([
     db
@@ -235,8 +247,14 @@ export default async function QuoteBuilderPage({
           .r1-setup-grid. Canonical: grid-template-columns: 2fr 1fr;
           gap: 22px; margin-bottom: 24px (7bstyles.css line 75-79).
           Cleaner than my prior 2fr 1fr (matched anyway, but class
-          name vocabulary now matches CD source). */}
-      <div className="r7b-grid">
+          name vocabulary now matches CD source).
+
+          Phase A.1 v2 impl-2 Step 3 — Setup IA shift per brief §5.2:
+          SKUs to top, Tiers below. Conditional `.r-a1v2-stack`
+          modifier converts the grid to a single full-width column
+          when the quote uses the new ASY/LEAF schema. Legacy quotes
+          (usesNewSchema=false) keep the 2fr 1fr §6.b composition. */}
+      <div className={`r7b-grid${usesNewSchema ? " r-a1v2-stack" : ""}`}>
 
       {/* §6.b Step 1 amendment — R7b SKUs section:
           • Section header carries count caption "{N} SKUs · {M} assemblies"
@@ -247,10 +265,17 @@ export default async function QuoteBuilderPage({
           Existing components retained (AddAssemblyButton + SkuSearchPanel)
           with label/position adjustments. Step 8 replaces "+ Add Product"
           with the full add-product modal. */}
-      {/* §6.b path-B migration commit 3 — SKU table → canonical
-          r7b-card / r7b-sku-* structure (7bsetup.jsx SkuTable
-          lines 125-195). Drops Section wrapper component; uses
-          canonical .r7b-card-head with .meta count caption. */}
+      {/* Phase A.1 v2 impl-2 Step 4 — when the quote uses the new
+          ASY/LEAF schema (usesNewSchema=true), render the new tree
+          view via <AssemblyTreeView>. Otherwise fall through to the
+          legacy quote_skus card below (no change for existing quotes). */}
+      {usesNewSchema && assemblyTree ? (
+        <AssemblyTreeView
+          tree={assemblyTree}
+          editable={editable}
+          quoteId={quoteId}
+        />
+      ) : (
       <div className="r7b-card">
         <div className="r7b-card-head">
           <h3>SKUs</h3>
@@ -382,6 +407,8 @@ export default async function QuoteBuilderPage({
           />
         )}
       </div>
+
+      )}
 
       {/* §6.b Step 5 — Tier table parallel register per R7b §3.4 /
           Decision 5. Same card chrome + footer pill grammar as the
