@@ -1,36 +1,23 @@
-// Phase A.1 v2 impl-2 Step 4 — ASY tree view (scenarios ① + ④)
+// Phase A.1 v2 impl-2 Step 4-8 — ASY tree view (server wrapper)
 //
 // Canonical structure per docs/design-prototypes/dist/qw_a1v2.jsx
-// `TreeView` (lines 117-175) + `AsyRow` (177-213) + `LeafRow`
-// (215-243) + `CompletenessChip` (85-98). Class names .a1v2-* per
-// Pattern 30 path-B-default canonical CSS (src/styles/r-a1v2-setup.css).
+// `TreeView` (lines 117-175). Top-level card + summary header +
+// .a1v2-tree map of AsyRow children + library-affordance footer.
 //
-// Step 4 scope: static tree render + rollup chips. Subsequent steps:
-//   - Step 5: type chips at row level (ASY filled blue / LEAF outline)
-//   - Steps 6-7: context menus (currently the ⋯ button is inert)
-//   - Step 8: per-SKU notes textarea + HAS NOTE chip
-//   - Step 9: drag-to-reorder
-//   - Step 10: header buttons (Add product / Pull from HubSpot) +
-//             counter caption
+// AsyRow + LeafRow + completeness chips moved to ./asy-row.tsx
+// (client) so the per-ASY notes drawer (Step 8) can coordinate
+// open/close state between its inline trigger and its sibling
+// drawer panel.
 //
 // Pattern 28 verbatim copy preserved from canonical JSX:
-//   - "{N} leaves" (plural-always even at 1, matches canonical line 195)
-//   - "+ N other ASY{s}" / "this scenario only" leaf-refs caption
-//   - "✓ All N leaves complete" / "⚠ N of M leaves pending" rollup copy
-//   - "✓ Complete" / "⚠ N fields pending" / "— No specs entered" /
-//     "⚠ No type set" chip copy
+//   - "SKUs · cost-stack tree" header
+//   - "ASY all-complete / partial / empty" summary pips
+//   - "{N} of {M} leaves have complete specs" right-summary
+//   - "+ Add leaf from library →" + "browse globally-reusable
+//     components" affordance footer
 
-import type {
-  AssemblyTree,
-  AssemblyNode,
-  AssemblyLeafNode,
-  SpecCompleteness,
-  AssemblyCompletenessRollup,
-} from "@/lib/assembly-tree";
-import { AsyContextMenu } from "./asy-context-menu";
-import { LeafContextMenu } from "./leaf-context-menu";
-
-type EditableProps = { editable: boolean };
+import type { AssemblyTree } from "@/lib/assembly-tree";
+import { AsyRow } from "./asy-row";
 
 export function AssemblyTreeView({
   tree,
@@ -66,8 +53,8 @@ export function AssemblyTreeView({
     <div className="a1v2-card">
       <div className="a1v2-card-head">
         {/* Step 10 fills `.actions` with the Add product + Pull from
-            HubSpot buttons + the "N SKUs · M assemblies" counter caption.
-            Step 4 ships the structural skeleton with the h3 only. */}
+            HubSpot buttons + the "N SKUs · M assemblies" counter
+            caption. Step 4 shipped the structural skeleton. */}
         <h3>
           SKUs <em>· cost-stack tree</em>
         </h3>
@@ -113,161 +100,4 @@ export function AssemblyTreeView({
       </div>
     </div>
   );
-}
-
-function AsyRow({ asy, editable }: { asy: AssemblyNode } & EditableProps) {
-  const isExpanded = asy.children.length > 0;
-  return (
-    <>
-      <div className={`a1v2-asy-row${isExpanded ? " expanded" : ""}`}>
-        <span className="twirl" aria-hidden="true">
-          ▾
-        </span>
-        <span className="sku-pill">{asy.sku}</span>
-        <div className="name-cell">
-          <div className="name">{asy.name}</div>
-          <div className="meta">
-            {asy.packLabel ? <span>{asy.packLabel}</span> : null}
-            {asy.packLabel ? <span className="sep">·</span> : null}
-            {/* Step 5 styles this type-tag to canonical ASY-filled-blue.
-                Step 4 ships plain text. */}
-            <span className="type-tag">
-              {asy.productType?.name ?? "—"}
-            </span>
-          </div>
-        </div>
-        <span className="leaf-count">{asy.children.length} leaves</span>
-        <AsyRollupChip rollup={asy.rollup} />
-        <AsyContextMenu
-          assemblyId={asy.id}
-          assemblySku={asy.sku}
-          disabled={!editable}
-        />
-      </div>
-      <div className="a1v2-leaves">
-        {asy.children.map((leaf) => (
-          <LeafRow key={leaf.junctionId} leaf={leaf} editable={editable} />
-        ))}
-      </div>
-    </>
-  );
-}
-
-function LeafRow({
-  leaf,
-  editable,
-}: { leaf: AssemblyLeafNode } & EditableProps) {
-  const otherRefs = Math.max(0, leaf.globalRefCount - 1);
-  const refsCopy =
-    otherRefs > 0
-      ? `+ ${otherRefs} other ASY${otherRefs === 1 ? "" : "s"}`
-      : "this scenario only";
-  // Quantity rendering matches canonical: < 1 → 4 decimals, ≥ 1 →
-  // raw (canonical doesn't strip trailing zeros at integer quantities;
-  // preserved verbatim per Pattern 28).
-  const qtyNum = Number(leaf.quantity);
-  const qtyDisplay = qtyNum < 1 ? qtyNum.toFixed(4) : String(qtyNum);
-  const costDisplay = leaf.unitCost
-    ? `$${Number(leaf.unitCost).toFixed(2)} cost`
-    : "— cost";
-
-  return (
-    <div className="a1v2-leaf-row">
-      <span className="leaf-icon" aria-hidden="true">
-        ◦
-      </span>
-      <span className="leaf-sku">{leaf.sku ?? "—"}</span>
-      <div className="leaf-name-cell">
-        <div className="name">{leaf.name}</div>
-        <div className="meta">
-          qty {qtyDisplay} · {costDisplay}
-        </div>
-      </div>
-      <span
-        className={`type-tag leaf-type${leaf.productType ? "" : " untyped"}`}
-      >
-        {leaf.productType?.name ?? "untyped"}
-      </span>
-      <span className="leaf-refs">{refsCopy}</span>
-      <div
-        style={{
-          position: "relative",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
-      >
-        <LeafCompletenessChip completeness={leaf.specCompleteness} />
-        <LeafContextMenu
-          junctionId={leaf.junctionId}
-          leafName={leaf.name}
-          disabled={!editable}
-        />
-      </div>
-    </div>
-  );
-}
-
-function AsyRollupChip({ rollup }: { rollup: AssemblyCompletenessRollup }) {
-  // ASY rollup chip — scenario ④ states.
-  // Per canonical computeAsyRollup: good=allComplete, warn otherwise
-  // unless no leaves. Copy is interpolated.
-  let state: "complete" | "partial" | "empty";
-  let copy: string;
-  switch (rollup.kind) {
-    case "all_complete":
-      state = "complete";
-      copy = `✓ All ${rollup.count} leaves complete`;
-      break;
-    case "partial": {
-      const pending = rollup.total - rollup.complete;
-      state = "partial";
-      copy = `⚠ ${pending} of ${rollup.total} leaves pending`;
-      break;
-    }
-    case "mixed_with_placeholders": {
-      const pending = rollup.total - rollup.complete;
-      state = "partial";
-      copy = `⚠ ${pending} of ${rollup.total} leaves pending`;
-      break;
-    }
-    case "no_leaves":
-      state = "empty";
-      copy = "— No leaves";
-      break;
-  }
-  return <span className={`a1v2-chip ${state}`}>{copy}</span>;
-}
-
-function LeafCompletenessChip({
-  completeness,
-}: {
-  completeness: SpecCompleteness | null;
-}) {
-  // Per-leaf chip — scenarios ⑤-⑩ states (rendered in tree per CD
-  // designer notes §3.1 "completeness chip" cell). Step 4 ships the
-  // chip render here; full Spec entry surface comes in impl-3.
-  if (!completeness) {
-    return <span className="a1v2-chip empty">— No specs entered</span>;
-  }
-  switch (completeness.kind) {
-    case "complete":
-      return (
-        <span className="a1v2-chip complete">
-          <span className="dot" />✓ Complete
-        </span>
-      );
-    case "partial":
-      return (
-        <span className="a1v2-chip partial">
-          ⚠ {completeness.total - completeness.filled} fields pending
-        </span>
-      );
-    case "placeholder":
-      return <span className="a1v2-chip partial">⚠ Fields pending</span>;
-    case "empty":
-      return <span className="a1v2-chip empty">— No specs entered</span>;
-    case "no_type":
-      return <span className="a1v2-chip no_type">⚠ No type set</span>;
-  }
 }

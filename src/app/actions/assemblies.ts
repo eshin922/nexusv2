@@ -184,3 +184,63 @@ export async function detachAssemblyLeaf(
     revalidateQuoteTree(quote.projectId, assembly.quoteId);
   });
 }
+
+export async function updateAssemblyNotes(
+  formData: FormData,
+): Promise<ActionResult<{ assemblyId: string; internalNotes: string | null }>> {
+  return runAction(async () => {
+    const assemblyId = String(formData.get("assemblyId") ?? "").trim();
+    const rawNotes = String(formData.get("internalNotes") ?? "");
+    if (!assemblyId)
+      throw new ActionGuardError(ERR.VALIDATION, "assemblyId required");
+
+    const asmRows = await db
+      .select()
+      .from(assemblies)
+      .where(eq(assemblies.id, assemblyId))
+      .limit(1);
+    if (asmRows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "Assembly not found");
+    const asm = asmRows[0];
+
+    const quote = await loadQuoteOrThrow(asm.quoteId);
+    assertDraft(quote);
+
+    // Trim trailing whitespace + normalize empty to NULL. Lets the
+    // HAS NOTE chip read off the non-null condition cleanly without
+    // having to additionally check for empty strings on the read path.
+    const trimmed = rawNotes.trim();
+    const next: string | null = trimmed.length === 0 ? null : trimmed;
+    const prev = asm.internalNotes;
+
+    // Identity write — no-op (avoid noisy audit churn on save events
+    // that happen to fire with unchanged value, e.g., blur events
+    // without an actual edit).
+    if (prev === next) {
+      return { assemblyId, internalNotes: next };
+    }
+
+    await db
+      .update(assemblies)
+      .set({ internalNotes: next, updatedAt: new Date() })
+      .where(eq(assemblies.id, assemblyId));
+
+    // No dedicated audit action banked in CLAUDE.md for ASY notes
+    // edits; use generic `notes_updated` (parallels the convention
+    // used by other free-text-field edits like quote.customer_facing_notes).
+    await db.insert(auditLog).values({
+      userId: (await ensureUser()).id,
+      entityType: "assembly",
+      entityId: assemblyId,
+      action: "notes_updated",
+      diffJson: {
+        field: "internal_notes",
+        from: prev,
+        to: next,
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, asm.quoteId);
+    return { assemblyId, internalNotes: next };
+  });
+}
