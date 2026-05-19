@@ -27,6 +27,9 @@ import type {
   SpecCompleteness,
   AssemblyCompletenessRollup,
 } from "@/lib/assembly-tree";
+import { AsyContextMenu } from "./asy-context-menu";
+
+type EditableProps = { editable: boolean };
 
 export function AssemblyTreeView({
   tree,
@@ -92,7 +95,9 @@ export function AssemblyTreeView({
               : "No assemblies."}
           </p>
         ) : (
-          tree.assemblies.map((asy) => <AsyRow key={asy.id} asy={asy} />)
+          tree.assemblies.map((asy) => (
+            <AsyRow key={asy.id} asy={asy} editable={editable} />
+          ))
         )}
       </div>
 
@@ -109,7 +114,7 @@ export function AssemblyTreeView({
   );
 }
 
-function AsyRow({ asy }: { asy: AssemblyNode }) {
+function AsyRow({ asy, editable }: { asy: AssemblyNode } & EditableProps) {
   const isExpanded = asy.children.length > 0;
   return (
     <>
@@ -132,19 +137,11 @@ function AsyRow({ asy }: { asy: AssemblyNode }) {
         </div>
         <span className="leaf-count">{asy.children.length} leaves</span>
         <AsyRollupChip rollup={asy.rollup} />
-        <div style={{ position: "relative" }}>
-          {/* Step 6 wires this ⋯ button to AsyContextMenu. Step 4
-              ships the visual; click is inert. */}
-          <button
-            className="context-trigger"
-            type="button"
-            disabled
-            aria-disabled="true"
-            aria-label="ASY context menu (wired in Step 6)"
-          >
-            ⋯
-          </button>
-        </div>
+        <AsyContextMenu
+          assemblyId={asy.id}
+          assemblySku={asy.sku}
+          disabled={!editable}
+        />
       </div>
       <div className="a1v2-leaves">
         {asy.children.map((leaf) => (
