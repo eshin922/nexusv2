@@ -258,3 +258,28 @@
   letter-spacing: 0.04em;
   color: var(--ink-3);
 }
+
+/*
+ * Bug #K (impl-3 smoke) — .a1v2-btn.primary disabled visual.
+ * Canonical .a1v2-btn.primary (r-a1v2-setup.css line 87) has no
+ * :disabled rule; the type-change modal's Confirm button rendered
+ * fully-opaque even when no target type was selected. Nexus
+ * extension adds opacity mute + cursor not-allowed.
+ *
+ * Generic enough to cover other .a1v2-btn.primary disabled cases
+ * across the surface (TypePicker pending, future modals).
+ */
+.a1v2-btn.primary:disabled,
+.a1v2-btn.primary[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.a1v2-btn.primary:disabled:hover,
+.a1v2-btn.primary[aria-disabled="true"]:hover {
+  background: var(--accent);
+}
+.a1v2-btn.ghost:disabled,
+.a1v2-btn.ghost[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
