@@ -3,6 +3,9 @@
 **Branch:** `slice-phase-a1-v2-impl-6-pdf-addendum`
 **Scope:** scenarios ㉓-㉘ + Preview Quote addendum behaviors
 **Date:** 2026-05-19
+**Re-touched:** 2026-05-19 (force GitHub re-render per Edward's
+404 observation — original commit `2f5f611` blob `763bf84` was
+present per `gh api` but UI 404'd in browser)
 
 ## Prep — no new fixtures
 
