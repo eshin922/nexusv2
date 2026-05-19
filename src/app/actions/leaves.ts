@@ -10,6 +10,12 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import { assertCanCreateLeaves } from "@/lib/spec-permission-guard";
+import {
+  loadLibraryBrowse,
+  type LibraryBrowseFilters,
+  type LibraryBrowseRow,
+} from "@/lib/library-browse-loader";
+import { ensureUser } from "@/lib/auth/ensure-user";
 import { revalidatePath } from "next/cache";
 
 // Phase A.1 v2 impl-4 — server actions for the leaves library table.
@@ -105,5 +111,25 @@ export async function createLeaf(
     revalidatePath("/projects/[id]/quotes/[quoteId]/setup", "page");
 
     return { leafId: newRow.id };
+  });
+}
+
+/**
+ * Phase A.1 v2 impl-5 — server action wrapper for client-side
+ * library browse data fetch.
+ *
+ * Client opens the library browse modal → calls this action with
+ * the filter state → receives the row list. The action is just
+ * an authenticated wrapper around `loadLibraryBrowse` so the
+ * client can use it via useTransition without server-only imports.
+ */
+export async function fetchLibraryBrowse(
+  filters: LibraryBrowseFilters,
+): Promise<ActionResult<{ rows: LibraryBrowseRow[]; total: number }>> {
+  return runAction(async () => {
+    // Auth check (server-only context); throws if signed out.
+    await ensureUser();
+    const result = await loadLibraryBrowse(filters);
+    return result;
   });
 }
