@@ -21,6 +21,7 @@ import { PricingSectionHead } from "@/components/pricing/pricing-section-head";
 import { SkuSummaryRowList } from "./sku-summary-row";
 import { NavShell } from "@/components/nav/nav-shell";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
+import { PricingReframeShell } from "@/components/pricing-reframe/shell";
 
 // Slice RI.5 — Pricing rebuild per Designer comprehensive audit
 // + brief §3.3. Three rooms top-to-bottom:
@@ -170,6 +171,21 @@ export default async function CostingPage({
     qty: t.qty,
   }));
 
+  // Pricing reframe v1 — TierComplianceBlock needs the ★ recommended flag.
+  // QuotePerTierRollup (store rollup) doesn't carry it; this list passes
+  // id + label + recommended through to the new top-band block.
+  const tiersForReframe = tiers.map((t) => ({
+    id: t.id,
+    label: t.label,
+    recommended: t.recommended,
+  }));
+
+  // Pricing reframe v1 — SuggestionEngine needs the ★ recommended tier
+  // id for accept-risk gating per Pushback 3 disposition. Pass through
+  // from the same quote_tiers query.
+  const recommendedTier = tiers.find((t) => t.recommended);
+  const recommendedTierId = recommendedTier?.id ?? null;
+
   return (
     <NavShell
       surfaceKey="costing"
@@ -220,7 +236,31 @@ export default async function CostingPage({
           </div>
         )}
 
-        {/* ROOM 0 — Lines Requiring Review (BELOW_FLOOR only) */}
+        {/* ─────────────────────────────────────────────────────────────
+            Pricing reframe v1 (Path 3 Hybrid) — top-band components
+            per CD design package.
+            Order: ApplyToast (transient) · BlendedHeadline · FloorBlock
+            (below-floor only) · TierComplianceBlock (or EmptyState) ·
+            SuggestionEngine. Pattern 30 path-B-default; CSS at
+            src/styles/pricing-reframe.css (`.pr-*` namespace).
+
+            v1 disposition: top-band reframe sits ABOVE preserved
+            ROOM 0/1/2/3 components per Edward's interim (b) call.
+            CD redesign for Quote umbrella IA will revisit displaced
+            components in a follow-up slice.
+
+            Shell wrapper holds the cross-component applying/last-apply
+            state (Steps 8 + 9) via React Context. Server-component
+            page.tsx passes the tier list + recommended-tier id;
+            client shell renders the 6 top-band components under
+            shared state.
+            ───────────────────────────────────────────────────────────── */}
+        <PricingReframeShell
+          tiersForReframe={tiersForReframe}
+          recommendedTierId={recommendedTierId}
+        />
+
+        {/* ROOM 0 — Lines Requiring Review (BELOW_FLOOR only) — preserved */}
         <LinesRequiringReview />
 
         {/* ROOM 1 — Cost stack panel (R6 cost-stack-header reused) */}

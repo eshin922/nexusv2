@@ -837,8 +837,15 @@ export const selectSuggestedAdj = (s: CostingStoreState) => {
     : null;
 };
 
-// Tiers list (for header rendering)
+// Tiers list (for header rendering — derived from costing output;
+// shape: { tierId, label, qty } per QuoteCostingResult.tiers).
 export const selectTiers = (s: CostingStoreState) => s.costing.tiers;
+
+// Input-shape tiers with tier_price_adj_pct override + sortOrder.
+// Use when consuming code needs the persisted-shape per-tier data
+// (e.g., Pricing reframe suggestion engine's pre-check that the
+// composed new_adj fits the numeric(5,4) schema bound — Bug #2 fix).
+export const selectQuoteTierInputs = (s: CostingStoreState) => s.tiers;
 
 // Per-SKU breakdown
 export const selectSkuRollups = (s: CostingStoreState) => s.costing.skuRollups;
