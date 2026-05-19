@@ -40,12 +40,16 @@ export function PdfHeader({
         </div>
         <div className="doc-meta">
           <div>
-            <strong>Quotation</strong> ·{" "}
-            {quote.quoteNumber ? (
-              quote.quoteNumber
-            ) : (
-              <Stub text={QUOTE_STUBS.quoteNumber} />
-            )}
+            <strong>Quotation</strong>
+            {/* impl-6 patch round (Bug #Q) — conditional render of
+                the quote number. Pre-fix shipped <Stub text="
+                {quote-number-pending}"> as a visible placeholder on
+                drafts; CA lean (b) disposition: suppress entirely
+                when quoteNumber is null. The PM context (draft
+                surface chrome + status indicators elsewhere) already
+                signals draft state; client-shared screenshots no
+                longer carry a placeholder-token visual leak. */}
+            {quote.quoteNumber ? <> · {quote.quoteNumber}</> : null}
           </div>
           <div>Issued · {formatLongDate(quote.sentDate)}</div>
           <div>Valid until · {formatLongDate(quote.validUntil)}</div>

@@ -238,9 +238,20 @@ export async function loadQuoteAddendum(
     };
   });
 
+  // impl-6 patch round — toggle meta denominator fix.
+  // Pre-fix counted `asmRows.length` (every ASY in the quote);
+  // post-fix counts only ASYs with at least one leaf, mirroring
+  // the addendum's actual render output (zero-leaf ASYs are
+  // suppressed by the `if (asy.leaves.length === 0) return null`
+  // guard in PdfAddendumAssemblies). PMs see "3 ASYs" in the
+  // toggle caption and 3 papers rendered — no off-by-N confusion.
+  const renderedAssemblyCount = addendumAssemblies.filter(
+    (a) => a.leaves.length > 0,
+  ).length;
+
   return {
     totalLeaves,
-    totalAssemblies: asmRows.length,
+    totalAssemblies: renderedAssemblyCount,
     hasMeaningfulContent: meaningfulCount > 0,
     assemblies: addendumAssemblies,
   };

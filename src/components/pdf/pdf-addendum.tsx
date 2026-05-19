@@ -3,6 +3,7 @@ import type {
   AddendumLeaf,
   QuoteAddendumData,
 } from "@/lib/addendum-loader";
+import { PdfPage } from "./pdf-page";
 
 // Phase A.1 v2 impl-6 — PDF addendum components (Steps 3-5 folded).
 //
@@ -62,8 +63,19 @@ function AddendumAssemblyPage({
   asy: AddendumAssembly;
   clientName: string | null;
 }) {
+  // impl-6 patch round (Bug #P) — Use <PdfPage> as the page
+  // container instead of `.a1v2-pdf-paper`. Pre-fix the addendum
+  // paper used a different CSS class than the pricing PdfPage
+  // (different width / margin / padding rules → horizontal
+  // misalignment between pricing + addendum pages when stacked
+  // in the preview shell).
+  //
+  // PdfPage produces the canonical `.pdf-page` chrome (R3 token
+  // register); addendum-specific content (.a1v2-addendum-header
+  // + .a1v2-addendum-asy) renders inside that container. Both
+  // pricing + addendum now share the same page dimensions.
   return (
-    <div className="a1v2-pdf-paper">
+    <PdfPage>
       <div className="a1v2-addendum-header">
         <div>
           <h2 className="title">Product specifications</h2>
@@ -91,7 +103,7 @@ function AddendumAssemblyPage({
           <AddendumLeafBlock key={leaf.leafKey} leaf={leaf} />
         ))}
       </div>
-    </div>
+    </PdfPage>
   );
 }
 

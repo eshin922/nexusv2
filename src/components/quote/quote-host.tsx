@@ -187,9 +187,29 @@ export function QuoteHost({
       {/* Phase A.1 v2 impl-6 Step 6 — Addendum toggle.
           Renders only when addendum data has been loaded
           (new-schema quote). State is session-transient per
-          Pattern 32; default-on when hasMeaningfulContent. */}
+          Pattern 32; default-on when hasMeaningfulContent.
+
+          impl-6 patch round (Bug #N) — wrapper styled to match
+          BoundaryGuardNotice chrome (maxWidth 880, margin auto,
+          paper-2 background, padding). Pre-fix the toggle floated
+          in the unstyled `display: flex; justifyContent: flex-end`
+          gutter and visually appeared on the PDF surface rather
+          than as PM preview chrome. Now anchored as a sibling
+          chrome element alongside BoundaryGuardNotice. */}
       {addendumData ? (
-        <div style={{ display: "flex", justifyContent: "flex-end", margin: "10px 0" }}>
+        <div
+          className="addendum-toggle-chrome"
+          style={{
+            maxWidth: 880,
+            margin: "0 auto 18px",
+            padding: "10px 14px",
+            background: "var(--paper-2)",
+            border: "1px solid var(--rule)",
+            borderRadius: 6,
+            display: "flex",
+            justifyContent: "flex-end",
+          }}
+        >
           <AddendumToggle
             on={addendumOn}
             onToggle={() => setAddendumOn((v) => !v)}
