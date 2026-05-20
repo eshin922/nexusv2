@@ -2,25 +2,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import {
-  packagingInputs,
-  productionInputs,
-  projects,
-  quotes,
-  quoteSkus,
-  quoteTiers,
-  users,
-} from "@/db/schema";
-// §6.b Step 5 — preset-related count helpers (countPackagingLinesForQuote,
-// countProductionCellsWithDataForQuote, countFreightCellsWithDataForQuote,
-// countFreightLinesForQuote) and TierPresetSelect previously used by the
-// Tier section's action slot are removed from imports. Step 6 ships the
-// proper R7b preset picker as the empty-state component.
-// Slice RI.8 step 1.5 — Pricing Control Summary moved off Setup
-// per brief §5 + §3.5. getCostingBundle / CostingStoreProvider /
-// QuoteSummaryCard imports dropped along with the CostingSummary
-// helper component.
-import { buildTreeRenderOrder, getEligibleParents } from "@/lib/sku-tree";
+import { projects, quotes, quoteTiers, users } from "@/db/schema";
+// canonical-scenario-create-flow Step 3 — legacy SKU table imports
+// removed: quoteSkus, packagingInputs, productionInputs (data
+// sources), buildTreeRenderOrder, getEligibleParents (helpers),
+// SkuRowList, SkuRowListItem, SkuFooter (components). All used by
+// the legacy quote_skus render path which this slice drops. New
+// path uses <AssemblyTreeView> exclusively.
 import { loadAssemblyTree } from "@/lib/assembly-tree";
 import { AssemblyTreeView } from "@/components/assembly-tree/assembly-tree-view";
 import { loadProductTypeOptions } from "@/lib/product-type-options";
@@ -35,10 +23,6 @@ import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
 import { SURFACE_META } from "@/lib/nav/surface-meta";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { AddTierButton } from "./add-tier-button";
-// AddAssemblyButton import removed — now consumed by SkuFooter
-// client wrapper. SkuSearchPanel similarly moved into SkuFooter.
-import { SkuRowList, type SkuRowListItem } from "./sku-row-list";
-import { SkuFooter } from "./sku-footer";
 import { TierRow } from "./tier-row";
 import { TierPresetPicker } from "./tier-preset-picker";
 import { NotesEditor } from "./notes-editor";
@@ -74,15 +58,23 @@ export default async function QuoteBuilderPage({
   const { quote, project, pm } = quoteRows[0];
   if (project.id !== projectId) notFound(); // URL tampering
 
-  // Phase A.1 v2 impl-2 — read-path branching (brief §4.2 Step 6).
-  // loadAssemblyTree returns null when the quote has zero `assemblies`
-  // rows; non-null means the new ASY/LEAF schema is in use and the
-  // legacy quote_skus render path should be skipped. Existing quotes
-  // (created pre-Phase-A.1-v2) keep working unchanged via the null
-  // branch. New quotes that go through the impl-2 write path render
-  // via the assembly tree.
+  // canonical-scenario-create-flow — read-path branching dropped.
+  // Every quote routes to the new ASY/LEAF tree; loadAssemblyTree
+  // always returns non-null (empty tree on zero-assembly state,
+  // which AssemblyTreeView's empty-state affordance renders).
+  // The legacy quote_skus render path is removed in this slice.
+  //
+  // Lineage acknowledgment (per CA disposition 4): the legacy
+  // `<SkuRowList>` + `add-product-modal.tsx` chain was the ONLY
+  // remaining surface firing the HubSpot-first `addProductSku`
+  // write path (CC's prior investigation, May 19). Removing it
+  // widens the HubSpot writeback regression (originally bypassed
+  // in the Phase A.1 v2 refactor) to all scenarios. Pre-launch
+  // tolerance per Edward disposition (all current data is test
+  // data; no production at risk). The bundled HubSpot
+  // bidirectional micro-slice (queued next-but-one after this)
+  // restores the write path before pre-launch review.
   const assemblyTree = await loadAssemblyTree(quoteId);
-  const usesNewSchema = assemblyTree !== null;
 
   // Phase A.1 v2 impl-4 — product-type options for the Add Product
   // modal's ASY/LEAF type selectors. Loaded unconditionally (cheap
@@ -96,40 +88,16 @@ export default async function QuoteBuilderPage({
   // fieldSchema); kept separate to avoid coupling unrelated UIs.
   const leafTypesForFilter = await loadLeafTypesForFilter();
 
-  const [skus, tiers, pkgSkuIds, prodSkuIds] = await Promise.all([
-    db
-      .select()
-      .from(quoteSkus)
-      .where(eq(quoteSkus.quoteId, quote.id))
-      .orderBy(asc(quoteSkus.sortOrder), asc(quoteSkus.createdAt)),
-    db
-      .select()
-      .from(quoteTiers)
-      .where(eq(quoteTiers.quoteId, quote.id))
-      .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt)),
-    // Leaf-detach micro-slice Sub-item 3 — pre-compute per-SKU
-    // `hasCostData` flag for the smart-migrate confirmation modal
-    // gate (Sub-item 3 scenario A vs B). Two queries — packaging +
-    // production. Slice R6.2 retired the per-SKU freight binding
-    // (Gap 22: freight is per-quote, not per-SKU); leaf-to-assembly
-    // conversion never orphans freight data so it's excluded from
-    // the per-SKU cost-data check.
-    db
-      .selectDistinct({ skuId: packagingInputs.quoteSkuId })
-      .from(packagingInputs)
-      .innerJoin(quoteSkus, eq(quoteSkus.id, packagingInputs.quoteSkuId))
-      .where(eq(quoteSkus.quoteId, quote.id)),
-    db
-      .selectDistinct({ skuId: productionInputs.quoteSkuId })
-      .from(productionInputs)
-      .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
-      .where(eq(quoteSkus.quoteId, quote.id)),
-  ]);
-
-  const skuIdsWithCostData = new Set([
-    ...pkgSkuIds.map((r) => r.skuId),
-    ...prodSkuIds.map((r) => r.skuId),
-  ]);
+  // canonical-scenario-create-flow Step 3 — Promise.all slimmed to
+  // tiers query only. SKU + packagingInputs + productionInputs
+  // queries removed alongside the legacy SKU table render path.
+  // `skuIdsWithCostData` computation also removed (only consumed
+  // by the legacy SkuRowList's per-row Detach modal gate).
+  const tiers = await db
+    .select()
+    .from(quoteTiers)
+    .where(eq(quoteTiers.quoteId, quote.id))
+    .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt));
 
   const editable = quote.status === "draft";
 
@@ -275,20 +243,12 @@ export default async function QuoteBuilderPage({
           the IA shift was always meant for ALL Setup surfaces. */}
       <div className="r7b-grid r-a1v2-stack">
 
-      {/* §6.b Step 1 amendment — R7b SKUs section:
-          • Section header carries count caption "{N} SKUs · {M} assemblies"
-          • Table header + rows at top of card
-          • Footer affordances ("+ Add Product" + "↗ Pull from HubSpot")
-            relocated from top placement to below the table per R7b
-            grammar
-          Existing components retained (AddAssemblyButton + SkuSearchPanel)
-          with label/position adjustments. Step 8 replaces "+ Add Product"
-          with the full add-product modal. */}
-      {/* Phase A.1 v2 impl-2 Step 4 — when the quote uses the new
-          ASY/LEAF schema (usesNewSchema=true), render the new tree
-          view via <AssemblyTreeView>. Otherwise fall through to the
-          legacy quote_skus card below (no change for existing quotes). */}
-      {usesNewSchema && assemblyTree ? (
+      {/* canonical-scenario-create-flow Step 3 — every quote
+          renders the new ASY/LEAF tree. Legacy `<div className=
+          "r7b-card">` SKU table + SkuRowList + SkuFooter chain
+          removed alongside the read-path branching. AssemblyTreeView
+          handles empty state internally ("No assemblies yet"). */}
+      {assemblyTree ? (
         <AssemblyTreeView
           tree={assemblyTree}
           editable={editable}
@@ -298,140 +258,7 @@ export default async function QuoteBuilderPage({
           leafTypes={productTypeOptions.leafTypes}
           leafTypesForFilter={leafTypesForFilter}
         />
-      ) : (
-      <div className="r7b-card">
-        <div className="r7b-card-head">
-          <h3>SKUs</h3>
-          <div className="actions">
-            <span className="meta" aria-label="SKU count caption">
-              {skus.length} {skus.length === 1 ? "SKU" : "SKUs"}
-              {(() => {
-                const aCount = skus.filter((s) => s.skuRole === "assembly").length;
-                return ` · ${aCount} ${aCount === 1 ? "assembly" : "assemblies"}`;
-              })()}
-            </span>
-          </div>
-        </div>
-
-        {skus.length === 0 ? (
-          // Sweep Step 1 — migrated to canonical .r7b-empty-state
-          // primitive (Designer audit Finding 22). Inline-styled
-          // earlier; primitive consolidates this with the assembly
-          // drawer's child-list empty state and future SKU-table-
-          // empty cases.
-          <p className="r7b-empty-state">
-            {editable
-              ? 'No SKUs yet. Use "+ Add product" or "↗ Pull from HubSpot" below to start.'
-              : "No SKUs."}
-          </p>
-        ) : (
-          <>
-            {/* Canonical .r7b-sku-thead — 7 columns per 7bstyles.css
-                line 107: 24px grip · 64px type · minmax(220px,1.6fr)
-                product · minmax(120px,1fr) category · 90px retail
-                · 80px components · 40px actions. Category column
-                renders em-dash per row pending Slice 9
-                (Pattern 22 #5 deferral). */}
-            <div className="r7b-sku-thead">
-              <span></span>
-              <span>Type</span>
-              <span>Product</span>
-              <span>Category</span>
-              <span className="num">Retail bench</span>
-              <span className="num">Components</span>
-              <span></span>
-            </div>
-            <SkuRowList
-              rows={buildTreeRenderOrder(skus).map(({ sku: s, depth }): SkuRowListItem => {
-                const eligibleParents = getEligibleParents(skus, s.id).map((p) => ({
-                  id: p.id,
-                  skuLabel: p.skuLabel,
-                  productName: p.productName,
-                  skuRole: p.skuRole,
-                }));
-                const directChildren = skus.filter((x) => x.parentSkuId === s.id);
-                const hasChildren = directChildren.length > 0;
-                const childCount = directChildren.length;
-                const childSkus = directChildren.map((c) => ({
-                  id: c.id,
-                  skuLabel: c.skuLabel,
-                  productName: c.productName,
-                  skuRole: c.skuRole,
-                  qtyPerParent: c.qtyPerParent,
-                  childCount: skus.filter((x) => x.parentSkuId === c.id).length,
-                  // Leaf-detach micro-slice Sub-item 1b — server-
-                  // computed flag for the drawer's per-row Detach
-                  // confirmation modal gate. True when the child has
-                  // notes OR retailBenchmark to preserve; false for
-                  // clean detach (silent path).
-                  hasPreservableData:
-                    (c.notes !== null && c.notes.trim() !== "") ||
-                    (c.retailBenchmark !== null &&
-                      String(c.retailBenchmark).trim() !== ""),
-                }));
-                // Leaf-detach micro-slice Sub-item 1 — current parent
-                // label threaded into the row so the overflow menu can
-                // render "Detach from {parent name}" (Q3 LOCKED copy)
-                // and the detach confirmation modal can name the
-                // parent in its prompt copy. Null when SKU has no
-                // parent (the detach affordance is conditionally
-                // hidden upstream).
-                const parent = s.parentSkuId
-                  ? skus.find((x) => x.id === s.parentSkuId)
-                  : null;
-                const currentParentLabel = parent?.skuLabel ?? null;
-                // Leaf-detach micro-slice Sub-item 3 — drives the
-                // smart-migrate modal gate. True when this SKU has
-                // any per-SKU cost-input row (packaging / production
-                // / freight). Threaded to SkuRow's handleConvertRole
-                // so clicking the Type badge on a leaf with cost
-                // data opens the modal instead of silently flipping
-                // to assembly + orphaning the cost rows.
-                const hasCostData = skuIdsWithCostData.has(s.id);
-                return {
-                  sku: {
-                    id: s.id,
-                    hubspotProductId: s.hubspotProductId,
-                    skuLabel: s.skuLabel,
-                    productName: s.productName,
-                    unitsPerPack: s.unitsPerPack,
-                    retailBenchmark: s.retailBenchmark,
-                    notes: s.notes,
-                    lastHubspotRefreshAt: s.lastHubspotRefreshAt,
-                    skuRole: s.skuRole,
-                    parentSkuId: s.parentSkuId,
-                    qtyPerParent: s.qtyPerParent,
-                  },
-                  depth,
-                  hasChildren,
-                  childCount,
-                  childSkus,
-                  eligibleParents,
-                  currentParentLabel,
-                  hasCostData,
-                };
-              })}
-              hubspotPortalId={process.env.HUBSPOT_PROD_HUB_ID ?? null}
-              disabled={!editable}
-              projectId={projectId}
-              quoteId={quote.id}
-            />
-          </>
-        )}
-        {editable && (
-          <SkuFooter
-            quoteId={quote.id}
-            eligibleParents={getEligibleParents(skus, null).map((p) => ({
-              id: p.id,
-              skuLabel: p.skuLabel,
-              productName: p.productName,
-              skuRole: p.skuRole as "leaf" | "assembly",
-            }))}
-          />
-        )}
-      </div>
-
-      )}
+      ) : null}
 
       {/* §6.b Step 5 — Tier table parallel register per R7b §3.4 /
           Decision 5. Same card chrome + footer pill grammar as the
