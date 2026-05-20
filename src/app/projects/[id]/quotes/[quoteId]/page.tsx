@@ -13,6 +13,8 @@ import { loadAssemblyTree } from "@/lib/assembly-tree";
 import { AssemblyTreeView } from "@/components/assembly-tree/assembly-tree-view";
 import { loadProductTypeOptions } from "@/lib/product-type-options";
 import { loadLeafTypesForFilter } from "@/lib/library-browse-loader";
+import { loadQuoteAttachments } from "@/lib/quote-attachments-loader";
+import { AttachmentListTrigger } from "@/components/quote-attachments/attachment-list-trigger";
 // §6.b path-B migration commit 2 — Eyebrow + ActionCluster imports
 // dropped: Setup now uses canonical .r7b-head inline structure
 // (no Eyebrow/ActionCluster components). The primitives stay shipped
@@ -88,6 +90,12 @@ export default async function QuoteBuilderPage({
   // fieldSchema); kept separate to avoid coupling unrelated UIs.
   const leafTypesForFilter = await loadLeafTypesForFilter();
 
+  // canonical-scenario-create-flow Step 7 — quote attachments for
+  // the Setup-header attachment-list affordance. Loaded
+  // unconditionally (single small query); rendered as a trigger
+  // chip in the .r7b-head .actions cluster.
+  const attachments = await loadQuoteAttachments(quoteId);
+
   // canonical-scenario-create-flow Step 3 — Promise.all slimmed to
   // tiers query only. SKU + packagingInputs + productionInputs
   // queries removed alongside the legacy SKU table render path.
@@ -160,18 +168,16 @@ export default async function QuoteBuilderPage({
             {pm?.name ? ` · PM ${pm.name}` : ""}
           </p>
         </div>
-        {/* Rest-of-app sweep (post-§6.b Designer audit Finding 01
-            promoted to v1 blocker per Edward smoke 2026-05-13):
-            page-head action cluster intentionally empty. Removed:
-            (1) `+ Add SKU` — duplicative of `+ Add Product` in SKU
-            table footer (single canonical addition affordance lives
-            near the table). (2) `Save draft` — non-functional
-            placeholder; autosave is wired on field-blur (Slice 5
-            form-state pattern) so an explicit Save button just
-            implies functionality that doesn't exist. Empty `.actions`
-            div preserves canonical .r7b-head structure for the
-            future case where genuine page-head actions are needed. */}
-        <div className="actions" />
+        {/* canonical-scenario-create-flow Step 7 — page-head actions
+            cluster now hosts the attachment-list trigger. PMs see
+            "📎 N attachments" when the scenario has briefs/RFQs
+            attached, or "📎 Add attachment" when none yet. */}
+        <div className="actions">
+          <AttachmentListTrigger
+            quoteId={quoteId}
+            attachments={attachments}
+          />
+        </div>
       </div>
 
       {/* Slice RI.9 § 3.3 — YOUR NEXT MOVE banner. Setup → Cost build

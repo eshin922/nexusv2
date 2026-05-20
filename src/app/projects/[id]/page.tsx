@@ -454,10 +454,43 @@ function ScenarioCardView({
               </span>
             )}
           </div>
-          <div className="mt-1 text-xs text-ink-3">
-            {scenario.versions.length} version
-            {scenario.versions.length === 1 ? "" : "s"}
+          <div className="mt-1 flex items-center gap-2 text-xs text-ink-3">
+            <span>
+              {scenario.versions.length} version
+              {scenario.versions.length === 1 ? "" : "s"}
+            </span>
+            {/* canonical-scenario-create-flow Step 7 — 📎 N attachment
+                count chip. Renders only when count > 0; clicking
+                navigates to the Setup surface where the attachment
+                list lives (Setup header affordance handles the list
+                + add/remove). */}
+            {scenario.attachmentCount > 0 && (
+              <Link
+                href={`/projects/${projectId}/quotes/${latest.id}/setup`}
+                title={`${scenario.attachmentCount} attachment${scenario.attachmentCount === 1 ? "" : "s"} — view on Setup`}
+                className="rounded border border-rule px-1.5 py-0 font-mono text-[10px] text-ink-3 hover:border-rule-2 hover:text-ink"
+              >
+                📎 {scenario.attachmentCount}
+              </Link>
+            )}
           </div>
+          {/* canonical-scenario-create-flow Step 7 — intent note
+              surfaced as truncated text + full-text tooltip on
+              hover. Skipped when empty. */}
+          {scenario.intentNote && (
+            <p
+              title={scenario.intentNote}
+              className="mt-1 text-xs italic text-ink-3"
+              style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                maxWidth: 480,
+              }}
+            >
+              {scenario.intentNote}
+            </p>
+          )}
         </div>
         {/* Slice RI.8 F-9 dual-affordance + version-explicit labels
             per Edward's directive. PMs see destination on the

@@ -204,3 +204,50 @@ export async function removeQuoteAttachment(
     revalidatePath("/projects/[id]", "page");
   });
 }
+
+// canonical-scenario-create-flow Step 7 — signed URL for download.
+// Storage bucket is private; clients request a short-lived signed
+// URL when the PM clicks "download" on an attachment row. Server
+// action uses the service-role-key Supabase client + Supabase
+// Storage's createSignedUrl API.
+export async function getQuoteAttachmentSignedUrl(
+  formData: FormData,
+): Promise<ActionResult<{ url: string }>> {
+  return runAction(async () => {
+    const attachmentId = String(formData.get("attachmentId") ?? "").trim();
+    if (!attachmentId)
+      throw new ActionGuardError(ERR.VALIDATION, "attachmentId required");
+
+    // Permission gate: any authenticated user with access to the
+    // parent quote. Scoping enforced upstream by Clerk + the page
+    // routes; this action just ensures a signed-in user.
+    await ensureUser();
+
+    const rows = await db
+      .select()
+      .from(quoteAttachments)
+      .where(eq(quoteAttachments.id, attachmentId))
+      .limit(1);
+    if (rows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "Attachment not found");
+    const attachment = rows[0];
+
+    const supabase = getSupabaseServer();
+    const signed = await supabase.storage
+      .from(QUOTE_ATTACHMENTS_BUCKET)
+      .createSignedUrl(attachment.storageUrl, 60 * 5); // 5 min TTL
+    if (signed.error) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Storage signed-URL generation failed: ${signed.error.message}`,
+      );
+    }
+    if (!signed.data?.signedUrl)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Storage signed-URL response missing url",
+      );
+
+    return { url: signed.data.signedUrl };
+  });
+}
