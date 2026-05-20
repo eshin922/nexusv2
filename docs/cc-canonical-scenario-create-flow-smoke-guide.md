@@ -106,9 +106,27 @@ select action, diff_json
 
 **Expected:**
 - All fields persist; modal closes; Setup loads
-- New scenario is recommended (★ Primary on project detail card)
+- New scenario is recommended (★ on project detail card)
 - Previously-recommended scenario is no longer recommended
-- Previous current scenario shows `scenarioStatus = 'dropped'` + `drop_reason = 'manual'`
+- Previous current scenario's project detail card flips to
+  `dropped` register. **Family-drop semantics** — every active
+  version row sharing the same `scenario_label` in the project
+  flips to `scenarioStatus = 'dropped'` + `drop_reason = 'manual'`,
+  not just the single row PM was viewing (see Bug CSF-3-A fix
+  below).
+
+**DB sanity (family-drop verification):**
+
+```sql
+-- Replace {projectId} + {droppedLabel} with the project + scenario
+-- name PM dropped. Expect EVERY previously-active row in the
+-- family to now show dropped/manual.
+select id, scenario_label, scenario_status, drop_reason
+  from quotes
+ where project_id = '{projectId}'
+   and scenario_label = '{droppedLabel}'
+ order by created_at asc;
+```
 
 **Audit verification:**
 
@@ -123,8 +141,21 @@ select action, diff_json, created_at
      'quote_attachment_added'
    )
  order by created_at desc;
--- Expect 4 rows.
+-- Expect 4 rows. The scenario_dropped row's diff_json carries
+-- `dropped_quote_ids: [...]` array listing every quote_id flipped,
+-- plus `scenario_label`, `triggered_by_new_scenario_id`,
+-- `drop_reason`, `audit_source: 'canonical_modal'`. Entity_type
+-- is 'project' (family-level), entity_id is the project_id.
 ```
+
+**Bug CSF-3-A — fixed post-PR #49 CB smoke (May 2026).** Original
+drop branch targeted `quotes.id = currentScenarioId` (single row);
+project detail card grouped by `scenario_label` and selected an
+arbitrary active sibling for display → card appeared to remain
+ACTIVE while exactly one version row was dropped. Fixed to target
+`(project_id, scenario_label, scenario_status = 'active')` — the
+entire scenario family. Audit row promoted to project level with
+the affected `dropped_quote_ids` array.
 
 ### CSF-4 · Copy paths disabled state
 

@@ -2519,12 +2519,24 @@ on action-name namespacing.
                             -- standalone setScenarioRecommended
                             -- action (post-creation surface).
 'scenario_dropped'          -- existing scenarioStatus enum value
-                            -- 'dropped' applied to a quote via the
-                            -- "Drop current scenario" choice in the
-                            -- canonical-create modal. entity_id =
-                            -- the dropped quote.id; diff_json carries
-                            -- {drop_reason: 'manual',
-                            -- triggered_by_new_scenario_id}.
+                            -- 'dropped' applied to a SCENARIO FAMILY
+                            -- (all rows sharing project_id +
+                            -- scenario_label) via the "Drop current
+                            -- scenario" choice in the canonical-create
+                            -- modal. Family-level write — the
+                            -- scenario_label IS the family identity;
+                            -- N version rows per family all flip
+                            -- together. entity_type = 'project',
+                            -- entity_id = project.id; diff_json
+                            -- carries {drop_reason: 'manual',
+                            -- scenario_label, dropped_quote_ids: [...]
+                            -- (every quote.id flipped),
+                            -- triggered_by_new_scenario_id,
+                            -- audit_source: 'canonical_modal'}.
+                            -- Forensic reconstruction reads the
+                            -- dropped_quote_ids array to recover the
+                            -- full set of rows touched. Fix shape
+                            -- banked Bug CSF-3-A (PR #49 CB smoke).
 
 -- Quote-attachment lifecycle (writes against quote_attachments) —
 -- added during canonical-scenario-create-flow slice. PM-internal

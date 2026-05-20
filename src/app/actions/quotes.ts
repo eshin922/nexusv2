@@ -383,27 +383,60 @@ export async function createScenario(input: {
       });
 
       if (dropCurrentScenario && input.currentScenarioId) {
-        await tx
-          .update(quotes)
-          .set({
-            scenarioStatus: "dropped",
-            dropReason: "manual",
-            droppedByUserId: user.id,
-            droppedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(quotes.id, input.currentScenarioId));
+        // Family-level drop. The PM's "Drop the current scenario"
+        // intent is to retire the scenario identity (e.g., "Primary"),
+        // not just the one version row. Schema stores N rows per
+        // scenario_label (one per version_number bump); the project
+        // detail card groups by scenario_label, so a single-row drop
+        // would leave the card showing the family as ACTIVE while
+        // exactly one sibling row is dropped — discovered Bug CSF-3-A
+        // on PR #49 CB smoke.
+        //
+        // Look up scenario_label from currentScenarioId, then update
+        // ALL active rows in (project_id, scenario_label) to dropped.
+        // Audit row emits at project level with dropped_quote_ids
+        // array for forensic reconstruction.
+        const [currentRow] = await tx
+          .select({ scenarioLabel: quotes.scenarioLabel })
+          .from(quotes)
+          .where(eq(quotes.id, input.currentScenarioId))
+          .limit(1);
 
-        await tx.insert(auditLog).values({
-          userId: user.id,
-          entityType: "quote",
-          entityId: input.currentScenarioId,
-          action: "scenario_dropped",
-          diffJson: {
-            drop_reason: "manual",
-            triggered_by_new_scenario_id: row.id,
-          },
-        });
+        if (currentRow) {
+          const dropped = await tx
+            .update(quotes)
+            .set({
+              scenarioStatus: "dropped",
+              dropReason: "manual",
+              droppedByUserId: user.id,
+              droppedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(quotes.projectId, projectId),
+                eq(quotes.scenarioLabel, currentRow.scenarioLabel),
+                eq(quotes.scenarioStatus, "active"),
+              ),
+            )
+            .returning({ id: quotes.id });
+
+          if (dropped.length > 0) {
+            await tx.insert(auditLog).values({
+              userId: user.id,
+              entityType: "project",
+              entityId: projectId,
+              action: "scenario_dropped",
+              diffJson: {
+                drop_reason: "manual",
+                triggered_by_new_scenario_id: row.id,
+                scenario_label: currentRow.scenarioLabel,
+                dropped_quote_ids: dropped.map((d) => d.id),
+                audit_source: "canonical_modal",
+              },
+            });
+          }
+        }
       }
 
       // Audit: enhanced quote.created shape per CLAUDE.md namespace
