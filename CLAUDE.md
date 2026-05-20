@@ -2504,6 +2504,59 @@ on action-name namespacing.
                             -- entity_type = 'assembly', entity_id =
                             -- assembly.id (ASY-scoped). diff_json carries
                             -- {ordered_junction_ids}.
+
+-- Scenario lifecycle (writes against quotes) — added during the
+-- canonical-scenario-create-flow slice.
+'scenario_recommended_changed' -- recommendation pin flipped on a
+                            -- scenario within a project. entity_type =
+                            -- 'project', entity_id = project.id (the
+                            -- change is project-scoped, not quote-
+                            -- scoped). diff_json carries {from_quote_id
+                            -- (null on first-recommend), to_quote_id,
+                            -- project_id, audit_source?}. Fires from
+                            -- both createScenario (when modal checks
+                            -- "Mark as recommended") and the
+                            -- standalone setScenarioRecommended
+                            -- action (post-creation surface).
+'scenario_dropped'          -- existing scenarioStatus enum value
+                            -- 'dropped' applied to a quote via the
+                            -- "Drop current scenario" choice in the
+                            -- canonical-create modal. entity_id =
+                            -- the dropped quote.id; diff_json carries
+                            -- {drop_reason: 'manual',
+                            -- triggered_by_new_scenario_id}.
+
+-- Quote-attachment lifecycle (writes against quote_attachments) —
+-- added during canonical-scenario-create-flow slice. PM-internal
+-- attachments persist outside the customer-view boundary (Pattern
+-- 45); audit shape captures provenance + size for hygiene.
+'quote_attachment_added'    -- file uploaded to Supabase Storage
+                            -- + quote_attachments row inserted.
+                            -- entity_type = 'quote', entity_id =
+                            -- quote.id (the attachment scope is the
+                            -- parent quote, not the attachment id).
+                            -- diff_json carries {attachment_id,
+                            -- filename, mime_type, file_size_bytes,
+                            -- notes?}.
+'quote_attachment_removed'  -- hard-delete of Storage object +
+                            -- quote_attachments row (per CA Q7
+                            -- disposition; customer-data hygiene).
+                            -- entity_type = 'quote', entity_id =
+                            -- quote.id. diff_json carries full
+                            -- pre-delete snapshot {attachment_id,
+                            -- filename, storage_url, mime_type,
+                            -- file_size_bytes, uploaded_by_user_id,
+                            -- uploaded_at, notes}.
+
+-- Extended action: 'created' on entity_type = 'quote' gains new
+-- diff_json fields via the canonical modal flow. Pre-fix shape:
+--   {project_id, scenario_label, version_number,
+--    created_via: 'new_scenario_button'}.
+-- Post-fix shape adds:
+--   intent_note, customer_target_tier_label, is_recommended,
+--   drop_current_scenario_choice, audit_source: 'canonical_modal'.
+-- Legacy form-action createScenarioLegacy preserves the original
+-- shape (omits the new fields) until Step 6 removes it.
 ```
 
 **Cascade pattern.** A single PM action that touches N spec fields

@@ -12,7 +12,7 @@ import {
   type ScenarioCard,
 } from "@/lib/workspace-queries";
 import { archiveProject } from "@/app/actions/projects";
-import { createQuote, createScenario } from "@/app/actions/quotes";
+import { createQuote, createScenarioLegacy } from "@/app/actions/quotes";
 import { InnerRail } from "@/components/rails/inner-rail";
 import { CategorySelect } from "./category-select";
 
@@ -230,8 +230,14 @@ export default async function ProjectDetailPage({
                 /* Slice RI.8 Issue 4 fix — calls createScenario
                    (new scenario family with auto-incremented "Alt N"
                    label) instead of createQuote (which silently
-                   incremented Primary's version). */
-                <form action={createScenario}>
+                   incremented Primary's version).
+
+                   canonical-scenario-create-flow Step 4 — transitional:
+                   form-action calls createScenarioLegacy (preserves
+                   redirect-style create). Step 6 replaces this form
+                   with the modal trigger button + deletes the Legacy
+                   variant. */
+                <form action={createScenarioLegacy}>
                   <input type="hidden" name="projectId" value={project.id} />
                   <button
                     type="submit"
