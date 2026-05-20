@@ -294,19 +294,15 @@ export async function createQuote(formData: FormData) {
   redirect(`/projects/${projectId}/quotes/${quote.id}`);
 }
 
-// canonical-scenario-create-flow Step 4 — refactored from form-
-// action signature to object-input + ActionResult shape per CC
-// brief. Modal-driven create captures intent_note,
+// canonical-scenario-create-flow — refactored from form-action
+// signature to object-input + ActionResult shape per CC brief.
+// Modal-driven create captures intent_note,
 // customer_target_tier_label, is_recommended, drop choice; legacy
 // auto-name "Alt N" path preserved when scenarioLabel is null.
 //
 // Returns ActionResult<{newQuoteId}>; client uses for router.push
 // (vs prior redirect() inside the action, which is incompatible
 // with the modal close → navigate UX).
-//
-// The legacy form-action `createScenarioLegacy` below stays
-// until Step 6 swaps the project detail page's form to the modal
-// trigger.
 export async function createScenario(input: {
   projectId: string;
   scenarioLabel?: string;
@@ -518,31 +514,11 @@ export async function setScenarioRecommended(input: {
   });
 }
 
-// canonical-scenario-create-flow — legacy form-action createScenario
-// (the project detail page's `<form action={createScenarioLegacy}>`
-// callsite). Stays through Steps 4-5; deleted in Step 6 when the
-// modal trigger replaces the form.
-//
-// Per CA disposition: "no backward-compat shim" — this is NOT a
-// permanent shim. It's a transitional dual action for the duration
-// of Step 4-5 only. Step 6 deletes it + the form-action callsite
-// simultaneously.
-export async function createScenarioLegacy(formData: FormData) {
-  const projectId = String(formData.get("projectId") ?? "").trim();
-  if (!projectId) throw new Error("projectId required");
-
-  const result = await createScenario({
-    projectId,
-    scenarioRecommended: false,
-    dropCurrentScenario: false,
-  });
-
-  if (!result.ok) {
-    throw new Error(result.error.message);
-  }
-
-  redirect(`/projects/${projectId}/quotes/${result.data.newQuoteId}`);
-}
+// canonical-scenario-create-flow Step 6 — `createScenarioLegacy`
+// removed. Step 5's modal trigger fully replaces the form-action
+// callsite per CA disposition "no backward-compat shim". Comment
+// retained as forensic marker; the function lived in commits
+// fce49e4 (Step 4) through e20722a (Step 5).
 
 export type QuoteNotesSnapshot = {
   quoteId: string;

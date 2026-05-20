@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/db";
-import { projects, users } from "@/db/schema";
+import { projects, quotes, quoteTiers, users } from "@/db/schema";
 import { STAGE_LABEL_BY_ID } from "@/lib/hubspot";
 import {
   getProjectActivity,
@@ -12,8 +12,9 @@ import {
   type ScenarioCard,
 } from "@/lib/workspace-queries";
 import { archiveProject } from "@/app/actions/projects";
-import { createQuote, createScenarioLegacy } from "@/app/actions/quotes";
+import { createQuote } from "@/app/actions/quotes";
 import { InnerRail } from "@/components/rails/inner-rail";
+import { NewScenarioTrigger } from "@/components/scenario-create/new-scenario-trigger";
 import { CategorySelect } from "./category-select";
 
 // Slice RI.8 — state-aware default surface for version-row clicks.
@@ -82,6 +83,61 @@ export default async function ProjectDetailPage({
     getProjectActivity(project.id, 30),
     getProjectLineage(project.id),
   ]);
+
+  // canonical-scenario-create-flow Step 6 — modal props loader.
+  // Pulls the data the New Scenario modal needs:
+  //   - existing scenario labels (to compute next-available "Alt N")
+  //   - recommended scenario name (Currently recommended: "{name}")
+  //   - current active scenario (default attach target for the
+  //     drop choice + source for the customer-target-tier dropdown
+  //     per CA Q3 disposition)
+  //   - tier labels of the current active scenario
+  //
+  // "Current active" = recommended scenario if exists; else the
+  // most-recent active scenario. Edge cases (no active scenarios
+  // at all) surface as nulls — modal disables the drop option in
+  // that case.
+  const allProjectQuotes = await db
+    .select({
+      id: quotes.id,
+      scenarioLabel: quotes.scenarioLabel,
+      scenarioStatus: quotes.scenarioStatus,
+      isRecommended: quotes.isRecommended,
+      createdAt: quotes.createdAt,
+    })
+    .from(quotes)
+    .where(eq(quotes.projectId, project.id))
+    .orderBy(asc(quotes.createdAt));
+
+  const existingScenarioLabels = Array.from(
+    new Set(allProjectQuotes.map((q) => q.scenarioLabel)),
+  );
+  let nextAltN = 1;
+  while (existingScenarioLabels.includes(`Alt ${nextAltN}`)) nextAltN++;
+  const nextAltLabel = `Alt ${nextAltN}`;
+
+  const recommendedQuote = allProjectQuotes.find(
+    (q) => q.isRecommended && q.scenarioStatus === "active",
+  );
+  const recommendedScenarioName = recommendedQuote?.scenarioLabel ?? null;
+
+  // currentActive = recommended scenario, else most-recent active
+  const currentActiveQuote =
+    recommendedQuote ??
+    [...allProjectQuotes]
+      .reverse()
+      .find((q) => q.scenarioStatus === "active") ??
+    null;
+
+  let currentScenarioTierLabels: string[] = [];
+  if (currentActiveQuote) {
+    const tierRows = await db
+      .select({ label: quoteTiers.label })
+      .from(quoteTiers)
+      .where(eq(quoteTiers.quoteId, currentActiveQuote.id))
+      .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt));
+    currentScenarioTierLabels = tierRows.map((r) => r.label);
+  }
 
   const stageLabel = project.dealStage
     ? STAGE_LABEL_BY_ID[project.dealStage] ?? project.dealStage
@@ -227,25 +283,21 @@ export default async function ProjectDetailPage({
                 Scenarios
               </h2>
               {project.status === "active" && (
-                /* Slice RI.8 Issue 4 fix — calls createScenario
-                   (new scenario family with auto-incremented "Alt N"
-                   label) instead of createQuote (which silently
-                   incremented Primary's version).
-
-                   canonical-scenario-create-flow Step 4 — transitional:
-                   form-action calls createScenarioLegacy (preserves
-                   redirect-style create). Step 6 replaces this form
-                   with the modal trigger button + deletes the Legacy
-                   variant. */
-                <form action={createScenarioLegacy}>
-                  <input type="hidden" name="projectId" value={project.id} />
-                  <button
-                    type="submit"
-                    className="rounded border border-rule bg-paper px-2.5 py-1 text-xs text-ink-2 hover:border-rule-2 hover:text-ink"
-                  >
-                    + New scenario
-                  </button>
-                </form>
+                /* canonical-scenario-create-flow Step 6 — form-action
+                   replaced with the canonical modal trigger. PMs
+                   capture intent + target tier + attachment + drop
+                   choice + recommended pin at scenario birth. */
+                <NewScenarioTrigger
+                  projectId={project.id}
+                  projectName={project.clientName ?? project.dealName}
+                  nextAltLabel={nextAltLabel}
+                  recommendedScenarioName={recommendedScenarioName}
+                  currentActiveScenarioId={currentActiveQuote?.id ?? null}
+                  currentActiveScenarioName={
+                    currentActiveQuote?.scenarioLabel ?? null
+                  }
+                  currentScenarioTierLabels={currentScenarioTierLabels}
+                />
               )}
             </div>
             {scenarios.length === 0 ? (
