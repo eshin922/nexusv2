@@ -334,6 +334,58 @@ export type ProductCreateResult = {
   name: string;
 };
 
+// slice-hubspot-bidirectional — raw HubSpot product shape used by
+// the pull flow. Preserves the archive flag + the full property
+// bag so the mapper (src/lib/hubspot-mapper.ts) has everything it
+// needs to translate one product into a nexus `leaves` row.
+export type HubspotProductRaw = {
+  id: string;
+  archived: boolean;
+  properties: Record<string, string | null>;
+};
+
+// slice-hubspot-bidirectional — paginated bulk list helper for the
+// pull flow. HubSpot's basicApi.getPage returns one page of
+// products (default 100, max 100) with a `paging.next.after`
+// cursor for the next call. By default the endpoint excludes
+// archived products; the `includeArchived: true` flag flips to
+// archived-only (HubSpot doesn't return both in one call — pull
+// runs the helper twice, once per archive state).
+//
+// Returns the raw HubSpot shape with full PRODUCT_PROPERTIES;
+// mapper consumes this and produces the nexus-side shape.
+export async function listProducts(opts: {
+  after?: string;
+  limit?: number;
+  includeArchived?: boolean;
+} = {}): Promise<{
+  results: HubspotProductRaw[];
+  nextAfter: string | null;
+}> {
+  const c = getProductsClient();
+  const limit = Math.min(opts.limit ?? 100, 100);
+  try {
+    const resp = await c.crm.products.basicApi.getPage(
+      limit,
+      opts.after,
+      [...PRODUCT_PROPERTIES],
+      [],
+      [],
+      opts.includeArchived ?? false,
+    );
+    return {
+      results: (resp.results ?? []).map((p) => ({
+        id: p.id,
+        archived: (p as { archived?: boolean }).archived ?? false,
+        properties: (p.properties ?? {}) as Record<string, string | null>,
+      })),
+      nextAfter: resp.paging?.next?.after ?? null,
+    };
+  } catch (err) {
+    throw new HubspotError("Failed to list HubSpot products", err);
+  }
+}
+
 export async function createProduct(
   input: ProductCreateInput,
 ): Promise<ProductCreateResult> {
