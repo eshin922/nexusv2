@@ -307,6 +307,15 @@ export type ScenarioCard = {
   isRecommended: boolean;
   dropReason: string | null;
   droppedAt: Date | null;
+  // canonical-scenario-create-flow Step 7 additions:
+  // - intentNote: PM-captured "why this scenario exists" text;
+  //   surfaces as tooltip on the scenario card. Pulled from
+  //   the latest version's row (mirrors the existing pattern
+  //   for other scenario-level metadata).
+  // - attachmentCount: total quote_attachments rows across all
+  //   versions in the scenario family (drives the 📎 N chip).
+  intentNote: string | null;
+  attachmentCount: number;
   versions: ScenarioVersion[];
 };
 
@@ -322,6 +331,8 @@ export async function getProjectScenarioCards(
     is_recommended: boolean;
     drop_reason: string | null;
     dropped_at: Date | null;
+    intent_note: string | null;
+    attachment_count: number;
     id: string;
     version_number: number;
     status: string;
@@ -339,6 +350,15 @@ export async function getProjectScenarioCards(
       q.is_recommended,
       q.drop_reason,
       q.dropped_at,
+      q.intent_note,
+      -- canonical-scenario-create-flow Step 7 — per-quote attachment
+      -- count for the 📎 N chip. Cheap aggregate via correlated
+      -- subquery (count returns 0 when no attachments exist).
+      (
+        SELECT count(*)::int
+        FROM quote_attachments qa
+        WHERE qa.quote_id = q.id
+      ) AS attachment_count,
       q.id,
       q.version_number,
       q.status,
@@ -389,6 +409,8 @@ export async function getProjectScenarioCards(
     is_recommended: boolean;
     drop_reason: string | null;
     dropped_at: Date | null;
+    intent_note: string | null;
+    attachment_count: number;
     id: string;
     version_number: number;
     status: string;
@@ -408,6 +430,11 @@ export async function getProjectScenarioCards(
         isRecommended: r.is_recommended,
         dropReason: r.drop_reason,
         droppedAt: r.dropped_at,
+        intentNote: r.intent_note,
+        // Latest-version's attachment count (rows are ORDER BY
+        // version_number DESC so the FIRST row per scenario_label
+        // is the latest version + its attachment count).
+        attachmentCount: r.attachment_count,
         versions: [],
       });
     }

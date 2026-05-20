@@ -306,7 +306,23 @@ export const quotes = pgTable(
     // unique-by-recommended invariant enforced at the action layer
     // (not via DB constraint — multiple scenarios can be flipped during
     // PM exploration before the recommended pin lands; soft invariant).
+    // canonical-scenario-create-flow — slice extends usage; the
+    // existing Slice RI.1 column is the canonical per-scenario
+    // recommendation pin (the brief's proposed `scenario_recommended`
+    // is duplicate — Pattern 22 §0.5 catch #7 in v1 cycle). The
+    // soft action-layer invariant upgrades to a hard DB constraint
+    // via the unique partial index below.
     isRecommended: boolean("is_recommended").notNull().default(false),
+    // canonical-scenario-create-flow — intent note captured at
+    // scenario creation modal. Optional; PMs explain why this
+    // scenario exists ("Customer pushed back on packaging cost").
+    intentNote: text("intent_note"),
+    // canonical-scenario-create-flow — customer's stated target
+    // tier captured at scenario creation. Stored as TEXT label (not
+    // FK) per CA Q3 disposition — target tier reference is fragile
+    // in a denormalized-scenarios world where copy operations
+    // would invalidate per-quote FK; text label survives.
+    customerTargetTierLabel: text("customer_target_tier_label"),
     // Slice RI.1 — Round 3/4 commitment: drop_reason for scenarios
     // whose status = 'dropped'. Carries forensic intent of the drop.
     // NULL on active/accepted; required (action-layer) when status
@@ -375,7 +391,13 @@ export const quotes = pgTable(
     // Slice RI.1 — partial index on the recommended pin per project.
     // Supports "find the recommended scenario for this project"
     // queries (one row per project max in steady state).
-    index("quotes_project_recommended_idx")
+    //
+    // canonical-scenario-create-flow — upgraded from non-unique
+    // index to UNIQUE per CA Q4 disposition: at most one
+    // recommended scenario per project enforced at the DB level
+    // (was soft action-layer invariant per RI.1 comment). Same
+    // index serves both lookup performance AND uniqueness.
+    uniqueIndex("quotes_project_recommended_idx")
       .on(t.projectId)
       .where(sql`is_recommended = true`),
     // Slice RI.7 — partial unique index on quote_number. Nullable until
@@ -1871,5 +1893,53 @@ export const quoteLeaves = pgTable(
     // "Where is this spec version pinned?" queries (replenishment
     // view + cascade-warning lookups).
     index("quote_leaves_leaf_version_idx").on(t.leafId, t.leafSpecVersionId),
+  ],
+);
+
+// ---------- quote_attachments (canonical scenario-create flow) ----------
+
+// PM-internal documents attached to a quote (scenario). Captures the
+// customer's brief / RFQ / supporting docs at scenario creation or
+// post-creation via the Setup-surface attachment list affordance.
+//
+// Pattern 45 boundary discipline — `quote_attachments` is PM-internal.
+// MUST NOT be imported from src/components/pdf/ (verifier blocks
+// @/db/schema imports from pdf/ subtree at build time).
+//
+// Files live in Supabase Storage bucket `quote-attachments` at path
+// convention `{quote_id}/{uuid}-{filename}`. Storage RLS limits read/
+// write/delete to authenticated users (canonical scenario-create
+// flow manual SQL applies the policies). Action layer validates
+// file size (≤25 MB) and MIME type allowlist (PDF, Word, Excel,
+// images, plain text).
+//
+// `uploaded_by` FK to users tracks attribution; hard delete on
+// quote (ON DELETE CASCADE) drops attachments when the parent quote
+// is removed. Attachment removal (action `removeQuoteAttachment`)
+// hard-deletes BOTH the row and the Storage object; audit row
+// `quote_attachment_removed` carries pre-delete snapshot.
+export const quoteAttachments = pgTable(
+  "quote_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    storageUrl: text("storage_url").notNull(),
+    mimeType: text("mime_type"),
+    fileSizeBytes: integer("file_size_bytes"),
+    uploadedByUserId: uuid("uploaded_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    notes: text("notes"),
+  },
+  (t) => [
+    // Per-quote attachment list queries (Setup surface + project
+    // detail scenario card chip).
+    index("quote_attachments_quote_id_idx").on(t.quoteId),
   ],
 );

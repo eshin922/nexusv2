@@ -99,10 +99,17 @@ export type AssemblyTree = {
 };
 
 /**
- * Loads the Phase A.1 v2 assembly tree for a quote. Returns null when
- * the quote has zero `assemblies` rows — caller uses that signal to
- * fall back to the legacy `quote_skus` render path (read-path
- * branching per brief §4.2 Step 6).
+ * Loads the Phase A.1 v2 assembly tree for a quote.
+ *
+ * canonical-scenario-create-flow change — always returns non-null
+ * (empty tree on zero-assembly state instead of null). The legacy
+ * read-path branching to `quote_skus` is removed in this slice;
+ * every quote routes to the new ASY/LEAF tree (with empty-state
+ * affordance when no assemblies exist).
+ *
+ * Nullable return type signature is PRESERVED (per CA disposition
+ * "non-breaking refactor") for future flexibility, but the
+ * function never returns null in practice.
  *
  * Single-pass: 4 parallel queries (assemblies, junctions, leaves,
  * current leaf_specs) + 1 product_types fetch. No N+1.
@@ -117,8 +124,17 @@ export async function loadAssemblyTree(
     .where(eq(assemblies.quoteId, quoteId))
     .orderBy(asc(assemblies.position), asc(assemblies.createdAt));
 
-  // Read-path branching trigger: zero assemblies → legacy path.
-  if (asmRows.length === 0) return null;
+  // canonical-scenario-create-flow — empty-state return (was
+  // `return null` triggering legacy fallback; now returns empty
+  // tree so AssemblyTreeView renders its "No assemblies yet"
+  // empty state).
+  if (asmRows.length === 0) {
+    return {
+      assemblies: [],
+      totalSkus: 0,
+      totalAssemblies: 0,
+    };
+  }
 
   const asmIds = asmRows.map((r) => r.id);
 
@@ -347,18 +363,8 @@ function computeRollup(children: AssemblyLeafNode[]): AssemblyCompletenessRollup
   return { kind: "partial", complete, total };
 }
 
-/**
- * Lightweight "does this quote use the new schema?" check. Used by
- * the Setup page to decide read-path branching without paying the
- * cost of loading the full tree if the answer is no.
- *
- * Falls through to count-only; cheaper than loadAssemblyTree when the
- * caller only needs the boolean.
- */
-export async function quoteUsesNewSchema(quoteId: string): Promise<boolean> {
-  const rows = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(assemblies)
-    .where(eq(assemblies.quoteId, quoteId));
-  return (rows[0]?.n ?? 0) > 0;
-}
+// canonical-scenario-create-flow removed `quoteUsesNewSchema`
+// helper. The Setup page no longer branches on schema; every quote
+// renders the new ASY/LEAF tree. Removal is surgical — zero
+// callers depended on this helper (verified via grep at slice
+// kickoff Investigation #5).

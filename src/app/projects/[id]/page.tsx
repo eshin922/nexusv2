@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/db";
-import { projects, users } from "@/db/schema";
+import { projects, quotes, quoteTiers, users } from "@/db/schema";
 import { STAGE_LABEL_BY_ID } from "@/lib/hubspot";
 import {
   getProjectActivity,
@@ -12,8 +12,9 @@ import {
   type ScenarioCard,
 } from "@/lib/workspace-queries";
 import { archiveProject } from "@/app/actions/projects";
-import { createQuote, createScenario } from "@/app/actions/quotes";
+import { createQuote } from "@/app/actions/quotes";
 import { InnerRail } from "@/components/rails/inner-rail";
+import { NewScenarioTrigger } from "@/components/scenario-create/new-scenario-trigger";
 import { CategorySelect } from "./category-select";
 
 // Slice RI.8 — state-aware default surface for version-row clicks.
@@ -82,6 +83,61 @@ export default async function ProjectDetailPage({
     getProjectActivity(project.id, 30),
     getProjectLineage(project.id),
   ]);
+
+  // canonical-scenario-create-flow Step 6 — modal props loader.
+  // Pulls the data the New Scenario modal needs:
+  //   - existing scenario labels (to compute next-available "Alt N")
+  //   - recommended scenario name (Currently recommended: "{name}")
+  //   - current active scenario (default attach target for the
+  //     drop choice + source for the customer-target-tier dropdown
+  //     per CA Q3 disposition)
+  //   - tier labels of the current active scenario
+  //
+  // "Current active" = recommended scenario if exists; else the
+  // most-recent active scenario. Edge cases (no active scenarios
+  // at all) surface as nulls — modal disables the drop option in
+  // that case.
+  const allProjectQuotes = await db
+    .select({
+      id: quotes.id,
+      scenarioLabel: quotes.scenarioLabel,
+      scenarioStatus: quotes.scenarioStatus,
+      isRecommended: quotes.isRecommended,
+      createdAt: quotes.createdAt,
+    })
+    .from(quotes)
+    .where(eq(quotes.projectId, project.id))
+    .orderBy(asc(quotes.createdAt));
+
+  const existingScenarioLabels = Array.from(
+    new Set(allProjectQuotes.map((q) => q.scenarioLabel)),
+  );
+  let nextAltN = 1;
+  while (existingScenarioLabels.includes(`Alt ${nextAltN}`)) nextAltN++;
+  const nextAltLabel = `Alt ${nextAltN}`;
+
+  const recommendedQuote = allProjectQuotes.find(
+    (q) => q.isRecommended && q.scenarioStatus === "active",
+  );
+  const recommendedScenarioName = recommendedQuote?.scenarioLabel ?? null;
+
+  // currentActive = recommended scenario, else most-recent active
+  const currentActiveQuote =
+    recommendedQuote ??
+    [...allProjectQuotes]
+      .reverse()
+      .find((q) => q.scenarioStatus === "active") ??
+    null;
+
+  let currentScenarioTierLabels: string[] = [];
+  if (currentActiveQuote) {
+    const tierRows = await db
+      .select({ label: quoteTiers.label })
+      .from(quoteTiers)
+      .where(eq(quoteTiers.quoteId, currentActiveQuote.id))
+      .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt));
+    currentScenarioTierLabels = tierRows.map((r) => r.label);
+  }
 
   const stageLabel = project.dealStage
     ? STAGE_LABEL_BY_ID[project.dealStage] ?? project.dealStage
@@ -227,19 +283,21 @@ export default async function ProjectDetailPage({
                 Scenarios
               </h2>
               {project.status === "active" && (
-                /* Slice RI.8 Issue 4 fix — calls createScenario
-                   (new scenario family with auto-incremented "Alt N"
-                   label) instead of createQuote (which silently
-                   incremented Primary's version). */
-                <form action={createScenario}>
-                  <input type="hidden" name="projectId" value={project.id} />
-                  <button
-                    type="submit"
-                    className="rounded border border-rule bg-paper px-2.5 py-1 text-xs text-ink-2 hover:border-rule-2 hover:text-ink"
-                  >
-                    + New scenario
-                  </button>
-                </form>
+                /* canonical-scenario-create-flow Step 6 — form-action
+                   replaced with the canonical modal trigger. PMs
+                   capture intent + target tier + attachment + drop
+                   choice + recommended pin at scenario birth. */
+                <NewScenarioTrigger
+                  projectId={project.id}
+                  projectName={project.dealName ?? project.clientName ?? "Project"}
+                  nextAltLabel={nextAltLabel}
+                  recommendedScenarioName={recommendedScenarioName}
+                  currentActiveScenarioId={currentActiveQuote?.id ?? null}
+                  currentActiveScenarioName={
+                    currentActiveQuote?.scenarioLabel ?? null
+                  }
+                  currentScenarioTierLabels={currentScenarioTierLabels}
+                />
               )}
             </div>
             {scenarios.length === 0 ? (
@@ -396,31 +454,63 @@ function ScenarioCardView({
               </span>
             )}
           </div>
-          <div className="mt-1 text-xs text-ink-3">
-            {scenario.versions.length} version
-            {scenario.versions.length === 1 ? "" : "s"}
+          <div className="mt-1 flex items-center gap-2 text-xs text-ink-3">
+            <span>
+              {scenario.versions.length} version
+              {scenario.versions.length === 1 ? "" : "s"}
+            </span>
+            {/* canonical-scenario-create-flow Step 7 — 📎 N attachment
+                count chip. Renders only when count > 0; clicking
+                navigates to the Setup surface where the attachment
+                list lives (Setup header affordance handles the list
+                + add/remove). */}
+            {scenario.attachmentCount > 0 && (
+              <Link
+                href={`/projects/${projectId}/quotes/${latest.id}/setup`}
+                title={`${scenario.attachmentCount} attachment${scenario.attachmentCount === 1 ? "" : "s"} — view on Setup`}
+                className="rounded border border-rule px-1.5 py-0 font-mono text-[10px] text-ink-3 hover:border-rule-2 hover:text-ink"
+              >
+                📎 {scenario.attachmentCount}
+              </Link>
+            )}
           </div>
+          {/* canonical-scenario-create-flow Step 7 — intent note
+              surfaced as truncated text + full-text tooltip on
+              hover. Skipped when empty. */}
+          {scenario.intentNote && (
+            <p
+              title={scenario.intentNote}
+              className="mt-1 text-xs italic text-ink-3"
+              style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                maxWidth: 480,
+              }}
+            >
+              {scenario.intentNote}
+            </p>
+          )}
         </div>
-        {/* Slice RI.8 F-9 dual-affordance + version-explicit labels
-            per Edward's directive. PMs see destination on the
-            button face — no surprise jump to v5 when they meant
-            to inspect the scenario's latest data. "Open" no longer
-            hides the latest-version default behind a single label.
-            Build button visible when there's incomplete cost data
-            (no SKUs, no cost inputs); both buttons visible once
-            there's something to review. */}
+        {/* canonical-scenario-create-flow polish (May 2026) —
+            collapsed the RI.8 F-9 dual-affordance (Build · v{N} +
+            Open Costing · v{N}) into a single state-aware Open button.
+            "Build" label drifted vs the RI.8 surface canon ("Cost
+            build → Costs"); "Open Costing" drifted vs the same rename
+            ("Costing sheet → Pricing"). Dual buttons were also
+            state-blind — clicking Open Costing on a bare quote
+            landed PMs on an empty Pricing surface, reintroducing
+            the same speed-pass trap defaultQuoteSurface fixes for
+            version-row clicks (see helper comment at top of file).
+            Single button reuses that helper for canonical-flow
+            routing while preserving the version-explicit label
+            Edward wanted in RI.8. */}
         <div className="flex items-center gap-2">
           <Link
-            href={`/projects/${projectId}/quotes/${latest.id}/costs`}
-            className="rounded border border-rule bg-paper px-2.5 py-1 text-xs text-ink-2 hover:border-rule-2 hover:text-ink"
-          >
-            Build · v{latest.versionNumber}
-          </Link>
-          <Link
-            href={`/projects/${projectId}/quotes/${latest.id}/pricing`}
+            href={defaultQuoteSurface(projectId, latest)}
             className="rounded border border-rule bg-paper px-2.5 py-1 text-xs font-medium text-ink hover:border-rule-2 hover:bg-paper-2"
           >
-            Open Costing · v{latest.versionNumber}
+            Open · v{latest.versionNumber}
           </Link>
         </div>
       </header>

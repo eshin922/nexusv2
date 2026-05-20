@@ -2,6 +2,7 @@
 
 import { and, asc, desc, eq, isNull, max, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import {
   auditLog,
@@ -293,70 +294,264 @@ export async function createQuote(formData: FormData) {
   redirect(`/projects/${projectId}/quotes/${quote.id}`);
 }
 
-// Slice RI.8 Issue 4 fix — "+ New scenario" creates a NEW scenario
-// family (separate scenarioLabel + versionNumber=1), not a new
-// version of Primary. Pre-RI.8 the button was wired to createQuote
-// which silently incremented Primary's version, so PMs clicking
-// "+ New scenario" thinking they'd get an alternative scenario
-// instead got a new draft version of Primary.
+// canonical-scenario-create-flow — refactored from form-action
+// signature to object-input + ActionResult shape per CC brief.
+// Modal-driven create captures intent_note,
+// customer_target_tier_label, is_recommended, drop choice; legacy
+// auto-name "Alt N" path preserved when scenarioLabel is null.
 //
-// Auto-naming: picks the next available "Alt N" label
-// (Alt 1, Alt 2, ...). PMs rename via scenario-label editing
-// (post-MVP affordance; not yet wired). Naming starts at 1 — PMs
-// who want a meaningful name can rename when that surface lands.
-export async function createScenario(formData: FormData) {
-  const projectId = String(formData.get("projectId") ?? "").trim();
-  if (!projectId) throw new Error("projectId required");
+// Returns ActionResult<{newQuoteId}>; client uses for router.push
+// (vs prior redirect() inside the action, which is incompatible
+// with the modal close → navigate UX).
+export async function createScenario(input: {
+  projectId: string;
+  scenarioLabel?: string;
+  intentNote?: string;
+  customerTargetTierLabel?: string;
+  scenarioRecommended: boolean;
+  dropCurrentScenario: boolean;
+  currentScenarioId?: string;
+}): Promise<ActionResult<{ newQuoteId: string }>> {
+  return runAction(async () => {
+    const { projectId, scenarioRecommended, dropCurrentScenario } = input;
+    if (!projectId)
+      throw new ActionGuardError(ERR.VALIDATION, "projectId required");
+    if (dropCurrentScenario && !input.currentScenarioId)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "currentScenarioId required when dropCurrentScenario is true",
+      );
 
-  const user = await ensureUser();
+    const user = await ensureUser();
 
-  // Find next available "Alt N" label. Returns distinct scenario
-  // labels for the project; we pick the lowest unused N.
-  const existingScenarios = await db
-    .selectDistinct({ scenarioLabel: quotes.scenarioLabel })
-    .from(quotes)
-    .where(eq(quotes.projectId, projectId));
+    // Resolve scenario label: PM-provided OR auto "Alt N" (next
+    // integer not in use within project).
+    let scenarioLabel = (input.scenarioLabel ?? "").trim();
+    if (scenarioLabel.length === 0) {
+      const existingScenarios = await db
+        .selectDistinct({ scenarioLabel: quotes.scenarioLabel })
+        .from(quotes)
+        .where(eq(quotes.projectId, projectId));
+      const existingLabels = new Set(
+        existingScenarios.map((r) => r.scenarioLabel),
+      );
+      let n = 1;
+      while (existingLabels.has(`Alt ${n}`)) n++;
+      scenarioLabel = `Alt ${n}`;
+    }
 
-  const existingLabels = new Set(existingScenarios.map((r) => r.scenarioLabel));
-  let n = 1;
-  while (existingLabels.has(`Alt ${n}`)) n++;
-  const scenarioLabel = `Alt ${n}`;
+    const intentNote = (input.intentNote ?? "").trim() || null;
+    const customerTargetTierLabel =
+      (input.customerTargetTierLabel ?? "").trim() || null;
 
-  const [quote] = await db
-    .insert(quotes)
-    .values({
-      projectId,
-      scenarioLabel,
-      scenarioStatus: "active",
-      versionNumber: 1,
-      status: "draft",
-      globalPriceAdjPct: "0",
-      createdByUserId: user.id,
-    })
-    .returning({ id: quotes.id });
+    // Transactional: handle the recommended-pin flip + new-row
+    // insert + drop-current together. The partial unique index on
+    // quotes(project_id) WHERE is_recommended = true requires the
+    // siblings flip to land before the new row inserts (else two
+    // rows would briefly hold the pin).
+    let newQuoteId: string;
+    await db.transaction(async (tx) => {
+      if (scenarioRecommended) {
+        await tx
+          .update(quotes)
+          .set({ isRecommended: false, updatedAt: new Date() })
+          .where(eq(quotes.projectId, projectId));
+      }
 
-  await db.insert(quoteTiers).values({
-    quoteId: quote.id,
-    label: "Tier 1",
-    qty: null,
-    sortOrder: 0,
+      const [row] = await tx
+        .insert(quotes)
+        .values({
+          projectId,
+          scenarioLabel,
+          scenarioStatus: "active",
+          versionNumber: 1,
+          status: "draft",
+          globalPriceAdjPct: "0",
+          createdByUserId: user.id,
+          intentNote,
+          customerTargetTierLabel,
+          isRecommended: scenarioRecommended,
+        })
+        .returning({ id: quotes.id });
+      newQuoteId = row.id;
+
+      await tx.insert(quoteTiers).values({
+        quoteId: row.id,
+        label: "Tier 1",
+        qty: null,
+        sortOrder: 0,
+      });
+
+      if (dropCurrentScenario && input.currentScenarioId) {
+        // Family-level drop. The PM's "Drop the current scenario"
+        // intent is to retire the scenario identity (e.g., "Primary"),
+        // not just the one version row. Schema stores N rows per
+        // scenario_label (one per version_number bump); the project
+        // detail card groups by scenario_label, so a single-row drop
+        // would leave the card showing the family as ACTIVE while
+        // exactly one sibling row is dropped — discovered Bug CSF-3-A
+        // on PR #49 CB smoke.
+        //
+        // Look up scenario_label from currentScenarioId, then update
+        // ALL active rows in (project_id, scenario_label) to dropped.
+        // Audit row emits at project level with dropped_quote_ids
+        // array for forensic reconstruction.
+        const [currentRow] = await tx
+          .select({ scenarioLabel: quotes.scenarioLabel })
+          .from(quotes)
+          .where(eq(quotes.id, input.currentScenarioId))
+          .limit(1);
+
+        if (currentRow) {
+          const dropped = await tx
+            .update(quotes)
+            .set({
+              scenarioStatus: "dropped",
+              dropReason: "manual",
+              droppedByUserId: user.id,
+              droppedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(quotes.projectId, projectId),
+                eq(quotes.scenarioLabel, currentRow.scenarioLabel),
+                eq(quotes.scenarioStatus, "active"),
+              ),
+            )
+            .returning({ id: quotes.id });
+
+          if (dropped.length > 0) {
+            await tx.insert(auditLog).values({
+              userId: user.id,
+              entityType: "project",
+              entityId: projectId,
+              action: "scenario_dropped",
+              diffJson: {
+                drop_reason: "manual",
+                triggered_by_new_scenario_id: row.id,
+                scenario_label: currentRow.scenarioLabel,
+                dropped_quote_ids: dropped.map((d) => d.id),
+                audit_source: "canonical_modal",
+              },
+            });
+          }
+        }
+      }
+
+      // Audit: enhanced quote.created shape per CLAUDE.md namespace
+      // (canonical-modal source tag).
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote",
+        entityId: row.id,
+        action: "created",
+        diffJson: {
+          project_id: projectId,
+          scenario_label: scenarioLabel,
+          version_number: 1,
+          intent_note: intentNote,
+          customer_target_tier_label: customerTargetTierLabel,
+          is_recommended: scenarioRecommended,
+          drop_current_scenario_choice: dropCurrentScenario,
+          audit_source: "canonical_modal",
+        },
+      });
+
+      // setScenarioRecommended audit row for the flip event (when
+      // applicable). Captures the from/to pair for cross-quote
+      // forensic reconstruction.
+      if (scenarioRecommended) {
+        await tx.insert(auditLog).values({
+          userId: user.id,
+          entityType: "project",
+          entityId: projectId,
+          action: "scenario_recommended_changed",
+          diffJson: {
+            to_quote_id: row.id,
+            project_id: projectId,
+            audit_source: "canonical_modal",
+          },
+        });
+      }
+    });
+
+    revalidatePath(`/projects/${projectId}`);
+
+    return { newQuoteId: newQuoteId! };
   });
-
-  await logAudit({
-    userId: user.id,
-    entityType: "quote",
-    entityId: quote.id,
-    action: "created",
-    diffJson: {
-      project_id: projectId,
-      scenario_label: scenarioLabel,
-      version_number: 1,
-      created_via: "new_scenario_button",
-    },
-  });
-
-  redirect(`/projects/${projectId}/quotes/${quote.id}`);
 }
+
+// canonical-scenario-create-flow — atomic recommendation pin flip
+// (used by future post-creation surface affordances; createScenario
+// embeds the same logic inline for the create-time path).
+//
+// Audit: `scenario_recommended_changed` with from/to/project_id
+// shape per CLAUDE.md namespace.
+export async function setScenarioRecommended(input: {
+  quoteId: string;
+}): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const { quoteId } = input;
+    if (!quoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+
+    const user = await ensureUser();
+
+    const [target] = await db
+      .select({ id: quotes.id, projectId: quotes.projectId })
+      .from(quotes)
+      .where(eq(quotes.id, quoteId))
+      .limit(1);
+    if (!target)
+      throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found");
+
+    // Capture the prior recommended quote (if any) for audit
+    // from/to linkage.
+    const [prior] = await db
+      .select({ id: quotes.id })
+      .from(quotes)
+      .where(
+        and(
+          eq(quotes.projectId, target.projectId),
+          eq(quotes.isRecommended, true),
+        ),
+      )
+      .limit(1);
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(quotes)
+        .set({ isRecommended: false, updatedAt: new Date() })
+        .where(eq(quotes.projectId, target.projectId));
+
+      await tx
+        .update(quotes)
+        .set({ isRecommended: true, updatedAt: new Date() })
+        .where(eq(quotes.id, quoteId));
+
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "project",
+        entityId: target.projectId,
+        action: "scenario_recommended_changed",
+        diffJson: {
+          from_quote_id: prior?.id ?? null,
+          to_quote_id: quoteId,
+          project_id: target.projectId,
+        },
+      });
+    });
+
+    revalidatePath(`/projects/${target.projectId}`);
+  });
+}
+
+// canonical-scenario-create-flow Step 6 — `createScenarioLegacy`
+// removed. Step 5's modal trigger fully replaces the form-action
+// callsite per CA disposition "no backward-compat shim". Comment
+// retained as forensic marker; the function lived in commits
+// fce49e4 (Step 4) through e20722a (Step 5).
 
 export type QuoteNotesSnapshot = {
   quoteId: string;
