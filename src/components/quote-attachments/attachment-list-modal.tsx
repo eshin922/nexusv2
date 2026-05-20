@@ -165,16 +165,23 @@ export function AttachmentListModal({
         style={{ maxWidth: 720 }}
       >
         <div className="a1v2-modal-head">
-          <h2 id="attachment-list-title">
-            Attachments
+          <h2
+            id="attachment-list-title"
+            style={{ display: "flex", alignItems: "center", gap: 10 }}
+          >
+            <span>Attachments</span>
             <span
               style={{
-                marginLeft: 10,
                 fontFamily: "var(--mono)",
-                fontSize: 11,
-                color: "var(--ink-4)",
-                letterSpacing: "0.06em",
+                fontSize: 10.5,
+                color: "var(--ink-3)",
+                letterSpacing: "0.08em",
                 textTransform: "uppercase",
+                background: "var(--paper-2)",
+                border: "1px solid var(--rule)",
+                borderRadius: 4,
+                padding: "1px 8px",
+                lineHeight: 1.6,
               }}
             >
               {attachments.length}

@@ -289,7 +289,7 @@ export default async function ProjectDetailPage({
                    choice + recommended pin at scenario birth. */
                 <NewScenarioTrigger
                   projectId={project.id}
-                  projectName={project.clientName ?? project.dealName}
+                  projectName={project.dealName ?? project.clientName ?? "Project"}
                   nextAltLabel={nextAltLabel}
                   recommendedScenarioName={recommendedScenarioName}
                   currentActiveScenarioId={currentActiveQuote?.id ?? null}
@@ -492,26 +492,25 @@ function ScenarioCardView({
             </p>
           )}
         </div>
-        {/* Slice RI.8 F-9 dual-affordance + version-explicit labels
-            per Edward's directive. PMs see destination on the
-            button face — no surprise jump to v5 when they meant
-            to inspect the scenario's latest data. "Open" no longer
-            hides the latest-version default behind a single label.
-            Build button visible when there's incomplete cost data
-            (no SKUs, no cost inputs); both buttons visible once
-            there's something to review. */}
+        {/* canonical-scenario-create-flow polish (May 2026) —
+            collapsed the RI.8 F-9 dual-affordance (Build · v{N} +
+            Open Costing · v{N}) into a single state-aware Open button.
+            "Build" label drifted vs the RI.8 surface canon ("Cost
+            build → Costs"); "Open Costing" drifted vs the same rename
+            ("Costing sheet → Pricing"). Dual buttons were also
+            state-blind — clicking Open Costing on a bare quote
+            landed PMs on an empty Pricing surface, reintroducing
+            the same speed-pass trap defaultQuoteSurface fixes for
+            version-row clicks (see helper comment at top of file).
+            Single button reuses that helper for canonical-flow
+            routing while preserving the version-explicit label
+            Edward wanted in RI.8. */}
         <div className="flex items-center gap-2">
           <Link
-            href={`/projects/${projectId}/quotes/${latest.id}/costs`}
-            className="rounded border border-rule bg-paper px-2.5 py-1 text-xs text-ink-2 hover:border-rule-2 hover:text-ink"
-          >
-            Build · v{latest.versionNumber}
-          </Link>
-          <Link
-            href={`/projects/${projectId}/quotes/${latest.id}/pricing`}
+            href={defaultQuoteSurface(projectId, latest)}
             className="rounded border border-rule bg-paper px-2.5 py-1 text-xs font-medium text-ink hover:border-rule-2 hover:bg-paper-2"
           >
-            Open Costing · v{latest.versionNumber}
+            Open · v{latest.versionNumber}
           </Link>
         </div>
       </header>
