@@ -50,19 +50,70 @@ Read scope: OK · Write scope: OK · Archive scope: OK
   Edward wants to clear residue; otherwise auto-purges per
   HubSpot's archive retention policy.
 
-### PROD pre-merge gate (carries forward)
+### PROD pre-merge gate
 
 Per CA disposition, before merge:
 
-- [ ] Edward provisions PROD HubSpot private app with
+- [x] Edward provisions PROD HubSpot private app with
       `crm.objects.products.read` + `crm.objects.products.write`
-      scopes
-- [ ] `HUBSPOT_WRITE_ACCESS_TOKEN` set in local `.env.local` +
-      Vercel env vars (production + preview)
-- [ ] CC re-runs Step 1 scope smoke against PROD; same shape as
-      DEV smoke above; confirms read + write + archive
-- [ ] PROD smoke result appended to this kickoff doc as `§1B —
-      PROD smoke`
+      scopes — done 2026-05-21
+- [x] `HUBSPOT_WRITE_ACCESS_TOKEN` set in local `.env.local` —
+      done 2026-05-21
+- [ ] `HUBSPOT_WRITE_ACCESS_TOKEN` set in Vercel env vars
+      (production + preview) — Edward's task; Vercel UI; before
+      deploy
+- [x] CC re-runs Step 1 scope smoke against PROD — see §1B below
+- [x] PROD smoke result appended — see §1B below
+
+---
+
+## §1B — PROD OAuth scope smoke (2026-05-21)
+
+Re-run of Step 1 against PROD HubSpot via the just-provisioned
+`HUBSPOT_WRITE_ACCESS_TOKEN`. Same script shape as the DEV smoke;
+swap token only.
+
+### Run output
+
+```
+--- READ scope smoke (PROD) ---
+OK · getPage(1) returned 1 product(s)
+  Sample: id=1808453674 · name="DISPOSABLE VAPE PEN - TOOLING"
+
+--- WRITE scope smoke (PROD) ---
+OK · create returned id=44985123601 · sku=NEXUS-OAUTH-SMOKE-PROD-1779409473377
+
+--- CLEANUP (PROD) ---
+OK · archived id=44985123601
+
+=== Step 1B PROD smoke PASS ===
+Read scope: OK · Write scope: OK · Archive scope: OK
+```
+
+### What was verified
+
+- HubSpot PROD reachable via `HUBSPOT_WRITE_ACCESS_TOKEN`
+- `crm.objects.products.read` scope confirmed
+- `crm.objects.products.write` scope confirmed
+- Archive permission confirmed (cleanup removed test product)
+- Same SDK call shape works against PROD as DEV — no API surface
+  divergence
+
+### Cleanup state
+
+- Test product id=44985123601 archived (HubSpot soft-delete) in
+  PROD. Visible briefly in PROD HubSpot UI between create + archive
+  calls (~5s window); safe to ignore. Auto-purges per HubSpot's
+  archive retention policy.
+
+### Remaining pre-merge tasks
+
+Only Vercel env-var configuration remains (Edward's task). PROD
+deploy from main after merge requires
+`HUBSPOT_WRITE_ACCESS_TOKEN` set in Vercel production + preview
+environments; otherwise `getProductsClient()` falls back to
+`HUBSPOT_ACCESS_TOKEN` (read-only) and `createProduct` /
+`pullFromHubSpot` will 403 on write attempts in PROD.
 
 ---
 
