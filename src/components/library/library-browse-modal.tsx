@@ -88,6 +88,10 @@ export function LibraryBrowseModal({
   // modal sub-copy "Find or create a component for {scenarioLabel}".
   const [libraryTotal, setLibraryTotal] = useState(0);
   const [scenarioLabel, setScenarioLabel] = useState("");
+  // slice-library-modal-polish Step 2 — clientName threaded for the
+  // CD redesign subtitle "{client} · {qid}" landing in Step 3. NULL
+  // when project has no client_name set.
+  const [clientName, setClientName] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [attaching, setAttaching] = useState<string | null>(null);
@@ -125,6 +129,7 @@ export function LibraryBrowseModal({
         setTotal(result.data.total);
         setLibraryTotal(result.data.libraryTotal);
         setScenarioLabel(result.data.scenarioLabel);
+        setClientName(result.data.clientName);
       });
     }, SEARCH_DEBOUNCE_MS);
     return () => {
@@ -155,6 +160,7 @@ export function LibraryBrowseModal({
     setTotal(0);
     setLibraryTotal(0);
     setScenarioLabel("");
+    setClientName(null);
     setError(null);
     setAttaching(null);
     setCreateOpen(false);
@@ -191,6 +197,7 @@ export function LibraryBrowseModal({
         setTotal(refreshed.data.total);
         setLibraryTotal(refreshed.data.libraryTotal);
         setScenarioLabel(refreshed.data.scenarioLabel);
+        setClientName(refreshed.data.clientName);
       }
     });
     router.refresh();
@@ -240,6 +247,7 @@ export function LibraryBrowseModal({
         setTotal(refreshed.data.total);
         setLibraryTotal(refreshed.data.libraryTotal);
         setScenarioLabel(refreshed.data.scenarioLabel);
+        setClientName(refreshed.data.clientName);
       }
       router.refresh();
     });

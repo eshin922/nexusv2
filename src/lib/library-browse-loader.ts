@@ -6,6 +6,7 @@ import {
   assemblyLeaves,
   leaves,
   productTypes,
+  projects,
   quotes,
 } from "@/db/schema";
 import { productTypeOrderExpression } from "@/lib/product-type-order";
@@ -28,6 +29,13 @@ import { productTypeOrderExpression } from "@/lib/product-type-order";
 //     sub-copy "Find or create a component for {scenarioLabel}"
 //     per locked Q7 / Catch #7 disposition)
 //
+// slice-library-modal-polish Step 2 — return shape further extended:
+//   - clientName: target quote's project client name (used by modal
+//     header subtitle "{client} · {qid}" per CD designer notes +
+//     Catch #2 disposition). Joined from projects via
+//     quote.project_id. NULL when project has no client_name set
+//     (projects.client_name is nullable).
+//
 // Returns:
 //   - rows: leaves with type identity + total/scenario ref counts +
 //     per-target-quote attached-to-some-ASY flag + the list of
@@ -36,6 +44,8 @@ import { productTypeOrderExpression } from "@/lib/product-type-order";
 //     all filters applied)
 //   - libraryTotal: unfiltered count (archived = false only)
 //   - scenarioLabel: target quote's scenario label
+//   - clientName: target quote's project client name (NULL when
+//     project has no client name set)
 
 export type LibraryBrowseFilters = {
   search?: string;
@@ -72,6 +82,7 @@ export type LibraryBrowseResult = {
   total: number;
   libraryTotal: number;
   scenarioLabel: string;
+  clientName: string | null;
 };
 
 export async function loadLibraryBrowse(
@@ -95,11 +106,16 @@ export async function loadLibraryBrowse(
     conds.push(eq(leaves.productTypeId, filters.typeFilter));
   }
 
-  // Wave 1: filtered base rows + unfiltered library count +
-  // scenario label in parallel. 3 queries; well under pool capacity.
-  // The libraryTotal + scenarioLabel are independent of the row
-  // filter set, so they only need to fire once per loader call.
-  const [baseRows, libraryTotalRow, scenarioRow] = await Promise.all([
+  // Wave 1: filtered base rows + unfiltered library count + quote
+  // context (scenario label + client name) in parallel. 3 queries;
+  // well under pool capacity. The libraryTotal + quote context are
+  // independent of the row filter set, so they only need to fire
+  // once per loader call.
+  //
+  // The quote-context query joins projects via quote.project_id to
+  // surface the project's client_name alongside the scenario label
+  // (slice-library-modal-polish Step 2 Catch #2 disposition).
+  const [baseRows, libraryTotalRow, quoteContextRow] = await Promise.all([
     // Scope filter applies after fetching ids; cheap because v1 has
     // <100 leaves total. If library grows past a few hundred, push
     // this into a CTE.
@@ -114,18 +130,23 @@ export async function loadLibraryBrowse(
       .from(leaves)
       .where(eq(leaves.archived, false)),
     db
-      .select({ scenarioLabel: quotes.scenarioLabel })
+      .select({
+        scenarioLabel: quotes.scenarioLabel,
+        clientName: projects.clientName,
+      })
       .from(quotes)
+      .innerJoin(projects, eq(projects.id, quotes.projectId))
       .where(eq(quotes.id, filters.targetQuoteId))
       .limit(1),
   ]);
 
   const libraryTotal = Number(libraryTotalRow[0]?.n ?? 0);
-  const scenarioLabel = scenarioRow[0]?.scenarioLabel ?? "";
+  const scenarioLabel = quoteContextRow[0]?.scenarioLabel ?? "";
+  const clientName = quoteContextRow[0]?.clientName ?? null;
 
   const baseIds = baseRows.map((r) => r.id);
   if (baseIds.length === 0) {
-    return { rows: [], total: 0, libraryTotal, scenarioLabel };
+    return { rows: [], total: 0, libraryTotal, scenarioLabel, clientName };
   }
 
   // Wave 2: junction + product_types in parallel.
@@ -190,7 +211,7 @@ export async function loadLibraryBrowse(
     };
   });
 
-  return { rows, total, libraryTotal, scenarioLabel };
+  return { rows, total, libraryTotal, scenarioLabel, clientName };
 }
 
 /**

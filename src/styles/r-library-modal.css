@@ -1,0 +1,358 @@
+/* Library Modal — canonical CSS (Pattern 30 path-B-default)
+ *
+ * Imported verbatim from CD's design source:
+ *   docs/design-prototypes/dist/library_styles.css
+ *
+ * Five deliberate drops vs upstream (review chrome — not production
+ * UI; same precedent as Pattern 31 R7a/R7b state-strip rejection):
+ *
+ *   1. .lib-stage + .lib-stage-hint (upstream lines 7-20) — demo
+ *      container behind the modal to give the backdrop something
+ *      to dim. Production renders the modal over real surface
+ *      content; no stage needed.
+ *
+ *   2. .lib-strip + .lib-strip .lbl + .lib-strip .group-label +
+ *      .lib-strip button + .lib-strip button:hover + .lib-strip
+ *      button.active + .lib-strip .right + .lib-strip .right a +
+ *      .lib-strip .right a:hover + .lib-strip .theme-tog
+ *      (upstream lines 22-46) — scenario switcher strip for the
+ *      prototype's state-by-state review aid.
+ *
+ *   3. .lib-blurb + [data-theme="dark"] .lib-blurb + .lib-blurb
+ *      .lbl (upstream lines 48-61) — per-state designer commentary
+ *      banner.
+ *
+ * No other content modifications. Class names are .lib-* prefix-
+ * clean (verified via Pattern 30 path-B-default check); no parent-
+ * scope wrap needed.
+ *
+ * Tokens audit: all 19 referenced tokens (--accent, --accent-ink,
+ * --accent-soft, --display, --good, --good-soft, --ink, --ink-2,
+ * --ink-3, --ink-4, --mono, --paper, --paper-2, --paper-3, --rule,
+ * --rule-2, --shadow-sm, --ui, --warn) exist in design-tokens.css.
+ *
+ * Fix-flow when a value proves wrong: surface to CD with
+ * screenshot → CD updates upstream library_styles.css → re-copy
+ * here.
+ */
+
+
+/* ── Modal sizing override — wider for the list at scale ──────────── */
+.a1v2-modal-backdrop {
+  position: relative;
+}
+.lib-modal.a1v2-modal {
+  width: min(940px, 100%);
+  max-height: calc(100vh - 120px);
+}
+
+/* ── Header ────────────────────────────────────────────────────────── */
+.lib-head {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 16px;
+  padding: 16px 22px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+.lib-head .title-wrap { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.lib-head h2 {
+  font-family: var(--display); font-weight: 500; font-size: 19px;
+  margin: 0; letter-spacing: -0.01em;
+}
+.lib-head h2 em { font-style: italic; color: var(--ink-3); font-weight: 400; font-size: 15px; }
+.lib-head .sub {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em;
+  color: var(--ink-4); text-transform: uppercase;
+}
+.lib-head .head-actions { display: flex; align-items: center; gap: 8px; }
+
+/* Subtle refresh control (forensic, not primary) */
+.lib-refresh {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 11px; border-radius: 6px;
+  background: transparent; border: 1px solid var(--rule);
+  color: var(--ink-3); font-family: var(--ui); font-size: 12px; cursor: pointer;
+}
+.lib-refresh:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-4); background: var(--paper-2); }
+.lib-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+.lib-refresh .glyph { font-family: var(--mono); font-size: 12px; }
+.lib-close {
+  width: 30px; height: 30px; border-radius: 6px;
+  background: transparent; border: 1px solid transparent; color: var(--ink-3);
+  font-family: var(--mono); font-size: 16px; cursor: pointer;
+  display: grid; place-items: center;
+}
+.lib-close:hover { background: var(--paper-2); color: var(--ink); border-color: var(--rule); }
+
+/* ── Inline pull-progress band (header-integrated) ───────────────── */
+.lib-pull-band {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center;
+  padding: 10px 22px;
+  background: oklch(from var(--accent) l c h / 0.06);
+  border-bottom: 1px solid var(--rule);
+}
+.lib-pull-band .spin {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid oklch(from var(--accent) l c h / 0.25);
+  border-top-color: var(--accent);
+  animation: lib-spin 0.8s linear infinite;
+}
+@keyframes lib-spin { to { transform: rotate(360deg); } }
+.lib-pull-band .track-wrap { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.lib-pull-band .track-wrap .lab {
+  font-family: var(--ui); font-size: 12px; color: var(--ink-2);
+}
+.lib-pull-band .track-wrap .lab strong { color: var(--ink); font-weight: 500; }
+.lib-pull-band .track {
+  height: 4px; border-radius: 2px; background: oklch(from var(--accent) l c h / 0.18);
+  overflow: hidden;
+}
+.lib-pull-band .track .fill {
+  height: 100%; background: var(--accent); border-radius: 2px;
+  transition: width 240ms ease-out;
+}
+.lib-pull-band .count {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em;
+  color: var(--accent-ink); white-space: nowrap;
+}
+
+/* ── Persistent ATTACH TARGET bar (prominent) ────────────────────── */
+.lib-target-bar {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center;
+  padding: 12px 22px;
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--rule);
+}
+.lib-target-bar .eyebrow {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-4); white-space: nowrap;
+}
+.lib-target-select {
+  display: flex; align-items: center; gap: 10px;
+  min-width: 280px;
+  padding: 8px 12px; border-radius: 8px;
+  background: var(--paper); border: 1px solid var(--accent);
+  cursor: pointer; position: relative;
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.08);
+}
+.lib-target-select .asy-icon {
+  width: 26px; height: 26px; border-radius: 6px;
+  background: oklch(from var(--accent) l c h / 0.12); color: var(--accent-ink);
+  display: grid; place-items: center; font-family: var(--mono); font-size: 13px; flex-shrink: 0;
+}
+.lib-target-select .asy-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.lib-target-select .asy-body .name {
+  font-family: var(--display); font-style: italic; font-weight: 500; font-size: 15px;
+  color: var(--ink); letter-spacing: -0.005em; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.lib-target-select .asy-body .meta {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; color: var(--ink-3);
+}
+.lib-target-select .chevron { font-family: var(--mono); font-size: 11px; color: var(--ink-3); margin-left: 4px; }
+.lib-target-select:hover { background: var(--paper-2); }
+.lib-target-bar .target-hint {
+  font-family: var(--ui); font-size: 12px; color: var(--ink-3); justify-self: flex-end; text-align: right;
+}
+
+/* target picker popover */
+.lib-target-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
+  min-width: 280px;
+  background: var(--paper); border: 1px solid var(--rule-2); border-radius: 8px;
+  box-shadow: 0 12px 32px oklch(0 0 0 / 0.20); padding: 6px;
+}
+.lib-target-menu .header {
+  padding: 6px 12px 8px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-4);
+}
+.lib-target-menu .item {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center;
+  padding: 9px 12px; border-radius: 6px; cursor: pointer;
+}
+.lib-target-menu .item:hover { background: var(--paper-2); }
+.lib-target-menu .item.active { background: oklch(from var(--accent) l c h / 0.08); }
+.lib-target-menu .item .name { font-size: 13px; color: var(--ink); font-weight: 500; }
+.lib-target-menu .item .meta { font-family: var(--mono); font-size: 10px; color: var(--ink-4); }
+.lib-target-menu .item .check { color: var(--accent-ink); font-family: var(--mono); }
+
+/* ── Filter row (lighter chrome — single row) ────────────────────── */
+.lib-filters {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--rule);
+}
+.lib-search {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: 8px;
+  background: var(--paper-2); border: 1px solid var(--rule);
+}
+.lib-search:focus-within { border-color: var(--accent); background: var(--paper); }
+.lib-search .glyph { font-family: var(--mono); font-size: 13px; color: var(--ink-4); }
+.lib-search input {
+  flex: 1; border: none; background: transparent; outline: none;
+  font: inherit; font-size: 13px; color: var(--ink);
+}
+.lib-seg {
+  display: flex; gap: 2px; padding: 3px; border-radius: 8px;
+  background: var(--paper-2); border: 1px solid var(--rule);
+}
+.lib-seg button {
+  padding: 6px 11px; border-radius: 5px; border: none; background: transparent;
+  font-family: var(--ui); font-size: 12px; color: var(--ink-3); cursor: pointer; white-space: nowrap;
+}
+.lib-seg button:hover { color: var(--ink); }
+.lib-seg button.active { background: var(--paper); color: var(--ink); box-shadow: var(--shadow-sm); font-weight: 500; }
+.lib-result-count {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em;
+  color: var(--ink-4); white-space: nowrap; text-transform: uppercase;
+}
+
+/* ── Results table ───────────────────────────────────────────────── */
+.lib-results { overflow-y: auto; flex: 1; min-height: 0; }
+.lib-table-head, .lib-row {
+  display: grid;
+  grid-template-columns: 4px 1fr 150px 120px 96px;
+  align-items: center;
+  gap: 16px;
+  padding: 0 22px 0 0;
+}
+.lib-table-head {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--paper); border-bottom: 1px solid var(--rule);
+  padding-top: 9px; padding-bottom: 9px;
+}
+.lib-table-head .h {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.10em;
+  text-transform: uppercase; color: var(--ink-4); font-weight: 500;
+}
+.lib-table-head .h.rail { padding: 0; }
+.lib-table-head .h.name { padding-left: 22px; }
+.lib-table-head .h.action { text-align: right; }
+
+.lib-row {
+  height: 56px; /* fixed-height rows — columnar discipline */
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
+  position: relative;
+}
+.lib-row:hover { background: var(--paper-2); }
+.lib-row .rail { height: 100%; width: 4px; background: transparent; }
+
+/* readiness tints + rails */
+.lib-row.ready   .rail { background: transparent; }
+.lib-row.attached { background: oklch(from var(--good) l c h / 0.05); }
+.lib-row.attached:hover { background: oklch(from var(--good) l c h / 0.08); }
+.lib-row.attached .rail { background: var(--good); }
+.lib-row.archived { background: var(--paper-2); }
+.lib-row.archived .name-cell .name { color: var(--ink-3); }
+.lib-row.archived .rail { background: var(--ink-4); }
+
+.lib-row .name-cell {
+  padding-left: 22px; display: flex; align-items: center; gap: 12px; min-width: 0;
+}
+.lib-row .name-cell .icon {
+  width: 30px; height: 30px; border-radius: 7px; flex-shrink: 0;
+  background: var(--paper-3); color: var(--ink-3);
+  display: grid; place-items: center; font-family: var(--mono); font-size: 13px;
+}
+.lib-row.attached .name-cell .icon { background: oklch(from var(--good) l c h / 0.14); color: var(--good); }
+.lib-row .name-cell .text { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.lib-row .name-cell .name {
+  font-size: 13.5px; color: var(--ink); font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.lib-row .name-cell .sub {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 10px; color: var(--ink-4); letter-spacing: 0.03em;
+}
+.lib-row .name-cell .sub .src {
+  padding: 1px 5px; border-radius: 3px; font-size: 8.5px; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.lib-row .name-cell .sub .src.nexus { background: var(--accent-soft); color: var(--accent-ink); }
+.lib-row .name-cell .sub .src.hubspot { background: oklch(0.93 0.04 35); color: oklch(0.50 0.14 35); }
+[data-theme="dark"] .lib-row .name-cell .sub .src.hubspot { background: oklch(0.34 0.06 35); color: oklch(0.80 0.12 35); }
+/* tertiary usage caption — demoted, muted */
+.lib-row .name-cell .sub .usage { color: var(--ink-4); opacity: 0.85; }
+
+.lib-row .type-cell {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em;
+  color: var(--ink-3); text-transform: uppercase;
+}
+
+.lib-row .status-cell { display: flex; }
+.lib-row .status-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em;
+  padding: 3px 8px; border-radius: 999px; text-transform: uppercase; font-weight: 500;
+}
+.lib-row .status-pill .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.lib-row .status-pill.ready { background: var(--paper-3); color: var(--ink-3); }
+.lib-row .status-pill.attached { background: var(--good-soft); color: var(--good); }
+.lib-row .status-pill.archived { background: var(--paper-3); color: var(--ink-4); }
+
+.lib-row .action-cell { display: flex; justify-content: flex-end; }
+/* action buttons constrained INSIDE the row bounds (issue 1 fix) */
+.lib-attach-btn {
+  padding: 7px 16px; border-radius: 6px; white-space: nowrap;
+  background: var(--accent); color: var(--paper); border: 1px solid var(--accent);
+  font-family: var(--ui); font-size: 12.5px; font-weight: 500; cursor: pointer;
+}
+.lib-attach-btn:hover { background: var(--accent-ink); }
+.lib-attached-mark {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
+  color: var(--good); text-transform: uppercase; white-space: nowrap;
+}
+.lib-restore-btn {
+  padding: 7px 14px; border-radius: 6px; white-space: nowrap;
+  background: transparent; color: var(--ink-3); border: 1px solid var(--rule-2);
+  font-family: var(--ui); font-size: 12px; cursor: pointer;
+}
+.lib-restore-btn:hover { color: var(--ink); border-color: var(--ink-4); }
+
+/* ── Footer ──────────────────────────────────────────────────────── */
+.lib-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 22px; border-top: 1px solid var(--rule); background: var(--paper-2);
+}
+.lib-foot .meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-4); letter-spacing: 0.04em; }
+.lib-foot .actions { display: flex; gap: 8px; }
+.lib-btn {
+  padding: 8px 14px; border-radius: 6px; font-family: var(--ui); font-size: 13px; cursor: pointer;
+  border: 1px solid var(--rule-2); background: var(--paper); color: var(--ink);
+}
+.lib-btn:hover { background: var(--paper-2); border-color: var(--ink-4); }
+.lib-btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); font-weight: 500; }
+.lib-btn.primary:hover { background: var(--ink-2); }
+.lib-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Empty states ────────────────────────────────────────────────── */
+.lib-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 56px 32px; gap: 6px; min-height: 320px;
+}
+.lib-empty .glyph {
+  font-family: var(--display); font-style: italic; font-size: 40px; color: var(--ink-4);
+  margin-bottom: 8px;
+}
+.lib-empty h3 {
+  font-family: var(--display); font-weight: 500; font-size: 20px; margin: 0; letter-spacing: -0.01em;
+}
+.lib-empty p {
+  font-size: 13px; color: var(--ink-3); max-width: 46ch; margin: 4px 0 0; line-height: 1.55;
+}
+.lib-empty p .q { font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--paper-3); padding: 1px 6px; border-radius: 3px; }
+.lib-empty .cta-row {
+  display: flex; gap: 10px; align-items: center; margin-top: 18px; flex-wrap: wrap; justify-content: center;
+}
+.lib-empty-cta {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 11px 18px; border-radius: 8px; cursor: pointer; white-space: nowrap;
+  font-family: var(--ui); font-size: 13.5px; font-weight: 500;
+}
+.lib-empty-cta.primary { background: var(--accent); color: var(--paper); border: 1px solid var(--accent); }
+.lib-empty-cta.primary:hover { background: var(--accent-ink); }
+.lib-empty-cta.secondary { background: var(--paper); color: var(--ink); border: 1px solid var(--rule-2); }
+.lib-empty-cta.secondary:hover { background: var(--paper-2); border-color: var(--ink-4); }
+.lib-empty-cta:disabled { opacity: 0.5; cursor: not-allowed; }
+.lib-empty .perm-note {
+  margin-top: 12px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-4); letter-spacing: 0.04em;
+}
