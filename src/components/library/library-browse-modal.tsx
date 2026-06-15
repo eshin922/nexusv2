@@ -440,25 +440,72 @@ export function LibraryBrowseModal({
         </div>
 
         <div className="a1v2-library-browse">
-          {/* slice-library-first-creation-flow Step 5 — inline pull
-              progress band per locked Q5 disposition β. Renders
-              below the head when phase != idle. Three states:
-              pulling (active or archived sweep), error (with
-              retry), complete (auto-clears via the same Close
-              gating used by attach pending). PMs stay visually
-              in library context — no nested overlay. */}
-          {pull.phase !== "idle" && (
+          {/* slice-library-modal-polish Step 7 — inline pull
+              progress band redesign per CD designer notes §6 +
+              .lib-pull-band canonical CSS. Three states:
+                - active pull (pulling-active | pulling-archived)
+                  → spinner + reassurance copy + running count
+                - complete → green-soft success summary + Dismiss
+                - error → red-soft error + Retry + Dismiss
+              Band sits in a fixed slot between .lib-head and
+              .lib-target-bar (CD §6: "the band's position above
+              the attach bar means the filter row and table never
+              reflow when it appears/disappears"). */}
+          {pull.isPulling && (
+            <div
+              className="lib-pull-band"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="spin" aria-hidden="true" />
+              <div className="track-wrap">
+                <div className="lab">
+                  <strong>Refreshing catalog from HubSpot…</strong>{" "}
+                  existing components stay usable
+                </div>
+                {pull.latestBatch && (
+                  <div
+                    style={{
+                      fontFamily: "var(--mono)",
+                      fontSize: 10.5,
+                      color: "var(--ink-4)",
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    Batch {pull.totals.batchCount}:{" "}
+                    {pull.latestBatch.processed} processed · +
+                    {pull.latestBatch.added} added · ~
+                    {pull.latestBatch.updated} updated ·{" "}
+                    {pull.latestBatch.archived} archived
+                  </div>
+                )}
+              </div>
+              <div className="count">
+                {/* CD prototype assumes a denominator (done/total);
+                    production HubSpot list paginates by cursor with
+                    no total. Display the running processed count
+                    + phase label instead. */}
+                {pull.totals.processed.toLocaleString()} processed ·{" "}
+                {pull.phase === "pulling-active"
+                  ? "pass 1/2"
+                  : "pass 2/2"}
+              </div>
+            </div>
+          )}
+          {/* Completion + error states keep the prior inline-styled
+              shapes since CD's .lib-pull-band CSS only covers the
+              active pull case. PMs see the summary briefly then
+              dismiss. */}
+          {(pull.phase === "complete" || pull.phase === "error") && (
             <div
               role="status"
               aria-live="polite"
               style={{
-                padding: "10px 14px",
+                padding: "10px 22px",
                 background:
                   pull.phase === "error"
                     ? "var(--bad-soft, var(--paper-2))"
-                    : pull.phase === "complete"
-                      ? "var(--good-soft, var(--paper-2))"
-                      : "var(--paper-2)",
+                    : "var(--good-soft, var(--paper-2))",
                 borderBottom: "1px solid var(--rule)",
                 display: "flex",
                 flexDirection: "column",
@@ -484,26 +531,22 @@ export function LibraryBrowseModal({
                     color: "var(--ink-3)",
                   }}
                 >
-                  {pull.phase === "pulling-active" &&
-                    "Pulling… pass 1/2 · active products"}
-                  {pull.phase === "pulling-archived" &&
-                    "Pulling… pass 2/2 · archived sweep"}
-                  {pull.phase === "complete" && "Pull complete"}
-                  {pull.phase === "error" &&
-                    "Pull paused — retry resumes from last batch"}
+                  {pull.phase === "complete"
+                    ? "Pull complete"
+                    : "Pull paused — retry resumes from last batch"}
                 </span>
-                {pull.phase === "error" && (
-                  <button
-                    type="button"
-                    className="a1v2-btn primary sm"
-                    onClick={pull.retry}
-                    disabled={pull.pending}
-                  >
-                    Retry from batch{" "}
-                    {pull.retryCursor?.batchNumber ?? "?"}
-                  </button>
-                )}
-                {(pull.phase === "complete" || pull.phase === "error") && (
+                <div style={{ display: "flex", gap: 8 }}>
+                  {pull.phase === "error" && (
+                    <button
+                      type="button"
+                      className="a1v2-btn primary sm"
+                      onClick={pull.retry}
+                      disabled={pull.pending}
+                    >
+                      Retry from batch{" "}
+                      {pull.retryCursor?.batchNumber ?? "?"}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="a1v2-btn ghost sm"
@@ -511,23 +554,8 @@ export function LibraryBrowseModal({
                   >
                     Dismiss
                   </button>
-                )}
-              </div>
-              {pull.isPulling && pull.latestBatch && (
-                <div
-                  style={{
-                    fontFamily: "var(--mono)",
-                    fontSize: 11,
-                    color: "var(--ink-3)",
-                  }}
-                >
-                  Batch {pull.totals.batchCount}:{" "}
-                  {pull.latestBatch.processed} processed · +
-                  {pull.latestBatch.added} added · ~
-                  {pull.latestBatch.updated} updated ·{" "}
-                  {pull.latestBatch.archived} archived
                 </div>
-              )}
+              </div>
               {pull.phase === "complete" && (
                 <div style={{ color: "var(--good, var(--ink))" }}>
                   ✓ Pulled {pull.totals.processed} HubSpot product
