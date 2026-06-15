@@ -37,6 +37,7 @@ export function AddProductModal({
   open,
   onClose,
   onSuccess,
+  stacked = false,
   assemblyTypes,
   leafTypes,
 }: {
@@ -51,6 +52,15 @@ export function AddProductModal({
   // (existing AddProductTrigger mount doesn't need to discriminate
   // submit vs cancel).
   onSuccess?: (result: { kind: "asy" | "leaf"; id: string }) => void;
+  // slice-library-first-creation-flow Step 4 — when mounted as a
+  // sub-flow on top of another modal (LibraryBrowseModal's
+  // "+ Create new product"), pass stacked={true}. Applies the
+  // `r-a1v2-modal-stacked` nexus class to the backdrop (z-index:
+  // 110 — above the 100 base) and registers the Escape handler
+  // with capture-phase + stopImmediatePropagation so the
+  // underlying modal's keydown listener doesn't also fire. See
+  // r-a1v2-overrides.css for full pattern documentation.
+  stacked?: boolean;
   assemblyTypes: AssemblyTypeOption[];
   leafTypes: LeafSpecEntryProductType[];
 }) {
@@ -100,14 +110,25 @@ export function AddProductModal({
   }, [open]);
 
   // Escape dismiss + backdrop click.
+  //
+  // When stacked (slice-library-first-creation-flow Step 4), register
+  // the listener with capture-phase + call stopImmediatePropagation
+  // so the underlying modal's bubble-phase keydown handler doesn't
+  // also fire. Document-level listeners are siblings; without
+  // capture order, Escape would dismiss both modals at once.
   useEffect(() => {
     if (!open) return;
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !pending) onClose();
+      if (e.key === "Escape" && !pending) {
+        if (stacked) {
+          e.stopImmediatePropagation();
+        }
+        onClose();
+      }
     }
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [open, pending, onClose]);
+    document.addEventListener("keydown", handleKey, stacked);
+    return () => document.removeEventListener("keydown", handleKey, stacked);
+  }, [open, pending, onClose, stacked]);
 
   // Auto-dismiss toast.
   useEffect(() => {
@@ -192,7 +213,7 @@ export function AddProductModal({
     <>
       {open ? (
         <div
-          className="a1v2-modal-backdrop"
+          className={`a1v2-modal-backdrop${stacked ? " r-a1v2-modal-stacked" : ""}`}
           role="presentation"
           onMouseDown={(e) => {
             // Only dismiss on direct backdrop clicks; not clicks

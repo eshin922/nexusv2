@@ -92,9 +92,15 @@ export function LibraryBrowseModal({
   const [attaching, setAttaching] = useState<string | null>(null);
   // slice-library-first-creation-flow Step 3 — stacked AddProductModal
   // state. Click "+ Create new product" → setCreateOpen(true) → modal
-  // mounts on top of library backdrop (DOM-order z-index resolution;
-  // Step 4 formalizes via .r-a1v2-modal-stacked nexus extension).
+  // mounts on top of library backdrop. Step 4 formalizes the stacking
+  // via the .r-a1v2-modal-stacked nexus extension (z-index: 110 +
+  // capture-phase Escape with stopImmediatePropagation).
   const [createOpen, setCreateOpen] = useState(false);
+  // slice-library-first-creation-flow Step 4 — attach toast state
+  // per locked Q9. Fires on successful attachAssemblyLeaf with the
+  // "Attached '{leaf name}' to {ASY sku}." copy. Auto-dismisses 3s
+  // (same effect shape as AddProductModal's toast).
+  const [toast, setToast] = useState<string | null>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Initial load + filter changes (debounced for search input).
@@ -149,7 +155,16 @@ export function LibraryBrowseModal({
     setError(null);
     setAttaching(null);
     setCreateOpen(false);
+    setToast(null);
   }, [open]);
+
+  // slice-library-first-creation-flow Step 4 — auto-dismiss attach
+  // toast after 3s. Matches AddProductModal's toast lifecycle.
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // slice-library-first-creation-flow Step 3 — re-fetch library
   // after a successful "+ Create new" submit. Reused by both empty-
@@ -189,6 +204,11 @@ export function LibraryBrowseModal({
       return;
     }
     setAttaching(row.leafId);
+    // Snapshot the target sku before the async transition so the
+    // toast carries the value even if the user changes the target
+    // picker between submit + result. handleAttach is invoked from
+    // the row's button, so targetAssembly was current at click time.
+    const targetSkuAtClick = targetAssembly?.sku ?? "ASY";
     const fd = new FormData();
     fd.set("assemblyId", targetAssemblyId);
     fd.set("leafId", row.leafId);
@@ -200,6 +220,10 @@ export function LibraryBrowseModal({
         setError(result.error.message);
         return;
       }
+      // slice-library-first-creation-flow Step 4 — attach toast
+      // fires on success per locked Q9. Auto-dismisses 3s via the
+      // toast useEffect above.
+      setToast(`Attached "${row.name}" to ${targetSkuAtClick}.`);
       // Refresh the library data so the row flips to "✓ in scenario"
       // (and refresh the Setup tree behind the modal).
       const refreshed = await fetchLibraryBrowse({
@@ -507,9 +531,20 @@ export function LibraryBrowseModal({
             refreshLibrary();
           }
         }}
+        stacked
         assemblyTypes={assemblyTypes}
         leafTypes={fullLeafTypes}
       />
+      {/* slice-library-first-creation-flow Step 4 — attach toast
+          per locked Q9. Matches the .a1v2-toast register PR #50
+          commit 10 shipped (fixed bottom-right via nexus extension;
+          glyph + body structure). Auto-dismisses 3s. */}
+      {toast ? (
+        <div className="a1v2-toast" role="status" aria-live="polite">
+          <span className="glyph">✓</span>
+          <div className="body">{toast}</div>
+        </div>
+      ) : null}
     </div>
   );
 }
