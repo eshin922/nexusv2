@@ -138,10 +138,14 @@ export async function loadLibraryBrowse(
       .where(and(...conds))
       .orderBy(asc(leaves.name))
       .limit(limit + 1), // +1 to detect "more available"
-    db
-      .select({ n: count() })
-      .from(leaves)
-      .where(eq(leaves.archived, false)),
+    // slice-library-modal-polish Step 8 hotfix — libraryTotal counts
+    // ALL leaves (active + archived) so the result-count denominator
+    // matches the rendered row scope (which now includes archived
+    // rows per Step 5's base-query filter removal). Prevents the
+    // "32 OF 30" inversion observed during CB LMP smoke when CB
+    // restored an archived leaf and saw the row count exceed the
+    // denominator.
+    db.select({ n: count() }).from(leaves),
     db
       .select({
         scenarioLabel: quotes.scenarioLabel,

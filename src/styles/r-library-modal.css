@@ -248,16 +248,25 @@
   position: relative;
 }
 .lib-row:hover { background: var(--paper-2); }
-.lib-row .rail { height: 100%; width: 4px; background: transparent; }
+/* slice-library-modal-polish Step 8 hotfix BUG-LMP-RAIL — bump
+ * specificity on .rail rules (`span.rail` type-selector adds 0,0,1
+ * to the chain) so the per-readiness background overrides win
+ * unconditionally. CB observed archived rails rendering as
+ * transparent despite the per-readiness rule below; defensive
+ * type-selector specificity bump rules out any cascade quirk from
+ * Tailwind's reset or other utility classes. `display: block`
+ * defends against inline-element width/height drop in the grid
+ * cell. */
+.lib-row span.rail { height: 100%; width: 4px; background: transparent; display: block; }
 
 /* readiness tints + rails */
-.lib-row.ready   .rail { background: transparent; }
+.lib-row.ready    span.rail { background: transparent; }
 .lib-row.attached { background: oklch(from var(--good) l c h / 0.05); }
 .lib-row.attached:hover { background: oklch(from var(--good) l c h / 0.08); }
-.lib-row.attached .rail { background: var(--good); }
+.lib-row.attached span.rail { background: var(--good); }
 .lib-row.archived { background: var(--paper-2); }
 .lib-row.archived .name-cell .name { color: var(--ink-3); }
-.lib-row.archived .rail { background: var(--ink-4); }
+.lib-row.archived span.rail { background: var(--ink-4); }
 
 .lib-row .name-cell {
   padding-left: 22px; display: flex; align-items: center; gap: 12px; min-width: 0;
