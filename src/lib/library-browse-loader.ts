@@ -88,6 +88,18 @@ export type LibraryBrowseResult = {
   rows: LibraryBrowseRow[];
   total: number;
   libraryTotal: number;
+  // slice-library-modal-polish Step 8 hotfix BUG-LMP-2-A —
+  // separate the result-count denominator (libraryTotal, all
+  // leaves including archived) from the empty-state-branching
+  // signal (libraryTotalActive, archived = false only). With
+  // Step 5's base query no longer filtering archived rows out,
+  // the modal needs both:
+  //   - libraryTotal aligns with rendered scope for the "N of M"
+  //     denominator
+  //   - libraryTotalActive triggers the library-empty (⊹) shape
+  //     when all leaves are archived (a fresh-start state from
+  //     the PM's perspective even if archived rows exist)
+  libraryTotalActive: number;
   scenarioLabel: string;
   clientName: string | null;
 };
@@ -128,7 +140,12 @@ export async function loadLibraryBrowse(
   // The quote-context query joins projects via quote.project_id to
   // surface the project's client_name alongside the scenario label
   // (slice-library-modal-polish Step 2 Catch #2 disposition).
-  const [baseRows, libraryTotalRow, quoteContextRow] = await Promise.all([
+  const [
+    baseRows,
+    libraryTotalRow,
+    libraryTotalActiveRow,
+    quoteContextRow,
+  ] = await Promise.all([
     // Scope filter applies after fetching ids; cheap because v1 has
     // <100 leaves total. If library grows past a few hundred, push
     // this into a CTE.
@@ -140,12 +157,17 @@ export async function loadLibraryBrowse(
       .limit(limit + 1), // +1 to detect "more available"
     // slice-library-modal-polish Step 8 hotfix — libraryTotal counts
     // ALL leaves (active + archived) so the result-count denominator
-    // matches the rendered row scope (which now includes archived
-    // rows per Step 5's base-query filter removal). Prevents the
-    // "32 OF 30" inversion observed during CB LMP smoke when CB
-    // restored an archived leaf and saw the row count exceed the
-    // denominator.
+    // matches the rendered row scope. Prevents the "32 OF 30"
+    // inversion observed during CB LMP smoke when CB restored an
+    // archived leaf and saw the row count exceed the denominator.
     db.select({ n: count() }).from(leaves),
+    // BUG-LMP-2-A hotfix — libraryTotalActive counts archived=false
+    // only so the modal's library-empty (⊹) shape triggers when
+    // all leaves are archived even though libraryTotal > 0.
+    db
+      .select({ n: count() })
+      .from(leaves)
+      .where(eq(leaves.archived, false)),
     db
       .select({
         scenarioLabel: quotes.scenarioLabel,
@@ -158,12 +180,20 @@ export async function loadLibraryBrowse(
   ]);
 
   const libraryTotal = Number(libraryTotalRow[0]?.n ?? 0);
+  const libraryTotalActive = Number(libraryTotalActiveRow[0]?.n ?? 0);
   const scenarioLabel = quoteContextRow[0]?.scenarioLabel ?? "";
   const clientName = quoteContextRow[0]?.clientName ?? null;
 
   const baseIds = baseRows.map((r) => r.id);
   if (baseIds.length === 0) {
-    return { rows: [], total: 0, libraryTotal, scenarioLabel, clientName };
+    return {
+      rows: [],
+      total: 0,
+      libraryTotal,
+      libraryTotalActive,
+      scenarioLabel,
+      clientName,
+    };
   }
 
   // Wave 2: junction + product_types in parallel.
@@ -229,7 +259,14 @@ export async function loadLibraryBrowse(
     };
   });
 
-  return { rows, total, libraryTotal, scenarioLabel, clientName };
+  return {
+    rows,
+    total,
+    libraryTotal,
+    libraryTotalActive,
+    scenarioLabel,
+    clientName,
+  };
 }
 
 /**

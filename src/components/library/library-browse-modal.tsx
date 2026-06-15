@@ -93,6 +93,14 @@ export function LibraryBrowseModal({
   // rows.length === 0). scenarioLabel surfaced for later steps'
   // modal sub-copy "Find or create a component for {scenarioLabel}".
   const [libraryTotal, setLibraryTotal] = useState(0);
+  // slice-library-modal-polish Step 8 hotfix BUG-LMP-2-A —
+  // libraryTotalActive (archived=false count) triggers the
+  // library-empty (⊹) shape when all leaves are archived. Split
+  // from libraryTotal so the result-count denominator stays
+  // aligned with the rendered (active + archived) scope while
+  // the empty-state branching reads the PM-facing "is there
+  // anything to browse" signal.
+  const [libraryTotalActive, setLibraryTotalActive] = useState(0);
   const [scenarioLabel, setScenarioLabel] = useState("");
   // slice-library-modal-polish Step 2 — clientName threaded for the
   // CD redesign subtitle "{client} · {qid}" landing in Step 3. NULL
@@ -141,6 +149,7 @@ export function LibraryBrowseModal({
         setRows(result.data.rows);
         setTotal(result.data.total);
         setLibraryTotal(result.data.libraryTotal);
+        setLibraryTotalActive(result.data.libraryTotalActive);
         setScenarioLabel(result.data.scenarioLabel);
         setClientName(result.data.clientName);
       });
@@ -172,6 +181,7 @@ export function LibraryBrowseModal({
     setRows([]);
     setTotal(0);
     setLibraryTotal(0);
+    setLibraryTotalActive(0);
     setScenarioLabel("");
     setClientName(null);
     setError(null);
@@ -240,6 +250,7 @@ export function LibraryBrowseModal({
         setRows(refreshed.data.rows);
         setTotal(refreshed.data.total);
         setLibraryTotal(refreshed.data.libraryTotal);
+        setLibraryTotalActive(refreshed.data.libraryTotalActive);
         setScenarioLabel(refreshed.data.scenarioLabel);
         setClientName(refreshed.data.clientName);
       }
@@ -290,6 +301,7 @@ export function LibraryBrowseModal({
         setRows(refreshed.data.rows);
         setTotal(refreshed.data.total);
         setLibraryTotal(refreshed.data.libraryTotal);
+        setLibraryTotalActive(refreshed.data.libraryTotalActive);
         setScenarioLabel(refreshed.data.scenarioLabel);
         setClientName(refreshed.data.clientName);
       }
@@ -325,6 +337,7 @@ export function LibraryBrowseModal({
         setRows(refreshed.data.rows);
         setTotal(refreshed.data.total);
         setLibraryTotal(refreshed.data.libraryTotal);
+        setLibraryTotalActive(refreshed.data.libraryTotalActive);
         setScenarioLabel(refreshed.data.scenarioLabel);
         setClientName(refreshed.data.clientName);
       }
@@ -770,15 +783,21 @@ export function LibraryBrowseModal({
               + Step 3's "+ Create new product" CTA (Step 6
               redesigns the .lib-empty visual shape). */}
           <div className="lib-results">
-            {rows.length === 0 && !pending ? (
-              libraryTotal === 0 ? (
-                /* slice-library-modal-polish Step 6 — library-empty
-                   shape per CD §4. Generative glyph ⊹; two equal-
-                   weight CTAs (Create new + Refresh from HubSpot —
-                   Refresh promoted to primary here, the only place
-                   it carries primary visual weight per CD §5).
-                   Permission note beneath when !canCreateLeaves. */
-                <div className="lib-empty">
+            {/* slice-library-modal-polish Step 8 hotfix BUG-LMP-2-A —
+                empty-state branching lifted out of `rows.length ===
+                0` gate. When libraryTotalActive === 0, the ⊹ shape
+                takes priority and suppresses the table even if
+                archived rows exist (rows.length > 0). Otherwise
+                the filtered-empty ∅ shape triggers on no-row
+                results. */}
+            {libraryTotalActive === 0 ? (
+              /* slice-library-modal-polish Step 6 — library-empty
+                 shape per CD §4. Generative glyph ⊹; two equal-
+                 weight CTAs (Create new + Refresh from HubSpot —
+                 Refresh promoted to primary here, the only place
+                 it carries primary visual weight per CD §5).
+                 Permission note beneath when !canCreateLeaves. */
+              <div className="lib-empty">
                   <div className="glyph" aria-hidden="true">
                     ⊹
                   </div>
@@ -819,11 +838,11 @@ export function LibraryBrowseModal({
                     </div>
                   )}
                 </div>
-              ) : (
-                /* slice-library-modal-polish Step 6 — filtered-to-
-                   zero shape per CD §4. Null-set glyph ∅; query
-                   echoed back in a .q chip; Create new (primary) +
-                   Clear search (secondary). Refresh is absent —
+            ) : rows.length === 0 && !pending ? (
+              /* slice-library-modal-polish Step 6 — filtered-to-
+                 zero shape per CD §4. Null-set glyph ∅; query
+                 echoed back in a .q chip; Create new (primary) +
+                 Clear search (secondary). Refresh is absent —
                    pulling won't help a bad query (CD §4 lock). */
                 <div className="lib-empty">
                   <div className="glyph" aria-hidden="true">
@@ -860,9 +879,8 @@ export function LibraryBrowseModal({
                     </div>
                   )}
                 </div>
-              )
             ) : null}
-            {rows.length > 0 && (
+            {libraryTotalActive > 0 && rows.length > 0 && (
               <>
                 <div className="lib-table-head">
                   <span className="h rail" aria-hidden="true" />
