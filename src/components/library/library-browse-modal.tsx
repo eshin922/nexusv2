@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { LibraryBrowseRow } from "@/lib/library-browse-loader";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
-import { fetchLibraryBrowse } from "@/app/actions/leaves";
+import { fetchLibraryBrowse, restoreLeaf } from "@/app/actions/leaves";
 import { attachAssemblyLeaf } from "@/app/actions/assemblies";
 import { AddProductModal } from "@/components/add-product/add-product-modal";
 import { usePullFromHubSpot } from "@/components/assembly-tree/use-pull-from-hubspot";
@@ -280,6 +280,41 @@ export function LibraryBrowseModal({
       setToast(`Attached "${row.name}" to ${targetSkuAtClick}.`);
       // Refresh the library data so the row flips to "✓ in scenario"
       // (and refresh the Setup tree behind the modal).
+      const refreshed = await fetchLibraryBrowse({
+        search,
+        typeFilter: typeFilter || undefined,
+        scopeFilter,
+        targetQuoteId: quoteId,
+      });
+      if (refreshed.ok) {
+        setRows(refreshed.data.rows);
+        setTotal(refreshed.data.total);
+        setLibraryTotal(refreshed.data.libraryTotal);
+        setScenarioLabel(refreshed.data.scenarioLabel);
+        setClientName(refreshed.data.clientName);
+      }
+      router.refresh();
+    });
+  }
+
+  // slice-library-modal-polish Step 5 — restore handler. Mirrors
+  // handleAttach's optimistic-state shape: setAttaching marks the
+  // row pending; restoreLeaf action flips archived to false; on
+  // success, re-fetch the library so the row flips readiness
+  // 'archived' → 'ready'. Permission gating happens server-side
+  // (assertCanCreateLeaves); UI also gates the button visibility
+  // via permissions.canCreateLeaves below.
+  function handleRestore(row: LibraryBrowseRow) {
+    setAttaching(row.leafId);
+    startTransition(async () => {
+      setError(null);
+      const result = await restoreLeaf(row.leafId);
+      setAttaching(null);
+      if (!result.ok) {
+        setError(result.error.message);
+        return;
+      }
+      setToast(`Restored "${row.name}" to the library.`);
       const refreshed = await fetchLibraryBrowse({
         search,
         typeFilter: typeFilter || undefined,
@@ -633,35 +668,57 @@ export function LibraryBrowseModal({
             </span>
           </div>
 
-          <div className="a1v2-library-search">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name or SKU"
-            />
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-            >
-              <option value="">All types</option>
+          {/* slice-library-modal-polish Step 5 — filter row
+              consolidation per CD designer notes §8. Three control
+              rows (search + type + scope) collapse to one row
+              (search + type segmented + result count). Scope filter
+              dropped from the default row per CD §8 ("forensic
+              chrome weight; if needed it belongs in overflow/
+              advanced affordance, not the default row"). */}
+          <div className="lib-filters">
+            <div className="lib-search">
+              <span className="glyph" aria-hidden="true">
+                ⌕
+              </span>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name or SKU"
+                aria-label="Search library"
+              />
+            </div>
+            <div className="lib-seg" role="tablist" aria-label="Type filter">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={typeFilter === ""}
+                className={typeFilter === "" ? "active" : ""}
+                onClick={() => setTypeFilter("")}
+              >
+                All types
+              </button>
               {leafTypes.map((t) => (
-                <option key={t.id} value={t.id}>
+                <button
+                  key={t.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={typeFilter === t.id}
+                  className={typeFilter === t.id ? "active" : ""}
+                  onClick={() => setTypeFilter(t.id)}
+                  title={
+                    t.placeholder ? `${t.name} · fields TBD` : t.name
+                  }
+                >
                   {t.name}
-                  {t.placeholder ? " · fields TBD" : ""}
-                </option>
+                </button>
               ))}
-            </select>
-            <select
-              value={scopeFilter}
-              onChange={(e) =>
-                setScopeFilter(e.target.value as typeof scopeFilter)
-              }
-            >
-              <option value="all">All scenarios</option>
-              <option value="this">This scenario only</option>
-              <option value="other">Used elsewhere</option>
-            </select>
+            </div>
+            <span className="lib-result-count">
+              {pending && rows.length === 0
+                ? "loading…"
+                : `${rows.length} of ${libraryTotal}`}
+            </span>
           </div>
 
           {error ? (
@@ -678,15 +735,13 @@ export function LibraryBrowseModal({
             </div>
           ) : null}
 
-          <div className="a1v2-library-results">
-            {/* slice-library-first-creation-flow Step 2 — empty-state
-                copy splits into two shapes per locked Q3 disposition:
-                  - libraryTotal === 0 → "Library is empty…" (first-touch)
-                  - libraryTotal > 0 + rows.length === 0 → "No
-                    components match '{search}.' Library has N
-                    components total." (filtered to zero)
-                "Create new" CTA + inline Pull progress band land in
-                Steps 3 + 5. */}
+          {/* slice-library-modal-polish Step 5 — 5-col results
+              table per CD designer notes §1. Fixed-height (56px)
+              rows scale to ~990 HubSpot catalog items without
+              collapse. Empty states retain Step 2's two-shape copy
+              + Step 3's "+ Create new product" CTA (Step 6
+              redesigns the .lib-empty visual shape). */}
+          <div className="lib-results">
             {rows.length === 0 && !pending ? (
               <div
                 style={{
@@ -722,11 +777,6 @@ export function LibraryBrowseModal({
                     a different search, or:
                   </p>
                 )}
-                {/* slice-library-first-creation-flow Step 3 —
-                    + Create new product CTA per locked Q5. Renders
-                    in both empty-state shapes (truly-empty +
-                    filtered-empty). Per Q6: disabled when
-                    !canCreateLeaves, with explanatory tooltip. */}
                 <button
                   type="button"
                   className="a1v2-btn primary sm"
@@ -743,91 +793,132 @@ export function LibraryBrowseModal({
                 </button>
               </div>
             ) : null}
-            {rows.map((row) => {
-              const alreadyHere =
-                row.attachedAssemblyIdsInTargetQuote.length > 0;
-              const alreadyOnTarget =
-                targetAssemblyId &&
-                row.attachedAssemblyIdsInTargetQuote.includes(targetAssemblyId);
-              return (
-                <div
-                  key={row.leafId}
-                  className={`a1v2-library-row${alreadyHere ? " in-scenario" : ""}`}
-                >
-                  <span className="icon" aria-hidden="true">
-                    ◦
-                  </span>
-                  <div className="name-cell">
-                    <div className="name">{row.name}</div>
-                    <div className="sku">SKU {row.sku ?? "—"}</div>
-                  </div>
-                  <span className="type-tag">
-                    {row.productType?.name ?? "untyped"}
-                  </span>
-                  {/* slice-hubspot-bidirectional Step 7 — origin
-                      indicator. Renders only when leaf has a HubSpot
-                      anchor; absence implies Nexus-local. accent-soft
-                      register distinguishes from the rule/paper-2
-                      type-tag chip so HubSpot-sourced reads at a
-                      glance during library browse. */}
-                  {row.hubspotProductId && (
-                    <span
-                      title={`Sourced from HubSpot · product id ${row.hubspotProductId}`}
-                      style={{
-                        fontFamily: "var(--mono)",
-                        fontSize: 10,
-                        letterSpacing: "0.08em",
-                        textTransform: "uppercase",
-                        color: "var(--accent-ink, var(--ink-2))",
-                        background: "var(--accent-soft, var(--paper-2))",
-                        border:
-                          "1px solid var(--accent, var(--rule))",
-                        borderRadius: 3,
-                        padding: "1px 6px",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      ⤓ HS
-                    </span>
-                  )}
-                  <span className="refs-cell">
-                    <strong>{row.totalRefs}</strong> ASY
-                    {row.totalRefs === 1 ? "" : "s"} ·{" "}
-                    {row.totalScenarios} scenario
-                    {row.totalScenarios === 1 ? "" : "s"}
-                  </span>
-                  {alreadyOnTarget ? (
-                    <span className="already-in">✓ on this ASY</span>
-                  ) : (
-                    /* slice-library-modal-polish Step 4 — simplified
-                       attach button per CD designer notes §3. Target
-                       is the implicit object (lives on .lib-target-bar);
-                       row buttons just say "Attach". Disabled state
-                       only fires in the zero-assemblies edge case
-                       (target bar shows "No assemblies" placeholder
-                       in that case). */
-                    <button
-                      type="button"
-                      className="a1v2-btn sm"
-                      onClick={() => handleAttach(row)}
-                      disabled={
-                        !targetAssemblyId ||
-                        attaching === row.leafId ||
-                        pending
-                      }
-                      aria-disabled={!targetAssemblyId}
-                      title={
-                        targetAssemblyId
-                          ? `Attach to ${targetAssembly?.sku}`
-                          : "Create an ASY first to enable attach"
-                      }
-                    >
-                      {attaching === row.leafId ? "Adding…" : "Attach"}
-                    </button>
-                  )}
+            {rows.length > 0 && (
+              <>
+                <div className="lib-table-head">
+                  <span className="h rail" aria-hidden="true" />
+                  <span className="h name">Component</span>
+                  <span className="h type">Type</span>
+                  <span className="h status">Status</span>
+                  <span className="h action">Action</span>
                 </div>
-              );
-            })}
+                {rows.map((row) => {
+                  /* slice-library-modal-polish Step 5 — readiness
+                     derivation client-side per CD designer notes §7.
+                     `attached` reads against the currently-selected
+                     target ASY (re-evaluates when target changes).
+                     `archived` takes priority — an archived leaf
+                     shows the Restore action regardless of any-ASY
+                     attachment status. */
+                  const readiness: "ready" | "attached" | "archived" =
+                    row.archived
+                      ? "archived"
+                      : targetAssemblyId &&
+                          row.attachedAssemblyIdsInTargetQuote.includes(
+                            targetAssemblyId,
+                          )
+                        ? "attached"
+                        : "ready";
+                  const source: "nexus" | "hubspot" = row.hubspotProductId
+                    ? "hubspot"
+                    : "nexus";
+                  return (
+                    <div
+                      key={row.leafId}
+                      className={`lib-row ${readiness}`}
+                    >
+                      <span className="rail" aria-hidden="true" />
+                      <div className="name-cell">
+                        <span className="icon" aria-hidden="true">
+                          ◦
+                        </span>
+                        <span className="text">
+                          <span className="name">{row.name}</span>
+                          <span className="sub">
+                            <span
+                              className={`src ${source}`}
+                              title={
+                                source === "hubspot"
+                                  ? `Sourced from HubSpot · product id ${row.hubspotProductId}`
+                                  : "Nexus-local"
+                              }
+                            >
+                              {source}
+                            </span>
+                            <span>SKU {row.sku ?? "—"}</span>
+                            <span className="usage">
+                              · {row.totalRefs} ASY
+                              {row.totalRefs === 1 ? "" : "s"} ·{" "}
+                              {row.totalScenarios} scenario
+                              {row.totalScenarios === 1 ? "" : "s"}
+                            </span>
+                          </span>
+                        </span>
+                      </div>
+                      <span className="type-cell">
+                        {row.productType?.name ?? "untyped"}
+                      </span>
+                      <span className="status-cell">
+                        <span className={`status-pill ${readiness}`}>
+                          <span className="dot" aria-hidden="true" />
+                          {readiness}
+                        </span>
+                      </span>
+                      <span className="action-cell">
+                        {/* Readiness-driven action: Attach (ready) /
+                            ✓ Attached (attached, no button) /
+                            Restore (archived, perm-gated). */}
+                        {readiness === "attached" ? (
+                          <span className="lib-attached-mark">
+                            ✓ Attached
+                          </span>
+                        ) : readiness === "archived" ? (
+                          <button
+                            type="button"
+                            className="lib-restore-btn"
+                            onClick={() => handleRestore(row)}
+                            disabled={
+                              !permissions.canCreateLeaves ||
+                              attaching === row.leafId ||
+                              pending
+                            }
+                            aria-disabled={!permissions.canCreateLeaves}
+                            title={
+                              permissions.canCreateLeaves
+                                ? "Restore this leaf to the active catalog"
+                                : "You don't have permission to restore library items. Ask an admin."
+                            }
+                          >
+                            {attaching === row.leafId
+                              ? "Restoring…"
+                              : "Restore"}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="lib-attach-btn"
+                            onClick={() => handleAttach(row)}
+                            disabled={
+                              !targetAssemblyId ||
+                              attaching === row.leafId ||
+                              pending
+                            }
+                            aria-disabled={!targetAssemblyId}
+                            title={
+                              targetAssemblyId
+                                ? `Attach to ${targetAssembly?.sku}`
+                                : "Create an ASY first to enable attach"
+                            }
+                          >
+                            {attaching === row.leafId ? "Adding…" : "Attach"}
+                          </button>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </>
+            )}
           </div>
         </div>
       </div>

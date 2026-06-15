@@ -169,6 +169,65 @@ export async function createLeaf(
 }
 
 /**
+ * slice-library-modal-polish Step 5 — restore a previously
+ * archived library leaf (sets archived=false). Mirror of the
+ * pull-flow's leaf_archive write but UI-driven; gated on
+ * canCreateLeaves (same permission as create + refresh affordances
+ * per Catch #6 disposition).
+ *
+ * Audit: `leaf_restored` action (new entry in the audit_log
+ * namespace; documented in CLAUDE.md). diff_json carries from/to
+ * shape: { archived: { from: true, to: false } }.
+ *
+ * Nexus-side only — when the leaf has a hubspot_product_id, the
+ * HubSpot product remains archived on the HubSpot side. v1
+ * tolerance per Pattern 32 (pre-production engineering tolerance);
+ * v1.1+ bidirectional sync candidate.
+ */
+export async function restoreLeaf(
+  leafId: string,
+): Promise<ActionResult<{ leafId: string }>> {
+  return runAction(async () => {
+    const user = await assertCanCreateLeaves();
+
+    const [existing] = await db
+      .select({ id: leaves.id, archived: leaves.archived, name: leaves.name })
+      .from(leaves)
+      .where(eq(leaves.id, leafId))
+      .limit(1);
+
+    if (!existing) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "Leaf not found.");
+    }
+    if (!existing.archived) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Leaf is already active. Nothing to restore.",
+      );
+    }
+
+    await db
+      .update(leaves)
+      .set({ archived: false, updatedAt: new Date() })
+      .where(eq(leaves.id, leafId));
+
+    await db.insert(auditLog).values({
+      userId: user.id,
+      entityType: "leaf",
+      entityId: leafId,
+      action: "leaf_restored",
+      diffJson: {
+        archived: { from: true, to: false },
+        leaf_name: existing.name,
+      },
+    });
+
+    revalidatePath("/projects/[id]/quotes/[quoteId]/setup", "page");
+    return { leafId };
+  });
+}
+
+/**
  * Phase A.1 v2 impl-5 — server action wrapper for client-side
  * library browse data fetch.
  *

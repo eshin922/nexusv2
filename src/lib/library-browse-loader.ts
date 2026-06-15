@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, count, eq, ilike, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, ilike, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblies,
@@ -70,6 +70,13 @@ export type LibraryBrowseRow = {
   // Library browse modal renders a ⤓ HS chip when non-null
   // distinguishes HubSpot-sourced from Nexus-local at a glance.
   hubspotProductId: string | null;
+  // slice-library-modal-polish Step 5 — `archived` flag surfaced
+  // per-row so the CD redesign can show archived leaves inline
+  // with a "Restore" action (CD designer notes §7 readiness
+  // states: ready / attached / archived). Loader's base row query
+  // no longer filters archived out; client derives readiness from
+  // (archived flag, target-ASY membership).
+  archived: boolean;
   totalRefs: number;
   totalScenarios: number;
   attachedAssemblyIdsInTargetQuote: string[];
@@ -91,9 +98,15 @@ export async function loadLibraryBrowse(
   const limit = filters.limit ?? DEFAULT_LIMIT;
   const search = filters.search?.trim() ?? "";
 
-  // Build the base leaves query — non-archived + optional search +
-  // optional type filter.
-  const conds = [eq(leaves.archived, false)];
+  // Build the base leaves query — search + optional type filter.
+  //
+  // slice-library-modal-polish Step 5 — `archived = false` filter
+  // removed from the base row query so archived leaves appear in
+  // the result list with a "Restore" affordance (CD designer notes
+  // §7 readiness states). libraryTotal below retains the
+  // `archived = false` filter so the catalog-size figure PMs see
+  // in empty-state copy reflects only active leaves.
+  const conds: SQL[] = [];
   if (search.length > 0) {
     const pattern = `%${search}%`;
     const orClause = or(
@@ -205,6 +218,7 @@ export async function loadLibraryBrowse(
       unitCost: r.unitCost,
       url: r.url,
       hubspotProductId: r.hubspotProductId,
+      archived: r.archived,
       totalRefs: js.length,
       totalScenarios: distinctQuoteIds.size,
       attachedAssemblyIdsInTargetQuote,
