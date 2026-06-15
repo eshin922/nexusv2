@@ -22,6 +22,16 @@
  *      .lbl (upstream lines 48-61) — per-state designer commentary
  *      banner.
  *
+ *   4. .a1v2-modal-backdrop { position: relative } (upstream lines
+ *      64-66) — paired with the dropped .lib-stage container so the
+ *      backdrop renders inside the demo stage in CD's review
+ *      prototype. Without .lib-stage in production, this override
+ *      collapses the backdrop from full-viewport (canonical
+ *      position: fixed; inset: 0) to its inline mount position,
+ *      breaking modal centering + dimming. The canonical fixed
+ *      positioning from r-a1v2-setup.css:457 must stay in effect.
+ *      Caught by BUG LMP-FRAME-1 during the Step 8 CB smoke walk.
+ *
  * No other content modifications. Class names are .lib-* prefix-
  * clean (verified via Pattern 30 path-B-default check); no parent-
  * scope wrap needed.
@@ -38,9 +48,12 @@
 
 
 /* ── Modal sizing override — wider for the list at scale ──────────── */
-.a1v2-modal-backdrop {
-  position: relative;
-}
+/* Note: the upstream `.a1v2-modal-backdrop { position: relative }` rule
+ * is intentionally NOT carried over (drop #4 documented in the file
+ * header). The canonical position: fixed; inset: 0 from
+ * r-a1v2-setup.css must remain in effect for the backdrop to cover
+ * the viewport + center the modal. Only the modal sizing override
+ * lands here. */
 .lib-modal.a1v2-modal {
   width: min(940px, 100%);
   max-height: calc(100vh - 120px);
