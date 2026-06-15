@@ -36,6 +36,7 @@ export function AddProductModal({
   projectId,
   open,
   onClose,
+  onSuccess,
   assemblyTypes,
   leafTypes,
 }: {
@@ -43,6 +44,13 @@ export function AddProductModal({
   projectId: string;
   open: boolean;
   onClose: () => void;
+  // slice-library-first-creation-flow Step 3 — optional success
+  // callback for stacked-modal consumers (LibraryBrowseModal's
+  // "+ Create new product" path). Fires alongside `onClose` only
+  // on successful create. Absent → preserves prior behavior
+  // (existing AddProductTrigger mount doesn't need to discriminate
+  // submit vs cancel).
+  onSuccess?: (result: { kind: "asy" | "leaf"; id: string }) => void;
   assemblyTypes: AssemblyTypeOption[];
   leafTypes: LeafSpecEntryProductType[];
 }) {
@@ -132,6 +140,7 @@ export function AddProductModal({
         setError(result.error.message);
         return;
       }
+      onSuccess?.({ kind: "asy", id: result.data.assemblyId });
       onClose();
       setToast(`Added "${asyName.trim()}" to this quote.`);
       router.refresh();
@@ -161,6 +170,7 @@ export function AddProductModal({
         setError(result.error.message);
         return;
       }
+      onSuccess?.({ kind: "leaf", id: result.data.leafId });
       onClose();
       if (option === "continue") {
         router.push(

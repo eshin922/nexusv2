@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { LibraryBrowseRow } from "@/lib/library-browse-loader";
+import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { fetchLibraryBrowse } from "@/app/actions/leaves";
 import { attachAssemblyLeaf } from "@/app/actions/assemblies";
+import { AddProductModal } from "@/components/add-product/add-product-modal";
 
 // Phase A.1 v2 impl-5 — Library browse modal (scenarios ⑰-⑱).
 //
@@ -38,14 +40,36 @@ export function LibraryBrowseModal({
   open,
   onClose,
   quoteId,
+  projectId,
   assemblies,
   leafTypes,
+  assemblyTypes,
+  fullLeafTypes,
+  permissions,
 }: {
   open: boolean;
   onClose: () => void;
   quoteId: string;
+  // slice-library-first-creation-flow Step 3 — projectId threaded
+  // for the nested AddProductModal launched from "+ Create new
+  // product" (its LEAF-Continue path navigates to
+  // /projects/[id]/quotes/[quoteId]/leaves/[leafId]/specs).
+  projectId: string;
   assemblies: AssemblyTarget[];
+  // Type-filter dropdown options (id + name + placeholder).
   leafTypes: { id: string; name: string; placeholder: boolean }[];
+  // slice-library-first-creation-flow Step 3 — AddProductModal
+  // form requires the full leaf-spec-entry shape (id + name +
+  // placeholder + fieldSchema). Threaded through alongside the
+  // type-filter shape; same source (loadProductTypeOptions) on
+  // the page.
+  assemblyTypes: { id: string; name: string }[];
+  fullLeafTypes: LeafSpecEntryProductType[];
+  // slice-library-first-creation-flow Step 3 — per locked Q6:
+  // gate "+ Create new product" + (Step 5) "↗ Refresh from
+  // HubSpot" affordances on canCreateLeaves. Attach actions stay
+  // ungated at UI layer (server-side gate is canonical).
+  permissions: { canCreateLeaves: boolean };
 }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
@@ -66,6 +90,11 @@ export function LibraryBrowseModal({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [attaching, setAttaching] = useState<string | null>(null);
+  // slice-library-first-creation-flow Step 3 — stacked AddProductModal
+  // state. Click "+ Create new product" → setCreateOpen(true) → modal
+  // mounts on top of library backdrop (DOM-order z-index resolution;
+  // Step 4 formalizes via .r-a1v2-modal-stacked nexus extension).
+  const [createOpen, setCreateOpen] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Initial load + filter changes (debounced for search input).
@@ -119,7 +148,35 @@ export function LibraryBrowseModal({
     setScenarioLabel("");
     setError(null);
     setAttaching(null);
+    setCreateOpen(false);
   }, [open]);
+
+  // slice-library-first-creation-flow Step 3 — re-fetch library
+  // after a successful "+ Create new" submit. Reused by both empty-
+  // state Create-new paths + the post-AddProductModal success
+  // callback. Clears search/type/scope filters so the new leaf
+  // surfaces at the top of the list immediately. Pattern mirrors
+  // the attach refresh below.
+  function refreshLibrary() {
+    setSearch("");
+    setTypeFilter("");
+    setScopeFilter("all");
+    startTransition(async () => {
+      const refreshed = await fetchLibraryBrowse({
+        search: "",
+        typeFilter: undefined,
+        scopeFilter: "all",
+        targetQuoteId: quoteId,
+      });
+      if (refreshed.ok) {
+        setRows(refreshed.data.rows);
+        setTotal(refreshed.data.total);
+        setLibraryTotal(refreshed.data.libraryTotal);
+        setScenarioLabel(refreshed.data.scenarioLabel);
+      }
+    });
+    router.refresh();
+  }
 
   const targetAssembly = useMemo(
     () => assemblies.find((a) => a.id === targetAssemblyId) ?? null,
@@ -295,32 +352,60 @@ export function LibraryBrowseModal({
                 "Create new" CTA + inline Pull progress band land in
                 Steps 3 + 5. */}
             {rows.length === 0 && !pending ? (
-              libraryTotal === 0 ? (
-                <p
-                  style={{
-                    padding: "24px 16px",
-                    color: "var(--ink-3)",
-                    fontStyle: "italic",
-                    textAlign: "center",
-                  }}
+              <div
+                style={{
+                  padding: "24px 16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                  alignItems: "center",
+                  textAlign: "center",
+                }}
+              >
+                {libraryTotal === 0 ? (
+                  <p
+                    style={{
+                      color: "var(--ink-3)",
+                      fontStyle: "italic",
+                      margin: 0,
+                    }}
+                  >
+                    Library is empty. Start by creating your first
+                    product or pulling the HubSpot catalog.
+                  </p>
+                ) : (
+                  <p
+                    style={{
+                      color: "var(--ink-3)",
+                      fontStyle: "italic",
+                      margin: 0,
+                    }}
+                  >
+                    No components match &ldquo;{search}.&rdquo;
+                    Library has {libraryTotal} components total. Try
+                    a different search, or:
+                  </p>
+                )}
+                {/* slice-library-first-creation-flow Step 3 —
+                    + Create new product CTA per locked Q5. Renders
+                    in both empty-state shapes (truly-empty +
+                    filtered-empty). Per Q6: disabled when
+                    !canCreateLeaves, with explanatory tooltip. */}
+                <button
+                  type="button"
+                  className="a1v2-btn primary sm"
+                  onClick={() => setCreateOpen(true)}
+                  disabled={!permissions.canCreateLeaves}
+                  aria-disabled={!permissions.canCreateLeaves}
+                  title={
+                    permissions.canCreateLeaves
+                      ? "Create a new product and add it to the library"
+                      : "You don't have permission to create new products. Ask an admin."
+                  }
                 >
-                  Library is empty. Start by creating your first product
-                  or pulling the HubSpot catalog.
-                </p>
-              ) : (
-                <p
-                  style={{
-                    padding: "24px 16px",
-                    color: "var(--ink-3)",
-                    fontStyle: "italic",
-                    textAlign: "center",
-                  }}
-                >
-                  No components match &ldquo;{search}.&rdquo; Library
-                  has {libraryTotal} components total. Try a different
-                  search, or:
-                </p>
-              )
+                  + Create new product →
+                </button>
+              </div>
             ) : null}
             {rows.map((row) => {
               const alreadyHere =
@@ -402,6 +487,29 @@ export function LibraryBrowseModal({
           </div>
         </div>
       </div>
+      {/* slice-library-first-creation-flow Step 3 — stacked
+          AddProductModal. Mounted as a peer inside the library
+          backdrop's tree; AddProductModal's own backdrop
+          (.a1v2-modal-backdrop with position:fixed inset:0)
+          covers the viewport regardless of mount location. Both
+          modals share z-index:100 in canonical CSS; later mount
+          wins by DOM order (Step 4 formalizes via
+          .r-a1v2-modal-stacked nexus extension + Escape
+          stopPropagation). onSuccess refreshes library +
+          re-fetches so the new leaf surfaces immediately. */}
+      <AddProductModal
+        quoteId={quoteId}
+        projectId={projectId}
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onSuccess={(r) => {
+          if (r.kind === "leaf") {
+            refreshLibrary();
+          }
+        }}
+        assemblyTypes={assemblyTypes}
+        leafTypes={fullLeafTypes}
+      />
     </div>
   );
 }

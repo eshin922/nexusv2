@@ -31,6 +31,7 @@ export function AssemblyTreeView({
   assemblyTypes,
   leafTypes,
   leafTypesForFilter,
+  permissions,
 }: {
   tree: AssemblyTree;
   editable: boolean;
@@ -39,6 +40,11 @@ export function AssemblyTreeView({
   assemblyTypes: { id: string; name: string }[];
   leafTypes: LeafSpecEntryProductType[];
   leafTypesForFilter: { id: string; name: string; placeholder: boolean }[];
+  // slice-library-first-creation-flow Step 3 — threaded through to
+  // LibraryBrowseTrigger → LibraryBrowseModal for the gated
+  // "+ Create new product" CTA. Page-level fetcher reads
+  // user.canCreateLeaves from session via ensureUser.
+  permissions: { canCreateLeaves: boolean };
 }) {
   // Rollup-state counters for the tree summary header (scenario ④).
   // good = all_complete, warn = partial or mixed_with_placeholders,
@@ -136,6 +142,7 @@ export function AssemblyTreeView({
       <div className="a1v2-library-affordance">
         <LibraryBrowseTrigger
           quoteId={quoteId}
+          projectId={projectId}
           editable={editable}
           assemblies={tree.assemblies.map((a) => ({
             id: a.id,
@@ -143,6 +150,9 @@ export function AssemblyTreeView({
             name: a.name,
           }))}
           leafTypes={leafTypesForFilter}
+          assemblyTypes={assemblyTypes}
+          fullLeafTypes={leafTypes}
+          permissions={permissions}
         />
         <span className="meta">browse globally-reusable components</span>
       </div>
