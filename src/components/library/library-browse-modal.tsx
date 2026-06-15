@@ -56,6 +56,13 @@ export function LibraryBrowseModal({
   const [targetAssemblyId, setTargetAssemblyId] = useState<string>("");
   const [rows, setRows] = useState<LibraryBrowseRow[]>([]);
   const [total, setTotal] = useState(0);
+  // slice-library-first-creation-flow Step 2 — libraryTotal lets
+  // empty-state copy distinguish "library is empty" (libraryTotal
+  // === 0) from "filtered to zero" (libraryTotal > 0 &&
+  // rows.length === 0). scenarioLabel surfaced for later steps'
+  // modal sub-copy "Find or create a component for {scenarioLabel}".
+  const [libraryTotal, setLibraryTotal] = useState(0);
+  const [scenarioLabel, setScenarioLabel] = useState("");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [attaching, setAttaching] = useState<string | null>(null);
@@ -80,6 +87,8 @@ export function LibraryBrowseModal({
         }
         setRows(result.data.rows);
         setTotal(result.data.total);
+        setLibraryTotal(result.data.libraryTotal);
+        setScenarioLabel(result.data.scenarioLabel);
       });
     }, SEARCH_DEBOUNCE_MS);
     return () => {
@@ -106,6 +115,8 @@ export function LibraryBrowseModal({
     setTargetAssemblyId("");
     setRows([]);
     setTotal(0);
+    setLibraryTotal(0);
+    setScenarioLabel("");
     setError(null);
     setAttaching(null);
   }, [open]);
@@ -143,6 +154,8 @@ export function LibraryBrowseModal({
       if (refreshed.ok) {
         setRows(refreshed.data.rows);
         setTotal(refreshed.data.total);
+        setLibraryTotal(refreshed.data.libraryTotal);
+        setScenarioLabel(refreshed.data.scenarioLabel);
       }
       router.refresh();
     });
@@ -273,17 +286,41 @@ export function LibraryBrowseModal({
           ) : null}
 
           <div className="a1v2-library-results">
+            {/* slice-library-first-creation-flow Step 2 — empty-state
+                copy splits into two shapes per locked Q3 disposition:
+                  - libraryTotal === 0 → "Library is empty…" (first-touch)
+                  - libraryTotal > 0 + rows.length === 0 → "No
+                    components match '{search}.' Library has N
+                    components total." (filtered to zero)
+                "Create new" CTA + inline Pull progress band land in
+                Steps 3 + 5. */}
             {rows.length === 0 && !pending ? (
-              <p
-                style={{
-                  padding: "24px 16px",
-                  color: "var(--ink-3)",
-                  fontStyle: "italic",
-                  textAlign: "center",
-                }}
-              >
-                No leaves match the current filters.
-              </p>
+              libraryTotal === 0 ? (
+                <p
+                  style={{
+                    padding: "24px 16px",
+                    color: "var(--ink-3)",
+                    fontStyle: "italic",
+                    textAlign: "center",
+                  }}
+                >
+                  Library is empty. Start by creating your first product
+                  or pulling the HubSpot catalog.
+                </p>
+              ) : (
+                <p
+                  style={{
+                    padding: "24px 16px",
+                    color: "var(--ink-3)",
+                    fontStyle: "italic",
+                    textAlign: "center",
+                  }}
+                >
+                  No components match &ldquo;{search}.&rdquo; Library
+                  has {libraryTotal} components total. Try a different
+                  search, or:
+                </p>
+              )
             ) : null}
             {rows.map((row) => {
               const alreadyHere =
