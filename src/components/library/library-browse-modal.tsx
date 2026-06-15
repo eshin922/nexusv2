@@ -7,6 +7,7 @@ import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { fetchLibraryBrowse } from "@/app/actions/leaves";
 import { attachAssemblyLeaf } from "@/app/actions/assemblies";
 import { AddProductModal } from "@/components/add-product/add-product-modal";
+import { usePullFromHubSpot } from "@/components/assembly-tree/use-pull-from-hubspot";
 
 // Phase A.1 v2 impl-5 — Library browse modal (scenarios ⑰-⑱).
 //
@@ -141,7 +142,9 @@ export function LibraryBrowseModal({
     return () => document.removeEventListener("keydown", handleKey);
   }, [open, pending, attaching, onClose]);
 
-  // Reset state on close.
+  // Reset state on close. Pull state (lives in the hook) is reset
+  // in a separate effect after the hook call below — hooks rules
+  // require a stable call order.
   useEffect(() => {
     if (open) return;
     setSearch("");
@@ -242,6 +245,28 @@ export function LibraryBrowseModal({
     });
   }
 
+  // slice-library-first-creation-flow Step 5 — pull engine for the
+  // inline progress band. onComplete refreshes the library browse
+  // rows so newly-pulled leaves surface immediately. Pull-pending
+  // blocks the modal close affordance just like an in-flight attach.
+  const pull = usePullFromHubSpot({
+    projectId,
+    onComplete: refreshLibrary,
+  });
+  const pullBlocking = pull.isPulling;
+
+  // Reset pull state when modal closes. Companion to the close-reset
+  // effect above (separate effect because hooks rules require the
+  // pull hook call before this).
+  useEffect(() => {
+    if (open) return;
+    pull.reset();
+    // pull.reset is stable across renders (hook returns the same
+    // identity); intentionally omitted from deps to avoid the lint
+    // warning + unnecessary re-fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   if (!open) return null;
 
   return (
@@ -249,7 +274,13 @@ export function LibraryBrowseModal({
       className="a1v2-modal-backdrop"
       role="presentation"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !pending && !attaching) onClose();
+        if (
+          e.target === e.currentTarget &&
+          !pending &&
+          !attaching &&
+          !pullBlocking
+        )
+          onClose();
       }}
     >
       <div
@@ -267,6 +298,32 @@ export function LibraryBrowseModal({
             <span className="meta">
               {pending && rows.length === 0 ? "loading…" : `${total} leaves`}
             </span>
+            {/* slice-library-first-creation-flow Step 5 — Refresh
+                from HubSpot affordance per locked Q3 disposition.
+                Small ghost button in header; click triggers the
+                pull via the hook (progress renders inline below
+                the head; no nested modal). Gated on
+                canCreateLeaves per locked Q6. */}
+            <button
+              type="button"
+              className="a1v2-btn ghost sm"
+              onClick={pull.start}
+              disabled={
+                !permissions.canCreateLeaves ||
+                pull.pending ||
+                pull.isPulling ||
+                pending ||
+                !!attaching
+              }
+              aria-disabled={!permissions.canCreateLeaves}
+              title={
+                permissions.canCreateLeaves
+                  ? "Pull HubSpot products into the library"
+                  : "You don't have permission to create new products. Ask an admin."
+              }
+            >
+              ↗ Refresh from HubSpot
+            </button>
             <button
               type="button"
               className="a1v2-btn ghost sm"
@@ -279,6 +336,112 @@ export function LibraryBrowseModal({
         </div>
 
         <div className="a1v2-library-browse">
+          {/* slice-library-first-creation-flow Step 5 — inline pull
+              progress band per locked Q5 disposition β. Renders
+              below the head when phase != idle. Three states:
+              pulling (active or archived sweep), error (with
+              retry), complete (auto-clears via the same Close
+              gating used by attach pending). PMs stay visually
+              in library context — no nested overlay. */}
+          {pull.phase !== "idle" && (
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                padding: "10px 14px",
+                background:
+                  pull.phase === "error"
+                    ? "var(--bad-soft, var(--paper-2))"
+                    : pull.phase === "complete"
+                      ? "var(--good-soft, var(--paper-2))"
+                      : "var(--paper-2)",
+                borderBottom: "1px solid var(--rule)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                fontSize: 12,
+                color: "var(--ink-2)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 12,
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 10.5,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: "var(--ink-3)",
+                  }}
+                >
+                  {pull.phase === "pulling-active" &&
+                    "Pulling… pass 1/2 · active products"}
+                  {pull.phase === "pulling-archived" &&
+                    "Pulling… pass 2/2 · archived sweep"}
+                  {pull.phase === "complete" && "Pull complete"}
+                  {pull.phase === "error" &&
+                    "Pull paused — retry resumes from last batch"}
+                </span>
+                {pull.phase === "error" && (
+                  <button
+                    type="button"
+                    className="a1v2-btn primary sm"
+                    onClick={pull.retry}
+                    disabled={pull.pending}
+                  >
+                    Retry from batch{" "}
+                    {pull.retryCursor?.batchNumber ?? "?"}
+                  </button>
+                )}
+                {(pull.phase === "complete" || pull.phase === "error") && (
+                  <button
+                    type="button"
+                    className="a1v2-btn ghost sm"
+                    onClick={pull.reset}
+                  >
+                    Dismiss
+                  </button>
+                )}
+              </div>
+              {pull.isPulling && pull.latestBatch && (
+                <div
+                  style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 11,
+                    color: "var(--ink-3)",
+                  }}
+                >
+                  Batch {pull.totals.batchCount}:{" "}
+                  {pull.latestBatch.processed} processed · +
+                  {pull.latestBatch.added} added · ~
+                  {pull.latestBatch.updated} updated ·{" "}
+                  {pull.latestBatch.archived} archived
+                </div>
+              )}
+              {pull.phase === "complete" && (
+                <div style={{ color: "var(--good, var(--ink))" }}>
+                  ✓ Pulled {pull.totals.processed} HubSpot product
+                  {pull.totals.processed === 1 ? "" : "s"} ·{" "}
+                  {pull.totals.added} added · {pull.totals.updated}{" "}
+                  updated · {pull.totals.archived} archived
+                </div>
+              )}
+              {pull.phase === "error" && pull.errorMessage && (
+                <div
+                  role="alert"
+                  style={{ color: "var(--bad, var(--ink))" }}
+                >
+                  {pull.errorMessage}
+                </div>
+              )}
+            </div>
+          )}
           {/* Nexus extension: ASY-target selector. Replaces canonical
               hardcoded "+ Add to GLW-30". */}
           <div

@@ -1,8 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { pullFromHubSpot } from "@/app/actions/hubspot-pull";
+import { usePullFromHubSpot } from "./use-pull-from-hubspot";
 
 // slice-hubspot-bidirectional Step 6 — Setup-tree button wiring.
 //
@@ -12,48 +10,19 @@ import { pullFromHubSpot } from "@/app/actions/hubspot-pull";
 // while pulling) and iterates pullFromHubSpot calls until both
 // passes complete (active products → archived sweep).
 //
-// Progress UI mirrors the Step 5 batch summary: per-batch
-// processed/added/updated/archived; running totals across the
-// whole operation. No estimated total denominator (HubSpot's
-// list endpoint doesn't return a cheap product count).
-//
-// Error handling: any batch failure surfaces the HubSpot error
-// inline + offers Retry. Retry resumes from the last successful
-// `nextAfter` cursor so partial pulls don't restart from scratch.
+// slice-library-first-creation-flow Step 5 — refactored to use
+// the extracted usePullFromHubSpot hook. State machine + run-loop
+// + cursor + totals now live in the hook so LibraryBrowseModal
+// can drive its own inline progress band off the same engine
+// (per locked Q5 disposition β — inline band over nested
+// overlay; avoids three-deep modal stack). This trigger preserves
+// its original modal UX for the Setup-tree card-head until Step 6
+// retires the standalone affordance.
 //
 // Pattern 47: file input n/a here (no inputs); button-level
 // `disabled={pending}` only used on the trigger button itself,
 // which is correct (Pattern 47 rule (e) restricts inputs, not
 // buttons).
-
-type Phase =
-  | "idle"
-  | "pulling-active"
-  | "pulling-archived"
-  | "complete"
-  | "error";
-
-type Totals = {
-  processed: number;
-  added: number;
-  updated: number;
-  archived: number;
-  batchCount: number;
-};
-
-type RetryCursor = {
-  after?: string;
-  batchNumber: number;
-  includeArchived: boolean;
-};
-
-const ZERO_TOTALS: Totals = {
-  processed: 0,
-  added: 0,
-  updated: 0,
-  archived: 0,
-  batchCount: 0,
-};
 
 export function PullFromHubSpotTrigger({
   projectId,
@@ -62,112 +31,13 @@ export function PullFromHubSpotTrigger({
   projectId: string;
   disabled?: boolean;
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [totals, setTotals] = useState<Totals>(ZERO_TOTALS);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [retryCursor, setRetryCursor] = useState<RetryCursor | null>(null);
-  const [latestBatch, setLatestBatch] = useState<{
-    processed: number;
-    added: number;
-    updated: number;
-    archived: number;
-  } | null>(null);
+  const pull = usePullFromHubSpot({ projectId });
 
-  const isPulling = phase === "pulling-active" || phase === "pulling-archived";
-  const modalOpen = phase !== "idle";
-
-  function reset() {
-    setPhase("idle");
-    setTotals(ZERO_TOTALS);
-    setErrorMessage(null);
-    setRetryCursor(null);
-    setLatestBatch(null);
-  }
-
-  async function runPullLoop(start: RetryCursor, runningTotals: Totals) {
-    // Local copies so React batched-state updates don't trip the
-    // loop iteration logic.
-    let after: string | undefined = start.after;
-    let batchNumber = start.batchNumber;
-    let includeArchived = start.includeArchived;
-    let acc = runningTotals;
-
-    while (true) {
-      setPhase(includeArchived ? "pulling-archived" : "pulling-active");
-      const result = await pullFromHubSpot({
-        projectId,
-        after,
-        batchNumber,
-        includeArchived,
-      });
-
-      if (!result.ok) {
-        // Save cursor for retry; preserve totals accumulated so far.
-        setErrorMessage(result.error.message);
-        setRetryCursor({ after, batchNumber, includeArchived });
-        setPhase("error");
-        return;
-      }
-
-      const r = result.data;
-      acc = {
-        processed: acc.processed + r.processed,
-        added: acc.added + r.added,
-        updated: acc.updated + r.updated,
-        archived: acc.archived + r.archivedCount,
-        batchCount: acc.batchCount + 1,
-      };
-      setTotals(acc);
-      setLatestBatch({
-        processed: r.processed,
-        added: r.added,
-        updated: r.updated,
-        archived: r.archivedCount,
-      });
-
-      if (r.nextAfter === null) {
-        // Current pass complete. Switch to archived sweep if we
-        // just finished active; else we're done.
-        if (!includeArchived) {
-          includeArchived = true;
-          after = undefined;
-          batchNumber = batchNumber + 1;
-          continue;
-        }
-        setPhase("complete");
-        router.refresh(); // pulled rows surface in library browse
-        return;
-      }
-
-      after = r.nextAfter;
-      batchNumber = batchNumber + 1;
-    }
-  }
-
-  function handleStart() {
-    reset();
-    startTransition(() => {
-      void runPullLoop(
-        { after: undefined, batchNumber: 1, includeArchived: false },
-        ZERO_TOTALS,
-      );
-    });
-  }
-
-  function handleRetry() {
-    if (!retryCursor) return;
-    setErrorMessage(null);
-    setPhase(retryCursor.includeArchived ? "pulling-archived" : "pulling-active");
-    startTransition(() => {
-      void runPullLoop(retryCursor, totals);
-    });
-  }
+  const modalOpen = pull.phase !== "idle";
 
   function handleClose() {
-    if (isPulling) return; // can't close mid-pull
-    reset();
+    if (pull.isPulling) return; // can't close mid-pull
+    pull.reset();
   }
 
   return (
@@ -175,8 +45,8 @@ export function PullFromHubSpotTrigger({
       <button
         type="button"
         className="a1v2-btn ghost sm"
-        onClick={handleStart}
-        disabled={disabled || pending || isPulling}
+        onClick={pull.start}
+        disabled={disabled || pull.pending || pull.isPulling}
         aria-haspopup="dialog"
         aria-expanded={modalOpen}
         title="Pull HubSpot products into the library"
@@ -191,7 +61,7 @@ export function PullFromHubSpotTrigger({
           onMouseDown={(e) => {
             // Block backdrop dismissal while pulling — prevents PM
             // from accidentally closing mid-operation.
-            if (e.target === e.currentTarget && !isPulling) handleClose();
+            if (e.target === e.currentTarget && !pull.isPulling) handleClose();
           }}
         >
           <div
@@ -203,9 +73,9 @@ export function PullFromHubSpotTrigger({
           >
             <div className="a1v2-modal-head">
               <h2 id="pull-modal-title">
-                {phase === "complete"
+                {pull.phase === "complete"
                   ? "Pull complete"
-                  : phase === "error"
+                  : pull.phase === "error"
                     ? "Pull paused"
                     : "Pulling from HubSpot…"}
               </h2>
@@ -223,10 +93,13 @@ export function PullFromHubSpotTrigger({
                   marginBottom: 12,
                 }}
               >
-                {phase === "pulling-active" && "Active products · pass 1 of 2"}
-                {phase === "pulling-archived" && "Archived sweep · pass 2 of 2"}
-                {phase === "complete" && "Both passes finished"}
-                {phase === "error" && "Stopped — retry resumes from last batch"}
+                {pull.phase === "pulling-active" &&
+                  "Active products · pass 1 of 2"}
+                {pull.phase === "pulling-archived" &&
+                  "Archived sweep · pass 2 of 2"}
+                {pull.phase === "complete" && "Both passes finished"}
+                {pull.phase === "error" &&
+                  "Stopped — retry resumes from last batch"}
               </div>
 
               {/* Running totals — always render once we have data */}
@@ -240,10 +113,10 @@ export function PullFromHubSpotTrigger({
                   borderBottom: "1px solid var(--rule)",
                 }}
               >
-                <Stat label="Batches" value={totals.batchCount} />
-                <Stat label="Added" value={totals.added} />
-                <Stat label="Updated" value={totals.updated} />
-                <Stat label="Archived" value={totals.archived} />
+                <Stat label="Batches" value={pull.totals.batchCount} />
+                <Stat label="Added" value={pull.totals.added} />
+                <Stat label="Updated" value={pull.totals.updated} />
+                <Stat label="Archived" value={pull.totals.archived} />
               </div>
 
               <div
@@ -253,12 +126,12 @@ export function PullFromHubSpotTrigger({
                   color: "var(--ink-2)",
                 }}
               >
-                {totals.processed} product
-                {totals.processed === 1 ? "" : "s"} processed so far
+                {pull.totals.processed} product
+                {pull.totals.processed === 1 ? "" : "s"} processed so far
               </div>
 
               {/* Latest batch breakdown */}
-              {latestBatch && isPulling && (
+              {pull.latestBatch && pull.isPulling && (
                 <div
                   style={{
                     marginTop: 8,
@@ -267,14 +140,16 @@ export function PullFromHubSpotTrigger({
                     color: "var(--ink-4)",
                   }}
                 >
-                  Batch {totals.batchCount}: {latestBatch.processed} processed
-                  {" · "}+{latestBatch.added} added · ~{latestBatch.updated}{" "}
-                  updated · {latestBatch.archived} archived
+                  Batch {pull.totals.batchCount}: {pull.latestBatch.processed}{" "}
+                  processed
+                  {" · "}+{pull.latestBatch.added} added · ~
+                  {pull.latestBatch.updated} updated ·{" "}
+                  {pull.latestBatch.archived} archived
                 </div>
               )}
 
               {/* Error message */}
-              {phase === "error" && errorMessage && (
+              {pull.phase === "error" && pull.errorMessage && (
                 <div
                   role="alert"
                   style={{
@@ -287,12 +162,12 @@ export function PullFromHubSpotTrigger({
                     color: "var(--bad, var(--ink))",
                   }}
                 >
-                  {errorMessage}
+                  {pull.errorMessage}
                 </div>
               )}
 
               {/* Completion summary */}
-              {phase === "complete" && (
+              {pull.phase === "complete" && (
                 <div
                   style={{
                     marginTop: 16,
@@ -304,32 +179,32 @@ export function PullFromHubSpotTrigger({
                     color: "var(--good, var(--ink))",
                   }}
                 >
-                  ✓ Pulled {totals.processed} HubSpot product
-                  {totals.processed === 1 ? "" : "s"} into the library.{" "}
-                  {totals.added} new · {totals.updated} updated ·{" "}
-                  {totals.archived} archived.
+                  ✓ Pulled {pull.totals.processed} HubSpot product
+                  {pull.totals.processed === 1 ? "" : "s"} into the
+                  library. {pull.totals.added} new · {pull.totals.updated}{" "}
+                  updated · {pull.totals.archived} archived.
                 </div>
               )}
             </div>
 
             <div className="a1v2-modal-foot">
-              {phase === "error" && (
+              {pull.phase === "error" && (
                 <button
                   type="button"
                   className="a1v2-btn primary sm"
-                  onClick={handleRetry}
-                  disabled={pending}
+                  onClick={pull.retry}
+                  disabled={pull.pending}
                 >
-                  Retry from batch {retryCursor?.batchNumber ?? "?"}
+                  Retry from batch {pull.retryCursor?.batchNumber ?? "?"}
                 </button>
               )}
               <button
                 type="button"
                 className="a1v2-btn ghost"
                 onClick={handleClose}
-                disabled={isPulling}
+                disabled={pull.isPulling}
               >
-                {phase === "complete" ? "Done" : "Close"}
+                {pull.phase === "complete" ? "Done" : "Close"}
               </button>
             </div>
           </div>
