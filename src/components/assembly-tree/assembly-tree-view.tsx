@@ -63,8 +63,17 @@ export function AssemblyTreeView({
     0,
   );
 
+  // Empty-state hierarchy patch (PR #50 CB smoke, banked Edward
+  // 2026-06-15): when no ASYs exist, demote the secondary buttons
+  // (↗ Pull from HubSpot + + Add leaf from library →) so PMs
+  // read the canonical first action (+ Add product) without
+  // competition. Both depend on having ASYs anyway — Pull
+  // populates library but PM still needs ASYs to attach; library
+  // browse requires an ASY target.
+  const isEmpty = tree.assemblies.length === 0;
+
   return (
-    <div className="a1v2-card">
+    <div className="a1v2-card r-a1v2-card-tree">
       <div className="a1v2-card-head">
         <h3>
           SKUs <em>· cost-stack tree</em>
@@ -82,15 +91,20 @@ export function AssemblyTreeView({
           </span>
           {/* Pull from HubSpot — wired in slice-hubspot-bidirectional
               Step 6. Trigger button + modal + double-pull loop live
-              in the PullFromHubSpotTrigger client component. Replaces
-              the inert impl-2 placeholder. */}
-          <PullFromHubSpotTrigger
-            projectId={projectId}
-            disabled={!editable}
-          />
+              in the PullFromHubSpotTrigger client component. Hidden
+              on empty-state per CB smoke patch (single recommended
+              CTA hierarchy); returns once ASYs exist. */}
+          {!isEmpty && (
+            <PullFromHubSpotTrigger
+              projectId={projectId}
+              disabled={!editable}
+            />
+          )}
           {/* + Add product — wired in impl-4 Step 8. Trigger button
               + modal host live in the AddProductTrigger client
-              component; this server wrapper threads the prop chain. */}
+              component; this server wrapper threads the prop chain.
+              Stays prominent across empty + populated states (canonical
+              first action). */}
           <AddProductTrigger
             quoteId={quoteId}
             projectId={projectId}
@@ -125,20 +139,23 @@ export function AssemblyTreeView({
       {/* Phase A.1 v2 impl-5 Step 4 — wire the library browse modal
           trigger. Replaces the impl-2 inert button. Per-ASY attach
           target picked inside the modal (nexus extension vs canonical
-          hardcoded "+ Add to GLW-30"). */}
-      <div className="a1v2-library-affordance">
-        <LibraryBrowseTrigger
-          quoteId={quoteId}
-          editable={editable}
-          assemblies={tree.assemblies.map((a) => ({
-            id: a.id,
-            sku: a.sku,
-            name: a.name,
-          }))}
-          leafTypes={leafTypesForFilter}
-        />
-        <span className="meta">browse globally-reusable components</span>
-      </div>
+          hardcoded "+ Add to GLW-30"). Hidden on empty-state per CB
+          smoke patch — library browse requires an ASY target. */}
+      {!isEmpty && (
+        <div className="a1v2-library-affordance">
+          <LibraryBrowseTrigger
+            quoteId={quoteId}
+            editable={editable}
+            assemblies={tree.assemblies.map((a) => ({
+              id: a.id,
+              sku: a.sku,
+              name: a.name,
+            }))}
+            leafTypes={leafTypesForFilter}
+          />
+          <span className="meta">browse globally-reusable components</span>
+        </div>
+      )}
     </div>
   );
 }

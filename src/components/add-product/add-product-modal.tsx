@@ -343,7 +343,8 @@ export function AddProductModal({
 
       {toast ? (
         <div className="a1v2-toast" role="status" aria-live="polite">
-          {toast}
+          <span className="glyph">✓</span>
+          <div className="body">{toast}</div>
         </div>
       ) : null}
     </>

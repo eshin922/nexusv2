@@ -107,7 +107,7 @@ export function AssemblyTreeBody({
       {orderedAssemblies.length === 0 ? (
         <p className="r7b-empty-state">
           {editable
-            ? "No assemblies yet. Use the buttons above to add a product."
+            ? "Start by adding your first product · click + Add product to create an ASY."
             : "No assemblies."}
         </p>
       ) : (
