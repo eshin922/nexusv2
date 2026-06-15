@@ -743,55 +743,96 @@ export function LibraryBrowseModal({
               redesigns the .lib-empty visual shape). */}
           <div className="lib-results">
             {rows.length === 0 && !pending ? (
-              <div
-                style={{
-                  padding: "24px 16px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 12,
-                  alignItems: "center",
-                  textAlign: "center",
-                }}
-              >
-                {libraryTotal === 0 ? (
-                  <p
-                    style={{
-                      color: "var(--ink-3)",
-                      fontStyle: "italic",
-                      margin: 0,
-                    }}
-                  >
-                    Library is empty. Start by creating your first
-                    product or pulling the HubSpot catalog.
+              libraryTotal === 0 ? (
+                /* slice-library-modal-polish Step 6 — library-empty
+                   shape per CD §4. Generative glyph ⊹; two equal-
+                   weight CTAs (Create new + Refresh from HubSpot —
+                   Refresh promoted to primary here, the only place
+                   it carries primary visual weight per CD §5).
+                   Permission note beneath when !canCreateLeaves. */
+                <div className="lib-empty">
+                  <div className="glyph" aria-hidden="true">
+                    ⊹
+                  </div>
+                  <h3>Your library is empty</h3>
+                  <p>
+                    No reusable components yet. Create your first one,
+                    or pull your existing catalog from HubSpot to get
+                    started.
                   </p>
-                ) : (
-                  <p
-                    style={{
-                      color: "var(--ink-3)",
-                      fontStyle: "italic",
-                      margin: 0,
-                    }}
-                  >
-                    No components match &ldquo;{search}.&rdquo;
-                    Library has {libraryTotal} components total. Try
-                    a different search, or:
+                  <div className="cta-row">
+                    <button
+                      type="button"
+                      className="lib-empty-cta primary"
+                      onClick={() => setCreateOpen(true)}
+                      disabled={!permissions.canCreateLeaves}
+                      aria-disabled={!permissions.canCreateLeaves}
+                    >
+                      + Create new product →
+                    </button>
+                    <button
+                      type="button"
+                      className="lib-empty-cta secondary"
+                      onClick={pull.start}
+                      disabled={
+                        !permissions.canCreateLeaves ||
+                        pull.pending ||
+                        pull.isPulling
+                      }
+                      aria-disabled={!permissions.canCreateLeaves}
+                    >
+                      ↗ Refresh from HubSpot
+                    </button>
+                  </div>
+                  {!permissions.canCreateLeaves && (
+                    <div className="perm-note">
+                      You don&apos;t have permission to create new
+                      products. Ask an admin.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* slice-library-modal-polish Step 6 — filtered-to-
+                   zero shape per CD §4. Null-set glyph ∅; query
+                   echoed back in a .q chip; Create new (primary) +
+                   Clear search (secondary). Refresh is absent —
+                   pulling won't help a bad query (CD §4 lock). */
+                <div className="lib-empty">
+                  <div className="glyph" aria-hidden="true">
+                    ∅
+                  </div>
+                  <h3>No components match</h3>
+                  <p>
+                    Nothing in the library matches{" "}
+                    <span className="q">{search}</span>. Adjust the
+                    search, or create it as a new product.
                   </p>
-                )}
-                <button
-                  type="button"
-                  className="a1v2-btn primary sm"
-                  onClick={() => setCreateOpen(true)}
-                  disabled={!permissions.canCreateLeaves}
-                  aria-disabled={!permissions.canCreateLeaves}
-                  title={
-                    permissions.canCreateLeaves
-                      ? "Create a new product and add it to the library"
-                      : "You don't have permission to create new products. Ask an admin."
-                  }
-                >
-                  + Create new product →
-                </button>
-              </div>
+                  <div className="cta-row">
+                    <button
+                      type="button"
+                      className="lib-empty-cta primary"
+                      onClick={() => setCreateOpen(true)}
+                      disabled={!permissions.canCreateLeaves}
+                      aria-disabled={!permissions.canCreateLeaves}
+                    >
+                      + Create new product →
+                    </button>
+                    <button
+                      type="button"
+                      className="lib-empty-cta secondary"
+                      onClick={() => setSearch("")}
+                    >
+                      Clear search
+                    </button>
+                  </div>
+                  {!permissions.canCreateLeaves && (
+                    <div className="perm-note">
+                      You don&apos;t have permission to create new
+                      products. Ask an admin.
+                    </div>
+                  )}
+                </div>
+              )
             ) : null}
             {rows.length > 0 && (
               <>
