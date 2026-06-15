@@ -13,6 +13,7 @@ import { loadAssemblyTree } from "@/lib/assembly-tree";
 import { AssemblyTreeView } from "@/components/assembly-tree/assembly-tree-view";
 import { loadProductTypeOptions } from "@/lib/product-type-options";
 import { loadLeafTypesForFilter } from "@/lib/library-browse-loader";
+import { ensureUser } from "@/lib/auth/ensure-user";
 import { loadQuoteAttachments } from "@/lib/quote-attachments-loader";
 import { AttachmentListTrigger } from "@/components/quote-attachments/attachment-list-trigger";
 // §6.b path-B migration commit 2 — Eyebrow + ActionCluster imports
@@ -35,6 +36,13 @@ export default async function QuoteBuilderPage({
   params: Promise<{ id: string; quoteId: string }>;
 }) {
   const { id: projectId, quoteId } = await params;
+
+  // slice-library-first-creation-flow Step 3 — fetch signed-in
+  // user so we can thread `permissions.canCreateLeaves` into
+  // AssemblyTreeView for the library modal's "+ Create new
+  // product" gate (locked Q6 disposition). Same call pattern as
+  // /leaves/[leafId]/specs/page.tsx and quote/page.tsx.
+  const user = await ensureUser();
 
   // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
   // Fire-and-forget background op; never crashes the page.
@@ -263,6 +271,7 @@ export default async function QuoteBuilderPage({
           assemblyTypes={productTypeOptions.assemblyTypes}
           leafTypes={productTypeOptions.leafTypes}
           leafTypesForFilter={leafTypesForFilter}
+          permissions={{ canCreateLeaves: user.canCreateLeaves }}
         />
       ) : null}
 

@@ -13,7 +13,7 @@ import { assertCanCreateLeaves } from "@/lib/spec-permission-guard";
 import {
   loadLibraryBrowse,
   type LibraryBrowseFilters,
-  type LibraryBrowseRow,
+  type LibraryBrowseResult,
 } from "@/lib/library-browse-loader";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { createProduct, HubspotError } from "@/lib/hubspot";
@@ -179,7 +179,7 @@ export async function createLeaf(
  */
 export async function fetchLibraryBrowse(
   filters: LibraryBrowseFilters,
-): Promise<ActionResult<{ rows: LibraryBrowseRow[]; total: number }>> {
+): Promise<ActionResult<LibraryBrowseResult>> {
   return runAction(async () => {
     // Auth check (server-only context); throws if signed out.
     await ensureUser();

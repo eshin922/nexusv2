@@ -327,3 +327,39 @@
 .a1v2-card.r-a1v2-card-tree {
   overflow: visible;
 }
+
+/*
+ * Modal stacking pattern (slice-library-first-creation-flow Step 4,
+ * locked Q4 + Catch #2 disposition). Pattern 39 nexus extension.
+ *
+ * Canonical .a1v2-modal-backdrop sets z-index: 100 unconditionally
+ * (r-a1v2-setup.css:457). When the library-first flow stacks
+ * AddProductModal on top of LibraryBrowseModal (the "+ Create new
+ * product" sub-flow), both modals share that z-index and DOM order
+ * decides who renders on top. The stacked modal also needs to
+ * dominate the backdrop dimming + Escape handling so the PM only
+ * dismisses the modal in focus, not the modal underneath.
+ *
+ * `.r-a1v2-modal-stacked` raises the stacked modal's backdrop one
+ * z-tier above the base layer (110 vs 100). When applied to the top
+ * modal's `.a1v2-modal-backdrop`, the rule:
+ *   - Reorders rendering so the stacked modal sits visually above
+ *   - Adds a second darkening pass on top of the underlying modal's
+ *     backdrop (PMs read "I am one level deeper" at-a-glance)
+ *
+ * Companion JS: the stacked modal's keydown listener for Escape
+ * must register with capture-phase + call e.stopImmediatePropagation()
+ * to prevent the underlying modal's bubble-phase listener from also
+ * firing. Document-level listeners are siblings; without capture
+ * order, both fire. See AddProductModal.tsx for the canonical
+ * implementation.
+ *
+ * Reusable for any future stacking scenario (e.g., Quote umbrella
+ * sub-tabs nesting Edit modal inside Preview modal). Future stacking
+ * candidates simply apply the className + register the keydown with
+ * capture: true + stopImmediatePropagation. No additional CSS work
+ * needed.
+ */
+.a1v2-modal-backdrop.r-a1v2-modal-stacked {
+  z-index: 110;
+}

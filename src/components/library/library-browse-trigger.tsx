@@ -1,25 +1,49 @@
 "use client";
 
 import { useState } from "react";
+import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { LibraryBrowseModal, type AssemblyTarget } from "./library-browse-modal";
 
 // Phase A.1 v2 impl-5 Step 4 — Library browse trigger.
 //
-// Mirrors AddProductTrigger pattern: lightweight client component
-// holding the modal's open/close state + button rendering. Lives
-// in the .a1v2-library-affordance footer of the Setup tree (canonical
-// position per qw_a1v2.jsx line 169-172).
+// Lightweight client component holding the modal's open/close
+// state + button rendering. Same shape as the (deleted)
+// AddProductTrigger / PullFromHubSpotTrigger that the slice-
+// library-first-creation-flow replaced.
+//
+// slice-library-first-creation-flow Step 3 — extended props thread
+// projectId + assemblyTypes + fullLeafTypes + permissions through
+// for the nested AddProductModal launched from "+ Create new
+// product" inside the library modal's empty-states.
+//
+// slice-library-first-creation-flow Step 6 — promoted to canonical
+// + Add component → primary CTA per locked Q1 disposition.
+// Relocated from the .a1v2-library-affordance footer to the
+// SKUs card-head .actions cluster as the sole add-to-quote entry
+// point. The prior + Add product + ↗ Pull from HubSpot buttons
+// are removed; Pull lives inside the library modal header as an
+// inline progress band (Step 5). Button copy + visual register
+// shift: `a1v2-btn ghost sm` → `a1v2-btn primary sm`; `+ Add
+// leaf from library →` → `+ Add component →`.
 
 export function LibraryBrowseTrigger({
   quoteId,
+  projectId,
   editable,
   assemblies,
   leafTypes,
+  assemblyTypes,
+  fullLeafTypes,
+  permissions,
 }: {
   quoteId: string;
+  projectId: string;
   editable: boolean;
   assemblies: AssemblyTarget[];
   leafTypes: { id: string; name: string; placeholder: boolean }[];
+  assemblyTypes: { id: string; name: string }[];
+  fullLeafTypes: LeafSpecEntryProductType[];
+  permissions: { canCreateLeaves: boolean };
 }) {
   const [open, setOpen] = useState(false);
 
@@ -27,7 +51,7 @@ export function LibraryBrowseTrigger({
     <>
       <button
         type="button"
-        className="a1v2-btn ghost sm"
+        className="a1v2-btn primary sm"
         onClick={() => setOpen(true)}
         disabled={!editable}
         aria-disabled={!editable}
@@ -35,18 +59,22 @@ export function LibraryBrowseTrigger({
         aria-expanded={open}
         title={
           editable
-            ? "Browse the library — search + attach to an ASY"
+            ? "Find or create a component for this quote"
             : "Quote is not draft — editing disabled"
         }
       >
-        + Add leaf from library →
+        + Add component →
       </button>
       <LibraryBrowseModal
         open={open}
         onClose={() => setOpen(false)}
         quoteId={quoteId}
+        projectId={projectId}
         assemblies={assemblies}
         leafTypes={leafTypes}
+        assemblyTypes={assemblyTypes}
+        fullLeafTypes={fullLeafTypes}
+        permissions={permissions}
       />
     </>
   );

@@ -1,11 +1,12 @@
 import "server-only";
-import { and, asc, eq, ilike, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, ilike, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblies,
   assemblyLeaves,
   leaves,
   productTypes,
+  quotes,
 } from "@/db/schema";
 import { productTypeOrderExpression } from "@/lib/product-type-order";
 
@@ -19,10 +20,22 @@ import { productTypeOrderExpression } from "@/lib/product-type-order";
 //   - "this"  → leaves attached to any ASY in the target quote
 //   - "other" → leaves attached to any ASY NOT in the target quote
 //
+// slice-library-first-creation-flow Step 2 — return shape extended:
+//   - libraryTotal: unfiltered library size (used by modal to
+//     distinguish library-empty vs filtered-empty empty states per
+//     locked Q3/Q7 dispositions)
+//   - scenarioLabel: target quote's scenario label (used by modal
+//     sub-copy "Find or create a component for {scenarioLabel}"
+//     per locked Q7 / Catch #7 disposition)
+//
 // Returns:
 //   - rows: leaves with type identity + total/scenario ref counts +
 //     per-target-quote attached-to-some-ASY flag + the list of
 //     attached assembly IDs (for the "already in" UI state)
+//   - total: filtered row count (matches result-set size after
+//     all filters applied)
+//   - libraryTotal: unfiltered count (archived = false only)
+//   - scenarioLabel: target quote's scenario label
 
 export type LibraryBrowseFilters = {
   search?: string;
@@ -54,9 +67,16 @@ export type LibraryBrowseRow = {
 
 const DEFAULT_LIMIT = 50;
 
+export type LibraryBrowseResult = {
+  rows: LibraryBrowseRow[];
+  total: number;
+  libraryTotal: number;
+  scenarioLabel: string;
+};
+
 export async function loadLibraryBrowse(
   filters: LibraryBrowseFilters,
-): Promise<{ rows: LibraryBrowseRow[]; total: number }> {
+): Promise<LibraryBrowseResult> {
   const limit = filters.limit ?? DEFAULT_LIMIT;
   const search = filters.search?.trim() ?? "";
 
@@ -75,19 +95,37 @@ export async function loadLibraryBrowse(
     conds.push(eq(leaves.productTypeId, filters.typeFilter));
   }
 
-  // Scope filter applies after fetching ids; cheap because v1 has
-  // <100 leaves total. If library grows past a few hundred, push
-  // this into a CTE.
-  const baseRows = await db
-    .select()
-    .from(leaves)
-    .where(and(...conds))
-    .orderBy(asc(leaves.name))
-    .limit(limit + 1); // +1 to detect "more available"
+  // Wave 1: filtered base rows + unfiltered library count +
+  // scenario label in parallel. 3 queries; well under pool capacity.
+  // The libraryTotal + scenarioLabel are independent of the row
+  // filter set, so they only need to fire once per loader call.
+  const [baseRows, libraryTotalRow, scenarioRow] = await Promise.all([
+    // Scope filter applies after fetching ids; cheap because v1 has
+    // <100 leaves total. If library grows past a few hundred, push
+    // this into a CTE.
+    db
+      .select()
+      .from(leaves)
+      .where(and(...conds))
+      .orderBy(asc(leaves.name))
+      .limit(limit + 1), // +1 to detect "more available"
+    db
+      .select({ n: count() })
+      .from(leaves)
+      .where(eq(leaves.archived, false)),
+    db
+      .select({ scenarioLabel: quotes.scenarioLabel })
+      .from(quotes)
+      .where(eq(quotes.id, filters.targetQuoteId))
+      .limit(1),
+  ]);
+
+  const libraryTotal = Number(libraryTotalRow[0]?.n ?? 0);
+  const scenarioLabel = scenarioRow[0]?.scenarioLabel ?? "";
 
   const baseIds = baseRows.map((r) => r.id);
   if (baseIds.length === 0) {
-    return { rows: [], total: 0 };
+    return { rows: [], total: 0, libraryTotal, scenarioLabel };
   }
 
   // Wave 2: junction + product_types in parallel.
@@ -152,7 +190,7 @@ export async function loadLibraryBrowse(
     };
   });
 
-  return { rows, total };
+  return { rows, total, libraryTotal, scenarioLabel };
 }
 
 /**

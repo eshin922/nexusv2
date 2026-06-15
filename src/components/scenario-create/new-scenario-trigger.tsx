@@ -7,8 +7,8 @@ import {
 } from "./canonical-modal";
 
 // canonical-scenario-create-flow Step 5 — "+ New scenario"
-// trigger button + modal host. Mirrors AddProductTrigger pattern
-// from impl-4: lightweight client component, owns the modal's
+// trigger button + modal host. Mirrors the LibraryBrowseTrigger
+// pattern: lightweight client component, owns the modal's
 // open/close state, accepts all modal data as props from the
 // server-side page loader (Step 6 wires the project detail page).
 
