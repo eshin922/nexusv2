@@ -407,7 +407,31 @@ export async function createProduct(
       name: resp.properties?.name ?? properties.name,
     };
   } catch (err) {
-    throw new HubspotError("Failed to create HubSpot product", err);
+    // Surface the SDK's status + HubSpot-side reason so the
+    // action-layer error message tells PM *why* (HBS-2 CB smoke
+    // observation, 2026-06-15). Defensive against multiple SDK
+    // error shapes: @hubspot/api-client may carry `.code` (HTTP
+    // status) + `.body.message` (HubSpot reason); fetch errors
+    // carry just `.message`. Cap raw text at 200 chars to avoid
+    // dumping verbose response bodies inline.
+    const status =
+      typeof (err as { code?: unknown })?.code === "number"
+        ? (err as { code: number }).code
+        : null;
+    const hubBody = (err as { body?: { message?: unknown } })?.body;
+    const hubMessage =
+      hubBody && typeof hubBody.message === "string" ? hubBody.message : null;
+    const fallbackMessage =
+      err instanceof Error ? err.message : String(err);
+    const composed = [
+      status ? `HTTP ${status}` : null,
+      hubMessage ?? fallbackMessage,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const detail =
+      composed.length > 200 ? composed.slice(0, 197) + "…" : composed;
+    throw new HubspotError(detail || "Failed to create HubSpot product", err);
   }
 }
 

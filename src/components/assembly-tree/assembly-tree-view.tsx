@@ -63,15 +63,6 @@ export function AssemblyTreeView({
     0,
   );
 
-  // Empty-state hierarchy patch (PR #50 CB smoke, banked Edward
-  // 2026-06-15): when no ASYs exist, demote the secondary buttons
-  // (↗ Pull from HubSpot + + Add leaf from library →) so PMs
-  // read the canonical first action (+ Add product) without
-  // competition. Both depend on having ASYs anyway — Pull
-  // populates library but PM still needs ASYs to attach; library
-  // browse requires an ASY target.
-  const isEmpty = tree.assemblies.length === 0;
-
   return (
     <div className="a1v2-card r-a1v2-card-tree">
       <div className="a1v2-card-head">
@@ -91,15 +82,15 @@ export function AssemblyTreeView({
           </span>
           {/* Pull from HubSpot — wired in slice-hubspot-bidirectional
               Step 6. Trigger button + modal + double-pull loop live
-              in the PullFromHubSpotTrigger client component. Hidden
-              on empty-state per CB smoke patch (single recommended
-              CTA hierarchy); returns once ASYs exist. */}
-          {!isEmpty && (
-            <PullFromHubSpotTrigger
-              projectId={projectId}
-              disabled={!editable}
-            />
-          )}
+              in the PullFromHubSpotTrigger client component. Renders
+              across empty + populated states (Pull is project-scoped
+              — populates global library, independent of local ASY
+              existence). Visual weight ghost/sm = secondary vs the
+              primary + Add product CTA. */}
+          <PullFromHubSpotTrigger
+            projectId={projectId}
+            disabled={!editable}
+          />
           {/* + Add product — wired in impl-4 Step 8. Trigger button
               + modal host live in the AddProductTrigger client
               component; this server wrapper threads the prop chain.
@@ -139,23 +130,22 @@ export function AssemblyTreeView({
       {/* Phase A.1 v2 impl-5 Step 4 — wire the library browse modal
           trigger. Replaces the impl-2 inert button. Per-ASY attach
           target picked inside the modal (nexus extension vs canonical
-          hardcoded "+ Add to GLW-30"). Hidden on empty-state per CB
-          smoke patch — library browse requires an ASY target. */}
-      {!isEmpty && (
-        <div className="a1v2-library-affordance">
-          <LibraryBrowseTrigger
-            quoteId={quoteId}
-            editable={editable}
-            assemblies={tree.assemblies.map((a) => ({
-              id: a.id,
-              sku: a.sku,
-              name: a.name,
-            }))}
-            leafTypes={leafTypesForFilter}
-          />
-          <span className="meta">browse globally-reusable components</span>
-        </div>
-      )}
+          hardcoded "+ Add to GLW-30"). Renders across empty +
+          populated states; the inner modal handles the "no ASY to
+          attach to yet" case via the target picker's empty option. */}
+      <div className="a1v2-library-affordance">
+        <LibraryBrowseTrigger
+          quoteId={quoteId}
+          editable={editable}
+          assemblies={tree.assemblies.map((a) => ({
+            id: a.id,
+            sku: a.sku,
+            name: a.name,
+          }))}
+          leafTypes={leafTypesForFilter}
+        />
+        <span className="meta">browse globally-reusable components</span>
+      </div>
     </div>
   );
 }
