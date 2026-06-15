@@ -2032,6 +2032,30 @@ multiplexing — opposite tradeoff from long-running dev workers.
   `max_lifetime` on dev pools.
 - "too many connections for role" on direct connections → too many
   workers × pool max for Supabase backend cap. Drop pool max.
+- "Jest worker encountered N child process exceptions, exceeding
+  retry limit" → Next.js internal worker pool collapse (NOT actual
+  Jest tests; same `jest-worker` library used internally for dev
+  compilation workers). Causes ranked by likelihood: (1) Node heap
+  OOM under heavy HMR cycles; (2) Turbopack native CSS panic from
+  malformed vendor styles; (3) memory leak in app code (unbound
+  effects/intervals).
+  First mitigation: `NODE_OPTIONS='--max-old-space-size=8192'` in
+  package.json dev script via cross-env (applied 2026-06-15; bumps
+  Node heap from default 4GB → 8GB). Cross-platform via
+  `cross-env` devDep because Windows shells reject POSIX `VAR=val
+  cmd` inline env syntax.
+  If crashes persist after the bump, check for Turbopack panic log
+  at `/tmp/next-panic-*.log` (macOS/Linux) or
+  `%TEMP%\next-panic-*.log` (Windows) — Rust stack trace surfaces
+  the real cause. If panic log absent but crashes continue:
+  investigate recent slice code for memory leaks (React effects
+  without cleanup, intervals not cleared, file handles not
+  released).
+  Slice RI.4 already established Webpack vs Turbopack swap doesn't
+  help this class of crash (both spawn worker pools). Don't
+  re-litigate.
+  Production not affected — dev-only failure mode (Vercel builds
+  immutable artifacts; no HMR).
 
 Caught Slice RI.4. Tried in order: Turbopack→Webpack (didn't help —
 Webpack also spawns workers); pool max=10→5 + idle_timeout (helped
