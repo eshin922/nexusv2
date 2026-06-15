@@ -6,17 +6,20 @@ import { pullFromHubSpot } from "@/app/actions/hubspot-pull";
 
 // slice-library-first-creation-flow Step 5 — controlled pull engine.
 //
-// Hook extracted from PullFromHubSpotTrigger so two consumers can
-// drive their own UI off the same state machine:
-//   1. PullFromHubSpotTrigger (legacy Setup-tree card-head modal —
-//      removed in Step 6 when card-head simplifies to single CTA)
-//   2. LibraryBrowseModal (Step 5 inline progress band in header,
-//      avoiding three-deep modal stack per locked Q5 disposition β)
+// Hook owns the full double-pull loop (active products → archived
+// sweep) + running totals + latest-batch breakdown + retry cursor +
+// error surface + router.refresh on completion.
 //
-// Each call site holds its own hook instance + state. The hook
-// owns the double-pull loop (active products → archived sweep),
-// running totals, latest-batch breakdown, retry cursor, error
-// surface, and router.refresh on completion.
+// Active consumer (v1):
+//   - LibraryBrowseModal (Step 5 inline progress band in modal
+//     header — locked Q5 disposition β; avoids the three-deep
+//     modal stack a nested overlay would create)
+//
+// Originally extracted from PullFromHubSpotTrigger (deleted in
+// Step 6 when the Setup card-head consolidated to a single
+// + Add component → CTA). Hook shape preserved as a stable
+// API surface for any future flow that needs Pull progress
+// state without re-implementing the loop.
 
 export type PullPhase =
   | "idle"

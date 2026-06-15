@@ -47,10 +47,11 @@ export function AddProductModal({
   onClose: () => void;
   // slice-library-first-creation-flow Step 3 — optional success
   // callback for stacked-modal consumers (LibraryBrowseModal's
-  // "+ Create new product" path). Fires alongside `onClose` only
-  // on successful create. Absent → preserves prior behavior
-  // (existing AddProductTrigger mount doesn't need to discriminate
-  // submit vs cancel).
+  // "+ Create new product" path; the canonical add-to-quote entry
+  // point post-Step-6 simplification). Fires alongside `onClose`
+  // only on successful create. Absent → preserves stable API for
+  // any future direct consumer that doesn't need to discriminate
+  // submit vs cancel.
   onSuccess?: (result: { kind: "asy" | "leaf"; id: string }) => void;
   // slice-library-first-creation-flow Step 4 — when mounted as a
   // sub-flow on top of another modal (LibraryBrowseModal's

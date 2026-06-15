@@ -2,7 +2,7 @@
 //
 // Canonical structure per docs/design-prototypes/dist/qw_a1v2.jsx
 // `TreeView` (lines 117-175). Top-level card + summary header +
-// .a1v2-tree map of AsyRow children + library-affordance footer.
+// .a1v2-tree map of AsyRow children.
 //
 // AsyRow + LeafRow + completeness chips moved to ./asy-row.tsx
 // (client) so the per-ASY notes drawer (Step 8) can coordinate
@@ -13,15 +13,23 @@
 //   - "SKUs · cost-stack tree" header
 //   - "ASY all-complete / partial / empty" summary pips
 //   - "{N} of {M} leaves have complete specs" right-summary
-//   - "+ Add leaf from library →" + "browse globally-reusable
-//     components" affordance footer
+//
+// slice-library-first-creation-flow Step 6 — Setup card-head
+// simplification per locked Q1 + Q2 dispositions. Three coequal
+// buttons (+ Add product · ↗ Pull from HubSpot · + Add leaf from
+// library →) consolidate to a single `+ Add component →` primary
+// CTA that opens LibraryBrowseModal. The library modal is the
+// canonical entry point for all add-to-quote workflows:
+//   - Find existing library leaf → attach (existing)
+//   - Create new product (LEAF or ASY) → stacked AddProductModal
+//   - Refresh from HubSpot → inline progress band in modal header
+// Footer `.a1v2-library-affordance` block removed entirely
+// (Q2 — single entry point).
 
 import type { AssemblyTree } from "@/lib/assembly-tree";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AssemblyTreeBody } from "./assembly-tree-body";
-import { AddProductTrigger } from "@/components/add-product/add-product-trigger";
 import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
-import { PullFromHubSpotTrigger } from "./pull-from-hubspot-trigger";
 
 export function AssemblyTreeView({
   tree,
@@ -42,8 +50,8 @@ export function AssemblyTreeView({
   leafTypesForFilter: { id: string; name: string; placeholder: boolean }[];
   // slice-library-first-creation-flow Step 3 — threaded through to
   // LibraryBrowseTrigger → LibraryBrowseModal for the gated
-  // "+ Create new product" CTA. Page-level fetcher reads
-  // user.canCreateLeaves from session via ensureUser.
+  // "+ Create new product" + "↗ Refresh from HubSpot" affordances.
+  // Page-level fetcher reads user.canCreateLeaves via ensureUser.
   permissions: { canCreateLeaves: boolean };
 }) {
   // Rollup-state counters for the tree summary header (scenario ④).
@@ -86,28 +94,24 @@ export function AssemblyTreeView({
             {tree.totalAssemblies}{" "}
             {tree.totalAssemblies === 1 ? "assembly" : "assemblies"}
           </span>
-          {/* Pull from HubSpot — wired in slice-hubspot-bidirectional
-              Step 6. Trigger button + modal + double-pull loop live
-              in the PullFromHubSpotTrigger client component. Renders
-              across empty + populated states (Pull is project-scoped
-              — populates global library, independent of local ASY
-              existence). Visual weight ghost/sm = secondary vs the
-              primary + Add product CTA. */}
-          <PullFromHubSpotTrigger
-            projectId={projectId}
-            disabled={!editable}
-          />
-          {/* + Add product — wired in impl-4 Step 8. Trigger button
-              + modal host live in the AddProductTrigger client
-              component; this server wrapper threads the prop chain.
-              Stays prominent across empty + populated states (canonical
-              first action). */}
-          <AddProductTrigger
+          {/* slice-library-first-creation-flow Step 6 — single
+              primary CTA. Opens LibraryBrowseModal which hosts
+              search + attach existing + create new (stacked
+              AddProductModal) + refresh from HubSpot (inline
+              progress band). */}
+          <LibraryBrowseTrigger
             quoteId={quoteId}
             projectId={projectId}
             editable={editable}
+            assemblies={tree.assemblies.map((a) => ({
+              id: a.id,
+              sku: a.sku,
+              name: a.name,
+            }))}
+            leafTypes={leafTypesForFilter}
             assemblyTypes={assemblyTypes}
-            leafTypes={leafTypes}
+            fullLeafTypes={leafTypes}
+            permissions={permissions}
           />
         </div>
       </div>
@@ -132,30 +136,6 @@ export function AssemblyTreeView({
         projectId={projectId}
         quoteId={quoteId}
       />
-
-      {/* Phase A.1 v2 impl-5 Step 4 — wire the library browse modal
-          trigger. Replaces the impl-2 inert button. Per-ASY attach
-          target picked inside the modal (nexus extension vs canonical
-          hardcoded "+ Add to GLW-30"). Renders across empty +
-          populated states; the inner modal handles the "no ASY to
-          attach to yet" case via the target picker's empty option. */}
-      <div className="a1v2-library-affordance">
-        <LibraryBrowseTrigger
-          quoteId={quoteId}
-          projectId={projectId}
-          editable={editable}
-          assemblies={tree.assemblies.map((a) => ({
-            id: a.id,
-            sku: a.sku,
-            name: a.name,
-          }))}
-          leafTypes={leafTypesForFilter}
-          assemblyTypes={assemblyTypes}
-          fullLeafTypes={leafTypes}
-          permissions={permissions}
-        />
-        <span className="meta">browse globally-reusable components</span>
-      </div>
     </div>
   );
 }
