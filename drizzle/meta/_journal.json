@@ -225,6 +225,13 @@
       "when": 1779235056466,
       "tag": "0031_canonical_scenario_create_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1779301704664,
+      "tag": "0032_hubspot_product_id_on_leaves",
+      "breakpoints": true
     }
   ]
 }

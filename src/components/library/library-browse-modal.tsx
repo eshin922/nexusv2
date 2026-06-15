@@ -306,6 +306,32 @@ export function LibraryBrowseModal({
                   <span className="type-tag">
                     {row.productType?.name ?? "untyped"}
                   </span>
+                  {/* slice-hubspot-bidirectional Step 7 — origin
+                      indicator. Renders only when leaf has a HubSpot
+                      anchor; absence implies Nexus-local. accent-soft
+                      register distinguishes from the rule/paper-2
+                      type-tag chip so HubSpot-sourced reads at a
+                      glance during library browse. */}
+                  {row.hubspotProductId && (
+                    <span
+                      title={`Sourced from HubSpot · product id ${row.hubspotProductId}`}
+                      style={{
+                        fontFamily: "var(--mono)",
+                        fontSize: 10,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: "var(--accent-ink, var(--ink-2))",
+                        background: "var(--accent-soft, var(--paper-2))",
+                        border:
+                          "1px solid var(--accent, var(--rule))",
+                        borderRadius: 3,
+                        padding: "1px 6px",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      ⤓ HS
+                    </span>
+                  )}
                   <span className="refs-cell">
                     <strong>{row.totalRefs}</strong> ASY
                     {row.totalRefs === 1 ? "" : "s"} ·{" "}

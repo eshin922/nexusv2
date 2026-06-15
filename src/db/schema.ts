@@ -1688,6 +1688,13 @@ export const leaves = pgTable(
     supplierVerified: boolean("supplier_verified"),
     ownerId: uuid("owner_id").references(() => users.id),
     archived: boolean("archived").notNull().default(false),
+    // slice-hubspot-bidirectional — HubSpot Product association.
+    // NULL = Nexus-local library leaf (no HubSpot record). NOT NULL
+    // = HubSpot-authoritative leaf created via canonical Add Product
+    // modal LEAF mode (HubSpot-first pattern) OR pulled from
+    // HubSpot via pullFromHubSpot. Unique partial index below
+    // prevents duplicate HubSpot Product attachments.
+    hubspotProductId: text("hubspot_product_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1702,6 +1709,22 @@ export const leaves = pgTable(
       .where(sql`archived = false`),
     // Library search by SKU.
     index("leaves_sku_idx").on(t.sku).where(sql`archived = false`),
+    // slice-hubspot-bidirectional — partial index over archived
+    // rows. Complements the existing `archived = false` partial
+    // indexes above; supports admin queries that surface archived
+    // library leaves (PM workflow rarely touches archived, but
+    // audit + reconciliation paths benefit).
+    index("leaves_archived_idx").on(t.archived).where(sql`archived = true`),
+    // slice-hubspot-bidirectional — unique partial index on
+    // hubspot_product_id WHERE NOT NULL. Two leaves can't share
+    // the same HubSpot Product; NULL is allowed for unlimited
+    // Nexus-local leaves. Mirrors the legacy
+    // `quote_skus_hubspot_product_id_idx` (non-unique) pattern but
+    // strict-unique here because library leaves are globally
+    // scoped (one row per HubSpot Product across all quotes).
+    uniqueIndex("leaves_hubspot_product_id_idx")
+      .on(t.hubspotProductId)
+      .where(sql`hubspot_product_id is not null`),
   ],
 );
 

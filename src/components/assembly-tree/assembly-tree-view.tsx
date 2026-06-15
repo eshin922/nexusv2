@@ -21,6 +21,7 @@ import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AssemblyTreeBody } from "./assembly-tree-body";
 import { AddProductTrigger } from "@/components/add-product/add-product-trigger";
 import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
+import { PullFromHubSpotTrigger } from "./pull-from-hubspot-trigger";
 
 export function AssemblyTreeView({
   tree,
@@ -63,7 +64,7 @@ export function AssemblyTreeView({
   );
 
   return (
-    <div className="a1v2-card">
+    <div className="a1v2-card r-a1v2-card-tree">
       <div className="a1v2-card-head">
         <h3>
           SKUs <em>· cost-stack tree</em>
@@ -79,24 +80,22 @@ export function AssemblyTreeView({
             {tree.totalAssemblies}{" "}
             {tree.totalAssemblies === 1 ? "assembly" : "assemblies"}
           </span>
-          {/* Pull from HubSpot — visual button per canonical
-              qw_a1v2.jsx line 146. Inert until impl-4 wires the
-              HubSpot pull flow against the new assemblies + leaves
-              schema (legacy SkuSearchPanel writes against
-              quote_skus; needs adaptation for Path A parallel
-              structure). */}
-          <button
-            type="button"
-            className="a1v2-btn ghost sm"
-            disabled
-            aria-disabled="true"
-            title="Pull from HubSpot wires to the new ASY/LEAF schema in impl-4 (Phase 4)"
-          >
-            ↗ Pull from HubSpot
-          </button>
+          {/* Pull from HubSpot — wired in slice-hubspot-bidirectional
+              Step 6. Trigger button + modal + double-pull loop live
+              in the PullFromHubSpotTrigger client component. Renders
+              across empty + populated states (Pull is project-scoped
+              — populates global library, independent of local ASY
+              existence). Visual weight ghost/sm = secondary vs the
+              primary + Add product CTA. */}
+          <PullFromHubSpotTrigger
+            projectId={projectId}
+            disabled={!editable}
+          />
           {/* + Add product — wired in impl-4 Step 8. Trigger button
               + modal host live in the AddProductTrigger client
-              component; this server wrapper threads the prop chain. */}
+              component; this server wrapper threads the prop chain.
+              Stays prominent across empty + populated states (canonical
+              first action). */}
           <AddProductTrigger
             quoteId={quoteId}
             projectId={projectId}
@@ -131,7 +130,9 @@ export function AssemblyTreeView({
       {/* Phase A.1 v2 impl-5 Step 4 — wire the library browse modal
           trigger. Replaces the impl-2 inert button. Per-ASY attach
           target picked inside the modal (nexus extension vs canonical
-          hardcoded "+ Add to GLW-30"). */}
+          hardcoded "+ Add to GLW-30"). Renders across empty +
+          populated states; the inner modal handles the "no ASY to
+          attach to yet" case via the target picker's empty option. */}
       <div className="a1v2-library-affordance">
         <LibraryBrowseTrigger
           quoteId={quoteId}

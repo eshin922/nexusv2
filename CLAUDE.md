@@ -2455,16 +2455,71 @@ on action-name namespacing.
 -- Library lifecycle (writes against leaves)
 'leaf_create'               -- new library leaf added. entity_id =
                             -- leaf.id; diff_json carries {name,
-                            -- product_type_id, created_by}.
+                            -- sku, product_type_id, unit_cost,
+                            -- owner_id, url, hubspot_product_id,
+                            -- source, created_by}.
+                            --
+                            -- slice-hubspot-bidirectional extends
+                            -- diff_json with `source` discriminator
+                            -- (Slice 9.2 source-namespace
+                            -- convention):
+                            --   - 'nexus_authored' — PM-driven
+                            --     create via AddProductModal LEAF
+                            --     mode. HubSpot-first pattern:
+                            --     createProduct fires first;
+                            --     hubspot_product_id always
+                            --     populated.
+                            --   - 'hubspot_pull' — pull-driven
+                            --     create via pullProductsBatch.
+                            --     caused_by_audit_id points at the
+                            --     parent hubspot_pull_batch row;
+                            --     diff_json carries narrower set
+                            --     (name, sku, hubspot_product_id,
+                            --     source).
+                            -- Audit readers filter on
+                            -- caused_by_audit_id IS NULL to scope
+                            -- to user-initiated leaf creates only.
 'leaf_archive'              -- soft-archive (sets archived=true).
                             -- entity_id = leaf.id; diff_json carries
-                            -- {reason} when PM provides one.
+                            -- {reason, source?}.
+                            --
+                            -- slice-hubspot-bidirectional adds the
+                            -- `source: 'hubspot_pull'` discriminator
+                            -- for archive events triggered by the
+                            -- pull flow detecting an archived
+                            -- HubSpot product (state transition
+                            -- false→true). PM-driven archives leave
+                            -- `source` absent (default manual).
+                            -- Pull-driven archive rows also carry
+                            -- caused_by_audit_id pointing at the
+                            -- hubspot_pull_batch root row.
 'leaf_product_type_assigned' -- initial type assignment on a
                             -- previously-untyped leaf (impl-3
                             -- TypePicker flow). NOT for type changes;
                             -- those emit leaf_spec_type_change instead.
                             -- entity_id = leaf.id; diff_json carries
                             -- {from: null, to: typeId}.
+'hubspot_pull_batch'        -- root audit row for one batch of the
+                            -- pullFromHubSpot flow. One row per
+                            -- batch (≤100 products); pull operation
+                            -- with N batches emits N+M rows
+                            -- (active pass + archived sweep).
+                            -- entity_type = 'project', entity_id =
+                            -- project.id (the surface-of-origin —
+                            -- which project's Setup tree triggered
+                            -- the pull; library leaves themselves
+                            -- are project-agnostic).
+                            -- diff_json carries {batch_number,
+                            -- include_archived, processed, added,
+                            -- updated, archived, started_at,
+                            -- completed_at, next_after,
+                            -- audit_source: 'hubspot_pull'}.
+                            -- Per-leaf changes within the batch
+                            -- emit derived leaf_create /
+                            -- leaf_archive rows with
+                            -- caused_by_audit_id linking back to
+                            -- this root. Cascade audit pattern per
+                            -- Slice 8.5 precedent.
 
 -- ASY-leaf association lifecycle (writes against assembly_leaves)
 'assembly_leaf_attach'      -- leaf added to an ASY. entity_id =

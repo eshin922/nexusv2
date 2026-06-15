@@ -283,3 +283,47 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/*
+ * Post-create toast positioning (LEAF-defer toast regression patch,
+ * banked Edward 2026-06-15 during PR #50 CB smoke). Pattern 39 nexus
+ * extension.
+ *
+ * Canonical .a1v2-toast (r-a1v2-setup.css lines 543-558) is styled
+ * for inline-flow rendering — the canonical prototype reserves a
+ * dedicated column slot for it. Nexus mounts AddProductModal inside
+ * the SKUs card-head `.actions` flex-row cluster, so the toast lands
+ * inside that cluster + gets clipped by `.a1v2-card { overflow:
+ * hidden }`. Override positions the toast fixed bottom-right outside
+ * the card boundary so it survives both constraints.
+ *
+ * JSX matches canonical glyph + body structure (.glyph + .body
+ * sub-elements per canonical CSS); nexus only adjusts positioning.
+ */
+.a1v2-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1000;
+  min-width: 280px;
+  max-width: 420px;
+  margin-bottom: 0;
+  box-shadow: 0 8px 24px oklch(0 0 0 / 0.12);
+}
+
+/*
+ * Bug #M (PR #50 CB smoke, banked Edward 2026-06-15) — ASY row ⋯
+ * context-menu popover gets clipped by `.a1v2-card { overflow:
+ * hidden }` from the canonical CSS. The card's overflow boundary is
+ * load-bearing for rounded-corner clipping in Tiers + future cards,
+ * so we don't override globally. Instead, a nexus modifier class
+ * `.r-a1v2-card-tree` opts the SKUs-tree card into `overflow:
+ * visible` so its absolutely-positioned context menus + drag
+ * affordances can escape the rounded box.
+ *
+ * Applied via JSX in assembly-tree-view.tsx as
+ * `className="a1v2-card r-a1v2-card-tree"`.
+ */
+.a1v2-card.r-a1v2-card-tree {
+  overflow: visible;
+}

@@ -691,6 +691,83 @@ Items here are intentionally deferred - capture, don't fix in the moment.
 
   **Banked from Edward UX observation, May 2026.**
 
+- [AddProductModal LEAF create — HubSpot write confirmation in toast — v1.1 polish]
+
+  **Slice:** v1.1 polish (post-PR #50 merge).
+
+  **What:** When LEAF mode createLeaf completes via the
+  HubSpot-first path (Step 4 refactor in slice-hubspot-
+  bidirectional), the post-submit toast says
+  `Added "{name}" to the library · specs deferred.` — which
+  reads as a Nexus-side confirmation only. PM has no signal
+  that the write to HubSpot also succeeded, even though the
+  HubSpot-first invariant guarantees it did (no local row
+  exists unless `createProduct` returned a HubSpot id).
+
+  **Surface gap:** PMs accustomed to the prior Slice 2-era
+  "import from HubSpot" pattern expect a visible HubSpot-side
+  confirmation. The current toast implicitly hides the success
+  signal even though it's the more important half of the round-
+  trip (Nexus DB write is uninteresting; HubSpot write is the
+  cross-system commitment).
+
+  **Proposed shapes (pick at slice time):**
+
+  1. **Minimal copy change** — extend the toast: `Added "{name}"
+     to the library · HubSpot product id {hubspotProductId}
+     · specs deferred.` Adds the HubSpot id inline so PMs know
+     the cross-system write landed. Pros: 1-line code change;
+     useful for debugging. Cons: id string is ugly visual
+     weight in a success toast.
+  2. **Affirmative copy + chip** — toast says `Added "{name}"
+     to the library · ⤓ HS synced` (chip register matches the
+     Step 7 library browse `⤓ HS` chip). Cleaner visual; PM
+     reads "synced" as the HubSpot confirmation. HubSpot id
+     surfaces in the chip's title tooltip for forensics.
+  3. **Open-in-HubSpot link** — toast carries a `View in
+     HubSpot →` link to
+     `https://app.hubspot.com/products/{hubId}/library/{productId}`.
+     Strongest confirmation (PM can click and verify on the
+     HubSpot side). Pros: full round-trip closure. Cons: dev
+     vs prod URL switching needs the dev/prod-aware hub id
+     (env-driven); link is broken in dev if PM isn't logged
+     into the sandbox.
+
+  **CC lean (subject to disposition):** option (2) — affirmative
+  copy + ⤓ HS chip in toast — best matches the slice's existing
+  vocabulary (library browse chip) and reads at-a-glance.
+
+  **Affected files:**
+  - `src/components/add-product/add-product-modal.tsx:170-172`
+    (toast copy)
+  - May also extend the toast component to render a chip register
+    if option (2) is chosen.
+
+  **Out of scope for slice-hubspot-bidirectional (PR #50):**
+  toast copy fix is post-merge polish; doesn't block CB sign-off.
+  Banked here so future-CC slots it into v1.1 polish sweep.
+
+  **Update (2026-06-15, PR #50 CB smoke patch round):** the
+  separate issue of the toast being *invisible* (CSS positioning
+  gap inside `.a1v2-card { overflow: hidden }` + JSX missing
+  canonical glyph + body structure) was fixed in the same patch
+  round that banked this entry. Toast now renders fixed bottom-
+  right and is visually confirmed. Remaining gap is the
+  HubSpot-specific signal in the copy itself — the polish
+  options above still apply unchanged.
+
+  **Cross-references:**
+  - Slice-hubspot-bidirectional Step 4 createLeaf refactor
+    (HubSpot-first pattern restoration)
+  - Step 7 library browse `⤓ HS` chip (visual vocabulary
+    precedent)
+  - Pattern 32 (Pre-production engineering tolerance) — gap
+    is real but cosmetic; dev smoke can verify via API + DB
+    instead of UI confirmation.
+
+  **Banked from Edward observation during PR #50 CB smoke walk
+  HBS-1, 2026-06-15.**
+
 - [Mobile / iPad responsive support — v2]
 
   **Slice:** Dedicated v2 work. Prerequisite: full design round

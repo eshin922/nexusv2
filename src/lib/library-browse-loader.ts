@@ -39,6 +39,14 @@ export type LibraryBrowseRow = {
   productType: { id: string; name: string } | null;
   unitCost: string | null;
   url: string | null;
+  // slice-hubspot-bidirectional — origin indicator. Non-null when
+  // the leaf was created via the canonical HubSpot-first flow
+  // (Step 4 createLeaf refactor) OR pulled from HubSpot (Step 5
+  // pullFromHubSpot). Null for Nexus-local leaves (legacy createLeaf
+  // pre-slice; manual library-side creation if surfaced later).
+  // Library browse modal renders a ⤓ HS chip when non-null
+  // distinguishes HubSpot-sourced from Nexus-local at a glance.
+  hubspotProductId: string | null;
   totalRefs: number;
   totalScenarios: number;
   attachedAssemblyIdsInTargetQuote: string[];
@@ -137,6 +145,7 @@ export async function loadLibraryBrowse(
       productType: type ? { id: type.id, name: type.name } : null,
       unitCost: r.unitCost,
       url: r.url,
+      hubspotProductId: r.hubspotProductId,
       totalRefs: js.length,
       totalScenarios: distinctQuoteIds.size,
       attachedAssemblyIdsInTargetQuote,
