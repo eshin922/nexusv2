@@ -292,29 +292,44 @@ export function LibraryBrowseModal({
       }}
     >
       <div
-        className="a1v2-modal"
+        className="a1v2-modal lib-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="library-browse-title"
-        style={{ maxWidth: 920 }}
       >
-        <div className="a1v2-card-head" style={{ borderBottom: "1px solid var(--rule)" }}>
-          <h3 id="library-browse-title">
-            Library <em>· reusable leaves</em>
-          </h3>
-          <div className="actions">
-            <span className="meta">
-              {pending && rows.length === 0 ? "loading…" : `${total} leaves`}
+        {/* slice-library-modal-polish Step 3 — modal frame + header
+            redesign per CD prototype. The .lib-head replaces the
+            prior .a1v2-card-head; title drops "leaves" jargon for
+            PM-facing "components" (CD §1.5 / issue 5). Subtitle
+            consumes clientName (Step 2 loader extension) + quoteId
+            for context. .lib-refresh + .lib-close styled affordances
+            replace the prior a1v2-btn ghost sm buttons. Modal sizing
+            (.lib-modal: width min(940px,100%); max-height calc(100vh
+            - 120px)) overrides the inline maxWidth that previously
+            constrained the modal. */}
+        <div className="lib-head">
+          <div className="title-wrap">
+            <h2 id="library-browse-title">
+              Library <em>· components</em>
+            </h2>
+            <span className="sub">
+              {/* {client} · {qid} per CD data-source map §Header.
+                  clientName is nullable on projects; fallback to em-
+                  dash. quoteId rendered as 8-char prefix (CD mock
+                  uses friendly 6-char SKU-like ids; production UUIDs
+                  truncated to comparable density). Banked as v1.1+
+                  polish if PMs prefer scenarioLabel/version instead. */}
+              {clientName ?? "—"} · {quoteId.slice(0, 8)}
             </span>
-            {/* slice-library-first-creation-flow Step 5 — Refresh
-                from HubSpot affordance per locked Q3 disposition.
-                Small ghost button in header; click triggers the
-                pull via the hook (progress renders inline below
-                the head; no nested modal). Gated on
-                canCreateLeaves per locked Q6. */}
+          </div>
+          <div className="head-actions">
+            {/* Subtle refresh — forensic affordance per CD §5. Same
+                permission gate + click handler as the Step 5
+                (predecessor slice) inline pull entry point; the
+                inline progress band lives inside the modal body. */}
             <button
               type="button"
-              className="a1v2-btn ghost sm"
+              className="lib-refresh"
               onClick={pull.start}
               disabled={
                 !permissions.canCreateLeaves ||
@@ -330,15 +345,17 @@ export function LibraryBrowseModal({
                   : "You don't have permission to refresh the library catalog. Ask an admin."
               }
             >
-              ↗ Refresh from HubSpot
+              <span className="glyph">↗</span>
+              Refresh from HubSpot
             </button>
             <button
               type="button"
-              className="a1v2-btn ghost sm"
+              className="lib-close"
               onClick={onClose}
               disabled={pending || !!attaching}
+              aria-label="Close library"
             >
-              Close
+              ✕
             </button>
           </div>
         </div>
