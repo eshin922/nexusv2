@@ -35,6 +35,12 @@ export type AssemblyTarget = {
   id: string;
   sku: string;
   name: string;
+  // slice-library-modal-polish Step 4 — count of LEAF children
+  // attached to this ASY. Rendered in the picker menu's meta line
+  // ("ASY-sku · N components") per CD designer notes §3. Derived
+  // from tree.assemblies[].children.length at the
+  // assembly-tree-view.tsx call site.
+  leafCount: number;
 };
 
 export function LibraryBrowseModal({
@@ -101,6 +107,13 @@ export function LibraryBrowseModal({
   // via the .r-a1v2-modal-stacked nexus extension (z-index: 110 +
   // capture-phase Escape with stopImmediatePropagation).
   const [createOpen, setCreateOpen] = useState(false);
+  // slice-library-modal-polish Step 4 — attach-target picker menu
+  // open state. Click .lib-target-select toggles; click outside or
+  // selecting an item closes. Single source of truth for the
+  // attach destination (row buttons just say "Attach"; the target
+  // bar holds the selected ASY).
+  const [targetMenuOpen, setTargetMenuOpen] = useState(false);
+  const targetMenuRef = useRef<HTMLDivElement>(null);
   // slice-library-first-creation-flow Step 4 — attach toast state
   // per locked Q9. Fires on successful attachAssemblyLeaf with the
   // "Attached '{leaf name}' to {ASY sku}." copy. Auto-dismisses 3s
@@ -165,7 +178,38 @@ export function LibraryBrowseModal({
     setAttaching(null);
     setCreateOpen(false);
     setToast(null);
+    setTargetMenuOpen(false);
   }, [open]);
+
+  // slice-library-modal-polish Step 4 — default target selection on
+  // modal open. CD designer notes §3 lock: "the target is always
+  // set." Default to the first ASY in the quote so the bar reads
+  // as an active control from first render. Falls back to "" if no
+  // assemblies exist (zero-ASY first-touch case; bar renders a
+  // placeholder, row attach buttons disable).
+  useEffect(() => {
+    if (!open) return;
+    if (targetAssemblyId) return;
+    if (assemblies.length > 0) {
+      setTargetAssemblyId(assemblies[0].id);
+    }
+  }, [open, assemblies, targetAssemblyId]);
+
+  // slice-library-modal-polish Step 4 — click-outside dismiss for
+  // the target picker menu. Document-level listener attached only
+  // while the menu is open to keep the keydown/mousedown surface
+  // tidy. Captures clicks on the modal body / backdrop / other
+  // affordances that aren't the menu itself.
+  useEffect(() => {
+    if (!targetMenuOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (!targetMenuRef.current) return;
+      if (targetMenuRef.current.contains(e.target as Node)) return;
+      setTargetMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [targetMenuOpen]);
 
   // slice-library-first-creation-flow Step 4 — auto-dismiss attach
   // toast after 3s. Matches AddProductModal's toast lifecycle.
@@ -467,46 +511,126 @@ export function LibraryBrowseModal({
               )}
             </div>
           )}
-          {/* Nexus extension: ASY-target selector. Replaces canonical
-              hardcoded "+ Add to GLW-30". */}
-          <div
-            className="a1v2-library-target"
-            style={{
-              padding: "10px 14px",
-              background: "var(--paper-2)",
-              borderBottom: "1px solid var(--rule)",
-              display: "flex",
-              gap: 10,
-              alignItems: "center",
-              fontSize: 12.5,
-              color: "var(--ink-3)",
-            }}
-          >
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--ink-4)" }}>
-              Attach target:
-            </span>
-            <select
-              value={targetAssemblyId}
-              onChange={(e) => setTargetAssemblyId(e.target.value)}
-              style={{ minWidth: 260 }}
+          {/* slice-library-modal-polish Step 4 — persistent prominent
+              attach-target bar per CD designer notes §3. The
+              selected ASY is the implicit object of every row's
+              Attach action; the bar is the single source of the
+              attach destination (row buttons just say "Attach"). */}
+          <div className="lib-target-bar">
+            <span className="eyebrow">Attaching to</span>
+            <div
+              ref={targetMenuRef}
+              style={{ position: "relative", justifySelf: "flex-start" }}
             >
-              <option value="">— Pick an ASY in this quote —</option>
-              {assemblies.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.sku} · {a.name}
-                </option>
-              ))}
-            </select>
-            {targetAssembly ? (
-              <span style={{ color: "var(--ink-3)" }}>
-                Attach button label will say{" "}
-                <code style={{ fontFamily: "var(--mono)" }}>+ Add to {targetAssembly.sku}</code>
-              </span>
-            ) : (
-              <span style={{ color: "var(--ink-4)" }}>
-                Pick a target to enable attach actions
-              </span>
-            )}
+              {targetAssembly ? (
+                <div
+                  className="lib-target-select"
+                  onClick={() => setTargetMenuOpen((v) => !v)}
+                  role="button"
+                  tabIndex={0}
+                  aria-haspopup="menu"
+                  aria-expanded={targetMenuOpen}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setTargetMenuOpen((v) => !v);
+                    }
+                  }}
+                >
+                  <span className="asy-icon" aria-hidden="true">
+                    ◈
+                  </span>
+                  <span className="asy-body">
+                    <span className="name">{targetAssembly.name}</span>
+                    <span className="meta">
+                      {targetAssembly.sku} · {targetAssembly.leafCount}{" "}
+                      component{targetAssembly.leafCount === 1 ? "" : "s"}
+                    </span>
+                  </span>
+                  <span className="chevron" aria-hidden="true">
+                    ▾
+                  </span>
+                </div>
+              ) : (
+                <div
+                  className="lib-target-select"
+                  style={{
+                    background: "var(--paper-2)",
+                    borderColor: "var(--rule)",
+                    boxShadow: "none",
+                    cursor: "default",
+                  }}
+                  aria-disabled="true"
+                >
+                  <span className="asy-icon" aria-hidden="true">
+                    ◈
+                  </span>
+                  <span className="asy-body">
+                    <span
+                      className="name"
+                      style={{ color: "var(--ink-3)" }}
+                    >
+                      No assemblies in this quote
+                    </span>
+                    <span className="meta">
+                      Create an ASY before attaching components
+                    </span>
+                  </span>
+                </div>
+              )}
+              {targetMenuOpen && assemblies.length > 0 && (
+                <div
+                  className="lib-target-menu"
+                  role="menu"
+                  aria-label="Pick attach target"
+                >
+                  <div className="header">
+                    Assemblies in {scenarioLabel || "this scenario"}
+                  </div>
+                  {assemblies.map((a) => {
+                    const active = a.id === targetAssemblyId;
+                    return (
+                      <div
+                        key={a.id}
+                        className={`item${active ? " active" : ""}`}
+                        role="menuitemradio"
+                        aria-checked={active}
+                        onClick={() => {
+                          setTargetAssemblyId(a.id);
+                          setTargetMenuOpen(false);
+                        }}
+                      >
+                        <span
+                          className="asy-icon"
+                          style={{ width: 24, height: 24, fontSize: 12 }}
+                          aria-hidden="true"
+                        >
+                          ◈
+                        </span>
+                        <span>
+                          <span className="name">{a.name}</span>
+                          <span
+                            className="meta"
+                            style={{ display: "block" }}
+                          >
+                            {a.sku} · {a.leafCount} component
+                            {a.leafCount === 1 ? "" : "s"}
+                          </span>
+                        </span>
+                        {active && (
+                          <span className="check" aria-hidden="true">
+                            ✓
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <span className="target-hint">
+              Components you attach land here
+            </span>
           </div>
 
           <div className="a1v2-library-search">
@@ -675,6 +799,13 @@ export function LibraryBrowseModal({
                   {alreadyOnTarget ? (
                     <span className="already-in">✓ on this ASY</span>
                   ) : (
+                    /* slice-library-modal-polish Step 4 — simplified
+                       attach button per CD designer notes §3. Target
+                       is the implicit object (lives on .lib-target-bar);
+                       row buttons just say "Attach". Disabled state
+                       only fires in the zero-assemblies edge case
+                       (target bar shows "No assemblies" placeholder
+                       in that case). */
                     <button
                       type="button"
                       className="a1v2-btn sm"
@@ -685,12 +816,13 @@ export function LibraryBrowseModal({
                         pending
                       }
                       aria-disabled={!targetAssemblyId}
+                      title={
+                        targetAssemblyId
+                          ? `Attach to ${targetAssembly?.sku}`
+                          : "Create an ASY first to enable attach"
+                      }
                     >
-                      {attaching === row.leafId
-                        ? "Adding…"
-                        : targetAssembly
-                          ? `+ Add to ${targetAssembly.sku}`
-                          : "Pick target ASY"}
+                      {attaching === row.leafId ? "Adding…" : "Attach"}
                     </button>
                   )}
                 </div>
