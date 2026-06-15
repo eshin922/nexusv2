@@ -319,7 +319,7 @@ export function LibraryBrowseModal({
               title={
                 permissions.canCreateLeaves
                   ? "Pull HubSpot products into the library"
-                  : "You don't have permission to create new products. Ask an admin."
+                  : "You don't have permission to refresh the library catalog. Ask an admin."
               }
             >
               ↗ Refresh from HubSpot
