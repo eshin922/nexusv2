@@ -3498,3 +3498,122 @@ export async function copyScenarioWithinProject(input: {
     return { newQuoteId: newQuoteId! };
   });
 }
+
+// slice-fr12-copy-operations Step 4 — cross-project copy. Beija
+// Flor reorder template clone per SPEC v1 success criterion. Per
+// Q10: emits one scenario_copied audit row with
+// source_type='cross_project'. No drop-current option (cross-
+// project copies don't auto-drop source scenarios in the target
+// project — the target may be a fresh project with no scenarios
+// to drop).
+//
+// Behavior shape mirrors copyScenarioWithinProject:
+//   1. Validate input + auth (no permission gate per Catch #6)
+//   2. Verify source quote exists + belongs to a DIFFERENT project
+//      than targetProjectId (cross-project invariant)
+//   3. Resolve scenario label: PM-provided OR auto "Alt N" within
+//      target project (collision avoidance scoped to target)
+//   4. Transaction: cloneQuoteGraph(tx, ...) + scenario_copied
+//      audit row with source_type='cross_project', source_project_id
+//      populated for forensic continuity
+export async function copyQuoteFromProject(input: {
+  sourceQuoteId: string;
+  targetProjectId: string;
+  newScenarioLabel?: string;
+  intentNote?: string;
+  customerTargetTierLabel?: string;
+}): Promise<ActionResult<{ newQuoteId: string }>> {
+  return runAction(async () => {
+    const { sourceQuoteId, targetProjectId } = input;
+    if (!sourceQuoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "sourceQuoteId required");
+    if (!targetProjectId)
+      throw new ActionGuardError(ERR.VALIDATION, "targetProjectId required");
+
+    const user = await ensureUser();
+
+    // Verify source quote exists + verify cross-project invariant
+    // (source.projectId !== targetProjectId).
+    const [sourceMeta] = await db
+      .select({ projectId: quotes.projectId })
+      .from(quotes)
+      .where(eq(quotes.id, sourceQuoteId))
+      .limit(1);
+    if (!sourceMeta) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "Source quote not found.");
+    }
+    if (sourceMeta.projectId === targetProjectId) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Source quote belongs to the target project. Use copyScenarioWithinProject for within-project copies.",
+      );
+    }
+    const sourceProjectId = sourceMeta.projectId;
+
+    // Verify target project exists (FK would catch this on insert
+    // but a friendly NOT_FOUND surfaces a cleaner error UI-side).
+    const [targetProject] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.id, targetProjectId))
+      .limit(1);
+    if (!targetProject) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "Target project not found.");
+    }
+
+    // Resolve scenario label: PM-provided OR auto "Alt N" within
+    // target project. Collision-avoidance scoped to the target
+    // (source's existing labels don't conflict with the target's).
+    let scenarioLabel = (input.newScenarioLabel ?? "").trim();
+    if (scenarioLabel.length === 0) {
+      const existing = await db
+        .selectDistinct({ scenarioLabel: quotes.scenarioLabel })
+        .from(quotes)
+        .where(eq(quotes.projectId, targetProjectId));
+      const taken = new Set(existing.map((r) => r.scenarioLabel));
+      let n = 1;
+      while (taken.has(`Alt ${n}`)) n++;
+      scenarioLabel = `Alt ${n}`;
+    }
+
+    const intentNote = (input.intentNote ?? "").trim() || null;
+    const customerTargetTierLabel =
+      (input.customerTargetTierLabel ?? "").trim() || null;
+
+    let newQuoteId: string;
+
+    await db.transaction(async (tx) => {
+      const cloned = await cloneQuoteGraph(tx, {
+        sourceQuoteId,
+        targetProjectId,
+        newScenarioLabel: scenarioLabel,
+        intentNote,
+        customerTargetTierLabel,
+        createdByUserId: user.id,
+      });
+      newQuoteId = cloned.newQuoteId;
+
+      // scenario_copied audit row per Q10. source_project_id
+      // populated (not inferable from source_quote at audit-read
+      // time without a join; persist for forensic continuity).
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote",
+        entityId: newQuoteId,
+        action: "scenario_copied",
+        diffJson: {
+          source_quote_id: sourceQuoteId,
+          source_type: "cross_project",
+          source_project_id: sourceProjectId,
+          target_project_id: targetProjectId,
+          scenario_label: scenarioLabel,
+          intent_note: intentNote,
+          customer_target_tier_label: customerTargetTierLabel,
+        },
+      });
+    });
+
+    revalidatePath(`/projects/${targetProjectId}`);
+    return { newQuoteId: newQuoteId! };
+  });
+}
