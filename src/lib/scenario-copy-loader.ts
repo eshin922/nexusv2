@@ -33,6 +33,14 @@ export type ScenarioCopyPickerRow = {
   quoteId: string;
   scenarioLabel: string;
   scenarioStatus: "active" | "dropped" | "accepted"; // 3 values per Catch #2
+  // slice-fr12-copy-operations BUG-1 hotfix — quote-level workflow
+  // status (draft/sent/accepted/superseded/lost) disambiguates
+  // picker rows at copy time per CA + CB disposition. Distinct
+  // from scenarioStatus (the scenario-family lifecycle); the two
+  // enums share the 'accepted' value but answer different
+  // forensic questions. Surfaced verbatim in the picker option
+  // label so PMs see "sent" vs "draft" inline.
+  status: "draft" | "sent" | "accepted" | "superseded" | "lost";
   isRecommended: boolean;
   versionNumber: number;
   asyCount: number;
@@ -72,6 +80,7 @@ export async function loadScenarioCopyPicker(
       quoteId: quotes.id,
       scenarioLabel: quotes.scenarioLabel,
       scenarioStatus: quotes.scenarioStatus,
+      status: quotes.status,
       isRecommended: quotes.isRecommended,
       versionNumber: quotes.versionNumber,
       updatedAt: quotes.updatedAt,
@@ -113,6 +122,7 @@ export async function loadScenarioCopyPicker(
       quoteId: r.quoteId,
       scenarioLabel: r.scenarioLabel,
       scenarioStatus: r.scenarioStatus,
+      status: r.status,
       isRecommended: r.isRecommended,
       versionNumber: r.versionNumber,
       asyCount: c.asy,
@@ -203,6 +213,7 @@ export async function loadCopySourceProjects(
       projectId: quotes.projectId,
       scenarioLabel: quotes.scenarioLabel,
       scenarioStatus: quotes.scenarioStatus,
+      status: quotes.status,
       isRecommended: quotes.isRecommended,
       versionNumber: quotes.versionNumber,
       updatedAt: quotes.updatedAt,
@@ -260,6 +271,7 @@ export async function loadCopySourceProjects(
       quoteId: q.quoteId,
       scenarioLabel: q.scenarioLabel,
       scenarioStatus: q.scenarioStatus,
+      status: q.status,
       isRecommended: q.isRecommended,
       versionNumber: q.versionNumber,
       asyCount: c.asy,

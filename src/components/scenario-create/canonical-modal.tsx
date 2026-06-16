@@ -604,16 +604,16 @@ export function CanonicalScenarioModal({
                   >
                     <option value="">— Pick a source scenario —</option>
                     {(copyScenarios ?? []).map((s) => {
+                      // BUG-1 hotfix — always show quote-level status
+                      // (draft/sent/accepted) per CA + CB
+                      // disposition. ★ prefix already conditional on
+                      // s.isRecommended.
                       const star = s.isRecommended ? "★ " : "";
-                      const statusLabel =
-                        s.scenarioStatus === "active"
-                          ? ""
-                          : ` · ${s.scenarioStatus}`;
                       return (
                         <option key={s.quoteId} value={s.quoteId}>
                           {star}
-                          {s.scenarioLabel} · v{s.versionNumber}
-                          {statusLabel} · {s.asyCount} ASY
+                          {s.scenarioLabel} · v{s.versionNumber} ·{" "}
+                          {s.status} · {s.asyCount} ASY
                           {s.asyCount === 1 ? "" : "s"} · {s.leafCount}{" "}
                           leaf{s.leafCount === 1 ? "" : "s"}
                         </option>
@@ -727,16 +727,14 @@ export function CanonicalScenarioModal({
                         {((crossProjects ?? []).find(
                           (p) => p.projectId === selectedCrossProjectId,
                         )?.quotes ?? []).map((s) => {
+                          // BUG-1 hotfix — same shape as within-
+                          // project picker; always show quote status.
                           const star = s.isRecommended ? "★ " : "";
-                          const statusLabel =
-                            s.scenarioStatus === "active"
-                              ? ""
-                              : ` · ${s.scenarioStatus}`;
                           return (
                             <option key={s.quoteId} value={s.quoteId}>
                               {star}
-                              {s.scenarioLabel} · v{s.versionNumber}
-                              {statusLabel} · {s.asyCount} ASY
+                              {s.scenarioLabel} · v{s.versionNumber} ·{" "}
+                              {s.status} · {s.asyCount} ASY
                               {s.asyCount === 1 ? "" : "s"} ·{" "}
                               {s.leafCount} leaf
                               {s.leafCount === 1 ? "" : "s"}
