@@ -363,3 +363,34 @@
 .a1v2-modal-backdrop.r-a1v2-modal-stacked {
   z-index: 110;
 }
+
+/*
+ * BUG LIB-SCROLL-1 hotfix (2026-06-15) — library modal results
+ * clip at ~row 8 even though the catalog has 50+ matches and
+ * .lib-results carries `overflow-y: auto; flex: 1; min-height: 0`.
+ *
+ * Root cause: `.a1v2-library-browse` (canonical r-a1v2-setup.css
+ * line 561) wraps the library modal's body (target bar + filters
+ * + results). It declares `display: flex; flex-direction: column`
+ * but lacks `flex: 1; min-height: 0`. The flex chain breaks at
+ * that wrapper:
+ *
+ *   .a1v2-modal (flex column, max-height: calc(100vh - 80px))
+ *   └─ .a1v2-library-browse (flex column, auto-height — DEFAULT)
+ *       └─ .lib-results (flex: 1, overflow-y: auto)
+ *
+ * Because `.a1v2-library-browse` has implicit `flex: 0 0 auto`,
+ * its height = sum of children = unconstrained. `.lib-results
+ * flex: 1` grows past the modal frame instead of scrolling inside.
+ *
+ * Fix: bump the wrapper to `flex: 1; min-height: 0` so the scroll
+ * boundary chain is unbroken. Pattern 39 nexus extension —
+ * canonical CSS stays pristine; overrides file carries the
+ * constraint. Same precedent as r-a1v2-modal-stacked above
+ * (nexus completion of a canonical rule that was incomplete for
+ * production embedding).
+ */
+.a1v2-modal .a1v2-library-browse {
+  flex: 1;
+  min-height: 0;
+}
