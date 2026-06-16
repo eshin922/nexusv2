@@ -107,6 +107,7 @@ export function AssemblyTreeView({
               id: a.id,
               sku: a.sku,
               name: a.name,
+              leafCount: a.children.length,
             }))}
             leafTypes={leafTypesForFilter}
             assemblyTypes={assemblyTypes}

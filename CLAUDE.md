@@ -2517,6 +2517,30 @@ on action-name namespacing.
                             -- Pull-driven archive rows also carry
                             -- caused_by_audit_id pointing at the
                             -- hubspot_pull_batch root row.
+'leaf_restored'             -- soft-restore (sets archived=false).
+                            -- entity_id = leaf.id; diff_json carries
+                            -- {archived: {from: true, to: false},
+                            -- leaf_name}. Inverse of leaf_archive;
+                            -- distinct action keeps the audit
+                            -- timeline grammar legible (one row per
+                            -- semantic intent: archive vs restore,
+                            -- vs a single action with from/to
+                            -- discrimination which would require
+                            -- filtering for forensic queries).
+                            --
+                            -- Permission: assertCanCreateLeaves
+                            -- (same gate as create + refresh).
+                            --
+                            -- slice-library-modal-polish — Restore
+                            -- affordance lives on the row in the
+                            -- library browse modal; renders when
+                            -- leaf.archived === true (readiness
+                            -- 'archived' state per CD designer
+                            -- notes §7). Nexus-side only — when
+                            -- the leaf carries a hubspot_product_id,
+                            -- the HubSpot product stays archived;
+                            -- bidirectional sync banked v1.1+ per
+                            -- Pattern 32 pre-prod tolerance.
 'leaf_product_type_assigned' -- initial type assignment on a
                             -- previously-untyped leaf (impl-3
                             -- TypePicker flow). NOT for type changes;

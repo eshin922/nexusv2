@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { LibraryBrowseRow } from "@/lib/library-browse-loader";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
-import { fetchLibraryBrowse } from "@/app/actions/leaves";
+import { fetchLibraryBrowse, restoreLeaf } from "@/app/actions/leaves";
 import { attachAssemblyLeaf } from "@/app/actions/assemblies";
 import { AddProductModal } from "@/components/add-product/add-product-modal";
 import { usePullFromHubSpot } from "@/components/assembly-tree/use-pull-from-hubspot";
@@ -35,6 +35,12 @@ export type AssemblyTarget = {
   id: string;
   sku: string;
   name: string;
+  // slice-library-modal-polish Step 4 — count of LEAF children
+  // attached to this ASY. Rendered in the picker menu's meta line
+  // ("ASY-sku · N components") per CD designer notes §3. Derived
+  // from tree.assemblies[].children.length at the
+  // assembly-tree-view.tsx call site.
+  leafCount: number;
 };
 
 export function LibraryBrowseModal({
@@ -87,7 +93,19 @@ export function LibraryBrowseModal({
   // rows.length === 0). scenarioLabel surfaced for later steps'
   // modal sub-copy "Find or create a component for {scenarioLabel}".
   const [libraryTotal, setLibraryTotal] = useState(0);
+  // slice-library-modal-polish Step 8 hotfix BUG-LMP-2-A —
+  // libraryTotalActive (archived=false count) triggers the
+  // library-empty (⊹) shape when all leaves are archived. Split
+  // from libraryTotal so the result-count denominator stays
+  // aligned with the rendered (active + archived) scope while
+  // the empty-state branching reads the PM-facing "is there
+  // anything to browse" signal.
+  const [libraryTotalActive, setLibraryTotalActive] = useState(0);
   const [scenarioLabel, setScenarioLabel] = useState("");
+  // slice-library-modal-polish Step 2 — clientName threaded for the
+  // CD redesign subtitle "{client} · {qid}" landing in Step 3. NULL
+  // when project has no client_name set.
+  const [clientName, setClientName] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [attaching, setAttaching] = useState<string | null>(null);
@@ -97,6 +115,13 @@ export function LibraryBrowseModal({
   // via the .r-a1v2-modal-stacked nexus extension (z-index: 110 +
   // capture-phase Escape with stopImmediatePropagation).
   const [createOpen, setCreateOpen] = useState(false);
+  // slice-library-modal-polish Step 4 — attach-target picker menu
+  // open state. Click .lib-target-select toggles; click outside or
+  // selecting an item closes. Single source of truth for the
+  // attach destination (row buttons just say "Attach"; the target
+  // bar holds the selected ASY).
+  const [targetMenuOpen, setTargetMenuOpen] = useState(false);
+  const targetMenuRef = useRef<HTMLDivElement>(null);
   // slice-library-first-creation-flow Step 4 — attach toast state
   // per locked Q9. Fires on successful attachAssemblyLeaf with the
   // "Attached '{leaf name}' to {ASY sku}." copy. Auto-dismisses 3s
@@ -124,7 +149,9 @@ export function LibraryBrowseModal({
         setRows(result.data.rows);
         setTotal(result.data.total);
         setLibraryTotal(result.data.libraryTotal);
+        setLibraryTotalActive(result.data.libraryTotalActive);
         setScenarioLabel(result.data.scenarioLabel);
+        setClientName(result.data.clientName);
       });
     }, SEARCH_DEBOUNCE_MS);
     return () => {
@@ -154,12 +181,45 @@ export function LibraryBrowseModal({
     setRows([]);
     setTotal(0);
     setLibraryTotal(0);
+    setLibraryTotalActive(0);
     setScenarioLabel("");
+    setClientName(null);
     setError(null);
     setAttaching(null);
     setCreateOpen(false);
     setToast(null);
+    setTargetMenuOpen(false);
   }, [open]);
+
+  // slice-library-modal-polish Step 4 — default target selection on
+  // modal open. CD designer notes §3 lock: "the target is always
+  // set." Default to the first ASY in the quote so the bar reads
+  // as an active control from first render. Falls back to "" if no
+  // assemblies exist (zero-ASY first-touch case; bar renders a
+  // placeholder, row attach buttons disable).
+  useEffect(() => {
+    if (!open) return;
+    if (targetAssemblyId) return;
+    if (assemblies.length > 0) {
+      setTargetAssemblyId(assemblies[0].id);
+    }
+  }, [open, assemblies, targetAssemblyId]);
+
+  // slice-library-modal-polish Step 4 — click-outside dismiss for
+  // the target picker menu. Document-level listener attached only
+  // while the menu is open to keep the keydown/mousedown surface
+  // tidy. Captures clicks on the modal body / backdrop / other
+  // affordances that aren't the menu itself.
+  useEffect(() => {
+    if (!targetMenuOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (!targetMenuRef.current) return;
+      if (targetMenuRef.current.contains(e.target as Node)) return;
+      setTargetMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [targetMenuOpen]);
 
   // slice-library-first-creation-flow Step 4 — auto-dismiss attach
   // toast after 3s. Matches AddProductModal's toast lifecycle.
@@ -190,7 +250,9 @@ export function LibraryBrowseModal({
         setRows(refreshed.data.rows);
         setTotal(refreshed.data.total);
         setLibraryTotal(refreshed.data.libraryTotal);
+        setLibraryTotalActive(refreshed.data.libraryTotalActive);
         setScenarioLabel(refreshed.data.scenarioLabel);
+        setClientName(refreshed.data.clientName);
       }
     });
     router.refresh();
@@ -239,7 +301,45 @@ export function LibraryBrowseModal({
         setRows(refreshed.data.rows);
         setTotal(refreshed.data.total);
         setLibraryTotal(refreshed.data.libraryTotal);
+        setLibraryTotalActive(refreshed.data.libraryTotalActive);
         setScenarioLabel(refreshed.data.scenarioLabel);
+        setClientName(refreshed.data.clientName);
+      }
+      router.refresh();
+    });
+  }
+
+  // slice-library-modal-polish Step 5 — restore handler. Mirrors
+  // handleAttach's optimistic-state shape: setAttaching marks the
+  // row pending; restoreLeaf action flips archived to false; on
+  // success, re-fetch the library so the row flips readiness
+  // 'archived' → 'ready'. Permission gating happens server-side
+  // (assertCanCreateLeaves); UI also gates the button visibility
+  // via permissions.canCreateLeaves below.
+  function handleRestore(row: LibraryBrowseRow) {
+    setAttaching(row.leafId);
+    startTransition(async () => {
+      setError(null);
+      const result = await restoreLeaf(row.leafId);
+      setAttaching(null);
+      if (!result.ok) {
+        setError(result.error.message);
+        return;
+      }
+      setToast(`Restored "${row.name}" to the library.`);
+      const refreshed = await fetchLibraryBrowse({
+        search,
+        typeFilter: typeFilter || undefined,
+        scopeFilter,
+        targetQuoteId: quoteId,
+      });
+      if (refreshed.ok) {
+        setRows(refreshed.data.rows);
+        setTotal(refreshed.data.total);
+        setLibraryTotal(refreshed.data.libraryTotal);
+        setLibraryTotalActive(refreshed.data.libraryTotalActive);
+        setScenarioLabel(refreshed.data.scenarioLabel);
+        setClientName(refreshed.data.clientName);
       }
       router.refresh();
     });
@@ -284,29 +384,44 @@ export function LibraryBrowseModal({
       }}
     >
       <div
-        className="a1v2-modal"
+        className="a1v2-modal lib-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="library-browse-title"
-        style={{ maxWidth: 920 }}
       >
-        <div className="a1v2-card-head" style={{ borderBottom: "1px solid var(--rule)" }}>
-          <h3 id="library-browse-title">
-            Library <em>· reusable leaves</em>
-          </h3>
-          <div className="actions">
-            <span className="meta">
-              {pending && rows.length === 0 ? "loading…" : `${total} leaves`}
+        {/* slice-library-modal-polish Step 3 — modal frame + header
+            redesign per CD prototype. The .lib-head replaces the
+            prior .a1v2-card-head; title drops "leaves" jargon for
+            PM-facing "components" (CD §1.5 / issue 5). Subtitle
+            consumes clientName (Step 2 loader extension) + quoteId
+            for context. .lib-refresh + .lib-close styled affordances
+            replace the prior a1v2-btn ghost sm buttons. Modal sizing
+            (.lib-modal: width min(940px,100%); max-height calc(100vh
+            - 120px)) overrides the inline maxWidth that previously
+            constrained the modal. */}
+        <div className="lib-head">
+          <div className="title-wrap">
+            <h2 id="library-browse-title">
+              Library <em>· components</em>
+            </h2>
+            <span className="sub">
+              {/* {client} · {qid} per CD data-source map §Header.
+                  clientName is nullable on projects; fallback to em-
+                  dash. quoteId rendered as 8-char prefix (CD mock
+                  uses friendly 6-char SKU-like ids; production UUIDs
+                  truncated to comparable density). Banked as v1.1+
+                  polish if PMs prefer scenarioLabel/version instead. */}
+              {clientName ?? "—"} · {quoteId.slice(0, 8)}
             </span>
-            {/* slice-library-first-creation-flow Step 5 — Refresh
-                from HubSpot affordance per locked Q3 disposition.
-                Small ghost button in header; click triggers the
-                pull via the hook (progress renders inline below
-                the head; no nested modal). Gated on
-                canCreateLeaves per locked Q6. */}
+          </div>
+          <div className="head-actions">
+            {/* Subtle refresh — forensic affordance per CD §5. Same
+                permission gate + click handler as the Step 5
+                (predecessor slice) inline pull entry point; the
+                inline progress band lives inside the modal body. */}
             <button
               type="button"
-              className="a1v2-btn ghost sm"
+              className="lib-refresh"
               onClick={pull.start}
               disabled={
                 !permissions.canCreateLeaves ||
@@ -322,39 +437,88 @@ export function LibraryBrowseModal({
                   : "You don't have permission to refresh the library catalog. Ask an admin."
               }
             >
-              ↗ Refresh from HubSpot
+              <span className="glyph">↗</span>
+              Refresh from HubSpot
             </button>
             <button
               type="button"
-              className="a1v2-btn ghost sm"
+              className="lib-close"
               onClick={onClose}
               disabled={pending || !!attaching}
+              aria-label="Close library"
             >
-              Close
+              ✕
             </button>
           </div>
         </div>
 
         <div className="a1v2-library-browse">
-          {/* slice-library-first-creation-flow Step 5 — inline pull
-              progress band per locked Q5 disposition β. Renders
-              below the head when phase != idle. Three states:
-              pulling (active or archived sweep), error (with
-              retry), complete (auto-clears via the same Close
-              gating used by attach pending). PMs stay visually
-              in library context — no nested overlay. */}
-          {pull.phase !== "idle" && (
+          {/* slice-library-modal-polish Step 7 — inline pull
+              progress band redesign per CD designer notes §6 +
+              .lib-pull-band canonical CSS. Three states:
+                - active pull (pulling-active | pulling-archived)
+                  → spinner + reassurance copy + running count
+                - complete → green-soft success summary + Dismiss
+                - error → red-soft error + Retry + Dismiss
+              Band sits in a fixed slot between .lib-head and
+              .lib-target-bar (CD §6: "the band's position above
+              the attach bar means the filter row and table never
+              reflow when it appears/disappears"). */}
+          {pull.isPulling && (
+            <div
+              className="lib-pull-band"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="spin" aria-hidden="true" />
+              <div className="track-wrap">
+                <div className="lab">
+                  <strong>Refreshing catalog from HubSpot…</strong>{" "}
+                  existing components stay usable
+                </div>
+                {pull.latestBatch && (
+                  <div
+                    style={{
+                      fontFamily: "var(--mono)",
+                      fontSize: 10.5,
+                      color: "var(--ink-4)",
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    Batch {pull.totals.batchCount}:{" "}
+                    {pull.latestBatch.processed} processed · +
+                    {pull.latestBatch.added} added · ~
+                    {pull.latestBatch.updated} updated ·{" "}
+                    {pull.latestBatch.archived} archived
+                  </div>
+                )}
+              </div>
+              <div className="count">
+                {/* CD prototype assumes a denominator (done/total);
+                    production HubSpot list paginates by cursor with
+                    no total. Display the running processed count
+                    + phase label instead. */}
+                {pull.totals.processed.toLocaleString()} processed ·{" "}
+                {pull.phase === "pulling-active"
+                  ? "pass 1/2"
+                  : "pass 2/2"}
+              </div>
+            </div>
+          )}
+          {/* Completion + error states keep the prior inline-styled
+              shapes since CD's .lib-pull-band CSS only covers the
+              active pull case. PMs see the summary briefly then
+              dismiss. */}
+          {(pull.phase === "complete" || pull.phase === "error") && (
             <div
               role="status"
               aria-live="polite"
               style={{
-                padding: "10px 14px",
+                padding: "10px 22px",
                 background:
                   pull.phase === "error"
                     ? "var(--bad-soft, var(--paper-2))"
-                    : pull.phase === "complete"
-                      ? "var(--good-soft, var(--paper-2))"
-                      : "var(--paper-2)",
+                    : "var(--good-soft, var(--paper-2))",
                 borderBottom: "1px solid var(--rule)",
                 display: "flex",
                 flexDirection: "column",
@@ -380,26 +544,22 @@ export function LibraryBrowseModal({
                     color: "var(--ink-3)",
                   }}
                 >
-                  {pull.phase === "pulling-active" &&
-                    "Pulling… pass 1/2 · active products"}
-                  {pull.phase === "pulling-archived" &&
-                    "Pulling… pass 2/2 · archived sweep"}
-                  {pull.phase === "complete" && "Pull complete"}
-                  {pull.phase === "error" &&
-                    "Pull paused — retry resumes from last batch"}
+                  {pull.phase === "complete"
+                    ? "Pull complete"
+                    : "Pull paused — retry resumes from last batch"}
                 </span>
-                {pull.phase === "error" && (
-                  <button
-                    type="button"
-                    className="a1v2-btn primary sm"
-                    onClick={pull.retry}
-                    disabled={pull.pending}
-                  >
-                    Retry from batch{" "}
-                    {pull.retryCursor?.batchNumber ?? "?"}
-                  </button>
-                )}
-                {(pull.phase === "complete" || pull.phase === "error") && (
+                <div style={{ display: "flex", gap: 8 }}>
+                  {pull.phase === "error" && (
+                    <button
+                      type="button"
+                      className="a1v2-btn primary sm"
+                      onClick={pull.retry}
+                      disabled={pull.pending}
+                    >
+                      Retry from batch{" "}
+                      {pull.retryCursor?.batchNumber ?? "?"}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="a1v2-btn ghost sm"
@@ -407,23 +567,8 @@ export function LibraryBrowseModal({
                   >
                     Dismiss
                   </button>
-                )}
-              </div>
-              {pull.isPulling && pull.latestBatch && (
-                <div
-                  style={{
-                    fontFamily: "var(--mono)",
-                    fontSize: 11,
-                    color: "var(--ink-3)",
-                  }}
-                >
-                  Batch {pull.totals.batchCount}:{" "}
-                  {pull.latestBatch.processed} processed · +
-                  {pull.latestBatch.added} added · ~
-                  {pull.latestBatch.updated} updated ·{" "}
-                  {pull.latestBatch.archived} archived
                 </div>
-              )}
+              </div>
               {pull.phase === "complete" && (
                 <div style={{ color: "var(--good, var(--ink))" }}>
                   ✓ Pulled {pull.totals.processed} HubSpot product
@@ -442,77 +587,179 @@ export function LibraryBrowseModal({
               )}
             </div>
           )}
-          {/* Nexus extension: ASY-target selector. Replaces canonical
-              hardcoded "+ Add to GLW-30". */}
-          <div
-            className="a1v2-library-target"
-            style={{
-              padding: "10px 14px",
-              background: "var(--paper-2)",
-              borderBottom: "1px solid var(--rule)",
-              display: "flex",
-              gap: 10,
-              alignItems: "center",
-              fontSize: 12.5,
-              color: "var(--ink-3)",
-            }}
-          >
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--ink-4)" }}>
-              Attach target:
-            </span>
-            <select
-              value={targetAssemblyId}
-              onChange={(e) => setTargetAssemblyId(e.target.value)}
-              style={{ minWidth: 260 }}
+          {/* slice-library-modal-polish Step 4 — persistent prominent
+              attach-target bar per CD designer notes §3. The
+              selected ASY is the implicit object of every row's
+              Attach action; the bar is the single source of the
+              attach destination (row buttons just say "Attach"). */}
+          <div className="lib-target-bar">
+            <span className="eyebrow">Attaching to</span>
+            <div
+              ref={targetMenuRef}
+              style={{ position: "relative", justifySelf: "flex-start" }}
             >
-              <option value="">— Pick an ASY in this quote —</option>
-              {assemblies.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.sku} · {a.name}
-                </option>
-              ))}
-            </select>
-            {targetAssembly ? (
-              <span style={{ color: "var(--ink-3)" }}>
-                Attach button label will say{" "}
-                <code style={{ fontFamily: "var(--mono)" }}>+ Add to {targetAssembly.sku}</code>
-              </span>
-            ) : (
-              <span style={{ color: "var(--ink-4)" }}>
-                Pick a target to enable attach actions
-              </span>
-            )}
+              {targetAssembly ? (
+                <div
+                  className="lib-target-select"
+                  onClick={() => setTargetMenuOpen((v) => !v)}
+                  role="button"
+                  tabIndex={0}
+                  aria-haspopup="menu"
+                  aria-expanded={targetMenuOpen}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setTargetMenuOpen((v) => !v);
+                    }
+                  }}
+                >
+                  <span className="asy-icon" aria-hidden="true">
+                    ◈
+                  </span>
+                  <span className="asy-body">
+                    <span className="name">{targetAssembly.name}</span>
+                    <span className="meta">
+                      {targetAssembly.sku} · {targetAssembly.leafCount}{" "}
+                      component{targetAssembly.leafCount === 1 ? "" : "s"}
+                    </span>
+                  </span>
+                  <span className="chevron" aria-hidden="true">
+                    ▾
+                  </span>
+                </div>
+              ) : (
+                <div
+                  className="lib-target-select"
+                  style={{
+                    background: "var(--paper-2)",
+                    borderColor: "var(--rule)",
+                    boxShadow: "none",
+                    cursor: "default",
+                  }}
+                  aria-disabled="true"
+                >
+                  <span className="asy-icon" aria-hidden="true">
+                    ◈
+                  </span>
+                  <span className="asy-body">
+                    <span
+                      className="name"
+                      style={{ color: "var(--ink-3)" }}
+                    >
+                      No assemblies in this quote
+                    </span>
+                    <span className="meta">
+                      Create an ASY before attaching components
+                    </span>
+                  </span>
+                </div>
+              )}
+              {targetMenuOpen && assemblies.length > 0 && (
+                <div
+                  className="lib-target-menu"
+                  role="menu"
+                  aria-label="Pick attach target"
+                >
+                  <div className="header">
+                    Assemblies in {scenarioLabel || "this scenario"}
+                  </div>
+                  {assemblies.map((a) => {
+                    const active = a.id === targetAssemblyId;
+                    return (
+                      <div
+                        key={a.id}
+                        className={`item${active ? " active" : ""}`}
+                        role="menuitemradio"
+                        aria-checked={active}
+                        onClick={() => {
+                          setTargetAssemblyId(a.id);
+                          setTargetMenuOpen(false);
+                        }}
+                      >
+                        <span
+                          className="asy-icon"
+                          style={{ width: 24, height: 24, fontSize: 12 }}
+                          aria-hidden="true"
+                        >
+                          ◈
+                        </span>
+                        <span>
+                          <span className="name">{a.name}</span>
+                          <span
+                            className="meta"
+                            style={{ display: "block" }}
+                          >
+                            {a.sku} · {a.leafCount} component
+                            {a.leafCount === 1 ? "" : "s"}
+                          </span>
+                        </span>
+                        {active && (
+                          <span className="check" aria-hidden="true">
+                            ✓
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <span className="target-hint">
+              Components you attach land here
+            </span>
           </div>
 
-          <div className="a1v2-library-search">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name or SKU"
-            />
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-            >
-              <option value="">All types</option>
+          {/* slice-library-modal-polish Step 5 — filter row
+              consolidation per CD designer notes §8. Three control
+              rows (search + type + scope) collapse to one row
+              (search + type segmented + result count). Scope filter
+              dropped from the default row per CD §8 ("forensic
+              chrome weight; if needed it belongs in overflow/
+              advanced affordance, not the default row"). */}
+          <div className="lib-filters">
+            <div className="lib-search">
+              <span className="glyph" aria-hidden="true">
+                ⌕
+              </span>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name or SKU"
+                aria-label="Search library"
+              />
+            </div>
+            <div className="lib-seg" role="tablist" aria-label="Type filter">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={typeFilter === ""}
+                className={typeFilter === "" ? "active" : ""}
+                onClick={() => setTypeFilter("")}
+              >
+                All types
+              </button>
               {leafTypes.map((t) => (
-                <option key={t.id} value={t.id}>
+                <button
+                  key={t.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={typeFilter === t.id}
+                  className={typeFilter === t.id ? "active" : ""}
+                  onClick={() => setTypeFilter(t.id)}
+                  title={
+                    t.placeholder ? `${t.name} · fields TBD` : t.name
+                  }
+                >
                   {t.name}
-                  {t.placeholder ? " · fields TBD" : ""}
-                </option>
+                </button>
               ))}
-            </select>
-            <select
-              value={scopeFilter}
-              onChange={(e) =>
-                setScopeFilter(e.target.value as typeof scopeFilter)
-              }
-            >
-              <option value="all">All scenarios</option>
-              <option value="this">This scenario only</option>
-              <option value="other">Used elsewhere</option>
-            </select>
+            </div>
+            <span className="lib-result-count">
+              {pending && rows.length === 0
+                ? "loading…"
+                : `${rows.length} of ${libraryTotal}`}
+            </span>
           </div>
 
           {error ? (
@@ -529,148 +776,236 @@ export function LibraryBrowseModal({
             </div>
           ) : null}
 
-          <div className="a1v2-library-results">
-            {/* slice-library-first-creation-flow Step 2 — empty-state
-                copy splits into two shapes per locked Q3 disposition:
-                  - libraryTotal === 0 → "Library is empty…" (first-touch)
-                  - libraryTotal > 0 + rows.length === 0 → "No
-                    components match '{search}.' Library has N
-                    components total." (filtered to zero)
-                "Create new" CTA + inline Pull progress band land in
-                Steps 3 + 5. */}
-            {rows.length === 0 && !pending ? (
-              <div
-                style={{
-                  padding: "24px 16px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 12,
-                  alignItems: "center",
-                  textAlign: "center",
-                }}
-              >
-                {libraryTotal === 0 ? (
-                  <p
-                    style={{
-                      color: "var(--ink-3)",
-                      fontStyle: "italic",
-                      margin: 0,
-                    }}
-                  >
-                    Library is empty. Start by creating your first
-                    product or pulling the HubSpot catalog.
-                  </p>
-                ) : (
-                  <p
-                    style={{
-                      color: "var(--ink-3)",
-                      fontStyle: "italic",
-                      margin: 0,
-                    }}
-                  >
-                    No components match &ldquo;{search}.&rdquo;
-                    Library has {libraryTotal} components total. Try
-                    a different search, or:
-                  </p>
-                )}
-                {/* slice-library-first-creation-flow Step 3 —
-                    + Create new product CTA per locked Q5. Renders
-                    in both empty-state shapes (truly-empty +
-                    filtered-empty). Per Q6: disabled when
-                    !canCreateLeaves, with explanatory tooltip. */}
-                <button
-                  type="button"
-                  className="a1v2-btn primary sm"
-                  onClick={() => setCreateOpen(true)}
-                  disabled={!permissions.canCreateLeaves}
-                  aria-disabled={!permissions.canCreateLeaves}
-                  title={
-                    permissions.canCreateLeaves
-                      ? "Create a new product and add it to the library"
-                      : "You don't have permission to create new products. Ask an admin."
-                  }
-                >
-                  + Create new product →
-                </button>
-              </div>
-            ) : null}
-            {rows.map((row) => {
-              const alreadyHere =
-                row.attachedAssemblyIdsInTargetQuote.length > 0;
-              const alreadyOnTarget =
-                targetAssemblyId &&
-                row.attachedAssemblyIdsInTargetQuote.includes(targetAssemblyId);
-              return (
-                <div
-                  key={row.leafId}
-                  className={`a1v2-library-row${alreadyHere ? " in-scenario" : ""}`}
-                >
-                  <span className="icon" aria-hidden="true">
-                    ◦
-                  </span>
-                  <div className="name-cell">
-                    <div className="name">{row.name}</div>
-                    <div className="sku">SKU {row.sku ?? "—"}</div>
+          {/* slice-library-modal-polish Step 5 — 5-col results
+              table per CD designer notes §1. Fixed-height (56px)
+              rows scale to ~990 HubSpot catalog items without
+              collapse. Empty states retain Step 2's two-shape copy
+              + Step 3's "+ Create new product" CTA (Step 6
+              redesigns the .lib-empty visual shape). */}
+          <div className="lib-results">
+            {/* slice-library-modal-polish Step 8 hotfix BUG-LMP-2-A —
+                empty-state branching lifted out of `rows.length ===
+                0` gate. When libraryTotalActive === 0, the ⊹ shape
+                takes priority and suppresses the table even if
+                archived rows exist (rows.length > 0). Otherwise
+                the filtered-empty ∅ shape triggers on no-row
+                results. */}
+            {libraryTotalActive === 0 ? (
+              /* slice-library-modal-polish Step 6 — library-empty
+                 shape per CD §4. Generative glyph ⊹; two equal-
+                 weight CTAs (Create new + Refresh from HubSpot —
+                 Refresh promoted to primary here, the only place
+                 it carries primary visual weight per CD §5).
+                 Permission note beneath when !canCreateLeaves. */
+              <div className="lib-empty">
+                  <div className="glyph" aria-hidden="true">
+                    ⊹
                   </div>
-                  <span className="type-tag">
-                    {row.productType?.name ?? "untyped"}
-                  </span>
-                  {/* slice-hubspot-bidirectional Step 7 — origin
-                      indicator. Renders only when leaf has a HubSpot
-                      anchor; absence implies Nexus-local. accent-soft
-                      register distinguishes from the rule/paper-2
-                      type-tag chip so HubSpot-sourced reads at a
-                      glance during library browse. */}
-                  {row.hubspotProductId && (
-                    <span
-                      title={`Sourced from HubSpot · product id ${row.hubspotProductId}`}
-                      style={{
-                        fontFamily: "var(--mono)",
-                        fontSize: 10,
-                        letterSpacing: "0.08em",
-                        textTransform: "uppercase",
-                        color: "var(--accent-ink, var(--ink-2))",
-                        background: "var(--accent-soft, var(--paper-2))",
-                        border:
-                          "1px solid var(--accent, var(--rule))",
-                        borderRadius: 3,
-                        padding: "1px 6px",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      ⤓ HS
-                    </span>
-                  )}
-                  <span className="refs-cell">
-                    <strong>{row.totalRefs}</strong> ASY
-                    {row.totalRefs === 1 ? "" : "s"} ·{" "}
-                    {row.totalScenarios} scenario
-                    {row.totalScenarios === 1 ? "" : "s"}
-                  </span>
-                  {alreadyOnTarget ? (
-                    <span className="already-in">✓ on this ASY</span>
-                  ) : (
+                  <h3>Your library is empty</h3>
+                  <p>
+                    No reusable components yet. Create your first one,
+                    or pull your existing catalog from HubSpot to get
+                    started.
+                  </p>
+                  <div className="cta-row">
                     <button
                       type="button"
-                      className="a1v2-btn sm"
-                      onClick={() => handleAttach(row)}
-                      disabled={
-                        !targetAssemblyId ||
-                        attaching === row.leafId ||
-                        pending
-                      }
-                      aria-disabled={!targetAssemblyId}
+                      className="lib-empty-cta primary"
+                      onClick={() => setCreateOpen(true)}
+                      disabled={!permissions.canCreateLeaves}
+                      aria-disabled={!permissions.canCreateLeaves}
                     >
-                      {attaching === row.leafId
-                        ? "Adding…"
-                        : targetAssembly
-                          ? `+ Add to ${targetAssembly.sku}`
-                          : "Pick target ASY"}
+                      + Create new product →
                     </button>
+                    <button
+                      type="button"
+                      className="lib-empty-cta secondary"
+                      onClick={pull.start}
+                      disabled={
+                        !permissions.canCreateLeaves ||
+                        pull.pending ||
+                        pull.isPulling
+                      }
+                      aria-disabled={!permissions.canCreateLeaves}
+                    >
+                      ↗ Refresh from HubSpot
+                    </button>
+                  </div>
+                  {!permissions.canCreateLeaves && (
+                    <div className="perm-note">
+                      You don&apos;t have permission to create new
+                      products. Ask an admin.
+                    </div>
                   )}
                 </div>
-              );
-            })}
+            ) : rows.length === 0 && !pending ? (
+              /* slice-library-modal-polish Step 6 — filtered-to-
+                 zero shape per CD §4. Null-set glyph ∅; query
+                 echoed back in a .q chip; Create new (primary) +
+                 Clear search (secondary). Refresh is absent —
+                   pulling won't help a bad query (CD §4 lock). */
+                <div className="lib-empty">
+                  <div className="glyph" aria-hidden="true">
+                    ∅
+                  </div>
+                  <h3>No components match</h3>
+                  <p>
+                    Nothing in the library matches{" "}
+                    <span className="q">{search}</span>. Adjust the
+                    search, or create it as a new product.
+                  </p>
+                  <div className="cta-row">
+                    <button
+                      type="button"
+                      className="lib-empty-cta primary"
+                      onClick={() => setCreateOpen(true)}
+                      disabled={!permissions.canCreateLeaves}
+                      aria-disabled={!permissions.canCreateLeaves}
+                    >
+                      + Create new product →
+                    </button>
+                    <button
+                      type="button"
+                      className="lib-empty-cta secondary"
+                      onClick={() => setSearch("")}
+                    >
+                      Clear search
+                    </button>
+                  </div>
+                  {!permissions.canCreateLeaves && (
+                    <div className="perm-note">
+                      You don&apos;t have permission to create new
+                      products. Ask an admin.
+                    </div>
+                  )}
+                </div>
+            ) : null}
+            {libraryTotalActive > 0 && rows.length > 0 && (
+              <>
+                <div className="lib-table-head">
+                  <span className="h rail" aria-hidden="true" />
+                  <span className="h name">Component</span>
+                  <span className="h type">Type</span>
+                  <span className="h status">Status</span>
+                  <span className="h action">Action</span>
+                </div>
+                {rows.map((row) => {
+                  /* slice-library-modal-polish Step 5 — readiness
+                     derivation client-side per CD designer notes §7.
+                     `attached` reads against the currently-selected
+                     target ASY (re-evaluates when target changes).
+                     `archived` takes priority — an archived leaf
+                     shows the Restore action regardless of any-ASY
+                     attachment status. */
+                  const readiness: "ready" | "attached" | "archived" =
+                    row.archived
+                      ? "archived"
+                      : targetAssemblyId &&
+                          row.attachedAssemblyIdsInTargetQuote.includes(
+                            targetAssemblyId,
+                          )
+                        ? "attached"
+                        : "ready";
+                  const source: "nexus" | "hubspot" = row.hubspotProductId
+                    ? "hubspot"
+                    : "nexus";
+                  return (
+                    <div
+                      key={row.leafId}
+                      className={`lib-row ${readiness}`}
+                    >
+                      <span className="rail" aria-hidden="true" />
+                      <div className="name-cell">
+                        <span className="icon" aria-hidden="true">
+                          ◦
+                        </span>
+                        <span className="text">
+                          <span className="name">{row.name}</span>
+                          <span className="sub">
+                            <span
+                              className={`src ${source}`}
+                              title={
+                                source === "hubspot"
+                                  ? `Sourced from HubSpot · product id ${row.hubspotProductId}`
+                                  : "Nexus-local"
+                              }
+                            >
+                              {source}
+                            </span>
+                            <span>SKU {row.sku ?? "—"}</span>
+                            <span className="usage">
+                              · {row.totalRefs} ASY
+                              {row.totalRefs === 1 ? "" : "s"} ·{" "}
+                              {row.totalScenarios} scenario
+                              {row.totalScenarios === 1 ? "" : "s"}
+                            </span>
+                          </span>
+                        </span>
+                      </div>
+                      <span className="type-cell">
+                        {row.productType?.name ?? "untyped"}
+                      </span>
+                      <span className="status-cell">
+                        <span className={`status-pill ${readiness}`}>
+                          <span className="dot" aria-hidden="true" />
+                          {readiness}
+                        </span>
+                      </span>
+                      <span className="action-cell">
+                        {/* Readiness-driven action: Attach (ready) /
+                            ✓ Attached (attached, no button) /
+                            Restore (archived, perm-gated). */}
+                        {readiness === "attached" ? (
+                          <span className="lib-attached-mark">
+                            ✓ Attached
+                          </span>
+                        ) : readiness === "archived" ? (
+                          <button
+                            type="button"
+                            className="lib-restore-btn"
+                            onClick={() => handleRestore(row)}
+                            disabled={
+                              !permissions.canCreateLeaves ||
+                              attaching === row.leafId ||
+                              pending
+                            }
+                            aria-disabled={!permissions.canCreateLeaves}
+                            title={
+                              permissions.canCreateLeaves
+                                ? "Restore this leaf to the active catalog"
+                                : "You don't have permission to restore library items. Ask an admin."
+                            }
+                          >
+                            {attaching === row.leafId
+                              ? "Restoring…"
+                              : "Restore"}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="lib-attach-btn"
+                            onClick={() => handleAttach(row)}
+                            disabled={
+                              !targetAssemblyId ||
+                              attaching === row.leafId ||
+                              pending
+                            }
+                            aria-disabled={!targetAssemblyId}
+                            title={
+                              targetAssemblyId
+                                ? `Attach to ${targetAssembly?.sku}`
+                                : "Create an ASY first to enable attach"
+                            }
+                          >
+                            {attaching === row.leafId ? "Adding…" : "Attach"}
+                          </button>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </>
+            )}
           </div>
         </div>
       </div>
