@@ -2640,6 +2640,106 @@ on action-name namespacing.
                             -- dropped_quote_ids array to recover the
                             -- full set of rows touched. Fix shape
                             -- banked Bug CSF-3-A (PR #49 CB smoke).
+                            --
+                            -- slice-fr12-copy-operations extends the
+                            -- audit_source enum with
+                            -- 'fr12_copy_supersede' for the drop-on-
+                            -- copy path: when
+                            -- copyScenarioWithinProject's optional
+                            -- dropCurrentScenarioId option flips a
+                            -- sibling scenario family to dropped as
+                            -- part of the within-project copy
+                            -- transaction. Same family-level write
+                            -- shape; same diff_json keys; only
+                            -- audit_source differs to discriminate
+                            -- "PM clicked Drop in CSF modal" (
+                            -- 'canonical_modal') from "FR-12 copy
+                            -- triggered the drop"
+                            -- ('fr12_copy_supersede'). Both follow
+                            -- the Slice 9.2 source-namespace
+                            -- convention.
+
+-- Copy-paths lifecycle (FR-12; writes against `quotes`) — added
+-- during slice-fr12-copy-operations. Activates the disabled copy
+-- radios shipped by PR #49 CSF.
+'scenario_copied'           -- new quote inserted via either
+                            -- copyScenarioWithinProject (intra-
+                            -- project branch) or copyQuoteFromProject
+                            -- (cross-project Beija Flor reorder
+                            -- template clone). One row per copy.
+                            -- entity_type = 'quote', entity_id =
+                            -- new_quote_id. diff_json carries:
+                            --   source_quote_id (UUID of source)
+                            --   source_type ('within_project' |
+                            --                'cross_project') —
+                            --     discriminator per Q10 disposition;
+                            --     single action with diff_json
+                            --     discriminator keeps the audit
+                            --     timeline grammar legible (PMs +
+                            --     forensic readers see "PM copied a
+                            --     quote" as one semantic intent;
+                            --     cross vs intra project filter
+                            --     happens via diff_json.source_type,
+                            --     not by separate action names).
+                            --   target_project_id (UUID; for
+                            --                     cross_project this
+                            --                     != source's project)
+                            --   source_project_id (UUID; only set
+                            --                      when source_type
+                            --                      = 'cross_project'
+                            --                      — within-project
+                            --                      copies infer it
+                            --                      from source_quote)
+                            --   scenario_label (new label PM picked;
+                            --                   defaults to "Alt N"
+                            --                   per Q4/Q11)
+                            --   intent_note? (optional PM context)
+                            --   customer_target_tier_label?
+                            --     (optional PM input)
+                            --   dropped_source_quote_id? (only set
+                            --     when source_type = 'within_project'
+                            --     AND dropCurrentScenarioId was
+                            --     passed; references the sibling
+                            --     scenario family that
+                            --     scenario_dropped flipped)
+                            --
+                            -- Permission gate: none (Catch #6
+                            -- disposition — consistent with existing
+                            -- quote actions that use ensureUser()
+                            -- only). v1.1+ may add
+                            -- assertCanCreateScenarios if PM workflow
+                            -- requires per-role isolation; bank.
+                            --
+                            -- Field-bucket integrity per FR-12:
+                            -- Cloneable (assemblies, assembly_leaves
+                            -- → SAME library leaves, quote_tiers
+                            -- with qty RESET, freight_leg_groups,
+                            -- freight_legs POLICY columns +
+                            -- customs JSONB, quotes.global_price_adj_pct
+                            -- + target_margin_pct) + Inherited
+                            -- (project_id, hubspot_deal_id,
+                            -- deal_name, client_name,
+                            -- sales_rep_user_id, pm_user_id from
+                            -- TARGET project) + Reset (id,
+                            -- version_number=1, status='draft',
+                            -- sent_at, accepted_at, pdf_url,
+                            -- hubspot_quote_id, notes, valid_until,
+                            -- retail_benchmark, all qty values,
+                            -- freight leg shipment dates,
+                            -- scenario_status='active',
+                            -- copied_from_quote_id=source.id).
+                            --
+                            -- Legacy quote_skus chain
+                            -- (packaging_inputs, production_inputs,
+                            -- quote_sku_tiers,
+                            -- quote_sku_tier_targets) DROPPED from
+                            -- clone scope per Pattern 32 tolerance —
+                            -- those FKs all point at quoteSkus.id
+                            -- which is empty for v1 ASY/LEAF quotes
+                            -- (post-CSF every quote routes to the
+                            -- new tree). Cloning them would produce
+                            -- zero rows; not worth the action-layer
+                            -- weight for v1.
 
 -- Quote-attachment lifecycle (writes against quote_attachments) —
 -- added during canonical-scenario-create-flow slice. PM-internal
