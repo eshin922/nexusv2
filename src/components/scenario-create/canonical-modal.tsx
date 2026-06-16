@@ -3,11 +3,16 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  copyQuoteFromProject,
   copyScenarioWithinProject,
   createScenario,
+  fetchCopySourceProjects,
   fetchScenarioCopyPicker,
 } from "@/app/actions/quotes";
-import type { ScenarioCopyPickerRow } from "@/lib/scenario-copy-loader";
+import type {
+  CopySourceProject,
+  ScenarioCopyPickerRow,
+} from "@/lib/scenario-copy-loader";
 import { addQuoteAttachment } from "@/app/actions/quote-attachments";
 
 // canonical-scenario-create-flow Step 5 — canonical New Scenario
@@ -99,6 +104,26 @@ export function CanonicalScenarioModal({
   );
   const [selectedCopySourceQuoteId, setSelectedCopySourceQuoteId] =
     useState<string>("");
+  // slice-fr12-copy-operations Step 7 — cross-project picker
+  // state. Project list loaded on first selection of the
+  // copy_quote radio + on every search-term debounce. Selected
+  // project + selected scenario tracked separately so PMs see
+  // search-→-project-→-scenario as three concrete steps.
+  const [crossProjects, setCrossProjects] = useState<CopySourceProject[] | null>(
+    null,
+  );
+  const [crossProjectsLoading, setCrossProjectsLoading] = useState(false);
+  const [crossProjectsError, setCrossProjectsError] = useState<string | null>(
+    null,
+  );
+  const [crossSearchTerm, setCrossSearchTerm] = useState<string>("");
+  const [selectedCrossProjectId, setSelectedCrossProjectId] =
+    useState<string>("");
+  const [selectedCrossSourceQuoteId, setSelectedCrossSourceQuoteId] =
+    useState<string>("");
+  const crossSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -120,6 +145,15 @@ export function CanonicalScenarioModal({
     setCopyScenarios(null);
     setCopyScenariosError(null);
     setSelectedCopySourceQuoteId("");
+    setCrossProjects(null);
+    setCrossProjectsError(null);
+    setCrossSearchTerm("");
+    setSelectedCrossProjectId("");
+    setSelectedCrossSourceQuoteId("");
+    if (crossSearchDebounceRef.current) {
+      clearTimeout(crossSearchDebounceRef.current);
+      crossSearchDebounceRef.current = null;
+    }
   }, [open]);
 
   // slice-fr12-copy-operations Step 6 — lazy-load the within-
@@ -152,6 +186,57 @@ export function CanonicalScenarioModal({
     copyScenariosLoading,
     projectId,
     currentActiveScenarioId,
+  ]);
+
+  // slice-fr12-copy-operations Step 7 — debounced cross-project
+  // fetch. Fires on first copy_quote selection (search term
+  // empty) and re-fires on every search-term change after 300ms
+  // of quiet. Same debounce pattern as the library browse
+  // modal's search input (PR #51).
+  useEffect(() => {
+    if (!open) return;
+    if (startPath !== "copy_quote") return;
+    if (crossSearchDebounceRef.current) {
+      clearTimeout(crossSearchDebounceRef.current);
+    }
+    crossSearchDebounceRef.current = setTimeout(() => {
+      setCrossProjectsLoading(true);
+      setCrossProjectsError(null);
+      (async () => {
+        const result = await fetchCopySourceProjects({
+          search: crossSearchTerm.trim() || undefined,
+          excludeProjectId: projectId,
+        });
+        setCrossProjectsLoading(false);
+        if (!result.ok) {
+          setCrossProjectsError(result.error.message);
+          return;
+        }
+        setCrossProjects(result.data.projects);
+        // Clear selection if the prior pick no longer surfaces in
+        // the search results (rare; defensive).
+        if (
+          selectedCrossProjectId &&
+          !result.data.projects.find(
+            (p) => p.projectId === selectedCrossProjectId,
+          )
+        ) {
+          setSelectedCrossProjectId("");
+          setSelectedCrossSourceQuoteId("");
+        }
+      })();
+    }, 300);
+    return () => {
+      if (crossSearchDebounceRef.current) {
+        clearTimeout(crossSearchDebounceRef.current);
+      }
+    };
+  }, [
+    open,
+    startPath,
+    crossSearchTerm,
+    projectId,
+    selectedCrossProjectId,
   ]);
 
   // Escape + outside-click dismiss.
@@ -192,27 +277,29 @@ export function CanonicalScenarioModal({
     setFileError(null);
   }
 
-  // slice-fr12-copy-operations Step 6 — copy-scenario path active;
-  // copy_quote stays gated until Step 7 wires the cross-project
-  // picker. crossProjectPending preserves the legacy warning-
-  // banner UX for the not-yet-wired path.
+  // slice-fr12-copy-operations Step 7 — both copy paths active.
+  // crossProjectPath flips on for copy_quote; the previous
+  // "crossProjectPending" gate retires.
   const copyScenarioPath = startPath === "copy_scenario";
-  const crossProjectPending = startPath === "copy_quote";
-  // Recommended + drop-current choices apply only to scratch
-  // (createScenario action). Copy paths use the copyScenario action
-  // which has its own drop-current option but doesn't carry a
-  // recommended-on-create flag (PMs set the pin via post-creation
-  // affordance per Slice RI.1 precedent).
-  const advancedFieldsDisabled = copyScenarioPath || crossProjectPending;
+  const crossProjectPath = startPath === "copy_quote";
+  const anyCopyPath = copyScenarioPath || crossProjectPath;
+  // Recommended-checkbox stays disabled on copy paths (the copy
+  // actions don't carry scenarioRecommended; PMs set the ★ pin
+  // via post-creation affordance per Slice RI.1 precedent).
+  const advancedFieldsDisabled = anyCopyPath;
+  // Drop-current radio is meaningful on within-project copy (same
+  // anchor scenario as scratch). Cross-project copy doesn't drop
+  // anything (target may be a fresh project; no scenario to drop).
+  const dropChoiceDisabled = crossProjectPath;
   const copyMissingSource = copyScenarioPath && !selectedCopySourceQuoteId;
+  const crossMissingSource =
+    crossProjectPath && !selectedCrossSourceQuoteId;
   const submitDisabled =
-    pending || crossProjectPending || copyMissingSource;
+    pending || copyMissingSource || crossMissingSource;
 
   function handleSubmit() {
-    if (crossProjectPending) {
-      setError(
-        "Cross-project copy ships in Step 7. For now, use Scratch or within-project copy.",
-      );
+    if (crossProjectPath) {
+      handleCopyQuoteSubmit();
       return;
     }
     if (copyScenarioPath) {
@@ -301,6 +388,51 @@ export function CanonicalScenarioModal({
           dropChoice === "drop" && currentActiveScenarioId
             ? currentActiveScenarioId
             : undefined,
+      });
+      if (!result.ok) {
+        setError(result.error.message);
+        return;
+      }
+
+      const newQuoteId = result.data.newQuoteId;
+
+      if (file) {
+        const fd = new FormData();
+        fd.set("quoteId", newQuoteId);
+        fd.set("file", file);
+        const upload = await addQuoteAttachment(fd);
+        if (!upload.ok) {
+          console.warn(
+            `[canonical-modal] attachment upload failed: ${upload.error.message}; scenario created without attachment.`,
+          );
+        }
+      }
+
+      onClose();
+      router.push(`/projects/${projectId}/quotes/${newQuoteId}/setup`);
+    });
+  }
+
+  // slice-fr12-copy-operations Step 7 — cross-project copy submit.
+  // Dispatches copyQuoteFromProject. No dropCurrentScenarioId
+  // option (cross-project copies don't auto-drop source scenarios
+  // per the Step 4 action shape — the target may be a fresh
+  // project with no scenarios to drop).
+  function handleCopyQuoteSubmit() {
+    if (!selectedCrossSourceQuoteId) {
+      setError("Pick a source scenario from another project.");
+      return;
+    }
+
+    startTransition(async () => {
+      setError(null);
+
+      const result = await copyQuoteFromProject({
+        sourceQuoteId: selectedCrossSourceQuoteId,
+        targetProjectId: projectId,
+        newScenarioLabel: scenarioLabel.trim() || undefined,
+        intentNote: intentNote.trim() || undefined,
+        customerTargetTierLabel: targetTierLabel.trim() || undefined,
       });
       if (!result.ok) {
         setError(result.error.message);
@@ -491,21 +623,130 @@ export function CanonicalScenarioModal({
                 )}
               </div>
             ) : null}
-            {crossProjectPending ? (
+            {/* slice-fr12-copy-operations Step 7 — cross-project
+                picker. Search + project dropdown + scenario
+                dropdown (three concrete steps; per Q1/Q8
+                simpler-search disposition). Project list filters
+                to ASY/LEAF-tree-having quotes only (Pattern 32 per
+                Q7); scenarios within a project share the same
+                filter. */}
+            {crossProjectPath ? (
               <div
                 style={{
                   marginTop: 6,
                   padding: "10px 12px",
-                  background: "var(--warn-soft)",
-                  border: "1px solid oklch(from var(--warn) l c h / 0.30)",
+                  background: "var(--paper-2)",
+                  border: "1px solid var(--rule)",
                   borderRadius: 6,
-                  fontSize: 12.5,
-                  color: "var(--warn)",
-                  lineHeight: 1.5,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
                 }}
               >
-                ⏳ Cross-project copy ships in Step 7. For now, use
-                Scratch or within-project copy.
+                <span
+                  style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 10,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: "var(--ink-4)",
+                  }}
+                >
+                  Source project + scenario
+                </span>
+                <input
+                  type="text"
+                  value={crossSearchTerm}
+                  onChange={(e) => {
+                    setCrossSearchTerm(e.target.value);
+                    // Clear selection on new search; reloads on
+                    // debounced fetch.
+                    setSelectedCrossProjectId("");
+                    setSelectedCrossSourceQuoteId("");
+                  }}
+                  placeholder="Search by client name or deal name"
+                  style={{ fontSize: 13 }}
+                  aria-label="Search projects"
+                />
+                {crossProjectsLoading ? (
+                  <span style={{ fontSize: 12, color: "var(--ink-3)" }}>
+                    Searching projects…
+                  </span>
+                ) : crossProjectsError ? (
+                  <span
+                    role="alert"
+                    style={{
+                      fontSize: 11.5,
+                      color: "var(--bad)",
+                      fontFamily: "var(--mono)",
+                    }}
+                  >
+                    {crossProjectsError}
+                  </span>
+                ) : crossProjects && crossProjects.length === 0 ? (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: "var(--ink-3)",
+                      fontStyle: "italic",
+                    }}
+                  >
+                    {crossSearchTerm.trim()
+                      ? `No projects match "${crossSearchTerm.trim()}." Try a different search.`
+                      : "No projects with setup-tree scenarios available."}
+                  </span>
+                ) : (
+                  <>
+                    <select
+                      value={selectedCrossProjectId}
+                      onChange={(e) => {
+                        setSelectedCrossProjectId(e.target.value);
+                        setSelectedCrossSourceQuoteId("");
+                      }}
+                      style={{ fontSize: 13 }}
+                      aria-label="Source project"
+                    >
+                      <option value="">— Pick a source project —</option>
+                      {(crossProjects ?? []).map((p) => (
+                        <option key={p.projectId} value={p.projectId}>
+                          {p.clientName ?? "(no client name)"} ·{" "}
+                          {p.dealName}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedCrossProjectId ? (
+                      <select
+                        value={selectedCrossSourceQuoteId}
+                        onChange={(e) =>
+                          setSelectedCrossSourceQuoteId(e.target.value)
+                        }
+                        style={{ fontSize: 13 }}
+                        aria-label="Source scenario"
+                      >
+                        <option value="">— Pick a source scenario —</option>
+                        {((crossProjects ?? []).find(
+                          (p) => p.projectId === selectedCrossProjectId,
+                        )?.quotes ?? []).map((s) => {
+                          const star = s.isRecommended ? "★ " : "";
+                          const statusLabel =
+                            s.scenarioStatus === "active"
+                              ? ""
+                              : ` · ${s.scenarioStatus}`;
+                          return (
+                            <option key={s.quoteId} value={s.quoteId}>
+                              {star}
+                              {s.scenarioLabel} · v{s.versionNumber}
+                              {statusLabel} · {s.asyCount} ASY
+                              {s.asyCount === 1 ? "" : "s"} ·{" "}
+                              {s.leafCount} leaf
+                              {s.leafCount === 1 ? "" : "s"}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    ) : null}
+                  </>
+                )}
               </div>
             ) : null}
           </fieldset>
@@ -518,7 +759,6 @@ export function CanonicalScenarioModal({
               value={scenarioLabel}
               onChange={(e) => setScenarioLabel(e.target.value)}
               placeholder={nextAltLabel}
-              disabled={crossProjectPending}
             />
           </div>
 
@@ -529,7 +769,6 @@ export function CanonicalScenarioModal({
               value={intentNote}
               onChange={(e) => setIntentNote(e.target.value)}
               placeholder="Why does this scenario exist?"
-              disabled={crossProjectPending}
               rows={3}
               style={{ resize: "vertical", fontFamily: "inherit" }}
             />
@@ -541,7 +780,6 @@ export function CanonicalScenarioModal({
             <select
               value={targetTierLabel}
               onChange={(e) => setTargetTierLabel(e.target.value)}
-              disabled={crossProjectPending}
             >
               <option value="">(unspecified)</option>
               {currentScenarioTierLabels.map((label) => (
@@ -559,7 +797,6 @@ export function CanonicalScenarioModal({
               type="file"
               accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.txt"
               onChange={handleFileChange}
-              disabled={crossProjectPending}
             />
             <span
               style={{
@@ -657,7 +894,7 @@ export function CanonicalScenarioModal({
                 value="keep"
                 checked={dropChoice === "keep"}
                 onChange={() => setDropChoice("keep")}
-                disabled={crossProjectPending}
+                disabled={dropChoiceDisabled}
               />
               <span>Keep both scenarios active for negotiation</span>
             </label>
@@ -668,7 +905,7 @@ export function CanonicalScenarioModal({
                 value="drop"
                 checked={dropChoice === "drop"}
                 onChange={() => setDropChoice("drop")}
-                disabled={crossProjectPending || !currentActiveScenarioId}
+                disabled={dropChoiceDisabled || !currentActiveScenarioId}
               />
               <span>
                 Drop the current scenario
@@ -721,12 +958,14 @@ export function CanonicalScenarioModal({
             aria-disabled={submitDisabled}
           >
             {pending
-              ? copyScenarioPath
+              ? anyCopyPath
                 ? "Copying…"
                 : "Creating…"
               : copyScenarioPath
                 ? "Copy scenario"
-                : "Create scenario"}
+                : crossProjectPath
+                  ? "Copy quote"
+                  : "Create scenario"}
           </button>
         </div>
       </div>
