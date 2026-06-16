@@ -1,10 +1,12 @@
 "use server";
 
-import { and, asc, desc, eq, isNull, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import {
+  assemblies,
+  assemblyLeaves,
   auditLog,
   firmSettings,
   freightLegGroups,
@@ -50,7 +52,6 @@ async function loadAllSkusForQuote(quoteId: string) {
   return db.select().from(quoteSkus).where(eq(quoteSkus.quoteId, quoteId));
 }
 import { packagingInputs as packagingInputsTable } from "@/db/schema";
-import { inArray } from "drizzle-orm";
 
 // HubSpot-sourced snapshot fields on quote_skus. Refresh from HubSpot
 // overwrites only these. Everything else on the row is Nexus-local.
@@ -3103,5 +3104,397 @@ export async function clearCustomerAcceptance(
     });
 
     revalidateQuoteTree(quote.projectId, quoteId);
+  });
+}
+
+// slice-fr12-copy-operations Step 3 — shared transactional clone
+// helper consumed by both copyScenarioWithinProject (Step 3) and
+// copyQuoteFromProject (Step 4). Encapsulates the ASY/LEAF +
+// freight clone graph per the locked Cloneable bucket
+// (docs/cc-fr12-copy-operations-kickoff.md §3).
+//
+// Cloneable:  assemblies, assembly_leaves (point at SAME library
+//             leaves), quote_tiers (qty RESET), freight_leg_groups,
+//             freight_legs (POLICY columns + customs JSONB)
+// Inherited:  project_id (from `targetProjectId` arg — different
+//             from source.projectId on cross-project; same on
+//             within-project)
+// Reset:      id, version_number=1, status='draft', sent_at,
+//             accepted_at, pdf_url, hubspot_quote_id, notes,
+//             valid_until, retail_benchmark, all quote_tiers.qty,
+//             freight leg shipment dates, scenario_status='active',
+//             copied_from_quote_id=source.id
+// Dropped per Pattern 32: packaging_inputs, production_inputs,
+//             quote_sku_tiers, quote_sku_tier_targets — all FK to
+//             legacy quoteSkus.id chain; orphan for v1 quotes.
+//
+// All inserts run inside the caller's transaction `tx`. Returns
+// the new quote id. Does NOT emit the scenario_copied audit row —
+// caller does that with their source_type discriminator.
+async function cloneQuoteGraph(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  args: {
+    sourceQuoteId: string;
+    targetProjectId: string;
+    newScenarioLabel: string;
+    intentNote: string | null;
+    customerTargetTierLabel: string | null;
+    createdByUserId: string;
+  },
+): Promise<{ newQuoteId: string }> {
+  // Fetch the source quote (Cloneable + carry-forward columns).
+  const [source] = await tx
+    .select()
+    .from(quotes)
+    .where(eq(quotes.id, args.sourceQuoteId))
+    .limit(1);
+  if (!source) {
+    throw new ActionGuardError(ERR.NOT_FOUND, "Source quote not found.");
+  }
+
+  // Insert the new quote — Cloneable fields from source +
+  // Inherited fields from target project + Reset fields cleared +
+  // copied_from_quote_id = source.id.
+  const [newQuote] = await tx
+    .insert(quotes)
+    .values({
+      // Inherited (from target project)
+      projectId: args.targetProjectId,
+      // Cloneable (from source)
+      globalPriceAdjPct: source.globalPriceAdjPct,
+      targetMarginPct: source.targetMarginPct,
+      // PM-provided label (defaults to "Alt N" upstream of caller)
+      scenarioLabel: args.newScenarioLabel,
+      intentNote: args.intentNote,
+      customerTargetTierLabel: args.customerTargetTierLabel,
+      // Reset (explicit per FR-12 bucket)
+      scenarioStatus: "active",
+      versionNumber: 1,
+      status: "draft",
+      isRecommended: false,
+      // Lineage
+      copiedFromQuoteId: args.sourceQuoteId,
+      createdByUserId: args.createdByUserId,
+      // Rest of Reset fields rely on column defaults (NULL or false)
+    })
+    .returning({ id: quotes.id });
+  const newQuoteId = newQuote.id;
+
+  // Clone tiers — label + sort_order + tier_price_adj_pct +
+  // recommended carry; qty RESET to null per FR-12.
+  const sourceTiers = await tx
+    .select()
+    .from(quoteTiers)
+    .where(eq(quoteTiers.quoteId, args.sourceQuoteId))
+    .orderBy(asc(quoteTiers.sortOrder));
+  const tierIdMap = new Map<string, string>(); // sourceTierId → newTierId
+  if (sourceTiers.length > 0) {
+    const insertedTiers = await tx
+      .insert(quoteTiers)
+      .values(
+        sourceTiers.map((t) => ({
+          quoteId: newQuoteId,
+          label: t.label,
+          qty: null,
+          sortOrder: t.sortOrder,
+          tierPriceAdjPct: t.tierPriceAdjPct,
+          recommended: t.recommended,
+        })),
+      )
+      .returning({ id: quoteTiers.id, sortOrder: quoteTiers.sortOrder });
+    // Pair by sort_order (stable within a quote post-insert).
+    for (const src of sourceTiers) {
+      const match = insertedTiers.find((i) => i.sortOrder === src.sortOrder);
+      if (match) tierIdMap.set(src.id, match.id);
+    }
+  }
+
+  // Clone assemblies (commercial fields per locked Cloneable graph).
+  const sourceAssemblies = await tx
+    .select()
+    .from(assemblies)
+    .where(eq(assemblies.quoteId, args.sourceQuoteId))
+    .orderBy(asc(assemblies.position));
+  const assemblyIdMap = new Map<string, string>(); // sourceAssemblyId → newAssemblyId
+  if (sourceAssemblies.length > 0) {
+    const insertedAssemblies = await tx
+      .insert(assemblies)
+      .values(
+        sourceAssemblies.map((a) => ({
+          quoteId: newQuoteId,
+          sku: a.sku,
+          name: a.name,
+          packLabel: a.packLabel,
+          productTypeId: a.productTypeId,
+          description: a.description,
+          url: a.url,
+          imageUrl: a.imageUrl,
+          unitPrice: a.unitPrice,
+          unitCost: a.unitCost,
+          marginPct: a.marginPct,
+          markupPct: a.markupPct,
+          taxScheduleId: a.taxScheduleId,
+          ownerId: a.ownerId,
+          fscClaim: a.fscClaim,
+          fscStatus: a.fscStatus,
+          supplierVerified: a.supplierVerified,
+          internalNotes: a.internalNotes,
+          position: a.position,
+        })),
+      )
+      .returning({ id: assemblies.id, position: assemblies.position });
+    for (const src of sourceAssemblies) {
+      const match = insertedAssemblies.find((i) => i.position === src.position);
+      if (match) assemblyIdMap.set(src.id, match.id);
+    }
+
+    // Clone assembly_leaves (junctions) — new IDs, SAME library
+    // leaf_id references. Single-level v1 invariant: parent_assembly_leaf_id
+    // is always NULL.
+    const sourceAssemblyIds = sourceAssemblies.map((a) => a.id);
+    const sourceJunctions = await tx
+      .select()
+      .from(assemblyLeaves)
+      .where(inArray(assemblyLeaves.assemblyId, sourceAssemblyIds))
+      .orderBy(asc(assemblyLeaves.position));
+    if (sourceJunctions.length > 0) {
+      await tx.insert(assemblyLeaves).values(
+        sourceJunctions.map((j) => {
+          const newAsyId = assemblyIdMap.get(j.assemblyId);
+          if (!newAsyId) {
+            throw new Error(
+              `clone: assembly_leaves row referenced unmapped assembly ${j.assemblyId}`,
+            );
+          }
+          return {
+            assemblyId: newAsyId,
+            leafId: j.leafId, // SAME library leaf reference per Cloneable bucket
+            quantity: j.quantity,
+            position: j.position,
+            parentAssemblyLeafId: null, // single-level v1 invariant
+          };
+        }),
+      );
+    }
+  }
+
+  // Clone freight_leg_groups + freight_legs (R6.2 leg-based model).
+  // Quote-keyed (FK to quotes.id directly per schema.ts:862).
+  const sourceLegGroups = await tx
+    .select()
+    .from(freightLegGroups)
+    .where(eq(freightLegGroups.quoteId, args.sourceQuoteId))
+    .orderBy(asc(freightLegGroups.displayOrder));
+  const legGroupIdMap = new Map<string, string>();
+  if (sourceLegGroups.length > 0) {
+    const insertedLegGroups = await tx
+      .insert(freightLegGroups)
+      .values(
+        sourceLegGroups.map((g) => ({
+          quoteId: newQuoteId,
+          label: g.label,
+          displayOrder: g.displayOrder,
+        })),
+      )
+      .returning({
+        id: freightLegGroups.id,
+        displayOrder: freightLegGroups.displayOrder,
+      });
+    for (const src of sourceLegGroups) {
+      const match = insertedLegGroups.find(
+        (i) => i.displayOrder === src.displayOrder,
+      );
+      if (match) legGroupIdMap.set(src.id, match.id);
+    }
+
+    // Clone freight_legs — POLICY columns + customs JSONB cloneable;
+    // shipment dates (cargo_ready_date, vessel_etd, vessel_eta,
+    // actual_delivery_date) RESET to null per FR-12 Reset bucket.
+    const sourceLegGroupIds = sourceLegGroups.map((g) => g.id);
+    const sourceLegs = await tx
+      .select()
+      .from(freightLegs)
+      .where(inArray(freightLegs.legGroupId, sourceLegGroupIds))
+      .orderBy(asc(freightLegs.displayOrder));
+    if (sourceLegs.length > 0) {
+      await tx.insert(freightLegs).values(
+        sourceLegs.map((l) => {
+          const newGroupId = legGroupIdMap.get(l.legGroupId);
+          if (!newGroupId) {
+            throw new Error(
+              `clone: freight_legs row referenced unmapped leg_group ${l.legGroupId}`,
+            );
+          }
+          return {
+            legGroupId: newGroupId,
+            // Cloneable POLICY columns
+            direction: l.direction,
+            label: l.label,
+            origin: l.origin,
+            destination: l.destination,
+            crossesInternationalBorder: l.crossesInternationalBorder,
+            treatment: l.treatment,
+            mode: l.mode,
+            carrier: l.carrier,
+            incoterm: l.incoterm,
+            freightMarkupPct: l.freightMarkupPct,
+            dutyMarkupPct: l.dutyMarkupPct,
+            tariffMarkupPct: l.tariffMarkupPct,
+            customs: l.customs,
+            displayOrder: l.displayOrder,
+            // Reset bucket — shipment dates explicitly NULL
+            cargoReadyDate: null,
+            vesselEtd: null,
+            vesselEta: null,
+            actualDeliveryDate: null,
+          };
+        }),
+      );
+    }
+  }
+
+  return { newQuoteId };
+}
+
+// slice-fr12-copy-operations Step 3 — within-project copy. Branch
+// off a scenario in the same project. Per Q10: emits one
+// scenario_copied audit row with source_type='within_project'.
+// Optional dropCurrentScenarioId triggers a family-level
+// scenario_dropped write with audit_source='fr12_copy_supersede'.
+export async function copyScenarioWithinProject(input: {
+  sourceQuoteId: string;
+  projectId: string;
+  newScenarioLabel?: string;
+  intentNote?: string;
+  customerTargetTierLabel?: string;
+  dropCurrentScenarioId?: string;
+}): Promise<ActionResult<{ newQuoteId: string }>> {
+  return runAction(async () => {
+    const { sourceQuoteId, projectId } = input;
+    if (!sourceQuoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "sourceQuoteId required");
+    if (!projectId)
+      throw new ActionGuardError(ERR.VALIDATION, "projectId required");
+
+    const user = await ensureUser();
+
+    // Verify source quote belongs to this project (within-project
+    // invariant; cross-project copies use the dedicated action).
+    const [sourceMeta] = await db
+      .select({ projectId: quotes.projectId })
+      .from(quotes)
+      .where(eq(quotes.id, sourceQuoteId))
+      .limit(1);
+    if (!sourceMeta) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "Source quote not found.");
+    }
+    if (sourceMeta.projectId !== projectId) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Source quote belongs to a different project. Use copyQuoteFromProject for cross-project copies.",
+      );
+    }
+
+    // Resolve scenario label: PM-provided OR auto "Alt N" per Q11.
+    let scenarioLabel = (input.newScenarioLabel ?? "").trim();
+    if (scenarioLabel.length === 0) {
+      const existing = await db
+        .selectDistinct({ scenarioLabel: quotes.scenarioLabel })
+        .from(quotes)
+        .where(eq(quotes.projectId, projectId));
+      const taken = new Set(existing.map((r) => r.scenarioLabel));
+      let n = 1;
+      while (taken.has(`Alt ${n}`)) n++;
+      scenarioLabel = `Alt ${n}`;
+    }
+
+    const intentNote = (input.intentNote ?? "").trim() || null;
+    const customerTargetTierLabel =
+      (input.customerTargetTierLabel ?? "").trim() || null;
+
+    let newQuoteId: string;
+    let droppedSourceQuoteIds: string[] = [];
+    let droppedScenarioLabel: string | null = null;
+
+    await db.transaction(async (tx) => {
+      const cloned = await cloneQuoteGraph(tx, {
+        sourceQuoteId,
+        targetProjectId: projectId,
+        newScenarioLabel: scenarioLabel,
+        intentNote,
+        customerTargetTierLabel,
+        createdByUserId: user.id,
+      });
+      newQuoteId = cloned.newQuoteId;
+
+      // Optional family-level drop of the "current" scenario per
+      // CSF Bug CSF-3-A precedent (family-level write, not per-quote).
+      if (input.dropCurrentScenarioId) {
+        const [currentRow] = await tx
+          .select({ scenarioLabel: quotes.scenarioLabel })
+          .from(quotes)
+          .where(eq(quotes.id, input.dropCurrentScenarioId))
+          .limit(1);
+        if (currentRow) {
+          droppedScenarioLabel = currentRow.scenarioLabel;
+          const dropped = await tx
+            .update(quotes)
+            .set({
+              scenarioStatus: "dropped",
+              dropReason: "superseded_by_copy",
+              droppedByUserId: user.id,
+              droppedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(quotes.projectId, projectId),
+                eq(quotes.scenarioLabel, currentRow.scenarioLabel),
+                eq(quotes.scenarioStatus, "active"),
+              ),
+            )
+            .returning({ id: quotes.id });
+          droppedSourceQuoteIds = dropped.map((d) => d.id);
+          if (droppedSourceQuoteIds.length > 0) {
+            await tx.insert(auditLog).values({
+              userId: user.id,
+              entityType: "project",
+              entityId: projectId,
+              action: "scenario_dropped",
+              diffJson: {
+                drop_reason: "superseded_by_copy",
+                triggered_by_new_scenario_id: newQuoteId,
+                scenario_label: currentRow.scenarioLabel,
+                dropped_quote_ids: droppedSourceQuoteIds,
+                audit_source: "fr12_copy_supersede",
+              },
+            });
+          }
+        }
+      }
+
+      // scenario_copied audit row per Q10. source_type discriminator
+      // disambiguates within-project from cross-project; source +
+      // target project ids identical here.
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote",
+        entityId: newQuoteId,
+        action: "scenario_copied",
+        diffJson: {
+          source_quote_id: sourceQuoteId,
+          source_type: "within_project",
+          target_project_id: projectId,
+          scenario_label: scenarioLabel,
+          intent_note: intentNote,
+          customer_target_tier_label: customerTargetTierLabel,
+          dropped_source_quote_id: droppedSourceQuoteIds[0] ?? null,
+          dropped_scenario_label: droppedScenarioLabel,
+        },
+      });
+    });
+
+    revalidatePath(`/projects/${projectId}`);
+    return { newQuoteId: newQuoteId! };
   });
 }
