@@ -45,6 +45,14 @@ import {
   validateAssemblyOperation,
   type SkuRoleValue,
 } from "@/lib/sku-tree";
+import {
+  loadCopySourceProjects,
+  loadScenarioCopyPicker,
+  type CopySourceProject,
+  type CopySourceProjectsFilters,
+  type ScenarioCopyPickerFilters,
+  type ScenarioCopyPickerRow,
+} from "@/lib/scenario-copy-loader";
 
 // DB query inlined here (used to live in sku-tree.ts but that module
 // must stay client-safe since SkuRow imports its pure helpers).
@@ -3615,5 +3623,29 @@ export async function copyQuoteFromProject(input: {
 
     revalidatePath(`/projects/${targetProjectId}`);
     return { newQuoteId: newQuoteId! };
+  });
+}
+
+// slice-fr12-copy-operations Step 5 — server action wrappers for
+// the picker loaders. Mirror the fetchLibraryBrowse pattern from
+// PR #51 (auth-checked wrapper around a server-only loader so the
+// client can call via useTransition without server-only imports
+// leaking into the modal component).
+
+export async function fetchScenarioCopyPicker(
+  filters: ScenarioCopyPickerFilters,
+): Promise<ActionResult<{ scenarios: ScenarioCopyPickerRow[] }>> {
+  return runAction(async () => {
+    await ensureUser();
+    return loadScenarioCopyPicker(filters);
+  });
+}
+
+export async function fetchCopySourceProjects(
+  filters: CopySourceProjectsFilters,
+): Promise<ActionResult<{ projects: CopySourceProject[] }>> {
+  return runAction(async () => {
+    await ensureUser();
+    return loadCopySourceProjects(filters);
   });
 }
