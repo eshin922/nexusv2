@@ -2,7 +2,12 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createScenario } from "@/app/actions/quotes";
+import {
+  copyScenarioWithinProject,
+  createScenario,
+  fetchScenarioCopyPicker,
+} from "@/app/actions/quotes";
+import type { ScenarioCopyPickerRow } from "@/lib/scenario-copy-loader";
 import { addQuoteAttachment } from "@/app/actions/quote-attachments";
 
 // canonical-scenario-create-flow Step 5 — canonical New Scenario
@@ -82,6 +87,18 @@ export function CanonicalScenarioModal({
   const [dropChoice, setDropChoice] = useState<DropChoice>("keep");
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  // slice-fr12-copy-operations Step 6 — within-project copy picker
+  // state. Loaded on first selection of the copy_scenario radio;
+  // re-used across re-selects within the same modal session.
+  const [copyScenarios, setCopyScenarios] = useState<
+    ScenarioCopyPickerRow[] | null
+  >(null);
+  const [copyScenariosLoading, setCopyScenariosLoading] = useState(false);
+  const [copyScenariosError, setCopyScenariosError] = useState<string | null>(
+    null,
+  );
+  const [selectedCopySourceQuoteId, setSelectedCopySourceQuoteId] =
+    useState<string>("");
 
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -100,7 +117,42 @@ export function CanonicalScenarioModal({
     setFile(null);
     setFileError(null);
     setError(null);
+    setCopyScenarios(null);
+    setCopyScenariosError(null);
+    setSelectedCopySourceQuoteId("");
   }, [open]);
+
+  // slice-fr12-copy-operations Step 6 — lazy-load the within-
+  // project picker the first time PM selects the copy_scenario
+  // radio. Re-fetches on every modal-open per session so newly-
+  // created scenarios surface immediately (no stale-cache risk).
+  useEffect(() => {
+    if (!open) return;
+    if (startPath !== "copy_scenario") return;
+    if (copyScenarios !== null) return; // already loaded this session
+    if (copyScenariosLoading) return;
+    setCopyScenariosLoading(true);
+    setCopyScenariosError(null);
+    (async () => {
+      const result = await fetchScenarioCopyPicker({
+        projectId,
+        excludeQuoteId: currentActiveScenarioId ?? undefined,
+      });
+      setCopyScenariosLoading(false);
+      if (!result.ok) {
+        setCopyScenariosError(result.error.message);
+        return;
+      }
+      setCopyScenarios(result.data.scenarios);
+    })();
+  }, [
+    open,
+    startPath,
+    copyScenarios,
+    copyScenariosLoading,
+    projectId,
+    currentActiveScenarioId,
+  ]);
 
   // Escape + outside-click dismiss.
   useEffect(() => {
@@ -140,15 +192,31 @@ export function CanonicalScenarioModal({
     setFileError(null);
   }
 
-  const copyPathSelected =
-    startPath === "copy_scenario" || startPath === "copy_quote";
-  const submitDisabled = pending || copyPathSelected;
+  // slice-fr12-copy-operations Step 6 — copy-scenario path active;
+  // copy_quote stays gated until Step 7 wires the cross-project
+  // picker. crossProjectPending preserves the legacy warning-
+  // banner UX for the not-yet-wired path.
+  const copyScenarioPath = startPath === "copy_scenario";
+  const crossProjectPending = startPath === "copy_quote";
+  // Recommended + drop-current choices apply only to scratch
+  // (createScenario action). Copy paths use the copyScenario action
+  // which has its own drop-current option but doesn't carry a
+  // recommended-on-create flag (PMs set the pin via post-creation
+  // affordance per Slice RI.1 precedent).
+  const advancedFieldsDisabled = copyScenarioPath || crossProjectPending;
+  const copyMissingSource = copyScenarioPath && !selectedCopySourceQuoteId;
+  const submitDisabled =
+    pending || crossProjectPending || copyMissingSource;
 
   function handleSubmit() {
-    if (copyPathSelected) {
+    if (crossProjectPending) {
       setError(
-        "Copy operations ship in the next slice. For now, create from scratch.",
+        "Cross-project copy ships in Step 7. For now, use Scratch or within-project copy.",
       );
+      return;
+    }
+    if (copyScenarioPath) {
+      handleCopyScenarioSubmit();
       return;
     }
     if (dropChoice === "drop" && !currentActiveScenarioId) {
@@ -190,6 +258,63 @@ export function CanonicalScenarioModal({
         if (!upload.ok) {
           // Surface but don't block navigation — the scenario is
           // created; PM can retry attachment on the Setup surface.
+          console.warn(
+            `[canonical-modal] attachment upload failed: ${upload.error.message}; scenario created without attachment.`,
+          );
+        }
+      }
+
+      onClose();
+      router.push(`/projects/${projectId}/quotes/${newQuoteId}/setup`);
+    });
+  }
+
+  // slice-fr12-copy-operations Step 6 — within-project copy submit.
+  // Dispatches copyScenarioWithinProject; the dropChoice radio
+  // governs the optional dropCurrentScenarioId arg (same UX as
+  // scratch — PM picks "Drop the current scenario" → flips the
+  // anchor scenario's family to dropped per CSF Bug CSF-3-A
+  // family-level pattern with audit_source='fr12_copy_supersede'
+  // per Step 2 contract).
+  function handleCopyScenarioSubmit() {
+    if (!selectedCopySourceQuoteId) {
+      setError("Pick a source scenario from the dropdown above.");
+      return;
+    }
+    if (dropChoice === "drop" && !currentActiveScenarioId) {
+      setError(
+        "No active scenario to drop. Choose 'Keep both' or surface this — drop choice requires an active scenario in the project.",
+      );
+      return;
+    }
+
+    startTransition(async () => {
+      setError(null);
+
+      const result = await copyScenarioWithinProject({
+        sourceQuoteId: selectedCopySourceQuoteId,
+        projectId,
+        newScenarioLabel: scenarioLabel.trim() || undefined,
+        intentNote: intentNote.trim() || undefined,
+        customerTargetTierLabel: targetTierLabel.trim() || undefined,
+        dropCurrentScenarioId:
+          dropChoice === "drop" && currentActiveScenarioId
+            ? currentActiveScenarioId
+            : undefined,
+      });
+      if (!result.ok) {
+        setError(result.error.message);
+        return;
+      }
+
+      const newQuoteId = result.data.newQuoteId;
+
+      if (file) {
+        const fd = new FormData();
+        fd.set("quoteId", newQuoteId);
+        fd.set("file", file);
+        const upload = await addQuoteAttachment(fd);
+        if (!upload.ok) {
           console.warn(
             `[canonical-modal] attachment upload failed: ${upload.error.message}; scenario created without attachment.`,
           );
@@ -281,7 +406,92 @@ export function CanonicalScenarioModal({
               <span>Copy a quote from another project</span>
             </label>
 
-            {copyPathSelected ? (
+            {/* slice-fr12-copy-operations Step 6 — within-project
+                picker UI replaces the prior warning banner for the
+                copy_scenario radio. Cross-project (copy_quote) keeps
+                a slimmer pending banner until Step 7 wires it. */}
+            {copyScenarioPath ? (
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: "10px 12px",
+                  background: "var(--paper-2)",
+                  border: "1px solid var(--rule)",
+                  borderRadius: 6,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 10,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: "var(--ink-4)",
+                  }}
+                >
+                  Source scenario
+                </span>
+                {copyScenariosLoading ? (
+                  <span
+                    style={{ fontSize: 12, color: "var(--ink-3)" }}
+                  >
+                    Loading scenarios…
+                  </span>
+                ) : copyScenariosError ? (
+                  <span
+                    role="alert"
+                    style={{
+                      fontSize: 11.5,
+                      color: "var(--bad)",
+                      fontFamily: "var(--mono)",
+                    }}
+                  >
+                    {copyScenariosError}
+                  </span>
+                ) : copyScenarios && copyScenarios.length === 0 ? (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: "var(--ink-3)",
+                      fontStyle: "italic",
+                    }}
+                  >
+                    No other scenarios in this project have a setup
+                    tree to copy from. Use Scratch instead.
+                  </span>
+                ) : (
+                  <select
+                    value={selectedCopySourceQuoteId}
+                    onChange={(e) =>
+                      setSelectedCopySourceQuoteId(e.target.value)
+                    }
+                    style={{ fontSize: 13 }}
+                  >
+                    <option value="">— Pick a source scenario —</option>
+                    {(copyScenarios ?? []).map((s) => {
+                      const star = s.isRecommended ? "★ " : "";
+                      const statusLabel =
+                        s.scenarioStatus === "active"
+                          ? ""
+                          : ` · ${s.scenarioStatus}`;
+                      return (
+                        <option key={s.quoteId} value={s.quoteId}>
+                          {star}
+                          {s.scenarioLabel} · v{s.versionNumber}
+                          {statusLabel} · {s.asyCount} ASY
+                          {s.asyCount === 1 ? "" : "s"} · {s.leafCount}{" "}
+                          leaf{s.leafCount === 1 ? "" : "s"}
+                        </option>
+                      );
+                    })}
+                  </select>
+                )}
+              </div>
+            ) : null}
+            {crossProjectPending ? (
               <div
                 style={{
                   marginTop: 6,
@@ -294,8 +504,8 @@ export function CanonicalScenarioModal({
                   lineHeight: 1.5,
                 }}
               >
-                ⏳ Copy operations ship in the next slice. For now, create
-                from scratch and re-enter data manually.
+                ⏳ Cross-project copy ships in Step 7. For now, use
+                Scratch or within-project copy.
               </div>
             ) : null}
           </fieldset>
@@ -308,7 +518,7 @@ export function CanonicalScenarioModal({
               value={scenarioLabel}
               onChange={(e) => setScenarioLabel(e.target.value)}
               placeholder={nextAltLabel}
-              disabled={copyPathSelected}
+              disabled={crossProjectPending}
             />
           </div>
 
@@ -319,7 +529,7 @@ export function CanonicalScenarioModal({
               value={intentNote}
               onChange={(e) => setIntentNote(e.target.value)}
               placeholder="Why does this scenario exist?"
-              disabled={copyPathSelected}
+              disabled={crossProjectPending}
               rows={3}
               style={{ resize: "vertical", fontFamily: "inherit" }}
             />
@@ -331,7 +541,7 @@ export function CanonicalScenarioModal({
             <select
               value={targetTierLabel}
               onChange={(e) => setTargetTierLabel(e.target.value)}
-              disabled={copyPathSelected}
+              disabled={crossProjectPending}
             >
               <option value="">(unspecified)</option>
               {currentScenarioTierLabels.map((label) => (
@@ -349,7 +559,7 @@ export function CanonicalScenarioModal({
               type="file"
               accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.txt"
               onChange={handleFileChange}
-              disabled={copyPathSelected}
+              disabled={crossProjectPending}
             />
             <span
               style={{
@@ -388,13 +598,16 @@ export function CanonicalScenarioModal({
             ) : null}
           </div>
 
-          {/* Recommended checkbox */}
+          {/* Recommended checkbox — disabled on copy paths since
+              the copy actions don't carry scenarioRecommended; PMs
+              set the ★ pin via post-creation affordance per Slice
+              RI.1 precedent. */}
           <label style={{ ...radioLabelStyle, marginTop: 6 }}>
             <input
               type="checkbox"
               checked={recommended}
               onChange={(e) => setRecommended(e.target.checked)}
-              disabled={copyPathSelected}
+              disabled={advancedFieldsDisabled}
             />
             <span>
               Mark as recommended (★ Primary)
@@ -444,7 +657,7 @@ export function CanonicalScenarioModal({
                 value="keep"
                 checked={dropChoice === "keep"}
                 onChange={() => setDropChoice("keep")}
-                disabled={copyPathSelected}
+                disabled={crossProjectPending}
               />
               <span>Keep both scenarios active for negotiation</span>
             </label>
@@ -455,7 +668,7 @@ export function CanonicalScenarioModal({
                 value="drop"
                 checked={dropChoice === "drop"}
                 onChange={() => setDropChoice("drop")}
-                disabled={copyPathSelected || !currentActiveScenarioId}
+                disabled={crossProjectPending || !currentActiveScenarioId}
               />
               <span>
                 Drop the current scenario
@@ -507,7 +720,13 @@ export function CanonicalScenarioModal({
             disabled={submitDisabled}
             aria-disabled={submitDisabled}
           >
-            {pending ? "Creating…" : "Create scenario"}
+            {pending
+              ? copyScenarioPath
+                ? "Copying…"
+                : "Creating…"
+              : copyScenarioPath
+                ? "Copy scenario"
+                : "Create scenario"}
           </button>
         </div>
       </div>
