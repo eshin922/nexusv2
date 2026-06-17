@@ -232,6 +232,13 @@
       "when": 1779301704664,
       "tag": "0032_hubspot_product_id_on_leaves",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1781654940321,
+      "tag": "0033_firm_settings_policy_gates",
+      "breakpoints": true
     }
   ]
 }

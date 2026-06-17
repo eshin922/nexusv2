@@ -96,6 +96,13 @@ async function versionedFirmSettingsUpdate(args: {
       // Margin (carry-forward; updateFirmSettings overrides these)
       targetMarginPct: prior?.targetMarginPct ?? "0.3500",
       floorMarginPct: prior?.floorMarginPct ?? "0.2500",
+      // slice-pricing-surface-redesign Step 2 — policy gates carry
+      // forward (default true preserves current production behavior).
+      // Future per-firm admin UI will edit these via a Pricing-policy
+      // sub-action that supplies overrides; existing margin / CFD
+      // update paths leave them unchanged.
+      allowOverride: prior?.allowOverride ?? true,
+      allowAcceptRisk: prior?.allowAcceptRisk ?? true,
       // Vendor identity (carry-forward; CFD action overrides these)
       vendorName: prior?.vendorName ?? null,
       vendorTagline: prior?.vendorTagline ?? null,

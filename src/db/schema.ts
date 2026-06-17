@@ -675,6 +675,25 @@ export const firmSettings = pgTable(
     floorMarginPct: numeric("floor_margin_pct", { precision: 5, scale: 4 })
       .notNull()
       .default("0.2500"),
+    // slice-pricing-surface-redesign Step 2 — policy gates surfaced
+    // by the Pricing surface classifier per CD data-source map. Both
+    // default true to preserve current production behavior (override
+    // path + accept-risk path both available). Surfaced in the
+    // classifier as `policy.allow_override` + `policy.allow_accept_risk`.
+    // When false:
+    //   - allow_override = false → blocked-mode action card emits
+    //     `kind: 'override_unavailable'` (inert) instead of
+    //     `request_override`; state line carries `override unavailable
+    //     · firm policy` qualifier (designer notes §9 round-2 fix #5)
+    //   - allow_accept_risk = false → blocked-mode banner explains
+    //     the accept-risk path is gated by firm policy (designer
+    //     notes §8 disposition — banner preserves discoverability
+    //     for cross-firm onboarding)
+    // Versioned-table carry-forward: extended in
+    // versionedFirmSettingsUpdate helper to carry both columns
+    // forward on every update unless explicitly reset.
+    allowOverride: boolean("allow_override").notNull().default(true),
+    allowAcceptRisk: boolean("allow_accept_risk").notNull().default(true),
     // ---------- Slice RI.7 — vendor identity + customer-facing defaults ----------
     // Per docs/ri7-brief-amendment.md §3.10. Vendor identity is firm-level
     // (renders live on every customer view PdfHeader). Customer-facing
