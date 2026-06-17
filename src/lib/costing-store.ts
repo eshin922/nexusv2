@@ -35,7 +35,8 @@ import { validateQuote, type WarningSpec } from "./validation";
 // stale) destroyed PM trust in the numbers. Now the costing page is a
 // thin server shell (auth, header, provider hydration) and every
 // math-bearing section subscribes via selectors. See
-// app/.../costing/sku-breakdowns.tsx + costing/page.tsx.
+// app/.../pricing/page.tsx + the PricingSurfaceShell composer that
+// subscribes via granular selectors.
 //
 // ----------------------------------------------------------------------------
 // Architectural rule 1: Optimistic edits ONLY on existing rows.

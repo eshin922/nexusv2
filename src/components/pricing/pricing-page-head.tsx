@@ -1,45 +1,55 @@
 "use client";
 
-import Link from "next/link";
-import {
-  selectQuoteSummary,
-  selectSkuRollups,
-} from "@/lib/costing-store";
-import { useCostingStore } from "@/components/costing-store-provider";
-import { CustomerAcceptToggle } from "./customer-accept-toggle";
 import { Eyebrow } from "@/components/nav/eyebrow";
-import { ActionCluster } from "@/components/nav/action-cluster";
 import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
 import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
 import { SURFACE_META } from "@/lib/nav/surface-meta";
+import { usePricingClassifier } from "@/components/pricing-surface/pricing-classifier-context";
 
-// Slice RI.5 — Pricing page chrome per R2 source
-// (`docs/design-prototypes/dist/source/round-2/app/r2/costing.jsx:124-165`).
+// slice-pricing-surface-redesign Step 8 — Mark Accepted CTA + the
+// secondary customer-response chip removed from Pricing page header.
+// Per R7a IA grammar + post-canon-revision (May 2026) Quote umbrella
+// structure: Mark Accepted is a Quote sub-tab (Quote → Mark Accepted),
+// not a peer affordance on Pricing.
 //
-// Composition: eyebrow + italic-display H1 + sub copy + button cluster.
-// H1: "Tune <em>price</em> & review." — italic-em word per R2 grammar.
-// Sub copy: keyed off blendedMarginStatus.
-// Buttons (post-F-6 + cluster grouping, Slice RI.8 step 7):
-//   - Preview customer quote (sideways look-at affordance, distinct
-//     visual register from the workflow cluster)
-//   - Workflow cluster (sequenced): customer-response chip → Mark
-//     accepted. Visually grouped via shared treatment + proximity
-//     since Mark Accepted is gated on customer-response being
-//     recorded (CR-SM DEC-1+DEC-2).
-//   - Back-to-Costs moved INTO the eyebrow as a breadcrumb (F-6:
-//     R2 grammar — breadcrumb position, not action cluster).
+// CB Patch round 2 — sub-copy bound to classifier `state.mode` via
+// `usePricingClassifier()` (eliminated parallel predicate chain).
 //
-// Brief amendment §11 step 7. Cluster grammar pending CD R7 (e)
-// for cross-surface standardization; RI.8 ships the visible-
-// hierarchy treatment within existing grammar to fix the
-// felt-friction now.
+// CB Patch round 3 BUG-D — YOUR NEXT MOVE banner label + href ALSO
+// derive from classifier output (was: static SURFACE_META label
+// only). Banner now surfaces the PRIMARY action's label per
+// classifier ranking:
+//
+//   sendable        → preview_pdf primary       → "Preview quote PDF →"
+//   suggestion_led  → apply_surgical / global   → "Apply Surgical · …"
+//                                                 / "Apply Global · …"
+//   blocked         → apply_surgical primary    → "Apply Surgical · …"
+//                     / suggestion_infeasible   → "Suggestion unavailable …"
+//                     / override-only path      → recommended action's
+//                                                 label drives the
+//                                                 register
+//
+// Banner href:
+//   - sendable + accepted (terminal): no href, banner silent
+//   - sendable: customer_view route (Preview PDF surface)
+//   - suggestion_led: in-page anchor #psr-suggestion-card
+//   - blocked: in-page anchor #psr-actions
+// helpText:
+//   - blocked: "Below floor — admin override required before quote
+//     can be sent." (gated register; preserved from prior patch)
+//
+// Pattern 22 catch #14 disposition: eliminate banner's parallel
+// derivation surface; classifier output is the only source of truth
+// for what action surfaces here.
+
+const PSR_SUGGESTION_ANCHOR = "psr-suggestion-card";
+const PSR_ACTION_ANCHOR = "psr-actions";
 
 export function PricingPageHead({
   projectId,
   quoteId,
   project,
   quote,
-  tiers,
 }: {
   projectId: string;
   quoteId: string;
@@ -48,65 +58,87 @@ export function PricingPageHead({
     scenarioLabel: string;
     versionNumber: number;
     status: string;
-    customerAcceptedAt: Date | null;
-    customerAcceptedTierId: string | null;
   };
-  tiers: ReadonlyArray<{ id: string; label: string; qty: number | null }>;
 }) {
-  const summary = useCostingStore(selectQuoteSummary);
-  const skuRollups = useCostingStore(selectSkuRollups);
+  const { state } = usePricingClassifier();
+  const mode = state.mode;
 
-  const status = summary.blendedMarginStatus;
-  let flaggedCount = 0;
-  for (const sku of skuRollups) {
-    if (sku.skuRole !== "leaf") continue;
-    for (const t of sku.perTier) {
-      if (t.marginStatus === "BELOW_FLOOR") flaggedCount++;
-    }
-  }
+  // CB final-stretch ANOMALY-1 (2026-06-16) — sub-copy denominator
+  // is TIER count (matches state-line lead), not cell/line count.
+  // Sub-copy previously read `state.below_target.length` which is
+  // the per-cell array (e.g., 1 tier × 3 SKUs = 3 cells). PMs read
+  // state-line "1 tier below target" + sub-copy "3 lines below
+  // target" and perceived disagreement. Both were truthful but
+  // counted different objects. Classifier's `state.tiers[].status`
+  // rollup is the canonical tier-level verdict; filter on
+  // `below_target` for the suggestion_led count.
+  const tiersBelowTarget = state.tiers.filter(
+    (t) => t.status === "below_target",
+  ).length;
 
   const subCopy =
-    status === "GOOD"
+    mode === "sendable"
       ? "All margins above floor — review and send."
-      : status === "BELOW_TARGET"
-        ? `${flaggedCount > 0 ? flaggedCount : "Some"} line${flaggedCount === 1 ? "" : "s"} below target — soft warning, sendable.`
+      : mode === "suggestion_led"
+        ? `${tiersBelowTarget > 0 ? tiersBelowTarget : "Some"} tier${tiersBelowTarget === 1 ? "" : "s"} below target — soft warning, sendable.`
         : "Below floor — admin override required to send.";
 
-  // Slice RI.9 § 3.3 — banner state derivation:
-  //   - BELOW_FLOOR → gated (CTA reads "Resolve override before sending")
-  //   - sent + accepted → terminal (already sent; banner shouldn't push to Quote)
-  //   - default → "Preview quote PDF →" (forward to customer_view)
+  // Banner state derivation now via classifier mode.
   const bannerState: "default" | "gated" | "terminal" =
     quote.status === "accepted"
       ? "terminal"
-      : status === "BELOW_FLOOR"
+      : mode === "blocked"
         ? "gated"
         : "default";
+
+  // CB Patch round 3 BUG-D — banner label sourced from classifier's
+  // recommended/primary action.
+  //
+  // - suggestion_led + blocked: recommended action is always present
+  //   (invariant 2). Its label drives the banner.
+  // - sendable: no `recommended` action; primary is preview_pdf.
+  // - When state.actions is somehow empty (shouldn't happen but
+  //   defensive), fall back to SURFACE_META.
+  const recommendedOrPrimary =
+    state.actions.find((a) => a.recommended) ??
+    state.actions.find((a) => a.primary) ??
+    null;
+
   const bannerLabel =
-    bannerState === "gated"
-      ? SURFACE_META.costing.nextMove?.gatedLabel ??
-        SURFACE_META.costing.nextMove?.label ??
-        ""
-      : SURFACE_META.costing.nextMove?.label ?? "";
-  const bannerHref = resolveSurfaceHref("customer_view", projectId, quoteId);
+    bannerState === "terminal"
+      ? ""
+      : recommendedOrPrimary
+        ? // CD prototype style: trailing arrow on banner CTA. Action
+          // labels already carry contextual qualifiers ("lift T1 to
+          // target" etc.); we append " →" to match the R9 banner
+          // chrome convention.
+          `${recommendedOrPrimary.label} →`
+        : bannerState === "gated"
+          ? SURFACE_META.costing.nextMove?.gatedLabel ??
+            SURFACE_META.costing.nextMove?.label ??
+            ""
+          : SURFACE_META.costing.nextMove?.label ?? "";
+
+  // Banner href:
+  //   - suggestion_led: in-page anchor → SuggestionCard
+  //   - blocked: in-page anchor → action zone
+  //   - sendable / terminal: customer_view route (preview PDF)
+  const bannerHref =
+    bannerState === "terminal"
+      ? "" // banner silent in terminal; href unused
+      : mode === "suggestion_led"
+        ? `#${PSR_SUGGESTION_ANCHOR}`
+        : mode === "blocked"
+          ? `#${PSR_ACTION_ANCHOR}`
+          : resolveSurfaceHref("customer_view", projectId, quoteId);
 
   return (
     <>
       {/* Sweep Step 3.2/5 — Pricing page chrome migrated from
           legacy .r2-page-head to canonical .r7b-head (chrome canon
-          per dual-canon discipline). Inner H1 + sub-paragraph
-          retain R2 body register via .page-title / .page-sub (now
-          resolved under the .r2-pricing parent scope per Step 3.1/5
-          CSS adoption). RI.9 nav primitives (Eyebrow, ActionCluster,
-          YourNextMoveBanner) preserved — they ARE the chrome canon
-          per RI.9 + R7a/R7b implementation, and the new .r7b-head
-          structure wraps around them via .lhs / .actions slots. */}
+          per dual-canon discipline). */}
       <div className="r7b-head">
         <div className="lhs">
-          {/* Slice RI.9 § 3.1 — Eyebrow per R7a canon. F-6 inline
-              backlink ("← Costs") removed — R7a's eyebrow is NEVER
-              navigable. PMs use inner rail to navigate to Costs
-              (rail.visible = true on Pricing). */}
           <Eyebrow
             segments={[
               project.clientName ?? project.dealName,
@@ -120,67 +152,16 @@ export function PricingPageHead({
           <p className="page-sub">{subCopy}</p>
         </div>
 
-        <div className="actions">
-        {/* Slice RI.9 § 3.4 — Action cluster. Primary "Mark accepted"
-            (gated by BELOW_FLOOR); secondary slot carries only the
-            customer-response chip. The R7a workflow-cluster grouping
-            (response → mark accepted with visual divider) from RI.8
-            step 7 is preserved within the secondary+primary
-            arrangement.
-
-            Step 10 smoke (RI.9): cluster `Preview` dropped. It routed
-            to the same `customer_view` surface as the banner's
-            default CTA ("Preview quote PDF →"), so the two
-            affordances were redundant. R7a §5 placement canon
-            (forward affordances belong in the banner) resolves the
-            redundancy in favor of the banner — patch back to R7a
-            designer notes accompanies this commit. */}
-        <ActionCluster
-          secondary={[
-            // § 5.2 — "Customer accepted (manual)" affordance.
-            // Renders as the existing CustomerAcceptToggle on sent
-            // quotes (the live signal-recording UI). Inert placeholder
-            // pre-send so the workflow sequence reads correctly.
-            quote.status === "sent" ? (
-              <CustomerAcceptToggle
-                key="customer-accept"
-                quoteId={quoteId}
-                customerAcceptedAt={quote.customerAcceptedAt}
-                customerAcceptedTierId={quote.customerAcceptedTierId}
-                tiers={tiers}
-              />
-            ) : (
-              <span
-                key="customer-accept-pending"
-                title="Customer response is recorded after the quote is sent"
-                style={{
-                  fontFamily: "var(--mono)",
-                  fontSize: 10.5,
-                  color: "var(--ink-4)",
-                  letterSpacing: "0.04em",
-                  padding: "4px 8px",
-                }}
-              >
-                ① customer response · pending send
-              </span>
-            ),
-          ]}
-          primary={
-            <MarkAcceptedCluster
-              projectId={projectId}
-              quoteId={quoteId}
-              status={status}
-              editable={quote.status === "draft"}
-            />
-          }
-        />
-        </div>
+        {/* `.actions` slot intentionally empty post-Step-8 tear-down.
+            The R7b head grid keeps the slot reserved (right-aligned
+            empty div) so the H1/H2 register stays anchored to the
+            left column. */}
+        <div className="actions" />
       </div>
 
-      {/* Slice RI.9 § 3.3 — YOUR NEXT MOVE banner.
-          - default: "Preview quote PDF →" (forward to Quote)
-          - gated: "Resolve override before sending →" (BELOW_FLOOR)
-          - terminal: explicit silence post-acceptance */}
+      {/* CB Patch round 3 BUG-D — banner label now reflects the
+          classifier's recommended/primary action; href routes to
+          the in-page surface that owns that action. */}
       <YourNextMoveBanner
         state={bannerState}
         label={bannerLabel}
@@ -191,76 +172,7 @@ export function PricingPageHead({
             : undefined
         }
       />
+
     </>
-  );
-}
-
-function MarkAcceptedCluster({
-  projectId,
-  quoteId,
-  status,
-  editable,
-}: {
-  projectId: string;
-  quoteId: string;
-  status: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
-  editable: boolean;
-}) {
-  const href = `/projects/${projectId}/quotes/${quoteId}/mark-accepted`;
-
-  if (status !== "BELOW_FLOOR") {
-    if (!editable) {
-      return (
-        <button
-          type="button"
-          className="r2-btn primary"
-          disabled
-          title="Quote not editable"
-        >
-          Mark accepted →
-        </button>
-      );
-    }
-    return (
-      <Link href={href} className="r2-btn primary">
-        Mark accepted →
-      </Link>
-    );
-  }
-
-  // BELOW_FLOOR: two-shape cluster — strikethrough disabled +
-  // admin-override-request CTA. Both route to Mark-Accepted page;
-  // the page itself surfaces the bothGates state (visual shell of
-  // the override flow).
-  return (
-    <div className="r2-row r2-gap-2">
-      <Link
-        href={href}
-        className="r2-btn"
-        style={{
-          opacity: 0.7,
-          textDecoration: "line-through",
-          textDecorationColor: "var(--bad)",
-          textDecorationThickness: "1px",
-        }}
-      >
-        Mark accepted
-      </Link>
-      <Link
-        href={href}
-        className="r2-btn"
-        style={{
-          background: "var(--paper-2)",
-          border: "1px dashed var(--bad)",
-          color: "var(--bad)",
-          fontFamily: "var(--mono)",
-          fontSize: 11,
-          letterSpacing: "0.05em",
-          textTransform: "uppercase",
-        }}
-      >
-        ⚿ Request admin override
-      </Link>
-    </div>
   );
 }
