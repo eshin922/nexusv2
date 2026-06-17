@@ -1,12 +1,28 @@
 # slice-pricing-surface-redesign — Pattern 27 cumulative fold + §0.5 Pattern 22 ledger
 
-**Branch:** `slice-pricing-surface-redesign` · **Commits:** 9 (Step 0
-through Step 9) · **Surface:** Pricing (`/pricing`)
+**Branch:** `slice-pricing-surface-redesign` · **Commits:** 13
+(Steps 0-9 + patch rounds 1-3 + final-stretch close-out) ·
+**Surface:** Pricing (`/pricing`)
 
 Single artifact that consolidates every per-commit fidelity manifest
 (Pattern 27 two-layer) and every pre-build schema/code-architecture
 catch (Pattern 22 §0.5) from the slice. Read alongside the smoke
 guide (`docs/cc-pricing-surface-redesign-smoke-guide.md`).
+
+## Final-stretch close-out summary (2026-06-16)
+
+Four actions per CA close-out comm + slice-fold update:
+
+| Action | Status | Verification |
+|---|---|---|
+| **1 · ANOMALY-1** sub-copy denominator | ✓ patched (commit 13) | sub-copy now reads `state.tiers.filter(t => t.status === 'below_target').length` matching state-line lead |
+| **2 · Re-seed PSR-6** to BLOCKED | ✓ executed | seed script idempotent re-run; all 6 fixtures back to scripted shapes |
+| **3 · PSR-8 + PSR-14** gated walks | ✓ classifier-simulated | DB toggle smoke + invariant verifier scenarios `s08`/`s14` cover the gated-flag + inert-action shape |
+| **4 · Gate-C audit log** SQL verification | ✓ confirmed | 4 surgical apply rows (`source: pricing_suggestion_surgical`) + 1 manual GPA row (no source flag) in 24h window |
+
+**PSR-2 / PSR-7 / PSR-9 / PSR-12** banked DEFERRED per CA disposition
+— coverage completeness, not architectural risk. Classifier
+predicate-layer behavior verified via invariant verifier.
 
 ---
 
@@ -260,6 +276,17 @@ a step home (none for this slice — everything in scope had a home).
   confirms zero remount need.
 - **Redesigned per-SKU drawer** that re-mounts MarginSparkline /
   TwoAxisVerdictPair / ReverseSolveDialog → v1.1+ follow-up.
+- **PSR-2 / PSR-7 / PSR-9 / PSR-12 overlay walks** → coverage
+  completeness via overlay setup on existing fixtures (PSR-2 =
+  headroom variant of PSR-1; PSR-7 = per-SKU diversity overlay on
+  PSR-6; PSR-9 = client-target overlay on PSR-1; PSR-12 =
+  client-target overlay on PSR-4). Classifier predicate-layer
+  behavior verified via invariant verifier scenarios + the
+  `tighten_to_target` + `mixed status · per-SKU view in detail`
+  qualifier code paths. Visual walks deferred to v1.1+ polish
+  slice if PM demand surfaces. CA disposition per CB final-stretch
+  close-out comm (2026-06-16): not architectural risk, coverage-
+  completeness items.
 
 ### NOT-IN-ANY-STEP
 
@@ -271,13 +298,21 @@ landed in a numbered step.
 
 ## §B · Pattern 22 §0.5 catch ledger
 
-**Slice cumulative running total post-Step-9:** 41 catches across
-12 slices since pattern adoption (April 2026).
+**Slice cumulative running total post-final-stretch close-out:**
+50 catches across 12 slices since pattern adoption (April 2026).
 
-**This slice contributed 8 catches across pre-approval verification
-(per the updated §0.5 protocol — verification BEFORE Edward + CA
-approve, not after).** Two were BLOCKERs that would have required
-mid-build escalation if the §0.5 pass hadn't run.
+**This slice contributed 17 catches across pre-approval verification
++ CB walk patch rounds 1-3 + final-stretch close-out (per the
+updated §0.5 protocol — verification BEFORE Edward + CA approve,
+not after).** Two were BLOCKERs that would have required mid-build
+escalation if the §0.5 pass hadn't run; one was a REGRESSION
+caught at patch round 1 → 2 transition.
+
+Catches #1-8 were §0.5 pre-build (pre-Edward-approval brief
+verification). Catches #9-17 were post-build catches across
+patch rounds 1-3 + final-stretch close-out — Pattern 22 lineage
+extended to "any structural mismatch where re-derivation surfaces
+drift from classifier output."
 
 ### Catches contributed by this slice
 
@@ -291,6 +326,15 @@ mid-build escalation if the §0.5 pass hadn't run.
 | 6 | Naming collision | EmptyState | Brief proposed component name `EmptyState`. Existing `pricing-reframe/empty-state.tsx` (about to be deleted) would orphan-collide; future-CC reading new code might import the wrong one if both existed mid-slice. | Catch #6 disposition: SendableSummary as the net-new name; classifier's `summary_card` field drives. |
 | 7 | Field-name mismatch | global price adj | Prototype field name `global_lift_pct`; production schema field is `quotes.global_price_adj_pct` (numeric(5,4); decimal not percent). DetailGlobalAdjust binding has no source if classifier expects the prototype shape. | Catch #7 disposition: DetailGlobalAdjust reads via `(state.quote as { global_price_adj_pct?: number }).global_price_adj_pct`; adapter writes the production field; UI sends percent display value (integer); `updateQuoteGlobalPriceAdj` action layer divides by 100 at the boundary. |
 | 8 | API contract shape | `quote.suggestions` | Classifier consumed `QuoteSuggestionsInput.surgical.lift_pct` and `.new_margin` directly from input; brief implied a single `suggestions` object owned by classifier. Production-side suggestion engine (`rankPricingSuggestions`, Slice 9.4b helper) returns ranked options with `applyDelta` (multiplicative revenue lift), not pre-computed `new_margin`. | Catch #8 disposition: adapter computes closed-form `new_margin` per surgical target tier and `new_blended` per global from `applyDelta`; classifier consumes via input.suggestions verbatim; no math fork. Pattern 28 scope discipline preserved (reuse Slice 9.4b math; don't fork). |
+| 9 | Catalogue error | MarginVerdictPill | Slice fold §B Catch #5 claimed MarginVerdictPill was consumed by Quote umbrella via `quote-summary-card.tsx:167`. Pre-flight grep on Step 9 patch revealed `quote-summary-card.tsx` has zero JSX mount anywhere in `src/app`. The pill chain is orphan-on-disk; PSR `DetailTierTable` `.row-pill.*` carries the per-tier verdict chrome. | CB Step 9 re-walk patch documentation correction; no code change. Pattern 22 catch banked because surface-claim brief checks need a "is the consumer actually mounted?" sub-step, not just an import grep. |
+| 10 | **REGRESSION** | `pricing-page-head.tsx` parallel predicate chain | Patch round 1 (commit `761f5bf`) fixed BUG-2 sub-copy/banner via `isBelowFloor`/`isBelowTarget` against per-leaf-per-tier marginStatus + belt-and-suspenders `summary.blendedMarginPct` fallback. Zero-SKU sendable edge case (Epicuren Alt 1/Alt 4) regressed — head's chain said BLOCKED while classifier said SENDABLE. | Patch round 2: lift classifier to page-level provider (`PricingClassifierProvider`); head + composer become consumers of `usePricingClassifier()`. §3 source-of-truth structurally enforced; no parallel derivation possible. |
+| 11 | Schema edge | `quotes.version_number` | Seed script INSERT on `quotes` failed: `version_number INTEGER NOT NULL` has no default. CC seed used minimal INSERT pattern. | Patch 2: explicit `version_number=1` in seed script. Durable seed-script discipline (any new versioned table column without a default needs explicit value). |
+| 12 | META · seed math | per-quote target reference | Patch 2 seed script assumed firm_settings target=0.35; production drift had it at 0.40. PSR-1's 37.5%-margin cells (intended sendable) read as below-target → fixture rendered REVIEW. | Patch round 3 BUG-E: per-quote `target_margin_pct='0.3500'` on every fixture (Slice 9.2 column). Fixtures own their reference target; smoke walks against 35% regardless of firm-policy drift. |
+| 13 | STRUCTURAL · mount predicate | composer ★ dual-render | Patch 2 composer mounted both `<SuggestionCard>` (suggestion_led mode) AND `<ActionCard>` for the recommended action — two ★ markers per render. | Patch 3 BUG-C: composer filters recommended action from ActionCard list when `state.mode === 'suggestion_led'`. §3 invariant extended to mount predicates: each classifier action surfaces in exactly ONE component per render. |
+| 14 | STRUCTURAL · parallel derivation | YOUR NEXT MOVE banner | Banner derived label from static `SURFACE_META.costing.nextMove` regardless of classifier mode. On suggestion_led/blocked the banner showed "Preview quote PDF →" while the page wanted "Apply Surgical →" / "Apply Global →". | Patch 3 BUG-D: banner reads `state.actions.find(a => a.recommended) ?? .find(a => a.primary)`. Per-mode href routing: sendable→customer_view, suggestion_led→`#psr-suggestion-card`, blocked→`#psr-actions`. Anchor IDs added to composer. Eliminate-parallel-derivation pattern (same shape as Catch #10). |
+| 15 | SEMANTIC · math layer | sell_price_override TERMINAL | Initial seed used per-cell `sell_price_override` for precise margins. `applySurgicalAdj` writes `tier_price_adj_pct`, which feeds the `computedSell` chain. Cells with override BYPASS computedSell entirely (`requiredSell = cellOverride`), so surgical lift has zero effect → PSR-11 Apply Surgical no-op. | Patch 3 BUG-A side-effect of BUG-E: switch seed math from sell_price_override to `packaging_inputs.markup_pct`. Cells respond naturally to tier_price_adj_pct lifts; surgical recovery works end-to-end. Verified via direct-DB simulation: tier_price_adj_pct=0.282 → 16.7%→35.0% margin recovery on T1. |
+| 16 | WIRE · prematurely banked | DetailGlobalAdjust onPreview | Patch 2 removed `onPreviewGlobalAdjust` handler from composer + DetailZone forward, banking as v1.1+. CD prototype semantic: "Preview →" IS the commit affordance for PSR-13 escalation walk. With the wire gone, PSR-13 PSR walk had no commit path. | Patch 3 BUG-B: re-instate `onPreviewGlobalAdjust(liftPct)` calling `updateQuoteGlobalPriceAdj`; DetailZone forwards `onPreviewGlobalAdjust` prop to DetailGlobalAdjust. Naming-mismatch (Preview-as-commit) banked v1.1+ per Pattern 28 copy verbatim. |
+| 17 | POLISH · denominator | sub-copy "lines" vs state-line "tiers" | Patch round 2 sub-copy read `state.below_target.length` (cell count). State-line lead read tier count. PSR-4 (1 tier below × 3 SKUs) surfaced "1 tier below target" + "3 lines below target". Both truthful; counted different objects; PMs perceived disagreement. | Final-stretch ANOMALY-1: sub-copy switches to `state.tiers.filter(t => t.status === 'below_target').length`. Same denominator as state-line. §3 invariant extended to plural-form denominator selection. |
 
 ### BLOCKER-class catches (pre-build escalation prevented)
 

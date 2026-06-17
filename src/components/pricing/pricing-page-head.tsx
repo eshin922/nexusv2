@@ -63,15 +63,24 @@ export function PricingPageHead({
   const { state } = usePricingClassifier();
   const mode = state.mode;
 
-  // belowTargetCount drives suggestion_led sub-copy phrasing.
-  // Classifier-owned (state.below_target.length).
-  const belowTargetCount = state.below_target.length;
+  // CB final-stretch ANOMALY-1 (2026-06-16) — sub-copy denominator
+  // is TIER count (matches state-line lead), not cell/line count.
+  // Sub-copy previously read `state.below_target.length` which is
+  // the per-cell array (e.g., 1 tier × 3 SKUs = 3 cells). PMs read
+  // state-line "1 tier below target" + sub-copy "3 lines below
+  // target" and perceived disagreement. Both were truthful but
+  // counted different objects. Classifier's `state.tiers[].status`
+  // rollup is the canonical tier-level verdict; filter on
+  // `below_target` for the suggestion_led count.
+  const tiersBelowTarget = state.tiers.filter(
+    (t) => t.status === "below_target",
+  ).length;
 
   const subCopy =
     mode === "sendable"
       ? "All margins above floor — review and send."
       : mode === "suggestion_led"
-        ? `${belowTargetCount > 0 ? belowTargetCount : "Some"} line${belowTargetCount === 1 ? "" : "s"} below target — soft warning, sendable.`
+        ? `${tiersBelowTarget > 0 ? tiersBelowTarget : "Some"} tier${tiersBelowTarget === 1 ? "" : "s"} below target — soft warning, sendable.`
         : "Below floor — admin override required to send.";
 
   // Banner state derivation now via classifier mode.
