@@ -13,6 +13,7 @@ import { CostingStoreProvider } from "@/components/costing-store-provider";
 import { PricingPageHead } from "@/components/pricing/pricing-page-head";
 import { NavShell } from "@/components/nav/nav-shell";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
+import { PricingClassifierProvider } from "@/components/pricing-surface/pricing-classifier-context";
 import { PricingSurfaceShell } from "@/components/pricing-surface/pricing-surface-shell";
 
 // slice-pricing-surface-redesign Step 8 — Pricing surface is now
@@ -150,49 +151,56 @@ export default async function CostingPage({
       activeScenarioLabel={quote.scenarioLabel}
     >
     <CostingStoreProvider snapshot={bundle.data}>
-      <main className="r2-pricing r2-page">
-        <PricingPageHead
-          projectId={projectId}
-          quoteId={quoteId}
-          project={project}
-          quote={{
-            scenarioLabel: quote.scenarioLabel,
-            versionNumber: quote.versionNumber,
-            status: quote.status,
-          }}
-        />
-
-        {!editable && (
-          <div
-            role="alert"
-            style={{
-              marginBottom: 16,
-              padding: 16,
-              borderRadius: 8,
-              background: "var(--warn-soft)",
-              border: "1px solid var(--warn)",
-              color: "var(--warn)",
-              fontSize: 13,
+      {/* slice-pricing-surface-redesign · CB Step 9 re-walk Patch
+          round 2 (2026-06-16) — classifier lifted to page-level
+          provider. PricingPageHead + PricingSurfaceShell both
+          consume the SAME classifier output via
+          `usePricingClassifier()`. Brief §3 source-of-truth
+          invariant is now structurally enforced — no parallel
+          predicate chain anywhere on the surface. */}
+      <PricingClassifierProvider
+        tiersForReframe={tiersForReframe}
+        policy={{
+          allow_override: firmRow[0]?.allowOverride ?? true,
+          allow_accept_risk: firmRow[0]?.allowAcceptRisk ?? true,
+        }}
+      >
+        <main className="r2-pricing r2-page">
+          <PricingPageHead
+            projectId={projectId}
+            quoteId={quoteId}
+            project={project}
+            quote={{
+              scenarioLabel: quote.scenarioLabel,
+              versionNumber: quote.versionNumber,
+              status: quote.status,
             }}
-          >
-            <p style={{ fontWeight: 600 }}>
-              This quote is in{" "}
-              <span style={{ fontFamily: "var(--mono)" }}>{quote.status}</span>{" "}
-              status. Editing is disabled.
-            </p>
-          </div>
-        )}
+          />
 
-        <PricingSurfaceShell
-          projectId={projectId}
-          quoteId={quoteId}
-          tiersForReframe={tiersForReframe}
-          policy={{
-            allow_override: firmRow[0]?.allowOverride ?? true,
-            allow_accept_risk: firmRow[0]?.allowAcceptRisk ?? true,
-          }}
-        />
-      </main>
+          {!editable && (
+            <div
+              role="alert"
+              style={{
+                marginBottom: 16,
+                padding: 16,
+                borderRadius: 8,
+                background: "var(--warn-soft)",
+                border: "1px solid var(--warn)",
+                color: "var(--warn)",
+                fontSize: 13,
+              }}
+            >
+              <p style={{ fontWeight: 600 }}>
+                This quote is in{" "}
+                <span style={{ fontFamily: "var(--mono)" }}>{quote.status}</span>{" "}
+                status. Editing is disabled.
+              </p>
+            </div>
+          )}
+
+          <PricingSurfaceShell projectId={projectId} quoteId={quoteId} />
+        </main>
+      </PricingClassifierProvider>
     </CostingStoreProvider>
     </NavShell>
   );

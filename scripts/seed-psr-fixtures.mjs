@@ -229,11 +229,14 @@ try {
 
   // 3. Seed each fixture.
   for (const fix of FIXTURES) {
-    // 3a. Insert quote (defaults: scenario_status=active, status=draft,
-    //     global_price_adj_pct='0.0000').
+    // 3a. Insert quote. `version_number` is NOT NULL without a
+    //     default — fresh PSR fixtures start at version 1
+    //     (versions are per-scenario; each fixture is its own
+    //     scenario_label). Other defaults: scenario_status=active,
+    //     status=draft, global_price_adj_pct='0.0000'.
     const [q] = await sql`
-      INSERT INTO quotes (project_id, scenario_label)
-      VALUES (${projectId}, ${fix.scenarioLabel})
+      INSERT INTO quotes (project_id, scenario_label, version_number)
+      VALUES (${projectId}, ${fix.scenarioLabel}, 1)
       RETURNING id
     `;
     const quoteId = q.id;
