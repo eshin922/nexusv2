@@ -2136,6 +2136,78 @@ state but doesn't hold under bursty multi-instance load.
   rather than the generic "Connection closed." that Drizzle
   surfaces. Bank as v1 polish followup.
 
+## DB-incident diagnostic ladder — check compute tier FIRST
+
+**Banked from the 2026-06-17 production hang investigation
+postmortem.** The investigation went:
+
+  1. Pool contention suspicion → drove PR #55 (timeouts; correct
+     defensive patch but symptom-targeted)
+  2. Slow-query suspicion → drove PR #56 (per-query timing
+     instrumentation; right diagnostic tool, wrong problem)
+  3. Orphan-backend hypothesis → identified 4-min runaway query
+     on a 1-row table
+  4. Database-host degradation → tiny tables + correct indexes +
+     fresh stats yet queries still hanging
+  5. **Compute-tier check** → Nano (shared CPU, 0.5GB RAM) is
+     the dev/preview tier; was never v1-acceptable for prod
+     traffic
+
+Compute starvation manifests as **all four prior symptoms
+simultaneously**:
+- Shared CPU starvation → individual queries slow → looks like
+  "slow queries"
+- Compute pressure → backend handshake slow → looks like "pool
+  contention"
+- Killed-mid-execution queries → looks like "orphan backends"
+- Catalog queries (`pg_stat_activity`, `pg_indexes`) can't get
+  CPU time → looks like "DB-wide degradation"
+
+If we'd checked compute tier first, the chain would have collapsed
+in 30 seconds.
+
+**Diagnostic ladder for future DB-incident triage**
+(top = check first; subsequent steps only matter if higher ones
+are clean):
+
+1. **Compute tier.** Supabase Dashboard → Project Settings →
+   Compute. Confirm tier ≥ Small. Nano + Micro are not
+   v1-acceptable. If on Nano: upgrade ($25 Pro + $15 Small ≈
+   $40/mo); ~2 min restart; observe.
+2. **Resource saturation.** Supabase Dashboard → Reports →
+   Database. Check CPU, RAM, IOPS over last 1 hour. Any pegged
+   at 100% = bottleneck identified.
+3. **Long-running queries.** `scripts/pool-diagnostic.mjs` or
+   raw `SELECT * FROM pg_stat_activity` filtered to
+   `state = 'active'` AND `NOW() - query_start > 5s`. Identify
+   specific slow query.
+4. **Lock contention.** `pg_blocking_pids()` chain — same
+   diagnostic script reports.
+5. **Query plan + index review.** `EXPLAIN ANALYZE` on the
+   identified suspect via `scripts/explain-bundle-query.mjs`.
+
+**Pre-launch checklist line item for v1:** "Production Supabase
+project is on Pro tier ($25/mo) with at least Small compute
+($15/mo, 2GB RAM + 2-core ARM CPU). Nano + Micro tiers are not
+v1-acceptable — they're explicitly dev/preview tiers and won't
+hold sustained prod traffic even at ~12-user internal-only
+scale. Confirmed via 2026-06-17 incident."
+
+The diagnostic scripts authored during this investigation stay
+as standing tools:
+- `scripts/pool-diagnostic.mjs` — pg_stat_activity snapshot +
+  leak detection
+- `scripts/pool-diagnostic-urgent.mjs` — same shape, larger
+  timeout (session-mode pooler when transaction-mode is choked)
+- `scripts/kill-slow-query.mjs` — terminate runaway app
+  backends + report indexes + stats on quote_skus /
+  quote_sku_tiers
+- `scripts/explain-bundle-query.mjs` — EXPLAIN ANALYZE runner
+  for the 12 queries in `getCostingBundle`
+
+Each script opens ONE connection, runs, closes — safe to invoke
+during a live incident.
+
 ## Design prototype source access (rounds 3+)
 
 CD shipped Rounds 1, 2, 2.5 with un-bundled source under
