@@ -2,19 +2,38 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
 
-// In dev, prefer DIRECT_URL (session-mode pooler at :5432) over
-// DATABASE_URL (transaction-mode pooler at :6543). Transaction-mode
-// pgbouncer chokes under multi-worker-process load — Webpack/Turbopack
-// dev mode spawns ~7 workers, each with its own postgres-js pool;
-// pgbouncer's transaction-mode multiplexing layer becomes a bottleneck
-// faster than the connection-recycling settings can drain it
-// (observed: GET /costs → statement_timeout, Slice RI.4
-// infrastructure thread May 2026). Session mode binds a backend per
-// client connection — slower max throughput on paper but no
-// transaction-mode contention; works reliably in practice.
+// In dev, prefer DIRECT_URL over DATABASE_URL. Both URLs should
+// point at Supabase's session-mode pooler (port `:5432`).
+// Transaction-mode pooler (`:6543`) is UNSAFE for this codebase's
+// workload shape and should NOT be used in either environment.
 //
-// Production runs on DATABASE_URL (Vercel functions are short-lived;
-// transaction-mode is the right fit there).
+// Dev failure mode (Slice RI.4 infrastructure thread, May 2026):
+// Webpack/Turbopack spawns ~7 workers, each with its own postgres-js
+// pool. Transaction-mode pgbouncer multiplexing layer becomes a
+// bottleneck faster than connection-recycling can drain it.
+// Symptom: GET /costs → statement_timeout (PG 57014).
+//
+// Prod failure mode (cell_ovr postmortem, 2026-06-17): same
+// underlying postgres-js + pgbouncer transaction-mode race, different
+// trigger. Vercel function instances each create a pool. Concurrent
+// quote-page requests stress the SAME multiplexing layer. One query
+// out of N in `getCostingBundle`'s 8-wide `Promise.all` never
+// resolves; the specific query varies per run; Vercel function
+// hangs until timeout. PG shows `Client/ClientRead` wait state on
+// the orphan backend. See CLAUDE.md "Prod uses session-mode pooler
+// (:5432), not transaction-mode (:6543)" for full failure-mode
+// signature + diagnostic ladder.
+//
+// Session mode binds a backend per client connection — slower max
+// throughput on paper but no multiplexing-correlation race; works
+// reliably for the 8-wide `Promise.all` patterns in this codebase.
+//
+// Operational requirement: production `DATABASE_URL` (Vercel env
+// var) must point at `aws-1-us-west-2.pooler.supabase.com:5432/...`
+// (port `:5432`). If a future env-var rotation accidentally
+// switches it back to `:6543`, the cell_ovr-style hang will
+// re-emerge. Verify port at deploy time per UX_BACKLOG readiness
+// item.
 const url =
   process.env.NODE_ENV !== "production" && process.env.DIRECT_URL
     ? process.env.DIRECT_URL

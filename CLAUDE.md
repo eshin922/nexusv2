@@ -1996,12 +1996,18 @@ be the only call site).
 Caught Slice 8 sub-step 5 — many file edits during the optimistic
 computation work triggered enough HMR cycles to exhaust the pool.
 
-## Dev uses DIRECT_URL (session-mode pooler at :5432), NOT DATABASE_URL
+## Dev AND Prod both use session-mode pooler (:5432); transaction mode (:6543) is unsafe for this workload
+
+**Updated 2026-06-17 after the cell_ovr postmortem** (see "Prod
+uses session-mode pooler (:5432), not transaction-mode (:6543)"
+section below for the full failure-mode signature + diagnostic
+ladder).
 
 `src/db/index.ts` reads `DIRECT_URL` in dev and `DATABASE_URL` in
-production. Both go through Supabase's pooler hostname; the
-distinguishing port is `:5432` (session mode) vs `:6543`
-(transaction mode).
+production. Both go through Supabase's pooler hostname; both should
+point at port `:5432` (session mode). Port `:6543` (transaction
+mode) is unsafe for `getCostingBundle`-style 8-wide `Promise.all`
+bursts and should NOT be used.
 
 Why dev uses session mode: Next.js dev (Webpack OR Turbopack) spawns
 multiple worker processes (~7 observed). `globalThis` is per-process,
@@ -2013,14 +2019,19 @@ postgres-js settings (`max`, `idle_timeout`, `max_lifetime`) doesn't
 escape this; if anything, `max_lifetime: 60` makes it worse by
 force-closing mid-query.
 
-Session mode binds a Postgres backend per client connection
-(no multiplexing complexity). With pool max=5 × ~7 workers = ~35
-backends — comfortably under Supabase's free-tier ~60 cap. Slower
-on paper than transaction mode; reliable in practice for our scale.
+Why prod ALSO uses session mode: same workload shape, different
+trigger. Vercel function instances each create a postgres-js pool.
+Multiple concurrent quote-page requests across instances stress the
+SAME transaction-mode multiplexing layer. Response-correlation
+race surfaces as one query out of N in a `Promise.all` never
+resolving — the same end-state as dev's "request hangs" but with
+serverless workload shape on top. See the cell_ovr postmortem
+section for full evidence.
 
-Production stays on `DATABASE_URL` (transaction mode). Vercel
-functions are short-lived and benefit from transaction-mode
-multiplexing — opposite tradeoff from long-running dev workers.
+Session mode binds a Postgres backend per client connection
+(no multiplexing complexity). With pool max=5 × ~10 warm Vercel
+instances = ~50 connections — comfortably under Pro/Small tier's
+`max_connections=60`. Re-evaluate if instance count climbs.
 
 **Future-CC failure modes to recognize:**
 - "GET /cost-build 200 in 100000ms" with no errors → pgbouncer
@@ -2135,6 +2146,101 @@ state but doesn't hold under bursty multi-instance load.
   copy ("Database is busy. Wait a moment and try again.")
   rather than the generic "Connection closed." that Drizzle
   surfaces. Bank as v1 polish followup.
+
+## Prod uses session-mode pooler (:5432), not transaction-mode (:6543)
+
+**Banked from the cell_ovr postmortem, 2026-06-17.** The original
+prod-hang investigation concluded with the compute-tier upgrade
+(Nano → Pro + Small). That was a NECESSARY but not SUFFICIENT
+fix. Post-instrumentation logs surfaced the real root cause:
+**postgres-js + pgbouncer transaction-mode response multiplexing
+race** under concurrent `Promise.all` bursts. Compute upgrade
+fixed the symptom; switching prod to session mode is the structural
+answer.
+
+**Failure mode signature** (recognize this pattern in future
+incidents):
+
+- One query out of N in a `Promise.all` burst never resolves
+- Specific query varies per run (race condition)
+- PG shows `Client/ClientRead` wait state on the orphan backend
+- DB execution time: **microseconds**; client-side wait:
+  **indefinite**
+- Function hangs until Vercel timeout (10s/60s/300s by plan)
+- All 13 other queries in the same bundle complete fine; only the
+  losing query orphans
+
+The specific run that surfaced this: `cell_ovr` query (Slice 9.3
+sparse cell-override load) hung at the postgres-js layer. The
+sibling `cell_tgt` query (identical shape, different table)
+completed normally. Same code path; different race outcome.
+
+**Root cause** (technical):
+
+postgres-js client talks to pgbouncer in transaction mode. Under
+8-wide `Promise.all` against a `max:5` postgres-js pool, multiple
+in-flight queries multiplex through fewer than 8 physical pgbouncer
+connections. pgbouncer re-pairs response packets back to client
+connections by transaction boundary. Under concurrent burst + the
+postgres-js `prepare: false` setting (required for transaction
+mode), there's an edge in the response-correlation logic where ONE
+query's result packet doesn't get routed back to its originating
+postgres-js Promise. The Promise stays pending forever; pgbouncer
+keeps the backend "active" (waiting for the client read that will
+never happen).
+
+**Diagnostic ladder for future incidents matching this signature:**
+
+1. **Check `wait_event_type` / `wait_event` on stuck queries
+   FIRST.** `Client / ClientRead` is the smoking gun —
+   means the DB sent the result and is waiting for the client to
+   read it. DB is NOT slow; client is the problem.
+2. **`EXPLAIN ANALYZE` on a clean DB** confirms intrinsic query
+   speed. If the plan shows microsecond execution, the DB is
+   exonerated.
+3. **Per-query instrumentation in the bundle pattern** (see
+   `src/app/actions/costing.ts` `timed()` helper). Surfaces which
+   query is MISSING its completion log when the function hangs.
+   This is what surfaced cell_ovr.
+4. **If the signature matches** (Client/ClientRead +
+   microsecond execution + missing-completion-log on a Promise.all
+   burst), the answer is **switch to session-mode pooler (:5432).**
+
+**Why session mode fixes it:** session mode binds a dedicated
+PostgreSQL backend per client connection — no multiplexing
+correlation logic between pgbouncer and the client. Each
+postgres-js connection talks 1:1 with a backend; response packets
+have no chance to misroute. Slower on paper than transaction mode;
+**reliable for Promise.all bursts.**
+
+**Connection budget verification** (Pro/Small tier):
+
+- PG `max_connections = 60`
+- Vercel concurrent warm functions at our scale: ~5-10 typical
+- 10 instances × postgres-js `max: 5` = 50 connections
+- Leaves ~10 headroom for Supabase platform processes
+  (realtime, PostgREST, postgres_exporter, etc.)
+- **Safe.** Re-evaluate if Vercel warm instance count climbs (which
+  itself would be a separate v1.1+ scaling concern).
+
+**Why transaction mode WAS plausibly correct earlier:** Vercel
+functions are short-lived; transaction-mode multiplexing offers
+throughput advantage for short-lived OLTP. That advantage holds
+for SINGLE-query short transactions. It does NOT hold for
+8-wide `Promise.all` bursts where the throughput gain is exceeded
+by the multiplexing race risk. The original framing in this
+document (now superseded above) reflected the single-query
+assumption.
+
+**Deployment surface** (operational):
+
+- Production env var: `DATABASE_URL` on Vercel points at
+  `aws-1-us-west-2.pooler.supabase.com:5432/postgres?...`
+  (port `:5432`, session mode)
+- Dev env var: `DIRECT_URL` in `.env.local` continues to point at
+  the same `:5432` session-mode pooler
+- The `src/db/index.ts` "prod uses DATABASE_URL" branch is
+  retained — the URL just points at a different port
 
 ## Design prototype source access (rounds 3+)
 
