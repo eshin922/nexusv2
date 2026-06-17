@@ -41,6 +41,49 @@ import type { HydrateSnapshot } from "@/lib/costing-store";
 
 type Diff = Record<string, { from: unknown; to: unknown }>;
 
+// Prod-hang investigation hotfix (2026-06-17 follow-on to
+// `hotfix/db-timeout-prod-hang`). The statement_timeout in
+// src/db/index.ts fires at 8s but doesn't tell us WHICH query
+// in getCostingBundle is slow. `timed()` wraps a promise with
+// wall-clock timing + structured log output (Vercel captures
+// console.log). Grep-friendly tag: `[bundle:NAME q=<short>] Nms`.
+//
+// Goal: identify the suspect query so EXPLAIN ANALYZE can run
+// on Supabase against the exact shape. Once a culprit is found
+// (missing index? bad join order? bloated table?), this
+// instrumentation can stay as a permanent safety net or be
+// stripped — TBD on Edward's preference.
+//
+// Overhead per call: ~microseconds. No-op when production traffic
+// resolves fast. Safe to ship.
+function timed<T>(name: string, quoteId: string, p: Promise<T>): Promise<T> {
+  const t0 = Date.now();
+  const tag = quoteId.slice(0, 8);
+  return p.then(
+    (r) => {
+      const dt = Date.now() - t0;
+      // Threshold log filter: only emit when query takes >100ms.
+      // Vercel logs are noisy enough; sub-100ms queries aren't the
+      // suspects we're hunting. Threshold tunable if the suspect
+      // sits below it (statement_timeout = 8000ms so we're well
+      // clear at 100ms).
+      if (dt >= 100) {
+        console.log(`[bundle:${name} q=${tag}] ${dt}ms`);
+      }
+      return r;
+    },
+    (e) => {
+      const dt = Date.now() - t0;
+      console.log(
+        `[bundle:${name} q=${tag}] FAIL after ${dt}ms: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+      throw e;
+    },
+  );
+}
+
 async function logAudit(args: {
   userId: string;
   entityType: string;
@@ -98,12 +141,12 @@ async function loadFreightForQuote(quoteId: string): Promise<{
 }> {
   const [legGroupRows, legJoinRows, legTierJoinRows, metaJoinRows] =
     await Promise.all([
-      db
+      timed("freight.groups", quoteId, db
         .select()
         .from(freightLegGroups)
         .where(eq(freightLegGroups.quoteId, quoteId))
-        .orderBy(asc(freightLegGroups.displayOrder)),
-      db
+        .orderBy(asc(freightLegGroups.displayOrder))),
+      timed("freight.legs", quoteId, db
         .select({ freight_legs: freightLegs })
         .from(freightLegs)
         .innerJoin(
@@ -111,8 +154,8 @@ async function loadFreightForQuote(quoteId: string): Promise<{
           eq(freightLegGroups.id, freightLegs.legGroupId),
         )
         .where(eq(freightLegGroups.quoteId, quoteId))
-        .orderBy(asc(freightLegs.displayOrder)),
-      db
+        .orderBy(asc(freightLegs.displayOrder))),
+      timed("freight.leg_tiers", quoteId, db
         .select({ freight_leg_tiers: freightLegTiers })
         .from(freightLegTiers)
         .innerJoin(
@@ -123,8 +166,8 @@ async function loadFreightForQuote(quoteId: string): Promise<{
           freightLegGroups,
           eq(freightLegGroups.id, freightLegs.legGroupId),
         )
-        .where(eq(freightLegGroups.quoteId, quoteId)),
-      db
+        .where(eq(freightLegGroups.quoteId, quoteId))),
+      timed("freight.cust_meta", quoteId, db
         .select({
           freight_customer_arranges_meta: freightCustomerArrangesMeta,
         })
@@ -137,7 +180,7 @@ async function loadFreightForQuote(quoteId: string): Promise<{
           freightLegGroups,
           eq(freightLegGroups.id, freightLegs.legGroupId),
         )
-        .where(eq(freightLegGroups.quoteId, quoteId)),
+        .where(eq(freightLegGroups.quoteId, quoteId))),
     ]);
   return {
     legGroupRows,
@@ -1385,21 +1428,22 @@ export async function getCostingBundle(
   quoteId: string,
 ): Promise<ActionResult<HydrateSnapshot>> {
   return runAction(async () => {
-    const quoteRows = await db
+    const bundleT0 = Date.now();
+    const quoteRows = await timed("quote_lookup", quoteId, db
       .select()
       .from(quotes)
       .where(eq(quotes.id, quoteId))
-      .limit(1);
+      .limit(1));
     if (quoteRows.length === 0)
       throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found");
     const quote = quoteRows[0];
 
-    const fsRows = await db
+    const fsRows = await timed("firm_settings", quoteId, db
       .select()
       .from(firmSettings)
       .where(isNull(firmSettings.effectiveUntil))
       .orderBy(desc(firmSettings.effectiveFrom))
-      .limit(1);
+      .limit(1));
     const fs = fsRows[0];
     if (!fs) {
       throw new ActionGuardError(
@@ -1409,31 +1453,33 @@ export async function getCostingBundle(
     }
 
     const [skus, tiers, pkgs, prods, freightLoad, mks, cellOvr, cellTgt] = await Promise.all([
-      db
+      timed("skus", quoteId, db
         .select()
         .from(quoteSkus)
         .where(eq(quoteSkus.quoteId, quoteId))
-        .orderBy(asc(quoteSkus.sortOrder), asc(quoteSkus.createdAt)),
-      db
+        .orderBy(asc(quoteSkus.sortOrder), asc(quoteSkus.createdAt))),
+      timed("tiers", quoteId, db
         .select()
         .from(quoteTiers)
         .where(eq(quoteTiers.quoteId, quoteId))
-        .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt)),
-      db
+        .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt))),
+      timed("packaging", quoteId, db
         .select()
         .from(packagingInputs)
         .innerJoin(quoteSkus, eq(quoteSkus.id, packagingInputs.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId)),
-      db
+        .where(eq(quoteSkus.quoteId, quoteId))),
+      timed("production", quoteId, db
         .select()
         .from(productionInputs)
         .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId)),
-      // Slice R6.2 — multi-leg journey freight load.
-      loadFreightForQuote(quoteId),
-      db.select().from(markupDefaults),
+        .where(eq(quoteSkus.quoteId, quoteId))),
+      // Slice R6.2 — multi-leg journey freight load. (Internal Promise.all
+      // of 4 sub-queries; each instrumented separately inside
+      // loadFreightForQuote.)
+      timed("freight.total", quoteId, loadFreightForQuote(quoteId)),
+      timed("markup_defaults", quoteId, db.select().from(markupDefaults)),
       // Slice 9.3 — sparse load of cell-level sell-price overrides.
-      db
+      timed("cell_ovr", quoteId, db
         .select({
           quoteSkuId: quoteSkuTiers.quoteSkuId,
           tierId: quoteSkuTiers.tierId,
@@ -1441,9 +1487,9 @@ export async function getCostingBundle(
         })
         .from(quoteSkuTiers)
         .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTiers.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId)),
+        .where(eq(quoteSkus.quoteId, quoteId))),
       // Slice 9.4b — sparse load of cell-level client target benchmarks.
-      db
+      timed("cell_tgt", quoteId, db
         .select({
           quoteSkuId: quoteSkuTierTargets.quoteSkuId,
           tierId: quoteSkuTierTargets.tierId,
@@ -1451,8 +1497,18 @@ export async function getCostingBundle(
         })
         .from(quoteSkuTierTargets)
         .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTierTargets.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId)),
+        .where(eq(quoteSkus.quoteId, quoteId))),
     ]);
+
+    // Cumulative wall-clock for the whole bundle. Threshold-gated
+    // (>500ms) since a bundle that completes fast doesn't need
+    // attention.
+    const bundleDt = Date.now() - bundleT0;
+    if (bundleDt >= 500) {
+      console.log(
+        `[bundle:TOTAL q=${quoteId.slice(0, 8)}] ${bundleDt}ms (sequential + 8-wide parallel)`,
+      );
+    }
 
     // Plain Record (not Map) so the snapshot serializes cleanly across
     // the RSC server→client boundary. See costing.ts type comment.
