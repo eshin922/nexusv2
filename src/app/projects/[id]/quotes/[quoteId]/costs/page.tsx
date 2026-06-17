@@ -82,34 +82,69 @@ export default async function CostBuildPage({
   params: Promise<{ id: string; quoteId: string }>;
   searchParams: Promise<{ section?: string }>;
 }) {
+  // 2026-06-17 prod-hang Vercel-side instrumentation (per Edward's
+  // CC handoff comm). Empirically confirmed via Client/ClientRead
+  // wait state on the DB side that queries complete instantly but
+  // the Vercel function dies before reading the result. This
+  // logging surfaces WHICH phase the function dies in.
+  //
+  // Read pattern: grep Vercel function logs for `[costs:<8charuuid>]`.
+  // The phases are sequential — the LAST log line printed before
+  // a hang identifies the next operation as the hang point.
+  //
+  //   start      → recordSurfaceVisit (auth + 1 db write)
+  //   post-auth  → meta query (quote + project)
+  //   post-meta  → getCostingBundle (10 DB queries internally)
+  //   post-bundle → outer Promise.all of 8 queries + phase 2 of 3
+  //   pre-render → React tree build + RSC serialization (function returns)
+  //
+  // If we see "post-bundle" but no "pre-render": hang is in the
+  // outer Promise.all + phase 2 (or some intermediate). If we see
+  // "pre-render" but RSC fetch still hangs: hang is in RSC
+  // streaming / React tree render.
+  //
+  // Memory deltas across phases isolate OOM kills. Vercel default
+  // function memory is 1024 MB (Hobby) / 1024 MB or higher (Pro
+  // configurable up to 3008 MB). If heap climbs past 900 MB before
+  // a hang, OOM-kill is the explanation.
+  const t0 = Date.now();
+  const heapMb = () =>
+    Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
+  const elapsed = () => `${Date.now() - t0}ms`;
   const { id: projectId, quoteId } = await params;
   const { section: expandedSection } = await searchParams;
+  const tag = quoteId.slice(0, 8);
+  console.log(`[costs:${tag}] start memory=${heapMb()}MB`);
 
-  // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
-  await recordSurfaceVisit({
-    projectId,
-    quoteId,
-    surfaceKey: "cost_build",
-  });
+  try {
+    // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
+    await recordSurfaceVisit({
+      projectId,
+      quoteId,
+      surfaceKey: "cost_build",
+    });
+    console.log(`[costs:${tag}] post-auth ${elapsed()} memory=${heapMb()}MB`);
 
-  const quoteRows = await db
-    .select({ quote: quotes, project: projects })
-    .from(quotes)
-    .innerJoin(projects, eq(projects.id, quotes.projectId))
-    .where(eq(quotes.id, quoteId))
-    .limit(1);
-  if (quoteRows.length === 0) notFound();
-  const { quote, project } = quoteRows[0];
-  if (project.id !== projectId) notFound();
+    const quoteRows = await db
+      .select({ quote: quotes, project: projects })
+      .from(quotes)
+      .innerJoin(projects, eq(projects.id, quotes.projectId))
+      .where(eq(quotes.id, quoteId))
+      .limit(1);
+    if (quoteRows.length === 0) notFound();
+    const { quote, project } = quoteRows[0];
+    if (project.id !== projectId) notFound();
+    console.log(`[costs:${tag}] post-meta ${elapsed()} memory=${heapMb()}MB`);
 
-  // getCostingBundle MUST run sequentially (not inside the outer
-  // Promise.all). Its internal Promise.all of 8 queries combined with
-  // 7 outer parallel queries used to demand 15+ pool slots from a
-  // 10-slot pool — observed as indefinite hang in dev (Slice RI.4
-  // infrastructure thread, May 2026). Sequencing caps peak demand
-  // at max(8, 7) = 8. See CLAUDE.md "getCostingBundle parallel-query
-  // discipline" for the durable convention.
-  const bundle = await getCostingBundle(quote.id);
+    // getCostingBundle MUST run sequentially (not inside the outer
+    // Promise.all). Its internal Promise.all of 8 queries combined with
+    // 7 outer parallel queries used to demand 15+ pool slots from a
+    // 10-slot pool — observed as indefinite hang in dev (Slice RI.4
+    // infrastructure thread, May 2026). Sequencing caps peak demand
+    // at max(8, 7) = 8. See CLAUDE.md "getCostingBundle parallel-query
+    // discipline" for the durable convention.
+    const bundle = await getCostingBundle(quote.id);
+    console.log(`[costs:${tag}] post-bundle ${elapsed()} memory=${heapMb()}MB`);
 
   const [
     skus,
@@ -211,6 +246,9 @@ export default async function CostBuildPage({
   ]);
 
   if (!bundle.ok) {
+    console.log(
+      `[costs:${tag}] pre-render(error) ${elapsed()} memory=${heapMb()}MB`,
+    );
     return (
       <NavShell
         surfaceKey="cost_build"
@@ -250,6 +288,7 @@ export default async function CostBuildPage({
       ? expandedSection
       : "packaging";
 
+  console.log(`[costs:${tag}] pre-render ${elapsed()} memory=${heapMb()}MB`);
   return (
     <NavShell
       surfaceKey="cost_build"
@@ -455,6 +494,14 @@ export default async function CostBuildPage({
     </CostingStoreProvider>
     </NavShell>
   );
+  } catch (e) {
+    // 2026-06-17 prod-hang instrumentation — surface uncaught
+    // exceptions in the render path with phase context. Re-throws
+    // so Next.js error boundary handling is preserved (notFound +
+    // redirect intrinsics propagate normally).
+    console.error(`[costs:${tag}] FAIL ${elapsed()} memory=${heapMb()}MB`, e);
+    throw e;
+  }
 }
 
 // R6 status chip is driven by kind enum only — no custom labels (per
