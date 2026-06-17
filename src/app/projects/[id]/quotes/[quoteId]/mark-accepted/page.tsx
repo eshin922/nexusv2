@@ -49,15 +49,28 @@ export default async function MarkAcceptedPage({
   params: Promise<{ id: string; quoteId: string }>;
   searchParams: Promise<{ dev?: string; state?: string }>;
 }) {
+  // 2026-06-17 prod-hang Vercel-side instrumentation. Critical
+  // because Slice 12's Mark-Accepted writeback flow depends on
+  // this page rendering reliably (per CA scope discussion).
+  const t0 = Date.now();
+  const heapMb = () =>
+    Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
+  const elapsed = () => `${Date.now() - t0}ms`;
   const { id: projectId, quoteId } = await params;
   const { dev, state } = await searchParams;
+  const tag = quoteId.slice(0, 8);
+  console.log(`[mark-accepted:${tag}] start memory=${heapMb()}MB`);
 
+  try {
   // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
   await recordSurfaceVisit({
     projectId,
     quoteId,
     surfaceKey: "mark_accepted",
   });
+  console.log(
+    `[mark-accepted:${tag}] post-auth ${elapsed()} memory=${heapMb()}MB`,
+  );
 
   const quoteRows = await db
     .select({ quote: quotes, project: projects })
@@ -68,9 +81,18 @@ export default async function MarkAcceptedPage({
   if (quoteRows.length === 0) notFound();
   const { quote, project } = quoteRows[0];
   if (project.id !== projectId) notFound();
+  console.log(
+    `[mark-accepted:${tag}] post-meta ${elapsed()} memory=${heapMb()}MB`,
+  );
 
   const bundle = await getCostingBundle(quoteId);
+  console.log(
+    `[mark-accepted:${tag}] post-bundle ${elapsed()} memory=${heapMb()}MB`,
+  );
   if (!bundle.ok) {
+    console.log(
+      `[mark-accepted:${tag}] pre-render(error) ${elapsed()} memory=${heapMb()}MB`,
+    );
     return (
       <NavShell
         surfaceKey="mark_accepted"
@@ -209,6 +231,9 @@ export default async function MarkAcceptedPage({
   const bannerState: "default" | "terminal" = isAccepted
     ? "terminal"
     : "default";
+  console.log(
+    `[mark-accepted:${tag}] pre-render ${elapsed()} memory=${heapMb()}MB`,
+  );
   return (
     <NavShell
       surfaceKey="mark_accepted"
@@ -266,4 +291,11 @@ export default async function MarkAcceptedPage({
       />
     </NavShell>
   );
+  } catch (e) {
+    console.error(
+      `[mark-accepted:${tag}] FAIL ${elapsed()} memory=${heapMb()}MB`,
+      e,
+    );
+    throw e;
+  }
 }

@@ -36,15 +36,27 @@ export default async function CustomerViewPage({
   params: Promise<{ id: string; quoteId: string }>;
   searchParams: Promise<{ dev?: string }>;
 }) {
+  // 2026-06-17 prod-hang Vercel-side instrumentation (see
+  // costs/page.tsx for full rationale). Quote umbrella also runs
+  // getCostingBundle + addendum loader + PDF render tree (heavy on
+  // memory if a quote has many SKUs).
+  const t0 = Date.now();
+  const heapMb = () =>
+    Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
+  const elapsed = () => `${Date.now() - t0}ms`;
   const { id: projectId, quoteId } = await params;
   const { dev } = await searchParams;
+  const tag = quoteId.slice(0, 8);
+  console.log(`[quote:${tag}] start memory=${heapMb()}MB`);
 
+  try {
   // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
   await recordSurfaceVisit({
     projectId,
     quoteId,
     surfaceKey: "customer_view",
   });
+  console.log(`[quote:${tag}] post-auth ${elapsed()} memory=${heapMb()}MB`);
 
   // Load quote, project, firm_settings (current), and costing bundle.
   // firm_settings is needed for both the vendor identity (live render)
@@ -63,6 +75,7 @@ export default async function CustomerViewPage({
   if (quoteRows.length === 0) notFound();
   const { quote, project } = quoteRows[0];
   if (project.id !== projectId) notFound();
+  console.log(`[quote:${tag}] post-meta ${elapsed()} memory=${heapMb()}MB`);
 
   const firmRows = await db
     .select()
@@ -80,7 +93,11 @@ export default async function CustomerViewPage({
   const addendumData = await loadQuoteAddendum(quoteId);
 
   const bundle = await getCostingBundle(quoteId);
+  console.log(`[quote:${tag}] post-bundle ${elapsed()} memory=${heapMb()}MB`);
   if (!bundle.ok) {
+    console.log(
+      `[quote:${tag}] pre-render(error) ${elapsed()} memory=${heapMb()}MB`,
+    );
     return (
       <main style={{ padding: "32px 24px", maxWidth: 880, margin: "0 auto" }}>
         <div style={{ marginBottom: 16 }}>
@@ -257,6 +274,7 @@ export default async function CustomerViewPage({
   const devSendEnabled =
     process.env.NODE_ENV !== "production" && me.role === "admin";
 
+  console.log(`[quote:${tag}] pre-render ${elapsed()} memory=${heapMb()}MB`);
   return (
     <>
       {/* Slice RI.9 § 3.2 — <Breadcrumb> via <SurfaceChrome>.
@@ -287,4 +305,8 @@ export default async function CustomerViewPage({
       />
     </>
   );
+  } catch (e) {
+    console.error(`[quote:${tag}] FAIL ${elapsed()} memory=${heapMb()}MB`, e);
+    throw e;
+  }
 }

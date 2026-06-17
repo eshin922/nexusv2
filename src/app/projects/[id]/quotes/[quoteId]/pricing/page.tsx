@@ -40,14 +40,28 @@ export default async function CostingPage({
 }: {
   params: Promise<{ id: string; quoteId: string }>;
 }) {
+  // 2026-06-17 prod-hang Vercel-side instrumentation (per Edward's
+  // CC handoff comm). See costs/page.tsx for full diagnostic
+  // rationale + phase semantics. Pricing surface ALSO runs
+  // getCostingBundle + downstream `<PricingClassifierProvider>` which
+  // runs the classifier per render — a suspected memory contributor
+  // since PR #54.
+  const t0 = Date.now();
+  const heapMb = () =>
+    Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
+  const elapsed = () => `${Date.now() - t0}ms`;
   const { id: projectId, quoteId } = await params;
+  const tag = quoteId.slice(0, 8);
+  console.log(`[pricing:${tag}] start memory=${heapMb()}MB`);
 
+  try {
   // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
   await recordSurfaceVisit({
     projectId,
     quoteId,
     surfaceKey: "costing",
   });
+  console.log(`[pricing:${tag}] post-auth ${elapsed()} memory=${heapMb()}MB`);
 
   const quoteRows = await db
     .select({ quote: quotes, project: projects })
@@ -58,12 +72,14 @@ export default async function CostingPage({
   if (quoteRows.length === 0) notFound();
   const { quote, project } = quoteRows[0];
   if (project.id !== projectId) notFound();
+  console.log(`[pricing:${tag}] post-meta ${elapsed()} memory=${heapMb()}MB`);
 
   // getCostingBundle MUST run sequentially (its internal Promise.all
   // of 8 queries combined with parallel raws-mode fetch otherwise
   // exhausts the pool — see CLAUDE.md "getCostingBundle parallel-
   // query discipline").
   const bundle = await getCostingBundle(quoteId);
+  console.log(`[pricing:${tag}] post-bundle ${elapsed()} memory=${heapMb()}MB`);
 
   const [tiers, firmRow] = await Promise.all([
     db
@@ -89,6 +105,9 @@ export default async function CostingPage({
   ]);
 
   if (!bundle.ok) {
+    console.log(
+      `[pricing:${tag}] pre-render(error) ${elapsed()} memory=${heapMb()}MB`,
+    );
     return (
       <NavShell
         surfaceKey="costing"
@@ -143,6 +162,7 @@ export default async function CostingPage({
     recommended: t.recommended,
   }));
 
+  console.log(`[pricing:${tag}] pre-render ${elapsed()} memory=${heapMb()}MB`);
   return (
     <NavShell
       surfaceKey="costing"
@@ -204,4 +224,11 @@ export default async function CostingPage({
     </CostingStoreProvider>
     </NavShell>
   );
+  } catch (e) {
+    // 2026-06-17 prod-hang instrumentation — surface uncaught
+    // exceptions with phase context. Re-throw preserves Next.js
+    // notFound / redirect handling.
+    console.error(`[pricing:${tag}] FAIL ${elapsed()} memory=${heapMb()}MB`, e);
+    throw e;
+  }
 }
