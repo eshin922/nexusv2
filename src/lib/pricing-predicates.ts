@@ -1,26 +1,24 @@
-// Pricing reframe v1 — canonical tier-margin-vs-policy predicates.
+// Pricing surface — canonical tier-margin-vs-policy predicates.
 //
-// Extracted from pricing-suggestions.ts (Bug #D round-2 fix) on
-// 2026-05-19 after CB re-smoke surfaced the same float-precision
-// no-op behavior on TierComplianceBlock per-tier callouts +
-// BlendedHeadline pill state derivation. Predicates were cloned
-// inline across three surfaces; this module is the single source.
+// Originally extracted from pricing-suggestions.ts (Bug #D round-2
+// fix) on 2026-05-19. Pricing-reframe consumers retired during
+// slice-pricing-surface-redesign Step 8 tear-down; this module
+// stays as the canonical predicate library for the surfaces below.
 //
 // Surfaces consuming this module:
 //   - src/lib/pricing-suggestions.ts        — suggestion engine
 //                                              ranking + filtering
-//   - src/components/pricing-reframe/
-//     blended-headline.tsx                  — verdict pill state +
-//                                              belowFloor/belowTarget
-//                                              counts
-//   - src/components/pricing-reframe/
-//     tier-compliance-block.tsx             — per-row state class
-//                                              (good/warn/bad)
-//                                              + summary chip
+//   - src/lib/pricing-classifier.ts         — Pricing surface
+//                                              redesign single-
+//                                              source classifier
+//                                              (mode + per-cell
+//                                              status; consumed by
+//                                              STATE/ACTION/DETAIL
+//                                              zone components)
 //
 // Forward consumers (banked for awareness): Phase A.1 v2 spec entry
-// completeness chips, CD Pricing surface redesign tier-compliance
-// rollups, Quote umbrella Tier Selection sub-tab health summary.
+// completeness chips, Quote umbrella Tier Selection sub-tab health
+// summary.
 //
 // **Tolerance rationale (TARGET_TOLERANCE = 0.001):**
 //
