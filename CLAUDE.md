@@ -2063,6 +2063,79 @@ but still timed out); transaction-mode → session-mode pooler
 (fixed). The `getCostingBundle` parallel-query discipline below is
 the OTHER half of the fix; both were necessary.
 
+## Transaction-mode pgbouncer queueing hides in front of pg_stat_activity
+
+Banked from the production /costs hang investigation (2026-06-17).
+
+**Symptom:** Vercel function on /costs (or any RSC-heavy surface
+with 8+ parallel queries) renders → never returns → eventually
+killed at the Vercel function timeout. PMs see a spinner forever.
+The Clerk middleware error in logs is a downstream secondary
+symptom (caused by `auth()` called after the function context
+already timed out / was destroyed); not the root cause.
+
+**Diagnostic trap to avoid:** querying `pg_stat_activity` on
+Supabase shows the PG backend looking healthy. Connection count
+well under limit, no idle-in-transaction leaks, queries that DID
+make it through completed in ms. Conclusion looks like "pool
+isn't the issue." **This conclusion is wrong, and the SQL window
+is wrong.**
+
+`pg_stat_activity` only shows connections that pgbouncer has
+already paired with a PostgreSQL backend. Requests waiting in
+pgbouncer's own transaction queue do NOT appear there — they're
+upstream of the SQL window. Under transaction-mode pgbouncer
+(`:6543` Supabase pooler), the queue can saturate while PG
+backends sit nearly idle. The choke point is invisible from
+PG-side metrics.
+
+**Workload shape that triggers it:** N warm Vercel function
+instances, each running an 8-wide `Promise.all` query burst
+(e.g., `getCostingBundle`'s internal `Promise.all` of 8 queries,
+or the outer /costs page-level `Promise.all` of 8 queries).
+Compound load on transaction-mode multiplexing layer; pgbouncer
+can't keep up; client connections wait indefinitely without
+`connect_timeout` set.
+
+**Same failure shape as dev** (which this CLAUDE.md section
+above documents). Dev workaround was switching to session-mode
+pooler (`:5432` DIRECT_URL). Production has been on
+transaction-mode (`:6543` DATABASE_URL) because Vercel functions
+are short-lived; the original rationale was correct in steady
+state but doesn't hold under bursty multi-instance load.
+
+**Two-stage remediation** (Slice 12 era hotfix):
+
+1. **Surface-the-failure patch** (shipped 2026-06-17 via
+   `hotfix/db-timeout-prod-hang`): `src/db/index.ts` now sets
+   `connect_timeout: 10` + `connection.statement_timeout: 8000`
+   on the postgres-js client. Hangs convert to explicit errors
+   PMs can retry. Pool exhaustion still surfaces, just visibly.
+
+2. **Structural fix** (queued, not yet shipped): switch production
+   to session-mode pooler (`:5432` DIRECT_URL). PG backend has
+   headroom (observed ~23/60 connections used during incident).
+   Pre-flip verification: confirm Vercel concurrency ceiling and
+   that `N warm instances × max:5 connections` fits under PG
+   `max_connections=60` with comfortable headroom. CC budgets
+   ~8 warm instances × 5 = 40 connections + 20 headroom — feels
+   safe.
+
+**Future-CC failure mode to recognize:**
+- "Page hangs forever on Vercel; local dev works fine"
+- `pg_stat_activity` looks calm (low connection count, no leaks)
+- Function logs show RSC fetch starts but never completes
+- Connection-string port is `:6543` (transaction mode)
+
+→ Pgbouncer transaction-queue saturation. Confirm by setting
+`connect_timeout` if not already; hangs become errors.
+
+**Adjacent banked items:**
+- `error.tsx` for /costs surface needs database-busy-specific
+  copy ("Database is busy. Wait a moment and try again.")
+  rather than the generic "Connection closed." that Drizzle
+  surfaces. Bank as v1 polish followup.
+
 ## Design prototype source access (rounds 3+)
 
 CD shipped Rounds 1, 2, 2.5 with un-bundled source under
