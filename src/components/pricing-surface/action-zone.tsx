@@ -124,6 +124,10 @@ const GLYPH: Record<Action["kind"], string> = {
   override_unavailable: "⊘",
   tighten_to_target: "⇣",
   calculating_suggestion: "···",
+  // CB Step 9 re-walk BUG-1 — terminal-inert glyph (warn-tone
+  // exclamation) marks the structural-failure mode distinct from
+  // the in-flight ellipsis of `calculating_suggestion`.
+  suggestion_infeasible: "⚠",
 };
 
 export function ActionCard({
@@ -142,6 +146,7 @@ export function ActionCard({
     action.disabled ? "disabled" : "",
     action.kind === "override_unavailable" ? "override-unavailable" : "",
     action.kind === "calculating_suggestion" ? "calculating" : "",
+    action.kind === "suggestion_infeasible" ? "infeasible" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -149,7 +154,8 @@ export function ActionCard({
   // Inert action kinds (no CTA button) — render the explainer only.
   const inert =
     action.kind === "override_unavailable" ||
-    action.kind === "calculating_suggestion";
+    action.kind === "calculating_suggestion" ||
+    action.kind === "suggestion_infeasible";
   const ctaCopy = CTA_COPY[action.kind] ?? "Go →";
   return (
     <div className={cls}>
@@ -212,6 +218,27 @@ export function SuggestionCard({
           </div>
           <button type="button" className="cta" disabled>
             Pending
+          </button>
+        </div>
+      </div>
+    );
+  }
+  // CB Step 9 re-walk BUG-1 — terminal-inert state, not in-flight.
+  // PMs need a path forward (admin override or Costs surface);
+  // SuggestionCard explains why the engine returned no option.
+  if (rec.kind === "suggestion_infeasible") {
+    return (
+      <div className="psr-suggestion-card infeasible">
+        <div className="head">
+          <div>
+            <div className="title">Suggestion unavailable</div>
+            <div className="sub">
+              {rec.sublabel ??
+                "Engine couldn't compute a viable lift path. Enter pricing on the Costs surface, or use admin override."}
+            </div>
+          </div>
+          <button type="button" className="cta" disabled>
+            Unavailable
           </button>
         </div>
       </div>

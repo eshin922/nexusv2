@@ -83,6 +83,7 @@ function quote(opts: {
   clientTargets?: (number | null)[];
   suggestions?: QuoteInput["suggestions"];
   missingCells?: Array<[number, number]>; // [skuIdx, tierIdx]
+  suggestionInfeasible?: boolean;
 }): QuoteInput {
   const tierCount = opts.margins[0]?.length ?? 0;
   const tiers = Array.from({ length: tierCount }, (_, i) => ({
@@ -117,6 +118,7 @@ function quote(opts: {
     recommended_tier_id:
       opts.recommendedTierId ?? (tiers.length > 0 ? tiers[0].id : null),
     suggestions: opts.suggestions,
+    suggestion_infeasible: opts.suggestionInfeasible,
   };
 }
 
@@ -155,6 +157,7 @@ function runScenario(
     overrideUnavailable?: boolean;
     acceptRiskUnavailable?: boolean;
     expectCalculatingSuggestion?: boolean;
+    expectSuggestionInfeasible?: boolean;
   },
 ) {
   const out = classify(input, policy);
@@ -351,6 +354,43 @@ function runScenario(
       scenarioId,
       "7",
       `expected a calculating_suggestion action; none emitted`,
+    );
+  }
+
+  // Invariant 7-B · suggestion_infeasible terminal-inert action
+  // (CB Step 9 re-walk BUG-1 disposition). When the engine returns
+  // null due to structural infeasibility (zero revenue / field bound
+  // overflow), adapter flips QuoteInput.suggestion_infeasible=true;
+  // classifier emits kind=suggestion_infeasible (disabled+recommended).
+  const infeasibleAction = out.actions.find(
+    (a) => a.kind === "suggestion_infeasible",
+  );
+  if (infeasibleAction) {
+    assert(
+      infeasibleAction.disabled === true,
+      scenarioId,
+      "7-B",
+      `suggestion_infeasible action must be disabled (inert)`,
+    );
+    assert(
+      infeasibleAction.recommended === true,
+      scenarioId,
+      "7-B",
+      `suggestion_infeasible action takes the recommended slot`,
+    );
+  }
+  if (expectations.expectSuggestionInfeasible) {
+    assert(
+      !!infeasibleAction,
+      scenarioId,
+      "7-B",
+      `expected a suggestion_infeasible action; none emitted`,
+    );
+    assert(
+      !calcAction,
+      scenarioId,
+      "7-B",
+      `suggestion_infeasible expected; calculating_suggestion must not also fire`,
     );
   }
 }
@@ -570,6 +610,43 @@ runScenario(
   },
 );
 
+// CB Step 9 re-walk BUG-1 — suggestion_infeasible coverage.
+//
+// extra_blocked_suggestion_infeasible: blocked mode + engine returned
+// nothing usable (zero-revenue tiers or numeric overflow). Classifier
+// must emit suggestion_infeasible (terminal inert), NOT
+// calculating_suggestion (in-flight inert).
+runScenario(
+  "extra_blocked_suggestion_infeasible",
+  quote({
+    margins: Array(3).fill([0.2, 0.4, 0.45]),
+    // suggestions absent because adapter knows engine returned null
+    suggestionInfeasible: true,
+  }),
+  POLICY,
+  {
+    mode: "blocked",
+    stateLineStatus: "blocked",
+    expectSuggestionInfeasible: true,
+  },
+);
+
+// extra_suggestion_led_suggestion_infeasible: suggestion-led mode with
+// engine-infeasibility (rare — one tier below target but math overflow).
+runScenario(
+  "extra_suggestion_led_suggestion_infeasible",
+  quote({
+    margins: Array(3).fill([0.3, 0.42, 0.45]),
+    suggestionInfeasible: true,
+  }),
+  POLICY,
+  {
+    mode: "suggestion_led",
+    stateLineStatus: "review",
+    expectSuggestionInfeasible: true,
+  },
+);
+
 // ──────────────────────────────────────────────────────────────────
 // Report
 // ──────────────────────────────────────────────────────────────────
@@ -580,5 +657,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log(
-  "✓ pricing-classifier invariants verified across 16 scenarios (s01-s14 + 2 extras)",
+  "✓ pricing-classifier invariants verified across 18 scenarios (s01-s14 + 4 extras)",
 );

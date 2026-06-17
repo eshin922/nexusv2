@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  selectFirmSettings,
   selectQuoteSummary,
   selectSkuRollups,
 } from "@/lib/costing-store";
@@ -9,6 +10,10 @@ import { Eyebrow } from "@/components/nav/eyebrow";
 import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
 import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
 import { SURFACE_META } from "@/lib/nav/surface-meta";
+import {
+  isBelowFloor,
+  isBelowTarget,
+} from "@/lib/pricing-predicates";
 
 // slice-pricing-surface-redesign Step 8 — Mark Accepted CTA + the
 // secondary customer-response chip removed from Pricing page header.
@@ -21,17 +26,21 @@ import { SURFACE_META } from "@/lib/nav/surface-meta";
 // Slice RI.5 — Pricing page chrome per R2 source
 // (`docs/design-prototypes/dist/source/round-2/app/r2/costing.jsx:124-165`).
 //
-// Composition: eyebrow + italic-display H1 + sub copy + YOUR NEXT
-// MOVE banner.
-// H1: "Tune <em>price</em> & review." — italic-em word per R2 grammar.
-// Sub copy: keyed off blendedMarginStatus.
+// CB Step 9 re-walk BUG-2 patch (2026-06-16): sub-copy + banner state
+// were previously bound to `summary.blendedMarginStatus` (legacy 3-value
+// GOOD / BELOW_TARGET / BELOW_FLOOR field). That field is computed from
+// the QUOTE-BLENDED margin, not the classifier's per-cell-worst-case
+// mode. On quotes without cost data entered, every cell margin is
+// missing → classifier emits sendable+provisional; but blendedMarginStatus
+// defaults to BELOW_FLOOR → sub-copy mis-rendered "Below floor — admin
+// override required" while the PSR mode pill correctly read SENDABLE.
 //
-// Removed in slice-pricing-surface-redesign Step 8 tear-down:
-//   - ActionCluster mount (Mark-accepted primary + customer-response
-//     secondary)
-//   - CustomerAcceptToggle import (orphan after the cluster removal)
-//   - MarkAcceptedCluster helper
-//   - `tiers` prop (only consumed by the deleted CustomerAcceptToggle)
+// Fix: derive a classifier-equivalent mode HERE from the same primitives
+// the classifier reads (per-leaf per-tier marginPct + TARGET_TOLERANCE
+// predicates from `pricing-predicates.ts`). Same predicates → same
+// mode → sub-copy + banner always agree with the classifier's render.
+// Avoids lifting the classifier into a React Context (single-source-
+// of-truth at the predicate level is sufficient for these copy branches).
 
 export function PricingPageHead({
   projectId,
@@ -50,31 +59,80 @@ export function PricingPageHead({
 }) {
   const summary = useCostingStore(selectQuoteSummary);
   const skuRollups = useCostingStore(selectSkuRollups);
+  const firmSettings = useCostingStore(selectFirmSettings);
 
-  const status = summary.blendedMarginStatus;
+  // Effective target follows the same `?? firmSettings.targetMarginPct`
+  // pattern the classifier uses (per-quote override or firm default).
+  // quoteSummary already exposes the resolved effective target.
+  const effectiveTarget = summary.effectiveTargetMarginPct;
+  const floor = firmSettings.floorMarginPct;
+
+  // Mode derivation — identical algorithm to classifier §2 worst-case:
+  //   blocked    = any known leaf-per-tier margin < floor
+  //   suggestion = any known leaf-per-tier margin < target (and !blocked)
+  //   sendable   = otherwise
+  // `missing` cells are excluded — classifier never silently treats
+  // unknown as fine; missing → sendable provisional (state-line modifier
+  // only; mode stays sendable).
+  let blocked = false;
+  let suggestionLed = false;
   let flaggedCount = 0;
   for (const sku of skuRollups) {
     if (sku.skuRole !== "leaf") continue;
     for (const t of sku.perTier) {
-      if (t.marginStatus === "BELOW_FLOOR") flaggedCount++;
+      // Use the per-cell marginStatus the math layer already classified
+      // (consistent with `t.marginStatus` produced by computeStatus in
+      // costing.ts using effectiveTarget + floor). Equivalent to running
+      // isBelowFloor / isBelowTarget against marginPct directly; keeps
+      // this surface in lock-step with per-cell margin verdict bands.
+      if (t.marginStatus === "BELOW_FLOOR") {
+        blocked = true;
+        flaggedCount += 1;
+      } else if (t.marginStatus === "BELOW_TARGET") {
+        suggestionLed = true;
+      }
     }
   }
+  // Belt-and-suspenders predicate evaluation against the quote-blended
+  // margin as a secondary signal (catches the case where no leaves have
+  // cost data but quoteRollup carries a blended-margin number anyway).
+  if (
+    !blocked &&
+    !suggestionLed &&
+    summary.blendedMarginPct != null &&
+    isBelowFloor(summary.blendedMarginPct, floor)
+  ) {
+    blocked = true;
+  }
+  if (
+    !blocked &&
+    !suggestionLed &&
+    summary.blendedMarginPct != null &&
+    isBelowTarget(summary.blendedMarginPct, effectiveTarget)
+  ) {
+    suggestionLed = true;
+  }
+
+  const mode: "sendable" | "suggestion_led" | "blocked" = blocked
+    ? "blocked"
+    : suggestionLed
+      ? "suggestion_led"
+      : "sendable";
 
   const subCopy =
-    status === "GOOD"
+    mode === "sendable"
       ? "All margins above floor — review and send."
-      : status === "BELOW_TARGET"
+      : mode === "suggestion_led"
         ? `${flaggedCount > 0 ? flaggedCount : "Some"} line${flaggedCount === 1 ? "" : "s"} below target — soft warning, sendable.`
         : "Below floor — admin override required to send.";
 
-  // Slice RI.9 § 3.3 — banner state derivation:
-  //   - BELOW_FLOOR → gated (CTA reads "Resolve override before sending")
-  //   - sent + accepted → terminal (already sent; banner shouldn't push to Quote)
-  //   - default → "Preview quote PDF →" (forward to customer_view)
+  // Slice RI.9 § 3.3 — banner state derivation now keyed off
+  // classifier-equivalent mode (was: `status === "BELOW_FLOOR"`
+  // legacy field).
   const bannerState: "default" | "gated" | "terminal" =
     quote.status === "accepted"
       ? "terminal"
-      : status === "BELOW_FLOOR"
+      : mode === "blocked"
         ? "gated"
         : "default";
   const bannerLabel =

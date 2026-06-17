@@ -291,7 +291,8 @@ export function PricingSurfaceShell({
       | "request_override"
       | "override_unavailable"
       | "tighten_to_target"
-      | "calculating_suggestion",
+      | "calculating_suggestion"
+      | "suggestion_infeasible",
   ) {
     if (kind === "apply_surgical" || kind === "apply_global") {
       void onApply(kind);
@@ -300,7 +301,10 @@ export function PricingSurfaceShell({
     // preview_pdf · request_override · tighten_to_target — v1 ships
     // as a no-op placeholder. Slice 11 (Preview Quote sub-tab)
     // wires preview_pdf; admin-override workflow + tighten-to-target
-    // automation are banked v1.1+.
+    // automation are banked v1.1+. override_unavailable +
+    // calculating_suggestion + suggestion_infeasible are inert kinds
+    // (ActionCard renders no CTA button for them; this branch is
+    // unreachable but kept for closed-enum exhaustiveness).
   }
 
   async function onPreviewGlobalAdjust(liftPct: number) {
@@ -537,6 +541,27 @@ function buildClassifierInputs({
   const surgical = ranked?.options.find((o) => o.id === "surgical") ?? null;
   const global_ = ranked?.options.find((o) => o.id === "global") ?? null;
 
+  // CB Step 9 re-walk BUG-1: track whether the engine returned a
+  // usable suggestion. `ranked === null` happens when no tier is
+  // below target/floor (sendable case — no suggestion needed).
+  // `ranked !== null` but both `surgical` and `global_` absent
+  // happens when below-target/floor tiers exist but the math
+  // helpers (buildSurgical/buildGlobal) returned null due to:
+  //   - zero-revenue tiers (no sell prices computed yet)
+  //   - numeric(5,4) field bound overflow on composed new_adj
+  //   - degenerate target (≤0 or ≥1, won't happen with firm-policy
+  //     bounds)
+  // In that case the classifier emits `suggestion_infeasible` so
+  // PMs see a real explainer instead of stuck "Calculating…".
+  const engineCallReturnedOptions = ranked !== null;
+  const usableSurgical =
+    surgical &&
+    surgical.disabledReason === null &&
+    surgical.applyTo.length > 0;
+  const usableGlobal = global_ && global_.disabledReason === null;
+  const suggestionInfeasible =
+    engineCallReturnedOptions && !usableSurgical && !usableGlobal;
+
   const suggestions: QuoteInput["suggestions"] = {};
   if (surgical && surgical.applyTo[0]) {
     const tierNumeric = uuidToNumeric.get(surgical.applyTo[0]);
@@ -587,6 +612,7 @@ function buildClassifierInputs({
     recommended_tier_id: recommendedNumericId,
     suggestions:
       Object.keys(suggestions).length > 0 ? suggestions : undefined,
+    suggestion_infeasible: suggestionInfeasible,
   };
 
   // DetailGlobalAdjust reads global_price_adj_pct off `state.quote`;

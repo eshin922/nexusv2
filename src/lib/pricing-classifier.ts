@@ -89,6 +89,13 @@ export interface QuoteInput {
   blended_margin_pct: number | null;
   recommended_tier_id: number | null;
   suggestions?: QuoteSuggestionsInput;
+  // CB Step 9 re-walk BUG-1 disposition: adapter signals when the
+  // suggestion engine returned no usable lift path (sync engine
+  // returns null due to zero revenue / numeric(5,4) overflow / etc).
+  // Classifier emits `suggestion_infeasible` action kind in blocked
+  // and suggestion-led modes when this flag is true AND no surgical
+  // / global suggestion is supplied. Default false.
+  suggestion_infeasible?: boolean;
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -118,7 +125,20 @@ export type ActionKind =
   | "request_override"
   | "override_unavailable"
   | "tighten_to_target"
-  | "calculating_suggestion";
+  | "calculating_suggestion"
+  // CB Step 9 re-walk BUG-1 disposition (2026-06-16): when the
+  // suggestion engine (rankPricingSuggestions + buildSurgical/
+  // buildGlobal) returns no usable option in blocked or
+  // suggestion-led mode — typically because tier revenue is 0
+  // (fixtures with no sell prices computed yet) or because the
+  // math overflows numeric(5,4) bounds — emit `suggestion_infeasible`
+  // instead of `calculating_suggestion`. `calculating_suggestion`
+  // remains in the enum for a future async engine path; v1 is sync,
+  // so any null-suggestion case in v1 is structurally infeasible,
+  // not in-flight. Inert kind (no CTA); explainer surfaces the
+  // failure mode (typically "no cost/sell data to compute lift
+  // path · enter pricing on Costs first" or "math overflow").
+  | "suggestion_infeasible";
 
 export interface CostStackBuckets {
   pkg: number;
@@ -403,6 +423,16 @@ export function classify(
         primary: true,
         projected_blended_after_apply: projectBlended("apply_surgical"),
       });
+    } else if (quote.suggestion_infeasible) {
+      actions.push({
+        kind: "suggestion_infeasible",
+        label: "Suggestion unavailable — math infeasible",
+        sublabel:
+          "Engine couldn't compute a viable lift path (zero-revenue tiers, missing cost data, or required adjustment exceeds the ±999% field range). Enter pricing on the Costs surface, or use admin override.",
+        recommended: true,
+        primary: true,
+        disabled: true,
+      });
     } else {
       actions.push({
         kind: "calculating_suggestion",
@@ -452,6 +482,16 @@ export function classify(
         recommended: true,
         primary: true,
         projected_blended_after_apply: projectBlended("apply_global"),
+      });
+    } else if (quote.suggestion_infeasible) {
+      actions.push({
+        kind: "suggestion_infeasible",
+        label: "Suggestion unavailable — math infeasible",
+        sublabel:
+          "Engine couldn't compute a viable lift path (zero-revenue tiers, missing cost data, or required adjustment exceeds the ±999% field range). Enter pricing on the Costs surface to recover.",
+        recommended: true,
+        primary: true,
+        disabled: true,
       });
     } else {
       actions.push({
