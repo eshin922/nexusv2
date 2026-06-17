@@ -3,6 +3,47 @@
 Tracked UX issues to address at Slice 13.5 (mid-build UX pass) or Slice 17 (polish).
 Items here are intentionally deferred - capture, don't fix in the moment.
 
+## v1 readiness — pre-launch checklist items
+
+(Items that must be verified before v1 ships. Not deferred polish;
+operational pre-flight.)
+
+- [Production DB connection-string posture]
+
+  **Item:** Prod `DATABASE_URL` Vercel env var must point at
+  Supabase **session-mode** pooler (port `:5432`), NOT
+  transaction-mode pooler (port `:6543`).
+
+  **Why:** transaction-mode pgbouncer multiplexing layer races
+  postgres-js's response-correlation logic under concurrent
+  `Promise.all` bursts (the `getCostingBundle` pattern). One
+  query in the burst orphans; Vercel function hangs until timeout;
+  page never renders. Full failure-mode signature + diagnostic
+  ladder banked in CLAUDE.md ("Prod uses session-mode pooler
+  (:5432), not transaction-mode (:6543)" section).
+
+  **Verification:** at deploy time, confirm Vercel project env
+  vars → Production → `DATABASE_URL` ends in `.pooler.supabase
+  .com:5432/postgres?...` (not `:6543`). Pre-launch checklist
+  + any env-var rotation procedure.
+
+  **Banked from:** cell_ovr postmortem, 2026-06-17.
+
+- [Production Supabase tier]
+
+  **Item:** Production Supabase project on Pro tier ($25/mo) +
+  at least Small compute add-on ($15/mo, 2 GB RAM + 2-core ARM
+  CPU dedicated). Nano + Micro tiers are dev/preview only.
+
+  **Why:** Nano + Micro share CPU with other tenants; catalog
+  queries can stall for minutes under host load. Caused 2026-06-17
+  production hang investigation.
+
+  **Verification:** at deploy time, Supabase Dashboard → Project
+  Settings → Compute → confirm tier ≥ Small.
+
+  **Banked from:** 2026-06-17 production hang investigation.
+
 ## Open
 
 - [Quote umbrella + NetSuite finalization — v1 path item 4]
