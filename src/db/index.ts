@@ -69,12 +69,46 @@ if (process.env.NODE_ENV !== "production") {
 // idle_timeout: 10s aggressively recycles idle connections back to
 // pgbouncer between query bursts. Avoid max_lifetime — force-closing
 // active connections surfaces as statement_timeout (PG 57014).
+//
+// **Prod-hang hotfix (2026-06-17) — connect_timeout + statement_timeout.**
+//
+// Production was observed hanging on /costs RSC fetches: Vercel
+// function spins, never returns, eventually killed at the function
+// timeout. Diagnosis: transaction-mode pgbouncer (:6543) queue
+// saturates under multiple warm Vercel function instances ×
+// 8-wide Promise.all bursts (getCostingBundle internal + outer
+// page-level queries). Without `connect_timeout`, postgres-js
+// waits INDEFINITELY for pgbouncer to hand it a backend slot.
+// `pg_stat_activity` looks healthy because pgbouncer queues
+// requests BEFORE pairing them with a PG backend — the choke
+// point is invisible from a PG-side window.
+//
+//   - connect_timeout: 10 (seconds) — surface pgbouncer queue
+//     saturation as a clear `CONNECTION_ENDED` / `connect_timeout`
+//     error after 10s instead of silent hang. PMs see an error +
+//     retry CTA instead of a spinner-forever.
+//
+//   - connection.statement_timeout: 8000 (ms) — PG-side guard.
+//     Caps any single query at 8s. Postgres-side timeout fires
+//     as PG 57014 (statement_timeout) which Drizzle surfaces as
+//     a query error. Sits under Vercel's default 10s function
+//     timeout so the function never gets killed mid-query.
+//
+// This is a SURFACE-THE-FAILURE patch, not a structural fix.
+// Hangs become errors. Followup-(c) — switching production to
+// session-mode pooler (:5432) — is the structural fix; tracked
+// separately. See CLAUDE.md "Transaction-mode pgbouncer queueing
+// hides in front of pg_stat_activity" for the diagnostic pattern.
 const client =
   globalForDb.__dbClient ??
   postgres(url, {
     prepare: false,
     max: 5,
     idle_timeout: 10,
+    connect_timeout: 10,
+    connection: {
+      statement_timeout: 8000,
+    },
   });
 if (process.env.NODE_ENV !== "production") {
   globalForDb.__dbClient = client;
