@@ -1,10 +1,11 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, desc, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
   bulkRawSectionMeta,
+  firmSettings,
   projects,
   quotes,
   quoteTiers,
@@ -22,6 +23,7 @@ import { SkuSummaryRowList } from "./sku-summary-row";
 import { NavShell } from "@/components/nav/nav-shell";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { PricingReframeShell } from "@/components/pricing-reframe/shell";
+import { PricingSurfaceShell } from "@/components/pricing-surface/pricing-surface-shell";
 
 // Slice RI.5 — Pricing rebuild per Designer comprehensive audit
 // + brief §3.3. Three rooms top-to-bottom:
@@ -106,7 +108,7 @@ export default async function CostingPage({
   // query discipline").
   const bundle = await getCostingBundle(quoteId);
 
-  const [tiers, bulkRawMeta] = await Promise.all([
+  const [tiers, bulkRawMeta, firmRow] = await Promise.all([
     db
       .select()
       .from(quoteTiers)
@@ -116,6 +118,22 @@ export default async function CostingPage({
       .select()
       .from(bulkRawSectionMeta)
       .where(eq(bulkRawSectionMeta.quoteId, quoteId))
+      .limit(1),
+    // slice-pricing-surface-redesign Step 7 — policy gates surfaced
+    // from current firm_settings row (Step 2 columns). Separate
+    // fetch from getCostingBundle's firmSettings projection because
+    // policy gates are not costing-math inputs; they're classifier
+    // policy bands. Versioned-table read: current row = effective_until
+    // IS NULL, latest effective_from. Same shape used by
+    // getCostingBundle's firmSettings load.
+    db
+      .select({
+        allowOverride: firmSettings.allowOverride,
+        allowAcceptRisk: firmSettings.allowAcceptRisk,
+      })
+      .from(firmSettings)
+      .where(isNull(firmSettings.effectiveUntil))
+      .orderBy(desc(firmSettings.effectiveFrom))
       .limit(1),
   ]);
 
@@ -258,6 +276,22 @@ export default async function CostingPage({
         <PricingReframeShell
           tiersForReframe={tiersForReframe}
           recommendedTierId={recommendedTierId}
+        />
+
+        {/* slice-pricing-surface-redesign Step 7 — Pricing surface
+            composer (STATE + ACTION + DETAIL zones). Mounts ABOVE the
+            legacy reframe shell + ROOM 0/1/2/3 components per Q10
+            disposition (Step 8 tear-down AFTER new shape ships).
+            Stays as an additive mount during the bake-in window; old
+            composition removed in Step 8. */}
+        <PricingSurfaceShell
+          projectId={projectId}
+          quoteId={quoteId}
+          tiersForReframe={tiersForReframe}
+          policy={{
+            allow_override: firmRow[0]?.allowOverride ?? true,
+            allow_accept_risk: firmRow[0]?.allowAcceptRisk ?? true,
+          }}
         />
 
         {/* ROOM 0 — Lines Requiring Review (BELOW_FLOOR only) — preserved */}
