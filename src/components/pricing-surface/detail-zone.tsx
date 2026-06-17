@@ -80,9 +80,14 @@ function writeSessionOpen(quoteId: string, open: boolean): void {
 export function DetailZone({
   state,
   quoteId,
+  onPreviewGlobalAdjust,
 }: {
   state: QuoteState;
   quoteId: string;
+  // CB Patch round 3 BUG-B — composer forwards an onPreview
+  // handler that calls updateQuoteGlobalPriceAdj. Optional so
+  // standalone consumers (storybook, test fixtures) can omit.
+  onPreviewGlobalAdjust?: (liftPct: number) => void | Promise<void>;
 }) {
   // Hydration safety: read sessionStorage in an effect after mount
   // to avoid SSR/CSR mismatch on the initial expand class.
@@ -116,7 +121,10 @@ export function DetailZone({
       </button>
       {open && (
         <div className="psr-detail-body">
-          <DetailGlobalAdjust state={state} />
+          <DetailGlobalAdjust
+            state={state}
+            onPreview={onPreviewGlobalAdjust}
+          />
           <DetailTierTable state={state} />
           <DetailCostStack state={state} />
           <DetailPerSku state={state} />

@@ -36,6 +36,7 @@ import {
   applyGlobalAdj,
   applySurgicalAdj,
 } from "@/app/actions/pricing-apply";
+import { updateQuoteGlobalPriceAdj } from "@/app/actions/costing";
 import {
   ActionCard,
   AcceptRiskBanner,
@@ -162,11 +163,24 @@ export function PricingSurfaceShell({
     // unreachable but kept for closed-enum exhaustiveness).
   }
 
-  // DetailGlobalAdjust Preview handler is deferred to v1.1+ alongside
-  // DetailZone's onPreview forward. PMs edit GPA today via the cost-
-  // build GlobalPriceAdjInput; DetailGlobalAdjust is read+input scaffold
-  // for the eventual on-Pricing path. When that wires, the handler is:
-  //   updateQuoteGlobalPriceAdj({ quoteId, globalPriceAdjPct: liftPct })
+  // CB Patch round 3 BUG-B disposition (2026-06-16) — re-instated.
+  // DetailGlobalAdjust "Preview →" button is the only commit
+  // affordance on PSR for the global price adj; it writes
+  // quote.global_price_adj_pct via Slice 9.2's
+  // updateQuoteGlobalPriceAdj action and lets the reconcile pipe
+  // trigger classifier re-run + mode-transition flash. (Naming
+  // mismatch with semantics — the button reads "Preview →" per CD
+  // prototype copy; PSR-13 smoke walk and CD §6 docs use "Preview"
+  // to mean "commit + show projected." Future v1.1+ work may
+  // separate preview-only from commit-and-show; banked.)
+  async function onPreviewGlobalAdjust(liftPct: number) {
+    setApplyError(null);
+    const fd = new FormData();
+    fd.set("quoteId", quoteId);
+    fd.set("globalPriceAdjPct", String(liftPct));
+    const r = await updateQuoteGlobalPriceAdj(fd);
+    if (!r.ok) setApplyError(r.error.message);
+  }
 
   // Per-mode mount — single-responsibility zones; composer decides
   // what's visible per state.mode (CD §2.1).
@@ -196,25 +210,45 @@ export function PricingSurfaceShell({
       {state.mode === "blocked" && <StateCard state={state} />}
       {state.mode === "sendable" && <SendableSummary state={state} />}
 
-      {/* ACTION — ranked actions per mode. */}
-      <div className="psr-actions">
-        {state.actions.map((action) => (
-          <ActionCard
-            key={action.kind}
-            action={action}
-            onActivate={onActivate}
-          />
-        ))}
+      {/* ACTION — ranked actions per mode.
+          CB Patch round 3 BUG-C disposition: in suggestion_led mode
+          SuggestionCard IS the recommended-action presentation
+          surface. ActionCard list filters out the recommended
+          action so PMs see ONE ★ marker per render (the
+          SuggestionCard's). Other modes pass through unfiltered.
+          CB Patch round 3 BUG-D — `id` on the action zone container
+          + suggestion-card wrapper anchors the YOUR NEXT MOVE
+          banner's in-page navigation. */}
+      <div id="psr-actions" className="psr-actions">
+        {state.actions
+          .filter(
+            (a) => state.mode !== "suggestion_led" || !a.recommended,
+          )
+          .map((action) => (
+            <ActionCard
+              key={action.kind}
+              action={action}
+              onActivate={onActivate}
+            />
+          ))}
       </div>
 
       {state.mode === "suggestion_led" && (
-        <SuggestionCard state={state} onApply={onApply} />
+        <div id="psr-suggestion-card">
+          <SuggestionCard state={state} onApply={onApply} />
+        </div>
       )}
 
       {state.flags.accept_risk_unavailable && <AcceptRiskBanner />}
 
-      {/* DETAIL — always available; session-persisted open state. */}
-      <DetailZone state={state} quoteId={quoteId} />
+      {/* DETAIL — always available; session-persisted open state.
+          onPreviewGlobalAdjust forwards via DetailZone →
+          DetailGlobalAdjust (CB Patch round 3 BUG-B wire). */}
+      <DetailZone
+        state={state}
+        quoteId={quoteId}
+        onPreviewGlobalAdjust={onPreviewGlobalAdjust}
+      />
     </section>
   );
 }
