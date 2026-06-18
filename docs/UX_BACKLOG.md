@@ -46,6 +46,133 @@ operational pre-flight.)
 
 ## Open
 
+- [Per-assembly production fan-out — math layer extension]
+
+  **Driver:** Slice 11.5 Step 3 adapter implementation
+  (PR #68; re-banked Step 5 — original Step 3 push missed the
+  merge window).
+
+  **Current v1 implementation:** assembly_production_inputs is
+  per-(assembly, tier) in the NEW model, but the math layer
+  expects production[] keyed by leaf id. The adapter
+  (`src/lib/costing-adapter.ts`) attaches production data to the
+  FIRST assembly_leaf under each assembly (lowest `position` —
+  the "anchor leaf"); siblings get zero production. Math total
+  is preserved correctly via additive assembly rollup; Production
+  drilldown UI shows asymmetric per-leaf rendering (one row with
+  the production cost, siblings empty).
+
+  **v1.1+ candidate scope:** extend `computeQuoteCosting` to
+  consume per-assembly production directly via a new
+  `assemblyProduction[]` input slot keyed by (assembly_id,
+  tier_id). UI then renders production at the assembly row level
+  (one row per assembly per tier), not per-leaf. Eliminates the
+  anchor-leaf coercion + UI asymmetry.
+
+  **Why deferred from Slice 11.5:** Pattern 22 §3 commitment is
+  "math layer is the load-bearing surface; future cost-data
+  migrations don't touch the math, only the adapter." Adding the
+  `assemblyProduction[]` slot is a math-layer change — belongs in
+  a later slice with explicit math-layer scope, not folded into
+  the adapter-only Slice 11.5.
+
+  **Mitigation in Slice 11.5 (if needed):** Step 5 CB walk
+  evaluates PM reaction to the anchor-leaf rendering. If walk
+  surfaces confusion, low-effort UI clarity options stay
+  in-scope:
+  - Tooltip on the production cost cell: "Production cost shown
+    on lowest-position component; represents total for this
+    assembly"
+  - Visual treatment differentiating the anchor leaf (label /
+    icon)
+  - Hide production from non-anchor leaves entirely; show only
+    at the anchor row with "assembly-level cost" framing
+
+  If walk surfaces no confusion (PMs intuit it), skip the UI
+  tweak. Decision deferred to Step 5 CB outcome.
+
+  **Banking rationale:** "per-assembly source → per-leaf adapter
+  coercion" is a real architectural pattern that future-CC
+  should recognize. The math layer's per-leaf assumption is
+  load-bearing for v1; relaxing it is a deliberate v1.1+ move,
+  not a casual addition.
+
+- [Per-component vs per-product flagging on Mark-Accepted +
+  Pricing surfaces (banked from Slice 11.5 Step 5 audit)]
+
+  **Driver:** Slice 11.5 Step 5 surface audit (PR #70; banked
+  2026-06-18).
+
+  **What changes in NEW model:** the math layer's `skuRollups[]`
+  now contains per-(assembly_leaf, tier) verdict rows for
+  marginStatus (GOOD / BELOW_TARGET / BELOW_FLOOR). In OLD
+  model, leaf SKUs WERE finished products, so leaf-level
+  flagging matched PM mental model ("which PRODUCT is below
+  floor"). In NEW model, leaves are COMPONENTS of an assembly,
+  so leaf-level flagging surfaces component-level concerns
+  (e.g., "LIB-PP-BOTTLE-30 — T1 — 24% margin"). PMs may expect
+  product-level flagging ("HGS-30-001 — T1 — 24%").
+
+  **Surfaces affected:**
+  - Mark-Accepted page (`mark-accepted/page.tsx`) flaggedLines
+    section: shows leaf-level rows for any leaf with
+    marginStatus=BELOW_FLOOR
+  - Pricing surface `LinesRequiringReview` component: same
+    pattern; renders only when blendedMarginStatus is BELOW_FLOOR
+
+  **v1.1+ candidate mitigation options:**
+  - Roll leaf-level BELOW_FLOOR up to parent assembly's
+    BELOW_FLOOR status, then show only assembly rows in
+    flaggedLines (matches PM mental model)
+  - Show BOTH: assembly row when any child triggers + drilldown
+    to component details
+  - Add explicit "Components below floor: 1 of 4" sub-text on
+    the assembly row's status line
+
+  **Why deferred:** same posture as anchor-leaf production
+  banking — the math layer is doing the correct math; UI surface
+  ergonomics is the polish concern. Step 5 CB walk evaluates
+  empirical PM confusion before authorizing the UI work.
+
+  **Step 5 walk asks:** present sample-order data to PM; trigger
+  a leaf-level BELOW_FLOOR (override on one component below
+  floor); show the Mark-Accepted modal; ask "is this clear?"
+  Same exercise on the LinesRequiringReview affordance during
+  Pricing surface walk.
+
+- [Packaging copy-tier-to-all helper — promote priority if PMs ask]
+
+  **Driver:** Slice 11.5 Step 4 close-out (PR #69; banked
+  2026-06-18). OLD `copyTierValueToAllTiers` action had no §4
+  counterpart in the NEW model; its sole caller was the orphan-on-
+  disk `packaging-line-row.tsx` deleted with the cutover, so no
+  v1 user-visible affordance was lost.
+
+  **What it did:** packaging lines have one row per (line_group,
+  tier). When a PM had identical unit_cost or purchase_qty across
+  tiers (common during early data entry — same supplier price
+  before tier-volume discounts negotiated), copy-tier-to-all
+  propagated a single tier's value to siblings in one click.
+
+  **NEW-model analog (when implemented):** server action
+  `copyAssemblyLeafInputTierToAll(formData)` keyed by
+  `lineGroupId` + `sourceTierId` + `column`; reads
+  `assembly_leaf_inputs` rows by `line_group_id`, applies source-
+  tier value to non-source siblings via transaction; audit row
+  `assembly_leaf_input_tier_value_copied`. Behavior + audit
+  shape lift from OLD action verbatim.
+
+  **UI re-attach point:** packaging-drilldown's per-line cell
+  cluster. A `↪` chevron next to the cell or row-level menu
+  affordance.
+
+  **Promote priority signal:** if PMs surface data-entry
+  friction during real-data testing post-Slice-11.5 ("I'm
+  retyping the same value across 3 tiers"), promote this from
+  v1.1+ to a low-effort polish slice. Single-action + single-
+  affordance scope ≈ half-day implementation. Audit name is
+  already namespace-consistent.
+
 - [Quote umbrella + NetSuite finalization — v1 path item 4]
 
   **Slice:** v1 release-critical path item 4 (absorbs former
