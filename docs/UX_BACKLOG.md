@@ -46,6 +46,56 @@ operational pre-flight.)
 
 ## Open
 
+- [Per-assembly production fan-out — math layer extension]
+
+  **Driver:** Slice 11.5 Step 3 adapter implementation
+  (PR #68; banked 2026-06-17).
+
+  **Current v1 implementation:** assembly_production_inputs is
+  per-(assembly, tier) in the NEW model, but the math layer
+  expects production[] keyed by leaf id. The adapter
+  (`src/lib/costing-adapter.ts`) attaches production data to the
+  FIRST assembly_leaf under each assembly (lowest `position` —
+  the "anchor leaf"); siblings get zero production. Math total
+  is preserved correctly via additive assembly rollup; Production
+  drilldown UI shows asymmetric per-leaf rendering (one row with
+  the production cost, siblings empty).
+
+  **v1.1+ candidate scope:** extend `computeQuoteCosting` to
+  consume per-assembly production directly via a new
+  `assemblyProduction[]` input slot keyed by (assembly_id,
+  tier_id). UI then renders production at the assembly row level
+  (one row per assembly per tier), not per-leaf. Eliminates the
+  anchor-leaf coercion + UI asymmetry.
+
+  **Why deferred from Slice 11.5:** Pattern 22 §3 commitment is
+  "math layer is the load-bearing surface; future cost-data
+  migrations don't touch the math, only the adapter." Adding the
+  `assemblyProduction[]` slot is a math-layer change — belongs in
+  a later slice with explicit math-layer scope, not folded into
+  the adapter-only Slice 11.5.
+
+  **Mitigation in Slice 11.5 (if needed):** Step 5 CB walk
+  evaluates PM reaction to the anchor-leaf rendering. If walk
+  surfaces confusion, low-effort UI clarity options stay
+  in-scope:
+  - Tooltip on the production cost cell: "Production cost shown
+    on lowest-position component; represents total for this
+    assembly"
+  - Visual treatment differentiating the anchor leaf (label /
+    icon)
+  - Hide production from non-anchor leaves entirely; show only
+    at the anchor row with "assembly-level cost" framing
+
+  If walk surfaces no confusion (PMs intuit it), skip the UI
+  tweak. Decision deferred to Step 5 CB outcome.
+
+  **Banking rationale:** "per-assembly source → per-leaf adapter
+  coercion" is a real architectural pattern that future-CC
+  should recognize. The math layer's per-leaf assumption is
+  load-bearing for v1; relaxing it is a deliberate v1.1+ move,
+  not a casual addition.
+
 - [Quote umbrella + NetSuite finalization — v1 path item 4]
 
   **Slice:** v1 release-critical path item 4 (absorbs former
