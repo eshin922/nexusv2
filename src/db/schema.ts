@@ -1985,3 +1985,254 @@ export const quoteAttachments = pgTable(
     index("quote_attachments_quote_id_idx").on(t.quoteId),
   ],
 );
+
+// ---------- Slice 11.5 — NEW-model cost-data extension tables ----------
+//
+// Path B per Slice 11.5 brief §2. Four sparse-row tables align the
+// NEW model (assemblies + assembly_leaves + quote_leaves + leaves)
+// with the math layer's `QuoteCostingInput` shape. Each mirrors an
+// OLD-model table semantically; the adapter
+// (`src/lib/costing-adapter.ts`, lands Step 3) does straightforward
+// translation. OLD tables (`packaging_inputs`, `production_inputs`,
+// `quote_sku_tiers`, `quote_sku_tier_targets`, `quote_skus`) drop
+// in Step 8.
+//
+// Math layer is the load-bearing surface; this slice swaps the data
+// source feeding it without touching the math. See CLAUDE.md "Math
+// layer is the load-bearing surface" (landed Step 8) for the
+// architectural commitment.
+
+// ---------- assembly_leaf_inputs (Slice 11.5; mirrors packaging_inputs) ----------
+//
+// Per-cell packaging cost data keyed by (assembly_leaf, tier).
+// Direct semantic analog of `packaging_inputs` keyed by
+// (quote_sku, tier); the assembly_leaves table is the NEW-model
+// analog of the OLD-model leaf SKU row.
+//
+// `line_group_id` (v2 A3 semantics): synthetic UUID grouping rows
+// that represent the SAME logical packaging line across tiers
+// (e.g., one bottle supplier line × 3 tier variants = 3 rows
+// sharing one line_group_id). NOT a FK; UUIDs are minted client-side
+// on line creation (action layer `addAssemblyLeafInput` generates
+// via `crypto.randomUUID()` on the first row + reuses for tier
+// siblings). Pattern carries through from OLD `packaging_inputs`
+// semantics.
+//
+// Line-level fields (supplier, qty_per_sellable_unit, category,
+// markup_pct, markup_pct_source, inventory_eligible, notes,
+// sort_order) duplicate across tier rows of the same line_group_id;
+// mass updates of line metadata happen at the action layer via
+// line_group_id. Per-tier fields are unit_cost and purchase_qty.
+//
+// `markup_pct_source` reuses the existing `markupPctSource` enum
+// (`category_default` / `manual_override`) per the same sticky-
+// override semantics as packaging_inputs.
+//
+// No FK on category to markup_defaults — soft reference; Slice 9's
+// vocabulary swap rewrites both sides.
+export const assemblyLeafInputs = pgTable(
+  "assembly_leaf_inputs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    assemblyLeafId: uuid("assembly_leaf_id")
+      .notNull()
+      .references(() => assemblyLeaves.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+    lineGroupId: uuid("line_group_id").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+
+    // Line-level (duplicated across tier rows of the same line_group_id):
+    supplier: text("supplier"),
+    qtyPerSellableUnit: numeric("qty_per_sellable_unit"),
+    category: text("category"),
+    markupPct: numeric("markup_pct", { precision: 5, scale: 4 }),
+    markupPctSource: markupPctSource("markup_pct_source"),
+    inventoryEligible: boolean("inventory_eligible").notNull().default(false),
+    notes: text("notes"),
+
+    // Per-tier:
+    unitCost: numeric("unit_cost", { precision: 10, scale: 4 }),
+    purchaseQty: numeric("purchase_qty"),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // One row per (assembly_leaf, line, tier). Prevents duplicate cells.
+    uniqueIndex("assembly_leaf_inputs_line_tier_idx").on(
+      t.assemblyLeafId,
+      t.lineGroupId,
+      t.tierId,
+    ),
+    index("assembly_leaf_inputs_assembly_leaf_id_idx").on(t.assemblyLeafId),
+    index("assembly_leaf_inputs_tier_id_idx").on(t.tierId),
+    index("assembly_leaf_inputs_line_group_id_idx").on(t.lineGroupId),
+  ],
+);
+
+// ---------- assembly_production_inputs (Slice 11.5; mirrors production_inputs) ----------
+//
+// Per-assembly-tier production policy + per-tier service-fee cost
+// inputs. Keyed by (assembly_id, tier_id) — one row per assembly
+// per tier, matching the OLD-model "per leaf SKU × tier" cardinality
+// (assemblies in the NEW model occupy the production-policy role
+// that leaf SKUs held in the OLD model).
+//
+// Denormalization (mirrors production_inputs): customer_ships_raws,
+// allocate_service_fees_to_cost, and notes are per-assembly policy,
+// fanned across all tier rows for that assembly by the action
+// layer's `updateAssemblyProductionPolicy`. Reading any one tier row
+// gives the policy.
+//
+// `bulk_raw_cost` survives the customer_ships_raws toggle — CSS-hide
+// / data-preserved semantics; toggling back restores the value.
+// Matches OLD-model production_inputs semantics.
+//
+// Cascade: tier delete and assembly delete both ON DELETE CASCADE.
+export const assemblyProductionInputs = pgTable(
+  "assembly_production_inputs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    assemblyId: uuid("assembly_id")
+      .notNull()
+      .references(() => assemblies.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+
+    // Per-assembly policy (denormalized across this assembly's tier rows).
+    customerShipsRaws: boolean("customer_ships_raws").notNull().default(false),
+    allocateServiceFeesToCost: boolean("allocate_service_fees_to_cost")
+      .notNull()
+      .default(true),
+    notes: text("notes"),
+
+    // Per-tier cost inputs (PM-edited).
+    fillingBlendingCost: numeric("filling_blending_cost", {
+      precision: 12,
+      scale: 2,
+    }),
+    cmAssemblyTotal: numeric("cm_assembly_total", { precision: 12, scale: 2 }),
+    setupFeeTotal: numeric("setup_fee_total", { precision: 12, scale: 2 }),
+    toolingArtworkTotal: numeric("tooling_artwork_total", {
+      precision: 12,
+      scale: 2,
+    }),
+    rdTotal: numeric("rd_total", { precision: 12, scale: 2 }),
+    otherServiceTotal: numeric("other_service_total", {
+      precision: 12,
+      scale: 2,
+    }),
+    bulkRawCost: numeric("bulk_raw_cost", { precision: 12, scale: 2 }),
+
+    // Post-production observation.
+    actualUnitsProduced: integer("actual_units_produced"),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("assembly_production_inputs_assembly_tier_idx").on(
+      t.assemblyId,
+      t.tierId,
+    ),
+    index("assembly_production_inputs_assembly_id_idx").on(t.assemblyId),
+    index("assembly_production_inputs_tier_id_idx").on(t.tierId),
+  ],
+);
+
+// ---------- assembly_leaf_overrides (Slice 11.5; mirrors quote_sku_tiers) ----------
+//
+// Sparse sell-price overrides per (assembly_leaf, tier). Direct
+// semantic analog of `quote_sku_tiers` per Slice 9.3, with the unit
+// of override now (assembly_leaf, tier) — sharper than the old
+// "quote_sku" framing per brief §2.
+//
+// Lazy-row pattern (mirrors quote_sku_tiers):
+//   - Action `updateAssemblyLeafOverride(assemblyLeafId, tierId,
+//     value | null)`: value > 0 → INSERT ON CONFLICT DO UPDATE;
+//     value === null → DELETE.
+//   - Action layer rejects value <= 0 (non-positive prices break
+//     partition revenue math).
+//   - Read paths LEFT JOIN this table; absent row reads as "no
+//     override."
+//
+// numeric(10,4) matches `quote_sku_tiers.sell_price_override`
+// precision; NOT NULL enforces "row exists ⟹ override is set"
+// invariant at the schema level.
+export const assemblyLeafOverrides = pgTable(
+  "assembly_leaf_overrides",
+  {
+    assemblyLeafId: uuid("assembly_leaf_id")
+      .notNull()
+      .references(() => assemblyLeaves.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+    sellPriceOverride: numeric("sell_price_override", {
+      precision: 10,
+      scale: 4,
+    }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.assemblyLeafId, t.tierId] }),
+    index("assembly_leaf_overrides_tier_id_idx").on(t.tierId),
+  ],
+);
+
+// ---------- assembly_leaf_targets (Slice 11.5; mirrors quote_sku_tier_targets) ----------
+//
+// Sparse client target benchmarks per (assembly_leaf, tier). Direct
+// semantic analog of `quote_sku_tier_targets` per Slice 9.4b — the
+// customer's stated target price per cell, feeding the two-axis
+// verdict + reverse-solve affordance.
+//
+// Lazy-row pattern + audit pattern mirror assembly_leaf_overrides:
+//   - Action `updateAssemblyLeafTarget(assemblyLeafId, tierId,
+//     value | null)`: INSERT ON CONFLICT DO UPDATE / DELETE.
+//   - entity_type = "assembly_leaf_target" (audit_log.entity_id
+//     text), entity_id = synthesized `${assemblyLeafId}:${tierId}`.
+//
+// numeric(10,4) matches override precision; NOT NULL enforces
+// "row exists ⟹ benchmark is set" invariant.
+export const assemblyLeafTargets = pgTable(
+  "assembly_leaf_targets",
+  {
+    assemblyLeafId: uuid("assembly_leaf_id")
+      .notNull()
+      .references(() => assemblyLeaves.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+    clientTargetPricePerUnit: numeric("client_target_price_per_unit", {
+      precision: 10,
+      scale: 4,
+    }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.assemblyLeafId, t.tierId] }),
+    index("assembly_leaf_targets_tier_id_idx").on(t.tierId),
+  ],
+);
