@@ -2973,6 +2973,178 @@ Reference: `src/app/actions/leaf-specs.ts`,
 `src/app/actions/leaves.ts`, `src/app/actions/assembly-leaves.ts`
 (land in impl-2 onward).
 
+## audit_log action namespace — Slice 11.5 additions
+
+Slice 11.5 NEW-model cost-data write actions added 8 audit names
+across `src/app/actions/assembly-leaf-inputs.ts`,
+`src/app/actions/assembly-production-inputs.ts`, and
+`src/app/actions/costing.ts` (per Slice 11.5 brief §4 + v2 A7
+implementation-time check):
+
+```
+-- assembly_leaf_inputs lifecycle (writes against per-(leaf, tier)
+-- packaging cost rows)
+'assembly_leaf_input_line_added'    -- new packaging line attached to
+                                    -- an assembly_leaf. entity_id =
+                                    -- line_group_id (synthetic UUID
+                                    -- grouping rows across tiers per
+                                    -- "line_group_id semantics").
+                                    -- diff_json carries
+                                    -- {assembly_leaf_id, tier_count,
+                                    -- sort_order}.
+'assembly_leaf_input_line_updated'  -- per-line metadata edit
+                                    -- (supplier, category, markup,
+                                    -- qty_per_sellable_unit,
+                                    -- inventory_eligible, notes).
+                                    -- Sticky-markup tracking
+                                    -- preserves manual_override
+                                    -- source on category change.
+                                    -- entity_id = line_group_id.
+'assembly_leaf_input_line_deleted'  -- entire line group dropped
+                                    -- (cascades to all tier rows).
+                                    -- entity_id = line_group_id.
+'assembly_leaf_input_cell_updated'  -- per-tier cell edit (unit_cost
+                                    -- or purchase_qty). entity_id =
+                                    -- assembly_leaf_inputs.id.
+                                    -- diff_json may carry
+                                    -- cascaded_warnings counter
+                                    -- when the validation engine
+                                    -- reconciles on commit.
+
+-- assembly_production_inputs lifecycle (writes against per-(assembly,
+-- tier) production policy + service-fee rows)
+'assembly_production_input_updated' -- per-tier cell edit on service
+                                    -- fees (filling+blending,
+                                    -- cm_assembly, setup, tooling,
+                                    -- rd, other, bulk_raw, actual
+                                    -- units). entity_id =
+                                    -- assembly_production_inputs.id.
+'assembly_production_policy_updated'-- per-assembly policy fan-out
+                                    -- (customer_ships_raws,
+                                    -- allocate_service_fees_to_cost,
+                                    -- notes). entity_id = assembly.id
+                                    -- (denormalized across tier
+                                    -- rows; policy is per-assembly
+                                    -- not per-tier).
+
+-- Override + target lifecycle (writes against per-(leaf, tier) sparse
+-- tables; mirror Slice 9.3 / 9.4b shapes)
+'assembly_leaf_sell_override_updated'    -- per-cell sell price override
+                                         -- on assembly_leaf x tier.
+                                         -- entity_id = composite
+                                         -- ${assemblyLeafId}:${tierId}
+                                         -- (audit_log.entity_id text
+                                         -- per migration 0013).
+                                         -- diff_json's from/to
+                                         -- distinguishes set/change/
+                                         -- clear (Audit source
+                                         -- convention).
+'assembly_leaf_client_target_updated'    -- per-cell client target
+                                         -- benchmark on assembly_leaf
+                                         -- x tier. entity_id =
+                                         -- composite. Same from/to
+                                         -- convention.
+```
+
+`entity_type` mirrors the entity granularity:
+- `'assembly_leaf_input_line'` for line-level (add/update/delete)
+- `'assembly_leaf_input'` for cell-level
+- `'assembly_production_input'` for production cell
+- `'assembly'` for production policy
+- `'assembly_leaf_override'` / `'assembly_leaf_target'` for sparse
+  per-cell tables
+
+`diff_json.source` per Slice 9.2 namespace convention applies (system-
+suggestion paths, scenario-apply, bulk-import). Sample seed populates
+without a source key (PM-equivalent first-time write).
+
+Reference: `src/app/actions/assembly-leaf-inputs.ts`,
+`src/app/actions/assembly-production-inputs.ts`,
+`src/app/actions/costing.ts` (`updateAssemblyLeafOverride` +
+`updateAssemblyLeafTarget`).
+
+## Math layer is the load-bearing surface; future cost-data migrations don't touch it
+
+Per Slice 11.5 brief §3 (banked verbatim, 2026-06-18):
+
+> The math layer (`computeQuoteCosting`) consumes `QuoteCostingInput`
+> as **data**, not table references. Slice 11.5's job is to rebuild
+> the input shape from NEW-model sources WITHOUT touching the math.
+> Future schema migrations of the underlying cost data do not
+> require math changes — only adapter changes.
+
+**Pattern 22-style insulation.** Math layer is the load-bearing math;
+adapter-level migrations swap the data source feeding it without
+changing the surface. Future cost-data migrations (v1.1+, etc.)
+follow the same discipline.
+
+**De-risking consequences:**
+- Math regression risk: near-zero — math layer untouched, no logic
+  paths altered during Slice 11.5
+- Verification approach: NEW-source-built input vs OLD-source-built
+  input on equivalent data → must produce identical
+  `computeQuoteCosting` output. Predicate-layer verifier
+  (`scripts/verify/costing-adapter.ts`) covers the unit-test contract;
+  Step 6 margin-curve verifier covers end-to-end output.
+- Adapter testability: pure function from typed rows to
+  `QuoteCostingInput`; trivially unit-testable.
+
+**Reference:** `src/lib/costing.ts` (math layer; unchanged through
+Slice 11.5), `src/lib/costing-adapter.ts` (NEW-model adapter; pure
+function), `src/app/actions/costing.ts` `getCostingBundle` (read
+path that composes loader + adapter + math).
+
+**Working test for future-CC:** before mutating `computeQuoteCosting`
+to support a new cost-data shape, ask whether the change can be
+expressed as a new input slot in `QuoteCostingInput` (math layer
+adds a field) vs a new branch in compute logic (math layer adds
+behavior). Input-slot additions stay model-agnostic; behavior
+additions tie the math layer to a specific model and break the
+load-bearing-surface commitment.
+
+## Per-assembly source → per-leaf adapter coercion
+
+Banked from Slice 11.5 Step 3 adapter design (2026-06-18).
+
+When the data source is per-(assembly, tier) but the consumer expects
+per-(leaf, tier), the adapter attaches the value to the lowest-
+position child (the "anchor leaf") and leaves siblings unattached.
+Math correctness preserved via additive parent rollup (anchor cost
++ siblings cost = assembly cost). UI rendering shows the value on
+the anchor row, empty on siblings.
+
+**Pattern instance:** `assembly_production_inputs` is per-(assembly,
+tier) in NEW model (Slice 11.5 §2 schema). The math layer's
+`CostingProductionInput[]` is keyed by `quoteSkuId` matching a math-
+leaf. Adapter (`src/lib/costing-adapter.ts`) attaches production
+data to the FIRST `assembly_leaf` under each assembly (sorted by
+`position` ascending); siblings carry no production[] entry. Math
+total = anchor (pkg + production) + siblings (pkg only) = assembly
+correct.
+
+**Trade-offs:**
+- Auditable: one source row ↔ one adapter output entry; 1:1 trace
+- UI asymmetry: PMs see the value on only one of N child rows;
+  may need clarity affordance (tooltip / visual treatment / hide-
+  from-non-anchor) if it surfaces as confusing
+- Avoids fan-out-and-divide-by-N: divide-by-N produces arbitrary
+  per-leaf representations that complicate audit reconstruction
+
+**When to escalate from this pattern:** if PM workflow surfaces
+recurring confusion about the anchor-leaf rendering, extend the
+consumer to support per-(source-entity, tier) directly. Concrete
+example: extending `computeQuoteCosting` to consume a new
+`assemblyProduction[]` input slot keyed by (assembly_id, tier_id)
+eliminates the coercion. That's a math-layer change — belongs in a
+later slice with explicit math-layer scope, not the adapter slice.
+See UX_BACKLOG entry "Per-assembly production fan-out — math layer
+extension."
+
+**Reference:** `src/lib/costing-adapter.ts` header comment for the
+detailed rationale on anchor-only vs fan-out-and-divide; Slice 11.5
+Step 5 verification doc (`docs/cc-slice-11-5-step-5-verification.md`)
+for the CB walk asks.
+
 ## Versioned-table carry-forward audit (added Slice RI.7)
 
 When a versioned table — one where every update is a fresh row

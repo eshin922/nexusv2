@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import type { quoteSkus } from "@/db/schema";
-import { buildTreeRenderOrder } from "@/lib/sku-tree";
+import { buildTreeRenderOrder, type SkuRow } from "@/lib/sku-tree";
 import {
   updateAssemblyProductionPolicy,
   upsertAssemblyProductionInputs,
@@ -13,7 +12,9 @@ import {
   selectUpdateProductionCell,
 } from "@/lib/costing-store";
 
-type QuoteSku = typeof quoteSkus.$inferSelect;
+// Step 8 — drilldown consumes the structural SkuRow shape from
+// sku-tree.ts (replaced typeof quoteSkus.$inferSelect dependency).
+type QuoteSku = SkuRow;
 
 // Slice RI.4 — Production drill-down per R6 source
 // (`docs/design-prototypes/dist/source/round-6/production-drawer.jsx`).

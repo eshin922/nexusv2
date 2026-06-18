@@ -15,15 +15,8 @@ import {
   freightLegGroups,
   freightLegs,
   leaves,
-  // OLD-model tables retained for $inferSelect type references on
-  // the synthetic wrapper shapes the drilldowns continue to accept
-  // per Q2 (a) preserve-prop-shape disposition. Step 8 drops both
-  // imports + tables.
-  packagingInputs,
-  productionInputs,
   projects,
   quotes,
-  quoteSkus,
   quoteTiers,
 } from "@/db/schema";
 import { Suspense } from "react";
@@ -268,12 +261,69 @@ export default async function CostBuildPage({
   //     row, attached to the FIRST assembly_leaf under that assembly
   //     (anchor-leaf fan-out; see src/lib/costing-adapter.ts header
   //     for rationale)
-  type SyntheticQuoteSku = typeof quoteSkus.$inferSelect;
+  // Step 8 — synthetic shapes inlined (Slice 11.5 close-out). The
+  // OLD `quote_skus` / `packaging_inputs` / `production_inputs`
+  // schema types are dropped in this slice; downstream drilldowns
+  // continue to consume the same field shape via these structural
+  // types.
+  type SyntheticQuoteSku = {
+    id: string;
+    quoteId: string;
+    hubspotProductId: string | null;
+    skuLabel: string;
+    productName: string;
+    unitsPerPack: number;
+    retailBenchmark: string | null;
+    sortOrder: number;
+    notes: string | null;
+    lastHubspotRefreshAt: Date | null;
+    parentSkuId: string | null;
+    skuRole: "leaf" | "assembly";
+    qtyPerParent: string | null;
+    dutyPct: string | null;
+    tariffPct: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  };
   type SyntheticPackagingRow = {
-    packaging_inputs: typeof packagingInputs.$inferSelect;
+    packaging_inputs: {
+      id: string;
+      quoteSkuId: string;
+      tierId: string;
+      lineGroupId: string;
+      sortOrder: number;
+      supplier: string | null;
+      qtyPerSellableUnit: string | null;
+      category: string | null;
+      markupPct: string | null;
+      markupPctSource: "category_default" | "manual_override" | null;
+      inventoryEligible: boolean;
+      notes: string | null;
+      unitCost: string | null;
+      purchaseQty: string | null;
+      createdAt: Date;
+      updatedAt: Date;
+    };
   };
   type SyntheticProductionRow = {
-    production_inputs: typeof productionInputs.$inferSelect;
+    production_inputs: {
+      id: string;
+      quoteSkuId: string;
+      tierId: string;
+      customerShipsRaws: boolean;
+      allocateServiceFeesToCost: boolean;
+      notes: string | null;
+      fillingBlendingCost: string | null;
+      cmAssemblyTotal: string | null;
+      setupFeeTotal: string | null;
+      toolingArtworkTotal: string | null;
+      rdTotal: string | null;
+      otherServiceTotal: string | null;
+      bulkRawCost: string | null;
+      actualUnitsProduced: number | null;
+      createdAt: Date;
+      updatedAt: Date;
+    };
   };
   const newAssemblyLeafRows = newAssemblyLeafJoinRows.map((r) => ({
     leaf: r.leaves,

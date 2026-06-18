@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import type { quoteSkus } from "@/db/schema";
 import {
   deleteAssemblyLeafInputLine,
   updateAssemblyLeafInputCell,
@@ -15,7 +14,19 @@ import {
   selectUpdatePackagingLineMeta,
 } from "@/lib/costing-store";
 
-type QuoteSku = typeof quoteSkus.$inferSelect;
+// SKU shape consumed by this drilldown — fed via the Costs page's
+// synthetic wrapper (assemblies + assembly_leaves from NEW model
+// reshaped). Step 8 — inlined the shape so the drilldown no longer
+// depends on the OLD `quote_skus` schema type.
+type QuoteSku = {
+  id: string;
+  skuLabel: string;
+  productName: string;
+  skuRole: "leaf" | "assembly";
+  parentSkuId: string | null;
+  qtyPerParent: string | null;
+  sortOrder: number;
+};
 
 // Slice RI.4 — Packaging drill-down per R6 source
 // (`docs/design-prototypes/dist/source/round-6/packaging-drawer.jsx`).
