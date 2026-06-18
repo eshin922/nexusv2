@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { addPackagingLine } from "@/app/actions/packaging";
+import { addAssemblyLeafInput } from "@/app/actions/assembly-leaf-inputs";
 
 export function AddLineButton({
   quoteSkuId,
@@ -21,7 +21,7 @@ export function AddLineButton({
     const fd = new FormData();
     fd.set("quoteSkuId", quoteSkuId);
     startTransition(async () => {
-      const result = await addPackagingLine(fd);
+      const result = await addAssemblyLeafInput(fd);
       if (!result.ok) setError(result.error.message);
     });
   }

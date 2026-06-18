@@ -3,11 +3,10 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { quoteSkus } from "@/db/schema";
 import {
-  copyTierValueToAllTiers,
-  deletePackagingLine,
-  updatePackagingLineMetadata,
-  updatePackagingTierCell,
-} from "@/app/actions/packaging";
+  deleteAssemblyLeafInputLine,
+  updateAssemblyLeafInputCell,
+  updateAssemblyLeafInputLineMeta,
+} from "@/app/actions/assembly-leaf-inputs";
 import { AddLineButton } from "@/app/projects/[id]/quotes/[quoteId]/packaging/add-line-button";
 import { useCostingStore } from "@/components/costing-store-provider";
 import {
@@ -367,7 +366,7 @@ function PackagingRow({
     fd.set("inventoryEligible", line.inventoryEligible ? "true" : "false");
     fd.set("notes", line.notes ?? "");
     startTransition(async () => {
-      await updatePackagingLineMetadata(fd);
+      await updateAssemblyLeafInputLineMeta(fd);
     });
     updateLineMeta(line.lineGroupId, {
       category: s.category || null,
@@ -390,7 +389,7 @@ function PackagingRow({
     const fd = new FormData();
     fd.set("lineGroupId", line.lineGroupId);
     startTransition(async () => {
-      await deletePackagingLine(fd);
+      await deleteAssemblyLeafInputLine(fd);
     });
   }
 
@@ -592,7 +591,7 @@ function PackagingTierCell({
     fd.set("unitCost", valueRef.current);
     fd.set("purchaseQty", "");
     startTransition(async () => {
-      await updatePackagingTierCell(fd);
+      await updateAssemblyLeafInputCell(fd);
     });
   }
 

@@ -18,12 +18,7 @@ import {
   freightLegTiers,
   leaves,
   markupDefaults,
-  packagingInputs,
-  productionInputs,
   quotes,
-  quoteSkus,
-  quoteSkuTiers,
-  quoteSkuTierTargets,
   quoteTiers,
   quoteWarnings,
 } from "@/db/schema";
@@ -34,7 +29,10 @@ import {
   runAction,
   type ActionResult,
 } from "@/lib/action-result";
-import { quoteByIdDraft, quoteForSku } from "@/lib/quote-guards";
+import {
+  quoteByIdDraft,
+  quoteForAssemblyLeaf,
+} from "@/lib/quote-guards";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
   computeQuoteCosting,
@@ -789,33 +787,34 @@ export async function applySuggestedGlobalAdj(
   });
 }
 
-// ---------- mutation: updateSellPriceOverride (Slice 9.3) ----------
-
-// Per-cell sell-price override on the (quote_sku, tier) cell. Single
-// action handles both set and clear via the value-or-null parameter,
-// matching the Slice 9.2 precedent (`updateTierPriceAdj`,
-// `updateQuoteTargetMargin`). One audit row per state change with
-// `action: "cell_override_updated"`; the from/to encodes the
+// ---------- mutation: updateAssemblyLeafOverride (Slice 11.5) ----------
+//
+// Per-cell sell-price override on the (assembly_leaf, tier) cell.
+// NEW-model successor to OLD `updateSellPriceOverride` per brief
+// §4. Single action handles both set and clear via the value-or-null
+// parameter; one audit row per state change with `action:
+// "assembly_leaf_sell_override_updated"`; the from/to encodes the
 // transition (set: from null, to value; change: from old, to new;
 // clear: from value, to null).
 //
-// DB shape: `quote_sku_tiers` is a sparse table — rows exist ONLY for
-// cells with overrides. NOT NULL on `sell_price_override` enforces
-// "row exists ⟹ override is set" at the schema level.
+// DB shape: `assembly_leaf_overrides` is a sparse table — rows exist
+// ONLY for cells with overrides. NOT NULL on `sell_price_override`
+// enforces "row exists ⟹ override is set" at the schema level.
 //   - value === null  → DELETE the row
 //   - value > 0       → INSERT ON CONFLICT (PK) DO UPDATE
-//   - value <= 0      → reject (action layer guard); zero or negative
-//                       sell price isn't a legitimate quoting scenario
-//                       and would break partition revenue invariants.
-//                       To clear an override, send empty input (→ null
-//                       at the action) which DELETEs the row.
+//   - value <= 0      → reject (action layer guard); zero or
+//                       negative sell price isn't a legitimate
+//                       quoting scenario and would break partition
+//                       revenue invariants. To clear an override,
+//                       send empty input (→ null at the action)
+//                       which DELETEs the row.
 //
-// Leaf-only invariant: overrides only apply to leaf SKUs. Assemblies
-// roll up children's `requiredSellPerUnit`; overriding an assembly
-// cell would orphan the children's computation. Action rejects on
-// non-leaf SKU. UI hides the click-to-override affordance on assembly
-// rows (defense in depth).
-export async function updateSellPriceOverride(
+// FormData field "quoteSkuId" carries the assembly_leaf.id per
+// Q2 (a) preserve-prop-names disposition.
+//
+// Leaf-only invariant inherent in schema (FK to assembly_leaves;
+// assemblies cannot be overridden — they roll up children).
+export async function updateAssemblyLeafOverride(
   formData: FormData,
 ): Promise<
   ActionResult<{
@@ -825,27 +824,16 @@ export async function updateSellPriceOverride(
   }>
 > {
   return runAction(async () => {
-    const quoteSkuId = String(formData.get("quoteSkuId") ?? "").trim();
+    const assemblyLeafId = String(formData.get("quoteSkuId") ?? "").trim();
     const tierId = String(formData.get("tierId") ?? "").trim();
-    if (!quoteSkuId)
+    if (!assemblyLeafId)
       throw new ActionGuardError(ERR.VALIDATION, "quoteSkuId required");
     if (!tierId)
       throw new ActionGuardError(ERR.VALIDATION, "tierId required");
 
     const user = await ensureUser();
-    // Quote draft + ownership through the SKU. Returns the quote and
-    // sku rows; throws QUOTE_NOT_DRAFT or NOT_FOUND on failure.
-    const { quote, sku } = await quoteForSku(quoteSkuId);
-
-    // Leaf-only invariant. Overrides on assembly cells would orphan
-    // the rolled-up children's computation; the math layer trusts
-    // overrides are leaf-cell-terminal.
-    if (sku.skuRole !== "leaf") {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Sell-price overrides only apply to leaf SKUs.",
-      );
-    }
+    // Quote draft + ownership through the assembly_leaf.
+    const { quote } = await quoteForAssemblyLeaf(assemblyLeafId);
 
     // Verify tier belongs to the same quote (defense in depth — FK
     // alone can't catch cross-quote tier IDs).
@@ -876,10 +864,6 @@ export async function updateSellPriceOverride(
           "Sell price must be a number.",
         );
       }
-      // Reject non-positive values per architect's defensive guard:
-      // zero/negative breaks revenue contribution invariants and isn't
-      // a legitimate PM quoting scenario. To clear an override, send
-      // empty input (the dedicated revert path).
       if (n <= 0) {
         throw new ActionGuardError(
           ERR.VALIDATION,
@@ -892,11 +876,11 @@ export async function updateSellPriceOverride(
     // Read previous value (if any) for the audit diff.
     const existingRows = await db
       .select()
-      .from(quoteSkuTiers)
+      .from(assemblyLeafOverrides)
       .where(
         and(
-          eq(quoteSkuTiers.quoteSkuId, quoteSkuId),
-          eq(quoteSkuTiers.tierId, tierId),
+          eq(assemblyLeafOverrides.assemblyLeafId, assemblyLeafId),
+          eq(assemblyLeafOverrides.tierId, tierId),
         ),
       )
       .limit(1);
@@ -905,51 +889,53 @@ export async function updateSellPriceOverride(
 
     // No-op: incoming value matches stored value.
     if (numericEquals(previousValue, parsedValue?.toString() ?? null)) {
-      return { quoteSkuId, tierId, sellPriceOverride: previousValue };
+      return {
+        quoteSkuId: assemblyLeafId,
+        tierId,
+        sellPriceOverride: previousValue,
+      };
     }
 
     let storedValue: string | null;
     if (parsedValue === null) {
-      // Clear: DELETE the row. If no row existed (previousValue null),
-      // the no-op short-circuit above already returned; reaching here
-      // means there was a row to delete.
       await db
-        .delete(quoteSkuTiers)
+        .delete(assemblyLeafOverrides)
         .where(
           and(
-            eq(quoteSkuTiers.quoteSkuId, quoteSkuId),
-            eq(quoteSkuTiers.tierId, tierId),
+            eq(assemblyLeafOverrides.assemblyLeafId, assemblyLeafId),
+            eq(assemblyLeafOverrides.tierId, tierId),
           ),
         );
       storedValue = null;
     } else {
-      // Set or update: INSERT ON CONFLICT. The composite PK
-      // (quote_sku_id, tier_id) is the conflict target.
       const stored = parsedValue.toString();
       await db
-        .insert(quoteSkuTiers)
+        .insert(assemblyLeafOverrides)
         .values({
-          quoteSkuId,
+          assemblyLeafId,
           tierId,
           sellPriceOverride: stored,
         })
         .onConflictDoUpdate({
-          target: [quoteSkuTiers.quoteSkuId, quoteSkuTiers.tierId],
+          target: [
+            assemblyLeafOverrides.assemblyLeafId,
+            assemblyLeafOverrides.tierId,
+          ],
           set: { sellPriceOverride: stored, updatedAt: new Date() },
         });
       storedValue = stored;
     }
 
     // Audit. entity_id is the synthesized composite key (text per
-    // CLAUDE.md "audit_log.entity_id is text"). diff_json carries
-    // both component keys for query convenience.
+    // CLAUDE.md "audit_log.entity_id is text"). entity_type updated
+    // to NEW model identity.
     await logAudit({
       userId: user.id,
-      entityType: "quote_sku_tier",
-      entityId: `${quoteSkuId}:${tierId}`,
-      action: "cell_override_updated",
+      entityType: "assembly_leaf_override",
+      entityId: `${assemblyLeafId}:${tierId}`,
+      action: "assembly_leaf_sell_override_updated",
       diffJson: {
-        quote_sku_id: quoteSkuId,
+        assembly_leaf_id: assemblyLeafId,
         tier_id: tierId,
         sell_price_override: {
           from: previousValue,
@@ -960,47 +946,39 @@ export async function updateSellPriceOverride(
 
     revalidateQuoteTree(quote.projectId, quote.id);
 
-    return { quoteSkuId, tierId, sellPriceOverride: storedValue };
+    return {
+      quoteSkuId: assemblyLeafId,
+      tierId,
+      sellPriceOverride: storedValue,
+    };
   });
 }
 
-// ---------- mutation: updateClientTarget (Slice 9.4b) ----------
-
-// Per-cell client target benchmark on the (quote_sku, tier) cell.
-// Single action handles set + change + clear via the value-or-null
-// parameter (matches Slice 9.3 `updateSellPriceOverride` pattern;
-// Slice 9.2 `updateTierPriceAdj`; Slice 9.2 `updateQuoteTargetMargin`).
-// One audit row per state change with `action: "cell_target_updated"`;
-// the from/to encodes the transition.
+// ---------- mutation: updateAssemblyLeafTarget (Slice 11.5) ----------
 //
-// DB shape: `quote_sku_tier_targets` is a sparse sister table to
-// `quote_sku_tiers`. Different concern (customer-stated benchmark vs
-// PM-authored override) but identical shape. Lazy rows; NOT NULL on
-// `client_target_price_per_unit` enforces "row exists ⟹ benchmark
-// is set" at the schema level. See CLAUDE.md "Slice 9 pricing-control
-// columns" for the architect's sister-table-vs-single-table rationale.
+// Per-cell client target benchmark on the (assembly_leaf, tier) cell.
+// NEW-model successor to OLD `updateClientTarget` per brief §4.
+// Single action handles set + change + clear via the value-or-null
+// parameter; one audit row per state change with `action:
+// "assembly_leaf_client_target_updated"`; the from/to encodes the
+// transition.
+//
+// DB shape: `assembly_leaf_targets` is a sparse sister table to
+// `assembly_leaf_overrides`. Different concern (customer-stated
+// benchmark vs PM-authored override) but identical shape. Lazy rows;
+// NOT NULL on `client_target_price_per_unit` enforces "row exists
+// ⟹ benchmark is set" at the schema level.
 //   - value === null  → DELETE the row
 //   - value > 0       → INSERT ON CONFLICT (PK) DO UPDATE
-//   - value <= 0      → reject (action layer guard); zero or negative
-//                       benchmark isn't a legitimate quoting scenario.
-//                       To clear a benchmark, send empty input → null
-//                       → DELETE.
+//   - value <= 0      → reject (action layer guard).
 //
-// Leaf-only invariant — matches Slice 9.3 sell-price-override
-// invariant. Client targets are stated by customers at the SKU level
-// (this surface) or the quote level (Slice 9.4c, separate column on
-// `quote_tiers`). Assembly-level targets are not a real workflow case
-// — surfaced during 9.4b smoke as a workflow correction; the prep PR
-// erroneously shipped assembly support which was stripped before
-// commit. Schema (`quote_sku_tier_targets`) accepts any role, but
-// the runtime guard rejects non-leaf — same posture as
-// `updateSellPriceOverride`.
+// Leaf-only invariant inherent in schema (FK to assembly_leaves;
+// assemblies cannot carry targets — they roll up children).
 //
-// Audit source: no `source` flag. Per CLAUDE.md "Audit source convention"
-// — set/change/clear on the same column = same semantic, share `action`,
-// distinguish via from/to. Source flags reserved for non-default
-// origins (system suggestions, scenario apply, bulk imports).
-export async function updateClientTarget(
+// Audit source: no `source` flag. Per CLAUDE.md "Audit source
+// convention" — set/change/clear on the same column = same semantic,
+// share `action`, distinguish via from/to.
+export async function updateAssemblyLeafTarget(
   formData: FormData,
 ): Promise<
   ActionResult<{
@@ -1010,30 +988,17 @@ export async function updateClientTarget(
   }>
 > {
   return runAction(async () => {
-    const quoteSkuId = String(formData.get("quoteSkuId") ?? "").trim();
+    const assemblyLeafId = String(formData.get("quoteSkuId") ?? "").trim();
     const tierId = String(formData.get("tierId") ?? "").trim();
-    if (!quoteSkuId)
+    if (!assemblyLeafId)
       throw new ActionGuardError(ERR.VALIDATION, "quoteSkuId required");
     if (!tierId)
       throw new ActionGuardError(ERR.VALIDATION, "tierId required");
 
     const user = await ensureUser();
-    // Quote draft + ownership through the SKU. Returns the quote and
-    // sku rows; throws QUOTE_NOT_DRAFT or NOT_FOUND on failure.
-    const { quote, sku } = await quoteForSku(quoteSkuId);
+    const { quote } = await quoteForAssemblyLeaf(assemblyLeafId);
 
-    // Leaf-only invariant. Mirrors Slice 9.3 `updateSellPriceOverride`.
-    // Client targets are SKU-level (this surface) or quote-level (Slice
-    // 9.4c); assembly-level was scope creep removed during 9.4b smoke.
-    if (sku.skuRole !== "leaf") {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Client targets only apply to leaf SKUs.",
-      );
-    }
-
-    // Verify tier belongs to the same quote (defense in depth — FK
-    // alone can't catch cross-quote tier IDs).
+    // Verify tier belongs to the same quote.
     const tierRows = await db
       .select()
       .from(quoteTiers)
@@ -1048,7 +1013,6 @@ export async function updateClientTarget(
       );
     }
 
-    // Parse the value. Empty input → null → clear; non-empty → numeric.
     const rawValue = String(
       formData.get("clientTargetPricePerUnit") ?? "",
     ).trim();
@@ -1063,9 +1027,6 @@ export async function updateClientTarget(
           "Client target must be a number.",
         );
       }
-      // Reject non-positive values. Mirrors Slice 9.3 sell-override
-      // invariant — non-positive prices break revenue math + reverse-
-      // solve invariants. To clear the target, send empty input.
       if (n <= 0) {
         throw new ActionGuardError(
           ERR.VALIDATION,
@@ -1075,14 +1036,13 @@ export async function updateClientTarget(
       parsedValue = n;
     }
 
-    // Read previous value (if any) for the audit diff.
     const existingRows = await db
       .select()
-      .from(quoteSkuTierTargets)
+      .from(assemblyLeafTargets)
       .where(
         and(
-          eq(quoteSkuTierTargets.quoteSkuId, quoteSkuId),
-          eq(quoteSkuTierTargets.tierId, tierId),
+          eq(assemblyLeafTargets.assemblyLeafId, assemblyLeafId),
+          eq(assemblyLeafTargets.tierId, tierId),
         ),
       )
       .limit(1);
@@ -1091,10 +1051,9 @@ export async function updateClientTarget(
         ? existingRows[0].clientTargetPricePerUnit
         : null;
 
-    // No-op: incoming value matches stored value (within precision).
     if (numericEquals(previousValue, parsedValue?.toString() ?? null)) {
       return {
-        quoteSkuId,
+        quoteSkuId: assemblyLeafId,
         tierId,
         clientTargetPricePerUnit: previousValue,
       };
@@ -1102,50 +1061,44 @@ export async function updateClientTarget(
 
     let storedValue: string | null;
     if (parsedValue === null) {
-      // Clear: DELETE the row. The no-op short-circuit above already
-      // handled the "nothing to clear" case; reaching here means a
-      // row exists.
       await db
-        .delete(quoteSkuTierTargets)
+        .delete(assemblyLeafTargets)
         .where(
           and(
-            eq(quoteSkuTierTargets.quoteSkuId, quoteSkuId),
-            eq(quoteSkuTierTargets.tierId, tierId),
+            eq(assemblyLeafTargets.assemblyLeafId, assemblyLeafId),
+            eq(assemblyLeafTargets.tierId, tierId),
           ),
         );
       storedValue = null;
     } else {
-      // Set or update: INSERT ON CONFLICT. Composite PK is conflict target.
       const stored = parsedValue.toString();
       await db
-        .insert(quoteSkuTierTargets)
+        .insert(assemblyLeafTargets)
         .values({
-          quoteSkuId,
+          assemblyLeafId,
           tierId,
           clientTargetPricePerUnit: stored,
         })
         .onConflictDoUpdate({
           target: [
-            quoteSkuTierTargets.quoteSkuId,
-            quoteSkuTierTargets.tierId,
+            assemblyLeafTargets.assemblyLeafId,
+            assemblyLeafTargets.tierId,
           ],
-          set: { clientTargetPricePerUnit: stored, updatedAt: new Date() },
+          set: {
+            clientTargetPricePerUnit: stored,
+            updatedAt: new Date(),
+          },
         });
       storedValue = stored;
     }
 
-    // Audit. entity_id is the synthesized composite key (text per
-    // CLAUDE.md "audit_log.entity_id is text"). entity_type is
-    // "quote_sku_tier_target" — distinct from "quote_sku_tier" used
-    // by sell-price overrides — so audit timeline queries can filter
-    // benchmark changes from override changes natively.
     await logAudit({
       userId: user.id,
-      entityType: "quote_sku_tier_target",
-      entityId: `${quoteSkuId}:${tierId}`,
-      action: "cell_target_updated",
+      entityType: "assembly_leaf_target",
+      entityId: `${assemblyLeafId}:${tierId}`,
+      action: "assembly_leaf_client_target_updated",
       diffJson: {
-        quote_sku_id: quoteSkuId,
+        assembly_leaf_id: assemblyLeafId,
         tier_id: tierId,
         client_target_price_per_unit: {
           from: previousValue,
@@ -1157,7 +1110,7 @@ export async function updateClientTarget(
     revalidateQuoteTree(quote.projectId, quote.id);
 
     return {
-      quoteSkuId,
+      quoteSkuId: assemblyLeafId,
       tierId,
       clientTargetPricePerUnit: storedValue,
     };

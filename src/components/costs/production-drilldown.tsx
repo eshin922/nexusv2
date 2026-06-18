@@ -4,9 +4,9 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import type { quoteSkus } from "@/db/schema";
 import { buildTreeRenderOrder } from "@/lib/sku-tree";
 import {
-  updateSkuProductionPolicy,
-  upsertProductionInputs,
-} from "@/app/actions/production";
+  updateAssemblyProductionPolicy,
+  upsertAssemblyProductionInputs,
+} from "@/app/actions/assembly-production-inputs";
 import { useCostingStore } from "@/components/costing-store-provider";
 import {
   selectActiveTierId,
@@ -555,7 +555,7 @@ function ProductionTierCell({
     fd.set("bulkRawCost", line.field === "bulkRawCost" ? valueRef.current : (row.bulkRawCost ?? ""));
     fd.set("actualUnitsProduced", row.actualUnitsProduced?.toString() ?? "");
     startTransition(async () => {
-      await upsertProductionInputs(fd);
+      await upsertAssemblyProductionInputs(fd);
     });
   }
 
@@ -657,7 +657,7 @@ function SectionToggles({
           ).toString(),
         );
         fd.set("notes", policy.notes ?? "");
-        await updateSkuProductionPolicy(fd);
+        await updateAssemblyProductionPolicy(fd);
       }
     });
   }

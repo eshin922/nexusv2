@@ -2,6 +2,10 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
+  // Slice 11.5 — NEW-model cost-data tables (Step 2 schema).
+  assemblies,
+  assemblyLeafInputs,
+  assemblyLeaves,
   freightLegGroups,
   freightLegs,
   packagingInputs,
@@ -121,6 +125,113 @@ export async function quoteForLineGroup(
   const { quote, sku } = rows[0];
   requireDraft(quote);
   return { quote, sku, lineGroupId };
+}
+
+// ---------- Slice 11.5 NEW-model guards ----------
+//
+// Sister helpers to the OLD-model `quoteForSku` / `quoteForLeafSku` /
+// `quoteForLineGroup`. NEW-model write actions resolve quote ownership
+// through assemblies + assembly_leaves instead of quote_skus.
+//
+// Math semantics (per Slice 11.5 brief §2):
+//   - assembly = math-assembly (parent in math tree)
+//   - assembly_leaf = math-leaf (cost-bearing junction PK; receives
+//     packaging cells + sell-price overrides + client targets)
+//   - production policy + per-tier service fees attach at assembly
+//     level (assembly_production_inputs); adapter fans to anchor leaf
+
+type Assembly = typeof assemblies.$inferSelect;
+type AssemblyLeaf = typeof assemblyLeaves.$inferSelect;
+
+// Resolve quote ownership through (assembly → quote) and assert draft.
+// Sister to quoteForSku for NEW-model assembly-keyed actions
+// (production policy, production-input cells).
+export async function quoteForAssembly(
+  assemblyId: string,
+): Promise<{ quote: Quote; assembly: Assembly }> {
+  const rows = await db
+    .select({ quote: quotes, assembly: assemblies })
+    .from(assemblies)
+    .innerJoin(quotes, eq(quotes.id, assemblies.quoteId))
+    .where(eq(assemblies.id, assemblyId))
+    .limit(1);
+  if (rows.length === 0)
+    throw new ActionGuardError(ERR.NOT_FOUND, "Assembly not found");
+  const { quote, assembly } = rows[0];
+  requireDraft(quote);
+  return { quote, assembly };
+}
+
+// Resolve quote ownership through (assembly_leaf → assembly → quote)
+// and assert draft. Sister to quoteForLeafSku for NEW-model
+// assembly_leaf-keyed actions (packaging cells, sell-price overrides,
+// client targets).
+//
+// No leaf-only check — assembly_leaves ARE the math-leaves in NEW
+// model; semantically equivalent to OLD leaf SKUs. Type-only
+// constraint is enforced by the FK shape (assembly_leaf_inputs FK to
+// assembly_leaves only).
+export async function quoteForAssemblyLeaf(
+  assemblyLeafId: string,
+): Promise<{ quote: Quote; assembly: Assembly; assemblyLeaf: AssemblyLeaf }> {
+  const rows = await db
+    .select({
+      quote: quotes,
+      assembly: assemblies,
+      assemblyLeaf: assemblyLeaves,
+    })
+    .from(assemblyLeaves)
+    .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
+    .innerJoin(quotes, eq(quotes.id, assemblies.quoteId))
+    .where(eq(assemblyLeaves.id, assemblyLeafId))
+    .limit(1);
+  if (rows.length === 0)
+    throw new ActionGuardError(ERR.NOT_FOUND, "Assembly leaf not found");
+  const { quote, assembly, assemblyLeaf } = rows[0];
+  requireDraft(quote);
+  return { quote, assembly, assemblyLeaf };
+}
+
+// Resolve quote ownership through (assembly_leaf_inputs.line_group_id
+// → assembly_leaves → assemblies → quote) and assert draft. Sister to
+// quoteForLineGroup for NEW-model line-level packaging actions.
+//
+// line_group_id semantics: synthetic UUID grouping rows that represent
+// the SAME logical packaging line across tiers (per CLAUDE.md
+// audit_log namespace section "line_group_id semantics"). One
+// line_group → N tier rows; first row carries the line metadata,
+// siblings copy at the action layer.
+export async function quoteForAssemblyLeafInputLineGroup(
+  lineGroupId: string,
+): Promise<{
+  quote: Quote;
+  assembly: Assembly;
+  assemblyLeaf: AssemblyLeaf;
+  lineGroupId: string;
+}> {
+  const rows = await db
+    .select({
+      quote: quotes,
+      assembly: assemblies,
+      assemblyLeaf: assemblyLeaves,
+    })
+    .from(assemblyLeafInputs)
+    .innerJoin(
+      assemblyLeaves,
+      eq(assemblyLeaves.id, assemblyLeafInputs.assemblyLeafId),
+    )
+    .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
+    .innerJoin(quotes, eq(quotes.id, assemblies.quoteId))
+    .where(eq(assemblyLeafInputs.lineGroupId, lineGroupId))
+    .limit(1);
+  if (rows.length === 0)
+    throw new ActionGuardError(
+      ERR.NOT_FOUND,
+      "Packaging line not found",
+    );
+  const { quote, assembly, assemblyLeaf } = rows[0];
+  requireDraft(quote);
+  return { quote, assembly, assemblyLeaf, lineGroupId };
 }
 
 // Slice R6.2 — resolve quote ownership through (leg-group → quote).
