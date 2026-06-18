@@ -3,12 +3,20 @@
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
+  // Slice 11.5 — NEW-model cost-data tables (Step 2 schema).
+  assemblies,
+  assemblyLeafInputs,
+  assemblyLeafOverrides,
+  assemblyLeafTargets,
+  assemblyLeaves,
+  assemblyProductionInputs,
   auditLog,
   firmSettings,
   freightCustomerArrangesMeta,
   freightLegGroups,
   freightLegs,
   freightLegTiers,
+  leaves,
   markupDefaults,
   packagingInputs,
   productionInputs,
@@ -35,6 +43,7 @@ import {
   type QuoteCostingInput,
   type QuoteCostingResult,
 } from "@/lib/costing";
+import { buildQuoteCostingInputFromNewModel } from "@/lib/costing-adapter";
 import type { HydrateSnapshot } from "@/lib/costing-store";
 
 // ---------- helpers ----------
@@ -271,6 +280,118 @@ function projectFreightInputs(args: {
   };
 }
 
+// ---------- Slice 11.5 — NEW-model cost-data loader ----------
+//
+// Sister loader to loadFreightForQuote, for the NEW-model cost-data
+// extension tables (Slice 11.5 Step 2 schema). Returns raw DB rows
+// keyed for downstream adapter consumption.
+//
+// Six parallel queries; each scoped to the quote via:
+//   - assemblies / assembly_production_inputs : direct quote_id FK
+//   - assembly_leaves : join assemblies(quote_id)
+//   - leaves : library (global) — joined for name/sku via leaf_id
+//   - assembly_leaf_inputs / _overrides / _targets : join through
+//     assembly_leaves → assemblies(quote_id)
+async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
+  assemblyRows: Array<typeof assemblies.$inferSelect>;
+  assemblyLeafRows: Array<typeof assemblyLeaves.$inferSelect>;
+  leafRows: Array<typeof leaves.$inferSelect>;
+  assemblyLeafInputRows: Array<typeof assemblyLeafInputs.$inferSelect>;
+  assemblyProductionInputRows: Array<
+    typeof assemblyProductionInputs.$inferSelect
+  >;
+  assemblyLeafOverrideRows: Array<typeof assemblyLeafOverrides.$inferSelect>;
+  assemblyLeafTargetRows: Array<typeof assemblyLeafTargets.$inferSelect>;
+}> {
+  const [
+    assemblyRows,
+    assemblyLeafJoinRows,
+    assemblyLeafInputJoinRows,
+    assemblyProductionInputRows,
+    assemblyLeafOverrideJoinRows,
+    assemblyLeafTargetJoinRows,
+  ] = await Promise.all([
+    timed("nm.assemblies", quoteId, db
+      .select()
+      .from(assemblies)
+      .where(eq(assemblies.quoteId, quoteId))
+      .orderBy(asc(assemblies.position), asc(assemblies.createdAt))),
+    timed("nm.assembly_leaves", quoteId, db
+      .select({ assembly_leaves: assemblyLeaves, leaves: leaves })
+      .from(assemblyLeaves)
+      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
+      .innerJoin(leaves, eq(leaves.id, assemblyLeaves.leafId))
+      .where(eq(assemblies.quoteId, quoteId))
+      .orderBy(
+        asc(assemblyLeaves.assemblyId),
+        asc(assemblyLeaves.position),
+      )),
+    timed("nm.assembly_leaf_inputs", quoteId, db
+      .select({ assembly_leaf_inputs: assemblyLeafInputs })
+      .from(assemblyLeafInputs)
+      .innerJoin(
+        assemblyLeaves,
+        eq(assemblyLeaves.id, assemblyLeafInputs.assemblyLeafId),
+      )
+      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
+      .where(eq(assemblies.quoteId, quoteId))
+      .orderBy(
+        asc(assemblyLeafInputs.sortOrder),
+        asc(assemblyLeafInputs.lineGroupId),
+        asc(assemblyLeafInputs.createdAt),
+      )),
+    timed("nm.assembly_production_inputs", quoteId, db
+      .select()
+      .from(assemblyProductionInputs)
+      .innerJoin(
+        assemblies,
+        eq(assemblies.id, assemblyProductionInputs.assemblyId),
+      )
+      .where(eq(assemblies.quoteId, quoteId))
+      .then((rows) => rows.map((r) => r.assembly_production_inputs))),
+    timed("nm.assembly_leaf_overrides", quoteId, db
+      .select({ assembly_leaf_overrides: assemblyLeafOverrides })
+      .from(assemblyLeafOverrides)
+      .innerJoin(
+        assemblyLeaves,
+        eq(assemblyLeaves.id, assemblyLeafOverrides.assemblyLeafId),
+      )
+      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
+      .where(eq(assemblies.quoteId, quoteId))),
+    timed("nm.assembly_leaf_targets", quoteId, db
+      .select({ assembly_leaf_targets: assemblyLeafTargets })
+      .from(assemblyLeafTargets)
+      .innerJoin(
+        assemblyLeaves,
+        eq(assemblyLeaves.id, assemblyLeafTargets.assemblyLeafId),
+      )
+      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
+      .where(eq(assemblies.quoteId, quoteId))),
+  ]);
+  // Dedupe library leaves (assembly_leaves join may surface the
+  // same library leaf multiple times if reused across assemblies in
+  // the same quote).
+  const leafMap = new Map<string, typeof leaves.$inferSelect>();
+  for (const r of assemblyLeafJoinRows) {
+    leafMap.set(r.leaves.id, r.leaves);
+  }
+  return {
+    assemblyRows,
+    assemblyLeafRows: assemblyLeafJoinRows.map((r) => r.assembly_leaves),
+    leafRows: Array.from(leafMap.values()),
+    assemblyLeafInputRows: assemblyLeafInputJoinRows.map(
+      (r) => r.assembly_leaf_inputs,
+    ),
+    assemblyProductionInputRows,
+    assemblyLeafOverrideRows: assemblyLeafOverrideJoinRows.map(
+      (r) => r.assembly_leaf_overrides,
+    ),
+    assemblyLeafTargetRows: assemblyLeafTargetJoinRows.map(
+      (r) => r.assembly_leaf_targets,
+    ),
+  };
+}
+
 // ---------- read action: getQuoteCosting ----------
 
 // Pure read. Assembles QuoteCostingInput from the DB, calls the pure
@@ -310,54 +431,25 @@ export async function getQuoteCosting(
       );
     }
 
-    const [skus, tiers, pkgs, prods, freightLoad, mks, cellOvr, cellTgt] = await Promise.all([
-      db
-        .select()
-        .from(quoteSkus)
-        .where(eq(quoteSkus.quoteId, quoteId))
-        .orderBy(asc(quoteSkus.sortOrder), asc(quoteSkus.createdAt)),
+    // Slice 11.5 Step 3 — NEW-model read path. Load NEW-model
+    // cost-data tables + freight (model-agnostic) + tiers +
+    // markup_defaults; adapter builds QuoteCostingInput; math layer
+    // unchanged.
+    const [
+      tiers,
+      newModelData,
+      freightLoad,
+      mks,
+    ] = await Promise.all([
       db
         .select()
         .from(quoteTiers)
         .where(eq(quoteTiers.quoteId, quoteId))
         .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt)),
-      db
-        .select()
-        .from(packagingInputs)
-        .innerJoin(quoteSkus, eq(quoteSkus.id, packagingInputs.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId)),
-      db
-        .select()
-        .from(productionInputs)
-        .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId)),
+      loadNewModelCostDataForQuote(quoteId),
       // Slice R6.2 — multi-leg journey freight load (4 joined tables).
       loadFreightForQuote(quoteId),
       db.select().from(markupDefaults),
-      // Slice 9.3 — sparse load: only rows that exist for this quote's
-      // SKUs. Empty result = no overrides anywhere. INNER JOIN on
-      // quote_skus to scope by quote_id (quote_sku_tiers itself doesn't
-      // carry quote_id).
-      db
-        .select({
-          quoteSkuId: quoteSkuTiers.quoteSkuId,
-          tierId: quoteSkuTiers.tierId,
-          sellPriceOverride: quoteSkuTiers.sellPriceOverride,
-        })
-        .from(quoteSkuTiers)
-        .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTiers.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId)),
-      // Slice 9.4b — sparse load of per-cell client target benchmarks.
-      // Mirror Slice 9.3 cellOverrides query shape.
-      db
-        .select({
-          quoteSkuId: quoteSkuTierTargets.quoteSkuId,
-          tierId: quoteSkuTierTargets.tierId,
-          clientTargetPricePerUnit: quoteSkuTierTargets.clientTargetPricePerUnit,
-        })
-        .from(quoteSkuTierTargets)
-        .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTierTargets.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId)),
     ]);
 
     // Plain Record (not Map) so the snapshot serializes cleanly across
@@ -368,7 +460,11 @@ export async function getQuoteCosting(
 
     const freightProjection = projectFreightInputs(freightLoad);
 
-    const input: QuoteCostingInput = {
+    // Build the library-leaf lookup so the adapter can join
+    // assembly_leaves.leaf_id → leaves.name / leaves.sku.
+    const leafById = new Map(newModelData.leafRows.map((l) => [l.id, l]));
+
+    const input = buildQuoteCostingInputFromNewModel({
       quote: {
         id: quote.id,
         globalPriceAdjPct: num(quote.globalPriceAdjPct),
@@ -379,16 +475,6 @@ export async function getQuoteCosting(
         floorMarginPct: num(fs.floorMarginPct),
       },
       markupDefaults: markupMap,
-      skus: skus.map((s) => ({
-        id: s.id,
-        parentSkuId: s.parentSkuId,
-        qtyPerParent: numOrNull(s.qtyPerParent),
-        skuRole: s.skuRole as "leaf" | "assembly",
-        skuLabel: s.skuLabel,
-        productName: s.productName,
-        sortOrder: s.sortOrder,
-        retailBenchmark: numOrNull(s.retailBenchmark),
-      })),
       tiers: tiers.map((t) => ({
         id: t.id,
         label: t.label,
@@ -396,49 +482,63 @@ export async function getQuoteCosting(
         sortOrder: t.sortOrder,
         tierPriceAdjPct: numOrNull(t.tierPriceAdjPct),
       })),
-      cellOverrides: cellOvr.map((c) => ({
-        quoteSkuId: c.quoteSkuId,
-        tierId: c.tierId,
-        sellPriceOverride: num(c.sellPriceOverride),
+      assemblies: newModelData.assemblyRows.map((a) => ({
+        id: a.id,
+        sku: a.sku,
+        name: a.name,
+        position: a.position,
       })),
-      cellTargets: cellTgt.map((c) => ({
-        quoteSkuId: c.quoteSkuId,
-        tierId: c.tierId,
-        clientTargetPricePerUnit: num(c.clientTargetPricePerUnit),
-      })),
-      packaging: pkgs.map((r) => {
-        const p = r.packaging_inputs;
+      assemblyLeaves: newModelData.assemblyLeafRows.map((al) => {
+        const lib = leafById.get(al.leafId);
         return {
-          quoteSkuId: p.quoteSkuId,
-          tierId: p.tierId,
-          lineGroupId: p.lineGroupId,
-          unitCost: numOrNull(p.unitCost),
-          qtyPerSellableUnit: numOrNull(p.qtyPerSellableUnit),
-          category: p.category,
-          markupPct: numOrNull(p.markupPct),
+          id: al.id,
+          assemblyId: al.assemblyId,
+          leafId: al.leafId,
+          quantity: al.quantity,
+          position: al.position,
+          leafName: lib?.name ?? "",
+          leafSku: lib?.sku ?? "",
         };
       }),
-      production: prods.map((r) => {
-        const p = r.production_inputs;
-        return {
-          quoteSkuId: p.quoteSkuId,
-          tierId: p.tierId,
-          customerShipsRaws: p.customerShipsRaws,
-          allocateServiceFeesToCost: p.allocateServiceFeesToCost,
-          fillingBlendingCost: numOrNull(p.fillingBlendingCost),
-          cmAssemblyTotal: numOrNull(p.cmAssemblyTotal),
-          setupFeeTotal: numOrNull(p.setupFeeTotal),
-          toolingArtworkTotal: numOrNull(p.toolingArtworkTotal),
-          rdTotal: numOrNull(p.rdTotal),
-          otherServiceTotal: numOrNull(p.otherServiceTotal),
-          bulkRawCost: numOrNull(p.bulkRawCost),
-          actualUnitsProduced: p.actualUnitsProduced,
-        };
-      }),
+      assemblyLeafInputs: newModelData.assemblyLeafInputRows.map((r) => ({
+        assemblyLeafId: r.assemblyLeafId,
+        tierId: r.tierId,
+        lineGroupId: r.lineGroupId,
+        unitCost: r.unitCost,
+        qtyPerSellableUnit: r.qtyPerSellableUnit,
+        category: r.category,
+        markupPct: r.markupPct,
+      })),
+      assemblyProductionInputs: newModelData.assemblyProductionInputRows.map(
+        (r) => ({
+          assemblyId: r.assemblyId,
+          tierId: r.tierId,
+          customerShipsRaws: r.customerShipsRaws,
+          allocateServiceFeesToCost: r.allocateServiceFeesToCost,
+          fillingBlendingCost: r.fillingBlendingCost,
+          cmAssemblyTotal: r.cmAssemblyTotal,
+          setupFeeTotal: r.setupFeeTotal,
+          toolingArtworkTotal: r.toolingArtworkTotal,
+          rdTotal: r.rdTotal,
+          otherServiceTotal: r.otherServiceTotal,
+          bulkRawCost: r.bulkRawCost,
+          actualUnitsProduced: r.actualUnitsProduced,
+        }),
+      ),
+      assemblyLeafOverrides: newModelData.assemblyLeafOverrideRows.map((r) => ({
+        assemblyLeafId: r.assemblyLeafId,
+        tierId: r.tierId,
+        sellPriceOverride: r.sellPriceOverride,
+      })),
+      assemblyLeafTargets: newModelData.assemblyLeafTargetRows.map((r) => ({
+        assemblyLeafId: r.assemblyLeafId,
+        tierId: r.tierId,
+        clientTargetPricePerUnit: r.clientTargetPricePerUnit,
+      })),
       freightLegGroups: freightProjection.freightLegGroups,
       freightLegs: freightProjection.freightLegs,
       freightLegTiers: freightProjection.freightLegTiers,
-    };
+    });
 
     return computeQuoteCosting(input);
   });
@@ -1142,54 +1242,18 @@ export async function applyClientTargetSolveTierAdj(
         "firm_settings has no current row.",
       );
     }
-    const [skus, tiersFresh, pkgs, prods, freightLoad, mks, cellOvr, cellTgt] =
-      await Promise.all([
-        db
-          .select()
-          .from(quoteSkus)
-          .where(eq(quoteSkus.quoteId, quoteId))
-          .orderBy(asc(quoteSkus.sortOrder), asc(quoteSkus.createdAt)),
-        db
-          .select()
-          .from(quoteTiers)
-          .where(eq(quoteTiers.quoteId, quoteId))
-          .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt)),
-        db
-          .select()
-          .from(packagingInputs)
-          .innerJoin(quoteSkus, eq(quoteSkus.id, packagingInputs.quoteSkuId))
-          .where(eq(quoteSkus.quoteId, quoteId)),
-        db
-          .select()
-          .from(productionInputs)
-          .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
-          .where(eq(quoteSkus.quoteId, quoteId)),
-        // Slice R6.2 — multi-leg journey freight load.
-        loadFreightForQuote(quoteId),
-        db.select().from(markupDefaults),
-        db
-          .select({
-            quoteSkuId: quoteSkuTiers.quoteSkuId,
-            tierId: quoteSkuTiers.tierId,
-            sellPriceOverride: quoteSkuTiers.sellPriceOverride,
-          })
-          .from(quoteSkuTiers)
-          .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTiers.quoteSkuId))
-          .where(eq(quoteSkus.quoteId, quoteId)),
-        db
-          .select({
-            quoteSkuId: quoteSkuTierTargets.quoteSkuId,
-            tierId: quoteSkuTierTargets.tierId,
-            clientTargetPricePerUnit:
-              quoteSkuTierTargets.clientTargetPricePerUnit,
-          })
-          .from(quoteSkuTierTargets)
-          .innerJoin(
-            quoteSkus,
-            eq(quoteSkus.id, quoteSkuTierTargets.quoteSkuId),
-          )
-          .where(eq(quoteSkus.quoteId, quoteId)),
-      ]);
+    // Slice 11.5 Step 3 — NEW-model read path (mirrors getQuoteCosting).
+    const [tiersFresh, newModelData, freightLoad, mks] = await Promise.all([
+      db
+        .select()
+        .from(quoteTiers)
+        .where(eq(quoteTiers.quoteId, quoteId))
+        .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt)),
+      loadNewModelCostDataForQuote(quoteId),
+      // Slice R6.2 — multi-leg journey freight load.
+      loadFreightForQuote(quoteId),
+      db.select().from(markupDefaults),
+    ]);
 
     const markupMap: Record<string, number> = Object.fromEntries(
       mks.map((m) => [m.category, Number(m.defaultMarkupPct)]),
@@ -1197,7 +1261,9 @@ export async function applyClientTargetSolveTierAdj(
 
     const freightProjection = projectFreightInputs(freightLoad);
 
-    const input: QuoteCostingInput = {
+    const leafById = new Map(newModelData.leafRows.map((l) => [l.id, l]));
+
+    const input = buildQuoteCostingInputFromNewModel({
       quote: {
         id: quote.id,
         globalPriceAdjPct: num(quote.globalPriceAdjPct),
@@ -1208,16 +1274,6 @@ export async function applyClientTargetSolveTierAdj(
         floorMarginPct: num(fs.floorMarginPct),
       },
       markupDefaults: markupMap,
-      skus: skus.map((s) => ({
-        id: s.id,
-        parentSkuId: s.parentSkuId,
-        qtyPerParent: numOrNull(s.qtyPerParent),
-        skuRole: s.skuRole as "leaf" | "assembly",
-        skuLabel: s.skuLabel,
-        productName: s.productName,
-        sortOrder: s.sortOrder,
-        retailBenchmark: numOrNull(s.retailBenchmark),
-      })),
       tiers: tiersFresh.map((t) => ({
         id: t.id,
         label: t.label,
@@ -1225,55 +1281,73 @@ export async function applyClientTargetSolveTierAdj(
         sortOrder: t.sortOrder,
         tierPriceAdjPct: numOrNull(t.tierPriceAdjPct),
       })),
-      cellOverrides: cellOvr.map((c) => ({
-        quoteSkuId: c.quoteSkuId,
-        tierId: c.tierId,
-        sellPriceOverride: num(c.sellPriceOverride),
+      assemblies: newModelData.assemblyRows.map((a) => ({
+        id: a.id,
+        sku: a.sku,
+        name: a.name,
+        position: a.position,
       })),
-      cellTargets: cellTgt.map((c) => ({
-        quoteSkuId: c.quoteSkuId,
-        tierId: c.tierId,
-        clientTargetPricePerUnit: num(c.clientTargetPricePerUnit),
-      })),
-      packaging: pkgs.map((r) => {
-        const p = r.packaging_inputs;
+      assemblyLeaves: newModelData.assemblyLeafRows.map((al) => {
+        const lib = leafById.get(al.leafId);
         return {
-          quoteSkuId: p.quoteSkuId,
-          tierId: p.tierId,
-          lineGroupId: p.lineGroupId,
-          unitCost: numOrNull(p.unitCost),
-          qtyPerSellableUnit: numOrNull(p.qtyPerSellableUnit),
-          category: p.category,
-          markupPct: numOrNull(p.markupPct),
+          id: al.id,
+          assemblyId: al.assemblyId,
+          leafId: al.leafId,
+          quantity: al.quantity,
+          position: al.position,
+          leafName: lib?.name ?? "",
+          leafSku: lib?.sku ?? "",
         };
       }),
-      production: prods.map((r) => {
-        const p = r.production_inputs;
-        return {
-          quoteSkuId: p.quoteSkuId,
-          tierId: p.tierId,
-          customerShipsRaws: p.customerShipsRaws,
-          allocateServiceFeesToCost: p.allocateServiceFeesToCost,
-          fillingBlendingCost: numOrNull(p.fillingBlendingCost),
-          cmAssemblyTotal: numOrNull(p.cmAssemblyTotal),
-          setupFeeTotal: numOrNull(p.setupFeeTotal),
-          toolingArtworkTotal: numOrNull(p.toolingArtworkTotal),
-          rdTotal: numOrNull(p.rdTotal),
-          otherServiceTotal: numOrNull(p.otherServiceTotal),
-          bulkRawCost: numOrNull(p.bulkRawCost),
-          actualUnitsProduced: p.actualUnitsProduced,
-        };
-      }),
+      assemblyLeafInputs: newModelData.assemblyLeafInputRows.map((r) => ({
+        assemblyLeafId: r.assemblyLeafId,
+        tierId: r.tierId,
+        lineGroupId: r.lineGroupId,
+        unitCost: r.unitCost,
+        qtyPerSellableUnit: r.qtyPerSellableUnit,
+        category: r.category,
+        markupPct: r.markupPct,
+      })),
+      assemblyProductionInputs: newModelData.assemblyProductionInputRows.map(
+        (r) => ({
+          assemblyId: r.assemblyId,
+          tierId: r.tierId,
+          customerShipsRaws: r.customerShipsRaws,
+          allocateServiceFeesToCost: r.allocateServiceFeesToCost,
+          fillingBlendingCost: r.fillingBlendingCost,
+          cmAssemblyTotal: r.cmAssemblyTotal,
+          setupFeeTotal: r.setupFeeTotal,
+          toolingArtworkTotal: r.toolingArtworkTotal,
+          rdTotal: r.rdTotal,
+          otherServiceTotal: r.otherServiceTotal,
+          bulkRawCost: r.bulkRawCost,
+          actualUnitsProduced: r.actualUnitsProduced,
+        }),
+      ),
+      assemblyLeafOverrides: newModelData.assemblyLeafOverrideRows.map((r) => ({
+        assemblyLeafId: r.assemblyLeafId,
+        tierId: r.tierId,
+        sellPriceOverride: r.sellPriceOverride,
+      })),
+      assemblyLeafTargets: newModelData.assemblyLeafTargetRows.map((r) => ({
+        assemblyLeafId: r.assemblyLeafId,
+        tierId: r.tierId,
+        clientTargetPricePerUnit: r.clientTargetPricePerUnit,
+      })),
       freightLegGroups: freightProjection.freightLegGroups,
       freightLegs: freightProjection.freightLegs,
       freightLegTiers: freightProjection.freightLegTiers,
-    };
+    });
 
     // Defense in depth — leaf-only invariant on the origin cell.
     // `updateClientTarget` already rejects assembly writes, so any
     // assembly-origin solve must be forged FormData. Same posture as
     // updateClientTarget's leaf guard.
-    const originSku = skus.find((s) => s.id === suggestedSkuId);
+    //
+    // Slice 11.5 — math-leaf semantics: in NEW model, math-leaves
+    // are assembly_leaves (the cost-bearing junction PK). Lookup
+    // against input.skus catches both shapes.
+    const originSku = input.skus.find((s) => s.id === suggestedSkuId);
     if (!originSku) {
       throw new ActionGuardError(ERR.NOT_FOUND, "Origin SKU not found.");
     }
@@ -1452,52 +1526,24 @@ export async function getCostingBundle(
       );
     }
 
-    const [skus, tiers, pkgs, prods, freightLoad, mks, cellOvr, cellTgt] = await Promise.all([
-      timed("skus", quoteId, db
-        .select()
-        .from(quoteSkus)
-        .where(eq(quoteSkus.quoteId, quoteId))
-        .orderBy(asc(quoteSkus.sortOrder), asc(quoteSkus.createdAt))),
+    // Slice 11.5 Step 3 — NEW-model read path. Load NEW-model
+    // cost-data + freight (model-agnostic) + tiers + markup_defaults
+    // in parallel. Adapter builds QuoteCostingInput; math layer
+    // unchanged. The HydrateSnapshot is constructed below directly
+    // from the input + raw NEW-model rows (rowId attached for the
+    // store's optimistic-edit pattern).
+    const [tiers, newModelData, freightLoad, mks] = await Promise.all([
       timed("tiers", quoteId, db
         .select()
         .from(quoteTiers)
         .where(eq(quoteTiers.quoteId, quoteId))
         .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt))),
-      timed("packaging", quoteId, db
-        .select()
-        .from(packagingInputs)
-        .innerJoin(quoteSkus, eq(quoteSkus.id, packagingInputs.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId))),
-      timed("production", quoteId, db
-        .select()
-        .from(productionInputs)
-        .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId))),
+      timed("nm.total", quoteId, loadNewModelCostDataForQuote(quoteId)),
       // Slice R6.2 — multi-leg journey freight load. (Internal Promise.all
       // of 4 sub-queries; each instrumented separately inside
       // loadFreightForQuote.)
       timed("freight.total", quoteId, loadFreightForQuote(quoteId)),
       timed("markup_defaults", quoteId, db.select().from(markupDefaults)),
-      // Slice 9.3 — sparse load of cell-level sell-price overrides.
-      timed("cell_ovr", quoteId, db
-        .select({
-          quoteSkuId: quoteSkuTiers.quoteSkuId,
-          tierId: quoteSkuTiers.tierId,
-          sellPriceOverride: quoteSkuTiers.sellPriceOverride,
-        })
-        .from(quoteSkuTiers)
-        .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTiers.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId))),
-      // Slice 9.4b — sparse load of cell-level client target benchmarks.
-      timed("cell_tgt", quoteId, db
-        .select({
-          quoteSkuId: quoteSkuTierTargets.quoteSkuId,
-          tierId: quoteSkuTierTargets.tierId,
-          clientTargetPricePerUnit: quoteSkuTierTargets.clientTargetPricePerUnit,
-        })
-        .from(quoteSkuTierTargets)
-        .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTierTargets.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId))),
     ]);
 
     // Cumulative wall-clock for the whole bundle. Threshold-gated
@@ -1506,7 +1552,7 @@ export async function getCostingBundle(
     const bundleDt = Date.now() - bundleT0;
     if (bundleDt >= 500) {
       console.log(
-        `[bundle:TOTAL q=${quoteId.slice(0, 8)}] ${bundleDt}ms (sequential + 8-wide parallel)`,
+        `[bundle:TOTAL q=${quoteId.slice(0, 8)}] ${bundleDt}ms (sequential + 4-wide parallel; nm.total internally parallel)`,
       );
     }
 
@@ -1518,17 +1564,6 @@ export async function getCostingBundle(
 
     const freightProjection = projectFreightInputs(freightLoad);
 
-    const skuList = skus.map((s) => ({
-      id: s.id,
-      parentSkuId: s.parentSkuId,
-      qtyPerParent: numOrNull(s.qtyPerParent),
-      skuRole: s.skuRole as "leaf" | "assembly",
-      skuLabel: s.skuLabel,
-      productName: s.productName,
-      sortOrder: s.sortOrder,
-      retailBenchmark: numOrNull(s.retailBenchmark),
-    }));
-
     const tierList = tiers.map((t) => ({
       id: t.id,
       label: t.label,
@@ -1537,63 +1572,13 @@ export async function getCostingBundle(
       tierPriceAdjPct: numOrNull(t.tierPriceAdjPct),
     }));
 
-    const packagingList = pkgs.map((r) => {
-      const p = r.packaging_inputs;
-      return {
-        rowId: p.id,
-        quoteSkuId: p.quoteSkuId,
-        tierId: p.tierId,
-        lineGroupId: p.lineGroupId,
-        unitCost: numOrNull(p.unitCost),
-        qtyPerSellableUnit: numOrNull(p.qtyPerSellableUnit),
-        category: p.category,
-        markupPct: numOrNull(p.markupPct),
-      };
-    });
+    // Slice 11.5 — build the library-leaf lookup so the adapter +
+    // snapshot can join assembly_leaves.leaf_id → leaves.name/sku.
+    const leafById = new Map(
+      newModelData.leafRows.map((l) => [l.id, l]),
+    );
 
-    const productionList = prods.map((r) => {
-      const p = r.production_inputs;
-      return {
-        quoteSkuId: p.quoteSkuId,
-        tierId: p.tierId,
-        customerShipsRaws: p.customerShipsRaws,
-        allocateServiceFeesToCost: p.allocateServiceFeesToCost,
-        fillingBlendingCost: numOrNull(p.fillingBlendingCost),
-        cmAssemblyTotal: numOrNull(p.cmAssemblyTotal),
-        setupFeeTotal: numOrNull(p.setupFeeTotal),
-        toolingArtworkTotal: numOrNull(p.toolingArtworkTotal),
-        rdTotal: numOrNull(p.rdTotal),
-        otherServiceTotal: numOrNull(p.otherServiceTotal),
-        bulkRawCost: numOrNull(p.bulkRawCost),
-        actualUnitsProduced: p.actualUnitsProduced,
-      };
-    });
-
-    // Slice R6.2 — freight projections (per-quote leg-group / leg /
-    // leg-tier / customer-arranges-meta). The store hydrates the
-    // grouped arrays directly; the math input consumes the same
-    // projection sans `rowId`.
-    const freightLegGroupList = freightProjection.freightLegGroups;
-    const freightLegList = freightProjection.freightLegs;
-    const freightLegTierList = freightProjection.storedLegTiers;
-    const freightCustomerArrangesMetaList =
-      freightProjection.customerArrangesMeta;
-
-    // Slice 9.3 — shape DB rows into pure-math input. Sparse: empty
-    // array if no overrides anywhere on this quote.
-    const cellOverrideList = cellOvr.map((c) => ({
-      quoteSkuId: c.quoteSkuId,
-      tierId: c.tierId,
-      sellPriceOverride: num(c.sellPriceOverride),
-    }));
-    // Slice 9.4b — sparse client target benchmarks; same shape pattern.
-    const cellTargetList = cellTgt.map((c) => ({
-      quoteSkuId: c.quoteSkuId,
-      tierId: c.tierId,
-      clientTargetPricePerUnit: num(c.clientTargetPricePerUnit),
-    }));
-
-    const input: QuoteCostingInput = {
+    const input = buildQuoteCostingInputFromNewModel({
       quote: {
         id: quote.id,
         globalPriceAdjPct: num(quote.globalPriceAdjPct),
@@ -1604,21 +1589,94 @@ export async function getCostingBundle(
         floorMarginPct: num(fs.floorMarginPct),
       },
       markupDefaults: markupMap,
-      skus: skuList,
       tiers: tierList,
-      packaging: packagingList,
-      production: productionList,
-      freightLegGroups: freightLegGroupList,
-      freightLegs: freightLegList,
-      freightLegTiers: freightLegTierList.map((lt) => ({
-        freightLegId: lt.freightLegId,
-        tierId: lt.tierId,
-        totalFreight: lt.totalFreight,
-        unitsInShipment: lt.unitsInShipment,
+      assemblies: newModelData.assemblyRows.map((a) => ({
+        id: a.id,
+        sku: a.sku,
+        name: a.name,
+        position: a.position,
       })),
-      cellOverrides: cellOverrideList,
-      cellTargets: cellTargetList,
-    };
+      assemblyLeaves: newModelData.assemblyLeafRows.map((al) => {
+        const lib = leafById.get(al.leafId);
+        return {
+          id: al.id,
+          assemblyId: al.assemblyId,
+          leafId: al.leafId,
+          quantity: al.quantity,
+          position: al.position,
+          leafName: lib?.name ?? "",
+          leafSku: lib?.sku ?? "",
+        };
+      }),
+      assemblyLeafInputs: newModelData.assemblyLeafInputRows.map((r) => ({
+        assemblyLeafId: r.assemblyLeafId,
+        tierId: r.tierId,
+        lineGroupId: r.lineGroupId,
+        unitCost: r.unitCost,
+        qtyPerSellableUnit: r.qtyPerSellableUnit,
+        category: r.category,
+        markupPct: r.markupPct,
+      })),
+      assemblyProductionInputs: newModelData.assemblyProductionInputRows.map(
+        (r) => ({
+          assemblyId: r.assemblyId,
+          tierId: r.tierId,
+          customerShipsRaws: r.customerShipsRaws,
+          allocateServiceFeesToCost: r.allocateServiceFeesToCost,
+          fillingBlendingCost: r.fillingBlendingCost,
+          cmAssemblyTotal: r.cmAssemblyTotal,
+          setupFeeTotal: r.setupFeeTotal,
+          toolingArtworkTotal: r.toolingArtworkTotal,
+          rdTotal: r.rdTotal,
+          otherServiceTotal: r.otherServiceTotal,
+          bulkRawCost: r.bulkRawCost,
+          actualUnitsProduced: r.actualUnitsProduced,
+        }),
+      ),
+      assemblyLeafOverrides: newModelData.assemblyLeafOverrideRows.map((r) => ({
+        assemblyLeafId: r.assemblyLeafId,
+        tierId: r.tierId,
+        sellPriceOverride: r.sellPriceOverride,
+      })),
+      assemblyLeafTargets: newModelData.assemblyLeafTargetRows.map((r) => ({
+        assemblyLeafId: r.assemblyLeafId,
+        tierId: r.tierId,
+        clientTargetPricePerUnit: r.clientTargetPricePerUnit,
+      })),
+      freightLegGroups: freightProjection.freightLegGroups,
+      freightLegs: freightProjection.freightLegs,
+      freightLegTiers: freightProjection.freightLegTiers,
+    });
+
+    // Snapshot-shape derivations from the input + raw rows. The
+    // snapshot's packaging[] / production[] / cellOverrides[] /
+    // cellTargets[] match the math input shape but the store
+    // additionally tracks `rowId` on packaging (for optimistic
+    // row-id-keyed edits per Slice 8 sub-step 3 pattern).
+    const skuList = input.skus;
+    const packagingList = newModelData.assemblyLeafInputRows.map((r) => ({
+      rowId: r.id,
+      quoteSkuId: r.assemblyLeafId,
+      tierId: r.tierId,
+      lineGroupId: r.lineGroupId,
+      unitCost: numOrNull(r.unitCost),
+      qtyPerSellableUnit: numOrNull(r.qtyPerSellableUnit),
+      category: r.category,
+      markupPct: numOrNull(r.markupPct),
+    }));
+    const productionList = input.production;
+    const cellOverrideList = input.cellOverrides;
+    const cellTargetList = input.cellTargets;
+
+    // Slice R6.2 — freight projections (per-quote leg-group / leg /
+    // leg-tier / customer-arranges-meta). The store hydrates the
+    // grouped arrays directly; the math input consumes the same
+    // projection sans `rowId`.
+    const freightLegGroupList = freightProjection.freightLegGroups;
+    const freightLegList = freightProjection.freightLegs;
+    const freightLegTierList = freightProjection.storedLegTiers;
+    const freightCustomerArrangesMetaList =
+      freightProjection.customerArrangesMeta;
 
     const result = computeQuoteCosting(input);
 
