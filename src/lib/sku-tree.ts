@@ -1,12 +1,30 @@
-import type { quoteSkus } from "@/db/schema";
-
-// Type-only import: this module must stay client-safe (imported by SkuRow
-// for eligibleRoleTargets). DB-touching code lives in the server actions
-// that consume these helpers.
+// Step 8 — sku-tree library uses a structural SkuRow shape, not
+// the OLD `quote_skus` $inferSelect type. Callers (synthetic Costs
+// page shape post-Step 3 + remaining OLD-model code paths in
+// quotes.ts) pass row objects matching the shape below.
 
 export type SkuRoleValue = "leaf" | "assembly";
 
-export type SkuRow = typeof quoteSkus.$inferSelect;
+export type SkuRow = {
+  id: string;
+  skuLabel: string;
+  productName: string;
+  skuRole: SkuRoleValue;
+  parentSkuId: string | null;
+  qtyPerParent: string | null;
+  sortOrder: number;
+  createdAt: Date;
+  // Optional fields read by toSnapshot for the audit-log subtree
+  // snapshot path; synthetic callers (Costs page + Pricing surface)
+  // pass null/defaults.
+  hubspotProductId: string | null;
+  unitsPerPack: number;
+  retailBenchmark: string | null;
+  notes: string | null;
+  // validateAssemblyOperation references parent.quoteId for the
+  // cross-quote rejection check.
+  quoteId: string;
+};
 
 /**
  * Slice 5.5 — assembly tree helpers. Validation lives here; actions

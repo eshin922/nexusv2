@@ -46,6 +46,74 @@ operational pre-flight.)
 
 ## Open
 
+- [Slice 11.5.1 — finish OLD-table drops (carved from Slice 11.5 Step 8)]
+
+  **Driver:** Slice 11.5 Step 8 (PR #73; banked 2026-06-18).
+  The brief envisioned full OLD-table drops in Step 8; audit
+  during Step 8 found ~215 remaining OLD-schema references
+  across five deeply-integrated files (warnings.ts engine,
+  markup-defaults admin, sku-tree library, actions/quotes.ts
+  legacy functions, quote-guards.ts helpers). Migrating these
+  cleanly is several hours of focused work beyond Step 8 scope.
+
+  **What Step 8 DID ship:**
+  - Orphan Setup tree files deleted (6 files: sku-row.tsx,
+    sku-row-list.tsx, sku-footer.tsx, add-product-modal.tsx,
+    add-assembly-button.tsx, sku-search-panel.tsx)
+  - Costs page + packaging/production drilldowns replaced
+    OLD-schema `typeof X.$inferSelect` type refs with inline
+    structural types (model-agnostic)
+  - sku-tree.ts library generalized to a structural `SkuRow`
+    shape (consumed by remaining quote_skus paths + the NEW
+    synthetic Costs page shape)
+  - CLAUDE.md updates per brief Step 8 list (math-layer
+    architectural commitment verbatim; per-assembly→per-leaf
+    coercion pattern; audit_log namespace with 8 Slice 11.5
+    action names)
+
+  **What Slice 11.5.1 (this entry) covers:**
+  - Migrate `src/app/actions/warnings.ts` validation engine
+    to read NEW-model (`assembly_leaf_inputs` +
+    `assembly_production_inputs`) instead of OLD
+    `packaging_inputs` / `production_inputs`. Critical-path —
+    warnings surface in Pricing surface BELOW_FLOOR panel +
+    Mark-Accepted flagged lines.
+  - Migrate `src/app/actions/markup-defaults.ts` admin
+    queries (category-usage counts) to read
+    `assembly_leaf_inputs.category` instead of
+    `packaging_inputs.category`.
+  - Audit + delete unused `quote_skus`-only functions from
+    `src/app/actions/quotes.ts` (the orphan Setup tree was
+    deleted in Step 8 so the SKU-side functions have no
+    remaining callers; tier-side functions stay).
+  - Remove `quoteForSku`, `quoteForLeafSku`, `quoteForLineGroup`
+    OLD-model helpers from `src/lib/quote-guards.ts` (NEW
+    counterparts already shipped in Step 4:
+    `quoteForAssembly`, `quoteForAssemblyLeaf`,
+    `quoteForAssemblyLeafInputLineGroup`).
+  - Drop OLD tables from `src/db/schema.ts`:
+    `quote_skus`, `packaging_inputs`, `production_inputs`,
+    `quote_sku_tiers`, `quote_sku_tier_targets`.
+  - Generate + apply drop migration per CLAUDE.md "Single
+    Supabase project" cutover discipline (additive verified,
+    same flow as Step 2).
+
+  **Risk profile:** medium. warnings.ts is critical-path —
+  regression here breaks Pricing surface BELOW_FLOOR review
+  + Mark-Accepted flagged lines. Migration should be
+  parity-tested against the seeded sample-order quote:
+  identical warnings output pre/post-migration.
+
+  **Estimated scope:** half-day to one day focused work.
+  Single PR closes the slice's cleanup arc.
+
+  **Why deferred:** Slice 11.5's core commitment (NEW-model
+  adapter + write actions + sample seed + verification) is
+  shipped + production-running. The OLD tables are write-
+  orphaned (nothing writes them); legacy reads from
+  warnings.ts / markup-defaults admin work because data still
+  exists pre-drop. No PM-facing failure mode in the gap.
+
 - [Per-assembly production fan-out — math layer extension]
 
   **Driver:** Slice 11.5 Step 3 adapter implementation
