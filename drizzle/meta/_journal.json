@@ -239,6 +239,13 @@
       "when": 1781654940321,
       "tag": "0033_firm_settings_policy_gates",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1781808949489,
+      "tag": "0034_slice_11_5_assembly_cost_extension_tables",
+      "breakpoints": true
     }
   ]
 }
