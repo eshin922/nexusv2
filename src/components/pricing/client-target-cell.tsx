@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { updateClientTarget } from "@/app/actions/costing";
+import { updateAssemblyLeafTarget } from "@/app/actions/costing";
 import {
   useCostingStore,
   useCostingStoreApi,
@@ -206,7 +206,7 @@ export function ClientTargetCell({
       fd.set("tierId", tierId);
       fd.set("clientTargetPricePerUnit", "");
       startTransition(async () => {
-        const r = await updateClientTarget(fd);
+        const r = await updateAssemblyLeafTarget(fd);
         if (!r.ok) setError(r.error.message);
       });
       return;
@@ -237,7 +237,7 @@ export function ClientTargetCell({
     fd.set("tierId", tierId);
     fd.set("clientTargetPricePerUnit", n.toString());
     startTransition(async () => {
-      const r = await updateClientTarget(fd);
+      const r = await updateAssemblyLeafTarget(fd);
       if (!r.ok) setError(r.error.message);
     });
   }

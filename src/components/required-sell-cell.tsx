@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { updateSellPriceOverride } from "@/app/actions/costing";
+import { updateAssemblyLeafOverride } from "@/app/actions/costing";
 import { useCostingStore } from "@/components/costing-store-provider";
 import {
   selectCellOverride,
@@ -33,7 +33,7 @@ import {
 // Disabled state (editable=false): cell renders the value (with OVR
 // badge if overridden) but is not clickable. ↺ button is hidden.
 // Server-side rejection via quoteForSku draft guard provides defense
-// in depth (see updateSellPriceOverride action).
+// in depth (see updateAssemblyLeafOverride action).
 
 function fmtCurr4(n: number): string {
   return n.toLocaleString("en-US", {
@@ -159,7 +159,7 @@ export function RequiredSellCell({
     fd.set("tierId", tierId);
     fd.set("sellPriceOverride", n.toString());
     startTransition(async () => {
-      const r = await updateSellPriceOverride(fd);
+      const r = await updateAssemblyLeafOverride(fd);
       if (!r.ok) {
         // Surface the error; don't roll back optimistic update — the
         // next snapshot reconcile will restore truth, and the user
@@ -186,7 +186,7 @@ export function RequiredSellCell({
     fd.set("tierId", tierId);
     fd.set("sellPriceOverride", "");
     startTransition(async () => {
-      const r = await updateSellPriceOverride(fd);
+      const r = await updateAssemblyLeafOverride(fd);
       if (!r.ok) setError(r.error.message);
     });
   }
