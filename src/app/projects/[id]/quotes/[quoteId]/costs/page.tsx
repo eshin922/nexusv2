@@ -3,12 +3,22 @@ import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
+  // Slice 11.5 — NEW-model cost-data tables (Step 2 schema).
+  assemblies,
+  assemblyLeafInputs,
+  assemblyLeaves,
+  assemblyProductionInputs,
   bulkRawCategories,
   bulkRawIngredients,
   bulkRawSectionMeta,
   costSectionDeposits,
   freightLegGroups,
   freightLegs,
+  leaves,
+  // OLD-model tables retained for $inferSelect type references on
+  // the synthetic wrapper shapes the drilldowns continue to accept
+  // per Q2 (a) preserve-prop-shape disposition. Step 8 drops both
+  // imports + tables.
   packagingInputs,
   productionInputs,
   projects,
@@ -146,11 +156,25 @@ export default async function CostBuildPage({
     const bundle = await getCostingBundle(quote.id);
     console.log(`[costs:${tag}] post-bundle ${elapsed()} memory=${heapMb()}MB`);
 
+  // Slice 11.5 Step 3 — NEW-model outer load. Queries the NEW
+  // cost-data tables (assemblies + assembly_leaves + library leaves
+  // + assembly_leaf_inputs + assembly_production_inputs) and
+  // reshapes into the OLD wrapper shape (quote_skus, packaging_inputs,
+  // production_inputs) so downstream drilldowns continue to work
+  // unchanged per Q2 (a) disposition. Step 5 verifies the reshape
+  // doesn't break drilldown rendering.
+  //
+  // Anchor-leaf production fan-out: assembly_production_inputs is
+  // per-(assembly, tier) but the drilldown iterates leaf rows.
+  // Adapter attaches production data to the FIRST assembly_leaf
+  // under each assembly (lowest position). See
+  // src/lib/costing-adapter.ts header comment for the rationale.
   const [
-    skus,
+    newAssemblyRows,
+    newAssemblyLeafJoinRows,
+    newPkgInputRows,
+    newProdInputRows,
     tiers,
-    pkgRows,
-    prodRows,
     freightGroupRows,
     freightLegRows,
     categories,
@@ -158,29 +182,46 @@ export default async function CostBuildPage({
   ] = await Promise.all([
     db
       .select()
-      .from(quoteSkus)
-      .where(eq(quoteSkus.quoteId, quote.id))
-      .orderBy(asc(quoteSkus.sortOrder), asc(quoteSkus.createdAt)),
+      .from(assemblies)
+      .where(eq(assemblies.quoteId, quote.id))
+      .orderBy(asc(assemblies.position), asc(assemblies.createdAt)),
+    db
+      .select({ assembly_leaves: assemblyLeaves, leaves })
+      .from(assemblyLeaves)
+      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
+      .innerJoin(leaves, eq(leaves.id, assemblyLeaves.leafId))
+      .where(eq(assemblies.quoteId, quote.id))
+      .orderBy(
+        asc(assemblyLeaves.assemblyId),
+        asc(assemblyLeaves.position),
+      ),
+    db
+      .select({ assembly_leaf_inputs: assemblyLeafInputs })
+      .from(assemblyLeafInputs)
+      .innerJoin(
+        assemblyLeaves,
+        eq(assemblyLeaves.id, assemblyLeafInputs.assemblyLeafId),
+      )
+      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
+      .where(eq(assemblies.quoteId, quote.id))
+      .orderBy(
+        asc(assemblyLeafInputs.sortOrder),
+        asc(assemblyLeafInputs.lineGroupId),
+        asc(assemblyLeafInputs.createdAt),
+      ),
+    db
+      .select({ assembly_production_inputs: assemblyProductionInputs })
+      .from(assemblyProductionInputs)
+      .innerJoin(
+        assemblies,
+        eq(assemblies.id, assemblyProductionInputs.assemblyId),
+      )
+      .where(eq(assemblies.quoteId, quote.id)),
     db
       .select()
       .from(quoteTiers)
       .where(eq(quoteTiers.quoteId, quote.id))
       .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt)),
-    db
-      .select()
-      .from(packagingInputs)
-      .innerJoin(quoteSkus, eq(quoteSkus.id, packagingInputs.quoteSkuId))
-      .where(eq(quoteSkus.quoteId, quote.id))
-      .orderBy(
-        asc(packagingInputs.sortOrder),
-        asc(packagingInputs.lineGroupId),
-        asc(packagingInputs.createdAt),
-      ),
-    db
-      .select()
-      .from(productionInputs)
-      .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
-      .where(eq(quoteSkus.quoteId, quote.id)),
     // Slice R6.2 — multi-leg journey freight: load groups + legs for
     // the sublabel / section-count rendering. The drilldown component
     // pulls leg-tier data from the CostingStore (already hydrated via
@@ -207,6 +248,153 @@ export default async function CostBuildPage({
       .limit(1),
   ]);
   const freightLegList = freightLegRows.map((r) => r.leg);
+
+  // Slice 11.5 Step 3 — NEW-model → OLD-wrapper-shape reshape.
+  // Synthesizes objects that match the shapes downstream drilldowns
+  // already consume (typeof quoteSkus.$inferSelect, plus
+  // `{packaging_inputs: <row>}` and `{production_inputs: <row>}`
+  // wrappers). Per Q2 (a) disposition: preserve drilldown prop
+  // shapes; point underlying row IDs at NEW tables.
+  //
+  // Cardinality:
+  //   - One synthetic quote_sku per assembly (skuRole='assembly',
+  //     parentSkuId=null)
+  //   - One synthetic quote_sku per assembly_leaf (skuRole='leaf',
+  //     parentSkuId=parent assembly.id, productName/skuLabel from
+  //     library leaf)
+  //   - One synthetic packaging_inputs row per assembly_leaf_inputs
+  //     row (1:1)
+  //   - One synthetic production_inputs row per assembly_production_inputs
+  //     row, attached to the FIRST assembly_leaf under that assembly
+  //     (anchor-leaf fan-out; see src/lib/costing-adapter.ts header
+  //     for rationale)
+  type SyntheticQuoteSku = typeof quoteSkus.$inferSelect;
+  type SyntheticPackagingRow = {
+    packaging_inputs: typeof packagingInputs.$inferSelect;
+  };
+  type SyntheticProductionRow = {
+    production_inputs: typeof productionInputs.$inferSelect;
+  };
+  const newAssemblyLeafRows = newAssemblyLeafJoinRows.map((r) => ({
+    leaf: r.leaves,
+    al: r.assembly_leaves,
+  }));
+
+  const skus: SyntheticQuoteSku[] = [];
+  for (const a of newAssemblyRows) {
+    skus.push({
+      id: a.id,
+      quoteId: a.quoteId,
+      hubspotProductId: null,
+      skuLabel: a.sku,
+      productName: a.name,
+      unitsPerPack: 1,
+      retailBenchmark: null,
+      sortOrder: a.position,
+      notes: a.internalNotes,
+      lastHubspotRefreshAt: null,
+      parentSkuId: null,
+      skuRole: "assembly",
+      qtyPerParent: null,
+      dutyPct: null,
+      tariffPct: null,
+      createdAt: a.createdAt,
+      updatedAt: a.updatedAt,
+    });
+  }
+  for (const { al, leaf } of newAssemblyLeafRows) {
+    skus.push({
+      id: al.id,
+      quoteId: quote.id,
+      hubspotProductId: leaf.hubspotProductId ?? null,
+      // leaves.sku is nullable; quote_skus.skuLabel is NOT NULL.
+      // Empty string fallback satisfies the synthetic shape.
+      skuLabel: leaf.sku ?? "",
+      productName: leaf.name,
+      unitsPerPack: 1,
+      retailBenchmark: null,
+      sortOrder: al.position,
+      notes: null,
+      lastHubspotRefreshAt: null,
+      parentSkuId: al.assemblyId,
+      skuRole: "leaf",
+      qtyPerParent: al.quantity,
+      dutyPct: null,
+      tariffPct: null,
+      createdAt: al.createdAt,
+      updatedAt: al.createdAt,
+    });
+  }
+
+  const pkgRows: SyntheticPackagingRow[] = newPkgInputRows.map((r) => ({
+    packaging_inputs: {
+      id: r.assembly_leaf_inputs.id,
+      quoteSkuId: r.assembly_leaf_inputs.assemblyLeafId,
+      tierId: r.assembly_leaf_inputs.tierId,
+      lineGroupId: r.assembly_leaf_inputs.lineGroupId,
+      sortOrder: r.assembly_leaf_inputs.sortOrder,
+      supplier: r.assembly_leaf_inputs.supplier,
+      qtyPerSellableUnit: r.assembly_leaf_inputs.qtyPerSellableUnit,
+      category: r.assembly_leaf_inputs.category,
+      markupPct: r.assembly_leaf_inputs.markupPct,
+      markupPctSource: r.assembly_leaf_inputs.markupPctSource,
+      inventoryEligible: r.assembly_leaf_inputs.inventoryEligible,
+      notes: r.assembly_leaf_inputs.notes,
+      unitCost: r.assembly_leaf_inputs.unitCost,
+      purchaseQty: r.assembly_leaf_inputs.purchaseQty,
+      createdAt: r.assembly_leaf_inputs.createdAt,
+      updatedAt: r.assembly_leaf_inputs.updatedAt,
+    },
+  }));
+
+  // Anchor-leaf fan-out for production. assembly_production_inputs
+  // is keyed by (assembly_id, tier_id); the math layer + drilldown
+  // iterate leaf skus. Pick the lowest-position assembly_leaf per
+  // assembly as the anchor.
+  const anchorLeafByAssembly = new Map<string, string>();
+  {
+    const leavesByAssembly = new Map<
+      string,
+      typeof newAssemblyLeafRows
+    >();
+    for (const r of newAssemblyLeafRows) {
+      const arr = leavesByAssembly.get(r.al.assemblyId) ?? [];
+      arr.push(r);
+      leavesByAssembly.set(r.al.assemblyId, arr);
+    }
+    for (const [assemblyId, group] of leavesByAssembly) {
+      const sorted = [...group].sort((a, b) => a.al.position - b.al.position);
+      if (sorted.length > 0)
+        anchorLeafByAssembly.set(assemblyId, sorted[0].al.id);
+    }
+  }
+
+  const prodRows: SyntheticProductionRow[] = [];
+  for (const r of newProdInputRows) {
+    const api = r.assembly_production_inputs;
+    const anchorLeafId = anchorLeafByAssembly.get(api.assemblyId);
+    if (!anchorLeafId) continue;
+    prodRows.push({
+      production_inputs: {
+        id: api.id,
+        quoteSkuId: anchorLeafId,
+        tierId: api.tierId,
+        customerShipsRaws: api.customerShipsRaws,
+        allocateServiceFeesToCost: api.allocateServiceFeesToCost,
+        notes: api.notes,
+        fillingBlendingCost: api.fillingBlendingCost,
+        cmAssemblyTotal: api.cmAssemblyTotal,
+        setupFeeTotal: api.setupFeeTotal,
+        toolingArtworkTotal: api.toolingArtworkTotal,
+        rdTotal: api.rdTotal,
+        otherServiceTotal: api.otherServiceTotal,
+        bulkRawCost: api.bulkRawCost,
+        actualUnitsProduced: api.actualUnitsProduced,
+        createdAt: api.createdAt,
+        updatedAt: api.updatedAt,
+      },
+    });
+  }
 
   // Phase 2: Bulk Raw categories/ingredients only when in dps_sources
   // mode (the only time the data is rendered). Skip otherwise — saves
