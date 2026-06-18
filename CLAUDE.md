@@ -736,6 +736,28 @@ Both fail the same way: schema-as-implementation-detail instead
 of schema-as-contract. Running the §0.5 pass pre-approval makes
 schema part of the contract.
 
+### §0.5 ledger — cumulative catches across slices
+
+The §0.5 pre-approval verification is paying off slice-over-slice.
+Cumulative catch count tracked here as a milestone signal:
+
+- **As of Slice 11.5 close (2026-06-18): 68 catches across 14
+  slices.** Slice 11.5 contributed 3 (#A15 `assemblies.unit_cost`
+  semantic, #A16 Mark-Accepted bundle compat, #A17 PR #54
+  orphan-on-disk OLD-model imports).
+
+**Next milestone: 75 catches.** When the ledger hits 75 — likely
+within the next 2-3 substantive slices — bank a "75-catch
+milestone" subsection here that summarizes the catch-shape
+distribution (notation errors vs architectural mismatches vs
+duplicate-column proposals vs code-architecture mismatches per
+the Pattern 22 extension). Reaching 75 confirms §0.5's standing-
+protocol status; the milestone marker forces a fresh framing of
+*what kinds of catches* are dominating and whether the brief
+template needs an update to bias against the dominant class.
+
+Tracked by Edward 2026-06-18 (Slice 11.5 close-out).
+
 ### Pattern 22 extension — verification covers code architecture (refinement, 2026-05-13)
 
 §0.5 verification was originally scoped to **DB schema** (tables,
@@ -1879,34 +1901,49 @@ items — these are historical milestones the v1 path built on):
 (PR #31).
 
 Current v1 path (post-canon-revision; numbered from the first
-not-yet-shipped item):
+not-yet-shipped item; revised again 2026-06-18 post Slice 11.5
+close):
 
 1. ~~**Autosave focus-stability sweep + Pattern 47 promotion**~~
    ✅ merged (PR #32, 2026-05-17)
-2. **Pricing reframe v1** — next; kickoff after canon revision
-   lands. CD prototype + designer notes already shipped (see
-   `docs/design-prototypes/dist/`). Architect §0.5 verification
-   against post-revision canon.
-3. **Leaf-detach micro-slice** — adds detach affordance for
-   misclassified leaves; sequenced post-Pricing-reframe per
-   parallel-pair experiment disposition (TBD by Edward).
-4. **Quote umbrella + NetSuite finalization** (combined slice;
+2. ~~**Pricing reframe v1**~~ ✅ shipped
+3. ~~**Leaf-detach micro-slice**~~ ✅ shipped
+4. ~~**Slice 11.5 — NEW model migration**~~ ✅ closing
+   (PRs #65-#73, 2026-06-17 → 2026-06-18). Adapter +
+   write actions + sample seed + verification. OLD-table
+   drops carved to Slice 11.5.1 (item 4.5 below).
+5. **Slice 11.5.1 — finish OLD-table drops** — 5-file
+   migration (warnings.ts, markup-defaults, sku-tree,
+   actions/quotes.ts legacy, quote-guards.ts) +
+   `quote_skus` / `packaging_inputs` / `production_inputs` /
+   `quote_sku_tiers` / `quote_sku_tier_targets` drop
+   migration. **Pre-launch** per Edward's 2026-06-18
+   reclassification (wipe-and-reseed at launch eliminates
+   OLD data; legacy reads need to be migrated OR confirmed
+   empty-data-safe BEFORE the wipe). Half-day-to-day scope;
+   slottable between Slice 11.5 close and item 6 audit, OR
+   parallel with Slice 12 external lead time.
+6. **Slice 11 audit** — PDF + send + snapshot orphans. Picks
+   up Pattern 45 customer-facing render audit + #A16
+   Mark-Accepted bundle compat verification post-merge.
+7. **Quote umbrella + NetSuite finalization** (combined slice;
    absorbs former Mark-Accepted external writebacks scope).
-   Sub-tab IA restructure (Preview Quote · Send to Client · Mark
-   Accepted · Tier Selection) + Advance action mechanism +
+   Sub-tab IA restructure (Preview Quote · Send to Client ·
+   Mark Accepted · Tier Selection) + Advance action mechanism +
    HubSpot deal stage push on Mark Accepted Advance + NetSuite
    SO push on Tier Selection Advance + finalization warning.
    Brief at `docs/quote-umbrella-brief.md`. Prereqs before
-   kickoff: items 2-3 ship; CA frame doc locks
+   kickoff: items 5-6 ship; CA frame doc locks
    (`docs/post-pricing-flow-ia-frame.md`); CD R7 ships Pattern
    30 deliverables; Edward dispositions Q1-Q7 from brief §7.
-5. **Slice 11 PDF customer-facing data bindings** — lands into
-   Preview Quote sub-tab post-Quote-restructure.
-6. **Microsoft OAuth** (Clerk-managed) — organization-tenant SSO
-   for production deployment.
-7. **Pre-launch review**.
-8. **v1 release** (estimated window: late July to early August
-   2026).
+   **🟡 paused**, external (HubSpot/NetSuite contract) work
+   continuing in parallel.
+8. **Microsoft OAuth** (Clerk-managed) — organization-tenant SSO
+   for production deployment. Parallelizable with items 5-7.
+9. **Pre-launch cleanup**.
+10. **SPEC compliance audit**.
+11. **Comprehensive CB test suite** — final launch gate.
+12. **v1 release** (estimated window: mid-July 2026).
 
 Discovery items parallelizable with upcoming slices (not
 blocking the queue):
