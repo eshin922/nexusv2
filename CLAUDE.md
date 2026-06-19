@@ -745,6 +745,12 @@ Cumulative catch count tracked here as a milestone signal:
   slices.** Slice 11.5 contributed 3 (#A15 `assemblies.unit_cost`
   semantic, #A16 Mark-Accepted bundle compat, #A17 PR #54
   orphan-on-disk OLD-model imports).
+- **+1 retrospective catch (2026-06-18):** Supabase pooler
+  dual-budget audit gap surfaced via EMAXCONNSESSION incident
+  one day after the transaction→session-mode switch. Catch is
+  infrastructure-discipline shape, not slice-specific.
+  Cumulative: **69 across 15 slices** (counting the 2026-06-17
+  pooler-switch as the relevant slice).
 
 **Next milestone: 75 catches.** When the ledger hits 75 — likely
 within the next 2-3 substantive slices — bank a "75-catch
@@ -2278,6 +2284,72 @@ assumption.
   the same `:5432` session-mode pooler
 - The `src/db/index.ts` "prod uses DATABASE_URL" branch is
   retained — the URL just points at a different port
+
+## Supabase pooler dual-budget gotcha
+
+Banked from the EMAXCONNSESSION incident (2026-06-18) — Slice
+11.5 close blocker that surfaced one day after the
+transaction→session-mode switch. **The connection-budget audit
+must cover BOTH the pooler layer and the PG backend layer; the
+two budgets are independent.**
+
+When evaluating Supabase pooler modes for serverless workloads,
+two separate connection budgets must be checked:
+
+1. **PG `max_connections`** — the backend pool. Pro+Small default
+   is 60. This caps total PG-side concurrent connections (pooler
+   + direct PG + Supabase platform processes combined).
+2. **Pooler `pool_size`** — the pooler-layer pool, INDEPENDENT of
+   PG `max_connections`. Defaults vary by tier and pooler mode:
+   - Transaction-mode (`:6543`) pool_size: typically 200+ on
+     Pro+ tiers — plenty of headroom for application code.
+   - Session-mode (`:5432`) pool_size: typically **15** default
+     on Pro+Small — the actual gating constraint for application
+     code.
+
+The pooler `pool_size` is the FIRST constraint application code
+hits. PG `max_connections` is the secondary constraint (PG can
+serve the pooler's full pool plus any direct connections; pooler
+is the multiplexing layer).
+
+**Pre-flight check when switching pooler modes (or onboarding to
+Supabase serverless):**
+
+- [ ] Measure pooler `pool_size` (current and target mode)
+- [ ] Measure postgres-js client `max` per instance
+- [ ] Estimate Vercel warm-instance count under expected load
+- [ ] Verify: `warm_instances × postgres_max ≤ pool_size` with
+  headroom (~30%+ for traffic spikes)
+- [ ] Cross-check: `pool_size + direct_connections ≤
+  PG max_connections` for the PG-side budget
+- [ ] If `pool_size` is below the warm × max product, either
+  (a) raise pool_size via Supabase Dashboard,
+  (b) lower postgres-js max per instance,
+  (c) consider direct PG connection (bypasses pooler entirely,
+      gated only by PG `max_connections`)
+
+**2026-06-18 incident path:** the 2026-06-17 transaction→session
+switch (cell_ovr postmortem) only measured PG `max_connections`
+(60 backend slots, plenty of headroom against ~10 warm instances
+× max:5 = 50). Session-mode `pool_size:15` was missed. Under any
+meaningful concurrency, the 15-slot pooler pool exhausted →
+`EMAXCONNSESSION` errors fired across all queries. Remediated
+via Path A (Supabase Dashboard: session-mode pool_size 15 → 50)
++ Path B (`src/db/index.ts` postgres-js max 5 → 3). Combined
+ceiling: 16 instances × 3 = 48, comfortably under 50 pool_size.
+
+**Reference moments for future-CC:**
+- 2026-06-17 (cell_ovr postmortem): transaction→session-mode
+  switch fixing response-correlation race; missed pool_size
+  audit
+- 2026-06-18 (EMAXCONNSESSION incident): dual-budget gap caught
+  in production; Path A+B remediation; this section banked as
+  standing pre-flight check
+
+**§0.5 catch #69 across 15 slices.** Connection-budget audit
+discipline is now a standing pre-flight check item for any
+pooler-mode change, env-var rotation that touches connection
+strings, or onboarding to a new Supabase tier.
 
 ## Design prototype source access (rounds 3+)
 

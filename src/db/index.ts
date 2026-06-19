@@ -73,21 +73,47 @@ if (process.env.NODE_ENV !== "production") {
   }
 }
 
-// Slice RI.4 dev-server productivity investigation (Edward + CA, May 2026):
-// Pool max=5 sized for cost-build's actual peak demand of 8 parallel
-// queries (after sequencing getCostingBundle separately — see page.tsx
-// comment). max=5 means 3 queries queue per request; each query is
-// ~80ms so total wait is ~240ms — acceptable.
+// Session-mode pooler (DATABASE_URL :5432) constraints:
+// - Supabase session-mode pool_size: 50 (Pro+Small, post 2026-06-18
+//   Path A adjustment from default 15)
+// - PG max_connections: 60 (Pro+Small)
+// - postgres-js max per instance: 3 (this value; reduced 2026-06-18
+//   from 5 via Path B — defense in depth against future load spikes)
+// - Safe warm-instance ceiling: ~16 (16 × 3 = 48, under 50 pool_size
+//   with comfortable headroom)
 //
-// Smaller per-process pool matters because Next.js dev (both Webpack
-// and Turbopack) spawns N worker processes; globalThis is per-process
-// so each worker holds its own pool against Supabase's pgbouncer.
-// max=10 × 7 workers = 70 client connections; max=5 × 7 = 35.
+// If EMAXCONNSESSION errors return:
+// - First check Supabase pooler pool_size config (may have changed)
+// - Then check Vercel warm-instance count (may have scaled beyond 16)
+// - Consider direct PG connection (Path C escape hatch) if
+//   structural relief needed
 //
-// prepare: false required for transaction-mode pooler (port 6543).
-// idle_timeout: 10s aggressively recycles idle connections back to
-// pgbouncer between query bursts. Avoid max_lifetime — force-closing
-// active connections surfaces as statement_timeout (PG 57014).
+// **EMAXCONNSESSION incident (2026-06-18) — Path A + Path B fix.**
+//
+// Supabase session-mode pooler has a pool_size constraint (15
+// default on Pro+Small) that's INDEPENDENT of PG max_connections
+// (60). Connection budget verification at the time of the
+// 2026-06-17 transaction→session switch only measured PG max
+// (60 backend pool slots, plenty of headroom against
+// instances × max:5). pool_size was missed.
+//
+// Result: under any meaningful concurrency, the dual-budget
+// constraint (pool_size:15) caps total connections at 15. With
+// 4+ warm Vercel instances × max:5 = 20+ demand, pool_size
+// exhausts → EMAXCONNSESSION errors fire on every query
+// attempting to acquire a connection. recordProjectVisit was
+// the canary; cascade affects all downstream queries on the
+// page render.
+//
+// Remediation 2026-06-18:
+//   Path A (Edward): Supabase Dashboard → session-mode
+//     pool_size bumped 15 → 50
+//   Path B (this change): postgres-js max reduced 5 → 3
+//   Combined: 16 instances × max:3 = 48 (under 50 pool_size)
+//
+// See CLAUDE.md "Supabase pooler dual-budget gotcha" for the
+// pre-flight check that should have caught this at the
+// 2026-06-17 cutover. §0.5 catch #69 across 15 slices.
 //
 // **Prod-hang hotfix (2026-06-17) — connect_timeout + statement_timeout.**
 //
@@ -113,16 +139,21 @@ if (process.env.NODE_ENV !== "production") {
 //     a query error. Sits under Vercel's default 10s function
 //     timeout so the function never gets killed mid-query.
 //
-// This is a SURFACE-THE-FAILURE patch, not a structural fix.
-// Hangs become errors. Followup-(c) — switching production to
-// session-mode pooler (:5432) — is the structural fix; tracked
-// separately. See CLAUDE.md "Transaction-mode pgbouncer queueing
-// hides in front of pg_stat_activity" for the diagnostic pattern.
+// Also: prepare: false required for transaction-mode pooler (now
+// historical — session mode active). idle_timeout: 10s aggressively
+// recycles idle connections back to pgbouncer between query bursts.
+// Avoid max_lifetime — force-closing active connections surfaces as
+// statement_timeout (PG 57014).
+//
+// See CLAUDE.md "Transaction-mode pgbouncer queueing hides in front
+// of pg_stat_activity" for the diagnostic pattern from the prior
+// incident; the Path A+B fix above replaces the connection-budget
+// math noted in the cell_ovr postmortem with the dual-budget shape.
 const client =
   globalForDb.__dbClient ??
   postgres(url, {
     prepare: false,
-    max: 5,
+    max: 3,
     idle_timeout: 10,
     connect_timeout: 10,
     connection: {
