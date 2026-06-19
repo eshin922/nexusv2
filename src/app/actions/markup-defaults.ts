@@ -3,7 +3,7 @@
 import { asc, count, eq, isNotNull, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
-import { auditLog, markupDefaults, packagingInputs } from "@/db/schema";
+import { assemblyLeafInputs, auditLog, markupDefaults } from "@/db/schema";
 import { requireAdminAction } from "@/lib/admin-guard";
 import {
   ActionGuardError,
@@ -126,8 +126,11 @@ export async function upsertMarkupDefault(
 
 // Reference count for a category — used by the admin UI to render
 // "(N referenced)" inline and to surface in the delete confirmation
-// modal. Soft reference: packaging_inputs.category is text with no FK,
-// so the join is logical, not enforced.
+// modal. Soft reference: assembly_leaf_inputs.category is text with
+// no FK, so the join is logical, not enforced.
+//
+// Slice 11.5.1 — migrated from packaging_inputs → assembly_leaf_inputs
+// (NEW model). Same column name + semantics.
 //
 // Admin-gated: this is admin UI bookkeeping. PMs don't need it
 // (their packaging dropdown only sees categories + defaults via
@@ -140,12 +143,12 @@ export async function listMarkupDefaultReferenceCounts(): Promise<
   await requireAdminAction();
   const rows = await db
     .select({
-      category: packagingInputs.category,
+      category: assemblyLeafInputs.category,
       n: count(),
     })
-    .from(packagingInputs)
-    .where(isNotNull(packagingInputs.category))
-    .groupBy(packagingInputs.category);
+    .from(assemblyLeafInputs)
+    .where(isNotNull(assemblyLeafInputs.category))
+    .groupBy(assemblyLeafInputs.category);
   const map = new Map<string, number>();
   for (const r of rows) {
     if (r.category !== null) map.set(r.category, Number(r.n));
@@ -160,12 +163,12 @@ export async function listMarkupDefaultReferenceCounts(): Promise<
 // on those drafts: +0.6 to +1.4 pts") authorizes approximation.
 //
 // What we compute (real data):
-//   - affectedLineItems: count of packaging_inputs rows in this
+//   - affectedLineItems: count of assembly_leaf_inputs rows in this
 //     category (across ALL quote statuses; the actually-affected
 //     subset is drafts only, but the line-count is meaningful as
 //     "how many rows have this category").
 //   - affectedDraftQuotes: count of distinct draft quotes that have
-//     at least one packaging_inputs line in this category.
+//     at least one assembly_leaf_inputs line in this category.
 //
 // What we estimate (approximate):
 //   - shiftLowPct / shiftHighPct: bounded heuristic. Packaging
@@ -173,11 +176,11 @@ export async function listMarkupDefaultReferenceCounts(): Promise<
 //     N pp on markup ≈ N × (0.20 to 0.40) pp shift in blended margin.
 //     Honest about being approximate; documented inline.
 //
-// Schema note: only `packaging_inputs` carries a `category` column
-// (markup_defaults vocabulary spans concerns but is actually
-// referenced from packaging only). Production / freight markup is
-// per-row without category lookup. Preview reflects this — drafts
-// + lines from packaging exclusively.
+// Schema note: only `assembly_leaf_inputs` carries a `category`
+// column (markup_defaults vocabulary spans concerns but is actually
+// referenced from packaging-line rows only). Production / freight
+// markup is per-row without category lookup. Preview reflects this
+// — drafts + lines from packaging-side cost cells exclusively.
 //
 // Read-only; admin-gated (consumed by /admin/markup-defaults edit
 // disclosure). Safe to call repeatedly as PM tunes the input.
@@ -219,8 +222,11 @@ export async function previewMarkupDefaultRecompute(
     const oldDec = current ? Number(current.defaultMarkupPct) : 0;
     const deltaPp = (newDec - oldDec) * 100; // signed pp
 
-    // Count affected line items + distinct draft quotes via JOIN to
-    // quote_skus → quotes (status='draft' filter).
+    // Count affected line items + distinct draft quotes via JOIN
+    // through assembly_leaves → assemblies → quotes (status='draft'
+    // filter). Slice 11.5.1 — migrated from packaging_inputs +
+    // quote_skus join chain to NEW model (assembly_leaf_inputs +
+    // assembly_leaves + assemblies).
     //
     // Note on counts: line-item count is across ALL statuses because
     // PMs benefit from knowing the total category usage. Draft count
@@ -228,16 +234,17 @@ export async function previewMarkupDefaultRecompute(
     // per the propagation rule — only drafts recompute).
     const lineCountRow = await db
       .select({ n: count() })
-      .from(packagingInputs)
-      .where(eq(packagingInputs.category, category));
+      .from(assemblyLeafInputs)
+      .where(eq(assemblyLeafInputs.category, category));
     const affectedLineItems = Number(lineCountRow[0]?.n ?? 0);
 
     const draftCountResult = (await db.execute(sql`
       SELECT COUNT(DISTINCT q.id) AS n
-      FROM "packaging_inputs" pi
-      JOIN "quote_skus" qs ON qs.id = pi.quote_sku_id
-      JOIN "quotes" q ON q.id = qs.quote_id
-      WHERE pi.category = ${category}
+      FROM "assembly_leaf_inputs" ali
+      JOIN "assembly_leaves" al ON al.id = ali.assembly_leaf_id
+      JOIN "assemblies" a ON a.id = al.assembly_id
+      JOIN "quotes" q ON q.id = a.quote_id
+      WHERE ali.category = ${category}
         AND q.status = 'draft'
     `)) as unknown as Array<{ n: string | number }>;
     const affectedDraftQuotes = Number(draftCountResult[0]?.n ?? 0);
@@ -267,10 +274,11 @@ export async function previewMarkupDefaultRecompute(
   });
 }
 
-// Delete a category. Existing packaging_inputs rows that reference it
-// are unaffected — they keep their saved markup_pct value (which is
-// stored on the row, not derived at read time). Only the dropdown's
-// list of categories changes; old rows stay valid.
+// Delete a category. Existing assembly_leaf_inputs rows that
+// reference it are unaffected — they keep their saved markup_pct
+// value (which is stored on the row, not derived at read time).
+// Only the dropdown's list of categories changes; old rows stay
+// valid.
 //
 // Per Edward's UX call: warn the user via modal copy, but don't block.
 // Admins know what they're doing and re-creating the category later
@@ -305,8 +313,8 @@ export async function deleteMarkupDefault(
 
       const [{ n }] = await tx
         .select({ n: count() })
-        .from(packagingInputs)
-        .where(eq(packagingInputs.category, category));
+        .from(assemblyLeafInputs)
+        .where(eq(assemblyLeafInputs.category, category));
 
       await tx
         .delete(markupDefaults)
@@ -322,7 +330,11 @@ export async function deleteMarkupDefault(
             category: prior.category,
             defaultMarkupPct: prior.defaultMarkupPct,
           },
-          orphaned_packaging_input_rows: n,
+          // Slice 11.5.1 — audit field name renamed to reflect NEW
+          // model entity. Pre-Slice-11.5.1 rows used key
+          // `orphaned_packaging_input_rows`; forensic readers
+          // looking for older rows should query both.
+          orphaned_assembly_leaf_input_rows: n,
         },
       });
 
