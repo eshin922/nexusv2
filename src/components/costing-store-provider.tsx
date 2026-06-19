@@ -263,9 +263,22 @@ export function CostingStoreProvider({
       return legs.some((l) => l.id === legId);
     };
 
-    const channel = supabase
-      .channel(`quote:${quoteId}`)
-      // Quote-scoped tables: filter by quote_id at the DB layer.
+    // **Slice 11.5.1 hotfix (MIG-8 close-gate):** Supabase Realtime
+    // has a 10-binding-per-channel limit on postgres_changes
+    // subscriptions. Slice 11.5.1 grew the binding count to 13 by
+    // adding NEW-model tables (assemblies / quote_leaves /
+    // assembly_leaves) + the bonus-catch sparse tables
+    // (assembly_leaf_overrides / assembly_leaf_targets) on top of
+    // the existing tier + freight bindings — pushing the channel
+    // past the silent-truncation threshold.
+    //
+    // Fix: split into TWO channels. Each stays under the 10-binding
+    // limit. `costChannel` carries the high-frequency cost-edit
+    // subscriptions (the MIG-8-affected path); `structureChannel`
+    // carries lower-frequency tree + freight subscriptions.
+    const costChannel = supabase
+      .channel(`quote:${quoteId}:cost`)
+      // Quote-scoped tables filter by quote_id at the DB layer.
       .on(
         "postgres_changes",
         {
@@ -276,6 +289,82 @@ export function CostingStoreProvider({
         },
         triggerCoalescedReconcile,
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "quote_tiers",
+          filter: `quote_id=eq.${quoteId}`,
+        },
+        triggerCoalescedReconcile,
+      )
+      // Slice 11.5.1 — NEW-model cost-data input tables: broad
+      // subscribe + client-side filter via membership in known
+      // leaf / assembly sets.
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "assembly_leaf_inputs" },
+        (payload) => {
+          if (isAssemblyLeafInputForThisQuote(payload.new, payload.old)) {
+            triggerCoalescedReconcile();
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "assembly_production_inputs",
+        },
+        (payload) => {
+          if (
+            isAssemblyProductionInputForThisQuote(payload.new, payload.old)
+          ) {
+            triggerCoalescedReconcile();
+          }
+        },
+      )
+      // Bonus catch (Slice 11.5.1 §A2 — Slice 8.5 originally
+      // omitted these sparse-row tables; cross-tab override +
+      // client-target propagation comes online for the first time).
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "assembly_leaf_overrides",
+        },
+        (payload) => {
+          if (isAssemblyLeafInputForThisQuote(payload.new, payload.old)) {
+            triggerCoalescedReconcile();
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "assembly_leaf_targets" },
+        (payload) => {
+          if (isAssemblyLeafInputForThisQuote(payload.new, payload.old)) {
+            triggerCoalescedReconcile();
+          }
+        },
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          if (hasSubscribedRef.current) {
+            triggerCoalescedReconcile();
+          } else {
+            hasSubscribedRef.current = true;
+          }
+        }
+      });
+
+    // Second channel — lower-frequency tree structure + freight
+    // subscriptions. Keeps bindings under the 10-per-channel cap.
+    const structureChannel = supabase
+      .channel(`quote:${quoteId}:structure`)
       // Slice 11.5.1 — NEW-model: assemblies + assembly_leaves +
       // quote_leaves replace OLD quote_skus tree.
       .on(
@@ -316,75 +405,11 @@ export function CostingStoreProvider({
           }
         },
       )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "quote_tiers",
-          filter: `quote_id=eq.${quoteId}`,
-        },
-        triggerCoalescedReconcile,
-      )
-      // Slice 11.5.1 — NEW-model cost-data input tables: broad
-      // subscribe + client-side filter via membership in known
-      // leaf / assembly sets.
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "assembly_leaf_inputs" },
-        (payload) => {
-          if (isAssemblyLeafInputForThisQuote(payload.new, payload.old)) {
-            triggerCoalescedReconcile();
-          }
-        },
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "assembly_production_inputs",
-        },
-        (payload) => {
-          if (
-            isAssemblyProductionInputForThisQuote(payload.new, payload.old)
-          ) {
-            triggerCoalescedReconcile();
-          }
-        },
-      )
-      // Bonus catch (Slice 11.5.1 §A2 — Slice 8.5 originally omitted
-      // these sparse-row tables; cross-tab override + client-target
-      // propagation comes online for the first time).
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "assembly_leaf_overrides",
-        },
-        (payload) => {
-          if (isAssemblyLeafInputForThisQuote(payload.new, payload.old)) {
-            triggerCoalescedReconcile();
-          }
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "assembly_leaf_targets" },
-        (payload) => {
-          if (isAssemblyLeafInputForThisQuote(payload.new, payload.old)) {
-            triggerCoalescedReconcile();
-          }
-        },
-      )
-      // Slice R6.2 — freight is per-quote (Gap 22). Subscribe at the
-      // leg-group level filtered by quote_id; legs + leg-tiers + meta
-      // FK-cascade-trigger reconciles via the leg-group changes
-      // anyway, but we listen to each table to catch direct rate-row
-      // edits without a leg-group write. legs / leg-tiers / meta have
-      // no `quote_id` column, so we use the broad-subscribe pattern
-      // and filter client-side by membership in the known leg-id set.
+      // Slice R6.2 — freight is per-quote (Gap 22). Subscribe at
+      // the leg-group level filtered by quote_id; legs + leg-tiers
+      // + meta have no `quote_id` column, so we use the broad-
+      // subscribe pattern and filter client-side by membership in
+      // the known leg-id set.
       .on(
         "postgres_changes",
         {
@@ -454,7 +479,8 @@ export function CostingStoreProvider({
 
     return () => {
       if (coalesceRef.current) clearTimeout(coalesceRef.current);
-      void supabase.removeChannel(channel);
+      void supabase.removeChannel(costChannel);
+      void supabase.removeChannel(structureChannel);
       window.removeEventListener(GLOBAL_REF_EVENT, onGlobalRefChanged);
       hasSubscribedRef.current = false;
     };
