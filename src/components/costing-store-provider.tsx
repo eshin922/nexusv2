@@ -140,9 +140,17 @@ export function CostingStoreProvider({
       const lastEdit = storeRef.current?.getState().lastUserEditAt ?? 0;
       const sinceEdit = Date.now() - lastEdit;
       if (sinceEdit < QUIET_PERIOD_MS) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[rt] scheduleReconcile: waiting for quiet (sinceEdit=${sinceEdit}ms < ${QUIET_PERIOD_MS}ms)`,
+        );
         debounceRef.current = setTimeout(tryReconcile, RETRY_INTERVAL_MS);
         return;
       }
+      // eslint-disable-next-line no-console
+      console.log(
+        `[rt] scheduleReconcile: applying snapshot to store.reconcile`,
+      );
       storeRef.current?.getState().reconcile(snap);
     };
     debounceRef.current = setTimeout(tryReconcile, 100);
@@ -176,15 +184,36 @@ export function CostingStoreProvider({
     // attempt. Any incoming event resets the timer; when it fires,
     // re-fetch the bundle and route through scheduleReconcile (which
     // adds the wait-for-quiet layer on top).
+    // Slice 11.5.1 MIG-8 instrumentation — temporary logs to
+    // diagnose the handler chain post-PR #81 channel split.
+    // Strip after MIG-8 PASS.
     const triggerCoalescedReconcile = () => {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[rt] triggerCoalescedReconcile qid=${quoteId.slice(0, 8)}`,
+      );
       if (coalesceRef.current) clearTimeout(coalesceRef.current);
       coalesceRef.current = setTimeout(async () => {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[rt] coalesce-timer fired; calling getCostingBundle qid=${quoteId.slice(0, 8)}`,
+        );
         const result = await getCostingBundle(quoteId);
+        // eslint-disable-next-line no-console
+        console.log(
+          `[rt] getCostingBundle result.ok=${result.ok}`,
+          result.ok ? "" : (result as { error: { message: string } }).error,
+        );
         if (result.ok) {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[rt] calling scheduleReconcile; lastUserEditAt=${storeRef.current?.getState().lastUserEditAt ?? 0}`,
+          );
           scheduleReconcile(result.data);
         }
-        // result.ok=false: ignore. The user's local store state is still
-        // valid; the next event (or manual reload) will get them current.
+        // result.ok=false: ignore. The user's local store state is
+        // still valid; the next event (or manual reload) will get
+        // them current.
       }, COALESCE_MS);
     };
 
@@ -210,12 +239,18 @@ export function CostingStoreProvider({
       const leafId =
         (newRow?.assembly_leaf_id as string | undefined) ??
         (oldRow?.assembly_leaf_id as string | undefined);
-      if (!leafId) return false;
       // Store's skus contain BOTH assemblies (skuRole='assembly') AND
       // assembly_leaves (skuRole='leaf') per Slice 11.5 Step 3
       // synthesis. assembly_leaf identity matches the leaf entries.
       const skus = storeRef.current?.getState().skus ?? [];
-      return skus.some((s) => s.id === leafId);
+      const matched = leafId
+        ? skus.some((s) => s.id === leafId)
+        : false;
+      // eslint-disable-next-line no-console
+      console.log(
+        `[rt] isAssemblyLeafInputForThisQuote leafId=${leafId ?? "(missing)"} skuCount=${skus.length} matched=${matched}`,
+      );
+      return matched;
     };
 
     // Production policy + per-tier service fees attach at assembly
@@ -228,11 +263,17 @@ export function CostingStoreProvider({
       const assemblyId =
         (newRow?.assembly_id as string | undefined) ??
         (oldRow?.assembly_id as string | undefined);
-      if (!assemblyId) return false;
       const skus = storeRef.current?.getState().skus ?? [];
-      return skus.some(
-        (s) => s.id === assemblyId && s.skuRole === "assembly",
+      const matched = assemblyId
+        ? skus.some(
+            (s) => s.id === assemblyId && s.skuRole === "assembly",
+          )
+        : false;
+      // eslint-disable-next-line no-console
+      console.log(
+        `[rt] isAssemblyProductionInputForThisQuote assemblyId=${assemblyId ?? "(missing)"} matched=${matched}`,
       );
+      return matched;
     };
 
     // Slice R6.2 — freight_legs membership check via leg-group id.
@@ -287,7 +328,11 @@ export function CostingStoreProvider({
           table: "quotes",
           filter: `id=eq.${quoteId}`,
         },
-        triggerCoalescedReconcile,
+        () => {
+          // eslint-disable-next-line no-console
+          console.log("[rt] quotes event arrived");
+          triggerCoalescedReconcile();
+        },
       )
       .on(
         "postgres_changes",
@@ -297,7 +342,11 @@ export function CostingStoreProvider({
           table: "quote_tiers",
           filter: `quote_id=eq.${quoteId}`,
         },
-        triggerCoalescedReconcile,
+        () => {
+          // eslint-disable-next-line no-console
+          console.log("[rt] quote_tiers event arrived");
+          triggerCoalescedReconcile();
+        },
       )
       // Slice 11.5.1 — NEW-model cost-data input tables: broad
       // subscribe + client-side filter via membership in known
@@ -306,6 +355,12 @@ export function CostingStoreProvider({
         "postgres_changes",
         { event: "*", schema: "public", table: "assembly_leaf_inputs" },
         (payload) => {
+          // eslint-disable-next-line no-console
+          console.log(
+            "[rt] assembly_leaf_inputs event arrived",
+            (payload as { eventType?: string }).eventType,
+            payload,
+          );
           if (isAssemblyLeafInputForThisQuote(payload.new, payload.old)) {
             triggerCoalescedReconcile();
           }
