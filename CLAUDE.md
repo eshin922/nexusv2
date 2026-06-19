@@ -788,6 +788,19 @@ Cumulative catch count tracked here as a milestone signal:
   hidden coupling to soon-to-be-dropped surfaces.
 
   Cumulative: **71 across 15 slices.**
+- **+1 catch (Slice 11.5.1 MIG-8 hotfix, 2026-06-19):** Supabase
+  Realtime undocumented 10-binding-per-channel cap. Slice
+  11.5.1's NEW-model subscription migration grew the binding
+  count from 9 (OLD) to 13 (NEW: 1 quote_skus → 3 assemblies +
+  quote_leaves + assembly_leaves; plus 2 new bonus-catch sparse
+  tables). Channel silently failed; events stopped flowing for
+  all subscribers. Discovered via MIG-8 walk failure (writes
+  succeeded, refresh worked, realtime didn't). Fix: split into
+  2 channels per quote (cost + structure). Full diagnostic +
+  cap documentation banked in "Supabase Realtime — 10
+  postgres_changes bindings per channel cap" section above.
+
+  Cumulative: **72 across 15 slices.**
 
 **Next milestone: 75 catches.** When the ledger hits 75 — likely
 within the next 2-3 substantive slices — bank a "75-catch
@@ -2583,6 +2596,49 @@ admin propagation breaks for `firm_settings` updates after RLS
 hits. Diagnosis: check RLS state with
 `scripts/verify/realtime-readiness.ts`. Fix: add a Clerk-Supabase
 JWT bridge (own infra task; see UX_BACKLOG).
+
+## Supabase Realtime — 10 postgres_changes bindings per channel cap
+
+**Banked from Slice 11.5.1 MIG-8 close-gate hotfix (2026-06-19).**
+
+Supabase Realtime silently caps a channel at **10 `postgres_changes`
+bindings**. The 11th+ binding can either silently drop OR produce a
+`CHANNEL_ERROR` status that fails the entire channel — both end in
+zero events flowing.
+
+The cap is undocumented in Supabase's public reference but observable
+empirically. The symptom is exactly what MIG-8 surfaced: writes
+succeed, manual refresh shows new data, but the realtime subscription
+on the receiving tab never fires.
+
+**Constraint applies per CHANNEL, not per provider or per session.**
+A single `costing-store-provider.tsx` instance can hold multiple
+channels under the cap.
+
+**Pre-flight check when adding bindings:**
+
+- [ ] Grep for `\.on(` in the provider — count current bindings
+- [ ] If adding a new binding would push count > 10, split into
+  multiple channels rather than letting the cap silently
+  truncate
+- [ ] Channel naming convention: `${baseChannelId}:${concern}` —
+  e.g., `quote:${id}:cost` + `quote:${id}:structure`
+- [ ] Each channel needs its own `.subscribe()` call + its own
+  removeChannel in cleanup
+
+**Reference moment (2026-06-19):** Slice 11.5.1 grew the
+`costing-store-provider.tsx` binding count from 9 (OLD model) to
+13 (NEW model — assemblies + quote_leaves + assembly_leaves
+replaced 1 OLD quote_skus binding; assembly_leaf_overrides +
+assembly_leaf_targets added per A2 bonus catch). Tab B's
+subscription silently failed. Fix: split into `cost` channel (6
+bindings — quotes, quote_tiers, assembly_leaf_inputs,
+assembly_production_inputs, assembly_leaf_overrides,
+assembly_leaf_targets) + `structure` channel (7 bindings —
+assemblies, quote_leaves, assembly_leaves, freight_leg_groups,
+freight_legs, freight_leg_tiers, freight_customer_arranges_meta).
+
+§0.5 catch banked alongside the dual-budget pooler gotcha.
 
 ## Reference files
 
