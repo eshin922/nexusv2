@@ -206,6 +206,65 @@ operational pre-flight.)
   affordance scope ≈ half-day implementation. Audit name is
   already namespace-consistent.
 
+- [PR #54 PSR action-zone affordance audit (Slice 11 audit scope expansion)]
+
+  **Driver:** Slice 11.5 CB walk MIG-4/5 cannot-verify results
+  (PR #74 close-out; 2026-06-18). RequiredSellCell +
+  ClientTargetCell components are orphan-on-disk (zero active
+  imports). PR #54 PSR redesign moved override + client target
+  workflows out of inline cell-click into action-zone /
+  detail-zone patterns, but the OLD per-cell input components
+  were never deleted.
+
+  **Open question:** did PSR move the affordances to
+  action-zone (Hypothesis A — workflow lives in
+  `request_override` action button + similar for client target),
+  OR remove them without replacement (Hypothesis B — PMs hit
+  SUGGESTION-LED / BLOCKED modes with no way to set override
+  or target)?
+
+  **If Hypothesis A:** CB walk spec update (banked under
+  comprehensive CB test suite) documents the actual workflow
+  + state-prep steps; affordances WORK; bank UX discoverability
+  improvement for Slice 11 audit (better visual cue than
+  workflow-buried action button).
+
+  **If Hypothesis B:** pre-launch UX item — PMs WILL hit
+  suggestion-led/blocked modes in real use; affordance must
+  exist somewhere. Slice 11 audit absorbs scope.
+
+  **Verification approach:** during Slice 11.5.1 work, inspect
+  `src/components/pricing-surface/action-zone.tsx` and
+  detail-zone for sell-price override / client-target entry
+  components. Findings feed into Slice 11 audit pre-brief
+  inventory.
+
+  **Slice 11.5 disposition (closed 2026-06-18):** NOT a Slice
+  11.5 regression. Orphan state predates Slice 11.5. Step 4
+  wired the orphan components to NEW write actions for
+  forward-compatibility; Slice 11.5.1 §A3 deletes the orphans.
+
+- [Slice 11.5.1 bonus catch: per-cell override + client-target realtime subscriptions]
+
+  **Driver:** Slice 11.5.1 §A2 (banked 2026-06-18; ships with
+  the slice). Positive externality of the NEW-model wiring.
+
+  Slice 8.5 originally omitted `quote_sku_tiers` +
+  `quote_sku_tier_targets` from realtime subscriptions (sparse-
+  row tables with no realtime consumer at the time). The NEW
+  model equivalents (`assembly_leaf_overrides` +
+  `assembly_leaf_targets`) ALSO weren't wired by default.
+
+  **Slice 11.5.1 §A2 brings these online** alongside the
+  primary OLD→NEW subscription migration. Per-cell sell-price
+  override + client-target edits propagate cross-tab for the
+  first time.
+
+  **Verification:** MIG-8 re-walk during Slice 11.5.1 explicitly
+  exercises this: edit a sell-price override on tab A → tab B
+  reflects the change via realtime per Slice 8.5 wait-for-quiet
+  reconcile pattern.
+
 - [Quote umbrella + NetSuite finalization — v1 path item 4]
 
   **Slice:** v1 release-critical path item 4 (absorbs former

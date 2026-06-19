@@ -195,4 +195,88 @@ sample-order quote (Step 5 deliverable doc §5).
   Slice 11.5 additions"
 - UX_BACKLOG entries: "Slice 11.5.1 — finish OLD-table drops",
   "Per-assembly production fan-out", "Per-component vs per-
-  product flagging", "Packaging copy-tier-to-all"
+  product flagging", "Packaging copy-tier-to-all",
+  "PR #54 PSR action-zone affordance audit"
+
+---
+
+## Close-out notes addendum (2026-06-18 PM, post-CB-walk)
+
+Banked after CB walk MIG-1 through MIG-9 completed + Path A
+(Supabase pool_size 15 → 40) + Path B (PR #75, postgres-js
+max:5 → max:3) deployed.
+
+### MIG-1/2/3 conditional → PASS
+Initial walks surfaced EMAXCONNSESSION errors on Costs page
+loads. Root cause: Supabase session-mode pooler dual-budget
+gotcha — pool_size:15 (independent of PG max_connections:60)
+exhausted under 4+ warm Vercel instances × max:5 = 20+
+demand. Combined Path A + Path B remediation cleared the
+blocker. PR #75 (hotfix max:3) + Path A pool_size 40 land
+together; CB resmoke confirmed clean.
+
+### MIG-4/5 deferred → PSR architectural artifact (NOT Slice 11.5 regression)
+CC investigation confirmed `RequiredSellCell` and
+`ClientTargetCell` are orphan-on-disk (zero active imports).
+PR #54 PSR redesign moved override + client target workflows
+out of inline cell-click into action-zone / detail-zone
+patterns; OLD per-cell input components were never deleted.
+Slice 11.5 Step 4 wired the orphans to NEW write actions for
+forward-compatibility; they were never on the user-facing
+page.
+
+**Disposition:** Slice 11.5.1 §A3 deletes the orphans.
+Hypothesis A/B verification (did PSR move the affordances to
+action-zone or remove without replacement?) banked for Slice
+11 audit pre-brief inventory; verification runs in parallel
+during Slice 11.5.1 work. See UX_BACKLOG entry "PR #54 PSR
+action-zone affordance audit."
+
+### MIG-6 PASS ✓
+CB walker located the tier-switching affordance on Pricing
+surface: detail-zone tier column cards with `role="tab"` and
+`aria-label="Select XK as active tier"`. The blue left-border
+on the active column is the visual indicator. URL sync
+functional; ARIA-correct. Banked as UX discoverability concern
+for Slice 11 audit (affordance is subtle — blue left-border
+vs. explicit chip), not a Slice 11.5.1 fix.
+
+### MIG-8 FAIL → folded into Slice 11.5.1 §A2
+CC investigation confirmed `costing-store-provider.tsx`
+subscribes to OLD tables (`quote_skus`, `packaging_inputs`,
+`production_inputs`); publication membership at
+`drizzle/manual/0001_supabase_realtime_publication.sql` lists
+OLD tables. Slice 11.5 Step 2 added 4 NEW cost-data tables,
+Step 3 migrated reads, Step 4 migrated writes — but realtime
+wiring stayed on OLD tables. Architecturally same axis as
+Slice 11.5.1's existing scope.
+
+**Disposition:** Slice 11.5.1 §A2 absorbs publication +
+subscription migration. Cutover sequencing critical:
+publication ADD NEW first → code merge → publication DROP OLD
+→ drizzle DROP OLD tables. Bonus catch: `assembly_leaf_overrides`
++ `assembly_leaf_targets` realtime subscriptions never existed
+in OLD model; Slice 11.5.1 brings per-cell override +
+client-target cross-tab propagation online for the first time.
+
+### §0.5 ledger advance
+- #69 (banked Path A+B hotfix PR #75): Supabase pooler
+  dual-budget gotcha — PG max_connections + pooler pool_size
+  are independent constraints
+- #70 (banked here): cross-consumer audit gap — when
+  migrating tables, audit ALL consumers (reads + writes +
+  realtime subscriptions + publication membership + background
+  jobs + audit projections)
+
+Cumulative: **70 across 15 slices** post-Slice 11.5 close.
+
+### Slice 11.5 formal close
+All 9 MIG walks dispositioned. No close blockers remained
+after Path A + B + CC investigation. Margin curve confirmed
+(T1 36.9% / T2 42.1% / T3 46.1%). Adapter pattern in
+production. Math layer untouched per §3 commitment. NEW-model
+read paths operational. Slice 11.5 formally closes
+2026-06-18 PM.
+
+Slice 11.5.1 brief v2 (7 amendments: C1-C4 + A1-A4) ready for
+Edward + CA review. Kickoff signal → Step 1 begins.
