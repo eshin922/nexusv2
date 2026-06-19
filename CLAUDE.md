@@ -751,6 +751,16 @@ Cumulative catch count tracked here as a milestone signal:
   infrastructure-discipline shape, not slice-specific.
   Cumulative: **69 across 15 slices** (counting the 2026-06-17
   pooler-switch as the relevant slice).
+- **+1 retrospective catch (2026-06-18 PM):** cross-consumer
+  audit gap surfaced via MIG-8 realtime regression in Slice
+  11.5 CB walk. Slice 11.5 migrated reads + writes to NEW
+  model but realtime subscriptions stayed on OLD tables;
+  publication membership stayed on OLD tables. Catch is
+  procedural — "when migrating tables, audit ALL consumers,
+  not just queries (reads + writes + realtime subscriptions +
+  publication membership + background jobs + audit
+  projections)." Slice 11.5.1 absorbs the cleanup via §A2.
+  Cumulative: **70 across 15 slices.**
 
 **Next milestone: 75 catches.** When the ledger hits 75 — likely
 within the next 2-3 substantive slices — bank a "75-catch
