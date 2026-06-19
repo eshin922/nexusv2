@@ -74,19 +74,25 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 // Session-mode pooler (DATABASE_URL :5432) constraints:
-// - Supabase session-mode pool_size: 50 (Pro+Small, post 2026-06-18
+// - Supabase session-mode pool_size: 40 (Pro+Small, post 2026-06-18
 //   Path A adjustment from default 15)
 // - PG max_connections: 60 (Pro+Small)
 // - postgres-js max per instance: 3 (this value; reduced 2026-06-18
 //   from 5 via Path B — defense in depth against future load spikes)
-// - Safe warm-instance ceiling: ~16 (16 × 3 = 48, under 50 pool_size
-//   with comfortable headroom)
+// - Safe warm-instance ceiling: 13 (13 × 3 = 39, under 40 pool_size
+//   with 1 slot headroom). Comfortable target ~10 instances (30/40
+//   = 75% utilization with 10 connection headroom for spikes).
+//
+// Realistic v1 scale: 12 internal users; peak concurrent ~5-8 warm
+// instances during PM coordinated workflows; ~3-5 typical. 40-slot
+// budget with max:3 is comfortable for v1; revisit if growth pushes
+// warm-instance count past 13.
 //
 // If EMAXCONNSESSION errors return:
 // - First check Supabase pooler pool_size config (may have changed)
-// - Then check Vercel warm-instance count (may have scaled beyond 16)
-// - Consider direct PG connection (Path C escape hatch) if
-//   structural relief needed
+// - Then check Vercel warm-instance count (may have scaled past 13)
+// - Consider Path C escape hatch: direct PG connection (bypasses
+//   pooler entirely, gated only by PG max_connections=60)
 //
 // **EMAXCONNSESSION incident (2026-06-18) — Path A + Path B fix.**
 //
@@ -107,9 +113,11 @@ if (process.env.NODE_ENV !== "production") {
 //
 // Remediation 2026-06-18:
 //   Path A (Edward): Supabase Dashboard → session-mode
-//     pool_size bumped 15 → 50
+//     pool_size bumped 15 → 40
 //   Path B (this change): postgres-js max reduced 5 → 3
-//   Combined: 16 instances × max:3 = 48 (under 50 pool_size)
+//   Combined ceiling: 13 instances × max:3 = 39 (under 40
+//     pool_size with 1 slot headroom). v1 realistic peak ~10
+//     instances → comfortable 25% utilization headroom.
 //
 // See CLAUDE.md "Supabase pooler dual-budget gotcha" for the
 // pre-flight check that should have caught this at the

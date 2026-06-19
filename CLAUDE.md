@@ -2334,9 +2334,11 @@ switch (cell_ovr postmortem) only measured PG `max_connections`
 × max:5 = 50). Session-mode `pool_size:15` was missed. Under any
 meaningful concurrency, the 15-slot pooler pool exhausted →
 `EMAXCONNSESSION` errors fired across all queries. Remediated
-via Path A (Supabase Dashboard: session-mode pool_size 15 → 50)
+via Path A (Supabase Dashboard: session-mode pool_size 15 → 40)
 + Path B (`src/db/index.ts` postgres-js max 5 → 3). Combined
-ceiling: 16 instances × 3 = 48, comfortably under 50 pool_size.
+ceiling: 13 instances × 3 = 39 (under 40 pool_size with 1 slot
+headroom). v1 realistic peak ~10 warm instances → 30/40 = 75%
+utilization with 10-connection headroom for spikes.
 
 **Reference moments for future-CC:**
 - 2026-06-17 (cell_ovr postmortem): transaction→session-mode
