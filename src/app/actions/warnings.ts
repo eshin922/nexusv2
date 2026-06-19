@@ -26,25 +26,9 @@
 // composite text key for cross-row pattern warnings (e.g.,
 // "sku:<sku_id>:col:setup_fee_total"). See validation.ts.
 
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
-import {
-  auditLog,
-  firmSettings,
-  freightCustomerArrangesMeta,
-  freightLegGroups,
-  freightLegs,
-  freightLegTiers,
-  markupDefaults,
-  packagingInputs,
-  productionInputs,
-  quotes,
-  quoteSkus,
-  quoteSkuTiers,
-  quoteSkuTierTargets,
-  quoteTiers,
-  quoteWarnings,
-} from "@/db/schema";
+import { auditLog, quotes, quoteWarnings } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
   ActionGuardError,
@@ -52,11 +36,8 @@ import {
   runAction,
   type ActionResult,
 } from "@/lib/action-result";
-import {
-  computeQuoteCosting,
-  type QuoteCostingInput,
-  type QuoteCostingResult,
-} from "@/lib/costing";
+import type { QuoteCostingInput, QuoteCostingResult } from "@/lib/costing";
+import { getCostingBundle } from "@/app/actions/costing";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import { validateQuote, type WarningSpec } from "@/lib/validation";
 
@@ -90,264 +71,60 @@ export type ReconcileSummary = {
   evaluated: number;
 };
 
-// ---------- helper: load costing input for quote ----------
-
-// Extracted loader. Existing call sites in `actions/costing.ts`
-// (getQuoteCosting, getCostingBundle, applyClientTargetSolveTierAdj)
-// duplicate this shape; brief §3 acknowledges the duplication and
-// notes a future shared helper. THIS helper is a fresh extraction —
-// when the duplicate sites refactor (likely RI.1 or earlier),
-// they'll consume this same loader.
+// ---------- helper: load costing input for quote (Slice 11.5.1) ----------
+//
+// Per Slice 11.5.1 brief §2 + v2 A1 architectural commitment:
+// **math-layer OUTPUT is the load-bearing surface**. Downstream
+// consumers (warnings engine, audit projections, future analytics)
+// project from `getCostingBundle()` output as data; they don't
+// parallel-derive from raw schema. The bundle's snapshot already
+// carries the full `QuoteCostingInput` shape AND the computed
+// `QuoteCostingResult` — warnings just rebuilds the input record
+// from snapshot fields and consumes both.
+//
+// Pre-Slice-11.5.1 implementation duplicated the load: 11 parallel
+// queries against OLD-model tables + manual QuoteCostingInput
+// construction + redundant `computeQuoteCosting` call. Slice 11.5
+// Step 3 already shipped the adapter that builds the input from
+// NEW-model rows via `getCostingBundle`; Slice 11.5.1 makes
+// warnings.ts a downstream consumer of that single pipeline.
+//
+// Parity verifier: `scripts/verify/slice-11-5-1-warnings-parity.ts`
+// asserts engine output is identical pre vs post this migration
+// against the seeded sample-order quote in a force-warning
+// fixture state (rolled-back transaction).
 async function loadCostingForQuote(
   quoteId: string,
 ): Promise<{ input: QuoteCostingInput; costing: QuoteCostingResult } | null> {
-  const quoteRows = await db
-    .select()
-    .from(quotes)
-    .where(eq(quotes.id, quoteId))
-    .limit(1);
-  if (quoteRows.length === 0) return null;
-  const quote = quoteRows[0];
+  const bundleResult = await getCostingBundle(quoteId);
+  if (!bundleResult.ok) return null;
+  const snapshot = bundleResult.data;
 
-  const fsRows = await db
-    .select()
-    .from(firmSettings)
-    .where(isNull(firmSettings.effectiveUntil))
-    .orderBy(desc(firmSettings.effectiveFrom))
-    .limit(1);
-  const fs = fsRows[0];
-  if (!fs) return null;
-
-  const [
-    skus,
-    tiers,
-    pkgs,
-    prods,
-    legGroupRows,
-    legRows,
-    legTierRows,
-    custMetaRows,
-    mks,
-    cellOvr,
-    cellTgt,
-  ] = await Promise.all([
-      db
-        .select()
-        .from(quoteSkus)
-        .where(eq(quoteSkus.quoteId, quoteId))
-        .orderBy(asc(quoteSkus.sortOrder), asc(quoteSkus.createdAt)),
-      db
-        .select()
-        .from(quoteTiers)
-        .where(eq(quoteTiers.quoteId, quoteId))
-        .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt)),
-      db
-        .select()
-        .from(packagingInputs)
-        .innerJoin(quoteSkus, eq(quoteSkus.id, packagingInputs.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId)),
-      db
-        .select()
-        .from(productionInputs)
-        .innerJoin(quoteSkus, eq(quoteSkus.id, productionInputs.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId)),
-      // Slice R6.2 — multi-leg journey freight: three joined tables.
-      db
-        .select()
-        .from(freightLegGroups)
-        .where(eq(freightLegGroups.quoteId, quoteId))
-        .orderBy(asc(freightLegGroups.displayOrder)),
-      db
-        .select()
-        .from(freightLegs)
-        .innerJoin(
-          freightLegGroups,
-          eq(freightLegGroups.id, freightLegs.legGroupId),
-        )
-        .where(eq(freightLegGroups.quoteId, quoteId))
-        .orderBy(asc(freightLegs.displayOrder)),
-      db
-        .select()
-        .from(freightLegTiers)
-        .innerJoin(freightLegs, eq(freightLegs.id, freightLegTiers.freightLegId))
-        .innerJoin(
-          freightLegGroups,
-          eq(freightLegGroups.id, freightLegs.legGroupId),
-        )
-        .where(eq(freightLegGroups.quoteId, quoteId)),
-      db
-        .select()
-        .from(freightCustomerArrangesMeta)
-        .innerJoin(
-          freightLegs,
-          eq(freightLegs.id, freightCustomerArrangesMeta.freightLegId),
-        )
-        .innerJoin(
-          freightLegGroups,
-          eq(freightLegGroups.id, freightLegs.legGroupId),
-        )
-        .where(eq(freightLegGroups.quoteId, quoteId)),
-      db.select().from(markupDefaults),
-      db
-        .select({
-          quoteSkuId: quoteSkuTiers.quoteSkuId,
-          tierId: quoteSkuTiers.tierId,
-          sellPriceOverride: quoteSkuTiers.sellPriceOverride,
-        })
-        .from(quoteSkuTiers)
-        .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTiers.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId)),
-      db
-        .select({
-          quoteSkuId: quoteSkuTierTargets.quoteSkuId,
-          tierId: quoteSkuTierTargets.tierId,
-          clientTargetPricePerUnit:
-            quoteSkuTierTargets.clientTargetPricePerUnit,
-        })
-        .from(quoteSkuTierTargets)
-        .innerJoin(quoteSkus, eq(quoteSkus.id, quoteSkuTierTargets.quoteSkuId))
-        .where(eq(quoteSkus.quoteId, quoteId)),
-    ]);
-
-  const numOrNull = (v: string | null): number | null => {
-    if (v === null) return null;
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  };
-  const num = (v: string | null, fallback = 0): number =>
-    numOrNull(v) ?? fallback;
-
-  const markupMap: Record<string, number> = Object.fromEntries(
-    mks.map((m) => [m.category, Number(m.defaultMarkupPct)]),
-  );
-
+  // Reconstruct QuoteCostingInput from snapshot fields. Snapshot's
+  // packaging carries an extra `rowId` (StoredPackagingRow vs
+  // CostingPackagingInput); freightLegTiers similarly carries rowId.
+  // Both are structurally compatible — `validateQuote` reads the
+  // input fields by shape; extra rowId is ignored.
   const input: QuoteCostingInput = {
     quote: {
-      id: quote.id,
-      globalPriceAdjPct: num(quote.globalPriceAdjPct),
-      targetMarginPct: numOrNull(quote.targetMarginPct),
+      id: snapshot.quoteId,
+      globalPriceAdjPct: snapshot.globalPriceAdjPct,
+      targetMarginPct: snapshot.targetMarginPct,
     },
-    firmSettings: {
-      targetMarginPct: num(fs.targetMarginPct),
-      floorMarginPct: num(fs.floorMarginPct),
-    },
-    markupDefaults: markupMap,
-    skus: skus.map((s) => ({
-      id: s.id,
-      parentSkuId: s.parentSkuId,
-      qtyPerParent: numOrNull(s.qtyPerParent),
-      skuRole: s.skuRole as "leaf" | "assembly",
-      skuLabel: s.skuLabel,
-      productName: s.productName,
-      sortOrder: s.sortOrder,
-      // Slice R6.2 — dutyPct/tariffPct dropped from CostingSku.
-      // Customs lives per-leg now (freight_legs.customs JSONB).
-      retailBenchmark: numOrNull(s.retailBenchmark),
-    })),
-    tiers: tiers.map((t) => ({
-      id: t.id,
-      label: t.label,
-      qty: t.qty,
-      sortOrder: t.sortOrder,
-      tierPriceAdjPct: numOrNull(t.tierPriceAdjPct),
-    })),
-    cellOverrides: cellOvr.map((c) => ({
-      quoteSkuId: c.quoteSkuId,
-      tierId: c.tierId,
-      sellPriceOverride: num(c.sellPriceOverride),
-    })),
-    cellTargets: cellTgt.map((c) => ({
-      quoteSkuId: c.quoteSkuId,
-      tierId: c.tierId,
-      clientTargetPricePerUnit: num(c.clientTargetPricePerUnit),
-    })),
-    packaging: pkgs.map((r) => {
-      const p = r.packaging_inputs;
-      return {
-        quoteSkuId: p.quoteSkuId,
-        tierId: p.tierId,
-        lineGroupId: p.lineGroupId,
-        unitCost: numOrNull(p.unitCost),
-        qtyPerSellableUnit: numOrNull(p.qtyPerSellableUnit),
-        category: p.category,
-        markupPct: numOrNull(p.markupPct),
-      };
-    }),
-    production: prods.map((r) => {
-      const p = r.production_inputs;
-      return {
-        quoteSkuId: p.quoteSkuId,
-        tierId: p.tierId,
-        customerShipsRaws: p.customerShipsRaws,
-        allocateServiceFeesToCost: p.allocateServiceFeesToCost,
-        fillingBlendingCost: numOrNull(p.fillingBlendingCost),
-        cmAssemblyTotal: numOrNull(p.cmAssemblyTotal),
-        setupFeeTotal: numOrNull(p.setupFeeTotal),
-        toolingArtworkTotal: numOrNull(p.toolingArtworkTotal),
-        rdTotal: numOrNull(p.rdTotal),
-        otherServiceTotal: numOrNull(p.otherServiceTotal),
-        bulkRawCost: numOrNull(p.bulkRawCost),
-        actualUnitsProduced: p.actualUnitsProduced,
-      };
-    }),
-    // Slice R6.2 — multi-leg journey freight: three sparse arrays
-    // mirroring the DB shape. Math layer accumulates over all legs.
-    freightLegGroups: legGroupRows.map((g) => ({
-      id: g.id,
-      label: g.label,
-      displayOrder: g.displayOrder,
-    })),
-    freightLegs: legRows.map((r) => {
-      const leg = r.freight_legs;
-      return {
-        id: leg.id,
-        legGroupId: leg.legGroupId,
-        direction: leg.direction,
-        label: leg.label,
-        origin: leg.origin,
-        destination: leg.destination,
-        crossesInternationalBorder: leg.crossesInternationalBorder,
-        treatment: leg.treatment,
-        mode: leg.mode,
-        carrier: leg.carrier,
-        incoterm: leg.incoterm,
-        cargoReadyDate: leg.cargoReadyDate,
-        vesselEtd: leg.vesselEtd,
-        vesselEta: leg.vesselEta,
-        actualDeliveryDate: leg.actualDeliveryDate,
-        freightMarkupPct: num(leg.freightMarkupPct, 0.3),
-        dutyMarkupPct: num(leg.dutyMarkupPct, 0.3),
-        tariffMarkupPct: num(leg.tariffMarkupPct, 0.3),
-        customs: (() => {
-          const raw = (leg.customs as
-            | { duty_pct?: number; tariff_pct?: number }
-            | undefined) ?? {};
-          const out: { dutyPct?: number; tariffPct?: number } = {};
-          if (raw.duty_pct !== undefined) out.dutyPct = raw.duty_pct;
-          if (raw.tariff_pct !== undefined) out.tariffPct = raw.tariff_pct;
-          return out;
-        })(),
-        displayOrder: leg.displayOrder,
-      };
-    }),
-    freightLegTiers: legTierRows.map((r) => {
-      const lt = r.freight_leg_tiers;
-      return {
-        freightLegId: lt.freightLegId,
-        tierId: lt.tierId,
-        totalFreight: numOrNull(lt.totalFreight),
-        unitsInShipment: lt.unitsInShipment,
-      };
-    }),
+    firmSettings: snapshot.firmSettings,
+    markupDefaults: snapshot.markupDefaults,
+    skus: snapshot.skus,
+    tiers: snapshot.tiers,
+    packaging: snapshot.packaging,
+    production: snapshot.production,
+    freightLegGroups: snapshot.freightLegGroups,
+    freightLegs: snapshot.freightLegs,
+    freightLegTiers: snapshot.freightLegTiers,
+    cellOverrides: snapshot.cellOverrides,
+    cellTargets: snapshot.cellTargets,
   };
-  // Customer-arranges-meta is loaded but not consumed by the
-  // costing math; it's surfaced separately for UI hydration. The
-  // shape includes the meta row; warnings.ts only needs the math
-  // inputs above, so we drop the meta load result here.
-  void custMetaRows;
 
-  const costing = computeQuoteCosting(input);
-  return { input, costing };
+  return { input, costing: snapshot.costing };
 }
 
 // ---------- internal helper: identity tuple ----------
