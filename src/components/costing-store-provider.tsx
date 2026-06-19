@@ -188,28 +188,51 @@ export function CostingStoreProvider({
       }, COALESCE_MS);
     };
 
-    // Per-input-table filter: these tables don't have a `quote_id`
-    // column (only `quote_sku_id`), so we can't filter at the DB
-    // subscription level. Subscribe broadly, check membership in the
-    // local store's known SKU set client-side. quote_skus ADD events
-    // trigger reconcile, which pulls new SKUs into the store, which
-    // makes subsequent input events on those SKU IDs pass this filter.
+    // Slice 11.5.1 — NEW-model membership filters.
+    //
+    // Per-input-table filter: assembly_leaf_inputs +
+    // assembly_leaf_overrides + assembly_leaf_targets don't have a
+    // `quote_id` column (only `assembly_leaf_id`), so we can't filter
+    // at the DB subscription level. Subscribe broadly, check
+    // membership in the local store's known leaf-SKU set client-side.
+    // assembly_leaves ADD events trigger reconcile, which pulls new
+    // leaves into the store, which makes subsequent input events on
+    // those leaf IDs pass this filter.
     //
     // Performance: at solo-dev / 12-user scale, we get every input
     // edit anywhere in the system as an event on every open tab. The
-    // filter discards the irrelevant ones in O(n) over the local SKU
-    // count (~5-30). Cheap. See UX_BACKLOG entry "Subscription scope
-    // per page" v2 optimization candidates if scale ever grows.
-    const isInputForThisQuote = (
+    // filter discards the irrelevant ones in O(n) over the local
+    // leaf-SKU count (~5-30). Cheap.
+    const isAssemblyLeafInputForThisQuote = (
       newRow: Record<string, unknown> | null | undefined,
       oldRow: Record<string, unknown> | null | undefined,
     ): boolean => {
-      const skuId =
-        (newRow?.quote_sku_id as string | undefined) ??
-        (oldRow?.quote_sku_id as string | undefined);
-      if (!skuId) return false;
+      const leafId =
+        (newRow?.assembly_leaf_id as string | undefined) ??
+        (oldRow?.assembly_leaf_id as string | undefined);
+      if (!leafId) return false;
+      // Store's skus contain BOTH assemblies (skuRole='assembly') AND
+      // assembly_leaves (skuRole='leaf') per Slice 11.5 Step 3
+      // synthesis. assembly_leaf identity matches the leaf entries.
       const skus = storeRef.current?.getState().skus ?? [];
-      return skus.some((s) => s.id === skuId);
+      return skus.some((s) => s.id === leafId);
+    };
+
+    // Production policy + per-tier service fees attach at assembly
+    // level in NEW model (per-(assembly, tier)). Membership check
+    // resolves against the assembly entries in the store.
+    const isAssemblyProductionInputForThisQuote = (
+      newRow: Record<string, unknown> | null | undefined,
+      oldRow: Record<string, unknown> | null | undefined,
+    ): boolean => {
+      const assemblyId =
+        (newRow?.assembly_id as string | undefined) ??
+        (oldRow?.assembly_id as string | undefined);
+      if (!assemblyId) return false;
+      const skus = storeRef.current?.getState().skus ?? [];
+      return skus.some(
+        (s) => s.id === assemblyId && s.skuRole === "assembly",
+      );
     };
 
     // Slice R6.2 — freight_legs membership check via leg-group id.
@@ -253,15 +276,45 @@ export function CostingStoreProvider({
         },
         triggerCoalescedReconcile,
       )
+      // Slice 11.5.1 — NEW-model: assemblies + assembly_leaves +
+      // quote_leaves replace OLD quote_skus tree.
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
-          table: "quote_skus",
+          table: "assemblies",
           filter: `quote_id=eq.${quoteId}`,
         },
         triggerCoalescedReconcile,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "quote_leaves",
+          filter: `quote_id=eq.${quoteId}`,
+        },
+        triggerCoalescedReconcile,
+      )
+      // assembly_leaves has no quote_id column (FK to assemblies);
+      // broad subscribe + client-side filter via assembly membership.
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "assembly_leaves" },
+        (payload) => {
+          const newRow = payload.new as Record<string, unknown> | undefined;
+          const oldRow = payload.old as Record<string, unknown> | undefined;
+          const assemblyId =
+            (newRow?.assembly_id as string | undefined) ??
+            (oldRow?.assembly_id as string | undefined);
+          if (!assemblyId) return;
+          const skus = storeRef.current?.getState().skus ?? [];
+          if (skus.some((s) => s.id === assemblyId)) {
+            triggerCoalescedReconcile();
+          }
+        },
       )
       .on(
         "postgres_changes",
@@ -273,21 +326,54 @@ export function CostingStoreProvider({
         },
         triggerCoalescedReconcile,
       )
-      // Per-input tables: broad subscribe + client-side filter.
+      // Slice 11.5.1 — NEW-model cost-data input tables: broad
+      // subscribe + client-side filter via membership in known
+      // leaf / assembly sets.
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "packaging_inputs" },
+        { event: "*", schema: "public", table: "assembly_leaf_inputs" },
         (payload) => {
-          if (isInputForThisQuote(payload.new, payload.old)) {
+          if (isAssemblyLeafInputForThisQuote(payload.new, payload.old)) {
             triggerCoalescedReconcile();
           }
         },
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "production_inputs" },
+        {
+          event: "*",
+          schema: "public",
+          table: "assembly_production_inputs",
+        },
         (payload) => {
-          if (isInputForThisQuote(payload.new, payload.old)) {
+          if (
+            isAssemblyProductionInputForThisQuote(payload.new, payload.old)
+          ) {
+            triggerCoalescedReconcile();
+          }
+        },
+      )
+      // Bonus catch (Slice 11.5.1 §A2 — Slice 8.5 originally omitted
+      // these sparse-row tables; cross-tab override + client-target
+      // propagation comes online for the first time).
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "assembly_leaf_overrides",
+        },
+        (payload) => {
+          if (isAssemblyLeafInputForThisQuote(payload.new, payload.old)) {
+            triggerCoalescedReconcile();
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "assembly_leaf_targets" },
+        (payload) => {
+          if (isAssemblyLeafInputForThisQuote(payload.new, payload.old)) {
             triggerCoalescedReconcile();
           }
         },
