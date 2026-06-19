@@ -977,6 +977,30 @@ export async function moveTier(formData: FormData): Promise<ActionResult<void>> 
   });
 }
 
+// Wholesale tier-replace: deletes all current tiers (cascading
+// through assembly_leaf_inputs + assembly_production_inputs +
+// freight_leg_tiers), inserts the preset's new tier set, then
+// reseeds the cascaded rows from snapshots taken before the delete.
+//
+// Slice 11.5.1 — migrated to NEW model. Three snapshot+reseed
+// loops:
+// - `preservedLines` (assembly_leaf_inputs lines, deduped by
+//   line_group_id): preserves supplier/category/markup metadata;
+//   unit_cost/purchase_qty reset because per-tier values depend
+//   on volume.
+// - `preservedProductionPolicy` (assembly_production_inputs
+//   denormalized policy per assembly, NOT per leaf — production
+//   policy lives at assembly level in NEW model): preserves
+//   customer_ships_raws/allocate_service_fees_to_cost/notes;
+//   per-tier costs reset.
+// - `preservedFreightLegs` (legs survive tier wipe via leg-quote
+//   FK; only per-(leg, tier) rate rows cascade-delete): freight
+//   per-tier rates reset.
+//
+// Forensic snapshots (`productionDataLost`, `freightDataLost`)
+// capture non-null cost data in audit_log diff_json before the
+// cascade wipes them, so PM-relevant losses are reconstructable
+// from audit history if needed post-merge.
 export async function applyTierPreset(formData: FormData): Promise<ActionResult<void>> {
   return runAction(async () => {
   const quoteId = String(formData.get("quoteId") ?? "").trim();

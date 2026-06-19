@@ -761,6 +761,33 @@ Cumulative catch count tracked here as a milestone signal:
   publication membership + background jobs + audit
   projections)." Slice 11.5.1 absorbs the cleanup via §A2.
   Cumulative: **70 across 15 slices.**
+- **+1 catch (Slice 11.5.1 Step 3, 2026-06-19):** brief
+  function categorization is hypothesis, not contract. The
+  Slice 11.5.1 brief §2 listed 14 `quotes.ts` functions as
+  "preserve (tier-side + quote-level — not quote_skus-bound)"
+  based on naming + UI-import scope. Three of those —
+  `addTier`, `applyTierPreset`, `sendQuote` — actually carried
+  OLD-table fan-out logic in their function bodies that would
+  have broken at Step 4 schema-drop time. CC's broad grep at
+  Step 3 implementation time caught the discrepancy mid-flight;
+  the brief's function-name categorization was insufficient.
+
+  Same shape as the Step 1 verifier-reframe catch (brief test
+  specs invalidated by surrounding context — wipe-and-reseed
+  posture made strict parity meaningless). Both surface from
+  implementation pushing the spec against reality and finding
+  gaps. Pattern 22 §0.5 + Pattern 25 standing pre-flight aren't
+  enough — implementation-time verification catches what the
+  upfront audit misses.
+
+  **Rule:** when briefs list functions as "preserve" / "delete"
+  based on naming + UI-import scope, implementation MUST verify
+  the categorization holds against broader schema references.
+  Broad-grep against schema table/column references is the
+  safer audit signal. Preserve-listed functions can carry
+  hidden coupling to soon-to-be-dropped surfaces.
+
+  Cumulative: **71 across 15 slices.**
 
 **Next milestone: 75 catches.** When the ledger hits 75 — likely
 within the next 2-3 substantive slices — bank a "75-catch
@@ -3222,6 +3249,34 @@ adds a field) vs a new branch in compute logic (math layer adds
 behavior). Input-slot additions stay model-agnostic; behavior
 additions tie the math layer to a specific model and break the
 load-bearing-surface commitment.
+
+### Extension banked Slice 11.5.1 (2026-06-18): math-OUTPUT is also load-bearing
+
+The load-bearing commitment extends to math-layer OUTPUT, not
+just the input contract. Downstream systems (warnings engine,
+audit projections, exports, future analytic surfaces) consume
+the bundle's computed result as data; they do not parallel-
+derive from raw schema. When a new downstream consumer surfaces,
+the first question is: "does
+`getCostingBundle().data.costing.skuRollups` (or sibling bundle
+fields) expose what you need?" If yes, project from bundle. If
+no, propose a new bundle field; do not parallel-derive from
+cost tables.
+
+Slice 11.5.1's `warnings.ts` migration is the canonical instance:
+the engine projects from `bundle.data` (snapshot.packaging,
+snapshot.production, snapshot.cellOverrides, snapshot.cellTargets,
+snapshot.costing) instead of running its own 11-wide
+`Promise.all` against raw cost tables. Result: ~250 lines
+collapsed to ~28 lines. The migration also eliminates the
+"engine accidentally desynchronizes from math output" failure
+mode that's structurally possible whenever two consumers compute
+from the same source independently.
+
+**Future-CC pattern-match:** "is this a parallel raw-data
+consumer? → make it downstream of math instead." If a new
+component or action reaches for `db.select().from(packaging_inputs)`
+or similar, ask first whether the data is already in the bundle.
 
 ## Per-assembly source → per-leaf adapter coercion
 
