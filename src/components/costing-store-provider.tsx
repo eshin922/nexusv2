@@ -147,11 +147,17 @@ export function CostingStoreProvider({
         debounceRef.current = setTimeout(tryReconcile, RETRY_INTERVAL_MS);
         return;
       }
+      const before = storeRef.current?.getState();
       // eslint-disable-next-line no-console
       console.log(
-        `[rt] scheduleReconcile: applying snapshot to store.reconcile`,
+        `[rt] BEFORE reconcile: gpa=${before?.globalPriceAdjPct} skuRollups.length=${before?.costing.skuRollups.length} pkg.length=${before?.packaging.length} costingRef=${(before?.costing as unknown as object | undefined) ? "set" : "undef"}`,
       );
       storeRef.current?.getState().reconcile(snap);
+      const after = storeRef.current?.getState();
+      // eslint-disable-next-line no-console
+      console.log(
+        `[rt] AFTER reconcile: gpa=${after?.globalPriceAdjPct} skuRollups.length=${after?.costing.skuRollups.length} pkg.length=${after?.packaging.length} costingIdentityChanged=${before?.costing !== after?.costing} packagingIdentityChanged=${before?.packaging !== after?.packaging}`,
+      );
     };
     debounceRef.current = setTimeout(tryReconcile, 100);
   }, []);
@@ -179,6 +185,23 @@ export function CostingStoreProvider({
     if (!quoteId) return;
 
     const supabase = getSupabaseBrowser();
+
+    // Slice 11.5.1 MIG-8 instrumentation — store-level subscribe log.
+    // Fires every time Zustand notifies listeners. If reconcile() runs
+    // (BEFORE/AFTER logs prove state mutation) but this NOTIFY log
+    // never fires, the listener-notify path is broken — different store
+    // identity between provider and React subscribers, or Zustand
+    // notify suppression. If NOTIFY fires but no consumer re-render
+    // log fires (see SectionCard render log), the React subscription
+    // wiring is the break.
+    const unsubscribeDebug = storeRef.current?.subscribe(
+      (state, prevState) => {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[rt] STORE NOTIFY: costingChanged=${state.costing !== prevState.costing} pkgChanged=${state.packaging !== prevState.packaging} gpaChanged=${state.globalPriceAdjPct !== prevState.globalPriceAdjPct} lastReconcileAt=${state.lastReconcileAt}`,
+        );
+      },
+    );
 
     // Coalesce: bursts of 5 remote writes in 1s become one reconcile
     // attempt. Any incoming event resets the timer; when it fires,
@@ -538,6 +561,7 @@ export function CostingStoreProvider({
       void supabase.removeChannel(structureChannel);
       window.removeEventListener(GLOBAL_REF_EVENT, onGlobalRefChanged);
       hasSubscribedRef.current = false;
+      unsubscribeDebug?.();
     };
   }, [quoteId, scheduleReconcile]);
 
