@@ -148,15 +148,50 @@ export function CostingStoreProvider({
         return;
       }
       const before = storeRef.current?.getState();
+      const beforeTierTotals = before?.costing.quoteRollup
+        .map((r) => `t${r.tierId.slice(0, 6)}=${r.totalCost.toFixed(2)}`)
+        .join(", ");
       // eslint-disable-next-line no-console
       console.log(
-        `[rt] BEFORE reconcile: gpa=${before?.globalPriceAdjPct} skuRollups.length=${before?.costing.skuRollups.length} pkg.length=${before?.packaging.length} costingRef=${(before?.costing as unknown as object | undefined) ? "set" : "undef"}`,
+        `[rt] BEFORE reconcile: gpa=${before?.globalPriceAdjPct} pkg.length=${before?.packaging.length} tiers=[${beforeTierTotals}]`,
       );
       storeRef.current?.getState().reconcile(snap);
       const after = storeRef.current?.getState();
+      const afterTierTotals = after?.costing.quoteRollup
+        .map((r) => `t${r.tierId.slice(0, 6)}=${r.totalCost.toFixed(2)}`)
+        .join(", ");
       // eslint-disable-next-line no-console
       console.log(
-        `[rt] AFTER reconcile: gpa=${after?.globalPriceAdjPct} skuRollups.length=${after?.costing.skuRollups.length} pkg.length=${after?.packaging.length} costingIdentityChanged=${before?.costing !== after?.costing} packagingIdentityChanged=${before?.packaging !== after?.packaging}`,
+        `[rt] AFTER reconcile: gpa=${after?.globalPriceAdjPct} pkg.length=${after?.packaging.length} tiers=[${afterTierTotals}] costingIdentityChanged=${before?.costing !== after?.costing} packagingIdentityChanged=${before?.packaging !== after?.packaging}`,
+      );
+      // Layer H — diff the packaging rows between BEFORE and AFTER.
+      // Any row whose unitCost (or other math-affecting field) differs
+      // is logged. If the diff list is EMPTY despite a reconcile, the
+      // snapshot returned by getCostingBundle didn't actually carry
+      // the change (stale read somewhere). If the diff list shows the
+      // row from the realtime payload with its expected new unitCost,
+      // the snapshot is fresh and the math must be producing the same
+      // totalCost for a different reason (look at math layer).
+      const beforeMap = new Map(
+        before?.packaging.map((p) => [p.rowId, p]) ?? [],
+      );
+      const diffs: string[] = [];
+      after?.packaging.forEach((a) => {
+        const b = beforeMap.get(a.rowId);
+        if (!b) {
+          diffs.push(`+${a.rowId.slice(0, 6)}(sku=${a.quoteSkuId.slice(0, 6)}/tier=${a.tierId.slice(0, 6)}:uc=${a.unitCost})`);
+        } else if (b.unitCost !== a.unitCost || b.markupPct !== a.markupPct) {
+          diffs.push(`Δ${a.rowId.slice(0, 6)}(sku=${a.quoteSkuId.slice(0, 6)}/tier=${a.tierId.slice(0, 6)}:uc=${b.unitCost}→${a.unitCost} mk=${b.markupPct}→${a.markupPct})`);
+        }
+      });
+      beforeMap.forEach((b, rowId) => {
+        if (!after?.packaging.find((a) => a.rowId === rowId)) {
+          diffs.push(`-${rowId.slice(0, 6)}`);
+        }
+      });
+      // eslint-disable-next-line no-console
+      console.log(
+        `[rt] LAYER-H packaging diff (${diffs.length} rows): ${diffs.length === 0 ? "(no changes detected in snapshot)" : diffs.join(" ")}`,
       );
     };
     debounceRef.current = setTimeout(tryReconcile, 100);
