@@ -1,6 +1,5 @@
 "use client";
 
-import { useRef } from "react";
 import {
   selectActiveTierId,
   selectQuoteRollup,
@@ -124,20 +123,6 @@ export function SectionWithDrilldown({
   const isOpen = openId === id;
   const quoteRollup = useCostingStore(selectQuoteRollup);
   const activeTierId = useCostingStore(selectActiveTierId);
-
-  // Slice 11.5.1 MIG-8 instrumentation — consumer render log. Strip
-  // after MIG-8 PASS. Compares quoteRollup ref + content across
-  // renders; if STORE NOTIFY fires (see provider) but this log
-  // doesn't, the React subscription wiring is the break (different
-  // store identity between provider and useStore).
-  const renderCountRef = useRef(0);
-  const prevRollupRef = useRef(quoteRollup);
-  renderCountRef.current += 1;
-  // eslint-disable-next-line no-console
-  console.log(
-    `[rt-consumer] SectionCard render #${renderCountRef.current} id=${id} rollupRefChanged=${prevRollupRef.current !== quoteRollup} rollup.length=${quoteRollup.length} rollup[0].totalCost=${quoteRollup[0]?.totalCost ?? "n/a"}`,
-  );
-  prevRollupRef.current = quoteRollup;
 
   const handleToggle = () => {
     setOpenId(isOpen ? null : id);

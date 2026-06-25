@@ -140,59 +140,10 @@ export function CostingStoreProvider({
       const lastEdit = storeRef.current?.getState().lastUserEditAt ?? 0;
       const sinceEdit = Date.now() - lastEdit;
       if (sinceEdit < QUIET_PERIOD_MS) {
-        // eslint-disable-next-line no-console
-        console.log(
-          `[rt] scheduleReconcile: waiting for quiet (sinceEdit=${sinceEdit}ms < ${QUIET_PERIOD_MS}ms)`,
-        );
         debounceRef.current = setTimeout(tryReconcile, RETRY_INTERVAL_MS);
         return;
       }
-      const before = storeRef.current?.getState();
-      const beforeTierTotals = before?.costing.quoteRollup
-        .map((r) => `t${r.tierId.slice(0, 6)}=${r.totalCost.toFixed(2)}`)
-        .join(", ");
-      // eslint-disable-next-line no-console
-      console.log(
-        `[rt] BEFORE reconcile: gpa=${before?.globalPriceAdjPct} pkg.length=${before?.packaging.length} tiers=[${beforeTierTotals}]`,
-      );
       storeRef.current?.getState().reconcile(snap);
-      const after = storeRef.current?.getState();
-      const afterTierTotals = after?.costing.quoteRollup
-        .map((r) => `t${r.tierId.slice(0, 6)}=${r.totalCost.toFixed(2)}`)
-        .join(", ");
-      // eslint-disable-next-line no-console
-      console.log(
-        `[rt] AFTER reconcile: gpa=${after?.globalPriceAdjPct} pkg.length=${after?.packaging.length} tiers=[${afterTierTotals}] costingIdentityChanged=${before?.costing !== after?.costing} packagingIdentityChanged=${before?.packaging !== after?.packaging}`,
-      );
-      // Layer H — diff the packaging rows between BEFORE and AFTER.
-      // Any row whose unitCost (or other math-affecting field) differs
-      // is logged. If the diff list is EMPTY despite a reconcile, the
-      // snapshot returned by getCostingBundle didn't actually carry
-      // the change (stale read somewhere). If the diff list shows the
-      // row from the realtime payload with its expected new unitCost,
-      // the snapshot is fresh and the math must be producing the same
-      // totalCost for a different reason (look at math layer).
-      const beforeMap = new Map(
-        before?.packaging.map((p) => [p.rowId, p]) ?? [],
-      );
-      const diffs: string[] = [];
-      after?.packaging.forEach((a) => {
-        const b = beforeMap.get(a.rowId);
-        if (!b) {
-          diffs.push(`+${a.rowId.slice(0, 6)}(sku=${a.quoteSkuId.slice(0, 6)}/tier=${a.tierId.slice(0, 6)}:uc=${a.unitCost})`);
-        } else if (b.unitCost !== a.unitCost || b.markupPct !== a.markupPct) {
-          diffs.push(`Δ${a.rowId.slice(0, 6)}(sku=${a.quoteSkuId.slice(0, 6)}/tier=${a.tierId.slice(0, 6)}:uc=${b.unitCost}→${a.unitCost} mk=${b.markupPct}→${a.markupPct})`);
-        }
-      });
-      beforeMap.forEach((b, rowId) => {
-        if (!after?.packaging.find((a) => a.rowId === rowId)) {
-          diffs.push(`-${rowId.slice(0, 6)}`);
-        }
-      });
-      // eslint-disable-next-line no-console
-      console.log(
-        `[rt] LAYER-H packaging diff (${diffs.length} rows): ${diffs.length === 0 ? "(no changes detected in snapshot)" : diffs.join(" ")}`,
-      );
     };
     debounceRef.current = setTimeout(tryReconcile, 100);
   }, []);
@@ -221,52 +172,15 @@ export function CostingStoreProvider({
 
     const supabase = getSupabaseBrowser();
 
-    // Slice 11.5.1 MIG-8 instrumentation — store-level subscribe log.
-    // Fires every time Zustand notifies listeners. If reconcile() runs
-    // (BEFORE/AFTER logs prove state mutation) but this NOTIFY log
-    // never fires, the listener-notify path is broken — different store
-    // identity between provider and React subscribers, or Zustand
-    // notify suppression. If NOTIFY fires but no consumer re-render
-    // log fires (see SectionCard render log), the React subscription
-    // wiring is the break.
-    const unsubscribeDebug = storeRef.current?.subscribe(
-      (state, prevState) => {
-        // eslint-disable-next-line no-console
-        console.log(
-          `[rt] STORE NOTIFY: costingChanged=${state.costing !== prevState.costing} pkgChanged=${state.packaging !== prevState.packaging} gpaChanged=${state.globalPriceAdjPct !== prevState.globalPriceAdjPct} lastReconcileAt=${state.lastReconcileAt}`,
-        );
-      },
-    );
-
     // Coalesce: bursts of 5 remote writes in 1s become one reconcile
     // attempt. Any incoming event resets the timer; when it fires,
     // re-fetch the bundle and route through scheduleReconcile (which
     // adds the wait-for-quiet layer on top).
-    // Slice 11.5.1 MIG-8 instrumentation — temporary logs to
-    // diagnose the handler chain post-PR #81 channel split.
-    // Strip after MIG-8 PASS.
     const triggerCoalescedReconcile = () => {
-      // eslint-disable-next-line no-console
-      console.log(
-        `[rt] triggerCoalescedReconcile qid=${quoteId.slice(0, 8)}`,
-      );
       if (coalesceRef.current) clearTimeout(coalesceRef.current);
       coalesceRef.current = setTimeout(async () => {
-        // eslint-disable-next-line no-console
-        console.log(
-          `[rt] coalesce-timer fired; calling getCostingBundle qid=${quoteId.slice(0, 8)}`,
-        );
         const result = await getCostingBundle(quoteId);
-        // eslint-disable-next-line no-console
-        console.log(
-          `[rt] getCostingBundle result.ok=${result.ok}`,
-          result.ok ? "" : (result as { error: { message: string } }).error,
-        );
         if (result.ok) {
-          // eslint-disable-next-line no-console
-          console.log(
-            `[rt] calling scheduleReconcile; lastUserEditAt=${storeRef.current?.getState().lastUserEditAt ?? 0}`,
-          );
           scheduleReconcile(result.data);
         }
         // result.ok=false: ignore. The user's local store state is
@@ -301,14 +215,7 @@ export function CostingStoreProvider({
       // assembly_leaves (skuRole='leaf') per Slice 11.5 Step 3
       // synthesis. assembly_leaf identity matches the leaf entries.
       const skus = storeRef.current?.getState().skus ?? [];
-      const matched = leafId
-        ? skus.some((s) => s.id === leafId)
-        : false;
-      // eslint-disable-next-line no-console
-      console.log(
-        `[rt] isAssemblyLeafInputForThisQuote leafId=${leafId ?? "(missing)"} skuCount=${skus.length} matched=${matched}`,
-      );
-      return matched;
+      return leafId ? skus.some((s) => s.id === leafId) : false;
     };
 
     // Production policy + per-tier service fees attach at assembly
@@ -322,16 +229,9 @@ export function CostingStoreProvider({
         (newRow?.assembly_id as string | undefined) ??
         (oldRow?.assembly_id as string | undefined);
       const skus = storeRef.current?.getState().skus ?? [];
-      const matched = assemblyId
-        ? skus.some(
-            (s) => s.id === assemblyId && s.skuRole === "assembly",
-          )
+      return assemblyId
+        ? skus.some((s) => s.id === assemblyId && s.skuRole === "assembly")
         : false;
-      // eslint-disable-next-line no-console
-      console.log(
-        `[rt] isAssemblyProductionInputForThisQuote assemblyId=${assemblyId ?? "(missing)"} matched=${matched}`,
-      );
-      return matched;
     };
 
     // Slice R6.2 — freight_legs membership check via leg-group id.
@@ -386,11 +286,7 @@ export function CostingStoreProvider({
           table: "quotes",
           filter: `id=eq.${quoteId}`,
         },
-        () => {
-          // eslint-disable-next-line no-console
-          console.log("[rt] quotes event arrived");
-          triggerCoalescedReconcile();
-        },
+        triggerCoalescedReconcile,
       )
       .on(
         "postgres_changes",
@@ -400,11 +296,7 @@ export function CostingStoreProvider({
           table: "quote_tiers",
           filter: `quote_id=eq.${quoteId}`,
         },
-        () => {
-          // eslint-disable-next-line no-console
-          console.log("[rt] quote_tiers event arrived");
-          triggerCoalescedReconcile();
-        },
+        triggerCoalescedReconcile,
       )
       // Slice 11.5.1 — NEW-model cost-data input tables: broad
       // subscribe + client-side filter via membership in known
@@ -413,12 +305,6 @@ export function CostingStoreProvider({
         "postgres_changes",
         { event: "*", schema: "public", table: "assembly_leaf_inputs" },
         (payload) => {
-          // eslint-disable-next-line no-console
-          console.log(
-            "[rt] assembly_leaf_inputs event arrived",
-            (payload as { eventType?: string }).eventType,
-            payload,
-          );
           if (isAssemblyLeafInputForThisQuote(payload.new, payload.old)) {
             triggerCoalescedReconcile();
           }
@@ -596,7 +482,6 @@ export function CostingStoreProvider({
       void supabase.removeChannel(structureChannel);
       window.removeEventListener(GLOBAL_REF_EVENT, onGlobalRefChanged);
       hasSubscribedRef.current = false;
-      unsubscribeDebug?.();
     };
   }, [quoteId, scheduleReconcile]);
 
