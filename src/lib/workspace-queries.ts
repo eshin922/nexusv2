@@ -370,21 +370,30 @@ export async function getProjectScenarioCards(
       q.updated_at,
       -- Slice RI.8 — quote completeness flags for state-aware routing
       -- on Project Detail. EXISTS subqueries avoid N+1 client lookups.
+      -- **Slice 11.5.1 post-merge hotfix:** quote_skus / packaging_inputs
+      -- / production_inputs dropped by PR #80 schema migration; swapped
+      -- to NEW-model equivalents. Pattern 70 cross-consumer audit gap
+      -- catch #2.
       (
-        EXISTS (SELECT 1 FROM quote_skus WHERE quote_id = q.id)
+        EXISTS (
+          SELECT 1 FROM assemblies WHERE quote_id = q.id
+          UNION ALL
+          SELECT 1 FROM quote_leaves WHERE quote_id = q.id
+        )
         AND
         EXISTS (SELECT 1 FROM quote_tiers WHERE quote_id = q.id AND qty IS NOT NULL)
       ) AS has_setup_complete,
       (
         EXISTS (
-          SELECT 1 FROM packaging_inputs pi
-          JOIN quote_skus qs ON qs.id = pi.quote_sku_id
-          WHERE qs.quote_id = q.id
+          SELECT 1 FROM assembly_leaf_inputs ali
+          JOIN assembly_leaves al ON al.id = ali.assembly_leaf_id
+          JOIN assemblies a ON a.id = al.assembly_id
+          WHERE a.quote_id = q.id
         )
         OR EXISTS (
-          SELECT 1 FROM production_inputs prod
-          JOIN quote_skus qs ON qs.id = prod.quote_sku_id
-          WHERE qs.quote_id = q.id
+          SELECT 1 FROM assembly_production_inputs api
+          JOIN assemblies a ON a.id = api.assembly_id
+          WHERE a.quote_id = q.id
         )
         OR EXISTS (
           -- Slice R6.2 — freight is per-quote (leg-group → leg);
