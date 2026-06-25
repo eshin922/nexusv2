@@ -81,31 +81,51 @@ export async function getResumeContext(
   if (!meta) return null;
 
   // Last audit_log row for this quote. entity_id is text; quote-
-  // touching actions write the quote_id as entity_id for some
-  // actions, but most write quote_skus / quote_tiers / etc. as
-  // the row id. Fetch the latest row for this quote regardless of
-  // entity_type — filter via the quote_id column on audit_log
-  // (where present). For now: use the existing `getProjectActivity`
-  // shape (CTE for quote ids); simplified to one quote.
+  // touching actions write quote-level ids for some actions and
+  // sub-entity ids (assemblies, leaves, cost-data rows) for others.
+  // Single CTE unions every NEW-model entity id known to belong to
+  // this quote; the outer query matches audit_log entries against
+  // it.
+  //
+  // **Slice 11.5.1 post-merge hotfix:** the prior shape referenced
+  // OLD-model tables (`quote_skus`, `packaging_inputs`) that were
+  // dropped in PR #80's schema migration. Step 4's brief migrated
+  // function bodies in `quotes.ts` / `warnings.ts` / `markup-
+  // defaults.ts` but missed this raw-SQL home-query lookup —
+  // resulting in 500s on every `GET /` after deploy. Pattern 70
+  // (cross-consumer audit gap) catch #2.
   const lastChangeRows = await db.execute<{
     summary: string | null;
     created_at: Date | string;
   }>(sql`
+    WITH quote_entities AS (
+      SELECT id::text AS eid FROM assemblies WHERE quote_id = ${latest.quoteId}
+      UNION
+      SELECT id::text FROM quote_leaves WHERE quote_id = ${latest.quoteId}
+      UNION
+      SELECT id::text FROM quote_tiers WHERE quote_id = ${latest.quoteId}
+      UNION
+      SELECT al.id::text
+        FROM assembly_leaves al
+        JOIN assemblies a ON al.assembly_id = a.id
+        WHERE a.quote_id = ${latest.quoteId}
+      UNION
+      SELECT ali.id::text
+        FROM assembly_leaf_inputs ali
+        JOIN assembly_leaves al ON ali.assembly_leaf_id = al.id
+        JOIN assemblies a ON al.assembly_id = a.id
+        WHERE a.quote_id = ${latest.quoteId}
+      UNION
+      SELECT api.id::text
+        FROM assembly_production_inputs api
+        JOIN assemblies a ON api.assembly_id = a.id
+        WHERE a.quote_id = ${latest.quoteId}
+    )
     SELECT a.summary, a.created_at
     FROM audit_log a
     WHERE
       (a.entity_type = 'quote' AND a.entity_id = ${latest.quoteId})
-      OR a.entity_id IN (
-        SELECT id::text FROM quote_skus WHERE quote_id = ${latest.quoteId}
-      )
-      OR a.entity_id IN (
-        SELECT id::text FROM quote_tiers WHERE quote_id = ${latest.quoteId}
-      )
-      OR a.entity_id IN (
-        SELECT id::text FROM packaging_inputs WHERE quote_sku_id IN (
-          SELECT id FROM quote_skus WHERE quote_id = ${latest.quoteId}
-        )
-      )
+      OR a.entity_id IN (SELECT eid FROM quote_entities)
     ORDER BY a.created_at DESC
     LIMIT 1
   `);
