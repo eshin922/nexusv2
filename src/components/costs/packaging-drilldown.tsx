@@ -345,14 +345,22 @@ function PackagingRow({
   const stateRef = useRef({ supplier, category, markupPct });
   stateRef.current = { supplier, category, markupPct };
 
-  const initialId = useRef(line.lineGroupId);
+  // Sync local input state to the store's line values on EITHER:
+  //   - line identity change (different lineGroupId mounted here)
+  //   - same line, value changed externally (cross-tab realtime
+  //     reconcile, or this user's own save returning fresh data)
+  //
+  // Wait-for-quiet at CostingStoreProvider (QUIET_PERIOD_MS=800ms)
+  // guarantees this can't clobber an in-progress edit.
+  //
+  // Slice 11.5.1 MIG-8 close-gate fix: the prior guard on
+  // `lineGroupId !== initialId.current` skipped same-line
+  // value-only changes, leaving the row stuck at the optimistic
+  // pre-reconcile values when another tab edited the same line.
   useEffect(() => {
-    if (line.lineGroupId !== initialId.current) {
-      initialId.current = line.lineGroupId;
-      setSupplier(line.supplier ?? "");
-      setCategory(line.category ?? "");
-      setMarkupPct(line.markupPct ?? "");
-    }
+    setSupplier(line.supplier ?? "");
+    setCategory(line.category ?? "");
+    setMarkupPct(line.markupPct ?? "");
   }, [line.lineGroupId, line.supplier, line.category, line.markupPct]);
 
   useEffect(
@@ -576,12 +584,24 @@ function PackagingTierCell({
   const valueRef = useRef(unitCost);
   valueRef.current = unitCost;
 
-  const initialRowId = useRef(cell?.rowId);
+  // Sync local input state to the store's cell value on EITHER:
+  //   - row identity change (different cell mounted in this slot)
+  //   - same row, value changed externally (cross-tab realtime
+  //     reconcile, or this user's own save returning fresh data)
+  //
+  // The wait-for-quiet pipe in CostingStoreProvider's
+  // scheduleReconcile (QUIET_PERIOD_MS=800ms) guarantees this
+  // effect doesn't fire mid-typing — `cell?.unitCost` only mutates
+  // after the user has paused, so syncing here can't clobber an
+  // in-progress edit.
+  //
+  // Slice 11.5.1 MIG-8 close-gate fix: the prior guard
+  // (`cell?.rowId !== initialRowId.current`) skipped same-row
+  // value-only changes, leaving the input stuck at the optimistic
+  // pre-reconcile value when another tab edited the same cell.
+  // Aligns with `production-drilldown.tsx`'s identical-shape sync.
   useEffect(() => {
-    if (cell?.rowId !== initialRowId.current) {
-      initialRowId.current = cell?.rowId;
-      setUnitCost(cell?.unitCost ?? "");
-    }
+    setUnitCost(cell?.unitCost ?? "");
   }, [cell?.rowId, cell?.unitCost]);
 
   useEffect(
