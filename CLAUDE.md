@@ -801,16 +801,54 @@ Cumulative catch count tracked here as a milestone signal:
   postgres_changes bindings per channel cap" section above.
 
   Cumulative: **72 across 15 slices.**
+- **+1 retrospective catch (Slice 11.5.1 prod hotfix,
+  2026-06-25):** raw-SQL queries outside the actions/ tree
+  referencing OLD-model tables. The Slice 11.5.1 cross-consumer
+  audit covered actions, realtime subscriptions, and publication
+  membership but missed `src/lib/nav/home-queries.ts` (Resume
+  card last-change lookup) and `src/lib/workspace-queries.ts`
+  (Project Detail completeness EXISTS flags). After Step 4's
+  schema DROP migration committed to production, every PM
+  hitting `GET /` 500'd with `relation "quote_skus" does not
+  exist`. Pattern 70 cross-consumer audit gap, second
+  instance. Hotfix PR #83 swapped to NEW-model entity unions
+  + EXISTS subqueries. Audit extension: include `src/lib/`
+  raw-SQL grep alongside actions + realtime + publication when
+  migrating schema entities.
 
-**Next milestone: 75 catches.** When the ledger hits 75 — likely
-within the next 2-3 substantive slices — bank a "75-catch
-milestone" subsection here that summarizes the catch-shape
-distribution (notation errors vs architectural mismatches vs
-duplicate-column proposals vs code-architecture mismatches per
-the Pattern 22 extension). Reaching 75 confirms §0.5's standing-
-protocol status; the milestone marker forces a fresh framing of
-*what kinds of catches* are dominating and whether the brief
-template needs an update to bias against the dominant class.
+  Cumulative: **73 across 15 slices.**
+- **+1 catch (Slice 11.5.1 MIG-8 close-gate Walk 5,
+  2026-06-25):** RSC server-snapshot prop vs Zustand store
+  architectural drift. Cost cells in `packaging-drilldown.tsx`
+  read `cell?.unitCost` from an `inputRows` prop passed down
+  from the costs page (RSC server snapshot). That prop never
+  refreshes on store reconcile — cross-tab realtime edits
+  updated the store correctly, but drilldown cells continued
+  rendering stale prop values. Section-row mini-stack
+  (subscribed via `useCostingStore(selectQuoteRollup)`)
+  updated correctly; drilldown cells (prop-driven) did not.
+  Discovered via PR #82/#84/#85 layered instrumentation:
+  Layer H confirmed the store mutated (`Δ row:uc=0.1→0.12`)
+  and math reflected it (50k tier: 351800 → 352800, exact
+  $1000 Δ matching $0.02 × 50,000), but the rendered input
+  stayed at 0.1. Banked separately as "RSC snapshot props vs
+  Zustand store" pattern below. Fix PR #87 made cells
+  subscribe via new `selectPackaging`. Banked follow-ups:
+  `StoredPackagingRow` doesn't carry supplier / qty_per_
+  sellable_unit / notes / inventory_eligible / markup_pct_
+  source — those fields still won't sync cross-tab until the
+  store type extends.
+
+  Cumulative: **74 across 15 slices.**
+
+**Next milestone: 75 catches.** One catch away. When the next
+catch lands, bank a "75-catch milestone" subsection summarizing
+the catch-shape distribution (notation errors vs architectural
+mismatches vs duplicate-column proposals vs code-architecture
+mismatches per the Pattern 22 extension). The milestone marker
+forces a fresh framing of *what kinds of catches* are dominating
+and whether the brief template needs an update to bias against
+the dominant class.
 
 Tracked by Edward 2026-06-18 (Slice 11.5 close-out).
 
@@ -1073,6 +1111,122 @@ cost-build cells (packaging unit_cost, freight per-line costs,
 production service fees) should migrate to the read↔edit pattern
 for consistency. Bank as v1.1 / R7c polish — out of §6.b scope
 but on the radar.
+
+## "RSC snapshot props vs Zustand store — derive from store, fall back to prop"
+
+Standing pattern — banked from Slice 11.5.1 MIG-8 close-gate
+diagnosis (2026-06-25).
+
+When an RSC page (`/costs/page.tsx` and equivalents) renders
+server-side, fetches initial data, and passes a snapshot as a
+prop to a client component, that snapshot becomes **frozen at
+RSC render time**. It does NOT refresh on Zustand store
+reconciles. If the client component reads display values from
+the prop instead of the store, cross-tab realtime updates land
+in the store but never reach the rendered UI.
+
+**Rule:** when both the RSC server snapshot AND the Zustand
+store carry the same field, the client component's display
+MUST derive from the store. Use the prop only as a fallback
+for fields the store doesn't carry.
+
+**Why this isn't obvious:** the section-row mini-stack in
+`SectionWithDrilldown` reads `quoteRollup` via
+`useCostingStore(selectQuoteRollup)` — store-driven, updates
+correctly on every reconcile. The drilldown cell input one
+layer down reads `cell?.unitCost` from a `line.cells.get(tierId)`
+lookup, where `line` came from prop-derived `inputRows`. Same
+component tree, two different data sources, two different
+update characteristics. The store-driven half works
+end-to-end while the prop-driven half silently drifts.
+
+**Reference moment:** Slice 11.5.1 MIG-8 Walk 5 (2026-06-25).
+PR #82/#84/#85 layered instrumentation confirmed every layer
+of the realtime pipeline was healthy:
+
+- Postgres realtime event delivery ✅
+- Membership filter ✅
+- `getCostingBundle` re-fetch ✅
+- `scheduleReconcile` + wait-for-quiet ✅
+- Zustand store mutation ✅ (`STORE NOTIFY: costingChanged=true`)
+- Layer H packaging diff ✅ (`Δ0ec771(...:uc=0.1→0.12)`)
+- Math layer ✅ (50k tier total 351800 → 352800, exact
+  $1000 Δ matching $0.02 × 50,000 units)
+- React re-render of `SectionCard` ✅ (`rollupRefChanged=true`)
+- Drilldown cell input UI ❌ still rendered `0.1`
+
+Root cause: the cell input's `useEffect`'s dep array was
+`[cell?.rowId, cell?.unitCost]`, but `cell?.unitCost` came
+from the prop and never changed on reconcile. PR #87 made the
+cell input subscribe via new `selectPackaging` and derive its
+display value from `s.packaging.find(p => p.rowId === cell.rowId)`.
+
+**Practical recipe:**
+
+```ts
+const storeRows = useCostingStore(selectFoo);
+const liveValue: string | null = cell?.rowId
+  ? (() => {
+      const row = storeRows.find((r) => r.rowId === cell.rowId);
+      if (!row) return cell.value;          // fallback to prop
+      return row.value !== null ? String(row.value) : null;
+    })()
+  : null;
+
+const [value, setValue] = useState(liveValue ?? "");
+
+useEffect(() => {
+  setValue(liveValue ?? "");
+}, [cell?.rowId, liveValue]);
+```
+
+The fallback chain (`storeRow ?? cell`) handles:
+- Row in store (live state) — use store value
+- Row not yet in store (initial mount race) — use prop value
+- Row deleted in store (orphan prop reference) — fall back to
+  prop until next prop update
+
+**Wait-for-quiet protects against autosave clobber:** the
+provider's `scheduleReconcile` (`QUIET_PERIOD_MS=800ms`) defers
+reconciles while the user is actively typing. So `cell?.value`
+in the store only mutates after the user pauses — the local
+input state can sync without clobbering an in-progress edit.
+
+**Followups banked from Slice 11.5.1 MIG-8 close:**
+
+- **`StoredPackagingRow` extension.** Today the store carries
+  `unitCost`, `qtyPerSellableUnit`, `category`, `markupPct` but
+  NOT `supplier`, `notes`, `inventoryEligible`, `markupPctSource`.
+  Cross-tab edits to the omitted fields land in the DB and in
+  the next RSC render but don't reflect in any tab that already
+  has the surface open. Extend `StoredPackagingRow` (and the
+  hydrate/reconcile paths feeding it) to carry the full
+  authoring-side shape.
+- **`production-drilldown.tsx` + `freight-drilldown.tsx` same
+  fix.** Both consume RSC server-snapshot props (`inputRows`,
+  freight legs) without subscribing to store. The same
+  architectural shape fails the same way. Apply the
+  `selectFoo + storeRows.find(...)` overlay pattern; extend
+  the store's freight slices analogously if any field omissions
+  surface during the migration.
+- **CLAUDE.md cross-reference.** Pattern 47 (autosave focus-
+  stability) explicitly cites the wait-for-quiet pipe. This
+  pattern depends on the same pipe for clobber-safety. Both
+  remain authoritative — Pattern 47 governs the input
+  element's `disabled` attribute discipline; this pattern
+  governs where the input's *value* comes from.
+
+**When this pattern applies:** any client component rendered
+inside an RSC tree that ALSO has corresponding state in a
+Zustand store fed by realtime + reconcile. Surfaces in scope
+today: `/costs`, `/pricing`, `/quote`. Future surfaces that
+introduce realtime-fed state should adopt the pattern from
+the start.
+
+**When it doesn't apply:** components that render data the
+store doesn't track (e.g., audit log entries, project metadata
+loaded by RSC but not surfaced as live-edit state). Those stay
+prop-driven.
 
 ## "Canonical design-source CSS imported verbatim"
 
@@ -1968,17 +2122,19 @@ close):
    (PRs #65-#73, 2026-06-17 → 2026-06-18). Adapter +
    write actions + sample seed + verification. OLD-table
    drops carved to Slice 11.5.1 (item 4.5 below).
-5. **Slice 11.5.1 — finish OLD-table drops** — 5-file
-   migration (warnings.ts, markup-defaults, sku-tree,
-   actions/quotes.ts legacy, quote-guards.ts) +
-   `quote_skus` / `packaging_inputs` / `production_inputs` /
-   `quote_sku_tiers` / `quote_sku_tier_targets` drop
-   migration. **Pre-launch** per Edward's 2026-06-18
-   reclassification (wipe-and-reseed at launch eliminates
-   OLD data; legacy reads need to be migrated OR confirmed
-   empty-data-safe BEFORE the wipe). Half-day-to-day scope;
-   slottable between Slice 11.5 close and item 6 audit, OR
-   parallel with Slice 12 external lead time.
+5. ~~**Slice 11.5.1 — finish OLD-table drops**~~ ✅ shipped
+   (PRs #76-#88, 2026-06-19 → 2026-06-25). Steps 1-4 +
+   schema DROP + realtime publication cutover + archive
+   snapshot. MIG-8 close-gate passed via PR #87 (RSC-prop-
+   vs-store fix) + #86 (controlled-input clobber-guard
+   regression). Three §0.5 catches banked: Pattern 70
+   cross-consumer #2 (nav/workspace OLD-table refs, hotfix
+   PR #83), RSC-prop-vs-store architectural drift (PR #87),
+   and the new "RSC snapshot props vs Zustand store" pattern
+   above. Two follow-ups banked: `StoredPackagingRow`
+   extension for supplier/qty/notes/inventoryEligible/
+   markupPctSource fields; production-drilldown +
+   freight-drilldown same fix shape.
 6. **Slice 11 audit** — PDF + send + snapshot orphans. Picks
    up Pattern 45 customer-facing render audit + #A16
    Mark-Accepted bundle compat verification post-merge.
