@@ -10,6 +10,7 @@ import { AddLineButton } from "@/app/projects/[id]/quotes/[quoteId]/packaging/ad
 import { useCostingStore } from "@/components/costing-store-provider";
 import {
   selectActiveTierId,
+  selectPackaging,
   selectUpdatePackagingCell,
   selectUpdatePackagingLineMeta,
 } from "@/lib/costing-store";
@@ -338,30 +339,41 @@ function PackagingRow({
   const activeTierId = useCostingStore(selectActiveTierId);
   const updateLineMeta = useCostingStore(selectUpdatePackagingLineMeta);
 
+  // Slice 11.5.1 MIG-8 close-gate — subscribe to store for live
+  // category + markupPct values. Same prop-vs-store-snapshot
+  // architectural issue as PackagingCellInput below: the `line`
+  // prop is RSC-rendered and stale; the store reflects realtime
+  // reconciles. `supplier` and `qtyPerSellableUnit` are NOT in
+  // the store (StoredPackagingRow omits them) — those still
+  // depend on prop updates and won't reflect cross-tab edits
+  // until a follow-up extends StoredPackagingRow. Banked.
+  const storePackaging = useCostingStore(selectPackaging);
+  const storeLineRow = storePackaging.find(
+    (p) => p.lineGroupId === line.lineGroupId,
+  );
+  const storeCategory: string = storeLineRow?.category ?? line.category ?? "";
+  const storeMarkupPct: string =
+    storeLineRow?.markupPct !== null && storeLineRow?.markupPct !== undefined
+      ? String(storeLineRow.markupPct)
+      : (line.markupPct ?? "");
+
   const [supplier, setSupplier] = useState(line.supplier ?? "");
-  const [category, setCategory] = useState(line.category ?? "");
-  const [markupPct, setMarkupPct] = useState(line.markupPct ?? "");
+  const [category, setCategory] = useState(storeCategory);
+  const [markupPct, setMarkupPct] = useState(storeMarkupPct);
   const supplierDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef({ supplier, category, markupPct });
   stateRef.current = { supplier, category, markupPct };
 
-  // Sync local input state to the store's line values on EITHER:
-  //   - line identity change (different lineGroupId mounted here)
-  //   - same line, value changed externally (cross-tab realtime
-  //     reconcile, or this user's own save returning fresh data)
-  //
-  // Wait-for-quiet at CostingStoreProvider (QUIET_PERIOD_MS=800ms)
-  // guarantees this can't clobber an in-progress edit.
-  //
-  // Slice 11.5.1 MIG-8 close-gate fix: the prior guard on
-  // `lineGroupId !== initialId.current` skipped same-line
-  // value-only changes, leaving the row stuck at the optimistic
-  // pre-reconcile values when another tab edited the same line.
+  // Sync local input state on EITHER line identity change OR
+  // value change. supplier is prop-driven (not in store);
+  // category + markupPct are store-driven for cross-tab sync.
+  // Wait-for-quiet at the provider level (QUIET_PERIOD_MS=800ms)
+  // prevents mid-typing clobber.
   useEffect(() => {
     setSupplier(line.supplier ?? "");
-    setCategory(line.category ?? "");
-    setMarkupPct(line.markupPct ?? "");
-  }, [line.lineGroupId, line.supplier, line.category, line.markupPct]);
+    setCategory(storeCategory);
+    setMarkupPct(storeMarkupPct);
+  }, [line.lineGroupId, line.supplier, storeCategory, storeMarkupPct]);
 
   useEffect(
     () => () => {
@@ -579,30 +591,42 @@ function PackagingTierCell({
   const cell = line.cells.get(tierId);
   const [pending, startTransition] = useTransition();
   const updatePackagingCell = useCostingStore(selectUpdatePackagingCell);
-  const [unitCost, setUnitCost] = useState(cell?.unitCost ?? "");
+
+  // Slice 11.5.1 MIG-8 close-gate — subscribe to the store's
+  // packaging slice to pick up cross-tab realtime reconciles.
+  // The `cell` from `line.cells.get(tierId)` is derived from the
+  // page-level `inputRows` prop, which is an RSC server snapshot
+  // and does NOT refresh when the store reconciles. Cross-tab
+  // edits would update the store but leave the cell input
+  // rendering its stale prop value until a server-side
+  // revalidation. Subscribing here makes the cell input
+  // store-driven for its unit cost.
+  const storePackaging = useCostingStore(selectPackaging);
+  const storeUnitCost: string | null = cell?.rowId
+    ? (() => {
+        const row = storePackaging.find((p) => p.rowId === cell.rowId);
+        if (!row) return cell.unitCost;
+        return row.unitCost !== null ? String(row.unitCost) : null;
+      })()
+    : null;
+
+  const [unitCost, setUnitCost] = useState(storeUnitCost ?? "");
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const valueRef = useRef(unitCost);
   valueRef.current = unitCost;
 
-  // Sync local input state to the store's cell value on EITHER:
+  // Sync local input state to the store-tracked value on EITHER:
   //   - row identity change (different cell mounted in this slot)
-  //   - same row, value changed externally (cross-tab realtime
-  //     reconcile, or this user's own save returning fresh data)
+  //   - same row, value changed in the store (own edit, own
+  //     reconcile, or cross-tab realtime reconcile)
   //
   // The wait-for-quiet pipe in CostingStoreProvider's
   // scheduleReconcile (QUIET_PERIOD_MS=800ms) guarantees this
-  // effect doesn't fire mid-typing — `cell?.unitCost` only mutates
-  // after the user has paused, so syncing here can't clobber an
-  // in-progress edit.
-  //
-  // Slice 11.5.1 MIG-8 close-gate fix: the prior guard
-  // (`cell?.rowId !== initialRowId.current`) skipped same-row
-  // value-only changes, leaving the input stuck at the optimistic
-  // pre-reconcile value when another tab edited the same cell.
-  // Aligns with `production-drilldown.tsx`'s identical-shape sync.
+  // effect doesn't fire mid-typing — store reconciles defer
+  // while the user is actively typing in any cell on this quote.
   useEffect(() => {
-    setUnitCost(cell?.unitCost ?? "");
-  }, [cell?.rowId, cell?.unitCost]);
+    setUnitCost(storeUnitCost ?? "");
+  }, [cell?.rowId, storeUnitCost]);
 
   useEffect(
     () => () => {
