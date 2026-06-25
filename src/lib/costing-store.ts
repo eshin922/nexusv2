@@ -939,6 +939,15 @@ export const selectTierPriceAdj =
     return t ? t.tierPriceAdjPct : null;
   };
 
+// Slice 11.5.1 MIG-8 close-gate — packaging input rows (live store
+// state). Cost cells in `packaging-drilldown.tsx` subscribe via this
+// to pick up cross-tab realtime reconciles; the page-level
+// `inputRows` prop is an RSC server snapshot that doesn't refresh on
+// store changes, so prop-driven cells display stale values after a
+// remote edit. With ~27 rows per quote at v1 scale, subscribing to
+// the full array is fine — every cell re-renders on every reconcile.
+export const selectPackaging = (s: CostingStoreState) => s.packaging;
+
 // Slice 9.3 — per-cell override action selector.
 export const selectUpdateCellOverride = (s: CostingStoreState) =>
   s.updateCellOverride;
