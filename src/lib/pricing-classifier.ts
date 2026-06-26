@@ -423,22 +423,28 @@ export function classify(
         primary: true,
         projected_blended_after_apply: projectBlended("apply_surgical"),
       });
-    } else if (quote.suggestion_infeasible) {
+    } else {
+      // P0 A2 fix (2026-06-25) — collapse the `else if
+      // (quote.suggestion_infeasible)` + `else calculating_suggestion`
+      // branches into one `suggestion_infeasible` emission.
+      //
+      // Per BUG-1 disposition (see line 129-138 above): v1 engine is
+      // sync; any null-suggestion case is structurally infeasible,
+      // not in-flight. `calculating_suggestion` is reserved for a
+      // future async engine path.
+      //
+      // The prior gating on `quote.suggestion_infeasible` missed the
+      // semantic asymmetry between cell-driven mode (this classifier)
+      // and rollup-driven suggestion engine (pricing-suggestions.ts).
+      // When a cell is below floor but the tier's BLENDED margin is
+      // above floor, mode='blocked' (cell-level) but engine returns
+      // null (no tier-level rollup is below floor) → adapter sets
+      // suggestion_infeasible=false → stuck in calculating forever.
       actions.push({
         kind: "suggestion_infeasible",
         label: "Suggestion unavailable — math infeasible",
         sublabel:
-          "Engine couldn't compute a viable lift path (zero-revenue tiers, missing cost data, or required adjustment exceeds the ±999% field range). Enter pricing on the Costs surface, or use admin override.",
-        recommended: true,
-        primary: true,
-        disabled: true,
-      });
-    } else {
-      actions.push({
-        kind: "calculating_suggestion",
-        label: "Calculating suggestion…",
-        sublabel:
-          "Suggestion engine is computing a lift path. Refresh in a moment.",
+          "Engine couldn't compute a viable lift path (zero-revenue tiers, cell-level breach with healthy tier blended margin, or required adjustment exceeds the ±999% field range). Enter pricing on the Costs surface, or use admin override.",
         recommended: true,
         primary: true,
         disabled: true,
@@ -483,22 +489,19 @@ export function classify(
         primary: true,
         projected_blended_after_apply: projectBlended("apply_global"),
       });
-    } else if (quote.suggestion_infeasible) {
+    } else {
+      // P0 A2 fix (2026-06-25) — collapse `else if
+      // (quote.suggestion_infeasible)` + `else calculating_suggestion`
+      // into one `suggestion_infeasible` emission. Per BUG-1
+      // disposition: v1 engine is sync; any null-suggestion case in
+      // suggestion-led mode is structurally infeasible. See blocked-
+      // mode comment above for the cell-vs-rollup asymmetry that
+      // surfaces this in production.
       actions.push({
         kind: "suggestion_infeasible",
         label: "Suggestion unavailable — math infeasible",
         sublabel:
-          "Engine couldn't compute a viable lift path (zero-revenue tiers, missing cost data, or required adjustment exceeds the ±999% field range). Enter pricing on the Costs surface to recover.",
-        recommended: true,
-        primary: true,
-        disabled: true,
-      });
-    } else {
-      actions.push({
-        kind: "calculating_suggestion",
-        label: "Calculating suggestion…",
-        sublabel:
-          "Suggestion engine is computing a lift path. Refresh in a moment.",
+          "Engine couldn't compute a viable lift path (zero-revenue tiers, cell-level breach with healthy tier blended margin, or required adjustment exceeds the ±999% field range). Enter pricing on the Costs surface to recover.",
         recommended: true,
         primary: true,
         disabled: true,
