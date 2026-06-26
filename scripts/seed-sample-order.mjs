@@ -166,11 +166,20 @@ const ASSEMBLIES = [
 // Per-tier-price adjustment values land target margin curve per
 // brief v2 A2. Cost variation (assembly_leaf_inputs + production
 // curve) accounts for most of the margin shape; tier_price_adj_pct
-// fine-tunes each tier to land in target band. Iterated values
-// determined by Step 6 verify script — see step-6 verification doc
-// for the per-tier math.
+// fine-tunes each tier to land in target band.
+//
+// **P0 (2026-06-26) — T1 bumped 0.18 → 0.22 to avoid cell-vs-rollup
+// asymmetry.** Prior values landed T1 blended at 36.5% (above 35%
+// target) but the lower-margin SKU's T1 cell at 34.8% (below
+// target). That tripped the suggestion engine's stuck-pending state
+// (engine works on tier-rollup blended; classifier works on
+// per-cell minimum — see `suggestionInfeasible` adapter fix in
+// `pricing-classifier-context.tsx`). Bumping T1 pushes the lowest
+// SKU cell above target → sendable demo across all tiers, no
+// asymmetry-stuck state. Iterated values determined by Step 6
+// verify script; T1 deliberately above-edge now per P0 fix.
 const TIERS = [
-  { label: "5K", qty: 5000, sortOrder: 0, recommended: false, tierPriceAdjPct: "0.1800" },
+  { label: "5K", qty: 5000, sortOrder: 0, recommended: false, tierPriceAdjPct: "0.2200" },
   { label: "15K", qty: 15000, sortOrder: 1, recommended: true, tierPriceAdjPct: "0.2800" },
   { label: "50K", qty: 50000, sortOrder: 2, recommended: false, tierPriceAdjPct: "0.3700" },
 ];

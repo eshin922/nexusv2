@@ -428,7 +428,7 @@ export function classify(
         kind: "suggestion_infeasible",
         label: "Suggestion unavailable — math infeasible",
         sublabel:
-          "Engine couldn't compute a viable lift path (zero-revenue tiers, missing cost data, or required adjustment exceeds the ±999% field range). Enter pricing on the Costs surface, or use admin override.",
+          "Engine couldn't compute a tier-level lift. Common causes: one SKU below floor while the tier's blended margin is above (address the SKU directly, not the tier), zero-revenue tiers, missing cost data, or required adjustment exceeds the ±999% bound. Enter pricing on the Costs surface, or use admin override.",
         recommended: true,
         primary: true,
         disabled: true,
@@ -488,7 +488,7 @@ export function classify(
         kind: "suggestion_infeasible",
         label: "Suggestion unavailable — math infeasible",
         sublabel:
-          "Engine couldn't compute a viable lift path (zero-revenue tiers, missing cost data, or required adjustment exceeds the ±999% field range). Enter pricing on the Costs surface to recover.",
+          "Engine couldn't compute a tier-level lift. Common causes: one SKU below target while the tier's blended margin is above (address the SKU directly, not the tier), zero-revenue tiers, missing cost data, or required adjustment exceeds the ±999% bound. Enter pricing on the Costs surface to recover.",
         recommended: true,
         primary: true,
         disabled: true,
