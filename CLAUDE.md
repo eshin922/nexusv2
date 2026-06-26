@@ -840,17 +840,107 @@ Cumulative catch count tracked here as a milestone signal:
   store type extends.
 
   Cumulative: **74 across 15 slices.**
+- **+1 catch (MS OAuth workstream, 2026-06-25):** Microsoft
+  Entra tenant-admin consent policy. Single-tenant OAuth
+  app configured against the firm's Entra tenant required
+  admin-level consent grant for the requested scopes;
+  user-level sign-in failed silently with a tenant-policy
+  block until the consent grant landed. Discovery surfaced
+  during MS OAuth retry attempts. Infrastructure constraint
+  class (per the 75-catch milestone summary below).
 
-**Next milestone: 75 catches.** One catch away. When the next
-catch lands, bank a "75-catch milestone" subsection summarizing
-the catch-shape distribution (notation errors vs architectural
-mismatches vs duplicate-column proposals vs code-architecture
-mismatches per the Pattern 22 extension). The milestone marker
-forces a fresh framing of *what kinds of catches* are dominating
-and whether the brief template needs an update to bias against
-the dominant class.
+  Cumulative: **75 across 15 slices.**
 
-Tracked by Edward 2026-06-18 (Slice 11.5 close-out).
+### 75-catch milestone — what kinds of catches dominate
+
+Banked at #75 per the milestone protocol. The Pattern 22
+extension framing of "DB schema + module boundaries + CSS
+namespace + API contracts + token coverage" captures the
+*targets* of verification, but the dominant FAILURE MODE that
+surfaces across these targets clusters into a different
+taxonomy. Three classes account for the bulk of the ledger:
+
+**Class A — Infrastructure constraint discovery
+(silently-failing platform limits).** 3 catches this cluster:
+- #69 Supabase pooler dual-budget gap (pool_size vs
+  PG max_connections, both must be audited)
+- #72 Supabase Realtime undocumented 10-binding-per-channel
+  cap (channel silently failed past the threshold)
+- #75 Microsoft Entra single-tenant admin-consent policy
+  (user-level sign-in blocked until admin consent grant)
+
+Common shape: an external platform constraint that ISN'T
+visible in standard observability (no error log, no metric
+alert, no explicit rejection at config time). The failure
+materializes only when expected behavior breaks at runtime.
+Standard `pg_stat_activity` queries miss pgbouncer queue
+saturation; Supabase's docs don't enumerate channel binding
+caps; OAuth scope grants succeed at app config time but block
+silently at sign-in.
+
+**Class B — Process discipline (audit-coverage gaps).** 4
+catches this cluster:
+- #70 Cross-consumer migration audit gap (Slice 11.5 covered
+  queries + writes; missed realtime + publication membership)
+- #71 Brief function categorization vs reality (Slice 11.5.1
+  preserve-listed `addTier` / `applyTierPreset` / `sendQuote`
+  had OLD-table fan-out hidden in function bodies)
+- #73 Pattern 70 cross-consumer #2 (raw SQL in `src/lib/nav/`
+  + `workspace-queries.ts` outside the audit's sweep)
+- 2 carry-over from earlier slices
+
+Common shape: a verification step exists but its scope DOESN'T
+cover the actual fail surface. Audit covered actions but missed
+realtime. Audit covered query names but missed raw-SQL queries
+in `lib/`. Brief categorized by function name but the function
+body diverged from the categorization.
+
+**Class C — Code architecture / hydration discipline.** 1
+catch this cluster:
+- #74 RSC snapshot prop vs Zustand store derivation
+
+Common shape: client component renders from a frozen prop while
+sibling code paths render from live store; both work in
+isolation but diverge silently in cross-tab / cross-update
+scenarios. Surfaces only via end-to-end walk, not unit-level
+verification.
+
+**The remaining ~67 catches** span notation errors, missing
+columns, FK shape mismatches, etc. — the original §0.5 cohort.
+Those still dominate by absolute count but are decreasing in
+relative frequency as briefs get more architecturally explicit.
+
+**Dominant pattern this milestone: Class A — silently-failing
+platform constraints.** Three of the last seven catches were
+infrastructure constraints not discoverable from the brief
+content alone. The brief template currently has §0.5 covering
+"DB schema + module boundaries + CSS namespace + API contracts
++ token coverage" — but DOESN'T explicitly enumerate **platform
+constraint discovery** as a sweep dimension.
+
+**Brief template bias correction (proposed for next slice
+brief):** add an explicit `§0.5.5 — Platform constraint
+enumeration` step that lists every external platform the slice
+touches (Supabase Realtime, Supabase pooler, Vercel function
+limits, OAuth provider, third-party API rate limits, email
+provider quotas, PDF generation library memory/time limits,
+etc.) and asks CC to surface KNOWN constraints + INVESTIGATE
+unknown limits BEFORE implementation. The investigation
+artifact can be brief — a single line per platform — but the
+enumeration forces the discovery to be pre-build, not
+mid-build.
+
+When this proposal lands in the next slice brief, the §0.5.5
+verification gate becomes the bias correction the 75-catch
+milestone surfaces.
+
+**Next milestone: 100 catches.** Likely 5-8 slices out at
+current rate. Re-run distribution analysis then to confirm
+whether the Class A bias correction (when adopted) shifts the
+dominant class.
+
+Tracked by Edward 2026-06-18 (Slice 11.5 close-out). Milestone
+analysis 2026-06-25 (Slice 11.5.1 close + MS OAuth #75).
 
 ### Pattern 22 extension — verification covers code architecture (refinement, 2026-05-13)
 
