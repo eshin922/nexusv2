@@ -258,6 +258,12 @@ function buildClassifierInputs({
         sell_unit: number | null;
         cost_unit: number | null;
         override_applied: boolean;
+        cost_stack: {
+          pkg: number;
+          prod: number;
+          frt: number;
+          dt: number;
+        } | null;
       }> = {};
       let clientTargetUnit: number | null = null;
       for (const pt of sr.perTier) {
@@ -279,6 +285,23 @@ function buildClassifierInputs({
           sell_unit: isMissing ? null : pt.requiredSellPerUnit,
           cost_unit: isMissing ? null : pt.contributionCostPerUnit,
           override_applied: pt.sellSource === "cell_override",
+          // P0 A1 fix (2026-06-25) — populate cost_stack from the
+          // math layer's per-unit marked-up sums. DetailCostStack
+          // filters cells where cost_stack is truthy; without
+          // this, every cell rendered "—" in the per-tier table
+          // ("Show pricing detail" expansion). Pre-existing bug
+          // since Slice RI.8 (the inline-rollup fallback comment
+          // at DetailCostStack:302-308 was incorrect — the
+          // fallback never runs because the filter rejects all
+          // null-cost_stack cells).
+          cost_stack: isMissing
+            ? null
+            : {
+                pkg: pt.packagingMarkupSumPerUnit,
+                prod: pt.productionMarkupSumPerUnit,
+                frt: pt.freightContainerMarkupSumPerUnit,
+                dt: pt.freightDutyTariffMarkupSumPerUnit,
+              },
         };
         if (clientTargetUnit == null) {
           const tgt = cellTargetLookup(sr.skuId, pt.tierId);
