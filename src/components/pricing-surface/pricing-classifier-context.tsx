@@ -349,8 +349,35 @@ function buildClassifierInputs({
     surgical.disabledReason === null &&
     surgical.applyTo.length > 0;
   const usableGlobal = global_ && global_.disabledReason === null;
+
+  // P0 A2 fix (2026-06-25) — cell-vs-rollup semantic asymmetry.
+  // The classifier mode is CELL-driven (worst-case across SKUs in a
+  // tier); the suggestion engine is TIER-ROLLUP-driven (tier blended
+  // margin). When ONE SKU's cell margin is below target but the tier
+  // BLENDED margin is above target, classifier emits `suggestion_led`
+  // mode but engine returns null (no tier in the rollup is below
+  // target/floor). The original `engineCallReturnedOptions && ...`
+  // gating missed this case → falls through to `calculating_suggestion`
+  // permanently. Per BUG-1 disposition ("v1 engine is sync; any null-
+  // suggestion case is structurally infeasible, not in-flight"), flip
+  // `suggestionInfeasible=true` when engine returned null AND the
+  // cells contain a below-target/below-floor margin that the
+  // classifier WILL surface as a non-sendable mode.
+  let anyCellBelowTarget = false;
+  for (const sku of skus) {
+    for (const cell of Object.values(sku.cells)) {
+      const m = cell?.margin_pct;
+      if (m != null && m < effectiveTarget) {
+        anyCellBelowTarget = true;
+        break;
+      }
+    }
+    if (anyCellBelowTarget) break;
+  }
+
   const suggestionInfeasible =
-    engineCallReturnedOptions && !usableSurgical && !usableGlobal;
+    (engineCallReturnedOptions && !usableSurgical && !usableGlobal) ||
+    (!engineCallReturnedOptions && anyCellBelowTarget);
 
   const suggestions: QuoteInput["suggestions"] = {};
   if (usableSurgical && surgical && surgical.applyTo[0]) {
