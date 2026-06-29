@@ -74,6 +74,9 @@ export default function CustomerPdfVerifyPage() {
         <p style={{ fontSize: 14, color: "#555", marginBottom: 12 }}>
           Full StatePure (tier_table · itemized) render against CD&apos;s
           fixture data. Confirms the component tree compiles end-to-end.
+          Includes one spec-addendum page (Step 3b verbatim port)
+          exercising all three leaf-block variants (typed-with-fields,
+          placeholder, untyped).
         </p>
         <a
           href="/api/customer-pdf-verify/sample"
