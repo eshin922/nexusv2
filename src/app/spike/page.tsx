@@ -5,11 +5,17 @@
 // production (no public access); the smoke walks it from a signed-in
 // PM session in dev + on a Vercel preview deployment.
 //
-// Route: /_spike
+// Route: /spike
 // Trigger: form submits to spikeRenderPdf() server action;
 //          result rendered inline.
+//
+// **Folder MUST NOT start with `_`** — Next.js App Router treats
+// underscored folders as private and excludes them from routing
+// (next.js.org/docs/app/getting-started/project-structure#private-folders).
+// Initial scaffold used `_spike` and 404'd accordingly; renamed to
+// `spike` for the smoke walk.
 
-import { spikeRenderPdf } from "@/app/actions/_spike-pdf";
+import { spikeRenderPdf } from "@/app/actions/spike-pdf";
 
 export default async function SpikePage({
   searchParams,
@@ -38,7 +44,7 @@ export default async function SpikePage({
         <code>spike/slice-11-react-pdf-smoke</code> (delete after pass).
       </p>
 
-      <form action="/_spike" method="GET">
+      <form action="/spike" method="GET">
         <input type="hidden" name="run" value="1" />
         <button
           type="submit"
