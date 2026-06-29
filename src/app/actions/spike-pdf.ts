@@ -11,7 +11,7 @@
 //   4. Vercel preview deployment doesn't blow function-size budget
 //
 // Branch: spike/slice-11-react-pdf-smoke (delete after smoke passes).
-// Trigger: src/app/_spike/page.tsx renders a form that POSTs to this action.
+// Trigger: src/app/spike/page.tsx renders a form that POSTs to this action.
 
 import path from "node:path";
 import React from "react";

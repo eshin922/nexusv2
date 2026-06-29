@@ -2,7 +2,7 @@
 //
 // Streams the rendered PDF as application/pdf so the smoke walker
 // can open it in a viewer to confirm Newsreader + JetBrains Mono
-// render and tabular-nums applies. Pair with /_spike (which calls
+// render and tabular-nums applies. Pair with /spike (which calls
 // the action + reports buffer metadata) for the full smoke.
 //
 // Branch: spike/slice-11-react-pdf-smoke (delete after pass).
