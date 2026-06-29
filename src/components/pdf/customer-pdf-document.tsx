@@ -20,6 +20,35 @@
 //
 // Pattern 45 boundary: only fixture-shape prop types from
 // `customer-pdf-types`; zero costing-surface imports.
+//
+// ─── Multi-page <Document> seam (post-Step-3 amendment 2026-06-29) ───
+//
+// Per §0.5 catch #79: the spec addendum (impl-6 shipped) lives in
+// `src/components/pdf/` and must render INTO the generated PDF when
+// the `include_spec_addendum` toggle is on (Edward Option A —
+// "we include specs all the time when requested"). The generated
+// PDF and the QuoteHost preview assemble as one react-pdf
+// `<Document>` of pricing page(s) + N addendum pages.
+//
+// This seam is the architectural slot: each State composition
+// accepts an optional `addendumPages?: ReactNode` and renders it
+// AFTER the pricing `<Page>`(s). Step 3b ports the addendum
+// component itself; this file's job is to provide the slot.
+//
+// **Caller responsibility:** gate `addendumPages` on
+// `data.includeSpecAddendum` AND `addendum.hasMeaningfulContent`
+// (the impl-6 hasMeaningfulContent guard — per scenario ㉗,
+// "all empty → addendum doesn't render"). The State compositions
+// don't decide; they just render the slot. Adapter / send action
+// determines whether to pass it.
+//
+// **The single <Document> wrap stays here**, not in Step 3b — the
+// addendum is composed INTO the existing pricing Document so
+// renderToBuffer produces one buffer. Step 3b emits a fragment
+// of <Page> elements; this file's State compositions accept that
+// fragment as the addendumPages prop.
+
+import type { ReactNode } from "react";
 
 import { Document, Page, Text, View } from "@react-pdf/renderer";
 
@@ -156,11 +185,14 @@ export function StatePure({
   skuSet,
   layout,
   detail,
+  addendumPages,
 }: {
   data: CpdfData;
   skuSet: ReadonlyArray<CpdfData["skus"][number]>;
   layout: CpdfPdfLayout;
   detail: CpdfDetailLevel;
+  /** Multi-page seam (Step 3b fills via the addendum verbatim port). */
+  addendumPages?: ReactNode;
 }) {
   const {
     vendor,
@@ -229,6 +261,7 @@ export function StatePure({
           </View>
         </View>
       </Page>
+      {addendumPages}
     </Document>
   );
 }
@@ -240,11 +273,14 @@ export function StatePassThrough({
   skuSet,
   layout,
   detail,
+  addendumPages,
 }: {
   data: CpdfData;
   skuSet: ReadonlyArray<CpdfData["skus"][number]>;
   layout: CpdfPdfLayout;
   detail: CpdfDetailLevel;
+  /** Multi-page seam (Step 3b fills via the addendum verbatim port). */
+  addendumPages?: ReactNode;
 }) {
   const {
     vendor,
@@ -291,6 +327,7 @@ export function StatePassThrough({
             </View>
           </View>
         </Page>
+        {addendumPages}
       </Document>
     );
   }
@@ -343,6 +380,7 @@ export function StatePassThrough({
           </View>
         </View>
       </Page>
+      {addendumPages}
     </Document>
   );
 }
@@ -354,11 +392,14 @@ export function StatePartial({
   skuSet,
   layout,
   detail,
+  addendumPages,
 }: {
   data: CpdfData;
   skuSet: ReadonlyArray<CpdfData["skus"][number]>;
   layout: CpdfPdfLayout;
   detail: CpdfDetailLevel;
+  /** Multi-page seam (Step 3b fills via the addendum verbatim port). */
+  addendumPages?: ReactNode;
 }) {
   const {
     vendor,
@@ -399,6 +440,7 @@ export function StatePartial({
             </View>
           </View>
         </Page>
+        {addendumPages}
       </Document>
     );
   }
@@ -441,6 +483,7 @@ export function StatePartial({
           </View>
         </View>
       </Page>
+      {addendumPages}
     </Document>
   );
 }
