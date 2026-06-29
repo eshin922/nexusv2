@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nexus · CD — Customer-Facing PDF Render Layer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="app/cpdf/styles.css" />
+</head>
+<body>
+
+<template id="__bundler_thumbnail">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+    <rect width="400" height="400" fill="oklch(0.97 0.012 85)"/>
+    <g transform="translate(132 96)">
+      <rect x="0" y="0" width="136" height="176" rx="6" fill="oklch(0.995 0.002 95)" stroke="oklch(0.30 0.018 255)" stroke-width="3"/>
+      <rect x="18" y="22" width="64" height="8" rx="2" fill="oklch(0.30 0.018 255)"/>
+      <rect x="18" y="44" width="100" height="4" rx="2" fill="oklch(0.72 0.012 90)"/>
+      <rect x="18" y="78" width="100" height="3" rx="1.5" fill="oklch(0.80 0.01 90)"/>
+      <rect x="92" y="92" width="26" height="44" rx="2" fill="oklch(0.96 0.02 95)" stroke="oklch(0.50 0.03 255)" stroke-width="1.5"/>
+      <rect x="18" y="96" width="64" height="3" rx="1.5" fill="oklch(0.80 0.01 90)"/>
+      <rect x="18" y="112" width="64" height="3" rx="1.5" fill="oklch(0.80 0.01 90)"/>
+      <rect x="18" y="128" width="64" height="3" rx="1.5" fill="oklch(0.80 0.01 90)"/>
+      <circle cx="105" cy="84" r="4" fill="oklch(0.56 0.13 72)"/>
+    </g>
+    <text x="200" y="324" font-family="Newsreader, serif" font-style="italic" font-size="26" text-anchor="middle" fill="oklch(0.30 0.018 255)">customer PDF</text>
+  </svg>
+</template>
+
+<div id="root"></div>
+
+<script>
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "theme": "light",
+    "state": "pure",
+    "pdfLayout": "tier_table",
+    "detailLevel": "itemized"
+  }/*EDITMODE-END*/;
+</script>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script src="app/cpdf/data.js"></script>
+<script type="text/babel" src="app/cpdf/pdf-render.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+function Root() {
+  const [tweaks, setTweaks] = useState(window.TWEAK_DEFAULTS || { theme: "light", state: "passThrough", pdfLayout: "tier_table", detailLevel: "itemized" });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", tweaks.theme || "light");
+  }, [tweaks.theme]);
+
+  const setTweak = (k, v) => setTweaks(prev => {
+    const next = typeof k === "object" ? { ...prev, ...k } : { ...prev, [k]: v };
+    window.parent.postMessage({ type: "__edit_mode_set_keys", edits: typeof k === "object" ? k : { [k]: v } }, "*");
+    return next;
+  });
+
+  return (
+    <div className="cpdf-root">
+      <window.CustomerPdfHost
+        state={tweaks.state}
+        setState={(v) => setTweak("state", v)}
+        layout={tweaks.pdfLayout}
+        setLayout={(v) => setTweak("pdfLayout", v)}
+        detail={tweaks.detailLevel}
+        setDetail={(v) => setTweak("detailLevel", v)}
+      />
+      <window.TweaksPanel title="PDF render">
+        <window.TweakSection label="Prototype navigation" />
+        <window.TweakSelect
+          label="Page state"
+          value={tweaks.state}
+          options={[
+            { value: "pure", label: "① Pure tier-pricing" },
+            { value: "passThrough", label: "② Pass-through + fees" },
+            { value: "partial", label: "③ Partial + overflow" },
+          ]}
+          onChange={(v) => setTweak("state", v)}
+        />
+        <window.TweakRadio
+          label="Layout"
+          value={tweaks.pdfLayout}
+          options={[{ value: "tier_table", label: "Tier table" }, { value: "single_tier", label: "Single tier" }]}
+          onChange={(v) => setTweak("pdfLayout", v)}
+        />
+        <window.TweakRadio
+          label="Detail"
+          value={tweaks.detailLevel}
+          options={[{ value: "itemized", label: "Itemized" }, { value: "turnkey_only", label: "Turnkey" }]}
+          onChange={(v) => setTweak("detailLevel", v)}
+        />
+        <window.TweakSection label="Preview" />
+        <window.TweakRadio
+          label="Theme"
+          value={tweaks.theme}
+          options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }]}
+          onChange={(v) => setTweak("theme", v)}
+        />
+      </window.TweaksPanel>
+    </div>
+  );
+}
+
+const { Fragment } = React;
+ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
+</script>
+
+</body>
+</html>
