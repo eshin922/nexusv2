@@ -112,9 +112,9 @@ export const addendumStyles = StyleSheet.create({
     backgroundColor: A1V2_PAPER,
     color: A1V2_INK,
     fontFamily: PDF_FONT_FAMILY.serif,
-    paddingTop: 36,
-    paddingHorizontal: 40,
-    paddingBottom: 48,
+    paddingTop: 27,
+    paddingHorizontal: 30,
+    paddingBottom: 36,
     flexDirection: "column",
   },
   // The flowing content region inside the page padding.
@@ -129,11 +129,11 @@ export const addendumStyles = StyleSheet.create({
   // 22, display grid 1fr auto. Grid → flex row with title flex 1
   // and meta auto. Two children spaced with the gap.
   header: {
-    paddingBottom: 14,
-    borderBottomWidth: 2,
+    paddingBottom: 10.5,
+    borderBottomWidth: 1.5,
     borderBottomColor: A1V2_INK,
     borderBottomStyle: "solid",
-    marginBottom: 22,
+    marginBottom: 16.5,
     flexDirection: "row",
     alignItems: "flex-start",
   },
@@ -143,29 +143,29 @@ export const addendumStyles = StyleSheet.create({
   },
   // CSS gap: 18px → marginLeft on the right-hand child.
   headerR: {
-    marginLeft: 18,
+    marginLeft: 13.5,
     flexDirection: "column",
   },
   // `.a1v2-addendum-header .title` — display 22 / weight 500 / -0.015em
   headerTitle: {
     fontFamily: PDF_FONT_FAMILY.serif,
     fontWeight: 500,
-    fontSize: 22,
+    fontSize: 16.5,
     letterSpacing: -0.33, // -0.015em × 22px
     color: A1V2_INK,
-    marginBottom: 4,
+    marginBottom: 3,
   },
   // Subtitle (inline-styled in source L1026: ui font, 11.5, ink-3)
   // var(--ui) → Newsreader per brief substitution rule.
   headerSubtitle: {
     fontFamily: PDF_FONT_FAMILY.serif,
-    fontSize: 11.5,
+    fontSize: 8.75,
     color: A1V2_INK_3,
   },
   // `.a1v2-addendum-header .meta` — mono 10.5, ink-3, 0.06em, upper
   headerMeta: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 10.5,
+    fontSize: 8,
     color: A1V2_INK_3,
     letterSpacing: 0.63, // 0.06em × 10.5px
     // text-transform: uppercase → .toUpperCase() JSX-side
@@ -175,16 +175,16 @@ export const addendumStyles = StyleSheet.create({
   // Per-ASY block — `.a1v2-addendum-asy` (CSS L731-750)
   // ─────────────────────────────────────────────────────────────
   asy: {
-    marginBottom: 22,
+    marginBottom: 16.5,
   },
   // `.asy-head` — flex row baseline, gap 10, mb 14, pb 8, border-bottom
   // 1px rule-2. Grid → flex; sku + name on left, meta margin-left auto.
   asyHead: {
     flexDirection: "row",
     alignItems: "baseline",
-    marginBottom: 14,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
+    marginBottom: 10.5,
+    paddingBottom: 6,
+    borderBottomWidth: 0.75,
     borderBottomColor: A1V2_RULE_2,
     borderBottomStyle: "solid",
   },
@@ -192,27 +192,27 @@ export const addendumStyles = StyleSheet.create({
   // padding 3/8, radius 4.
   asyHeadSku: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 11,
+    fontSize: 8.25,
     color: A1V2_ACCENT_INK,
     letterSpacing: 0.66, // 0.06em × 11px
     backgroundColor: A1V2_ACCENT_TINT,
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 4,
+    paddingVertical: 2.25,
+    paddingHorizontal: 6,
+    borderRadius: 3,
   },
   // `.asy-head .name` — display 16, weight 500, ink, -0.005em.
   asyHeadName: {
     fontFamily: PDF_FONT_FAMILY.serif,
     fontWeight: 500,
-    fontSize: 16,
+    fontSize: 12,
     color: A1V2_INK,
     letterSpacing: -0.08, // -0.005em × 16px
-    marginLeft: 10, // CSS gap: 10px between siblings
+    marginLeft: 7.5, // CSS gap: 10px between siblings
   },
   // `.asy-head .meta` — mono 10, ink-4, 0.04em, margin-left auto.
   asyHeadMeta: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 10,
+    fontSize: 7.5,
     color: A1V2_INK_4,
     letterSpacing: 0.4, // 0.04em × 10px
     marginLeft: "auto",
@@ -227,31 +227,31 @@ export const addendumStyles = StyleSheet.create({
   // padding 14, margin-bottom 12.
   leafBlock: {
     backgroundColor: A1V2_PAPER_2,
-    borderWidth: 1,
+    borderWidth: 0.75,
     borderColor: A1V2_RULE,
     borderStyle: "solid",
-    borderRadius: 8,
-    padding: 14,
-    marginBottom: 12,
+    borderRadius: 6,
+    padding: 10.5,
+    marginBottom: 9,
   },
   // `.a1v2-leaf-block.placeholder` — same bg, dashed border instead.
   leafBlockPlaceholder: {
     backgroundColor: A1V2_PAPER_2,
-    borderWidth: 1,
+    borderWidth: 0.75,
     borderColor: A1V2_RULE,
     borderStyle: "dashed",
-    borderRadius: 8,
-    padding: 14,
-    marginBottom: 12,
+    borderRadius: 6,
+    padding: 10.5,
+    marginBottom: 9,
   },
   // `.a1v2-leaf-block .leaf-block-head` — flex row center, gap 10,
   // mb 10, pb 8, border-bottom 1px rule.
   leafBlockHead: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 10,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
+    marginBottom: 7.5,
+    paddingBottom: 6,
+    borderBottomWidth: 0.75,
     borderBottomColor: A1V2_RULE,
     borderBottomStyle: "solid",
   },
@@ -259,7 +259,7 @@ export const addendumStyles = StyleSheet.create({
   // var(--ui) → Newsreader per brief substitution.
   leafBlockHeadName: {
     fontFamily: PDF_FONT_FAMILY.serif,
-    fontSize: 12.5,
+    fontSize: 9.5,
     color: A1V2_INK,
     fontWeight: 500,
   },
@@ -267,14 +267,14 @@ export const addendumStyles = StyleSheet.create({
   // accent-tint bg, padding 2/6, radius 3, uppercase.
   leafBlockHeadTypeTag: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9,
+    fontSize: 6.75,
     color: A1V2_ACCENT_INK,
     letterSpacing: 0.72, // 0.08em × 9px
     backgroundColor: A1V2_ACCENT_TINT,
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 3,
-    marginLeft: 10, // CSS gap: 10px to the name on its left
+    paddingVertical: 1.5,
+    paddingHorizontal: 4.5,
+    borderRadius: 2.25,
+    marginLeft: 7.5, // CSS gap: 10px to the name on its left
     // text-transform: uppercase → .toUpperCase() JSX-side
   },
   // Variant override for the "untyped" tag: inline-styled in source
@@ -303,10 +303,10 @@ export const addendumStyles = StyleSheet.create({
   // `.section h5` — mono 9, 0.12em, ink-4, mb 6, weight 500.
   sectionTitle: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9,
+    fontSize: 6.75,
     letterSpacing: 1.08, // 0.12em × 9px
     color: A1V2_INK_4,
-    marginBottom: 6,
+    marginBottom: 4.5,
     fontWeight: 500,
     // text-transform: uppercase → .toUpperCase() JSX-side
   },
@@ -314,12 +314,12 @@ export const addendumStyles = StyleSheet.create({
   // border-bottom 1px rule, ui 11, line-height 1.35.
   row: {
     flexDirection: "row",
-    paddingVertical: 4,
-    borderBottomWidth: 1,
+    paddingVertical: 3,
+    borderBottomWidth: 0.75,
     borderBottomColor: A1V2_RULE,
     borderBottomStyle: "solid",
     fontFamily: PDF_FONT_FAMILY.serif, // var(--ui) → Newsreader
-    fontSize: 11,
+    fontSize: 8.25,
     lineHeight: 1.35,
   },
   // `:last-child { border-bottom: none }` — react-pdf can't express
@@ -330,7 +330,7 @@ export const addendumStyles = StyleSheet.create({
   },
   // `.row .lbl` — color ink-4. Fixed width 100 per grid-template.
   rowLabel: {
-    width: 100,
+    width: 75,
     color: A1V2_INK_4,
   },
   // `.row .val` — color ink. Flex 1 to fill remainder. CSS gap: 10
@@ -338,7 +338,7 @@ export const addendumStyles = StyleSheet.create({
   rowValue: {
     flex: 1,
     color: A1V2_INK,
-    marginLeft: 10,
+    marginLeft: 7.5,
   },
   // `.row .val.empty` — ink-4, italic, mono.
   rowValueEmpty: {
@@ -355,9 +355,9 @@ export const addendumStyles = StyleSheet.create({
   // uppercase. Goes inside leafBlockPlaceholder.
   placeholderMsg: {
     textAlign: "center",
-    paddingVertical: 14,
+    paddingVertical: 10.5,
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 10.5,
+    fontSize: 8,
     color: A1V2_INK_4,
     letterSpacing: 0.42, // 0.04em × 10.5px
     // text-transform: uppercase → .toUpperCase() JSX-side
@@ -373,13 +373,13 @@ export const addendumStyles = StyleSheet.create({
   // explicit coordinates on a fixed View.
   pageFooter: {
     position: "absolute",
-    bottom: 18,
-    right: 24,
+    bottom: 13.5,
+    right: 18,
     flexDirection: "row",
   },
   pageFooterText: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9.5,
+    fontSize: 7.25,
     color: A1V2_INK_4,
     letterSpacing: 0.57, // 0.06em × 9.5px
     // text-transform: uppercase → .toUpperCase() JSX-side
