@@ -112,7 +112,11 @@ export function PricingTable({
         {skus.map((sku) => {
           const isFlat = sku.shape === "flat";
           return (
-            <View key={sku.id} style={styles.tr}>
+            // Slice 11 Step 3 Fix 2 (CA 2026-06-30): a SKU row is
+            // atomic; never split across pages. Auto-flow would
+            // otherwise orphan the extended-price line below the
+            // product name (per CA's "RPL-400 split" reference).
+            <View key={sku.id} style={styles.tr} wrap={false}>
               {/* product cell */}
               <View style={styles.cProd}>
                 <Text style={styles.prodName}>{sku.name}</Text>
