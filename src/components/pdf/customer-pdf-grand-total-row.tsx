@@ -56,7 +56,10 @@ export function GrandTotalRow({
   const anyUnpriced = colData.some((c) => c.hasUnpriced);
 
   return (
-    <View>
+    // Slice 11 Step 3 Fix 2 (CA 2026-06-30): GrandTotalRow (label
+    // column + per-tier figures + PER UNIT/ALL-IN sub-legend) is an
+    // atomic readable unit; never split across pages.
+    <View wrap={false}>
       <View style={styles.grand}>
         {/* label column (CD `pdf-render.jsx:159`) */}
         <View style={styles.cProd}>
