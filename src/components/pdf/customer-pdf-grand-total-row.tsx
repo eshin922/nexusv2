@@ -78,7 +78,7 @@ export function GrandTotalRow({
           >
             {hasUnpriced ? (
               <Text style={styles.grandNum}>
-                <Text style={styles.grandNumFrom}>from</Text>
+                <Text style={styles.grandNumFrom}>{"from "}</Text>
                 {money(total)}
               </Text>
             ) : (
@@ -102,20 +102,20 @@ export function GrandTotalRow({
       {/* notes column under the grand row (CD `pdf-render.jsx:172`) */}
       <View style={styles.grandNotes}>
         <Text style={styles.grandNote}>
-          <Text style={styles.grandNoteK}>{"Per unit".toUpperCase()}</Text>
+          <Text style={styles.grandNoteK}>{"Per unit   ".toUpperCase()}</Text>
           The blended all-in unit price across the basket at that tier — the
           turnkey total divided by units shipped.
         </Text>
         {allInUnit && (
           <Text style={styles.grandNote}>
-            <Text style={styles.grandNoteK}>{"All-in".toUpperCase()}</Text>
+            <Text style={styles.grandNoteK}>{"All-in   ".toUpperCase()}</Text>
             Setup, tooling, freight, duty {"&"} tariffs are landed in the unit
             price shown — the total is what you pay.
           </Text>
         )}
         {foldFees && (
           <Text style={styles.grandNote}>
-            <Text style={styles.grandNoteK}>{"Includes".toUpperCase()}</Text>
+            <Text style={styles.grandNoteK}>{"Includes   ".toUpperCase()}</Text>
             One-time project {"&"} SKU fees of{" "}
             <Text style={styles.grandNoteAmt}>
               {money(serviceFeesTotal(serviceFees))}
@@ -125,14 +125,14 @@ export function GrandTotalRow({
         )}
         {freightAtCost && (
           <Text style={[styles.grandNote, styles.grandNoteFreight]}>
-            <Text style={styles.grandNoteK}>{"Plus".toUpperCase()}</Text>
+            <Text style={styles.grandNoteK}>{"Plus   ".toUpperCase()}</Text>
             Outbound freight — billed separately at cost (itemized below); not
             included in the turnkey total.
           </Text>
         )}
         {anyUnpriced && (
           <Text style={styles.grandNote}>
-            <Text style={styles.grandNoteK}>{"From".toUpperCase()}</Text>
+            <Text style={styles.grandNoteK}>{"From   ".toUpperCase()}</Text>
             Totals exclude lines marked {"“"}quote on request{"”"}{" "}
             (CAP-60 · Tier 1); the final total issues once that line is priced.
           </Text>

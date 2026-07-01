@@ -116,7 +116,7 @@ export const styles = StyleSheet.create({
     fontFamily: PDF_FONT_FAMILY.serif,
     fontSize: 20.25,
     fontWeight: 500,
-    letterSpacing: -0.54, // -0.02em × 27px
+    letterSpacing: -0.4, // -0.02em × 27px
     color: PP_INK,
     lineHeight: 1.05,
   },
@@ -134,7 +134,7 @@ export const styles = StyleSheet.create({
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 7.5,
     color: PP_INK_3,
-    letterSpacing: 0.3, // 0.03em × 10px
+    letterSpacing: 0.22, // 0.03em × 10px
     lineHeight: 1.85,
     flexDirection: "column",
     alignItems: "flex-end",
@@ -142,7 +142,7 @@ export const styles = StyleSheet.create({
   vMetaQnum: {
     fontSize: 12,
     color: PP_INK,
-    letterSpacing: 0.32, // 0.02em × 16px
+    letterSpacing: 0.24, // 0.02em × 16px
     marginBottom: 4.5,
   },
   vMetaLine: {
@@ -169,7 +169,7 @@ export const styles = StyleSheet.create({
   partyLabel: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 6.75,
-    letterSpacing: 1.26, // 0.14em × 9px
+    letterSpacing: 0.95, // 0.14em × 9px
     color: PP_MUTED,
     marginBottom: 3.75,
   },
@@ -192,7 +192,7 @@ export const styles = StyleSheet.create({
   eyebrow: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 7.25,
-    letterSpacing: 1.52, // 0.16em × 9.5px
+    letterSpacing: 1.14, // 0.16em × 9.5px
     color: PP_MUTED,
     marginBottom: 4.5,
   },
@@ -200,7 +200,7 @@ export const styles = StyleSheet.create({
     fontFamily: PDF_FONT_FAMILY.serif,
     fontSize: 13.5,
     fontWeight: 500,
-    letterSpacing: -0.18, // -0.01em × 18px
+    letterSpacing: -0.13, // -0.01em × 18px
     color: PP_INK,
     marginBottom: 3,
   },
@@ -208,7 +208,7 @@ export const styles = StyleSheet.create({
     fontFamily: PDF_FONT_FAMILY.serif,
     fontSize: 10.5,
     fontWeight: 600,
-    letterSpacing: -0.07, // -0.005em × 14px
+    letterSpacing: -0.05, // -0.005em × 14px
     color: PP_INK,
     marginBottom: 4.5,
   },
@@ -314,7 +314,7 @@ export const styles = StyleSheet.create({
   thLab: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 7.5,
-    letterSpacing: 0.6, // 0.06em × 10px
+    letterSpacing: 0.45, // 0.06em × 10px
     color: PP_INK,
     fontWeight: 500,
   },
@@ -323,7 +323,7 @@ export const styles = StyleSheet.create({
   thLabProd: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 6.75,
-    letterSpacing: 1.08, // 0.12em × 9px
+    letterSpacing: 0.81, // 0.12em × 9px
     color: PP_MUTED,
     fontWeight: 500,
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
@@ -331,7 +331,7 @@ export const styles = StyleSheet.create({
   thSub: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 6.5,
-    letterSpacing: 0.34, // 0.04em × 8.5px
+    letterSpacing: 0.26, // 0.04em × 8.5px
     color: PP_MUTED,
     marginTop: 2.25,
     fontWeight: 400,
@@ -352,7 +352,7 @@ export const styles = StyleSheet.create({
   // .pp-th-sub .rec-word { color: var(--pp-star); letter-spacing: 0.10em }
   recWord: {
     color: PP_STAR,
-    letterSpacing: 0.85, // 0.10em × 8.5px (sub-line context)
+    letterSpacing: 0.64, // 0.10em × 8.5px (sub-line context)
   },
 
   // ─────────────────────────────────────────────────────────────
@@ -370,7 +370,7 @@ export const styles = StyleSheet.create({
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 7.25,
     color: PP_MUTED,
-    letterSpacing: 0.19, // 0.02em × 9.5px
+    letterSpacing: 0.14, // 0.02em × 9.5px
     marginTop: 2.25,
   },
   prodMetaCode: {
@@ -406,7 +406,7 @@ export const styles = StyleSheet.create({
   tableFoot: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 6.75,
-    letterSpacing: 0.36, // 0.04em × 9px
+    letterSpacing: 0.27, // 0.04em × 9px
     color: PP_MUTED,
     marginTop: 6,
     flexDirection: "row",
@@ -432,7 +432,7 @@ export const styles = StyleSheet.create({
   chargeGroupLabel: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 6.5,
-    letterSpacing: 1.02, // 0.12em × 8.5px
+    letterSpacing: 0.77, // 0.12em × 8.5px
     color: PP_MUTED,
     marginTop: 9,
     marginBottom: 1.5,
@@ -471,7 +471,7 @@ export const styles = StyleSheet.create({
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 7.25,
     color: PP_INK_3,
-    letterSpacing: 0.19, // 0.02em × 9.5px
+    letterSpacing: 0.14, // 0.02em × 9.5px
   },
   cAmt: {
     flexBasis: 96,
@@ -515,7 +515,7 @@ export const styles = StyleSheet.create({
   termLabel: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 6.75,
-    letterSpacing: 1.26, // 0.14em × 9px
+    letterSpacing: 0.95, // 0.14em × 9px
     color: PP_MUTED,
     marginBottom: 3,
   },
@@ -542,7 +542,7 @@ export const styles = StyleSheet.create({
   notesLabel: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 6.75,
-    letterSpacing: 1.26, // 0.14em × 9px
+    letterSpacing: 0.95, // 0.14em × 9px
     color: PP_MUTED,
     marginBottom: 3.75,
   },
@@ -586,7 +586,7 @@ export const styles = StyleSheet.create({
     borderBottomStyle: "solid",
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 6.75,
-    letterSpacing: 0.54, // 0.06em × 9px
+    letterSpacing: 0.41, // 0.06em × 9px
     color: PP_INK_3,
   },
   runheadL: {
@@ -595,12 +595,12 @@ export const styles = StyleSheet.create({
   runheadLStrong: {
     color: PP_INK,
     fontWeight: 500,
-    letterSpacing: 0.9, // 0.10em × 9px
+    letterSpacing: 0.68, // 0.10em × 9px
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
   },
   runheadR: {
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
-    letterSpacing: 0.9, // 0.10em × 9px
+    letterSpacing: 0.68, // 0.10em × 9px
     color: PP_MUTED,
   },
 
@@ -622,13 +622,13 @@ export const styles = StyleSheet.create({
     borderTopStyle: "solid",
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 6.5,
-    letterSpacing: 0.425, // 0.05em × 8.5px
+    letterSpacing: 0.32, // 0.05em × 8.5px
     color: PP_MUTED,
   },
   footerLStrong: {
     color: PP_INK_3,
     fontWeight: 500,
-    letterSpacing: 0.85, // 0.10em × 8.5px
+    letterSpacing: 0.64, // 0.10em × 8.5px
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
   },
 
@@ -642,7 +642,7 @@ export const styles = StyleSheet.create({
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 7.25,
     color: PP_MUTED,
-    letterSpacing: 0.095, // 0.01em × 9.5px
+    letterSpacing: 0.07, // 0.01em × 9.5px
     marginTop: 2.25,
     ...PDF_TABULAR_NUMS,
   },
@@ -666,7 +666,7 @@ export const styles = StyleSheet.create({
     fontSize: 10.5,
     fontWeight: 600,
     color: PP_INK,
-    letterSpacing: -0.07, // -0.005em × 14px
+    letterSpacing: -0.05, // -0.005em × 14px
   },
   gSub: {
     fontSize: 7.5,
@@ -701,7 +701,7 @@ export const styles = StyleSheet.create({
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 7.5,
     color: PP_INK_3,
-    letterSpacing: 0.1, // 0.01em × 10px
+    letterSpacing: 0.08, // 0.01em × 10px
     marginTop: 3,
     ...PDF_TABULAR_NUMS,
   },
@@ -738,7 +738,7 @@ export const styles = StyleSheet.create({
   grandNoteK: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 6.5,
-    letterSpacing: 0.85, // 0.10em × 8.5px
+    letterSpacing: 0.64, // 0.10em × 8.5px
     color: PP_MUTED,
     marginRight: 4.5,
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
@@ -800,7 +800,7 @@ export const styles = StyleSheet.create({
   tkTier: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 8.25,
-    letterSpacing: 0.66, // 0.06em × 11px
+    letterSpacing: 0.5, // 0.06em × 11px
     color: PP_INK,
     fontWeight: 500,
     flexDirection: "row",
@@ -813,14 +813,14 @@ export const styles = StyleSheet.create({
   tkQty: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 6.75,
-    letterSpacing: 0.36, // 0.04em × 9px
+    letterSpacing: 0.27, // 0.04em × 9px
     color: PP_MUTED,
     marginTop: 2.25,
   },
   tkRecWord: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 6,
-    letterSpacing: 0.8, // 0.10em × 8px
+    letterSpacing: 0.6, // 0.10em × 8px
     color: PP_STAR,
     marginTop: 3.75,
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
@@ -829,7 +829,7 @@ export const styles = StyleSheet.create({
     fontFamily: PDF_FONT_FAMILY.serif,
     fontSize: 18,
     fontWeight: 500,
-    letterSpacing: -0.48, // -0.02em × 24px
+    letterSpacing: -0.36, // -0.02em × 24px
     color: PP_INK,
     marginTop: 10.5,
     ...PDF_TABULAR_NUMS,
@@ -843,7 +843,7 @@ export const styles = StyleSheet.create({
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 7.5,
     color: PP_INK_3,
-    letterSpacing: 0.1, // 0.01em × 10px
+    letterSpacing: 0.08, // 0.01em × 10px
     marginTop: 3.75,
     ...PDF_TABULAR_NUMS,
   },
@@ -888,7 +888,7 @@ export const styles = StyleSheet.create({
   hLabel: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 6.75,
-    letterSpacing: 1.26, // 0.14em × 9px
+    letterSpacing: 0.95, // 0.14em × 9px
     color: PP_MUTED,
     marginBottom: 4.5,
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
@@ -906,13 +906,13 @@ export const styles = StyleSheet.create({
     fontSize: 7.5,
     color: PP_INK_3,
     marginTop: 2.25,
-    letterSpacing: 0.3, // 0.03em × 10px
+    letterSpacing: 0.22, // 0.03em × 10px
   },
   hNum: {
     fontFamily: PDF_FONT_FAMILY.serif,
     fontSize: 30,
     fontWeight: 600,
-    letterSpacing: -1.2, // -0.03em × 40px
+    letterSpacing: -0.9, // -0.03em × 40px
     color: PP_INK,
     ...PDF_TABULAR_NUMS,
     lineHeight: 1,
@@ -936,7 +936,7 @@ export const styles = StyleSheet.create({
     fontWeight: 400,
     color: PP_MUTED,
     fontSize: 7.5,
-    letterSpacing: 0.2, // 0.02em × 10px
+    letterSpacing: 0.15, // 0.02em × 10px
   },
 
   // ─── pp-tk-included · .label · pp-tk-scope · .code ·
@@ -955,7 +955,7 @@ export const styles = StyleSheet.create({
   tkIncludedLabel: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 6.75,
-    letterSpacing: 1.26, // 0.14em × 9px
+    letterSpacing: 0.95, // 0.14em × 9px
     color: PP_MUTED,
     marginBottom: 6,
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
