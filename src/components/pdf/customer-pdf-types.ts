@@ -36,6 +36,14 @@ export type CpdfCustomer = {
 
 export type CpdfQuote = {
   quote_number: string;
+  /**
+   * What the quote is *for* — projected from `projects.deal_name`
+   * (adapter, Step 4). Renders under `quote_number` in the masthead.
+   * Nullable for defensive rendering. NOT in CD's canonical fixture
+   * — Nexus extension per Pattern 39 (customer needed to see what
+   * the quote is *for*, absent from CD's masthead grammar).
+   */
+  project_title: string | null;
   issued_date: string;
   valid_until: string;
   payment_terms: string;

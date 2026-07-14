@@ -55,6 +55,20 @@ export type CustomerViewQuote = {
    * NEVER renders versionNumber or scenarioLabel.
    */
   quoteNumber: string | null;
+  /**
+   * What the quote is *for* — projected from `projects.deal_name`
+   * (the HubSpot deal title, e.g. "Lumen & Co. — Q3 skincare
+   * relaunch"). Customer-safe (customers already know the deal
+   * name from HubSpot correspondence). Pattern 45 clean —
+   * carries no cost / margin / supplier data.
+   *
+   * Nullable for defensive rendering, though `projects.deal_name`
+   * is NOT NULL in schema (always populated at deal import).
+   *
+   * Live projection is fine for v1 (project name stable); snapshot
+   * lift banked to post-v1 if title-drift-after-send matters.
+   */
+  projectTitle: string | null;
   /** ISO date the version was sent. Null = preview not yet sent. */
   sentDate: string | null;
   /** ISO date; sendQuote computes `sent_at + days_valid_default` days. */

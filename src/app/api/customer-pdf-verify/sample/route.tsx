@@ -11,11 +11,13 @@
 
 import { renderToStream } from "@react-pdf/renderer";
 
+import { CustomerPdfAddendumPages } from "@/components/pdf/customer-pdf-addendum";
 import { StatePure } from "@/components/pdf/customer-pdf-document";
 import type {
   CpdfData,
   CpdfSku,
 } from "@/components/pdf/customer-pdf-types";
+import type { QuoteAddendumData } from "@/lib/addendum-loader";
 
 // ─── CD fixture verbatim (data.js) ───────────────────────────
 // Values copied 1:1 from `docs/design-prototypes/dist/Nexus Customer
@@ -40,6 +42,9 @@ const FIXTURE: CpdfData = {
   },
   quote: {
     quote_number: "DPS-2418",
+    // Fix 4 — nexus extension per Pattern 39. Adapter (Step 4)
+    // projects from `projects.deal_name`.
+    project_title: "Lumen & Co. — Q3 skincare relaunch",
     issued_date: "2026-05-17",
     valid_until: "2026-08-31",
     payment_terms: "50% deposit on PO · balance Net 30 from ship date",
@@ -131,6 +136,65 @@ const FIXTURE: CpdfData = {
 
 const PURE_SET_IDS: ReadonlyArray<string> = ["s1", "s2", "s3", "s4"];
 
+// ─── Step 3b — addendum fixture ─────────────────────────────
+// Exercises all three leaf-block variants (typed-with-fields,
+// placeholder, untyped) in one assembly so the addendum sample
+// page lights up the full variant matrix.
+
+const ADDENDUM_FIXTURE: QuoteAddendumData = {
+  totalLeaves: 3,
+  totalAssemblies: 1,
+  hasMeaningfulContent: true,
+  assemblies: [
+    {
+      assemblyId: "asy-glw-30",
+      sku: "GLW-30",
+      name: "Hydra-Glow Vitamin C Serum",
+      leaves: [
+        // Variant 1 — typed with full spec values.
+        {
+          leafKey: "leaf-glass-dropper",
+          name: "30 ml glass dropper",
+          variant: {
+            kind: "typed",
+            typeName: "Primary Packaging",
+            filledCount: 4,
+            fields: [
+              { key: "material", label: "Material", value: "Cobalt glass" },
+              { key: "capacity", label: "Capacity", value: "30 ml" },
+              { key: "closure", label: "Closure", value: "Aluminum screw cap, EPE-lined" },
+              // Wide field, lower-case example — exercises layout.
+              {
+                key: "decoration",
+                label: "Decoration",
+                wide: true,
+                value: "2-color silk print, satin matte finish",
+              },
+              // Empty field — exercises the .val.empty / "--" treatment.
+              { key: "barrier_coating", label: "Barrier coating", value: null },
+            ],
+          },
+        },
+        // Variant 2 — typed but placeholder (schema not yet ready).
+        {
+          leafKey: "leaf-secondary-carton",
+          name: "Outer carton",
+          variant: {
+            kind: "placeholder",
+            typeName: "Secondary Packaging",
+          },
+        },
+        // Variant 3 — untyped (no Product Type set on the leaf).
+        {
+          leafKey: "leaf-spec-card",
+          name: "Brand spec card",
+          variant: { kind: "untyped" },
+        },
+      ],
+    },
+  ],
+};
+
 export async function GET() {
   const skuSet: ReadonlyArray<CpdfSku> = PURE_SET_IDS.map((id) => {
     const sku = FIXTURE.skus.find((s) => s.id === id);
@@ -144,6 +208,14 @@ export async function GET() {
       skuSet={skuSet}
       layout="tier_table"
       detail="itemized"
+      addendumPages={
+        <CustomerPdfAddendumPages
+          addendum={ADDENDUM_FIXTURE}
+          vendor={FIXTURE.vendor}
+          quote={FIXTURE.quote}
+          customer={FIXTURE.customer}
+        />
+      }
     />
   );
 

@@ -117,7 +117,10 @@ export function TurnkeySummary({
     );
     const t = tiers[recommendedTierIdx];
     return (
-      <View style={styles.turnkey}>
+      // Slice 11 Step 3 Fix 2 (CA 2026-06-30): single-tier turnkey
+      // hero block is atomic — eyebrow + headline + hero figure +
+      // tk-included list read together; never split across pages.
+      <View style={styles.turnkey} wrap={false}>
         <Text style={styles.eyebrow}>
           {"Turnkey pricing · all-in".toUpperCase()}
         </Text>
@@ -155,7 +158,10 @@ export function TurnkeySummary({
 
   // tier_table — per-tier cards (CD `pdf-render.jsx:226`)
   return (
-    <View style={styles.turnkey}>
+    // Slice 11 Step 3 Fix 2 (CA 2026-06-30): multi-tier turnkey
+    // card group is atomic — recommended-tier card must stay paired
+    // with its siblings; never split across pages.
+    <View style={styles.turnkey} wrap={false}>
       <Text style={styles.eyebrow}>
         {"Turnkey pricing · all-in".toUpperCase()}
       </Text>

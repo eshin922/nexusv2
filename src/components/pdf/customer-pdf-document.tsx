@@ -55,7 +55,7 @@ import { Document, Page, Text, View } from "@react-pdf/renderer";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
 
 import { ChargesBlock } from "./customer-pdf-charges-block";
-import { FooterInner, RunHeadInner } from "./customer-pdf-chrome";
+import { PageFooter, PageRunHead } from "./customer-pdf-chrome";
 import { GrandTotalRow } from "./customer-pdf-grand-total-row";
 import { Masthead } from "./customer-pdf-masthead";
 import { Parties } from "./customer-pdf-parties";
@@ -88,22 +88,17 @@ function PageChrome({
   vendor: CpdfVendor;
   quote: CpdfQuote;
 }) {
+  // Step 3 Fix 2 follow-up (2026-06-30): both chrome components are
+  // now self-contained fixed Views with their positioning styles
+  // directly applied. The previous nested-View pattern (outer
+  // `<View fixed>` wrapping inner positioned View) made the inner's
+  // `bottom: 22.5pt` resolve against the outer's zero-height box,
+  // landing the footer at the page TOP instead of the page bottom.
+  // See `customer-pdf-chrome.tsx` header comment for full diagnosis.
   return (
     <>
-      {/* Footer fires on every page. FooterInner uses Text.render
-          for the "Page X of Y" string (Text exposes totalPages;
-          View does not, per react-pdf type declarations). */}
-      <View fixed>
-        <FooterInner vendor={vendor} quote={quote} />
-      </View>
-      {/* RunHead fires on every page; returns null on page 1 so
-          only continuation pages display it. */}
-      <View
-        fixed
-        render={({ pageNumber }) =>
-          pageNumber > 1 ? <RunHeadInner vendor={vendor} quote={quote} /> : <View />
-        }
-      />
+      <PageFooter vendor={vendor} quote={quote} />
+      <PageRunHead vendor={vendor} quote={quote} />
     </>
   );
 }

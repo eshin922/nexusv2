@@ -77,14 +77,18 @@ export const styles = StyleSheet.create({
     backgroundColor: PP_PAPER,
     color: PP_INK,
     fontFamily: PDF_FONT_FAMILY.serif,
-    paddingTop: 56,
-    paddingHorizontal: 64,
-    paddingBottom: 88,
+    // Slice 11 Step 3 Fix 2 (CA 2026-06-30): use CD's continuation
+    // padding (48pt; CD `styles.css:331 .pp-sheet.continuation`
+    // padding-top: 64px → 48pt) UNIFORMLY across all pages, not just
+    // continuations. react-pdf can't switch padding per page within
+    // one `<Page>` element; using the larger value uniformly reserves
+    // the runhead band (fires on pages 2+) without harming page 1
+    // (6pt extra breathing on the masthead). `sheetContinuation`
+    // removed — never applied; replaced by this uniform padding.
+    paddingTop: 48,
+    paddingHorizontal: 48,
+    paddingBottom: 66,
     flexDirection: "column",
-  },
-  // pp-sheet.continuation { padding-top: 64px }
-  sheetContinuation: {
-    paddingTop: 64,
   },
   // pp-flow { flex: 1 0 auto }
   flow: {
@@ -99,8 +103,8 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    paddingBottom: 16,
-    borderBottomWidth: 1.5,
+    paddingBottom: 12,
+    borderBottomWidth: 1.25,
     borderBottomColor: PP_STRONG,
     borderBottomStyle: "solid",
   },
@@ -110,36 +114,53 @@ export const styles = StyleSheet.create({
   },
   vName: {
     fontFamily: PDF_FONT_FAMILY.serif,
-    fontSize: 27,
+    fontSize: 20.25,
     fontWeight: 500,
-    letterSpacing: -0.54, // -0.02em × 27px
+    letterSpacing: -0.4, // -0.02em × 27px
     color: PP_INK,
     lineHeight: 1.05,
   },
   vSub: {
-    fontSize: 12,
+    fontSize: 9,
     color: PP_INK_3,
-    marginTop: 5,
-    maxWidth: 336, // 42ch ≈ 8px × 42 (Newsreader @12px)
+    marginTop: 3.75,
+    maxWidth: 252, // 42ch ≈ 8px × 42 (Newsreader @12px)
     lineHeight: 1.45,
   },
   vMeta: {
     textAlign: "right",
     flexShrink: 0,
-    marginLeft: 28,
+    marginLeft: 21,
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 10,
+    fontSize: 7.5,
     color: PP_INK_3,
-    letterSpacing: 0.3, // 0.03em × 10px
+    letterSpacing: 0.22, // 0.03em × 10px
     lineHeight: 1.85,
     flexDirection: "column",
     alignItems: "flex-end",
   },
   vMetaQnum: {
-    fontSize: 16,
+    fontSize: 12,
     color: PP_INK,
-    letterSpacing: 0.32, // 0.02em × 16px
-    marginBottom: 6,
+    letterSpacing: 0.24, // 0.02em × 16px
+    marginBottom: 4.5,
+  },
+  // Nexus extension per Pattern 39 — project-title line rendered
+  // under vMetaQnum. NOT in CD canonical. Italic serif, PP_INK_2,
+  // small — sits between the numeric quote number and the mono
+  // Issued/Valid-until lines without crowding the hierarchy CD
+  // tuned. maxWidth caps at the .v-meta right column so a long
+  // deal name wraps rather than overflowing the masthead.
+  vMetaTitle: {
+    fontFamily: PDF_FONT_FAMILY.serif,
+    fontStyle: "italic",
+    fontSize: 9,
+    color: PP_INK_2,
+    letterSpacing: -0.09, // -0.01em × 9pt
+    lineHeight: 1.3,
+    marginBottom: 5,
+    maxWidth: 180,
+    textAlign: "right",
   },
   vMetaLine: {
     // each meta row is a Text line inside .v-meta
@@ -155,28 +176,28 @@ export const styles = StyleSheet.create({
   // ─────────────────────────────────────────────────────────────
   parties: {
     flexDirection: "row",
-    marginTop: 18,
+    marginTop: 13.5,
   },
   party: {
     flex: 1,
-    paddingRight: 24,
+    paddingRight: 18,
     flexDirection: "column",
   },
   partyLabel: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9,
-    letterSpacing: 1.26, // 0.14em × 9px
+    fontSize: 6.75,
+    letterSpacing: 0.95, // 0.14em × 9px
     color: PP_MUTED,
-    marginBottom: 5,
+    marginBottom: 3.75,
   },
   pname: {
-    fontSize: 16,
+    fontSize: 12,
     fontWeight: 500,
     color: PP_INK,
-    marginBottom: 2,
+    marginBottom: 1.5,
   },
   pline: {
-    fontSize: 12,
+    fontSize: 9,
     color: PP_INK_2,
     lineHeight: 1.5,
   },
@@ -187,32 +208,32 @@ export const styles = StyleSheet.create({
   // ─────────────────────────────────────────────────────────────
   eyebrow: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9.5,
-    letterSpacing: 1.52, // 0.16em × 9.5px
+    fontSize: 7.25,
+    letterSpacing: 1.14, // 0.16em × 9.5px
     color: PP_MUTED,
-    marginBottom: 6,
+    marginBottom: 4.5,
   },
   h2: {
     fontFamily: PDF_FONT_FAMILY.serif,
-    fontSize: 18,
+    fontSize: 13.5,
     fontWeight: 500,
-    letterSpacing: -0.18, // -0.01em × 18px
+    letterSpacing: -0.13, // -0.01em × 18px
     color: PP_INK,
-    marginBottom: 4,
+    marginBottom: 3,
   },
   h3: {
     fontFamily: PDF_FONT_FAMILY.serif,
-    fontSize: 14,
+    fontSize: 10.5,
     fontWeight: 600,
-    letterSpacing: -0.07, // -0.005em × 14px
+    letterSpacing: -0.05, // -0.005em × 14px
     color: PP_INK,
-    marginBottom: 6,
+    marginBottom: 4.5,
   },
   lede: {
-    fontSize: 11.5,
+    fontSize: 8.75,
     color: PP_INK_2,
     lineHeight: 1.55,
-    maxWidth: 512, // 64ch ≈ 8 × 64
+    maxWidth: 384, // 64ch ≈ 8 × 64
   },
   ledeEm: {
     fontStyle: "italic",
@@ -220,10 +241,10 @@ export const styles = StyleSheet.create({
   },
   // .pp-section / .pp-section.tight — vertical spacers between blocks
   section: {
-    marginTop: 26,
+    marginTop: 19.5,
   },
   sectionTight: {
-    marginTop: 16,
+    marginTop: 12,
   },
 
   // ─────────────────────────────────────────────────────────────
@@ -233,15 +254,15 @@ export const styles = StyleSheet.create({
   // ─────────────────────────────────────────────────────────────
   table: {
     flexDirection: "column",
-    marginTop: 14,
+    marginTop: 10.5,
   },
   thead: {
     flexDirection: "row",
     alignItems: "flex-end",
-    borderBottomWidth: 1.5,
+    borderBottomWidth: 1.25,
     borderBottomColor: PP_STRONG,
     borderBottomStyle: "solid",
-    paddingBottom: 7,
+    paddingBottom: 5.25,
   },
   // .pp-thead.continued { border-top: none }
   theadContinued: {
@@ -254,8 +275,8 @@ export const styles = StyleSheet.create({
   tr: {
     flexDirection: "row",
     alignItems: "baseline",
-    paddingVertical: 9,
-    borderBottomWidth: 1,
+    paddingVertical: 6.75,
+    borderBottomWidth: 0.75,
     borderBottomColor: PP_RULE,
     borderBottomStyle: "solid",
   },
@@ -263,7 +284,7 @@ export const styles = StyleSheet.create({
   cProd: {
     flex: 2.5,
     minWidth: 0,
-    paddingRight: 14,
+    paddingRight: 10.5,
     flexDirection: "column",
   },
   // .pp-c-num { flex: 1 1 0; min-width: 0; text-align: right;
@@ -273,13 +294,13 @@ export const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     textAlign: "right",
-    borderLeftWidth: 1,
+    borderLeftWidth: 0.75,
     borderLeftColor: "transparent",
     borderLeftStyle: "solid",
-    borderRightWidth: 1,
+    borderRightWidth: 0.75,
     borderRightColor: "transparent",
     borderRightStyle: "solid",
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     flexDirection: "column",
     alignItems: "flex-end",
   },
@@ -297,10 +318,10 @@ export const styles = StyleSheet.create({
   // .pp-thead .pp-c-rec { border-top: 1px solid var(--pp-rec-edge);
   //   padding-top: 5px }
   theadCRec: {
-    borderTopWidth: 1,
+    borderTopWidth: 0.75,
     borderTopColor: PP_REC_EDGE,
     borderTopStyle: "solid",
-    paddingTop: 5,
+    paddingTop: 3.75,
   },
 
   // ─────────────────────────────────────────────────────────────
@@ -309,8 +330,8 @@ export const styles = StyleSheet.create({
   // ─────────────────────────────────────────────────────────────
   thLab: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 10,
-    letterSpacing: 0.6, // 0.06em × 10px
+    fontSize: 7.5,
+    letterSpacing: 0.45, // 0.06em × 10px
     color: PP_INK,
     fontWeight: 500,
   },
@@ -318,18 +339,18 @@ export const styles = StyleSheet.create({
   //   uppercase; font-size: 9px; color: var(--pp-muted) }
   thLabProd: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9,
-    letterSpacing: 1.08, // 0.12em × 9px
+    fontSize: 6.75,
+    letterSpacing: 0.81, // 0.12em × 9px
     color: PP_MUTED,
     fontWeight: 500,
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
   },
   thSub: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 8.5,
-    letterSpacing: 0.34, // 0.04em × 8.5px
+    fontSize: 6.5,
+    letterSpacing: 0.26, // 0.04em × 8.5px
     color: PP_MUTED,
-    marginTop: 3,
+    marginTop: 2.25,
     fontWeight: 400,
   },
   // .pp-th-rec { display: inline-flex; align-items: center; gap: 4px;
@@ -337,18 +358,18 @@ export const styles = StyleSheet.create({
   thRec: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 3,
     color: PP_INK,
   },
   // .pp-th-rec .star { color: var(--pp-star); font-size: 10px }
   thRecStar: {
     color: PP_STAR,
-    fontSize: 10,
+    fontSize: 7.5,
   },
   // .pp-th-sub .rec-word { color: var(--pp-star); letter-spacing: 0.10em }
   recWord: {
     color: PP_STAR,
-    letterSpacing: 0.85, // 0.10em × 8.5px (sub-line context)
+    letterSpacing: 0.64, // 0.10em × 8.5px (sub-line context)
   },
 
   // ─────────────────────────────────────────────────────────────
@@ -357,30 +378,30 @@ export const styles = StyleSheet.create({
   // styles.css:241-257
   // ─────────────────────────────────────────────────────────────
   prodName: {
-    fontSize: 13,
+    fontSize: 9.75,
     fontWeight: 500,
     color: PP_INK,
     lineHeight: 1.25,
   },
   prodMeta: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9.5,
+    fontSize: 7.25,
     color: PP_MUTED,
-    letterSpacing: 0.19, // 0.02em × 9.5px
-    marginTop: 3,
+    letterSpacing: 0.14, // 0.02em × 9.5px
+    marginTop: 2.25,
   },
   prodMetaCode: {
     color: PP_INK_3,
   },
   prodFlat: {
     fontStyle: "italic",
-    fontSize: 10.5,
+    fontSize: 8,
     color: PP_INK_3,
-    marginTop: 3,
+    marginTop: 2.25,
   },
   price: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 12.5,
+    fontSize: 9.5,
     color: PP_INK,
     ...PDF_TABULAR_NUMS,
   },
@@ -396,15 +417,15 @@ export const styles = StyleSheet.create({
   priceReq: {
     fontFamily: PDF_FONT_FAMILY.serif,
     fontStyle: "italic",
-    fontSize: 11,
+    fontSize: 8.25,
     color: PP_MUTED,
   },
   tableFoot: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9,
-    letterSpacing: 0.36, // 0.04em × 9px
+    fontSize: 6.75,
+    letterSpacing: 0.27, // 0.04em × 9px
     color: PP_MUTED,
-    marginTop: 8,
+    marginTop: 6,
     flexDirection: "row",
     justifyContent: "space-between",
   },
@@ -419,43 +440,43 @@ export const styles = StyleSheet.create({
     flexDirection: "column",
   },
   chargeSub: {
-    fontSize: 10.5,
+    fontSize: 8,
     fontStyle: "italic",
     color: PP_INK_3,
-    marginTop: 2,
-    marginBottom: 8,
+    marginTop: 1.5,
+    marginBottom: 6,
   },
   chargeGroupLabel: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 8.5,
-    letterSpacing: 1.02, // 0.12em × 8.5px
+    fontSize: 6.5,
+    letterSpacing: 0.77, // 0.12em × 8.5px
     color: PP_MUTED,
-    marginTop: 12,
-    marginBottom: 2,
+    marginTop: 9,
+    marginBottom: 1.5,
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
   },
   chargeRow: {
     flexDirection: "row",
     alignItems: "baseline",
-    paddingVertical: 8,
-    borderBottomWidth: 1,
+    paddingVertical: 6,
+    borderBottomWidth: 0.75,
     borderBottomColor: PP_RULE,
     borderBottomStyle: "solid",
   },
   cLabel: {
     flex: 1,
-    paddingRight: 14,
+    paddingRight: 10.5,
     flexDirection: "column",
   },
   cLabelT: {
-    fontSize: 12.5,
+    fontSize: 9.5,
     color: PP_INK,
   },
   cLabelS: {
-    fontSize: 10.5,
+    fontSize: 8,
     fontStyle: "italic",
     color: PP_MUTED,
-    marginTop: 2,
+    marginTop: 1.5,
     lineHeight: 1.4,
   },
   cQty: {
@@ -463,11 +484,11 @@ export const styles = StyleSheet.create({
     flexShrink: 0,
     flexGrow: 0,
     textAlign: "right",
-    paddingRight: 16,
+    paddingRight: 12,
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9.5,
+    fontSize: 7.25,
     color: PP_INK_3,
-    letterSpacing: 0.19, // 0.02em × 9.5px
+    letterSpacing: 0.14, // 0.02em × 9.5px
   },
   cAmt: {
     flexBasis: 96,
@@ -475,16 +496,16 @@ export const styles = StyleSheet.create({
     flexGrow: 0,
     textAlign: "right",
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 12.5,
+    fontSize: 9.5,
     fontWeight: 500,
     color: PP_INK,
     ...PDF_TABULAR_NUMS,
   },
   cAmtPer: {
-    fontSize: 9,
+    fontSize: 6.75,
     fontWeight: 400,
     color: PP_MUTED,
-    marginLeft: 2,
+    marginLeft: 1.5,
   },
 
   // ─────────────────────────────────────────────────────────────
@@ -494,29 +515,29 @@ export const styles = StyleSheet.create({
   terms: {
     flexDirection: "row",
     flexWrap: "wrap",
-    borderTopWidth: 1.5,
+    borderTopWidth: 1.25,
     borderTopColor: PP_STRONG,
     borderTopStyle: "solid",
-    paddingTop: 16,
-    marginTop: 8,
+    paddingTop: 12,
+    marginTop: 6,
   },
   term: {
     flexBasis: "50%",
     flexShrink: 0,
     flexGrow: 0,
-    paddingRight: 24,
-    paddingBottom: 16,
+    paddingRight: 18,
+    paddingBottom: 12,
     flexDirection: "column",
   },
   termLabel: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9,
-    letterSpacing: 1.26, // 0.14em × 9px
+    fontSize: 6.75,
+    letterSpacing: 0.95, // 0.14em × 9px
     color: PP_MUTED,
-    marginBottom: 4,
+    marginBottom: 3,
   },
   termValue: {
-    fontSize: 12.5,
+    fontSize: 9.5,
     color: PP_INK,
     lineHeight: 1.45,
   },
@@ -526,24 +547,24 @@ export const styles = StyleSheet.create({
   // styles.css:304-314
   // ─────────────────────────────────────────────────────────────
   notes: {
-    marginTop: 6,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    marginTop: 4.5,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
     backgroundColor: PP_NOTES_BG,
-    borderLeftWidth: 3,
+    borderLeftWidth: 2.25,
     borderLeftColor: PP_RULE_2,
     borderLeftStyle: "solid",
     flexDirection: "column",
   },
   notesLabel: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9,
-    letterSpacing: 1.26, // 0.14em × 9px
+    fontSize: 6.75,
+    letterSpacing: 0.95, // 0.14em × 9px
     color: PP_MUTED,
-    marginBottom: 5,
+    marginBottom: 3.75,
   },
   notesP: {
-    fontSize: 11,
+    fontSize: 8.25,
     color: PP_INK_2,
     lineHeight: 1.55,
   },
@@ -553,13 +574,13 @@ export const styles = StyleSheet.create({
   // styles.css:317-318
   // ─────────────────────────────────────────────────────────────
   accept: {
-    marginTop: 22,
+    marginTop: 16.5,
   },
   acceptP: {
-    fontSize: 11.5,
+    fontSize: 8.75,
     color: PP_INK_2,
     lineHeight: 1.55,
-    maxWidth: 512, // 64ch
+    maxWidth: 384, // 64ch
   },
 
   // ─────────────────────────────────────────────────────────────
@@ -570,19 +591,19 @@ export const styles = StyleSheet.create({
   // `fixed` prop on the View. Match the inset values.
   runhead: {
     position: "absolute",
-    top: 28,
-    left: 64,
-    right: 64,
+    top: 21,
+    left: 48,
+    right: 48,
     flexDirection: "row",
     alignItems: "baseline",
     justifyContent: "space-between",
-    paddingBottom: 8,
-    borderBottomWidth: 1,
+    paddingBottom: 6,
+    borderBottomWidth: 0.75,
     borderBottomColor: PP_RULE,
     borderBottomStyle: "solid",
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9,
-    letterSpacing: 0.54, // 0.06em × 9px
+    fontSize: 6.75,
+    letterSpacing: 0.41, // 0.06em × 9px
     color: PP_INK_3,
   },
   runheadL: {
@@ -591,12 +612,12 @@ export const styles = StyleSheet.create({
   runheadLStrong: {
     color: PP_INK,
     fontWeight: 500,
-    letterSpacing: 0.9, // 0.10em × 9px
+    letterSpacing: 0.68, // 0.10em × 9px
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
   },
   runheadR: {
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
-    letterSpacing: 0.9, // 0.10em × 9px
+    letterSpacing: 0.68, // 0.10em × 9px
     color: PP_MUTED,
   },
 
@@ -606,25 +627,25 @@ export const styles = StyleSheet.create({
   // ─────────────────────────────────────────────────────────────
   footer: {
     position: "absolute",
-    left: 64,
-    right: 64,
-    bottom: 30,
+    left: 48,
+    right: 48,
+    bottom: 22.5,
     flexDirection: "row",
     alignItems: "baseline",
     justifyContent: "space-between",
-    paddingTop: 10,
-    borderTopWidth: 1,
+    paddingTop: 7.5,
+    borderTopWidth: 0.75,
     borderTopColor: PP_RULE,
     borderTopStyle: "solid",
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 8.5,
-    letterSpacing: 0.425, // 0.05em × 8.5px
+    fontSize: 6.5,
+    letterSpacing: 0.32, // 0.05em × 8.5px
     color: PP_MUTED,
   },
   footerLStrong: {
     color: PP_INK_3,
     fontWeight: 500,
-    letterSpacing: 0.85, // 0.10em × 8.5px
+    letterSpacing: 0.64, // 0.10em × 8.5px
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
   },
 
@@ -636,10 +657,10 @@ export const styles = StyleSheet.create({
   // ─── pp-linetotal · (.pp-c-rec .pp-linetotal) ─────────────────
   linetotal: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9.5,
+    fontSize: 7.25,
     color: PP_MUTED,
-    letterSpacing: 0.095, // 0.01em × 9.5px
-    marginTop: 3,
+    letterSpacing: 0.07, // 0.01em × 9.5px
+    marginTop: 2.25,
     ...PDF_TABULAR_NUMS,
   },
   // .pp-c-rec .pp-linetotal { color: var(--pp-ink-3) }
@@ -651,36 +672,36 @@ export const styles = StyleSheet.create({
   grand: {
     flexDirection: "row",
     alignItems: "baseline",
-    borderTopWidth: 1.5,
+    borderTopWidth: 1.25,
     borderTopColor: PP_STRONG,
     borderTopStyle: "solid",
-    paddingTop: 11,
-    marginTop: 2,
+    paddingTop: 8.25,
+    marginTop: 1.5,
   },
   gLabel: {
     fontFamily: PDF_FONT_FAMILY.serif,
-    fontSize: 14,
+    fontSize: 10.5,
     fontWeight: 600,
     color: PP_INK,
-    letterSpacing: -0.07, // -0.005em × 14px
+    letterSpacing: -0.05, // -0.005em × 14px
   },
   gSub: {
-    fontSize: 10,
+    fontSize: 7.5,
     fontStyle: "italic",
     color: PP_MUTED,
-    marginTop: 1,
+    marginTop: 0.75,
   },
   // .pp-grand .pp-c-rec { border-bottom: 1px solid var(--pp-rec-edge);
   //   padding-bottom: 8px }
   grandCRec: {
-    borderBottomWidth: 1,
+    borderBottomWidth: 0.75,
     borderBottomColor: PP_REC_EDGE,
     borderBottomStyle: "solid",
-    paddingBottom: 8,
+    paddingBottom: 6,
   },
   grandNum: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 14,
+    fontSize: 10.5,
     fontWeight: 600,
     color: PP_INK,
     ...PDF_TABULAR_NUMS,
@@ -690,15 +711,15 @@ export const styles = StyleSheet.create({
     fontFamily: PDF_FONT_FAMILY.serif,
     fontStyle: "italic",
     fontWeight: 500,
-    fontSize: 12,
+    fontSize: 9,
     color: PP_INK_2,
   },
   grandUnit: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 10,
+    fontSize: 7.5,
     color: PP_INK_3,
-    letterSpacing: 0.1, // 0.01em × 10px
-    marginTop: 4,
+    letterSpacing: 0.08, // 0.01em × 10px
+    marginTop: 3,
     ...PDF_TABULAR_NUMS,
   },
   // .pp-c-rec .pp-grand-unit { color: var(--pp-ink-2) }
@@ -714,29 +735,29 @@ export const styles = StyleSheet.create({
     fontFamily: PDF_FONT_FAMILY.serif,
     fontStyle: "italic",
     fontWeight: 400,
-    fontSize: 10,
+    fontSize: 7.5,
     color: PP_MUTED,
-    marginRight: 3,
+    marginRight: 2.25,
   },
   // .pp-grand-notes — flex column gap 3
   grandNotes: {
-    marginTop: 9,
+    marginTop: 6.75,
     flexDirection: "column",
-    gap: 3,
+    gap: 2.25,
   },
   grandNote: {
     fontFamily: PDF_FONT_FAMILY.serif,
-    fontSize: 10.5,
+    fontSize: 8,
     color: PP_INK_3,
     lineHeight: 1.45,
   },
   // .pp-grand-note .k — mono uppercase 8.5px muted with right margin 6
   grandNoteK: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 8.5,
-    letterSpacing: 0.85, // 0.10em × 8.5px
+    fontSize: 6.5,
+    letterSpacing: 0.64, // 0.10em × 8.5px
     color: PP_MUTED,
-    marginRight: 6,
+    marginRight: 4.5,
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
   },
   grandNoteFreight: {
@@ -750,12 +771,12 @@ export const styles = StyleSheet.create({
 
   // ─── Turnkey-only · pp-turnkey, .single ──────────────────────
   turnkey: {
-    marginTop: 6,
+    marginTop: 4.5,
     flexDirection: "column",
   },
   // .pp-turnkey .pp-lede { margin-bottom: 18 }
   turnkeyLede: {
-    marginBottom: 18,
+    marginBottom: 13.5,
   },
 
   // ─── tier_table turnkey-only → pp-tk-cards · pp-tk-card · .rec
@@ -766,10 +787,10 @@ export const styles = StyleSheet.create({
   tkCard: {
     flex: 1,
     minWidth: 0,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 18,
-    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 13.5,
+    borderWidth: 0.75,
     borderColor: PP_RULE,
     borderStyle: "solid",
     borderRightWidth: 0,
@@ -777,57 +798,57 @@ export const styles = StyleSheet.create({
   },
   // .pp-tk-card:last-child { border-right-width: 1px }
   tkCardLast: {
-    borderRightWidth: 1,
+    borderRightWidth: 0.75,
   },
   // .pp-tk-card.rec — lifted 1.5px border + tint + negative margin
   // negative margin -2 -1 + z-index stack: react-pdf renders in
   // source order; the -1/-2 inset matches CD's "lifted card"
   // optical effect.
   tkCardRec: {
-    borderWidth: 1.5,
+    borderWidth: 1.25,
     borderColor: PP_REC_EDGE,
     borderStyle: "solid",
     backgroundColor: PP_REC_TINT,
-    marginTop: -2,
-    marginHorizontal: -1,
-    marginBottom: -2,
+    marginTop: -1.5,
+    marginHorizontal: -0.75,
+    marginBottom: -1.5,
   },
   // pp-tk-tier · .star
   tkTier: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 11,
-    letterSpacing: 0.66, // 0.06em × 11px
+    fontSize: 8.25,
+    letterSpacing: 0.5, // 0.06em × 11px
     color: PP_INK,
     fontWeight: 500,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 3,
   },
   tkTierStar: {
     color: PP_STAR,
   },
   tkQty: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9,
-    letterSpacing: 0.36, // 0.04em × 9px
+    fontSize: 6.75,
+    letterSpacing: 0.27, // 0.04em × 9px
     color: PP_MUTED,
-    marginTop: 3,
+    marginTop: 2.25,
   },
   tkRecWord: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 8,
-    letterSpacing: 0.8, // 0.10em × 8px
+    fontSize: 6,
+    letterSpacing: 0.6, // 0.10em × 8px
     color: PP_STAR,
-    marginTop: 5,
+    marginTop: 3.75,
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
   },
   tkTotal: {
     fontFamily: PDF_FONT_FAMILY.serif,
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: 500,
-    letterSpacing: -0.48, // -0.02em × 24px
+    letterSpacing: -0.36, // -0.02em × 24px
     color: PP_INK,
-    marginTop: 14,
+    marginTop: 10.5,
     ...PDF_TABULAR_NUMS,
     lineHeight: 1.05,
   },
@@ -837,10 +858,10 @@ export const styles = StyleSheet.create({
   },
   tkPerunit: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 10,
+    fontSize: 7.5,
     color: PP_INK_3,
-    letterSpacing: 0.1, // 0.01em × 10px
-    marginTop: 5,
+    letterSpacing: 0.08, // 0.01em × 10px
+    marginTop: 3.75,
     ...PDF_TABULAR_NUMS,
   },
   tkPerunitPer: {
@@ -850,14 +871,14 @@ export const styles = StyleSheet.create({
   tkTotalFrom: {
     fontFamily: PDF_FONT_FAMILY.serif,
     fontStyle: "italic",
-    fontSize: 12,
+    fontSize: 9,
     fontWeight: 400,
     color: PP_MUTED,
   },
   // .pp-tk-total.req — italic medium 15px ink-2
   tkTotalReq: {
     fontFamily: PDF_FONT_FAMILY.serif,
-    fontSize: 15,
+    fontSize: 11.25,
     fontStyle: "italic",
     fontWeight: 500,
     color: PP_INK_2,
@@ -869,29 +890,29 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "baseline",
     justifyContent: "space-between",
-    borderTopWidth: 1.5,
+    borderTopWidth: 1.25,
     borderTopColor: PP_STRONG,
     borderTopStyle: "solid",
-    borderBottomWidth: 1.5,
+    borderBottomWidth: 1.25,
     borderBottomColor: PP_STRONG,
     borderBottomStyle: "solid",
-    paddingVertical: 20,
-    marginTop: 4,
+    paddingVertical: 15,
+    marginTop: 3,
   },
   hMeta: {
     flexDirection: "column",
   },
   hLabel: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9,
-    letterSpacing: 1.26, // 0.14em × 9px
+    fontSize: 6.75,
+    letterSpacing: 0.95, // 0.14em × 9px
     color: PP_MUTED,
-    marginBottom: 6,
+    marginBottom: 4.5,
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
   },
   hTier: {
     fontFamily: PDF_FONT_FAMILY.serif,
-    fontSize: 16,
+    fontSize: 12,
     color: PP_INK,
   },
   hTierStar: {
@@ -899,31 +920,31 @@ export const styles = StyleSheet.create({
   },
   hQty: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 10,
+    fontSize: 7.5,
     color: PP_INK_3,
-    marginTop: 3,
-    letterSpacing: 0.3, // 0.03em × 10px
+    marginTop: 2.25,
+    letterSpacing: 0.22, // 0.03em × 10px
   },
   hNum: {
     fontFamily: PDF_FONT_FAMILY.serif,
-    fontSize: 40,
+    fontSize: 30,
     fontWeight: 600,
-    letterSpacing: -1.2, // -0.03em × 40px
+    letterSpacing: -0.9, // -0.03em × 40px
     color: PP_INK,
     ...PDF_TABULAR_NUMS,
     lineHeight: 1,
   },
   hNumReq: {
-    fontSize: 24,
+    fontSize: 18,
     fontStyle: "italic",
     fontWeight: 500,
     color: PP_INK_2,
   },
   tkHeroUnit: {
     textAlign: "right",
-    marginTop: 8,
+    marginTop: 6,
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 13,
+    fontSize: 9.75,
     color: PP_INK,
     ...PDF_TABULAR_NUMS,
     fontWeight: 500,
@@ -931,53 +952,53 @@ export const styles = StyleSheet.create({
   tkHeroUnitPer: {
     fontWeight: 400,
     color: PP_MUTED,
-    fontSize: 10,
-    letterSpacing: 0.2, // 0.02em × 10px
+    fontSize: 7.5,
+    letterSpacing: 0.15, // 0.02em × 10px
   },
 
   // ─── pp-tk-included · .label · pp-tk-scope · .code ·
   //   pp-tk-incl-list · pp-tk-incl · .tick · .out
   // styles.css:467-485
   tkIncluded: {
-    marginTop: 20,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
+    marginTop: 15,
+    paddingVertical: 10.5,
+    paddingHorizontal: 13.5,
     backgroundColor: PP_TK_INCLUDED_BG,
-    borderWidth: 1,
+    borderWidth: 0.75,
     borderColor: PP_RULE,
     borderStyle: "solid",
     flexDirection: "column",
   },
   tkIncludedLabel: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 9,
-    letterSpacing: 1.26, // 0.14em × 9px
+    fontSize: 6.75,
+    letterSpacing: 0.95, // 0.14em × 9px
     color: PP_MUTED,
-    marginBottom: 8,
+    marginBottom: 6,
     // textTransform: 'uppercase' — JSX applies .toUpperCase()
   },
   tkScope: {
-    fontSize: 12,
+    fontSize: 9,
     color: PP_INK,
     lineHeight: 1.5,
   },
   tkScopeCode: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 10.5,
+    fontSize: 8,
     color: PP_INK_3,
   },
   tkInclList: {
-    marginTop: 10,
+    marginTop: 7.5,
     flexDirection: "column",
-    gap: 5,
+    gap: 3.75,
   },
   tkIncl: {
     fontFamily: PDF_FONT_FAMILY.serif,
-    fontSize: 11,
+    fontSize: 8.25,
     color: PP_INK_2,
     lineHeight: 1.4,
     flexDirection: "row",
-    gap: 8,
+    gap: 6,
   },
   tkInclTick: {
     color: PP_INK_3,
