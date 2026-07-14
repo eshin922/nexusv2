@@ -42,6 +42,9 @@ const FIXTURE: CpdfData = {
   },
   quote: {
     quote_number: "DPS-2418",
+    // Fix 4 — nexus extension per Pattern 39. Adapter (Step 4)
+    // projects from `projects.deal_name`.
+    project_title: "Lumen & Co. — Q3 skincare relaunch",
     issued_date: "2026-05-17",
     valid_until: "2026-08-31",
     payment_terms: "50% deposit on PO · balance Net 30 from ship date",

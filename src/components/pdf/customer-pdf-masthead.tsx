@@ -32,6 +32,12 @@ export function Masthead({
       {/* .v-meta (CD `pdf-render.jsx:48`) */}
       <View style={styles.vMeta}>
         <Text style={styles.vMetaQnum}>{quote.quote_number}</Text>
+        {/* Nexus extension per Pattern 39 — project title line.
+            Null-safe: absent → line drops cleanly, hierarchy
+            reverts to CD canonical. */}
+        {quote.project_title != null && quote.project_title.length > 0 && (
+          <Text style={styles.vMetaTitle}>{quote.project_title}</Text>
+        )}
         <Text style={styles.vMetaLine}>
           <Text style={styles.vMetaStrong}>Issued</Text>
           {" · "}

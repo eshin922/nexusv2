@@ -145,6 +145,23 @@ export const styles = StyleSheet.create({
     letterSpacing: 0.24, // 0.02em × 16px
     marginBottom: 4.5,
   },
+  // Nexus extension per Pattern 39 — project-title line rendered
+  // under vMetaQnum. NOT in CD canonical. Italic serif, PP_INK_2,
+  // small — sits between the numeric quote number and the mono
+  // Issued/Valid-until lines without crowding the hierarchy CD
+  // tuned. maxWidth caps at the .v-meta right column so a long
+  // deal name wraps rather than overflowing the masthead.
+  vMetaTitle: {
+    fontFamily: PDF_FONT_FAMILY.serif,
+    fontStyle: "italic",
+    fontSize: 9,
+    color: PP_INK_2,
+    letterSpacing: -0.09, // -0.01em × 9pt
+    lineHeight: 1.3,
+    marginBottom: 5,
+    maxWidth: 180,
+    textAlign: "right",
+  },
   vMetaLine: {
     // each meta row is a Text line inside .v-meta
   },

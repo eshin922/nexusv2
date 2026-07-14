@@ -245,6 +245,12 @@ export default async function CustomerViewPage({
     },
     quote: {
       quoteNumber,
+      // Slice 11 Fix 4 — Nexus extension per Pattern 39. Projected
+      // live from projects.deal_name (customer-safe; already the
+      // HubSpot title customer knows). §0.5 catch: CA memo said
+      // "projects.name" but schema has no `name` col; deal_name is
+      // the canonical "what this quote is for" column.
+      projectTitle: project.dealName,
       sentDate: quote.sentAt ? quote.sentAt.toISOString().slice(0, 10) : null,
       validUntil: quote.validUntil,
       paymentTerms,
