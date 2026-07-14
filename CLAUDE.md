@@ -942,6 +942,43 @@ dominant class.
 Tracked by Edward 2026-06-18 (Slice 11.5 close-out). Milestone
 analysis 2026-06-25 (Slice 11.5.1 close + MS OAuth #75).
 
+### Post-milestone ledger
+
+- **+1 catch (Slice 11 Step 3 Fix 4, 2026-07-14):** `projects.name`
+  vs `projects.deal_name` schema-mismatch. CA fix-pass memo
+  directed "project from `projects.name`"; schema check found no
+  `name` column on the `projects` table. Two candidates surfaced:
+  `deal_name` (NOT NULL, HubSpot deal title at import) vs
+  `client_name` (nullable, already used as `customer.name`
+  elsewhere in the CustomerView). Chose `deal_name` — canonical
+  "what is this quote for" data, customer-safe, always populated.
+  Banked in Fix 4 commit `c384f96` (merged in PR #105). Process
+  discipline class (Class B) — brief-vs-schema mismatch caught
+  mid-implementation, same shape as the Slice RI.9 scenarios FK
+  catch and the multiple §6.b prep instances.
+
+  Cumulative: **76 across 16 slices.**
+
+- **+1 catch (Slice 11 Step 3b, 2026-07-14):** font-family +
+  font-style combinations declared in `StyleSheet.create` must be
+  enumerated against `Font.register` call args. Customer-PDF
+  addendum's `rowValueEmpty` style (mono italic per CD canonical
+  CSS `.val.empty`) crashed at render time — `src/lib/pdf-fonts.ts`
+  registered JetBrains Mono at R/Medium/SemiBold but omitted the
+  italic variant. Surfaced as HTTP 500 on the #105 sample route
+  after Fix 4's sample fixture first exercised an empty spec value
+  (`barrier_coating: null` → SpecRow → `rowValueEmpty` → font
+  resolver → uncaught throw). Fix: vendor `JetBrainsMono-Italic.ttf`
+  + register. Banked in hotfix commit `e1d75b7`. Infrastructure
+  constraint class (Class A) — silent runtime font-resolution
+  failure that TypeScript, `verify:boundaries`, and `prebuild`
+  all passed through. Prebuild verifier candidate (grep
+  `fontStyle:` + `fontFamily:` combinations vs `Font.register`
+  args) would have caught pre-push — same structural-invariant
+  shape as the customer-view boundary guard.
+
+  Cumulative: **77 across 16 slices.**
+
 ### Pattern 22 extension — verification covers code architecture (refinement, 2026-05-13)
 
 §0.5 verification was originally scoped to **DB schema** (tables,
@@ -967,6 +1004,13 @@ The verification scope extends to **code architecture** as well:
   scope grants; third-party rate limits)
 - **Token coverage** (Pre-flight check that every token an
   imported CSS file references exists in `design-tokens.css`)
+- **Font-family + font-style registrations** (react-pdf
+  `StyleSheet.create` entries with `fontFamily` + `fontStyle`
+  must have a matching `Font.register` call arg pair — omission
+  fails silently at TypeScript / boundary / prebuild and then
+  throws at first render of the offending style. Prebuild
+  verifier candidate; catches this class pre-push. See ledger
+  entry #77 for the reference moment.)
 
 The pre-approval pass now reads as **"code-architecture
 verification, of which DB schema is the most common form."**
@@ -2082,6 +2126,137 @@ eslint rule with native AST-level input-element targeting (more
 robust than text-grep against JSX edge cases). Until that's
 needed, the prebuild grep + Architect impl-completion review
 (Step 11) carry the discipline.
+
+## Pattern 48 — "px→pt conversion for react-pdf ports"
+
+Standing pattern — banked from Slice 11 Step 3 fix pass (2026-06-30)
++ Step 3b addendum fix pass (2026-06-30). Two-instance
+promotion criteria met in one slice.
+
+**The rule.** When porting a CD-designed HTML/CSS surface to
+react-pdf primitives via Pattern 30 verbatim adoption, the port
+must apply a **global 0.75× scale ratio** to every px-derived
+value in the resulting `StyleSheet.create` entries. CSS renders
+at 96dpi (1 CSS px = 1/96 inch); react-pdf's pt unit is 1/72
+inch. Verbatim `27px` → `fontSize: 27` produces a rendered
+surface **~33% oversized** across every dimension uniformly.
+
+**Values that scale (× 0.75):**
+- `fontSize`
+- `letterSpacing` (when px-resolved from em × fontSize)
+- `padding*` (Top/Bottom/Left/Right/Horizontal/Vertical + shorthand)
+- `margin*` (all variants including negative offsets)
+- `top` / `left` / `right` / `bottom` (positioning)
+- `borderWidth` / `borderTopWidth` / `borderBottomWidth` / etc.
+- `gap`
+- `maxWidth` / `minWidth` / `width` / `height`
+- `flexBasis` when numeric (px); NOT when string (`"50%"`)
+
+**Values that DON'T scale (unitless):**
+- `lineHeight` (unitless multiplier in both CSS and react-pdf)
+- `flex` / `flexShrink` / `flexGrow` (unitless ratios)
+- `opacity` (0-1)
+- `fontWeight` (100-900)
+- `zIndex` (integer)
+- Color strings
+
+**Canonical helper.** `scripts/apply-px-pt-conversion.mjs` shipped
+in Step 3 fix pass commit `8e938e4`. Rounds to 0.25pt granularity,
+skips lineHeight and letterSpacing (em-based), skips opacity /
+flex / color / font-family. Re-runnable on future CD-source
+refreshes; commits the diff verbatim.
+
+**Reference moments:**
+- Step 3 pricing StyleSheet (`customer-pdf-styles.ts`) — original
+  Pattern 30 port shipped 1:1 px→pt map. Symptoms: "Hydra-Glow
+  Vitamin C Serum" wrapped to 2 lines; "recommended" broke
+  "recom-/mended"; lead-time hyphenated "first ship-/ment"; page-
+  break collisions from oversized content. Fixed via commit
+  `8e938e4` (358-line delta).
+- Step 3b addendum StyleSheet (`customer-pdf-addendum-styles.ts`)
+  — same shape inherited by the parallel port agent working from
+  the same wrong template. Fixed via commit `c36bbd6` (52
+  dimensions converted).
+
+**Working discipline for future react-pdf ports:**
+
+1. Port Pattern 30 verbatim (px values in the StyleSheet).
+2. Run `node scripts/apply-px-pt-conversion.mjs` before first
+   render.
+3. Verify preview at 100% zoom matches CD prototype proportions.
+4. Bank the conversion in the same commit as the port for a
+   single-artifact fidelity trail.
+
+**When it doesn't apply:** react-pdf StyleSheets NOT derived from
+a CSS source (fresh Nexus-authored components without a CD px
+baseline). Those author directly in pt from the start.
+
+## Pattern 49 — "react-pdf `fixed` + positioning on same View"
+
+Standing pattern — banked from Slice 11 Step 3 Fix 2 follow-up
+(2026-06-30). Single reference moment but the diagnosis was
+unambiguous and the fix is the canonical react-pdf pattern for
+per-page chrome — promotion warranted on the diagnostic clarity
+of the failure signature.
+
+**The rule.** In react-pdf, `<View fixed>` re-renders on every
+page. Positioning styles (`position: "absolute"` + `top` / `left`
+/ `right` / `bottom`) resolve against the nearest positioned
+ancestor. Combining `fixed` + positioning on the **same View**
+makes the positioning resolve against the `<Page>` — the intended
+anchor. Nesting `<View fixed>` around a positioned inner view
+breaks this: the inner's absolute offsets resolve against the
+outer's zero-height flow box instead of the Page.
+
+**Wrong (nested):**
+
+```tsx
+<View fixed>
+  <FooterInner />   {/* renders <View style={{position:"absolute", bottom:22}}> */}
+</View>
+```
+
+Footer resolves `bottom: 22` against outer fixed View's
+zero-height box → lands at page TOP instead of bottom.
+
+**Right (same View):**
+
+```tsx
+<View fixed style={styles.footer}>   {/* styles.footer has position/bottom */}
+  <Text>...</Text>
+</View>
+```
+
+Footer's `bottom: 22` resolves against `<Page>` → lands at
+page bottom as intended.
+
+**For per-page rendering (runhead only on pages 2+, etc.), use
+the `render` prop on the same fixed View:**
+
+```tsx
+<View
+  fixed
+  style={styles.runhead}
+  render={({ pageNumber }) =>
+    pageNumber > 1 ? <>...header content...</> : null
+  }
+/>
+```
+
+The `render` callback returning `null` on page 1 is safe (no
+children draw); the fixed View itself still exists on every page
+but paints nothing when `null`.
+
+**Reference moment:** Slice 11 Step 3 chrome port shipped with
+the nested pattern; PM smoke of PR #103 preview surfaced the
+footer rendering at TOP of every page ("Page 1 of 2" / "Page 2
+of 2" visible at page top) alongside the runhead. Fix commit
+`69cc593` refactored `PageRunHead` + `PageFooter` to the same-
+View pattern, unblocking Fix 2 (pagination collision).
+
+**When it doesn't apply:** in-flow content that isn't per-page
+chrome. Regular `<View>`s don't need `fixed`; they wrap /
+paginate automatically per react-pdf's flow engine.
 
 ## Designer audit rubric expansions (banked from rest-of-app sweep Step 10, 2026-05-14)
 
