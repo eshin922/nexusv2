@@ -221,7 +221,6 @@ export default async function CustomerViewPage({
       // standing during the rest-of-app sweep, Step 10 audit).
       pack: null,
       unitsPerPack: 1,
-      retailBenchmark: skuMeta?.retailBenchmark ?? null,
       tierPrices,
       shape,
     };
@@ -237,10 +236,13 @@ export default async function CustomerViewPage({
     customer: {
       // project.clientName is the customer name today; fuller customer
       // contact/role/address fields are HubSpot-side data not yet
-      // imported into Nexus schema (Slice 11).
+      // imported into Nexus schema (Slice 11 Step 4 disposition Q-A:
+      // no source for `email` in v1 either — column+backfill on
+      // `projects` banked as option (b)).
       name: project.clientName ?? "{customer-pending}",
       contact: null,
       role: null,
+      email: null,
       address: null,
     },
     quote: {
@@ -265,7 +267,13 @@ export default async function CustomerViewPage({
     serviceFees: [],
     freightLines: [],
     recommendedTierIdx,
+    // Step 4.1 defaults — real snapshot-or-live read wired in
+    // Step 4.4 alongside migration 0022. Draft placeholders match
+    // legacy behavior (all NULL cols → tier_table / itemized;
+    // spec addendum off unless PM explicitly toggles).
     pdfLayout: "tier_table",
+    detailLevel: "itemized",
+    includeSpecAddendum: false,
   };
 
   const showStateSwitcher =

@@ -44,6 +44,16 @@ export type CustomerViewCustomer = {
   name: string;
   contact: string | null;
   role: string | null;
+  /**
+   * Customer contact email. Nullable — no source exists in v1
+   * (not on `projects`, not on `hubspot_deals_cache`; siblings
+   * `contact` / `role` / `address` are also nullable for the same
+   * reason). Rendered JSX null-guards uniformly. Slice 11 Step 4
+   * adapter disposition Q-A: option (b) column+backfill on
+   * `projects` banked for future — v1 keeps the field surface
+   * available so adapter output shape is stable.
+   */
+  email: string | null;
   address: string | null;
 };
 
@@ -102,8 +112,6 @@ export type CustomerViewSku = {
    * source verification). */
   pack: string | null;
   unitsPerPack: number;
-  /** Optional MSRP context. NULL hides retail column for this row. */
-  retailBenchmark: number | null;
   /**
    * Per-tier unit prices in tier-sort order.
    * NULL element = "quote on request" (NOT $0.00, NOT em-dash).
@@ -142,6 +150,18 @@ export type CustomerViewFreightLine = {
 
 export type CustomerViewPdfLayout = "tier_table" | "single_tier";
 
+/**
+ * Detail-level axis (Addendum 1 — Slice 11 Step 4). Mirrors
+ * `pdfLayout` in draft-live vs sent-snapshot round-trip semantics:
+ * draft reads a searchParam override + firm/quote default; sent
+ * reads the snapshot column added in migration 0022.
+ *
+ * `itemized` renders SKU rows in the pricing table.
+ * `turnkey_only` collapses to a single all-in figure per tier
+ * (compositional refactor Step 4.5).
+ */
+export type CustomerViewDetailLevel = "itemized" | "turnkey_only";
+
 export type CustomerView = {
   vendor: CustomerViewVendor;
   customer: CustomerViewCustomer;
@@ -160,4 +180,14 @@ export type CustomerView = {
   /** Index into `tiers` of the recommended tier (visual ★). */
   recommendedTierIdx: number | null;
   pdfLayout: CustomerViewPdfLayout;
+  detailLevel: CustomerViewDetailLevel;
+  /**
+   * Toggle for the spec addendum pages (Step 3b port). Draft
+   * reads searchParam ?? firm default (Edward Option A —
+   * "include specs all the time when requested"); sent reads
+   * the snapshot column. Adapter output; render decides whether
+   * the addendum block ships based on this + impl-6's
+   * `hasMeaningfulContent` guard.
+   */
+  includeSpecAddendum: boolean;
 };
