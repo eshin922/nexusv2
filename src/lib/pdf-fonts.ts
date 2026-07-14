@@ -4,10 +4,11 @@ import path from "node:path";
 import { Font } from "@react-pdf/renderer";
 
 // Slice 11 Step 2 — Pattern-30 font registration for the
-// customer-PDF render. Per brief §2.2:
+// customer-PDF render. Per brief §2.2 (Step 3b amendment —
+// JetBrains Mono Italic added):
 //
-//   - Vendor 7 variants (Newsreader R/Italic/Medium/SemiBold +
-//     JetBrains Mono R/Medium/SemiBold)
+//   - Vendor 8 variants (Newsreader R/Italic/Medium/SemiBold +
+//     JetBrains Mono R/Italic/Medium/SemiBold)
 //   - Register at module load (idempotent — re-imports no-op)
 //   - Wire `fontFeatureSettings: ['tnum']` on the money styles
 //     (Q-J — applied at StyleSheet level, NOT here per the spike
@@ -15,9 +16,15 @@ import { Font } from "@react-pdf/renderer";
 //
 // **Physical files vendored under `public/fonts/`:**
 //
-//   Newsreader-Regular.ttf   — variable Roman   (opsz, wght axes)
-//   Newsreader-Italic.ttf    — variable Italic  (opsz, wght axes)
+//   Newsreader-Regular.ttf     — variable Roman   (opsz, wght axes)
+//   Newsreader-Italic.ttf      — variable Italic  (opsz, wght axes)
 //   JetBrainsMono-Regular.ttf  — static 400
+//   JetBrainsMono-Italic.ttf   — static 400 italic (added post-#105
+//                                walk 500 diagnosis: the addendum's
+//                                `rowValueEmpty` style requires mono
+//                                italic to render empty spec values;
+//                                omission from Step 2's original
+//                                vendor set crashed at render time)
 //   JetBrainsMono-Medium.ttf   — static 500
 //   JetBrainsMono-SemiBold.ttf — static 600
 //
@@ -48,6 +55,7 @@ const FONT_DIR = path.join(process.cwd(), "public/fonts");
 const NEWSREADER_REGULAR = path.join(FONT_DIR, "Newsreader-Regular.ttf");
 const NEWSREADER_ITALIC = path.join(FONT_DIR, "Newsreader-Italic.ttf");
 const JETBRAINS_REGULAR = path.join(FONT_DIR, "JetBrainsMono-Regular.ttf");
+const JETBRAINS_ITALIC = path.join(FONT_DIR, "JetBrainsMono-Italic.ttf");
 const JETBRAINS_MEDIUM = path.join(FONT_DIR, "JetBrainsMono-Medium.ttf");
 const JETBRAINS_SEMIBOLD = path.join(FONT_DIR, "JetBrainsMono-SemiBold.ttf");
 
@@ -78,11 +86,18 @@ export function registerPdfFonts(): void {
 
   // JetBrains Mono · static instances per weight. Used for money
   // strings (`fontFeatureSettings: '"tnum"'` applied at the
-  // StyleSheet text level per brief §2.2 + spike Q-J).
+  // StyleSheet text level per brief §2.2 + spike Q-J). Italic
+  // variant added post-#105 walk 500 diagnosis: the addendum's
+  // `rowValueEmpty` style (`.row .val.empty` per CSS L786) requires
+  // mono italic for empty spec values, and Step 2's original vendor
+  // set omitted it — first render of an empty field crashed with
+  // `Font family JetBrains Mono, font weight 400, font style italic
+  // wasn't found`.
   Font.register({
     family: "JetBrains Mono",
     fonts: [
       { src: JETBRAINS_REGULAR, fontWeight: 400 },
+      { src: JETBRAINS_ITALIC, fontWeight: 400, fontStyle: "italic" },
       { src: JETBRAINS_MEDIUM, fontWeight: 500 },
       { src: JETBRAINS_SEMIBOLD, fontWeight: 600 },
     ],
