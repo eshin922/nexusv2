@@ -123,6 +123,14 @@ export const freightLegMode = pgEnum("freight_leg_mode", [
 // src/lib/sku-tree.ts and the action layer.
 export const skuRole = pgEnum("sku_role", ["leaf", "assembly"]);
 
+// Slice 11 Step 4 — customer-PDF layout + detail axes. Snapshot-fleet
+// members (mirror pdfLayout / detailLevel round-trip: draft reads live
+// searchParam ?? default; sent+ reads the snapshot column). NULL on
+// legacy rows (adapter defaults NULL → 'tier_table' / 'itemized'
+// respectively; matches current behavior pre-Slice-11).
+export const pdfLayout = pgEnum("pdf_layout", ["tier_table", "single_tier"]);
+export const detailLevel = pgEnum("detail_level", ["itemized", "turnkey_only"]);
+
 // ---------- RI.1 enums (redesign-implementation slice) ----------
 
 // Slice RI.1 — scenario drop reasons. NULL on quotes that aren't
@@ -374,6 +382,17 @@ export const quotes = pgTable(
     preparedByNameSnapshot: text("prepared_by_name_snapshot"),
     preparedByEmailSnapshot: text("prepared_by_email_snapshot"),
     preparedByPhoneSnapshot: text("prepared_by_phone_snapshot"),
+    // Slice 11 Step 4 — customer-PDF render axes. Snapshot fleet
+    // members alongside DEC-7. Read path: draft = live
+    // (searchParam ?? default); sent+ = snapshot column. NULL on
+    // legacy rows (adapter defaults NULL → 'tier_table' / 'itemized'
+    // / hasMeaningfulContent-driven addendum). The three columns
+    // together capture "how did the customer see this quote at
+    // send time?" — retrofits pdf_layout into the snapshot fleet
+    // since RI.7 pre-dated the customer PDF render path.
+    pdfLayoutSnapshot: pdfLayout("pdf_layout"),
+    detailLevelSnapshot: detailLevel("detail_level"),
+    includeSpecAddendumSnapshot: boolean("include_spec_addendum"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, {
