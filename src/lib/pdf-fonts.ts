@@ -81,6 +81,15 @@ export function registerPdfFonts(): void {
       { src: NEWSREADER_REGULAR, fontWeight: 500 },
       { src: NEWSREADER_REGULAR, fontWeight: 600 },
       { src: NEWSREADER_ITALIC, fontWeight: 400, fontStyle: "italic" },
+      // Slice 11 Step 7 catch (2026-07-15): `grandNumReq` +
+      // `tkTotalReq` in customer-pdf-styles.ts both request
+      // Newsreader italic at weight 500. Previously fell back to
+      // weight 400 italic silently (react-pdf's closest-weight
+      // resolver), degrading the "medium italic" register CD
+      // specified. Verifier `font-register-coverage.ts` caught
+      // this on its first run. Newsreader is a variable font;
+      // the same physical Italic.ttf covers all weight slices.
+      { src: NEWSREADER_ITALIC, fontWeight: 500, fontStyle: "italic" },
     ],
   });
 
