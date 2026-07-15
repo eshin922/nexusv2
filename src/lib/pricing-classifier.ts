@@ -713,9 +713,23 @@ function computeRecommendedTierValue(
 //
 // Builds the `suggestion_manual_only` action from adapter-supplied
 // details. Copy names the worst SKU + affected tier(s) + margin
-// severity (target vs floor) + the three recovery paths (adjust
-// cost inputs, per-cell override, admin override). Inert kind
-// (disabled=true, no CTA).
+// severity (target vs floor).
+//
+// Copy stopgap (2026-07-15) — recovery-paths phrasing pruned to
+// only actions the PM can actually take today. Original draft named
+// three paths (Costs adjustment, per-cell override, admin override);
+// the per-cell override UI wire is a v1-post-Slice-11 slice (data
+// model + write path already shipped; UI wire deferred). Admin-
+// override authorization is banked v1.1+. Both promises-without-
+// controls dropped. The remaining copy:
+//   - suggestion_led (below target): Costs adjustment OR
+//     send-below-target-with-risk (the demoted preview_pdf card is
+//     always present in suggestion_led; PMs can review + send).
+//   - blocked (below floor, rare asymmetry): Costs adjustment only
+//     — send path is unavailable at the state-machine level; don't
+//     promise it in copy.
+// When Part 2 (override UI wire) ships, extend this to name the
+// per-cell override path.
 function buildManualOnlyAction(
   details: NonNullable<QuoteInput["suggestion_manual_only"]>,
   policy: QuotePolicyInput,
@@ -738,15 +752,16 @@ function buildManualOnlyAction(
     ? `floor ${(policy.floor_margin_pct * 100).toFixed(1)}%`
     : `target ${(policy.target_margin_pct * 100).toFixed(1)}%`;
   const tierPlural = tiers.length === 1 ? "tier is" : "tiers are";
+  const recoveryPaths = belowFloor
+    ? "Adjust cost inputs on the Costs surface to bring the SKU above the floor."
+    : "Adjust cost inputs on the Costs surface, or send below-target acknowledging the risk.";
   return {
     kind: "suggestion_manual_only",
     label: `Manual adjustment — ${details.worst_sku_name} on ${tierStr}`,
     sublabel:
       `${tiers.length === 0 ? "The" : tiers.length === 1 ? "This" : "These"} ` +
       `${tierPlural} above target overall, but ${details.worst_sku_name} ` +
-      `margin is ${marginPct}% (below ${bandLabel}). ` +
-      `Adjust cost inputs on Costs, set a per-cell sell price override, ` +
-      `or request admin override.`,
+      `margin is ${marginPct}% (below ${bandLabel}). ${recoveryPaths}`,
     recommended: true,
     primary: true,
     disabled: true,
