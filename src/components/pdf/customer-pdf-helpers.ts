@@ -33,9 +33,20 @@ export function qtyK(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(0)}k` : n.toLocaleString("en-US");
 }
 
-/** ISO yyyy-mm-dd → "May 17, 2026". CD `pdf-render.jsx:22-24`. */
-export function longDate(s: string): string {
-  return new Date(s + "T00:00:00").toLocaleDateString("en-US", {
+/** ISO yyyy-mm-dd → "May 17, 2026". CD `pdf-render.jsx:22-24`.
+ *
+ * Slice 11 Step 6 FU (2026-07-14) — null-safe. Returns "—" for
+ * null / empty / invalid inputs (matches money()/unit() convention).
+ * Prevents "Invalid Date" rendering on drafts before sendQuote
+ * computes validUntil (`quote.valid_until` NULL until send). Draft-
+ * mode "—" for Valid-until reads honestly as "not yet computed";
+ * real send populates real date per firm_settings.days_valid_default.
+ */
+export function longDate(s: string | null | undefined): string {
+  if (s == null || s === "" || s === "Invalid Date") return "—";
+  const d = new Date(s + "T00:00:00");
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
