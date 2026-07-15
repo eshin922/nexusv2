@@ -18,10 +18,13 @@ import {
 import {
   assemblies,
   assemblyLeafInputs,
+  assemblyLeafOverrides,
+  assemblyLeafTargets,
   assemblyLeaves,
   assemblyProductionInputs,
   auditLog,
   firmSettings,
+  freightCustomerArrangesMeta,
   freightLegGroups,
   freightLegs,
   freightLegTiers,
@@ -1859,6 +1862,12 @@ async function cloneQuoteGraph(
     // Clone assembly_leaves (junctions) — new IDs, SAME library
     // leaf_id references. Single-level v1 invariant: parent_assembly_leaf_id
     // is always NULL.
+    //
+    // Copy-scenario extension (2026-07-15): capture returning IDs +
+    // build assemblyLeafIdMap so downstream cost-input clones
+    // (assembly_leaf_inputs, assembly_leaf_overrides,
+    // assembly_leaf_targets) can resolve source → new leaf refs.
+    const assemblyLeafIdMap = new Map<string, string>();
     const sourceAssemblyIds = sourceAssemblies.map((a) => a.id);
     const sourceJunctions = await tx
       .select()
@@ -1866,20 +1875,196 @@ async function cloneQuoteGraph(
       .where(inArray(assemblyLeaves.assemblyId, sourceAssemblyIds))
       .orderBy(asc(assemblyLeaves.position));
     if (sourceJunctions.length > 0) {
-      await tx.insert(assemblyLeaves).values(
-        sourceJunctions.map((j) => {
-          const newAsyId = assemblyIdMap.get(j.assemblyId);
-          if (!newAsyId) {
+      const insertedJunctions = await tx
+        .insert(assemblyLeaves)
+        .values(
+          sourceJunctions.map((j) => {
+            const newAsyId = assemblyIdMap.get(j.assemblyId);
+            if (!newAsyId) {
+              throw new Error(
+                `clone: assembly_leaves row referenced unmapped assembly ${j.assemblyId}`,
+              );
+            }
+            return {
+              assemblyId: newAsyId,
+              leafId: j.leafId, // SAME library leaf reference per Cloneable bucket
+              quantity: j.quantity,
+              position: j.position,
+              parentAssemblyLeafId: null, // single-level v1 invariant
+            };
+          }),
+        )
+        .returning({
+          id: assemblyLeaves.id,
+          assemblyId: assemblyLeaves.assemblyId,
+          position: assemblyLeaves.position,
+        });
+      // Pair source → new by (new_assembly_id, position). Both are
+      // unique within a source assembly + position is preserved 1:1.
+      for (const src of sourceJunctions) {
+        const newAsyId = assemblyIdMap.get(src.assemblyId);
+        const match = insertedJunctions.find(
+          (i) => i.assemblyId === newAsyId && i.position === src.position,
+        );
+        if (match) assemblyLeafIdMap.set(src.id, match.id);
+      }
+    }
+
+    // Copy-scenario extension (2026-07-15) — Clone cost data
+    // that FR-12 spec missed. Slice 11.5 migrated cost data from
+    // legacy quote_skus-based tables (packaging_inputs /
+    // production_inputs / quote_sku_tiers) to NEW-model
+    // assembly_leaf_inputs / assembly_production_inputs /
+    // assembly_leaf_overrides / assembly_leaf_targets. The FR-12
+    // Cloneable bucket was authored against the OLD model and never
+    // updated post-11.5 migration. Result: clones had structure
+    // (assemblies + leaves + tiers) but zero cost data → useless
+    // draft (PM had to re-enter every cost input).
+    //
+    // These are copied under the Cloneable bucket (same posture as
+    // assemblies.unit_price / .unit_cost — commercial data survives
+    // the clone). PMs can still edit any cell on the new draft.
+
+    // 1. assembly_leaf_inputs — packaging cost rows (per-leaf per-tier)
+    if (sourceJunctions.length > 0) {
+      const sourceLeafInputs = await tx
+        .select()
+        .from(assemblyLeafInputs)
+        .where(
+          inArray(
+            assemblyLeafInputs.assemblyLeafId,
+            sourceJunctions.map((j) => j.id),
+          ),
+        );
+      if (sourceLeafInputs.length > 0) {
+        // line_group_id is a synthetic UUID grouping rows across
+        // tiers for the same "packaging line." Generate new ids to
+        // avoid confusing forensic queries between source and new
+        // (both refs to same line_group_id would read as "same line"
+        // when they're not).
+        const lineGroupIdMap = new Map<string, string>();
+        for (const r of sourceLeafInputs) {
+          if (!lineGroupIdMap.has(r.lineGroupId)) {
+            lineGroupIdMap.set(r.lineGroupId, randomUUID());
+          }
+        }
+        await tx.insert(assemblyLeafInputs).values(
+          sourceLeafInputs.map((r) => {
+            const newLeafId = assemblyLeafIdMap.get(r.assemblyLeafId);
+            const newTierId = tierIdMap.get(r.tierId);
+            const newLineGroupId = lineGroupIdMap.get(r.lineGroupId);
+            if (!newLeafId || !newTierId || !newLineGroupId) {
+              throw new Error(
+                `clone: assembly_leaf_inputs unmapped ref (leaf=${r.assemblyLeafId}, tier=${r.tierId}, lineGroup=${r.lineGroupId})`,
+              );
+            }
+            return {
+              assemblyLeafId: newLeafId,
+              tierId: newTierId,
+              lineGroupId: newLineGroupId,
+              sortOrder: r.sortOrder,
+              supplier: r.supplier,
+              qtyPerSellableUnit: r.qtyPerSellableUnit,
+              category: r.category,
+              markupPct: r.markupPct,
+              markupPctSource: r.markupPctSource,
+              inventoryEligible: r.inventoryEligible,
+              notes: r.notes,
+              unitCost: r.unitCost,
+              purchaseQty: r.purchaseQty,
+            };
+          }),
+        );
+      }
+
+      // 2. assembly_leaf_overrides — per-cell sell-price overrides
+      const sourceOverrides = await tx
+        .select()
+        .from(assemblyLeafOverrides)
+        .where(
+          inArray(
+            assemblyLeafOverrides.assemblyLeafId,
+            sourceJunctions.map((j) => j.id),
+          ),
+        );
+      if (sourceOverrides.length > 0) {
+        await tx.insert(assemblyLeafOverrides).values(
+          sourceOverrides.map((r) => {
+            const newLeafId = assemblyLeafIdMap.get(r.assemblyLeafId);
+            const newTierId = tierIdMap.get(r.tierId);
+            if (!newLeafId || !newTierId) {
+              throw new Error(
+                `clone: assembly_leaf_overrides unmapped ref (leaf=${r.assemblyLeafId}, tier=${r.tierId})`,
+              );
+            }
+            return {
+              assemblyLeafId: newLeafId,
+              tierId: newTierId,
+              sellPriceOverride: r.sellPriceOverride,
+            };
+          }),
+        );
+      }
+
+      // 3. assembly_leaf_targets — per-cell client benchmarks
+      const sourceTargets = await tx
+        .select()
+        .from(assemblyLeafTargets)
+        .where(
+          inArray(
+            assemblyLeafTargets.assemblyLeafId,
+            sourceJunctions.map((j) => j.id),
+          ),
+        );
+      if (sourceTargets.length > 0) {
+        await tx.insert(assemblyLeafTargets).values(
+          sourceTargets.map((r) => {
+            const newLeafId = assemblyLeafIdMap.get(r.assemblyLeafId);
+            const newTierId = tierIdMap.get(r.tierId);
+            if (!newLeafId || !newTierId) {
+              throw new Error(
+                `clone: assembly_leaf_targets unmapped ref (leaf=${r.assemblyLeafId}, tier=${r.tierId})`,
+              );
+            }
+            return {
+              assemblyLeafId: newLeafId,
+              tierId: newTierId,
+              clientTargetPricePerUnit: r.clientTargetPricePerUnit,
+            };
+          }),
+        );
+      }
+    }
+
+    // 4. assembly_production_inputs — production cost rows (per-assembly per-tier)
+    const sourceProductionInputs = await tx
+      .select()
+      .from(assemblyProductionInputs)
+      .where(inArray(assemblyProductionInputs.assemblyId, sourceAssemblyIds));
+    if (sourceProductionInputs.length > 0) {
+      await tx.insert(assemblyProductionInputs).values(
+        sourceProductionInputs.map((r) => {
+          const newAsyId = assemblyIdMap.get(r.assemblyId);
+          const newTierId = tierIdMap.get(r.tierId);
+          if (!newAsyId || !newTierId) {
             throw new Error(
-              `clone: assembly_leaves row referenced unmapped assembly ${j.assemblyId}`,
+              `clone: assembly_production_inputs unmapped ref (asy=${r.assemblyId}, tier=${r.tierId})`,
             );
           }
           return {
             assemblyId: newAsyId,
-            leafId: j.leafId, // SAME library leaf reference per Cloneable bucket
-            quantity: j.quantity,
-            position: j.position,
-            parentAssemblyLeafId: null, // single-level v1 invariant
+            tierId: newTierId,
+            customerShipsRaws: r.customerShipsRaws,
+            allocateServiceFeesToCost: r.allocateServiceFeesToCost,
+            notes: r.notes,
+            fillingBlendingCost: r.fillingBlendingCost,
+            cmAssemblyTotal: r.cmAssemblyTotal,
+            setupFeeTotal: r.setupFeeTotal,
+            toolingArtworkTotal: r.toolingArtworkTotal,
+            rdTotal: r.rdTotal,
+            otherServiceTotal: r.otherServiceTotal,
+            bulkRawCost: r.bulkRawCost,
+            actualUnitsProduced: r.actualUnitsProduced,
           };
         }),
       );
@@ -1918,6 +2103,11 @@ async function cloneQuoteGraph(
     // Clone freight_legs — POLICY columns + customs JSONB cloneable;
     // shipment dates (cargo_ready_date, vessel_etd, vessel_eta,
     // actual_delivery_date) RESET to null per FR-12 Reset bucket.
+    //
+    // Copy-scenario extension (2026-07-15): capture returning IDs +
+    // build freightLegIdMap so downstream freight_leg_tiers +
+    // freight_customer_arranges_meta clones can resolve refs.
+    const freightLegIdMap = new Map<string, string>();
     const sourceLegGroupIds = sourceLegGroups.map((g) => g.id);
     const sourceLegs = await tx
       .select()
@@ -1925,39 +2115,109 @@ async function cloneQuoteGraph(
       .where(inArray(freightLegs.legGroupId, sourceLegGroupIds))
       .orderBy(asc(freightLegs.displayOrder));
     if (sourceLegs.length > 0) {
-      await tx.insert(freightLegs).values(
-        sourceLegs.map((l) => {
-          const newGroupId = legGroupIdMap.get(l.legGroupId);
-          if (!newGroupId) {
-            throw new Error(
-              `clone: freight_legs row referenced unmapped leg_group ${l.legGroupId}`,
-            );
-          }
-          return {
-            legGroupId: newGroupId,
-            // Cloneable POLICY columns
-            direction: l.direction,
-            label: l.label,
-            origin: l.origin,
-            destination: l.destination,
-            crossesInternationalBorder: l.crossesInternationalBorder,
-            treatment: l.treatment,
-            mode: l.mode,
-            carrier: l.carrier,
-            incoterm: l.incoterm,
-            freightMarkupPct: l.freightMarkupPct,
-            dutyMarkupPct: l.dutyMarkupPct,
-            tariffMarkupPct: l.tariffMarkupPct,
-            customs: l.customs,
-            displayOrder: l.displayOrder,
-            // Reset bucket — shipment dates explicitly NULL
-            cargoReadyDate: null,
-            vesselEtd: null,
-            vesselEta: null,
-            actualDeliveryDate: null,
-          };
-        }),
-      );
+      const insertedLegs = await tx
+        .insert(freightLegs)
+        .values(
+          sourceLegs.map((l) => {
+            const newGroupId = legGroupIdMap.get(l.legGroupId);
+            if (!newGroupId) {
+              throw new Error(
+                `clone: freight_legs row referenced unmapped leg_group ${l.legGroupId}`,
+              );
+            }
+            return {
+              legGroupId: newGroupId,
+              // Cloneable POLICY columns
+              direction: l.direction,
+              label: l.label,
+              origin: l.origin,
+              destination: l.destination,
+              crossesInternationalBorder: l.crossesInternationalBorder,
+              treatment: l.treatment,
+              mode: l.mode,
+              carrier: l.carrier,
+              incoterm: l.incoterm,
+              freightMarkupPct: l.freightMarkupPct,
+              dutyMarkupPct: l.dutyMarkupPct,
+              tariffMarkupPct: l.tariffMarkupPct,
+              customs: l.customs,
+              displayOrder: l.displayOrder,
+              // Reset bucket — shipment dates explicitly NULL
+              cargoReadyDate: null,
+              vesselEtd: null,
+              vesselEta: null,
+              actualDeliveryDate: null,
+            };
+          }),
+        )
+        .returning({
+          id: freightLegs.id,
+          legGroupId: freightLegs.legGroupId,
+          displayOrder: freightLegs.displayOrder,
+        });
+      // Pair source → new by (new_leg_group_id, display_order).
+      for (const src of sourceLegs) {
+        const newGroupId = legGroupIdMap.get(src.legGroupId);
+        const match = insertedLegs.find(
+          (i) =>
+            i.legGroupId === newGroupId && i.displayOrder === src.displayOrder,
+        );
+        if (match) freightLegIdMap.set(src.id, match.id);
+      }
+
+      // 5. freight_leg_tiers — per-tier freight amounts (total +
+      //    units_in_shipment). Copy-scenario extension.
+      const sourceLegIds = sourceLegs.map((l) => l.id);
+      const sourceLegTiers = await tx
+        .select()
+        .from(freightLegTiers)
+        .where(inArray(freightLegTiers.freightLegId, sourceLegIds));
+      if (sourceLegTiers.length > 0) {
+        await tx.insert(freightLegTiers).values(
+          sourceLegTiers.map((r) => {
+            const newLegId = freightLegIdMap.get(r.freightLegId);
+            const newTierId = tierIdMap.get(r.tierId);
+            if (!newLegId || !newTierId) {
+              throw new Error(
+                `clone: freight_leg_tiers unmapped ref (leg=${r.freightLegId}, tier=${r.tierId})`,
+              );
+            }
+            return {
+              freightLegId: newLegId,
+              tierId: newTierId,
+              totalFreight: r.totalFreight,
+              unitsInShipment: r.unitsInShipment,
+            };
+          }),
+        );
+      }
+
+      // 6. freight_customer_arranges_meta — per-leg customer-arranges
+      //    metadata (customer_contact + audit_note). Copy-scenario
+      //    extension.
+      const sourceMeta = await tx
+        .select()
+        .from(freightCustomerArrangesMeta)
+        .where(
+          inArray(freightCustomerArrangesMeta.freightLegId, sourceLegIds),
+        );
+      if (sourceMeta.length > 0) {
+        await tx.insert(freightCustomerArrangesMeta).values(
+          sourceMeta.map((r) => {
+            const newLegId = freightLegIdMap.get(r.freightLegId);
+            if (!newLegId) {
+              throw new Error(
+                `clone: freight_customer_arranges_meta unmapped ref (leg=${r.freightLegId})`,
+              );
+            }
+            return {
+              freightLegId: newLegId,
+              customerContact: r.customerContact,
+              auditNote: r.auditNote,
+            };
+          }),
+        );
+      }
     }
   }
 
