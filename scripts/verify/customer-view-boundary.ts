@@ -13,7 +13,7 @@
 //
 // Failure mode: process.exit(1) with the offending file + import.
 //
-// Sources blocked from `src/components/pdf/`:
+// Sources blocked from the render-tree scope:
 //   - @/components/costs/*
 //   - @/components/pricing/*
 //   - @/components/internal-only-badge*
@@ -22,12 +22,46 @@
 //   - @/db/schema
 //   - @/db
 //   - @/app/actions/* (server action surface — costing-adjacent)
+//
+// **Slice 11 Step 7 — coverage extension (2026-07-15).** Scope now
+// covers every module in the customer-PDF render path, not just the
+// `src/components/pdf/` tree:
+//
+//   - `src/components/pdf/**` (the react-pdf component tree — chrome
+//     + pricing + addendum)
+//   - `src/lib/pdf-fonts.ts` + `src/lib/pdf-palette.ts` (render-path
+//     resources — fonts + OKLCH-precomputed palette)
+//   - `src/lib/quote-pdf-document.tsx` (buildQuoteDocument factory —
+//     entry point that composes the tree)
+//   - `src/lib/customer-view-to-cpdf.ts` (pure CustomerView → CpdfData
+//     translator; on the render-facing side of the projection)
+//
+// **Not in scope** (adapters, not render tree):
+//   - `src/lib/customer-view-resolver.ts` — reads costing bundle to
+//     PROJECT the CustomerView. Legitimately needs costing imports;
+//     that's the boundary-crossing point where synthesis happens.
+//     The projected `CustomerView` shape (see `@/types/quote`) is the
+//     data contract the render tree consumes — verified by TypeScript.
+//   - `src/app/api/quotes/[quoteId]/customer-pdf/route.tsx` — glue
+//     between resolver + factory + renderToStream. Not a render
+//     participant; a staging point.
+//   - `src/app/actions/quotes.ts` (sendQuote) — same class as route.
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const ROOT = process.cwd();
 const PDF_DIR = join(ROOT, "src", "components", "pdf");
+
+// Additional individual files in the render path (outside the pdf/
+// tree). Each is boundary-scoped: legitimate render-facing modules
+// must not reach into costing / schema / action layers either.
+const EXTRA_RENDER_PATH_FILES: readonly string[] = [
+  join(ROOT, "src", "lib", "pdf-fonts.ts"),
+  join(ROOT, "src", "lib", "pdf-palette.ts"),
+  join(ROOT, "src", "lib", "quote-pdf-document.tsx"),
+  join(ROOT, "src", "lib", "customer-view-to-cpdf.ts"),
+];
 
 // Slice RI.8 surface naming canon — path patterns updated:
 //   @/components/cost-build → @/components/costs (Costs surface)
@@ -71,6 +105,12 @@ try {
   process.exit(0);
 }
 
+// Slice 11 Step 7 — fold in the extra render-path files so their
+// imports get the same boundary sweep as the pdf/ tree.
+for (const f of EXTRA_RENDER_PATH_FILES) {
+  if (existsSync(f)) files.push(f);
+}
+
 for (const file of files) {
   const content = readFileSync(file, "utf-8");
   IMPORT_RE.lastIndex = 0;
@@ -106,5 +146,5 @@ if (violations.length > 0) {
 }
 
 console.log(
-  `[customer-view-boundary] OK — ${files.length} file(s) under src/components/pdf/ verified clean.`
+  `[customer-view-boundary] OK — ${files.length} file(s) verified clean (src/components/pdf/ + ${EXTRA_RENDER_PATH_FILES.length} extra render-path files).`
 );
