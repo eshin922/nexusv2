@@ -34,7 +34,21 @@ export default async function CustomerViewPage({
   searchParams,
 }: {
   params: Promise<{ id: string; quoteId: string }>;
-  searchParams: Promise<{ dev?: string }>;
+  searchParams: Promise<{
+    dev?: string;
+    /**
+     * Slice 11 Step 4 preview overrides. Draft-mode only —
+     * sent quotes always read from the immutable snapshot column
+     * (isSent branch below). Adapter resolution order:
+     *   isSent ? quote.{col} : (searchParams.{param} ?? quote.{col} ?? default)
+     * Preview URL wins for drafts so PMs can toggle without a
+     * persistence round-trip (draft-write path lands in Step 4.6
+     * with the toolbar).
+     */
+    layout?: string;
+    detail?: string;
+    addendum?: string;
+  }>;
 }) {
   // 2026-06-17 prod-hang Vercel-side instrumentation (see
   // costs/page.tsx for full rationale). Quote umbrella also runs
@@ -45,7 +59,7 @@ export default async function CustomerViewPage({
     Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
   const elapsed = () => `${Date.now() - t0}ms`;
   const { id: projectId, quoteId } = await params;
-  const { dev } = await searchParams;
+  const { dev, layout, detail, addendum } = await searchParams;
   const tag = quoteId.slice(0, 8);
   console.log(`[quote:${tag}] start memory=${heapMb()}MB`);
 
@@ -290,13 +304,33 @@ export default async function CustomerViewPage({
     serviceFees: [],
     freightLines: [],
     recommendedTierIdx,
-    // Step 4.1 defaults — real snapshot-or-live read wired in
-    // Step 4.4 alongside migration 0022. Draft placeholders match
-    // legacy behavior (all NULL cols → tier_table / itemized;
-    // spec addendum off unless PM explicitly toggles).
-    pdfLayout: "tier_table",
-    detailLevel: "itemized",
-    includeSpecAddendum: false,
+    // Slice 11 Step 4.4 — snapshot-or-live reads for the three
+    // customer-PDF render axes. Priority (per brief §4):
+    //   isSent ? quote.{col} : (searchParams.{param} ?? quote.{col} ?? default)
+    // Sent-only reads are frozen (immutable per DEC-7 snapshot);
+    // drafts allow preview-URL override so PMs can toggle
+    // without a persistence round-trip (draft-write path via
+    // toolbar lands in Step 4.6).
+    // Unknown searchParam values collapse to `undefined` via the
+    // narrow type guards; the `??` chain then falls through to
+    // the persisted draft column, then to the canonical default.
+    pdfLayout: isSent
+      ? (quote.pdfLayoutSnapshot ?? "tier_table")
+      : (layout === "tier_table" || layout === "single_tier"
+          ? layout
+          : (quote.pdfLayoutSnapshot ?? "tier_table")),
+    detailLevel: isSent
+      ? (quote.detailLevelSnapshot ?? "itemized")
+      : (detail === "itemized" || detail === "turnkey_only"
+          ? detail
+          : (quote.detailLevelSnapshot ?? "itemized")),
+    includeSpecAddendum: isSent
+      ? (quote.includeSpecAddendumSnapshot ?? false)
+      : (addendum === "1" || addendum === "true"
+          ? true
+          : addendum === "0" || addendum === "false"
+            ? false
+            : (quote.includeSpecAddendumSnapshot ?? false)),
   };
 
   const showStateSwitcher =
