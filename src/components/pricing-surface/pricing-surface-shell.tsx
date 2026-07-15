@@ -154,13 +154,19 @@ export function PricingSurfaceShell({
       void onApply(kind);
       return;
     }
-    // preview_pdf · request_override · tighten_to_target — v1 ships
-    // as a no-op placeholder. Slice 11 (Preview Quote sub-tab) wires
-    // preview_pdf; admin-override workflow + tighten-to-target
-    // automation are banked v1.1+. override_unavailable +
-    // calculating_suggestion + suggestion_infeasible are inert kinds
-    // (ActionCard renders no CTA button for them; this branch is
-    // unreachable but kept for closed-enum exhaustiveness).
+    // preview_pdf ActionCard was removed from the shell render per
+    // Edward's disposition (redundant with the YourNextMoveBanner
+    // that already surfaces "Preview quote PDF →" in sendable
+    // mode). The kind is retained in the enum for banner lookup
+    // (recommendedOrPrimary in pricing-page-head.tsx picks
+    // preview_pdf as primary → banner label) but never reaches
+    // this handler because the shell filter drops it.
+    // request_override · tighten_to_target — v1 ships as no-op
+    // placeholders. Admin-override workflow + tighten-to-target
+    // automation banked v1.1+. override_unavailable +
+    // calculating_suggestion + suggestion_infeasible are inert
+    // kinds (ActionCard renders no CTA button for them; this branch
+    // is unreachable but kept for closed-enum exhaustiveness).
   }
 
   // CB Patch round 3 BUG-B disposition (2026-06-16) — re-instated.
@@ -219,8 +225,19 @@ export function PricingSurfaceShell({
           CB Patch round 3 BUG-D — `id` on the action zone container
           + suggestion-card wrapper anchors the YOUR NEXT MOVE
           banner's in-page navigation. */}
+      {/* ActionCard render — filters:
+          - `preview_pdf` kind is EXCLUDED everywhere; the top
+            YourNextMoveBanner already surfaces "Preview quote PDF →"
+            as its CTA in sendable mode (via classifier's primary
+            action lookup). Duplicating it as a middle-page action
+            card was confusing PMs. Kind stays in the classifier +
+            enum for banner label wiring.
+          - In `suggestion_led` mode, also drop the recommended
+            action because SuggestionCard IS the recommended-action
+            presentation surface (single ★ marker per render). */}
       <div id="psr-actions" className="psr-actions">
         {state.actions
+          .filter((a) => a.kind !== "preview_pdf")
           .filter(
             (a) => state.mode !== "suggestion_led" || !a.recommended,
           )
