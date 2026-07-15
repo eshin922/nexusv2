@@ -98,6 +98,16 @@ export function QuoteHost({
     iframeVersion,
   );
 
+  // Slice 11 Step 6 FU — snapshot-lock indicator. Sent quotes
+  // render the immutable snapshot (per Step 4.4 read-path); the
+  // toolbar toggles would change the iframe URL but the resolver's
+  // isSent branch ignores search params. Disable the controls so
+  // PMs don't wonder why they no-op.
+  const isSent = quoteStatus !== "draft";
+  const sentLockTooltip = isSent
+    ? "Sent quotes render the frozen snapshot; toggles only work on drafts."
+    : undefined;
+
   return (
     <div className="r3-shared">
       <div className="preview-chrome">
@@ -135,7 +145,15 @@ export function QuoteHost({
             flexWrap: "wrap",
           }}
         >
-          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              opacity: isSent ? 0.5 : 1,
+            }}
+            title={sentLockTooltip}
+          >
             <span style={{ fontSize: 12, color: "var(--ink-3)" }}>
               Detail:
             </span>
@@ -144,6 +162,7 @@ export function QuoteHost({
               onChange={(e) =>
                 setDetailLevel(e.target.value as CustomerViewDetailLevel)
               }
+              disabled={isSent}
               style={{ fontSize: 12 }}
             >
               <option value="itemized">Itemized</option>
@@ -152,13 +171,21 @@ export function QuoteHost({
           </label>
 
           {addendumData ? (
-            <AddendumToggle
-              on={addendumOn}
-              onToggle={() => setAddendumOn((v) => !v)}
-              totalLeaves={addendumData.totalLeaves}
-              totalAssemblies={addendumData.totalAssemblies}
-              hasMeaningfulContent={addendumData.hasMeaningfulContent}
-            />
+            <span
+              style={{ opacity: isSent ? 0.5 : 1 }}
+              title={sentLockTooltip}
+            >
+              <AddendumToggle
+                on={addendumOn}
+                onToggle={() => {
+                  if (isSent) return;
+                  setAddendumOn((v) => !v);
+                }}
+                totalLeaves={addendumData.totalLeaves}
+                totalAssemblies={addendumData.totalAssemblies}
+                hasMeaningfulContent={addendumData.hasMeaningfulContent}
+              />
+            </span>
           ) : (
             <span style={{ fontSize: 12, color: "var(--ink-4)" }}>
               No addendum data.

@@ -100,6 +100,14 @@ export function PreviewToolbar({
 }) {
   const [notesOpen, setNotesOpen] = useState(false);
   const notesEditable = quoteStatus === "draft";
+  // Slice 11 Step 6 FU — sent quotes render the immutable snapshot;
+  // the layout toggle would change the iframe URL but the resolver
+  // ignores search params in the isSent branch. Disable so PMs
+  // don't wonder why toggles no-op.
+  const isSent = quoteStatus !== "draft";
+  const sentLockTooltip = isSent
+    ? "Sent quotes render the frozen snapshot; toggles only work on drafts."
+    : undefined;
   return (
     <div className="preview-toolbar">
       <div className="left">
@@ -109,12 +117,17 @@ export function PreviewToolbar({
           {sentDate ? ` · sent ${formatShortDate(sentDate)}` : ""}
         </span>
         <span className="meta" style={{ color: "var(--ink-4)" }}>·</span>
-        <span className="meta send-as">
+        <span
+          className="meta send-as"
+          style={{ opacity: isSent ? 0.5 : 1 }}
+          title={sentLockTooltip}
+        >
           Send as:{" "}
           <button
             type="button"
             className={pdfLayout === "tier_table" ? "active" : ""}
             onClick={() => onPdfLayoutChange("tier_table")}
+            disabled={isSent}
           >
             tier table
           </button>
@@ -123,6 +136,7 @@ export function PreviewToolbar({
             type="button"
             className={pdfLayout === "single_tier" ? "active" : ""}
             onClick={() => onPdfLayoutChange("single_tier")}
+            disabled={isSent}
           >
             single tier
           </button>
