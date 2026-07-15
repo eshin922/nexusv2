@@ -13,7 +13,9 @@ import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { VENDOR_FIXTURE } from "@/lib/quote-fixtures";
 import type {
   CustomerView,
+  CustomerViewFreightLine,
   CustomerViewPreparedBy,
+  CustomerViewServiceFee,
   CustomerViewSku,
   CustomerViewTier,
   CustomerViewVendor,
@@ -268,6 +270,154 @@ export default async function CustomerViewPage({
           : Math.floor(tiers.length / 2)
         : Math.floor(tiers.length / 2);
 
+  // ─── Slice 11 Step 5.1 — service-fee projection ─────────────
+  //
+  // Per Step 5 brief §1 (#78 eligibility carve — Pattern 45 CRITICAL):
+  //   ELIGIBLE: setup_fee_total, tooling_artwork_total, rd_total,
+  //             other_service_total (four one-time service fees)
+  //   NEVER PROJECT: cm_assembly_total, filling_blending_cost
+  //     (per-unit COGS already baked into sell price; projecting
+  //     would double-bill + leak cost structure)
+  //   FILTER: only project rows where allocateServiceFeesToCost=false.
+  //     When true, fees fold into unit price ("included in unit price"
+  //     messaging via hasCharges=false).
+  //
+  // Dispositions:
+  //   Q1 — scope='sku', skuLabel = assembly.skuLabel. All fees
+  //        attach to their assembly; no project-scope aggregation.
+  //   Q2 — adapter hardcodes label/sub/qty_label per column-type.
+  //        Firm-wide copy (single-tenant); refine via commit if
+  //        the DPS shifts wording.
+  //
+  // Dedupe: production rows are per-(anchorLeafId, tierId) but fees
+  // are per-assembly (denormalized across tier rows per the "Per-
+  // assembly source → per-leaf adapter coercion" pattern in
+  // CLAUDE.md). Pick one row per assembly (first-encountered);
+  // the fee amount is constant across tiers.
+  //
+  // Anchor-leaf → assembly mapping: bundle.data.skus carries both
+  // leaf and assembly CostingSku entries; leaf.parentSkuId points
+  // at the assembly.
+  const FEE_COPY = [
+    {
+      field: "setupFeeTotal" as const,
+      label: "Setup",
+      sub: "One-time setup — filling-line, dye-cuts, plates.",
+      qtyLabel: "1 (setup)",
+    },
+    {
+      field: "toolingArtworkTotal" as const,
+      label: "Tooling & artwork",
+      sub: "One-time tooling + artwork.",
+      qtyLabel: "1 (tooling)",
+    },
+    {
+      field: "rdTotal" as const,
+      label: "R&D",
+      sub: "One-time R&D work.",
+      qtyLabel: "1 (R&D)",
+    },
+    {
+      field: "otherServiceTotal" as const,
+      label: "Other services",
+      sub: "One-time other services.",
+      qtyLabel: "1 (services)",
+    },
+  ];
+
+  const skuById = new Map(bundle.data.skus.map((s) => [s.id, s]));
+  const assemblyByLeafId = new Map<
+    string,
+    (typeof bundle.data.skus)[number]
+  >();
+  for (const s of bundle.data.skus) {
+    if (s.skuRole === "leaf" && s.parentSkuId) {
+      const asm = skuById.get(s.parentSkuId);
+      if (asm && asm.skuRole === "assembly") {
+        assemblyByLeafId.set(s.id, asm);
+      }
+    }
+  }
+
+  const productionByAssembly = new Map<
+    string,
+    (typeof bundle.data.production)[number]
+  >();
+  for (const p of bundle.data.production) {
+    const assembly = assemblyByLeafId.get(p.quoteSkuId);
+    if (!assembly) continue;
+    if (!productionByAssembly.has(assembly.id)) {
+      productionByAssembly.set(assembly.id, p);
+    }
+  }
+
+  const serviceFees: CustomerViewServiceFee[] = [];
+  for (const [assemblyId, prodRow] of productionByAssembly) {
+    if (prodRow.allocateServiceFeesToCost) continue;
+    const assembly = skuById.get(assemblyId);
+    if (!assembly) continue;
+    for (const spec of FEE_COPY) {
+      const value = prodRow[spec.field];
+      if (value == null || value <= 0) continue;
+      serviceFees.push({
+        id: `${assemblyId}::${spec.field}`,
+        scope: "sku",
+        skuLabel: assembly.skuLabel,
+        label: spec.label,
+        sub: spec.sub,
+        amount: value,
+        qtyLabel: spec.qtyLabel,
+      });
+    }
+  }
+
+  // ─── Slice 11 Step 5.2 — pass-through freight projection ───
+  //
+  // Per Step 5 brief §3: project bundle.data.freightLegs[] where
+  // treatment === 'pass_through'. Bundled freight is in unit price;
+  // does NOT project as a line item.
+  //
+  // Per-tier per-unit landed amount: sum containerFreightWithMarkup +
+  // dutyWithMarkup + tariffWithMarkup per tier from the leg's
+  // FreightLegBreakdown on any leaf SKU (the per-unit rate is a leg
+  // property, effectively constant across SKUs sharing the leg — pick
+  // the first leaf-rollup's breakdown for that leg per tier).
+  //
+  // qtyLabel is generic; sub currently empty (customer-facing text
+  // deferred to Step 6+ if it needs to differ per leg).
+  const freightLegs = bundle.data.freightLegs.filter(
+    (l) => l.treatment === "pass_through",
+  );
+
+  const freightLines: CustomerViewFreightLine[] = freightLegs.map((leg) => {
+    const tierAmounts: number[] = tiers.map((t) => {
+      // Find any leaf-rollup that carries this leg breakdown at this
+      // tier. Freight per-unit rate is a leg property; leaves on the
+      // same leg see the same rate for the container portion.
+      for (const rollup of leafSkus) {
+        const perTier = rollup.perTier.find((pt) => pt.tierId === t.id);
+        if (!perTier) continue;
+        const legBreak = perTier.freightLegs.find(
+          (fb) => fb.legId === leg.id,
+        );
+        if (!legBreak) continue;
+        return (
+          legBreak.containerFreightWithMarkupPerUnit +
+          legBreak.dutyWithMarkupPerUnit +
+          legBreak.tariffWithMarkupPerUnit
+        );
+      }
+      return 0;
+    });
+    return {
+      id: leg.id,
+      label: leg.label ?? "Freight",
+      sub: "",
+      qtyLabel: "Per unit · per shipment",
+      tierAmounts,
+    };
+  });
+
   const view: CustomerView = {
     vendor,
     customer: {
@@ -301,8 +451,8 @@ export default async function CustomerViewPage({
     preparedBy,
     tiers,
     skus,
-    serviceFees: [],
-    freightLines: [],
+    serviceFees,
+    freightLines,
     recommendedTierIdx,
     // Slice 11 Step 4.4 — snapshot-or-live reads for the three
     // customer-PDF render axes. Priority (per brief §4):
