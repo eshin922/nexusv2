@@ -31,14 +31,12 @@
 // engine. One classify, one engine call per render.
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import type { Mode } from "@/lib/pricing-classifier";
 import {
   applyGlobalAdj,
   applySurgicalAdj,
 } from "@/app/actions/pricing-apply";
 import { updateQuoteGlobalPriceAdj } from "@/app/actions/costing";
-import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
 import {
   ActionCard,
   AcceptRiskBanner,
@@ -59,13 +57,12 @@ export interface PricingSurfaceShellProps {
 }
 
 export function PricingSurfaceShell({
-  projectId,
+  projectId: _projectId,
   quoteId,
 }: PricingSurfaceShellProps) {
   // Single source of truth — `state` is the classifier output,
   // identical to what `<PricingPageHead>` consumes.
   const { state, idMap } = usePricingClassifier();
-  const router = useRouter();
 
   // Mode-transition flash + 30s persistent hint ─────────────────
   const previousModeRef = useRef<Mode | null>(null);
@@ -157,32 +154,13 @@ export function PricingSurfaceShell({
       void onApply(kind);
       return;
     }
-    if (kind === "preview_pdf") {
-      // Post-Step-6 fix batch — wires the "Preview PDF" ActionCard
-      // to the Quote/Preview surface (Slice 11 Step 6 iframe
-      // preview). Same target as YourNextMoveBanner's sendable
-      // mode href. Was a no-op stub from before Slice 11 shipped.
-      //
-      // Diagnostic: 1e0a336 (router.push only) reported by Edward as
-      // still not navigating; belt-and-suspenders with
-      // window.location.assign in case the Next router client has
-      // a hydration edge or the click bubbling gets swallowed by
-      // an ancestor. `console.log` confirms the handler fires
-      // (DevTools console; remove after diagnosis).
-      const href = resolveSurfaceHref("customer_view", projectId, quoteId);
-      console.log("[preview_pdf] onActivate fired, navigating to:", href);
-      router.push(href);
-      // If router.push doesn't kick a hard navigation within ~50ms,
-      // fall back to the browser's own navigation. router.push is
-      // async; window.location.assign is synchronous. This runs
-      // only if the router push queued but didn't complete.
-      setTimeout(() => {
-        if (typeof window !== "undefined" && !window.location.pathname.endsWith("/quote")) {
-          window.location.assign(href);
-        }
-      }, 100);
-      return;
-    }
+    // preview_pdf ActionCard was removed from the shell render per
+    // Edward's disposition (redundant with the YourNextMoveBanner
+    // that already surfaces "Preview quote PDF →" in sendable
+    // mode). The kind is retained in the enum for banner lookup
+    // (recommendedOrPrimary in pricing-page-head.tsx picks
+    // preview_pdf as primary → banner label) but never reaches
+    // this handler because the shell filter drops it.
     // request_override · tighten_to_target — v1 ships as no-op
     // placeholders. Admin-override workflow + tighten-to-target
     // automation banked v1.1+. override_unavailable +
@@ -247,8 +225,19 @@ export function PricingSurfaceShell({
           CB Patch round 3 BUG-D — `id` on the action zone container
           + suggestion-card wrapper anchors the YOUR NEXT MOVE
           banner's in-page navigation. */}
+      {/* ActionCard render — filters:
+          - `preview_pdf` kind is EXCLUDED everywhere; the top
+            YourNextMoveBanner already surfaces "Preview quote PDF →"
+            as its CTA in sendable mode (via classifier's primary
+            action lookup). Duplicating it as a middle-page action
+            card was confusing PMs. Kind stays in the classifier +
+            enum for banner label wiring.
+          - In `suggestion_led` mode, also drop the recommended
+            action because SuggestionCard IS the recommended-action
+            presentation surface (single ★ marker per render). */}
       <div id="psr-actions" className="psr-actions">
         {state.actions
+          .filter((a) => a.kind !== "preview_pdf")
           .filter(
             (a) => state.mode !== "suggestion_led" || !a.recommended,
           )
