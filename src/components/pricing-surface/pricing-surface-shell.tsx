@@ -31,12 +31,14 @@
 // engine. One classify, one engine call per render.
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Mode } from "@/lib/pricing-classifier";
 import {
   applyGlobalAdj,
   applySurgicalAdj,
 } from "@/app/actions/pricing-apply";
 import { updateQuoteGlobalPriceAdj } from "@/app/actions/costing";
+import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
 import {
   ActionCard,
   AcceptRiskBanner,
@@ -57,12 +59,13 @@ export interface PricingSurfaceShellProps {
 }
 
 export function PricingSurfaceShell({
-  projectId: _projectId,
+  projectId,
   quoteId,
 }: PricingSurfaceShellProps) {
   // Single source of truth — `state` is the classifier output,
   // identical to what `<PricingPageHead>` consumes.
   const { state, idMap } = usePricingClassifier();
+  const router = useRouter();
 
   // Mode-transition flash + 30s persistent hint ─────────────────
   const previousModeRef = useRef<Mode | null>(null);
@@ -154,13 +157,20 @@ export function PricingSurfaceShell({
       void onApply(kind);
       return;
     }
-    // preview_pdf · request_override · tighten_to_target — v1 ships
-    // as a no-op placeholder. Slice 11 (Preview Quote sub-tab) wires
-    // preview_pdf; admin-override workflow + tighten-to-target
-    // automation are banked v1.1+. override_unavailable +
-    // calculating_suggestion + suggestion_infeasible are inert kinds
-    // (ActionCard renders no CTA button for them; this branch is
-    // unreachable but kept for closed-enum exhaustiveness).
+    if (kind === "preview_pdf") {
+      // Post-Step-6 fix batch — wires the "Preview PDF" ActionCard
+      // to the Quote/Preview surface (Slice 11 Step 6 iframe
+      // preview). Same target as YourNextMoveBanner's sendable
+      // mode href. Was a no-op stub from before Slice 11 shipped.
+      router.push(resolveSurfaceHref("customer_view", projectId, quoteId));
+      return;
+    }
+    // request_override · tighten_to_target — v1 ships as no-op
+    // placeholders. Admin-override workflow + tighten-to-target
+    // automation banked v1.1+. override_unavailable +
+    // calculating_suggestion + suggestion_infeasible are inert
+    // kinds (ActionCard renders no CTA button for them; this branch
+    // is unreachable but kept for closed-enum exhaustiveness).
   }
 
   // CB Patch round 3 BUG-B disposition (2026-06-16) — re-instated.
