@@ -52,6 +52,10 @@ export async function GET(
   const layout = url.searchParams.get("layout") ?? undefined;
   const detail = url.searchParams.get("detail") ?? undefined;
   const addendum = url.searchParams.get("addendum") ?? undefined;
+  // Slice 11 Step 6 FU — ?download=1 flips Content-Disposition from
+  // `inline` (iframe embed) to `attachment` (browser save-as).
+  // Same render path; browser decides based on the header.
+  const download = url.searchParams.get("download") === "1";
 
   const result = await resolveCustomerView({
     quoteId,
@@ -86,10 +90,15 @@ export async function GET(
     nodeStream as unknown as Readable,
   ) as unknown as ReadableStream<Uint8Array>;
 
+  // Filename: prefer quote_number (customer-facing id, e.g. DPS-2418);
+  // fall back to id slug for drafts (no quote_number yet).
+  const filenameSlug = result.view.quote.quoteNumber ?? `draft-${quoteId.slice(0, 8)}`;
+  const disposition = download ? "attachment" : "inline";
+
   return new Response(webStream, {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="quote-${quoteId.slice(0, 8)}.pdf"`,
+      "Content-Disposition": `${disposition}; filename="quote-${filenameSlug}.pdf"`,
       "Cache-Control": "no-store, max-age=0",
       // Explicit no-cache header for CDN + browser layer.
       "CDN-Cache-Control": "no-store",

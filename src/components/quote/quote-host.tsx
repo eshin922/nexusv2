@@ -52,7 +52,6 @@ export function QuoteHost({
   quoteId,
   quoteStatus,
   showStateSwitcher,
-  devSendEnabled,
   internalNotes,
   addendumData,
 }: {
@@ -60,7 +59,6 @@ export function QuoteHost({
   quoteId: string;
   quoteStatus: string;
   showStateSwitcher: boolean;
-  devSendEnabled: boolean;
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
 }) {
@@ -95,7 +93,6 @@ export function QuoteHost({
           subState={subState}
           onSubStateChange={setSubState}
           showStateSwitcher={showStateSwitcher}
-          devSendEnabled={devSendEnabled}
           customerFacingNotes={view.quote.customerFacingNotes}
           internalNotes={internalNotes}
         />

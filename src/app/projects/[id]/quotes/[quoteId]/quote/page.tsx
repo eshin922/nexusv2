@@ -92,14 +92,11 @@ export default async function CustomerViewPage({
     const showStateSwitcher =
       dev === "1" || process.env.NODE_ENV !== "production";
 
-    // Slice RI.7 — dev send stub gate. Two checks for safety:
-    //   1. NODE_ENV !== 'production' — won't render in prod builds at all
-    //   2. Admin role — even in dev, only admins see the affordance
-    // Slice 11 replaces the entire stub with real PDF + email flow on
-    // the existing Download buttons.
-    const me = await ensureUser();
-    const devSendEnabled =
-      process.env.NODE_ENV !== "production" && me.role === "admin";
+    // Slice 11 Step 6 — auth check for surface access. The Send
+    // button is un-gated (any authenticated PM); admin role no
+    // longer required per §3 disposition. `ensureUser` here only
+    // gates the surface itself.
+    await ensureUser();
 
     console.log(
       `[quote:${tag}] pre-render ${elapsed()} memory=${heapMb()}MB`,
@@ -120,7 +117,6 @@ export default async function CustomerViewPage({
           quoteId={quote.id}
           quoteStatus={quote.status}
           showStateSwitcher={showStateSwitcher}
-          devSendEnabled={devSendEnabled}
           internalNotes={quote.internalNotes}
           addendumData={addendumData}
         />
