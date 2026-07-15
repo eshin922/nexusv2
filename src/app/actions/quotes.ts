@@ -1,9 +1,19 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
+import { renderToBuffer } from "@react-pdf/renderer";
+
 import { and, asc, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
+import { resolveCustomerView } from "@/lib/customer-view-resolver";
+import { buildQuoteDocument } from "@/lib/quote-pdf-document";
+import {
+  QUOTE_PDFS_BUCKET,
+  buildQuotePdfStoragePath,
+  getSupabaseServer,
+} from "@/lib/supabase-server";
 import {
   assemblies,
   assemblyLeafInputs,
@@ -1410,6 +1420,69 @@ export async function sendQuote(
     const sentAt = new Date();
     const daysValid = firm.daysValidDefault ?? null;
 
+    // Slice 11 Step 6.6 — render + upload BEFORE the transaction
+    // (per brief §4 disposition — "render+upload before marking
+    // sent, so a sent quote always has its artifact").
+    //
+    // The resolver reads quote.status === 'draft' (still true at
+    // this point) → draft branch → live firm defaults + live
+    // prepared-by. These are exactly the values the tx below is
+    // about to snapshot. Consistency by ordering: the render
+    // uses the same values that become the immutable snapshot.
+    //
+    // Failure semantics: render or upload error → the send does
+    // not proceed (throw propagates out of runAction). Tx never
+    // runs; quote remains draft. If tx fails AFTER upload
+    // succeeds, orphan file remains in storage — acceptable cost
+    // per brief lean.
+    const sendUuid = randomUUID();
+    const resolved = await resolveCustomerView({ quoteId });
+    if (!resolved.ok) {
+      throw new ActionGuardError(
+        resolved.kind === "not_found" ? ERR.NOT_FOUND : ERR.VALIDATION,
+        resolved.kind === "not_found"
+          ? "Quote not found during send-time render."
+          : `Costing bundle error during send-time render: ${resolved.message}`,
+      );
+    }
+
+    const todayIso = sentAt.toISOString().slice(0, 10);
+    const doc = buildQuoteDocument({
+      view: resolved.view,
+      addendumData: resolved.addendumData,
+      todayIso,
+    });
+    const buffer = await renderToBuffer(doc);
+
+    const supabase = getSupabaseServer();
+    const storagePath = buildQuotePdfStoragePath(quoteId, sendUuid);
+    const upload = await supabase.storage
+      .from(QUOTE_PDFS_BUCKET)
+      .upload(storagePath, buffer, {
+        contentType: "application/pdf",
+        upsert: false,
+      });
+    if (upload.error) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `PDF upload failed: ${upload.error.message}`,
+      );
+    }
+
+    // 30-day signed URL for internal PM re-download convenience
+    // (D2 — internal-only; never handed to customer). Refresh on
+    // demand by re-signing; the file itself lives forever.
+    const signed = await supabase.storage
+      .from(QUOTE_PDFS_BUCKET)
+      .createSignedUrl(storagePath, 60 * 60 * 24 * 30);
+    if (signed.error || !signed.data?.signedUrl) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `PDF signed URL generation failed: ${signed.error?.message ?? "no url"}`,
+      );
+    }
+    const pdfUrl = signed.data.signedUrl;
+
     const result = await db.transaction(async (tx) => {
       // Pull next quote number from the sequence inside the transaction
       // so the audit + UPDATE see the same value.
@@ -1460,6 +1533,10 @@ export async function sendQuote(
           pdfLayoutSnapshot,
           detailLevelSnapshot,
           includeSpecAddendumSnapshot,
+          // Slice 11 Step 6.6: persisted PDF signed URL
+          // (internal-only per D2; regenerable via signed URL
+          // refresh — storage file itself is the artifact).
+          pdfUrl,
           updatedAt: sentAt,
         })
         .where(eq(quotes.id, quoteId))
@@ -1487,6 +1564,16 @@ export async function sendQuote(
             pdfLayout: pdfLayoutSnapshot,
             detailLevel: detailLevelSnapshot,
             includeSpecAddendum: includeSpecAddendumSnapshot,
+          },
+          // Slice 11 Step 6.6 — persisted PDF forensic markers.
+          // sendUuid ties to the storage-path file for audit
+          // reconstruction; pdfUrl captured for point-in-time
+          // record (signed URLs expire; storage path + bucket
+          // are permanent).
+          pdf: {
+            bucket: QUOTE_PDFS_BUCKET,
+            storagePath,
+            sendUuid,
           },
           preparedBy: {
             name: preparedBy.name,

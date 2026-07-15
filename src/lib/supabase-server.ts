@@ -69,3 +69,29 @@ export function buildAttachmentStoragePath(
   const safe = filename.replace(/[/\\\x00-\x1F\x7F]/g, "_");
   return `${quoteId}/${uuid}-${safe}`;
 }
+
+// Slice 11 Step 6.5 — customer-PDF persistence bucket.
+//
+// **Bucket setup (Edward, manual Supabase Dashboard step):**
+//   Storage → New bucket → name: `quote-pdfs`, public: OFF.
+//   Copy the RLS posture of `quote-attachments` (service-role
+//   upload + signed-URL download; no anon access).
+//
+// Path convention: {quoteId}/{sendUuid}.pdf
+//   - quoteId scopes by parent quote (matches quote-attachments).
+//   - sendUuid is a fresh UUID generated per send (Step 6.6);
+//     resends produce a new file, prior files remain for forensics.
+//     The audit log ties sendUuid → send-event via diff_json.
+//   - `.pdf` suffix — for storage-side previewing.
+//
+// Signed URL TTL: 30 days for internal PM re-download convenience.
+// Per D2/D3 dispositions: **URL is internal-only** — PMs deliver
+// out-of-band. Never handed to a customer.
+export const QUOTE_PDFS_BUCKET = "quote-pdfs";
+
+export function buildQuotePdfStoragePath(
+  quoteId: string,
+  sendUuid: string,
+): string {
+  return `${quoteId}/${sendUuid}.pdf`;
+}

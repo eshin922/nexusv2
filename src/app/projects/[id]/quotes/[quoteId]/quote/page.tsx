@@ -1,35 +1,19 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import { desc, eq, isNull } from "drizzle-orm";
-import { db } from "@/db";
-import { firmSettings, projects, quotes, quoteTiers, users } from "@/db/schema";
-import { getCostingBundle } from "@/app/actions/costing";
-import { ensureUser } from "@/lib/auth/ensure-user";
-import { findHubspotOwnerById } from "@/lib/hubspot";
 import { QuoteHost } from "@/components/quote/quote-host";
-import { loadQuoteAddendum } from "@/lib/addendum-loader";
 import { SurfaceChrome } from "@/components/nav/surface-chrome";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
-import { VENDOR_FIXTURE } from "@/lib/quote-fixtures";
-import type {
-  CustomerView,
-  CustomerViewFreightLine,
-  CustomerViewPreparedBy,
-  CustomerViewServiceFee,
-  CustomerViewSku,
-  CustomerViewTier,
-  CustomerViewVendor,
-} from "@/types/quote";
+import { ensureUser } from "@/lib/auth/ensure-user";
+import { resolveCustomerView } from "@/lib/customer-view-resolver";
 
 // Slice RI.6 — Quote page (visual shell + boundary-guard
 // build invariant per brief §3.7).
 // Slice RI.7 — wires real firm_settings live reads + per-quote
-// snapshots into the data shape. Draft quotes preview against current
-// firm defaults; sent+ quotes render the immutable snapshot captured
-// by sendQuote.
-//
-// Slice 10 fills LRR + recommended-tier wiring; Slice 11 ships PDF
-// render path + send-from-customer-view action.
+// snapshots into the data shape.
+// Slice 11 Step 6.2 — CustomerView resolution extracted to
+// src/lib/customer-view-resolver.ts so this page + the new
+// /api/quotes/[quoteId]/customer-pdf route (Step 6.3) build the
+// view from the SAME code path — no divergence between the
+// preview iframe and the persisted PDF.
 
 export default async function CustomerViewPage({
   params,
@@ -40,12 +24,9 @@ export default async function CustomerViewPage({
     dev?: string;
     /**
      * Slice 11 Step 4 preview overrides. Draft-mode only —
-     * sent quotes always read from the immutable snapshot column
-     * (isSent branch below). Adapter resolution order:
+     * sent quotes always read from the immutable snapshot column.
+     * Priority order (per brief §4):
      *   isSent ? quote.{col} : (searchParams.{param} ?? quote.{col} ?? default)
-     * Preview URL wins for drafts so PMs can toggle without a
-     * persistence round-trip (draft-write path lands in Step 4.6
-     * with the toolbar).
      */
     layout?: string;
     detail?: string;
@@ -53,9 +34,9 @@ export default async function CustomerViewPage({
   }>;
 }) {
   // 2026-06-17 prod-hang Vercel-side instrumentation (see
-  // costs/page.tsx for full rationale). Quote umbrella also runs
-  // getCostingBundle + addendum loader + PDF render tree (heavy on
-  // memory if a quote has many SKUs).
+  // costs/page.tsx for full rationale). Quote umbrella runs the
+  // resolver's costing bundle + addendum loader + preparedBy chain
+  // (heavy on memory if a quote has many SKUs).
   const t0 = Date.now();
   const heapMb = () =>
     Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
@@ -66,57 +47,66 @@ export default async function CustomerViewPage({
   console.log(`[quote:${tag}] start memory=${heapMb()}MB`);
 
   try {
-  // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
-  await recordSurfaceVisit({
-    projectId,
-    quoteId,
-    surfaceKey: "customer_view",
-  });
-  console.log(`[quote:${tag}] post-auth ${elapsed()} memory=${heapMb()}MB`);
+    // Slice RI.9 §6 step 9 — record surface visit for Home Resume card.
+    await recordSurfaceVisit({
+      projectId,
+      quoteId,
+      surfaceKey: "customer_view",
+    });
+    console.log(`[quote:${tag}] post-auth ${elapsed()} memory=${heapMb()}MB`);
 
-  // Load quote, project, firm_settings (current), and costing bundle.
-  // firm_settings is needed for both the vendor identity (live render)
-  // and the customer-facing-defaults (draft-preview source).
-  //
-  // Note: getCostingBundle is heavy (8 inner queries via Promise.all).
-  // Run AFTER the lightweight metadata load so we don't compound the
-  // pool demand. See CLAUDE.md "getCostingBundle parallel-query
-  // discipline".
-  const quoteRows = await db
-    .select({ quote: quotes, project: projects })
-    .from(quotes)
-    .innerJoin(projects, eq(projects.id, quotes.projectId))
-    .where(eq(quotes.id, quoteId))
-    .limit(1);
-  if (quoteRows.length === 0) notFound();
-  const { quote, project } = quoteRows[0];
-  if (project.id !== projectId) notFound();
-  console.log(`[quote:${tag}] post-meta ${elapsed()} memory=${heapMb()}MB`);
-
-  const firmRows = await db
-    .select()
-    .from(firmSettings)
-    .where(isNull(firmSettings.effectiveUntil))
-    .orderBy(desc(firmSettings.effectiveFrom))
-    .limit(1);
-  const firm = firmRows[0] ?? null;
-
-  // Phase A.1 v2 impl-6 — addendum data loader runs alongside the
-  // costing bundle. Returns the typed shape for the addendum render
-  // tree (Pattern 45 boundary-safe; types cross via QuoteAddendumData).
-  // No prebuild verifier violation since the loader lives in src/lib/
-  // (outside the boundary) and the page is also outside.
-  const addendumData = await loadQuoteAddendum(quoteId);
-
-  const bundle = await getCostingBundle(quoteId);
-  console.log(`[quote:${tag}] post-bundle ${elapsed()} memory=${heapMb()}MB`);
-  if (!bundle.ok) {
+    const result = await resolveCustomerView({
+      quoteId,
+      searchParams: { layout, detail, addendum },
+    });
     console.log(
-      `[quote:${tag}] pre-render(error) ${elapsed()} memory=${heapMb()}MB`,
+      `[quote:${tag}] post-resolve ${elapsed()} memory=${heapMb()}MB`,
+    );
+
+    if (!result.ok) {
+      if (result.kind === "not_found") notFound();
+      // bundle_error — render inline error UI (no throw; keep the
+      // surface chrome so PMs know where they are).
+      return (
+        <main
+          style={{ padding: "32px 24px", maxWidth: 880, margin: "0 auto" }}
+        >
+          <div style={{ marginBottom: 16 }}>
+            <SurfaceChrome
+              surfaceKey="customer_view"
+              segments={[]}
+              breadcrumbTarget="customer_view"
+              projectId={projectId}
+              quoteId={quoteId}
+            />
+          </div>
+          <h1>Quote unavailable</h1>
+          <p style={{ color: "var(--bad)" }}>{result.message}</p>
+        </main>
+      );
+    }
+
+    const { view, addendumData, project, quote } = result;
+    if (project.id !== projectId) notFound();
+
+    const showStateSwitcher =
+      dev === "1" || process.env.NODE_ENV !== "production";
+
+    // Slice RI.7 — dev send stub gate. Two checks for safety:
+    //   1. NODE_ENV !== 'production' — won't render in prod builds at all
+    //   2. Admin role — even in dev, only admins see the affordance
+    // Slice 11 replaces the entire stub with real PDF + email flow on
+    // the existing Download buttons.
+    const me = await ensureUser();
+    const devSendEnabled =
+      process.env.NODE_ENV !== "production" && me.role === "admin";
+
+    console.log(
+      `[quote:${tag}] pre-render ${elapsed()} memory=${heapMb()}MB`,
     );
     return (
-      <main style={{ padding: "32px 24px", maxWidth: 880, margin: "0 auto" }}>
-        <div style={{ marginBottom: 16 }}>
+      <>
+        <div style={{ padding: "16px 24px 0" }}>
           <SurfaceChrome
             surfaceKey="customer_view"
             segments={[]}
@@ -125,407 +115,17 @@ export default async function CustomerViewPage({
             quoteId={quote.id}
           />
         </div>
-        <h1>Quote unavailable</h1>
-        <p style={{ color: "var(--bad)" }}>{bundle.error.message}</p>
-      </main>
-    );
-  }
-
-  // Vendor identity: always live from firm_settings; fallback to the
-  // VENDOR_FIXTURE constant only if firm columns are NULL (shouldn't
-  // happen post-migration 0020, but keeps the customer view from
-  // rendering empty firm name on a misconfigured admin state).
-  const vendor: CustomerViewVendor = {
-    name: firm?.vendorName ?? VENDOR_FIXTURE.name,
-    sub: firm?.vendorTagline ?? VENDOR_FIXTURE.sub,
-    address: firm?.vendorAddress ?? VENDOR_FIXTURE.address,
-  };
-
-  // Status-based snapshot vs live resolution (CR-SM DEC-7 + DEC-8).
-  // Drafts read firm_settings.*_default (preview of what would land
-  // at send); sent+ read the immutable per-quote snapshot.
-  const isSent = quote.status !== "draft";
-  const quoteNumber = isSent ? quote.quoteNumber : null;
-  const paymentTerms = isSent
-    ? quote.paymentTermsSnapshot
-    : (firm?.paymentTermsDefault ?? null);
-  const leadTime = isSent
-    ? quote.leadTimeSnapshot
-    : (firm?.leadTimeDefault ?? null);
-  const incoterms = isSent
-    ? quote.incotermsSnapshot
-    : (firm?.incotermsDefault ?? null);
-  const tcs = isSent ? quote.tcsSnapshot : (firm?.tcsDefault ?? null);
-
-  // PreparedBy resolution: drafts → live (users join + HubSpot fallback);
-  // sent+ → snapshot fields on quote row. Phone is always nullable per
-  // CR-SM DEC-8 — PdfHeader omits the phone line entirely when null.
-  let preparedBy: CustomerViewPreparedBy | null = null;
-  if (isSent) {
-    if (quote.preparedByEmailSnapshot && quote.preparedByNameSnapshot) {
-      preparedBy = {
-        name: quote.preparedByNameSnapshot,
-        email: quote.preparedByEmailSnapshot,
-        phone: quote.preparedByPhoneSnapshot,
-      };
-    }
-  } else {
-    // Draft preview: resolve live.
-    if (project.salesRepUserId) {
-      const [rep] = await db
-        .select({ name: users.name, email: users.email, phone: users.phone })
-        .from(users)
-        .where(eq(users.id, project.salesRepUserId))
-        .limit(1);
-      if (rep && rep.email) {
-        preparedBy = {
-          name: rep.name ?? rep.email,
-          email: rep.email,
-          phone: rep.phone,
-        };
-      }
-    }
-    if (!preparedBy && project.hubspotOwnerId) {
-      const owner = await findHubspotOwnerById(project.hubspotOwnerId);
-      if (owner && owner.email) {
-        preparedBy = {
-          name: owner.name ?? owner.email,
-          email: owner.email,
-          phone: null, // Owners API has no phone — verified.
-        };
-      }
-    }
-  }
-
-  // Build the typed customer-view shape from costing data + resolved
-  // status-aware values.
-  const tiers: CustomerViewTier[] = bundle.data.costing.tiers.map((t) => ({
-    id: t.tierId,
-    label: t.label,
-    quantity: t.qty,
-  }));
-
-  // Customer-visible SKUs are LEAF only (assemblies are internal grouping).
-  const leafSkus = bundle.data.costing.skuRollups.filter(
-    (r) => r.skuRole === "leaf",
-  );
-
-  const skus: CustomerViewSku[] = leafSkus.map((rollup) => {
-    const skuMeta = bundle.data.skus.find((s) => s.id === rollup.skuId);
-    const tierPrices = tiers.map((t) => {
-      const pt = rollup.perTier.find((p) => p.tierId === t.id);
-      return pt ? pt.requiredSellPerUnit : null;
-    });
-    const allPriced = tierPrices.every((p) => p !== null);
-    const allEqual =
-      allPriced && tierPrices.every((p) => p === tierPrices[0]);
-    const shape: CustomerViewSku["shape"] = !allPriced
-      ? "partial"
-      : allEqual
-        ? "flat"
-        : "step↓";
-    return {
-      label: rollup.skuLabel,
-      name: rollup.productName,
-      // Pack format not yet on quote_skus — Slice 11 schema add.
-      // Until then `pack: null` triggers graceful-degradation in
-      // PdfPricingTable (caption suppressed entirely) rather than
-      // shipping a synthetic "{pack-format-pending}" string to real
-      // customer PDFs. Same shape as `preparedBy.phone === null`
-      // handling in PdfHeader (line 77). Pattern 45 (customer-
-      // facing render data-source verification — promoted to
-      // standing during the rest-of-app sweep, Step 10 audit).
-      pack: null,
-      unitsPerPack: 1,
-      tierPrices,
-      shape,
-    };
-  });
-
-  // Slice 11 Step 4.3 — real recommendedTierIdx from
-  // quote_tiers.recommended (schema.ts:440). Mirrors the
-  // mark-accepted/page.tsx:167 pattern: read the recommended pin,
-  // find its index in the ordered tier list, fall back to middle
-  // tier for legacy quotes created before §6.b's ★ toggle. The
-  // customer PDF is the first surface where a wrong recommended
-  // tier ships to a customer, so the stub cannot ride along.
-  const tierRecommendedRows =
-    tiers.length > 0
-      ? await db
-          .select({
-            id: quoteTiers.id,
-            recommended: quoteTiers.recommended,
-          })
-          .from(quoteTiers)
-          .where(eq(quoteTiers.quoteId, quote.id))
-      : [];
-  const recommendedTierId =
-    tierRecommendedRows.find((t) => t.recommended)?.id ?? null;
-  const recommendedTierIdx =
-    tiers.length === 0
-      ? null
-      : recommendedTierId
-        ? (tiers.findIndex((t) => t.id === recommendedTierId) ?? -1) !== -1
-          ? tiers.findIndex((t) => t.id === recommendedTierId)
-          : Math.floor(tiers.length / 2)
-        : Math.floor(tiers.length / 2);
-
-  // ─── Slice 11 Step 5.1 — service-fee projection ─────────────
-  //
-  // Per Step 5 brief §1 (#78 eligibility carve — Pattern 45 CRITICAL):
-  //   ELIGIBLE: setup_fee_total, tooling_artwork_total, rd_total,
-  //             other_service_total (four one-time service fees)
-  //   NEVER PROJECT: cm_assembly_total, filling_blending_cost
-  //     (per-unit COGS already baked into sell price; projecting
-  //     would double-bill + leak cost structure)
-  //   FILTER: only project rows where allocateServiceFeesToCost=false.
-  //     When true, fees fold into unit price ("included in unit price"
-  //     messaging via hasCharges=false).
-  //
-  // Dispositions:
-  //   Q1 — scope='sku', skuLabel = assembly.skuLabel. All fees
-  //        attach to their assembly; no project-scope aggregation.
-  //   Q2 — adapter hardcodes label/sub/qty_label per column-type.
-  //        Firm-wide copy (single-tenant); refine via commit if
-  //        the DPS shifts wording.
-  //
-  // Dedupe: production rows are per-(anchorLeafId, tierId) but fees
-  // are per-assembly (denormalized across tier rows per the "Per-
-  // assembly source → per-leaf adapter coercion" pattern in
-  // CLAUDE.md). Pick one row per assembly (first-encountered);
-  // the fee amount is constant across tiers.
-  //
-  // Anchor-leaf → assembly mapping: bundle.data.skus carries both
-  // leaf and assembly CostingSku entries; leaf.parentSkuId points
-  // at the assembly.
-  const FEE_COPY = [
-    {
-      field: "setupFeeTotal" as const,
-      label: "Setup",
-      sub: "One-time setup — filling-line, dye-cuts, plates.",
-      qtyLabel: "1 (setup)",
-    },
-    {
-      field: "toolingArtworkTotal" as const,
-      label: "Tooling & artwork",
-      sub: "One-time tooling + artwork.",
-      qtyLabel: "1 (tooling)",
-    },
-    {
-      field: "rdTotal" as const,
-      label: "R&D",
-      sub: "One-time R&D work.",
-      qtyLabel: "1 (R&D)",
-    },
-    {
-      field: "otherServiceTotal" as const,
-      label: "Other services",
-      sub: "One-time other services.",
-      qtyLabel: "1 (services)",
-    },
-  ];
-
-  const skuById = new Map(bundle.data.skus.map((s) => [s.id, s]));
-  const assemblyByLeafId = new Map<
-    string,
-    (typeof bundle.data.skus)[number]
-  >();
-  for (const s of bundle.data.skus) {
-    if (s.skuRole === "leaf" && s.parentSkuId) {
-      const asm = skuById.get(s.parentSkuId);
-      if (asm && asm.skuRole === "assembly") {
-        assemblyByLeafId.set(s.id, asm);
-      }
-    }
-  }
-
-  const productionByAssembly = new Map<
-    string,
-    (typeof bundle.data.production)[number]
-  >();
-  for (const p of bundle.data.production) {
-    const assembly = assemblyByLeafId.get(p.quoteSkuId);
-    if (!assembly) continue;
-    if (!productionByAssembly.has(assembly.id)) {
-      productionByAssembly.set(assembly.id, p);
-    }
-  }
-
-  const serviceFees: CustomerViewServiceFee[] = [];
-  for (const [assemblyId, prodRow] of productionByAssembly) {
-    if (prodRow.allocateServiceFeesToCost) continue;
-    const assembly = skuById.get(assemblyId);
-    if (!assembly) continue;
-    for (const spec of FEE_COPY) {
-      const value = prodRow[spec.field];
-      if (value == null || value <= 0) continue;
-      serviceFees.push({
-        id: `${assemblyId}::${spec.field}`,
-        scope: "sku",
-        skuLabel: assembly.skuLabel,
-        label: spec.label,
-        sub: spec.sub,
-        amount: value,
-        qtyLabel: spec.qtyLabel,
-      });
-    }
-  }
-
-  // ─── Slice 11 Step 5.2 — pass-through freight projection ───
-  //
-  // Per Step 5 brief §3: project bundle.data.freightLegs[] where
-  // treatment === 'pass_through'. Bundled freight is in unit price;
-  // does NOT project as a line item.
-  //
-  // Per-tier per-unit landed amount: sum containerFreightWithMarkup +
-  // dutyWithMarkup + tariffWithMarkup per tier from the leg's
-  // FreightLegBreakdown on any leaf SKU (the per-unit rate is a leg
-  // property, effectively constant across SKUs sharing the leg — pick
-  // the first leaf-rollup's breakdown for that leg per tier).
-  //
-  // qtyLabel is generic; sub currently empty (customer-facing text
-  // deferred to Step 6+ if it needs to differ per leg).
-  const freightLegs = bundle.data.freightLegs.filter(
-    (l) => l.treatment === "pass_through",
-  );
-
-  const freightLines: CustomerViewFreightLine[] = freightLegs.map((leg) => {
-    const tierAmounts: number[] = tiers.map((t) => {
-      // Find any leaf-rollup that carries this leg breakdown at this
-      // tier. Freight per-unit rate is a leg property; leaves on the
-      // same leg see the same rate for the container portion.
-      for (const rollup of leafSkus) {
-        const perTier = rollup.perTier.find((pt) => pt.tierId === t.id);
-        if (!perTier) continue;
-        const legBreak = perTier.freightLegs.find(
-          (fb) => fb.legId === leg.id,
-        );
-        if (!legBreak) continue;
-        return (
-          legBreak.containerFreightWithMarkupPerUnit +
-          legBreak.dutyWithMarkupPerUnit +
-          legBreak.tariffWithMarkupPerUnit
-        );
-      }
-      return 0;
-    });
-    return {
-      id: leg.id,
-      label: leg.label ?? "Freight",
-      sub: "",
-      qtyLabel: "Per unit · per shipment",
-      tierAmounts,
-    };
-  });
-
-  const view: CustomerView = {
-    vendor,
-    customer: {
-      // project.clientName is the customer name today; fuller customer
-      // contact/role/address fields are HubSpot-side data not yet
-      // imported into Nexus schema (Slice 11 Step 4 disposition Q-A:
-      // no source for `email` in v1 either — column+backfill on
-      // `projects` banked as option (b)).
-      name: project.clientName ?? "{customer-pending}",
-      contact: null,
-      role: null,
-      email: null,
-      address: null,
-    },
-    quote: {
-      quoteNumber,
-      // Slice 11 Fix 4 — Nexus extension per Pattern 39. Projected
-      // live from projects.deal_name (customer-safe; already the
-      // HubSpot title customer knows). §0.5 catch: CA memo said
-      // "projects.name" but schema has no `name` col; deal_name is
-      // the canonical "what this quote is for" column.
-      projectTitle: project.dealName,
-      sentDate: quote.sentAt ? quote.sentAt.toISOString().slice(0, 10) : null,
-      validUntil: quote.validUntil,
-      paymentTerms,
-      leadTime,
-      customerFacingNotes: quote.customerFacingNotes,
-      incoterms,
-      tcs,
-    },
-    preparedBy,
-    tiers,
-    skus,
-    serviceFees,
-    freightLines,
-    recommendedTierIdx,
-    // Slice 11 Step 4.4 — snapshot-or-live reads for the three
-    // customer-PDF render axes. Priority (per brief §4):
-    //   isSent ? quote.{col} : (searchParams.{param} ?? quote.{col} ?? default)
-    // Sent-only reads are frozen (immutable per DEC-7 snapshot);
-    // drafts allow preview-URL override so PMs can toggle
-    // without a persistence round-trip (draft-write path via
-    // toolbar lands in Step 4.6).
-    // Unknown searchParam values collapse to `undefined` via the
-    // narrow type guards; the `??` chain then falls through to
-    // the persisted draft column, then to the canonical default.
-    pdfLayout: isSent
-      ? (quote.pdfLayoutSnapshot ?? "tier_table")
-      : (layout === "tier_table" || layout === "single_tier"
-          ? layout
-          : (quote.pdfLayoutSnapshot ?? "tier_table")),
-    detailLevel: isSent
-      ? (quote.detailLevelSnapshot ?? "itemized")
-      : (detail === "itemized" || detail === "turnkey_only"
-          ? detail
-          : (quote.detailLevelSnapshot ?? "itemized")),
-    includeSpecAddendum: isSent
-      ? (quote.includeSpecAddendumSnapshot ?? false)
-      : (addendum === "1" || addendum === "true"
-          ? true
-          : addendum === "0" || addendum === "false"
-            ? false
-            : (quote.includeSpecAddendumSnapshot ?? false)),
-  };
-
-  const showStateSwitcher =
-    dev === "1" || process.env.NODE_ENV !== "production";
-
-  // Slice RI.7 — dev send stub gate. Two checks for safety:
-  //   1. NODE_ENV !== 'production' — won't render in prod builds at all
-  //   2. Admin role — even in dev, only admins see the affordance
-  // Slice 11 replaces the entire stub with real PDF + email flow on
-  // the existing Download buttons.
-  const me = await ensureUser();
-  const devSendEnabled =
-    process.env.NODE_ENV !== "production" && me.role === "admin";
-
-  console.log(`[quote:${tag}] pre-render ${elapsed()} memory=${heapMb()}MB`);
-  return (
-    <>
-      {/* Slice RI.9 § 3.2 — <Breadcrumb> via <SurfaceChrome>.
-          Customer view is rail-shed (Rule B: print-preview metaphor
-          melts chrome); breadcrumb compensates. SurfaceChrome reads
-          `shouldShowBreadcrumb("customer_view") === true` from
-          SURFACE_META and renders the Breadcrumb primitive. Step 11
-          audit fix HIGH-2 — wires the previously dead-code helper
-          into a real caller so the XOR rule is structurally
-          enforced. */}
-      <div style={{ padding: "16px 24px 0" }}>
-        <SurfaceChrome
-          surfaceKey="customer_view"
-          segments={[]}
-          breadcrumbTarget="customer_view"
-          projectId={project.id}
+        <QuoteHost
+          view={view}
           quoteId={quote.id}
+          quoteStatus={quote.status}
+          showStateSwitcher={showStateSwitcher}
+          devSendEnabled={devSendEnabled}
+          internalNotes={quote.internalNotes}
+          addendumData={addendumData}
         />
-      </div>
-      <QuoteHost
-        view={view}
-        quoteId={quote.id}
-        quoteStatus={quote.status}
-        showStateSwitcher={showStateSwitcher}
-        devSendEnabled={devSendEnabled}
-        internalNotes={quote.internalNotes}
-        addendumData={addendumData}
-      />
-    </>
-  );
+      </>
+    );
   } catch (e) {
     console.error(`[quote:${tag}] FAIL ${elapsed()} memory=${heapMb()}MB`, e);
     throw e;
