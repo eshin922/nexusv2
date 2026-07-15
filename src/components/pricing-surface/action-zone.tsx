@@ -128,6 +128,11 @@ const GLYPH: Record<Action["kind"], string> = {
   // exclamation) marks the structural-failure mode distinct from
   // the in-flight ellipsis of `calculating_suggestion`.
   suggestion_infeasible: "⚠",
+  // False-infeasibility fix (2026-07-15, Option B) — guidance-tone
+  // glyph (pencil) distinct from `suggestion_infeasible`'s warning
+  // exclamation. Signals a solvable state ("manual adjustment
+  // required") rather than a structural failure.
+  suggestion_manual_only: "✎",
 };
 
 export function ActionCard({
@@ -147,6 +152,7 @@ export function ActionCard({
     action.kind === "override_unavailable" ? "override-unavailable" : "",
     action.kind === "calculating_suggestion" ? "calculating" : "",
     action.kind === "suggestion_infeasible" ? "infeasible" : "",
+    action.kind === "suggestion_manual_only" ? "manual-only" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -155,7 +161,8 @@ export function ActionCard({
   const inert =
     action.kind === "override_unavailable" ||
     action.kind === "calculating_suggestion" ||
-    action.kind === "suggestion_infeasible";
+    action.kind === "suggestion_infeasible" ||
+    action.kind === "suggestion_manual_only";
   const ctaCopy = CTA_COPY[action.kind] ?? "Go →";
   return (
     <div className={cls}>
@@ -232,7 +239,14 @@ export function SuggestionCard({
   // echoing the top message" is exactly what to avoid). Banner
   // now carries the recovery hint via helpText for infeasible
   // mode (see pricing-page-head.tsx).
-  if (rec.kind === "suggestion_infeasible") {
+  //
+  // False-infeasibility fix (2026-07-15, Option B) — same empty-slot
+  // treatment for the manual-only asymmetry corner. Banner carries
+  // the specific SKU + tier + recovery hint; SuggestionCard skips.
+  if (
+    rec.kind === "suggestion_infeasible" ||
+    rec.kind === "suggestion_manual_only"
+  ) {
     return null;
   }
   const surgical = state.quote.suggestions?.surgical;

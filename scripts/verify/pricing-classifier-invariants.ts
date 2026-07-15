@@ -84,6 +84,7 @@ function quote(opts: {
   suggestions?: QuoteInput["suggestions"];
   missingCells?: Array<[number, number]>; // [skuIdx, tierIdx]
   suggestionInfeasible?: boolean;
+  suggestionManualOnly?: QuoteInput["suggestion_manual_only"];
 }): QuoteInput {
   const tierCount = opts.margins[0]?.length ?? 0;
   const tiers = Array.from({ length: tierCount }, (_, i) => ({
@@ -119,6 +120,7 @@ function quote(opts: {
       opts.recommendedTierId ?? (tiers.length > 0 ? tiers[0].id : null),
     suggestions: opts.suggestions,
     suggestion_infeasible: opts.suggestionInfeasible,
+    suggestion_manual_only: opts.suggestionManualOnly,
   };
 }
 
@@ -158,6 +160,7 @@ function runScenario(
     acceptRiskUnavailable?: boolean;
     expectCalculatingSuggestion?: boolean;
     expectSuggestionInfeasible?: boolean;
+    expectSuggestionManualOnly?: boolean;
   },
 ) {
   const out = classify(input, policy);
@@ -391,6 +394,51 @@ function runScenario(
       scenarioId,
       "7-B",
       `suggestion_infeasible expected; calculating_suggestion must not also fire`,
+    );
+  }
+
+  // Invariant 7-C · suggestion_manual_only terminal-inert action
+  // (false-infeasibility Option B fix, 2026-07-15). Distinct kind
+  // for the classifier-engine compliance-basis asymmetry corner:
+  // per-cell below target inside a tier whose revenue-weighted
+  // blend is above target. Emitted with recommended + disabled;
+  // takes precedence over suggestion_infeasible when both would
+  // fire (asymmetry-first ordering in classify()).
+  const manualOnlyAction = out.actions.find(
+    (a) => a.kind === "suggestion_manual_only",
+  );
+  if (manualOnlyAction) {
+    assert(
+      manualOnlyAction.disabled === true,
+      scenarioId,
+      "7-C",
+      `suggestion_manual_only action must be disabled (inert)`,
+    );
+    assert(
+      manualOnlyAction.recommended === true,
+      scenarioId,
+      "7-C",
+      `suggestion_manual_only action takes the recommended slot`,
+    );
+  }
+  if (expectations.expectSuggestionManualOnly) {
+    assert(
+      !!manualOnlyAction,
+      scenarioId,
+      "7-C",
+      `expected a suggestion_manual_only action; none emitted`,
+    );
+    assert(
+      !infeasibleAction,
+      scenarioId,
+      "7-C",
+      `suggestion_manual_only expected; suggestion_infeasible must not also fire`,
+    );
+    assert(
+      !calcAction,
+      scenarioId,
+      "7-C",
+      `suggestion_manual_only expected; calculating_suggestion must not also fire`,
     );
   }
 }
@@ -647,6 +695,95 @@ runScenario(
   },
 );
 
+// False-infeasibility fix (2026-07-15, Option B) — asymmetry-corner
+// coverage.
+//
+// extra_suggestion_led_manual_only: Scenario B shape — bottle-cell
+// below target inside a tier whose revenue-weighted blend is above
+// target (SKUs with mixed margins per tier). Adapter passes the
+// manual-only details struct; classifier emits
+// suggestion_manual_only (guidance-only), NOT suggestion_infeasible.
+runScenario(
+  "extra_suggestion_led_manual_only",
+  quote({
+    // 2 SKUs × 3 tiers. SKU 1 (bottle) drags below target on every
+    // tier; SKU 2 (dropper) is above target. Classifier sees
+    // per-cell below-target on SKU 1 cells; engine (elsewhere)
+    // returns null against tier-blended rollups if dropper's
+    // revenue weight pulls tier blends above target — that shape
+    // is signalled to the classifier via suggestionManualOnly
+    // details (adapter-computed; the verifier stubs it directly).
+    margins: [
+      [0.335, 0.34, 0.335],
+      [0.352, 0.359, 0.364],
+    ],
+    suggestionManualOnly: {
+      worst_sku_id: "sku-1",
+      worst_sku_name: "Glass bottle 30ml amber",
+      affected_tier_labels: ["Tier 1", "Tier 2", "Tier 3"],
+      worst_margin_pct: 0.335,
+    },
+  }),
+  POLICY,
+  {
+    mode: "suggestion_led",
+    stateLineStatus: "review",
+    expectSuggestionManualOnly: true,
+  },
+);
+
+// extra_blocked_manual_only: rare — a cell below FLOOR inside a
+// tier whose revenue-weighted blend stays above target. Same
+// asymmetry mechanism, different mode severity.
+runScenario(
+  "extra_blocked_manual_only",
+  quote({
+    // 2 SKUs × 3 tiers. SKU 1 drops below floor on tier 1; SKU 2
+    // pulls blend up. Classifier mode = blocked (floor breach on
+    // SKU 1 cell). Adapter signals manual_only for the asymmetry.
+    margins: [
+      [0.15, 0.34, 0.335],
+      [0.55, 0.5, 0.48],
+    ],
+    suggestionManualOnly: {
+      worst_sku_id: "sku-1",
+      worst_sku_name: "Glass bottle 30ml amber",
+      affected_tier_labels: ["Tier 1", "Tier 2", "Tier 3"],
+      worst_margin_pct: 0.15,
+    },
+  }),
+  POLICY,
+  {
+    mode: "blocked",
+    stateLineStatus: "blocked",
+    expectSuggestionManualOnly: true,
+  },
+);
+
+// extra_manual_only_takes_precedence_over_infeasible: when both
+// suggestionInfeasible AND suggestionManualOnly are set (adapter
+// bug shape), manual_only wins per action-ranking order in
+// classify(). Guards the ordering.
+runScenario(
+  "extra_manual_only_takes_precedence_over_infeasible",
+  quote({
+    margins: Array(3).fill([0.335, 0.4, 0.45]),
+    suggestionInfeasible: true,
+    suggestionManualOnly: {
+      worst_sku_id: "sku-1",
+      worst_sku_name: "Glass bottle 30ml amber",
+      affected_tier_labels: ["Tier 1"],
+      worst_margin_pct: 0.335,
+    },
+  }),
+  POLICY,
+  {
+    mode: "suggestion_led",
+    stateLineStatus: "review",
+    expectSuggestionManualOnly: true,
+  },
+);
+
 // ──────────────────────────────────────────────────────────────────
 // Report
 // ──────────────────────────────────────────────────────────────────
@@ -657,5 +794,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log(
-  "✓ pricing-classifier invariants verified across 18 scenarios (s01-s14 + 4 extras)",
+  "✓ pricing-classifier invariants verified across 21 scenarios (s01-s14 + 7 extras)",
 );

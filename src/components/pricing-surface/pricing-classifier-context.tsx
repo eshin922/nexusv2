@@ -50,6 +50,7 @@ import {
   type QuoteTierInput,
 } from "@/lib/pricing-classifier";
 import { rankPricingSuggestions } from "@/lib/pricing-suggestions";
+import { isBelowTarget } from "@/lib/pricing-predicates";
 import {
   selectFirmSettings,
   selectGlobalAdj,
@@ -356,15 +357,17 @@ function buildClassifierInputs({
   // ENGINE works on tier-ROLLUP blended margins
   // (pricing-suggestions.ts:350-355). When ONE SKU's cell margin is
   // below target but the tier BLENDED margin is above target,
-  // classifier emits `suggestion_led` mode but engine returns null
-  // → `engineCallReturnedOptions=false` → original suggestionInfeasible
-  // gate stays false → classifier falls through to
-  // `calculating_suggestion` permanently. Per BUG-1 disposition
-  // ("v1 engine is sync; any null-suggestion case is structurally
-  // infeasible, not in-flight"), flip suggestionInfeasible=true when
-  // engine returned null AND any cell is below target — that's the
-  // exact asymmetry condition that triggers stuck-pending in
-  // production.
+  // classifier emits `suggestion_led` mode but engine returns null.
+  //
+  // False-infeasibility fix (2026-07-15, Option B) — REFINEMENT of
+  // the P0 A2 disposition. Prior fix flipped
+  // `suggestionInfeasible=true` on the asymmetry corner, which
+  // shipped misleading "math infeasible" copy for a state that has
+  // real recovery paths (cost input adjustment, per-cell override,
+  // admin override). Refinement: distinguish the asymmetry corner
+  // from the genuine-structural-failure corner via `anyTierBelowTarget`,
+  // and route the asymmetry to the new `suggestion_manual_only`
+  // action kind (guidance-only) instead of `suggestion_infeasible`.
   let anyCellBelowTarget = false;
   for (const sku of skus) {
     for (const cell of Object.values(sku.cells)) {
@@ -376,9 +379,81 @@ function buildClassifierInputs({
     }
     if (anyCellBelowTarget) break;
   }
+  const anyTierBelowTarget = quoteRollup.some((r) =>
+    isBelowTarget(r.blendedMarginPct, effectiveTarget),
+  );
+
+  // Asymmetry-corner details: worst below-target cell across all
+  // (leaf) SKUs, and the tier LABELS (from quoteRollup) it drags.
+  // Only computed when the asymmetry gate fires; null otherwise.
+  let manualOnlyDetails: NonNullable<
+    QuoteInput["suggestion_manual_only"]
+  > | null = null;
+  if (
+    !engineCallReturnedOptions &&
+    anyCellBelowTarget &&
+    !anyTierBelowTarget
+  ) {
+    let worstMargin = Infinity;
+    let worstSkuId: string | null = null;
+    let worstSkuName: string | null = null;
+    const affectedTierNumericIds = new Set<number>();
+    for (const sku of skus) {
+      for (const [tierIdKey, cell] of Object.entries(sku.cells)) {
+        const m = cell?.margin_pct;
+        if (m == null) continue;
+        if (!isBelowTarget(m, effectiveTarget)) continue;
+        if (m < worstMargin) {
+          worstMargin = m;
+          worstSkuId = sku.id;
+          worstSkuName = sku.name;
+        }
+        const numericId = Number(tierIdKey);
+        if (Number.isFinite(numericId)) affectedTierNumericIds.add(numericId);
+      }
+    }
+    if (worstSkuId && worstSkuName) {
+      // Map numeric tier ids → tier labels via numericToUuid +
+      // quoteRollup. Preserve numeric-order for stable copy.
+      const affectedTierLabels: string[] = [];
+      const sortedNumericIds = [...affectedTierNumericIds].sort(
+        (a, b) => a - b,
+      );
+      for (const nid of sortedNumericIds) {
+        const uuid = numericToUuid.get(nid);
+        if (!uuid) continue;
+        const rollupRow = quoteRollup.find((r) => r.tierId === uuid);
+        const rowLabel = rollupRow?.label ?? null;
+        const trimmed = rowLabel != null ? rowLabel.trim() : null;
+        const label = trimmed && trimmed.length > 0 ? trimmed : `Tier ${nid}`;
+        affectedTierLabels.push(label);
+      }
+      manualOnlyDetails = {
+        worst_sku_id: worstSkuId,
+        worst_sku_name: worstSkuName,
+        affected_tier_labels: affectedTierLabels,
+        worst_margin_pct: worstMargin,
+      };
+    }
+  }
+
+  // suggestion_infeasible now reserved for the GENUINE structural-
+  // failure cases only:
+  //   (a) engine returned options but all disabled (±999% overflow
+  //       or bounds violation) — currently unreachable from this
+  //       caller because we don't pass currentAdjByTier;
+  //   (b) engine returned null AND at least one tier IS below
+  //       target — this shouldn't naturally occur (engine would
+  //       have proposed a lift), but if it does (e.g., zero
+  //       revenue on the tier), that's a genuine structural failure.
+  //
+  // The asymmetry corner (engine null + no tier below + cell below)
+  // falls through to the manual_only path above.
   const suggestionInfeasible =
     (engineCallReturnedOptions && !usableSurgical && !usableGlobal) ||
-    (!engineCallReturnedOptions && anyCellBelowTarget);
+    (!engineCallReturnedOptions &&
+      anyCellBelowTarget &&
+      anyTierBelowTarget);
 
   const suggestions: QuoteInput["suggestions"] = {};
   if (usableSurgical && surgical && surgical.applyTo[0]) {
@@ -425,6 +500,7 @@ function buildClassifierInputs({
     suggestions:
       Object.keys(suggestions).length > 0 ? suggestions : undefined,
     suggestion_infeasible: suggestionInfeasible,
+    suggestion_manual_only: manualOnlyDetails,
   };
 
   // DetailGlobalAdjust reads global_price_adj_pct off `state.quote`
