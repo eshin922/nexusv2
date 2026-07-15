@@ -30,6 +30,7 @@ import { firmSettings, projects, quotes, quoteTiers, users } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { findHubspotOwnerById } from "@/lib/hubspot";
 import { loadQuoteAddendum } from "@/lib/addendum-loader";
+import { toLocalIsoDate } from "@/lib/local-date";
 import { VENDOR_FIXTURE } from "@/lib/quote-fixtures";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import type {
@@ -320,7 +321,11 @@ export async function resolveCustomerView(args: {
     quote: {
       quoteNumber,
       projectTitle: project.dealName,
-      sentDate: quote.sentAt ? quote.sentAt.toISOString().slice(0, 10) : null,
+      // Slice 11 Step 6 FU — local ISO date via Intl (Nexus
+      // operates on America/Los_Angeles). Was
+      // `.toISOString().slice(0, 10)` which returns UTC date;
+      // late-evening PDT sends showed the next day's Issued.
+      sentDate: quote.sentAt ? toLocalIsoDate(quote.sentAt) : null,
       validUntil: quote.validUntil,
       paymentTerms,
       leadTime,

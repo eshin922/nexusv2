@@ -38,11 +38,19 @@ function buildIframeSrc(
   layout: CustomerViewPdfLayout,
   detail: CustomerViewDetailLevel,
   addendumOn: boolean,
+  // Slice 11 Step 6 FU — cache-buster derived from quote state.
+  // Without this, the iframe URL is unchanged when a quote
+  // transitions draft → sent (toolbar controls hold constant),
+  // so the browser serves the stale draft render instead of
+  // re-fetching the fresh sent-state PDF. Bumping this on state
+  // change forces the iframe to re-mount + re-fetch.
+  version: string,
 ): string {
   const params = new URLSearchParams({
     layout,
     detail,
     addendum: addendumOn ? "1" : "0",
+    v: version,
   });
   return `/api/quotes/${quoteId}/customer-pdf?${params.toString()}`;
 }
@@ -78,7 +86,17 @@ export function QuoteHost({
   // data; state variants fall out of the actual bundle content.
   const [subState, setSubState] = useState<CustomerViewSubState>("pure");
 
-  const iframeSrc = buildIframeSrc(quoteId, pdfLayout, detailLevel, addendumOn);
+  // Cache-buster: quote state (sentDate + status) — changes when
+  // the quote transitions draft → sent, forcing the iframe to
+  // re-fetch fresh data instead of serving the cached draft.
+  const iframeVersion = view.quote.sentDate ?? `draft-${quoteStatus}`;
+  const iframeSrc = buildIframeSrc(
+    quoteId,
+    pdfLayout,
+    detailLevel,
+    addendumOn,
+    iframeVersion,
+  );
 
   return (
     <div className="r3-shared">
