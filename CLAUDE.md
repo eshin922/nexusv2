@@ -2298,6 +2298,110 @@ View pattern, unblocking Fix 2 (pagination collision).
 chrome. Regular `<View>`s don't need `fixed`; they wrap /
 paginate automatically per react-pdf's flow engine.
 
+## Pattern 50 — "Compliance-basis intersection state"
+
+Standing pattern — banked from the false-infeasibility Option B
+fix (2026-07-15).
+
+**The rule.** When two subsystems both evaluate the same
+compliance question (target margin, budget threshold, staleness,
+quorum) but use **different bases** for the evaluation, cases
+where the two bases DISAGREE are their own state — model them
+explicitly, don't let one side's default win.
+
+**The failure mode this prevents.** A subsystem returns null /
+empty / "nothing to do" because its basis says everything is
+fine; a sibling subsystem detects a real problem via its own
+basis. Consumer of both sees the "nothing to do" signal, treats
+it as absence of problem, and silently misclassifies the state.
+Symptoms: stuck-pending UI (Slice 11.5.1 pre-fix), misleading
+error copy (this slice's "math infeasible" for a solvable state),
+or worse — quiet loss of the finding.
+
+**Reference moment:** Pricing surface false-infeasibility
+diagnosis (2026-07-15).
+
+- Classifier (`src/lib/pricing-classifier.ts`) evaluates
+  compliance per-CELL — worst SKU × tier margin. Below-target
+  cell triggers `suggestion_led` mode.
+- Suggestion engine (`src/lib/pricing-suggestions.ts`) evaluates
+  compliance per-TIER — revenue-weighted blended margin. All
+  tier blends above target → engine returns null.
+- Intersection state (Scenario B): one SKU drags a cell below
+  target inside a tier whose revenue-weighted blend sits above
+  target. Classifier sees a problem; engine correctly has
+  nothing to propose (tier-level lifts don't surgically fix one
+  SKU). Prior P0 A2 fix flipped `suggestion_infeasible=true` at
+  the intersection — misleading, since the quote has real
+  recovery paths.
+
+Fix: introduced `suggestion_manual_only` action kind to name the
+intersection state distinctly. Adapter computes
+`anyTierBelowTarget` from `quoteRollup` (engine's basis), gates
+the manual-only state on `!engineCallReturnedOptions &&
+anyCellBelowTarget && !anyTierBelowTarget`, and populates
+details (worst SKU + affected tiers) for user-facing copy.
+
+**Recognition heuristic for future subsystems.** When designing
+a new predicate / verdict / classifier / engine, ask: does any
+adjacent subsystem answer a similar question with a different
+basis? If yes:
+
+1. **Model the intersection explicitly.** A named state ("stuck-
+   pending" → `calculating_suggestion`; "asymmetry" →
+   `suggestion_manual_only`; equivalent for the domain) is
+   authoritative and grep-able.
+2. **Route the intersection through the same adapter that
+   translates between the subsystems.** Don't let the consuming
+   surface (banner, chip, action-zone) derive the intersection
+   ad-hoc — it will drift.
+3. **Document both bases at the intersection.** Comments in the
+   adapter should explicitly name what each side is measuring
+   and why they can disagree.
+
+**Two examples in the current codebase illustrating the shape:**
+
+- **Slice 11.5.1 MIG-8** (`src/components/costing-store-provider.tsx`
+  reconcile pipe): server-snapshot prop vs Zustand store carry
+  the same field. RSC snapshot is frozen at render time; store
+  updates on reconcile. Consumer that reads only the prop drifts
+  from the store. Pattern 41 documents the fix (derive from
+  store; fall back to prop). The intersection here is "prop
+  says X, store says Y" — modeled by the store subscription
+  overlay.
+
+- **Pattern 50 canonical** — this slice. Classifier per-cell vs
+  engine per-tier-blend compliance basis.
+
+**Anti-patterns to catch during review:**
+
+- Two callers of `computeStatus` / `classify` / `rankSuggestions`
+  applying different tolerance thresholds or predicate variants
+  (predicate cloning was the Bug #D signal — extracted to
+  `pricing-predicates.ts` to unify).
+- A UI surface that reads BOTH a rollup verdict AND a per-item
+  verdict and displays them without acknowledging when they
+  disagree.
+- Fallback / default behavior that quietly consumes the
+  intersection ("if X is null, treat as no problem") instead of
+  routing to a named state.
+
+**When it doesn't apply.** Truly single-basis systems (one
+predicate, one consumer) don't need this pattern. It's for
+compound systems where multiple subsystems compute overlapping
+verdicts.
+
+**Cross-references.**
+- Pattern 41 (RSC snapshot props vs Zustand store) — sibling
+  pattern in the store/prop intersection space.
+- Pattern 45 (Customer-facing render data-source verification) —
+  boundary-guard version of the same discipline (customer tree
+  must trace to real data, not synthetic defaults).
+- Slice 9.2 "Audit source convention" — namespace discipline
+  for distinguishing origins when multiple actions write the
+  same column; a related-but-different case (same basis,
+  different origins).
+
 ## Designer audit rubric expansions (banked from rest-of-app sweep Step 10, 2026-05-14)
 
 Each entry below is an additional sweep criterion future Designer
