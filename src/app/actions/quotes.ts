@@ -1774,6 +1774,16 @@ async function cloneQuoteGraph(
       // Cloneable (from source)
       globalPriceAdjPct: source.globalPriceAdjPct,
       targetMarginPct: source.targetMarginPct,
+      // Slice 11 Step 4 PDF-render-axis columns (added to Cloneable
+      // 2026-07-15 per Edward's disposition after copy-audit diff).
+      // These are PM display preferences (single vs tier, itemized
+      // vs turnkey_only, addendum on/off) that stay constant across
+      // pricing iterations; cloning preserves the "starting point"
+      // mental model. Reset-to-null would force PM to re-toggle
+      // per copy.
+      pdfLayoutSnapshot: source.pdfLayoutSnapshot,
+      detailLevelSnapshot: source.detailLevelSnapshot,
+      includeSpecAddendumSnapshot: source.includeSpecAddendumSnapshot,
       // PM-provided label (defaults to "Alt N" upstream of caller)
       scenarioLabel: args.newScenarioLabel,
       intentNote: args.intentNote,
