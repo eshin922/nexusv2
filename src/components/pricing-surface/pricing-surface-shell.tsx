@@ -162,7 +162,25 @@ export function PricingSurfaceShell({
       // to the Quote/Preview surface (Slice 11 Step 6 iframe
       // preview). Same target as YourNextMoveBanner's sendable
       // mode href. Was a no-op stub from before Slice 11 shipped.
-      router.push(resolveSurfaceHref("customer_view", projectId, quoteId));
+      //
+      // Diagnostic: 1e0a336 (router.push only) reported by Edward as
+      // still not navigating; belt-and-suspenders with
+      // window.location.assign in case the Next router client has
+      // a hydration edge or the click bubbling gets swallowed by
+      // an ancestor. `console.log` confirms the handler fires
+      // (DevTools console; remove after diagnosis).
+      const href = resolveSurfaceHref("customer_view", projectId, quoteId);
+      console.log("[preview_pdf] onActivate fired, navigating to:", href);
+      router.push(href);
+      // If router.push doesn't kick a hard navigation within ~50ms,
+      // fall back to the browser's own navigation. router.push is
+      // async; window.location.assign is synchronous. This runs
+      // only if the router push queued but didn't complete.
+      setTimeout(() => {
+        if (typeof window !== "undefined" && !window.location.pathname.endsWith("/quote")) {
+          window.location.assign(href);
+        }
+      }, 100);
       return;
     }
     // request_override · tighten_to_target — v1 ships as no-op
