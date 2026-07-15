@@ -38,11 +38,19 @@ function buildIframeSrc(
   layout: CustomerViewPdfLayout,
   detail: CustomerViewDetailLevel,
   addendumOn: boolean,
+  // Slice 11 Step 6 FU — cache-buster derived from quote state.
+  // Without this, the iframe URL is unchanged when a quote
+  // transitions draft → sent (toolbar controls hold constant),
+  // so the browser serves the stale draft render instead of
+  // re-fetching the fresh sent-state PDF. Bumping this on state
+  // change forces the iframe to re-mount + re-fetch.
+  version: string,
 ): string {
   const params = new URLSearchParams({
     layout,
     detail,
     addendum: addendumOn ? "1" : "0",
+    v: version,
   });
   return `/api/quotes/${quoteId}/customer-pdf?${params.toString()}`;
 }
@@ -78,7 +86,27 @@ export function QuoteHost({
   // data; state variants fall out of the actual bundle content.
   const [subState, setSubState] = useState<CustomerViewSubState>("pure");
 
-  const iframeSrc = buildIframeSrc(quoteId, pdfLayout, detailLevel, addendumOn);
+  // Cache-buster: quote state (sentDate + status) — changes when
+  // the quote transitions draft → sent, forcing the iframe to
+  // re-fetch fresh data instead of serving the cached draft.
+  const iframeVersion = view.quote.sentDate ?? `draft-${quoteStatus}`;
+  const iframeSrc = buildIframeSrc(
+    quoteId,
+    pdfLayout,
+    detailLevel,
+    addendumOn,
+    iframeVersion,
+  );
+
+  // Slice 11 Step 6 FU — snapshot-lock indicator. Sent quotes
+  // render the immutable snapshot (per Step 4.4 read-path); the
+  // toolbar toggles would change the iframe URL but the resolver's
+  // isSent branch ignores search params. Disable the controls so
+  // PMs don't wonder why they no-op.
+  const isSent = quoteStatus !== "draft";
+  const sentLockTooltip = isSent
+    ? "Sent quotes render the frozen snapshot; toggles only work on drafts."
+    : undefined;
 
   return (
     <div className="r3-shared">
@@ -117,7 +145,15 @@ export function QuoteHost({
             flexWrap: "wrap",
           }}
         >
-          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              opacity: isSent ? 0.5 : 1,
+            }}
+            title={sentLockTooltip}
+          >
             <span style={{ fontSize: 12, color: "var(--ink-3)" }}>
               Detail:
             </span>
@@ -126,6 +162,7 @@ export function QuoteHost({
               onChange={(e) =>
                 setDetailLevel(e.target.value as CustomerViewDetailLevel)
               }
+              disabled={isSent}
               style={{ fontSize: 12 }}
             >
               <option value="itemized">Itemized</option>
@@ -134,13 +171,21 @@ export function QuoteHost({
           </label>
 
           {addendumData ? (
-            <AddendumToggle
-              on={addendumOn}
-              onToggle={() => setAddendumOn((v) => !v)}
-              totalLeaves={addendumData.totalLeaves}
-              totalAssemblies={addendumData.totalAssemblies}
-              hasMeaningfulContent={addendumData.hasMeaningfulContent}
-            />
+            <span
+              style={{ opacity: isSent ? 0.5 : 1 }}
+              title={sentLockTooltip}
+            >
+              <AddendumToggle
+                on={addendumOn}
+                onToggle={() => {
+                  if (isSent) return;
+                  setAddendumOn((v) => !v);
+                }}
+                totalLeaves={addendumData.totalLeaves}
+                totalAssemblies={addendumData.totalAssemblies}
+                hasMeaningfulContent={addendumData.hasMeaningfulContent}
+              />
+            </span>
           ) : (
             <span style={{ fontSize: 12, color: "var(--ink-4)" }}>
               No addendum data.

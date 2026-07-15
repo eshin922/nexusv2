@@ -148,6 +148,32 @@
 .preview-toolbar .right {
   display: flex; align-items: center; gap: 8px;
 }
+/* Slice 11 Step 6 FU — "Send as" toggle affordance. Without these
+   rules the underlying buttons rendered as plain text (globals.css
+   button reset strips borders/backgrounds), leaving no visual
+   indication that "tier table" and "single tier" are toggles or
+   which one is active. */
+.preview-toolbar .send-as button {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  cursor: pointer;
+  margin: 0 1px;
+}
+.preview-toolbar .send-as button.active {
+  background: var(--paper-3);
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+.preview-toolbar .send-as .sep {
+  color: var(--ink-4);
+  margin: 0 2px;
+}
 
 /* ─── The PDF page itself ───────────────────────────────── */
 .pdf-page {
