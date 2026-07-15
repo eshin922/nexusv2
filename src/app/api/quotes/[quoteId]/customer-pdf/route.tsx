@@ -102,6 +102,17 @@ export async function GET(
       "Cache-Control": "no-store, max-age=0",
       // Explicit no-cache header for CDN + browser layer.
       "CDN-Cache-Control": "no-store",
+      // Slice 11 Step 6 FU — diagnostic headers for the 7/14 vs
+      // 7/15 investigation. Echoes what the server actually
+      // computed for this request. Inspect via DevTools Network
+      // tab → response headers. Remove after verification (or
+      // demote to a debug-only env gate).
+      "X-Debug-Sent-Date": result.view.quote.sentDate ?? "null",
+      "X-Debug-Today-Iso": todayIso,
+      "X-Debug-Quote-Status": result.view.quote.quoteNumber
+        ? "sent"
+        : "draft",
+      "X-Debug-Commit": "639771e-timezone-fix",
     },
   });
 }
