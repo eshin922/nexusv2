@@ -162,6 +162,13 @@ export function PricingPageHead({
       {/* CB Patch round 3 BUG-D — banner label now reflects the
           classifier's recommended/primary action; href routes to
           the in-page surface that owns that action. */}
+      {/* Post-Step-6 fix batch §3 — banner helpText carries the
+          infeasible-state recovery hint. Was: only 'gated' mode had
+          helpText. Now suggestion_infeasible ALSO gets a hint
+          because the SuggestionCard's infeasible branch is now
+          suppressed (empty-slot-no-card) — the banner becomes the
+          single "unavailable" message; helpText adds the "why" +
+          recovery path. */}
       <YourNextMoveBanner
         state={bannerState}
         label={bannerLabel}
@@ -169,7 +176,10 @@ export function PricingPageHead({
         helpText={
           bannerState === "gated"
             ? "Below floor — admin override required before quote can be sent."
-            : undefined
+            : recommendedOrPrimary?.kind === "suggestion_infeasible"
+              ? recommendedOrPrimary.sublabel ??
+                "Engine couldn't compute a viable lift path. Enter pricing on the Costs surface to recover, or use admin override."
+              : undefined
         }
       />
 

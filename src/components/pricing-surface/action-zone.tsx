@@ -223,26 +223,17 @@ export function SuggestionCard({
       </div>
     );
   }
-  // CB Step 9 re-walk BUG-1 — terminal-inert state, not in-flight.
-  // PMs need a path forward (admin override or Costs surface);
-  // SuggestionCard explains why the engine returned no option.
+  // Post-Step-6 fix batch §3 — infeasible-state consolidation.
+  // Previously rendered a "Suggestion unavailable" card here, which
+  // duplicated (a) the YourNextMoveBanner (label already says
+  // "Suggestion unavailable — math infeasible") and (b) the
+  // demoted preview_pdf ActionCard that gives PMs the send-anyway
+  // path. Empty recommendation slot → no card (per CA §3: "a card
+  // echoing the top message" is exactly what to avoid). Banner
+  // now carries the recovery hint via helpText for infeasible
+  // mode (see pricing-page-head.tsx).
   if (rec.kind === "suggestion_infeasible") {
-    return (
-      <div className="psr-suggestion-card infeasible">
-        <div className="head">
-          <div>
-            <div className="title">Suggestion unavailable</div>
-            <div className="sub">
-              {rec.sublabel ??
-                "Engine couldn't compute a viable lift path. Enter pricing on the Costs surface, or use admin override."}
-            </div>
-          </div>
-          <button type="button" className="cta" disabled>
-            Unavailable
-          </button>
-        </div>
-      </div>
-    );
+    return null;
   }
   const surgical = state.quote.suggestions?.surgical;
   const global = state.quote.suggestions?.global;
