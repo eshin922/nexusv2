@@ -52,6 +52,13 @@
   max-width: 1280px; margin: 0 auto;
   display: flex; flex-direction: column; gap: 16px;
 }
+/* Post-Step-6 fix batch — vertical rhythm on the shell's zone stack
+   (StateLine / StateCallout / action cards / SuggestionCard /
+   AcceptRiskBanner / DetailZone). Previously unstyled → children
+   butted against each other. Mirrors .psr-page's 16px cadence. */
+.psr-section {
+  display: flex; flex-direction: column; gap: 16px;
+}
 /* "Page grows with consequence" is expressed through content density
    (more cards, taller state surface) — not through max-width contraction.
    All modes share a wide canvas so the working area doesn't feel

@@ -58,12 +58,18 @@ import { fmtPct, fmtPct0, fmtQty, fmtUsd2 } from "./format";
 
 const SS_KEY = (quoteId: string) => `psr.detail.open.${quoteId}`;
 
+// Post-Step-6 fix batch — default state is OPEN. Absence of a
+// session preference means "no PM has toggled yet" → open by
+// default. Session-persisted collapse still works: if PM
+// explicitly toggles closed ("0"), that sticks for the session.
 function readSessionOpen(quoteId: string): boolean {
-  if (typeof window === "undefined") return false;
+  if (typeof window === "undefined") return true;
   try {
-    return window.sessionStorage.getItem(SS_KEY(quoteId)) === "1";
+    const v = window.sessionStorage.getItem(SS_KEY(quoteId));
+    if (v === null) return true;
+    return v === "1";
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -89,9 +95,11 @@ export function DetailZone({
   // standalone consumers (storybook, test fixtures) can omit.
   onPreviewGlobalAdjust?: (liftPct: number) => void | Promise<void>;
 }) {
-  // Hydration safety: read sessionStorage in an effect after mount
-  // to avoid SSR/CSR mismatch on the initial expand class.
-  const [open, setOpen] = useState(false);
+  // Hydration safety: default OPEN on both SSR and initial client
+  // render (matches readSessionOpen's "no preference → open"
+  // default). useEffect then reads session and only flips to
+  // closed if the PM has explicitly set "0".
+  const [open, setOpen] = useState(true);
   useEffect(() => {
     setOpen(readSessionOpen(quoteId));
   }, [quoteId]);
