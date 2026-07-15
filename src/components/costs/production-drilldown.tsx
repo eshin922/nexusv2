@@ -219,7 +219,10 @@ export function ProductionDrilldown({
   return (
     <div>
       <SectionToggles
-        leafSkus={leafSkus}
+        // Post-Slice-11.5 fix (2026-07-15) — pass ASSEMBLIES not
+        // leaves. assembly_production_inputs is keyed by assembly_id
+        // so the toggle action needs assembly IDs to find rows.
+        assemblies={skus.filter((s) => s.skuRole === "assembly")}
         policy={sectionPolicy}
         disabled={!editable}
         rawsMode={rawsMode}
@@ -624,12 +627,18 @@ function ProductionTierCell({
 }
 
 function SectionToggles({
-  leafSkus,
+  assemblies,
   policy,
   disabled,
   rawsMode,
 }: {
-  leafSkus: QuoteSku[];
+  // Post-Slice-11.5 production is per-assembly (not per-leaf). Toggle
+  // fans across all assemblies visible in the drilldown; each call to
+  // updateAssemblyProductionPolicy resolves the assembly's tier-row
+  // fanout on the server. Passing leaf IDs (pre-11.5 shape) caused
+  // the action to no-op silently — assembly_production_inputs is
+  // keyed by assembly_id, not leaf id.
+  assemblies: QuoteSku[];
   policy: SkuPolicy;
   disabled: boolean;
   rawsMode: "cm_sources" | "dps_sources" | "customer_supplies";
@@ -640,9 +649,12 @@ function SectionToggles({
     if (disabled || pending) return;
     const newValue = !policy[field];
     startTransition(async () => {
-      for (const sku of leafSkus) {
+      for (const asm of assemblies) {
         const fd = new FormData();
-        fd.set("quoteSkuId", sku.id);
+        // Action reads formData.get("quoteSkuId") as the assembly id
+        // (name preserved for backward compat; semantic is assembly.id
+        // post-11.5).
+        fd.set("quoteSkuId", asm.id);
         fd.set(
           "customerShipsRaws",
           (field === "customerShipsRaws"
