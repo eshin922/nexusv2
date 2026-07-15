@@ -168,9 +168,15 @@ export function CanonicalScenarioModal({
     setCopyScenariosLoading(true);
     setCopyScenariosError(null);
     (async () => {
+      // Post-Step-6 fix: do NOT pass excludeQuoteId. Excluding the
+      // current active scenario made the picker show "No other
+      // scenarios…" when the project had only one scenario — even
+      // though PM legitimately wants to copy that sent scenario
+      // into a new draft. The current active is a valid copy source
+      // regardless of sibling count; PM chooses whether to also
+      // drop-current via the separate dropChoice radio.
       const result = await fetchScenarioCopyPicker({
         projectId,
-        excludeQuoteId: currentActiveScenarioId ?? undefined,
       });
       setCopyScenariosLoading(false);
       if (!result.ok) {
