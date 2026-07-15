@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { firmSettings, projects, quotes, users } from "@/db/schema";
+import { firmSettings, projects, quotes, quoteTiers, users } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { findHubspotOwnerById } from "@/lib/hubspot";
@@ -226,10 +226,33 @@ export default async function CustomerViewPage({
     };
   });
 
-  // Recommended tier: stubbed to middle tier as placeholder. Slice 10
-  // wires real recommended-tier flag from costing/quote schema.
+  // Slice 11 Step 4.3 — real recommendedTierIdx from
+  // quote_tiers.recommended (schema.ts:440). Mirrors the
+  // mark-accepted/page.tsx:167 pattern: read the recommended pin,
+  // find its index in the ordered tier list, fall back to middle
+  // tier for legacy quotes created before §6.b's ★ toggle. The
+  // customer PDF is the first surface where a wrong recommended
+  // tier ships to a customer, so the stub cannot ride along.
+  const tierRecommendedRows =
+    tiers.length > 0
+      ? await db
+          .select({
+            id: quoteTiers.id,
+            recommended: quoteTiers.recommended,
+          })
+          .from(quoteTiers)
+          .where(eq(quoteTiers.quoteId, quote.id))
+      : [];
+  const recommendedTierId =
+    tierRecommendedRows.find((t) => t.recommended)?.id ?? null;
   const recommendedTierIdx =
-    tiers.length > 0 ? Math.floor(tiers.length / 2) : null;
+    tiers.length === 0
+      ? null
+      : recommendedTierId
+        ? (tiers.findIndex((t) => t.id === recommendedTierId) ?? -1) !== -1
+          ? tiers.findIndex((t) => t.id === recommendedTierId)
+          : Math.floor(tiers.length / 2)
+        : Math.floor(tiers.length / 2);
 
   const view: CustomerView = {
     vendor,
