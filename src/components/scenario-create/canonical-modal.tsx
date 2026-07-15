@@ -69,6 +69,17 @@ export type CanonicalScenarioModalProps = {
   // The current active scenario's tier labels feed the customer-
   // target-tier dropdown. Empty array = no tiers yet (rare).
   currentScenarioTierLabels: string[];
+  /**
+   * Scenario actions menu (2026-07-15) — when the modal is opened
+   * from a per-scenario kebab's "Copy scenario" action, the parent
+   * passes the source quote id here. Modal initializes with:
+   *   startPath = "copy_scenario"
+   *   selectedCopySourceQuoteId = initialSourceQuoteId
+   * PM sees the modal pre-set to copy mode with the correct source
+   * already selected. Undefined = normal "+ New scenario" flow;
+   * modal starts at scratch.
+   */
+  initialSourceQuoteId?: string | null;
 };
 
 export function CanonicalScenarioModal({
@@ -81,10 +92,15 @@ export function CanonicalScenarioModal({
   currentActiveScenarioId,
   currentActiveScenarioName,
   currentScenarioTierLabels,
+  initialSourceQuoteId,
 }: CanonicalScenarioModalProps) {
   const router = useRouter();
 
-  const [startPath, setStartPath] = useState<StartPath>("scratch");
+  // When opened from the scenario actions menu with a
+  // pre-selected source, initialize in copy_scenario mode.
+  const [startPath, setStartPath] = useState<StartPath>(
+    initialSourceQuoteId ? "copy_scenario" : "scratch",
+  );
   const [scenarioLabel, setScenarioLabel] = useState("");
   const [intentNote, setIntentNote] = useState("");
   const [targetTierLabel, setTargetTierLabel] = useState("");
@@ -103,7 +119,7 @@ export function CanonicalScenarioModal({
     null,
   );
   const [selectedCopySourceQuoteId, setSelectedCopySourceQuoteId] =
-    useState<string>("");
+    useState<string>(initialSourceQuoteId ?? "");
   // slice-fr12-copy-operations Step 7 — cross-project picker
   // state. Project list loaded on first selection of the
   // copy_quote radio + on every search-term debounce. Selected

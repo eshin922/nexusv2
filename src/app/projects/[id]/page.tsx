@@ -15,6 +15,8 @@ import { archiveProject } from "@/app/actions/projects";
 import { createQuote } from "@/app/actions/quotes";
 import { InnerRail } from "@/components/rails/inner-rail";
 import { NewScenarioTrigger } from "@/components/scenario-create/new-scenario-trigger";
+import { EditableScenarioLabel } from "@/components/scenario-actions/editable-scenario-label";
+import { ScenarioActionsMenu } from "@/components/scenario-actions/scenario-actions-menu";
 import { CategorySelect } from "./category-select";
 
 // Slice RI.8 — state-aware default surface for version-row clicks.
@@ -48,10 +50,21 @@ import { RefreshProjectButton } from "./refresh-button";
 
 export default async function ProjectDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{
+    /**
+     * Scenario actions menu → Copy scenario navigates here with
+     * `?copy_from=<quoteId>`. NewScenarioTrigger auto-opens the
+     * canonical modal in copy-scenario mode with the source
+     * pre-selected. Trigger clears the param on modal close.
+     */
+    copy_from?: string;
+  }>;
 }) {
   const { id } = await params;
+  const { copy_from: copyFromQuoteId } = await searchParams;
 
   const salesRep = alias(users, "sales_rep");
   const pm = alias(users, "pm");
@@ -297,6 +310,7 @@ export default async function ProjectDetailPage({
                     currentActiveQuote?.scenarioLabel ?? null
                   }
                   currentScenarioTierLabels={currentScenarioTierLabels}
+                  initialSourceQuoteId={copyFromQuoteId ?? null}
                 />
               )}
             </div>
@@ -424,19 +438,32 @@ function ScenarioCardView({
       ? "border-rule bg-paper-2 opacity-70"
       : "border-rule bg-paper";
 
+  const isActive = scenario.scenarioStatus === "active";
+
   return (
     <article className={`rounded border ${cardCls} p-4`}>
       <header className="mb-3 flex items-start justify-between gap-3">
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div className="flex items-center gap-2">
             {scenario.isRecommended && (
               <span title="Recommended" className="text-accent">
                 ★
               </span>
             )}
-            <h3 className="font-display text-lg text-ink">
-              {scenario.scenarioLabel}
-            </h3>
+            {/* Post-Step-6 follow-up (2026-07-15) — click-to-edit
+                label. Non-active scenarios stay static (no rename
+                for dropped/accepted). */}
+            {isActive ? (
+              <EditableScenarioLabel
+                projectId={projectId}
+                scenarioLabel={scenario.scenarioLabel}
+                className="font-display text-lg text-ink"
+              />
+            ) : (
+              <h3 className="font-display text-lg text-ink">
+                {scenario.scenarioLabel}
+              </h3>
+            )}
             <span
               className={`rounded border px-1.5 py-0 font-mono text-[10px] font-medium uppercase tracking-wide ${
                 isAccepted
@@ -512,6 +539,18 @@ function ScenarioCardView({
           >
             Open · v{latest.versionNumber}
           </Link>
+          {/* Post-Step-6 follow-up (2026-07-15) — scenario actions
+              menu (Copy / Drop). Renders only for active scenarios;
+              Drop item inside the menu additionally gates on
+              status === 'draft'. */}
+          {isActive && (
+            <ScenarioActionsMenu
+              projectId={projectId}
+              scenarioLabel={scenario.scenarioLabel}
+              latestQuoteId={latest.id}
+              latestQuoteStatus={latest.status}
+            />
+          )}
         </div>
       </header>
       {/* Version chain */}
