@@ -2509,3 +2509,224 @@ export async function fetchCopySourceProjects(
     return loadCopySourceProjects(filters);
   });
 }
+
+// ──────────────────────────────────────────────────────────────────
+// dropScenario — standalone family drop (scenario actions menu)
+// ──────────────────────────────────────────────────────────────────
+//
+// Marks all rows in the (project_id, scenario_label) family with
+// scenarioStatus='dropped'. Mirrors the existing drop-family logic
+// in createScenario/copyScenarioWithinProject but as a standalone
+// action wired from the per-scenario kebab menu on project detail.
+//
+// **Draft-only per PM disposition (2026-07-15).** Sent + accepted
+// quotes are considered committed history and can't be dropped
+// from the menu. If any row in the family is not draft, the action
+// rejects with VALIDATION error. Guard runs inside the tx so
+// concurrent state changes are seen consistently.
+//
+// Emits scenario_dropped audit with audit_source='scenario_actions_menu'
+// per Slice 9.2 source-namespace convention.
+export async function dropScenario(input: {
+  projectId: string;
+  scenarioLabel: string;
+}): Promise<ActionResult<{ droppedQuoteIds: string[] }>> {
+  return runAction(async () => {
+    const user = await ensureUser();
+    const { projectId, scenarioLabel } = input;
+    if (!projectId || !scenarioLabel) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "projectId and scenarioLabel are required.",
+      );
+    }
+
+    return await db.transaction(async (tx) => {
+      // Load all active rows in the family. Guard: any non-draft
+      // row makes the whole drop refuse (sent/accepted are locked
+      // per Edward's disposition; PM can only drop draft-only
+      // families via the menu).
+      const familyRows = await tx
+        .select({
+          id: quotes.id,
+          status: quotes.status,
+        })
+        .from(quotes)
+        .where(
+          and(
+            eq(quotes.projectId, projectId),
+            eq(quotes.scenarioLabel, scenarioLabel),
+            eq(quotes.scenarioStatus, "active"),
+          ),
+        );
+
+      if (familyRows.length === 0) {
+        throw new ActionGuardError(
+          ERR.NOT_FOUND,
+          "Scenario not found or already dropped.",
+        );
+      }
+
+      const nonDraft = familyRows.filter((r) => r.status !== "draft");
+      if (nonDraft.length > 0) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `Scenario has ${nonDraft.length} non-draft version${nonDraft.length === 1 ? "" : "s"} (${nonDraft.map((r) => r.status).join(", ")}). Sent + accepted quotes can't be dropped from the menu — that requires admin override.`,
+        );
+      }
+
+      const now = new Date();
+      const dropped = await tx
+        .update(quotes)
+        .set({
+          scenarioStatus: "dropped",
+          dropReason: "manual",
+          droppedByUserId: user.id,
+          droppedAt: now,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(quotes.projectId, projectId),
+            eq(quotes.scenarioLabel, scenarioLabel),
+            eq(quotes.scenarioStatus, "active"),
+          ),
+        )
+        .returning({ id: quotes.id });
+
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "project",
+        entityId: projectId,
+        action: "scenario_dropped",
+        diffJson: {
+          drop_reason: "manual",
+          scenario_label: scenarioLabel,
+          dropped_quote_ids: dropped.map((d) => d.id),
+          audit_source: "scenario_actions_menu",
+        },
+      });
+
+      revalidatePath(`/projects/${projectId}`);
+
+      return { droppedQuoteIds: dropped.map((d) => d.id) };
+    });
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────
+// renameScenarioLabel — in-place scenario title edit
+// ──────────────────────────────────────────────────────────────────
+//
+// Updates all rows in the family (project_id, oldScenarioLabel) to
+// the new label. Scenario label is a family identifier — all
+// versions share it, so we rewrite the family together.
+//
+// Validation:
+//   - New label non-empty (trimmed)
+//   - New label != old label (no-op rejected to keep audit clean)
+//   - No collision with another scenario_label in the same project
+//     (partial uniqueness — check all statuses, since a dropped
+//     scenario's label reuse would confuse forensic queries)
+//   - Family exists (at least one row matches old label)
+//
+// Emits scenario_renamed audit at project scope; diff_json carries
+// {from, to, affected_quote_ids}.
+export async function renameScenarioLabel(input: {
+  projectId: string;
+  oldScenarioLabel: string;
+  newScenarioLabel: string;
+}): Promise<ActionResult<{ renamedQuoteIds: string[] }>> {
+  return runAction(async () => {
+    const user = await ensureUser();
+    const { projectId } = input;
+    const oldLabel = input.oldScenarioLabel.trim();
+    const newLabel = input.newScenarioLabel.trim();
+
+    if (!projectId || !oldLabel) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "projectId and oldScenarioLabel are required.",
+      );
+    }
+    if (!newLabel) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "New scenario label cannot be empty.",
+      );
+    }
+    if (newLabel === oldLabel) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "New label is the same as the current label.",
+      );
+    }
+    if (newLabel.length > 200) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Scenario label exceeds 200 characters.",
+      );
+    }
+
+    return await db.transaction(async (tx) => {
+      // Guard: no collision with any other scenario_label in this
+      // project (any status — dropped scenarios' labels stay
+      // reserved for forensic clarity).
+      const collision = await tx
+        .select({ id: quotes.id })
+        .from(quotes)
+        .where(
+          and(
+            eq(quotes.projectId, projectId),
+            eq(quotes.scenarioLabel, newLabel),
+          ),
+        )
+        .limit(1);
+      if (collision.length > 0) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `Another scenario in this project already uses the label "${newLabel}". Pick a different label.`,
+        );
+      }
+
+      const now = new Date();
+      const renamed = await tx
+        .update(quotes)
+        .set({
+          scenarioLabel: newLabel,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(quotes.projectId, projectId),
+            eq(quotes.scenarioLabel, oldLabel),
+          ),
+        )
+        .returning({ id: quotes.id });
+
+      if (renamed.length === 0) {
+        throw new ActionGuardError(
+          ERR.NOT_FOUND,
+          `No scenario found with label "${oldLabel}" in this project.`,
+        );
+      }
+
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "project",
+        entityId: projectId,
+        action: "scenario_renamed",
+        diffJson: {
+          from: oldLabel,
+          to: newLabel,
+          affected_quote_ids: renamed.map((r) => r.id),
+          audit_source: "scenario_actions_menu",
+        },
+      });
+
+      revalidatePath(`/projects/${projectId}`);
+
+      return { renamedQuoteIds: renamed.map((r) => r.id) };
+    });
+  });
+}
