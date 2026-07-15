@@ -32,6 +32,7 @@ import { Readable } from "node:stream";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { buildQuoteDocument } from "@/lib/quote-pdf-document";
 import { resolveCustomerView } from "@/lib/customer-view-resolver";
+import { toLocalIsoDate } from "@/lib/local-date";
 
 export const runtime = "nodejs";
 // Slice 11 Step 6.5 constraint bank — render+upload can exceed the
@@ -71,12 +72,11 @@ export async function GET(
     });
   }
 
-  // Stamp `issued_date` fallback consistently — same value used at
-  // preview AND (later) at persist for the same send. Deterministic
-  // per-request; matches Pattern 45 discipline (Slice 11 doesn't
-  // use `new Date()` inside the render hot path — argument-injected
-  // per Pattern 30 spike constraint).
-  const todayIso = new Date().toISOString().slice(0, 10);
+  // Stamp `issued_date` fallback in Nexus operational timezone
+  // (America/Los_Angeles), not UTC. `new Date().toISOString()`
+  // returned UTC date; late-evening PDT preview rendered the next
+  // day's Issued.
+  const todayIso = toLocalIsoDate(new Date());
 
   const doc = buildQuoteDocument({
     view: result.view,

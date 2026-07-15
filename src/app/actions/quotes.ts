@@ -9,6 +9,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { resolveCustomerView } from "@/lib/customer-view-resolver";
 import { buildQuoteDocument } from "@/lib/quote-pdf-document";
+import { addDaysToIsoDate, toLocalIsoDate } from "@/lib/local-date";
 import {
   QUOTE_PDFS_BUCKET,
   buildQuotePdfStoragePath,
@@ -1420,6 +1421,16 @@ export async function sendQuote(
     const sentAt = new Date();
     const daysValid = firm.daysValidDefault ?? null;
 
+    // Slice 11 Step 6 FU — timezone-safe valid_until derivation.
+    // Was: `CURRENT_DATE + N days` (Postgres, session-tz-dependent
+    // — Supabase server tz = UTC, so 30 days from UTC date not
+    // from PDT date). Now: compute in JS from sentAt in Nexus
+    // operational tz. sendAtDate = 2026-07-14 for a send at
+    // 9:44 PM PDT (was 2026-07-15 under UTC).
+    const sentAtIso = toLocalIsoDate(sentAt);
+    const validUntilIso =
+      daysValid !== null ? addDaysToIsoDate(sentAtIso, daysValid) : null;
+
     // Slice 11 Step 6.6 — render + upload BEFORE the transaction
     // (per brief §4 disposition — "render+upload before marking
     // sent, so a sent quote always has its artifact").
@@ -1492,13 +1503,6 @@ export async function sendQuote(
       const next = String(seqResult[0].next);
       const quoteNumber = `${firm.quoteNumberPrefix}-${next}`;
 
-      // valid_until = today + days_valid_default. Computed in SQL so
-      // we don't have to do timezone math in JS.
-      const validUntilExpr =
-        daysValid !== null
-          ? sql`(CURRENT_DATE + ${daysValid}::int * INTERVAL '1 day')::date`
-          : sql`NULL::date`;
-
       // Slice 11 Step 4 — customer-PDF snapshot fleet. Read current
       // draft-column values; fall back to canonical defaults for
       // legacy quotes that never toggled. sendQuote writes them
@@ -1518,7 +1522,7 @@ export async function sendQuote(
           status: "sent",
           sentAt,
           quoteNumber,
-          validUntil: sql<string>`${validUntilExpr}` as unknown as string,
+          validUntil: validUntilIso,
           // DEC-7: commercial snapshots
           tcsSnapshot: firm.tcsDefault ?? null,
           paymentTermsSnapshot: firm.paymentTermsDefault ?? null,
