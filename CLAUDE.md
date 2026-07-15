@@ -979,6 +979,46 @@ analysis 2026-06-25 (Slice 11.5.1 close + MS OAuth #75).
 
   Cumulative: **77 across 16 slices.**
 
+- **+1 catch (Slice 11 Step 4, 2026-07-14):** brief-vs-repo
+  migration-index drift. Step 4 brief called the new PG-enum +
+  columns migration "0022"; actual next sequential index was
+  `0036` (latest was `0035` Slice 11.5.1 drop). Filename shipped
+  as `0036_slice_11_step_4_pdf_layout.sql`; semantics matched
+  brief §4 verbatim. Banked in Step 4.2 commit `ea817aa`.
+  Process discipline class (Class B) — the brief's implicit
+  migration index counter drifted from the running
+  `drizzle/_journal.json` index during the Slice-11.5 → 11.5.1
+  cascade (five migrations in that span). Notation catch —
+  low-blast-radius but the third-instance signal that a slice-
+  brief-side migration-index reference should be resolved
+  against `_journal.json` at §0.5 time rather than trusted
+  from prose.
+
+  Cumulative: **78 across 16 slices.**
+
+- **+1 catch (Slice 11 Step 4.6 architectural gap, 2026-07-14):**
+  the legacy `pdf-*` component tree has no PDF-generation path
+  at all — it's DOM-only. Discovered during Step 4.6 QuoteHost
+  swap investigation: greping for `renderToStream` /
+  `renderToBuffer` / `puppeteer` / `html-pdf` returned zero
+  production callers. `sendQuote` just sets `status='sent'`
+  without producing a PDF file (`quotes.ts:1293`). Meant the
+  brief's Step-4.6 "swap QuoteHost preview through new
+  customer-pdf tree" required an architecture decision (embedded
+  PDF viewer via `renderToStream` + iframe vs. dual-render vs.
+  defer). Edward dispositioned defer to Step 6 (Supabase Storage
+  persistence + PDF-gen route + preview embed compose naturally
+  as one slice cut).
+
+  Architectural gap class (new sub-class of Class B — the audit
+  scope covered types + adapters but assumed a pre-existing PDF-
+  gen path that never landed). Bank per-slice audit shape:
+  "when a brief step assumes a downstream rendering / persistence
+  / API path exists, verify the path exists before scoping the
+  step's dependencies on it."
+
+  Cumulative: **79 across 16 slices.**
+
 ### Pattern 22 extension — verification covers code architecture (refinement, 2026-05-13)
 
 §0.5 verification was originally scoped to **DB schema** (tables,
