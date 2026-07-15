@@ -1792,7 +1792,19 @@ async function cloneQuoteGraph(
   const newQuoteId = newQuote.id;
 
   // Clone tiers — label + sort_order + tier_price_adj_pct +
-  // recommended carry; qty RESET to null per FR-12.
+  // recommended + qty carry.
+  //
+  // Post-Slice-11 revision (2026-07-15): qty now CLONES (was in
+  // FR-12 Reset bucket per Beija Flor cross-project rationale).
+  // Edward's within-project workflow surfaced the mismatch — copies
+  // are typically "iterate on the same quote" (same customer, same
+  // volumes; new pricing/cost structure), not "different customer
+  // template reuse." Preserved qty means cost stack renders on the
+  // fresh copy without PM re-entering the volume ask.
+  //
+  // PMs who legitimately want new qty (rare cross-project case)
+  // still edit tier qty inline on the new draft. Trade-off favors
+  // the common within-project case.
   const sourceTiers = await tx
     .select()
     .from(quoteTiers)
@@ -1806,7 +1818,7 @@ async function cloneQuoteGraph(
         sourceTiers.map((t) => ({
           quoteId: newQuoteId,
           label: t.label,
-          qty: null,
+          qty: t.qty,
           sortOrder: t.sortOrder,
           tierPriceAdjPct: t.tierPriceAdjPct,
           recommended: t.recommended,
