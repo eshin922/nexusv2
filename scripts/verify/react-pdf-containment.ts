@@ -45,6 +45,29 @@ const LIBRARY_ID = "@react-pdf/renderer";
 // Allowlist entries are matched by exact relative path (from ROOT)
 // after normalization to forward slashes. Glob-style `**` in a path
 // means "matches this path or any descendant."
+//
+// **Two entry classes** to preserve when reading the list:
+//
+// - **Render-path modules** (`src/components/pdf/**`,
+//   `src/lib/pdf-fonts.ts`, `src/lib/quote-pdf-document.tsx`) — these
+//   are also inside the FORWARD Pattern-45 boundary sweep
+//   (`customer-view-boundary.ts`). They can't import costing surfaces
+//   either. Boundary in both directions.
+//
+// - **Adapter callers** (`src/app/api/quotes/[quoteId]/customer-pdf/route.tsx`,
+//   `src/app/actions/quotes.ts` `sendQuote`) — these live OUTSIDE the
+//   forward boundary sweep by design (see the header on
+//   `customer-view-boundary.ts` for the adapter-exclusion rationale).
+//   They compose the projected `CustomerView` and then call
+//   `renderToStream` / `renderToBuffer`. The FORWARD sweep can't
+//   include them without breaking their legitimate costing reads;
+//   this INVERSE sweep includes them because they legitimately need
+//   `@react-pdf/renderer` for the render call.
+//
+// The adapter-exclusion asymmetry is intentional — it's the durable
+// shape of "boundary enforced at the render tree, not at the
+// composition seam." Do not read the send path's absence from the
+// forward sweep as a coverage gap.
 const ALLOWLIST: readonly string[] = [
   "src/components/pdf/**",
   "src/lib/pdf-fonts.ts",

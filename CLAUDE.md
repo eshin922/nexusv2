@@ -977,6 +977,14 @@ analysis 2026-06-25 (Slice 11.5.1 close + MS OAuth #75).
   args) would have caught pre-push — same structural-invariant
   shape as the customer-view boundary guard.
 
+  **PROMOTED to prebuild gate (2026-07-15, Slice 11 Step 7):**
+  shipped as `scripts/verify/font-register-coverage.ts` +
+  `verify:font-register-coverage` npm script + prebuild wire.
+  Text-based parser cross-references StyleSheet
+  `fontFamily × fontWeight × fontStyle` combinations against
+  `Font.register` calls; fails build on any missing variant. See
+  ledger #80 below for the live catch on first run.
+
   Cumulative: **77 across 16 slices.**
 
 - **+1 catch (Slice 11 Step 4, 2026-07-14):** brief-vs-repo
@@ -1018,6 +1026,41 @@ analysis 2026-06-25 (Slice 11.5.1 close + MS OAuth #75).
   step's dependencies on it."
 
   Cumulative: **79 across 16 slices.**
+
+- **+1 catch (Slice 11 Step 7 first run, 2026-07-15):** the freshly-
+  shipped `verify:font-register-coverage` prebuild gate (promotion
+  of #77) caught two live bugs on its very first run against
+  production code — `grandNumReq` + `tkTotalReq` in
+  `customer-pdf-styles.ts` both request Newsreader italic at
+  weight 500, but `Font.register` only had italic at weight 400.
+  React-pdf's closest-weight resolver was silently falling back
+  to italic 400 across every customer PDF, degrading CD's
+  "medium italic" register (per `.pp-grand-num.req` +
+  `.pp-tk-total.req` in the canonical stylesheet) to regular
+  italic on the turnkey/grand totals.
+
+  **The catch that justifies the promotion.** #77 shipped as a
+  runtime crash (missing family+style throws). #80 fired as a
+  silent visual downgrade (missing weight falls back). Same
+  structural class — StyleSheet-declared variant not registered
+  — but the failure symptoms diverge: one screams (HTTP 500),
+  one whispers (subtly-wrong font weight on a foreground total).
+  A grep-shape prebuild verifier catches both flavors uniformly.
+
+  Fix: add `{ src: NEWSREADER_ITALIC, fontWeight: 500, fontStyle:
+  "italic" }` to the Newsreader Font.register block. Newsreader is
+  a variable font, so the same physical Italic.ttf covers all
+  weight slices — no new file vendored. Banked in the Step 7
+  commit + PR #121.
+
+  Class A (silently-failing platform constraint) — same class as
+  the pooler dual-budget catch (#69) and the Realtime 10-binding
+  cap (#72). The pattern: platforms with fallback resolvers hide
+  gaps in the developer's registered set until someone eyeballs
+  the rendered output at CD-fidelity level; the prebuild verifier
+  makes the gap explicit at build time instead.
+
+  Cumulative: **80 across 16 slices.**
 
 ### Pattern 22 extension — verification covers code architecture (refinement, 2026-05-13)
 
@@ -2401,6 +2444,174 @@ verdicts.
   for distinguishing origins when multiple actions write the
   same column; a related-but-different case (same basis,
   different origins).
+
+## Pattern 51 — "Adapters excluded from forward boundary sweep by design"
+
+Standing pattern — banked from Slice 11 Step 7 close-out
+(2026-07-15).
+
+**The rule.** In a "render tree + composition seam" architecture
+(Pattern 45 lineage), the forward boundary sweep enforces
+import-cleanliness on the RENDER TREE ONLY. Modules that live
+on the composition seam — that read from privileged data
+sources to PROJECT the render-safe shape — are legitimately
+excluded from the forward sweep.
+
+**Why the exclusion is a feature, not a gap.** The composition
+seam is where the projection HAPPENS. If we forbade its
+costing/schema imports, it couldn't do the projection at all;
+the render tree would need to reach across the boundary
+directly, which is exactly the failure mode Pattern 45 exists
+to prevent. The boundary is enforced on the composition seam's
+OUTPUT (the projected `CustomerView` shape, guaranteed by
+TypeScript), not its imports.
+
+**Reference moment:** Slice 11 Step 7 verifier trio.
+
+- Forward sweep (`verify:boundaries`) covers 19 files: the
+  react-pdf tree (`src/components/pdf/**`) + 4 render-path
+  modules (`pdf-fonts.ts`, `pdf-palette.ts`,
+  `quote-pdf-document.tsx`, `customer-view-to-cpdf.ts`). None
+  may import costing / schema / actions.
+- Explicitly OUT of forward sweep: `customer-view-resolver.ts`,
+  `/api/quotes/[quoteId]/customer-pdf/route.tsx`,
+  `src/app/actions/quotes.ts` (`sendQuote`). These read
+  `getCostingBundle` + db + schema to build the projected
+  `CustomerView` — their job is to synthesize.
+- Inverse sweep (`verify:react-pdf-containment`) covers a
+  different-shaped concern (bundle size) and DOES include the
+  composition-seam modules in its allowlist, because they
+  legitimately call `renderToStream` / `renderToBuffer`.
+- The two verifiers together form a **dual-direction guard**
+  with an asymmetric allowlist that reflects the seam's role.
+
+**Recognition heuristic.** When adding a new boundary-guard
+verifier, first identify:
+
+1. Where does the render / consumer surface end? That's the
+   forward sweep's scope.
+2. Where does data crossing happen? That's the composition
+   seam. Explicitly EXCLUDE it from the forward sweep and
+   note the reason in the verifier header.
+3. What is the guarantee on the seam's output? That's the
+   boundary's real enforcement point (TypeScript projected
+   type, or an equivalent output-shape assertion).
+
+Do not read the seam's absence from the forward sweep as
+missing coverage — it's the architecture, not a gap.
+
+**Anti-pattern.** Adding a composition-seam module to the
+forward sweep to "close the coverage gap" — this either
+breaks the seam (no more costing imports allowed) or forces
+the seam to be re-authored to route data through a synthetic
+intermediary that adds complexity without adding correctness.
+
+**When it doesn't apply.** Single-layer surfaces where the
+consumer reads the data source directly (no projection). Those
+DON'T have a seam; boundary is enforced at the consumer level
+uniformly.
+
+**Cross-references.**
+- Pattern 45 (Customer-facing render data-source verification)
+  — the parent pattern; establishes that the customer-facing
+  tree must trace to real bundle data.
+- Pattern 50 (Compliance-basis intersection state) — same
+  family in the sense that two subsystems interact via an
+  explicit seam; here the seam is a projection, there it's a
+  disagreement.
+
+## Pattern 52 — "Snapshot-immutability via draft-lock"
+
+Standing pattern — banked from Slice 11 close-out (2026-07-15).
+
+**The rule.** For per-cell / per-column data that must be
+"frozen at send" — pricing overrides, PDF axes, prepared-by
+snapshot — reproducibility MAY be guaranteed by a state-machine
+draft-lock invariant rather than by schema-level versioning
+(effective_from / effective_until columns). This is a valid
+architecture choice, but comes with an explicit dependency
+that must be documented so it doesn't silently break.
+
+**The invariant.** All mutation actions on the frozen data
+call `assertDraft(quote)` (or an equivalent transition guard)
+via a shared loader. Once a quote transitions from `draft`
+status to `sent` / `accepted`, no code path can write the
+frozen columns on that quote. The data is effectively immutable
+post-send without any effective-until column.
+
+**Trade-off.** Simpler than versioned storage (no
+`effective_from`/`effective_until` columns; no historical-value
+join logic; no reconstruction of "value as of sent_at"). Held
+by CONVENTION, not by the schema. If any future feature ever
+allows post-send editing of the same column (a "reopen for
+edit" flow, a scenario clone that mutates in place, an admin
+override that touches frozen values), the reproducibility
+guarantee silently breaks — the sent quote's DB values start
+drifting from what was actually sent.
+
+**Reference moment:** Slice 11.5's
+`assembly_leaf_overrides` +
+`updateAssemblyLeafOverride`; Slice 11 Step 4's
+`quotes.pdf_layout` / `detail_level` /
+`include_spec_addendum` axes. Both are draft-locked via
+`assertDraft` at the mutation entry point. Neither carries an
+effective-until column. Reproducibility of sent-quote data
+depends on the draft-lock being universally applied.
+
+**Discipline for future features that might touch draft-locked
+columns.**
+
+- Any new action that MIGHT write a draft-locked column: must
+  call `assertDraft` on the loaded quote before the write.
+  Fail closed — if the guard is missing, the invariant breaks.
+- Any new feature that WANTS to write to a non-draft quote
+  (reopen-for-edit, admin sub-floor override authorization,
+  scenario in-place clone) needs an explicit disposition
+  BEFORE it ships:
+  - (a) Add effective-until versioning to the affected columns
+    (schema change; upgrade reproducibility from convention
+    to structural).
+  - (b) Snapshot at send instead of at edit (freeze columns to
+    a sibling table at `sendQuote` time; edits after send
+    write to the live table but the frozen snapshot is what
+    renders).
+  - (c) Explicitly bank the reproducibility break in this
+    section + update PDF-render code to read from a
+    snapshot pointer (like `pdf_url` per Slice 11 Step 6)
+    that's stable regardless of live-column drift.
+- Do NOT add a new mutation path without addressing the
+  invariant. Silent violation shipped in production is the
+  cost.
+
+**Snapshot pointer supplement.** The `pdf_url` pointer (stored
+on the quote row post-send by Slice 11 Step 6) is a partial
+mitigation: even if live column values drift, the persisted
+PDF file at that Storage path is what customers received.
+Reading THAT is authoritative. But the DB values on the quote
+row + related tables can still drift if the invariant breaks
+— audit queries, cross-quote comparisons, and any workflow
+that reads live columns for a sent quote would see wrong data.
+`pdf_url` covers "what did the customer see" but not "what did
+we quote them" in queryable form.
+
+**Applicability.** Slice 11 (pdf axes) + Slice 11.5 (per-cell
+overrides) are the canonical instances. Future draft-locked
+data (per Part 2 override slice for the UI wire; potential
+admin-override authorization records if that lands v1.1+;
+snapshotted markup values on assemblies at send-time if that
+becomes needed) inherits the same invariant + the same
+disposition tree.
+
+**Cross-references.**
+- Pattern 22 §0.5 verification protocol — new draft-locked
+  columns should surface in schema-verification pre-flight.
+- Slice 11 Step 6 `pdf_url` snapshot pointer — the partial
+  mitigation described above.
+- CLAUDE.md "Versioned-table carry-forward audit" (Slice
+  RI.7) — sister pattern for versioned tables; when the
+  versioning IS in the schema, the discipline is
+  carry-forward on update. Draft-lock is the
+  when-versioning-isn't-in-the-schema alternative.
 
 ## Designer audit rubric expansions (banked from rest-of-app sweep Step 10, 2026-05-14)
 
