@@ -1426,6 +1426,19 @@ export async function sendQuote(
           ? sql`(CURRENT_DATE + ${daysValid}::int * INTERVAL '1 day')::date`
           : sql`NULL::date`;
 
+      // Slice 11 Step 4 — customer-PDF snapshot fleet. Read current
+      // draft-column values; fall back to canonical defaults for
+      // legacy quotes that never toggled. sendQuote writes them
+      // back explicitly so the audit `diff_json.snapshots` marks
+      // the send-time state even when the columns were already
+      // populated from earlier PM toggles. Retrofits pdf_layout
+      // into the snapshot fleet (pre-Slice-11 it was render-time-
+      // only).
+      const pdfLayoutSnapshot = quote.pdfLayoutSnapshot ?? "tier_table";
+      const detailLevelSnapshot = quote.detailLevelSnapshot ?? "itemized";
+      const includeSpecAddendumSnapshot =
+        quote.includeSpecAddendumSnapshot ?? false;
+
       const [updated] = await tx
         .update(quotes)
         .set({
@@ -1443,6 +1456,10 @@ export async function sendQuote(
           preparedByNameSnapshot: preparedBy.name,
           preparedByEmailSnapshot: preparedBy.email,
           preparedByPhoneSnapshot: preparedBy.phone,
+          // Slice 11 Step 4: customer-PDF render axes snapshots
+          pdfLayoutSnapshot,
+          detailLevelSnapshot,
+          includeSpecAddendumSnapshot,
           updatedAt: sentAt,
         })
         .where(eq(quotes.id, quoteId))
@@ -1466,6 +1483,10 @@ export async function sendQuote(
             leadTime: firm.leadTimeDefault ?? null,
             incoterms: firm.incotermsDefault ?? null,
             daysValid,
+            // Slice 11 Step 4 — customer-PDF render axes
+            pdfLayout: pdfLayoutSnapshot,
+            detailLevel: detailLevelSnapshot,
+            includeSpecAddendum: includeSpecAddendumSnapshot,
           },
           preparedBy: {
             name: preparedBy.name,

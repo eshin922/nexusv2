@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { firmSettings, projects, quotes, users } from "@/db/schema";
+import { firmSettings, projects, quotes, quoteTiers, users } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { findHubspotOwnerById } from "@/lib/hubspot";
@@ -34,7 +34,21 @@ export default async function CustomerViewPage({
   searchParams,
 }: {
   params: Promise<{ id: string; quoteId: string }>;
-  searchParams: Promise<{ dev?: string }>;
+  searchParams: Promise<{
+    dev?: string;
+    /**
+     * Slice 11 Step 4 preview overrides. Draft-mode only —
+     * sent quotes always read from the immutable snapshot column
+     * (isSent branch below). Adapter resolution order:
+     *   isSent ? quote.{col} : (searchParams.{param} ?? quote.{col} ?? default)
+     * Preview URL wins for drafts so PMs can toggle without a
+     * persistence round-trip (draft-write path lands in Step 4.6
+     * with the toolbar).
+     */
+    layout?: string;
+    detail?: string;
+    addendum?: string;
+  }>;
 }) {
   // 2026-06-17 prod-hang Vercel-side instrumentation (see
   // costs/page.tsx for full rationale). Quote umbrella also runs
@@ -45,7 +59,7 @@ export default async function CustomerViewPage({
     Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
   const elapsed = () => `${Date.now() - t0}ms`;
   const { id: projectId, quoteId } = await params;
-  const { dev } = await searchParams;
+  const { dev, layout, detail, addendum } = await searchParams;
   const tag = quoteId.slice(0, 8);
   console.log(`[quote:${tag}] start memory=${heapMb()}MB`);
 
@@ -221,26 +235,51 @@ export default async function CustomerViewPage({
       // standing during the rest-of-app sweep, Step 10 audit).
       pack: null,
       unitsPerPack: 1,
-      retailBenchmark: skuMeta?.retailBenchmark ?? null,
       tierPrices,
       shape,
     };
   });
 
-  // Recommended tier: stubbed to middle tier as placeholder. Slice 10
-  // wires real recommended-tier flag from costing/quote schema.
+  // Slice 11 Step 4.3 — real recommendedTierIdx from
+  // quote_tiers.recommended (schema.ts:440). Mirrors the
+  // mark-accepted/page.tsx:167 pattern: read the recommended pin,
+  // find its index in the ordered tier list, fall back to middle
+  // tier for legacy quotes created before §6.b's ★ toggle. The
+  // customer PDF is the first surface where a wrong recommended
+  // tier ships to a customer, so the stub cannot ride along.
+  const tierRecommendedRows =
+    tiers.length > 0
+      ? await db
+          .select({
+            id: quoteTiers.id,
+            recommended: quoteTiers.recommended,
+          })
+          .from(quoteTiers)
+          .where(eq(quoteTiers.quoteId, quote.id))
+      : [];
+  const recommendedTierId =
+    tierRecommendedRows.find((t) => t.recommended)?.id ?? null;
   const recommendedTierIdx =
-    tiers.length > 0 ? Math.floor(tiers.length / 2) : null;
+    tiers.length === 0
+      ? null
+      : recommendedTierId
+        ? (tiers.findIndex((t) => t.id === recommendedTierId) ?? -1) !== -1
+          ? tiers.findIndex((t) => t.id === recommendedTierId)
+          : Math.floor(tiers.length / 2)
+        : Math.floor(tiers.length / 2);
 
   const view: CustomerView = {
     vendor,
     customer: {
       // project.clientName is the customer name today; fuller customer
       // contact/role/address fields are HubSpot-side data not yet
-      // imported into Nexus schema (Slice 11).
+      // imported into Nexus schema (Slice 11 Step 4 disposition Q-A:
+      // no source for `email` in v1 either — column+backfill on
+      // `projects` banked as option (b)).
       name: project.clientName ?? "{customer-pending}",
       contact: null,
       role: null,
+      email: null,
       address: null,
     },
     quote: {
@@ -265,7 +304,33 @@ export default async function CustomerViewPage({
     serviceFees: [],
     freightLines: [],
     recommendedTierIdx,
-    pdfLayout: "tier_table",
+    // Slice 11 Step 4.4 — snapshot-or-live reads for the three
+    // customer-PDF render axes. Priority (per brief §4):
+    //   isSent ? quote.{col} : (searchParams.{param} ?? quote.{col} ?? default)
+    // Sent-only reads are frozen (immutable per DEC-7 snapshot);
+    // drafts allow preview-URL override so PMs can toggle
+    // without a persistence round-trip (draft-write path via
+    // toolbar lands in Step 4.6).
+    // Unknown searchParam values collapse to `undefined` via the
+    // narrow type guards; the `??` chain then falls through to
+    // the persisted draft column, then to the canonical default.
+    pdfLayout: isSent
+      ? (quote.pdfLayoutSnapshot ?? "tier_table")
+      : (layout === "tier_table" || layout === "single_tier"
+          ? layout
+          : (quote.pdfLayoutSnapshot ?? "tier_table")),
+    detailLevel: isSent
+      ? (quote.detailLevelSnapshot ?? "itemized")
+      : (detail === "itemized" || detail === "turnkey_only"
+          ? detail
+          : (quote.detailLevelSnapshot ?? "itemized")),
+    includeSpecAddendum: isSent
+      ? (quote.includeSpecAddendumSnapshot ?? false)
+      : (addendum === "1" || addendum === "true"
+          ? true
+          : addendum === "0" || addendum === "false"
+            ? false
+            : (quote.includeSpecAddendumSnapshot ?? false)),
   };
 
   const showStateSwitcher =

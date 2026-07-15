@@ -1,52 +1,45 @@
-// Slice 11 Step 3 — Pattern-30 verbatim port of CD's state
-// composition tree (StatePure, StatePassThrough, StatePartial)
-// plus the Sheet / Document / Page wrappers.
+// Slice 11 Step 4.5 — compositional refactor. Previously three
+// mutually-exclusive State compositions (StatePure /
+// StatePassThrough / StatePartial), each returning its own
+// complete `<Document>` tree. Per CA Step 4 disposition
+// (modified Option 1 — orthogonal flags), the composition is now
+// a single `<CustomerPdfDocument>` parameterized by two data-
+// derived booleans:
 //
-// Source: docs/design-prototypes/dist/Nexus Customer PDF Render/app/cpdf/
-//         pdf-render.jsx:335-509 (Sheet + state compositions).
+//   - `hasCharges` — pass-through freight present OR service fees
+//     visible. Renders the charges block + shifts the terms
+//     section spacing (sectionTight).
+//   - `hasUnpriced` — any SKU has a null tier price
+//     (quote-on-request). Drives the partial sub-header lede
+//     fragment + PricingFoot(partial) + GrandTotalRow "from $X"
+//     prefix (already handled inside GrandTotalRow via
+//     `hasUnpriced` computed from the same data).
 //
-// Pattern 30 + audit §5 LOUD CALL-OUT: CD's `<Sheet>` per state +
-// `<Break>` markers are REVIEW CHROME ONLY. **Production MUST NOT
-// hard-code page splits.** Each state composition emits ONE `<Page>`
-// with a single flowing tree; react-pdf's automatic `wrap` +
-// `wrap={false}` props handle the physical breaks. CD's
-// StatePartial.pageOne/pageTwo split (pdf-render.jsx:475-476) is
-// the review affordance — production renders all 6 SKUs as one
-// `<PricingTable>` and lets the renderer decide where to break.
+// The two flags compose to four combinations (Pure / PassThrough
+// / Partial / PassThrough+Partial). The fourth was structurally
+// unreachable in the mutually-exclusive port; the flag composition
+// handles it correctly — charges block renders AND unpriced
+// treatment applies, matching CA's rejected-option-1 warning
+// about silently-dropped fees on partial-with-charges quotes.
 //
-// `Page` size: LETTER (per spike §1 + audit §5 — 8.5×11in @ 72pt
-// PDF; react-pdf maps `size="LETTER"` correctly). CD's `.pp-sheet`
-// 816×1056@96dpi is the CSS-preview expression of the same paper.
+// Pattern 30: JSX primitives + class-name parity preserved 1:1
+// with the ported render tree. This is compositional
+// reorganization, not visual change.
 //
 // Pattern 45 boundary: only fixture-shape prop types from
-// `customer-pdf-types`; zero costing-surface imports.
+// `customer-pdf-types`; zero costing-surface imports. The
+// adapter (customer-view-to-cpdf) produces the flag values;
+// this file consumes them.
 //
-// ─── Multi-page <Document> seam (post-Step-3 amendment 2026-06-29) ───
+// ─── Multi-page <Document> seam (post-Step-3 amendment) ───
 //
-// Per §0.5 catch #79: the spec addendum (impl-6 shipped) lives in
-// `src/components/pdf/` and must render INTO the generated PDF when
-// the `include_spec_addendum` toggle is on (Edward Option A —
-// "we include specs all the time when requested"). The generated
-// PDF and the QuoteHost preview assemble as one react-pdf
-// `<Document>` of pricing page(s) + N addendum pages.
-//
-// This seam is the architectural slot: each State composition
-// accepts an optional `addendumPages?: ReactNode` and renders it
-// AFTER the pricing `<Page>`(s). Step 3b ports the addendum
-// component itself; this file's job is to provide the slot.
-//
-// **Caller responsibility:** gate `addendumPages` on
-// `data.includeSpecAddendum` AND `addendum.hasMeaningfulContent`
-// (the impl-6 hasMeaningfulContent guard — per scenario ㉗,
-// "all empty → addendum doesn't render"). The State compositions
-// don't decide; they just render the slot. Adapter / send action
-// determines whether to pass it.
-//
-// **The single <Document> wrap stays here**, not in Step 3b — the
-// addendum is composed INTO the existing pricing Document so
-// renderToBuffer produces one buffer. Step 3b emits a fragment
-// of <Page> elements; this file's State compositions accept that
-// fragment as the addendumPages prop.
+// Per §0.5 catch #79: the spec addendum lives INTO the generated
+// PDF when the `include_spec_addendum` toggle is on (Edward
+// Option A). The generated PDF and QuoteHost preview assemble as
+// one react-pdf `<Document>` of pricing page(s) + N addendum
+// pages. `addendumPages` prop is the composition seam; caller
+// gates on `data.includeSpecAddendum` AND `addendum.
+// hasMeaningfulContent` (impl-6 guard).
 
 import type { ReactNode } from "react";
 
@@ -72,14 +65,11 @@ import type {
   CpdfVendor,
 } from "./customer-pdf-types";
 
-// Fonts must be registered before any react-pdf render. Idempotent
-// (subsequent imports no-op per registerPdfFonts internals).
 registerPdfFonts();
 
 /**
- * Per-page chrome — runhead (pages 2+) + footer (every page). Wired
- * inside `<Page>` via react-pdf's `fixed` prop + `render` callback.
- * Production pagination is automatic; the callbacks fire per page.
+ * Per-page chrome — runhead (pages 2+) + footer (every page).
+ * Same-View `fixed` + positioning pattern per Pattern 49 (CLAUDE.md).
  */
 function PageChrome({
   vendor,
@@ -88,13 +78,6 @@ function PageChrome({
   vendor: CpdfVendor;
   quote: CpdfQuote;
 }) {
-  // Step 3 Fix 2 follow-up (2026-06-30): both chrome components are
-  // now self-contained fixed Views with their positioning styles
-  // directly applied. The previous nested-View pattern (outer
-  // `<View fixed>` wrapping inner positioned View) made the inner's
-  // `bottom: 22.5pt` resolve against the outer's zero-height box,
-  // landing the footer at the page TOP instead of the page bottom.
-  // See `customer-pdf-chrome.tsx` header comment for full diagnosis.
   return (
     <>
       <PageFooter vendor={vendor} quote={quote} />
@@ -103,51 +86,65 @@ function PageChrome({
   );
 }
 
-// Inline eyebrow + h2 + lede subheads — extracted as helpers for
-// legibility; CD inlines these at jsx:365-370, 421-423, 485-487.
+// ─── Unified itemized head ──────────────────────────────────
+//
+// Replaces PureItemizedHead / PassThroughItemizedHead /
+// PartialItemizedHead. Composes the lede from four fragments
+// per the four flag combinations; eyebrow / h2 track the
+// single-tier axis.
 
-function PureItemizedHead({
+function ItemizedHead({
   isSingle,
-  fullLabel,
+  hasCharges,
+  hasUnpriced,
+  fullLabelIfSingle,
+  recommendedTierFullLabel,
 }: {
   isSingle: boolean;
-  fullLabel: string;
+  hasCharges: boolean;
+  hasUnpriced: boolean;
+  /** Passed when isSingle=true; used for h2 "Per-unit pricing · {full}". */
+  fullLabelIfSingle: string | null;
+  /**
+   * Full label of the recommended tier (e.g. "Tier 2"). Used in the
+   * "Tier N is recommended for first-PO production runs" fragment,
+   * which renders only in the tier_table + priced branch. Null
+   * safely omits the fragment.
+   */
+  recommendedTierFullLabel: string | null;
 }) {
+  const eyebrow = isSingle ? "Confirmed pricing" : "Tiered pricing";
+  const h2 =
+    isSingle && fullLabelIfSingle
+      ? `Per-unit pricing · ${fullLabelIfSingle}`
+      : "Per-unit pricing across volume tiers";
+  const showRecommendedNote =
+    !isSingle && !hasUnpriced && recommendedTierFullLabel !== null;
+
   return (
     <View>
-      <Text style={styles.eyebrow}>
-        {(isSingle ? "Confirmed pricing" : "Tiered pricing").toUpperCase()}
-      </Text>
-      <Text style={styles.h2}>
-        {isSingle
-          ? `Per-unit pricing · ${fullLabel}`
-          : "Per-unit pricing across volume tiers"}
-      </Text>
+      <Text style={styles.eyebrow}>{eyebrow.toUpperCase()}</Text>
+      <Text style={styles.h2}>{h2}</Text>
       <Text style={styles.lede}>
-        Pricing landed <Text style={styles.ledeEm}>FOB Long Beach</Text> —
-        container freight, duty, and applicable tariffs are included in the
-        unit price shown.
-        {isSingle
-          ? " Full volume tier-pricing available on request."
-          : " Tier 2 is recommended for first-PO production runs."}
+        Pricing per the terms below across volume tiers.
+        {hasCharges &&
+          " Outbound freight is billed separately at cost; one-time charges are itemized below."}
+        {hasUnpriced &&
+          " One or more items are pending finalization — a quote is available on request once sourcing is locked."}
+        {showRecommendedNote &&
+          ` ${recommendedTierFullLabel} is recommended for first-PO production runs.`}
+        {isSingle &&
+          !hasUnpriced &&
+          " Full volume tier-pricing available on request."}
       </Text>
     </View>
   );
 }
 
-function PassThroughItemizedHead() {
-  return (
-    <View>
-      <Text style={styles.eyebrow}>{"Tiered pricing".toUpperCase()}</Text>
-      <Text style={styles.h2}>Per-unit pricing across volume tiers</Text>
-      <Text style={styles.lede}>
-        Pricing landed <Text style={styles.ledeEm}>EXW Long Beach</Text>.
-        Outbound freight is billed separately at cost; one-time charges are
-        itemized below. See page 2 for commercial terms.
-      </Text>
-    </View>
-  );
-}
+// ─── Terms head (pass-through only) ─────────────────────────
+//
+// Renders above TermsBlock when hasCharges AND !turnkey — visually
+// separates the terms block from the charges block above.
 
 function PassThroughTermsHead() {
   return (
@@ -158,123 +155,24 @@ function PassThroughTermsHead() {
   );
 }
 
-function PartialItemizedHead() {
-  return (
-    <View>
-      <Text style={styles.eyebrow}>{"Tiered pricing".toUpperCase()}</Text>
-      <Text style={styles.h2}>Per-unit pricing across volume tiers</Text>
-      <Text style={styles.lede}>
-        Pricing landed <Text style={styles.ledeEm}>FOB Long Beach</Text>.{" "}
-        <Text style={styles.ledeEm}>Glow Capsule (CAP-60)</Text> Tier 1 pricing
-        is pending finalization of the formulation R{"&"}D milestone — a quote
-        is available on request once raw-ingredient sourcing is locked.
-      </Text>
-    </View>
-  );
-}
+// ─── Unified composition ────────────────────────────────────
 
-// ─── State A · Pure tier-pricing ─────────────────────────────
-// CD `pdf-render.jsx:348-384`
-export function StatePure({
+export function CustomerPdfDocument({
   data,
   skuSet,
   layout,
   detail,
+  hasCharges,
+  hasUnpriced,
   addendumPages,
 }: {
   data: CpdfData;
   skuSet: ReadonlyArray<CpdfData["skus"][number]>;
   layout: CpdfPdfLayout;
   detail: CpdfDetailLevel;
-  /** Multi-page seam (Step 3b fills via the addendum verbatim port). */
-  addendumPages?: ReactNode;
-}) {
-  const {
-    vendor,
-    customer,
-    quote,
-    tiers,
-    recommendedTierIdx,
-    serviceFees,
-  } = data;
-  const isSingle = layout === "single_tier";
-  const turnkey = detail === "turnkey_only";
-
-  return (
-    <Document>
-      <Page size="LETTER" style={styles.sheet}>
-        <PageChrome vendor={vendor} quote={quote} />
-        <View style={styles.flow}>
-          <Masthead vendor={vendor} quote={quote} />
-          <Parties vendor={vendor} customer={customer} />
-          {turnkey ? (
-            <View style={styles.section}>
-              <TurnkeySummary
-                skuSet={skuSet}
-                tiers={tiers}
-                recommendedTierIdx={recommendedTierIdx}
-                serviceFees={serviceFees}
-                layout={layout}
-                foldFees={false}
-                freightAtCost={false}
-                allInUnit
-                partial={false}
-                lede="Pricing is landed and all-in — one number per volume tier, freight and duty included."
-              />
-            </View>
-          ) : (
-            <View style={styles.section}>
-              <PureItemizedHead
-                isSingle={isSingle}
-                fullLabel={tiers[recommendedTierIdx].full}
-              />
-              <PricingTable
-                skus={skuSet}
-                tiers={tiers}
-                recommendedTierIdx={recommendedTierIdx}
-                layout={layout}
-                quoteNumber={quote.quote_number}
-              />
-              <GrandTotalRow
-                skuSet={skuSet}
-                tiers={tiers}
-                recommendedTierIdx={recommendedTierIdx}
-                serviceFees={serviceFees}
-                layout={layout}
-                foldFees={false}
-                freightAtCost={false}
-                allInUnit
-              />
-              <PricingFoot />
-            </View>
-          )}
-          {/* Terms group — kept-together (wrap={false}) per audit §4 */}
-          <View style={styles.section} wrap={false}>
-            <TermsBlock quote={quote} incoterms={quote.incoterms_bundled} />
-            <NotesBlock notes={quote.customer_facing_notes} />
-            <HowToAccept />
-          </View>
-        </View>
-      </Page>
-      {addendumPages}
-    </Document>
-  );
-}
-
-// ─── State B · Pass-through freight + visible fees ───────────
-// CD `pdf-render.jsx:387-447`
-export function StatePassThrough({
-  data,
-  skuSet,
-  layout,
-  detail,
-  addendumPages,
-}: {
-  data: CpdfData;
-  skuSet: ReadonlyArray<CpdfData["skus"][number]>;
-  layout: CpdfPdfLayout;
-  detail: CpdfDetailLevel;
-  /** Multi-page seam (Step 3b fills via the addendum verbatim port). */
+  hasCharges: boolean;
+  hasUnpriced: boolean;
+  /** Multi-page seam — addendum pages, if any, render after pricing. */
   addendumPages?: ReactNode;
 }) {
   const {
@@ -286,50 +184,33 @@ export function StatePassThrough({
     serviceFees,
     freightLines,
   } = data;
+  const isSingle = layout === "single_tier";
   const turnkey = detail === "turnkey_only";
+  const recommendedTier = tiers[recommendedTierIdx];
 
-  // turnkey_only collapses State-B to single page — itemized charges
-  // block suppressed; fees fold into total (CD `pdf-render.jsx:392`).
-  if (turnkey) {
-    return (
-      <Document>
-        <Page size="LETTER" style={styles.sheet}>
-          <PageChrome vendor={vendor} quote={quote} />
-          <View style={styles.flow}>
-            <Masthead vendor={vendor} quote={quote} />
-            <Parties vendor={vendor} customer={customer} />
-            <View style={styles.section}>
-              <TurnkeySummary
-                skuSet={skuSet}
-                tiers={tiers}
-                recommendedTierIdx={recommendedTierIdx}
-                serviceFees={serviceFees}
-                layout={layout}
-                foldFees
-                freightAtCost
-                allInUnit={false}
-                partial={false}
-                lede="The all-in turnkey total per tier — one-time fees folded in. Outbound freight is billed separately at cost."
-              />
-            </View>
-            <View style={styles.sectionTight} wrap={false}>
-              <TermsBlock
-                quote={quote}
-                incoterms={quote.incoterms_passthrough}
-              />
-              <NotesBlock notes={quote.customer_facing_notes} />
-              <HowToAccept />
-            </View>
-          </View>
-        </Page>
-        {addendumPages}
-      </Document>
-    );
-  }
+  // Turnkey lede — composes from same flag axes. Base sentence
+  // varies with hasCharges (turnkey-with-fees folds them into the
+  // total; without-fees is landed & all-in).
+  const turnkeyLede = hasCharges
+    ? "The all-in turnkey total per tier — one-time fees folded in. Outbound freight is billed separately at cost."
+    : hasUnpriced
+      ? "All-in turnkey total per tier. One tier is still pending a final line price, noted below."
+      : "Pricing is landed and all-in — one number per volume tier, freight and duty included.";
 
-  // itemized — single Page; automatic wrap handles the table → charges
-  // → terms cascade (CD's prototype hard-splits into 2 sheets purely
-  // as review chrome).
+  // Terms wrapper style — sectionTight when hasCharges OR when
+  // turnkey is combined with hasUnpriced (matches the mutually-
+  // exclusive-port spacing for those combinations). Otherwise
+  // default section spacing.
+  const termsWrapperStyle =
+    hasCharges || (turnkey && hasUnpriced)
+      ? styles.sectionTight
+      : styles.section;
+
+  // Terms head — PassThroughTermsHead only in itemized+hasCharges
+  // combination (matches original port: PassThrough itemized
+  // rendered the head; PassThrough turnkey did not).
+  const showTermsHead = hasCharges && !turnkey;
+
   return (
     <Document>
       <Page size="LETTER" style={styles.sheet}>
@@ -337,83 +218,8 @@ export function StatePassThrough({
         <View style={styles.flow}>
           <Masthead vendor={vendor} quote={quote} />
           <Parties vendor={vendor} customer={customer} />
-          <View style={styles.section}>
-            <PassThroughItemizedHead />
-            <PricingTable
-              skus={skuSet}
-              tiers={tiers}
-              recommendedTierIdx={recommendedTierIdx}
-              layout={layout}
-              quoteNumber={quote.quote_number}
-            />
-            <GrandTotalRow
-              skuSet={skuSet}
-              tiers={tiers}
-              recommendedTierIdx={recommendedTierIdx}
-              serviceFees={serviceFees}
-              layout={layout}
-              foldFees
-              freightAtCost
-              allInUnit={false}
-            />
-            <PricingFoot />
-          </View>
-          <View style={styles.section}>
-            <ChargesBlock
-              tiers={tiers}
-              recommendedTierIdx={recommendedTierIdx}
-              serviceFees={serviceFees}
-              freightLines={freightLines}
-            />
-          </View>
-          {/* Terms — kept-together unit per audit §4 */}
-          <View style={styles.sectionTight} wrap={false}>
-            <PassThroughTermsHead />
-            <TermsBlock quote={quote} incoterms={quote.incoterms_passthrough} />
-            <NotesBlock notes={quote.customer_facing_notes} />
-            <HowToAccept />
-          </View>
-        </View>
-      </Page>
-      {addendumPages}
-    </Document>
-  );
-}
 
-// ─── State C · Partial completeness + table overflow ─────────
-// CD `pdf-render.jsx:450-509`
-export function StatePartial({
-  data,
-  skuSet,
-  layout,
-  detail,
-  addendumPages,
-}: {
-  data: CpdfData;
-  skuSet: ReadonlyArray<CpdfData["skus"][number]>;
-  layout: CpdfPdfLayout;
-  detail: CpdfDetailLevel;
-  /** Multi-page seam (Step 3b fills via the addendum verbatim port). */
-  addendumPages?: ReactNode;
-}) {
-  const {
-    vendor,
-    customer,
-    quote,
-    tiers,
-    recommendedTierIdx,
-    serviceFees,
-  } = data;
-  const turnkey = detail === "turnkey_only";
-
-  if (turnkey) {
-    return (
-      <Document>
-        <Page size="LETTER" style={styles.sheet}>
-          <PageChrome vendor={vendor} quote={quote} />
-          <View style={styles.flow}>
-            <Masthead vendor={vendor} quote={quote} />
-            <Parties vendor={vendor} customer={customer} />
+          {turnkey ? (
             <View style={styles.section}>
               <TurnkeySummary
                 skuSet={skuSet}
@@ -421,58 +227,63 @@ export function StatePartial({
                 recommendedTierIdx={recommendedTierIdx}
                 serviceFees={serviceFees}
                 layout={layout}
-                foldFees={false}
-                freightAtCost={false}
-                allInUnit
-                partial
-                lede="All-in turnkey total per tier. One tier is still pending a final line price, noted below."
+                foldFees={hasCharges}
+                freightAtCost={hasCharges}
+                allInUnit={!hasCharges}
+                partial={hasUnpriced}
+                lede={turnkeyLede}
               />
             </View>
-            <View style={styles.sectionTight} wrap={false}>
-              <TermsBlock quote={quote} incoterms={quote.incoterms_bundled} />
-              <NotesBlock notes={quote.customer_facing_notes} />
-              <HowToAccept />
-            </View>
-          </View>
-        </Page>
-        {addendumPages}
-      </Document>
-    );
-  }
+          ) : (
+            <>
+              <View style={styles.section}>
+                <ItemizedHead
+                  isSingle={isSingle}
+                  hasCharges={hasCharges}
+                  hasUnpriced={hasUnpriced}
+                  fullLabelIfSingle={
+                    isSingle && recommendedTier ? recommendedTier.full : null
+                  }
+                  recommendedTierFullLabel={
+                    recommendedTier ? recommendedTier.full : null
+                  }
+                />
+                <PricingTable
+                  skus={skuSet}
+                  tiers={tiers}
+                  recommendedTierIdx={recommendedTierIdx}
+                  layout={layout}
+                  quoteNumber={quote.quote_number}
+                />
+                <GrandTotalRow
+                  skuSet={skuSet}
+                  tiers={tiers}
+                  recommendedTierIdx={recommendedTierIdx}
+                  serviceFees={serviceFees}
+                  layout={layout}
+                  foldFees={hasCharges}
+                  freightAtCost={hasCharges}
+                  allInUnit={!hasCharges}
+                />
+                <PricingFoot partial={hasUnpriced} />
+              </View>
+              {hasCharges && (
+                <View style={styles.section}>
+                  <ChargesBlock
+                    tiers={tiers}
+                    recommendedTierIdx={recommendedTierIdx}
+                    serviceFees={serviceFees}
+                    freightLines={freightLines}
+                  />
+                </View>
+              )}
+            </>
+          )}
 
-  // itemized — single Page; automatic wrap handles the 6-SKU
-  // overflow into page 2. **DO NOT pre-split** (CD's slice(0,4)
-  // / slice(4) is review chrome per audit §5 LOUD CALL-OUT).
-  return (
-    <Document>
-      <Page size="LETTER" style={styles.sheet}>
-        <PageChrome vendor={vendor} quote={quote} />
-        <View style={styles.flow}>
-          <Masthead vendor={vendor} quote={quote} />
-          <Parties vendor={vendor} customer={customer} />
-          <View style={styles.section}>
-            <PartialItemizedHead />
-            <PricingTable
-              skus={skuSet}
-              tiers={tiers}
-              recommendedTierIdx={recommendedTierIdx}
-              layout={layout}
-              quoteNumber={quote.quote_number}
-            />
-            <GrandTotalRow
-              skuSet={skuSet}
-              tiers={tiers}
-              recommendedTierIdx={recommendedTierIdx}
-              serviceFees={serviceFees}
-              layout={layout}
-              foldFees={false}
-              freightAtCost={false}
-              allInUnit
-            />
-            <PricingFoot partial />
-          </View>
-          <View style={styles.section} wrap={false}>
-            <TermsBlock quote={quote} incoterms={quote.incoterms_bundled} />
+          {/* Terms group — kept-together (wrap={false}) per audit §4 */}
+          <View style={termsWrapperStyle} wrap={false}>
+            {showTermsHead && <PassThroughTermsHead />}
+            <TermsBlock quote={quote} incoterms={quote.incoterms} />
             <NotesBlock notes={quote.customer_facing_notes} />
             <HowToAccept />
           </View>

@@ -48,8 +48,16 @@ export type CpdfQuote = {
   valid_until: string;
   payment_terms: string;
   lead_time: string;
-  incoterms_bundled: string;
-  incoterms_passthrough: string;
+  /**
+   * Single incoterms string. Production has one column
+   * (`firm_settings.incoterms_default` / `quotes.incoterms_snapshot`).
+   * Step 4.5 collapse: fixture-only `incoterms_bundled` /
+   * `incoterms_passthrough` split retired — the three State
+   * compositions that consumed the split are unified into one
+   * flag-composed `CustomerPdfDocument` (Step 4.5c) that reads
+   * this single field regardless of hasCharges branch.
+   */
+  incoterms: string;
   customer_facing_notes: string | null;
 };
 
