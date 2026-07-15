@@ -148,7 +148,8 @@ export function PricingSurfaceShell({
       | "override_unavailable"
       | "tighten_to_target"
       | "calculating_suggestion"
-      | "suggestion_infeasible",
+      | "suggestion_infeasible"
+      | "suggestion_manual_only",
   ) {
     if (kind === "apply_surgical" || kind === "apply_global") {
       void onApply(kind);
@@ -164,9 +165,10 @@ export function PricingSurfaceShell({
     // request_override · tighten_to_target — v1 ships as no-op
     // placeholders. Admin-override workflow + tighten-to-target
     // automation banked v1.1+. override_unavailable +
-    // calculating_suggestion + suggestion_infeasible are inert
-    // kinds (ActionCard renders no CTA button for them; this branch
-    // is unreachable but kept for closed-enum exhaustiveness).
+    // calculating_suggestion + suggestion_infeasible +
+    // suggestion_manual_only are inert kinds (ActionCard renders
+    // no CTA button for them; this branch is unreachable but kept
+    // for closed-enum exhaustiveness).
   }
 
   // CB Patch round 3 BUG-B disposition (2026-06-16) — re-instated.

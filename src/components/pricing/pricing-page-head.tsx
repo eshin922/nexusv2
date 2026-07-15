@@ -179,7 +179,10 @@ export function PricingPageHead({
             : recommendedOrPrimary?.kind === "suggestion_infeasible"
               ? recommendedOrPrimary.sublabel ??
                 "Engine couldn't compute a viable lift path. Enter pricing on the Costs surface to recover, or use admin override."
-              : undefined
+              : recommendedOrPrimary?.kind === "suggestion_manual_only"
+                ? recommendedOrPrimary.sublabel ??
+                  "Tier is above target overall — one SKU is dragging margin. Adjust cost inputs on Costs, set a per-cell sell price override, or request admin override."
+                : undefined
         }
       />
 

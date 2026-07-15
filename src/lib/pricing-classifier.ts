@@ -96,6 +96,21 @@ export interface QuoteInput {
   // and suggestion-led modes when this flag is true AND no surgical
   // / global suggestion is supplied. Default false.
   suggestion_infeasible?: boolean;
+  // False-infeasibility diagnosis (2026-07-15) — Option B fix.
+  // Adapter signals the classifier-engine compliance-basis
+  // asymmetry corner: engine returned null because no TIER blend
+  // is below target, but a per-CELL margin is below target on a
+  // SKU that drags a specific tier. Details struct carries the
+  // worst SKU + affected tier labels + worst margin for message
+  // formatting. When set (non-null), classifier emits
+  // `suggestion_manual_only` action kind (in preference to
+  // `suggestion_infeasible`). Null / undefined = no asymmetry.
+  suggestion_manual_only?: {
+    worst_sku_id: string;
+    worst_sku_name: string;
+    affected_tier_labels: string[];
+    worst_margin_pct: number;
+  } | null;
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -138,7 +153,21 @@ export type ActionKind =
   // not in-flight. Inert kind (no CTA); explainer surfaces the
   // failure mode (typically "no cost/sell data to compute lift
   // path · enter pricing on Costs first" or "math overflow").
-  | "suggestion_infeasible";
+  | "suggestion_infeasible"
+  // False-infeasibility diagnosis (2026-07-15) — Option B fix.
+  //
+  // Fires when the engine returns null because no tier ROLLUP is
+  // below target, but the classifier's per-CELL basis identifies a
+  // below-target cell — the semantic asymmetry between
+  // revenue-weighted tier blends and worst-cell compliance. Copy
+  // names the worst SKU + affected tier(s) + directs PM to the
+  // three recovery paths (adjust cost inputs on Costs, set a
+  // per-cell sell price override, request admin override).
+  //
+  // Distinct from `suggestion_infeasible` (which reserves its copy
+  // for the overflow / zero-revenue / missing-data structural
+  // cases). Inert kind (no CTA); guidance-only.
+  | "suggestion_manual_only";
 
 export interface CostStackBuckets {
   pkg: number;
@@ -423,6 +452,8 @@ export function classify(
         primary: true,
         projected_blended_after_apply: projectBlended("apply_surgical"),
       });
+    } else if (quote.suggestion_manual_only) {
+      actions.push(buildManualOnlyAction(quote.suggestion_manual_only, policy));
     } else if (quote.suggestion_infeasible) {
       actions.push({
         kind: "suggestion_infeasible",
@@ -483,6 +514,8 @@ export function classify(
         primary: true,
         projected_blended_after_apply: projectBlended("apply_global"),
       });
+    } else if (quote.suggestion_manual_only) {
+      actions.push(buildManualOnlyAction(quote.suggestion_manual_only, policy));
     } else if (quote.suggestion_infeasible) {
       actions.push({
         kind: "suggestion_infeasible",
@@ -674,4 +707,48 @@ function computeRecommendedTierValue(
     (s, c) => s + (c.sell_unit ?? 0) * t.qty,
     0,
   );
+}
+
+// False-infeasibility diagnosis (2026-07-15) — Option B fix helper.
+//
+// Builds the `suggestion_manual_only` action from adapter-supplied
+// details. Copy names the worst SKU + affected tier(s) + margin
+// severity (target vs floor) + the three recovery paths (adjust
+// cost inputs, per-cell override, admin override). Inert kind
+// (disabled=true, no CTA).
+function buildManualOnlyAction(
+  details: NonNullable<QuoteInput["suggestion_manual_only"]>,
+  policy: QuotePolicyInput,
+): Action {
+  const tiers = details.affected_tier_labels;
+  const tierStr =
+    tiers.length === 0
+      ? "the affected tier"
+      : tiers.length === 1
+        ? tiers[0]
+        : tiers.length === 2
+          ? `${tiers[0]} & ${tiers[1]}`
+          : `${tiers.slice(0, -1).join(", ")} & ${tiers[tiers.length - 1]}`;
+  const marginPct = (details.worst_margin_pct * 100).toFixed(1);
+  const belowFloor = isBelowFloor(
+    details.worst_margin_pct,
+    policy.floor_margin_pct,
+  );
+  const bandLabel = belowFloor
+    ? `floor ${(policy.floor_margin_pct * 100).toFixed(1)}%`
+    : `target ${(policy.target_margin_pct * 100).toFixed(1)}%`;
+  const tierPlural = tiers.length === 1 ? "tier is" : "tiers are";
+  return {
+    kind: "suggestion_manual_only",
+    label: `Manual adjustment — ${details.worst_sku_name} on ${tierStr}`,
+    sublabel:
+      `${tiers.length === 0 ? "The" : tiers.length === 1 ? "This" : "These"} ` +
+      `${tierPlural} above target overall, but ${details.worst_sku_name} ` +
+      `margin is ${marginPct}% (below ${bandLabel}). ` +
+      `Adjust cost inputs on Costs, set a per-cell sell price override, ` +
+      `or request admin override.`,
+    recommended: true,
+    primary: true,
+    disabled: true,
+  };
 }
