@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { CustomerViewPdfLayout } from "@/types/quote";
 import { sendQuote } from "@/app/actions/quotes";
 import { CustomerNotesDrawer } from "./customer-notes-drawer";
+import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal/modal";
 
 export type CustomerViewSubState = "pure" | "passThrough" | "partial";
 
@@ -22,50 +23,245 @@ function formatShortDate(iso: string | null): string {
 // URL to `quotes.pdfUrl` before marking the quote sent.
 //
 // Permission: any authenticated user. No admin gate (per §3
-// disposition). The confirm dialog is the only guardrail against
+// disposition). The confirm modal is the only guardrail against
 // accidental sends now that the button is un-gated — do NOT remove
 // the confirm step.
-function SendButton({ quoteId }: { quoteId: string }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
+//
+// **Slice 11 Step 8 Gate-0 hotfix (2026-07-15).** Was `window.confirm`
+// / `window.alert` — native browser modals. CB's Gate-0 smoke hit a
+// hard fail: browser automation can't operate native dialogs, so
+// the send flow was untestable. Swapped for in-DOM Modal primitive
+// (portal + r3-shared scope + Escape handling). Automation-friendly
+// (CB clicks a real DOM button); still deliberate two-step commit.
+// Success / failure states render inline in the modal (no more
+// `alert`). See docs/cc-comm-gate-0-fail-diagnosis.md for the root-
+// cause report.
 
-  function onClick() {
-    if (
-      !confirm(
-        "Send this quote?\n\n" +
-          "This will:\n" +
-          "  • Transition the quote to status='sent' (admin override required to revert)\n" +
-          "  • Assign a customer-facing quote number\n" +
-          "  • Snapshot all commercial defaults + prepared-by contact\n" +
-          "  • Generate the customer PDF + persist to storage\n\n" +
-          "The PDF becomes the immutable sent artifact. Continue?",
-      )
-    ) {
-      return;
+type SendStatus =
+  | { kind: "idle" }
+  | { kind: "confirming" }
+  | { kind: "sending" }
+  | { kind: "success"; quoteNumber: string }
+  | { kind: "error"; message: string };
+
+function SendButton({
+  quoteId,
+  customerName,
+  projectTitle,
+}: {
+  quoteId: string;
+  customerName: string | null;
+  projectTitle: string | null;
+}) {
+  const router = useRouter();
+  const [_pending, startTransition] = useTransition();
+  const [status, setStatus] = useState<SendStatus>({ kind: "idle" });
+
+  const isModalOpen =
+    status.kind === "confirming" ||
+    status.kind === "sending" ||
+    status.kind === "success" ||
+    status.kind === "error";
+
+  const isSending = status.kind === "sending";
+
+  function onOpenConfirm() {
+    setStatus({ kind: "confirming" });
+  }
+
+  function onClose() {
+    if (isSending) return; // block dismiss during in-flight send
+    // Success path: refresh the page state so the toolbar reflects
+    // the sent status before the modal closes.
+    if (status.kind === "success") {
+      router.refresh();
     }
+    setStatus({ kind: "idle" });
+  }
+
+  function onDispatch() {
     const fd = new FormData();
     fd.set("quoteId", quoteId);
+    setStatus({ kind: "sending" });
     startTransition(async () => {
       const r = await sendQuote(fd);
       if (!r.ok) {
-        alert(`Send failed: ${r.error.message}`);
+        setStatus({ kind: "error", message: r.error.message });
         return;
       }
-      alert(`Sent · ${r.data.quoteNumber}`);
-      router.refresh();
+      setStatus({ kind: "success", quoteNumber: r.data.quoteNumber });
     });
   }
 
   return (
-    <button
-      type="button"
-      className="btn sm primary"
-      onClick={onClick}
-      disabled={pending}
-      title="Send the quote — generates the customer PDF, transitions the quote to sent, and captures the immutable snapshot. Admin override required to revert."
-    >
-      {pending ? "Sending…" : "↗ Send"}
-    </button>
+    <>
+      <button
+        type="button"
+        className="btn sm primary"
+        onClick={onOpenConfirm}
+        disabled={isModalOpen}
+        title="Send the quote — generates the customer PDF, transitions the quote to sent, and captures the immutable snapshot. Admin override required to revert."
+        data-testid="send-quote-button"
+      >
+        {isSending ? "Sending…" : "↗ Send"}
+      </button>
+      <Modal open={isModalOpen} onClose={onClose}>
+        {(status.kind === "confirming" || status.kind === "sending") && (
+          <>
+            <ModalHead>Send this quote?</ModalHead>
+            <ModalBody>
+              <div style={{ marginBottom: 12 }}>
+                {(customerName || projectTitle) && (
+                  <div
+                    style={{
+                      padding: "10px 12px",
+                      background: "var(--paper-2)",
+                      border: "1px solid var(--rule)",
+                      borderRadius: 6,
+                      marginBottom: 14,
+                      fontSize: 13,
+                    }}
+                  >
+                    {customerName && (
+                      <div>
+                        <strong>Customer:</strong> {customerName}
+                      </div>
+                    )}
+                    {projectTitle && (
+                      <div style={{ marginTop: 4 }}>
+                        <strong>Deal:</strong> {projectTitle}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+                  This will:
+                  <ul style={{ margin: "6px 0 0 20px", padding: 0 }}>
+                    <li>
+                      Transition the quote to <code>status=&apos;sent&apos;</code>{" "}
+                      (admin override required to revert)
+                    </li>
+                    <li>Assign a customer-facing quote number</li>
+                    <li>
+                      Snapshot all commercial defaults + prepared-by contact
+                    </li>
+                    <li>Generate the customer PDF + persist to storage</li>
+                  </ul>
+                </div>
+                <div
+                  style={{
+                    marginTop: 12,
+                    fontSize: 12,
+                    color: "var(--ink-3)",
+                    fontStyle: "italic",
+                  }}
+                >
+                  The PDF becomes the immutable sent artifact.
+                </div>
+              </div>
+            </ModalBody>
+            <ModalFoot>
+              <button
+                type="button"
+                className="btn sm"
+                onClick={onClose}
+                disabled={isSending}
+                data-testid="send-quote-cancel"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn sm primary"
+                onClick={onDispatch}
+                disabled={isSending}
+                data-testid="send-quote-confirm"
+              >
+                {isSending ? "Sending…" : "Send"}
+              </button>
+            </ModalFoot>
+          </>
+        )}
+        {status.kind === "success" && (
+          <>
+            <ModalHead>Sent ✓</ModalHead>
+            <ModalBody>
+              <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+                Quote number{" "}
+                <code
+                  style={{
+                    padding: "2px 6px",
+                    background: "var(--paper-2)",
+                    border: "1px solid var(--rule)",
+                    borderRadius: 4,
+                  }}
+                >
+                  {status.quoteNumber}
+                </code>{" "}
+                assigned. The customer PDF has been generated and
+                snapshotted. The preview will refresh with the sent
+                state when you close this dialog.
+              </div>
+            </ModalBody>
+            <ModalFoot>
+              <button
+                type="button"
+                className="btn sm primary"
+                onClick={onClose}
+                data-testid="send-quote-success-close"
+              >
+                Close
+              </button>
+            </ModalFoot>
+          </>
+        )}
+        {status.kind === "error" && (
+          <>
+            <ModalHead>Send failed</ModalHead>
+            <ModalBody>
+              <div
+                role="alert"
+                style={{
+                  padding: "10px 12px",
+                  background: "var(--bad-soft)",
+                  border: "1px solid var(--bad)",
+                  color: "var(--bad)",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  marginBottom: 8,
+                }}
+                data-testid="send-quote-error-message"
+              >
+                {status.message}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
+                Nothing was committed — the quote remains a draft. You can
+                retry, cancel, or close this dialog to review the quote before
+                trying again.
+              </div>
+            </ModalBody>
+            <ModalFoot>
+              <button
+                type="button"
+                className="btn sm"
+                onClick={onClose}
+                data-testid="send-quote-error-close"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn sm primary"
+                onClick={onDispatch}
+                data-testid="send-quote-error-retry"
+              >
+                Retry
+              </button>
+            </ModalFoot>
+          </>
+        )}
+      </Modal>
+    </>
   );
 }
 
@@ -81,6 +277,8 @@ export function PreviewToolbar({
   showStateSwitcher,
   customerFacingNotes,
   internalNotes,
+  customerName,
+  projectTitle,
 }: {
   quoteId: string;
   quoteStatus: string;
@@ -97,6 +295,11 @@ export function PreviewToolbar({
   /** Pass-through so the customer-notes save doesn't clobber
    * internal notes (action layer updates both fields together). */
   internalNotes: string | null;
+  /** Slice 11 Step 8 Gate-0 hotfix — surfaced in the in-DOM send
+   * confirm modal so PMs see who this quote is going to before they
+   * commit the immutable transition. Null-safe render. */
+  customerName: string | null;
+  projectTitle: string | null;
 }) {
   const [notesOpen, setNotesOpen] = useState(false);
   const notesEditable = quoteStatus === "draft";
@@ -221,7 +424,13 @@ export function PreviewToolbar({
         >
           ↳ Download + open mail draft
         </button>
-        {quoteStatus === "draft" && <SendButton quoteId={quoteId} />}
+        {quoteStatus === "draft" && (
+          <SendButton
+            quoteId={quoteId}
+            customerName={customerName}
+            projectTitle={projectTitle}
+          />
+        )}
       </div>
       {notesOpen && (
         <CustomerNotesDrawer
