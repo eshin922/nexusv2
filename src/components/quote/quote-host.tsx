@@ -123,6 +123,8 @@ export function QuoteHost({
           showStateSwitcher={showStateSwitcher}
           customerFacingNotes={view.quote.customerFacingNotes}
           internalNotes={internalNotes}
+          customerName={view.customer.name}
+          projectTitle={view.quote.projectTitle}
         />
 
         <BoundaryGuardNotice />
