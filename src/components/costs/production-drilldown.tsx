@@ -545,19 +545,41 @@ function ProductionTierCell({
   );
 
   function fireSave() {
-    if (!row) return;
+    // Slice 11 Step 8 gate fix (2026-07-27) — Pattern 70 cross-consumer
+    // audit shape, 4th instance in Slice 11 chain. The Section-level
+    // toggle fix (fff95b6) swapped `leaf.id` → assembly IDs for
+    // updateAssemblyProductionPolicy; this per-cell fireSave still
+    // sent `sku.id` (leaf ID) as `quoteSkuId`, so
+    // upsertAssemblyProductionInputs' `quoteForAssembly(leafId)`
+    // failed with "Assembly not found" and runAction returned
+    // ok=false — silently swallowed by the fire-and-forget transition.
+    // Result: PM types a fee value, nothing persists to
+    // assembly_production_inputs.
+    //
+    // Fix: pass sku.parentSkuId (assembly ID) — the same key the
+    // server action needs. sku is a leaf (iteration below); its
+    // parent IS the assembly whose production row we're mutating.
+    // Also: dropped the `if (!row) return` guard — when no
+    // assembly_production_inputs row exists for (assembly, tier),
+    // the action's INSERT branch creates one. Previously the guard
+    // silently discarded the PM's first-typed value for un-seeded
+    // (assembly, tier) cells.
+    const assemblyId = sku.parentSkuId;
+    if (!assemblyId) return; // leaf without a parent — shouldn't happen for prod cells
     const fd = new FormData();
-    fd.set("quoteSkuId", sku.id);
+    fd.set("quoteSkuId", assemblyId);
     fd.set("tierId", tier.id);
-    // Pass all current values; only the target field changes.
-    fd.set("fillingBlendingCost", line.field === "fillingBlendingCost" ? valueRef.current : (row.fillingBlendingCost ?? ""));
-    fd.set("cmAssemblyTotal", line.field === "cmAssemblyTotal" ? valueRef.current : (row.cmAssemblyTotal ?? ""));
-    fd.set("setupFeeTotal", line.field === "setupFeeTotal" ? valueRef.current : (row.setupFeeTotal ?? ""));
-    fd.set("toolingArtworkTotal", line.field === "toolingArtworkTotal" ? valueRef.current : (row.toolingArtworkTotal ?? ""));
-    fd.set("rdTotal", line.field === "rdTotal" ? valueRef.current : (row.rdTotal ?? ""));
-    fd.set("otherServiceTotal", line.field === "otherServiceTotal" ? valueRef.current : (row.otherServiceTotal ?? ""));
-    fd.set("bulkRawCost", line.field === "bulkRawCost" ? valueRef.current : (row.bulkRawCost ?? ""));
-    fd.set("actualUnitsProduced", row.actualUnitsProduced?.toString() ?? "");
+    // Pass all current values; only the target field changes. Row may
+    // be undefined for un-seeded (assembly, tier) cells; server INSERT
+    // treats missing fields as null → defaults to policy defaults.
+    fd.set("fillingBlendingCost", line.field === "fillingBlendingCost" ? valueRef.current : (row?.fillingBlendingCost ?? ""));
+    fd.set("cmAssemblyTotal", line.field === "cmAssemblyTotal" ? valueRef.current : (row?.cmAssemblyTotal ?? ""));
+    fd.set("setupFeeTotal", line.field === "setupFeeTotal" ? valueRef.current : (row?.setupFeeTotal ?? ""));
+    fd.set("toolingArtworkTotal", line.field === "toolingArtworkTotal" ? valueRef.current : (row?.toolingArtworkTotal ?? ""));
+    fd.set("rdTotal", line.field === "rdTotal" ? valueRef.current : (row?.rdTotal ?? ""));
+    fd.set("otherServiceTotal", line.field === "otherServiceTotal" ? valueRef.current : (row?.otherServiceTotal ?? ""));
+    fd.set("bulkRawCost", line.field === "bulkRawCost" ? valueRef.current : (row?.bulkRawCost ?? ""));
+    fd.set("actualUnitsProduced", row?.actualUnitsProduced?.toString() ?? "");
     startTransition(async () => {
       await upsertAssemblyProductionInputs(fd);
     });
