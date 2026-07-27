@@ -1569,11 +1569,26 @@ export async function sendQuote(
     const result = await db.transaction(async (tx) => {
       // Pull next quote number from the sequence inside the transaction
       // so the audit + UPDATE see the same value.
-      const seqResult = (await tx.execute(
-        sql`SELECT nextval('quote_number_seq') AS next`,
-      )) as unknown as Array<{ next: string | number }>;
-      const next = String(seqResult[0].next);
-      const quoteNumber = `${firm.quoteNumberPrefix}-${next}`;
+      //
+      // Hotfix (2026-07-27) — sequence-backed customer identifier
+      // continuity. Guard on existing quote.quoteNumber so re-invocation
+      // (Slice 12 revise-in-place → re-send the SAME quote, incrementing
+      // version_number) reuses the prior number. Without this, a second
+      // send fractures customer identity: consumes a fresh sequence value
+      // AND overwrites the prior quoteNumber column, so the same quote
+      // ends up with two different customer-facing numbers. Sequence is
+      // consumed exactly once per quote. §0.5 pattern: sequence-backed
+      // identifiers must guard on existing-value before pulling a new one.
+      let quoteNumber: string;
+      if (quote.quoteNumber === null) {
+        const seqResult = (await tx.execute(
+          sql`SELECT nextval('quote_number_seq') AS next`,
+        )) as unknown as Array<{ next: string | number }>;
+        const next = String(seqResult[0].next);
+        quoteNumber = `${firm.quoteNumberPrefix}-${next}`;
+      } else {
+        quoteNumber = quote.quoteNumber;
+      }
 
       // Slice 11 blocking bug fix (2026-07-27) — snapshot axes source
       // is the RESOLVED VIEW, not the DB row. The resolver's draft
@@ -1632,6 +1647,13 @@ export async function sendQuote(
         action: "quote_sent",
         diffJson: {
           quoteNumber,
+          // Hotfix (2026-07-27) — record which version this send was.
+          // Slice 12 revise-in-place will re-invoke sendQuote with the
+          // same quote_id at successive version_numbers; without this
+          // the multi-send timeline is inferable only from created_at
+          // (guessing). Cheap add now; prevents an ambiguous audit
+          // trail once re-send is a real path.
+          versionNumber: quote.versionNumber,
           validUntil: updated.validUntil,
           snapshots: {
             tcs: firm.tcsDefault ?? null,
