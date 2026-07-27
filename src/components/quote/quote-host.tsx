@@ -62,6 +62,7 @@ export function QuoteHost({
   showStateSwitcher,
   internalNotes,
   addendumData,
+  isHubspotLinked,
 }: {
   view: CustomerView;
   quoteId: string;
@@ -69,6 +70,11 @@ export function QuoteHost({
   showStateSwitcher: boolean;
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
+  /** Slice 11 Step 8 Gate-0 hotfix — when false, the deal has no
+   * HubSpot record (Nexus-only) and sends are blocked. Renders an
+   * inline warning banner + disables the Send button. Server-side
+   * `sendQuote` also blocks (defense-in-depth). */
+  isHubspotLinked: boolean;
 }) {
   // State mirrors the resolver's initial read (search-param
   // overrides propagate into `view` before this component mounts).
@@ -108,9 +114,34 @@ export function QuoteHost({
     ? "Sent quotes render the frozen snapshot; toggles only work on drafts."
     : undefined;
 
+  const showLinkageWarning = !isHubspotLinked && !isSent;
+
   return (
     <div className="r3-shared">
       <div className="preview-chrome">
+        {showLinkageWarning && (
+          <div
+            role="alert"
+            data-testid="quote-linkage-warning"
+            style={{
+              maxWidth: 880,
+              margin: "0 auto 12px",
+              padding: "10px 14px",
+              background: "var(--warn-soft, #fff4e5)",
+              border: "1px solid var(--warn, #d97706)",
+              color: "var(--warn, #92400e)",
+              borderRadius: 6,
+              fontSize: 13,
+              lineHeight: 1.4,
+            }}
+          >
+            <strong>This deal isn&apos;t linked to HubSpot.</strong>{" "}
+            Push it to HubSpot before sending. Send is disabled until
+            the deal has a real HubSpot record; downstream capabilities
+            (deal-stage push, NetSuite SO write) also require the
+            linkage.
+          </div>
+        )}
         <PreviewToolbar
           quoteId={quoteId}
           quoteStatus={quoteStatus}
@@ -125,6 +156,7 @@ export function QuoteHost({
           internalNotes={internalNotes}
           customerName={view.customer.name}
           projectTitle={view.quote.projectTitle}
+          isHubspotLinked={isHubspotLinked}
         />
 
         <BoundaryGuardNotice />

@@ -48,10 +48,12 @@ function SendButton({
   quoteId,
   customerName,
   projectTitle,
+  isHubspotLinked,
 }: {
   quoteId: string;
   customerName: string | null;
   projectTitle: string | null;
+  isHubspotLinked: boolean;
 }) {
   const router = useRouter();
   const [_pending, startTransition] = useTransition();
@@ -99,8 +101,12 @@ function SendButton({
         type="button"
         className="btn sm primary"
         onClick={onOpenConfirm}
-        disabled={isModalOpen}
-        title="Send the quote — generates the customer PDF, transitions the quote to sent, and captures the immutable snapshot. Admin override required to revert."
+        disabled={isModalOpen || !isHubspotLinked}
+        title={
+          !isHubspotLinked
+            ? "This deal isn't linked to HubSpot. Push it to HubSpot before sending."
+            : "Send the quote — generates the customer PDF, transitions the quote to sent, and captures the immutable snapshot. Admin override required to revert."
+        }
         data-testid="send-quote-button"
       >
         {isSending ? "Sending…" : "↗ Send"}
@@ -279,6 +285,7 @@ export function PreviewToolbar({
   internalNotes,
   customerName,
   projectTitle,
+  isHubspotLinked,
 }: {
   quoteId: string;
   quoteStatus: string;
@@ -300,6 +307,10 @@ export function PreviewToolbar({
    * commit the immutable transition. Null-safe render. */
   customerName: string | null;
   projectTitle: string | null;
+  /** Slice 11 Step 8 Gate-0 hotfix — when false, Send is disabled
+   * (deal isn't HubSpot-linked; QuoteHost surfaces a warning banner
+   * separately). */
+  isHubspotLinked: boolean;
 }) {
   const [notesOpen, setNotesOpen] = useState(false);
   const notesEditable = quoteStatus === "draft";
@@ -429,6 +440,7 @@ export function PreviewToolbar({
             quoteId={quoteId}
             customerName={customerName}
             projectTitle={projectTitle}
+            isHubspotLinked={isHubspotLinked}
           />
         )}
       </div>

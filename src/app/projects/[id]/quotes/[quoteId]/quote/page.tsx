@@ -4,6 +4,7 @@ import { SurfaceChrome } from "@/components/nav/surface-chrome";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { resolveCustomerView } from "@/lib/customer-view-resolver";
+import { isHubspotLinkedDealId } from "@/lib/hubspot-linkage";
 
 // Slice RI.6 — Quote page (visual shell + boundary-guard
 // build invariant per brief §3.7).
@@ -119,6 +120,7 @@ export default async function CustomerViewPage({
           showStateSwitcher={showStateSwitcher}
           internalNotes={quote.internalNotes}
           addendumData={addendumData}
+          isHubspotLinked={isHubspotLinkedDealId(project.hubspotDealId)}
         />
       </>
     );

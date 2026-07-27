@@ -39,6 +39,7 @@ import {
   searchProducts,
   type ProductSummary,
 } from "@/lib/hubspot";
+import { isHubspotLinkedDealId } from "@/lib/hubspot-linkage";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
   ActionGuardError,
@@ -1379,12 +1380,46 @@ export async function sendQuote(
       );
     }
 
-    // PreparedBy resolution (DEC-8).
+    // Slice 11 Step 8 Gate-0 hotfix (2026-07-15) — HubSpot linkage
+    // gate.
+    //
+    // Nexus-only deals (placeholder `hubspot_deal_id` like
+    // "PSR-SMOKE-FIXTURE" — schema column is NOT NULL but nothing
+    // prevents a non-numeric placeholder) have no real HubSpot deal
+    // record. Sending requires HubSpot linkage for prepared-by
+    // resolution + downstream capabilities (deal-stage push on
+    // Mark Accepted; NetSuite SO push on Tier Selection). Block
+    // early with an actionable message pointing at the real
+    // remediation ("push to HubSpot first"), NOT the misleading
+    // "assign a sales rep in HubSpot" — which was firing on
+    // unlinked deals where there IS no HubSpot deal to assign
+    // one to.
+    //
+    // Pre-send UI on the Quote surface (isHubspotLinked prop)
+    // catches this earlier; the server guard is defense-in-depth
+    // in case a client-side flag drifts.
+    if (!isHubspotLinkedDealId(project.hubspotDealId)) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "This deal isn't linked to HubSpot. Push it to HubSpot before sending.",
+      );
+    }
+
+    // PreparedBy resolution (DEC-8 + Step 8 Gate-0 fallback).
+    // Order:
+    //   1. project.salesRepUserId → Nexus users row
+    //   2. project.hubspotOwnerId → HubSpot Owners API
+    //   3. Signed-in PM (this action's caller — resolved via
+    //      the `user` from ensureUser() above). Fallback for
+    //      HubSpot-linked deals whose owner isn't set or can't
+    //      be resolved. Sender is a reasonable default so a
+    //      missing owner field doesn't block send on a
+    //      legitimately-linked deal.
     type PreparedBy = {
       name: string;
       email: string;
       phone: string | null;
-      derivedFrom: "users.id" | "hubspot_owner_id";
+      derivedFrom: "users.id" | "hubspot_owner_id" | "signed_in_user";
     };
     let preparedBy: PreparedBy | null = null;
 
@@ -1414,11 +1449,18 @@ export async function sendQuote(
         };
       }
     }
+    // Fallback: signed-in PM. Only reachable when the deal IS
+    // HubSpot-linked (linkage guard above already handled the
+    // unlinked case) but no upstream owner resolves. `user.email`
+    // is guaranteed non-null by ensureUser (`users.email` is
+    // NOT NULL per schema).
     if (!preparedBy) {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Deal owner could not be resolved. Refresh deal context and retry, or assign a sales rep in HubSpot.",
-      );
+      preparedBy = {
+        name: user.name ?? user.email,
+        email: user.email,
+        phone: user.phone ?? null,
+        derivedFrom: "signed_in_user",
+      };
     }
 
     const sentAt = new Date();
