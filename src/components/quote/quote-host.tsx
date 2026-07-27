@@ -157,6 +157,8 @@ export function QuoteHost({
           customerName={view.customer.name}
           projectTitle={view.quote.projectTitle}
           isHubspotLinked={isHubspotLinked}
+          detailLevel={detailLevel}
+          includeSpecAddendum={addendumOn}
         />
 
         <BoundaryGuardNotice />
