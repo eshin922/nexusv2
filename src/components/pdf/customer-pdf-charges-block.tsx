@@ -43,22 +43,33 @@ export function ChargesBlock({
         Freight amounts shown landed per unit for {recTier.full} (
         {qtyK(recTier.quantity)} units). Per-tier amounts available on request.
       </Text>
-      <Text style={styles.chargeGroupLabel}>
-        {"Project & SKU fees · one-time".toUpperCase()}
-      </Text>
-      {serviceFees.map((sf) => (
-        <View key={sf.id} style={styles.chargeRow}>
-          <View style={styles.cLabel}>
-            <Text style={styles.cLabelT}>{sf.label}</Text>
-            <Text style={styles.cLabelS}>{sf.sub}</Text>
-          </View>
-          <Text style={styles.cQty}>{sf.qty_label}</Text>
-          <Text style={styles.cAmt}>{money(sf.amount)}</Text>
-        </View>
-      ))}
-      <Text style={styles.chargeGroupLabel}>
-        {"Pass-through freight · billed at cost".toUpperCase()}
-      </Text>
+      {/* Slice 11 matrix Fix 1c (2026-07-27) — only render the fee
+          section header when there are actual fee line items. Same
+          shape as the C2-B gate: an unconditional header with zero
+          rows beneath reads as a broken render, not an empty state.
+          Symmetric with the freight header below. */}
+      {serviceFees.length > 0 && (
+        <>
+          <Text style={styles.chargeGroupLabel}>
+            {"Project & SKU fees · one-time".toUpperCase()}
+          </Text>
+          {serviceFees.map((sf) => (
+            <View key={sf.id} style={styles.chargeRow}>
+              <View style={styles.cLabel}>
+                <Text style={styles.cLabelT}>{sf.label}</Text>
+                <Text style={styles.cLabelS}>{sf.sub}</Text>
+              </View>
+              <Text style={styles.cQty}>{sf.qty_label}</Text>
+              <Text style={styles.cAmt}>{money(sf.amount)}</Text>
+            </View>
+          ))}
+        </>
+      )}
+      {freightLines.length > 0 && (
+        <Text style={styles.chargeGroupLabel}>
+          {"Pass-through freight · billed at cost".toUpperCase()}
+        </Text>
+      )}
       {freightLines.map((fl) => (
         <View key={fl.id} style={styles.chargeRow}>
           <View style={styles.cLabel}>
