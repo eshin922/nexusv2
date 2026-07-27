@@ -1492,7 +1492,34 @@ export async function sendQuote(
     // succeeds, orphan file remains in storage — acceptable cost
     // per brief lean.
     const sendUuid = randomUUID();
-    const resolved = await resolveCustomerView({ quoteId });
+
+    // Slice 11 blocking bug fix (2026-07-27) — read PM's live render
+    // axes from the FormData so the persisted PDF matches what PM
+    // previewed. Previously sendQuote called resolveCustomerView
+    // without searchParams; resolver's draft branch fell back to
+    // `quote.X_snapshot ?? default` (columns NULL for fresh sends —
+    // toolbar toggles only wrote local React state + iframe search
+    // params). Persisted PDF rendered with defaults (tier_table +
+    // itemized + addendum OFF), silently ignoring PM's toggles.
+    // CB smoke on DPS-1008 caught this: PM toggled addendum ON,
+    // preview showed 2 pages, sent, post-reload showed 1-page
+    // pricing-only. Snapshot columns wrote `false`.
+    //
+    // Now: send-time FormData carries pdfLayout / detailLevel /
+    // includeSpecAddendum; we pass them as searchParams to the
+    // resolver so the render uses PM's live values; AND write the
+    // same values to the snapshot columns for post-send reproduction.
+    const sendPdfLayout = String(formData.get("pdfLayout") ?? "").trim();
+    const sendDetailLevel = String(formData.get("detailLevel") ?? "").trim();
+    const sendAddendumRaw = String(formData.get("includeSpecAddendum") ?? "").trim();
+    const resolved = await resolveCustomerView({
+      quoteId,
+      searchParams: {
+        layout: sendPdfLayout || undefined,
+        detail: sendDetailLevel || undefined,
+        addendum: sendAddendumRaw || undefined,
+      },
+    });
     if (!resolved.ok) {
       throw new ActionGuardError(
         resolved.kind === "not_found" ? ERR.NOT_FOUND : ERR.VALIDATION,
@@ -1548,18 +1575,21 @@ export async function sendQuote(
       const next = String(seqResult[0].next);
       const quoteNumber = `${firm.quoteNumberPrefix}-${next}`;
 
-      // Slice 11 Step 4 — customer-PDF snapshot fleet. Read current
-      // draft-column values; fall back to canonical defaults for
-      // legacy quotes that never toggled. sendQuote writes them
-      // back explicitly so the audit `diff_json.snapshots` marks
-      // the send-time state even when the columns were already
-      // populated from earlier PM toggles. Retrofits pdf_layout
-      // into the snapshot fleet (pre-Slice-11 it was render-time-
-      // only).
-      const pdfLayoutSnapshot = quote.pdfLayoutSnapshot ?? "tier_table";
-      const detailLevelSnapshot = quote.detailLevelSnapshot ?? "itemized";
-      const includeSpecAddendumSnapshot =
-        quote.includeSpecAddendumSnapshot ?? false;
+      // Slice 11 blocking bug fix (2026-07-27) — snapshot axes source
+      // is the RESOLVED VIEW, not the DB row. The resolver's draft
+      // branch layers PM's live searchParams (from FormData above)
+      // over the DB column, producing the effective axes the render
+      // just USED. Persisting these ensures a post-reload read of
+      // the sent quote surfaces the SAME PDF axes as the persisted
+      // artifact — snapshot correctness by construction.
+      //
+      // Was: `quote.X_snapshot ?? default` — read the raw DB column
+      // (NULL for fresh sends) and defaulted, ignoring PM's live
+      // toggle state. Cost: DPS-1008 shipped with addendum OFF
+      // despite PM toggle ON at send.
+      const pdfLayoutSnapshot = resolved.view.pdfLayout;
+      const detailLevelSnapshot = resolved.view.detailLevel;
+      const includeSpecAddendumSnapshot = resolved.view.includeSpecAddendum;
 
       const [updated] = await tx
         .update(quotes)

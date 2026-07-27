@@ -49,11 +49,25 @@ function SendButton({
   customerName,
   projectTitle,
   isHubspotLinked,
+  pdfLayout,
+  detailLevel,
+  includeSpecAddendum,
 }: {
   quoteId: string;
   customerName: string | null;
   projectTitle: string | null;
   isHubspotLinked: boolean;
+  /** Slice 11 blocking bug fix (2026-07-27): PM's toolbar toggles
+   * live in QuoteHost React state and drive the iframe URL search
+   * params — they never persisted to the DB. sendQuote called
+   * resolveCustomerView without searchParams, so the resolver fell
+   * back to `quote.X_snapshot ?? default` (NULL for a fresh send →
+   * default "tier_table"/"itemized"/false). PDF was rendered with
+   * the DEFAULTS not the PM's toggles; snapshot columns wrote the
+   * defaults too. Passing the live values forward at send time. */
+  pdfLayout: CustomerViewPdfLayout;
+  detailLevel: "itemized" | "turnkey_only";
+  includeSpecAddendum: boolean;
 }) {
   const router = useRouter();
   const [_pending, startTransition] = useTransition();
@@ -84,6 +98,10 @@ function SendButton({
   function onDispatch() {
     const fd = new FormData();
     fd.set("quoteId", quoteId);
+    // Slice 11 blocking bug fix (2026-07-27) — send-time render axes.
+    fd.set("pdfLayout", pdfLayout);
+    fd.set("detailLevel", detailLevel);
+    fd.set("includeSpecAddendum", includeSpecAddendum ? "1" : "0");
     setStatus({ kind: "sending" });
     startTransition(async () => {
       const r = await sendQuote(fd);
@@ -286,6 +304,8 @@ export function PreviewToolbar({
   customerName,
   projectTitle,
   isHubspotLinked,
+  detailLevel,
+  includeSpecAddendum,
 }: {
   quoteId: string;
   quoteStatus: string;
@@ -311,6 +331,15 @@ export function PreviewToolbar({
    * (deal isn't HubSpot-linked; QuoteHost surfaces a warning banner
    * separately). */
   isHubspotLinked: boolean;
+  /** Slice 11 blocking bug fix (2026-07-27) — current toolbar toggle
+   * state, threaded through to SendButton so the send-time FormData
+   * carries the axes PM chose. Previously the toggles only wrote
+   * local React state + iframe search params; sendQuote read the
+   * DB snapshot columns (NULL for a fresh send → defaulted to
+   * "tier_table"/"itemized"/false), producing a persisted PDF that
+   * didn't match what PM was previewing. */
+  detailLevel: "itemized" | "turnkey_only";
+  includeSpecAddendum: boolean;
 }) {
   const [notesOpen, setNotesOpen] = useState(false);
   const notesEditable = quoteStatus === "draft";
@@ -441,6 +470,9 @@ export function PreviewToolbar({
             customerName={customerName}
             projectTitle={projectTitle}
             isHubspotLinked={isHubspotLinked}
+            pdfLayout={pdfLayout}
+            detailLevel={detailLevel}
+            includeSpecAddendum={includeSpecAddendum}
           />
         )}
       </div>
