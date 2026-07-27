@@ -1,0 +1,74 @@
+/* Cross-round shared primitives — global-scope .btn / .chip / .eyebrow /
+ * .mono / .muted / .dim. Slice 12 Step 1: extracted here so r8-quote-
+ * umbrella.css can stay canonical-verbatim without needing a per-surface
+ * scope wrap (Pattern 30 Path-B-default).
+ *
+ * These rules mirror the r2-pricing.css definitions verbatim, which
+ * themselves came from CD's canonical bundled `2styles.css`. r2 keeps
+ * its scoped copy (Path-B-namespace-scoped for R2's canonical wrap);
+ * this file makes the same primitives available globally so any surface
+ * whose canonical CSS is Path-B-default (r8, future rounds) can render
+ * their `.btn` / `.chip` / etc. markup without a synthetic scope class.
+ *
+ * When CD ships a canonical shared-primitives file for a future round,
+ * this can be superseded by that. Until then it's the nexus-side bridge
+ * per Pattern 30's `.btn primitive bridge` note.
+ *
+ * Load AFTER design-tokens.css (needs --paper-3, --ink, etc.) and
+ * BEFORE surface-canonical stylesheets (so surface rules can override
+ * primitives on their own scope if needed).
+ */
+
+/* ─── Type primitives ───────────────────────────────────── */
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0;
+}
+.mono  { font-family: var(--mono); }
+.muted { color: var(--ink-3); }
+.dim   { color: var(--ink-4); }
+
+/* ─── Buttons ───────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px;
+  border-radius: 7px;
+  font-size: 13px;
+  background: var(--paper-3);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  transition: background 100ms;
+}
+.btn:hover { background: var(--paper-4); }
+.btn.sm { padding: 5px 10px; font-size: 12px; border-radius: 5px; }
+.btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.btn.primary:hover { background: var(--ink-2); }
+.btn.accent  { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+.btn.accent:hover { background: var(--accent-ink); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--ink-3); }
+.btn.ghost:hover { background: var(--paper-3); color: var(--ink); }
+.btn.bad { background: var(--bad-soft); color: var(--bad); border-color: oklch(from var(--bad) l c h / 0.4); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ─── Chips ─────────────────────────────────────────────── */
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--paper-3);
+  color: var(--ink-3);
+  border: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.chip.good   { background: var(--good-soft);   color: var(--good);       border-color: oklch(from var(--good) l c h / 0.4); }
+.chip.warn   { background: var(--warn-soft);   color: var(--warn);       border-color: oklch(from var(--warn) l c h / 0.4); }
+.chip.bad    { background: var(--bad-soft);    color: var(--bad);        border-color: oklch(from var(--bad) l c h / 0.4); }
+.chip.accent { background: var(--accent-soft); color: var(--accent-ink); border-color: oklch(from var(--accent) l c h / 0.4); }
