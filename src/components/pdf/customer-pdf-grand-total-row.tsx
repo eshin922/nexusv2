@@ -113,7 +113,14 @@ export function GrandTotalRow({
             price shown — the total is what you pay.
           </Text>
         )}
-        {foldFees && (
+        {foldFees && serviceFeesTotal(serviceFees) > 0 && (
+          // Slice 11 Step 8 matrix smoke Cluster 2B fix (2026-07-27):
+          // gate on real fee total, not just `foldFees` (which is
+          // `hasCharges = serviceFees.length > 0 || freightLines.length > 0`).
+          // When only freight lines exist (charges combo with no
+          // one-time fees), the previous condition fired with
+          // `money(0) = "$0.00"` — claiming fees were "folded into
+          // the total" when in fact there were none.
           <Text style={styles.grandNote}>
             <Text style={styles.grandNoteK}>{"Includes   ".toUpperCase()}</Text>
             One-time project {"&"} SKU fees of{" "}
