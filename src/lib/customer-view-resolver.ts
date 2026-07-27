@@ -191,7 +191,22 @@ export async function resolveCustomerView(args: {
   const skus: CustomerViewSku[] = leafSkus.map((rollup) => {
     const tierPrices = tiers.map((t) => {
       const pt = rollup.perTier.find((p) => p.tierId === t.id);
-      return pt ? pt.requiredSellPerUnit : null;
+      if (!pt) return null;
+      // Slice 11 Step 8 matrix smoke Cluster 2A fix (2026-07-27) —
+      // treat cells with zero revenue AND zero contribution cost as
+      // UNPRICED (null), not as "computed sell price = $0.00". The
+      // math layer returns numeric 0 when a leaf has no cost data;
+      // downstream render tree treats null as the "quote on request"
+      // / "from $X" / "total on request" signal per shape. Same
+      // isMissing check the pricing-classifier context already
+      // applies (see pricing-classifier-context.tsx:281-282). Both
+      // adapters must agree on what "unpriced" looks like or the
+      // customer PDF renders $0.00 where CD's placeholder should
+      // appear.
+      if (pt.requiredSellPerUnit === 0 && pt.contributionCostPerUnit === 0) {
+        return null;
+      }
+      return pt.requiredSellPerUnit;
     });
     const allPriced = tierPrices.every((p) => p !== null);
     const allEqual =
