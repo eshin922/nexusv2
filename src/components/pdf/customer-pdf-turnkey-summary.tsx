@@ -199,10 +199,27 @@ export function TurnkeySummary({
                 <Text style={[styles.tkTotal, styles.tkTotalReq]}>
                   total on request
                 </Text>
-              ) : (
-                <Text style={[styles.tkTotal, rec ? styles.tkTotalRec : {}]}>
+              ) : rec ? (
+                <Text style={[styles.tkTotal, styles.tkTotalRec]}>
                   {money(total)}
                 </Text>
+              ) : (
+                // Slice 11 Cluster-1 real fix (2026-07-27) — split the
+                // recommended/non-recommended branch. Was ONE Text with
+                // `style={[styles.tkTotal, rec ? styles.tkTotalRec : {}]}`.
+                // On Vercel serverless (not local Node), the non-rec
+                // path with the `{}` empty-object second style triggered
+                // react-pdf font-subsetting to include ONLY the LAST
+                // glyph of the money() output — rendering "$1,733" as
+                // bare "3" (or "$1,760" as bare "0", etc). Local repro
+                // via tsx + renderToBuffer produced correct output on
+                // identical code + data; only Vercel's runtime hit the
+                // bug. pdfjs op dump confirmed the render emitted a
+                // single showText with 1 glyph. Splitting into two
+                // Text elements (no empty-object fallback in style
+                // array) sidesteps the trigger. See docs/cc-comm-
+                // cluster1-diagnosis.md for full evidence trail.
+                <Text style={styles.tkTotal}>{money(total)}</Text>
               )}
               {perUnit != null && (
                 <Text style={styles.tkPerunit}>
