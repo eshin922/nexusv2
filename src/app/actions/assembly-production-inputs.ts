@@ -144,14 +144,47 @@ export async function upsertAssemblyProductionInputs(
       .limit(1);
 
     if (existingRows.length === 0) {
-      // No existing row — INSERT with the form values. Defaults for
-      // policy fields apply (customerShipsRaws=false,
-      // allocateServiceFeesToCost=true per schema defaults).
+      // Slice 11 matrix Fix 1a (2026-07-27) — inherit policy from
+      // sibling rows. When #126's per-cell fix started actually
+      // reaching this INSERT branch (previously silently no-op'd
+      // due to leaf-vs-assembly ID mismatch), fresh rows were
+      // getting schema defaults (customerShipsRaws=false,
+      // allocateServiceFeesToCost=true). If the PM had previously
+      // toggled allocate=false on another tier row for this
+      // assembly, the new tier row inherited a CONFLICTING policy
+      // (alloc=true) — resolver picked the first row arbitrarily
+      // and rendered accordingly, silently violating PM intent.
+      //
+      // Fix: look up any existing sibling row for this assembly
+      // and inherit customerShipsRaws + allocateServiceFeesToCost
+      // + notes. Only fall back to schema defaults when NO sibling
+      // exists (this is the true first-touch on the assembly).
+      const siblingRows = await db
+        .select({
+          customerShipsRaws: assemblyProductionInputs.customerShipsRaws,
+          allocateServiceFeesToCost:
+            assemblyProductionInputs.allocateServiceFeesToCost,
+          notes: assemblyProductionInputs.notes,
+        })
+        .from(assemblyProductionInputs)
+        .where(eq(assemblyProductionInputs.assemblyId, assemblyId))
+        .limit(1);
+      const inheritedPolicy =
+        siblingRows.length > 0
+          ? {
+              customerShipsRaws: siblingRows[0].customerShipsRaws,
+              allocateServiceFeesToCost:
+                siblingRows[0].allocateServiceFeesToCost,
+              notes: siblingRows[0].notes,
+            }
+          : {};
+
       const [inserted] = await db
         .insert(assemblyProductionInputs)
         .values({
           assemblyId,
           tierId,
+          ...inheritedPolicy,
           ...newFields,
         })
         .returning();

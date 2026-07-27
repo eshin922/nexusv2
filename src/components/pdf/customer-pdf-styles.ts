@@ -804,13 +804,28 @@ export const styles = StyleSheet.create({
   // negative margin -2 -1 + z-index stack: react-pdf renders in
   // source order; the -1/-2 inset matches CD's "lifted card"
   // optical effect.
+  //
+  // Slice 11 matrix Fix 3 defensive (2026-07-27) — zeroed
+  // `marginHorizontal: -0.75` (was CD's horizontal "lift" inset).
+  // Cluster-1 smoke reproduces last-char rendering ("3" from
+  // "$1,083" at 1000/5000, "3" from "$1,733" at 2000/8000) on the
+  // NON-recommended tier card in tier_table × turnkey_only. Static
+  // code inspection ruled out helper/index/slice/font paths. Best
+  // remaining hypothesis: react-pdf's negative-margin flex-row
+  // overlap draws the recommended card's tint background over the
+  // non-recommended card's tkTotal text — but the horizontal
+  // negative margin is the only overlap-inducing style. Trading
+  // the ~1.5pt total "lift" width for correct rendering; vertical
+  // lift (marginTop/marginBottom -1.5) preserved since it doesn't
+  // touch sibling text bounds. If Cluster 1 persists post-fix,
+  // the vertical margins go next.
   tkCardRec: {
     borderWidth: 1.25,
     borderColor: PP_REC_EDGE,
     borderStyle: "solid",
     backgroundColor: PP_REC_TINT,
     marginTop: -1.5,
-    marginHorizontal: -0.75,
+    marginHorizontal: 0,
     marginBottom: -1.5,
   },
   // pp-tk-tier · .star

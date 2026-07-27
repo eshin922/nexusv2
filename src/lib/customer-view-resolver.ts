@@ -263,24 +263,80 @@ export async function resolveCustomerView(args: {
       }
     }
   }
-  const productionByAssembly = new Map<
-    string,
-    (typeof bundle.data.production)[number]
-  >();
+  // Slice 11 matrix Fix 1b (2026-07-27) — aggregate across tier rows.
+  //
+  // Prior behavior: `productionByAssembly.set(assembly.id, p)` with
+  // `if (!has)` guard kept ONLY the first tier row per assembly, then
+  // read fees + allocate policy from that arbitrary row. Bug:
+  // one-time fees (setup/tooling/rd/other) are semantically
+  // per-assembly, but the schema stores them per-tier row. PMs
+  // typing a fee on Tier 1 leaves Tier 2's row with null fees; if
+  // the resolver picked Tier 2, fees vanished from the render.
+  //
+  // Fix: aggregate ALL tier rows for each assembly:
+  //   - `allocateServiceFeesToCost`: AND-aggregate — if ANY tier
+  //     says alloc=true (fold into cost), treat the assembly as
+  //     alloc=true. Safer against double-counting: the math layer
+  //     amortizes per-tier (each row's own alloc), so if any tier
+  //     is amortizing, showing the fees as separate line items
+  //     would present the fees twice on that tier's price.
+  //   - Fee fields: COALESCE MAX per fee across tier rows. Since
+  //     fees are conceptually per-assembly, whichever tier row
+  //     PM populated is authoritative. MAX handles the transient
+  //     state where a fresh tier row has null while a prior row
+  //     has the value.
+  //
+  // Fix 1a in `assembly-production-inputs.ts` (INSERT branch policy
+  // inheritance) prevents future rows from having conflicting
+  // allocate policies. This resolver fix handles the current
+  // pre-fix bad state + guards against future adapter drift.
+  type ProdAggregate = {
+    allocateServiceFeesToCost: boolean;
+    setupFeeTotal: number | null;
+    toolingArtworkTotal: number | null;
+    rdTotal: number | null;
+    otherServiceTotal: number | null;
+  };
+  const maxNum = (a: number | null, b: number | null): number | null => {
+    if (a == null) return b;
+    if (b == null) return a;
+    return Math.max(a, b);
+  };
+  const aggByAssembly = new Map<string, ProdAggregate>();
   for (const p of bundle.data.production) {
     const assembly = assemblyByLeafId.get(p.quoteSkuId);
     if (!assembly) continue;
-    if (!productionByAssembly.has(assembly.id)) {
-      productionByAssembly.set(assembly.id, p);
+    const existing = aggByAssembly.get(assembly.id);
+    if (!existing) {
+      aggByAssembly.set(assembly.id, {
+        allocateServiceFeesToCost: p.allocateServiceFeesToCost,
+        setupFeeTotal: p.setupFeeTotal,
+        toolingArtworkTotal: p.toolingArtworkTotal,
+        rdTotal: p.rdTotal,
+        otherServiceTotal: p.otherServiceTotal,
+      });
+    } else {
+      existing.allocateServiceFeesToCost =
+        existing.allocateServiceFeesToCost || p.allocateServiceFeesToCost;
+      existing.setupFeeTotal = maxNum(existing.setupFeeTotal, p.setupFeeTotal);
+      existing.toolingArtworkTotal = maxNum(
+        existing.toolingArtworkTotal,
+        p.toolingArtworkTotal,
+      );
+      existing.rdTotal = maxNum(existing.rdTotal, p.rdTotal);
+      existing.otherServiceTotal = maxNum(
+        existing.otherServiceTotal,
+        p.otherServiceTotal,
+      );
     }
   }
   const serviceFees: CustomerViewServiceFee[] = [];
-  for (const [assemblyId, prodRow] of productionByAssembly) {
-    if (prodRow.allocateServiceFeesToCost) continue;
+  for (const [assemblyId, agg] of aggByAssembly) {
+    if (agg.allocateServiceFeesToCost) continue;
     const assembly = skuById.get(assemblyId);
     if (!assembly) continue;
     for (const spec of FEE_COPY) {
-      const value = prodRow[spec.field];
+      const value = agg[spec.field];
       if (value == null || value <= 0) continue;
       serviceFees.push({
         id: `${assemblyId}::${spec.field}`,

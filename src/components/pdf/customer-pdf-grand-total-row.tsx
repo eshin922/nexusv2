@@ -67,37 +67,53 @@ export function GrandTotalRow({
           <Text style={styles.gSub}>all-in for this tier{"’"}s order</Text>
         </View>
         {/* per-tier figures */}
-        {colData.map(({ tier, total, hasUnpriced, perUnit, rec }) => (
-          <View
-            key={tier.id}
-            style={[
-              styles.cNum,
-              rec ? styles.cRec : {},
-              rec ? styles.grandCRec : {},
-            ]}
-          >
-            {hasUnpriced ? (
-              <Text style={styles.grandNum}>
-                <Text style={styles.grandNumFrom}>{"from "}</Text>
-                {money(total)}
-              </Text>
-            ) : (
-              <Text style={styles.grandNum}>{money(total)}</Text>
-            )}
-            {perUnit != null && (
-              <Text
-                style={[
-                  styles.grandUnit,
-                  rec ? styles.grandUnitRec : {},
-                ]}
-              >
-                {hasUnpriced ? "from " : ""}
-                {unit(perUnit)}
-                <Text style={styles.grandUnitPer}> /unit</Text>
-              </Text>
-            )}
-          </View>
-        ))}
+        {colData.map(({ tier, total, hasUnpriced, perUnit, rec }) => {
+          // Slice 11 matrix Fix 2 (2026-07-27) — three-state total
+          // render, matching TurnkeySummary tier_table for consistency:
+          //   - all priced       → "$X"
+          //   - some priced/unpriced → "from $X"  (X = priced sum + fees)
+          //   - fully unpriced   → "total on request" (no dollar)
+          //
+          // `perUnit === null` is tierGrand's signal for "no SKUs priced
+          // at all in this tier" (units = pricedCount * qty = 0 → per-
+          // unit undefined). Previously rendered "from $0.00" for the
+          // fully-unpriced tier — nonsensical customer copy; now aligns
+          // with the dedicated turnkey_only page's "total on request".
+          const fullyUnpriced = hasUnpriced && perUnit == null;
+          return (
+            <View
+              key={tier.id}
+              style={[
+                styles.cNum,
+                rec ? styles.cRec : {},
+                rec ? styles.grandCRec : {},
+              ]}
+            >
+              {fullyUnpriced ? (
+                <Text style={styles.grandNum}>total on request</Text>
+              ) : hasUnpriced ? (
+                <Text style={styles.grandNum}>
+                  <Text style={styles.grandNumFrom}>{"from "}</Text>
+                  {money(total)}
+                </Text>
+              ) : (
+                <Text style={styles.grandNum}>{money(total)}</Text>
+              )}
+              {perUnit != null && (
+                <Text
+                  style={[
+                    styles.grandUnit,
+                    rec ? styles.grandUnitRec : {},
+                  ]}
+                >
+                  {hasUnpriced ? "from " : ""}
+                  {unit(perUnit)}
+                  <Text style={styles.grandUnitPer}> /unit</Text>
+                </Text>
+              )}
+            </View>
+          );
+        })}
       </View>
       {/* notes column under the grand row (CD `pdf-render.jsx:172`) */}
       <View style={styles.grandNotes}>
