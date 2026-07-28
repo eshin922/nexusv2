@@ -3692,3 +3692,86 @@ export async function renameScenarioLabel(input: {
     });
   });
 }
+
+// ============================================================
+// Slice 12 Step 8c-3 — markComplete server action
+// ============================================================
+//
+// External-first per v3 §5.1. Orchestration lives in
+// src/lib/netsuite/mark-complete.ts (runMarkComplete); this action
+// is the runAction wrapper + form/param validation + revalidate.
+//
+// Ordering (Amendment A):
+//   1. Guards (below-floor on accepted_tier_id, revisable state)
+//   2. Resolve customer via netsuite_customer_map (fail closed)
+//   3. Resolve items via SKU-match (fail closed)
+//   4. Resolve business_segment label (fail closed)
+//   5. For each assembly: find-or-create Item Group
+//   6. CHECK netsuite_so_pushes; if prior success, converge
+//   7. Build SO + REST POST create (idempotency-key header)
+//   8. Persist netsuite_so_pushes row
+//   9. DB tx: freeze + status='complete' + audit
+//  10. Post-tx: HubSpot amount patch (never blocks complete)
+//
+// Below-floor is a hard block — admin override deferred v1.1+ per
+// CA Q4 disposition (2026-07-28). Copy on 8c-4 will say "Blocked:
+// tier is below the margin floor" without an inert affordance.
+export async function markComplete(
+  formData: FormData,
+): Promise<
+  ActionResult<{
+    completedAt: Date;
+    netsuiteSalesOrderId: string;
+    netsuiteSalesOrderTranid: string | null;
+    amountPushed: number;
+    retryOutcome: "fresh" | "converged_from_prior_success";
+    amountPatchStatus: "skipped" | "would_be_pushed" | "not_wired";
+  }>
+> {
+  return runAction(async () => {
+    const user = await ensureUser();
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    if (!quoteId) {
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId is required.");
+    }
+
+    // Dynamic import — keeps the customer-view boundary verifier happy
+    // (this action file already imports many things; the netsuite tree
+    // is server-only and gated by the verifier allow-list adding
+    // quotes.ts specifically for 8c-3 wiring).
+    const { runMarkComplete } = await import("@/lib/netsuite/mark-complete");
+    const { NetsuiteError } = await import("@/lib/netsuite/errors");
+
+    let result;
+    try {
+      result = await runMarkComplete({ quoteId, actorUserId: user.id });
+    } catch (e) {
+      // NetsuiteError has a rich .context — surface its detail on
+      // ActionResult.error.message so the failed-tab UI can render
+      // something specific. Non-Netsuite errors (missing customer
+      // map, below-floor, resolver blocks) surface their .message.
+      if (e instanceof NetsuiteError) {
+        throw new ActionGuardError(
+          ERR.HUBSPOT, // reuse the external-write error code for now;
+                       // future ERR.NETSUITE if we want distinct handling
+          `NetSuite ${e.className}: ${e.context.detail}`,
+        );
+      }
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new ActionGuardError(ERR.VALIDATION, msg);
+    }
+
+    // Load quote for revalidate targets (project id + quote id).
+    const quote = await loadQuoteOrThrow(quoteId);
+    revalidateQuoteTree(quote.projectId, quoteId);
+
+    return {
+      completedAt: result.completedAt,
+      netsuiteSalesOrderId: result.netsuite.salesOrderId,
+      netsuiteSalesOrderTranid: result.netsuite.salesOrderTranid,
+      amountPushed: result.netsuite.amountPushed,
+      retryOutcome: result.retryOutcome,
+      amountPatchStatus: result.amountPatch.status,
+    };
+  });
+}

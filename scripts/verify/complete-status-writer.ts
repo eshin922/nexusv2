@@ -50,7 +50,12 @@ const ACTIONS_DIR = join(ROOT, "src", "app", "actions");
 // `markComplete` action. Do NOT extend the allow-list for any other
 // reason without a corresponding CA disposition.
 const ALLOWLIST: readonly string[] = [
-  // e.g. "src/app/actions/quotes.ts" — added by Step 8c
+  // Slice 12 Step 8c-3 (2026-07-28) — markComplete lives here.
+  // markComplete's runMarkComplete orchestrator (src/lib/netsuite/
+  // mark-complete.ts) is the ONLY caller of the `.set({status:
+  // "complete"})` write. Any subsequent addition to this list
+  // requires an explicit CA disposition.
+  "src/app/actions/quotes.ts",
 ];
 
 // Match writers targeting `status = 'complete'` (or "complete") in:
