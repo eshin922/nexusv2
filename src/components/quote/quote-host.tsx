@@ -10,6 +10,7 @@ import { PreviewToolbar, type CustomerViewSubState } from "./preview-toolbar";
 import { AddendumToggle } from "./addendum-toggle";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import { BoundaryGuardNotice } from "./boundary-guard-notice";
+import { useQuoteAxis } from "@/components/quote-umbrella/quote-axis-context";
 
 // Slice 11 Step 6.4 — QuoteHost is now an iframe-driven preview
 // wrapped in the PM-internal toolbar chrome. Retires the legacy
@@ -76,16 +77,19 @@ export function QuoteHost({
    * `sendQuote` also blocks (defense-in-depth). */
   isHubspotLinked: boolean;
 }) {
-  // State mirrors the resolver's initial read (search-param
-  // overrides propagate into `view` before this component mounts).
-  // Toolbar changes update local state → iframe re-loads.
-  const [pdfLayout, setPdfLayout] = useState<CustomerViewPdfLayout>(
-    view.pdfLayout,
-  );
-  const [detailLevel, setDetailLevel] = useState<CustomerViewDetailLevel>(
-    view.detailLevel,
-  );
-  const [addendumOn, setAddendumOn] = useState<boolean>(view.includeSpecAddendum);
+  // Slice 12 Step 5d — axis state moved from local React state to
+  // <QuoteAxisProvider> at the umbrella level, so the Send sub-tab
+  // (Step 5c/5d) can read PM's current toggle choices at send time.
+  // Initial values came from server-resolved view via the provider's
+  // initial props; toggles here update context in place.
+  const {
+    pdfLayout,
+    detailLevel,
+    includeSpecAddendum: addendumOn,
+    setPdfLayout,
+    setDetailLevel,
+    setIncludeSpecAddendum: setAddendumOn,
+  } = useQuoteAxis();
 
   // Cosmetic no-op — subState was used by the legacy DOM tree to
   // preview "what state X would look like." New iframe renders real
@@ -154,11 +158,6 @@ export function QuoteHost({
           showStateSwitcher={showStateSwitcher}
           customerFacingNotes={view.quote.customerFacingNotes}
           internalNotes={internalNotes}
-          customerName={view.customer.name}
-          projectTitle={view.quote.projectTitle}
-          isHubspotLinked={isHubspotLinked}
-          detailLevel={detailLevel}
-          includeSpecAddendum={addendumOn}
         />
 
         <BoundaryGuardNotice />
@@ -215,7 +214,7 @@ export function QuoteHost({
                 on={addendumOn}
                 onToggle={() => {
                   if (isSent) return;
-                  setAddendumOn((v) => !v);
+                  setAddendumOn(!addendumOn);
                 }}
                 totalLeaves={addendumData.totalLeaves}
                 totalAssemblies={addendumData.totalAssemblies}

@@ -23,6 +23,7 @@ import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import type { VersionRow } from "@/lib/quote-version-chain";
 import { SubTabStrip } from "./sub-tab-strip";
 import { Legend } from "./legend";
+import { QuoteAxisProvider } from "./quote-axis-context";
 import { TabPreviewQuote } from "./tab-preview-quote";
 import { TabSendToClient } from "./tab-send-to-client";
 import {
@@ -88,44 +89,56 @@ export function QuoteUmbrella({
   const showLegend = quoteStatus !== "complete";
 
   return (
-    <div className="r8-shell">
-      <SubTabStrip
-        activeId={activeTab}
-        quoteStatus={quoteStatus}
-        feedCount={reviewFeedCount}
-        onGo={onGo}
-      />
-      {showLegend && <Legend />}
-      <div className="r8-body">
-        {activeTab === "preview" && (
-          <TabPreviewQuote
-            view={view}
-            quoteId={quoteId}
-            quoteStatus={quoteStatus}
-            showStateSwitcher={showStateSwitcher}
-            internalNotes={internalNotes}
-            addendumData={addendumData}
-            isHubspotLinked={isHubspotLinked}
-            projectId={projectId}
-            versionChain={versionChain}
-            onGo={onGo}
-          />
-        )}
-        {activeTab === "send" && (
-          <TabSendToClient
-            view={view}
-            quoteId={quoteId}
-            quoteStatus={quoteStatus}
-            quoteVersionNumber={quoteVersionNumber}
-            reviewFeedCount={reviewFeedCount}
-            isHubspotLinked={isHubspotLinked}
-            onGo={onGo}
-          />
-        )}
-        {activeTab === "review" && <TabClientReview onGo={onGo} />}
-        {activeTab === "accepted" && <TabMarkAccepted onGo={onGo} />}
-        {activeTab === "tier" && <TabTierSelection onGo={onGo} />}
+    // Slice 12 Step 5d — axis state lifted to context so the Send
+    // sub-tab (Step 5c/5d) can read PM's current toggle choices at
+    // send time. Initial values come from the server-resolved view
+    // (page.tsx derives them from searchParams, so deep-link init
+    // still works). Toggles on Preview update context in place —
+    // no RSC refetch.
+    <QuoteAxisProvider
+      initialPdfLayout={view.pdfLayout}
+      initialDetailLevel={view.detailLevel}
+      initialIncludeSpecAddendum={view.includeSpecAddendum}
+    >
+      <div className="r8-shell">
+        <SubTabStrip
+          activeId={activeTab}
+          quoteStatus={quoteStatus}
+          feedCount={reviewFeedCount}
+          onGo={onGo}
+        />
+        {showLegend && <Legend />}
+        <div className="r8-body">
+          {activeTab === "preview" && (
+            <TabPreviewQuote
+              view={view}
+              quoteId={quoteId}
+              quoteStatus={quoteStatus}
+              showStateSwitcher={showStateSwitcher}
+              internalNotes={internalNotes}
+              addendumData={addendumData}
+              isHubspotLinked={isHubspotLinked}
+              projectId={projectId}
+              versionChain={versionChain}
+              onGo={onGo}
+            />
+          )}
+          {activeTab === "send" && (
+            <TabSendToClient
+              view={view}
+              quoteId={quoteId}
+              quoteStatus={quoteStatus}
+              quoteVersionNumber={quoteVersionNumber}
+              reviewFeedCount={reviewFeedCount}
+              isHubspotLinked={isHubspotLinked}
+              onGo={onGo}
+            />
+          )}
+          {activeTab === "review" && <TabClientReview onGo={onGo} />}
+          {activeTab === "accepted" && <TabMarkAccepted onGo={onGo} />}
+          {activeTab === "tier" && <TabTierSelection onGo={onGo} />}
+        </div>
       </div>
-    </div>
+    </QuoteAxisProvider>
   );
 }

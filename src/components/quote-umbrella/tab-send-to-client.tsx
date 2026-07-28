@@ -1,15 +1,13 @@
 "use client";
 
-// Slice 12 Step 5c — Send to Client sub-tab body.
+// Slice 12 Step 5c/5d — Send to Client sub-tab body.
 // Pattern 30 port of R8 canonical SendTab (umbrella.jsx:226-343).
 //
 // TWO variants driven by quote.status:
-//   - draft:  pre-send state — recipient info card + "what sending does"
-//             sidecar. Send button + confirm modal deferred to Step 5d
-//             (needs to lift PDF axis state to URL first so this tab
-//             can access PM's current toggle choices). For Step 5c,
-//             pre-send state directs PMs back to Preview for the Send
-//             action; Advance-bar caption + disabled label reflect it.
+//   - draft:  pre-send state — recipient info card + "what sending
+//             does" sidecar + <SendQuoteFlow> (moved here from
+//             PreviewToolbar in Step 5d; reads PDF axis state from
+//             the QuoteAxisProvider context).
 //   - sent+:  waiting state — .r8-wait pulse dot + sent-to details +
 //             days-elapsed + valid-until + feed count. Revise
 //             affordance stub (real Revise action = Step 6).
@@ -27,6 +25,7 @@
 
 import type { CustomerView } from "@/types/quote";
 import { AdvanceBar } from "./advance-bar";
+import { SendQuoteFlow } from "./send-quote-flow";
 import type { SubTabId } from "./subtabs";
 
 function shortDate(iso: string | null): string {
@@ -121,12 +120,16 @@ export function TabSendToClient({
                     <button
                       className="btn sm ghost"
                       onClick={() => {
-                        // Re-send stub — Step 5d wires the real re-send
-                        // once the Send button moves to this tab.
+                        // Re-send requires Revise-in-place first
+                        // (sendQuote guards on assertDraft). Revise
+                        // action lands in Step 6; until then, PMs
+                        // needing a fresh send must recreate a draft
+                        // via the scenario-copy affordance.
                         window.alert(
-                          "Re-send action lands in Step 5d (Send button move). Until then, use Preview → Send to send.",
+                          "Re-send requires Revise first (returns this quote to editable draft), which ships in Step 6.",
                         );
                       }}
+                      title="Re-send flow depends on Revise (Step 6). sendQuote requires draft status."
                     >
                       Re-send PDF
                     </button>
@@ -201,43 +204,24 @@ export function TabSendToClient({
                   </div>
                 </div>
               </div>
-              {/* Send-button placement note — Step 5c ships the visual;
-                  Step 5d moves the Send button + confirm modal here from
-                  the Preview toolbar (deferred because it requires lifting
-                  PM's PDF axis state to URL params first, so this tab can
-                  read the current toggle state at send time). */}
-              <div
-                style={{
-                  marginTop: 16,
-                  padding: "12px 14px",
-                  borderRadius: 6,
-                  background: "var(--paper-2)",
-                  border: "1px solid var(--rule)",
-                  fontSize: 13,
-                  lineHeight: 1.55,
-                  color: "var(--ink-2)",
-                }}
-              >
-                <div style={{ marginBottom: 4 }}>
-                  <strong>Sending action stays on Preview for now.</strong>
-                </div>
-                Use{" "}
-                <button
-                  className="btn ghost sm"
-                  style={{ padding: "1px 8px", verticalAlign: "baseline" }}
-                  onClick={() => onGo("preview")}
-                >
-                  ← back to Preview
-                </button>{" "}
-                to review the PDF and hit the Send button in the toolbar.
-                Step 5d moves the Send action here once PDF axis state is
-                URL-driven.
+              {/* Slice 12 Step 5d — real Send action, ported from
+                  PreviewToolbar. SendQuoteFlow reads PDF axis state
+                  from QuoteAxisProvider context so the PM's current
+                  toolbar-toggle choices flow through to sendQuote. */}
+              <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 12 }}>
+                <SendQuoteFlow
+                  quoteId={quoteId}
+                  customerName={customer.name}
+                  projectTitle={quote.projectTitle}
+                  isHubspotLinked={isHubspotLinked}
+                  buttonLabel="↗ Send to client"
+                  buttonClassName="btn primary"
+                />
                 {!isHubspotLinked && (
-                  <div
+                  <span
                     role="alert"
                     style={{
-                      marginTop: 8,
-                      padding: 8,
+                      padding: "6px 10px",
                       borderRadius: 4,
                       background: "var(--warn-soft, #fff4e5)",
                       color: "var(--warn, #92400e)",
@@ -246,7 +230,7 @@ export function TabSendToClient({
                   >
                     This deal isn&apos;t linked to HubSpot. Push it to
                     HubSpot before sending.
-                  </div>
+                  </span>
                 )}
               </div>
             </>
@@ -306,13 +290,16 @@ export function TabSendToClient({
           onAdvance={() => onGo("accepted")}
         />
       ) : (
+        // Slice 12 Step 5d — Advance is redundant with the inline
+        // <SendQuoteFlow> above (both fire the same confirm modal).
+        // Keeping the caption as a Back nav + status pill; the
+        // primary Send affordance is the button in the info-card
+        // section above per R8 §2.3 layout.
         <AdvanceBar
           weight="light"
           back={{ label: "Preview", onClick: () => onGo("preview") }}
           mid={<span>quote state · draft</span>}
-          caption="Send from Preview — Step 5d moves the action here"
-          label="Send from Preview →"
-          onAdvance={() => onGo("preview")}
+          caption="Reversible — revise and re-send any time"
         />
       )}
     </div>
