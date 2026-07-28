@@ -24,8 +24,8 @@ import type { VersionRow } from "@/lib/quote-version-chain";
 import { SubTabStrip } from "./sub-tab-strip";
 import { Legend } from "./legend";
 import { TabPreviewQuote } from "./tab-preview-quote";
+import { TabSendToClient } from "./tab-send-to-client";
 import {
-  TabSendToClient,
   TabClientReview,
   TabMarkAccepted,
   TabTierSelection,
@@ -37,6 +37,7 @@ export function QuoteUmbrella({
   view,
   quoteId,
   quoteStatus,
+  quoteVersionNumber,
   showStateSwitcher,
   internalNotes,
   addendumData,
@@ -49,6 +50,10 @@ export function QuoteUmbrella({
   view: CustomerView;
   quoteId: string;
   quoteStatus: string;
+  /** Slice 12 Step 5c — passed for the Send-tab waiting-state's
+   * v{N} + Revise's v{N+1} copy. Kept off CustomerView per
+   * Pattern 45 (customer type stays PM-versioning-clean). */
+  quoteVersionNumber: number;
   showStateSwitcher: boolean;
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
@@ -106,7 +111,17 @@ export function QuoteUmbrella({
             onGo={onGo}
           />
         )}
-        {activeTab === "send" && <TabSendToClient onGo={onGo} />}
+        {activeTab === "send" && (
+          <TabSendToClient
+            view={view}
+            quoteId={quoteId}
+            quoteStatus={quoteStatus}
+            quoteVersionNumber={quoteVersionNumber}
+            reviewFeedCount={reviewFeedCount}
+            isHubspotLinked={isHubspotLinked}
+            onGo={onGo}
+          />
+        )}
         {activeTab === "review" && <TabClientReview onGo={onGo} />}
         {activeTab === "accepted" && <TabMarkAccepted onGo={onGo} />}
         {activeTab === "tier" && <TabTierSelection onGo={onGo} />}
