@@ -79,6 +79,84 @@ operational pre-flight.)
 
 ## Open
 
+- **NetSuite Assembly migration (v1.1+ candidate)**
+
+  **Driver:** Slice 12 Step 8c-3 REST + SOAP probes (2026-07-28).
+  Slice 12 ships flat-lines-per-leaf on the NetSuite Sales Order
+  push because the Item Group SO-create path is closed at BOTH
+  REST and SOAP (probed exhaustively). This isn't a workaround —
+  it's a signal that the strategic answer is different from what
+  Slice 12 originally scoped.
+
+  **Four aligning points make the case:**
+
+  1. **NetSuite's API models Assemblies as first-class** — proven
+     via Probe 4 (2026-07-28). REST POST of a SalesOrder with an
+     Assembly line succeeds cleanly (204 CREATED, tx-line-level
+     pricing, no "Please enter a value for Amount" error). SOAP
+     analogously accepts them (post-entitlement).
+  2. **NetSuite's API refuses Item Groups on SOs at both REST
+     AND SOAP** — proven via Slice 12 Step 8c-3 SOAP re-run
+     probe (2026-07-28). Identical `USER_ERROR: "Please enter a
+     value for Amount"` at `item.items[0]` from both surfaces
+     with the same customer + group pair. Not a REST-specific
+     validator; a server-side SO validation constraint that only
+     the UI's SuiteScript `record.create` interactive-save code
+     path bypasses.
+  3. **Nexus's ASY/LEAF model is assembly-shaped, not
+     group-shaped** — parent SKU with children, qty_per_parent,
+     roll-up pricing, cost + revenue decomposition. Assemblies
+     have a build model + component consumption + inventory
+     transformation; Item Groups are a presentation wrapper.
+     Nexus's data already matches the former.
+  4. **The v2 roadmap already targets NetSuite-direct integration
+     with native BOMs** — this migration compounds cleanly with
+     the direction Edward already set for post-v1 evolution.
+
+  **Plus one detail that makes it tractable:** DPS already has
+  **9 Assembly items in the NetSuite catalog** (probed sandbox
+  2026-07-28: `Berry Hanks Hydration Assembly`, `BrainMD 355
+  Hydration 20ct Pouch(Assembly))`, `BrainMD-351 Brain Boost-
+  Assembly`, `Fanny Bum Butter Assembly`, `Joop Skin Assembly`,
+  others). This is EXPANSION not greenfield — Melinda's team
+  knows Assembly setup; Aisha's workflow can extend the pattern
+  from 9 to N without new NetSuite-side concept training.
+
+  **Slice 12 Step 8c-3 stakes:** Item Group wrap remains Aisha's
+  MANUAL STEP after Nexus's SO push. She wraps in the NetSuite
+  UI before invoice generation — this is CUSTOMER-VISIBLE (the
+  group is why customer invoices show one turnkey line at $X per
+  unit instead of freight/customs/setup components separately —
+  INV2978 is the canonical example). Not cosmetic. Nexus delivers
+  correct pricing (Aisha stops retyping); the group wrap is
+  still hers to do until the Assembly migration lands.
+
+  **What the migration would do:**
+  - Aisha's team creates NetSuite Assembly items for each Nexus
+    quotable ASY (or, better, Nexus authors them programmatically
+    via the REST create path Probe 4 proved works)
+  - `markComplete` references the resolved Assembly item on the
+    SO — one clean line, no group wrap needed
+  - The `netsuite_item_groups` table + `composition_hash` +
+    `findOrCreateItemGroup` primitives from Slice 12 Steps
+    8c-1/8c-3 stay live-tested via
+    `npm run smoke:netsuite-item-groups` (against a real sandbox
+    Item Group create + delete cycle). When Assemblies land, we
+    either extend those primitives for Assembly find-or-create
+    (similar shape, different NS record type) or retire them
+    entirely if Aisha's team maintains the Assembly catalog
+    manually.
+
+  **v1.1 vs v2 timing:** the migration is bounded (9 existing
+  Assembly items to extend to N; the API path is proven to
+  work). Could ship as a v1.1 mini-slice if Aisha wants to
+  eliminate her wrap step soon; otherwise natural fit for the
+  v2 NetSuite-direct workstream Edward already planned.
+
+  **Not touching until Slice 12 ships.** Flagged in
+  `src/lib/netsuite/mark-complete.ts` STEP 5 block with a
+  pointer back to this entry.
+
 - [Per-assembly production fan-out — math layer extension]
 
   **Driver:** Slice 11.5 Step 3 adapter implementation

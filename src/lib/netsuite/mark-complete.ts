@@ -247,66 +247,44 @@ export async function runMarkComplete(
   }
 
   // ============================================================
-  // STEP 5 — For each assembly: find-or-create Item Group
+  // STEP 5 — Item Group find-or-create — DELIBERATELY NOT INVOKED
   // ============================================================
+  //
+  // Per CA disposition 2026-07-28 after exhaustive REST + SOAP probe:
+  // NetSuite's SO validator refuses Item Group lines at CREATE via
+  // BOTH REST and SOAP (identical USER_ERROR "Please enter a value
+  // for Amount"). The UI's `record.create` uses SuiteScript's N/record
+  // with different interactive-save semantics — that's why Aisha's
+  // manual flow works and the API path is closed.
+  //
+  // ⚠️ THIS IS CUSTOMER-VISIBLE — NOT COSMETIC.
+  //   The Item Group is what makes the customer's invoice show a
+  //   single turnkey line ($X per unit) instead of the freight,
+  //   customs, and setup components separately. INV2978 (Aisha's
+  //   canonical example): two grouped lines at $2.218 and $2.419
+  //   with freight/customs invisible — the group doing its job.
+  //   Flat lines from Nexus would expose those components on any
+  //   customer-facing document.
+  //   → Aisha's wrap step remains MANDATORY for anything invoiced.
+  //     Nexus emits correct prices; Aisha wraps in the NS UI post-
+  //     push before invoice generation.
+  //
+  // The `findOrCreateItemGroup` code + composition_hash + Nexus's
+  // `netsuite_item_groups` table stay live in the codebase. 8c-1's
+  // sandbox smoke (`npm run smoke:netsuite-item-groups`) exercises
+  // the find-or-create path end-to-end against real NetSuite;
+  // preserving that smoke prevents silent rot before Assembly
+  // migration (v1.1+ candidate) OR a RESTlet integration (if we
+  // ever choose that path) picks the primitives back up.
+  //
+  // See UX_BACKLOG entry "NetSuite Assembly migration (v1.1+)" for
+  // the strategic direction — Assemblies (proven via Probe 4 to work
+  // cleanly at REST) are the durable answer to the "grouped items on
+  // SO" problem; DPS already has 9 in the catalog, so this is
+  // expansion not greenfield.
+  //
+  // /* const itemGroupOutcomes … */  // ← intentionally not built
   const itemGroupOutcomes: MarkCompleteResult["netsuite"]["itemGroups"] = [];
-  const assemblyToGroupInternalId = new Map<string, string>();
-
-  for (const assembly of tree.assemblies) {
-    const memberHashInputs = assembly.children.map((child) => {
-      if (!child.sku) {
-        throw new Error(
-          `Assembly ${assembly.sku} has a leaf without a SKU — cannot resolve.`,
-        );
-      }
-      const nsId = nsIdBySku.get(child.sku);
-      if (!nsId) {
-        throw new Error(
-          `Internal: SKU ${child.sku} passed resolution but has no NS id. Bug.`,
-        );
-      }
-      // quantity comes off the junction as a numeric string (Drizzle
-      // numeric column). Parse; enforce positive integer.
-      const rawQty = Number(child.quantity);
-      const quantity = Number.isFinite(rawQty) && rawQty > 0
-        ? Math.max(1, Math.round(rawQty))
-        : 1;
-      return {
-        netsuiteItemId: nsId,
-        quantity,
-        sku: child.sku,
-        name: child.name ?? child.sku,
-      };
-    });
-
-    const group = await findOrCreateItemGroup({
-      hashInput: {
-        customerNetsuiteId: customer.netsuiteCustomerId,
-        baseSku: assembly.sku,
-        members: memberHashInputs.map((m) => ({
-          netsuiteItemId: m.netsuiteItemId,
-          quantity: m.quantity,
-        })),
-      },
-      members: memberHashInputs,
-      customerDisplay:
-        customer.netsuiteCustomerDisplayName || dealCache.associatedCompanyId,
-      dealName: dealCache.dealName,
-      hubspotDealId: projectRow.hubspotDealId,
-      quoteId,
-      userId: actorUserId,
-    });
-
-    itemGroupOutcomes.push({
-      assemblyId: assembly.id,
-      compositionHash: group.compositionHash,
-      netsuiteExternalId: group.netsuiteExternalId,
-      netsuiteInternalId: group.netsuiteInternalId,
-      itemidDisplay: group.itemidDisplay,
-      outcome: group.outcome,
-    });
-    assemblyToGroupInternalId.set(assembly.id, group.netsuiteInternalId);
-  }
 
   // ============================================================
   // STEP 6 — CHECK netsuite_so_pushes for prior success (#145 case)
@@ -355,30 +333,66 @@ export async function runMarkComplete(
     // Build per-line SO items: one line per assembly, referencing the
     // Item Group internal id + tier qty + tier revenue-per-unit.
     // Assemblies map to top-level skuRollups (NEW model — assemblies
-    // ARE the top-level SKUs); per-tier rollup lives on
-    // skuRollup.perTier.
-    const lines: SalesOrderLine[] = tree.assemblies.map((asm) => {
-      const skuRollup = bundle.data.costing.skuRollups.find(
-        (r) => r.skuId === asm.id,
+    // FLAT LINES per leaf — one SO line per leaf assembly-membership.
+    //
+    // Nexus's assemblies (parent SKUs like "SMOKE-MC-…-0") don't
+    // exist as NetSuite items; only LEAVES resolve to NS items via
+    // SKU-match. So the SO cannot reference an assembly directly —
+    // each leaf becomes its own SO line at its per-tier rate.
+    //
+    // Rate + quantity source (SkuPerTierRollup on the leaf's
+    // skuRollup entry):
+    //   • quantity = tier.qty × leaf.qtyPerParent
+    //     (member count × tier order size — the "effective units"
+    //     for this leaf at this tier)
+    //   • rate     = leaf.perTier.requiredSellPerUnit
+    //     (the per-effective-unit sell price the math layer computes;
+    //     multiplied by qty = leaf's revenue contribution to the
+    //     assembly's tier total)
+    // Sum of all leaf-line amounts = tier's totalRevenue by
+    // construction, so accountingly the SO balances to Nexus's math.
+    const tierId = quote.acceptedTierId;
+    const leafRollups = bundle.data.costing.skuRollups.filter(
+      (r) => r.skuRole === "leaf",
+    );
+    const lines: SalesOrderLine[] = [];
+    for (const leafRollup of leafRollups) {
+      // Locate the leaf's tree entry to get its SKU + name.
+      const treeLeaf = tree.assemblies
+        .flatMap((a) => a.children.map((c) => ({ assembly: a, child: c })))
+        .find(({ child }) => child.junctionId === leafRollup.skuId);
+      if (!treeLeaf?.child.sku) continue; // no SKU → skipped upstream by resolver
+      const nsId = nsIdBySku.get(treeLeaf.child.sku);
+      if (!nsId) continue;
+
+      const perTierRollup = leafRollup.perTier.find((pt) => pt.tierId === tierId);
+      if (!perTierRollup) continue;
+
+      // Effective qty for this leaf at this tier:
+      // tier.qty × qtyPerParent (leaves have qtyPerParent per math layer).
+      const qtyPerParent = Math.max(1, Math.round(leafRollup.qtyPerParent ?? 1));
+      const effectiveQty = (tierRow.qty ?? 0) * qtyPerParent;
+
+      lines.push({
+        netsuiteItemId: nsId,
+        sku: treeLeaf.child.sku,
+        description:
+          treeLeaf.child.name ||
+          `${treeLeaf.assembly.name} — ${treeLeaf.child.sku}`,
+        quantity: effectiveQty,
+        rate: Number(perTierRollup.requiredSellPerUnit),
+        unitCost:
+          perTierRollup.contributionCostPerUnit != null
+            ? Number(perTierRollup.contributionCostPerUnit)
+            : null,
+      });
+    }
+
+    if (lines.length === 0) {
+      throw new Error(
+        "No SO lines built — every leaf failed to resolve or had no per-tier rollup. Cannot push.",
       );
-      const perTierRollup = skuRollup?.perTier.find(
-        (pt) => pt.tierId === quote.acceptedTierId,
-      );
-      const perUnitRevenue =
-        perTierRollup?.requiredSellPerUnit ??
-        (asm.unitPrice ? Number(asm.unitPrice) : 0);
-      const perUnitCost =
-        perTierRollup?.contributionCostPerUnit ??
-        (asm.unitCost ? Number(asm.unitCost) : null);
-      return {
-        netsuiteItemId: assemblyToGroupInternalId.get(asm.id)!,
-        sku: asm.sku,
-        description: asm.description || asm.name || asm.sku,
-        quantity: tierRow.qty ?? 0,
-        rate: Number(perUnitRevenue),
-        unitCost: perUnitCost !== null ? Number(perUnitCost) : null,
-      };
-    });
+    }
 
     const payload = buildSalesOrderPayload({
       netsuiteCustomerId: customer.netsuiteCustomerId,

@@ -464,10 +464,10 @@ async function testHappy(f: Fixture): Promise<{ soId: string }> {
 
 async function testBelowFloor(f: Fixture): Promise<void> {
   console.log("\n[TEST FAIL-A] Below-floor refusal → zero writes, zero NS calls\n");
-  const groupsBefore = await countGroupsInNs();
-  const pushesBefore = await sql`SELECT COUNT(*) AS n FROM netsuite_so_pushes WHERE quote_id = ${f.quoteId}`;
 
-  // Reset quote to accepted (post-happy-test cleanup)
+  // Reset quote to accepted (post-prior-test cleanup) FIRST, then
+  // snapshot the baseline. Otherwise pushesBefore captures the
+  // succeeded row from FAIL-B and the reset makes "unchanged" fail.
   await sql`UPDATE quotes SET
     status = 'accepted', netsuite_so_id = NULL, netsuite_so_tranid = NULL,
     netsuite_so_push_status = NULL, netsuite_so_push_error = NULL, netsuite_pushed_at = NULL
@@ -475,37 +475,54 @@ async function testBelowFloor(f: Fixture): Promise<void> {
   await sql`DELETE FROM netsuite_so_pushes WHERE quote_id = ${f.quoteId}`;
   await sql`DELETE FROM audit_log WHERE entity_id = ${f.quoteId} AND action = 'netsuite_so_pushed'`;
 
-  // Force below-floor by setting a very negative global_price_adj_pct
-  await sql`UPDATE quotes SET global_price_adj_pct = -0.50 WHERE id = ${f.quoteId}`;
+  const groupsBefore = await countGroupsInNs();
+  const pushesBefore = await sql`SELECT COUNT(*) AS n FROM netsuite_so_pushes WHERE quote_id = ${f.quoteId}`;
 
-  let threw = false;
-  let msg = "";
+  // Force below-floor via BOTH firm-settings target + floor bumps.
+  // Classifier order: GOOD if margin >= target, else BELOW_TARGET if
+  // margin >= floor, else BELOW_FLOOR. Setting BOTH target + floor
+  // above the tier's actual margin guarantees BELOW_FLOOR. Fixture's
+  // margin ~0.40; set both to 0.50 so 0.40 → BELOW_FLOOR.
+  //
+  // Wrapped in try/finally so a mid-test crash restores firm_settings
+  // — critical because this is a SHARED (dev+prod) table and leaving
+  // it at 0.50/0.50 would poison every subsequent quote's classifier.
+  const [origFirm] = await sql`SELECT id, floor_margin_pct, target_margin_pct FROM firm_settings WHERE effective_until IS NULL ORDER BY effective_from DESC LIMIT 1`;
+  await sql`UPDATE firm_settings SET floor_margin_pct = 0.50, target_margin_pct = 0.50 WHERE id = ${origFirm.id}`;
+
   try {
-    await runMarkComplete(f.quoteId);
-  } catch (e) {
-    threw = true;
-    msg = e instanceof Error ? e.message : String(e);
+    let threw = false;
+    let msg = "";
+    try {
+      await runMarkComplete(f.quoteId);
+    } catch (e) {
+      threw = true;
+      msg = e instanceof Error ? e.message : String(e);
+    }
+    assert(threw, "markComplete threw on below-floor");
+    assert(/below the firm's margin floor|BELOW_FLOOR/i.test(msg),
+      `error mentions below-floor (got: ${msg.slice(0,100)})`);
+    console.log(`  ✓ Blocked with: ${msg.slice(0, 120)}`);
+
+    const groupsAfter = await countGroupsInNs();
+    assert(groupsAfter === groupsBefore, `no NS groups created (${groupsBefore} → ${groupsAfter})`);
+    console.log(`  ✓ NS groups unchanged: ${groupsBefore} → ${groupsAfter}`);
+
+    const pushesAfter = await sql`SELECT COUNT(*) AS n FROM netsuite_so_pushes WHERE quote_id = ${f.quoteId}`;
+    assert(Number(pushesAfter[0].n) === Number(pushesBefore[0].n),
+      `no netsuite_so_pushes rows created (${pushesBefore[0].n} → ${pushesAfter[0].n})`);
+    console.log(`  ✓ netsuite_so_pushes unchanged: ${pushesBefore[0].n} → ${pushesAfter[0].n}`);
+
+    const [row] = await sql`SELECT status FROM quotes WHERE id = ${f.quoteId}`;
+    assert(row.status === "accepted", `quote stays accepted (got '${row.status}')`);
+    console.log(`  ✓ quote.status='accepted' (no drift)`);
+  } finally {
+    // Always restore, even on assertion failure — shared table.
+    await sql`UPDATE firm_settings SET
+      floor_margin_pct = ${origFirm.floor_margin_pct},
+      target_margin_pct = ${origFirm.target_margin_pct}
+      WHERE id = ${origFirm.id}`;
   }
-  assert(threw, "markComplete threw on below-floor");
-  assert(/below the firm's margin floor|BELOW_FLOOR/i.test(msg),
-    `error mentions below-floor (got: ${msg.slice(0,100)})`);
-  console.log(`  ✓ Blocked with: ${msg.slice(0, 120)}`);
-
-  const groupsAfter = await countGroupsInNs();
-  assert(groupsAfter === groupsBefore, `no NS groups created (${groupsBefore} → ${groupsAfter})`);
-  console.log(`  ✓ NS groups unchanged: ${groupsBefore} → ${groupsAfter}`);
-
-  const pushesAfter = await sql`SELECT COUNT(*) AS n FROM netsuite_so_pushes WHERE quote_id = ${f.quoteId}`;
-  assert(Number(pushesAfter[0].n) === Number(pushesBefore[0].n),
-    `no netsuite_so_pushes rows created (${pushesBefore[0].n} → ${pushesAfter[0].n})`);
-  console.log(`  ✓ netsuite_so_pushes unchanged: ${pushesBefore[0].n} → ${pushesAfter[0].n}`);
-
-  const [row] = await sql`SELECT status FROM quotes WHERE id = ${f.quoteId}`;
-  assert(row.status === "accepted", `quote stays accepted (got '${row.status}')`);
-  console.log(`  ✓ quote.status='accepted' (no drift)`);
-
-  // Restore
-  await sql`UPDATE quotes SET global_price_adj_pct = 0 WHERE id = ${f.quoteId}`;
 }
 
 async function testConvergence(f: Fixture): Promise<void> {
@@ -591,6 +608,11 @@ async function testNs5xxRetry(f: Fixture, realSoId: string): Promise<void> {
     assert(g.outcome === "cache_hit", `${g.itemidDisplay} outcome should be cache_hit (got ${g.outcome})`);
   }
   console.log(`  ✓ New SO created: ${result.netsuite.salesOrderId}`);
+
+  // Clean up this newly-created SO so subsequent tests don't collide
+  // with a live NS record via idempotency-key match.
+  await nsDelete(`/salesOrder/${result.netsuite.salesOrderId}`);
+  console.log(`  ✓ FAIL-B cleanup: NS SO ${result.netsuite.salesOrderId} deleted`);
 }
 
 function assert(cond: unknown, message: string): asserts cond {

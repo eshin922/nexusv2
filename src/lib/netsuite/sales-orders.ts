@@ -118,32 +118,25 @@ export function buildSalesOrderPayload(
     body.custbody_project_manager = { id: input.projectManagerNsId };
   if (input.businessSegmentId) body.class = { id: input.businessSegmentId };
 
-  // Lines — Q4 REVISED: taxCode omitted UNLESS admin override is
-  // set on firm_settings. NetSuite derives tax from customer +
-  // ship-to per line; smoke will record what lands per line to
-  // verify the engine's behavior.
+  // Lines — flat one-per-leaf (per CA disposition 2026-07-28).
+  //
+  // Each line references a bare NetSuite item (InvtPart / NonInvtPart /
+  // OthCharge) resolved from the leaf's SKU. Item Group wrap is
+  // intentionally skipped — see mark-complete.ts STEP 5 block for the
+  // full context on why. This ships correct pricing (Aisha stops
+  // retyping) while leaving her invoice-side wrap step in place.
+  //
+  // taxCode omitted per Q4 REVISED — NetSuite derives per-line tax
+  // from customer + ship-to. Only sent when firm_settings admin
+  // override is set (currently NULL by default).
   //
   // rate + amount sent as NUMBERS not strings — sandbox probe
   // 2026-07-28 confirmed NetSuite REST rejects strings with
-  // INVALID_VALUE. Round via toFixed then parseFloat to preserve
-  // precision.
-  //
-  // 2026-07-28 sandbox observation: Item Group lines on existing
-  // SOs (verified via SO 358085 line 5 REST GET) carry only
-  // item + quantity + custcol_* fields; rate + amount are undefined
-  // at the group-header line. NetSuite expands the group into
-  // member lines and prices from member records. Our payload sets
-  // rate + amount at the group-header line to reflect the tier
-  // revenue Nexus quoted — we send BOTH, letting NetSuite override
-  // per-member pricing where applicable.
+  // INVALID_VALUE.
   body.item = {
     items: input.lines.map((line) => ({
       item: { id: line.netsuiteItemId },
       quantity: line.quantity,
-      // Group-header rate: intentional. Represents the per-unit
-      // sell Nexus quoted for the composition; NetSuite will
-      // expand into member lines but the header-level rate
-      // preserves the audit trail from Nexus's math.
       rate: parseFloat(line.rate.toFixed(4)),
       description: line.description,
       ...(input.taxCodeId ? { taxCode: { id: input.taxCodeId } } : {}),
