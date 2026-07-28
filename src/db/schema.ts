@@ -1155,6 +1155,25 @@ export const hubspotDealsCache = pgTable(
     pmEmail: text("pm_email"),
     associatedCompanyId: text("associated_company_id"),
     associatedCompanyName: text("associated_company_name"),
+    // Slice 12 Step 8c-2 — NetSuite SO field-fill inputs.
+    // Names mirror HubSpot property names verbatim (dumped 2026-07-28
+    // against Epicuren deal 40412634025). Enum-labeled values (project_source,
+    // project_category, project_service_s_, priority, dealtype) store the
+    // resolved label directly since HubSpot returns labels for most enum
+    // properties. business_segment stores the raw enum id + a resolved
+    // label alongside (id → label needs a properties/deals options fetch;
+    // deferred to first-use).
+    dealFolderUrl: text("deal_folder_url"),
+    projectServiceS: text("project_service_s"),
+    projectCategory: text("project_category"),
+    sourcingLocation: text("sourcing_location"),
+    businessSegmentId: text("business_segment_id"),
+    businessSegmentLabel: text("business_segment_label"),
+    clientPo: text("client_po"),
+    invoiceDateEst: date("invoice_date_est"),
+    productionShipDateEst: date("production_ship_date_est"),
+    priority: text("priority"),
+    dealType: text("deal_type"),
     createdAtHubspot: timestamp("created_at_hubspot", { withTimezone: true }),
     updatedAtHubspot: timestamp("updated_at_hubspot", { withTimezone: true }),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true })
