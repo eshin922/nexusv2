@@ -54,8 +54,17 @@ export async function resolveNetsuiteItem(
   // SuiteQL: match on itemid exactly. NetSuite normally treats itemid
   // as case-insensitive but we don't want to depend on collation
   // behavior — LOWER on both sides keeps it explicit.
+  //
+  // Filter out Item Groups (itemtype='Group'). Groups share the itemid
+  // namespace with real items — CA-caught 2026-07-28 via the smoke run:
+  // TCS-BAR-01 came back "ambiguous" because there's both an InvtPart
+  // (id=41350) and a Group (id=57232) with itemid TCS-BAR-01. Groups
+  // aren't valid Item Group MEMBERS (NetSuite doesn't support nested
+  // groups semantically), so exclude them from the resolver's answer
+  // set. Once 8c-3 starts creating groups routinely, this collision
+  // would be the common case for any base SKU we've grouped.
   const escaped = trimmed.replace(/'/g, "''");
-  const q = `SELECT id, itemid, itemtype FROM item WHERE LOWER(itemid) = LOWER('${escaped}') AND isinactive='F'`;
+  const q = `SELECT id, itemid, itemtype FROM item WHERE LOWER(itemid) = LOWER('${escaped}') AND isinactive='F' AND itemtype != 'Group'`;
   const result = await suiteQL<NsItemRow>(q, { config: opts?.config });
 
   if (result.items.length === 0) {

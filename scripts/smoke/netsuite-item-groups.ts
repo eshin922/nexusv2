@@ -54,24 +54,61 @@ if (cfg.env !== "sandbox") {
 console.log(`✓ Sandbox confirmed: ${cfg.accountId} (env=${cfg.env})\n`);
 
 // ────────────────────────────────────────────────────────────
-// Test fixture SKUs (real sandbox items — SKU-match should mostly hit).
-// Pulled from sandbox probes during D1: 001 (Primary Packaging InvtPart),
-// TCS-BAR-01 (Base bar-soap SKU), OTC-0001 (OTC), 3PL-0004 (Freight).
-const FIXTURE_SKUS = ["001", "TCS-BAR-01", "OTC-0001", "3PL-0004", "DOES-NOT-EXIST"];
+// Test fixture SKUs — each labeled by CATEGORY so hit rate can be
+// interpreted (per CA's ask 2026-07-28: "the difference between
+// 'expected' and 'unmatched is the common path'").
+//
+// CATEGORY LEGEND:
+//   real       — real NetSuite sandbox items surfaced via D1 probes.
+//                Represents production-shape leaves. Expected: FOUND.
+//   synthetic  — deliberately-nonexistent SKU to verify the not_found
+//                branch. Represents "PM typo" or "unmigrated leaf".
+//                Expected: NOT_FOUND (and that IS the pass condition).
+const FIXTURE_SKUS: Array<{ sku: string; category: "real" | "synthetic"; note: string }> = [
+  { sku: "001",              category: "real",      note: "Primary Packaging (InvtPart id=47954)" },
+  { sku: "TCS-BAR-01",       category: "real",      note: "Bar-soap SKU — used to collide with -G Item Group before item-resolver's itemtype!='Group' filter" },
+  { sku: "OTC-0001",         category: "real",      note: "OTC (NonInvtPart id=11012, class 61)" },
+  { sku: "3PL-0004",         category: "real",      note: "Freight (NonInvtPart id=12429, class 60)" },
+  { sku: "DOES-NOT-EXIST",   category: "synthetic", note: "intentional negative test — verifies not_found branch" },
+];
 
-console.log("=== 1. Item resolver smoke (SKU-match hit rate) ===\n");
-const { results, stats } = await resolveNetsuiteItems(FIXTURE_SKUS);
-for (const r of results) {
+console.log("=== 1. Item resolver smoke (SKU-match hit rate on real vs synthetic) ===\n");
+const { results, stats } = await resolveNetsuiteItems(FIXTURE_SKUS.map((f) => f.sku));
+
+let realFound = 0, realFail = 0, syntheticExpected = 0, syntheticUnexpected = 0;
+for (let i = 0; i < results.length; i++) {
+  const r = results[i];
+  const fixture = FIXTURE_SKUS[i];
+  const tag = fixture.category === "real" ? "REAL " : "SYNTH";
   if (r.status === "found") {
-    console.log(`  ✓ ${r.sku} → id=${r.netsuiteItemId} itemid="${r.itemid}" type=${r.itemtype}`);
+    console.log(`  ✓ [${tag}] ${r.sku} → id=${r.netsuiteItemId} itemid="${r.itemid}" type=${r.itemtype}`);
+    if (fixture.category === "real") realFound++;
+    else syntheticUnexpected++;
   } else if (r.status === "not_found") {
-    console.log(`  ✗ ${r.sku} — not_found (expected for DOES-NOT-EXIST)`);
+    if (fixture.category === "synthetic") {
+      console.log(`  ✓ [${tag}] ${r.sku} — not_found (expected — ${fixture.note})`);
+      syntheticExpected++;
+    } else {
+      console.log(`  ✗ [${tag}] ${r.sku} — not_found (UNEXPECTED for real fixture — ${fixture.note})`);
+      realFail++;
+    }
   } else {
-    console.log(`  ⚠ ${r.sku} — ambiguous (${r.matches.length} matches)`);
+    console.log(`  ⚠ [${tag}] ${r.sku} — ambiguous (${r.matches.length} matches: ${r.matches.map((m) => m.itemtype).join(", ")})`);
+    console.log(`      ${fixture.note}`);
+    if (fixture.category === "real") realFail++;
+    else syntheticUnexpected++;
   }
 }
-console.log(`\n  Hit rate: ${stats.found}/${stats.total} (${(stats.hitRate * 100).toFixed(1)}%)`);
-console.log(`  not_found: ${stats.notFound}   ambiguous: ${stats.ambiguous}\n`);
+console.log();
+console.log(`  Real fixtures (represent production leaves):`);
+console.log(`    ${realFound}/${realFound + realFail} resolved (${realFound + realFail === 0 ? 0 : (100 * realFound / (realFound + realFail)).toFixed(0)}%)`);
+console.log(`  Synthetic fixtures (negative-test):`);
+console.log(`    ${syntheticExpected}/${syntheticExpected + syntheticUnexpected} behaved as expected`);
+console.log(`  Raw stats (all fixtures): found=${stats.found} not_found=${stats.notFound} ambiguous=${stats.ambiguous}\n`);
+if (realFail > 0) {
+  console.error(`✗ ${realFail} REAL fixture(s) failed to resolve — this would block SO push in production. Aborting.`);
+  process.exit(1);
+}
 
 // Extract the resolved ids for the group-create smoke.
 const resolved = results.filter((r) => r.status === "found");
