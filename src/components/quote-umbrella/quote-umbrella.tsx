@@ -160,7 +160,33 @@ export function QuoteUmbrella({
     [router, pathname, searchParams],
   );
 
-  const showLegend = quoteStatus !== "complete";
+  // Slice 12 Step 8b · CB P2 fix — when the Sales Order dev switcher
+  // simulates the RECORD state (`?dev=1&so-state=record`), the receipt
+  // renders "quote and every sub-tab are read-only" copy — but the
+  // underlying quote.status is still 'accepted' (no writer flips it
+  // to 'complete' in 8b). Without this override, the sub-tab strip
+  // would render tabs 1-4 as "done · revisitable" (their state pre-
+  // commit), contradicting the receipt copy CB flagged.
+  //
+  // Solution: when the dev switcher is active AND the URL says
+  // so-state=record, present the strip with an effectiveQuoteStatus
+  // of 'complete' so Pattern 52's freeze is visible in the strip —
+  // tabs 1-4 render as 'locked', matching what production will show
+  // once 8c wires markComplete. Legend also hides in the simulated
+  // complete state (matches production behavior — showLegend gates
+  // on 'complete').
+  //
+  // Production behavior is unchanged: real quote.status='complete'
+  // → subTabStatus returns 'locked' for every tab → strip labels
+  // "locked" per subTabSubLabel. The dev-switcher override just
+  // makes CB (and CD) able to walk that visual state without a
+  // real markComplete write.
+  const soStateParam = searchParams?.get("so-state");
+  const simulateComplete =
+    showStateSwitcher && soStateParam === "record" && quoteStatus === "accepted";
+  const effectiveQuoteStatus = simulateComplete ? "complete" : quoteStatus;
+
+  const showLegend = effectiveQuoteStatus !== "complete";
 
   // Slice 12 Step 7c review-fix (CB P2) — derive "has this quote
   // been sent at least once?" from live state OR from the existence
@@ -186,7 +212,7 @@ export function QuoteUmbrella({
       <div className="r8-shell">
         <SubTabStrip
           activeId={activeTab}
-          quoteStatus={quoteStatus}
+          quoteStatus={effectiveQuoteStatus}
           feedCount={reviewFeedCount}
           hasSentHistory={hasSentHistory}
           onGo={onGo}

@@ -220,20 +220,55 @@ export function TabSalesOrder({
   if (carriedTier?.blendedMarginStatus === "BELOW_FLOOR") {
     realFlags.push(FLAG_EXAMPLES.below_floor);
   }
-  const soFlags: OrderReceiptFlag[] =
-    flagVariant === "below_floor"
-      ? [FLAG_EXAMPLES.below_floor]
-      : flagVariant === "unmatched"
-        ? [FLAG_EXAMPLES.unmatched]
-        : flagVariant === "both"
-          ? [FLAG_EXAMPLES.below_floor, FLAG_EXAMPLES.unmatched]
-          : realFlags;
 
   // Slice 12 Step 8b — HubSpot amount for the ledger row. When
   // page.tsx couldn't resolve the amount from audit_log, fall back
   // to the carriedTier's totalRevenue (structurally the same figure
   // 8a pushed — see the amount-derivation trace in PR #147).
   const hsAmountEffective = hubspotPushedAmount ?? carriedTier?.totalRevenue ?? 0;
+
+  // Slice 12 Step 8b · CB P0 disposition — DIVERGENCE flag between
+  // HubSpot-last-pushed amount and current tier totalRevenue.
+  //
+  // The receipt's Order Total (Σ lines + one_time) and the ledger's
+  // "HubSpot deal set to X at $Y" are BOTH sourced from
+  // requiredSellPerUnit × tier.qty by construction in production
+  // markAccepted (#147 trace). But they CAN diverge in a legitimate
+  // production scenario: post-Revise + cost-edit + re-accept at the
+  // SAME tier. audit_log holds the amount that was pushed to HubSpot
+  // at the LAST accept; carriedTier.totalRevenue is the CURRENT math.
+  // If costs shifted between accepts, they don't match — and the
+  // receipt currently reads audit_log silently.
+  //
+  // Threshold: > 0.01 (one cent). BOTH sides compared at FULL
+  // PRECISION — before any display rounding — so a 3dp vs 2dp render
+  // gap (see P5) cannot trip the flag. Copy names what's true, not
+  // what wires next (P3 discipline).
+  //
+  // Empty in the normal case (fresh accept, no cost edit since);
+  // populates in the divergence case. Rendered alongside real flags
+  // + dev-switcher overrides.
+  const divergenceFlags: OrderReceiptFlag[] = [];
+  if (
+    hubspotPushedAmount !== null &&
+    carriedTier &&
+    Math.abs(hubspotPushedAmount - carriedTier.totalRevenue) > 0.01
+  ) {
+    divergenceFlags.push({
+      level: "warn",
+      label: "HubSpot amount out of sync",
+      detail: `HubSpot shows $${hubspotPushedAmount.toFixed(2)} · this order will send $${carriedTier.totalRevenue.toFixed(2)} · the amount will re-sync when the order is sent.`,
+    });
+  }
+
+  const soFlags: OrderReceiptFlag[] =
+    flagVariant === "below_floor"
+      ? [FLAG_EXAMPLES.below_floor, ...divergenceFlags]
+      : flagVariant === "unmatched"
+        ? [FLAG_EXAMPLES.unmatched, ...divergenceFlags]
+        : flagVariant === "both"
+          ? [FLAG_EXAMPLES.below_floor, FLAG_EXAMPLES.unmatched, ...divergenceFlags]
+          : [...realFlags, ...divergenceFlags];
 
   // NetSuite stubs (real values arrive in 8c via customer resolver)
   const nsCustomerStub = {
@@ -611,23 +646,57 @@ export function TabSalesOrder({
           </div>
         </div>
       ) : (
-        <AdvanceBar
-          weight="heavy"
-          back={{ label: "Acceptance", onClick: () => onGo("accepted") }}
-          mid={
-            <span>
-              {carriedTier.label} · {usd(total)} · {nsCustomerStub.id}
-            </span>
-          }
-          caption={
-            belowFloorDisabled
-              ? "Blocked — below floor, admin override required"
-              : "Irreversible — creates a Sales Order in NetSuite"
-          }
-          label={failed ? "Retry — send order to NetSuite" : "Send order to NetSuite"}
-          disabled={sendDisabled}
-          onAdvance={sendDisabled ? undefined : () => setModal(true)}
-        />
+        <>
+          {/* Slice 12 Step 8b · CB P1 fix — visible disabled-reason
+              surface directly adjacent to the CTA. CB flagged that a
+              first-time PM saw the disabled Send button with no on-
+              screen "why" — the CTA looked visually identical whether
+              flags were active or not. Reason banner sits between the
+              receipt + advance-bar so the PM reads it BEFORE hovering
+              or clicking (which does nothing when disabled).
+              Aggregates both reasons (stubDisabled + belowFloor). */}
+          {sendDisabled && disabledReason && (
+            <div
+              role="status"
+              aria-live="polite"
+              data-testid="send-disabled-reason"
+              style={{
+                margin: "14px 0 0",
+                padding: "10px 14px",
+                background: "var(--warn-soft)",
+                border: "1px dashed var(--warn)",
+                borderRadius: 6,
+                fontSize: 12.5,
+                color: "var(--warn-ink, var(--ink-2))",
+                lineHeight: 1.55,
+              }}
+            >
+              <strong style={{ fontFamily: "var(--mono)", fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", marginRight: 8 }}>
+                Send is disabled
+              </strong>
+              {disabledReason}
+            </div>
+          )}
+          <AdvanceBar
+            weight="heavy"
+            back={{ label: "Acceptance", onClick: () => onGo("accepted") }}
+            mid={
+              <span>
+                {carriedTier.label} · {usd(total)} · {nsCustomerStub.id}
+              </span>
+            }
+            caption={
+              belowFloorDisabled
+                ? "Blocked — below floor, admin override required"
+                : stubDisabled
+                  ? "Send is disabled — see reason above"
+                  : "Irreversible — creates a Sales Order in NetSuite"
+            }
+            label={failed ? "Retry — send order to NetSuite" : "Send order to NetSuite"}
+            disabled={sendDisabled}
+            onAdvance={sendDisabled ? undefined : () => setModal(true)}
+          />
+        </>
       )}
 
       {modal && (
