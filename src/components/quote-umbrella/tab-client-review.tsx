@@ -16,9 +16,11 @@
 // types are chips, not a select.
 
 import type { ReviewEventRow } from "@/lib/quote-review-events";
+import type { SentSnapshotRow } from "@/lib/quote-snapshots";
 import type { CustomerView } from "@/types/quote";
 import { AdvanceBar } from "./advance-bar";
 import { AddEntry } from "./add-entry";
+import { MismatchBanner } from "./mismatch-banner";
 import { ReviseButton } from "./revise-button";
 import type { SubTabId } from "./subtabs";
 
@@ -62,6 +64,7 @@ export function TabClientReview({
   quoteStatus,
   quoteVersionNumber,
   feed,
+  latestSupersededSnapshot,
   onGo,
 }: {
   view: CustomerView;
@@ -71,6 +74,11 @@ export function TabClientReview({
   quoteStatus: string;
   quoteVersionNumber: number;
   feed: ReviewEventRow[];
+  /** Slice 12 Step 6d — most-recently-superseded snapshot for the
+   * quote, if any. Present when the quote has been revised in-place
+   * (a prior send exists + Revise fired). Powers the MismatchBanner
+   * when combined with status=draft. */
+  latestSupersededSnapshot: SentSnapshotRow | null;
   onGo: (id: SubTabId) => void;
 }) {
   const customer = view.customer;
@@ -101,9 +109,18 @@ export function TabClientReview({
             and what they want changed.
           </p>
 
-          {/* Slice 12 Step 6d — MismatchBanner renders here when a
-              revised draft (v > 1, status = draft, with superseded
-              snapshots) exists. */}
+          {/* Slice 12 Step 6d — MismatchBanner renders when the
+              quote is mid-Revise: status=draft AND a superseded
+              snapshot exists (post-Revise, pre-re-send). Warns PM
+              the customer is still responding to the last-sent
+              version. */}
+          {quoteStatus === "draft" && latestSupersededSnapshot && (
+            <MismatchBanner
+              sentSnapshot={latestSupersededSnapshot}
+              draftVersion={quoteVersionNumber}
+              onGo={onGo}
+            />
+          )}
 
           <div className="r8-card flush">
             <div className="r8-card-head">
