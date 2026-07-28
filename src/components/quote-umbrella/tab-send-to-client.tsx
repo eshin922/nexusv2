@@ -25,6 +25,7 @@
 
 import type { CustomerView } from "@/types/quote";
 import { AdvanceBar } from "./advance-bar";
+import { ReviseButton } from "./revise-button";
 import { SendQuoteFlow } from "./send-quote-flow";
 import type { SubTabId } from "./subtabs";
 
@@ -117,22 +118,12 @@ export function TabSendToClient({
                     >
                       Open Client Review →
                     </button>
-                    <button
-                      className="btn sm ghost"
-                      onClick={() => {
-                        // Re-send requires Revise-in-place first
-                        // (sendQuote guards on assertDraft). Revise
-                        // action lands in Step 6; until then, PMs
-                        // needing a fresh send must recreate a draft
-                        // via the scenario-copy affordance.
-                        window.alert(
-                          "Re-send requires Revise first (returns this quote to editable draft), which ships in Step 6.",
-                        );
-                      }}
-                      title="Re-send flow depends on Revise (Step 6). sendQuote requires draft status."
-                    >
-                      Re-send PDF
-                    </button>
+                    {/* Slice 12 Step 6c — "Re-send PDF" removed as
+                        a standalone action. Re-send is no longer a
+                        one-click workflow: PMs use Revise (below)
+                        which flips to draft, edit if needed, then
+                        Send from Preview/Send tabs. The Revise
+                        affordance guides that flow. */}
                     <button
                       className="btn sm ghost"
                       onClick={() => {
@@ -148,8 +139,12 @@ export function TabSendToClient({
                 </div>
               </div>
 
-              {/* Revise affordance — R8 §5. Real Revise action lands in
-                  Step 6. Button here + stub so PMs see the shape now. */}
+              {/* Revise affordance — R8 §5 dashed container per
+                  "ordinary secondary action, never destructive" copy.
+                  Slice 12 Step 6c — real ReviseButton wire-up. Guard
+                  mirrors server: 'sent' only for now
+                  ('accepted'-revise ships alongside HubSpot rollback
+                  in Step 7). */}
               <div className="r8-revise" style={{ marginTop: 14 }}>
                 <div className="txt">
                   <div className="t">Need to change something?</div>
@@ -159,17 +154,20 @@ export function TabSendToClient({
                     nothing is lost.
                   </div>
                 </div>
-                <button
-                  className="btn sm"
-                  onClick={() => {
-                    window.alert(
-                      "Revise-in-place action lands in Step 6. This affordance ships its final wire-up then.",
-                    );
-                  }}
-                  title="Revise action lands in Step 6 (Client Review + Revise-in-place)."
-                >
-                  ↺ Revise quote
-                </button>
+                <ReviseButton
+                  quoteId={quoteId}
+                  currentVersionNumber={quoteVersionNumber}
+                  quoteNumber={quote.quoteNumber}
+                  disabled={quoteStatus !== "sent"}
+                  disabledReason={
+                    quoteStatus === "accepted"
+                      ? "Revise-from-accepted lands with Step 7 (HubSpot rollback)."
+                      : `Revise is available on 'sent' quotes only. Current state: '${quoteStatus}'.`
+                  }
+                  buttonLabel="↺ Revise quote"
+                  buttonClassName="btn sm"
+                  buttonTestId="revise-quote-waiting"
+                />
               </div>
             </>
           ) : (

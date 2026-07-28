@@ -58,6 +58,7 @@ import {
   type ScenarioCopyPickerFilters,
   type ScenarioCopyPickerRow,
 } from "@/lib/scenario-copy-loader";
+import { requireRevisable } from "@/lib/quote-guards";
 
 // ---------- tier presets (internal — "use server" disallows non-async exports) ----------
 
@@ -1762,6 +1763,131 @@ export async function sendQuote(
       });
 
       return { quoteNumber, sentAt };
+    });
+
+    revalidateQuoteTree(quote.projectId, quoteId);
+    return result;
+  });
+}
+
+// Slice 12 Step 6c — Revise-in-place per v3 brief §4.3a.
+//
+// The load-bearing v2 reversibility action. Flips a sent quote back
+// to editable draft, incrementing version_number, and closes the
+// current snapshot via superseded_at. Prior sent snapshot's data
+// (pdf_url, prepared-by, commercial defaults) stays in
+// quote_snapshots for forensic + version-picker access. Same
+// quote_id, same quote_number — customer sees "revised quote
+// DPS-N" on re-send.
+//
+// State-transition semantics:
+//   sent    → draft (allowed, this action)
+//   accepted → draft (v3 amendment 2 allows, but this step does NOT
+//                     wire the HubSpot rollback that accepted-revise
+//                     requires — Step 7 lands the accept + HubSpot
+//                     push then extends this action with the
+//                     rollback fire. Guarded explicitly here so it
+//                     fails loudly if attempted early.)
+//   draft   → rejected (already draft — nothing to revise)
+//   complete → rejected (Pattern 52 lock)
+//   superseded / lost → rejected (terminal states)
+//
+// Reads that STAY on the quote row post-Revise:
+//   - quote_number (v3 invariant: same number across versions)
+//   - sent_at (historical trace; status='draft' is authoritative for
+//     "currently sent?")
+//   - pdf_url (still points at the last-sent artifact; also lives
+//     on the superseded snapshot row for the version-picker)
+//   - snapshot mirror columns (Step 5b dual-write; harmless — read
+//     paths gate on status)
+//
+// Increments quote.version_number so the next send writes a fresh
+// snapshot row at the bumped version (Step 5b writer already reads
+// from quote.versionNumber at INSERT time).
+export async function reviseQuote(
+  formData: FormData,
+): Promise<
+  ActionResult<{ newVersionNumber: number; supersededSnapshotId: string | null }>
+> {
+  return runAction(async () => {
+    const user = await ensureUser();
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    if (!quoteId) {
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId is required.");
+    }
+
+    const quote = await loadQuoteOrThrow(quoteId);
+
+    // requireRevisable (Step 2 guard) accepts sent | accepted. We
+    // narrow further HERE for 6c: `accepted` requires the HubSpot
+    // rollback that Step 7 ships. Fail loudly + point at the
+    // future step.
+    requireRevisable(quote);
+    if (quote.status === "accepted") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Revise-from-accepted requires the HubSpot deal-stage rollback that Step 7 ships. Until then, Revise is available on 'sent' quotes only.",
+      );
+    }
+
+    const priorVersion = quote.versionNumber;
+    const newVersion = priorVersion + 1;
+    const revisedAt = new Date();
+
+    const result = await db.transaction(async (tx) => {
+      // Close the current sent snapshot. Only ONE snapshot per quote
+      // can have superseded_at IS NULL (Step 5a discipline; sendQuote
+      // always inserts with NULL and this action is the sole writer
+      // that sets it). Returning the id for the audit forensic trail.
+      const [superseded] = await tx
+        .update(quoteSnapshots)
+        .set({ supersededAt: revisedAt })
+        .where(
+          and(
+            eq(quoteSnapshots.quoteId, quoteId),
+            isNull(quoteSnapshots.supersededAt),
+          ),
+        )
+        .returning({ id: quoteSnapshots.id, versionNumber: quoteSnapshots.versionNumber });
+
+      // Flip the quote row: draft + version bump. Snapshot mirror
+      // columns + pdf_url + sent_at STAY per the header rationale.
+      await tx
+        .update(quotes)
+        .set({
+          status: "draft",
+          versionNumber: newVersion,
+          updatedAt: revisedAt,
+        })
+        .where(eq(quotes.id, quoteId));
+
+      // Audit — dedicated action name per v3 §5.1 R3 amendment 7.
+      // diff_json captures the state transition + linked snapshot id
+      // so forensic replay can reconstruct which snapshot was
+      // closed.
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote",
+        entityId: quoteId,
+        action: "quote_revised",
+        diffJson: {
+          from_status: quote.status,
+          to_status: "draft",
+          from_version: priorVersion,
+          to_version: newVersion,
+          superseded_snapshot: superseded
+            ? {
+                id: superseded.id,
+                version_number: superseded.versionNumber,
+              }
+            : null,
+        },
+      });
+
+      return {
+        newVersionNumber: newVersion,
+        supersededSnapshotId: superseded?.id ?? null,
+      };
     });
 
     revalidateQuoteTree(quote.projectId, quoteId);

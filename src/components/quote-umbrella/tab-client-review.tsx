@@ -19,6 +19,7 @@ import type { ReviewEventRow } from "@/lib/quote-review-events";
 import type { CustomerView } from "@/types/quote";
 import { AdvanceBar } from "./advance-bar";
 import { AddEntry } from "./add-entry";
+import { ReviseButton } from "./revise-button";
 import type { SubTabId } from "./subtabs";
 
 function shortDate(d: Date): string {
@@ -154,10 +155,25 @@ export function TabClientReview({
                         </span>
                       </div>
                       {ev.note && <div className="note">{ev.note}</div>}
-                      {/* Slice 12 Step 6c — inline "↺ Revise → v{N+1}"
-                          + "Mark handled" affordances on
-                          revision_requested entries render here once
-                          the Revise action lands. */}
+                      {/* Slice 12 Step 6c — inline revise affordance
+                          on revision_requested entries. `Mark handled`
+                          is a UI-only convenience (no schema field to
+                          persist per v3 — banked for a future feed
+                          extension if PMs want it durable). Only shown
+                          when the quote is currently revisable
+                          (matches server guard). */}
+                      {ev.eventType === "revision_requested" && isSent && (
+                        <div className="inline-act">
+                          <ReviseButton
+                            quoteId={quoteId}
+                            currentVersionNumber={quoteVersionNumber}
+                            quoteNumber={quote.quoteNumber}
+                            buttonLabel={`↺ Revise → v${quoteVersionNumber + 1}`}
+                            buttonClassName="btn sm"
+                            buttonTestId={`revise-from-feed-${ev.id}`}
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -193,19 +209,21 @@ export function TabClientReview({
               number — notes, associations, cost data and this log all
               carry over.
             </p>
-            <button
-              className="btn"
-              style={{ width: "100%" }}
-              disabled
-              onClick={() =>
-                window.alert(
-                  "Revise-in-place action lands in Step 6c. This affordance ships its final wire-up then.",
-                )
+            <ReviseButton
+              quoteId={quoteId}
+              currentVersionNumber={quoteVersionNumber}
+              quoteNumber={quote.quoteNumber}
+              disabled={!isSent}
+              disabledReason={
+                isSent
+                  ? undefined
+                  : `Revise is available on 'sent' quotes only. Current state: '${quoteStatus}'.`
               }
-              title="Revise action lands in Step 6c."
-            >
-              ↺ Revise → v{quoteVersionNumber + 1}
-            </button>
+              buttonLabel={`↺ Revise → v${quoteVersionNumber + 1}`}
+              buttonClassName="btn"
+              buttonStyle={{ width: "100%" }}
+              buttonTestId="revise-quote-sidecar"
+            />
             <p
               style={{
                 margin: "10px 0 0",
