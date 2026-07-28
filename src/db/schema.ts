@@ -83,6 +83,21 @@ export const acceptSource = pgEnum("accept_source", [
   "api",
 ]);
 
+// Slice 12 Step 8a — how the CUSTOMER communicated their acceptance
+// ("email" / "call" / "portal" / "other"). Orthogonal to `accept_source`
+// which records how NEXUS captured the acceptance (button click,
+// HubSpot webhook, direct API). Merging the two enums would collide
+// two distinct semantics (a manual_button accept is not mutually
+// exclusive with the customer having emailed their yes) — kept
+// separate per Architect §0.5 verdict on R9's proposed
+// `quote_acceptance` object.
+export const customerResponseChannel = pgEnum("customer_response_channel", [
+  "email",
+  "call",
+  "portal",
+  "other",
+]);
+
 export const markupPctSource = pgEnum("markup_pct_source", [
   "category_default",
   "manual_override",
@@ -318,6 +333,13 @@ export const quotes = pgTable(
       { onDelete: "restrict" },
     ),
     acceptSource: acceptSource("accept_source"),
+    // Slice 12 Step 8a — captured at acceptance alongside `accept_source`.
+    // Nullable; set by markAccepted from PM's sub-tab-4 source picker.
+    // Enum + column separation per Architect §0.5 verdict — see
+    // customerResponseChannel pgEnum definition above for the rationale.
+    customerResponseChannel: customerResponseChannel(
+      "customer_response_channel",
+    ),
     pdfUrl: text("pdf_url"),
     hubspotQuoteId: text("hubspot_quote_id"),
     globalPriceAdjPct: numeric("global_price_adj_pct", { precision: 5, scale: 4 })

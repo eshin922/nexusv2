@@ -50,8 +50,14 @@ export function SubTabStrip({
   const children: React.ReactNode[] = [];
 
   SUBTABS.forEach((tab, i) => {
-    // Lock threshold rule: sits BETWEEN tab 4 (Mark Accepted) and
-    // tab 5 (Tier Selection) — the reversible/irreversible boundary.
+    // Lock threshold rule: sits BETWEEN tab 4 (Acceptance) and
+    // tab 5 (Sales Order) — the reversible/irreversible boundary.
+    // Slice 12 Step 8a — R9.1-2 rename: caption "lock threshold" →
+    // "lock". Same visual role, tighter copy per data.js rename map.
+    // Visual armed state (dashed → solid) driven by the parent's
+    // `.r9-armed-strip` class per §4 "the rule is armed precisely
+    // when the PM is cleared to cross it" — see r9-quote-umbrella-
+    // addendum.css `.r9-armed-strip .r8-threshold` override.
     if (i === 4) {
       children.push(
         <div
@@ -61,7 +67,7 @@ export function SubTabStrip({
           title="Everything left of this line is reversible"
         >
           <span className="glyph">🔒</span>
-          <span className="cap">lock threshold</span>
+          <span className="cap">lock</span>
         </div>,
       );
     }
@@ -97,8 +103,16 @@ export function SubTabStrip({
   });
 
   const styleReset: CSSProperties = { fontFamily: "inherit" };
+  // Slice 12 Step 8a — R9 §4: "the strip's lock threshold goes from
+  // dashed to solid once acceptance is recorded — the rule is armed
+  // precisely when the PM is cleared to cross it." Arm the strip
+  // once the quote enters 'accepted' (or 'complete') state; the
+  // paired CSS override lives in r9-quote-umbrella-addendum.css
+  // (`.r9-armed-strip .r8-threshold`).
+  const armed = quoteStatus === "accepted" || quoteStatus === "complete";
+  const stripClass = "r8-strip" + (armed ? " r9-armed-strip" : "");
   return (
-    <div className="r8-strip" role="tablist" style={styleReset}>
+    <div className={stripClass} role="tablist" style={styleReset}>
       {children}
     </div>
   );

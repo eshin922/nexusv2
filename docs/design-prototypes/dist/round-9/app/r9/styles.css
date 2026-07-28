@@ -1,0 +1,458 @@
+/* Nexus Round 9 — Acceptance & Sales Order ceremony
+   ═══════════════════════════════════════════════════════════════════════════
+   ⚠ THIS FILE IS AN **ADDENDUM** TO app/r8/styles.css — NOT A REPLACEMENT.
+
+   Sub-tabs 1–3 are merged and shipping. Their CSS does not change. Load order:
+       <link href="app/r8/styles.css">      ← unchanged, already in production
+       <link href="app/r9/styles.css">      ← this file, adds/overrides tabs 4–5
+
+   Everything here is new (.r9-*) except five explicit overrides at the bottom,
+   each individually justified. CC adds one file and edits nothing merged.
+
+   THE CEREMONY MODEL THIS ENCODES
+   ───────────────────────────────
+   One customer decision arrives as one email: "we accept, Tier 2."
+     · Sub-tab 4 = THE CAPTURE — transcribe both facts once. Light. Pushes HubSpot.
+     · Sub-tab 5 = THE LOCK    — the tier is already known and CARRIED here.
+                                  The only question is "commit it?" Heavy. Pushes NetSuite.
+   The tier CHOICE lives upstream (capture). The tier COMMITMENT lives at the lock.
+   Separating choice from commitment is what keeps the irreversible act at
+   commitment without making the PM decide twice.  ← LOAD-BEARING
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ═══ SUB-TAB 4 · THE CAPTURE ═════════════════════════════
+   Deliberately compact. R8's Mark Accepted had an orientation panel, a
+   consequence rail and a reversibility explainer — three panels of preamble in
+   front of a light act. A capture is a transcription, not a ceremony: one card,
+   three fields, one button.                                     ← LOAD-BEARING */
+.r9-capture {
+  background: var(--paper-2); border: 1px solid var(--rule);
+  border-radius: 8px; overflow: hidden;
+}
+.r9-capture-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid var(--rule); background: var(--paper-3);
+  flex-wrap: wrap;
+}
+.r9-capture-head .t {
+  font-family: var(--display); font-size: 15.5px; font-weight: 500;
+  color: var(--ink); letter-spacing: -0.008em;
+}
+.r9-capture-head .s {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--ink-4);
+}
+.r9-field { padding: 14px 16px; border-top: 1px solid var(--rule); }
+.r9-field:first-child { border-top: none; }
+.r9-field > .lbl {
+  display: block;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.11em;
+  text-transform: uppercase; color: var(--ink-4); margin-bottom: 8px;
+}
+.r9-field > .hint {
+  display: block; font-size: 11.5px; color: var(--ink-3);
+  line-height: 1.5; margin-top: 7px;
+}
+
+/* Quoted customer words, pulled from the review log. The PM is confirming a
+   transcription, not authoring one — so the source text is shown, not hidden. */
+.r9-quote {
+  font-family: var(--display); font-size: 14px; font-style: italic;
+  color: var(--ink-2); line-height: 1.6;
+  border-left: 2px solid var(--rule-2); padding: 2px 0 2px 13px;
+}
+.r9-quote-src {
+  display: block; font-family: var(--mono); font-style: normal;
+  font-size: 9.5px; letter-spacing: 0.04em; color: var(--ink-4); margin-top: 7px;
+}
+
+/* Source-of-acceptance segmented control */
+.r9-source { display: flex; gap: 6px; flex-wrap: wrap; }
+.r9-source button {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+  padding: 7px 12px; border-radius: 6px; cursor: pointer;
+  background: var(--paper); border: 1px solid var(--rule); font-family: inherit; text-align: left;
+}
+.r9-source button .t {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--ink-2);
+}
+.r9-source button .h { font-size: 11px; color: var(--ink-4); }
+.r9-source button.on { border-color: var(--accent); background: var(--accent-soft); }
+.r9-source button.on .t { color: var(--accent-ink); }
+
+/* ─── Tier chips — THE tier choice, made HERE (upstream of the lock) ───
+   Compact, because at capture the PM is transcribing a number the customer
+   already named — not evaluating four options. Full compliance detail lives on
+   the lock surface where commitment happens.                    ← LOAD-BEARING */
+.r9-tierchips { display: flex; gap: 8px; flex-wrap: wrap; }
+.r9-chip {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  padding: 9px 13px; border-radius: 7px; cursor: pointer;
+  background: var(--paper); border: 1px solid var(--rule); font-family: inherit; text-align: left;
+  min-width: 104px;
+}
+.r9-chip:hover:not(.disabled) { border-color: var(--rule-2); }
+.r9-chip .top { display: flex; align-items: center; gap: 6px; }
+.r9-chip .tl {
+  font-family: var(--display); font-size: 15px; font-weight: 500; color: var(--ink);
+}
+.r9-chip .star { color: oklch(0.56 0.13 72); font-size: 10px; }
+.r9-chip .q { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); letter-spacing: 0.03em; }
+.r9-chip .m { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.03em; }
+.r9-chip .m.good         { color: var(--good); }
+.r9-chip .m.below_target { color: var(--warn); }
+.r9-chip .m.below_floor  { color: var(--bad); }
+.r9-chip.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.r9-chip.disabled { opacity: 0.55; cursor: not-allowed; }
+.r9-chip .named {
+  font-family: var(--mono); font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--accent-ink); background: oklch(from var(--accent) l c h / 0.14);
+  border-radius: 3px; padding: 1px 5px;
+}
+
+/* ─── Deliberate handoff (answers CA's auto-advance caution) ───
+   After a successful capture the app does NOT navigate. It resolves in place and
+   the advance bar re-labels to name the next act and its tier. The PM crosses the
+   lock threshold by clicking a button that says what it will do — never silently.
+                                                                  ← LOAD-BEARING */
+.r9-handoff {
+  display: flex; align-items: flex-start; gap: 13px;
+  background: var(--good-soft); border: 1px solid oklch(from var(--good) l c h / 0.4);
+  border-radius: 8px; padding: 15px 18px;
+}
+.r9-handoff .mark {
+  flex: 0 0 22px; height: 22px; border-radius: 50%;
+  background: var(--good); color: var(--paper);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600; margin-top: 1px;
+}
+.r9-handoff .txt { flex: 1; min-width: 0; }
+.r9-handoff h4 {
+  font-family: var(--display); font-size: 16px; font-weight: 500; margin: 0 0 4px;
+  color: var(--ink); letter-spacing: -0.01em;
+}
+.r9-handoff p { margin: 0; font-size: 12.5px; color: var(--ink-2); line-height: 1.55; }
+.r9-handoff .meta {
+  display: block; font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+  letter-spacing: 0.04em; margin-top: 7px;
+}
+.r9-handoff .acts { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+/* ═══ SUB-TAB 5 · SALES ORDER (the lock) ══════════════════
+   ONE LAYOUT, THREE STATES: pending · failed · record.
+
+   The tab is a RECEIPT, not a ceremony. The PM reads what is about to go to
+   NetSuite and signs it. Same document in all three states — in `pending` the
+   status items read "not yet"; in `failed` they are unchanged and an error sits
+   above them; in `record` they are stamped. Nothing moves between states, which
+   is what makes the tab legible as a permanent home for the order.
+                                                                 ← LOAD-BEARING */
+.r9-carried {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 16px 20px; border-radius: 8px;
+  background: var(--paper-2); border: 1px solid var(--rule-2);
+  border-left: 3px solid var(--accent);
+}
+.r9-carried .figure { display: flex; align-items: baseline; gap: 10px; }
+.r9-carried .tl {
+  font-family: var(--display); font-size: 30px; font-weight: 500;
+  color: var(--ink); letter-spacing: -0.02em; line-height: 1;
+}
+.r9-carried .star { color: oklch(0.56 0.13 72); font-size: 15px; }
+.r9-carried .qty {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-3); letter-spacing: 0.03em;
+}
+.r9-carried .nums { display: flex; gap: 22px; flex-wrap: wrap; margin-left: auto; }
+.r9-carried .num .v {
+  font-family: var(--mono); font-size: 14px; color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.r9-carried .num .v.good         { color: var(--good); }
+.r9-carried .num .v.below_target { color: var(--warn); }
+.r9-carried .num .v.below_floor  { color: var(--bad); }
+.r9-carried .num .k {
+  display: block; font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--ink-4); margin-top: 3px;
+}
+.r9-prov {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em;
+  color: var(--accent-ink); background: var(--accent-soft);
+  border-radius: 5px; padding: 8px 12px; margin-top: 10px;
+}
+
+/* Override disclosure — changing the tier here contradicts a recorded fact, so
+   it is closed by default and says so when opened. Not hidden; not free. */
+.r9-override { margin-top: 12px; }
+.r9-override > .trigger {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 10px 14px; border-radius: 7px; cursor: pointer; text-align: left;
+  background: var(--paper-3); border: 1px dashed var(--rule-2);
+  font-family: inherit; font-size: 12.5px; color: var(--ink-3);
+}
+.r9-override > .trigger:hover { color: var(--ink); }
+.r9-override > .trigger .chev { font-family: var(--mono); font-size: 11px; color: var(--ink-4); }
+.r9-override .panel {
+  margin-top: 10px; padding: 14px 16px; border-radius: 7px;
+  background: var(--warn-soft); border: 1px solid oklch(from var(--warn) l c h / 0.35);
+}
+.r9-override .panel .warn-line {
+  font-size: 12.5px; color: var(--ink-2); line-height: 1.55; margin: 0 0 11px;
+}
+.r9-override .panel .warn-line strong { color: var(--ink); }
+
+/* Commit summary — the two systems, stated before the gate */
+.r9-systems { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.r9-system {
+  flex: 1 1 210px; padding: 12px 14px; border-radius: 7px;
+  background: var(--paper-2); border: 1px solid var(--rule);
+}
+.r9-system .k {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.11em;
+  text-transform: uppercase; color: var(--ink-4); margin-bottom: 5px;
+}
+.r9-system .v { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
+.r9-system .v strong { color: var(--ink); }
+.r9-system.done { background: var(--good-soft); border-color: oklch(from var(--good) l c h / 0.35); }
+.r9-system.pending { border-style: dashed; }
+.r9-system .badge {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 7px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.07em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 3px;
+}
+.r9-system.done .badge    { background: oklch(from var(--good) l c h / 0.18); color: var(--good); }
+.r9-system.pending .badge { background: var(--paper-3); color: var(--ink-4); }
+
+/* ═══ OVERRIDES OF app/r8/styles.css ══════════════════════
+   Five, each deliberate. Everything else in r8/styles.css stands. */
+
+/* 1 · The capture's advance is light but CONSEQUENTIAL (it writes to HubSpot).
+   R8's light button is right; it gains a subtle ring so it reads as an act
+   rather than navigation — still unmistakably not the heavy slab. */
+.r8-advance.consequential .r8-adv-btn:not(.heavy) {
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.16);
+}
+
+/* 2 · Post-capture the advance bar names the tier it will commit, so the label
+   runs longer than R8 assumed. */
+.r8-advance .r8-adv-btn { white-space: nowrap; }
+
+/* 3 · The lock threshold gains emphasis once the PM is cleared to cross it —
+   the only moment the strip's dashed rule becomes solid. Applied by wrapping
+   the strip in .r9-armed-strip when quote.state = 'accepted'. */
+.r9-armed-strip .r8-threshold { border-left-style: solid; border-left-color: oklch(0.26 0.02 255); }
+.r9-armed-strip .r8-threshold .glyph { color: oklch(0.26 0.02 255); }
+.r9-armed-strip .r8-threshold .cap { color: var(--ink-3); }
+
+/* 4 · Capture surface is single-column: the R8 two-column body would leave the
+   compact card stranded beside an empty rail. */
+.r8-cols.r9-single { grid-template-columns: minmax(0, 1fr); max-width: 780px; }
+
+/* 5 · Kill a stray vertical scrollbar in the sub-tab strip.
+   r8 sets `overflow-x: auto`, and per spec a non-visible value on one axis
+   forces the other to compute to `auto`. `.r8-tab`'s `margin-bottom: -1px`
+   (the underline-bleed trick) pushes exactly 1px past the strip's content box,
+   which is enough to trigger a vertical scrollbar — it painted a full widget in
+   the strip band and ate 14px of width, truncating the sub-labels early.
+   Nothing real is clipped: the only overflow is that intentional 1px bleed.
+   Horizontal scrolling still works. */
+.r8-strip { overflow-y: hidden; }
+
+/* ─── Narrow / stacked variant ───────────────────────────── */
+.r8-shell.narrow .r9-carried .nums { margin-left: 0; gap: 16px; }
+.r8-shell.narrow .r9-chip { flex: 1 1 44%; min-width: 0; }
+.r8-shell.narrow .r9-systems { flex-direction: column; }
+@media (max-width: 900px) {
+  .r9-carried .nums { margin-left: 0; gap: 16px; }
+  .r9-chip { flex: 1 1 44%; min-width: 0; }
+  .r9-systems { flex-direction: column; }
+  .r9-source { width: 100%; }
+}
+
+/* ═══ THE RECEIPT · sub-tab 5's one layout ════════════════
+   A document, not a dashboard. Paper-white body, ruled rows, tabular figures,
+   a totals ladder that ends in one bold number. Every element holds its position
+   across pending / failed / record — only status text and stamps change. */
+.r9-so {
+  background: var(--paper); border: 1px solid var(--rule-2);
+  border-radius: 8px; overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.r9-so-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 18px;
+  padding: 16px 20px; border-bottom: 1.5px solid var(--ink); flex-wrap: wrap;
+}
+.r9-so-head .who .t {
+  font-family: var(--display); font-size: 19px; font-weight: 500;
+  color: var(--ink); letter-spacing: -0.014em;
+}
+.r9-so-head .who .s { font-size: 12.5px; color: var(--ink-3); margin-top: 3px; line-height: 1.45; }
+.r9-so-head .stamp { text-align: right; flex-shrink: 0; }
+.r9-so-head .stamp .n {
+  font-family: var(--mono); font-size: 15px; color: var(--ink); letter-spacing: 0.02em;
+}
+.r9-so-head .stamp .n.pending { color: var(--ink-4); font-style: italic; font-family: var(--display); font-size: 13px; }
+.r9-so-head .stamp .d {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--ink-4); margin-top: 4px;
+}
+
+/* Meta grid — ship-to, terms, incoterms, NetSuite account */
+.r9-so-meta {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0; border-bottom: 1px solid var(--rule);
+}
+.r9-so-meta .cell {
+  padding: 12px 20px; border-left: 1px solid var(--rule);
+}
+.r9-so-meta .cell:first-child { border-left: none; }
+.r9-so-meta .k {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-4); margin-bottom: 4px;
+}
+.r9-so-meta .v { font-size: 12.5px; color: var(--ink-2); line-height: 1.45; }
+.r9-so-meta .v strong { color: var(--ink); }
+.r9-so-meta .v .mono { font-family: var(--mono); font-size: 11.5px; }
+.r9-so-meta .ok {
+  display: inline-flex; align-items: center; gap: 4px; margin-top: 4px;
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--good);
+}
+
+/* Line items */
+.r9-so-lines { padding: 0; }
+.r9-so-lrow {
+  display: grid; grid-template-columns: minmax(0, 1fr) 92px 88px 104px;
+  gap: 12px; align-items: baseline;
+  padding: 10px 20px; border-bottom: 1px solid var(--rule);
+}
+.r9-so-lrow.head {
+  border-bottom: 1px solid var(--rule-2); padding-top: 9px; padding-bottom: 7px;
+}
+.r9-so-lrow.head span {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-4);
+}
+.r9-so-lrow .desc .n { display: block; font-size: 13px; color: var(--ink); font-weight: 500; line-height: 1.3; }
+.r9-so-lrow .desc .m {
+  display: block;
+  font-family: var(--mono); font-size: 9.5px; color: var(--ink-4);
+  letter-spacing: 0.02em; margin-top: 2px;
+}
+.r9-so-lrow .desc .m .code { color: var(--ink-3); }
+.r9-so-lrow .num {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-2);
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+.r9-so-lrow .num.ext { color: var(--ink); }
+.r9-so-lrow.onetime .desc .n { font-weight: 400; }
+.r9-so-lrow.onetime .desc .s {
+  display: block;
+  font-size: 11px; font-style: italic; color: var(--ink-4); margin-top: 2px; line-height: 1.4;
+}
+
+/* Totals ladder */
+.r9-so-totals { padding: 4px 20px 16px; }
+.r9-so-trow {
+  display: flex; justify-content: flex-end; align-items: baseline; gap: 18px;
+  padding: 6px 0;
+}
+.r9-so-trow .k {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--ink-3);
+}
+.r9-so-trow .v {
+  font-family: var(--mono); font-size: 13px; color: var(--ink-2);
+  min-width: 104px; text-align: right; font-variant-numeric: tabular-nums;
+}
+.r9-so-trow.grand { border-top: 1.5px solid var(--ink); margin-top: 6px; padding-top: 11px; }
+.r9-so-trow.grand .k { color: var(--ink); font-size: 10.5px; }
+.r9-so-trow.grand .v {
+  font-family: var(--display); font-size: 25px; font-weight: 500;
+  color: var(--ink); letter-spacing: -0.018em;
+}
+
+/* Status ledger — the "not yet" strip. Position fixed across all three states. */
+.r9-so-status { border-top: 1px solid var(--rule); background: var(--paper-2); }
+.r9-so-srow {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 20px; border-top: 1px solid var(--rule);
+}
+.r9-so-srow:first-child { border-top: none; }
+.r9-so-srow .icon {
+  flex: 0 0 18px; height: 18px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 600;
+  background: var(--paper-3); color: var(--ink-4); border: 1px dashed var(--rule-2);
+}
+.r9-so-srow.done .icon { background: var(--good); color: var(--paper); border: none; }
+.r9-so-srow.fail .icon { background: var(--bad);  color: var(--paper); border: none; }
+.r9-so-srow .lbl { flex: 1; font-size: 12.5px; color: var(--ink-2); line-height: 1.45; }
+.r9-so-srow .lbl strong { color: var(--ink); }
+.r9-so-srow .val {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--ink-4); text-align: right; flex-shrink: 0;
+}
+.r9-so-srow.done .val { color: var(--good); }
+.r9-so-srow.fail .val { color: var(--bad); }
+
+/* Pre-send flags */
+.r9-so-flag {
+  display: flex; align-items: flex-start; gap: 11px;
+  padding: 12px 20px; border-top: 1px solid var(--rule);
+}
+.r9-so-flag.warn { background: var(--warn-soft); }
+.r9-so-flag.bad  { background: var(--bad-soft); }
+.r9-so-flag .g { flex: 0 0 16px; font-family: var(--mono); font-size: 12px; margin-top: 1px; }
+.r9-so-flag.warn .g { color: var(--warn); }
+.r9-so-flag.bad  .g { color: var(--bad); }
+.r9-so-flag .t { display: block; font-size: 12.5px; color: var(--ink); font-weight: 500; }
+.r9-so-flag .s { display: block; font-size: 11.5px; color: var(--ink-2); line-height: 1.5; margin-top: 2px; }
+
+/* Failed state — the two-facts banner. Deal closed AND order not placed.
+   Deliberately NOT a full-bleed red catastrophe: the left half is still true.
+                                                                 ← LOAD-BEARING */
+.r9-so-split {
+  display: flex; flex-wrap: wrap; gap: 0;
+  border: 1px solid oklch(from var(--bad) l c h / 0.4); border-radius: 8px;
+  overflow: hidden; margin-bottom: 14px;
+}
+.r9-so-split .half { flex: 1 1 260px; padding: 15px 18px; }
+.r9-so-split .half.held { background: var(--good-soft); }
+.r9-so-split .half.lost { background: var(--bad-soft); border-left: 1px solid oklch(from var(--bad) l c h / 0.3); }
+.r9-so-split .half .k {
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.11em;
+  text-transform: uppercase; margin-bottom: 6px;
+}
+.r9-so-split .half.held .k { color: var(--good); }
+.r9-so-split .half.lost .k { color: var(--bad); }
+.r9-so-split .half .t {
+  font-family: var(--display); font-size: 15.5px; font-weight: 500;
+  color: var(--ink); letter-spacing: -0.008em; margin-bottom: 4px;
+}
+.r9-so-split .half .s { font-size: 12px; color: var(--ink-2); line-height: 1.55; }
+.r9-so-split .half .s code { font-family: var(--mono); font-size: 11px; }
+.r9-so-split .half .acts { display: flex; gap: 8px; margin-top: 11px; flex-wrap: wrap; }
+.r9-so-split .half .err {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.03em;
+  color: oklch(from var(--bad) calc(l - 0.06) c h); margin-top: 7px; line-height: 1.5;
+}
+
+/* ─── Narrow / stacked · receipt ─────────────────────────── */
+.r8-shell.narrow .r9-so-lrow { grid-template-columns: minmax(0, 1fr) 96px; row-gap: 4px; }
+.r8-shell.narrow .r9-so-lrow.head { display: none; }
+.r8-shell.narrow .r9-so-lrow .num.qty,
+.r8-shell.narrow .r9-so-lrow .num.unit { grid-column: 1; text-align: left; font-size: 10.5px; color: var(--ink-4); }
+.r8-shell.narrow .r9-so-meta { grid-template-columns: minmax(0, 1fr); }
+.r8-shell.narrow .r9-so-meta .cell { border-left: none; border-top: 1px solid var(--rule); }
+.r8-shell.narrow .r9-so-meta .cell:first-child { border-top: none; }
+@media (max-width: 900px) {
+  .r9-so-lrow { grid-template-columns: minmax(0, 1fr) 96px; row-gap: 4px; }
+  .r9-so-lrow.head { display: none; }
+  .r9-so-lrow .num.qty, .r9-so-lrow .num.unit { grid-column: 1; text-align: left; font-size: 10.5px; color: var(--ink-4); }
+  .r9-so-meta { grid-template-columns: minmax(0, 1fr); }
+  .r9-so-meta .cell { border-left: none; border-top: 1px solid var(--rule); }
+  .r9-so-meta .cell:first-child { border-top: none; }
+  .r9-so-trow .v { min-width: 88px; }
+}

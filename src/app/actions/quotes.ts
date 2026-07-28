@@ -36,6 +36,7 @@ import {
   users,
 } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
+import { getCostingBundle } from "@/app/actions/costing";
 import {
   findHubspotOwnerById,
   getDealStage,
@@ -1935,38 +1936,98 @@ export async function reviseQuote(
 }
 
 // Slice 12 Step 7a/7b — Mark Accepted per v3 brief §4.6.
+// Slice 12 Step 8a — extended per R9.1 to capture the acceptance
+// as a two-fact transcription (which tier the customer named + how
+// they communicated) and to push the tier's turnkey figure to
+// HubSpot as the deal amount alongside the stage push.
 //
 // Flips a sent quote to accepted status AND pushes the HubSpot deal
-// stage forward per firm_settings.hubspot_deal_stage_on_accept.
-// PM proxy for the customer's commitment — the moment where the
-// deal moves from "we sent them a quote" to "they accepted." The
-// last reversible state before the NetSuite SO push at Tier
-// Selection Advance (Step 8).
+// stage + amount forward per firm_settings.hubspot_deal_stage_on_accept
+// and the captured tier's revenue rollup. PM proxy for the customer's
+// commitment — the moment where the deal moves from "we sent them a
+// quote" to "they accepted." The last reversible state before the
+// NetSuite SO push at Tier Selection Advance (Step 8c).
+//
+// R9.1 model: tier CHOICE happens here (writes customer_accepted_
+// tier_id); tier COMMITMENT happens at Sales Order sub-tab 5 (Step 8c;
+// writes accepted_tier_id). The two columns have FK asymmetry
+// (customer_accepted_tier_id → SET NULL, accepted_tier_id → RESTRICT)
+// that already encodes the reversible-vs-committed split — no new
+// schema needed for the tier itself. See Architect §0.5 verdict.
 //
 // State-transition semantics:
 //   sent → accepted (allowed, this action)
 //   draft/accepted/complete/superseded/lost → rejected
 //
-// External-first ordering per v3 §5.1: HubSpot deal stage push
-// fires BEFORE the DB tx. On HubSpot failure, DB tx never runs;
-// quote stays 'sent'; PM retries. HubSpot-succeeds-DB-fails is
-// idempotent-safe: second call to updateDealStage against a deal
-// already at the target stage is a no-op.
+// External-first ordering per v3 §5.1: HubSpot deal stage + amount
+// push fires BEFORE the DB tx. On HubSpot failure, DB tx never runs;
+// quote stays 'sent'; ZERO rows written (tier, channel, feed events,
+// nothing); PM retries. HubSpot-succeeds-DB-fails is idempotent-safe:
+// a second call to updateDealStage against a deal already at the
+// target stage + amount is a no-op (HubSpot patch semantics).
 //
 // Snapshots the from_stage id + label in audit_log for rollback
-// via unmarkAccepted (defined below; hoisted). The prior stage id is the source of
-// truth for where the deal returns on Q7 rollback — reads the
-// most-recent quote_accepted audit entry to recover it.
+// via unmarkAccepted (defined below; hoisted). The prior stage id is
+// the source of truth for where the deal returns on Q7 rollback —
+// reads the most-recent quote_accepted audit entry to recover it.
+//
+// R9.1 second review-events row: when the note transcription is
+// non-empty, insert a second quote_review_events row IN THE SAME TX
+// as the system 'mark_accepted_auto_log' row. The two rows are
+// discriminated on both `system` (bool on the feed row) AND
+// `diff_json.source` (audit-log row): the system row keeps
+// system=true + source=mark_accepted_auto_log; the PM row gets
+// system=false + source=acceptance_capture + authorUserId=user.id.
+// Preserves #141's clean discriminator pattern — do NOT overload the
+// system row per Architect §0.5 verdict.
 export async function markAccepted(
   formData: FormData,
 ): Promise<
-  ActionResult<{ acceptedAt: Date; hubspot: { from: DealStageInfo; to: DealStageInfo } }>
+  ActionResult<{
+    acceptedAt: Date;
+    hubspot: { from: DealStageInfo; to: DealStageInfo; amount: number };
+    capturedTierId: string;
+    channel: "email" | "call" | "portal" | "other";
+    noteRowInserted: boolean;
+  }>
 > {
   return runAction(async () => {
     const user = await ensureUser();
     const quoteId = String(formData.get("quoteId") ?? "").trim();
     if (!quoteId) {
       throw new ActionGuardError(ERR.VALIDATION, "quoteId is required.");
+    }
+
+    // Step 8a additions — captured on sub-tab 4:
+    //   - tierId: which tier the customer named (customer_accepted_tier_id)
+    //   - channel: how they communicated (customer_response_channel)
+    //   - note: PM's transcription (goes to a second review-events row,
+    //     skipped when empty)
+    const tierId = String(formData.get("tierId") ?? "").trim();
+    const channelRaw = String(formData.get("channel") ?? "").trim();
+    const note = String(formData.get("note") ?? "").trim();
+    if (!tierId) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "tierId is required — pick the tier the customer named before recording acceptance.",
+      );
+    }
+    const VALID_CHANNELS = ["email", "call", "portal", "other"] as const;
+    if (!VALID_CHANNELS.includes(channelRaw as (typeof VALID_CHANNELS)[number])) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `channel is required and must be one of ${VALID_CHANNELS.join(" / ")}.`,
+      );
+    }
+    const channel = channelRaw as (typeof VALID_CHANNELS)[number];
+    // Note has the same 4000-char cap as ad-hoc feed writes (see
+    // src/app/actions/quote-review-events.ts:81-86) — prevents a
+    // runaway paste from bloating the feed row.
+    if (note.length > 4000) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Note too long (max 4000 characters).",
+      );
     }
 
     const quote = await loadQuoteOrThrow(quoteId);
@@ -1976,6 +2037,40 @@ export async function markAccepted(
         `Mark Accepted only fires on 'sent' quotes; current state: '${quote.status}'.`,
       );
     }
+
+    // Verify tierId belongs to this quote AND load the tier's revenue
+    // rollup for the HubSpot amount push. Two queries in parallel;
+    // tiers is a cheap indexed query; costing bundle is the heavier
+    // one (per CLAUDE.md, getCostingBundle fans out 8 queries
+    // internally — do NOT nest inside another Promise.all).
+    const tierRow = await db
+      .select({ id: quoteTiers.id, label: quoteTiers.label, qty: quoteTiers.qty })
+      .from(quoteTiers)
+      .where(and(eq(quoteTiers.id, tierId), eq(quoteTiers.quoteId, quoteId)))
+      .limit(1);
+    if (tierRow.length === 0) {
+      throw new ActionGuardError(
+        ERR.NOT_FOUND,
+        "Selected tier not found on this quote.",
+      );
+    }
+    const bundle = await getCostingBundle(quoteId);
+    if (!bundle.ok) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Costing bundle error while resolving tier amount: ${bundle.error.message}`,
+      );
+    }
+    const tierRollup = bundle.data.costing.quoteRollup.find(
+      (r) => r.tierId === tierId,
+    );
+    if (!tierRollup) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Selected tier has no revenue rollup — check that qty is set and cost data is complete.",
+      );
+    }
+    const tierTurnkeyAmount = tierRollup.totalRevenue;
 
     // Load project (for hubspot_deal_id) + firm_settings (for
     // target stage). Parallel — both cheap indexed reads.
@@ -2084,9 +2179,14 @@ export async function markAccepted(
           .where(eq(quotes.id, quoteId));
       }
 
+      // Step 8a — patch stage AND amount in the SAME API call.
+      // HubSpot's basicApi.update is a single PATCH; two properties
+      // land atomically or both fail. See updateDealStage's opts.amount
+      // rationale for why we consolidated over two separate calls.
       toStage = await updateDealStage(
         project.hubspotDealId as string,
         firm.hubspotDealStageOnAccept,
+        { amount: tierTurnkeyAmount },
       );
     } catch (e) {
       const msg = e instanceof HubspotError ? e.message : String(e);
@@ -2097,6 +2197,10 @@ export async function markAccepted(
     }
 
     const acceptedAt = new Date();
+    // Track whether the PM-authored note row was inserted so the
+    // caller can surface it (return value + smoke evidence). Assigned
+    // inside the tx to reflect the actual write, not the input intent.
+    let noteRowInserted = false;
 
     await db.transaction(async (tx) => {
       await tx
@@ -2106,6 +2210,12 @@ export async function markAccepted(
           acceptedAt,
           acceptedByUserId: user.id,
           acceptSource: "manual_button",
+          // Step 8a — the captured tier + channel land in the same
+          // UPDATE as the status flip. All three fields are HubSpot-
+          // gated: if the push above fails, this UPDATE never runs
+          // and NONE of them land (write-all-or-nothing per §5.1).
+          customerAcceptedTierId: tierId,
+          customerResponseChannel: channel,
           // CA review Item #1 fix — clear the durable capture pair
           // INSIDE the same tx that flips status. If this tx fails,
           // both columns stay populated for retry.
@@ -2126,12 +2236,22 @@ export async function markAccepted(
           version_number: quote.versionNumber,
           accepted_by_user_id: user.id,
           accept_source: "manual_button",
+          // Step 8a — capture the tier + channel + amount pushed to
+          // HubSpot in the same audit row. Rollback (unmarkAccepted)
+          // reads the from_stage_id from this row; the tier + channel
+          // are here for the forensic trail (customer_accepted_tier_id
+          // survives rollback per schema default, but the audit row
+          // preserves the tier that was ORIGINALLY captured — useful
+          // when a subsequent re-accept picks a different tier).
+          customer_accepted_tier_id: tierId,
+          customer_response_channel: channel,
           hubspot: {
             deal_id: project.hubspotDealId,
             from_stage_id: fromStageId,
             from_stage_label: fromStageLabel,
             to_stage_id: toStage.id,
             to_stage_label: toStage.label,
+            amount: tierTurnkeyAmount,
           },
         },
       });
@@ -2164,6 +2284,46 @@ export async function markAccepted(
           source: "mark_accepted_auto_log",
         },
       });
+
+      // Step 8a — second review-events row for the PM's transcription
+      // of the customer's own words. Skipped entirely when the note
+      // field is empty (rendering back as a single-row feed entry).
+      // Discriminators kept CLEAN per #141 convention: system=false
+      // + authorUserId=user.id on the feed row; source=
+      // 'acceptance_capture' on the audit row (distinguishes from
+      // 'pm_add' — the generic manual PM-add path via
+      // addQuoteReviewEvent — so future audit queries can filter by
+      // capture origin). Same tx as the system row so both land
+      // atomically or neither does.
+      if (note.length > 0) {
+        const [pmEv] = await tx
+          .insert(quoteReviewEvents)
+          .values({
+            quoteId,
+            versionNumber: quote.versionNumber,
+            eventType: "responded",
+            note,
+            authorUserId: user.id,
+            system: false,
+          })
+          .returning({ id: quoteReviewEvents.id });
+
+        await tx.insert(auditLog).values({
+          userId: user.id,
+          entityType: "quote_review_event",
+          entityId: pmEv.id,
+          action: "quote_review_event_added",
+          diffJson: {
+            quoteId,
+            versionNumber: quote.versionNumber,
+            eventType: "responded",
+            system: false,
+            note,
+            source: "acceptance_capture",
+          },
+        });
+        noteRowInserted = true;
+      }
     });
 
     revalidateQuoteTree(quote.projectId, quoteId);
@@ -2172,7 +2332,11 @@ export async function markAccepted(
       hubspot: {
         from: { id: fromStageId, label: fromStageLabel },
         to: toStage,
+        amount: tierTurnkeyAmount,
       },
+      capturedTierId: tierId,
+      channel,
+      noteRowInserted,
     };
   });
 }

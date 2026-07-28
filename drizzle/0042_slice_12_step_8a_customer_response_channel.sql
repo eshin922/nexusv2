@@ -1,0 +1,2 @@
+CREATE TYPE "public"."customer_response_channel" AS ENUM('email', 'call', 'portal', 'other');--> statement-breakpoint
+ALTER TABLE "quotes" ADD COLUMN "customer_response_channel" "customer_response_channel";

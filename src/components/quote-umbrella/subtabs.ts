@@ -33,8 +33,14 @@ export const SUBTABS: readonly SubTabDef[] = [
   { id: "preview",  n: 1, label: "Preview Quote",  state_req: "draft",    kind: "transition" },
   { id: "send",     n: 2, label: "Send to Client", state_req: "draft",    kind: "transition" },
   { id: "review",   n: 3, label: "Client Review",  state_req: "sent",     kind: "log" },
-  { id: "accepted", n: 4, label: "Mark Accepted",  state_req: "sent",     kind: "transition" },
-  { id: "tier",     n: 5, label: "Tier Selection", state_req: "accepted", kind: "lock" },
+  // Slice 12 Step 8a — R9.1 renames per docs/design-prototypes/dist/
+  // round-9/app/r9/data.js. String changes only — sub-tab ids
+  // (`accepted`, `tier`) stay stable so URL params (`?tab=accepted`)
+  // don't break for bookmarks. Rationale (R9.1-2): "Mark Accepted"
+  // and "Tier Selection" both named buttons/actions; the new labels
+  // name the ARTIFACT, which stays true across all of a tab's states.
+  { id: "accepted", n: 4, label: "Acceptance",     state_req: "sent",     kind: "transition" },
+  { id: "tier",     n: 5, label: "Sales Order",    state_req: "accepted", kind: "lock" },
 ] as const;
 
 export function isSubTabId(v: unknown): v is SubTabId {
@@ -114,8 +120,15 @@ export function subTabSubLabel(
     return tab.kind === "lock" ? "ready · irreversible" : "done · revisitable";
   }
   if (status === "current") {
+    // Slice 12 Step 8a — R9.1-2 rename per data.js: sub-tab 5 active
+    // pill goes from "the lock" to "ready to send". Matches R8/R9
+    // canonical (r9 data.js tab_status: `active: "ready to send"`)
+    // — the label names WHERE the PM is (the receipt is ready) not
+    // WHAT the tab is (a lock). Lock semantics still shown in the
+    // strip via the threshold caption + sub-label on non-current
+    // tabs ("ready · irreversible") + the receipt itself.
     return tab.kind === "lock"
-      ? "the lock"
+      ? "ready to send"
       : tab.kind === "log"
         ? "logging"
         : "in progress";

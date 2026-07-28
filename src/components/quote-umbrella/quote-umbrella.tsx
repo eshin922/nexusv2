@@ -23,6 +23,7 @@ import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import type { ReviewEventRow } from "@/lib/quote-review-events";
 import type { SentSnapshotRow } from "@/lib/quote-snapshots";
 import type { VersionRow } from "@/lib/quote-version-chain";
+import type { QuotePerTierRollup } from "@/lib/costing";
 import { SubTabStrip } from "./sub-tab-strip";
 import { Legend } from "./legend";
 import { QuoteAxisProvider } from "./quote-axis-context";
@@ -42,6 +43,10 @@ export function QuoteUmbrella({
   quoteAcceptedAt,
   quoteNumberDb,
   quoteSentAtDb,
+  customerAcceptedTierIdDb,
+  quoteRollup,
+  acceptancePrefill,
+  hubspotAcceptStageLabel,
   showStateSwitcher,
   internalNotes,
   addendumData,
@@ -83,6 +88,29 @@ export function QuoteUmbrella({
    * date; PM panels need the raw value to decide whether to show
    * "sent DATE" (post-send) vs "not sent" (fresh draft) at all. */
   quoteSentAtDb: Date | null;
+  /** Slice 12 Step 8a — raw DB `quote.customer_accepted_tier_id`.
+   * Nullable; populated when acceptance has been recorded (survives
+   * rollback per FK SET NULL). Renders the "named" marker on the
+   * matching tier chip so PMs recognize a prior capture after a
+   * rollback + re-accept cycle. */
+  customerAcceptedTierIdDb: string | null;
+  /** Slice 12 Step 8a — per-tier rollup for the acceptance sub-tab's
+   * tier chips (turnkey + margin + status). PM-facing only. */
+  quoteRollup: QuotePerTierRollup[];
+  /** Slice 12 Step 8a — server-side prefill for the acceptance
+   * transcription textarea. See getLatestRespondedEventForPrefill. */
+  acceptancePrefill: {
+    note: string;
+    createdAt: Date;
+    sourceRowId: string;
+  } | null;
+  /** Slice 12 Step 8a — resolved human-readable target stage for the
+   * "Now · HubSpot" system card copy on sub-tab 4. Resolved at
+   * page-load from firm_settings.hubspot_deal_stage_on_accept via
+   * loadPipelineStages when the stored value is an id; passed
+   * verbatim when the stored value is already a label. Fallback
+   * string when resolution fails. */
+  hubspotAcceptStageLabel: string;
   showStateSwitcher: boolean;
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
@@ -202,6 +230,12 @@ export function QuoteUmbrella({
               quoteAcceptedAt={quoteAcceptedAt}
               quoteNumberDb={quoteNumberDb}
               quoteSentAtDb={quoteSentAtDb}
+              quoteRollup={quoteRollup}
+              customerAcceptedTierIdDb={customerAcceptedTierIdDb}
+              prefillNote={acceptancePrefill?.note ?? null}
+              prefillSourceRowId={acceptancePrefill?.sourceRowId ?? null}
+              prefillSourceAt={acceptancePrefill?.createdAt ?? null}
+              hubspotAcceptStageLabel={hubspotAcceptStageLabel}
               onGo={onGo}
             />
           )}

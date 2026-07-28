@@ -295,6 +295,13 @@
       "when": 1785208722357,
       "tag": "0041_slice_12_step_7b_pending_hubspot_from_stage_version",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1785221147712,
+      "tag": "0042_slice_12_step_8a_customer_response_channel",
+      "breakpoints": true
     }
   ]
 }

@@ -10,12 +10,22 @@ import { loadScenarioVersionChain } from "@/lib/quote-version-chain";
 import {
   getReviewFeed,
   getReviewFeedCount,
+  getLatestRespondedEventForPrefill,
 } from "@/lib/quote-review-events";
 import { getLatestSupersededSnapshot } from "@/lib/quote-snapshots";
+import { resolveHubspotAcceptStageLabel } from "@/lib/hubspot-stage-label";
+import { db } from "@/db";
+import { firmSettings } from "@/db/schema";
+import { desc, isNull } from "drizzle-orm";
 // Slice 12 Step 1 — canonical CSS + shared primitives loaded only on
 // the /quote route (blast-radius scoped per Step 1 planning).
+// Slice 12 Step 8a — R9 addendum loaded AFTER r8 per Pattern 30
+// / R9 designer notes §7 ("Load order: r8 styles first, then r9").
+// Five documented overrides at bottom of the addendum; everything
+// else is new (.r9-*) with no r8 collisions.
 import "@/styles/r-shared-primitives.css";
 import "@/styles/r8-quote-umbrella.css";
+import "@/styles/r9-quote-umbrella-addendum.css";
 
 // Slice RI.6 — Quote page (visual shell + boundary-guard
 // build invariant per brief §3.7).
@@ -105,7 +115,7 @@ export default async function CustomerViewPage({
       );
     }
 
-    const { view, addendumData, project, quote } = result;
+    const { view, addendumData, project, quote, quoteRollup } = result;
     if (project.id !== projectId) notFound();
 
     // Slice 12 Step 4 — sibling quote versions for the Preview
@@ -122,11 +132,22 @@ export default async function CustomerViewPage({
     // indexed reads; typical <20 rows per quote.
     // Slice 12 Step 6d — also load latest-superseded snapshot for
     // MismatchBanner gate. Small indexed query; parallelizes cheaply.
+    // Slice 12 Step 8a — parallel adds:
+    //   - acceptancePrefill: most-recent PM-authored 'responded' feed
+    //     entry for the Acceptance sub-tab's "Their words" textarea
+    //     pre-fill. Small indexed lookup.
+    //   - firmSettingsRow: needed for the "Now · HubSpot" system card
+    //     copy on sub-tab 4 (target-stage label). One-row lookup on
+    //     effective_until IS NULL.
+    // Both cheap; keep out of any nested Promise.all with
+    // getCostingBundle per parallel-query discipline.
     const [
       versionChain,
       reviewFeedCount,
       reviewFeed,
       latestSupersededSnapshot,
+      acceptancePrefill,
+      firmSettingsRow,
     ] = await Promise.all([
       loadScenarioVersionChain({
         projectId: project.id,
@@ -136,7 +157,27 @@ export default async function CustomerViewPage({
       getReviewFeedCount(quote.id),
       getReviewFeed(quote.id),
       getLatestSupersededSnapshot(quote.id),
+      getLatestRespondedEventForPrefill(quote.id),
+      db
+        .select({
+          hubspotDealStageOnAccept: firmSettings.hubspotDealStageOnAccept,
+        })
+        .from(firmSettings)
+        .where(isNull(firmSettings.effectiveUntil))
+        .orderBy(desc(firmSettings.effectiveFrom))
+        .limit(1),
     ]);
+
+    // Resolve HubSpot accept-stage LABEL for the sub-tab 4 systems
+    // card. firm_settings stores an id today ('195607084') post the
+    // Slice 12 Step 7b fix-pass; the resolver falls back to the raw
+    // value if pipeline lookup fails (network / API error), and to a
+    // generic phrase if firm_settings has no active row. Sub-tab 4 is
+    // read-only display; a failed resolve degrades to the raw id
+    // rather than blocking the whole page render.
+    const hubspotAcceptStageLabel = await resolveHubspotAcceptStageLabel(
+      firmSettingsRow[0]?.hubspotDealStageOnAccept ?? null,
+    );
 
     const showStateSwitcher =
       dev === "1" || process.env.NODE_ENV !== "production";
@@ -170,6 +211,10 @@ export default async function CustomerViewPage({
           quoteAcceptedAt={quote.acceptedAt}
           quoteNumberDb={quote.quoteNumber}
           quoteSentAtDb={quote.sentAt}
+          customerAcceptedTierIdDb={quote.customerAcceptedTierId}
+          quoteRollup={quoteRollup}
+          acceptancePrefill={acceptancePrefill}
+          hubspotAcceptStageLabel={hubspotAcceptStageLabel}
           showStateSwitcher={showStateSwitcher}
           internalNotes={quote.internalNotes}
           addendumData={addendumData}
