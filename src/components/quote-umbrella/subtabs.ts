@@ -107,26 +107,23 @@ export function subTabSubLabel(
   status: SubTabStatus,
 ): string {
   if (status === "locked") return "locked";
-  // Slice 12 Step 7c review-fix (CB P4.1) — Tier Selection is the
-  // LOCK. When its state_req is met (quote is accepted) but the
-  // lock hasn't fired yet, the tab is REACHABLE but not "done" in
-  // the revisitable sense — reaching state_req just makes it the
-  // NEXT step. Legend derivation had been reading reachability as
-  // completion and labelling Tier "done · revisitable" — the
-  // opposite of what the strip should communicate about the one
-  // irreversible tab. Emit "ready · irreversible" for the lock so
-  // the strip preserves CD's deliberate asymmetry.
+  // Slice 12 Step 8b · CB P4 fix — unify the lock tab's sub-label
+  // across current + done to "ready to send". Prior state emitted
+  // "ready to send" when active and "ready · irreversible" when
+  // done — CB flagged the drift (Sales Order tab reads "READY TO
+  // SEND" in its footer, "READY · IRREVERSIBLE" in the strip from
+  // sibling tabs). Both states describe the same underlying
+  // capability (accept has landed, send is unlocked); the strip
+  // pill collapses to R9's canonical active label. The
+  // irreversibility signal already lives in the lock threshold
+  // glyph (armed/solid when accepted), the AdvanceBar caption, the
+  // dark-slab CTA treatment, and the SendOrderModal's "Send order
+  // · irreversible" head + "keep it reversible" cancel copy — the
+  // strip pill doesn't need to duplicate it.
   if (status === "done") {
-    return tab.kind === "lock" ? "ready · irreversible" : "done · revisitable";
+    return tab.kind === "lock" ? "ready to send" : "done · revisitable";
   }
   if (status === "current") {
-    // Slice 12 Step 8a — R9.1-2 rename per data.js: sub-tab 5 active
-    // pill goes from "the lock" to "ready to send". Matches R8/R9
-    // canonical (r9 data.js tab_status: `active: "ready to send"`)
-    // — the label names WHERE the PM is (the receipt is ready) not
-    // WHAT the tab is (a lock). Lock semantics still shown in the
-    // strip via the threshold caption + sub-label on non-current
-    // tabs ("ready · irreversible") + the receipt itself.
     return tab.kind === "lock"
       ? "ready to send"
       : tab.kind === "log"

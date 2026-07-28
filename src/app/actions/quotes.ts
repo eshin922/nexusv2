@@ -2070,6 +2070,36 @@ export async function markAccepted(
         "Selected tier has no revenue rollup — check that qty is set and cost data is complete.",
       );
     }
+
+    // Slice 12 Step 8b patch (CA escalation from PR #148 review) —
+    // server-side below-floor gate. AcceptedCapture's tier chips
+    // disable BELOW_FLOOR tiers UI-side, but a crafted form POST
+    // could bypass the chip disable and record acceptance at a
+    // below-floor tier — which then pushes the deal to Won +
+    // writes an amount below margin without an admin sign-off.
+    //
+    // Every other gate in this slice is enforced at both UI and
+    // server layers (#146 P2: "A reachable tab with a hidden-but-
+    // live writer is worse than an unreachable tab."). Same class.
+    //
+    // R5 admin-override path — below-floor should be blocked
+    // UNLESS overridden. The override is not yet wired (belongs
+    // at the server, not the chip); when it lands, it comes via
+    // a distinct authorized-actor flag on the FormData, and this
+    // check gains an escape clause referencing it. Until then,
+    // below-floor is a hard reject.
+    //
+    // Placed BEFORE the HubSpot call so a rejection means:
+    //   - zero HubSpot API calls
+    //   - zero DB writes
+    //   - quote stays 'sent'
+    // Same shape as the isHubspotLinkedDealId guard 30 lines below.
+    if (tierRollup.blendedMarginStatus === "BELOW_FLOOR") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Cannot record acceptance at ${tierRollup.label} — the tier is below the firm's margin floor. Admin override required (not yet wired; block until it lands).`,
+      );
+    }
     const tierTurnkeyAmount = tierRollup.totalRevenue;
 
     // Load project (for hubspot_deal_id) + firm_settings (for

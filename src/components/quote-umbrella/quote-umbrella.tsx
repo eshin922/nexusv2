@@ -31,7 +31,7 @@ import { TabPreviewQuote } from "./tab-preview-quote";
 import { TabSendToClient } from "./tab-send-to-client";
 import { TabClientReview } from "./tab-client-review";
 import { TabMarkAccepted } from "./tab-mark-accepted";
-import { TabTierSelection } from "./tab-stubs";
+import { TabSalesOrder } from "./tab-sales-order";
 import type { SubTabId } from "./subtabs";
 
 export function QuoteUmbrella({
@@ -47,7 +47,9 @@ export function QuoteUmbrella({
   quoteRollup,
   acceptancePrefill,
   hubspotAcceptStageLabel,
+  hubspotPushedAmount,
   showStateSwitcher,
+  allowSimulatedComplete,
   internalNotes,
   addendumData,
   isHubspotLinked,
@@ -111,7 +113,24 @@ export function QuoteUmbrella({
    * verbatim when the stored value is already a label. Fallback
    * string when resolution fails. */
   hubspotAcceptStageLabel: string;
+  /** Slice 12 Step 8b — HubSpot amount 8a pushed at acceptance,
+   * read from audit_log's quote_accepted diff_json.hubspot.amount.
+   * Rendered on the Sales Order tab's ledger row ("HubSpot — deal
+   * set to Won - In production at $X"). Nullable — legacy quotes
+   * accepted pre-8a don't have amount in the audit; the Sales
+   * Order tab falls back to the carried tier's totalRevenue
+   * (structurally the same figure per PR #147 derivation trace). */
+  hubspotPushedAmount: number | null;
   showStateSwitcher: boolean;
+  /** Slice 12 Step 8b · CB P2 fix — hard-guard on the strip-state
+   * simulation. Computed server-side in page.tsx from VERCEL_ENV so
+   * client-baked NODE_ENV can't be the sole gate (Vercel Preview
+   * builds have NODE_ENV=production). false = production Vercel
+   * domain → simulation blocked. true = preview / development /
+   * local → simulation allowed. Even so, the simulation is
+   * cosmetic-only per the grep — no writes, actions, or gating
+   * consume effectiveQuoteStatus. */
+  allowSimulatedComplete: boolean;
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
   isHubspotLinked: boolean;
@@ -151,7 +170,53 @@ export function QuoteUmbrella({
     [router, pathname, searchParams],
   );
 
-  const showLegend = quoteStatus !== "complete";
+  // Slice 12 Step 8b · CB P2 fix — when the Sales Order dev switcher
+  // simulates the RECORD state (`?dev=1&so-state=record`), the receipt
+  // renders "quote and every sub-tab are read-only" copy — but the
+  // underlying quote.status is still 'accepted' (no writer flips it
+  // to 'complete' in 8b). Without this override, the sub-tab strip
+  // would render tabs 1-4 as "done · revisitable" (their state pre-
+  // commit), contradicting the receipt copy CB flagged.
+  //
+  // Solution: when the dev switcher is active AND the URL says
+  // so-state=record, present the strip with an effectiveQuoteStatus
+  // of 'complete' so Pattern 52's freeze is visible in the strip —
+  // tabs 1-4 render as 'locked', matching what production will show
+  // once 8c wires markComplete. Legend also hides in the simulated
+  // complete state (matches production behavior — showLegend gates
+  // on 'complete').
+  //
+  // Production behavior is unchanged: real quote.status='complete'
+  // → subTabStatus returns 'locked' for every tab → strip labels
+  // "locked" per subTabSubLabel. The dev-switcher override just
+  // makes CB (and CD) able to walk that visual state without a
+  // real markComplete write.
+  const soStateParam = searchParams?.get("so-state");
+  // Slice 12 Step 8b · CB P2 fix — CA blast-radius review (2026-07-28):
+  // hard-guard on `allowSimulatedComplete` so a curious PM hitting
+  // ?dev=1&so-state=record on the PRODUCTION Vercel deploy cannot see
+  // a false "complete" state on a real quote. Prop is computed server-
+  // side in page.tsx from VERCEL_ENV (VERCEL_ENV === 'production' →
+  // false; 'preview' | 'development' | absent → true). Client-side
+  // NODE_ENV can't be used here — Vercel bakes NODE_ENV='production'
+  // into ALL builds including previews, which would break CB's walk
+  // on the preview URL.
+  //
+  // effectiveQuoteStatus blast radius (grep-verified):
+  //   - SubTabStrip prop (cosmetic; drives sub-label rendering)
+  //   - showLegend gate (cosmetic; hides legend when 'complete')
+  //   - ZERO touch of sub-tab bodies, actions, writers, gating
+  // Cosmetic scope, hard-guarded anyway per CA discipline: "dev
+  // override with production reach" is a category to prevent, not
+  // just narrow.
+  const simulateComplete =
+    allowSimulatedComplete &&
+    showStateSwitcher &&
+    soStateParam === "record" &&
+    quoteStatus === "accepted";
+  const effectiveQuoteStatus = simulateComplete ? "complete" : quoteStatus;
+
+  const showLegend = effectiveQuoteStatus !== "complete";
 
   // Slice 12 Step 7c review-fix (CB P2) — derive "has this quote
   // been sent at least once?" from live state OR from the existence
@@ -177,7 +242,7 @@ export function QuoteUmbrella({
       <div className="r8-shell">
         <SubTabStrip
           activeId={activeTab}
-          quoteStatus={quoteStatus}
+          quoteStatus={effectiveQuoteStatus}
           feedCount={reviewFeedCount}
           hasSentHistory={hasSentHistory}
           onGo={onGo}
@@ -239,7 +304,22 @@ export function QuoteUmbrella({
               onGo={onGo}
             />
           )}
-          {activeTab === "tier" && <TabTierSelection onGo={onGo} />}
+          {activeTab === "tier" && (
+            <TabSalesOrder
+              view={view}
+              quoteId={quoteId}
+              quoteStatus={quoteStatus}
+              quoteVersionNumber={quoteVersionNumber}
+              quoteNumberDb={quoteNumberDb}
+              quoteAcceptedAt={quoteAcceptedAt}
+              customerAcceptedTierIdDb={customerAcceptedTierIdDb}
+              quoteRollup={quoteRollup}
+              hubspotAcceptStageLabel={hubspotAcceptStageLabel}
+              hubspotPushedAmount={hubspotPushedAmount}
+              showStateSwitcher={showStateSwitcher}
+              onGo={onGo}
+            />
+          )}
         </div>
       </div>
     </QuoteAxisProvider>
