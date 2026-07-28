@@ -30,6 +30,8 @@ import {
   freightLegTiers,
   projects,
   quotes,
+  quoteReviewEvents,
+  quoteSnapshots,
   quoteTiers,
   users,
 } from "@/db/schema";
@@ -1606,6 +1608,44 @@ export async function sendQuote(
       const detailLevelSnapshot = resolved.view.detailLevel;
       const includeSpecAddendumSnapshot = resolved.view.includeSpecAddendum;
 
+      // Slice 12 Step 5b — versioned snapshot INSERT per v3 §5.1
+      // Round 3 amendment 3. Archives this send's payload into the
+      // sibling quote_snapshots table. Same-tx atomicity with the
+      // UPDATE + audit_log writes below; INSERT-before-UPDATE per
+      // brief phrasing.
+      //
+      // Read-path stability: the mirror columns on `quotes` remain
+      // populated (UPDATE below) so no downstream reader breaks
+      // during this transition. Snapshot table is the authoritative
+      // per-version archive; column removal deferred to slice close.
+      //
+      // superseded_at intentionally NULL — this is the current
+      // sent version. Revise (Step 6) flips it and increments
+      // quote.version_number; the next send INSERTs a fresh row.
+      await tx.insert(quoteSnapshots).values({
+        quoteId,
+        versionNumber: quote.versionNumber,
+        effectiveFrom: sentAt,
+        supersededAt: null,
+        sentAt,
+        validUntil: validUntilIso,
+        quoteNumber,
+        tcs: firm.tcsDefault ?? null,
+        paymentTerms: firm.paymentTermsDefault ?? null,
+        leadTime: firm.leadTimeDefault ?? null,
+        incoterms: firm.incotermsDefault ?? null,
+        daysValid,
+        preparedByName: preparedBy.name,
+        preparedByEmail: preparedBy.email,
+        preparedByPhone: preparedBy.phone,
+        pdfLayout: pdfLayoutSnapshot,
+        detailLevel: detailLevelSnapshot,
+        includeSpecAddendum: includeSpecAddendumSnapshot,
+        pdfUrl,
+        acceptedSnapshotJson: null,
+        createdByUserId: user.id,
+      });
+
       const [updated] = await tx
         .update(quotes)
         .set({
@@ -1682,6 +1722,42 @@ export async function sendQuote(
             phone: preparedBy.phone,
             derived_from: preparedBy.derivedFrom,
           },
+        },
+      });
+
+      // Slice 12 Step 5b — auto-log the send as a system entry in
+      // the Client Review feed per §0 Round 4 disposition. Becomes
+      // the feed's origin entry (author='system' visually; per R8
+      // data.js §review_events shape). First quote_review_events
+      // writer. Note copy mirrors R8 fixture: "Quote v{N} sent to
+      // {email}".
+      const [reviewEvent] = await tx
+        .insert(quoteReviewEvents)
+        .values({
+          quoteId,
+          versionNumber: quote.versionNumber,
+          eventType: "sent",
+          note: `Quote v${quote.versionNumber} sent to ${preparedBy.email}`,
+          authorUserId: null, // system-generated
+          system: true,
+        })
+        .returning({ id: quoteReviewEvents.id });
+
+      // Mirror the feed write to audit_log per v3 §5.1 Round 3
+      // amendment 1 — forensic replay independent of feed-table
+      // integrity. Every quote_review_events INSERT gets a
+      // quote_review_event_added audit row.
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote_review_event",
+        entityId: reviewEvent.id,
+        action: "quote_review_event_added",
+        diffJson: {
+          quoteId,
+          versionNumber: quote.versionNumber,
+          eventType: "sent",
+          system: true,
+          note: `Quote v${quote.versionNumber} sent to ${preparedBy.email}`,
         },
       });
 
