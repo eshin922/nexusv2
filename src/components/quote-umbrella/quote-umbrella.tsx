@@ -31,7 +31,7 @@ import { TabPreviewQuote } from "./tab-preview-quote";
 import { TabSendToClient } from "./tab-send-to-client";
 import { TabClientReview } from "./tab-client-review";
 import { TabMarkAccepted } from "./tab-mark-accepted";
-import { TabTierSelection } from "./tab-stubs";
+import { TabSalesOrder } from "./tab-sales-order";
 import type { SubTabId } from "./subtabs";
 
 export function QuoteUmbrella({
@@ -47,6 +47,7 @@ export function QuoteUmbrella({
   quoteRollup,
   acceptancePrefill,
   hubspotAcceptStageLabel,
+  hubspotPushedAmount,
   showStateSwitcher,
   internalNotes,
   addendumData,
@@ -111,6 +112,14 @@ export function QuoteUmbrella({
    * verbatim when the stored value is already a label. Fallback
    * string when resolution fails. */
   hubspotAcceptStageLabel: string;
+  /** Slice 12 Step 8b — HubSpot amount 8a pushed at acceptance,
+   * read from audit_log's quote_accepted diff_json.hubspot.amount.
+   * Rendered on the Sales Order tab's ledger row ("HubSpot — deal
+   * set to Won - In production at $X"). Nullable — legacy quotes
+   * accepted pre-8a don't have amount in the audit; the Sales
+   * Order tab falls back to the carried tier's totalRevenue
+   * (structurally the same figure per PR #147 derivation trace). */
+  hubspotPushedAmount: number | null;
   showStateSwitcher: boolean;
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
@@ -239,7 +248,22 @@ export function QuoteUmbrella({
               onGo={onGo}
             />
           )}
-          {activeTab === "tier" && <TabTierSelection onGo={onGo} />}
+          {activeTab === "tier" && (
+            <TabSalesOrder
+              view={view}
+              quoteId={quoteId}
+              quoteStatus={quoteStatus}
+              quoteVersionNumber={quoteVersionNumber}
+              quoteNumberDb={quoteNumberDb}
+              quoteAcceptedAt={quoteAcceptedAt}
+              customerAcceptedTierIdDb={customerAcceptedTierIdDb}
+              quoteRollup={quoteRollup}
+              hubspotAcceptStageLabel={hubspotAcceptStageLabel}
+              hubspotPushedAmount={hubspotPushedAmount}
+              showStateSwitcher={showStateSwitcher}
+              onGo={onGo}
+            />
+          )}
         </div>
       </div>
     </QuoteAxisProvider>

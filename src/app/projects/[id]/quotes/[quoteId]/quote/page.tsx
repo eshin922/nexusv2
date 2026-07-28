@@ -15,8 +15,8 @@ import {
 import { getLatestSupersededSnapshot } from "@/lib/quote-snapshots";
 import { resolveHubspotAcceptStageLabel } from "@/lib/hubspot-stage-label";
 import { db } from "@/db";
-import { firmSettings } from "@/db/schema";
-import { desc, isNull } from "drizzle-orm";
+import { auditLog, firmSettings } from "@/db/schema";
+import { and, desc, eq, isNull } from "drizzle-orm";
 // Slice 12 Step 1 — canonical CSS + shared primitives loaded only on
 // the /quote route (blast-radius scoped per Step 1 planning).
 // Slice 12 Step 8a — R9 addendum loaded AFTER r8 per Pattern 30
@@ -168,6 +168,34 @@ export default async function CustomerViewPage({
         .limit(1),
     ]);
 
+    // Slice 12 Step 8b — pull the HubSpot amount 8a pushed at
+    // acceptance from the most-recent quote_accepted audit row.
+    // Rendered on the Sales Order tab's ledger. Only present for
+    // quotes accepted post-8a; older accepts pre-date the amount
+    // write (Step 8b Sales Order falls back to tier.totalRevenue).
+    let hubspotPushedAmount: number | null = null;
+    if (quote.status === "accepted" || quote.status === "complete") {
+      const priorAccept = await db
+        .select({ diffJson: auditLog.diffJson })
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.entityType, "quote"),
+            eq(auditLog.entityId, quote.id),
+            eq(auditLog.action, "quote_accepted"),
+          ),
+        )
+        .orderBy(desc(auditLog.createdAt))
+        .limit(1);
+      const dj = priorAccept[0]?.diffJson;
+      if (dj && typeof dj === "object" && "hubspot" in dj) {
+        const hs = (dj as { hubspot?: { amount?: number } }).hubspot;
+        if (hs && typeof hs.amount === "number") {
+          hubspotPushedAmount = hs.amount;
+        }
+      }
+    }
+
     // Resolve HubSpot accept-stage LABEL for the sub-tab 4 systems
     // card. firm_settings stores an id today ('195607084') post the
     // Slice 12 Step 7b fix-pass; the resolver falls back to the raw
@@ -215,6 +243,7 @@ export default async function CustomerViewPage({
           quoteRollup={quoteRollup}
           acceptancePrefill={acceptancePrefill}
           hubspotAcceptStageLabel={hubspotAcceptStageLabel}
+          hubspotPushedAmount={hubspotPushedAmount}
           showStateSwitcher={showStateSwitcher}
           internalNotes={quote.internalNotes}
           addendumData={addendumData}
