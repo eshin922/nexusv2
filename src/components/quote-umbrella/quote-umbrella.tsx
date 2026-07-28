@@ -20,6 +20,7 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useCallback } from "react";
 import type { CustomerView } from "@/types/quote";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
+import type { VersionRow } from "@/lib/quote-version-chain";
 import { SubTabStrip } from "./sub-tab-strip";
 import { Legend } from "./legend";
 import { TabPreviewQuote } from "./tab-preview-quote";
@@ -41,6 +42,8 @@ export function QuoteUmbrella({
   addendumData,
   isHubspotLinked,
   reviewFeedCount,
+  projectId,
+  versionChain,
 }: {
   activeTab: SubTabId;
   view: CustomerView;
@@ -53,6 +56,14 @@ export function QuoteUmbrella({
   /** Slice 12 Step 1 — passed as 0 until Step 6 wires the real
    * quote_review_events count. The strip renders the badge when > 0. */
   reviewFeedCount: number;
+  /** Slice 12 Step 4 — routes the version-picker's cross-version
+   * Links. Only the Preview tab uses it currently; passed at umbrella
+   * level so future sub-tabs (e.g., Client Review's mismatch banner
+   * "View v3 sent" link) can reuse. */
+  projectId: string;
+  /** Slice 12 Step 4 — sibling quote rows for this scenario family.
+   * Resolved server-side in page.tsx (server-only import). */
+  versionChain: VersionRow[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -90,6 +101,8 @@ export function QuoteUmbrella({
             internalNotes={internalNotes}
             addendumData={addendumData}
             isHubspotLinked={isHubspotLinked}
+            projectId={projectId}
+            versionChain={versionChain}
             onGo={onGo}
           />
         )}
