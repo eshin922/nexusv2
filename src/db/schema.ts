@@ -15,6 +15,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  varchar,
 } from "drizzle-orm/pg-core";
 
 // ---------- enums ----------
@@ -51,6 +52,23 @@ export const quoteStatus = pgEnum("quote_status", [
   // accepted → draft transitions; `complete` blocks them (admin
   // override only; v1.5+).
   "complete",
+]);
+
+// Slice 12 Step 3 — Client Review feed event types (v3 brief §5.1
+// Round 3 amendment 1). pgEnum, not text, so bad values fail at the
+// DB. Extensible via `ALTER TYPE ADD VALUE`.
+//   - sent:              system-generated; auto-logged by sendQuote
+//                        (Step 5) as the feed's first entry per §0
+//                        Round 4 disposition (`system=true`).
+//   - responded:         PM-authored — customer replied.
+//   - asked:             PM-authored — you asked them something.
+//   - revision_requested: PM-authored — grows inline "↺ Revise"
+//                        affordance (R8 designer notes §4).
+export const quoteReviewEventType = pgEnum("quote_review_event_type", [
+  "sent",
+  "responded",
+  "asked",
+  "revision_requested",
 ]);
 
 export const scenarioStatus = pgEnum("scenario_status", [
@@ -289,9 +307,15 @@ export const quotes = pgTable(
     // lambda after both tables are defined; the migration emits an ALTER
     // TABLE that adds the FK after both CREATE TABLEs. AnyPgColumn breaks
     // the TS circular-type-inference cycle.
+    // Slice 12 Step 3 — FK tightened SET NULL → RESTRICT per v3 brief
+    // §5. Once a tier is bound as the accepted tier (Mark Accepted or
+    // Tier Selection Advance), it can't be deleted out from under the
+    // quote. All current writers of `accepted_tier_id` are on quotes
+    // whose status transitions to accepted/complete, so no draft-time
+    // tier delete could hit a non-null accepted_tier_id today.
     acceptedTierId: uuid("accepted_tier_id").references(
       (): AnyPgColumn => quoteTiers.id,
-      { onDelete: "set null" },
+      { onDelete: "restrict" },
     ),
     acceptSource: acceptSource("accept_source"),
     pdfUrl: text("pdf_url"),
@@ -400,6 +424,14 @@ export const quotes = pgTable(
     pdfLayoutSnapshot: pdfLayout("pdf_layout"),
     detailLevelSnapshot: detailLevel("detail_level"),
     includeSpecAddendumSnapshot: boolean("include_spec_addendum"),
+    // Slice 12 Step 3 — NetSuite SO push writebacks per v3 brief §4.7.
+    // Set at Tier Selection Advance (Step 8) when the SO is created
+    // in NetSuite. Both NULL until then; Pattern 52 immutability locks
+    // once `quote.status = 'complete'`.
+    netsuiteSoId: varchar("netsuite_so_id", { length: 50 }),
+    netsuitePushedAt: timestamp("netsuite_pushed_at", {
+      withTimezone: true,
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, {
@@ -480,6 +512,68 @@ export const quoteTiers = pgTable(
   (t) => [index("quote_tiers_quote_id_idx").on(t.quoteId)],
 );
 
+// ---------- Slice 12 Step 3 — Client Review feed ----------
+//
+// Append-only PM-facing activity log per v3 brief §4.3 + §5.1 Round 3.
+// Every entry captures a discrete customer-review moment on a specific
+// sent version of the quote (revision requests, questions, ad-hoc
+// responses, system-logged `sent` events).
+//
+// Design constraints baked into this schema:
+//   1. Append-only enforced STRUCTURALLY (no `updated_at`, no
+//      `deleted_at`, no soft-delete flag). Actions may only INSERT +
+//      SELECT; no UPDATE path exists (v3 §5.1 amendment 1).
+//   2. `event_type` is a pgEnum, not text — bad values fail at the DB.
+//      Extensible via `ALTER TYPE ADD VALUE` if a new event class
+//      lands (`quote_review_event_type` above).
+//   3. `version_number` is a plain int (not FK-linked); refers to the
+//      quote's `versionNumber` at the time the entry was logged. Kept
+//      queryable per-version so the mismatch banner + version chain
+//      can filter entries by which sent version they pertain to. FK
+//      would require exposing a versioned quote table shape v1 doesn't
+//      have (v3 brief §5.1 amendment 1 — FK-able later).
+//   4. `system` boolean discriminates auto-logged `sent` entries
+//      (Step 5 `sendQuote` sets true) from PM-authored feed adds. Feed
+//      UI (Step 6) treats system entries visually (`author: 'system'`
+//      per R8 data.js §"review_events") and forensic queries can
+//      isolate PM activity via `WHERE system = false`.
+//   5. Cascade on `quote_id` delete — feed follows the parent quote
+//      (nothing to preserve if the quote itself is gone). Author
+//      FK is `SET NULL` (user delete shouldn't nuke history).
+//   6. Mirror every write to `audit_log` via
+//      `quote_review_event_added` action (Step 6 wires this) per v3
+//      Round 3 amendment 1 — forensic replay independent of feed
+//      table integrity.
+//   7. Composite index `(quote_id, version_number, created_at DESC)`
+//      matches the expected read shape: "load this quote's feed,
+//      newest first, optionally filtered to a version."
+export const quoteReviewEvents = pgTable(
+  "quote_review_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    versionNumber: integer("version_number").notNull(),
+    eventType: quoteReviewEventType("event_type").notNull(),
+    note: text("note"),
+    authorUserId: uuid("author_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    system: boolean("system").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("quote_review_events_composite_idx").on(
+      t.quoteId,
+      t.versionNumber,
+      t.createdAt.desc(),
+    ),
+  ],
+);
+
 // ---------- inputs (Slice 5: packaging) ----------
 
 // Per-line markup defaults. Vocabulary is intentionally *temporary* for
@@ -554,6 +648,20 @@ export const firmSettings = pgTable(
     leadTimeDefault: text("lead_time_default"),
     incotermsDefault: text("incoterms_default"),
     daysValidDefault: integer("days_valid_default"),
+    // Slice 12 Step 3 — external-system defaults per v3 brief §5 +
+    // Q4/Q5 dispositions. Configurable per firm; Step 7 (HubSpot
+    // push) + Step 8 (NetSuite push) read the current row.
+    //
+    // Both carry-forward through `versionedFirmSettingsUpdate` per
+    // CLAUDE.md "Versioned-table carry-forward audit" (HARD GATE
+    // per v3 brief §5): once a new versioned row is inserted for a
+    // margin edit, unchanged columns preserved from the prior row.
+    hubspotDealStageOnAccept: text("hubspot_deal_stage_on_accept")
+      .notNull()
+      .default("Closed Won"),
+    netsuiteSoStatusOnCreate: text("netsuite_so_status_on_create")
+      .notNull()
+      .default("Pending Fulfillment"),
     effectiveFrom: date("effective_from").notNull().default(sql`CURRENT_DATE`),
     effectiveUntil: date("effective_until"),
     updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
