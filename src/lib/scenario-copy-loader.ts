@@ -34,13 +34,19 @@ export type ScenarioCopyPickerRow = {
   scenarioLabel: string;
   scenarioStatus: "active" | "dropped" | "accepted"; // 3 values per Catch #2
   // slice-fr12-copy-operations BUG-1 hotfix — quote-level workflow
-  // status (draft/sent/accepted/superseded/lost) disambiguates
+  // status (draft/sent/accepted/superseded/lost/complete) disambiguates
   // picker rows at copy time per CA + CB disposition. Distinct
   // from scenarioStatus (the scenario-family lifecycle); the two
   // enums share the 'accepted' value but answer different
   // forensic questions. Surfaced verbatim in the picker option
   // label so PMs see "sent" vs "draft" inline.
-  status: "draft" | "sent" | "accepted" | "superseded" | "lost";
+  //
+  // Slice 12 Step 2 — widened with 'complete' (post-Tier-Selection
+  // Advance / NetSuite SO push). Complete quotes remain valid copy
+  // sources; the clone strips lifecycle state per FR-12 Reset bucket
+  // (versionNumber=1, status='draft', accepted_at cleared, etc.) so
+  // the source's terminal state doesn't leak into the clone.
+  status: "draft" | "sent" | "accepted" | "superseded" | "lost" | "complete";
   isRecommended: boolean;
   versionNumber: number;
   asyCount: number;

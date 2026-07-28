@@ -44,6 +44,13 @@ export const quoteStatus = pgEnum("quote_status", [
   "accepted",
   "superseded",
   "lost",
+  // Slice 12 Step 2 — terminal + non-editable state marking a quote
+  // whose Tier Selection Advance has fired (NetSuite SO push landed).
+  // Pattern 52 immutability lock relocates here from `sent` (per v3
+  // brief §5). Revise action (Step 6) allows sent → draft +
+  // accepted → draft transitions; `complete` blocks them (admin
+  // override only; v1.5+).
+  "complete",
 ]);
 
 export const scenarioStatus = pgEnum("scenario_status", [

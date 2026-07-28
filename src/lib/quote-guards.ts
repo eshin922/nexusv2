@@ -42,6 +42,33 @@ export function requireDraft(quote: Quote): void {
   }
 }
 
+// Slice 12 Step 2 — asserts the quote is REVISABLE: currently `sent`
+// or `accepted`. Used by the Revise-in-place action (Step 6) to gate
+// the sent → draft / accepted → draft transitions that Nexus's
+// reversibility model (v3 brief §4.1) requires.
+//
+// Reject list is explicit:
+//   - draft:      already editable, nothing to revise
+//   - complete:   THE LOCK (Pattern 52 relocated here per v3 §5) —
+//                 NetSuite SO is live; admin override + SO cancellation
+//                 required to unwind (v1.5+ scope)
+//   - superseded: legacy status (zero writers today); v1 doesn't use it
+//   - lost:       terminal (customer declined); revising a lost quote
+//                 doesn't fit the operational model
+//
+// `requireDraft` stays authoritative for edit actions. Revise flips
+// the SAME row's status back to draft first, THEN edits are allowed
+// via requireDraft on the follow-up actions. See v3 brief §5.1
+// (Round 3 amendment 2 — `requireDraft` UNCHANGED).
+export function requireRevisable(quote: Quote): void {
+  if (quote.status !== "sent" && quote.status !== "accepted") {
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      `This quote is in '${quote.status}' status and cannot be revised. Revise is available on 'sent' and 'accepted' quotes only.`,
+    );
+  }
+}
+
 // Resolve the quote by id and assert draft. For actions keyed on quote
 // itself (vs sku or line group): updateQuoteGlobalPriceAdj, etc.
 export async function quoteByIdDraft(quoteId: string): Promise<Quote> {
