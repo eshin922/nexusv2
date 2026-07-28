@@ -2208,3 +2208,59 @@ export const assemblyLeafTargets = pgTable(
     index("assembly_leaf_targets_tier_id_idx").on(t.tierId),
   ],
 );
+
+// ---------- netsuite_item_groups (Slice 12 Step 8c-1) ----------
+
+// Nexus's authoritative local cache of composition → NetSuite Item
+// Group identity mappings. Identity is (customer_netsuite_id, base_sku,
+// sorted [(ns_item_id, qty)]) per CA §4A amendment (2026-07-28): groups
+// are per-CUSTOMER × composition. Two customers ordering an identical
+// component set get separate groups (Aisha confirmed).
+//
+// composition_hash is SHA-256 hex of canonicalized inputs; global PK
+// because the hash already includes customer + base SKU + composition.
+//
+// Description is WRITE-ONCE, NEVER RECONCILED (CA Q3 + Aisha "she can
+// manually overwrite it" answer). Nexus writes the description at
+// creation only; the find path is cache-only and never writes back to
+// NetSuite. Groups are immutable from our side.
+//
+// netsuite_external_id: Nexus writes 'nxs-grp-<hash>' at group
+// creation. 0 of 33 pre-existing sandbox groups populate this field,
+// so Nexus owns it cleanly and can only ever find its own groups.
+// Legacy-group reconciliation at cutover is out of scope (per CA §4A).
+export const netsuiteItemGroups = pgTable(
+  "netsuite_item_groups",
+  {
+    compositionHash: text("composition_hash").primaryKey(),
+    netsuiteExternalId: text("netsuite_external_id").notNull().unique(),
+    netsuiteInternalId: text("netsuite_internal_id").notNull(),
+    customerNetsuiteId: text("customer_netsuite_id").notNull(),
+    baseSku: text("base_sku").notNull(),
+    itemidDisplay: text("itemid_display").notNull(),
+    description: text("description"),
+    firstUsedByQuoteId: uuid("first_used_by_quote_id").references(
+      () => quotes.id,
+      { onDelete: "set null" },
+    ),
+    firstUsedByUserId: uuid("first_used_by_user_id").references(
+      () => users.id,
+      { onDelete: "set null" },
+    ),
+    firstUsedByDealId: text("first_used_by_deal_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Covers both "does this customer already have a group for this
+    // SKU?" cache lookups AND the -G/-G2/-G3 collision scan.
+    index("netsuite_item_groups_customer_base_sku_idx").on(
+      t.customerNetsuiteId,
+      t.baseSku,
+    ),
+  ],
+);

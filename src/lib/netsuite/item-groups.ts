@@ -1,0 +1,340 @@
+import "server-only";
+import { and, eq, like, sql } from "drizzle-orm";
+import { db } from "@/db";
+import { netsuiteItemGroups, auditLog } from "@/db/schema";
+import {
+  computeCompositionHash,
+  externalIdForHash,
+  type CompositionHashInput,
+} from "./composition-hash";
+import { generateGroupDescription } from "./description-generator";
+import {
+  createRecord,
+  suiteQL,
+  type NetsuiteConfig,
+} from "./client";
+import { NetsuiteError } from "./errors";
+
+// Slice 12 Step 8c-1 — Item Group find-or-create.
+//
+// Three-layer lookup per CA §4A + Amendment A:
+//   1. Local cache (netsuite_item_groups by composition_hash) — fast path.
+//   2. SuiteQL by externalId — belt against local-cache miss + a prior
+//      partial-write where NetSuite has the group but our cache lost
+//      the row (network partition mid-persist). Self-healing sync.
+//   3. REST POST create — the actual creation path.
+//
+// CHECK-before-write at every layer (CLAUDE.md #145 from_stage
+// poisoning precedent). Constraints (unique on composition_hash +
+// unique on netsuite_external_id) are belt-and-suspenders; the CHECK
+// is the real prevention.
+//
+// The description is WRITE-ONCE. On cache miss + SuiteQL hit, we
+// persist the group locally but do NOT overwrite the NetSuite-side
+// description (which may carry Aisha's manual edits).
+
+export interface FindOrCreateInput {
+  hashInput: CompositionHashInput;
+  // Members enriched with sku + name for the description text.
+  members: Array<{
+    netsuiteItemId: string;
+    quantity: number;
+    sku: string;
+    name: string;
+  }>;
+  // Provenance for first-create only. quoteId is nullable to support
+  // sandbox smoke tests + ad-hoc admin flows; production callers
+  // always pass a real quote id.
+  customerDisplay: string;
+  dealName: string;
+  hubspotDealId: string;
+  quoteId: string | null;
+  userId: string | null;
+}
+
+export interface FindOrCreateResult {
+  compositionHash: string;
+  netsuiteExternalId: string;
+  netsuiteInternalId: string;
+  itemidDisplay: string;
+  outcome: "cache_hit" | "external_id_hit" | "created";
+}
+
+/**
+ * Find or create the NetSuite Item Group matching the given
+ * composition. Returns the group's identity + the outcome branch that
+ * fired (for audit + smoke reporting).
+ */
+export async function findOrCreateItemGroup(
+  input: FindOrCreateInput,
+  opts?: { config?: NetsuiteConfig },
+): Promise<FindOrCreateResult> {
+  const compositionHash = computeCompositionHash(input.hashInput);
+  const externalId = externalIdForHash(compositionHash);
+
+  // ---------- Layer 1: local cache ----------
+  const cacheHit = await db
+    .select()
+    .from(netsuiteItemGroups)
+    .where(eq(netsuiteItemGroups.compositionHash, compositionHash))
+    .limit(1);
+
+  if (cacheHit.length > 0) {
+    const row = cacheHit[0];
+    // Touch last_synced_at so we know the row is being actively used
+    // (may inform future cache-eviction / re-verification policies).
+    await db
+      .update(netsuiteItemGroups)
+      .set({ lastSyncedAt: new Date() })
+      .where(eq(netsuiteItemGroups.compositionHash, compositionHash));
+
+    await writeAudit({
+      action: "netsuite_item_group_reused",
+      compositionHash,
+      quoteId: input.quoteId,
+      userId: input.userId,
+      diff: {
+        outcome: "cache_hit",
+        netsuite_external_id: row.netsuiteExternalId,
+        netsuite_internal_id: row.netsuiteInternalId,
+        itemid_display: row.itemidDisplay,
+      },
+    });
+
+    return {
+      compositionHash,
+      netsuiteExternalId: row.netsuiteExternalId,
+      netsuiteInternalId: row.netsuiteInternalId,
+      itemidDisplay: row.itemidDisplay,
+      outcome: "cache_hit",
+    };
+  }
+
+  // ---------- Layer 2: SuiteQL by externalId (self-healing) ----------
+  // If NetSuite already has the group but our local cache lost the row
+  // (partition mid-persist during an earlier push), the externalId
+  // still points at it. Persist locally, do NOT re-create.
+  const suiteQLResult = await suiteQL<{ id: string; itemid: string }>(
+    `SELECT id, itemid FROM item WHERE externalid = '${externalId.replace(/'/g, "''")}' AND itemtype = 'Group'`,
+    { config: opts?.config },
+  );
+
+  if (suiteQLResult.items.length > 0) {
+    const nsRow = suiteQLResult.items[0];
+    // Persist locally. Description column left NULL because we don't
+    // trust NetSuite's current description to be Nexus-authored (may
+    // carry an Aisha manual edit). The description we WOULD have
+    // generated is not re-written on reuse per policy.
+    await db.insert(netsuiteItemGroups).values({
+      compositionHash,
+      netsuiteExternalId: externalId,
+      netsuiteInternalId: nsRow.id,
+      customerNetsuiteId: input.hashInput.customerNetsuiteId,
+      baseSku: input.hashInput.baseSku,
+      itemidDisplay: nsRow.itemid,
+      description: null,
+      firstUsedByQuoteId: input.quoteId,
+      firstUsedByUserId: input.userId,
+      firstUsedByDealId: input.hubspotDealId,
+    });
+
+    await writeAudit({
+      action: "netsuite_item_group_reused",
+      compositionHash,
+      quoteId: input.quoteId,
+      userId: input.userId,
+      diff: {
+        outcome: "external_id_hit",
+        netsuite_external_id: externalId,
+        netsuite_internal_id: nsRow.id,
+        itemid_display: nsRow.itemid,
+        note: "cache-miss recovery — NetSuite had the group; local cache re-populated",
+      },
+    });
+
+    return {
+      compositionHash,
+      netsuiteExternalId: externalId,
+      netsuiteInternalId: nsRow.id,
+      itemidDisplay: nsRow.itemid,
+      outcome: "external_id_hit",
+    };
+  }
+
+  // ---------- Layer 3: REST POST create ----------
+  const itemidDisplay = await pickAvailableDisplayName(
+    input.hashInput.customerNetsuiteId,
+    input.hashInput.baseSku,
+  );
+
+  const description = generateGroupDescription({
+    customerDisplay: input.customerDisplay,
+    dealName: input.dealName,
+    baseSku: input.hashInput.baseSku,
+    hubspotDealId: input.hubspotDealId,
+    members: input.members.map((m) => ({
+      sku: m.sku,
+      name: m.name,
+      quantity: m.quantity,
+    })),
+  });
+
+  // REST record shape for Item Group create — verified via sandbox
+  // probe on existing group 57232 (2026-07-28). Field names differ
+  // from what SuiteScript / SOAP would use:
+  //   - member (singular), not memberList
+  //   - member.items[] — the members collection
+  //   - member.items[N].item.id — the referenced item's internal id
+  //   - quantity: per-assembly-unit (matches composition-hash inputs);
+  //     defaults to 1 if omitted
+  // POST returns 204 No Content with Location header carrying the new
+  // internal id — createRecord() already handles this shape.
+  const body: Record<string, unknown> = {
+    itemId: itemidDisplay,
+    externalId,
+    description,
+    member: {
+      items: input.members.map((m) => ({
+        item: { id: m.netsuiteItemId },
+        quantity: m.quantity,
+      })),
+    },
+  };
+
+  const created = await createRecord({
+    recordType: "itemGroup",
+    body,
+    config: opts?.config,
+    idempotencyKey: externalId,
+  });
+
+  await db.insert(netsuiteItemGroups).values({
+    compositionHash,
+    netsuiteExternalId: externalId,
+    netsuiteInternalId: created.internalId,
+    customerNetsuiteId: input.hashInput.customerNetsuiteId,
+    baseSku: input.hashInput.baseSku,
+    itemidDisplay,
+    description,
+    firstUsedByQuoteId: input.quoteId,
+    firstUsedByUserId: input.userId,
+    firstUsedByDealId: input.hubspotDealId,
+  });
+
+  await writeAudit({
+    action: "netsuite_item_group_created",
+    compositionHash,
+    quoteId: input.quoteId,
+    userId: input.userId,
+    diff: {
+      outcome: "created",
+      netsuite_external_id: externalId,
+      netsuite_internal_id: created.internalId,
+      itemid_display: itemidDisplay,
+      description,
+      member_count: input.members.length,
+      hubspot_deal_id: input.hubspotDealId,
+    },
+  });
+
+  return {
+    compositionHash,
+    netsuiteExternalId: externalId,
+    netsuiteInternalId: created.internalId,
+    itemidDisplay,
+    outcome: "created",
+  };
+}
+
+/**
+ * Pick a `<base_sku>-G[N]` display name that doesn't collide with any
+ * existing NetSuite Item Group. Scans local cache (for this customer +
+ * base) AND SuiteQL against NetSuite (for cross-customer occupancy in
+ * Era A/B legacy names). First free slot wins:
+ *   -G → -G2 → -G3 → …
+ *
+ * Not perfectly race-free — if two markComplete flows run
+ * simultaneously for different customers with the same base SKU,
+ * they could both pick -G4 and the second create fails at NetSuite
+ * on unique-itemId. That's fine: caller retries; the retry re-scans
+ * and picks -G5.
+ */
+async function pickAvailableDisplayName(
+  customerNetsuiteId: string,
+  baseSku: string,
+): Promise<string> {
+  const localPrefix = `${baseSku}-G`;
+
+  // Local cache — any prior use of a -G / -Gn slot for this base
+  // (any customer, since the itemid namespace is global in NetSuite).
+  const localHits = await db
+    .select({ itemidDisplay: netsuiteItemGroups.itemidDisplay })
+    .from(netsuiteItemGroups)
+    .where(like(netsuiteItemGroups.baseSku, baseSku));
+  const localSuffixes = new Set(
+    localHits
+      .map((r) => extractSuffix(r.itemidDisplay, baseSku))
+      .filter((s): s is number => s !== null),
+  );
+
+  // NetSuite — scan for any Item Group whose itemid starts with
+  // "<base>-G". Covers Era A -G1..G5 legacy variants + any group
+  // created outside Nexus.
+  const escapedBase = baseSku.replace(/'/g, "''");
+  const nsResult = await suiteQL<{ itemid: string }>(
+    `SELECT itemid FROM item WHERE itemtype = 'Group' AND itemid LIKE '${escapedBase}-G%'`,
+  );
+  const nsSuffixes = new Set(
+    nsResult.items
+      .map((r) => extractSuffix(r.itemid, baseSku))
+      .filter((s): s is number => s !== null),
+  );
+
+  const taken = new Set<number>([...localSuffixes, ...nsSuffixes]);
+  // Slot 1 = "-G" (no number); slot N (N≥2) = "-GN".
+  for (let n = 1; n < 1000; n++) {
+    if (!taken.has(n)) {
+      return n === 1 ? `${baseSku}-G` : `${baseSku}-G${n}`;
+    }
+  }
+  throw new Error(
+    `[item-groups] Cannot find available display name for ${baseSku} — 1000 slots exhausted`,
+  );
+}
+
+/**
+ * Extract the numeric suffix from a display name matching `<base>-G[N]`.
+ * Returns 1 for bare `-G`, N for `-GN`, null if the name doesn't match.
+ */
+function extractSuffix(itemid: string, baseSku: string): number | null {
+  const prefix = `${baseSku}-G`;
+  if (!itemid.startsWith(prefix)) return null;
+  const rest = itemid.slice(prefix.length);
+  if (rest === "") return 1;                    // bare "-G"
+  if (!/^\d+$/.test(rest)) return null;         // "-G-something-else" doesn't count
+  const n = parseInt(rest, 10);
+  return Number.isFinite(n) && n >= 2 ? n : null;
+}
+
+// ---------- audit ----------
+
+interface AuditArgs {
+  action: "netsuite_item_group_created" | "netsuite_item_group_reused";
+  compositionHash: string;
+  quoteId: string | null;
+  userId: string | null;
+  diff: Record<string, unknown>;
+}
+
+async function writeAudit(args: AuditArgs): Promise<void> {
+  await db.insert(auditLog).values({
+    userId: args.userId,
+    entityType: "netsuite_item_group",
+    entityId: args.compositionHash,
+    action: args.action,
+    diffJson: {
+      ...args.diff,
+      quote_id: args.quoteId,
+    },
+  });
+}
