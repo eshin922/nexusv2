@@ -167,6 +167,7 @@ export default async function CustomerViewPage({
           quoteId={quote.id}
           quoteStatus={quote.status}
           quoteVersionNumber={quote.versionNumber}
+          quoteAcceptedAt={quote.acceptedAt}
           showStateSwitcher={showStateSwitcher}
           internalNotes={quote.internalNotes}
           addendumData={addendumData}

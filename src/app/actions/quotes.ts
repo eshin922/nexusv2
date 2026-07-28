@@ -1895,6 +1895,220 @@ export async function reviseQuote(
   });
 }
 
+// Slice 12 Step 7a — Mark Accepted per v3 brief §4.6.
+//
+// Flips a sent quote to accepted status. PM proxy for the customer's
+// commitment — the moment where the deal moves from "we sent them a
+// quote" to "they accepted." The last reversible state before the
+// NetSuite SO push at Tier Selection Advance (Step 8).
+//
+// Step 7a scope: DB write-path only. HubSpot deal-stage push
+// (Closed Won per Q4) is STUBBED — a comment marks where Step 7b
+// wires the real `getWriteClient()` fire. Until 7b, PMs must move
+// the HubSpot deal stage manually. Bank surfaced explicitly in the
+// sub-tab UI copy.
+//
+// State-transition semantics:
+//   sent → accepted (allowed, this action)
+//   draft/accepted/complete/superseded/lost → rejected
+//
+// Writes:
+//   - status: 'accepted'
+//   - acceptedAt: now
+//   - acceptedByUserId: signed-in PM
+//   - acceptSource: 'manual_button' (per RI.7 pgEnum)
+//   - Audit `quote_accepted` action + system feed entry
+export async function markAccepted(
+  formData: FormData,
+): Promise<ActionResult<{ acceptedAt: Date }>> {
+  return runAction(async () => {
+    const user = await ensureUser();
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    if (!quoteId) {
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId is required.");
+    }
+
+    const quote = await loadQuoteOrThrow(quoteId);
+    if (quote.status !== "sent") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Mark Accepted only fires on 'sent' quotes; current state: '${quote.status}'.`,
+      );
+    }
+
+    const acceptedAt = new Date();
+
+    // TODO Step 7b — HubSpot deal-stage push (Closed Won per
+    // firm_settings.hubspot_deal_stage_on_accept). Fire via
+    // getWriteClient() BEFORE the DB tx per the "external system
+    // first" discipline in v3 brief §5.1 Round 3 HubSpot rollback
+    // ordering note. Failure blocks the status flip. Retry from
+    // the sub-tab UI. Until 7b lands, PMs move HubSpot deal stage
+    // manually — sub-tab UI surfaces this explicitly.
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(quotes)
+        .set({
+          status: "accepted",
+          acceptedAt,
+          acceptedByUserId: user.id,
+          acceptSource: "manual_button",
+          updatedAt: acceptedAt,
+        })
+        .where(eq(quotes.id, quoteId));
+
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote",
+        entityId: quoteId,
+        action: "quote_accepted",
+        diffJson: {
+          from_status: "sent",
+          to_status: "accepted",
+          version_number: quote.versionNumber,
+          accepted_by_user_id: user.id,
+          accept_source: "manual_button",
+          // TODO Step 7b — add HubSpot response payload:
+          //   hubspot: { from_stage, to_stage, deal_id, response_code }
+          hubspot_push: "deferred_to_step_7b",
+        },
+      });
+
+      // Auto-log a system feed entry so the review timeline captures
+      // the acceptance moment alongside the sent + PM-authored events.
+      const [ev] = await tx
+        .insert(quoteReviewEvents)
+        .values({
+          quoteId,
+          versionNumber: quote.versionNumber,
+          eventType: "responded",
+          note: `Marked accepted at v${quote.versionNumber} (PM proxy).`,
+          authorUserId: null, // system-generated
+          system: true,
+        })
+        .returning({ id: quoteReviewEvents.id });
+
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote_review_event",
+        entityId: ev.id,
+        action: "quote_review_event_added",
+        diffJson: {
+          quoteId,
+          versionNumber: quote.versionNumber,
+          eventType: "responded",
+          system: true,
+          note: `Marked accepted at v${quote.versionNumber} (PM proxy).`,
+          source: "mark_accepted_auto_log",
+        },
+      });
+    });
+
+    revalidateQuoteTree(quote.projectId, quoteId);
+    return { acceptedAt };
+  });
+}
+
+// Slice 12 Step 7a — Q7 rollback per v3 brief §4.6 + §6 "Revert
+// after accept."
+//
+// Flips accepted → sent. Reverses the HubSpot deal-stage push
+// (STUBBED for 7a; 7b wires the real HubSpot API call). Audit
+// `quote_reverted` action + system feed entry.
+//
+// Post-7b, this also becomes the pre-step for Revise-from-accepted
+// (per v3 §4.3a): PM rolls back to sent, then Revises. Step 6c's
+// reviseQuote currently rejects accepted status; 7b lifts that
+// guard AFTER wiring the HubSpot rollback so Revise-from-accepted
+// works transactionally.
+export async function unmarkAccepted(
+  formData: FormData,
+): Promise<ActionResult<{ revertedAt: Date }>> {
+  return runAction(async () => {
+    const user = await ensureUser();
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    if (!quoteId) {
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId is required.");
+    }
+
+    const quote = await loadQuoteOrThrow(quoteId);
+    if (quote.status !== "accepted") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Rollback only fires on 'accepted' quotes; current state: '${quote.status}'.`,
+      );
+    }
+
+    const revertedAt = new Date();
+
+    // TODO Step 7b — HubSpot deal-stage rollback. Same "external
+    // first" ordering: fire before DB tx. If HubSpot rollback
+    // succeeds but DB fails, retry is safe (second HubSpot call is
+    // idempotent no-op on a deal already at the target stage).
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(quotes)
+        .set({
+          status: "sent",
+          acceptedAt: null,
+          acceptedByUserId: null,
+          acceptSource: null,
+          updatedAt: revertedAt,
+        })
+        .where(eq(quotes.id, quoteId));
+
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote",
+        entityId: quoteId,
+        action: "quote_reverted",
+        diffJson: {
+          from_status: "accepted",
+          to_status: "sent",
+          version_number: quote.versionNumber,
+          prior_accepted_at: quote.acceptedAt,
+          prior_accepted_by_user_id: quote.acceptedByUserId,
+          reverted_by_user_id: user.id,
+          hubspot_rollback: "deferred_to_step_7b",
+        },
+      });
+
+      // System feed entry captures the rollback moment.
+      const [ev] = await tx
+        .insert(quoteReviewEvents)
+        .values({
+          quoteId,
+          versionNumber: quote.versionNumber,
+          eventType: "responded",
+          note: `Acceptance rolled back at v${quote.versionNumber} (PM Q7 rollback).`,
+          authorUserId: null,
+          system: true,
+        })
+        .returning({ id: quoteReviewEvents.id });
+
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote_review_event",
+        entityId: ev.id,
+        action: "quote_review_event_added",
+        diffJson: {
+          quoteId,
+          versionNumber: quote.versionNumber,
+          eventType: "responded",
+          system: true,
+          note: `Acceptance rolled back at v${quote.versionNumber} (PM Q7 rollback).`,
+          source: "unmark_accepted_auto_log",
+        },
+      });
+    });
+
+    revalidateQuoteTree(quote.projectId, quoteId);
+    return { revertedAt };
+  });
+}
+
 // DEC-1 + DEC-2: record the customer signal as a timestamped event,
 // distinct from PM finalization via Mark-Accepted. PM clicks
 // "Customer responded · Tier N" on Pricing adjacent to the
