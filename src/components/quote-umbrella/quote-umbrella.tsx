@@ -49,6 +49,7 @@ export function QuoteUmbrella({
   hubspotAcceptStageLabel,
   hubspotPushedAmount,
   showStateSwitcher,
+  allowSimulatedComplete,
   internalNotes,
   addendumData,
   isHubspotLinked,
@@ -121,6 +122,15 @@ export function QuoteUmbrella({
    * (structurally the same figure per PR #147 derivation trace). */
   hubspotPushedAmount: number | null;
   showStateSwitcher: boolean;
+  /** Slice 12 Step 8b · CB P2 fix — hard-guard on the strip-state
+   * simulation. Computed server-side in page.tsx from VERCEL_ENV so
+   * client-baked NODE_ENV can't be the sole gate (Vercel Preview
+   * builds have NODE_ENV=production). false = production Vercel
+   * domain → simulation blocked. true = preview / development /
+   * local → simulation allowed. Even so, the simulation is
+   * cosmetic-only per the grep — no writes, actions, or gating
+   * consume effectiveQuoteStatus. */
+  allowSimulatedComplete: boolean;
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
   isHubspotLinked: boolean;
@@ -182,8 +192,28 @@ export function QuoteUmbrella({
   // makes CB (and CD) able to walk that visual state without a
   // real markComplete write.
   const soStateParam = searchParams?.get("so-state");
+  // Slice 12 Step 8b · CB P2 fix — CA blast-radius review (2026-07-28):
+  // hard-guard on `allowSimulatedComplete` so a curious PM hitting
+  // ?dev=1&so-state=record on the PRODUCTION Vercel deploy cannot see
+  // a false "complete" state on a real quote. Prop is computed server-
+  // side in page.tsx from VERCEL_ENV (VERCEL_ENV === 'production' →
+  // false; 'preview' | 'development' | absent → true). Client-side
+  // NODE_ENV can't be used here — Vercel bakes NODE_ENV='production'
+  // into ALL builds including previews, which would break CB's walk
+  // on the preview URL.
+  //
+  // effectiveQuoteStatus blast radius (grep-verified):
+  //   - SubTabStrip prop (cosmetic; drives sub-label rendering)
+  //   - showLegend gate (cosmetic; hides legend when 'complete')
+  //   - ZERO touch of sub-tab bodies, actions, writers, gating
+  // Cosmetic scope, hard-guarded anyway per CA discipline: "dev
+  // override with production reach" is a category to prevent, not
+  // just narrow.
   const simulateComplete =
-    showStateSwitcher && soStateParam === "record" && quoteStatus === "accepted";
+    allowSimulatedComplete &&
+    showStateSwitcher &&
+    soStateParam === "record" &&
+    quoteStatus === "accepted";
   const effectiveQuoteStatus = simulateComplete ? "complete" : quoteStatus;
 
   const showLegend = effectiveQuoteStatus !== "complete";

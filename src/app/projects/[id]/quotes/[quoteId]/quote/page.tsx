@@ -209,6 +209,13 @@ export default async function CustomerViewPage({
 
     const showStateSwitcher =
       dev === "1" || process.env.NODE_ENV !== "production";
+    // Slice 12 Step 8b · CB P2 fix — CA blast-radius review
+    // (2026-07-28). See quote-umbrella.tsx allowSimulatedComplete
+    // prop docs for the rationale. VERCEL_ENV is set by Vercel to
+    // 'production' | 'preview' | 'development'; absent locally.
+    // Production Vercel domain → blocked; preview / local → allowed.
+    const allowSimulatedComplete =
+      process.env.VERCEL_ENV !== "production";
 
     // Slice 11 Step 6 — auth check for surface access. The Send
     // button is un-gated (any authenticated PM); admin role no
@@ -245,6 +252,7 @@ export default async function CustomerViewPage({
           hubspotAcceptStageLabel={hubspotAcceptStageLabel}
           hubspotPushedAmount={hubspotPushedAmount}
           showStateSwitcher={showStateSwitcher}
+          allowSimulatedComplete={allowSimulatedComplete}
           internalNotes={quote.internalNotes}
           addendumData={addendumData}
           isHubspotLinked={isHubspotLinkedDealId(project.hubspotDealId)}
