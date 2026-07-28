@@ -432,6 +432,43 @@ export const quotes = pgTable(
     netsuitePushedAt: timestamp("netsuite_pushed_at", {
       withTimezone: true,
     }),
+    // Slice 12 Step 7b fix-pass (CA review Item #1) — durable
+    // pre-write for HubSpot from_stage capture. Populated OUTSIDE
+    // the markAccepted tx BEFORE the HubSpot deal-stage push fires;
+    // cleared INSIDE the successful tx. On retry after a
+    // HubSpot-succeeds-DB-fails failure, markAccepted reads this
+    // column instead of re-querying the deal (which by then holds
+    // the target stage, poisoning the from_stage snapshot).
+    //
+    // Rollback source of truth becomes idempotent: whether accept
+    // succeeds first try or after N retries, the from_stage_id
+    // written to `quote_accepted.diff_json.hubspot` is the ORIGINAL
+    // stage. unmarkAccepted then rolls the deal back to where it
+    // actually started, not to where it already sits.
+    //
+    // NULL post-successful-tx (cleared in the same tx that writes
+    // status='accepted'). NULL also for quotes that never entered
+    // markAccepted mid-flight.
+    pendingHubspotFromStageId: text("pending_hubspot_from_stage_id"),
+    // Slice 12 Step 7b fix-pass round 2 (CA re-review) — version-scope
+    // the pending capture so an abandoned-attempt-across-revise cycle
+    // doesn't leak stale state.
+    //
+    // Scenario without this: v1 accept attempt fails mid-flight →
+    // pending populated with v1's from_stage → PM abandons + Revises
+    // to v2 → someone moves deal externally → PM accepts v2 → retry
+    // path trusts pending (still populated from v1) → HubSpot no-op
+    // → audit records STALE v1 from_stage as if fresh → later rollback
+    // sends deal to a stage it was never at during v2.
+    //
+    // With this: pending is trusted only when both columns match
+    // (id populated AND version === current quote.versionNumber).
+    // Cross-version mismatch → treat as stale, overwrite via a fresh
+    // getDealStage read. Both columns set + cleared + trusted as a
+    // pair.
+    pendingHubspotFromStageVersion: integer(
+      "pending_hubspot_from_stage_version",
+    ),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, {

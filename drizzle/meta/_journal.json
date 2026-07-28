@@ -281,6 +281,20 @@
       "when": 1785199070627,
       "tag": "0039_slice_12_step_5a_quote_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1785205996429,
+      "tag": "0040_slice_12_step_7b_pending_hubspot_from_stage",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1785208722357,
+      "tag": "0041_slice_12_step_7b_pending_hubspot_from_stage_version",
+      "breakpoints": true
     }
   ]
 }
