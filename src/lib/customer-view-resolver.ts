@@ -56,6 +56,19 @@ export type ResolveCustomerViewResult =
       addendumData: QuoteAddendumData | null;
       project: typeof projects.$inferSelect;
       quote: typeof quotes.$inferSelect;
+      /** Slice 12 Step 8a — full per-tier rollup for PM-facing
+       * surfaces (Acceptance tier chips, Sales Order receipt totals).
+       * The resolver already loads the costing bundle for the
+       * customer-view projection; passing quoteRollup through avoids
+       * a second `getCostingBundle` call in page.tsx (per CLAUDE.md
+       * "getCostingBundle parallel-query discipline" — the bundle
+       * fans out 8 queries internally and must not be nested inside
+       * outer Promise.all calls).
+       *
+       * PM-facing only. Never route through `view` (Pattern 45 —
+       * `view.tiers` intentionally strips margin/cost/status data
+       * from the customer PDF projection). */
+      quoteRollup: import("./costing").QuotePerTierRollup[];
     }
   | { ok: false; kind: "not_found" }
   | { ok: false; kind: "bundle_error"; message: string };
@@ -431,5 +444,12 @@ export async function resolveCustomerView(args: {
           : (quote.includeSpecAddendumSnapshot ?? false),
   };
 
-  return { ok: true, view, addendumData, project, quote };
+  return {
+    ok: true,
+    view,
+    addendumData,
+    project,
+    quote,
+    quoteRollup: bundle.data.costing.quoteRollup,
+  };
 }

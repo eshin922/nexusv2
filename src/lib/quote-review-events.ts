@@ -72,3 +72,52 @@ export async function getReviewFeed(quoteId: string): Promise<ReviewEventRow[]> 
       : (r.authorName ?? r.authorEmail ?? "unknown"),
   }));
 }
+
+// Slice 12 Step 8a — most-recent `responded` event for the acceptance
+// capture's "Their words" prefill.
+//
+// R9 designer notes §3 + data-source map: the PM's transcription
+// textarea on sub-tab 4 pre-fills from the most recent PM-authored
+// `responded` feed entry (not the system 'sent' or system
+// 'mark_accepted_auto_log' rows), on the working theory that the
+// last thing the PM logged when the customer responded IS the
+// transcription of their acceptance. PM edits before submit; the
+// final text lands in a fresh review-events row via markAccepted.
+//
+// Scoping:
+//   - `system=false` — exclude auto-logged system events
+//   - `eventType='responded'` — exclude 'asked' + 'revision_requested'
+//     (those aren't transcriptions of customer statements)
+//   - newest first, limit 1
+//
+// Returns null when no matching row exists (fresh quote pre-any-
+// customer-response, or a quote where all responded events were
+// system-generated). Consumer renders an empty textarea + a "no
+// prior response logged" hint.
+//
+// Version-agnostic — a v2 draft's acceptance capture may prefill
+// from a v1 responded event (the last thing the PM heard from the
+// customer, even if the quote's been revised in the meantime). PM
+// edits regardless; whatever lands is what lands.
+export async function getLatestRespondedEventForPrefill(
+  quoteId: string,
+): Promise<{ note: string; createdAt: Date; sourceRowId: string } | null> {
+  const rows = await db
+    .select({
+      id: quoteReviewEvents.id,
+      note: quoteReviewEvents.note,
+      createdAt: quoteReviewEvents.createdAt,
+    })
+    .from(quoteReviewEvents)
+    .where(
+      sql`${quoteReviewEvents.quoteId} = ${quoteId}
+          AND ${quoteReviewEvents.eventType} = 'responded'
+          AND ${quoteReviewEvents.system} = false
+          AND ${quoteReviewEvents.note} IS NOT NULL`,
+    )
+    .orderBy(desc(quoteReviewEvents.createdAt))
+    .limit(1);
+  const row = rows[0];
+  if (!row || !row.note) return null;
+  return { note: row.note, createdAt: row.createdAt, sourceRowId: row.id };
+}

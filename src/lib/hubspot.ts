@@ -124,6 +124,13 @@ type PipelineStage = { id: string; label: string; displayOrder: number };
 
 let _pipelineStagesCache: PipelineStage[] | null = null;
 
+// Slice 12 Step 8a — public re-export for display-only label
+// resolution (sub-tab 4 systems card). Same underlying cache as
+// the internal callers; alias name distinguishes read-intent.
+export async function loadPipelineStagesForLabel(): Promise<PipelineStage[]> {
+  return loadPipelineStages();
+}
+
 async function loadPipelineStages(): Promise<PipelineStage[]> {
   if (_pipelineStagesCache) return _pipelineStagesCache;
   const c = getReadClient();
@@ -187,6 +194,19 @@ export async function getDealStage(dealId: string): Promise<DealStageInfo> {
 export async function updateDealStage(
   dealId: string,
   targetStage: string,
+  opts?: {
+    /** Slice 12 Step 8a — optional amount patch fired in the SAME
+     * HubSpot API call as the stage transition. R9 designer notes
+     * §2 + data-source map row for "HubSpot push (pushing / ok /
+     * error)": "one push, at acceptance: deal stage → Closed Won,
+     * amount = selected tier's turnkey total". Consolidated to one
+     * basicApi.update call so the two properties either both land
+     * or both fail — no half-written state. Number, USD, unrounded.
+     * Reporting nit if it drifts from downstream reality
+     * (never a state problem per CA disposition — deal amount is
+     * a salesperson estimate for reporting, not binding). */
+    amount?: number;
+  },
 ): Promise<DealStageInfo> {
   const stages = await loadPipelineStages();
   // Detect internal-id-shape input (numeric strings match; labels don't)
@@ -206,16 +226,24 @@ export async function updateDealStage(
     );
   }
 
+  const properties: Record<string, string> = {
+    dealstage: resolved.id,
+  };
+  if (opts?.amount !== undefined) {
+    // HubSpot deal amount is stored as a string on the properties
+    // payload. Serialize without trailing decimals stripped — we
+    // want the full precision of the turnkey figure.
+    properties.amount = String(opts.amount);
+  }
+
   const c = getWriteClient();
   try {
-    await c.crm.deals.basicApi.update(dealId, {
-      properties: {
-        dealstage: resolved.id,
-      },
-    });
+    await c.crm.deals.basicApi.update(dealId, { properties });
   } catch (e) {
+    const amountSuffix =
+      opts?.amount !== undefined ? ` (amount ${opts.amount})` : "";
     throw new HubspotError(
-      `Failed to update deal ${dealId} stage to '${resolved.label}' (${resolved.id})`,
+      `Failed to update deal ${dealId} stage to '${resolved.label}' (${resolved.id})${amountSuffix}`,
       e,
     );
   }
