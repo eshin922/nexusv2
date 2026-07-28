@@ -234,7 +234,7 @@ export function TabClientReview({
               disabledReason={
                 isSent
                   ? undefined
-                  : `Revise is available on 'sent' quotes only. Current state: '${quoteStatus}'.`
+                  : `Revise is available on 'sent' and 'accepted' quotes. Current state: '${quoteStatus}'.`
               }
               buttonLabel={`↺ Revise → v${quoteVersionNumber + 1}`}
               buttonClassName="btn"

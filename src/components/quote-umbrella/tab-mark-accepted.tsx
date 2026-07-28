@@ -27,6 +27,7 @@ import { useRouter } from "next/navigation";
 import type { CustomerView } from "@/types/quote";
 import { markAccepted, unmarkAccepted } from "@/app/actions/quotes";
 import { AdvanceBar } from "./advance-bar";
+import { ReviseButton } from "./revise-button";
 import type { SubTabId } from "./subtabs";
 
 function shortDateTime(d: Date | string | null): string {
@@ -212,14 +213,40 @@ export function TabMarkAccepted({
                 reverses the HubSpot deal stage to where it was before
                 Accept fired. The review log is untouched.
               </div>
-              <button
-                className="btn"
-                onClick={fireRollback}
-                disabled={isPending}
-                data-testid="mark-accepted-rollback"
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                }}
               >
-                {isPending ? "Rolling back…" : "↺ Roll back to Send to Client"}
-              </button>
+                <button
+                  className="btn"
+                  onClick={fireRollback}
+                  disabled={isPending}
+                  data-testid="mark-accepted-rollback"
+                >
+                  {isPending
+                    ? "Rolling back…"
+                    : "↺ Roll back to Send to Client"}
+                </button>
+                {/* Slice 12 Step 7c — Revise-from-accepted peer of
+                    Rollback. Server action rolls back the HubSpot
+                    stage first (single primitive; delegates to
+                    unmarkAccepted internally) then flips the quote
+                    to editable draft with a version bump. Same
+                    modal + copy as the Client Review sidecar. */}
+                <ReviseButton
+                  quoteId={quoteId}
+                  currentVersionNumber={quoteVersionNumber}
+                  quoteNumber={quote.quoteNumber}
+                  disabled={isPending}
+                  buttonLabel={`↺ Revise → v${quoteVersionNumber + 1}`}
+                  buttonClassName="btn"
+                  buttonTestId="mark-accepted-revise"
+                />
+              </div>
             </div>
           )}
         </div>
@@ -259,8 +286,8 @@ export function TabMarkAccepted({
                 Roll back to <code>sent</code>
               </li>
               <li>HubSpot stage reverses to the pre-Accept snapshot</li>
-              <li>Revise into a new version (once Step 7c lands the
-                Revise-from-accepted extension)</li>
+              <li>Revise into a new version (rolls back the accept
+                first, then flips to editable draft)</li>
               <li>Nothing has entered NetSuite</li>
             </ul>
           </div>
