@@ -93,21 +93,58 @@ export function VersionPicker({
         </span>
       </div>
       <div className="r8-vpick">
-        {versions.map((v) => {
+        {versions.map((v, idx) => {
           const tag = statusToTag(v.status);
           const dateLabel = v.sentAt
             ? `${shortDate(v.sentAt)} · sent`
             : shortDate(v.createdAt);
+          // Slice 12 Step 7c review-fix (CB P1) — snapshot rows come
+          // from superseded quote_snapshots (post-Revise trail). They
+          // aren't routable at /quote (only the current quote row is);
+          // the "view sent PDF" affordance links to the snapshot's
+          // signed pdf_url when available. Unique key via versionNumber
+          // (multiple snapshots for the same quoteId post-multi-Revise).
+          const rowKey = v.fromSnapshot
+            ? `snap-${v.quoteId}-v${v.versionNumber}`
+            : v.quoteId;
+          const noteText = v.isCurrent
+            ? "current view"
+            : v.fromSnapshot
+              ? "prior sent version"
+              : "—";
           const rowContent = (
             <>
               <span className="vlab">v{v.versionNumber}</span>
               <span>
-                <span className="vnote">
-                  {v.isCurrent ? "current view" : "—"}
-                </span>
+                <span className="vnote">{noteText}</span>
                 <span className="vmeta" style={{ display: "block" }}>
                   {dateLabel}
                 </span>
+                {/* Slice 12 Step 7c review-fix — snapshot rows expose
+                    the PDF they shipped to the customer at that version.
+                    Rendered inline (not a nav Link) so PMs can open the
+                    file without leaving Preview. Skipped when pdf_url
+                    is null (pre-Slice-11-Step-6 snapshots may lack it). */}
+                {v.fromSnapshot && v.snapshotPdfUrl && (
+                  <a
+                    href={v.snapshotPdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="mono"
+                    style={{
+                      display: "block",
+                      marginTop: 4,
+                      fontSize: 10,
+                      color: "var(--ink-3)",
+                      letterSpacing: "0.04em",
+                      textDecoration: "underline dotted",
+                    }}
+                    data-testid={`view-sent-pdf-v${v.versionNumber}`}
+                  >
+                    view sent PDF ↗
+                  </a>
+                )}
               </span>
               <span>
                 <span className={`r8-vtag ${tag.className}`}>{tag.text}</span>
@@ -122,14 +159,15 @@ export function VersionPicker({
               </span>
             </>
           );
+          const isReadOnly = v.isCurrent || v.fromSnapshot;
           const rowClass = "r8-vrow" + (v.isCurrent ? " active" : "");
-          if (v.isCurrent) {
+          if (isReadOnly) {
             return (
               <button
-                key={v.quoteId}
+                key={rowKey}
                 className={rowClass}
                 disabled
-                aria-current="true"
+                aria-current={v.isCurrent ? "true" : undefined}
               >
                 {rowContent}
               </button>
@@ -137,7 +175,7 @@ export function VersionPicker({
           }
           return (
             <Link
-              key={v.quoteId}
+              key={rowKey}
               className={rowClass}
               href={`/projects/${projectId}/quotes/${v.quoteId}/quote?tab=preview`}
             >

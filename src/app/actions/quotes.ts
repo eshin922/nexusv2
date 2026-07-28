@@ -1786,12 +1786,15 @@ export async function sendQuote(
 //
 // State-transition semantics:
 //   sent    → draft (allowed, this action)
-//   accepted → draft (v3 amendment 2 allows, but this step does NOT
-//                     wire the HubSpot rollback that accepted-revise
-//                     requires — Step 7 lands the accept + HubSpot
-//                     push then extends this action with the
-//                     rollback fire. Guarded explicitly here so it
-//                     fails loudly if attempted early.)
+//   accepted → draft (Slice 12 Step 7c — v3 §4.3a; delegates to
+//                     unmarkAccepted for the accepted→sent leg,
+//                     then falls through to the standard sent→draft
+//                     revise leg on the reloaded quote. Single
+//                     HubSpot-revert primitive lives in
+//                     unmarkAccepted; this action does not
+//                     reimplement the stage revert. See Step 7c
+//                     block on the accepted branch below for
+//                     two-tx failure-mode analysis.)
 //   draft   → rejected (already draft — nothing to revise)
 //   complete → rejected (Pattern 52 lock)
 //   superseded / lost → rejected (terminal states)
@@ -1820,18 +1823,50 @@ export async function reviseQuote(
       throw new ActionGuardError(ERR.VALIDATION, "quoteId is required.");
     }
 
-    const quote = await loadQuoteOrThrow(quoteId);
+    let quote = await loadQuoteOrThrow(quoteId);
 
-    // requireRevisable (Step 2 guard) accepts sent | accepted. We
-    // narrow further HERE for 6c: `accepted` requires the HubSpot
-    // rollback that Step 7 ships. Fail loudly + point at the
-    // future step.
+    // requireRevisable (Step 2 guard) accepts sent | accepted. For
+    // the accepted branch, delegate to unmarkAccepted for the
+    // accepted → sent leg, then reload and fall through to the
+    // standard revise leg.
     requireRevisable(quote);
+
+    // Slice 12 Step 7c — Revise-from-accepted per v3 §4.3a.
+    //
+    // Two-transaction shape (external-first ordering per v3 §5.1
+    // holds for each leg independently):
+    //   1. unmarkAccepted:  HubSpot rollback → DB tx (status=sent,
+    //                       quote_reverted audit, review event).
+    //   2. this action:     DB tx (close snapshot, status=draft,
+    //                       version bump, quote_revised audit).
+    //
+    // Delegates the HubSpot revert primitive to unmarkAccepted (single
+    // rollback primitive; do NOT reimplement the stage revert here).
+    //
+    // Failure modes:
+    //   - unmarkAccepted fails (HubSpot revert or DB tx): the error
+    //     bubbles up as-is; quote stays 'accepted'; PM retries.
+    //   - unmarkAccepted succeeds; revise-DB tx fails: quote is now
+    //     'sent' (HubSpot already rolled back); PM clicks Revise on
+    //     the Client Review sidecar to complete the second leg. Not
+    //     atomic but recoverable — the observable intermediate 'sent'
+    //     state is acceptable per v2 reversibility model. No orphaned
+    //     external state (deal is at pre-accept stage; a legitimate
+    //     resting state).
+    //
+    // Audit trail captures both legs distinctly: quote_reverted
+    // (from unmarkAccepted) → quote_revised (this action).
     if (quote.status === "accepted") {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Revise-from-accepted requires the HubSpot deal-stage rollback that Step 7 ships. Until then, Revise is available on 'sent' quotes only.",
-      );
+      const rollback = await unmarkAccepted(formData);
+      if (!rollback.ok) {
+        throw new ActionGuardError(
+          rollback.error.code,
+          `Revise-from-accepted rollback failed: ${rollback.error.message}`,
+        );
+      }
+      // Reload — quote is now 'sent' post-rollback. Falls through to
+      // the standard sent → draft revise leg below.
+      quote = await loadQuoteOrThrow(quoteId);
     }
 
     const priorVersion = quote.versionNumber;
@@ -1919,7 +1954,7 @@ export async function reviseQuote(
 // already at the target stage is a no-op.
 //
 // Snapshots the from_stage id + label in audit_log for rollback
-// via unmarkAccepted (below). The prior stage id is the source of
+// via unmarkAccepted (defined below; hoisted). The prior stage id is the source of
 // truth for where the deal returns on Q7 rollback — reads the
 // most-recent quote_accepted audit entry to recover it.
 export async function markAccepted(
@@ -2150,11 +2185,11 @@ export async function markAccepted(
 // audit's diff_json.hubspot.from_stage_id — the source of truth
 // for "where was the deal before markAccepted fired?"
 //
-// Post-7b, this also becomes the pre-step for Revise-from-accepted
-// (per v3 §4.3a): PM rolls back to sent, then Revises. Step 6c's
-// reviseQuote currently rejects accepted status; a Step 7c
-// follow-up lifts that guard by calling unmarkAccepted-first
-// internally so Revise-from-accepted works transactionally.
+// Also the pre-step for Revise-from-accepted (per v3 §4.3a): Slice
+// 12 Step 7c's reviseQuote calls this action first when the quote
+// is 'accepted', then reloads and runs its own sent → draft leg.
+// The HubSpot revert primitive lives HERE only — reviseQuote does
+// not reimplement it.
 //
 // External-first ordering per v3 §5.1: HubSpot rollback fires
 // BEFORE the DB tx. HubSpot-succeeds-DB-fails is idempotent-safe
@@ -2283,7 +2318,7 @@ export async function unmarkAccepted(
           quoteId,
           versionNumber: quote.versionNumber,
           eventType: "responded",
-          note: `Acceptance rolled back at v${quote.versionNumber} (PM Q7 rollback).`,
+          note: `Acceptance rolled back at v${quote.versionNumber}.`,
           authorUserId: null,
           system: true,
         })
@@ -2299,7 +2334,7 @@ export async function unmarkAccepted(
           versionNumber: quote.versionNumber,
           eventType: "responded",
           system: true,
-          note: `Acceptance rolled back at v${quote.versionNumber} (PM Q7 rollback).`,
+          note: `Acceptance rolled back at v${quote.versionNumber}.`,
           source: "unmark_accepted_auto_log",
         },
       });

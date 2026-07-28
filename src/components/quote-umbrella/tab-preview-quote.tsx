@@ -28,6 +28,7 @@ export function TabPreviewQuote({
   view,
   quoteId,
   quoteStatus,
+  quoteNumberDb,
   showStateSwitcher,
   internalNotes,
   addendumData,
@@ -39,6 +40,13 @@ export function TabPreviewQuote({
   view: CustomerView;
   quoteId: string;
   quoteStatus: string;
+  /** Slice 12 Step 7c review-fix — PM-facing DB quote_number, per
+   * quote-umbrella.tsx prop docs. Post-Revise the DB has the number
+   * but view.quote.quoteNumber is masked to null (Pattern 45 boundary
+   * for customer PDF). Picker header shows "DPS-N · X versions" when
+   * populated; falls back to "quote number assigned at send" only when
+   * genuinely NULL (fresh pre-send draft). */
+  quoteNumberDb: string | null;
   showStateSwitcher: boolean;
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
@@ -55,7 +63,7 @@ export function TabPreviewQuote({
       <VersionPicker
         projectId={projectId}
         versions={versionChain}
-        quoteNumber={view.quote.quoteNumber}
+        quoteNumber={quoteNumberDb}
       />
       <QuoteHost
         view={view}
