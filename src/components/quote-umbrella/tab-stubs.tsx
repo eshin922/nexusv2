@@ -7,8 +7,10 @@
 // CONTENT is stubbed.
 //
 // Slice 12 Step 5c filled TabSendToClient — moved to
-// `./tab-send-to-client.tsx`. The remaining stubs live here:
-// Step 6 fills TabClientReview (feed + Revise + mismatch banner).
+// `./tab-send-to-client.tsx`.
+// Slice 12 Step 6a filled TabClientReview — moved to
+// `./tab-client-review.tsx`.
+// The remaining stubs live here:
 // Step 7 fills TabMarkAccepted (accept write-path + HubSpot push).
 // Step 8 fills TabTierSelection (tier select + NetSuite + THE LOCK).
 
@@ -44,27 +46,7 @@ function StubBody({
 }
 
 // TabSendToClient moved to `./tab-send-to-client.tsx` in Step 5c.
-
-export function TabClientReview({ onGo }: StubProps) {
-  return (
-    <>
-      <StubBody
-        n={3}
-        title="Client Review"
-        note="Activity-feed log + Revise-in-place + sent-vs-draft mismatch banner land here in Step 6."
-        fillsInStep="Step 6 wires quote_review_events + Revise + mismatch banner"
-      />
-      <AdvanceBar
-        weight="light"
-        back={{ label: "Send", onClick: () => onGo("send") }}
-        mid={<span>logging customer activity</span>}
-        label="Mark Accepted →"
-        onAdvance={() => onGo("accepted")}
-        disabled
-      />
-    </>
-  );
-}
+// TabClientReview moved to `./tab-client-review.tsx` in Step 6a.
 
 export function TabMarkAccepted({ onGo }: StubProps) {
   return (
