@@ -267,6 +267,13 @@
       "when": 1785197236090,
       "tag": "0037_slice_12_step_2_quote_status_complete",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1785197940633,
+      "tag": "0038_slice_12_step_3_schema",
+      "breakpoints": true
     }
   ]
 }

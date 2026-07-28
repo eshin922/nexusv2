@@ -114,6 +114,16 @@ async function versionedFirmSettingsUpdate(args: {
       leadTimeDefault: prior?.leadTimeDefault ?? null,
       incotermsDefault: prior?.incotermsDefault ?? null,
       daysValidDefault: prior?.daysValidDefault ?? null,
+      // Slice 12 Step 3 — HARD GATE per CLAUDE.md "Versioned-table
+      // carry-forward audit". Two new external-integration defaults
+      // added on firm_settings (v3 brief §5); both carry forward on
+      // every versioned update so a margin-only edit doesn't silently
+      // reset them. Column defaults ('Closed Won' / 'Pending
+      // Fulfillment') seed the current active row on migration.
+      hubspotDealStageOnAccept:
+        prior?.hubspotDealStageOnAccept ?? "Closed Won",
+      netsuiteSoStatusOnCreate:
+        prior?.netsuiteSoStatusOnCreate ?? "Pending Fulfillment",
       // Override with caller's edits
       ...overrides,
       // Versioning fields (always new)
