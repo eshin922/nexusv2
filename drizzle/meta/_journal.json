@@ -260,6 +260,13 @@
       "when": 1784071301906,
       "tag": "0036_slice_11_step_4_pdf_layout",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1785197236090,
+      "tag": "0037_slice_12_step_2_quote_status_complete",
+      "breakpoints": true
     }
   ]
 }
