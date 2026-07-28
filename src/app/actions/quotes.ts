@@ -38,7 +38,11 @@ import {
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
   findHubspotOwnerById,
+  getDealStage,
+  HubspotError,
   searchProducts,
+  updateDealStage,
+  type DealStageInfo,
   type ProductSummary,
 } from "@/lib/hubspot";
 import { isHubspotLinkedDealId } from "@/lib/hubspot-linkage";
@@ -1895,32 +1899,34 @@ export async function reviseQuote(
   });
 }
 
-// Slice 12 Step 7a — Mark Accepted per v3 brief §4.6.
+// Slice 12 Step 7a/7b — Mark Accepted per v3 brief §4.6.
 //
-// Flips a sent quote to accepted status. PM proxy for the customer's
-// commitment — the moment where the deal moves from "we sent them a
-// quote" to "they accepted." The last reversible state before the
-// NetSuite SO push at Tier Selection Advance (Step 8).
-//
-// Step 7a scope: DB write-path only. HubSpot deal-stage push
-// (Closed Won per Q4) is STUBBED — a comment marks where Step 7b
-// wires the real `getWriteClient()` fire. Until 7b, PMs must move
-// the HubSpot deal stage manually. Bank surfaced explicitly in the
-// sub-tab UI copy.
+// Flips a sent quote to accepted status AND pushes the HubSpot deal
+// stage forward per firm_settings.hubspot_deal_stage_on_accept.
+// PM proxy for the customer's commitment — the moment where the
+// deal moves from "we sent them a quote" to "they accepted." The
+// last reversible state before the NetSuite SO push at Tier
+// Selection Advance (Step 8).
 //
 // State-transition semantics:
 //   sent → accepted (allowed, this action)
 //   draft/accepted/complete/superseded/lost → rejected
 //
-// Writes:
-//   - status: 'accepted'
-//   - acceptedAt: now
-//   - acceptedByUserId: signed-in PM
-//   - acceptSource: 'manual_button' (per RI.7 pgEnum)
-//   - Audit `quote_accepted` action + system feed entry
+// External-first ordering per v3 §5.1: HubSpot deal stage push
+// fires BEFORE the DB tx. On HubSpot failure, DB tx never runs;
+// quote stays 'sent'; PM retries. HubSpot-succeeds-DB-fails is
+// idempotent-safe: second call to updateDealStage against a deal
+// already at the target stage is a no-op.
+//
+// Snapshots the from_stage id + label in audit_log for rollback
+// via unmarkAccepted (below). The prior stage id is the source of
+// truth for where the deal returns on Q7 rollback — reads the
+// most-recent quote_accepted audit entry to recover it.
 export async function markAccepted(
   formData: FormData,
-): Promise<ActionResult<{ acceptedAt: Date }>> {
+): Promise<
+  ActionResult<{ acceptedAt: Date; hubspot: { from: DealStageInfo; to: DealStageInfo } }>
+> {
   return runAction(async () => {
     const user = await ensureUser();
     const quoteId = String(formData.get("quoteId") ?? "").trim();
@@ -1936,15 +1942,67 @@ export async function markAccepted(
       );
     }
 
-    const acceptedAt = new Date();
+    // Load project (for hubspot_deal_id) + firm_settings (for
+    // target stage). Parallel — both cheap indexed reads.
+    const [projectRows, firmRows] = await Promise.all([
+      db
+        .select({
+          id: projects.id,
+          hubspotDealId: projects.hubspotDealId,
+        })
+        .from(projects)
+        .where(eq(projects.id, quote.projectId))
+        .limit(1),
+      db
+        .select({
+          hubspotDealStageOnAccept: firmSettings.hubspotDealStageOnAccept,
+        })
+        .from(firmSettings)
+        .where(isNull(firmSettings.effectiveUntil))
+        .orderBy(desc(firmSettings.effectiveFrom))
+        .limit(1),
+    ]);
+    if (projectRows.length === 0) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "Project not found.");
+    }
+    if (firmRows.length === 0) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "No active firm_settings row; configure firm settings first.",
+      );
+    }
+    const project = projectRows[0];
+    const firm = firmRows[0];
 
-    // TODO Step 7b — HubSpot deal-stage push (Closed Won per
-    // firm_settings.hubspot_deal_stage_on_accept). Fire via
-    // getWriteClient() BEFORE the DB tx per the "external system
-    // first" discipline in v3 brief §5.1 Round 3 HubSpot rollback
-    // ordering note. Failure blocks the status flip. Retry from
-    // the sub-tab UI. Until 7b lands, PMs move HubSpot deal stage
-    // manually — sub-tab UI surfaces this explicitly.
+    if (!isHubspotLinkedDealId(project.hubspotDealId)) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "This deal isn't linked to HubSpot. Cannot push deal stage.",
+      );
+    }
+
+    // External call FIRST (v3 §5.1 ordering).
+    // getDealStage → updateDealStage. On failure, ActionGuardError
+    // bubbles up; DB tx never runs; PM retries from the sub-tab.
+    let fromStage: DealStageInfo;
+    let toStage: DealStageInfo;
+    try {
+      // hubspotDealId is verified non-null-non-empty numeric by
+      // isHubspotLinkedDealId above.
+      fromStage = await getDealStage(project.hubspotDealId as string);
+      toStage = await updateDealStage(
+        project.hubspotDealId as string,
+        firm.hubspotDealStageOnAccept,
+      );
+    } catch (e) {
+      const msg = e instanceof HubspotError ? e.message : String(e);
+      throw new ActionGuardError(
+        ERR.HUBSPOT,
+        `HubSpot deal-stage push failed — acceptance not recorded, quote state unchanged. ${msg}`,
+      );
+    }
+
+    const acceptedAt = new Date();
 
     await db.transaction(async (tx) => {
       await tx
@@ -1969,9 +2027,13 @@ export async function markAccepted(
           version_number: quote.versionNumber,
           accepted_by_user_id: user.id,
           accept_source: "manual_button",
-          // TODO Step 7b — add HubSpot response payload:
-          //   hubspot: { from_stage, to_stage, deal_id, response_code }
-          hubspot_push: "deferred_to_step_7b",
+          hubspot: {
+            deal_id: project.hubspotDealId,
+            from_stage_id: fromStage.id,
+            from_stage_label: fromStage.label,
+            to_stage_id: toStage.id,
+            to_stage_label: toStage.label,
+          },
         },
       });
 
@@ -2006,25 +2068,32 @@ export async function markAccepted(
     });
 
     revalidateQuoteTree(quote.projectId, quoteId);
-    return { acceptedAt };
+    return { acceptedAt, hubspot: { from: fromStage, to: toStage } };
   });
 }
 
-// Slice 12 Step 7a — Q7 rollback per v3 brief §4.6 + §6 "Revert
+// Slice 12 Step 7a/7b — Q7 rollback per v3 brief §4.6 + §6 "Revert
 // after accept."
 //
-// Flips accepted → sent. Reverses the HubSpot deal-stage push
-// (STUBBED for 7a; 7b wires the real HubSpot API call). Audit
-// `quote_reverted` action + system feed entry.
+// Flips accepted → sent AND reverses the HubSpot deal-stage push.
+// Rollback stage is recovered from the most-recent quote_accepted
+// audit's diff_json.hubspot.from_stage_id — the source of truth
+// for "where was the deal before markAccepted fired?"
 //
 // Post-7b, this also becomes the pre-step for Revise-from-accepted
 // (per v3 §4.3a): PM rolls back to sent, then Revises. Step 6c's
-// reviseQuote currently rejects accepted status; 7b lifts that
-// guard AFTER wiring the HubSpot rollback so Revise-from-accepted
-// works transactionally.
+// reviseQuote currently rejects accepted status; a Step 7c
+// follow-up lifts that guard by calling unmarkAccepted-first
+// internally so Revise-from-accepted works transactionally.
+//
+// External-first ordering per v3 §5.1: HubSpot rollback fires
+// BEFORE the DB tx. HubSpot-succeeds-DB-fails is idempotent-safe
+// (second updateDealStage against a deal already at target = no-op).
 export async function unmarkAccepted(
   formData: FormData,
-): Promise<ActionResult<{ revertedAt: Date }>> {
+): Promise<
+  ActionResult<{ revertedAt: Date; hubspot: { to: DealStageInfo } }>
+> {
   return runAction(async () => {
     const user = await ensureUser();
     const quoteId = String(formData.get("quoteId") ?? "").trim();
@@ -2040,12 +2109,70 @@ export async function unmarkAccepted(
       );
     }
 
-    const revertedAt = new Date();
+    // Recover the from_stage_id snapshotted at markAccepted time.
+    // Read most-recent quote_accepted audit for this quote.
+    const [priorAccept] = await db
+      .select({ diffJson: auditLog.diffJson })
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.entityType, "quote"),
+          eq(auditLog.entityId, quoteId),
+          eq(auditLog.action, "quote_accepted"),
+        ),
+      )
+      .orderBy(desc(auditLog.createdAt))
+      .limit(1);
+    const priorHubspot =
+      priorAccept?.diffJson &&
+      typeof priorAccept.diffJson === "object" &&
+      "hubspot" in priorAccept.diffJson
+        ? (priorAccept.diffJson as { hubspot?: { from_stage_id?: string } })
+            .hubspot
+        : null;
+    const priorStageId = priorHubspot?.from_stage_id ?? null;
+    if (!priorStageId) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Cannot recover prior HubSpot stage from audit_log. This can happen if the quote was accepted before Step 7b landed (no snapshot). Manual rollback required: move the HubSpot deal stage back yourself, then flip the DB via admin.",
+      );
+    }
 
-    // TODO Step 7b — HubSpot deal-stage rollback. Same "external
-    // first" ordering: fire before DB tx. If HubSpot rollback
-    // succeeds but DB fails, retry is safe (second HubSpot call is
-    // idempotent no-op on a deal already at the target stage).
+    // Load project for hubspot_deal_id.
+    const [project] = await db
+      .select({
+        id: projects.id,
+        hubspotDealId: projects.hubspotDealId,
+      })
+      .from(projects)
+      .where(eq(projects.id, quote.projectId))
+      .limit(1);
+    if (!project) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "Project not found.");
+    }
+    if (!isHubspotLinkedDealId(project.hubspotDealId)) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "This deal isn't linked to HubSpot. Cannot roll back deal stage.",
+      );
+    }
+
+    // External call FIRST (v3 §5.1 ordering).
+    let rolledBackStage: DealStageInfo;
+    try {
+      rolledBackStage = await updateDealStage(
+        project.hubspotDealId as string,
+        priorStageId,
+      );
+    } catch (e) {
+      const msg = e instanceof HubspotError ? e.message : String(e);
+      throw new ActionGuardError(
+        ERR.HUBSPOT,
+        `HubSpot deal-stage rollback failed — quote state unchanged. ${msg}`,
+      );
+    }
+
+    const revertedAt = new Date();
 
     await db.transaction(async (tx) => {
       await tx
@@ -2071,7 +2198,11 @@ export async function unmarkAccepted(
           prior_accepted_at: quote.acceptedAt,
           prior_accepted_by_user_id: quote.acceptedByUserId,
           reverted_by_user_id: user.id,
-          hubspot_rollback: "deferred_to_step_7b",
+          hubspot: {
+            deal_id: project.hubspotDealId,
+            rolled_back_to_stage_id: rolledBackStage.id,
+            rolled_back_to_stage_label: rolledBackStage.label,
+          },
         },
       });
 
@@ -2105,7 +2236,7 @@ export async function unmarkAccepted(
     });
 
     revalidateQuoteTree(quote.projectId, quoteId);
-    return { revertedAt };
+    return { revertedAt, hubspot: { to: rolledBackStage } };
   });
 }
 

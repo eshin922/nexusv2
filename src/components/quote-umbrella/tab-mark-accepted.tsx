@@ -92,7 +92,7 @@ export function TabMarkAccepted({
   function fireRollback() {
     if (
       !window.confirm(
-        "Roll back this acceptance? Quote returns to 'sent'. (Step 7b: HubSpot deal-stage rollback will also fire.)",
+        "Roll back this acceptance? Quote returns to 'sent' AND the HubSpot deal stage reverses to the pre-Accept snapshot.",
       )
     ) {
       return;
@@ -138,28 +138,10 @@ export function TabMarkAccepted({
               : "You're recording acceptance on the customer's behalf. This is reversible: it can be rolled back to Send to Client, which reverses the HubSpot stage."}
           </p>
 
-          {/* Step 7b bank — HubSpot push stubbed. Surface the pending
-              integration state so PMs know to move the deal stage
-              manually until 7b wires it. */}
-          <div
-            style={{
-              marginTop: 14,
-              padding: "10px 14px",
-              borderRadius: 6,
-              background: "var(--warn-soft, #fff4e5)",
-              border: "1px solid var(--warn, #d97706)",
-              color: "var(--warn, #92400e)",
-              fontSize: 12.5,
-              lineHeight: 1.5,
-            }}
-            data-testid="hubspot-push-deferred-note"
-          >
-            <strong>HubSpot push not yet wired (Step 7b).</strong> Marking
-            accepted flips Nexus state only. For now, move the HubSpot
-            deal stage to <strong>Closed Won</strong> manually. Step 7b
-            wires the automated push + rollback via{" "}
-            <code>getWriteClient()</code>.
-          </div>
+          {/* Slice 12 Step 7b — HubSpot push is now live. Success
+              flips this to a .r8-push.ok confirmation via
+              router.refresh; failure shows the .r8-push.error block
+              below with retry. */}
 
           {hasError && (
             <div className="r8-push error" style={{ marginTop: 14 }}>
@@ -214,11 +196,9 @@ export function TabMarkAccepted({
               <div className="row">
                 <span className="k">hubspot</span>
                 <span className="v">
-                  Quote Sent →{" "}
-                  <code>Closed Won</code>{" "}
-                  <span style={{ color: "var(--ink-4)", fontSize: 11 }}>
-                    (manual for now — Step 7b)
-                  </span>
+                  {isAccepted
+                    ? "pushed on accept · rollback available"
+                    : "pushes deal stage to firm's accept target on record"}
                 </span>
               </div>
             </div>
@@ -228,9 +208,9 @@ export function TabMarkAccepted({
             <div className="r8-rollback" style={{ marginTop: 14 }}>
               <div className="t">
                 <strong>Recorded in error?</strong> Roll back to Send to
-                Client — returns the quote to <code>sent</code>. The
-                review log is untouched. (Step 7b will also reverse the
-                HubSpot stage.)
+                Client — returns the quote to <code>sent</code> AND
+                reverses the HubSpot deal stage to where it was before
+                Accept fired. The review log is untouched.
               </div>
               <button
                 className="btn"
@@ -278,8 +258,9 @@ export function TabMarkAccepted({
               <li>
                 Roll back to <code>sent</code>
               </li>
-              <li>HubSpot stage reverses (Step 7b)</li>
-              <li>Revise into a new version (Step 7b)</li>
+              <li>HubSpot stage reverses to the pre-Accept snapshot</li>
+              <li>Revise into a new version (once Step 7c lands the
+                Revise-from-accepted extension)</li>
               <li>Nothing has entered NetSuite</li>
             </ul>
           </div>

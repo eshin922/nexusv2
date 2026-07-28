@@ -94,8 +94,7 @@ export function getReadClient(): Client {
   return _readClient;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by Slice 12+
-function getWriteClient(): Client {
+export function getWriteClient(): Client {
   if (_writeClient) return _writeClient;
   const token = process.env.HUBSPOT_WRITE_ACCESS_TOKEN;
   if (!token)
@@ -104,6 +103,124 @@ function getWriteClient(): Client {
     );
   _writeClient = new Client({ accessToken: token });
   return _writeClient;
+}
+
+// ---------- Slice 12 Step 7b — Deal-stage push/rollback helpers ----------
+//
+// Powers Mark Accepted (sent → accepted, deal stage → firm-configured
+// target label) and Q7 rollback (accepted → sent, deal stage → prior
+// snapshotted stage id).
+//
+// External-first ordering per v3 §5.1: markAccepted / unmarkAccepted
+// fire these BEFORE the DB tx. On HubSpot failure, DB tx never runs
+// — quote status stays put; PM retries.
+//
+// The DPS Sales pipeline id (108896657) is currently hardcoded. If
+// the firm ever runs multiple pipelines, extend to firm_settings.
+
+const DPS_SALES_PIPELINE_ID = "108896657";
+
+type PipelineStage = { id: string; label: string; displayOrder: number };
+
+let _pipelineStagesCache: PipelineStage[] | null = null;
+
+async function loadPipelineStages(): Promise<PipelineStage[]> {
+  if (_pipelineStagesCache) return _pipelineStagesCache;
+  const c = getReadClient();
+  try {
+    const pipeline = await c.crm.pipelines.pipelinesApi.getById(
+      "deals",
+      DPS_SALES_PIPELINE_ID,
+    );
+    _pipelineStagesCache = pipeline.stages.map((s) => ({
+      id: s.id,
+      label: s.label,
+      displayOrder: s.displayOrder,
+    }));
+    return _pipelineStagesCache;
+  } catch (e) {
+    throw new HubspotError(
+      `Failed to load pipeline ${DPS_SALES_PIPELINE_ID} stages`,
+      e,
+    );
+  }
+}
+
+export type DealStageInfo = { id: string; label: string };
+
+// Returns the deal's current stage as { id, label }. Label lookup
+// via the cached pipeline; id is what HubSpot stores. Used by
+// markAccepted to snapshot from_stage for future rollback.
+export async function getDealStage(dealId: string): Promise<DealStageInfo> {
+  const c = getReadClient();
+  let d;
+  try {
+    d = await c.crm.deals.basicApi.getById(dealId, ["dealstage", "pipeline"]);
+  } catch (e) {
+    throw new HubspotError(`Failed to read deal ${dealId} stage`, e);
+  }
+  const stageId = d.properties.dealstage;
+  if (!stageId) {
+    throw new HubspotError(
+      `Deal ${dealId} has no dealstage property (unexpected shape)`,
+    );
+  }
+  const stages = await loadPipelineStages();
+  const found = stages.find((s) => s.id === stageId);
+  return {
+    id: stageId,
+    // Fallback to the raw id if we can't resolve the label — audit
+    // trail should still be forensically useful even if the deal is
+    // on a stage outside the DPS pipeline (edge case).
+    label: found?.label ?? stageId,
+  };
+}
+
+// Update a deal's stage. Accepts either an internal stage id (e.g.
+// "195607084") or a display label (e.g. "Won - In production").
+// Label-based inputs get resolved via the cached pipeline stages;
+// unrecognized labels throw with a clear message + list of valid
+// options.
+//
+// Returns the resolved { id, label } so callers can snapshot the
+// to_stage in audit_log symmetrically with getDealStage's shape.
+export async function updateDealStage(
+  dealId: string,
+  targetStage: string,
+): Promise<DealStageInfo> {
+  const stages = await loadPipelineStages();
+  // Detect internal-id-shape input (numeric strings match; labels don't)
+  const isInternalId = /^\d+$/.test(targetStage);
+  let resolved: PipelineStage | undefined;
+  if (isInternalId) {
+    resolved = stages.find((s) => s.id === targetStage);
+  } else {
+    resolved = stages.find(
+      (s) => s.label.toLowerCase() === targetStage.toLowerCase(),
+    );
+  }
+  if (!resolved) {
+    const validLabels = stages.map((s) => `'${s.label}'`).join(", ");
+    throw new HubspotError(
+      `Deal stage '${targetStage}' not found in pipeline ${DPS_SALES_PIPELINE_ID}. Valid: ${validLabels}`,
+    );
+  }
+
+  const c = getWriteClient();
+  try {
+    await c.crm.deals.basicApi.update(dealId, {
+      properties: {
+        dealstage: resolved.id,
+      },
+    });
+  } catch (e) {
+    throw new HubspotError(
+      `Failed to update deal ${dealId} stage to '${resolved.label}' (${resolved.id})`,
+      e,
+    );
+  }
+
+  return { id: resolved.id, label: resolved.label };
 }
 
 export async function fetchCompanyIdsForDeals(
