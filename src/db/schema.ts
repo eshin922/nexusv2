@@ -512,6 +512,99 @@ export const quoteTiers = pgTable(
   (t) => [index("quote_tiers_quote_id_idx").on(t.quoteId)],
 );
 
+// ---------- Slice 12 Step 5a — Versioned send snapshots ----------
+//
+// Per-send immutable snapshot of the customer-facing artifact per v3
+// brief §5.1 Round 3 amendment 3. Each sendQuote INSERTs one row.
+// Revise-in-place (Step 6) closes the prior row via `superseded_at`
+// and increments `version_number` on the parent quote; the next send
+// INSERTs a fresh row.
+//
+// Nothing writes to this table in Step 5a — the table ships alone
+// (same pattern as `quote_review_events` in Step 3). Step 5b wires
+// sendQuote to INSERT here; Step 6 wires Revise to flip
+// superseded_at. Reads default `WHERE superseded_at IS NULL` for
+// "the current sent version"; audit reads unfiltered for full
+// history.
+//
+// Column choices mirror the snapshot columns on `quotes` today
+// (tcs_snapshot, prepared_by_*, pdf_layout, etc.). Those columns on
+// quotes REMAIN populated for the current send during transition
+// (Step 5b writes both places) — read paths stay unchanged. Column
+// removal from quotes deferred to Slice 12 close-out once every
+// consumer confirms migration.
+//
+// `accepted_snapshot_json` moves here per v3 §5.1: acceptance
+// snapshot follows the sent version it binds against. Currently
+// zero non-null values in prod, so migration is trivial (leave the
+// column dormant on quotes; new writes go here).
+//
+// Indexing:
+//   - (quote_id, superseded_at) — current-version lookup (WHERE
+//     superseded_at IS NULL); partial-index-worthy but full index
+//     is cheap and supports audit reads too
+//   - (quote_id, version_number, effective_from DESC) — per-version
+//     history lookup (Step 5's version-picker total-column data
+//     will consume this)
+export const quoteSnapshots = pgTable(
+  "quote_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    versionNumber: integer("version_number").notNull(),
+    // Time this snapshot became authoritative (= sent_at at INSERT).
+    effectiveFrom: timestamp("effective_from", {
+      withTimezone: true,
+    }).notNull(),
+    // NULL = the current version. Revise (Step 6) sets to now() on
+    // the prior row before incrementing quote.version_number and
+    // INSERTing a new row.
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    // Send metadata
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
+    validUntil: date("valid_until"),
+    quoteNumber: text("quote_number"),
+    // Commercial defaults snapshotted at send time (DEC-7 mirror)
+    tcs: text("tcs"),
+    paymentTerms: text("payment_terms"),
+    leadTime: text("lead_time"),
+    incoterms: text("incoterms"),
+    daysValid: integer("days_valid"),
+    // Prepared-by snapshot (DEC-8 mirror)
+    preparedByName: text("prepared_by_name"),
+    preparedByEmail: text("prepared_by_email"),
+    preparedByPhone: text("prepared_by_phone"),
+    // Customer-PDF render axes (Slice 11 Step 4 mirror)
+    pdfLayout: pdfLayout("pdf_layout"),
+    detailLevel: detailLevel("detail_level"),
+    includeSpecAddendum: boolean("include_spec_addendum"),
+    // Artifact pointer (Slice 11 Step 6 mirror). Signed URL is 30d;
+    // storage path (in audit_log.diff_json.pdf.storagePath) is
+    // permanent for regeneration.
+    pdfUrl: text("pdf_url"),
+    // Accepted-tier snapshot follows the version it binds against
+    // (v3 §5.1 amendment 3 — moves from quotes.accepted_snapshot_json).
+    // NULL until Mark Accepted; set at that transition (Step 7).
+    acceptedSnapshotJson: jsonb("accepted_snapshot_json"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (t) => [
+    index("quote_snapshots_current_idx").on(t.quoteId, t.supersededAt),
+    index("quote_snapshots_version_idx").on(
+      t.quoteId,
+      t.versionNumber,
+      t.effectiveFrom.desc(),
+    ),
+  ],
+);
+
 // ---------- Slice 12 Step 3 — Client Review feed ----------
 //
 // Append-only PM-facing activity log per v3 brief §4.3 + §5.1 Round 3.
