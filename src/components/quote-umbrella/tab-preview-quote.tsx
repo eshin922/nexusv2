@@ -1,20 +1,27 @@
 "use client";
 
-// Slice 12 Step 1 — Preview Quote sub-tab body.
+// Slice 12 Step 4 — Preview Quote sub-tab body.
 //
-// Wraps the existing QuoteHost verbatim. Step 4 (§11) does the real
-// re-housing (version-picker UI + Preview-only chrome per R8 §2.2
-// designer notes); Step 1 just moves QuoteHost under the umbrella
-// without touching it, so the Preview surface keeps working exactly
-// as it does today.
+// Adds the R8 canonical VersionPicker above the existing QuoteHost.
+// Step 1 shipped the shell wrapping QuoteHost verbatim; Step 4 lifts
+// the version-picker element per R8 §2.2 designer notes. Full R8
+// two-column layout (.r8-cols + .r8-side wrapping the iframe) is
+// deferred to a follow-up: it requires restructuring QuoteHost's
+// internal chrome (linkage warning, PreviewToolbar, addendum toggle,
+// detail-level toggle), and Steps 5-8 will hoist some of that chrome
+// out to other sub-tabs (Send button → Step 5 Send sub-tab). Doing
+// the layout restructure alongside those moves is cheaper than doing
+// it twice.
 //
-// The prop shape matches the pre-Slice-12 `/quote/page.tsx` call site
-// so nothing downstream changes.
+// The Preview surface today: VersionPicker card at top → existing
+// QuoteHost with all its chrome intact → light Advance bar.
 
 import { QuoteHost } from "@/components/quote/quote-host";
 import type { CustomerView } from "@/types/quote";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
+import type { VersionRow } from "@/lib/quote-version-chain";
 import { AdvanceBar } from "./advance-bar";
+import { VersionPicker } from "./version-picker";
 import type { SubTabId } from "./subtabs";
 
 export function TabPreviewQuote({
@@ -25,6 +32,8 @@ export function TabPreviewQuote({
   internalNotes,
   addendumData,
   isHubspotLinked,
+  projectId,
+  versionChain,
   onGo,
 }: {
   view: CustomerView;
@@ -34,10 +43,20 @@ export function TabPreviewQuote({
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
   isHubspotLinked: boolean;
+  /** Slice 12 Step 4 — routes VersionPicker's cross-version Links. */
+  projectId: string;
+  /** Slice 12 Step 4 — resolved server-side in page.tsx; passed as a
+   * prop so this client component doesn't need to be async. */
+  versionChain: VersionRow[];
   onGo: (id: SubTabId) => void;
 }) {
   return (
-    <div>
+    <div className="r8-wrap">
+      <VersionPicker
+        projectId={projectId}
+        versions={versionChain}
+        quoteNumber={view.quote.quoteNumber}
+      />
       <QuoteHost
         view={view}
         quoteId={quoteId}
@@ -49,7 +68,7 @@ export function TabPreviewQuote({
       />
       <AdvanceBar
         weight="light"
-        mid={<span>previewing draft</span>}
+        mid={<span>previewing {quoteStatus}</span>}
         caption="Reversible — you can come back and revise"
         label="Continue to Send →"
         onAdvance={() => onGo("send")}
