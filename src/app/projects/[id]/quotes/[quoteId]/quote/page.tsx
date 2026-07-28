@@ -7,7 +7,10 @@ import { isHubspotLinkedDealId } from "@/lib/hubspot-linkage";
 import { QuoteUmbrella } from "@/components/quote-umbrella/quote-umbrella";
 import { parseSubTabParam } from "@/components/quote-umbrella/subtabs";
 import { loadScenarioVersionChain } from "@/lib/quote-version-chain";
-import { getReviewFeedCount } from "@/lib/quote-review-events";
+import {
+  getReviewFeed,
+  getReviewFeedCount,
+} from "@/lib/quote-review-events";
 // Slice 12 Step 1 — canonical CSS + shared primitives loaded only on
 // the /quote route (blast-radius scoped per Step 1 planning).
 import "@/styles/r-shared-primitives.css";
@@ -112,13 +115,18 @@ export default async function CustomerViewPage({
     // Slice 12 Step 5c — feed count for the sub-tab strip's Client
     // Review badge + the Send-tab waiting-state "N entries so far"
     // copy. Cheap indexed count query.
-    const [versionChain, reviewFeedCount] = await Promise.all([
+    // Slice 12 Step 6a — parallel-load the Client Review feed rows
+    // alongside count + version chain. Count feeds sub-tab-strip
+    // badge; feed rows feed the Client Review sub-tab body. Cheap
+    // indexed reads; typical <20 rows per quote.
+    const [versionChain, reviewFeedCount, reviewFeed] = await Promise.all([
       loadScenarioVersionChain({
         projectId: project.id,
         scenarioLabel: quote.scenarioLabel,
         currentQuoteId: quote.id,
       }),
       getReviewFeedCount(quote.id),
+      getReviewFeed(quote.id),
     ]);
 
     const showStateSwitcher =
@@ -155,6 +163,7 @@ export default async function CustomerViewPage({
           addendumData={addendumData}
           isHubspotLinked={isHubspotLinkedDealId(project.hubspotDealId)}
           reviewFeedCount={reviewFeedCount}
+          reviewFeed={reviewFeed}
           projectId={project.id}
           versionChain={versionChain}
         />

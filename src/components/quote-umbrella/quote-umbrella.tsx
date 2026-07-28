@@ -20,17 +20,15 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useCallback } from "react";
 import type { CustomerView } from "@/types/quote";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
+import type { ReviewEventRow } from "@/lib/quote-review-events";
 import type { VersionRow } from "@/lib/quote-version-chain";
 import { SubTabStrip } from "./sub-tab-strip";
 import { Legend } from "./legend";
 import { QuoteAxisProvider } from "./quote-axis-context";
 import { TabPreviewQuote } from "./tab-preview-quote";
 import { TabSendToClient } from "./tab-send-to-client";
-import {
-  TabClientReview,
-  TabMarkAccepted,
-  TabTierSelection,
-} from "./tab-stubs";
+import { TabClientReview } from "./tab-client-review";
+import { TabMarkAccepted, TabTierSelection } from "./tab-stubs";
 import type { SubTabId } from "./subtabs";
 
 export function QuoteUmbrella({
@@ -44,6 +42,7 @@ export function QuoteUmbrella({
   addendumData,
   isHubspotLinked,
   reviewFeedCount,
+  reviewFeed,
   projectId,
   versionChain,
 }: {
@@ -59,9 +58,13 @@ export function QuoteUmbrella({
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
   isHubspotLinked: boolean;
-  /** Slice 12 Step 1 — passed as 0 until Step 6 wires the real
-   * quote_review_events count. The strip renders the badge when > 0. */
+  /** Slice 12 Step 5c — real count from quote_review_events.
+   * Renders the sub-tab strip's Client Review badge (when > 0). */
   reviewFeedCount: number;
+  /** Slice 12 Step 6a — full feed rows (newest first, joined with
+   * users for author names). Only the Client Review sub-tab
+   * consumes; passed at umbrella level for symmetry with count. */
+  reviewFeed: ReviewEventRow[];
   /** Slice 12 Step 4 — routes the version-picker's cross-version
    * Links. Only the Preview tab uses it currently; passed at umbrella
    * level so future sub-tabs (e.g., Client Review's mismatch banner
@@ -134,7 +137,15 @@ export function QuoteUmbrella({
               onGo={onGo}
             />
           )}
-          {activeTab === "review" && <TabClientReview onGo={onGo} />}
+          {activeTab === "review" && (
+            <TabClientReview
+              view={view}
+              quoteStatus={quoteStatus}
+              quoteVersionNumber={quoteVersionNumber}
+              feed={reviewFeed}
+              onGo={onGo}
+            />
+          )}
           {activeTab === "accepted" && <TabMarkAccepted onGo={onGo} />}
           {activeTab === "tier" && <TabTierSelection onGo={onGo} />}
         </div>
