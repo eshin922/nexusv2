@@ -1,0 +1,636 @@
+/* Nexus Round 8 — Quote umbrella (5-sub-tab reversible lifecycle)
+   ═══════════════════════════════════════════════════════════════════════════
+   PATTERN 30 CANONICAL — copy of docs/design-prototypes/dist/round-8/app/r8/
+   styles.css. Two prototype-only blocks stripped inline (.r8-proto state
+   switcher + .r8-dn designer notes) per R8 designer notes §11. Everything
+   else is verbatim; edit upstream + re-copy, not this file.
+   ───────────────────────────────────────────────────────────────────────────
+   CANONICAL STYLESHEET — CC adopts this verbatim (Pattern 30).
+   Depends on the root design tokens in /styles.css (--paper*, --ink*, --rule*,
+   --accent*, --good/--warn/--bad + -soft, --display, --mono) and the shared
+   .btn / .chip / .modal / .eyebrow / .formfield primitives defined there.
+
+   THE ONE IDEA THIS STYLESHEET ENCODES
+   ────────────────────────────────────
+   Nothing is locked until the NetSuite SO push. So *reversible* transitions are
+   styled LIGHT (ordinary primary button, quiet caption) and the single
+   irreversible one is styled HEAVY (ceremonial dark slab + lock threshold).
+   The asymmetry is the teaching mechanism — do not normalize it.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Shell ──────────────────────────────────────────────── */
+.r8-shell {
+  min-height: 100vh;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+}
+.r8-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-2);
+  flex-wrap: wrap;
+}
+.r8-crumb {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; color: var(--ink-3);
+}
+.r8-crumb .dim { color: var(--ink-4); }
+.r8-crumb strong { color: var(--ink); font-weight: 500; }
+.r8-topbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* Nexus adaptation: `.r8-proto` (prototype state switcher) stripped
+   per R8 designer notes §11 — prototype-only chrome, not shipped. */
+
+/* ═══ 2.1 · SUB-TAB STRIP ═════════════════════════════════
+   5-wide. Tab states: done · current · upcoming · locked.
+   Client Review carries .log (a place to track, not a gate to pass).
+   The lock threshold sits between tab 4 and tab 5.                        */
+.r8-strip {
+  display: flex; align-items: stretch;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 0 24px;
+  position: relative;
+  overflow-x: auto;
+}
+.r8-tab {
+  flex: 1 1 0; min-width: 0; max-width: 100%;
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 13px 16px 12px 0;
+  background: transparent; border: none; text-align: left;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  font-family: inherit;
+}
+.r8-tab .num {
+  flex: 0 0 20px; height: 20px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 10px; font-weight: 500;
+  border: 1px solid var(--rule-2); color: var(--ink-3);
+  background: var(--paper-2);
+  margin-top: 1px;
+}
+.r8-tab .txt { min-width: 0; }
+.r8-tab .txt { display: block; }
+.r8-tab .lab {
+  display: block;
+  font-size: 13.5px; font-weight: 500; color: var(--ink-2);
+  letter-spacing: -0.005em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.r8-tab .sub {
+  display: block;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--ink-4); margin-top: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* done — completed but revisitable (because reversible) */
+.r8-tab.done .num { background: var(--good-soft); border-color: oklch(from var(--good) l c h / 0.45); color: var(--good); }
+.r8-tab.done .lab { color: var(--ink-2); }
+.r8-tab.done .sub { color: var(--good); }
+.r8-tab.done:hover .lab { color: var(--ink); }
+
+/* current */
+.r8-tab.current { border-bottom-color: var(--accent); }
+.r8-tab.current .num { background: var(--accent); border-color: var(--accent); color: var(--paper); }
+.r8-tab.current .lab { color: var(--ink); font-weight: 600; }
+.r8-tab.current .sub { color: var(--accent-ink); }
+
+/* upcoming — unreachable until the quote is in its state (strict sequential) */
+.r8-tab.upcoming { cursor: not-allowed; }
+.r8-tab.upcoming .num { background: var(--paper-2); border-style: dashed; color: var(--ink-4); }
+.r8-tab.upcoming .lab { color: var(--ink-4); font-weight: 400; }
+.r8-tab.upcoming .sub { color: var(--ink-4); }
+
+/* locked — post-Complete, whole umbrella read-only (Pattern 52) */
+.r8-tab.locked { cursor: default; }
+.r8-tab.locked .num { background: var(--paper-3); border-color: var(--rule-2); color: var(--ink-3); }
+.r8-tab.locked .lab { color: var(--ink-3); }
+
+/* Client Review = logging tab. Dotted rule under the label + ledger glyph
+   distinguishes "track" from "gate" without adding a colour to the system. */
+.r8-tab.log .lab { border-bottom: 1px dotted var(--rule-2); padding-bottom: 2px; display: inline-block; }
+.r8-tab.log .num { border-radius: 4px; }          /* square-ish = ledger, not a step */
+.r8-tab .feedcount {
+  display: inline-block; margin-left: 6px;
+  font-family: var(--mono); font-size: 9px; color: var(--ink-3);
+  background: var(--paper-3); border-radius: 8px; padding: 1px 5px;
+}
+
+/* THE LOCK THRESHOLD — everything left of this line is reversible. */
+.r8-threshold {
+  flex: 0 0 auto; flex-shrink: 0; align-self: stretch;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; padding: 0 14px 0 6px;
+  border-left: 1px dashed var(--rule-2);
+  margin: 8px 6px 8px 0;
+}
+.r8-threshold .glyph { font-size: 11px; color: var(--ink-4); line-height: 1; }
+.r8-threshold .cap {
+  font-family: var(--mono); font-size: 7.5px; letter-spacing: 0.10em; white-space: nowrap;
+  text-transform: uppercase; color: var(--ink-4); writing-mode: vertical-rl; text-orientation: mixed;
+  max-height: 40px; overflow: hidden;
+}
+
+/* Reversibility legend under the strip */
+.r8-legend {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding: 7px 24px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-2);
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em; color: var(--ink-4);
+}
+.r8-legend .item { display: flex; align-items: center; gap: 5px; }
+.r8-legend .rev { color: var(--good); }
+.r8-legend .irr { color: var(--bad); }
+
+/* ─── Content frame ──────────────────────────────────────── */
+.r8-body { flex: 1; padding: 22px 24px 96px; }   /* bottom pad clears the advance bar */
+.r8-body.narrowpad { padding: 18px 16px 120px; }
+.r8-cols {
+  display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 24px; align-items: start;
+}
+.r8-h1 {
+  font-family: var(--display); font-size: 23px; font-weight: 500;
+  letter-spacing: -0.018em; color: var(--ink); margin: 0 0 4px;
+}
+.r8-h1 em { font-style: italic; color: var(--ink-3); }
+.r8-sub { font-size: 13px; color: var(--ink-2); line-height: 1.55; margin: 0 0 16px; max-width: 68ch; }
+.r8-card {
+  background: var(--paper-2); border: 1px solid var(--rule);
+  border-radius: 8px; padding: 16px 18px;
+}
+.r8-card + .r8-card { margin-top: 14px; }
+.r8-card.flush { padding: 0; overflow: hidden; }
+.r8-card-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid var(--rule);
+}
+.r8-side .r8-card { background: var(--paper-3); }
+
+/* ─── 2.2 · VERSION CHOOSER ──────────────────────────────── */
+.r8-vpick { display: flex; flex-direction: column; }
+.r8-vrow {
+  display: grid; grid-template-columns: 46px 1fr auto;
+  gap: 12px; align-items: center;
+  padding: 11px 14px; background: none; border: none; width: 100%;
+  border-top: 1px solid var(--rule); cursor: pointer; text-align: left;
+  font-family: inherit;
+}
+.r8-vrow:first-child { border-top: none; }
+.r8-vrow:hover { background: var(--paper-3); }
+.r8-vrow.active { background: var(--accent-soft); }
+.r8-vrow .vlab {
+  font-family: var(--mono); font-size: 12.5px; font-weight: 500; color: var(--ink);
+  display: flex; align-items: center; gap: 5px;
+}
+.r8-vrow.active .vlab { color: var(--accent-ink); }
+.r8-vrow .vnote { font-size: 12.5px; color: var(--ink-2); line-height: 1.4; }
+.r8-vrow .vmeta { font-family: var(--mono); font-size: 9.5px; color: var(--ink-4); letter-spacing: 0.04em; margin-top: 2px; }
+.r8-vrow .vtotal { font-family: var(--mono); font-size: 12px; color: var(--ink-3); text-align: right; white-space: nowrap; }
+.r8-vtag {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 3px; white-space: nowrap;
+}
+.r8-vtag.sent       { background: var(--accent-soft); color: var(--accent-ink); }
+.r8-vtag.draft      { background: var(--warn-soft);   color: var(--warn); }
+.r8-vtag.superseded { background: var(--paper-3);     color: var(--ink-4); }
+
+/* PDF preview stand-in frame (the artifact itself is Slice-11's — we frame it) */
+.r8-pdfframe {
+  border: 1px solid var(--rule-2); border-radius: 6px;
+  background: var(--paper);
+  padding: 0; overflow: hidden;
+}
+.r8-pdfframe .bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 12px; border-bottom: 1px solid var(--rule); background: var(--paper-2);
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-4);
+}
+.r8-pdfframe .sheet {
+  margin: 18px auto; width: 74%; aspect-ratio: 8.5 / 11;
+  background: oklch(0.995 0.002 95);
+  box-shadow: 0 1px 0 rgba(0,0,0,0.14), 0 10px 26px rgba(0,0,0,0.14);
+  display: flex; flex-direction: column; gap: 7px; padding: 22px 24px;
+}
+.r8-pdfframe .sheet .l { height: 5px; border-radius: 2px; background: oklch(0.90 0.008 90); }
+.r8-pdfframe .sheet .l.t { height: 11px; width: 46%; background: oklch(0.62 0.014 255); margin-bottom: 6px; }
+.r8-pdfframe .sheet .l.s { width: 62%; }
+.r8-pdfframe .sheet .l.tbl { height: 34px; background: oklch(0.94 0.006 90); margin-top: 8px; }
+.r8-pdfframe .sheet .cap {
+  margin-top: auto; font-family: var(--mono); font-size: 8px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ink-4); text-align: center;
+}
+
+/* ─── 2.3 · POST-SEND WAITING STATE ──────────────────────── */
+.r8-wait {
+  display: flex; align-items: flex-start; gap: 14px;
+  background: var(--accent-soft);
+  border: 1px solid oklch(from var(--accent) l c h / 0.35);
+  border-radius: 8px; padding: 16px 18px;
+}
+.r8-wait .pulse {
+  flex: 0 0 9px; height: 9px; border-radius: 50%; background: var(--accent);
+  margin-top: 5px; animation: r8pulse 2s ease-in-out infinite;
+}
+@keyframes r8pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.82); } }
+.r8-wait .txt { flex: 1; }
+.r8-wait h4 {
+  font-family: var(--display); font-size: 16px; font-weight: 500; margin: 0 0 4px;
+  color: var(--ink); letter-spacing: -0.01em;
+}
+.r8-wait p { margin: 0; font-size: 12.5px; color: var(--ink-2); line-height: 1.55; }
+.r8-wait .meta {
+  display: block; font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+  letter-spacing: 0.04em; margin-top: 7px;
+}
+.r8-wait .acts { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+/* ─── 2.4 · CLIENT REVIEW FEED ───────────────────────────
+   Reads as a LOG: hairline timeline, no cards, no heavy chrome.         */
+.r8-feed { display: flex; flex-direction: column; }
+.r8-fitem {
+  display: grid; grid-template-columns: 18px 1fr;
+  gap: 12px; padding: 13px 16px;
+  border-top: 1px solid var(--rule);
+  position: relative;
+}
+.r8-fitem:first-child { border-top: none; }
+.r8-fitem .spine {
+  position: relative; display: flex; justify-content: center;
+}
+.r8-fitem .spine::before {
+  content: ""; position: absolute; top: 14px; bottom: -14px; left: 50%;
+  width: 1px; background: var(--rule); transform: translateX(-50%);
+}
+.r8-fitem:last-child .spine::before { display: none; }
+.r8-fitem .dot {
+  width: 9px; height: 9px; border-radius: 50%; margin-top: 4px;
+  background: var(--paper); border: 1.5px solid var(--rule-2); z-index: 1;
+}
+.r8-fitem.t-responded          .dot { border-color: var(--good); background: var(--good-soft); }
+.r8-fitem.t-asked              .dot { border-color: var(--ink-3); background: var(--paper-3); }
+.r8-fitem.t-revision_requested .dot { border-color: var(--warn); background: var(--warn-soft); }
+.r8-fitem.t-sent               .dot { border-color: var(--accent); background: var(--accent-soft); }
+.r8-fitem .head {
+  display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; margin-bottom: 3px;
+}
+.r8-etype {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.09em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 3px; background: var(--paper-3); color: var(--ink-3);
+}
+.r8-etype.responded          { background: var(--good-soft);   color: var(--good); }
+.r8-etype.asked              { background: var(--paper-3);     color: var(--ink-2); }
+.r8-etype.revision_requested { background: var(--warn-soft);   color: var(--warn); }
+.r8-etype.sent               { background: var(--accent-soft); color: var(--accent-ink); }
+.r8-fitem .who { font-family: var(--mono); font-size: 10px; color: var(--ink-3); letter-spacing: 0.03em; }
+.r8-fitem .when { font-family: var(--mono); font-size: 9.5px; color: var(--ink-4); letter-spacing: 0.03em; margin-left: auto; }
+.r8-fitem .note { font-size: 13px; color: var(--ink-2); line-height: 1.55; }
+.r8-fitem.system .note { color: var(--ink-3); font-style: italic; }
+.r8-fitem .inline-act { margin-top: 9px; display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Add-entry affordance — collapsed to one line until used */
+.r8-addentry { border-top: 1px solid var(--rule); background: var(--paper-3); }
+.r8-addentry .trigger {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 12px 16px; background: none; border: none; cursor: pointer;
+  font-family: inherit; font-size: 12.5px; color: var(--ink-3); text-align: left;
+}
+.r8-addentry .trigger:hover { color: var(--ink); }
+.r8-addentry .trigger .plus {
+  font-family: var(--mono); font-size: 13px; color: var(--ink-4);
+  width: 18px; text-align: center;
+}
+.r8-addentry .form { padding: 14px 16px 16px; }
+.r8-typepick { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.r8-typepick button {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+  padding: 7px 11px; border-radius: 6px; cursor: pointer;
+  background: var(--paper-2); border: 1px solid var(--rule);
+  font-family: inherit; text-align: left;
+}
+.r8-typepick button .t {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--ink-2);
+}
+.r8-typepick button .h { font-size: 11px; color: var(--ink-4); }
+.r8-typepick button.on { border-color: var(--accent); background: var(--accent-soft); }
+.r8-typepick button.on .t { color: var(--accent-ink); }
+.r8-addentry textarea {
+  width: 100%; min-height: 68px; resize: vertical;
+  font-family: inherit; font-size: 13px; line-height: 1.55; color: var(--ink);
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 6px;
+  padding: 10px 12px;
+}
+.r8-addentry .formfoot {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-top: 10px; flex-wrap: wrap;
+}
+.r8-addentry .hint { font-family: var(--mono); font-size: 9.5px; color: var(--ink-4); letter-spacing: 0.04em; }
+
+/* Empty state */
+.r8-empty {
+  padding: 40px 24px; text-align: center;
+}
+.r8-empty .glyph {
+  font-size: 22px; color: var(--ink-4); margin-bottom: 10px;
+  font-family: var(--mono);
+}
+.r8-empty h4 {
+  font-family: var(--display); font-size: 17px; font-weight: 500;
+  color: var(--ink-2); margin: 0 0 5px; letter-spacing: -0.01em;
+}
+.r8-empty p { margin: 0 auto; font-size: 12.5px; color: var(--ink-4); max-width: 44ch; line-height: 1.55; }
+
+/* ─── 2.4a · SENT-VS-DRAFT MISMATCH BANNER ───────────────── */
+.r8-mismatch {
+  display: flex; align-items: flex-start; gap: 14px;
+  background: var(--warn-soft);
+  border: 1px solid oklch(from var(--warn) l c h / 0.42);
+  border-left-width: 3px;
+  border-radius: 8px; padding: 15px 18px; margin-bottom: 16px;
+}
+.r8-mismatch .icon {
+  flex: 0 0 22px; height: 22px; border-radius: 50%;
+  background: var(--warn); color: var(--paper);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 13px; font-weight: 600; margin-top: 1px;
+}
+.r8-mismatch .txt { flex: 1; min-width: 0; }
+.r8-mismatch h4 {
+  font-family: var(--display); font-size: 15.5px; font-weight: 500; margin: 0 0 4px;
+  color: var(--ink); letter-spacing: -0.008em;
+}
+.r8-mismatch h4 strong { font-weight: 600; }
+.r8-mismatch p { margin: 0; font-size: 12.5px; color: var(--ink-2); line-height: 1.55; }
+.r8-mismatch .acts { display: flex; gap: 8px; margin-top: 11px; flex-wrap: wrap; }
+
+/* Revise affordance — a real button, but never a primary. Reversibility is
+   ordinary, so it must not look like an emergency exit. */
+.r8-revise {
+  display: flex; align-items: center; gap: 10px;
+  padding: 13px 16px; border-radius: 8px;
+  background: var(--paper-3); border: 1px dashed var(--rule-2);
+}
+.r8-revise .txt { flex: 1; }
+.r8-revise .t { font-size: 13px; color: var(--ink); font-weight: 500; }
+.r8-revise .s { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; line-height: 1.45; }
+
+/* ─── 2.5 · INTEGRATION PUSH STATES ──────────────────────── */
+.r8-push {
+  display: flex; align-items: center; gap: 13px;
+  padding: 14px 16px; border-radius: 8px; border: 1px solid var(--rule);
+  background: var(--paper-2);
+}
+.r8-push .spinner {
+  flex: 0 0 20px; width: 20px; height: 20px; border-radius: 50%;
+  border: 2px solid var(--rule-2); border-top-color: var(--accent);
+  animation: r8spin 0.8s linear infinite;
+}
+@keyframes r8spin { to { transform: rotate(360deg); } }
+.r8-push .mark {
+  flex: 0 0 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600;
+}
+.r8-push.ok    { background: var(--good-soft); border-color: oklch(from var(--good) l c h / 0.4); }
+.r8-push.ok    .mark { background: var(--good); color: var(--paper); }
+.r8-push.error { background: var(--bad-soft);  border-color: oklch(from var(--bad) l c h / 0.45); }
+.r8-push.error .mark { background: var(--bad);  color: var(--paper); }
+.r8-push .txt { flex: 1; min-width: 0; }
+.r8-push .t { font-size: 13px; color: var(--ink); font-weight: 500; }
+.r8-push .s {
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-3);
+  letter-spacing: 0.03em; margin-top: 3px; line-height: 1.5;
+}
+.r8-push.error .s { color: oklch(from var(--bad) calc(l - 0.06) c h); }
+.r8-push .acts { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+
+/* Rollback affordance (Mark Accepted is reversible) */
+.r8-rollback {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; border-radius: 8px;
+  background: var(--paper-3); border: 1px solid var(--rule); flex-wrap: wrap;
+}
+.r8-rollback .t { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
+.r8-rollback .t strong { color: var(--ink); }
+
+/* ─── 2.6 · TIER SELECTION ───────────────────────────────── */
+.r8-tier {
+  display: grid; grid-template-columns: 22px 1.1fr 1fr 0.9fr 0.9fr;
+  gap: 12px; align-items: center;
+  padding: 13px 16px; width: 100%;
+  background: var(--paper-2); border: 1px solid var(--rule); border-radius: 8px;
+  cursor: pointer; text-align: left; font-family: inherit;
+}
+.r8-tier + .r8-tier { margin-top: 8px; }
+.r8-tier:hover:not(.disabled) { border-color: var(--rule-2); }
+.r8-tier.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.r8-tier.disabled { opacity: 0.62; cursor: not-allowed; }
+.r8-tier .radio {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 1.5px solid var(--rule-2); background: var(--paper);
+}
+.r8-tier.on .radio { border-color: var(--accent); border-width: 5px; }
+.r8-tier .tname {
+  font-family: var(--display); font-size: 16px; font-weight: 500; color: var(--ink);
+  display: flex; align-items: center; gap: 6px;
+}
+.r8-tier .star { color: oklch(0.56 0.13 72); font-size: 11px; }
+.r8-tier .tqty { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.03em; margin-top: 2px; }
+.r8-tier .tnum { font-family: var(--mono); font-size: 12.5px; color: var(--ink); text-align: right; }
+.r8-tier .tnum .u { font-size: 9.5px; color: var(--ink-4); margin-left: 2px; }
+.r8-tier .tcap {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--ink-4); text-align: right; margin-top: 2px;
+}
+.r8-tier .tmargin { font-family: var(--mono); font-size: 12.5px; text-align: right; }
+.r8-tier .tmargin.good         { color: var(--good); }
+.r8-tier .tmargin.below_target { color: var(--warn); }
+.r8-tier .tmargin.below_floor  { color: var(--bad); }
+.r8-tier .blockchip {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--bad); background: var(--bad-soft); border-radius: 3px; padding: 2px 5px;
+  display: inline-block; margin-top: 3px;
+}
+.r8-signal {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em;
+  color: var(--accent-ink); background: var(--accent-soft);
+  border-radius: 5px; padding: 7px 11px; margin-bottom: 11px;
+}
+
+/* ═══ 3 · ADVANCE BAR — the reversibility asymmetry ═══════
+   .light = reversible transition. Ordinary primary + quiet caption.
+   .heavy = THE LOCK. Dark ceremonial slab, lock glyph, explicit warning.  */
+.r8-advance {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--rule);
+  background: oklch(from var(--paper-2) l c h / 0.94);
+  backdrop-filter: blur(8px);
+  flex-wrap: wrap;
+}
+.r8-advance .back { display: flex; align-items: center; gap: 8px; }
+.r8-advance .mid {
+  flex: 1; min-width: 160px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; color: var(--ink-4);
+  text-align: center;
+}
+.r8-advance .fwd { display: flex; align-items: center; gap: 12px; }
+.r8-advance .cap {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em;
+  color: var(--ink-4); text-align: right; max-width: 30ch; line-height: 1.5;
+}
+
+/* light — reversible */
+.r8-adv-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 17px; border-radius: 7px; cursor: pointer;
+  font-family: inherit; font-size: 13.5px; font-weight: 500;
+  background: var(--accent); border: 1px solid var(--accent); color: var(--paper);
+}
+.r8-adv-btn:hover { background: oklch(from var(--accent) calc(l - 0.04) c h); }
+.r8-adv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* heavy — irreversible. Ceremonial: darker slab, lock glyph, wider padding,
+   a hairline ring that reads as a seal. Deliberately unlike every other CTA. */
+.r8-adv-btn.heavy {
+  background: oklch(0.26 0.02 255); border-color: oklch(0.26 0.02 255);
+  color: oklch(0.97 0.01 90);
+  padding: 12px 24px; border-radius: 6px;
+  font-size: 14px; font-weight: 600; letter-spacing: 0.005em;
+  box-shadow: 0 0 0 1px oklch(0.26 0.02 255 / 0.25), 0 0 0 4px oklch(0.26 0.02 255 / 0.10);
+}
+.r8-adv-btn.heavy:hover { background: oklch(0.20 0.02 255); }
+.r8-adv-btn.heavy .lock { font-size: 12px; opacity: 0.9; }
+.r8-advance.heavy { border-top-width: 2px; border-top-color: oklch(0.26 0.02 255); }
+.r8-advance.heavy .cap { color: var(--bad); }
+
+/* ─── Finalization modal (heavy) ─────────────────────────── */
+.r8-final-head {
+  background: oklch(0.26 0.02 255); color: oklch(0.97 0.01 90);
+  padding: 18px 22px;
+}
+.r8-final-head .eyebrow { color: oklch(0.80 0.03 85); margin-bottom: 5px; }
+.r8-final-head h2 {
+  font-family: var(--display); font-size: 20px; font-weight: 500; margin: 0;
+  letter-spacing: -0.012em; color: oklch(0.98 0.008 90);
+}
+.r8-final-head h2 em { font-style: italic; color: oklch(0.86 0.02 85); }
+.r8-consequences { margin: 0; padding: 0; list-style: none; }
+.r8-consequences li {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 9px 0; border-top: 1px solid var(--rule); font-size: 13px; color: var(--ink-2); line-height: 1.55;
+}
+.r8-consequences li:first-child { border-top: none; }
+.r8-consequences li .g {
+  flex: 0 0 16px; font-family: var(--mono); font-size: 11px; color: var(--ink-4); margin-top: 2px;
+}
+.r8-consequences li strong { color: var(--ink); }
+.r8-confirmtype {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 12px 14px; border-radius: 7px;
+  background: var(--bad-soft); border: 1px solid oklch(from var(--bad) l c h / 0.35);
+}
+.r8-confirmtype label { font-size: 12.5px; color: var(--ink-2); }
+.r8-confirmtype code { font-family: var(--mono); font-size: 12px; color: var(--bad); }
+.r8-confirmtype input {
+  font-family: var(--mono); font-size: 13px; padding: 7px 10px; width: 130px;
+  border: 1px solid var(--rule-2); border-radius: 5px; background: var(--paper); color: var(--ink);
+}
+
+/* ─── Post-Complete locked treatment (Pattern 52) ────────── */
+.r8-locked-ribbon {
+  display: flex; align-items: center; gap: 15px; flex-wrap: wrap;
+  padding: 16px 24px;
+  background: oklch(0.26 0.02 255); color: oklch(0.96 0.01 90);
+  border-bottom: 1px solid oklch(0.20 0.02 255);
+}
+.r8-locked-ribbon .seal {
+  flex: 0 0 34px; height: 34px; border-radius: 50%;
+  border: 1.5px solid oklch(0.62 0.03 255);
+  display: flex; align-items: center; justify-content: center; font-size: 15px;
+  color: oklch(0.92 0.02 90);
+}
+.r8-locked-ribbon .txt { flex: 1; min-width: 200px; }
+.r8-locked-ribbon .heading {
+  font-family: var(--display); font-size: 18px; font-weight: 500; letter-spacing: -0.012em;
+}
+.r8-locked-ribbon .meta {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em;
+  color: oklch(0.78 0.02 85); margin-top: 3px;
+}
+.r8-locked-ribbon .right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.r8-solink {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.04em;
+  padding: 7px 12px; border-radius: 6px; text-decoration: none;
+  background: oklch(0.34 0.02 255); color: oklch(0.95 0.01 90);
+  border: 1px solid oklch(0.44 0.02 255);
+}
+.r8-solink:hover { background: oklch(0.40 0.02 255); }
+.r8-readonly-note {
+  display: flex; align-items: center; gap: 9px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em;
+  color: var(--ink-4); padding: 8px 24px;
+  border-bottom: 1px solid var(--rule); background: var(--paper-2);
+}
+
+/* Definition rows (audit / summary tables) */
+.r8-defs { display: flex; flex-direction: column; }
+.r8-defs .row {
+  display: grid; grid-template-columns: 168px 1fr; gap: 12px;
+  padding: 7px 0; border-top: 1px solid var(--rule); font-size: 12.5px;
+}
+.r8-defs .row:first-child { border-top: none; }
+.r8-defs .k { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.04em; }
+.r8-defs .v { color: var(--ink-2); }
+.r8-defs .v code { font-family: var(--mono); font-size: 11.5px; }
+
+/* Nexus adaptation: `.r8-dn` (inline designer notes) stripped per
+   R8 designer notes §11 — prototype rhetoric, not product. */
+
+/* ═══ 5 · STACKED / NARROW VARIANT ════════════════════════
+   Applied by media query AND by the .narrow class (so reviewers can force it).
+   Strip becomes a 2-row wrap; the threshold rule turns horizontal; the advance
+   bar stacks with the primary action full-width and last.                */
+.r8-shell.narrow .r8-cols { grid-template-columns: minmax(0, 1fr); }
+
+.r8-shell.narrow .r8-strip { flex-wrap: wrap; padding: 0 16px; overflow-x: visible; }
+.r8-shell.narrow .r8-tab { flex: 1 1 44%; padding: 11px 12px 10px 0; }
+.r8-shell.narrow .r8-threshold {
+  flex: 1 1 100%; flex-direction: row; gap: 8px;
+  border-left: none; border-top: 1px dashed var(--rule-2);
+  margin: 4px 0; padding: 6px 0;
+}
+.r8-shell.narrow .r8-threshold .cap { writing-mode: horizontal-tb; max-height: none; }
+.r8-shell.narrow .r8-topbar { padding: 10px 16px; }
+.r8-shell.narrow .r8-legend { padding: 7px 16px; gap: 12px; }
+.r8-shell.narrow .r8-tier { grid-template-columns: 22px 1fr 1fr; row-gap: 8px; }
+.r8-shell.narrow .r8-tier .tmargin, .r8-shell.narrow .r8-tier .tcap { text-align: left; }
+.r8-shell.narrow .r8-advance { padding: 10px 16px; gap: 10px; }
+.r8-shell.narrow .r8-advance .mid { order: 3; flex: 1 1 100%; text-align: left; }
+.r8-shell.narrow .r8-advance .fwd { flex: 1 1 100%; justify-content: space-between; }
+.r8-shell.narrow .r8-advance .r8-adv-btn { flex: 1; justify-content: center; }
+.r8-shell.narrow .r8-defs .row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.r8-shell.narrow .r8-vrow { grid-template-columns: 44px 1fr; }
+.r8-shell.narrow .r8-vrow .vtotal { grid-column: 2; text-align: left; }
+.r8-shell.narrow .r8-pdfframe .sheet { width: 92%; }
+
+@media (max-width: 900px) {
+  .r8-strip { flex-wrap: wrap; padding: 0 16px; overflow-x: visible; }
+  .r8-tab { flex: 1 1 44%; }
+  .r8-threshold { flex: 1 1 100%; flex-direction: row; border-left: none; border-top: 1px dashed var(--rule-2); margin: 4px 0; padding: 6px 0; }
+  .r8-threshold .cap { writing-mode: horizontal-tb; max-height: none; }
+  .r8-body { padding: 18px 16px 130px; }
+  .r8-tier { grid-template-columns: 22px 1fr 1fr; row-gap: 8px; }
+  .r8-advance { padding: 10px 16px; }
+  .r8-advance .mid { order: 3; flex: 1 1 100%; text-align: left; }
+  .r8-advance .fwd { flex: 1 1 100%; justify-content: space-between; }
+}

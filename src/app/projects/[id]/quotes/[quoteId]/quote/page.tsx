@@ -1,10 +1,15 @@
 import { notFound } from "next/navigation";
-import { QuoteHost } from "@/components/quote/quote-host";
 import { SurfaceChrome } from "@/components/nav/surface-chrome";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { resolveCustomerView } from "@/lib/customer-view-resolver";
 import { isHubspotLinkedDealId } from "@/lib/hubspot-linkage";
+import { QuoteUmbrella } from "@/components/quote-umbrella/quote-umbrella";
+import { parseSubTabParam } from "@/components/quote-umbrella/subtabs";
+// Slice 12 Step 1 — canonical CSS + shared primitives loaded only on
+// the /quote route (blast-radius scoped per Step 1 planning).
+import "@/styles/r-shared-primitives.css";
+import "@/styles/r8-quote-umbrella.css";
 
 // Slice RI.6 — Quote page (visual shell + boundary-guard
 // build invariant per brief §3.7).
@@ -32,6 +37,12 @@ export default async function CustomerViewPage({
     layout?: string;
     detail?: string;
     addendum?: string;
+    /**
+     * Slice 12 Step 1 — sub-tab selection within the Quote umbrella.
+     * Defaults to `preview` if absent or invalid. Values: preview,
+     * send, review, accepted, tier (see subtabs.ts SUBTABS canon).
+     */
+    tab?: string;
   }>;
 }) {
   // 2026-06-17 prod-hang Vercel-side instrumentation (see
@@ -43,7 +54,8 @@ export default async function CustomerViewPage({
     Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
   const elapsed = () => `${Date.now() - t0}ms`;
   const { id: projectId, quoteId } = await params;
-  const { dev, layout, detail, addendum } = await searchParams;
+  const { dev, layout, detail, addendum, tab } = await searchParams;
+  const activeTab = parseSubTabParam(tab);
   const tag = quoteId.slice(0, 8);
   console.log(`[quote:${tag}] start memory=${heapMb()}MB`);
 
@@ -113,7 +125,8 @@ export default async function CustomerViewPage({
             quoteId={quote.id}
           />
         </div>
-        <QuoteHost
+        <QuoteUmbrella
+          activeTab={activeTab}
           view={view}
           quoteId={quote.id}
           quoteStatus={quote.status}
@@ -121,6 +134,7 @@ export default async function CustomerViewPage({
           internalNotes={quote.internalNotes}
           addendumData={addendumData}
           isHubspotLinked={isHubspotLinkedDealId(project.hubspotDealId)}
+          reviewFeedCount={0}
         />
       </>
     );
