@@ -23,6 +23,10 @@ export const CACHE_STALENESS_MINUTES = 15;
 const PM_PROPERTY = process.env.HUBSPOT_PM_PROPERTY ?? null;
 
 // Properties pulled from HubSpot for the cache row.
+// Slice 12 Step 8c-2 (2026-07-28) — 10 additions for NetSuite SO
+// field-fill in 8c-3. Names verified against Epicuren deal
+// 40412634025 via docs/cc-comm-hubspot-deal-property-dump. Zero new
+// API calls (page-fetch already accepts arbitrary property lists).
 const DEAL_PROPERTIES_BASE = [
   "dealname",
   "dealstage",
@@ -31,6 +35,17 @@ const DEAL_PROPERTIES_BASE = [
   "createdate",
   "hs_lastmodifieddate",
   "hubspot_owner_id",
+  // 8c-2 additions — SO field-fill inputs
+  "monday_link",              // → deal_folder_url (SharePoint URL)
+  "project_service_s_",       // → project_service_s
+  "project_category",         // → project_category
+  "project_source",           // → sourcing_location
+  "business_segment",         // → business_segment_id (enum id; label deferred)
+  "client_po__",              // → client_po (Client PO#)
+  "invoice_date__est_",       // → invoice_date_est
+  "production_ship_date",     // → production_ship_date_est
+  "hs_priority",              // → priority
+  "dealtype",                 // → deal_type
 ] as const;
 
 const DEAL_PROPERTIES: string[] = PM_PROPERTY
@@ -136,6 +151,26 @@ function toCacheRow(args: {
     pmEmail: pm?.email ?? null,
     associatedCompanyId: companyId,
     associatedCompanyName: companyName,
+    // Slice 12 Step 8c-2 — SO field-fill props (8c-3 reads at markComplete).
+    // HubSpot returns most enum properties as their label ("Domestic",
+    // "Co-Packing", "Copacking"); business_segment comes back as the
+    // raw enum id ("1"), label resolution deferred to first-use (see
+    // resolveBusinessSegmentLabel).
+    dealFolderUrl: props.monday_link || null,
+    projectServiceS: props.project_service_s_ || null,
+    projectCategory: props.project_category || null,
+    sourcingLocation: props.project_source || null,
+    businessSegmentId: props.business_segment || null,
+    businessSegmentLabel: null,
+    clientPo: props.client_po__ || null,
+    invoiceDateEst: props.invoice_date__est_
+      ? props.invoice_date__est_.slice(0, 10)
+      : null,
+    productionShipDateEst: props.production_ship_date
+      ? props.production_ship_date.slice(0, 10)
+      : null,
+    priority: props.hs_priority || null,
+    dealType: props.dealtype || null,
     createdAtHubspot: props.createdate ? new Date(props.createdate) : null,
     updatedAtHubspot: props.hs_lastmodifieddate
       ? new Date(props.hs_lastmodifieddate)

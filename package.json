@@ -15,6 +15,7 @@
     "verify:pricing-classifier-invariants": "node --experimental-strip-types scripts/verify/pricing-classifier-invariants.ts",
     "test:netsuite-adapter": "node --experimental-strip-types scripts/test-netsuite-adapter.ts",
     "smoke:netsuite-item-groups": "cross-env NODE_OPTIONS=--require=./scripts/smoke/shim-server-only.cjs npx tsx --env-file=.env.local ./scripts/smoke/netsuite-item-groups.ts",
+    "smoke:hubspot-deal-property-expansion": "cross-env NODE_OPTIONS=--require=./scripts/smoke/shim-server-only.cjs npx tsx --env-file=.env.local ./scripts/smoke/hubspot-deal-property-expansion.ts",
     "prebuild": "npm run verify:boundaries && npm run verify:react-pdf-containment && npm run verify:font-register-coverage && npm run verify:autosave-focus-stability && npm run verify:complete-status-writer && npm run verify:pricing-classifier-invariants && npm run test:netsuite-adapter",
     "build": "next build",
     "start": "next start",
