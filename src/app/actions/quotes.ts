@@ -1981,15 +1981,63 @@ export async function markAccepted(
       );
     }
 
-    // External call FIRST (v3 §5.1 ordering).
-    // getDealStage → updateDealStage. On failure, ActionGuardError
-    // bubbles up; DB tx never runs; PM retries from the sub-tab.
-    let fromStage: DealStageInfo;
+    // CA review Item #1 fix — durable from_stage capture BEFORE
+    // the HubSpot call, OUTSIDE any tx. Prevents from_stage
+    // poisoning on retry after a HubSpot-succeeds-DB-fails failure.
+    //
+    // Retry path:
+    //   1st attempt: getDealStage reads original stage; UPDATE
+    //     quotes.pending_hubspot_from_stage_id = <original>;
+    //     HubSpot moves deal to target; DB tx crashes; retry
+    //   2nd attempt: quote.pendingHubspotFromStageId is populated
+    //     (survived tx failure — written outside); use as
+    //     fromStageId; SKIP getDealStage re-read (which would now
+    //     return target = poisoned); HubSpot call is idempotent
+    //     no-op; DB tx succeeds; from_stage_id in audit =
+    //     ORIGINAL stage (correct).
+    //   Cleared INSIDE the successful tx alongside status flip.
+    //
+    // If firm setting configured as an id (post fix-pass Item #2),
+    // resolve label via loadPipelineStages for the audit snapshot.
+    // If configured as label (legacy), updateDealStage resolves id
+    // on the fly. Both paths supported by updateDealStage helper.
+    let fromStageId: string;
+    let fromStageLabel: string;
     let toStage: DealStageInfo;
     try {
-      // hubspotDealId is verified non-null-non-empty numeric by
-      // isHubspotLinkedDealId above.
-      fromStage = await getDealStage(project.hubspotDealId as string);
+      // Recovery-first: if a prior aborted attempt captured the
+      // from_stage, use it. This is the load-bearing bit — never
+      // re-read the deal in a retry state.
+      if (quote.pendingHubspotFromStageId) {
+        fromStageId = quote.pendingHubspotFromStageId;
+        // Resolve label from cached pipeline. If pipeline lookup
+        // fails (e.g., stage removed from pipeline since capture),
+        // fall back to raw id for the audit forensic trail.
+        try {
+          const captured = await getDealStage(project.hubspotDealId as string);
+          // Note: this getDealStage call is only used to resolve
+          // the label of the ORIGINAL id (via cached pipeline).
+          // We do NOT trust its returned id — that's the poisoned
+          // value on retry.
+          fromStageLabel =
+            captured.id === fromStageId ? captured.label : fromStageId;
+        } catch {
+          fromStageLabel = fromStageId;
+        }
+      } else {
+        // First attempt: read current deal stage, then capture it
+        // via non-tx UPDATE BEFORE the HubSpot call.
+        const fresh = await getDealStage(project.hubspotDealId as string);
+        fromStageId = fresh.id;
+        fromStageLabel = fresh.label;
+        // Durable pre-write. Direct UPDATE (no tx) so it survives
+        // the failure of the later tx.
+        await db
+          .update(quotes)
+          .set({ pendingHubspotFromStageId: fromStageId })
+          .where(eq(quotes.id, quoteId));
+      }
+
       toStage = await updateDealStage(
         project.hubspotDealId as string,
         firm.hubspotDealStageOnAccept,
@@ -2012,6 +2060,10 @@ export async function markAccepted(
           acceptedAt,
           acceptedByUserId: user.id,
           acceptSource: "manual_button",
+          // CA review Item #1 fix — clear the durable capture
+          // INSIDE the same tx that flips status. If this tx fails,
+          // pending_hubspot_from_stage_id stays populated for retry.
+          pendingHubspotFromStageId: null,
           updatedAt: acceptedAt,
         })
         .where(eq(quotes.id, quoteId));
@@ -2029,8 +2081,8 @@ export async function markAccepted(
           accept_source: "manual_button",
           hubspot: {
             deal_id: project.hubspotDealId,
-            from_stage_id: fromStage.id,
-            from_stage_label: fromStage.label,
+            from_stage_id: fromStageId,
+            from_stage_label: fromStageLabel,
             to_stage_id: toStage.id,
             to_stage_label: toStage.label,
           },
@@ -2068,7 +2120,13 @@ export async function markAccepted(
     });
 
     revalidateQuoteTree(quote.projectId, quoteId);
-    return { acceptedAt, hubspot: { from: fromStage, to: toStage } };
+    return {
+      acceptedAt,
+      hubspot: {
+        from: { id: fromStageId, label: fromStageLabel },
+        to: toStage,
+      },
+    };
   });
 }
 

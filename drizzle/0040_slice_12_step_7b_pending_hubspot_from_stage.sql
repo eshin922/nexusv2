@@ -1,0 +1,1 @@
+ALTER TABLE "quotes" ADD COLUMN "pending_hubspot_from_stage_id" text;
