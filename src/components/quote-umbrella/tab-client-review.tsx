@@ -18,6 +18,7 @@
 import type { ReviewEventRow } from "@/lib/quote-review-events";
 import type { CustomerView } from "@/types/quote";
 import { AdvanceBar } from "./advance-bar";
+import { AddEntry } from "./add-entry";
 import type { SubTabId } from "./subtabs";
 
 function shortDate(d: Date): string {
@@ -56,12 +57,16 @@ function firstName(name: string | null): string {
 
 export function TabClientReview({
   view,
+  quoteId,
   quoteStatus,
   quoteVersionNumber,
   feed,
   onGo,
 }: {
   view: CustomerView;
+  /** Slice 12 Step 6b — passed through to AddEntry for the
+   * addQuoteReviewEvent action FormData. */
+  quoteId: string;
   quoteStatus: string;
   quoteVersionNumber: number;
   feed: ReviewEventRow[];
@@ -72,6 +77,13 @@ export function TabClientReview({
   const isEmpty = feed.length === 0;
   const isSent = quoteStatus === "sent" || quoteStatus === "accepted";
   const canAdvance = isSent;
+  // AddEntry mirrors requireRevisable server-side guard:
+  // sent | accepted → enabled; anything else → disabled with tooltip.
+  const addEntryDisabledReason: string | undefined = isSent
+    ? undefined
+    : quoteStatus === "draft"
+      ? "The Client Review feed opens once the quote is sent."
+      : `Feed writes are blocked in '${quoteStatus}' state.`;
 
   return (
     <div className="r8-wrap">
@@ -152,29 +164,14 @@ export function TabClientReview({
               </div>
             )}
 
-            {/* Slice 12 Step 6b — AddEntry form renders here. Stub
-                shown for now so PMs see the shape; button is inert. */}
-            <div className="r8-addentry">
-              <button
-                className="trigger"
-                disabled
-                title="Add-entry form lands in Step 6b."
-                style={{ opacity: 0.5, cursor: "not-allowed" }}
-              >
-                <span className="plus">+</span> Log customer activity…
-                <span
-                  style={{
-                    marginLeft: 8,
-                    fontFamily: "var(--mono)",
-                    fontSize: 10,
-                    color: "var(--ink-4)",
-                    letterSpacing: "0.04em",
-                  }}
-                >
-                  (Step 6b)
-                </span>
-              </button>
-            </div>
+            {/* Slice 12 Step 6b — real AddEntry with server-action
+                write. Guard mirrors server-side requireRevisable
+                (sent | accepted only). */}
+            <AddEntry
+              quoteId={quoteId}
+              disabled={!isSent}
+              disabledReason={addEntryDisabledReason}
+            />
           </div>
         </div>
 

@@ -140,6 +140,7 @@ export function QuoteUmbrella({
           {activeTab === "review" && (
             <TabClientReview
               view={view}
+              quoteId={quoteId}
               quoteStatus={quoteStatus}
               quoteVersionNumber={quoteVersionNumber}
               feed={reviewFeed}
