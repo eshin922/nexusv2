@@ -7,6 +7,7 @@ import { isHubspotLinkedDealId } from "@/lib/hubspot-linkage";
 import { QuoteUmbrella } from "@/components/quote-umbrella/quote-umbrella";
 import { parseSubTabParam } from "@/components/quote-umbrella/subtabs";
 import { loadScenarioVersionChain } from "@/lib/quote-version-chain";
+import { getReviewFeedCount } from "@/lib/quote-review-events";
 // Slice 12 Step 1 — canonical CSS + shared primitives loaded only on
 // the /quote route (blast-radius scoped per Step 1 planning).
 import "@/styles/r-shared-primitives.css";
@@ -107,11 +108,18 @@ export default async function CustomerViewPage({
     // version-picker. Reads all quotes with same (project_id,
     // scenario_label), newest first. Cheap query (indexed on
     // project_id; typically 1-6 rows per scenario in prod).
-    const versionChain = await loadScenarioVersionChain({
-      projectId: project.id,
-      scenarioLabel: quote.scenarioLabel,
-      currentQuoteId: quote.id,
-    });
+    //
+    // Slice 12 Step 5c — feed count for the sub-tab strip's Client
+    // Review badge + the Send-tab waiting-state "N entries so far"
+    // copy. Cheap indexed count query.
+    const [versionChain, reviewFeedCount] = await Promise.all([
+      loadScenarioVersionChain({
+        projectId: project.id,
+        scenarioLabel: quote.scenarioLabel,
+        currentQuoteId: quote.id,
+      }),
+      getReviewFeedCount(quote.id),
+    ]);
 
     const showStateSwitcher =
       dev === "1" || process.env.NODE_ENV !== "production";
@@ -141,11 +149,12 @@ export default async function CustomerViewPage({
           view={view}
           quoteId={quote.id}
           quoteStatus={quote.status}
+          quoteVersionNumber={quote.versionNumber}
           showStateSwitcher={showStateSwitcher}
           internalNotes={quote.internalNotes}
           addendumData={addendumData}
           isHubspotLinked={isHubspotLinkedDealId(project.hubspotDealId)}
-          reviewFeedCount={0}
+          reviewFeedCount={reviewFeedCount}
           projectId={project.id}
           versionChain={versionChain}
         />
