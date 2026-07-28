@@ -29,7 +29,8 @@ import { QuoteAxisProvider } from "./quote-axis-context";
 import { TabPreviewQuote } from "./tab-preview-quote";
 import { TabSendToClient } from "./tab-send-to-client";
 import { TabClientReview } from "./tab-client-review";
-import { TabMarkAccepted, TabTierSelection } from "./tab-stubs";
+import { TabMarkAccepted } from "./tab-mark-accepted";
+import { TabTierSelection } from "./tab-stubs";
 import type { SubTabId } from "./subtabs";
 
 export function QuoteUmbrella({
@@ -38,6 +39,7 @@ export function QuoteUmbrella({
   quoteId,
   quoteStatus,
   quoteVersionNumber,
+  quoteAcceptedAt,
   showStateSwitcher,
   internalNotes,
   addendumData,
@@ -56,6 +58,10 @@ export function QuoteUmbrella({
    * v{N} + Revise's v{N+1} copy. Kept off CustomerView per
    * Pattern 45 (customer type stays PM-versioning-clean). */
   quoteVersionNumber: number;
+  /** Slice 12 Step 7a — passed for Mark Accepted's "accepted by ·
+   * when" line. NULL for non-accepted quotes. Kept off
+   * CustomerView per Pattern 45. */
+  quoteAcceptedAt: Date | null;
   showStateSwitcher: boolean;
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
@@ -155,7 +161,16 @@ export function QuoteUmbrella({
               onGo={onGo}
             />
           )}
-          {activeTab === "accepted" && <TabMarkAccepted onGo={onGo} />}
+          {activeTab === "accepted" && (
+            <TabMarkAccepted
+              view={view}
+              quoteId={quoteId}
+              quoteStatus={quoteStatus}
+              quoteVersionNumber={quoteVersionNumber}
+              quoteAcceptedAt={quoteAcceptedAt}
+              onGo={onGo}
+            />
+          )}
           {activeTab === "tier" && <TabTierSelection onGo={onGo} />}
         </div>
       </div>

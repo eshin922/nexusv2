@@ -10,8 +10,9 @@
 // `./tab-send-to-client.tsx`.
 // Slice 12 Step 6a filled TabClientReview — moved to
 // `./tab-client-review.tsx`.
-// The remaining stubs live here:
-// Step 7 fills TabMarkAccepted (accept write-path + HubSpot push).
+// Slice 12 Step 7a filled TabMarkAccepted — moved to
+// `./tab-mark-accepted.tsx`. (HubSpot push wire = Step 7b.)
+// The remaining stub lives here:
 // Step 8 fills TabTierSelection (tier select + NetSuite + THE LOCK).
 
 import { AdvanceBar } from "./advance-bar";
@@ -47,28 +48,7 @@ function StubBody({
 
 // TabSendToClient moved to `./tab-send-to-client.tsx` in Step 5c.
 // TabClientReview moved to `./tab-client-review.tsx` in Step 6a.
-
-export function TabMarkAccepted({ onGo }: StubProps) {
-  return (
-    <>
-      <StubBody
-        n={4}
-        title="Mark Accepted"
-        note="Acceptance recording + HubSpot Closed Won push + rollback affordance land here in Step 7."
-        fillsInStep="Step 7 wires the accept write-path + HubSpot deal-stage push + Q7 rollback"
-      />
-      <AdvanceBar
-        weight="light"
-        back={{ label: "Client Review", onClick: () => onGo("review") }}
-        mid={<span>quote state · sent</span>}
-        caption="Reversible — Mark Accepted can be rolled back"
-        label="Tier Selection →"
-        onAdvance={() => onGo("tier")}
-        disabled
-      />
-    </>
-  );
-}
+// TabMarkAccepted moved to `./tab-mark-accepted.tsx` in Step 7a.
 
 export function TabTierSelection({ onGo }: StubProps) {
   return (
