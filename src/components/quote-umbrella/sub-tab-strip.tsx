@@ -32,11 +32,19 @@ export function SubTabStrip({
   activeId,
   quoteStatus,
   feedCount,
+  hasSentHistory,
   onGo,
 }: {
   activeId: SubTabId;
   quoteStatus: string;
   feedCount: number;
+  /** Slice 12 Step 7c review-fix (CB P2) — true when the quote has
+   * been sent at least once (current status is sent+ OR a superseded
+   * quote_snapshots row exists). Enables Client Review reachability
+   * in draft-with-history state (post-Revise); a fresh pre-send
+   * draft has neither and Client Review stays 'upcoming'. Derived
+   * at the umbrella level from `quoteStatus + latestSupersededSnapshot`. */
+  hasSentHistory: boolean;
   onGo: (id: SubTabId) => void;
 }) {
   const children: React.ReactNode[] = [];
@@ -58,7 +66,7 @@ export function SubTabStrip({
       );
     }
 
-    const status = subTabStatus(tab, activeId, quoteStatus);
+    const status = subTabStatus(tab, activeId, quoteStatus, hasSentHistory);
     const clickable = status === "done" || status === "current";
     const numeralGlyph: string =
       status === "done" ? "✓" : status === "locked" ? "🔒" : String(tab.n);

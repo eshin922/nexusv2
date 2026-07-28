@@ -2318,7 +2318,7 @@ export async function unmarkAccepted(
           quoteId,
           versionNumber: quote.versionNumber,
           eventType: "responded",
-          note: `Acceptance rolled back at v${quote.versionNumber} (PM Q7 rollback).`,
+          note: `Acceptance rolled back at v${quote.versionNumber}.`,
           authorUserId: null,
           system: true,
         })
@@ -2334,7 +2334,7 @@ export async function unmarkAccepted(
           versionNumber: quote.versionNumber,
           eventType: "responded",
           system: true,
-          note: `Acceptance rolled back at v${quote.versionNumber} (PM Q7 rollback).`,
+          note: `Acceptance rolled back at v${quote.versionNumber}.`,
           source: "unmark_accepted_auto_log",
         },
       });

@@ -59,10 +59,17 @@ export function TabTierSelection({ onGo }: StubProps) {
         note="Tier picker + finalization warning + NetSuite SO push (THE LOCK) land here in Step 8."
         fillsInStep="Step 8 wires the accepted-tier write + typed FINALIZE confirm + NetSuite push"
       />
+      {/* Slice 12 Step 7c review-fix (CB P4.4) — bare "quote state
+          · accepted" was a CC invention (Pattern 30 violation). R8
+          canonical Tier body renders live "selected T{n} · $X
+          turnkey" driven by picker state (umbrella.jsx:807), which
+          requires Step 8 wiring. Stub-scoped placeholder makes the
+          deferral explicit rather than inventing a new pill wording
+          that isn't in R8. */}
       <AdvanceBar
         weight="heavy"
         back={{ label: "Mark Accepted", onClick: () => onGo("accepted") }}
-        mid={<span>quote state · accepted</span>}
+        mid={<span className="mono muted">placeholder · Step 8</span>}
         caption="Irreversible — creates a NetSuite Sales Order"
         label="Finalize & push to NetSuite"
         onAdvance={() => {

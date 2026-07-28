@@ -79,9 +79,18 @@ export function subTabStatus(
   tab: SubTabDef,
   activeId: SubTabId,
   quoteStatus: string,
+  hasSentHistory: boolean = false,
 ): SubTabStatus {
   if (quoteStatus === "complete") return "locked";
   if (tab.id === activeId) return "current";
+  // Slice 12 Step 7c review-fix (CB P2) — the review (log) tab is
+  // reachable AS LONG AS there is history to read, even when the
+  // current status is `draft` (post-Revise state). The `sent`
+  // state_req rules out fresh pre-send drafts (no feed yet) but
+  // must NOT rule out a draft that has been sent before — that's
+  // exactly the state where PMs need to consult prior review
+  // context.
+  if (tab.id === "review" && hasSentHistory) return "done";
   // If the tab's state_req is at or below the quote's current state,
   // the user has "passed" it and can revisit (reversibility model).
   return stateReached(quoteStatus, tab.state_req) ? "done" : "upcoming";
@@ -92,7 +101,18 @@ export function subTabSubLabel(
   status: SubTabStatus,
 ): string {
   if (status === "locked") return "locked";
-  if (status === "done") return "done · revisitable";
+  // Slice 12 Step 7c review-fix (CB P4.1) — Tier Selection is the
+  // LOCK. When its state_req is met (quote is accepted) but the
+  // lock hasn't fired yet, the tab is REACHABLE but not "done" in
+  // the revisitable sense — reaching state_req just makes it the
+  // NEXT step. Legend derivation had been reading reachability as
+  // completion and labelling Tier "done · revisitable" — the
+  // opposite of what the strip should communicate about the one
+  // irreversible tab. Emit "ready · irreversible" for the lock so
+  // the strip preserves CD's deliberate asymmetry.
+  if (status === "done") {
+    return tab.kind === "lock" ? "ready · irreversible" : "done · revisitable";
+  }
   if (status === "current") {
     return tab.kind === "lock"
       ? "the lock"

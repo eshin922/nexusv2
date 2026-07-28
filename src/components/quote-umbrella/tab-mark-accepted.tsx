@@ -53,6 +53,8 @@ export function TabMarkAccepted({
   quoteStatus,
   quoteVersionNumber,
   quoteAcceptedAt,
+  quoteNumberDb,
+  quoteSentAtDb,
   onGo,
 }: {
   view: CustomerView;
@@ -63,6 +65,20 @@ export function TabMarkAccepted({
    * "accepted by · when" line. Kept off CustomerView per Pattern
    * 45 (accepted status is a PM-facing record, not customer-facing). */
   quoteAcceptedAt: Date | null;
+  /** Slice 12 Step 7c review-fix — PM-facing quote_number from the
+   * DB row, bypassing the customer-view projection (which masks
+   * quoteNumber to null in draft). This panel is PM-internal;
+   * post-Revise the number is preserved on the row and PMs need
+   * to see it for continuity assurance. See quote-umbrella.tsx
+   * prop docs for full rationale. */
+  quoteNumberDb: string | null;
+  /** Slice 12 Step 7c review-fix — PM-facing sent_at from the DB
+   * row. Present ⟺ quote has been sent at least once. Post-Revise
+   * this stays populated (v1's send timestamp). The "sent DATE"
+   * line only renders when the CURRENT status is sent/accepted;
+   * a draft (post-Revise) suppresses it to avoid the confusing
+   * "sent Jul 26 · DRAFT" surface CB flagged. */
+  quoteSentAtDb: Date | null;
   onGo: (id: SubTabId) => void;
 }) {
   const router = useRouter();
@@ -171,15 +187,30 @@ export function TabMarkAccepted({
                 <span className="k">version</span>
                 <span className="v">
                   <strong>v{quoteVersionNumber}</strong>
-                  {quote.sentDate && (
-                    <> — sent {shortDateTime(quote.sentDate)}</>
+                  {/* Slice 12 Step 7c review-fix — only render "sent
+                      DATE" when the CURRENT status is sent or accepted.
+                      A draft (post-Revise) row still carries v1's
+                      sent_at (per reviseQuote header rationale — see
+                      quote-umbrella.tsx quoteSentAtDb prop docs), so
+                      reading it unconditionally shipped "sent Jul 26
+                      · DRAFT" post-Revise (CB report P4.5). */}
+                  {(isSent || isAccepted) && quoteSentAtDb && (
+                    <> — sent {shortDateTime(quoteSentAtDb)}</>
                   )}
                 </span>
               </div>
               <div className="row">
                 <span className="k">quote number</span>
                 <span className="v">
-                  <code>{quote.quoteNumber ?? "—"}</code>
+                  {/* Slice 12 Step 7c review-fix — read from PM-facing
+                      DB prop, not view.quote.quoteNumber (resolver
+                      masks to null in draft; see quote-umbrella.tsx
+                      quoteNumberDb prop docs). Post-Revise the DB
+                      row's quote_number is preserved (v3 §5.1
+                      invariant) and PMs need continuity assurance
+                      here. Falls back to em-dash only when the DB
+                      column is genuinely NULL (fresh pre-send draft). */}
+                  <code>{quoteNumberDb ?? "—"}</code>
                 </span>
               </div>
               <div className="row">

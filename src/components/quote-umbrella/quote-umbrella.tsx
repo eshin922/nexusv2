@@ -40,6 +40,8 @@ export function QuoteUmbrella({
   quoteStatus,
   quoteVersionNumber,
   quoteAcceptedAt,
+  quoteNumberDb,
+  quoteSentAtDb,
   showStateSwitcher,
   internalNotes,
   addendumData,
@@ -62,6 +64,25 @@ export function QuoteUmbrella({
    * when" line. NULL for non-accepted quotes. Kept off
    * CustomerView per Pattern 45. */
   quoteAcceptedAt: Date | null;
+  /** Slice 12 Step 7c review-fix — raw DB `quote.quote_number`,
+   * NOT the resolver's customer-view projection. The resolver
+   * masks quoteNumber to null in draft (Pattern 45 boundary for
+   * customer PDF — customer never sees a draft with a number).
+   * PM-internal panels that surface the identifier (Mark Accepted's
+   * "Recording against" block) need the true DB value regardless of
+   * status — a revised v2 draft still has its original DPS-N number
+   * on the row; the picker and PM panels must show it. Threaded as
+   * a distinct prop to avoid unmasking the resolver (which would
+   * defeat Pattern 45 for the actual customer render). */
+  quoteNumberDb: string | null;
+  /** Slice 12 Step 7c review-fix — raw DB `quote.sent_at`. Same
+   * reasoning as quoteNumberDb: reviseQuote preserves sent_at on
+   * the quote row (v3 §5.1 — "sent_at STAYS post-Revise"), so a
+   * v2 draft carries v1's send timestamp. Customer-view projection
+   * renders that unconditionally as the customer-facing "Issued"
+   * date; PM panels need the raw value to decide whether to show
+   * "sent DATE" (post-send) vs "not sent" (fresh draft) at all. */
+  quoteSentAtDb: Date | null;
   showStateSwitcher: boolean;
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
@@ -104,6 +125,15 @@ export function QuoteUmbrella({
 
   const showLegend = quoteStatus !== "complete";
 
+  // Slice 12 Step 7c review-fix (CB P2) — derive "has this quote
+  // been sent at least once?" from live state OR from the existence
+  // of a superseded snapshot. Enables Client Review tab reachability
+  // in the draft-with-history state (post-Revise) so PMs can consult
+  // prior review context while working on v{N+1}. See subtabs.ts
+  // subTabStatus for the derivation rule.
+  const hasSentHistory =
+    quoteStatus !== "draft" || latestSupersededSnapshot !== null;
+
   return (
     // Slice 12 Step 5d — axis state lifted to context so the Send
     // sub-tab (Step 5c/5d) can read PM's current toggle choices at
@@ -121,6 +151,7 @@ export function QuoteUmbrella({
           activeId={activeTab}
           quoteStatus={quoteStatus}
           feedCount={reviewFeedCount}
+          hasSentHistory={hasSentHistory}
           onGo={onGo}
         />
         {showLegend && <Legend />}
@@ -130,6 +161,7 @@ export function QuoteUmbrella({
               view={view}
               quoteId={quoteId}
               quoteStatus={quoteStatus}
+              quoteNumberDb={quoteNumberDb}
               showStateSwitcher={showStateSwitcher}
               internalNotes={internalNotes}
               addendumData={addendumData}
@@ -168,6 +200,8 @@ export function QuoteUmbrella({
               quoteStatus={quoteStatus}
               quoteVersionNumber={quoteVersionNumber}
               quoteAcceptedAt={quoteAcceptedAt}
+              quoteNumberDb={quoteNumberDb}
+              quoteSentAtDb={quoteSentAtDb}
               onGo={onGo}
             />
           )}

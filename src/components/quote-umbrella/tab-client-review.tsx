@@ -86,13 +86,22 @@ export function TabClientReview({
   const isEmpty = feed.length === 0;
   const isSent = quoteStatus === "sent" || quoteStatus === "accepted";
   const canAdvance = isSent;
-  // AddEntry mirrors requireRevisable server-side guard:
-  // sent | accepted → enabled; anything else → disabled with tooltip.
+  // Slice 12 Step 7c review-fix (CB P2 companion) — a draft quote
+  // with a superseded snapshot is a POST-REVISE state (v{N+1} being
+  // authored while v{N}'s send lives in the archive). In that state
+  // the feed IS readable (subtab-strip enables the tab per
+  // hasSentHistory), but writes are still blocked pending re-send —
+  // so the disabled-reason copy needs to distinguish "not sent yet"
+  // (pre-send draft) from "revising a sent quote" (draft w/ history).
+  const isDraftWithHistory =
+    quoteStatus === "draft" && latestSupersededSnapshot !== null;
   const addEntryDisabledReason: string | undefined = isSent
     ? undefined
-    : quoteStatus === "draft"
-      ? "The Client Review feed opens once the quote is sent."
-      : `Feed writes are blocked in '${quoteStatus}' state.`;
+    : isDraftWithHistory
+      ? "Send the revised version first to log new entries. The prior review log stays readable here."
+      : quoteStatus === "draft"
+        ? "The Client Review feed opens once the quote is sent."
+        : `Feed writes are blocked in '${quoteStatus}' state.`;
 
   return (
     <div className="r8-wrap">
@@ -279,8 +288,11 @@ export function TabClientReview({
         back={{ label: "Send", onClick: () => onGo("send") }}
         mid={
           <span>
-            quote state · {quoteStatus} · {feed.length}{" "}
-            {feed.length === 1 ? "entry" : "entries"} logged
+            {/* Slice 12 Step 7c review-fix (CB P4.4) — verbatim R8
+                canonical word order (umbrella.jsx:513):
+                "N logged entry/entries" not "N entries logged". */}
+            quote state · {quoteStatus} · {feed.length} logged{" "}
+            {feed.length === 1 ? "entry" : "entries"}
           </span>
         }
         caption={
