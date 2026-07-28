@@ -3725,7 +3725,7 @@ export async function markComplete(
     netsuiteSalesOrderTranid: string | null;
     amountPushed: number;
     retryOutcome: "fresh" | "converged_from_prior_success";
-    amountPatchStatus: "skipped" | "would_be_pushed" | "not_wired";
+    amountPatchStatus: "skipped" | "patched" | "failed";
   }>
 > {
   return runAction(async () => {

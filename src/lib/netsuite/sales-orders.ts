@@ -45,7 +45,12 @@ export interface SalesOrderPayloadInput {
   netsuiteCustomerId: string;
   subsidiaryId: string;
   orderStatusCode: string;         // e.g. 'B' Pending Fulfillment
-  taxCodeId: string;               // e.g. '-8' Not Taxable
+  // Q4 REVISED (CA 2026-07-28): null means "let NetSuite's tax engine
+  // derive per-line tax from customer + ship-to". Only populate when
+  // firm_settings.netsuite_default_tax_code_id is set as an admin
+  // override. Hardcoding a value overrides correct behavior on lines
+  // most likely to need it (OTC/tooling for out-of-state customers).
+  taxCodeId: string | null;
   // Free-text terms from send-time snapshot
   paymentTermsText: string | null;
   // Provenance / audit fields
@@ -113,18 +118,38 @@ export function buildSalesOrderPayload(
     body.custbody_project_manager = { id: input.projectManagerNsId };
   if (input.businessSegmentId) body.class = { id: input.businessSegmentId };
 
-  // Lines
+  // Lines — Q4 REVISED: taxCode omitted UNLESS admin override is
+  // set on firm_settings. NetSuite derives tax from customer +
+  // ship-to per line; smoke will record what lands per line to
+  // verify the engine's behavior.
+  //
+  // rate + amount sent as NUMBERS not strings — sandbox probe
+  // 2026-07-28 confirmed NetSuite REST rejects strings with
+  // INVALID_VALUE. Round via toFixed then parseFloat to preserve
+  // precision.
+  //
+  // 2026-07-28 sandbox observation: Item Group lines on existing
+  // SOs (verified via SO 358085 line 5 REST GET) carry only
+  // item + quantity + custcol_* fields; rate + amount are undefined
+  // at the group-header line. NetSuite expands the group into
+  // member lines and prices from member records. Our payload sets
+  // rate + amount at the group-header line to reflect the tier
+  // revenue Nexus quoted — we send BOTH, letting NetSuite override
+  // per-member pricing where applicable.
   body.item = {
     items: input.lines.map((line) => ({
       item: { id: line.netsuiteItemId },
       quantity: line.quantity,
-      rate: line.rate.toFixed(4),
-      amount: (line.rate * line.quantity).toFixed(2),
+      // Group-header rate: intentional. Represents the per-unit
+      // sell Nexus quoted for the composition; NetSuite will
+      // expand into member lines but the header-level rate
+      // preserves the audit trail from Nexus's math.
+      rate: parseFloat(line.rate.toFixed(4)),
       description: line.description,
-      taxCode: { id: input.taxCodeId },
+      ...(input.taxCodeId ? { taxCode: { id: input.taxCodeId } } : {}),
       custcol_dps_sku: line.sku,
       ...(line.unitCost !== null
-        ? { custcol_dps_unit_cost: line.unitCost.toFixed(4) }
+        ? { custcol_dps_unit_cost: parseFloat(line.unitCost.toFixed(4)) }
         : {}),
     })),
   };

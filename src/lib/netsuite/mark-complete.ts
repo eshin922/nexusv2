@@ -71,10 +71,14 @@ export interface MarkCompleteResult {
     }>;
   };
   amountPatch: {
-    status: "skipped" | "would_be_pushed" | "not_wired";
+    // 'skipped'  — no prior amount, or delta below $0.01 tolerance
+    // 'patched'  — HubSpot update succeeded
+    // 'failed'   — HubSpot update threw; logged but complete NOT blocked
+    status: "skipped" | "patched" | "failed";
     prior: number | null;
     current: number;
     delta: number | null;
+    errorDetail?: string;
   };
   retryOutcome: "fresh" | "converged_from_prior_success";
 }
@@ -427,6 +431,12 @@ export async function runMarkComplete(
       // Non-fatal — POST still proceeds
     }
 
+    // Debug hook: NETSUITE_DEBUG_PAYLOAD=1 logs the SO body pre-POST.
+    // Load-bearing for sandbox smoke reproduction; kept as opt-in gate.
+    if (process.env.NETSUITE_DEBUG_PAYLOAD === "1") {
+      console.log("[markComplete] SO payload:\n" + JSON.stringify(payload, null, 2));
+    }
+
     let created;
     try {
       created = await createSalesOrder(payload, { idempotencyKey });
@@ -460,6 +470,23 @@ export async function runMarkComplete(
     // ============================================================
     // STEP 8 — PERSIST netsuite_so_pushes row (succeeded)
     // ============================================================
+    //
+    // Path 3 sub-case 2 recovery (per CA):
+    //   If this attempt's local pendingId is null (in-memory only) but
+    //   a prior attempt DID insert a pending row with the same
+    //   idempotency_key, UPDATE that row in place rather than inserting
+    //   a fresh one. Two motivations:
+    //   1. Keeps the netsuite_so_pushes table clean — one row per
+    //      (quote, tier) attempt, not one succeeded + N orphaned
+    //      pending from prior retries.
+    //   2. Robustness: while the partial unique index only enforces
+    //      uniqueness on status='succeeded' (so a fresh insert
+    //      wouldn't violate against a stale pending), operational
+    //      hygiene beats "constraint permits it."
+    //
+    // Order: (a) update the current-attempt pendingId row if we have
+    // one; (b) else look for a matching idempotency_key row and update
+    // that; (c) else insert fresh.
     if (pendingId) {
       await db
         .update(netsuiteSoPushes)
@@ -471,19 +498,48 @@ export async function runMarkComplete(
         })
         .where(eq(netsuiteSoPushes.id, pendingId));
     } else {
-      // Original pending write failed; insert a fresh success row.
-      await db.insert(netsuiteSoPushes).values({
-        quoteId,
-        acceptedTierId: quote.acceptedTierId,
-        status: "succeeded",
-        idempotencyKey,
-        netsuiteSoId: salesOrderInternalId,
-        netsuiteSoTranid: salesOrderTranid,
-        amountPushed: String(currentAmount),
-        payloadSnapshot: payload,
-        startedByUserId: actorUserId,
-        completedAt: new Date(),
-      });
+      // Look for a stale pending row with the same idempotency_key
+      // (means a prior attempt's pending insert succeeded but this
+      // orchestrator run doesn't remember the id — retry path).
+      const [priorPending] = await db
+        .select({ id: netsuiteSoPushes.id })
+        .from(netsuiteSoPushes)
+        .where(
+          and(
+            eq(netsuiteSoPushes.quoteId, quoteId),
+            eq(netsuiteSoPushes.acceptedTierId, quote.acceptedTierId),
+            eq(netsuiteSoPushes.idempotencyKey, idempotencyKey),
+            eq(netsuiteSoPushes.status, "pending"),
+          ),
+        )
+        .orderBy(desc(netsuiteSoPushes.createdAt))
+        .limit(1);
+
+      if (priorPending) {
+        await db
+          .update(netsuiteSoPushes)
+          .set({
+            status: "succeeded",
+            netsuiteSoId: salesOrderInternalId,
+            netsuiteSoTranid: salesOrderTranid,
+            completedAt: new Date(),
+          })
+          .where(eq(netsuiteSoPushes.id, priorPending.id));
+      } else {
+        // Truly fresh — no prior pending row exists.
+        await db.insert(netsuiteSoPushes).values({
+          quoteId,
+          acceptedTierId: quote.acceptedTierId,
+          status: "succeeded",
+          idempotencyKey,
+          netsuiteSoId: salesOrderInternalId,
+          netsuiteSoTranid: salesOrderTranid,
+          amountPushed: String(currentAmount),
+          payloadSnapshot: payload,
+          startedByUserId: actorUserId,
+          completedAt: new Date(),
+        });
+      }
     }
   }
 
@@ -531,10 +587,18 @@ export async function runMarkComplete(
   // STEP 10 — Post-tx conditional HubSpot amount patch
   //          (per §7.2 as amended — never blocks complete)
   // ============================================================
-  // Wired in a follow-up commit; for now, compare-only + record
-  // intent in the return value.
+  // Fires whenever the current order total differs from the amount
+  // last pushed to HubSpot. Compares against the most-recent
+  // quote_accepted audit row's diff_json.hubspot.amount (which
+  // markAccepted / recordCustomerAcceptance write).
+  //
+  // Failure semantics per CA Amendment A: patch failure is LOGGED
+  // but MUST NOT block complete. Quote status is already 'complete';
+  // the amount drift becomes a HubSpot data-quality issue that a
+  // future retry / manual patch can fix.
   const priorAcceptAmount = await loadPriorAcceptedAmount(quoteId);
-  const amountPatch = deriveAmountPatchIntent({
+  const amountPatch = await runAmountPatchIfNeeded({
+    hubspotDealId: projectRow.hubspotDealId,
     priorAmount: priorAcceptAmount,
     currentAmount,
   });
@@ -585,10 +649,11 @@ async function loadPriorAcceptedAmount(quoteId: string): Promise<number | null> 
   return typeof hs?.amount === "number" ? hs.amount : null;
 }
 
-function deriveAmountPatchIntent(args: {
+async function runAmountPatchIfNeeded(args: {
+  hubspotDealId: string;
   priorAmount: number | null;
   currentAmount: number;
-}): MarkCompleteResult["amountPatch"] {
+}): Promise<MarkCompleteResult["amountPatch"]> {
   if (args.priorAmount === null) {
     return { status: "skipped", prior: null, current: args.currentAmount, delta: null };
   }
@@ -596,13 +661,33 @@ function deriveAmountPatchIntent(args: {
   if (Math.abs(delta) < 0.01) {
     return { status: "skipped", prior: args.priorAmount, current: args.currentAmount, delta: 0 };
   }
-  // Placeholder: 8c-3 follow-up commit wires the actual PATCH call
-  // to HubSpot with failure-doesnt-block semantics. For now, surface
-  // the intent so smoke can verify the compare.
-  return {
-    status: "not_wired",
-    prior: args.priorAmount,
-    current: args.currentAmount,
-    delta,
-  };
+
+  // Amount drift → PATCH HubSpot. Failure LOGGED but never thrown —
+  // per CA §7.2 amended: patch failure must NEVER block complete.
+  // Uses hubspot-write client (HUBSPOT_WRITE_ACCESS_TOKEN).
+  try {
+    const { getWriteClient } = await import("@/lib/hubspot");
+    const c = getWriteClient();
+    await c.crm.deals.basicApi.update(args.hubspotDealId, {
+      properties: { amount: String(args.currentAmount) },
+    });
+    return {
+      status: "patched",
+      prior: args.priorAmount,
+      current: args.currentAmount,
+      delta,
+    };
+  } catch (e) {
+    const errorDetail = e instanceof Error ? e.message : String(e);
+    console.error(
+      `[markComplete] HubSpot amount patch failed for deal ${args.hubspotDealId}: ${errorDetail}. Quote is complete; amount drift remains in HubSpot until manual patch.`,
+    );
+    return {
+      status: "failed",
+      prior: args.priorAmount,
+      current: args.currentAmount,
+      delta,
+      errorDetail,
+    };
+  }
 }

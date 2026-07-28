@@ -826,17 +826,17 @@ export const firmSettings = pgTable(
     // via 2026-07-28 sandbox probe against SO2646:
     //   • orderStatus = 'B' (single-letter code for "Pending Fulfillment")
     //   • subsidiary = 2 (The DPS, Inc.; sandbox single-subsidiary)
-    //   • taxCode line-level default = '-8' (Not Taxable)
     // Configurable per firm; markComplete reads the current row.
-    // Escape hatch for Melinda's DPS-customer-taxability confirmation
-    // (per CA 2026-07-28) — if any customer becomes taxable, admin
-    // flips this without a code change.
     netsuiteSubsidiaryId: text("netsuite_subsidiary_id")
       .notNull()
       .default("2"),
-    netsuiteDefaultTaxCodeId: text("netsuite_default_tax_code_id")
-      .notNull()
-      .default("-8"),
+    // Q4 REVISED (CA 2026-07-28): NetSuite tax engine derives per-line
+    // tax from customer + ship-to; hardcoding overrides correct
+    // behavior on the exact lines most likely to need it (OTC/tooling
+    // for out-of-state customers). Column stays as an override escape
+    // hatch — null (default) means "let NetSuite derive"; admin sets
+    // it only if the engine ever misbehaves.
+    netsuiteDefaultTaxCodeId: text("netsuite_default_tax_code_id"),
     netsuiteSoOrderStatusCode: text("netsuite_so_order_status_code")
       .notNull()
       .default("B"),
