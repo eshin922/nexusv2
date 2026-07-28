@@ -450,6 +450,25 @@ export const quotes = pgTable(
     // status='accepted'). NULL also for quotes that never entered
     // markAccepted mid-flight.
     pendingHubspotFromStageId: text("pending_hubspot_from_stage_id"),
+    // Slice 12 Step 7b fix-pass round 2 (CA re-review) — version-scope
+    // the pending capture so an abandoned-attempt-across-revise cycle
+    // doesn't leak stale state.
+    //
+    // Scenario without this: v1 accept attempt fails mid-flight →
+    // pending populated with v1's from_stage → PM abandons + Revises
+    // to v2 → someone moves deal externally → PM accepts v2 → retry
+    // path trusts pending (still populated from v1) → HubSpot no-op
+    // → audit records STALE v1 from_stage as if fresh → later rollback
+    // sends deal to a stage it was never at during v2.
+    //
+    // With this: pending is trusted only when both columns match
+    // (id populated AND version === current quote.versionNumber).
+    // Cross-version mismatch → treat as stale, overwrite via a fresh
+    // getDealStage read. Both columns set + cleared + trusted as a
+    // pair.
+    pendingHubspotFromStageVersion: integer(
+      "pending_hubspot_from_stage_version",
+    ),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, {

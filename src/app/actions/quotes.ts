@@ -1981,60 +1981,71 @@ export async function markAccepted(
       );
     }
 
-    // CA review Item #1 fix — durable from_stage capture BEFORE
-    // the HubSpot call, OUTSIDE any tx. Prevents from_stage
-    // poisoning on retry after a HubSpot-succeeds-DB-fails failure.
+    // CA review Item #1 fix (round 2) — version-scoped durable
+    // from_stage capture BEFORE the HubSpot call, OUTSIDE any tx.
+    // Prevents both from_stage poisoning on retry AND stale-pending
+    // leakage across an abandoned-attempt-then-revise cycle.
     //
-    // Retry path:
-    //   1st attempt: getDealStage reads original stage; UPDATE
-    //     quotes.pending_hubspot_from_stage_id = <original>;
-    //     HubSpot moves deal to target; DB tx crashes; retry
-    //   2nd attempt: quote.pendingHubspotFromStageId is populated
-    //     (survived tx failure — written outside); use as
-    //     fromStageId; SKIP getDealStage re-read (which would now
-    //     return target = poisoned); HubSpot call is idempotent
-    //     no-op; DB tx succeeds; from_stage_id in audit =
-    //     ORIGINAL stage (correct).
-    //   Cleared INSIDE the successful tx alongside status flip.
+    // Trust rule: pending is trusted ONLY when BOTH columns are
+    // populated AND pendingHubspotFromStageVersion === quote.
+    // versionNumber. Any mismatch (id populated but version null,
+    // version populated but id null, or version doesn't match) is
+    // treated as stale — overwrite via a fresh getDealStage read.
+    // Both columns set + cleared + trusted as a pair.
     //
-    // If firm setting configured as an id (post fix-pass Item #2),
-    // resolve label via loadPipelineStages for the audit snapshot.
-    // If configured as label (legacy), updateDealStage resolves id
-    // on the fly. Both paths supported by updateDealStage helper.
+    // Retry path (same-version):
+    //   1st attempt at v1: fresh read; UPDATE pending {id, version=1};
+    //     HubSpot moves deal; DB tx crashes
+    //   2nd attempt at v1: pending matches → use as fromStageId;
+    //     skip re-read (poisoned); HubSpot no-op; tx succeeds;
+    //     audit records ORIGINAL from_stage_id.
+    //
+    // Cross-version rejection (abandoned attempt across revise):
+    //   1st attempt at v1: pending populated {id=A, version=1}; abandoned
+    //   Revise → quote.versionNumber = 2 (pending stays populated)
+    //   Attempt at v2: pending version 1 ≠ quote version 2 → STALE →
+    //     ignore pending; fresh read (deal may have drifted externally);
+    //     overwrite pending with {id=<fresh>, version=2}; proceed.
     let fromStageId: string;
     let fromStageLabel: string;
     let toStage: DealStageInfo;
     try {
-      // Recovery-first: if a prior aborted attempt captured the
-      // from_stage, use it. This is the load-bearing bit — never
-      // re-read the deal in a retry state.
-      if (quote.pendingHubspotFromStageId) {
-        fromStageId = quote.pendingHubspotFromStageId;
-        // Resolve label from cached pipeline. If pipeline lookup
-        // fails (e.g., stage removed from pipeline since capture),
-        // fall back to raw id for the audit forensic trail.
+      // Version-scoped recovery-first check. Both columns must be
+      // populated AND the version must match the current quote
+      // version, else treat as stale.
+      const pendingMatches =
+        quote.pendingHubspotFromStageId !== null &&
+        quote.pendingHubspotFromStageVersion !== null &&
+        quote.pendingHubspotFromStageVersion === quote.versionNumber;
+
+      if (pendingMatches) {
+        fromStageId = quote.pendingHubspotFromStageId as string;
+        // Resolve label from cached pipeline via a getDealStage call
+        // (only for label resolution; we do NOT trust its returned id
+        // on retry — that's the poisoned target). Fall back to raw id
+        // if pipeline lookup fails.
         try {
           const captured = await getDealStage(project.hubspotDealId as string);
-          // Note: this getDealStage call is only used to resolve
-          // the label of the ORIGINAL id (via cached pipeline).
-          // We do NOT trust its returned id — that's the poisoned
-          // value on retry.
           fromStageLabel =
             captured.id === fromStageId ? captured.label : fromStageId;
         } catch {
           fromStageLabel = fromStageId;
         }
       } else {
-        // First attempt: read current deal stage, then capture it
-        // via non-tx UPDATE BEFORE the HubSpot call.
+        // Fresh capture path: either no pending, or pending is stale
+        // (cross-version mismatch or partial state). Read current
+        // deal stage; overwrite pending as a pair.
         const fresh = await getDealStage(project.hubspotDealId as string);
         fromStageId = fresh.id;
         fromStageLabel = fresh.label;
         // Durable pre-write. Direct UPDATE (no tx) so it survives
-        // the failure of the later tx.
+        // the failure of the later tx. Both columns written together.
         await db
           .update(quotes)
-          .set({ pendingHubspotFromStageId: fromStageId })
+          .set({
+            pendingHubspotFromStageId: fromStageId,
+            pendingHubspotFromStageVersion: quote.versionNumber,
+          })
           .where(eq(quotes.id, quoteId));
       }
 
@@ -2060,10 +2071,11 @@ export async function markAccepted(
           acceptedAt,
           acceptedByUserId: user.id,
           acceptSource: "manual_button",
-          // CA review Item #1 fix — clear the durable capture
+          // CA review Item #1 fix — clear the durable capture pair
           // INSIDE the same tx that flips status. If this tx fails,
-          // pending_hubspot_from_stage_id stays populated for retry.
+          // both columns stay populated for retry.
           pendingHubspotFromStageId: null,
+          pendingHubspotFromStageVersion: null,
           updatedAt: acceptedAt,
         })
         .where(eq(quotes.id, quoteId));
