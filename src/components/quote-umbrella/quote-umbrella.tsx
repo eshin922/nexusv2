@@ -21,6 +21,7 @@ import { useCallback } from "react";
 import type { CustomerView } from "@/types/quote";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import type { ReviewEventRow } from "@/lib/quote-review-events";
+import type { SentSnapshotRow } from "@/lib/quote-snapshots";
 import type { VersionRow } from "@/lib/quote-version-chain";
 import { SubTabStrip } from "./sub-tab-strip";
 import { Legend } from "./legend";
@@ -43,6 +44,7 @@ export function QuoteUmbrella({
   isHubspotLinked,
   reviewFeedCount,
   reviewFeed,
+  latestSupersededSnapshot,
   projectId,
   versionChain,
 }: {
@@ -65,6 +67,11 @@ export function QuoteUmbrella({
    * users for author names). Only the Client Review sub-tab
    * consumes; passed at umbrella level for symmetry with count. */
   reviewFeed: ReviewEventRow[];
+  /** Slice 12 Step 6d — most-recently-superseded quote_snapshots row
+   * for this quote, if any. Present ⟺ the quote has been sent at
+   * least once and (typically) revised. Combined with status=draft
+   * to gate MismatchBanner render on Client Review. */
+  latestSupersededSnapshot: SentSnapshotRow | null;
   /** Slice 12 Step 4 — routes the version-picker's cross-version
    * Links. Only the Preview tab uses it currently; passed at umbrella
    * level so future sub-tabs (e.g., Client Review's mismatch banner
@@ -144,6 +151,7 @@ export function QuoteUmbrella({
               quoteStatus={quoteStatus}
               quoteVersionNumber={quoteVersionNumber}
               feed={reviewFeed}
+              latestSupersededSnapshot={latestSupersededSnapshot}
               onGo={onGo}
             />
           )}

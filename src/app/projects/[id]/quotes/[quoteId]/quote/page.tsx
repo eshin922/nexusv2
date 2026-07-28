@@ -11,6 +11,7 @@ import {
   getReviewFeed,
   getReviewFeedCount,
 } from "@/lib/quote-review-events";
+import { getLatestSupersededSnapshot } from "@/lib/quote-snapshots";
 // Slice 12 Step 1 — canonical CSS + shared primitives loaded only on
 // the /quote route (blast-radius scoped per Step 1 planning).
 import "@/styles/r-shared-primitives.css";
@@ -119,7 +120,14 @@ export default async function CustomerViewPage({
     // alongside count + version chain. Count feeds sub-tab-strip
     // badge; feed rows feed the Client Review sub-tab body. Cheap
     // indexed reads; typical <20 rows per quote.
-    const [versionChain, reviewFeedCount, reviewFeed] = await Promise.all([
+    // Slice 12 Step 6d — also load latest-superseded snapshot for
+    // MismatchBanner gate. Small indexed query; parallelizes cheaply.
+    const [
+      versionChain,
+      reviewFeedCount,
+      reviewFeed,
+      latestSupersededSnapshot,
+    ] = await Promise.all([
       loadScenarioVersionChain({
         projectId: project.id,
         scenarioLabel: quote.scenarioLabel,
@@ -127,6 +135,7 @@ export default async function CustomerViewPage({
       }),
       getReviewFeedCount(quote.id),
       getReviewFeed(quote.id),
+      getLatestSupersededSnapshot(quote.id),
     ]);
 
     const showStateSwitcher =
@@ -164,6 +173,7 @@ export default async function CustomerViewPage({
           isHubspotLinked={isHubspotLinkedDealId(project.hubspotDealId)}
           reviewFeedCount={reviewFeedCount}
           reviewFeed={reviewFeed}
+          latestSupersededSnapshot={latestSupersededSnapshot}
           projectId={project.id}
           versionChain={versionChain}
         />
