@@ -111,6 +111,11 @@ export function assertRuntimeSafety(
   const providers = readProviderKinds(env, isolated);
 
   if (!isolated) {
+    if (nonEmpty(env, "NEXUS_VALIDATION_IDENTITY")) {
+      throw new Error(
+        "[runtime-config] NEXUS_VALIDATION_IDENTITY requires isolated mode",
+      );
+    }
     return {
       mode: "production",
       providers,
@@ -126,6 +131,13 @@ export function assertRuntimeSafety(
   if (env.VERCEL_ENV === "production") {
     throw new Error(
       "[runtime-config] isolated mode is forbidden when VERCEL_ENV=production",
+    );
+  }
+
+  const validationIdentity = env.NEXUS_VALIDATION_IDENTITY ?? "pm";
+  if (!["pm", "admin", "unauthorized"].includes(validationIdentity)) {
+    throw new Error(
+      "[runtime-config] NEXUS_VALIDATION_IDENTITY must be pm, admin, or unauthorized",
     );
   }
 

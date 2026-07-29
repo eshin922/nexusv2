@@ -1,6 +1,5 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { AccessDeniedBanner } from "@/components/access-denied-banner";
 import { DealOrganizerProjectList } from "@/components/deal-organizer/project-list";
@@ -11,6 +10,7 @@ import {
   getResumeContext,
 } from "@/lib/nav/home-queries";
 import { ensureUser } from "@/lib/auth/ensure-user";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
 
 // Slice RI.2 — Home page rebuilt as the Round 4 Deal Organizer.
 // Three sections (top to bottom):
@@ -27,13 +27,13 @@ import { ensureUser } from "@/lib/auth/ensure-user";
 //   - healthy: 5+ projects → full list + (placeholder inbox section)
 
 export default async function Home() {
-  const { userId } = await auth();
-  if (!userId) {
+  const { authentication } = await getApplicationDependencies();
+  const identity = await authentication.identity.current();
+  if (!identity) {
     redirect("/sign-in");
   }
 
-  const user = await currentUser();
-  const name = user?.firstName ?? user?.emailAddresses[0]?.emailAddress ?? "there";
+  const name = identity.firstName ?? identity.email;
 
   // Slice RI.9 §6 step 4 — Resume card data. ensureUser() is the
   // same Clerk→users-table bridge used elsewhere; needed for the

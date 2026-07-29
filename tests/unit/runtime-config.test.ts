@@ -111,6 +111,27 @@ test("rejects isolated adapter selection outside isolated mode", () => {
   );
 });
 
+test("rejects validation identity selection outside isolated mode", () => {
+  assert.throws(
+    () =>
+      assertRuntimeSafety({
+        NODE_ENV: "development",
+        NEXUS_VALIDATION_IDENTITY: "admin",
+      }),
+    /NEXUS_VALIDATION_IDENTITY requires isolated mode/,
+  );
+});
+
+test("rejects an unknown validation identity", () => {
+  assert.throws(
+    () =>
+      assertRuntimeSafety(
+        isolatedEnv({ NEXUS_VALIDATION_IDENTITY: "request-controlled" }),
+      ),
+    /must be pm, admin, or unauthorized/,
+  );
+});
+
 test("network allowlist accepts loopback protocols and rejects remote URLs", () => {
   assert.equal(isLoopbackNetworkUrl("http://127.0.0.1:3000/path"), true);
   assert.equal(isLoopbackNetworkUrl("ws://localhost:3000/socket"), true);

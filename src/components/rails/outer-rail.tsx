@@ -1,9 +1,8 @@
 import "server-only";
 import Link from "next/link";
-import { currentUser } from "@clerk/nextjs/server";
-import { SignOutButton } from "@clerk/nextjs";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { isAdmin } from "@/lib/admin-guard";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
 import {
   getPinnedProjects,
   getRecentProjects,
@@ -27,13 +26,11 @@ import { ThemeToggle } from "../theme-toggle";
 // state tables shipped in RI.1.
 
 export async function OuterRail() {
-  const clerkUser = await currentUser();
-  if (!clerkUser) return null;
+  const { authentication } = await getApplicationDependencies();
+  const identity = await authentication.identity.current();
+  if (!identity) return null;
 
-  const email =
-    clerkUser.primaryEmailAddress?.emailAddress ??
-    clerkUser.emailAddresses[0]?.emailAddress ??
-    null;
+  const email = identity.email;
   const showAdmin = email ? isAdmin(email) : false;
 
   // ensureUser maps Clerk identity to a row in our users table.
@@ -45,8 +42,8 @@ export async function OuterRail() {
   ]);
 
   const initials = (() => {
-    const first = clerkUser.firstName?.[0] ?? "";
-    const last = clerkUser.lastName?.[0] ?? "";
+    const first = identity.firstName?.[0] ?? "";
+    const last = identity.lastName?.[0] ?? "";
     if (first || last) return (first + last).toUpperCase();
     return (email?.[0] ?? "?").toUpperCase();
   })();
@@ -175,7 +172,9 @@ export async function OuterRail() {
       )}
 
       {/* Avatar — current user initials */}
-      <SignOutButton>
+      {authentication.ui.renderSignOutControl({
+        email,
+        children: (
         <button
           type="button"
           title={email ?? "Sign out"}
@@ -184,7 +183,8 @@ export async function OuterRail() {
         >
           {initials}
         </button>
-      </SignOutButton>
+        ),
+      })}
     </aside>
   );
 }

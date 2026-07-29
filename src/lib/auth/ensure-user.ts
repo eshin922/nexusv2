@@ -1,10 +1,11 @@
 import "server-only";
 import { and, eq, isNull } from "drizzle-orm";
-import { auth, currentUser } from "@clerk/nextjs/server";
 import { db } from "@/db";
 import { projects, users } from "@/db/schema";
 import { findHubspotOwnerByEmail } from "@/lib/hubspot";
 import { isAdmin } from "@/lib/admin-guard";
+import type { AuthenticationDependencies } from "@/lib/auth/identity-provider";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
 
 export type AppUser = typeof users.$inferSelect;
 
@@ -25,8 +26,18 @@ export type AppUser = typeof users.$inferSelect;
  * the backfill — the winner has it covered.
  */
 export async function ensureUser(): Promise<AppUser> {
-  const { userId } = await auth();
-  if (!userId) throw new Error("ensureUser called without an authenticated session");
+  const { authentication } = await getApplicationDependencies();
+  return ensureUserWithAuthentication(authentication);
+}
+
+export async function ensureUserWithAuthentication(
+  authentication: AuthenticationDependencies,
+): Promise<AppUser> {
+  const identity = await authentication.identity.current();
+  if (!identity) {
+    throw new Error("ensureUser called without an authenticated session");
+  }
+  const userId = identity.externalUserId;
 
   // Fast path: user already provisioned
   const existing = await db
@@ -36,16 +47,16 @@ export async function ensureUser(): Promise<AppUser> {
     .limit(1);
   if (existing.length > 0) return existing[0];
 
-  // Slow path: first sign-in
-  const clerkUser = await currentUser();
-  if (!clerkUser) throw new Error("Clerk user not found");
-  const email =
-    clerkUser.primaryEmailAddress?.emailAddress ??
-    clerkUser.emailAddresses[0]?.emailAddress;
-  if (!email) throw new Error("No email on Clerk user");
+  if (!authentication.identity.provisionMissingUsers) {
+    throw new Error(
+      `[identity] seeded user missing for ${identity.externalUserId}`,
+    );
+  }
 
+  // Slow path: first sign-in
+  const email = identity.email;
   const name =
-    [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || null;
+    [identity.firstName, identity.lastName].filter(Boolean).join(" ") || null;
   const role = isAdmin(email) ? "admin" : "pm";
 
   const owner = await findHubspotOwnerByEmail(email);

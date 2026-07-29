@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Newsreader, Instrument_Sans, JetBrains_Mono } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
 import { AppShell } from "@/components/app-shell";
+import { ApplicationAuthProvider } from "@/components/application-auth-provider";
 import { GlobalRealtimeProvider } from "@/components/global-realtime-provider";
 import "./globals.css";
 
@@ -44,7 +44,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <ClerkProvider>
+    <ApplicationAuthProvider>
       {/* Slice RI.0 — data-theme="light" sets the app default; CD's
           tokens in design-tokens.css activate the light palette in
           :root. Slice RI.8 step 8 — pre-paint script reads
@@ -87,6 +87,6 @@ export default function RootLayout({
           <AppShell>{children}</AppShell>
         </body>
       </html>
-    </ClerkProvider>
+    </ApplicationAuthProvider>
   );
 }

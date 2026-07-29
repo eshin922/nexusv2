@@ -1,4 +1,4 @@
-import { SignIn } from "@clerk/nextjs";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
 
 export default async function SignInPage({
   searchParams,
@@ -7,6 +7,7 @@ export default async function SignInPage({
 }) {
   const sp = await searchParams;
   const unauthorized = sp.error === "unauthorized";
+  const { authentication } = await getApplicationDependencies();
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
@@ -29,7 +30,7 @@ export default async function SignInPage({
           </p>
         </div>
       )}
-      <SignIn />
+      {authentication.ui.renderSignIn()}
     </main>
   );
 }

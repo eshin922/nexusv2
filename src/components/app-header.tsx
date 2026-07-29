@@ -1,6 +1,6 @@
 import "server-only";
-import { currentUser } from "@clerk/nextjs/server";
 import { isAdmin } from "@/lib/admin-guard";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { AppHeaderClient } from "./app-header-client";
 
 // Slice 8.5 #52 — persistent app header bar with admin entry point.
@@ -22,11 +22,8 @@ import { AppHeaderClient } from "./app-header-client";
 // is just deciding whether to RENDER the link).
 
 export async function AppHeader() {
-  const user = await currentUser();
-  const email =
-    user?.primaryEmailAddress?.emailAddress ??
-    user?.emailAddresses[0]?.emailAddress ??
-    null;
+  const { authentication } = await getApplicationDependencies();
+  const email = (await authentication.identity.current())?.email ?? null;
   const showAdmin = email ? isAdmin(email) : false;
 
   return <AppHeaderClient showAdmin={showAdmin} />;
