@@ -37,6 +37,7 @@ import type { CustomerView } from "@/types/quote";
 import type { QuotePerTierRollup } from "@/lib/costing";
 import { markAccepted, unmarkAccepted } from "@/app/actions/quotes";
 import { AdvanceBar } from "./advance-bar";
+import { computeUmbrellaAdvance } from "./advance-target";
 import { ReviseButton } from "./revise-button";
 import type { SubTabId } from "./subtabs";
 
@@ -293,18 +294,31 @@ export function TabMarkAccepted({
           </div>
         </div>
 
-        <AdvanceBar
-          weight="light"
-          back={{ label: "Client Review", onClick: () => onGo("review") }}
-          mid={
-            <span>
-              quote state · accepted · reversible · nothing in NetSuite yet
-            </span>
-          }
-          caption="Next step is the irreversible one"
-          label={`Review Sales Order · ${capturedLabel} →`}
-          onAdvance={() => onGo("tier")}
-        />
+        {/* Slice 12 Step 9 — advance derived from computeUmbrellaAdvance;
+            capturedTierLabel is passed so the helper's tier→CTA copy
+            variant "Review Sales Order · {tier} →" renders (that
+            wording is specific to the Mark Accepted → Sales Order
+            transition per R9 canon). */}
+        {(() => {
+          const adv = computeUmbrellaAdvance("accepted", quoteStatus, {
+            capturedTierLabel: capturedLabel,
+          });
+          return (
+            <AdvanceBar
+              weight="light"
+              back={{ label: "Client Review", onClick: () => onGo("review") }}
+              mid={
+                <span>
+                  quote state · accepted · reversible · nothing in NetSuite yet
+                </span>
+              }
+              caption={adv?.caption ?? "Umbrella read-only — no advance"}
+              label={adv?.label}
+              onAdvance={adv ? () => onGo(adv.targetTab) : undefined}
+              disabled={!adv}
+            />
+          );
+        })()}
       </div>
     );
   }
@@ -368,10 +382,15 @@ export function TabMarkAccepted({
 
             <div className="r9-field">
               <span className="lbl">Their words</span>
+              {/* Slice 12 Step 9 Pattern 47 — textarea disabled must
+                  NOT include `isPending`. Focus drops on disabled
+                  elements, so a mid-flight save that then errors
+                  strands the PM outside the input. Button-side
+                  disabled (fireMark button below) handles double-
+                  click protection; textarea stays interactive. */}
               <textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                disabled={isPending}
                 placeholder="Transcribe what the customer said — their words, in their voice."
                 maxLength={4000}
                 rows={4}

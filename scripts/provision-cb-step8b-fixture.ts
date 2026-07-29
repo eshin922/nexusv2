@@ -394,8 +394,7 @@ async function main() {
   console.log(`  Pending + below_floor: ${base}?tab=tier&dev=1&so-flags=below_floor`);
   console.log(`  Pending + unmatched:   ${base}?tab=tier&dev=1&so-flags=unmatched`);
   console.log(`  Pending + both flags:  ${base}?tab=tier&dev=1&so-flags=both`);
-  console.log(`  Failed (so_create):    ${base}?tab=tier&dev=1&so-state=failed`);
-  console.log(`  Failed (item_group):   ${base}?tab=tier&dev=1&so-state=failed&so-failed-at=item_group`);
+  console.log(`  Failed:                ${base}?tab=tier&dev=1&so-state=failed`);
   console.log(`  Record:                ${base}?tab=tier&dev=1&so-state=record`);
   console.log("");
   console.log("Sibling tabs:");

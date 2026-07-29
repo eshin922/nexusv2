@@ -171,7 +171,17 @@ export async function runMarkComplete(
     );
   }
 
-  const currentAmount = tierRollup.totalRevenue;
+  // Slice 12 Step 9 CB round-1 finding — round at the boundary.
+  // tierRollup.totalRevenue carries IEEE 754 residue in the general
+  // case; every downstream consumer of currentAmount is a boundary
+  // (HubSpot §7.2 patch, netsuite_so_pushes.amount_pushed audit
+  // column, audit_log's diff_json.amount_pushed, MarkCompleteResult
+  // return value). Rounding once at the source keeps them all in
+  // agreement + prevents float residue from crossing any external
+  // wire. NetSuite line rates use parseFloat(rate.toFixed(4))
+  // separately at build-sales-order-payload — same discipline,
+  // different precision for the line-level fields.
+  const currentAmount = Number(tierRollup.totalRevenue.toFixed(2));
 
   // ============================================================
   // STEP 2 — Resolve customer (customer-map lookup)
@@ -735,11 +745,17 @@ async function runAmountPatchIfNeeded(args: {
   // Amount drift → PATCH HubSpot. Failure LOGGED but never thrown —
   // per CA §7.2 amended: patch failure must NEVER block complete.
   // Uses hubspot-write client (HUBSPOT_WRITE_ACCESS_TOKEN).
+  //
+  // Slice 12 Step 9 CB round-1 finding — round at the push boundary.
+  // Internal precision stays as-is (#148 P5); outbound payload rounds
+  // to 2dp so IEEE 754 residue like `300.00000000000006` doesn't
+  // land on real HubSpot deals. Pairs with hubspot.ts:updateDealStage's
+  // matching toFixed(2) on the initial acceptance-time amount write.
   try {
     const { getWriteClient } = await import("@/lib/hubspot");
     const c = getWriteClient();
     await c.crm.deals.basicApi.update(args.hubspotDealId, {
-      properties: { amount: String(args.currentAmount) },
+      properties: { amount: args.currentAmount.toFixed(2) },
     });
     return {
       status: "patched",

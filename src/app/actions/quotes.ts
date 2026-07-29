@@ -2100,7 +2100,20 @@ export async function markAccepted(
         `Cannot record acceptance at ${tierRollup.label} — the tier is below the firm's margin floor. Admin override required (not yet wired; block until it lands).`,
       );
     }
-    const tierTurnkeyAmount = tierRollup.totalRevenue;
+    // Slice 12 Step 9 CB round-1 finding — round at the boundary.
+    // tierRollup.totalRevenue can carry IEEE 754 residue (e.g.
+    // 300.00000000000006 for 3 × 500 × 0.20 = 300); pushing raw to
+    // HubSpot's `amount` deal property surfaces it verbatim. The
+    // audit_log's diff_json.hubspot.amount + the API return value +
+    // the deal update all consume the same rounded value so
+    // downstream reads (Sales Order tab's HubSpot ledger row,
+    // divergence-flag comparison, forensic reconstruction) agree
+    // with what HubSpot actually stored.
+    //
+    // Internal cost math + margin/compliance evaluation continue to
+    // use full precision per #148 P5 policy — this rounding is
+    // outbound-payload-scoped only.
+    const tierTurnkeyAmount = Number(tierRollup.totalRevenue.toFixed(2));
 
     // Load project (for hubspot_deal_id) + firm_settings (for
     // target stage). Parallel — both cheap indexed reads.

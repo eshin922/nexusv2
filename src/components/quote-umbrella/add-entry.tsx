@@ -114,11 +114,19 @@ export function AddEntry({
             </button>
           ))}
         </div>
+        {/* Slice 12 Step 9 Pattern 47 — textarea MUST NOT include
+            `pending` in its disabled attribute. Blocking the input
+            mid-save drops focus (browsers drop focus on disabled
+            elements). Submit is button-driven here (not autosave),
+            but the same focus-drop concern applies: if submit errors,
+            the PM has to click back into the field to continue.
+            Buttons still get `disabled={pending}` for double-click
+            prevention — that's Pattern 47's carve-out for button
+            elements. */}
         <textarea
           placeholder="What happened? e.g. Beth called — wants the capsule SKU out and T2 pricing held."
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          disabled={pending}
           data-testid="review-note-input"
         />
         {error && (

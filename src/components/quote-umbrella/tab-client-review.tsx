@@ -20,6 +20,7 @@ import type { SentSnapshotRow } from "@/lib/quote-snapshots";
 import type { CustomerView } from "@/types/quote";
 import { AdvanceBar } from "./advance-bar";
 import { AddEntry } from "./add-entry";
+import { computeUmbrellaAdvance } from "./advance-target";
 import { MismatchBanner } from "./mismatch-banner";
 import { ReviseButton } from "./revise-button";
 import type { SubTabId } from "./subtabs";
@@ -85,7 +86,6 @@ export function TabClientReview({
   const quote = view.quote;
   const isEmpty = feed.length === 0;
   const isSent = quoteStatus === "sent" || quoteStatus === "accepted";
-  const canAdvance = isSent;
   // Slice 12 Step 7c review-fix (CB P2 companion) — a draft quote
   // with a superseded snapshot is a POST-REVISE state (v{N+1} being
   // authored while v{N}'s send lives in the archive). In that state
@@ -283,27 +283,41 @@ export function TabClientReview({
         </div>
       </div>
 
-      <AdvanceBar
-        weight="light"
-        back={{ label: "Send", onClick: () => onGo("send") }}
-        mid={
-          <span>
-            {/* Slice 12 Step 7c review-fix (CB P4.4) — verbatim R8
-                canonical word order (umbrella.jsx:513):
-                "N logged entry/entries" not "N entries logged". */}
-            quote state · {quoteStatus} · {feed.length} logged{" "}
-            {feed.length === 1 ? "entry" : "entries"}
-          </span>
-        }
-        caption={
-          canAdvance
-            ? "Reversible — acceptance can be rolled back"
-            : "Advance available once the quote is sent"
-        }
-        label="Mark Accepted →"
-        onAdvance={canAdvance ? () => onGo("accepted") : undefined}
-        disabled={!canAdvance}
-      />
+      {/* Slice 12 Step 9 CB P6 pattern-fix — the actual defect CA
+          flagged in #154's re-walk. Prior version hardcoded
+          "Mark Accepted →" regardless of quoteStatus, so an already-
+          accepted quote showed the label pointing backward at a
+          done tab. Helper derives target from quoteStatus:
+            draft(with history) → Continue to Send →
+            sent → Mark Accepted → (unchanged behavior)
+            accepted → Sales Order →
+            complete → no advance */}
+      {(() => {
+        const adv = computeUmbrellaAdvance("review", quoteStatus);
+        const captionFallback =
+          quoteStatus === "complete"
+            ? "No advance — umbrella read-only"
+            : "Advance available once the quote is sent";
+        return (
+          <AdvanceBar
+            weight="light"
+            back={{ label: "Send", onClick: () => onGo("send") }}
+            mid={
+              <span>
+                {/* Slice 12 Step 7c review-fix (CB P4.4) — verbatim R8
+                    canonical word order (umbrella.jsx:513):
+                    "N logged entry/entries" not "N entries logged". */}
+                quote state · {quoteStatus} · {feed.length} logged{" "}
+                {feed.length === 1 ? "entry" : "entries"}
+              </span>
+            }
+            caption={adv?.caption ?? captionFallback}
+            label={adv?.label}
+            onAdvance={adv ? () => onGo(adv.targetTab) : undefined}
+            disabled={!adv}
+          />
+        );
+      })()}
     </div>
   );
 }
