@@ -14,6 +14,7 @@ import {
 } from "@/lib/quote-review-events";
 import { getLatestSupersededSnapshot } from "@/lib/quote-snapshots";
 import { resolveHubspotAcceptStageLabel } from "@/lib/hubspot-stage-label";
+import { loadSalesOrderPreflight } from "@/lib/netsuite/sales-order-preflight";
 import { db } from "@/db";
 import { auditLog, firmSettings } from "@/db/schema";
 import { and, desc, eq, isNull } from "drizzle-orm";
@@ -161,6 +162,11 @@ export default async function CustomerViewPage({
       db
         .select({
           hubspotDealStageOnAccept: firmSettings.hubspotDealStageOnAccept,
+          // Slice 12 Step 8c-4 — Sales Order tab needs the effective
+          // "status_on_create" so the pending-state ledger + confirm
+          // modal render the real target (e.g. "Pending Fulfillment").
+          // Was hardcoded in tab-sales-order.tsx pre-8c-4.
+          netsuiteSoStatusOnCreate: firmSettings.netsuiteSoStatusOnCreate,
         })
         .from(firmSettings)
         .where(isNull(firmSettings.effectiveUntil))
@@ -207,6 +213,32 @@ export default async function CustomerViewPage({
       firmSettingsRow[0]?.hubspotDealStageOnAccept ?? null,
     );
 
+    // Slice 12 Step 8c-4 — Sales Order pre-flight. Cheap DB-only
+    // reads (customer-map lookup + hubspot deal cache row + latest
+    // netsuite_so_pushes row). Only runs when the tab could conceivably
+    // render receipt state — draft/sent quotes never reach subtab 5's
+    // active state, so skipping the query saves a couple of round-trips
+    // on those page loads. See loadSalesOrderPreflight for the intent
+    // + scope caveats.
+    const salesOrderPreflight =
+      quote.status === "accepted" || quote.status === "complete"
+        ? await loadSalesOrderPreflight(quote.id, project.id)
+        : null;
+
+    // Slice 12 Step 8c-4 — quote row mirror of the latest push. Same
+    // fields as the preflight's latestPush but sourced from the quote
+    // (fast; no netsuite_so_pushes join needed on every render). Both
+    // sources reconcile: freeze-tx writes both on success; failure
+    // writes both. Preflight's latestPush is authoritative for
+    // errorDetail (columns like errorClass live only on the push row).
+    const soPushMirror = {
+      soId: quote.netsuiteSoId,
+      soTranid: quote.netsuiteSoTranid,
+      pushedAt: quote.netsuitePushedAt,
+      pushStatus: quote.netsuiteSoPushStatus,
+      pushError: quote.netsuiteSoPushError,
+    };
+
     const showStateSwitcher =
       dev === "1" || process.env.NODE_ENV !== "production";
     // Slice 12 Step 8b · CB P2 fix — CA blast-radius review
@@ -251,6 +283,12 @@ export default async function CustomerViewPage({
           acceptancePrefill={acceptancePrefill}
           hubspotAcceptStageLabel={hubspotAcceptStageLabel}
           hubspotPushedAmount={hubspotPushedAmount}
+          netsuiteStatusOnPush={
+            firmSettingsRow[0]?.netsuiteSoStatusOnCreate ??
+            "Pending Fulfillment"
+          }
+          salesOrderPreflight={salesOrderPreflight}
+          soPushMirror={soPushMirror}
           showStateSwitcher={showStateSwitcher}
           allowSimulatedComplete={allowSimulatedComplete}
           internalNotes={quote.internalNotes}

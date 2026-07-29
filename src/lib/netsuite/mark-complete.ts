@@ -458,20 +458,40 @@ export async function runMarkComplete(
       // NS create failed. Update the pending row (if we managed to
       // write it) to failed status with error detail. Then throw.
       const err = e instanceof NetsuiteError ? e : null;
+      const failedAt = new Date();
+      const errClass = err?.className ?? "unknown";
+      const errDetail = err?.context.detail ?? String(e);
       if (pendingId) {
         try {
           await db
             .update(netsuiteSoPushes)
             .set({
               status: "failed",
-              errorClass: err?.className ?? "unknown",
-              errorDetail: err?.context.detail ?? String(e),
-              completedAt: new Date(),
+              errorClass: errClass,
+              errorDetail: errDetail,
+              completedAt: failedAt,
             })
             .where(eq(netsuiteSoPushes.id, pendingId));
         } catch {
           // secondary write failed — original throw is the real error
         }
+      }
+      // Slice 12 Step 8c-4 — mirror failure state onto the quote row
+      // so the /quote page's Sales Order tab reads the failed variant
+      // across page reloads without a join to netsuite_so_pushes.
+      // Non-fatal — if this write fails, netsuite_so_pushes still
+      // carries the row; preflight loader reads either source.
+      try {
+        await db
+          .update(quotesTable)
+          .set({
+            netsuiteSoPushStatus: "failed",
+            netsuiteSoPushError: errDetail,
+            updatedAt: failedAt,
+          })
+          .where(eq(quotesTable.id, quoteId));
+      } catch {
+        // non-fatal — preflight reads netsuite_so_pushes as fallback
       }
       throw e;
     }

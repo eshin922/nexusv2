@@ -1,6 +1,6 @@
 "use client";
 
-// Slice 12 Step 8b — Order receipt renderer.
+// Slice 12 Step 8c-4 — Order receipt renderer.
 // Pattern 30 port of R9 canonical OrderReceipt
 // (docs/design-prototypes/dist/round-9/app/r9/ceremony.jsx:216-333).
 //
@@ -10,18 +10,21 @@
 // what makes the tab a receipt PMs read and sign, not a ceremony
 // they perform. See docs/r9-designer-notes.md §R9.1-1.
 //
-// CA amendments (Step 8b directive, 2026-07-28):
-//   - so_flags: renders BOTH real flags (below_floor / unmatched) +
-//     empty. Populated from dev switcher in 8b; from real derivation
-//     in 8c (below_floor from tier margin status, unmatched from
-//     NetSuite customer match).
-//   - Failed state carries a `failed_at: 'item_group' | 'so_create'`
-//     discriminator so the split-banner copy can specialize on which
-//     half of 8c's two-op push tripped. Populated by dev switcher in
-//     8b; wired to real error shape in 8c.
-//   - Record state: soId + soCreatedAt read from props (nullable);
-//     async-arrival tolerant (8c may write them synchronously OR the
-//     HubSpot workflow may land them later — same component).
+// Post-8c-4:
+//   - so_flags: real derivation (below_floor from tier margin status,
+//     unmatched from netsuite_customer_map). Dev switcher fixtures
+//     still available for CB walks.
+//   - Failed state: single failure shape. The `failed_at` two-way
+//     discriminator (item_group vs so_create) DROPPED — flat-lines
+//     have no Item Group creation step (Probe 5/6 closed the
+//     grouped-SO REST path). All failures surface through the SO
+//     create call; the failed-tab renders the persisted
+//     netsuite_so_pushes.error_detail verbatim.
+//   - Record state: soId + soCreatedAt sync-populated from quote row
+//     mirrors (netsuite_so_id / netsuite_so_tranid / netsuite_pushed_at,
+//     freeze-tx step 9). Nullable prop shape KEPT so a hypothetical
+//     future async grouped-SO path can slot in without touching the
+//     receiver.
 //
 // Pure renderer. No local state. All axes driven by parent (TabSalesOrder).
 
@@ -64,52 +67,52 @@ export type OrderReceiptProps = {
    * accepted_at). Rendered as the "against DPS-N v{N} · accepted
    * DATE" sub-line. */
   acceptedAt: Date | null;
-  /** Slice 12 Step 8b — SO id from NetSuite. Nullable; only populated
-   * in record state. Async-arrival tolerant per CA amendment 3. */
+  /** SO id from NetSuite (display id if present, internal id
+   * otherwise). Nullable — populated in record state from the quote
+   * row mirror (netsuite_so_tranid ?? netsuite_so_id). Nullable
+   * shape preserved so a hypothetical future async grouped-SO path
+   * can slot in without touching this component. */
   soId: string | null;
-  /** Slice 12 Step 8b — SO created timestamp. Nullable; only
-   * populated in record state. Async-arrival tolerant. */
+  /** SO created timestamp — from quote row's netsuite_pushed_at
+   * (freeze-tx step 9). Same nullable-tolerance rationale as soId. */
   soCreatedAt: Date | null;
-  /** Slice 12 Step 8b — NetSuite account resolution. Real values
-   * flow via 8c's customer-match step; 8b passes stubbed values
-   * routed from the fixture. `matched` false raises the unmatched
-   * flag in so_flags. */
+  /** NetSuite account resolution from preflight (customer-map
+   * lookup). `matched=false` = the HubSpot company has no
+   * netsuite_customer_map row; the unmatched flag in so_flags
+   * carries the actionable copy. */
   netsuiteCustomer: {
     id: string;
     name: string;
     matched: boolean;
     matchedOn: string | null;
   };
-  /** Shipping destination — stubbed in 8b (no project.ship_to
-   * column). 8c will resolve from a shipping-address source
-   * (project field OR HubSpot company shipping address OR
-   * dedicated NetSuite entity). */
+  /** Shipping destination line. NetSuite resolves the actual ship-
+   * to from the customer record's default shipping address at SO
+   * create time (not on our create payload). We surface a compact
+   * reference (customer name + "default address on file in
+   * NetSuite") matching how Aisha reads live SOs. Per-quote
+   * override lands v1.1+ if needed. */
   shipTo: string;
   /** Firm-settings commercial defaults, snapshotted on quote row
    * per DEC-7. Sent quotes always have these populated. */
   terms: string;
   incoterms: string;
-  /** ISO date the customer requested (or "TBC" placeholder in 8b
-   * — no schema field yet). 8c may resolve from a scheduling
-   * source. */
+  /** ISO date the customer requested. No schema field yet; renders
+   * as "TBC" until a future slice adds one (scheduling / target-
+   * ship-date capture is post-v1). */
   requestedShipIso: string | null;
   lines: OrderReceiptLine[];
   oneTime: OrderReceiptOneTime[];
-  /** Slice 12 Step 8b CA amendment 1 — must render from populated
-   * fixtures in dev-switcher mode. Empty array = clean receipt (no
-   * blockers). Non-empty renders the flag rows between totals and
-   * status ledger. */
+  /** Flag rows rendered between totals and status ledger. Empty
+   * array = clean receipt (no blockers). Non-empty = one row per
+   * flag; each flag's `.detail` is the actionable copy that names
+   * the SKU / customer / admin URL the PM needs to forward. */
   soFlags: OrderReceiptFlag[];
-  /** Slice 12 Step 8b — HubSpot side of the two-system ledger.
-   * Rendered as `✓ done at acceptance` in all three states (per
-   * R9.1-1). Amount is the tier turnkey figure pushed at 8a. */
+  /** HubSpot side of the two-system ledger — rendered as
+   * `✓ done at acceptance` in all three states (per R9.1-1). Amount
+   * is the tier turnkey figure 8a pushed. */
   hubspotAmount: number;
   hubspotStageLabel: string;
-  /** Slice 12 Step 8b CA amendment 2 — when state='failed', which
-   * half of 8c's two-op push tripped. Powers the split-banner copy
-   * variant in the parent TabSalesOrder (also passed here so the
-   * ledger row can reflect it). */
-  failedAt?: "item_group" | "so_create";
   netsuiteStatusOnPush: string;
 };
 
@@ -155,7 +158,6 @@ export function OrderReceipt({
   soFlags,
   hubspotAmount,
   hubspotStageLabel,
-  failedAt,
   netsuiteStatusOnPush,
 }: OrderReceiptProps): ReactNode {
   const placed = state === "record";
@@ -314,11 +316,7 @@ export function OrderReceipt({
                 {soId} created · {netsuiteStatusOnPush}
               </span>
             ) : failed ? (
-              <span>
-                {failedAt === "item_group"
-                  ? "not created — Item Group creation rejected"
-                  : "not created — endpoint rejected the order"}
-              </span>
+              <span>not created — endpoint rejected the order</span>
             ) : (
               <span>will be created as {netsuiteStatusOnPush}</span>
             )}

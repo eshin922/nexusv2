@@ -1,16 +1,12 @@
 "use client";
 
-// Slice 12 Step 8b — Sales Order sub-tab body (R9.1 SalesOrderTab).
+// Slice 12 Step 8c-4 — Sales Order sub-tab body, LIVE send.
 //
-// Pattern 30 port of R9 canonical SalesOrderTab in
+// Base: Pattern 30 port of R9 canonical SalesOrderTab in
 // docs/design-prototypes/dist/round-9/app/r9/ceremony.jsx:382-606.
-//
-// R9.1-1 design intent: ONE LAYOUT, THREE STATES (pending / failed /
-// record). The tab is a RECEIPT the PM reads and signs — not a
-// ceremony they perform. Every element holds its position across
-// states; only header stamp + status ledger + banners change. That
-// constancy is what makes the tab non-redundant (§R9.1-3): weight
-// through comprehension beats weight through obstruction.
+// Step 8b built the receipt against fixtures; Step 8c-4 wires the
+// send button to markComplete (Step 8c-3) and swaps every stubbed
+// placeholder for the real value.
 //
 // R9 §6 LOAD-BEARING items respected:
 //   #1 — Tier choice at capture (customer_accepted_tier_id), tier
@@ -24,28 +20,38 @@
 //        weight the typed FINALIZE gate used to.
 //   #8 (new) — The receipt itself is load-bearing. Full lines, real
 //        totals, NetSuite account, three-row ledger.
-//   #9 (new) — Failed state MUST be a tab, not a modal. Split banner
-//        below states both facts (deal closed / order not placed)
-//        with equal weight.
+//   #9 (new) — Failed state IS A TAB, not a modal. Split banner
+//        holds both facts (deal closed / order not placed) with
+//        equal weight.
 //
-// Step 8b scope:
-//   - Renders all three visual states via a dev-switcher variant axis
-//     (?dev=1&so-state=pending|failed|record).
-//   - Production reads reach ONLY 'pending' — no writer exists for
-//     status='complete' yet (Step 8c wires markComplete).
-//   - Send CTA disabled with TWO independent reasons (CA amendment
-//     5): (a) 8c stub not yet wired, (b) below-floor tier margin.
-//   - Prebuild verifier (scripts/verify/complete-status-writer.ts)
-//     enforces the status='complete' write-lock at build time.
+// Fidelity manifest — Nexus adaptations (flagged per CA):
+//   1. Two-reason `disabledReasons` shape (stub gate + below-floor
+//      guard) — CD's R9 canon has a single disabled reason. Nexus
+//      needs the compound because the Send button is gated by TWO
+//      independent conditions (readiness of the writer + tier
+//      compliance). Below-floor is the ONLY remaining reason as of
+//      8c-4 — stub-gate was retired when the writer went live.
+//   2. Persistent-failed-state re-render — R9 canon models the
+//      failed state as an in-session response to a Send attempt.
+//      Nexus reads netsuite_so_pushes / quote row mirrors so the
+//      tab renders the failed variant on a fresh page load after a
+//      prior failed attempt (see `soPushMirror` + `latestPush`).
+//   3. Cross-attempt error surface (persistedError + inFlightError)
+//      — R9 canon shows the error inline once. Nexus preserves the
+//      last persisted error across reloads AND surfaces in-flight
+//      errors from the current attempt.
 //
 // Boundary: this tab is PM-INTERNAL (sub-tab 5); reads PM-facing
-// props (quoteRollup, hubspot amount from audit_log, etc.). Never
-// routes through the customer-view projection.
+// props (quoteRollup, hubspot amount from audit_log, real NS state
+// from quote-row + preflight). Never routes through the customer-
+// view projection.
 
-import { useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { CustomerView } from "@/types/quote";
 import type { QuotePerTierRollup } from "@/lib/costing";
+import type { PreflightResult } from "@/lib/netsuite/sales-order-preflight";
+import { markComplete } from "@/app/actions/quotes";
 import { AdvanceBar } from "./advance-bar";
 import { OrderReceipt } from "./order-receipt";
 import type { OrderReceiptFlag, OrderReceiptLine, OrderReceiptOneTime, ReceiptState } from "./order-receipt";
@@ -56,58 +62,36 @@ function usd(n: number, dec = 0): string {
   return "$" + n.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
 }
 
-// Slice 12 Step 8b — R9 canonical NetSuite defaults for the "will be
-// created as X" copy on the pending-state ledger. Real value routes
-// from firm_settings in 8c (NetSuite subsidiary + status_on_push).
-// Hardcoded here matches the R9 data.js prototype value; treat as
-// stub-visible until 8c parameterizes.
-const NETSUITE_STATUS_ON_PUSH = "Pending Fulfillment";
-
-// R9 data.js `so_flags_examples` — verbatim per Pattern 30. Dev
-// switcher picks which pair renders; production derives real flags
-// from tier margin status + NetSuite customer match (8c).
-const FLAG_EXAMPLES: Record<"below_floor" | "unmatched", OrderReceiptFlag> = {
-  below_floor: {
-    level: "bad",
-    label: "Tier below margin floor",
-    detail:
-      "Selected tier is below the firm's margin floor — admin override required before the order can be sent.",
-  },
-  unmatched: {
-    level: "warn",
-    label: "NetSuite customer unconfirmed",
-    detail:
-      "No exact NetSuite account match — confirm the mapping before sending, or the order lands on a new account.",
-  },
-};
-
-// Reading `?dev=1&so-state=…&so-flags=…&so-failed-at=…` for the state
-// switcher. Only active when the umbrella's dev switcher is enabled
-// AND the browser is on the /quote route. Production reads see
-// state='pending' + no flags.
+// Reading `?dev=1&so-state=…&so-flags=…` for the state switcher.
+// Only active when the umbrella's dev switcher is enabled (which
+// itself is server-hard-guarded on VERCEL_ENV !== 'production').
+// Production reads see the state derived from real props.
+//
+// Slice 12 Step 8c-4: `so-failed-at=item_group` axis DROPPED. The
+// flat-lines payload has no Item Group creation step (Probe 5 /
+// Probe 6 closed the grouped-SO path at REST). All failures now
+// surface through the SO create endpoint — one failure shape.
 function parseDevAxes(
   showStateSwitcher: boolean,
   params: URLSearchParams | null,
 ): {
-  variant: ReceiptState;
+  variant: ReceiptState | null;
   flagVariant: "none" | "below_floor" | "unmatched" | "both";
-  failedAt: "item_group" | "so_create";
 } {
   if (!showStateSwitcher || !params) {
-    return { variant: "pending", flagVariant: "none", failedAt: "so_create" };
+    return { variant: null, flagVariant: "none" };
   }
   const rawState = params.get("so-state");
-  const variant: ReceiptState =
-    rawState === "failed" || rawState === "record" ? rawState : "pending";
+  const variant: ReceiptState | null =
+    rawState === "failed" || rawState === "record" || rawState === "pending"
+      ? rawState
+      : null;
   const rawFlags = params.get("so-flags");
   const flagVariant: "none" | "below_floor" | "unmatched" | "both" =
     rawFlags === "below_floor" || rawFlags === "unmatched" || rawFlags === "both"
       ? rawFlags
       : "none";
-  const rawFailed = params.get("so-failed-at");
-  const failedAt: "item_group" | "so_create" =
-    rawFailed === "item_group" ? "item_group" : "so_create";
-  return { variant, flagVariant, failedAt };
+  return { variant, flagVariant };
 }
 
 export type TabSalesOrderProps = {
@@ -130,13 +114,33 @@ export type TabSalesOrderProps = {
    * acceptance. Reads from audit_log's quote_accepted diff_json.
    * Currently threaded from page.tsx via a lookup helper. */
   hubspotPushedAmount: number | null;
+  /** Slice 12 Step 8c-4 — firm_settings.netsuite_so_status_on_create
+   * effective value (e.g. "Pending Fulfillment"). Was hardcoded in
+   * this file pre-8c-4; server-resolved so the receipt + confirm
+   * modal reflect the firm's real configuration. */
+  netsuiteStatusOnPush: string;
+  /** Slice 12 Step 8c-4 — pre-flight state (customer-map resolution,
+   * ship-to line, latest netsuite_so_pushes row). Null when the
+   * quote status is neither accepted nor complete (tab is
+   * un-reachable in that state). */
+  salesOrderPreflight: PreflightResult | null;
+  /** Slice 12 Step 8c-4 — quote row mirror of the last SO push.
+   * pushStatus 'succeeded' → record variant; 'failed' → failed
+   * variant. */
+  soPushMirror: {
+    soId: string | null;
+    soTranid: string | null;
+    pushedAt: Date | null;
+    pushStatus: string | null;
+    pushError: string | null;
+  };
   showStateSwitcher: boolean;
   onGo: (id: SubTabId) => void;
 };
 
 export function TabSalesOrder({
   view,
-  quoteId: _quoteId,
+  quoteId,
   quoteStatus,
   quoteVersionNumber,
   quoteNumberDb,
@@ -145,24 +149,37 @@ export function TabSalesOrder({
   quoteRollup,
   hubspotAcceptStageLabel,
   hubspotPushedAmount,
+  netsuiteStatusOnPush,
+  salesOrderPreflight,
+  soPushMirror,
   showStateSwitcher,
   onGo,
 }: TabSalesOrderProps) {
+  const router = useRouter();
   const [modal, setModal] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const [inFlightError, setInFlightError] = useState<string | null>(null);
   const searchParams = useSearchParams();
-  const { variant, flagVariant, failedAt } = parseDevAxes(
+  const { variant: devVariant, flagVariant } = parseDevAxes(
     showStateSwitcher,
     searchParams,
   );
 
-  // Slice 12 Step 8b — this tab is only meaningfully reachable when
-  // quote.status === 'accepted'. For draft/sent quotes, subtab-strip
-  // marks it upcoming/disabled; but if a PM lands here via a stale
-  // URL, render a minimal upcoming-state placeholder that says why.
-  // Complete state — 8c writes status='complete' + the umbrella
-  // renders read-only globally; this branch is unreachable in 8b.
   const isAccepted = quoteStatus === "accepted";
   const isComplete = quoteStatus === "complete";
+
+  // ── Real state derivation ─────────────────────────────────────
+  // Variant priority: quote status is authoritative. When status is
+  // 'complete' → record; when a failed push exists and status is
+  // still 'accepted' → failed; otherwise pending. Dev switcher
+  // overrides all three (hard-guarded via showStateSwitcher).
+  const hasFailedPush = soPushMirror.pushStatus === "failed" && !isComplete;
+  const realVariant: ReceiptState = isComplete
+    ? "record"
+    : hasFailedPush
+      ? "failed"
+      : "pending";
+  const variant: ReceiptState = devVariant ?? realVariant;
 
   // Resolve the carried tier (customer_accepted_tier_id or fallback
   // to first available). All the receipt renders against this tier.
@@ -173,8 +190,8 @@ export function TabSalesOrder({
 
   // Derive product lines from the customer view. Leaves only; tier
   // prices indexed by tier order. Skip lines with null tierPrice
-  // (unpriced SKU at this tier — surface as a receipt-time gap, but
-  // for 8b render as a placeholder; real gap-detection is 8c).
+  // (unpriced SKU at this tier — surface as a receipt-time gap,
+  // rendered as a "line unpriced" flag below).
   const tierIdx = useMemo(() => {
     if (!carriedTier) return -1;
     return view.tiers.findIndex((t) => t.id === carriedTier.tierId);
@@ -198,12 +215,6 @@ export function TabSalesOrder({
       .filter((l): l is OrderReceiptLine => l !== null);
   }, [view.skus, tierIdx, carriedTier]);
 
-  // Derive one-time charges from the customer view's serviceFees.
-  // R9 receipt fixture treats them as a flat list; matches CD's
-  // canonical structure. If a firm ever exposes per-SKU service
-  // fees (scope='sku'), those STILL render here as one-time entries
-  // (the receipt is order-level; SKU-scoping is a display nuance
-  // that lives inside the labels).
   const oneTime: OrderReceiptOneTime[] = view.serviceFees.map((sf) => ({
     id: sf.id,
     label: sf.label,
@@ -211,43 +222,61 @@ export function TabSalesOrder({
     amount: sf.amount,
   }));
 
-  // Derive so_flags per CA amendment 1:
-  //   - Real derivation (production): below_floor from carriedTier
-  //     margin status; unmatched from netsuiteCustomer.matched
-  //     (stubbed in 8b — always true today).
-  //   - Dev switcher: override to walk the canonical fixture states.
+  // ── Real flag derivation ─────────────────────────────────────
+  // R9 §6 LOAD-BEARING #9 — the flags are what make the receipt
+  // actionable. Below-floor and unmatched-customer both surface here
+  // BEFORE the PM can send, with copy actionable enough that they
+  // can forward it and get help without a follow-up question.
   const realFlags: OrderReceiptFlag[] = [];
+
+  // Below-floor: the accepted tier's blended margin is under the
+  // firm's margin floor. UI must NOT imply a process that doesn't
+  // exist — admin override is v1.1+, so this is a plain block.
   if (carriedTier?.blendedMarginStatus === "BELOW_FLOOR") {
-    realFlags.push(FLAG_EXAMPLES.below_floor);
+    realFlags.push({
+      level: "bad",
+      label: "Blocked — tier is below the margin floor",
+      detail: `${carriedTier.label} lands at ${(
+        carriedTier.blendedMarginPct * 100
+      ).toFixed(1)}% blended margin — under the firm's floor. Cannot send this order. Roll back the acceptance and re-open the quote to fix the underlying pricing, or record the customer on a different tier that clears the floor.`,
+    });
   }
 
-  // Slice 12 Step 8b — HubSpot amount for the ledger row. When
-  // page.tsx couldn't resolve the amount from audit_log, fall back
-  // to the carriedTier's totalRevenue (structurally the same figure
-  // 8a pushed — see the amount-derivation trace in PR #147).
-  const hsAmountEffective = hubspotPushedAmount ?? carriedTier?.totalRevenue ?? 0;
+  // Unmatched customer: the HubSpot company has no netsuite_customer_map
+  // entry. Admin adds one at /admin/netsuite-customer-map. Name the
+  // company so the PM can forward this message directly.
+  if (
+    salesOrderPreflight &&
+    salesOrderPreflight.hasHubspotCompany &&
+    salesOrderPreflight.netsuiteCustomer &&
+    !salesOrderPreflight.netsuiteCustomer.matched
+  ) {
+    const displayName =
+      salesOrderPreflight.hubspotCompanyName ??
+      salesOrderPreflight.netsuiteCustomer.name;
+    realFlags.push({
+      level: "bad",
+      label: "NetSuite customer not mapped",
+      detail: `${displayName} has no NetSuite customer mapping yet. An admin can add one at /admin/netsuite-customer-map. Cannot send this order until the mapping is in place.`,
+    });
+  }
 
-  // Slice 12 Step 8b · CB P0 disposition — DIVERGENCE flag between
-  // HubSpot-last-pushed amount and current tier totalRevenue.
-  //
-  // The receipt's Order Total (Σ lines + one_time) and the ledger's
-  // "HubSpot deal set to X at $Y" are BOTH sourced from
-  // requiredSellPerUnit × tier.qty by construction in production
-  // markAccepted (#147 trace). But they CAN diverge in a legitimate
-  // production scenario: post-Revise + cost-edit + re-accept at the
-  // SAME tier. audit_log holds the amount that was pushed to HubSpot
-  // at the LAST accept; carriedTier.totalRevenue is the CURRENT math.
-  // If costs shifted between accepts, they don't match — and the
-  // receipt currently reads audit_log silently.
-  //
-  // Threshold: > 0.01 (one cent). BOTH sides compared at FULL
-  // PRECISION — before any display rounding — so a 3dp vs 2dp render
-  // gap (see P5) cannot trip the flag. Copy names what's true, not
-  // what wires next (P3 discipline).
-  //
-  // Empty in the normal case (fresh accept, no cost edit since);
-  // populates in the divergence case. Rendered alongside real flags
-  // + dev-switcher overrides.
+  // Deal cache missing / no HubSpot company — rarer, but must not
+  // slip through as "pending, will resolve at send"; block the send
+  // and say what's wrong.
+  if (salesOrderPreflight && !salesOrderPreflight.hasHubspotCompany) {
+    realFlags.push({
+      level: "bad",
+      label: "HubSpot company not resolved",
+      detail:
+        "This project's HubSpot deal has no cached company association. Refresh HubSpot on the project page (Project Detail → Refresh) and retry.",
+    });
+  }
+
+  // Slice 12 Step 8b — CB P0 divergence flag between HubSpot-last-
+  // pushed amount and current tier totalRevenue. Preserved verbatim
+  // from 8b (still relevant post-Revise-and-re-accept on the SAME
+  // tier when costs shifted between accepts).
   const divergenceFlags: OrderReceiptFlag[] = [];
   if (
     hubspotPushedAmount !== null &&
@@ -261,63 +290,123 @@ export function TabSalesOrder({
     });
   }
 
+  // Dev-switcher flag overrides (canonical R9 fixtures per CD notes).
+  // Only used to walk the visual states in preview / local. Never
+  // shipped to production (VERCEL_ENV hard guard upstream).
+  const DEV_BELOW_FLOOR: OrderReceiptFlag = {
+    level: "bad",
+    label: "Tier below margin floor",
+    detail:
+      "Selected tier is below the firm's margin floor — cannot send this order.",
+  };
+  const DEV_UNMATCHED: OrderReceiptFlag = {
+    level: "bad",
+    label: "NetSuite customer not mapped",
+    detail:
+      "This HubSpot company has no NetSuite customer mapping — admin needs to add one before the order can send.",
+  };
   const soFlags: OrderReceiptFlag[] =
     flagVariant === "below_floor"
-      ? [FLAG_EXAMPLES.below_floor, ...divergenceFlags]
+      ? [DEV_BELOW_FLOOR, ...divergenceFlags]
       : flagVariant === "unmatched"
-        ? [FLAG_EXAMPLES.unmatched, ...divergenceFlags]
+        ? [DEV_UNMATCHED, ...divergenceFlags]
         : flagVariant === "both"
-          ? [FLAG_EXAMPLES.below_floor, FLAG_EXAMPLES.unmatched, ...divergenceFlags]
+          ? [DEV_BELOW_FLOOR, DEV_UNMATCHED, ...divergenceFlags]
           : [...realFlags, ...divergenceFlags];
 
-  // NetSuite stubs (real values arrive in 8c via customer resolver)
-  const nsCustomerStub = {
-    id: "not-resolved-yet",
-    name: view.customer.name ?? "—",
-    matched: false,
-    matchedOn: null,
-  };
-  const shipToStub =
-    "TBC — resolved from HubSpot company shipping address in Step 8c";
+  // ── Real NetSuite customer for receipt header ─────────────────
+  const netsuiteCustomerForReceipt = salesOrderPreflight?.netsuiteCustomer
+    ? {
+        id: salesOrderPreflight.netsuiteCustomer.id,
+        name: salesOrderPreflight.netsuiteCustomer.name,
+        matched: salesOrderPreflight.netsuiteCustomer.matched,
+        matchedOn: salesOrderPreflight.netsuiteCustomer.matched
+          ? "customer_map"
+          : null,
+      }
+    : {
+        id: "—",
+        name: view.customer.name ?? "—",
+        matched: false,
+        matchedOn: null,
+      };
+
+  const shipToLine =
+    salesOrderPreflight?.shipToLine ??
+    "Ship-to resolves when the customer is mapped";
+
+  // ── HubSpot amount for the ledger row (unchanged from 8b) ─────
+  const hsAmountEffective = hubspotPushedAmount ?? carriedTier?.totalRevenue ?? 0;
 
   const total =
     lines.reduce((a, l) => a + l.qty * l.unit, 0) +
     oneTime.reduce((a, o) => a + o.amount, 0);
 
-  // Two independent disable reasons per CA amendment 5.
-  const stubDisabled = true; // 8b: markComplete not yet wired
-  const belowFloorDisabled = carriedTier?.blendedMarginStatus === "BELOW_FLOOR";
+  // ── Send-blocking derivation ─────────────────────────────────
+  // Post-8c-4: markComplete is LIVE. The only remaining structural
+  // block is below-floor (admin override is v1.1+ per CA Q4). Every
+  // other blocker (unmatched customer, unresolved SKU, missing
+  // business segment) is surfaced through markComplete's own guards
+  // — the tab reveals them as flags OR the failed-tab error copy
+  // after a Send attempt. Fidelity manifest note #1 above.
+  const belowFloorDisabled =
+    carriedTier?.blendedMarginStatus === "BELOW_FLOOR";
+  const unmappedCustomerDisabled = Boolean(
+    salesOrderPreflight?.hasHubspotCompany &&
+      salesOrderPreflight.netsuiteCustomer &&
+      !salesOrderPreflight.netsuiteCustomer.matched,
+  );
+  const noHubspotCompanyDisabled = Boolean(
+    salesOrderPreflight && !salesOrderPreflight.hasHubspotCompany,
+  );
+
   const disabledReasons: string[] = [];
-  if (stubDisabled) {
-    disabledReasons.push(
-      "NetSuite integration wires in Step 8c — receipt is walkable, send is not.",
-    );
-  }
   if (belowFloorDisabled) {
     disabledReasons.push(
-      "Selected tier is below the firm's margin floor — admin override required.",
+      "Blocked — the accepted tier is below the firm's margin floor.",
     );
   }
-  const sendDisabled = stubDisabled || belowFloorDisabled;
+  if (unmappedCustomerDisabled) {
+    disabledReasons.push(
+      "Blocked — HubSpot company is not mapped to a NetSuite customer.",
+    );
+  }
+  if (noHubspotCompanyDisabled) {
+    disabledReasons.push(
+      "Blocked — this project has no cached HubSpot company association.",
+    );
+  }
+  const sendDisabled =
+    belowFloorDisabled || unmappedCustomerDisabled || noHubspotCompanyDisabled;
   const disabledReason = disabledReasons.join(" ");
 
-  // ─── Not-yet-accepted or complete states ────────────────────
-  if (isComplete) {
-    // Step 8b never lands here — no writer sets status='complete'
-    // (prebuild verifier enforces). Defensive placeholder in case a
-    // future path bypasses (would fail the verifier first).
-    return (
-      <div className="r9-wrap">
-        <p className="eyebrow">Sub-tab 5 · Sales Order · complete</p>
-        <p className="r8-sub">
-          This quote is complete. The umbrella is read-only. Full record
-          view lands with Step 8c.
-        </p>
-      </div>
-    );
+  // ── Send handler ─────────────────────────────────────────────
+  function onConfirm() {
+    setInFlightError(null);
+    const fd = new FormData();
+    fd.set("quoteId", quoteId);
+    startTransition(async () => {
+      const result = await markComplete(fd);
+      if (result.ok) {
+        // Success: refresh so page.tsx re-reads quote.status='complete'
+        // and the record variant renders with real soId/soCreatedAt.
+        // Modal will unmount when the parent re-renders (variant flip).
+        router.refresh();
+        setModal(false);
+      } else {
+        // Failure: keep the modal open so the PM sees the error next
+        // to what they were about to send. router.refresh() surfaces
+        // the persisted netsuite_so_pushes row for the failed variant
+        // on any subsequent navigation. Modal's cancel button
+        // dismisses back to the failed-tab.
+        setInFlightError(result.error.message);
+        router.refresh();
+      }
+    });
   }
 
-  if (!isAccepted) {
+  // ── Not-yet-accepted state ───────────────────────────────────
+  if (!isAccepted && !isComplete) {
     return (
       <div className="r9-wrap">
         <p className="eyebrow">Sub-tab 5 · Sales Order · awaiting acceptance</p>
@@ -352,9 +441,25 @@ export function TabSalesOrder({
     );
   }
 
-  // ─── Accepted state — the receipt ───────────────────────────
+  // ── Accepted / complete / failed states — the receipt ────────
   const placed = variant === "record";
   const failed = variant === "failed";
+
+  // Which error to render in the failed tab's split-banner error
+  // slot. Priority: in-flight error from this session's attempt >
+  // persisted error from the quote row mirror > persisted error
+  // from the preflight (netsuite_so_pushes.errorDetail). Copy
+  // arrives verbatim from markComplete's error messages (already
+  // actionable per CA discipline: names the SKU, names the
+  // customer, names the admin URL where relevant).
+  const persistedError =
+    soPushMirror.pushError ??
+    salesOrderPreflight?.latestPush?.errorDetail ??
+    null;
+  const failureDetail = inFlightError ?? persistedError;
+  const failureCompletedAt =
+    salesOrderPreflight?.latestPush?.completedAt ?? null;
+
   const headingText = placed
     ? "Order placed"
     : failed
@@ -380,8 +485,10 @@ export function TabSalesOrder({
           {/* R9 §R9.1-1 + §6 LOAD-BEARING #9 — failed state renders
               as a full-width tab-level SPLIT BANNER (not a modal).
               Left green half: what's still true. Right red half:
-              what didn't happen. Deliberately not a full-bleed
-              red — half the screen is still good news. */}
+              what didn't happen + the specific error. Copy is not a
+              placeholder — it's the persisted error from
+              netsuite_so_pushes, verbatim from markComplete's guard
+              chain. */}
           {failed && (
             <div className="r9-so-split">
               <div className="half held">
@@ -402,34 +509,36 @@ export function TabSalesOrder({
                 <div className="k">
                   <span>✕</span> did not happen
                 </div>
-                <div className="t">
-                  {failedAt === "item_group"
-                    ? "The Item Group wasn't created"
-                    : "The order was not placed"}
-                </div>
+                <div className="t">The order was not placed</div>
                 <div className="s">
-                  {failedAt === "item_group"
-                    ? "The NetSuite Item Group creation was rejected before the Sales Order could be built. The quote is still accepted and still reversible — retry when ready."
-                    : "No Sales Order exists in NetSuite. The quote is still accepted and still reversible — retry when ready."}
+                  No Sales Order exists in NetSuite. The quote is still
+                  accepted and still reversible — retry when ready.
+                  {failureCompletedAt && (
+                    <>
+                      {" "}Last attempt{" "}
+                      {failureCompletedAt.toLocaleString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                        hour12: false,
+                      })}
+                      .
+                    </>
+                  )}
                 </div>
-                <div className="err">
-                  {/* Step 8b: stubbed error surface. Step 8c wires
-                      real failures.netsuite from a persisted error
-                      row (per CA amendment 2 — the failure needs a
-                      tab, not a modal, so the PM never loses "what
-                      still needs doing"). */}
-                  Step 8c wires the real NetSuite error detail here ·{" "}
-                  {failedAt === "item_group"
-                    ? "will discriminate Item Group vs SO create failure"
-                    : "endpoint-level error surfaces here"}
-                </div>
+                {failureDetail && (
+                  <div className="err" data-testid="so-failed-error-detail">
+                    {failureDetail}
+                  </div>
+                )}
                 <div className="acts">
                   <button
                     className="btn sm"
                     onClick={() => setModal(true)}
-                    disabled={sendDisabled}
+                    disabled={sendDisabled || isPending}
                   >
-                    Retry send
+                    {isPending ? "Sending…" : "Retry send"}
                   </button>
                 </div>
               </div>
@@ -444,10 +553,10 @@ export function TabSalesOrder({
             quoteNumber={quoteNumberDb}
             quoteVersion={quoteVersionNumber}
             acceptedAt={quoteAcceptedAt}
-            soId={placed ? "SO-STUB-8B" : null}
-            soCreatedAt={placed ? new Date() : null}
-            netsuiteCustomer={nsCustomerStub}
-            shipTo={shipToStub}
+            soId={placed ? (soPushMirror.soTranid ?? soPushMirror.soId) : null}
+            soCreatedAt={placed ? soPushMirror.pushedAt : null}
+            netsuiteCustomer={netsuiteCustomerForReceipt}
+            shipTo={shipToLine}
             terms={view.quote.paymentTerms ?? "—"}
             incoterms={view.quote.incoterms ?? "—"}
             requestedShipIso={null}
@@ -456,8 +565,7 @@ export function TabSalesOrder({
             soFlags={soFlags}
             hubspotAmount={hsAmountEffective}
             hubspotStageLabel={hubspotAcceptStageLabel}
-            failedAt={failed ? failedAt : undefined}
-            netsuiteStatusOnPush={NETSUITE_STATUS_ON_PUSH}
+            netsuiteStatusOnPush={netsuiteStatusOnPush}
           />
 
           {!placed && (
@@ -474,26 +582,6 @@ export function TabSalesOrder({
                   : "—"}
                 .
               </span>
-            </div>
-          )}
-
-          {/* Step 8b — R9 override disclosure (§6 LOAD-BEARING #7 —
-              "override behind a disclosure that names the
-              contradiction"). Not wired for tier-change in 8b since
-              accepted_tier_id is 8c's write. Placeholder so the
-              affordance surface is visible; disabled with an
-              explicit "Step 8c wires the override write path" note. */}
-          {!placed && (
-            <div className="r9-override">
-              <div
-                className="mono muted"
-                style={{ fontSize: 11, padding: "10px 12px", color: "var(--ink-3)" }}
-              >
-                Order a different tier than the one they accepted · Step 8c
-                wires the override write path (writes accepted_tier_id ≠
-                customer_accepted_tier_id; logs the divergence to the audit
-                trail).
-              </div>
             </div>
           )}
         </div>
@@ -616,19 +704,16 @@ export function TabSalesOrder({
               </p>
               <p
                 style={{
-                  margin: "0 0 10px",
+                  margin: "0 0 0",
                   fontSize: 12,
                   color: "var(--ink-3)",
                   lineHeight: 1.55,
                 }}
               >
-                The order is irreversible in the PM&apos;s hands. An admin
-                can unlock the quote with a reason; the Sales Order must be
-                cancelled in NetSuite separately.
+                The order is irreversible in the PM&apos;s hands. Cancel it
+                in NetSuite; edits after the Sales Order lives in NetSuite,
+                not here.
               </p>
-              <button className="btn sm ghost" disabled>
-                Request unlock (admin) — Step 8c
-              </button>
             </div>
           )}
         </div>
@@ -648,13 +733,10 @@ export function TabSalesOrder({
       ) : (
         <>
           {/* Slice 12 Step 8b · CB P1 fix — visible disabled-reason
-              surface directly adjacent to the CTA. CB flagged that a
-              first-time PM saw the disabled Send button with no on-
-              screen "why" — the CTA looked visually identical whether
-              flags were active or not. Reason banner sits between the
-              receipt + advance-bar so the PM reads it BEFORE hovering
-              or clicking (which does nothing when disabled).
-              Aggregates both reasons (stubDisabled + belowFloor). */}
+              surface directly adjacent to the CTA. Aggregates every
+              active reason (below-floor, unmapped customer, no
+              HubSpot company). PM reads this BEFORE hovering or
+              clicking the disabled Send button. */}
           {sendDisabled && disabledReason && (
             <div
               role="status"
@@ -671,7 +753,15 @@ export function TabSalesOrder({
                 lineHeight: 1.55,
               }}
             >
-              <strong style={{ fontFamily: "var(--mono)", fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", marginRight: 8 }}>
+              <strong
+                style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 10.5,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  marginRight: 8,
+                }}
+              >
                 Send is disabled
               </strong>
               {disabledReason}
@@ -682,19 +772,28 @@ export function TabSalesOrder({
             back={{ label: "Acceptance", onClick: () => onGo("accepted") }}
             mid={
               <span>
-                {carriedTier.label} · {usd(total)} · {nsCustomerStub.id}
+                {carriedTier.label} · {usd(total)} ·{" "}
+                {netsuiteCustomerForReceipt.id}
               </span>
             }
             caption={
               belowFloorDisabled
-                ? "Blocked — below floor, admin override required"
-                : stubDisabled
+                ? "Blocked — tier is below the margin floor"
+                : sendDisabled
                   ? "Send is disabled — see reason above"
                   : "Irreversible — creates a Sales Order in NetSuite"
             }
-            label={failed ? "Retry — send order to NetSuite" : "Send order to NetSuite"}
-            disabled={sendDisabled}
-            onAdvance={sendDisabled ? undefined : () => setModal(true)}
+            label={
+              isPending
+                ? "Sending…"
+                : failed
+                  ? "Retry — send order to NetSuite"
+                  : "Send order to NetSuite"
+            }
+            disabled={sendDisabled || isPending}
+            onAdvance={
+              sendDisabled || isPending ? undefined : () => setModal(true)
+            }
           />
         </>
       )}
@@ -703,22 +802,21 @@ export function TabSalesOrder({
         <SendOrderModal
           customerName={view.customer.name ?? "the customer"}
           tierLabel={carriedTier.label}
-          netsuiteCustomerId={nsCustomerStub.id}
-          netsuiteStatusOnPush={NETSUITE_STATUS_ON_PUSH}
+          netsuiteCustomerId={netsuiteCustomerForReceipt.id}
+          netsuiteStatusOnPush={netsuiteStatusOnPush}
           totalAmount={total}
           productLineCount={lines.length}
           oneTimeCount={oneTime.length}
           disabled={sendDisabled}
           disabledReason={disabledReason || undefined}
-          onClose={() => setModal(false)}
-          onConfirm={() => {
-            // Step 8b: onConfirm is inert — sendDisabled is always
-            // true in production, so this branch is unreachable via
-            // real state. Dev switcher can force the modal open by
-            // rendering variants; the confirm still no-ops. Step 8c
-            // wires markComplete here.
+          sending={isPending}
+          inFlightError={inFlightError}
+          onClose={() => {
+            if (isPending) return;
             setModal(false);
+            setInFlightError(null);
           }}
+          onConfirm={onConfirm}
         />
       )}
     </div>
