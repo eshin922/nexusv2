@@ -268,25 +268,45 @@ const mixed: ResolveResult[] = [
 const errText = formatResolutionErrors(mixed);
 expect(
   "mixed formatting — header count",
-  errText?.startsWith("Cannot resolve 2 NetSuite items:"),
+  errText?.startsWith("Cannot send — 2 SKUs did not resolve to NetSuite items:"),
   true,
 );
 expect(
-  "mixed formatting — not_found line present",
-  errText?.includes("• B: no matching NetSuite item found"),
+  "mixed formatting — not_found names SKU",
+  errText?.includes("• B — no matching NetSuite item"),
   true,
 );
 expect(
-  "mixed formatting — ambiguous line present",
-  errText?.includes("• C: 2 matching NetSuite items"),
+  "mixed formatting — not_found says what to do",
+  errText?.includes("Create the item in NetSuite"),
+  true,
+);
+expect(
+  "mixed formatting — not_found repeats SKU in the action",
+  errText?.includes('with SKU "B"'),
+  true,
+);
+expect(
+  "mixed formatting — ambiguous names SKU + count",
+  errText?.includes("• C — 2 matching NetSuite items"),
+  true,
+);
+expect(
+  "mixed formatting — ambiguous surfaces internal ids",
+  errText?.includes("internal ids: 10, 20"),
+  true,
+);
+expect(
+  "mixed formatting — ambiguous says what to do",
+  errText?.includes("NetSuite admin must reconcile itemid uniqueness"),
   true,
 );
 
 // Singular / plural
 const singular: ResolveResult[] = [{ status: "not_found", sku: "X" }];
 expect(
-  "singular — 'item' not 'items'",
-  formatResolutionErrors(singular)?.startsWith("Cannot resolve 1 NetSuite item:"),
+  "singular — 'SKU' + 'item' not 'SKUs' + 'items'",
+  formatResolutionErrors(singular)?.startsWith("Cannot send — 1 SKU did not resolve to a NetSuite item:"),
   true,
 );
 

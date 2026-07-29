@@ -20,6 +20,14 @@
 //     grouped-SO REST path). All failures surface through the SO
 //     create call; the failed-tab renders the persisted
 //     netsuite_so_pushes.error_detail verbatim.
+//     If the grouped path RE-OPENS via the $0.00 item-price
+//     placeholder route (Probe 7 findings; blocked on Vu's catalog
+//     update), the discriminator returns — a new failure surface
+//     appears for Item Group create rejection AND for SO PATCH
+//     rejection on the auto-expanded member rate step. The prop
+//     signature will grow back; the split-banner branches too. This
+//     is NOT an oversight — Item Group failure copy is intentionally
+//     absent under the flat-lines payload only.
 //   - Record state: soId + soCreatedAt sync-populated from quote row
 //     mirrors (netsuite_so_id / netsuite_so_tranid / netsuite_pushed_at,
 //     freeze-tx step 9). Nullable prop shape KEPT so a hypothetical
