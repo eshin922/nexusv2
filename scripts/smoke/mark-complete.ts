@@ -381,11 +381,39 @@ async function cleanup(f: Fixture | null): Promise<void> {
     SELECT netsuite_so_id, netsuite_so_tranid FROM netsuite_so_pushes
     WHERE quote_id = ${f.quoteId} AND status = 'succeeded'
   `;
+
+  // AUTHORITATIVE ORPHAN SCAN — query NetSuite directly for every SO
+  // carrying this fixture's HubSpot deal id. Catches SOs the local
+  // netsuite_so_pushes table lost track of (e.g., mid-test resets
+  // that delete the push row before cleanup runs, or crash paths
+  // where the SO was created in NS but never persisted locally).
+  //
+  // This is the fix for SO2650 leak (Slice 12 Step 8c-3 CA review
+  // 2026-07-28): FAIL-A's reset code deletes netsuite_so_pushes
+  // rows to reset baseline, orphaning prior tests' SOs from the
+  // local tracking. Direct NS scan on custbody_dps_deal_id (unique
+  // per fixture) catches them regardless of local state.
+  //
+  // Production tolerance is zero — the same script pattern will run
+  // for real customers, so cleanup MUST be source-of-truth-agnostic.
+  console.log(`  scanning NetSuite for orphan SOs on custbody_dps_deal_id=${f.hubspotDealId}...`);
+  const orphanSOs = await nsSuiteQL<{ id: string; tranid: string }>(
+    `SELECT id, tranid FROM transaction WHERE type='SalesOrd' AND custbody_dps_deal_id='${f.hubspotDealId}'`,
+  );
+  const cachedIds = new Set(cachedPushes.map((p: any) => p.netsuite_so_id).filter(Boolean));
+  const trulyOrphan = orphanSOs.filter((s) => !cachedIds.has(s.id));
+  if (trulyOrphan.length > 0) {
+    console.log(`  ⚠ ${trulyOrphan.length} NS SO orphan(s) not tracked in netsuite_so_pushes:`);
+    for (const o of trulyOrphan) console.log(`    ${o.tranid}  id=${o.id}  (will delete)`);
+  }
+  const allSoIdsToDelete = [
+    ...cachedPushes.map((p: any) => p.netsuite_so_id).filter(Boolean),
+    ...trulyOrphan.map((o) => o.id),
+  ];
   // Delete SOs first (they reference the groups via lines)
-  for (const p of cachedPushes) {
-    if (!p.netsuite_so_id) continue;
-    const r = await nsDelete(`/salesOrder/${p.netsuite_so_id}`);
-    console.log(`  NS delete SO ${p.netsuite_so_id} → ${r.status}`);
+  for (const soId of allSoIdsToDelete) {
+    const r = await nsDelete(`/salesOrder/${soId}`);
+    console.log(`  NS delete SO ${soId} → ${r.status}`);
   }
   // Delete item groups
   for (const g of cachedGroups) {
@@ -623,7 +651,31 @@ async function testConvergence(f: Fixture): Promise<void> {
 }
 
 async function testNs5xxRetry(f: Fixture, realSoId: string): Promise<void> {
+  // ⚠️ TODO — REWRITE THIS TEST when group creation is reinstated.
+  //
+  // As-is, this test proves "cache-hit doesn't duplicate what doesn't
+  // exist". Under Slice 12's flat-lines path, markComplete never
+  // creates Item Groups (STEP 5 in mark-complete.ts is skipped), so
+  // groupsBefore == groupsAfter == 0 trivially.
+  //
+  // The REAL orphan invariant is the opposite ordering: group
+  // created successfully, then SO create fails. In that state, a
+  // group exists in NetSuite with no order referencing it. That
+  // orphan risk CANNOT surface today because Nexus doesn't create
+  // groups from markComplete.
+  //
+  // When the Assembly migration lands OR a RESTlet path reinstates
+  // group creation in markComplete's flow, this test MUST BE
+  // REWRITTEN — not reused — to actually force group-create-then-
+  // SO-fail and assert the group persists cleanly for the retry to
+  // find via cache-hit. Reusing this test as-is would silently
+  // provide false coverage on the exact invariant it exists to
+  // guard.
+  //
+  // Reference: CA PR #151 review (2026-07-28), Correction 1.
   console.log("\n[TEST FAIL-B] NetSuite failure on SO create → retry succeeds via cache, no duplicate groups\n");
+  console.log("  ⚠ NOTE: under flat-lines, this test's group-orphan check is trivially true (0 → 0).");
+  console.log("    Real orphan test requires group creation on the path. See TODO in file.\n");
   // Delete the real SO from the happy path (from NS) so we can re-run
   // markComplete without a prior_success blocking us. Groups stay in
   // NS + local cache.
