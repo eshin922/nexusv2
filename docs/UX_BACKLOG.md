@@ -79,6 +79,66 @@ operational pre-flight.)
 
 ## Open
 
+- **Classifier config validation: `floor_margin_pct <= target_margin_pct`**
+
+  **Driver:** Slice 12 Step 8c-3 smoke build (2026-07-28).
+
+  **The gap:** `firm_settings` has no invariant preventing an admin
+  from setting `floor_margin_pct > target_margin_pct`. The classifier
+  order is `GOOD if margin >= target, else BELOW_TARGET if margin >=
+  floor, else BELOW_FLOOR`. If floor is bumped above target, the
+  BELOW_FLOOR branch becomes unreachable when the tier is above
+  target — the guard silently stops firing on high-margin tiers.
+
+  In production this holds by convention (target > floor always),
+  but nothing enforces it. Slice 12's below-floor guard on
+  markComplete depends on the classifier being correct. If an admin
+  inverts them, the guard silently no-ops on quotes where target is
+  cleared but floor is left high, and a below-margin-floor quote
+  could complete → SO push → invoiced.
+
+  **Candidate fix (small, self-contained):**
+
+  - Add a CHECK constraint OR a `versionedFirmSettingsUpdate`-side
+    validator that rejects any update where the resulting row has
+    `floor_margin_pct > target_margin_pct`
+  - Same shape as the "carry-forward audit" discipline documented in
+    CLAUDE.md — one line of validation in the update helper, plus
+    a CHECK on the table for durability
+
+  **Not this slice.** Bank + revisit when firm_settings admin surface
+  gets its next touch.
+
+- **Pattern 52 freeze verification via an in-request-scope test harness**
+
+  **Driver:** Slice 12 Step 8c-3 smoke build (2026-07-28).
+
+  **The gap:** The smoke script attempts to verify the Pattern 52
+  draft-lock by calling `updateQuoteGlobalPriceAdj` on a completed
+  quote and asserting it's rejected. That action calls `ensureUser()`
+  which uses Clerk's `auth()` — which requires a Next.js request
+  scope. Smoke runs outside a request context and fails with:
+  `Clerk: auth(), currentUser() and clerkClient(), are only supported
+  in App Router (/app directory)`.
+
+  The smoke currently falls back to a DB-drift check (verify
+  `status` still `'complete'` after the mutation attempt), which is
+  weak — the mutation didn't happen because Clerk blocked at
+  `ensureUser()`, not because the freeze guard fired.
+
+  Slice 12 Step 8b's `complete-status-writer` verifier proves at
+  build time that only `mark-complete.ts` writes `status='complete'`
+  — but proving that DRAFT-LOCK guards fire from every other
+  mutating action requires either:
+  1. A Playwright E2E-style test with real Clerk auth (in-request-
+     scope)
+  2. A refactor that extracts `ensureUser`-free variants of the
+     action bodies for direct invocation (adds surface area)
+  3. A dedicated harness that spins up a minimal Next.js request
+     context for smoke scripts
+
+  Not this slice. Bank as durable coverage improvement.
+
 - **NetSuite Assembly migration (v1.1+ candidate)**
 
   **Driver:** Slice 12 Step 8c-3 REST + SOAP probes (2026-07-28).

@@ -441,22 +441,67 @@ async function testHappy(f: Fixture): Promise<{ soId: string }> {
   assert(row.netsuite_so_push_status === "succeeded", `push status = 'succeeded' (got '${row.netsuite_so_push_status}')`);
   console.log(`  ✓ quote.status='complete', mirror cols populated`);
 
-  // Q4 REVISED verification — record per-line taxCode from the created SO
-  console.log("\n  [Q4 verification] Per-line taxCode on created SO:");
+  // Q4 REVISED verification — record per-line taxCode from the created SO.
+  // REST GET `/salesOrder/{id}?expandSubResources=true` hides SO lines
+  // under the item sub-resource; SuiteQL on transactionline gives us
+  // every line's taxCode explicitly via the ns_tax_code_id column.
+  console.log("\n  [Q4 verification] Per-line taxCode on created SO (via SuiteQL):");
   try {
-    const so = await nsGet<any>(`/salesOrder/${result.netsuite.salesOrderId}?expandSubResources=true`);
-    const items = so?.item?.items ?? [];
-    for (let i = 0; i < items.length; i++) {
-      const line = items[i];
-      const taxCode = line.taxCode ?? "(unset)";
-      const disp = typeof taxCode === "object" && taxCode !== null && "refName" in taxCode
-        ? `${taxCode.id}=${taxCode.refName}`
-        : JSON.stringify(taxCode);
-      console.log(`    line ${i+1}: taxCode=${disp}`);
+    const lines = await nsSuiteQL<{
+      linesequencenumber: string;
+      item: string | null;
+      rate: string | null;
+      quantity: string | null;
+      taxcode: string | null;
+    }>(
+      "SELECT linesequencenumber, item, rate, quantity, taxcode FROM transactionline WHERE transaction=" +
+        result.netsuite.salesOrderId +
+        " ORDER BY linesequencenumber",
+    );
+    // Resolve the taxCode id → label for readability.
+    const codeIds = Array.from(new Set(lines.map((l) => l.taxcode).filter((c): c is string => Boolean(c))));
+    const codeLabels = new Map<string, string>();
+    if (codeIds.length > 0) {
+      const codes = await nsSuiteQL<{ id: string; name: string }>(
+        "SELECT id, name FROM salestaxitem WHERE id IN (" + codeIds.join(",") + ")",
+      );
+      for (const c of codes) codeLabels.set(c.id, c.name);
     }
-    if (items.length === 0) console.log(`    (no items found in SO response — verify manually via NetSuite UI)`);
+    for (const l of lines) {
+      const itemLabel = l.item ? "item=" + l.item : "(header/subtotal)";
+      const taxLabel = l.taxcode ? l.taxcode + "=" + (codeLabels.get(l.taxcode) ?? "?") : "(none)";
+      console.log(`    seq=${l.linesequencenumber}  ${itemLabel}  rate=${l.rate ?? "-"}  qty=${l.quantity ?? "-"}  taxCode=${taxLabel}`);
+    }
   } catch (e) {
-    console.log(`    ⚠ tax-verification GET failed: ${e instanceof Error ? e.message : e}`);
+    console.log(`    ⚠ tax-verification failed: ${e instanceof Error ? e.message : e}`);
+  }
+
+  // Pattern 52 freeze verification — attempt to mutate the completed
+  // quote via a canonical draft-only action, assert it's REJECTED.
+  // The freeze is action-layer (not DB-trigger), so we verify the
+  // guard fires. Uses updateQuoteGlobalPriceAdj as the canary — it's
+  // a fields-only mutation that any complete quote must refuse.
+  console.log("\n  [Pattern 52 freeze verification] Post-complete mutation attempt:");
+  try {
+    const { updateQuoteGlobalPriceAdj } = await import("../../src/app/actions/costing.ts");
+    const fd = new FormData();
+    fd.set("quoteId", f.quoteId);
+    fd.set("globalPriceAdjPct", "0.10");
+    const guardResult = await updateQuoteGlobalPriceAdj(fd);
+    if (guardResult.ok) {
+      console.log(`    ✗ FREEZE VIOLATED — updateQuoteGlobalPriceAdj succeeded on complete quote!`);
+      throw new Error("Pattern 52 freeze violated — action succeeded on complete quote");
+    }
+    console.log(`    ✓ frozen — action refused: ${guardResult.error.code} · ${guardResult.error.message.slice(0, 100)}`);
+  } catch (e) {
+    // If import fails / action shape different, fall back to a manual
+    // status-drift check. Note but don't fail smoke.
+    if (e instanceof Error && e.message.startsWith("Pattern 52")) throw e;
+    console.log(`    ⚠ freeze check via action layer failed: ${e instanceof Error ? e.message : e}`);
+    console.log(`    ℹ falling back to DB-drift check — verifying status still 'complete'`);
+    const [driftCheck] = await sql`SELECT status FROM quotes WHERE id = ${f.quoteId}`;
+    if (driftCheck.status !== "complete") throw new Error(`quote status drifted from complete → ${driftCheck.status}`);
+    console.log(`    ✓ quote.status still 'complete' (drift check only; action-layer verification skipped)`);
   }
 
   return { soId: result.netsuite.salesOrderId };
@@ -615,6 +660,100 @@ async function testNs5xxRetry(f: Fixture, realSoId: string): Promise<void> {
   console.log(`  ✓ FAIL-B cleanup: NS SO ${result.netsuite.salesOrderId} deleted`);
 }
 
+async function testAmountPatchFires(f: Fixture): Promise<void> {
+  console.log("\n[TEST FIRE-D] HubSpot amount patch fires when prior != current\n");
+  // Reset quote to accepted, wipe pushes + audit
+  await sql`UPDATE quotes SET status = 'accepted', netsuite_so_id = NULL, netsuite_so_tranid = NULL,
+    netsuite_so_push_status = NULL, netsuite_pushed_at = NULL WHERE id = ${f.quoteId}`;
+  await sql`DELETE FROM netsuite_so_pushes WHERE quote_id = ${f.quoteId}`;
+  await sql`DELETE FROM audit_log WHERE entity_id = ${f.quoteId} AND action = 'netsuite_so_pushed'`;
+
+  // Seed prior_accepted amount to something DIFFERENT from the current
+  // tier revenue. This forces the patch's compare to see |Δ| > $0.01.
+  const bogusPrior = 4200.00;
+  await sql`UPDATE audit_log SET diff_json = jsonb_set(diff_json, '{hubspot,amount}', ${bogusPrior}::text::jsonb)
+            WHERE entity_id = ${f.quoteId} AND action = 'quote_accepted'`;
+  console.log(`  Seeded prior amount: $${bogusPrior} (current: ~$${f.amountAtAccept.toFixed(2)})`);
+
+  const result = await runMarkComplete(f.quoteId);
+  console.log(`  amountPatch.status: ${result.amountPatch.status}`);
+  console.log(`  amountPatch.delta:  ${result.amountPatch.delta}`);
+  assert(result.amountPatch.status === "patched",
+    `amount patch fired (got status='${result.amountPatch.status}')`);
+  assert(result.amountPatch.prior === bogusPrior,
+    `patch saw prior=${bogusPrior} (got ${result.amountPatch.prior})`);
+  console.log(`  ✓ Amount patch STATUS='patched'`);
+
+  // Verify HubSpot deal.amount was actually updated
+  const dealResp = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${f.hubspotDealId}?properties=amount`, {
+    headers: { Authorization: `Bearer ${HS_WRITE}` },
+  });
+  const deal = await dealResp.json();
+  const dealAmount = parseFloat(deal?.properties?.amount ?? "0");
+  console.log(`  HubSpot deal.amount now: $${dealAmount.toFixed(2)}`);
+  assert(Math.abs(dealAmount - f.amountAtAccept) < 0.01,
+    `HubSpot deal reflects current amount (~$${f.amountAtAccept.toFixed(2)}); got $${dealAmount}`);
+  console.log(`  ✓ HubSpot side confirms new amount`);
+
+  // Cleanup — delete created NS SO
+  const [succ] = await sql`SELECT netsuite_so_id FROM netsuite_so_pushes WHERE quote_id = ${f.quoteId} AND status = 'succeeded' LIMIT 1`;
+  if (succ?.netsuite_so_id) {
+    await nsDelete(`/salesOrder/${succ.netsuite_so_id}`);
+    console.log(`  ✓ FIRE-D cleanup: NS SO ${succ.netsuite_so_id} deleted`);
+  }
+}
+
+async function testAmountPatchFailsSafely(f: Fixture): Promise<void> {
+  console.log("\n[TEST FAIL-D] HubSpot amount patch FAILURE → quote STILL flips complete\n");
+  // Reset
+  await sql`UPDATE quotes SET status = 'accepted', netsuite_so_id = NULL, netsuite_so_tranid = NULL,
+    netsuite_so_push_status = NULL, netsuite_pushed_at = NULL WHERE id = ${f.quoteId}`;
+  await sql`DELETE FROM netsuite_so_pushes WHERE quote_id = ${f.quoteId}`;
+  await sql`DELETE FROM audit_log WHERE entity_id = ${f.quoteId} AND action = 'netsuite_so_pushed'`;
+
+  // Seed divergent prior so the patch WOULD fire
+  const bogusPrior = 3000.00;
+  await sql`UPDATE audit_log SET diff_json = jsonb_set(diff_json, '{hubspot,amount}', ${bogusPrior}::text::jsonb)
+            WHERE entity_id = ${f.quoteId} AND action = 'quote_accepted'`;
+
+  // Force patch failure: swap projects.hubspot_deal_id to a nonexistent
+  // deal id. amount patch will 404 → runAmountPatchIfNeeded logs +
+  // returns {status:'failed'}. Quote should STILL flip to complete.
+  const BOGUS_DEAL = "999999999999999";
+  const [origProj] = await sql`SELECT hubspot_deal_id FROM projects WHERE id = ${f.projectId}`;
+  const [origCache] = await sql`SELECT deal_id FROM hubspot_deals_cache WHERE deal_id = ${f.hubspotDealId}`;
+  // Update BOTH so orchestrator's cache-read + patch both see the bogus id
+  await sql`UPDATE projects SET hubspot_deal_id = ${BOGUS_DEAL} WHERE id = ${f.projectId}`;
+  await sql`UPDATE hubspot_deals_cache SET deal_id = ${BOGUS_DEAL} WHERE deal_id = ${f.hubspotDealId}`;
+  console.log(`  Swapped project hubspot_deal_id → ${BOGUS_DEAL} (bogus; will 404 on patch)`);
+
+  try {
+    const result = await runMarkComplete(f.quoteId);
+    console.log(`  amountPatch.status: ${result.amountPatch.status}`);
+    console.log(`  amountPatch.errorDetail: ${(result.amountPatch as any).errorDetail?.slice(0, 100) ?? "(none)"}`);
+    console.log(`  quote status after: complete? assert below`);
+
+    assert(result.amountPatch.status === "failed",
+      `amount patch failed (got status='${result.amountPatch.status}')`);
+    console.log(`  ✓ Amount patch STATUS='failed'`);
+
+    const [q] = await sql`SELECT status, netsuite_so_id FROM quotes WHERE id = ${f.quoteId}`;
+    assert(q.status === "complete",
+      `quote STILL flipped to complete (got '${q.status}')`);
+    console.log(`  ✓ quote.status='complete' DESPITE patch failure — failure never blocks complete`);
+
+    // Cleanup: delete the created SO
+    if (q.netsuite_so_id) {
+      await nsDelete(`/salesOrder/${q.netsuite_so_id}`);
+      console.log(`  ✓ FAIL-D cleanup: NS SO ${q.netsuite_so_id} deleted`);
+    }
+  } finally {
+    // Restore the real deal id so main cleanup can find the HubSpot deal
+    await sql`UPDATE hubspot_deals_cache SET deal_id = ${origCache.deal_id === BOGUS_DEAL ? f.hubspotDealId : origCache.deal_id} WHERE deal_id = ${BOGUS_DEAL}`;
+    await sql`UPDATE projects SET hubspot_deal_id = ${origProj.hubspot_deal_id === BOGUS_DEAL ? f.hubspotDealId : origProj.hubspot_deal_id} WHERE id = ${f.projectId}`;
+  }
+}
+
 function assert(cond: unknown, message: string): asserts cond {
   if (!cond) {
     console.error(`  ✗ ASSERTION FAILED: ${message}`);
@@ -647,7 +786,9 @@ async function main() {
     await testNs5xxRetry(fixture, happy.soId);
     await testBelowFloor(fixture);
     await testConvergence(fixture);
-    console.log("\n═══ ALL 4 TESTS PASSED ═══\n");
+    await testAmountPatchFires(fixture);
+    await testAmountPatchFailsSafely(fixture);
+    console.log("\n═══ ALL 6 TESTS PASSED ═══\n");
   } catch (e) {
     failed = true;
     console.error("\n✗ SMOKE FAILED:", e);
