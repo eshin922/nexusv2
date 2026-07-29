@@ -52,6 +52,7 @@ import {
   ActionGuardError,
   ERR,
   assertDraft,
+  assertNotFrozen,
   runAction,
   type ActionResult,
 } from "@/lib/action-result";
@@ -2025,10 +2026,17 @@ export async function markAccepted(
     }
 
     const quote = await loadQuoteOrThrow(quoteId);
+    // Slice 12 Step 10 Q13 — Pattern 52 frozen-quote guard.
+    // Belt-and-suspenders alongside the transition check below and the
+    // route-level tab coercion in the umbrella page. Catches complete
+    // (and defense-in-depth accepted) with the friendly
+    // quoteFrozenMessage instead of the schema-adjacent "current state:
+    // 'complete'" wording.
+    assertNotFrozen(quote);
     if (quote.status !== "sent") {
       throw new ActionGuardError(
         ERR.VALIDATION,
-        `Mark Accepted only fires on 'sent' quotes; current state: '${quote.status}'.`,
+        `Mark Accepted requires the quote to be sent first. Current state: ${quote.status}.`,
       );
     }
 
@@ -2568,10 +2576,15 @@ export async function recordCustomerAcceptance(
     }
 
     const quote = await loadQuoteOrThrow(quoteId);
+    // Slice 12 Step 10 Q13 — Pattern 52 frozen-quote guard.
+    // Same pattern as markAccepted; recordCustomerAcceptance is the
+    // pre-accept capture path (customer signalled but PM hasn't pushed
+    // HubSpot yet). Frozen quotes shouldn't reach this either.
+    assertNotFrozen(quote);
     if (quote.status !== "sent") {
       throw new ActionGuardError(
         ERR.VALIDATION,
-        `Cannot record customer acceptance on a ${quote.status} quote — only sent quotes.`,
+        `Customer acceptance can only be recorded on a sent quote. Current state: ${quote.status}.`,
       );
     }
 

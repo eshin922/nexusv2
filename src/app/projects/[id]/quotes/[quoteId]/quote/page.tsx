@@ -72,7 +72,7 @@ export default async function CustomerViewPage({
   const elapsed = () => `${Date.now() - t0}ms`;
   const { id: projectId, quoteId } = await params;
   const { dev, layout, detail, addendum, tab } = await searchParams;
-  const activeTab = parseSubTabParam(tab);
+  const activeTabRaw = parseSubTabParam(tab);
   const tag = quoteId.slice(0, 8);
   console.log(`[quote:${tag}] start memory=${heapMb()}MB`);
 
@@ -238,6 +238,24 @@ export default async function CustomerViewPage({
       pushStatus: quote.netsuiteSoPushStatus,
       pushError: quote.netsuiteSoPushError,
     };
+
+    // Slice 12 Step 10 Q13 — route-level guard for completed quotes.
+    // Sub-tab strip renders all tabs 'locked' at status='complete'
+    // (subtabs.ts:90), but the ?tab= URL param bypassed that: direct
+    // navigation to ?tab=accepted rendered a live acceptance form on
+    // a quote whose order is already in NetSuite. Server-side action
+    // guards reject the submit, but the render layer should never
+    // have shipped the form.
+    //
+    // Coerce to 'preview' when the quote is complete. Preview renders
+    // the frozen v-current snapshot correctly; all other tabs on a
+    // complete quote are read-only anyway (nothing to submit). If a
+    // future need surfaces PM visibility of the SO receipt (?tab=tier)
+    // on a complete quote, that's a separate carve — the SO tab's
+    // receipt-state variant needs a broader render review (CB flagged
+    // an "unexplained first-load exception" today).
+    const activeTab =
+      quote.status === "complete" ? "preview" : activeTabRaw;
 
     const showStateSwitcher =
       dev === "1" || process.env.NODE_ENV !== "production";
