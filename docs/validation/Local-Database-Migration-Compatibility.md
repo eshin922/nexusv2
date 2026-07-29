@@ -2,17 +2,39 @@
 
 ## Status
 
-**Current verdict: BLOCKED pending an executable empty-database run.**
+**Current verdict: COMPATIBLE in two clean local runs.**
 
-Static inspection is complete. Docker is installed on the inspected workstation, but its daemon was not running and `postgres:16-alpine` was not present locally at the time of classification. No image was pulled and no database was started during this phase.
+Docker Desktop and `postgres:16-alpine` now run locally. The first Drizzle
+attempt stopped before migration because Docker Desktop suppressed the host
+port when the service's only network was marked internal:
+`ECONNREFUSED 127.0.0.1:55432`. PostgreSQL itself was healthy.
 
-No canonical migration is considered technically verified until:
+The Compose topology now retains the explicit loopback-only host binding while
+using a normal bridge network. The PostgreSQL container contains no integration
+credentials. Application and browser outbound denial remain independent
+containment layers.
+
+All 47 journaled migrations then applied from empty PostgreSQL without an SQL
+failure. PostgreSQL emitted only expected notices for guarded missing-column
+drops and identifier truncation.
+
+The first post-migration assertion was not valid: Windows shell argument
+splitting caused `psql` to ignore the query tail. The CLI now uses direct
+argument passing and fails unless it reads exactly `47` and `schema-ready`.
+
+The corrected assertion passed. The guarded `reset` command then removed only
+the named validation volume, recreated PostgreSQL from empty, reapplied all 47
+migrations, and passed the same assertion a second time.
+
+The executed compatibility gate covered:
 
 1. PostgreSQL starts locally;
 2. the database is empty;
 3. all journaled migrations run in order with stop-on-error behavior;
 4. the migration count and Slice 12 schema assertions pass;
-5. the environment is torn down and repeated from a fresh volume.
+5. teardown and repetition from a fresh volume.
+
+All five checks passed locally on 2026-07-29.
 
 ## Local Database Target
 
@@ -24,7 +46,7 @@ No canonical migration is considered technically verified until:
 | Bound address | `127.0.0.1:55432` |
 | Database | `nexus_validation_test` |
 | User | `nexus_validation` |
-| Network | Docker internal network; loopback port binding |
+| Network | Docker bridge; host publication restricted to loopback |
 | Required extension | `pg_trgm` |
 | Persistence | Named disposable validation volume |
 

@@ -22,13 +22,30 @@ function run(
     cwd: root,
     env: process.env,
     stdio: "inherit",
-    shell: process.platform === "win32",
+    shell: false,
   });
   const status = result.status ?? 1;
   if (status !== 0 && !opts.allowFailure) {
     throw new Error(`[validation] command failed (${status}): ${rendered}`);
   }
   return status;
+}
+
+function runCapture(command: string, args: string[]): string {
+  const rendered = [command, ...args].join(" ");
+  console.log(`[validation] ${rendered}`);
+  const result = spawnSync(command, args, {
+    cwd: root,
+    env: process.env,
+    encoding: "utf8",
+    shell: false,
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `[validation] command failed (${result.status ?? 1}): ${rendered}\n${result.stderr}`,
+    );
+  }
+  return result.stdout.trim();
 }
 
 function assertDestructiveTarget(): void {
@@ -55,7 +72,10 @@ function start(): void {
 
 function readiness(): void {
   assertRuntimeSafety();
-  dockerCompose([
+  run("docker", [
+    "compose",
+    "-f",
+    composeFile,
     "exec",
     "-T",
     "nexus-validation-db",
@@ -78,7 +98,10 @@ function migrate(): void {
 
 function schemaVersion(): void {
   assertRuntimeSafety();
-  dockerCompose([
+  const output = runCapture("docker", [
+    "compose",
+    "-f",
+    composeFile,
     "exec",
     "-T",
     "nexus-validation-db",
@@ -99,6 +122,13 @@ function schemaVersion(): void {
       ") then 'schema-ready' else 'schema-incomplete' end;",
     ].join(" "),
   ]);
+  const lines = output.split(/\r?\n/).filter(Boolean);
+  if (lines[0] !== "47" || lines[1] !== "schema-ready") {
+    throw new Error(
+      `[validation] schema assertion failed: expected 47 + schema-ready, got ${JSON.stringify(lines)}`,
+    );
+  }
+  console.log(`[validation] schema assertion passed: ${lines.join(", ")}`);
 }
 
 function reset(): void {

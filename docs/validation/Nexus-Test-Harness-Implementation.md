@@ -97,17 +97,16 @@ Results:
 - Playwright discovery: runner loaded but reported zero tests; this is an
   incomplete platform condition, not a pass.
 - Browser binaries: not installed yet.
-- Local database migration: not executed because Docker was unavailable.
+- Local database migration: all 47 migrations and the Slice 12 schema
+  assertion passed twice from empty validation volumes.
 
 ## Current Blockers
 
-1. Docker daemon and PostgreSQL image are unavailable.
-2. Deterministic fixture construction is not implemented.
-3. Local artifact HTTP serving is not implemented.
-4. Realtime isolation is not implemented.
-5. Playwright browser binaries and feature suites are not installed/executed.
-6. Full migration compatibility remains unproven.
-7. Slice 12 release verdict remains `BLOCKED`.
+1. Deterministic fixture construction is not implemented.
+2. Local artifact HTTP serving is not implemented.
+3. Realtime isolation is not implemented.
+4. Playwright browser binaries and feature suites are not installed/executed.
+5. Slice 12 release verdict remains `BLOCKED`.
 
 ## Next Checkpoint
 

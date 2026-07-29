@@ -26,7 +26,8 @@ services:
 networks:
   nexus-validation:
     name: nexus-validation
-    internal: true
+    # Docker Desktop for Windows suppresses host port publication when the
+    # only attached network is internal. Host publication remains loopback-only.
 
 volumes:
   nexus-validation-db-data:
