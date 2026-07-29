@@ -549,7 +549,7 @@ async function testBelowFloor(f: Fixture): Promise<void> {
     netsuite_so_push_status = NULL, netsuite_so_push_error = NULL, netsuite_pushed_at = NULL
     WHERE id = ${f.quoteId}`;
   await sql`DELETE FROM netsuite_so_pushes WHERE quote_id = ${f.quoteId}`;
-  await sql`DELETE FROM audit_log WHERE entity_id = ${f.quoteId} AND action = 'netsuite_so_pushed'`;
+  await sql`DELETE FROM audit_log WHERE entity_id = ${f.quoteId} AND action = 'quote_completed'`;
 
   const groupsBefore = await countGroupsInNs();
   const pushesBefore = await sql`SELECT COUNT(*) AS n FROM netsuite_so_pushes WHERE quote_id = ${f.quoteId}`;
@@ -606,7 +606,7 @@ async function testConvergence(f: Fixture): Promise<void> {
   // Reset quote to accepted
   await sql`UPDATE quotes SET status = 'accepted', netsuite_so_id = NULL,
     netsuite_so_push_status = NULL WHERE id = ${f.quoteId}`;
-  await sql`DELETE FROM audit_log WHERE entity_id = ${f.quoteId} AND action = 'netsuite_so_pushed'`;
+  await sql`DELETE FROM audit_log WHERE entity_id = ${f.quoteId} AND action = 'quote_completed'`;
 
   // Manually seed a "succeeded" netsuite_so_pushes row with a FAKE so_id.
   // markComplete's CHECK should find it and skip SO create entirely.
@@ -650,7 +650,7 @@ async function testConvergence(f: Fixture): Promise<void> {
   await sql`DELETE FROM netsuite_so_pushes WHERE quote_id = ${f.quoteId} AND netsuite_so_id = ${FAKE_SO_ID}`;
   await sql`UPDATE quotes SET status = 'accepted', netsuite_so_id = NULL,
     netsuite_so_push_status = NULL WHERE id = ${f.quoteId}`;
-  await sql`DELETE FROM audit_log WHERE entity_id = ${f.quoteId} AND action = 'netsuite_so_pushed'`;
+  await sql`DELETE FROM audit_log WHERE entity_id = ${f.quoteId} AND action = 'quote_completed'`;
 }
 
 async function testNs5xxRetry(f: Fixture, realSoId: string): Promise<void> {
@@ -687,7 +687,7 @@ async function testNs5xxRetry(f: Fixture, realSoId: string): Promise<void> {
   await sql`DELETE FROM netsuite_so_pushes WHERE quote_id = ${f.quoteId}`;
   await sql`UPDATE quotes SET status = 'accepted', netsuite_so_id = NULL,
     netsuite_so_push_status = NULL WHERE id = ${f.quoteId}`;
-  await sql`DELETE FROM audit_log WHERE entity_id = ${f.quoteId} AND action = 'netsuite_so_pushed'`;
+  await sql`DELETE FROM audit_log WHERE entity_id = ${f.quoteId} AND action = 'quote_completed'`;
 
   const groupsBefore = await countGroupsInNs();
   const cacheRowsBefore = await sql`SELECT COUNT(*) AS n FROM netsuite_item_groups WHERE first_used_by_quote_id = ${f.quoteId}`;
@@ -721,7 +721,7 @@ async function testAmountPatchFires(f: Fixture): Promise<void> {
   await sql`UPDATE quotes SET status = 'accepted', netsuite_so_id = NULL, netsuite_so_tranid = NULL,
     netsuite_so_push_status = NULL, netsuite_pushed_at = NULL WHERE id = ${f.quoteId}`;
   await sql`DELETE FROM netsuite_so_pushes WHERE quote_id = ${f.quoteId}`;
-  await sql`DELETE FROM audit_log WHERE entity_id = ${f.quoteId} AND action = 'netsuite_so_pushed'`;
+  await sql`DELETE FROM audit_log WHERE entity_id = ${f.quoteId} AND action = 'quote_completed'`;
 
   // Seed prior_accepted amount to something DIFFERENT from the current
   // tier revenue. This forces the patch's compare to see |Δ| > $0.01.
@@ -764,7 +764,7 @@ async function testAmountPatchFailsSafely(f: Fixture): Promise<void> {
   await sql`UPDATE quotes SET status = 'accepted', netsuite_so_id = NULL, netsuite_so_tranid = NULL,
     netsuite_so_push_status = NULL, netsuite_pushed_at = NULL WHERE id = ${f.quoteId}`;
   await sql`DELETE FROM netsuite_so_pushes WHERE quote_id = ${f.quoteId}`;
-  await sql`DELETE FROM audit_log WHERE entity_id = ${f.quoteId} AND action = 'netsuite_so_pushed'`;
+  await sql`DELETE FROM audit_log WHERE entity_id = ${f.quoteId} AND action = 'quote_completed'`;
 
   // Seed divergent prior so the patch WOULD fire
   const bogusPrior = 3000.00;

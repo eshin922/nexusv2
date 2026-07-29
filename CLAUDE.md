@@ -3612,6 +3612,56 @@ Reference: `src/app/actions/costing.ts` `applySuggestedGlobalAdj`
 vs `updateQuoteGlobalPriceAdj` (cross-surface origin disambiguation),
 `updateSellPriceOverride` (single-surface variant via from/to).
 
+## Audit action naming — transitions, not mechanisms (added Slice 12 Step 9)
+
+**The rule.** When an audit action records a state transition,
+name it after the TRANSITION, not the MECHANISM. `quote_sent`,
+`quote_accepted`, `quote_reverted`, `quote_revised`, `quote_completed`
+name what happened to the quote. `netsuite_so_pushed` would name
+how it happened. The audit log records what happened; the diff_json
+carries how.
+
+**Why the discipline slips at exactly the wrong moment.** When the
+mechanism is the load-bearing act being implemented — the one the
+engineer just spent a week on — it feels like the interesting part
+and the natural name for the action. But mechanism changes; state
+transitions don't. If Item Groups reopen and `markComplete` grows
+a multi-call sequence (POST bare-group → GET expandSubResources →
+N × PATCH member rates → freeze-tx), the action-name framing
+"netsuite_so_pushed" understates what's happening. The transition
+"quote_completed" survives the mechanism change untouched.
+
+**Reference moment:** Slice 12 Step 8c-3 shipped
+`action: "netsuite_so_pushed"` for the accepted → complete freeze-
+tx write. Slice 12 Step 9's audit sweep (CA Item 2 disposition,
+2026-07-29) surfaced it as the outlier among four sibling lifecycle
+actions all named after the transition. Renamed to `quote_completed`
+while row count was zero (two orphan smoke rows deleted first —
+neither entity_id resolved to a live quote row). Mechanism detail
+stayed in `diff_json.netsuite` subtree (sales_order_internal_id +
+tranid + customer_netsuite_id + item_groups).
+
+**Working test at write time:** ask "what would this action be
+called if the mechanism changed tomorrow?" If the answer is a
+different name, the current name is too mechanism-anchored. Rename
+to the transition-anchored one.
+
+**Corollary — mechanism detail belongs in diff_json.** The
+`netsuite` subtree of `quote_completed`'s diff_json carries every
+mechanism-specific field (internal id, tranid, customer id,
+item_groups). Forensic queries that need "what SO id did this
+transition produce?" traverse `diff_json.netsuite.sales_order_internal_id`
+— the action name doesn't have to carry it. Same discipline as
+Pattern 30 CSS-verbatim: composition happens at the layer that
+owns composition; the layer above stays clean.
+
+**Cross-references.**
+- Slice 9.2 "Audit source convention" — sibling discipline for
+  distinguishing origins (`diff_json.source`) when multiple actions
+  write the same column.
+- Slice 12 Step 8c-3 audit action namespace entry below — records
+  the rename via inline comment.
+
 ## audit_log action namespace — Phase A.1 v2 additions
 
 Phase A.1 v2 (ASY/LEAF/library spec model) introduces 8 new action

@@ -636,11 +636,25 @@ export async function runMarkComplete(
       })
       .where(eq(quotesTable.id, quoteId));
 
+    // Slice 12 Step 9 CB Item 2 rename — the transition is
+    // accepted → complete. Prior action name `netsuite_so_pushed`
+    // named the mechanism (SO push) rather than the state
+    // transition, breaking the convention every other lifecycle
+    // action follows (quote_sent / quote_accepted / quote_reverted
+    // / quote_revised). Mechanism detail stays in diff_json (the
+    // netsuite: subtree carries sales_order_internal_id + tranid +
+    // customer id + item_groups); the action name records what
+    // happened to the quote. Renamed while row count was zero
+    // (two orphan smoke rows deleted 2026-07-29).
+    //
+    // Bank (CLAUDE.md): name audit actions after the transition,
+    // not the mechanism — especially when the mechanism is the
+    // interesting part. The convention slips at exactly that moment.
     await tx.insert(auditLog).values({
       userId: actorUserId,
       entityType: "quote",
       entityId: quoteId,
-      action: "netsuite_so_pushed",
+      action: "quote_completed",
       diffJson: {
         from_status: "accepted",
         to_status: "complete",
