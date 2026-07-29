@@ -36,6 +36,7 @@ import { useRouter } from "next/navigation";
 import type { CustomerView } from "@/types/quote";
 import type { QuotePerTierRollup } from "@/lib/costing";
 import { markAccepted, unmarkAccepted } from "@/app/actions/quotes";
+import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal/modal";
 import { AdvanceBar } from "./advance-bar";
 import { computeUmbrellaAdvance } from "./advance-target";
 import { ReviseButton } from "./revise-button";
@@ -148,6 +149,12 @@ export function TabMarkAccepted({
   );
   const [channel, setChannel] = useState<ChannelOption["id"]>("email");
   const [note, setNote] = useState<string>(prefillNote ?? "");
+  // Q8 — rollback confirmation moves from window.confirm() to the
+  // standard portal-backed Modal. Consistent with ReviseButton +
+  // SendOrderModal after Q11. window.confirm() is browser-chrome
+  // (not styled, no dark-mode support, keyboard trap around it is
+  // OS-dependent).
+  const [rollbackConfirmOpen, setRollbackConfirmOpen] = useState(false);
 
   const customer = view.customer;
   const quote = view.quote;
@@ -184,14 +191,17 @@ export function TabMarkAccepted({
     });
   }
 
+  function openRollbackConfirm() {
+    setRollbackConfirmOpen(true);
+  }
+
+  function closeRollbackConfirm() {
+    if (isPending) return;
+    setRollbackConfirmOpen(false);
+  }
+
   function fireRollback() {
-    if (
-      !window.confirm(
-        "Roll back this acceptance? Quote returns to 'sent' AND the HubSpot deal stage reverses to the pre-Accept snapshot.",
-      )
-    ) {
-      return;
-    }
+    setRollbackConfirmOpen(false);
     setState({ kind: "pending" });
     const fd = new FormData();
     fd.set("quoteId", quoteId);
@@ -274,7 +284,7 @@ export function TabMarkAccepted({
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 <button
                   className="btn"
-                  onClick={fireRollback}
+                  onClick={openRollbackConfirm}
                   disabled={isPending}
                   data-testid="mark-accepted-rollback"
                 >
@@ -320,6 +330,47 @@ export function TabMarkAccepted({
             />
           );
         })()}
+
+        {/* Q8 — portal-backed rollback confirmation (was window.confirm) */}
+        <Modal open={rollbackConfirmOpen} onClose={closeRollbackConfirm}>
+          <ModalHead>Roll back this acceptance?</ModalHead>
+          <ModalBody>
+            <div style={{ fontSize: 13, lineHeight: 1.55 }}>
+              <p style={{ marginTop: 0 }}>
+                This will:
+              </p>
+              <ul style={{ margin: "6px 0 10px 20px", padding: 0 }}>
+                <li>Return the quote to <em>sent</em> status</li>
+                <li>
+                  Reverse the HubSpot deal stage back to the pre-Accept
+                  snapshot &mdash; a live CRM write Sales will see
+                </li>
+              </ul>
+              <p style={{ margin: 0, color: "var(--ink-3)", fontSize: 12 }}>
+                The Client Review log and the tier the customer named are
+                preserved.
+              </p>
+            </div>
+          </ModalBody>
+          <ModalFoot>
+            <button
+              className="btn sm"
+              onClick={closeRollbackConfirm}
+              disabled={isPending}
+              data-testid="mark-accepted-rollback-cancel"
+            >
+              Cancel
+            </button>
+            <button
+              className="btn sm primary"
+              onClick={fireRollback}
+              disabled={isPending}
+              data-testid="mark-accepted-rollback-confirm"
+            >
+              {isPending ? "Rolling back…" : "Roll back"}
+            </button>
+          </ModalFoot>
+        </Modal>
       </div>
     );
   }

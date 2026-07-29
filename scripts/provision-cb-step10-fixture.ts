@@ -50,6 +50,13 @@ import crypto from "node:crypto";
 import { computeQuoteCosting } from "../src/lib/costing.ts";
 import { buildQuoteCostingInputFromNewModel } from "../src/lib/costing-adapter.ts";
 
+// Slice 12 Step 10 walk banks (2026-07-29) — provisioner discipline:
+// fixtures READ from source (firm_settings, hubspot_deals_cache),
+// NEVER invent values. Fifth-instance-this-slice rule (following
+// #148 hardcoded amount, #154 pre-set accepted_tier_id, #156 null
+// sourcing_location, #Q1 fabricated snapshot terms, #Q12 collapsed
+// client_name to smoke tag). CLAUDE.md pattern-promotion pending.
+
 const DB = process.env.DATABASE_URL;
 const HS_WRITE = process.env.HUBSPOT_WRITE_ACCESS_TOKEN;
 if (!DB) { console.error("DATABASE_URL required"); process.exit(1); }
@@ -157,16 +164,44 @@ async function main() {
     console.log(`      → leaf ${l.id.slice(0, 8)}  sku=${l.sku}  name=${l.name}`);
   }
 
+  // ---- 3.5. Read firm_settings — provisioner rule bank #5 ----
+  // Real sendQuote reads firm defaults into snapshot columns at
+  // send time. Fixture MUST match production behavior: pull
+  // payment_terms / lead_time / incoterms / tcs / days_valid from
+  // firm_settings, never invent literals. Q1 walk finding — CB saw
+  // v1 snapshot columns ('50% deposit on PO · balance Net 30…')
+  // NOT match live firm ('50% deposit, 50% on shipment') because
+  // the prior fixture hardcoded strings unrelated to firm state.
+  console.log("\n[3.5/6] Reading firm_settings for snapshot columns…");
+  const [firm] = await sql`
+    SELECT payment_terms_default, lead_time_default, incoterms_default,
+           tcs_default, days_valid_default,
+           vendor_name, vendor_tagline, vendor_address
+    FROM firm_settings WHERE effective_until IS NULL
+  `;
+  if (!firm) throw new Error("firm_settings active row missing — cannot provision");
+  console.log(`      → firm payment_terms: ${(firm.payment_terms_default ?? "").slice(0, 60)}…`);
+  console.log(`      → firm lead_time: ${firm.lead_time_default ?? "(null)"}`);
+
   // ---- 4. Insert project + quote (sent state) + tree ----
   const seeded = await sql.begin(async (tx) => {
     console.log("\n[4/6] Inserting throwaway project + quote (SENT, v1) + tree…");
+    // Q12 walk finding — project.client_name must be distinct from
+    // deal_name to reflect real production (project-import reads
+    // client_name from hubspot_deals_cache.associated_company_name;
+    // deal_name is the HubSpot deal title). Prior fixture collapsed
+    // both to SMOKE_TAG, making CB see 'same string for Customer +
+    // Deal' in the send-quote-flow confirmation. Set client_name to
+    // the seeded Epicuren display so the walk exercises the two
+    // distinct fields correctly.
+    const clientNameForFixture = TARGET_NS_CUSTOMER_DISPLAY;
     const [proj] = await tx`
       INSERT INTO projects (
         hubspot_deal_id, deal_name, client_name,
         sales_rep_user_id, pm_user_id, project_category, status,
         deal_stage, imported_by_user_id, imported_at
       ) VALUES (
-        ${deal.id}, ${SMOKE_TAG}, ${SMOKE_TAG},
+        ${deal.id}, ${SMOKE_TAG}, ${clientNameForFixture},
         ${EDWARD_USER_ID}, ${EDWARD_USER_ID}, 'other', 'active',
         ${FROM_STAGE_LABEL}, ${EDWARD_USER_ID}, NOW()
       ) RETURNING id
@@ -188,6 +223,8 @@ async function main() {
     // at send time and they're then read-only — but the underlying
     // DB column names don't carry the suffix. Direct SQL uses the
     // real column names.
+    // Q1 walk finding — snapshot columns pulled from firm_settings,
+    // not hardcoded literals. Matches what real sendQuote writes.
     const [q] = await tx`
       INSERT INTO quotes (
         project_id, scenario_label, version_number, status,
@@ -204,9 +241,11 @@ async function main() {
         ${proj.id}, 'SMOKE-CB-STEP10', 1, 'sent',
         ${sentAt}, ${quoteNumber}, NULL,
         'tier_table', 'itemized', false,
-        '50% deposit on PO · balance Net 30 from ship date',
-        'FOB Long Beach', '(standard terms — see attached)',
-        '90-120 days', 30,
+        ${firm.payment_terms_default},
+        ${firm.incoterms_default},
+        ${firm.tcs_default},
+        ${firm.lead_time_default},
+        ${firm.days_valid_default ?? 30},
         'Edward Shin', 'edward@thedps.co', NULL,
         ${new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)},
         0, NULL,
@@ -283,9 +322,11 @@ async function main() {
         ${sentAt}, ${quoteNumber},
         ${new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)},
         'tier_table', 'itemized', false,
-        '50% deposit on PO · balance Net 30 from ship date',
-        'FOB Long Beach', '(standard terms — see attached)',
-        '90-120 days', 30,
+        ${firm.payment_terms_default},
+        ${firm.incoterms_default},
+        ${firm.tcs_default},
+        ${firm.lead_time_default},
+        ${firm.days_valid_default ?? 30},
         'Edward Shin', 'edward@thedps.co', NULL,
         NULL, ${EDWARD_USER_ID}
       ) RETURNING id
@@ -298,6 +339,48 @@ async function main() {
       INSERT INTO quote_review_events (quote_id, version_number, event_type, note, author_user_id, system)
       VALUES (${q.id}, 1, 'sent', 'Sent to customer.', NULL, true)
       RETURNING id
+    `;
+
+    // Slice 12 Step 10 Q4b — quote_sent audit row with
+    // diff_json.pdf.storagePath so Q4b's re-sign path exercises
+    // the happy path against the fixture (not just the
+    // PDF_UNRECOVERABLE fallback). Fabricated storagePath — the
+    // fixture doesn't actually upload a PDF to Storage, so Q4b's
+    // Supabase.createSignedUrl call at runtime returns whatever
+    // the SDK returns for a nonexistent object (still a URL string
+    // per Supabase behavior; opening it 404s at the browser layer).
+    // Good enough for structural verification: the action layer
+    // executes end-to-end + shows "loading → new tab opens →
+    // customer PDF preview loads" ordering matches production
+    // even when the file itself isn't there.
+    const fakeSendUuid = crypto.randomUUID();
+    const fakeStoragePath = `${q.id}/${fakeSendUuid}.pdf`;
+    await tx`
+      INSERT INTO audit_log (user_id, entity_type, entity_id, action, diff_json)
+      VALUES (
+        ${EDWARD_USER_ID}, 'quote', ${q.id}, 'quote_sent',
+        ${sql.json({
+          quoteNumber,
+          versionNumber: 1,
+          validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+          snapshots: {
+            tcs: firm.tcs_default,
+            paymentTerms: firm.payment_terms_default,
+            leadTime: firm.lead_time_default,
+            incoterms: firm.incoterms_default,
+            daysValid: firm.days_valid_default ?? 30,
+            pdfLayout: 'tier_table',
+            detailLevel: 'itemized',
+            includeSpecAddendum: false,
+          },
+          pdf: {
+            bucket: 'quote-pdfs',
+            storagePath: fakeStoragePath,
+            sendUuid: fakeSendUuid,
+          },
+          audit_source: 'smoke_fixture',
+        })}
+      )
     `;
 
     return {
@@ -315,7 +398,11 @@ async function main() {
   // ---- 5. Real math to verify tier clears floor ----
   console.log("\n[5/6] Computing turnkey via computeQuoteCosting to verify tier margin above floor…");
   const [quote] = await sql`SELECT * FROM quotes WHERE id = ${seeded.quoteId}`;
-  const [firm] = await sql`SELECT * FROM firm_settings WHERE effective_until IS NULL ORDER BY effective_from DESC LIMIT 1`;
+  // firm already read in [3.5/6] for snapshot columns — reuse to
+  // avoid a second identical query. computeQuoteCosting reads the
+  // margin thresholds (target_margin_pct, floor_margin_pct) which
+  // aren't in our narrow SELECT, so re-fetch just those.
+  const [firmMargins] = await sql`SELECT target_margin_pct, floor_margin_pct FROM firm_settings WHERE effective_until IS NULL`;
   const tiersRows = await sql`SELECT * FROM quote_tiers WHERE quote_id = ${seeded.quoteId} ORDER BY sort_order`;
   const asmsRows = await sql`SELECT * FROM assemblies WHERE quote_id = ${seeded.quoteId}`;
   const aleavesRows = await sql`SELECT * FROM assembly_leaves WHERE assembly_id IN ${sql(asmsRows.map((a: any) => a.id))}`;
@@ -331,8 +418,8 @@ async function main() {
       targetMarginPct: quote.target_margin_pct !== null ? parseFloat(quote.target_margin_pct) : null,
     },
     firmSettings: {
-      targetMarginPct: parseFloat(firm.target_margin_pct),
-      floorMarginPct: parseFloat(firm.floor_margin_pct),
+      targetMarginPct: parseFloat(firmMargins.target_margin_pct),
+      floorMarginPct: parseFloat(firmMargins.floor_margin_pct),
     },
     markupDefaults,
     tiers: tiersRows.map((t: any) => ({
