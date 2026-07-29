@@ -259,8 +259,8 @@ export function TabMarkAccepted({
                   order and send it there.
                 </p>
                 <span className="meta">
-                  quote.status = accepted · customer_accepted_tier_id = {capturedLabel} ·
-                  accepted_tier_id = null · accepted {shortDateTime(quoteAcceptedAt)}
+                  Recorded: {capturedLabel} · Not committed to the order until you send it ·
+                  accepted {shortDateTime(quoteAcceptedAt)}
                 </span>
               </div>
             </div>
@@ -427,6 +427,13 @@ export function TabMarkAccepted({
               <span className="lbl">Tier they named</span>
               <div className="r9-tierchips">
                 {quoteRollup.map((t) => {
+                  // Scale note (Slice 12 Step 10 Q5): t.blendedMarginPct
+                  // comes from QuotePerTierRollup as a FRACTION 0-1
+                  // (0.5 = 50%). All display sites must * 100. Broken
+                  // pre-Q5: rendered "0.5% margin" for a 50% tier,
+                  // making below-floor and above-floor indistinguishable
+                  // at a glance on the acceptance chip strip — the
+                  // surface whose entire job is picking a tier by margin.
                   const disabled = t.blendedMarginStatus === "BELOW_FLOOR";
                   const isNamed = customerAcceptedTierIdDb === t.tierId;
                   const isOn = tierId === t.tierId;
@@ -449,7 +456,7 @@ export function TabMarkAccepted({
                       </span>
                       <span className="q">{t.qty.toLocaleString()} units</span>
                       <span className={"m " + marginStatusClass(t.blendedMarginStatus)}>
-                        {t.blendedMarginPct.toFixed(1)}% margin
+                        {(t.blendedMarginPct * 100).toFixed(1)}% margin
                       </span>
                     </button>
                   );

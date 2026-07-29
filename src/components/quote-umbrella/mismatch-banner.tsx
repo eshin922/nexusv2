@@ -9,18 +9,23 @@
 // last-sent version and that acceptance would record against
 // whichever version the customer actually saw.
 //
-// Four affordances per R8 §5:
+// Three affordances (Q4a — Compare hidden until v1.5+ diff ships):
 //   1. View v{N} (sent) — opens the superseded snapshot's stored
-//      PDF in a new tab
-//   2. Compare v{N} ↔ v{N+1} — DEFERRED to v1.5+ per v3 §0 Round 4
-//      disposition. Renders disabled with a "coming soon" tooltip
-//      so the affordance shape ships but the diff-view work is out
-//      of Slice 12 scope
-//   3. Send v{N+1} to customer — navigates to Send sub-tab (where
+//      PDF in a new tab; falls back to a re-sign attempt via
+//      resignSnapshotPdf when the 30-day signed URL has expired
+//      (Q4b)
+//   2. Send v{N+1} to customer — navigates to Send sub-tab (where
 //      SendQuoteFlow lives per Step 5d)
-//   4. Dismiss — local-state hide; not persisted (v3 brief doesn't
+//   3. Dismiss — local-state hide; not persisted (v3 brief doesn't
 //      mandate durability, and ephemeral matches R8 canonical
 //      demo shape)
+//
+// Slice 12 Step 10 Q4a (2026-07-29) — the Compare v{N} ↔ v{N+1}
+// button was disabled with a tooltip admitting it wasn't shipped.
+// CA disposition: "A control that admits in its own tooltip that
+// it isn't shipped is worse than no control." Same reasoning as
+// removing "Request unlock (admin)." Hidden until version-diff
+// ships in v1.5+; the affordance re-appears when the feature lands.
 //
 // Warn-tinted, not error-tinted: per R8 §5, "a draft leading a
 // sent version is a normal working state, not a fault."
@@ -88,14 +93,7 @@ export function MismatchBanner({
           >
             View v{sentVersion} (sent)
           </button>
-          <button
-            className="btn sm"
-            disabled
-            title="Version-diff view ships in v1.5+ per v3 brief §0 Round 4 disposition. The hook is preserved so the diff plugs in without rework."
-            data-testid="mismatch-compare"
-          >
-            Compare v{sentVersion} ↔ v{draftVersion}
-          </button>
+          {/* Q4a — Compare button hidden; see file header rationale. */}
           <button
             className="btn sm"
             onClick={() => onGo("send")}

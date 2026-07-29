@@ -10,6 +10,14 @@
 // doesn't leak schema column tokens into the rendered surface
 // (PMs share preview screenshots with clients; raw column names
 // look unprofessional and read as accidental leak).
+//
+// Slice 12 Step 10 Q3 (2026-07-29) — stripped the architectural
+// claim "The component tree for <PdfPage> imports zero costing
+// primitives." Engineering copy on a PM surface. The PM-facing
+// signal is "customer can't see below this line"; the import-tree
+// invariant is enforced structurally by
+// scripts/verify/customer-view-boundary.ts and lives in code
+// comments, not rendered chrome.
 
 export function BoundaryGuardNotice() {
   return (
@@ -20,8 +28,7 @@ export function BoundaryGuardNotice() {
       <div className="eyebrow">Boundary guard · customer view</div>
       <strong>Nothing below this line is in the customer&rsquo;s tree.</strong>{" "}
       Margin, markup, cost stack, supplier names, duty %, tariff %, CBM,
-      internal versioning — all forbidden. The component tree for{" "}
-      <code>&lt;PdfPage&gt;</code> imports zero costing primitives.
+      internal versioning — all forbidden.
     </div>
   );
 }
