@@ -47,8 +47,8 @@
 
 import postgres from "postgres";
 import crypto from "node:crypto";
-import { computeQuoteCosting } from "../src/lib/costing";
-import { buildQuoteCostingInputFromNewModel } from "../src/lib/costing-adapter";
+import { computeQuoteCosting } from "../src/lib/costing.ts";
+import { buildQuoteCostingInputFromNewModel } from "../src/lib/costing-adapter.ts";
 
 const DB = process.env.DATABASE_URL;
 const HS_WRITE = process.env.HUBSPOT_WRITE_ACCESS_TOKEN;
@@ -180,6 +180,14 @@ async function main() {
 
     // Sent state — snapshot columns populated (sendQuote wrote them);
     // accept-family columns all NULL until markAccepted fires.
+    //
+    // Column-naming note: quotes.pdf_layout / detail_level /
+    // include_spec_addendum are the ACTUAL DB columns. The Drizzle
+    // TypeScript fields carry a `_snapshot` suffix
+    // (pdfLayoutSnapshot etc.) because sendQuote's tx populates them
+    // at send time and they're then read-only — but the underlying
+    // DB column names don't carry the suffix. Direct SQL uses the
+    // real column names.
     const [q] = await tx`
       INSERT INTO quotes (
         project_id, scenario_label, version_number, status,
@@ -189,7 +197,6 @@ async function main() {
         lead_time_snapshot, days_valid_snapshot,
         prepared_by_name_snapshot, prepared_by_email_snapshot,
         prepared_by_phone_snapshot,
-        pdf_layout_snapshot, detail_level_snapshot, include_spec_addendum_snapshot,
         valid_until,
         global_price_adj_pct, target_margin_pct,
         created_by_user_id
@@ -201,7 +208,6 @@ async function main() {
         'FOB Long Beach', '(standard terms — see attached)',
         '90-120 days', 30,
         'Edward Shin', 'edward@thedps.co', NULL,
-        'tier_table', 'itemized', false,
         ${new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)},
         0, NULL,
         ${EDWARD_USER_ID}
