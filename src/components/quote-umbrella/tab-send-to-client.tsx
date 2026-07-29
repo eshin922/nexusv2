@@ -25,6 +25,7 @@
 
 import type { CustomerView } from "@/types/quote";
 import { AdvanceBar } from "./advance-bar";
+import { computeUmbrellaAdvance } from "./advance-target";
 import { ReviseButton } from "./revise-button";
 import { SendQuoteFlow } from "./send-quote-flow";
 import type { SubTabId } from "./subtabs";
@@ -279,37 +280,35 @@ export function TabSendToClient({
       </div>
 
       {isSent ? (
-        // Slice 12 Step 8c-4 CB P6 — advance target must match where
-        // the quote is in the lifecycle, not stay pinned to Mark
-        // Accepted. sent → next is capture (Mark Accepted). accepted
-        // → next is Sales Order (send order). complete → no advance;
-        // the umbrella is read-only and Sales Order is the last tab.
-        quoteStatus === "accepted" ? (
-          <AdvanceBar
-            weight="light"
-            back={{ label: "Preview", onClick: () => onGo("preview") }}
-            mid={<span>quote state · accepted · order pending</span>}
-            caption="Next — review the Sales Order before it goes to NetSuite"
-            label="Sales Order →"
-            onAdvance={() => onGo("tier")}
-          />
-        ) : quoteStatus === "complete" ? (
-          <AdvanceBar
-            weight="light"
-            back={{ label: "Preview", onClick: () => onGo("preview") }}
-            mid={<span>quote state · complete · umbrella read-only</span>}
-            caption="No advance — this Send record is retrospective"
-          />
-        ) : (
-          <AdvanceBar
-            weight="light"
-            back={{ label: "Preview", onClick: () => onGo("preview") }}
-            mid={<span>quote state · {quoteStatus} · awaiting customer</span>}
-            caption="Reversible — Mark Accepted can be rolled back"
-            label="Mark Accepted →"
-            onAdvance={() => onGo("accepted")}
-          />
-        )
+        // Slice 12 Step 9 CB P6 pattern-fix — advance target now
+        // comes from the shared computeUmbrellaAdvance helper. Prior
+        // implementation branched here in-file (round-1 fix); the
+        // same defect reappeared on Client Review (P6 shifted rather
+        // than resolved). Helper centralizes.
+        (() => {
+          const adv = computeUmbrellaAdvance("send", quoteStatus);
+          const midCopy =
+            quoteStatus === "complete"
+              ? "quote state · complete · umbrella read-only"
+              : quoteStatus === "accepted"
+                ? "quote state · accepted · order pending"
+                : `quote state · ${quoteStatus} · awaiting customer`;
+          const captionFallback =
+            quoteStatus === "complete"
+              ? "No advance — this Send record is retrospective"
+              : "Reversible";
+          return (
+            <AdvanceBar
+              weight="light"
+              back={{ label: "Preview", onClick: () => onGo("preview") }}
+              mid={<span>{midCopy}</span>}
+              caption={adv?.caption ?? captionFallback}
+              label={adv?.label}
+              onAdvance={adv ? () => onGo(adv.targetTab) : undefined}
+              disabled={!adv}
+            />
+          );
+        })()
       ) : (
         // Slice 12 Step 5d — Advance is redundant with the inline
         // <SendQuoteFlow> above (both fire the same confirm modal).

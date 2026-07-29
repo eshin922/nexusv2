@@ -122,7 +122,15 @@ export function PricingPageHead({
   // Banner href:
   //   - suggestion_led: in-page anchor → SuggestionCard
   //   - blocked: in-page anchor → action zone
-  //   - sendable / terminal: customer_view route (preview PDF)
+  //   - sendable / terminal: Quote umbrella, opening on Preview Quote
+  //
+  // Slice 12 Step 9 — CTA rewire: append `?tab=preview` so the Send-
+  // lifecycle entry is explicit rather than relying on the umbrella's
+  // default tab. The Quote umbrella becomes the single entry point
+  // to the send lifecycle (Preview → Send → Review → Accepted →
+  // Sales Order). Prior implementation routed to `/quote` bare and
+  // relied on parseSubTabParam defaulting to 'preview'; explicit
+  // param survives any future default change.
   const bannerHref =
     bannerState === "terminal"
       ? "" // banner silent in terminal; href unused
@@ -130,7 +138,7 @@ export function PricingPageHead({
         ? `#${PSR_SUGGESTION_ANCHOR}`
         : mode === "blocked"
           ? `#${PSR_ACTION_ANCHOR}`
-          : resolveSurfaceHref("customer_view", projectId, quoteId);
+          : `${resolveSurfaceHref("customer_view", projectId, quoteId)}?tab=preview`;
 
   return (
     <>

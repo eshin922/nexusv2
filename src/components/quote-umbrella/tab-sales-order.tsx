@@ -67,10 +67,15 @@ function usd(n: number, dec = 0): string {
 // itself is server-hard-guarded on VERCEL_ENV !== 'production').
 // Production reads see the state derived from real props.
 //
-// Slice 12 Step 8c-4: `so-failed-at=item_group` axis DROPPED. The
-// flat-lines payload has no Item Group creation step (Probe 5 /
-// Probe 6 closed the grouped-SO path at REST). Only ONE failure
-// shape survives — no discriminator; the URL axis is gone too.
+// Slice 12 Step 9: `so-failed-at=item_group` URL axis fully
+// removed (parser, fixture URLs, dev docs). Flat-lines has one
+// failure shape; no discriminator. Probes 5 → 7 reopened the
+// grouped-SO path via the priced-member route, but even under
+// that path the failure surfaces uniformly through the SO POST
+// step. When grouped-SO ships (whichever of routes a/b/c lands),
+// its failure discriminator will be rebuilt from that step's
+// actual surface — not carried forward from the 8b dev-only
+// axis which was a lie by then anyway.
 //
 // Post-CB round 1 (P0 + P1): dev flags no longer render as literal
 // visual overlays. Instead they mutate the underlying real-state

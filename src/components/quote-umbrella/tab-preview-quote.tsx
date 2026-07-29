@@ -21,6 +21,7 @@ import type { CustomerView } from "@/types/quote";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import type { VersionRow } from "@/lib/quote-version-chain";
 import { AdvanceBar } from "./advance-bar";
+import { computeUmbrellaAdvance } from "./advance-target";
 import { VersionPicker } from "./version-picker";
 import type { SubTabId } from "./subtabs";
 
@@ -74,13 +75,25 @@ export function TabPreviewQuote({
         addendumData={addendumData}
         isHubspotLinked={isHubspotLinked}
       />
-      <AdvanceBar
-        weight="light"
-        mid={<span>previewing {quoteStatus}</span>}
-        caption="Reversible — you can come back and revise"
-        label="Continue to Send →"
-        onAdvance={() => onGo("send")}
-      />
+      {/* Slice 12 Step 9 CB P6 pattern-fix — advance target derived
+          from quoteStatus via computeUmbrellaAdvance, not hardcoded.
+          Prior version pinned "Continue to Send →" regardless of
+          lifecycle position (Preview on an already-accepted quote
+          pointed backward). Helper handles complete-state null +
+          all four lifecycle positions uniformly across all 5 tabs. */}
+      {(() => {
+        const adv = computeUmbrellaAdvance("preview", quoteStatus);
+        return (
+          <AdvanceBar
+            weight="light"
+            mid={<span>previewing {quoteStatus}</span>}
+            caption={adv?.caption ?? "Umbrella read-only — no advance"}
+            label={adv?.label}
+            onAdvance={adv ? () => onGo(adv.targetTab) : undefined}
+            disabled={!adv}
+          />
+        );
+      })()}
     </div>
   );
 }

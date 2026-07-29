@@ -230,10 +230,13 @@ export async function updateDealStage(
     dealstage: resolved.id,
   };
   if (opts?.amount !== undefined) {
-    // HubSpot deal amount is stored as a string on the properties
-    // payload. Serialize without trailing decimals stripped — we
-    // want the full precision of the turnkey figure.
-    properties.amount = String(opts.amount);
+    // Slice 12 Step 9 CB round-1 finding — round at the push
+    // boundary. Internal math retains full precision per #148 P5
+    // policy; outbound payloads round to 2dp so HubSpot deals
+    // don't receive float residue like `300.00000000000006` from
+    // JS IEEE 754 arithmetic. Fix pairs with the mark-complete
+    // §7.2 patch site (see mark-complete.ts:runAmountPatchIfNeeded).
+    properties.amount = opts.amount.toFixed(2);
   }
 
   const c = getWriteClient();

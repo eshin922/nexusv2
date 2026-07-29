@@ -3,6 +3,33 @@
 Tracked UX issues to address at Slice 13.5 (mid-build UX pass) or Slice 17 (polish).
 Items here are intentionally deferred - capture, don't fix in the moment.
 
+## Slice 14 L2 candidates
+
+- **Smoke-generated audit rows leave orphans on shared dev/prod DB
+  (Slice 12 Step 9 CA finding, 2026-07-29).** The fixture cleanup
+  script deliberately doesn't cascade to `audit_log` — that's
+  correct for real audit trail forensic value. But every smoke run
+  leaves permanent audit rows whose `entity_id` points at a
+  deleted quote/project. Slice 12's two CB walks produced two
+  orphan `quote_completed` rows (formerly `netsuite_so_pushed` —
+  see rename); deleted manually as part of the Step 9 rename.
+  Slice 13 and 14 will run many more.
+
+  **Two paths, CA disposition banked:**
+  - **Add a smoke marker.** Every smoke-fired action writes
+    `diff_json.source = 'smoke_fixture'` (or a slice-scoped variant
+    like `'smoke_cb_walk'`). Orphan rows are then filterable via
+    `WHERE diff_json->>'source' = 'smoke_fixture'` — sweep them
+    without touching production data. Pattern matches
+    `initial_seed_8c3_post_merge` on `netsuite_customer_map` rows
+    (Slice 12 Step 8c-3 seed).
+  - **Cascade cleanup to audit_log.** Simpler but breaks the
+    forensic-value guarantee for any real audit rows the cleanup
+    accidentally sweeps.
+
+  The marker approach is CA's lean — filterable-without-loss beats
+  cascade-with-risk. Slice 14 L2 scope; not urgent.
+
 ## v1 readiness — pre-launch checklist items
 
 (Items that must be verified before v1 ships. Not deferred polish;
