@@ -3,6 +3,67 @@
 Tracked UX issues to address at Slice 13.5 (mid-build UX pass) or Slice 17 (polish).
 Items here are intentionally deferred - capture, don't fix in the moment.
 
+## Slice 13 admin-surfaces BANK items (Slice 12 Step 10 §0.5)
+
+- **Stale `customer_accepted_tier_id` / `customer_response_channel`
+  on unmark → revise → draft path.** `unmarkAccepted`
+  (`src/app/actions/quotes.ts:2489`) does NOT clear the
+  `customer_accepted_*` columns when transitioning accepted → sent;
+  `reviseFromAccepted` (`:1898`) does NOT clear them either. Post-unmark
+  or post-revise quotes carry stale acceptance data until re-accept
+  overwrites.
+
+  **Trigger for the concern (not "safe today, ignore" — the trigger
+  is Slice 13 itself):** admin surfaces built during Slice 13 (retry
+  failed SO push, manual overrides, reopen-for-edit affordances,
+  reconcile jobs) are exactly the kind of thing that would read
+  `customer_accepted_tier_id` on a draft/revised quote out of context
+  and misrepresent history. The v1 UI doesn't render those columns
+  on draft, so the smell is invisible; the moment Slice 13 admin UI
+  does, the stale value becomes a data-quality bug.
+
+  **Disposition when Slice 13 lands:** either (a) clear the
+  `customer_accepted_*` columns in the `unmarkAccepted` +
+  `reviseFromAccepted` tx bodies (defensive; simpler; loses the
+  forensic "customer had said X but PM revised" nuance) OR (b)
+  every admin reader explicitly guards on
+  `quote.status === 'accepted'` before treating those columns as
+  live signal. Path (b) matches the existing convention (columns
+  are pre-set signal, not post-set truth) but requires per-reader
+  discipline.
+
+  Bank noted per Slice 12 Step 10 §0.5 Architect BLOCKER-adjacent
+  finding + CA's disposition ("trigger explicitly named").
+
+- **`netsuite_so_pushes.payload_snapshot` retention.** Every SO push
+  attempt (succeeded + failed) writes the full REST payload as
+  `payload_snapshot jsonb`. Zero pruning story today. At v1 scale
+  (~5-50 pushes/month, ~5-20KB each) storage growth is trivial for
+  6-12 months. But no policy exists.
+
+  **Trigger:** first month post-v1-launch that CS/support requests
+  a rollup of "all payloads pushed in the last 90 days" and the
+  query starts pulling MB of jsonb per response.
+
+  **Proposed disposition (Slice 14 or v1.1 admin hygiene):** after
+  90 days for `status='succeeded'` pushes, null the `payload_snapshot`
+  column (keep the row for forensic identifier trail). Failed pushes
+  retain payload indefinitely (rare + diagnostic-critical).
+
+  Bank noted per Slice 12 Step 10 §0.5.
+
+- **`netsuiteSoId varchar(50)` vs `netsuiteSoTranid text` type
+  asymmetry on `quotes`.** Cosmetic today (both hold string ids
+  that fit `varchar(50)` easily). But the two columns are of the
+  same field family and diverge — a future-CC diffing them will
+  notice + wonder why.
+
+  **Trigger:** any future migration that touches either column for
+  any reason. Fold the type unification into that migration; don't
+  ship a standalone migration for cosmetics.
+
+  Bank noted per Slice 12 Step 10 §0.5.
+
 ## Slice 14 L2 candidates
 
 - **Smoke-generated audit rows leave orphans on shared dev/prod DB

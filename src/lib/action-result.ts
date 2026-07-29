@@ -16,6 +16,10 @@ export type ActionResult<T = void> =
 // modes like QUOTE_NOT_DRAFT) and server (for tagging the cause).
 export const ERR = {
   QUOTE_NOT_DRAFT: "QUOTE_NOT_DRAFT",
+  // Slice 12 Step 10 §0.5 RECOMMEND 1 — the "quote is frozen"
+  // signal for writes that must not touch accepted/complete quotes
+  // outside the sanctioned reopen path. See assertRevisable().
+  QUOTE_FROZEN: "QUOTE_FROZEN",
   QUOTE_NOT_FOUND: "QUOTE_NOT_FOUND",
   NOT_FOUND: "NOT_FOUND",
   VALIDATION: "VALIDATION_ERROR",
@@ -116,4 +120,58 @@ export async function runAction<T>(
 
 export function quoteNotDraftMessage(status: string): string {
   return `This quote is in '${status}' status. Editing is disabled. To make changes, create a new draft version from the project page.`;
+}
+
+export function quoteFrozenMessage(status: string): string {
+  return `This quote is in '${status}' status and has been frozen. Post-freeze edits require the reopen flow (revise, or explicit admin unmark).`;
+}
+
+// ---------- shared quote-status guards ----------
+
+/**
+ * Draft-only guard. Historically duplicated as a private helper in
+ * src/app/actions/quotes.ts and src/app/actions/assemblies.ts;
+ * consolidated here Slice 12 Step 10 §0.5.
+ *
+ * Use for any write path where the write must only happen while the
+ * quote is still being drafted (freezes at send). The overwhelming
+ * majority of Nexus write actions fall into this bucket.
+ */
+export function assertDraft(quote: { status: string }): void {
+  if (quote.status !== "draft") {
+    throw new ActionGuardError(ERR.QUOTE_NOT_DRAFT, quoteNotDraftMessage(quote.status));
+  }
+}
+
+/**
+ * Pattern 52 enforcement — rejects writes on frozen quotes.
+ *
+ * Fails on status IN ('accepted', 'complete'). Passes on 'draft' +
+ * 'sent'. Use this guard whenever a NEW writer touches a column
+ * that carries a Pattern 52 commitment (see docs/pattern-52-freeze-list.md).
+ *
+ * Why this exists (Slice 12 Step 10 §0.5 RECOMMEND 1): Pattern 52
+ * held reproducibility guarantees by CONVENTION — the discipline was
+ * "don't add writers that don't check status." Convention doesn't
+ * fail when a future writer skips the check. This helper does.
+ *
+ * Sanctioned reopen paths (unmarkAccepted, reviseFromAccepted) do
+ * NOT call this guard — they handle their own state transitions
+ * with explicit intent (bumping version_number, downgrading status
+ * back to sent, etc.). Everything else goes through here.
+ *
+ * Slice 13 §0.5 checklist item: "does this write any Pattern 52
+ * column?" If yes, the action MUST call assertNotFrozen at the top,
+ * or CC surfaces the gap before implementation.
+ *
+ * Naming note: `requireRevisable` in src/lib/quote-guards.ts has
+ * INVERTED semantics (asserts sent-or-accepted, used to gate the
+ * Revise-in-place transition). Do not conflate the two. This guard
+ * says "the write is not touching frozen state"; the other says
+ * "this quote can be reopened for edits."
+ */
+export function assertNotFrozen(quote: { status: string }): void {
+  if (quote.status === "accepted" || quote.status === "complete") {
+    throw new ActionGuardError(ERR.QUOTE_FROZEN, quoteFrozenMessage(quote.status));
+  }
 }
