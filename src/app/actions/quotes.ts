@@ -13,8 +13,8 @@ import { addDaysToIsoDate, toLocalIsoDate } from "@/lib/local-date";
 import {
   QUOTE_PDFS_BUCKET,
   buildQuotePdfStoragePath,
-  getSupabaseServer,
 } from "@/lib/supabase-server";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
 import {
   assemblies,
   assemblyLeafInputs,
@@ -1540,34 +1540,39 @@ export async function sendQuote(
     });
     const buffer = await renderToBuffer(doc);
 
-    const supabase = getSupabaseServer();
+    const { artifacts } = await getApplicationDependencies();
     const storagePath = buildQuotePdfStoragePath(quoteId, sendUuid);
-    const upload = await supabase.storage
-      .from(QUOTE_PDFS_BUCKET)
-      .upload(storagePath, buffer, {
+    try {
+      await artifacts.put({
+        bucket: QUOTE_PDFS_BUCKET,
+        path: storagePath,
+        body: buffer,
         contentType: "application/pdf",
-        upsert: false,
+        overwrite: false,
       });
-    if (upload.error) {
+    } catch (error) {
       throw new ActionGuardError(
         ERR.VALIDATION,
-        `PDF upload failed: ${upload.error.message}`,
+        `PDF upload failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
     // 30-day signed URL for internal PM re-download convenience
     // (D2 — internal-only; never handed to customer). Refresh on
     // demand by re-signing; the file itself lives forever.
-    const signed = await supabase.storage
-      .from(QUOTE_PDFS_BUCKET)
-      .createSignedUrl(storagePath, 60 * 60 * 24 * 30);
-    if (signed.error || !signed.data?.signedUrl) {
+    let pdfUrl: string;
+    try {
+      pdfUrl = await artifacts.createAccessUrl(
+        QUOTE_PDFS_BUCKET,
+        storagePath,
+        60 * 60 * 24 * 30,
+      );
+    } catch (error) {
       throw new ActionGuardError(
         ERR.VALIDATION,
-        `PDF signed URL generation failed: ${signed.error?.message ?? "no url"}`,
+        `PDF signed URL generation failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    const pdfUrl = signed.data.signedUrl;
 
     const result = await db.transaction(async (tx) => {
       // Pull next quote number from the sequence inside the transaction
@@ -3918,17 +3923,21 @@ export async function resignSnapshotPdf(
       );
     }
 
-    const supabase = getSupabaseServer();
-    const signed = await supabase.storage
-      .from(bucket)
-      .createSignedUrl(storagePath, 60 * 60 * 24 * 30);
-    if (signed.error || !signed.data?.signedUrl) {
+    const { artifacts } = await getApplicationDependencies();
+    let url: string;
+    try {
+      url = await artifacts.createAccessUrl(
+        bucket,
+        storagePath,
+        60 * 60 * 24 * 30,
+      );
+    } catch (error) {
       throw new ActionGuardError(
         ERR.VALIDATION,
-        `Couldn't re-sign the PDF URL: ${signed.error?.message ?? "no url"}`,
+        `Couldn't re-sign the PDF URL: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
-    return { url: signed.data.signedUrl };
+    return { url };
   });
 }

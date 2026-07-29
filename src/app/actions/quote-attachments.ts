@@ -12,10 +12,10 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import {
-  getSupabaseServer,
   QUOTE_ATTACHMENTS_BUCKET,
   buildAttachmentStoragePath,
 } from "@/lib/supabase-server";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { revalidatePath } from "next/cache";
 
 // canonical-scenario-create-flow Step 4 — quote attachment server
@@ -93,18 +93,20 @@ export async function addQuoteAttachment(
     const uuid = randomUUID();
     const storagePath = buildAttachmentStoragePath(quoteId, uuid, file.name);
 
-    const supabase = getSupabaseServer();
+    const { artifacts } = await getApplicationDependencies();
     const arrayBuffer = await file.arrayBuffer();
-    const uploadResult = await supabase.storage
-      .from(QUOTE_ATTACHMENTS_BUCKET)
-      .upload(storagePath, arrayBuffer, {
+    try {
+      await artifacts.put({
+        bucket: QUOTE_ATTACHMENTS_BUCKET,
+        path: storagePath,
+        body: arrayBuffer,
         contentType: file.type,
-        upsert: false,
+        overwrite: false,
       });
-    if (uploadResult.error) {
+    } catch (error) {
       throw new ActionGuardError(
         ERR.VALIDATION,
-        `Storage upload failed: ${uploadResult.error.message}`,
+        `Storage upload failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
@@ -168,14 +170,13 @@ export async function removeQuoteAttachment(
     const attachment = rows[0];
 
     // Delete Storage object (idempotent — if already gone, no-op).
-    const supabase = getSupabaseServer();
-    const deleteResult = await supabase.storage
-      .from(QUOTE_ATTACHMENTS_BUCKET)
-      .remove([attachment.storageUrl]);
-    if (deleteResult.error) {
+    const { artifacts } = await getApplicationDependencies();
+    try {
+      await artifacts.remove(QUOTE_ATTACHMENTS_BUCKET, [attachment.storageUrl]);
+    } catch (error) {
       // Log but don't block — DB row removal is the canonical truth.
       console.warn(
-        `[removeQuoteAttachment] Storage delete failed for ${attachment.storageUrl}: ${deleteResult.error.message}. Continuing with row delete.`,
+        `[removeQuoteAttachment] Storage delete failed for ${attachment.storageUrl}: ${error instanceof Error ? error.message : String(error)}. Continuing with row delete.`,
       );
     }
 
@@ -232,22 +233,21 @@ export async function getQuoteAttachmentSignedUrl(
       throw new ActionGuardError(ERR.NOT_FOUND, "Attachment not found");
     const attachment = rows[0];
 
-    const supabase = getSupabaseServer();
-    const signed = await supabase.storage
-      .from(QUOTE_ATTACHMENTS_BUCKET)
-      .createSignedUrl(attachment.storageUrl, 60 * 5); // 5 min TTL
-    if (signed.error) {
+    const { artifacts } = await getApplicationDependencies();
+    let url: string;
+    try {
+      url = await artifacts.createAccessUrl(
+        QUOTE_ATTACHMENTS_BUCKET,
+        attachment.storageUrl,
+        60 * 5,
+      );
+    } catch (error) {
       throw new ActionGuardError(
         ERR.VALIDATION,
-        `Storage signed-URL generation failed: ${signed.error.message}`,
+        `Storage signed-URL generation failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    if (!signed.data?.signedUrl)
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Storage signed-URL response missing url",
-      );
 
-    return { url: signed.data.signedUrl };
+    return { url };
   });
 }
