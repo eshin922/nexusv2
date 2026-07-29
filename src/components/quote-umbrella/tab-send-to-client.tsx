@@ -279,14 +279,37 @@ export function TabSendToClient({
       </div>
 
       {isSent ? (
-        <AdvanceBar
-          weight="light"
-          back={{ label: "Preview", onClick: () => onGo("preview") }}
-          mid={<span>quote state · {quoteStatus} · awaiting customer</span>}
-          caption="Reversible — Mark Accepted can be rolled back"
-          label="Mark Accepted →"
-          onAdvance={() => onGo("accepted")}
-        />
+        // Slice 12 Step 8c-4 CB P6 — advance target must match where
+        // the quote is in the lifecycle, not stay pinned to Mark
+        // Accepted. sent → next is capture (Mark Accepted). accepted
+        // → next is Sales Order (send order). complete → no advance;
+        // the umbrella is read-only and Sales Order is the last tab.
+        quoteStatus === "accepted" ? (
+          <AdvanceBar
+            weight="light"
+            back={{ label: "Preview", onClick: () => onGo("preview") }}
+            mid={<span>quote state · accepted · order pending</span>}
+            caption="Next — review the Sales Order before it goes to NetSuite"
+            label="Sales Order →"
+            onAdvance={() => onGo("tier")}
+          />
+        ) : quoteStatus === "complete" ? (
+          <AdvanceBar
+            weight="light"
+            back={{ label: "Preview", onClick: () => onGo("preview") }}
+            mid={<span>quote state · complete · umbrella read-only</span>}
+            caption="No advance — this Send record is retrospective"
+          />
+        ) : (
+          <AdvanceBar
+            weight="light"
+            back={{ label: "Preview", onClick: () => onGo("preview") }}
+            mid={<span>quote state · {quoteStatus} · awaiting customer</span>}
+            caption="Reversible — Mark Accepted can be rolled back"
+            label="Mark Accepted →"
+            onAdvance={() => onGo("accepted")}
+          />
+        )
       ) : (
         // Slice 12 Step 5d — Advance is redundant with the inline
         // <SendQuoteFlow> above (both fire the same confirm modal).

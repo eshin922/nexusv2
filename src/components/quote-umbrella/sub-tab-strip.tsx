@@ -74,8 +74,21 @@ export function SubTabStrip({
 
     const status = subTabStatus(tab, activeId, quoteStatus, hasSentHistory);
     const clickable = status === "done" || status === "current";
+    // Slice 12 Step 8c-4 CB P2 — lock-kind tabs (Sales Order) never
+    // render the ✓ glyph. "Done" for a lock-kind tab means
+    // "reachable — quote has been accepted"; it does NOT mean the SO
+    // has been placed. The ✓ collides visually with the genuinely-
+    // completed done state on non-lock tabs (Preview / Send / Client
+    // Review / Mark Accepted) and reads as "already sent" on the one
+    // tab where that misread is worst. Keep the numeral until the
+    // send actually lands — at which point quoteStatus flips to
+    // 'complete' and this tab's status becomes 'locked' → 🔒 glyph.
     const numeralGlyph: string =
-      status === "done" ? "✓" : status === "locked" ? "🔒" : String(tab.n);
+      status === "locked"
+        ? "🔒"
+        : status === "done" && tab.kind !== "lock"
+          ? "✓"
+          : String(tab.n);
     const classNames: string[] = ["r8-tab", status];
     if (tab.kind === "log") classNames.push("log");
 

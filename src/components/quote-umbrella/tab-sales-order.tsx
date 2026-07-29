@@ -69,17 +69,25 @@ function usd(n: number, dec = 0): string {
 //
 // Slice 12 Step 8c-4: `so-failed-at=item_group` axis DROPPED. The
 // flat-lines payload has no Item Group creation step (Probe 5 /
-// Probe 6 closed the grouped-SO path at REST). All failures now
-// surface through the SO create endpoint — one failure shape.
+// Probe 6 closed the grouped-SO path at REST). Only ONE failure
+// shape survives — no discriminator; the URL axis is gone too.
+//
+// Post-CB round 1 (P0 + P1): dev flags no longer render as literal
+// visual overlays. Instead they mutate the underlying real-state
+// pointers (effective preflight + effective carried tier) so that
+// flag chips, account panel, and Send-disable ALL derive from a
+// SINGLE source. Prevents "flag says not-mapped, panel says
+// matched" contradictions.
 function parseDevAxes(
   showStateSwitcher: boolean,
   params: URLSearchParams | null,
 ): {
   variant: ReceiptState | null;
-  flagVariant: "none" | "below_floor" | "unmatched" | "both";
+  forceBelowFloor: boolean;
+  forceUnmatched: boolean;
 } {
   if (!showStateSwitcher || !params) {
-    return { variant: null, flagVariant: "none" };
+    return { variant: null, forceBelowFloor: false, forceUnmatched: false };
   }
   const rawState = params.get("so-state");
   const variant: ReceiptState | null =
@@ -87,11 +95,9 @@ function parseDevAxes(
       ? rawState
       : null;
   const rawFlags = params.get("so-flags");
-  const flagVariant: "none" | "below_floor" | "unmatched" | "both" =
-    rawFlags === "below_floor" || rawFlags === "unmatched" || rawFlags === "both"
-      ? rawFlags
-      : "none";
-  return { variant, flagVariant };
+  const forceBelowFloor = rawFlags === "below_floor" || rawFlags === "both";
+  const forceUnmatched = rawFlags === "unmatched" || rawFlags === "both";
+  return { variant, forceBelowFloor, forceUnmatched };
 }
 
 export type TabSalesOrderProps = {
@@ -160,7 +166,7 @@ export function TabSalesOrder({
   const [isPending, startTransition] = useTransition();
   const [inFlightError, setInFlightError] = useState<string | null>(null);
   const searchParams = useSearchParams();
-  const { variant: devVariant, flagVariant } = parseDevAxes(
+  const { variant: devVariant, forceBelowFloor, forceUnmatched } = parseDevAxes(
     showStateSwitcher,
     searchParams,
   );
@@ -183,10 +189,44 @@ export function TabSalesOrder({
 
   // Resolve the carried tier (customer_accepted_tier_id or fallback
   // to first available). All the receipt renders against this tier.
-  const carriedTier =
+  const realCarriedTier =
     (customerAcceptedTierIdDb
       ? quoteRollup.find((t) => t.tierId === customerAcceptedTierIdDb)
       : undefined) ?? quoteRollup[0];
+
+  // ── Dev-switcher synthetic overrides (P0 + P1 fix, post-CB) ──
+  // Apply the ?so-flags= URL axis by MUTATING the effective pointers
+  // that downstream derivations read from. Flags render naturally,
+  // account panel reflects the same state, Send-disable fires the
+  // same way. No parallel "visual override" path — one source, no
+  // contradictions.
+  const carriedTier =
+    forceBelowFloor && realCarriedTier
+      ? {
+          ...realCarriedTier,
+          blendedMarginStatus: "BELOW_FLOOR" as const,
+        }
+      : realCarriedTier;
+  const effectivePreflight: PreflightResult | null =
+    forceUnmatched && salesOrderPreflight
+      ? {
+          ...salesOrderPreflight,
+          netsuiteCustomer: salesOrderPreflight.netsuiteCustomer
+            ? {
+                id: "—",
+                name:
+                  salesOrderPreflight.netsuiteCustomer.name ??
+                  salesOrderPreflight.hubspotCompanyName ??
+                  "—",
+                matched: false,
+                matchedOn: null,
+              }
+            : null,
+          shipToLine: salesOrderPreflight.hubspotCompanyName
+            ? `${salesOrderPreflight.hubspotCompanyName} · address resolves at send`
+            : "Ship-to resolves when the customer is mapped",
+        }
+      : salesOrderPreflight;
 
   // Derive product lines from the customer view. Leaves only; tier
   // prices indexed by tier order. Skip lines with null tierPrice
@@ -246,14 +286,14 @@ export function TabSalesOrder({
   // entry. Admin adds one at /admin/netsuite-customer-map. Name the
   // company so the PM can forward this message directly.
   if (
-    salesOrderPreflight &&
-    salesOrderPreflight.hasHubspotCompany &&
-    salesOrderPreflight.netsuiteCustomer &&
-    !salesOrderPreflight.netsuiteCustomer.matched
+    effectivePreflight &&
+    effectivePreflight.hasHubspotCompany &&
+    effectivePreflight.netsuiteCustomer &&
+    !effectivePreflight.netsuiteCustomer.matched
   ) {
     const displayName =
-      salesOrderPreflight.hubspotCompanyName ??
-      salesOrderPreflight.netsuiteCustomer.name;
+      effectivePreflight.hubspotCompanyName ??
+      effectivePreflight.netsuiteCustomer.name;
     realFlags.push({
       level: "bad",
       label: "NetSuite customer not mapped",
@@ -264,7 +304,7 @@ export function TabSalesOrder({
   // Deal cache missing / no HubSpot company — rarer, but must not
   // slip through as "pending, will resolve at send"; block the send
   // and say what's wrong.
-  if (salesOrderPreflight && !salesOrderPreflight.hasHubspotCompany) {
+  if (effectivePreflight && !effectivePreflight.hasHubspotCompany) {
     realFlags.push({
       level: "bad",
       label: "HubSpot company not resolved",
@@ -290,37 +330,19 @@ export function TabSalesOrder({
     });
   }
 
-  // Dev-switcher flag overrides (canonical R9 fixtures per CD notes).
-  // Only used to walk the visual states in preview / local. Never
-  // shipped to production (VERCEL_ENV hard guard upstream).
-  const DEV_BELOW_FLOOR: OrderReceiptFlag = {
-    level: "bad",
-    label: "Tier below margin floor",
-    detail:
-      "Selected tier is below the firm's margin floor — cannot send this order.",
-  };
-  const DEV_UNMATCHED: OrderReceiptFlag = {
-    level: "bad",
-    label: "NetSuite customer not mapped",
-    detail:
-      "This HubSpot company has no NetSuite customer mapping — admin needs to add one before the order can send.",
-  };
-  const soFlags: OrderReceiptFlag[] =
-    flagVariant === "below_floor"
-      ? [DEV_BELOW_FLOOR, ...divergenceFlags]
-      : flagVariant === "unmatched"
-        ? [DEV_UNMATCHED, ...divergenceFlags]
-        : flagVariant === "both"
-          ? [DEV_BELOW_FLOOR, DEV_UNMATCHED, ...divergenceFlags]
-          : [...realFlags, ...divergenceFlags];
+  // realFlags now covers both real production state AND dev-switcher-
+  // forced state — because the dev switcher mutated the underlying
+  // effectivePreflight + carriedTier pointers upstream. No separate
+  // DEV_* fixture constants; no parallel visual override. One source.
+  const soFlags: OrderReceiptFlag[] = [...realFlags, ...divergenceFlags];
 
-  // ── Real NetSuite customer for receipt header ─────────────────
-  const netsuiteCustomerForReceipt = salesOrderPreflight?.netsuiteCustomer
+  // ── NetSuite customer panel — same source as the flags above ──
+  const netsuiteCustomerForReceipt = effectivePreflight?.netsuiteCustomer
     ? {
-        id: salesOrderPreflight.netsuiteCustomer.id,
-        name: salesOrderPreflight.netsuiteCustomer.name,
-        matched: salesOrderPreflight.netsuiteCustomer.matched,
-        matchedOn: salesOrderPreflight.netsuiteCustomer.matched
+        id: effectivePreflight.netsuiteCustomer.id,
+        name: effectivePreflight.netsuiteCustomer.name,
+        matched: effectivePreflight.netsuiteCustomer.matched,
+        matchedOn: effectivePreflight.netsuiteCustomer.matched
           ? "customer_map"
           : null,
       }
@@ -332,7 +354,7 @@ export function TabSalesOrder({
       };
 
   const shipToLine =
-    salesOrderPreflight?.shipToLine ??
+    effectivePreflight?.shipToLine ??
     "Ship-to resolves when the customer is mapped";
 
   // ── HubSpot amount for the ledger row (unchanged from 8b) ─────
@@ -352,12 +374,12 @@ export function TabSalesOrder({
   const belowFloorDisabled =
     carriedTier?.blendedMarginStatus === "BELOW_FLOOR";
   const unmappedCustomerDisabled = Boolean(
-    salesOrderPreflight?.hasHubspotCompany &&
-      salesOrderPreflight.netsuiteCustomer &&
-      !salesOrderPreflight.netsuiteCustomer.matched,
+    effectivePreflight?.hasHubspotCompany &&
+      effectivePreflight.netsuiteCustomer &&
+      !effectivePreflight.netsuiteCustomer.matched,
   );
   const noHubspotCompanyDisabled = Boolean(
-    salesOrderPreflight && !salesOrderPreflight.hasHubspotCompany,
+    effectivePreflight && !effectivePreflight.hasHubspotCompany,
   );
 
   const disabledReasons: string[] = [];
@@ -553,8 +575,24 @@ export function TabSalesOrder({
             quoteNumber={quoteNumberDb}
             quoteVersion={quoteVersionNumber}
             acceptedAt={quoteAcceptedAt}
-            soId={placed ? (soPushMirror.soTranid ?? soPushMirror.soId) : null}
-            soCreatedAt={placed ? soPushMirror.pushedAt : null}
+            /* Real record shape reads from soPushMirror. Dev-forced
+               record variant (against an unsent quote) falls back to
+               a plausible-shaped stub so CD / CB walks see the real
+               visual weight — "no order number yet" would misread as
+               a bug per CB round 1 P5. */
+            soId={
+              placed
+                ? (soPushMirror.soTranid ??
+                    soPushMirror.soId ??
+                    (devVariant === "record" ? "SO-DEV-STUB" : null))
+                : null
+            }
+            soCreatedAt={
+              placed
+                ? (soPushMirror.pushedAt ??
+                    (devVariant === "record" ? new Date() : null))
+                : null
+            }
             netsuiteCustomer={netsuiteCustomerForReceipt}
             shipTo={shipToLine}
             terms={view.quote.paymentTerms ?? "—"}
@@ -777,18 +815,27 @@ export function TabSalesOrder({
               </span>
             }
             caption={
-              belowFloorDisabled
-                ? "Blocked — tier is below the margin floor"
-                : sendDisabled
-                  ? "Send is disabled — see reason above"
-                  : "Irreversible — creates a Sales Order in NetSuite"
+              sendDisabled
+                ? belowFloorDisabled
+                  ? "Blocked — tier is below the margin floor"
+                  : "Send is blocked — see reason above"
+                : "Irreversible — creates a Sales Order in NetSuite"
             }
+            /* CB round 1 P1 — the label + disabled state have to
+               match. Prior version left the button reading "Send
+               order to NetSuite" even when disabled, so it looked
+               enabled next to a red banner saying it wouldn't send.
+               Label now flips to a blocked-state string; CSS
+               strengthens .r8-adv-btn.heavy:disabled to actually
+               look un-pressable on the dark slab. */
             label={
               isPending
                 ? "Sending…"
-                : failed
-                  ? "Retry — send order to NetSuite"
-                  : "Send order to NetSuite"
+                : sendDisabled
+                  ? "Blocked — cannot send"
+                  : failed
+                    ? "Retry — send order to NetSuite"
+                    : "Send order to NetSuite"
             }
             disabled={sendDisabled || isPending}
             onAdvance={
