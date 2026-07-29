@@ -28,6 +28,7 @@ import {
   buildSalesOrderPayload,
   computeIdempotencyKey,
   createSalesOrder,
+  fetchSalesOrderTranid,
   type SalesOrderLine,
 } from "./sales-orders";
 import { NetsuiteError } from "./errors";
@@ -361,6 +362,22 @@ export async function runMarkComplete(
   let salesOrderTranid: string | null;
   let amountPushed: number;
   let retryOutcome: MarkCompleteResult["retryOutcome"];
+  // Slice 12 Step 10 Q15 — tranid_fetch_outcome tracks the four
+  // possible states of the post-create GET on tranid:
+  //   'succeeded'          — fresh create fetch returned a tranid
+  //   'failed'             — fresh create fetch returned null (network,
+  //                          parse, or missing field); non-blocking per
+  //                          Amendment A pattern
+  //   'skipped_on_retry'   — retry-convergence path; prior success
+  //                          already had a tranid stored, no re-fetch
+  //   'backfilled_on_retry' — retry-convergence path; prior success
+  //                          had NULL tranid (earlier failed fetch);
+  //                          this retry filled it via a fresh GET
+  let tranidFetchOutcome:
+    | "succeeded"
+    | "failed"
+    | "skipped_on_retry"
+    | "backfilled_on_retry";
 
   if (priorSuccess) {
     // Convergence path — retry sees prior success, skips SO create,
@@ -369,6 +386,23 @@ export async function runMarkComplete(
     salesOrderTranid = priorSuccess.netsuiteSoTranid;
     amountPushed = Number(priorSuccess.amountPushed);
     retryOutcome = "converged_from_prior_success";
+
+    // Q15 backfill opportunity — if prior success stored NULL tranid
+    // (earlier failed fetch or pre-Q15 code path that never fetched),
+    // try the fetch now. Cheap: one GET against a known internal id.
+    // Failure keeps NULL and stays non-blocking; success self-heals
+    // the historical gap.
+    if (salesOrderTranid === null) {
+      const backfilled = await fetchSalesOrderTranid(salesOrderInternalId);
+      if (backfilled !== null) {
+        salesOrderTranid = backfilled;
+        tranidFetchOutcome = "backfilled_on_retry";
+      } else {
+        tranidFetchOutcome = "failed";
+      }
+    } else {
+      tranidFetchOutcome = "skipped_on_retry";
+    }
   } else {
     // ============================================================
     // STEP 7 — Build SO payload + REST POST create
@@ -540,9 +574,32 @@ export async function runMarkComplete(
     }
 
     salesOrderInternalId = created.internalId;
-    salesOrderTranid = null; // caller can fetch tranId separately if needed
     amountPushed = currentAmount;
     retryOutcome = "fresh";
+
+    // Slice 12 Step 10 Q15 — post-create tranid fetch.
+    //
+    // NetSuite REST POST /record/v1/salesOrder returns only the
+    // Location header (internal id). The human-readable tranId
+    // ("SO2697") requires a follow-up GET. This is the fetch that
+    // used to be a TODO-as-statement-of-intent
+    // (`salesOrderTranid = null; // caller can fetch tranId separately`)
+    // — no caller ever picked it up, and every completed quote shipped
+    // with NULL tranid despite a real display id existing in NetSuite.
+    //
+    // Non-blocking per Amendment A pattern (same rule as the amount
+    // patch): failure logs + writes NULL, complete never blocks.
+    // The SO itself exists; tranid is diagnostic, not
+    // correctness-critical. Backfill on next retry-convergence attempt
+    // (see priorSuccess branch above).
+    const fresh = await fetchSalesOrderTranid(salesOrderInternalId);
+    if (fresh !== null) {
+      salesOrderTranid = fresh;
+      tranidFetchOutcome = "succeeded";
+    } else {
+      salesOrderTranid = null;
+      tranidFetchOutcome = "failed";
+    }
 
     // ============================================================
     // STEP 8 — PERSIST netsuite_so_pushes row (succeeded)
@@ -688,6 +745,11 @@ export async function runMarkComplete(
         netsuite: {
           sales_order_internal_id: salesOrderInternalId,
           sales_order_tranid: salesOrderTranid,
+          // Slice 12 Step 10 Q15 — forensic trail for the post-create
+          // tranid fetch outcome. Lets audit queries find completed
+          // quotes with NULL tranid but succeeded push_status
+          // ("did we hit the fetch failure? or a pre-Q15 legacy?").
+          tranid_fetch_outcome: tranidFetchOutcome,
           customer_netsuite_id: customer.netsuiteCustomerId,
           item_groups: itemGroupOutcomes,
         },

@@ -65,7 +65,15 @@ export function PreviewToolbar({
         <span className="ribbon">PM-internal preview · this becomes the PDF</span>
         <span className="meta">
           <strong>{quoteNumber ?? "draft (no number yet)"}</strong>
-          {sentDate ? ` · sent ${formatShortDate(sentDate)}` : ""}
+          {/* Slice 12 Step 10 Q2 — gate "sent {date}" on current status.
+              reviseQuote intentionally preserves sent_at post-revise
+              (quotes.ts:1888 "Snapshot mirror columns + pdf_url +
+              sent_at STAY"), so a v2 DRAFT still has the v1 sent_at.
+              Reading sent_at alone would render "sent Jul 29" next to
+              the DRAFT badge — a live contradiction CB flagged. */}
+          {sentDate && quoteStatus !== "draft"
+            ? ` · sent ${formatShortDate(sentDate)}`
+            : ""}
         </span>
         <span className="meta" style={{ color: "var(--ink-4)" }}>·</span>
         <span

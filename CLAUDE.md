@@ -2640,6 +2640,162 @@ avoid the landmine.
   carry-forward on update. Draft-lock is the
   when-versioning-isn't-in-the-schema alternative.
 
+## Pattern 53 — "Fixtures read from source, never invent values"
+
+Standing pattern — promoted from candidate to standing during
+Slice 12 Step 10 walk close (2026-07-29). Five instances this
+slice triggered the promotion:
+
+- #148 (Step 8c-3): fixture hardcoded `amount` value; real
+  markAccepted computes from tier revenue rollup. CB pass showed
+  the hardcoded number, not the real one.
+- #154 (Step 8c-4): fixture pre-set both `customer_accepted_tier_id`
+  AND `accepted_tier_id` on the accepted-state row. Masked the P0
+  "freeze-tx never writes accepted_tier_id" bug across two walk
+  rounds until CA caught it.
+- #156 (Step 9): fixture set `sourcing_location` to NULL when real
+  HubSpot deals carry the label. Made the walk pass a code path
+  that couldn't work against production data.
+- Q1 (Step 10): fixture invented literal strings for
+  `payment_terms_snapshot` / `lead_time_snapshot` / etc. that
+  didn't match live `firm_settings` defaults. CB saw v2-draft
+  Preview showing different terms than v1-sent Preview.
+- Q12 (Step 10): fixture collapsed `project.client_name` and
+  `project.deal_name` to the same SMOKE_TAG. Made send-quote-flow
+  confirmation show identical Customer + Deal fields; real
+  project-import reads client_name from
+  hubspot_deals_cache.associated_company_name.
+
+**The rule.** Fixture provisioners MUST read from the same source
+of truth production code reads from. NEVER invent values.
+
+Specifically:
+- **Firm-settings-derived values** (payment terms, lead time,
+  incoterms, TCS, days valid, vendor identity, margin thresholds):
+  read from `firm_settings` at provisioning time. Real actions do
+  this at their action time; fixtures must mirror.
+- **HubSpot-cache-derived values** (associated_company_name →
+  project.client_name, deal_name, deal_stage, deal_folder_url):
+  read from the corresponding `hubspot_deals_cache` row. If the
+  fixture fabricates a cache row (e.g., pointing at a real
+  company id + smoke tag as deal name), the project row's
+  derived columns must come from that same fabricated cache row.
+- **Costing rollups** (tier turnkey, blended margin): compute via
+  `computeQuoteCosting`; do not hardcode.
+- **Audit rows for downstream-consumed columns**: e.g., if a
+  fixture-created quote is at `status='sent'`, the fixture MUST
+  also insert the matching `quote_sent` audit_log row so
+  downstream consumers (Q4b's resign-snapshot-pdf, PDF audit
+  trail queries, cross-quote historical reports) exercise the
+  real happy path, not fallback branches.
+
+**Why this recurs:** fixtures feel like "test data" that can be
+invented for convenience. But every fixture value the walk touches
+IS the walk's test surface. Two failure modes, both costly:
+
+- **Fixtures HIDE defects.** A hardcoded value that happens to
+  work with the current code masks bugs in the code path that
+  reads from the true source. #154's pre-set `accepted_tier_id`
+  masked the freeze-tx write gap across two walk rounds until CA
+  caught it. Future walks against real production data expose
+  the bug post-launch.
+- **Fixtures MANUFACTURE defects.** A divergent fixture value
+  can present as a bug that isn't there. Q12's collapse of
+  `client_name` and `deal_name` to the same SMOKE_TAG made CB
+  report a customer-name mapping defect — but the real
+  production code path was correct (`project-import` sources
+  `client_name` from `hubspot_deals_cache.associated_company_name`).
+  Review cycles spent diagnosing a bug the fixture had
+  hallucinated. A divergent fixture costs attention as well as
+  coverage.
+
+The rule catches both directions: fixtures that read from source
+neither hide bugs nor manufacture them.
+
+**Verification discipline:** when writing a fixture provisioner,
+grep every INSERT / UPDATE for hardcoded strings + numbers. For
+each hardcoded value, ask: "does production code source this
+from a table at runtime?" If yes, the fixture must too. Bank
+any exceptions with rationale in the provisioner's header.
+
+**Cross-references.**
+- Pattern 32 "Pre-production engineering tolerance" — governs when
+  a fixture divergence is acceptable-for-now (fix path is dev
+  re-seed; exposing feature doesn't exist yet). Pattern 53 is
+  stricter for fixtures the CB walk actually exercises: convenience
+  is not sufficient rationale to invent.
+- Pattern 22 §0.5 verification — fixture-vs-production divergence
+  should surface in schema-verification pre-flight for new
+  fixture code, just as it does for real schema references.
+
+## Pattern 54 — "TODOs written as statements-of-intent read as decisions"
+
+Standing pattern — banked from Slice 12 Step 10 Q15 walk finding
+(2026-07-29).
+
+**The rule.** A code comment that phrases a deferred obligation
+as a *statement of intent* rather than a *TODO* reads to future
+maintainers as an intentional decision that has been made — not
+as work remaining. Nothing flags it. Nothing fails. The gap it
+creates persists silently for as long as the code lives.
+
+**Reference moment:** `src/lib/netsuite/mark-complete.ts:543`
+(pre-Q15):
+
+```
+salesOrderInternalId = created.internalId;
+salesOrderTranid = null; // caller can fetch tranId separately if needed
+amountPushed = currentAmount;
+```
+
+The comment reads as "we thought about this and chose to defer
+the fetch to callers." No caller ever picked it up. Every
+completed quote shipped with null `netsuite_so_tranid` — the
+human-readable order reference PMs actually use to find their
+SO in NetSuite. The internal id was captured; the tranid was
+not; nothing surfaced the gap until CB post-walk DB verification
+noticed `SO 360741` had `tranid = null` in DB but SO2697 in
+NetSuite.
+
+**Anti-pattern shapes to catch:**
+
+- `// caller can X separately if needed` — implies "we designed
+  the seam intentionally"; more accurately "we didn't finish"
+- `// this returns null for now; refine later` — "for now" +
+  "later" without a marker becomes "forever"
+- `// TODO in a future slice` — no ticket, no owner, no timer;
+  fades into wallpaper
+- `// deferred to Slice N` — better; the slice reference is a
+  timer. But if Slice N ships without addressing the deferral,
+  it's back to statement-of-intent shape.
+
+**Better shape:**
+
+- `// TODO(slice-N-scope): fetch tranId via getRecord; guard
+  non-blocking per Amendment A pattern (see mark-complete STEP
+  10 amount patch).` — TODO marker + slice reference + concrete
+  approach + reference to the pattern that governs how.
+- Grep-able marker (`TODO`, `FIXME`, `XXX`) so a future
+  slice-close checklist can enumerate them.
+
+**Discipline:**
+
+1. Write TODOs with grep-able markers, slice references, and
+   concrete next steps.
+2. When you close a slice, grep for TODOs referencing that slice
+   number. Address or explicitly bump.
+3. When you WRITE a statement-of-intent comment, ask: "am I
+   describing a decision or a deferral?" If deferral, rewrite as
+   TODO.
+
+**Cross-references.**
+- Pattern 22 §0.5 verification — schema-verification pre-flight
+  should include a grep pass for TODO markers on any code
+  touched by the incoming slice.
+- Pattern 32 pre-production tolerance — permits deferrals with
+  rationale; the TODO-marker convention makes those deferrals
+  legible + timer-attached rather than silent.
+
 ## Designer audit rubric expansions (banked from rest-of-app sweep Step 10, 2026-05-14)
 
 Each entry below is an additional sweep criterion future Designer

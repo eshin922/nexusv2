@@ -30,6 +30,7 @@ export function ReviseButton({
   quoteId,
   currentVersionNumber,
   quoteNumber,
+  fromStatus = "sent",
   disabled = false,
   disabledReason,
   buttonLabel,
@@ -40,6 +41,16 @@ export function ReviseButton({
   quoteId: string;
   currentVersionNumber: number;
   quoteNumber: string | null;
+  /** Current quote status — modal copy varies by from-state.
+   * 'sent': routine revise; nothing outside Nexus moves.
+   * 'accepted': revise fires unmarkAccepted first, which moves the
+   * HubSpot deal stage OUT of Won and back to the pre-accept stage.
+   * The modal MUST disclose that external write per Slice 12 Step 10
+   * Q9 (CB walk finding). Slice 12 Step 8 taught us this discipline
+   * on the Sales Order tab — same class, previously not applied here.
+   * Default 'sent' preserves existing behavior for the sidecar +
+   * waiting-state mount sites. */
+  fromStatus?: "sent" | "accepted";
   disabled?: boolean;
   disabledReason?: string;
   /** Defaults to "↺ Revise quote"; sidecar CTA passes
@@ -112,7 +123,11 @@ export function ReviseButton({
       <Modal open={isModalOpen} onClose={onClose}>
         {(status.kind === "confirming" || status.kind === "revising") && (
           <>
-            <ModalHead>Revise this quote?</ModalHead>
+            <ModalHead>
+              {fromStatus === "accepted"
+                ? "Revise this accepted quote?"
+                : "Revise this quote?"}
+            </ModalHead>
             <ModalBody>
               <div style={{ fontSize: 13, lineHeight: 1.6 }}>
                 <p style={{ marginTop: 0 }}>
@@ -131,6 +146,28 @@ export function ReviseButton({
                   <strong>v{nextVersion}</strong>. Same quote, same number —{" "}
                   <em>nothing is lost.</em>
                 </p>
+                {fromStatus === "accepted" && (
+                  <div
+                    role="note"
+                    style={{
+                      marginTop: 12,
+                      padding: "10px 12px",
+                      background: "var(--warn-soft, var(--paper-2))",
+                      border: "1px solid var(--warn, var(--rule))",
+                      borderRadius: 6,
+                      fontSize: 13,
+                    }}
+                    data-testid="revise-from-accepted-hubspot-notice"
+                  >
+                    <strong>
+                      This also rolls the HubSpot deal back out of &ldquo;Won&rdquo;
+                      and returns it to the pre-accept stage.
+                    </strong>{" "}
+                    That&rsquo;s a live CRM write that Sales will see. The audit
+                    log records both moves. Re-accepting after revise pushes
+                    it forward again.
+                  </div>
+                )}
                 <ul style={{ margin: "10px 0 0 18px", padding: 0 }}>
                   <li>Notes, associations, cost data all carry over</li>
                   <li>The current sent version is retained (viewable in Preview)</li>
@@ -149,7 +186,9 @@ export function ReviseButton({
                     fontSize: 12,
                   }}
                 >
-                  Reversibility is the whole point — this action is routine.
+                  {fromStatus === "accepted"
+                    ? "Reversibility is the point — but the HubSpot rollback above is a real external move. Cancel if that's not what you want."
+                    : "Reversibility is the whole point — this action is routine."}
                 </p>
               </div>
             </ModalBody>

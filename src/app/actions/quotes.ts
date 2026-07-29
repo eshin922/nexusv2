@@ -52,6 +52,7 @@ import {
   ActionGuardError,
   ERR,
   assertDraft,
+  assertNotFrozen,
   runAction,
   type ActionResult,
 } from "@/lib/action-result";
@@ -1918,6 +1919,47 @@ export async function reviseQuote(
         },
       });
 
+      // Slice 12 Step 10 Q10 — Client Review feed entry for the
+      // revise transition. Pre-Q10 the feed showed nothing when a PM
+      // revised, so the log read as an unexplained gap between
+      // "sent" and the next "sent" (or, for revise-from-accepted, a
+      // rollback with no follow-up). Now the transition is legible
+      // on the feed. Mirror to audit_log per §5.1 R3 amendment 1.
+      //
+      // eventType='responded' follows the unmarkAccepted precedent
+      // (:2529) — enum-loose convention for system-generated state-
+      // transition entries; the note carries the specific verb.
+      // For revise-from-accepted, unmarkAccepted already wrote its
+      // own 'Acceptance rolled back' entry (system=true); this
+      // entry follows chronologically with the draft-transition
+      // detail.
+      const [reviseEvent] = await tx
+        .insert(quoteReviewEvents)
+        .values({
+          quoteId,
+          versionNumber: newVersion,
+          eventType: "responded",
+          note: `Revised at v${priorVersion} → returned to editable draft as v${newVersion}.`,
+          authorUserId: null,
+          system: true,
+        })
+        .returning({ id: quoteReviewEvents.id });
+
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote_review_event",
+        entityId: reviseEvent.id,
+        action: "quote_review_event_added",
+        diffJson: {
+          quoteId,
+          versionNumber: newVersion,
+          eventType: "responded",
+          system: true,
+          note: `Revised at v${priorVersion} → returned to editable draft as v${newVersion}.`,
+          source: "revise_auto_log",
+        },
+      });
+
       return {
         newVersionNumber: newVersion,
         supersededSnapshotId: superseded?.id ?? null,
@@ -2025,10 +2067,17 @@ export async function markAccepted(
     }
 
     const quote = await loadQuoteOrThrow(quoteId);
+    // Slice 12 Step 10 Q13 — Pattern 52 frozen-quote guard.
+    // Belt-and-suspenders alongside the transition check below and the
+    // route-level tab coercion in the umbrella page. Catches complete
+    // (and defense-in-depth accepted) with the friendly
+    // quoteFrozenMessage instead of the schema-adjacent "current state:
+    // 'complete'" wording.
+    assertNotFrozen(quote);
     if (quote.status !== "sent") {
       throw new ActionGuardError(
         ERR.VALIDATION,
-        `Mark Accepted only fires on 'sent' quotes; current state: '${quote.status}'.`,
+        `Mark Accepted requires the quote to be sent first. Current state: ${quote.status}.`,
       );
     }
 
@@ -2568,10 +2617,15 @@ export async function recordCustomerAcceptance(
     }
 
     const quote = await loadQuoteOrThrow(quoteId);
+    // Slice 12 Step 10 Q13 — Pattern 52 frozen-quote guard.
+    // Same pattern as markAccepted; recordCustomerAcceptance is the
+    // pre-accept capture path (customer signalled but PM hasn't pushed
+    // HubSpot yet). Frozen quotes shouldn't reach this either.
+    assertNotFrozen(quote);
     if (quote.status !== "sent") {
       throw new ActionGuardError(
         ERR.VALIDATION,
-        `Cannot record customer acceptance on a ${quote.status} quote — only sent quotes.`,
+        `Customer acceptance can only be recorded on a sent quote. Current state: ${quote.status}.`,
       );
     }
 
@@ -3780,5 +3834,101 @@ export async function markComplete(
       retryOutcome: result.retryOutcome,
       amountPatchStatus: result.amountPatch.status,
     };
+  });
+}
+
+// Slice 12 Step 10 Q4b — re-sign a superseded snapshot's PDF.
+//
+// Signed URLs from Supabase Storage expire after 30 days. Sent
+// snapshots live forever (quote_snapshots row with pdf_url +
+// audit_log.diff_json.pdf.storagePath). This action reads the
+// storagePath from the corresponding quote_sent audit row and
+// re-signs a fresh 30-day URL — lets PMs view the version their
+// customer is currently looking at, even after the original URL
+// expired.
+//
+// Result shape:
+//   { ok: true, data: { url: string } }
+//   { ok: false, error.code: 'NOT_FOUND'          — no audit row
+//   { ok: false, error.code: 'PDF_UNRECOVERABLE'  — audit row exists
+//                                                   but no storagePath
+//                                                   (pre-Slice-11-Step-6
+//                                                   legacy or fixture-
+//                                                   seeded snapshot) }
+//   { ok: false, error.code: 'VALIDATION_ERROR'   — Storage re-sign
+//                                                   failed }
+//
+// Called by the mismatch banner's View v{N} (sent) button when the
+// snapshot's stored pdf_url is null/expired. Non-mutating; safe to
+// call on any authenticated session with quote access.
+export async function resignSnapshotPdf(
+  quoteId: string,
+  versionNumber: number,
+): Promise<ActionResult<{ url: string }>> {
+  return runAction(async () => {
+    await ensureUser();
+
+    // Look up the storagePath from the quote_sent audit row that
+    // matches this version. sendQuote writes versionNumber into
+    // diff_json (Slice 11 quote-number-continuity fix) + pdf.
+    // storagePath (Slice 11 Step 6). Both were retrofitted onto
+    // pre-versioning audit rows, so pre-Slice-11-Step-6 legacy
+    // rows may lack either. Filter for the presence of
+    // pdf.storagePath and match versionNumber; fall back to the
+    // most-recent row when versionNumber isn't recorded in
+    // diff_json (best-effort).
+    const rows = await db
+      .select({ diffJson: auditLog.diffJson, createdAt: auditLog.createdAt })
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.entityType, "quote"),
+          eq(auditLog.entityId, quoteId),
+          eq(auditLog.action, "quote_sent"),
+        ),
+      )
+      .orderBy(desc(auditLog.createdAt));
+
+    // Match versionNumber if diff_json carries it; else fall back
+    // to most-recent send (pre-versioning audit rows).
+    const match = rows.find((r) => {
+      const dj = r.diffJson as { versionNumber?: number } | null;
+      return dj && typeof dj.versionNumber === "number"
+        ? dj.versionNumber === versionNumber
+        : false;
+    }) ?? rows[0];
+
+    if (!match) {
+      throw new ActionGuardError(
+        ERR.NOT_FOUND,
+        "This version's send record couldn't be located.",
+      );
+    }
+
+    const dj = match.diffJson as
+      | { pdf?: { bucket?: string; storagePath?: string } }
+      | null;
+    const storagePath = dj?.pdf?.storagePath;
+    const bucket = dj?.pdf?.bucket ?? QUOTE_PDFS_BUCKET;
+
+    if (!storagePath || typeof storagePath !== "string") {
+      throw new ActionGuardError(
+        "PDF_UNRECOVERABLE",
+        "This version's PDF is no longer retrievable — it predates our current PDF archive. New sends after v1.2 keep a permanent copy.",
+      );
+    }
+
+    const supabase = getSupabaseServer();
+    const signed = await supabase.storage
+      .from(bucket)
+      .createSignedUrl(storagePath, 60 * 60 * 24 * 30);
+    if (signed.error || !signed.data?.signedUrl) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Couldn't re-sign the PDF URL: ${signed.error?.message ?? "no url"}`,
+      );
+    }
+
+    return { url: signed.data.signedUrl };
   });
 }

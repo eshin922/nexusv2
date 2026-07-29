@@ -3,6 +3,126 @@
 Tracked UX issues to address at Slice 13.5 (mid-build UX pass) or Slice 17 (polish).
 Items here are intentionally deferred - capture, don't fix in the moment.
 
+## Slice 12 Step 10 CB walk BANK items (2026-07-29)
+
+Follow-ups from the Step 10 close bundle. Each item has an explicit trigger
+condition so future maintainers know when it becomes live.
+
+- **Terms drift silently on revise when firm_settings edited mid-flow.**
+  Mismatch banner (`src/components/quote-umbrella/mismatch-banner.tsx`)
+  currently warns about **pricing** drift between v1-sent and v2-draft.
+  It says nothing about **terms** (payment_terms, lead_time, incoterms,
+  T&Cs) drift. Real production scenario: PM sends v1, admin edits
+  firm_settings payment_terms, PM revises + re-sends v2. v2's snapshot
+  columns pull the NEW firm values silently — customer receives
+  different terms with no warning surface.
+
+  **Trigger:** first customer email escalation about "the terms
+  changed between the two quotes you sent me" — or preemptive at
+  Slice 13/14 when admin surfaces for firm_settings editing get
+  meaningful use.
+
+  **Proposed shape:** extend mismatch-banner detection to compare
+  v-current snapshot columns against latest superseded snapshot
+  columns; surface any differing terms alongside the pricing drift
+  warning. Reference `docs/pattern-52-freeze-list.md` for the exact
+  column set.
+
+- **mark-accepted/* scaling contract (Q5 (B) — banked as live trap,
+  not tidy-up).**
+  `mark-accepted-both-gates.tsx` / `margin-verdict.tsx` /
+  `override-modal.tsx` render blendedMarginPct AS-IS (already
+  scaled 0-100) because their parent page (`src/app/projects/[id]/
+  quotes/[quoteId]/mark-accepted/page.tsx:182`) hands them one
+  scaled prop (`blendedPct = summary.blendedMarginPct * 100`) AND
+  two raw props (`targetPct`, `floorPct` — raw fractions 0-1).
+  Internal render code correctly scales the raw props with `* 100`
+  and leaves the pre-scaled prop alone.
+
+  **The trap:** this contract is invisible at the component
+  boundary. Any refactor of the page's scaling — normalizing all
+  three props to the same scale, extracting a helper — silently
+  breaks the margin display on the **below-floor gate**, the
+  surface whose entire job is showing whether a tier clears the
+  floor.
+
+  **Trigger:** any code change that touches
+  `mark-accepted/page.tsx:112-182` OR any of the three internal
+  files' prop types.
+
+  **Proposed shape:** unify all margin props to a single scale
+  (recommend raw fractions 0-1 per QuotePerTierRollup contract),
+  add `* 100` uniformly at render sites. Full test coverage on
+  the below-floor gate + override modal after refactor. Slice 13
+  or 14 — deliberate refactor with test discipline, not opportunistic.
+
+- **Q4b happy-path smoke needs a real production send.**
+  Q4b's `resignSnapshotPdf` action is verified structurally against
+  the fixture (which fabricates an audit_log storagePath pointing
+  at a nonexistent Storage object — action returns a signed URL
+  that 404s at browser). Full happy-path smoke — click View v{N} →
+  new tab opens → actual PDF renders — requires a real production
+  send. First real quote sent post-merge exercises the path
+  cleanly. Note in the CB smoke handoff.
+
+- **App-wide confirmation pattern sweep** — Q8 broader scope
+  (Slice 12 Step 10 walk finding).
+  Q8 fixed the umbrella-scope `window.confirm` (mark-accepted
+  rollback → portal-backed Modal). Six other `window.confirm`
+  sites remain across the app:
+  - `src/components/costs/freight-drilldown.tsx:259, 411`
+  - `src/components/costs/packaging-drilldown.tsx:419`
+  - `src/components/scenario-actions/scenario-actions-menu.tsx:57`
+  - `src/app/admin/markup-defaults/markup-defaults-table.tsx:267`
+  - `src/app/projects/[id]/confirm-button.tsx:19`
+  - `src/app/projects/[id]/quotes/[quoteId]/tier-preset-select.tsx:66`
+
+  Same defect class: browser-chrome prompt, no dark-mode support,
+  no styling consistency with the rest of the app. **Trigger:**
+  any user-visible design QA pass (Slice 13.5 mid-build UX pass
+  or Slice 17 polish). **Proposed shape:** shared
+  `useConfirm({title, body, confirmLabel, danger?})` hook that
+  returns a `{ open, ConfirmModal }` pair. Migrate each site.
+  Removes the last window.confirm callers app-wide.
+
+- **Sales Order tab (`?tab=tier`) receipt view for complete quotes.**
+  Q13 route-level guard coerces `activeTab='preview'` on
+  `status='complete'` — heavy-handed but definitely safe. PMs
+  wanting to view the completed SO receipt (NetSuite id, tranid,
+  push status) can't reach it via URL anymore. CB observed the
+  tier tab "falls back to Preview with one unexplained first-load
+  exception" pre-fix; the render path clearly has a state gap
+  that needs investigation.
+
+  **Trigger:** first PM ask for "I need to see the SO receipt
+  after complete." **Proposed shape:** investigate the render-path
+  state gap; land a proper complete-state variant for the tier tab
+  (SO id, tranid, push-status ledger, "if something's wrong"
+  callout); remove the Q13 heavy-handed coercion so `?tab=tier`
+  works on complete quotes. Different surface fix than the
+  quote_completed / assertNotFrozen unification already shipped.
+
+- **Slice 13 admin surfaces: assertNotFrozen adoption on every
+  write path** (Pattern 52 enforcement).
+  Q13 threaded `assertNotFrozen` into two acceptance-family actions
+  reachable from the umbrella. Slice 13 admin surfaces (retry
+  failed SO push, manual overrides, reconcile jobs) MUST call
+  `assertNotFrozen(quote)` at the top of every action that writes
+  Pattern 52 columns. Per Pattern 52 §0.5 protocol: brief's §0.5
+  verification includes explicit "does this write any Pattern 52
+  column?" check. Track compliance during Slice 13.
+
+- **"When you fix a display rule, grep for every surface applying
+  it"** (Q2 lesson).
+  #146 Step 7 walk fixed a `sent_at` rendering bug in ONE file;
+  Q2 (Step 10 walk) surfaced two sibling files with the same shape.
+  Same class as the "Mark Accepted →" label bug earlier. Rule:
+  after fixing a display rule, grep the codebase for every surface
+  applying that rule. Add to the walk-close checklist.
+
+  **Trigger:** any display-rule fix commit. Reviewer checklist:
+  "did we grep for siblings applying the same rule?"
+
 ## Slice 13 admin-surfaces BANK items (Slice 12 Step 10 §0.5)
 
 - **Stale `customer_accepted_tier_id` / `customer_response_channel`

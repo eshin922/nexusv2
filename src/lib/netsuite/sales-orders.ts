@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { createRecord, type NetsuiteConfig } from "./client";
+import { createRecord, getRecord, type NetsuiteConfig } from "./client";
 
 // Slice 12 Step 8c-3 — Sales Order payload builder + REST create.
 //
@@ -221,4 +221,43 @@ export async function createSalesOrder(
     config: args.config,
     idempotencyKey: args.idempotencyKey,
   });
+}
+
+/**
+ * Fetch a Sales Order's display tranId (e.g. "SO2697") given its
+ * internal id. NetSuite's REST POST returns only the internal id
+ * via the Location header; the human-readable tranId requires a
+ * follow-up GET.
+ *
+ * Slice 12 Step 10 Q15 (2026-07-29) — closes a "TODO written as
+ * statement of intent" gap:
+ *   mark-complete.ts:543 previously read
+ *     `salesOrderTranid = null; // caller can fetch tranId separately`
+ *   with no caller ever picking it up. Every completed quote shipped
+ *   with null tranid — the human-readable order reference PMs actually
+ *   use to find the SO in NetSuite.
+ *
+ * Returns the tranId as a string if the fetch + parse succeed,
+ * null on any failure (network, parse, missing field). Callers MUST
+ * treat null as diagnostic missing data — NOT as a reason to block
+ * the freeze-tx. Same rule as the amount-patch step: fetch is
+ * best-effort; complete never blocks on it.
+ */
+export async function fetchSalesOrderTranid(
+  internalId: string,
+  opts?: { config?: NetsuiteConfig },
+): Promise<string | null> {
+  try {
+    const rec = await getRecord<{ tranId?: unknown }>(
+      "salesOrder",
+      internalId,
+      opts,
+    );
+    if (rec && typeof rec.tranId === "string" && rec.tranId.trim() !== "") {
+      return rec.tranId.trim();
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

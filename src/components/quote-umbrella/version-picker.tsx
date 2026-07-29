@@ -95,8 +95,18 @@ export function VersionPicker({
       <div className="r8-vpick">
         {versions.map((v, idx) => {
           const tag = statusToTag(v.status);
-          const dateLabel = v.sentAt
-            ? `${shortDate(v.sentAt)} · sent`
+          // Slice 12 Step 10 Q2 — gate "sent" label on current row
+          // status. reviseQuote preserves quotes.sent_at post-revise
+          // (quotes.ts:1888) so a v2 draft row has v.sentAt populated
+          // holding v1's send date. Reading sentAt alone would render
+          // "Jul 29 · sent" next to the DRAFT tag — a live
+          // contradiction CB flagged. Rows sourced from
+          // quote_snapshots (fromSnapshot=true) are always historical
+          // sends and correctly show "sent". Current-quote-row rows
+          // check the row's own status.
+          const showSent = v.sentAt && (v.fromSnapshot || v.status !== "draft");
+          const dateLabel = showSent
+            ? `${shortDate(v.sentAt!)} · sent`
             : shortDate(v.createdAt);
           // Slice 12 Step 7c review-fix (CB P1) — snapshot rows come
           // from superseded quote_snapshots (post-Revise trail). They

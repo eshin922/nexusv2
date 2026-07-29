@@ -125,6 +125,7 @@ export function TabClientReview({
               version. */}
           {quoteStatus === "draft" && latestSupersededSnapshot && (
             <MismatchBanner
+              quoteId={quoteId}
               sentSnapshot={latestSupersededSnapshot}
               draftVersion={quoteVersionNumber}
               onGo={onGo}
