@@ -284,6 +284,7 @@ export function TabMarkAccepted({
                   quoteId={quoteId}
                   currentVersionNumber={quoteVersionNumber}
                   quoteNumber={quote.quoteNumber ?? quoteNumberDb}
+                  fromStatus="accepted"
                   disabled={isPending}
                   buttonLabel={`↺ Revise → v${quoteVersionNumber + 1}`}
                   buttonClassName="btn"
