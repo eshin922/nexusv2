@@ -200,19 +200,24 @@ operational pre-flight.)
   signals. Skip the dead ends (business_segment / class) and
   start with `project_service_s`.
 
-- **NetSuite Item Group SO attachment via REST PATCH — CLOSED (Probe 5)**
+- **NetSuite Item Group SO attachment — REOPENED, required for v1
+  (Probes 5 → 7 + Vu's finding)**
 
-  **Driver:** Slice 12 Step 8c-3 Probe 5 (2026-07-28).
+  **Driver:** Slice 12 Step 8c-3/4 investigation arc
+  (2026-07-28/29). This entry preserves the full reasoning trail
+  because the entry's value is the arc, not the endpoint — closed,
+  then reopened after diagnosing the actual error. Reader in six
+  months should see we were wrong first and why.
 
-  **The finding:** Following the SOAP-and-REST-both-refuse-at-
-  create probe (Assembly Migration entry below), Probe 5 tested
-  whether NetSuite's PATCH validator is more permissive than
-  POST — hypothesis being that the UI's "add group then price
-  members" flow might mirror a REST create-flat-then-PATCH-group
-  pattern. **It doesn't.**
+  ### Arc
 
-  Four PATCH variants tested against a successfully-POSTed flat
-  SO (customer 131860, group 64026, 3 leaf lines with rates):
+  **Probe 5 — PATCH refused. Believed closed.**
+  Following the earlier POST + SOAP probes, Probe 5 tested whether
+  NetSuite's PATCH validator was more permissive than POST —
+  hypothesis: UI's "add group then price members" flow might mirror
+  a REST create-flat-then-PATCH-group pattern. Four PATCH variants
+  against a successfully-POSTed flat SO (customer 131860, group
+  64026, 3 leaf lines with rates):
 
   ```
   B1 · APPEND     PATCH items=[flat×3, group]                → 400 at [3]
@@ -221,48 +226,150 @@ operational pre-flight.)
   B4 · REPLACE    PATCH items=[group-alone]                  → 400 at [0]
   ```
 
-  Every variant returns the identical `USER_ERROR: "Please enter
-  a value for Amount"` at the group's position in the items
-  array. **PATCH validator behaves IDENTICALLY to POST validator
-  on Item Group lines.**
+  Identical `USER_ERROR: "Please enter a value for Amount"` at the
+  group's position across all four. Combined with POST + SOAP,
+  concluded: "all API-surface paths for Item Group SO attachment
+  are closed; only SuiteScript's `record.create` accepts group
+  lines." **That conclusion was wrong.**
 
-  Combined with the earlier POST + SOAP probes, this closes ALL
-  API-surface paths for Item Group attachment to a Sales Order.
-  Only SuiteScript's `record.create` interactive-save code path
-  (behind the UI) accepts group lines on an SO.
+  **Probe 6 — the error message was diagnostic, not architectural.**
+  CA push-back — "diagnose the error, don't work around it" —
+  reopened the question. `"Please enter a value for Amount"` meant
+  exactly what it said. Three sub-probes:
 
-  **Implication for the Assembly Migration entry below:** the
-  Assembly path becomes even more clearly the durable answer.
-  Item Group primitives from Slice 12 Step 8c-1 stay live-tested
-  (`npm run smoke:netsuite-item-groups`) but only because the
-  Assembly migration might reuse them for Assembly find-or-create;
-  they cannot fill the SO-attachment role via any API surface.
+  - **6c** — read-only inspection of TCS-BAR-01's live members
+    (41350 · 21447 · 19840) showed EMPTY `/price` sub-collections
+    despite carrying UI-typed rates on the live SO's tx-lines. NS
+    UI populates rates on the tx-line side; API validator reads
+    item-side `/price` at parse time.
+  - **6b v4** — created a throwaway Item Group with a single member
+    that HAS a populated `/price` (item 2769, priceLevel=1/currency=1
+    = $6.884). Bare-group SO POST (zero rate on the group, no
+    member lines in payload) → **204 CREATED (SO 359847).**
+    Hypothesis confirmed: bare-group POST works when members are
+    item-level priced.
+  - **6d** — verified whether inline member rates on the request
+    substitute for item-level `/price` (they don't). Four variants
+    against real TCS-BAR-01 unpriced members; every group-line
+    variant refused; only the flat-lines control passed.
 
-- **NetSuite Assembly migration (v1.1+ candidate)**
+  **Diagnosis:** NetSuite's REST SO validator runs a "compute per-
+  line amount from group members" step atomically at parse time,
+  BEFORE reading inline `rate` or `amount` on member lines. When
+  members have populated `/price`, that step succeeds; when they
+  don't, it fails with the error we saw seven times across two
+  API surfaces.
 
-  **Driver:** Slice 12 Step 8c-3 REST + SOAP + PATCH probes (2026-07-28).
-  Slice 12 ships flat-lines-per-leaf on the NetSuite Sales Order
-  push because the Item Group SO-create path is closed at ALL API
-  surfaces (probed exhaustively — POST, SOAP add, PATCH APPEND,
-  PATCH REPLACE). This isn't a workaround — it's a signal that
-  the strategic answer is different from what Slice 12 originally
-  scoped.
+  **Probe 7 — POST bare-group → GET expandSubResources → PATCH each
+  member line works. $0.00 satisfies the validator.**
+  - **7a** — line rate does NOT override item price. Adding an
+    explicit member line alongside the group creates a DUPLICATE
+    line (both fire, totals double). Group rate on the group line
+    is ignored.
+  - **7b** — throwaway InvtPart with `/price = $0.00` accepted
+    (bare-group POST 204). `$0.00` is a legal, validator-satisfying
+    "no standing price yet" placeholder.
+  - **7d** — `PATCH /salesOrder/{id}/item/{lineIdx}` with `{rate: X}`
+    updates the auto-expanded member line IN PLACE (204, rate
+    changes, amount recomputed, no duplication). Full-sublist PATCH
+    duplicates; single-line PATCH is the safe shape.
 
-  **Five aligning points make the case (updated after Probe 5):**
+  **Vu's finding — the fix relocates upstream.**
+  NetSuite items are unpriced because the HubSpot products are
+  unpriced. The HubSpot → NetSuite sync propagates prices when
+  they exist; it can't invent them. Fix source shifts from
+  Nexus's payload shape to HubSpot's product-price backfill (see
+  the price-backfill directive, Probes 8a-d).
+
+  ### Current state — reopened, required for 1.0
+
+  **The Item Group wrap is customer-visible, not cosmetic** — it's
+  why the customer invoice shows one turnkey line at $X per unit
+  instead of freight / customs / setup components separately
+  (INV2978 canonical). Aisha wrapping manually post-SO-push
+  becomes structurally unnecessary once member prices exist.
+
+  **Three routes, none blocked:**
+  - **(a)** HubSpot product `price` backfill (Vu's tract). Every
+    HubSpot Product gets `hs_price = 0` where currently empty;
+    sync carries that to NetSuite. Recurring inflow: `mapLeaf
+    ToHubspotCreate` skips `price` by design (`src/lib/hubspot-
+    mapper.ts:20`) — one-line change adds `hs_price: 0`.
+  - **(b)** NetSuite-side batch update via SuiteQL / REST batch
+    (Vu's alternative if the HubSpot pipeline stops propagating
+    the value at scale). ~937 unpriced InvtPart items in scope
+    per Probe 8c.
+  - **(c)** Nexus-side per-SO PATCH of expanded member rates
+    (Probe 7d single-line PATCH pattern). More per-SO code but
+    doesn't require touching the catalog.
+
+  Route (a) is the cleanest — item pricing is a data attribute of
+  the item, not the order.
+
+  ### Lesson — bank explicitly
+
+  **A thorough elimination is not a diagnosis.** Seven payload
+  shapes across two API surfaces (Probes 5's PATCH ×4, plus the
+  earlier POST + SOAP + PATCH APPEND) looked definitive. The
+  conclusion drawn from them — "the API refuses Item Groups" —
+  was wrong. The error message named a missing field (`Amount`),
+  and that's what it was. When a system rejects something, explain
+  the stated reason before accepting any conclusion built on it.
+  Probe 5's "PATCH validator identical to POST" wasn't false —
+  it just wasn't the finding. Both validators refuse the same
+  input for the same reason; that's a data condition, not an
+  architectural one.
+
+  Applied elsewhere in this slice: the same discipline caught the
+  fixture-masked `accepted_tier_id` P0 (freeze-tx wrote every
+  visible column except the one Pattern 52 required).
+
+  ### Hazards banked from Probes 6-7 (grouped-SO implementation
+  contract when Route (a)/(b)/(c) lands)
+
+  1. **Sublist PATCH silently duplicates at 204.** `PATCH /salesOrder/
+     {id}` with `item.items=[group, member@rate, …]` returned 204
+     but ADDED a second full group expansion. 12 tx-lines total,
+     rollup doubled, no error surfaced. If any grouped-SO
+     implementation reaches for sublist PATCH instead of single-line
+     PATCH (`/item/{lineIdx}`), it ships wrong SOs that report as
+     successful. Must be structurally impossible in the
+     implementation — a code convention isn't enough.
+  2. **Partial-failure mid-sequence produces a valid-looking wrong
+     SO.** The write is [POST bare-group → GET expandSubResources →
+     N × PATCH member rates]. Crash between step 3.j and 3.j+1
+     leaves the SO created, group expanded, some members priced,
+     some at their `/price` value (which may be $0). Order looks
+     valid; nothing flags the drift. Recovery design: either
+     wrap the N PATCHes in a Nexus-level transaction with SO
+     delete on any failure, or read back `transactionline` via
+     SuiteQL post-PATCH and assert every expanded member carries
+     the intended rate before persisting `netsuite_so_pushes.
+     status='succeeded'`.
+
+- **NetSuite Assembly migration (v1.5 / v2.0 candidate)**
+
+  **Driver:** Slice 12 Step 8c-3/4 REST + SOAP + PATCH probes
+  (2026-07-28/29). Even with Item Group SO attachment reopened
+  via the priced-member route (see entry above), Assemblies remain
+  the durable strategic direction. This entry catalogues why.
+
+  **Five aligning points make the case (updated after Probes 5-7):**
 
   1. **NetSuite's API models Assemblies as first-class** — proven
      via Probe 4 (2026-07-28). REST POST of a SalesOrder with an
      Assembly line succeeds cleanly (204 CREATED, tx-line-level
      pricing, no "Please enter a value for Amount" error). SOAP
      analogously accepts them (post-entitlement).
-  2. **NetSuite's API refuses Item Groups on SOs at both REST
-     AND SOAP** — proven via Slice 12 Step 8c-3 SOAP re-run
-     probe (2026-07-28). Identical `USER_ERROR: "Please enter a
-     value for Amount"` at `item.items[0]` from both surfaces
-     with the same customer + group pair. Not a REST-specific
-     validator; a server-side SO validation constraint that only
-     the UI's SuiteScript `record.create` interactive-save code
-     path bypasses.
+  2. **Item Groups on SOs have a hidden data precondition** —
+     Probe 7 (2026-07-29) proved that REST accepts Item Group
+     lines when member items carry populated `/price` sub-
+     collections; refuses them at parse time when members are
+     unpriced. SOAP behaves identically. The UI's SuiteScript
+     `record.create` bypasses the parse-time check by populating
+     rates on the tx-line side during the interactive save.
+     Assemblies have no equivalent precondition — they price at
+     the assembly level, one line, no member-side dependency.
   3. **Nexus's ASY/LEAF model is assembly-shaped, not
      group-shaped** — parent SKU with children, qty_per_parent,
      roll-up pricing, cost + revenue decomposition. Assemblies
