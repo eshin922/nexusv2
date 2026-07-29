@@ -246,13 +246,18 @@ async function main() {
       }
     }
 
+    // CB round 1 P0 catch — fixture must mirror the real pre-send
+    // state: customer_accepted_tier_id populated (markAccepted set it),
+    // accepted_tier_id STAYS NULL until markComplete's freeze-tx
+    // writes it. The prior fixture pre-set both which masked the
+    // production defect that #148/round-1 walks never caught.
     await tx`
       UPDATE quotes SET
-        customer_accepted_tier_id = ${capturedTier.id},
-        accepted_tier_id = ${capturedTier.id}
+        customer_accepted_tier_id = ${capturedTier.id}
       WHERE id = ${q.id}
     `;
-    console.log(`      → captured & accepted tier: ${capturedTier.label} (${capturedTier.qty.toLocaleString()} units)`);
+    console.log(`      → captured tier: ${capturedTier.label} (${capturedTier.qty.toLocaleString()} units)`);
+    console.log(`      → accepted_tier_id INTENTIONALLY LEFT NULL — freeze-tx writes it on send (P0 fix)`);
 
     // Snapshot for Preview + review events for Client Review
     const [snap] = await tx`
@@ -390,7 +395,9 @@ async function main() {
           accepted_by_user_id: EDWARD_USER_ID,
           accept_source: 'manual_button',
           customer_accepted_tier_id: seeded.capturedTier.id,
-          accepted_tier_id: seeded.capturedTier.id,
+          // accepted_tier_id INTENTIONALLY absent — mirrors real
+          // markAccepted's audit shape (captures customer choice; the
+          // commitment column stays NULL until markComplete lands).
           customer_response_channel: 'email',
           hubspot: {
             deal_id: deal.id,
