@@ -30,7 +30,8 @@
 // Warn-tinted, not error-tinted: per R8 §5, "a draft leading a
 // sent version is a normal working state, not a fault."
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { resignSnapshotPdf } from "@/app/actions/quotes";
 import type { SentSnapshotRow } from "@/lib/quote-snapshots";
 import type { SubTabId } from "./subtabs";
 
@@ -39,27 +40,47 @@ function shortDate(d: Date): string {
 }
 
 export function MismatchBanner({
+  quoteId,
   sentSnapshot,
   draftVersion,
   onGo,
 }: {
+  /** Q4b — resignSnapshotPdf needs the quote id to look up the
+   * matching audit row. Snapshot rows carry it via quote_id but
+   * the SentSnapshotRow shape here doesn't expose it separately;
+   * parent passes it explicitly. */
+  quoteId: string;
   sentSnapshot: SentSnapshotRow;
   draftVersion: number;
   onGo: (id: SubTabId) => void;
 }) {
   const [dismissed, setDismissed] = useState(false);
+  const [resigning, startResigning] = useTransition();
+  const [resignError, setResignError] = useState<string | null>(null);
   if (dismissed) return null;
 
   const sentVersion = sentSnapshot.versionNumber;
 
   function viewSentPdf() {
+    setResignError(null);
+    // Q4b — try the snapshot's stored pdf_url first (Slice-11-Step-6+
+    // sends persist it; still-valid within 30 days of the send).
+    // On null/expired, fall through to resignSnapshotPdf which reads
+    // the storagePath from audit_log and re-signs a fresh 30-day URL.
+    // Falls back gracefully when the audit row lacks storagePath
+    // (pre-Slice-11-Step-6 legacy or fixture-seeded snapshots).
     if (sentSnapshot.pdfUrl) {
       window.open(sentSnapshot.pdfUrl, "_blank", "noopener,noreferrer");
-    } else {
-      window.alert(
-        "The sent PDF URL for that version isn't available (signed URLs expire after 30 days; the storage path is retained in audit_log for regeneration).",
-      );
+      return;
     }
+    startResigning(async () => {
+      const r = await resignSnapshotPdf(quoteId, sentVersion);
+      if (!r.ok) {
+        setResignError(r.error.message);
+        return;
+      }
+      window.open(r.data.url, "_blank", "noopener,noreferrer");
+    });
   }
 
   return (
@@ -79,19 +100,31 @@ export function MismatchBanner({
           again. Acceptance records against the version the customer actually
           saw.
         </p>
+        {resignError && (
+          <div
+            role="alert"
+            style={{
+              marginBottom: 8,
+              padding: "8px 10px",
+              background: "var(--bad-soft, var(--warn-soft))",
+              border: "1px solid var(--bad, var(--warn))",
+              borderRadius: 4,
+              fontSize: 12,
+              color: "var(--bad, var(--ink-2))",
+            }}
+            data-testid="mismatch-view-sent-error"
+          >
+            {resignError}
+          </div>
+        )}
         <div className="acts">
           <button
             className="btn sm"
             onClick={viewSentPdf}
-            disabled={!sentSnapshot.pdfUrl}
-            title={
-              sentSnapshot.pdfUrl
-                ? undefined
-                : "Sent PDF signed URL has expired (regenerable from audit_log storage_path)."
-            }
+            disabled={resigning}
             data-testid="mismatch-view-sent"
           >
-            View v{sentVersion} (sent)
+            {resigning ? "Loading…" : `View v${sentVersion} (sent)`}
           </button>
           {/* Q4a — Compare button hidden; see file header rationale. */}
           <button

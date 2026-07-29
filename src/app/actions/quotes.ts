@@ -3836,3 +3836,99 @@ export async function markComplete(
     };
   });
 }
+
+// Slice 12 Step 10 Q4b — re-sign a superseded snapshot's PDF.
+//
+// Signed URLs from Supabase Storage expire after 30 days. Sent
+// snapshots live forever (quote_snapshots row with pdf_url +
+// audit_log.diff_json.pdf.storagePath). This action reads the
+// storagePath from the corresponding quote_sent audit row and
+// re-signs a fresh 30-day URL — lets PMs view the version their
+// customer is currently looking at, even after the original URL
+// expired.
+//
+// Result shape:
+//   { ok: true, data: { url: string } }
+//   { ok: false, error.code: 'NOT_FOUND'          — no audit row
+//   { ok: false, error.code: 'PDF_UNRECOVERABLE'  — audit row exists
+//                                                   but no storagePath
+//                                                   (pre-Slice-11-Step-6
+//                                                   legacy or fixture-
+//                                                   seeded snapshot) }
+//   { ok: false, error.code: 'VALIDATION_ERROR'   — Storage re-sign
+//                                                   failed }
+//
+// Called by the mismatch banner's View v{N} (sent) button when the
+// snapshot's stored pdf_url is null/expired. Non-mutating; safe to
+// call on any authenticated session with quote access.
+export async function resignSnapshotPdf(
+  quoteId: string,
+  versionNumber: number,
+): Promise<ActionResult<{ url: string }>> {
+  return runAction(async () => {
+    await ensureUser();
+
+    // Look up the storagePath from the quote_sent audit row that
+    // matches this version. sendQuote writes versionNumber into
+    // diff_json (Slice 11 quote-number-continuity fix) + pdf.
+    // storagePath (Slice 11 Step 6). Both were retrofitted onto
+    // pre-versioning audit rows, so pre-Slice-11-Step-6 legacy
+    // rows may lack either. Filter for the presence of
+    // pdf.storagePath and match versionNumber; fall back to the
+    // most-recent row when versionNumber isn't recorded in
+    // diff_json (best-effort).
+    const rows = await db
+      .select({ diffJson: auditLog.diffJson, createdAt: auditLog.createdAt })
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.entityType, "quote"),
+          eq(auditLog.entityId, quoteId),
+          eq(auditLog.action, "quote_sent"),
+        ),
+      )
+      .orderBy(desc(auditLog.createdAt));
+
+    // Match versionNumber if diff_json carries it; else fall back
+    // to most-recent send (pre-versioning audit rows).
+    const match = rows.find((r) => {
+      const dj = r.diffJson as { versionNumber?: number } | null;
+      return dj && typeof dj.versionNumber === "number"
+        ? dj.versionNumber === versionNumber
+        : false;
+    }) ?? rows[0];
+
+    if (!match) {
+      throw new ActionGuardError(
+        ERR.NOT_FOUND,
+        "This version's send record couldn't be located.",
+      );
+    }
+
+    const dj = match.diffJson as
+      | { pdf?: { bucket?: string; storagePath?: string } }
+      | null;
+    const storagePath = dj?.pdf?.storagePath;
+    const bucket = dj?.pdf?.bucket ?? QUOTE_PDFS_BUCKET;
+
+    if (!storagePath || typeof storagePath !== "string") {
+      throw new ActionGuardError(
+        "PDF_UNRECOVERABLE",
+        "This version's PDF is no longer retrievable — it predates our current PDF archive. New sends after v1.2 keep a permanent copy.",
+      );
+    }
+
+    const supabase = getSupabaseServer();
+    const signed = await supabase.storage
+      .from(bucket)
+      .createSignedUrl(storagePath, 60 * 60 * 24 * 30);
+    if (signed.error || !signed.data?.signedUrl) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Couldn't re-sign the PDF URL: ${signed.error?.message ?? "no url"}`,
+      );
+    }
+
+    return { url: signed.data.signedUrl };
+  });
+}
