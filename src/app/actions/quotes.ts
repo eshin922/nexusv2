@@ -1919,6 +1919,47 @@ export async function reviseQuote(
         },
       });
 
+      // Slice 12 Step 10 Q10 — Client Review feed entry for the
+      // revise transition. Pre-Q10 the feed showed nothing when a PM
+      // revised, so the log read as an unexplained gap between
+      // "sent" and the next "sent" (or, for revise-from-accepted, a
+      // rollback with no follow-up). Now the transition is legible
+      // on the feed. Mirror to audit_log per §5.1 R3 amendment 1.
+      //
+      // eventType='responded' follows the unmarkAccepted precedent
+      // (:2529) — enum-loose convention for system-generated state-
+      // transition entries; the note carries the specific verb.
+      // For revise-from-accepted, unmarkAccepted already wrote its
+      // own 'Acceptance rolled back' entry (system=true); this
+      // entry follows chronologically with the draft-transition
+      // detail.
+      const [reviseEvent] = await tx
+        .insert(quoteReviewEvents)
+        .values({
+          quoteId,
+          versionNumber: newVersion,
+          eventType: "responded",
+          note: `Revised at v${priorVersion} → returned to editable draft as v${newVersion}.`,
+          authorUserId: null,
+          system: true,
+        })
+        .returning({ id: quoteReviewEvents.id });
+
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote_review_event",
+        entityId: reviseEvent.id,
+        action: "quote_review_event_added",
+        diffJson: {
+          quoteId,
+          versionNumber: newVersion,
+          eventType: "responded",
+          system: true,
+          note: `Revised at v${priorVersion} → returned to editable draft as v${newVersion}.`,
+          source: "revise_auto_log",
+        },
+      });
+
       return {
         newVersionNumber: newVersion,
         supersededSnapshotId: superseded?.id ?? null,

@@ -21,14 +21,26 @@
 //     rendered inline next to the summary (same visual register as
 //     the disabled-reason banner). PM decides whether to retry
 //     (button re-enables) or cancel back to the failed-tab.
+//
+// Slice 12 Step 10 Q11 (2026-07-29) — wrapped in the standard
+// portal-backed Modal shell. Pre-Q11 the confirm content rendered
+// as an inline .modal-scrim div INSIDE the SO tab tree — not
+// portaled, so the AdvanceBar's Send button behind it stayed in
+// the DOM (visible + technically reachable at the wrong z-index
+// stack). CB flagged "two live Send buttons visible at once on the
+// irreversible action." Now portaled via <Modal> → the tab body
+// is out of the interactive tree while the confirm sits in the
+// document.body layer.
 
 import type { ReactNode } from "react";
+import { Modal } from "@/components/modal/modal";
 
 function usd(n: number, dec = 0): string {
   return "$" + n.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
 }
 
 export function SendOrderModal({
+  open,
   customerName,
   tierLabel,
   netsuiteCustomerId,
@@ -43,6 +55,10 @@ export function SendOrderModal({
   onClose,
   onConfirm,
 }: {
+  /** Q11 — parent-controlled open state; Modal handles portal +
+   * Escape + scrim-click. Was previously conditionally-rendered by
+   * the parent, which forced this component to own the scrim div. */
+  open: boolean;
   customerName: string;
   tierLabel: string;
   /** NetSuite account id resolved by the parent via preflight
@@ -71,10 +87,13 @@ export function SendOrderModal({
   onConfirm: () => void;
 }) {
   const buttonsLocked = disabled || sending;
+  // Sending state locks close-on-scrim-click too — closing the modal
+  // mid-flight would strand the server work. Matches the Cancel
+  // button's own `disabled={sending}` treatment.
+  const modalClose = sending ? () => {} : onClose;
   return (
-    <div className="modal-scrim" onClick={onClose}>
+    <Modal open={open} onClose={modalClose} size="lg">
       <div
-        className="modal"
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: 560 }}
       >
@@ -258,7 +277,7 @@ export function SendOrderModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

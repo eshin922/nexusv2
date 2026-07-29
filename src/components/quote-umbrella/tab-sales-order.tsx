@@ -876,27 +876,32 @@ export function TabSalesOrder({
         </>
       )}
 
-      {modal && (
-        <SendOrderModal
-          customerName={view.customer.name ?? "the customer"}
-          tierLabel={carriedTier.label}
-          netsuiteCustomerId={netsuiteCustomerForReceipt.id}
-          netsuiteStatusOnPush={netsuiteStatusOnPush}
-          totalAmount={total}
-          productLineCount={lines.length}
-          oneTimeCount={oneTime.length}
-          disabled={sendDisabled}
-          disabledReason={disabledReason || undefined}
-          sending={isPending}
-          inFlightError={inFlightError}
-          onClose={() => {
-            if (isPending) return;
-            setModal(false);
-            setInFlightError(null);
-          }}
-          onConfirm={onConfirm}
-        />
-      )}
+      {/* Q11 — SendOrderModal is now portal-backed via <Modal>.
+          Rendered unconditionally; `open` controls visibility so the
+          Modal's Escape + scrim-click + mount lifecycle work cleanly.
+          Prior conditional-render pattern forced the modal to own
+          its own scrim div (inline, not portaled) — CB flagged
+          "two live Send buttons visible at once." */}
+      <SendOrderModal
+        open={modal}
+        customerName={view.customer.name ?? "the customer"}
+        tierLabel={carriedTier.label}
+        netsuiteCustomerId={netsuiteCustomerForReceipt.id}
+        netsuiteStatusOnPush={netsuiteStatusOnPush}
+        totalAmount={total}
+        productLineCount={lines.length}
+        oneTimeCount={oneTime.length}
+        disabled={sendDisabled}
+        disabledReason={disabledReason || undefined}
+        sending={isPending}
+        inFlightError={inFlightError}
+        onClose={() => {
+          if (isPending) return;
+          setModal(false);
+          setInFlightError(null);
+        }}
+        onConfirm={onConfirm}
+      />
     </div>
   );
 }
