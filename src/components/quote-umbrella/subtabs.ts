@@ -106,7 +106,20 @@ export function subTabSubLabel(
   tab: SubTabDef,
   status: SubTabStatus,
 ): string {
-  if (status === "locked") return "locked";
+  // Slice 12 Step 9 CD audit Item 3 — lock-kind tab's post-commit
+  // sub-label reads "order placed" instead of the generic "locked".
+  // Sibling tabs (Preview / Send / Client Review / Mark Accepted)
+  // keep "locked" — Pattern 52 freeze applies uniformly to them but
+  // "order placed" is what the SALES ORDER tab specifically records:
+  // the SO landed in NetSuite and the umbrella flipped to complete.
+  //
+  // Interpretation note (2026-07-29): CA's directive said "on the
+  // lock tab in done." Read literally, `done` means the tab is
+  // reachable + the quote is accepted (SO NOT yet placed); "order
+  // placed" would be false in that state. Applied to `locked`
+  // (post-commit) instead — where it's semantically true. If CA
+  // meant `done` literally, the fix moves one branch up.
+  if (status === "locked") return tab.kind === "lock" ? "order placed" : "locked";
   // Slice 12 Step 8b · CB P4 fix — unify the lock tab's sub-label
   // across current + done to "ready to send". Prior state emitted
   // "ready to send" when active and "ready · irreversible" when
