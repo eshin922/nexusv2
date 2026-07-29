@@ -306,12 +306,15 @@ async function provision(): Promise<Fixture> {
       ON CONFLICT (hubspot_company_id) DO NOTHING
     `;
 
-    // Set accepted_tier_id BEFORE we compute costing so the tier
-    // rollup lookup can find it.
+    // Mirror real markAccepted state: customer_accepted_tier_id
+    // populated at acceptance; accepted_tier_id STAYS NULL until
+    // markComplete's freeze-tx writes it (CB round-1 P0 catch,
+    // 2026-07-29). The smoke fixture pre-set both prior to the fix,
+    // which masked the production defect where markComplete would
+    // throw "no accepted_tier_id set" on any real send.
     await tx`
       UPDATE quotes SET
         customer_response_channel = 'email',
-        accepted_tier_id = ${capturedTier.id},
         customer_accepted_tier_id = ${capturedTier.id}
       WHERE id = ${q.id}
     `;

@@ -110,9 +110,24 @@ export async function runMarkComplete(
       `markComplete only fires on 'accepted' quotes; current state: '${quote.status}'.`,
     );
   }
-  if (!quote.acceptedTierId) {
+
+  // Choice / commitment split per R9 §6 LOAD-BEARING #1:
+  //   customer_accepted_tier_id — the tier the customer NAMED at
+  //     acceptance (captured by markAccepted).
+  //   accepted_tier_id          — the tier the PM COMMITTED to at
+  //     the lock. NULL pre-send in v1 (no separate commit UI).
+  //     Populated INSIDE this tx's freeze step so post-send both
+  //     columns carry the committed tier.
+  //
+  // Effective read: PM override wins (accepted_tier_id set) →
+  // fall back to customer choice. v1 no-override path always
+  // falls back; v1.1+ override affordance will pre-write
+  // accepted_tier_id and this precedence picks it up.
+  const effectiveAcceptedTierId =
+    quote.acceptedTierId ?? quote.customerAcceptedTierId;
+  if (!effectiveAcceptedTierId) {
     throw new Error(
-      "Quote is accepted but has no accepted_tier_id set — cannot proceed.",
+      "Quote is accepted but has neither customer_accepted_tier_id nor accepted_tier_id set — cannot proceed.",
     );
   }
 
@@ -123,7 +138,7 @@ export async function runMarkComplete(
       qty: quoteTiers.qty,
     })
     .from(quoteTiers)
-    .where(and(eq(quoteTiers.id, quote.acceptedTierId), eq(quoteTiers.quoteId, quoteId)))
+    .where(and(eq(quoteTiers.id, effectiveAcceptedTierId), eq(quoteTiers.quoteId, quoteId)))
     .limit(1);
   if (!tierRow) {
     throw new Error(
@@ -137,7 +152,7 @@ export async function runMarkComplete(
   }
 
   const tierRollup = bundle.data.costing.quoteRollup.find(
-    (r) => r.tierId === quote.acceptedTierId,
+    (r) => r.tierId === effectiveAcceptedTierId,
   );
   if (!tierRollup) {
     throw new Error(
@@ -295,7 +310,7 @@ export async function runMarkComplete(
     .where(
       and(
         eq(netsuiteSoPushes.quoteId, quoteId),
-        eq(netsuiteSoPushes.acceptedTierId, quote.acceptedTierId),
+        eq(netsuiteSoPushes.acceptedTierId, effectiveAcceptedTierId),
         eq(netsuiteSoPushes.status, "succeeded"),
       ),
     )
@@ -351,7 +366,7 @@ export async function runMarkComplete(
     //     assembly's tier total)
     // Sum of all leaf-line amounts = tier's totalRevenue by
     // construction, so accountingly the SO balances to Nexus's math.
-    const tierId = quote.acceptedTierId;
+    const tierId = effectiveAcceptedTierId;
     const leafRollups = bundle.data.costing.skuRollups.filter(
       (r) => r.skuRole === "leaf",
     );
@@ -418,7 +433,7 @@ export async function runMarkComplete(
 
     const idempotencyKey = computeIdempotencyKey(
       quoteId,
-      quote.acceptedTierId,
+      effectiveAcceptedTierId,
       payload,
     );
 
@@ -432,7 +447,7 @@ export async function runMarkComplete(
         .insert(netsuiteSoPushes)
         .values({
           quoteId,
-          acceptedTierId: quote.acceptedTierId,
+          acceptedTierId: effectiveAcceptedTierId,
           status: "pending",
           idempotencyKey,
           amountPushed: String(currentAmount),
@@ -458,20 +473,40 @@ export async function runMarkComplete(
       // NS create failed. Update the pending row (if we managed to
       // write it) to failed status with error detail. Then throw.
       const err = e instanceof NetsuiteError ? e : null;
+      const failedAt = new Date();
+      const errClass = err?.className ?? "unknown";
+      const errDetail = err?.context.detail ?? String(e);
       if (pendingId) {
         try {
           await db
             .update(netsuiteSoPushes)
             .set({
               status: "failed",
-              errorClass: err?.className ?? "unknown",
-              errorDetail: err?.context.detail ?? String(e),
-              completedAt: new Date(),
+              errorClass: errClass,
+              errorDetail: errDetail,
+              completedAt: failedAt,
             })
             .where(eq(netsuiteSoPushes.id, pendingId));
         } catch {
           // secondary write failed — original throw is the real error
         }
+      }
+      // Slice 12 Step 8c-4 — mirror failure state onto the quote row
+      // so the /quote page's Sales Order tab reads the failed variant
+      // across page reloads without a join to netsuite_so_pushes.
+      // Non-fatal — if this write fails, netsuite_so_pushes still
+      // carries the row; preflight loader reads either source.
+      try {
+        await db
+          .update(quotesTable)
+          .set({
+            netsuiteSoPushStatus: "failed",
+            netsuiteSoPushError: errDetail,
+            updatedAt: failedAt,
+          })
+          .where(eq(quotesTable.id, quoteId));
+      } catch {
+        // non-fatal — preflight reads netsuite_so_pushes as fallback
       }
       throw e;
     }
@@ -521,7 +556,7 @@ export async function runMarkComplete(
         .where(
           and(
             eq(netsuiteSoPushes.quoteId, quoteId),
-            eq(netsuiteSoPushes.acceptedTierId, quote.acceptedTierId),
+            eq(netsuiteSoPushes.acceptedTierId, effectiveAcceptedTierId),
             eq(netsuiteSoPushes.idempotencyKey, idempotencyKey),
             eq(netsuiteSoPushes.status, "pending"),
           ),
@@ -543,7 +578,7 @@ export async function runMarkComplete(
         // Truly fresh — no prior pending row exists.
         await db.insert(netsuiteSoPushes).values({
           quoteId,
-          acceptedTierId: quote.acceptedTierId,
+          acceptedTierId: effectiveAcceptedTierId,
           status: "succeeded",
           idempotencyKey,
           netsuiteSoId: salesOrderInternalId,
@@ -560,12 +595,28 @@ export async function runMarkComplete(
   // ============================================================
   // STEP 9 — DB tx: freeze + status='complete' + audit
   // ============================================================
+  // Writes accepted_tier_id INSIDE the tx per R9 §6 LOAD-BEARING #1
+  // (choice/commitment split — accepted_tier_id is the commitment
+  // record). Pre-send in v1: NULL. Post-send: populated with the
+  // effective tier (customer choice unless v1.1+ override wrote a
+  // different one pre-send). Also on Pattern 52's freeze list.
+  //
+  // If a PM override affordance lands v1.1+ and pre-writes
+  // accepted_tier_id, this line is idempotent — writing the same
+  // value that's already there. Only when accepted_tier_id was NULL
+  // (v1 no-override path) does this line actually persist the
+  // commitment. Audit row's diff_json carries both the from-state
+  // (accepted_tier_id_before) and the to-state so the choice/
+  // commitment split — including override divergence — is
+  // forensically visible.
   const completedAt = new Date();
+  const acceptedTierIdBefore = quote.acceptedTierId ?? null;
   await db.transaction(async (tx) => {
     await tx
       .update(quotesTable)
       .set({
         status: "complete",
+        acceptedTierId: effectiveAcceptedTierId,
         netsuiteSoId: salesOrderInternalId,
         netsuiteSoTranid: salesOrderTranid,
         netsuitePushedAt: completedAt,
@@ -583,8 +634,13 @@ export async function runMarkComplete(
       diffJson: {
         from_status: "accepted",
         to_status: "complete",
-        accepted_tier_id: quote.acceptedTierId,
+        accepted_tier_id_before: acceptedTierIdBefore,
+        accepted_tier_id_after: effectiveAcceptedTierId,
+        customer_accepted_tier_id: quote.customerAcceptedTierId,
         accepted_tier_label: tierRow.label,
+        override_applied:
+          acceptedTierIdBefore !== null &&
+          acceptedTierIdBefore !== quote.customerAcceptedTierId,
         amount_pushed: currentAmount,
         retry_outcome: retryOutcome,
         netsuite: {

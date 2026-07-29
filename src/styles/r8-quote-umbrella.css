@@ -509,6 +509,22 @@
 }
 .r8-adv-btn.heavy:hover { background: oklch(0.20 0.02 255); }
 .r8-adv-btn.heavy .lock { font-size: 12px; opacity: 0.9; }
+/* Slice 12 Step 8c-4 CB P1 — strengthen disabled visual on the
+   heavy slab. Base .r8-adv-btn:disabled sets opacity 0.5, which on
+   a dark ceremonial slab still reads as "primary CTA, just dimmer."
+   Override to a MUTED slab with the seal-ring dropped so the
+   asymmetry is unmistakable: heavy-enabled = weighted / ready,
+   heavy-disabled = muted / cannot press. Hover suppressed so the
+   button doesn't dance under a stuck cursor. */
+.r8-adv-btn.heavy:disabled,
+.r8-adv-btn.heavy:disabled:hover {
+  background: oklch(0.55 0.01 255);
+  border-color: oklch(0.55 0.01 255);
+  color: oklch(0.92 0.01 90);
+  opacity: 1;
+  box-shadow: none;
+  cursor: not-allowed;
+}
 .r8-advance.heavy { border-top-width: 2px; border-top-color: oklch(0.26 0.02 255); }
 .r8-advance.heavy .cap { color: var(--bad); }
 

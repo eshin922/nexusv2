@@ -1,6 +1,6 @@
 "use client";
 
-// Slice 12 Step 8b — Send order confirm modal.
+// Slice 12 Step 8c-4 — Send order confirm modal.
 // Pattern 30 port of R9 canonical SendOrderModal
 // (docs/design-prototypes/dist/round-9/app/r9/ceremony.jsx:337-380).
 //
@@ -10,12 +10,17 @@
 // reversible." Primary CTA is the dark-slab heavy button matching
 // the AdvanceBar's irreversible-act treatment.
 //
-// Step 8b scope: modal renders + closes fidelity-perfect but its
-// confirm callback is INERT (fires a no-op onConfirm). The parent
-// TabSalesOrder wires the CTA's `disabled` attribute so the button
-// is un-pressable while the NetSuite write path is stubbed. When
-// 8c lands markComplete, the parent flips `disabled=false` and the
-// onConfirm callback dispatches the real server action.
+// 8c-4 additions (Nexus adaptations — fidelity manifest item):
+//   - `sending` state — the confirm button becomes non-pressable
+//     while markComplete is in flight; the label reads "Sending…"
+//     Cancel is also locked (closing mid-flight would strand the
+//     server work). Not in R9 canon; needed because the write is
+//     now a real network call, not an inert stub.
+//   - `inFlightError` — when the server action returns a
+//     structured error, the modal keeps itself open with the error
+//     rendered inline next to the summary (same visual register as
+//     the disabled-reason banner). PM decides whether to retry
+//     (button re-enables) or cancel back to the failed-tab.
 
 import type { ReactNode } from "react";
 
@@ -33,32 +38,39 @@ export function SendOrderModal({
   oneTimeCount,
   disabled,
   disabledReason,
+  sending,
+  inFlightError,
   onClose,
   onConfirm,
 }: {
   customerName: string;
   tierLabel: string;
-  /** Slice 12 Step 8b — NetSuite account id stub; real value arrives
-   * in 8c via the NetSuite customer-match resolution. Rendered
-   * verbatim in the modal summary card. */
+  /** NetSuite account id resolved by the parent via preflight
+   * (netsuite_customer_map). Rendered verbatim in the summary. */
   netsuiteCustomerId: string;
-  /** Slice 12 Step 8b — NetSuite status the SO is created at (per
-   * firm config; expected 'Pending Fulfillment'). Rendered in the
-   * mono meta line + the primary consequence list item. */
+  /** firm_settings.netsuite_so_status_on_create effective value
+   * (e.g. 'Pending Fulfillment'). Server-resolved by page.tsx. */
   netsuiteStatusOnPush: string;
   totalAmount: number;
   productLineCount: number;
   oneTimeCount: number;
-  /** Slice 12 Step 8b — CA amendment 5: two independent disable
-   * reasons (Step 8c stub + below-floor gate) combine into this
-   * prop. The parent computes the effective disabled state; this
-   * modal renders the disabled visual + shows the reason inline
-   * under the CTA when disabled. */
+  /** Aggregate disabled state from the parent. Compound reasons
+   * (below-floor + unmapped customer + no HubSpot company) collapse
+   * into a single string rendered inline under the CTA. */
   disabled: boolean;
   disabledReason?: string;
+  /** Slice 12 Step 8c-4 — markComplete is in flight. Locks both
+   * buttons (cancel included — closing mid-flight would strand the
+   * server work). Label reads "Sending…". */
+  sending: boolean;
+  /** Slice 12 Step 8c-4 — the server action returned an error on
+   * the last attempt. Rendered inline; button re-enables so the
+   * PM can retry after reading the message. */
+  inFlightError: string | null;
   onClose: () => void;
   onConfirm: () => void;
 }) {
+  const buttonsLocked = disabled || sending;
   return (
     <div className="modal-scrim" onClick={onClose}>
       <div
@@ -189,23 +201,60 @@ export function SendOrderModal({
               {disabledReason}
             </p>
           )}
+          {inFlightError && (
+            <p
+              style={{
+                margin: "10px 0 0",
+                padding: "10px 12px",
+                background: "var(--bad-soft, var(--warn-soft))",
+                border: "1px solid var(--bad, var(--warn))",
+                borderRadius: 6,
+                fontSize: 12,
+                color: "var(--bad-ink, var(--ink))",
+                lineHeight: 1.55,
+                whiteSpace: "pre-wrap",
+              }}
+              data-testid="send-order-modal-inflight-error"
+            >
+              <strong
+                style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 10.5,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  marginRight: 8,
+                  display: "block",
+                  marginBottom: 4,
+                }}
+              >
+                Send failed
+              </strong>
+              {inFlightError}
+            </p>
+          )}
         </div>
         <div className="modal-foot">
           <button
             className="btn ghost"
             onClick={onClose}
+            disabled={sending}
             data-testid="send-order-modal-cancel"
           >
-            Cancel — keep it reversible
+            {inFlightError ? "Close — retry from the tab" : "Cancel — keep it reversible"}
           </button>
           <button
             className="r8-adv-btn heavy"
             onClick={onConfirm}
-            disabled={disabled}
+            disabled={buttonsLocked}
             data-testid="send-order-modal-confirm"
             title={disabled ? disabledReason : undefined}
           >
-            <span className="lock">🔒</span> Send order to NetSuite
+            <span className="lock">🔒</span>{" "}
+            {sending
+              ? "Sending…"
+              : inFlightError
+                ? "Retry — send order to NetSuite"
+                : "Send order to NetSuite"}
           </button>
         </div>
       </div>

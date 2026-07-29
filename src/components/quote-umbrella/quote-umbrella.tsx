@@ -24,6 +24,7 @@ import type { ReviewEventRow } from "@/lib/quote-review-events";
 import type { SentSnapshotRow } from "@/lib/quote-snapshots";
 import type { VersionRow } from "@/lib/quote-version-chain";
 import type { QuotePerTierRollup } from "@/lib/costing";
+import type { PreflightResult } from "@/lib/netsuite/sales-order-preflight";
 import { SubTabStrip } from "./sub-tab-strip";
 import { Legend } from "./legend";
 import { QuoteAxisProvider } from "./quote-axis-context";
@@ -48,6 +49,9 @@ export function QuoteUmbrella({
   acceptancePrefill,
   hubspotAcceptStageLabel,
   hubspotPushedAmount,
+  netsuiteStatusOnPush,
+  salesOrderPreflight,
+  soPushMirror,
   showStateSwitcher,
   allowSimulatedComplete,
   internalNotes,
@@ -121,6 +125,29 @@ export function QuoteUmbrella({
    * Order tab falls back to the carried tier's totalRevenue
    * (structurally the same figure per PR #147 derivation trace). */
   hubspotPushedAmount: number | null;
+  /** Slice 12 Step 8c-4 — effective firm_settings.netsuite_so_status_on_create
+   * value ("Pending Fulfillment" for DPS). Was hardcoded on the Sales
+   * Order tab pre-8c-4; now server-resolved so the receipt + confirm
+   * modal reflect the firm's actual configuration. */
+  netsuiteStatusOnPush: string;
+  /** Slice 12 Step 8c-4 — pre-flight state for the Sales Order tab.
+   * Null when the quote's status isn't accepted/complete (tab is
+   * unreachable in that state; skipping the DB reads is a minor
+   * optimization). Preflight covers: customer-map resolution,
+   * ship-to line, latest netsuite_so_pushes row (for failed-state
+   * re-renders). */
+  salesOrderPreflight: PreflightResult | null;
+  /** Slice 12 Step 8c-4 — quote row's mirror of the last SO push.
+   * Populated on success (freeze-tx) OR failure (STEP 7 catch).
+   * Drives the record vs failed variant selection on the Sales
+   * Order tab across page reloads. */
+  soPushMirror: {
+    soId: string | null;
+    soTranid: string | null;
+    pushedAt: Date | null;
+    pushStatus: string | null;
+    pushError: string | null;
+  };
   showStateSwitcher: boolean;
   /** Slice 12 Step 8b · CB P2 fix — hard-guard on the strip-state
    * simulation. Computed server-side in page.tsx from VERCEL_ENV so
@@ -316,7 +343,19 @@ export function QuoteUmbrella({
               quoteRollup={quoteRollup}
               hubspotAcceptStageLabel={hubspotAcceptStageLabel}
               hubspotPushedAmount={hubspotPushedAmount}
-              showStateSwitcher={showStateSwitcher}
+              netsuiteStatusOnPush={netsuiteStatusOnPush}
+              salesOrderPreflight={salesOrderPreflight}
+              soPushMirror={soPushMirror}
+              /* Slice 12 Step 8c-4 — hard-guard the Sales Order dev
+                 switcher on VERCEL_ENV !== 'production' (via
+                 allowSimulatedComplete) alongside the soft
+                 showStateSwitcher gate. Since 8c-4 the write path
+                 is live; every dev-switcher variant (pending / failed
+                 / record) must be hard-blocked in production even
+                 when a curious PM adds ?dev=1. Matches the #148
+                 pattern extended from the record-only guard to the
+                 whole variant switcher. */
+              showStateSwitcher={showStateSwitcher && allowSimulatedComplete}
               onGo={onGo}
             />
           )}
