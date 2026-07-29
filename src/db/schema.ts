@@ -454,6 +454,14 @@ export const quotes = pgTable(
     netsuitePushedAt: timestamp("netsuite_pushed_at", {
       withTimezone: true,
     }),
+    // Slice 12 Step 8c-3 additions — mirror the SO's display id +
+    // last-push status/error onto the quote row for fast reads by
+    // sub-tab 5's success/failure surface (avoids joining to
+    // netsuite_so_pushes for every render). netsuite_so_pushes remains
+    // the source of truth for retry-idempotency + audit trail.
+    netsuiteSoTranid: text("netsuite_so_tranid"),
+    netsuiteSoPushStatus: text("netsuite_so_push_status"),
+    netsuiteSoPushError: text("netsuite_so_push_error"),
     // Slice 12 Step 7b fix-pass (CA review Item #1) — durable
     // pre-write for HubSpot from_stage capture. Populated OUTSIDE
     // the markAccepted tx BEFORE the HubSpot deal-stage push fires;
@@ -814,6 +822,24 @@ export const firmSettings = pgTable(
     netsuiteSoStatusOnCreate: text("netsuite_so_status_on_create")
       .notNull()
       .default("Pending Fulfillment"),
+    // Slice 12 Step 8c-3 — NetSuite SO write-time defaults confirmed
+    // via 2026-07-28 sandbox probe against SO2646:
+    //   • orderStatus = 'B' (single-letter code for "Pending Fulfillment")
+    //   • subsidiary = 2 (The DPS, Inc.; sandbox single-subsidiary)
+    // Configurable per firm; markComplete reads the current row.
+    netsuiteSubsidiaryId: text("netsuite_subsidiary_id")
+      .notNull()
+      .default("2"),
+    // Q4 REVISED (CA 2026-07-28): NetSuite tax engine derives per-line
+    // tax from customer + ship-to; hardcoding overrides correct
+    // behavior on the exact lines most likely to need it (OTC/tooling
+    // for out-of-state customers). Column stays as an override escape
+    // hatch — null (default) means "let NetSuite derive"; admin sets
+    // it only if the engine ever misbehaves.
+    netsuiteDefaultTaxCodeId: text("netsuite_default_tax_code_id"),
+    netsuiteSoOrderStatusCode: text("netsuite_so_order_status_code")
+      .notNull()
+      .default("B"),
     effectiveFrom: date("effective_from").notNull().default(sql`CURRENT_DATE`),
     effectiveUntil: date("effective_until"),
     updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
@@ -2280,6 +2306,121 @@ export const netsuiteItemGroups = pgTable(
     index("netsuite_item_groups_customer_base_sku_idx").on(
       t.customerNetsuiteId,
       t.baseSku,
+    ),
+  ],
+);
+
+// ---------- netsuite_customer_map (Slice 12 Step 8c-3, option B') ----------
+
+// Per CA disposition 2026-07-28: Nexus resolves HubSpot company →
+// NetSuite customer via a Nexus-owned mapping table, not a fuzzy
+// name-match. Rationale: 9 real customers across all active projects
+// (probe 2026-07-28); NetSuite has 0 custentity fields carrying
+// HubSpot company id; company names in NetSuite carry DBA/suffix
+// variance that would poison a name-match. A one-time admin backfill
+// eliminates the resolver entirely.
+//
+// Aisha seeds this once via /admin/netsuite-customer-map; new rows
+// added incrementally as new customers appear. Cache-hit is
+// deterministic; miss BLOCKS markComplete with a specific message
+// naming the HubSpot company + admin URL (CA discipline: never a
+// silent picking).
+//
+// netsuite_customer_display_name is ADVISORY ONLY — human-legibility
+// so admins recognize which customer is mapped. Never used as a match
+// key. Same rule as Item Group description (Pattern 30 · immutability
+// via draft-lock).
+//
+// No delete — mappings are historically anchored. An SO pushed against
+// customer 131860 stays pushed. Edits go through the changed-audit
+// flow (see admin actions / `netsuite_customer_map_changed` audit
+// action).
+export const netsuiteCustomerMap = pgTable(
+  "netsuite_customer_map",
+  {
+    hubspotCompanyId: text("hubspot_company_id").primaryKey(),
+    netsuiteCustomerId: text("netsuite_customer_id").notNull(),
+    netsuiteCustomerDisplayName: text("netsuite_customer_display_name"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    verifiedByUserId: uuid("verified_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Fast reverse lookup (any admin surface "which HubSpot company
+    // is mapped to NS customer 131860?") in addition to the PK.
+    index("netsuite_customer_map_ns_id_idx").on(t.netsuiteCustomerId),
+  ],
+);
+
+// ---------- netsuite_so_pushes (Slice 12 Step 8c-3) ----------
+
+// SO push idempotency + retry-audit source of truth. Per CA
+// Amendment A: markComplete CHECKS this table BEFORE any NetSuite
+// write (not just relying on the unique constraint to reject).
+// #145 poisoning precedent applied.
+//
+// Retry convergence path (CA's "case I'll look hardest at"):
+//   1. markComplete attempt 1: guards pass, groups created, SO create
+//      succeeds (row inserted with status='succeeded'), freeze-tx
+//      CRASHES.
+//   2. markComplete attempt 2: reads this table, finds the succeeded
+//      row for (quote_id, accepted_tier_id) → skips SO create entirely,
+//      jumps to freeze-tx step 9 with the stored so_id. No duplicate SO.
+//
+// Partial unique index on (quote_id, accepted_tier_id) WHERE
+// status='succeeded' — belt-and-suspenders backstop against the CHECK.
+// Failed/pending rows don't block; only a second SUCCESS would.
+//
+// idempotency_key mirrors the NetSuite REST X-NetSuite-Idempotency-Key
+// header value we sent — belt over CHECK-then-write. If the DB rollback
+// occurred AFTER NS accepted the POST, retry's fresh POST with the
+// same key returns the SAME so_id (NetSuite deduplicates by header).
+export const netsuiteSoPushes = pgTable(
+  "netsuite_so_pushes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    acceptedTierId: uuid("accepted_tier_id").notNull(),
+    // Enum text: 'pending' | 'succeeded' | 'failed'
+    status: text("status").notNull(),
+    netsuiteSoId: text("netsuite_so_id"),
+    netsuiteSoTranid: text("netsuite_so_tranid"),
+    amountPushed: numeric("amount_pushed", { precision: 15, scale: 4 }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    errorClass: text("error_class"),
+    errorDetail: text("error_detail"),
+    // Full payload snapshot for forensic + retry replay. Frozen at
+    // attempt time; never mutated.
+    payloadSnapshot: jsonb("payload_snapshot"),
+    startedByUserId: uuid("started_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [
+    // Partial unique — at most one SUCCEEDED push per (quote, tier).
+    // Failed/pending rows accumulate across retry attempts.
+    uniqueIndex("netsuite_so_pushes_success_unique_idx")
+      .on(t.quoteId, t.acceptedTierId)
+      .where(sql`status = 'succeeded'`),
+    // Fast CHECK-then-write lookup.
+    index("netsuite_so_pushes_quote_tier_idx").on(
+      t.quoteId,
+      t.acceptedTierId,
     ),
   ],
 );

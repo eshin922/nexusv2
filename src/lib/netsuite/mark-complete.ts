@@ -1,0 +1,707 @@
+import "server-only";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { db } from "@/db";
+import {
+  quotes as quotesTable,
+  quoteTiers,
+  projects,
+  firmSettings,
+  hubspotDealsCache,
+  netsuiteSoPushes,
+  auditLog,
+} from "@/db/schema";
+import { getCostingBundle } from "@/app/actions/costing";
+import { loadAssemblyTree } from "@/lib/assembly-tree";
+import {
+  resolveNetsuiteCustomer,
+  formatCustomerMissingError,
+} from "./customer-map";
+import {
+  resolveNetsuiteItem,
+  formatResolutionErrors,
+  type ResolveResult,
+} from "./item-resolver";
+import { resolveBusinessSegmentLabel } from "./business-segment-resolver";
+import { findOrCreateItemGroup } from "./item-groups";
+import {
+  buildSalesOrderPayload,
+  computeIdempotencyKey,
+  createSalesOrder,
+  type SalesOrderLine,
+} from "./sales-orders";
+import { NetsuiteError } from "./errors";
+
+// Slice 12 Step 8c-3 — markComplete orchestrator.
+//
+// Ordering per CA Amendment A (2026-07-28), external-first per v3 §5.1:
+//   1. Guards (below-floor on accepted_tier_id, revisable state)
+//        — before any external call
+//   2. Resolve customer (customer-map lookup; block on miss)
+//   3. Resolve items (SKU-match; block on not_found/ambiguous)
+//   4. Resolve business_segment label (block if fetch/lookup fails)
+//   5. For each assembly on accepted-tier: find-or-create Item Group
+//        — dual idempotency layer 1 (cache → SuiteQL → create)
+//   6. CHECK netsuite_so_pushes for existing SUCCEEDED row for
+//        (quote_id, accepted_tier_id) → if hit, skip SO create and
+//        jump to freeze-tx with the stored so_id/tranid
+//        — #145 poisoning precedent applied
+//   7. Build SO payload → REST POST create (idempotency-key header
+//        as belt over CHECK)
+//   8. PERSIST netsuite_so_pushes row (status='succeeded')
+//   9. DB tx: freeze Pattern 52 columns + status='complete' + audit
+//  10. Post-tx: conditional HubSpot amount patch (§7.2 amended)
+//        — patch failure LOGGED but MUST NOT block complete
+//
+// Return shape describes what happened at each step for the caller
+// (server action, sub-tab-5 UI later) to render.
+
+export interface MarkCompleteResult {
+  completedAt: Date;
+  netsuite: {
+    salesOrderId: string;      // internal id
+    salesOrderTranid: string | null;  // display id ("SO2647"); may be null
+    amountPushed: number;
+    itemGroups: Array<{
+      assemblyId: string;
+      compositionHash: string;
+      netsuiteExternalId: string;
+      netsuiteInternalId: string;
+      itemidDisplay: string;
+      outcome: "cache_hit" | "external_id_hit" | "created";
+    }>;
+  };
+  amountPatch: {
+    // 'skipped'  — no prior amount, or delta below $0.01 tolerance
+    // 'patched'  — HubSpot update succeeded
+    // 'failed'   — HubSpot update threw; logged but complete NOT blocked
+    status: "skipped" | "patched" | "failed";
+    prior: number | null;
+    current: number;
+    delta: number | null;
+    errorDetail?: string;
+  };
+  retryOutcome: "fresh" | "converged_from_prior_success";
+}
+
+export interface MarkCompleteInput {
+  quoteId: string;
+  actorUserId: string;
+}
+
+/**
+ * Orchestrate the markComplete flow. Called from the server action;
+ * returns rich result for audit + UI. Throws Error on any blocking
+ * failure (caller translates to ActionResult error).
+ *
+ * IMPORTANT: this function should be wrapped in runAction() upstream;
+ * error messages here are PM-facing on the blocking-tab UI (8c-4).
+ */
+export async function runMarkComplete(
+  input: MarkCompleteInput,
+): Promise<MarkCompleteResult> {
+  const { quoteId, actorUserId } = input;
+
+  // ============================================================
+  // STEP 1 — Load state + guards
+  // ============================================================
+  const quote = await loadQuoteOrThrow(quoteId);
+  if (quote.status !== "accepted") {
+    throw new Error(
+      `markComplete only fires on 'accepted' quotes; current state: '${quote.status}'.`,
+    );
+  }
+  if (!quote.acceptedTierId) {
+    throw new Error(
+      "Quote is accepted but has no accepted_tier_id set — cannot proceed.",
+    );
+  }
+
+  const [tierRow] = await db
+    .select({
+      id: quoteTiers.id,
+      label: quoteTiers.label,
+      qty: quoteTiers.qty,
+    })
+    .from(quoteTiers)
+    .where(and(eq(quoteTiers.id, quote.acceptedTierId), eq(quoteTiers.quoteId, quoteId)))
+    .limit(1);
+  if (!tierRow) {
+    throw new Error(
+      "Accepted tier not found on this quote — data integrity issue.",
+    );
+  }
+
+  const bundle = await getCostingBundle(quoteId);
+  if (!bundle.ok) {
+    throw new Error(`Costing bundle error: ${bundle.error.message}`);
+  }
+
+  const tierRollup = bundle.data.costing.quoteRollup.find(
+    (r) => r.tierId === quote.acceptedTierId,
+  );
+  if (!tierRollup) {
+    throw new Error(
+      "Accepted tier has no revenue rollup — cost data incomplete.",
+    );
+  }
+
+  // Below-floor guard — evaluated on accepted_tier_id (NOT customer_
+  // accepted_tier_id). markComplete's OWN guard per CA (mirrors
+  // markAccepted's discipline; not re-using markAccepted's guard
+  // because the accepted_tier_id may differ under PM override paths).
+  // Blocks UNCONDITIONALLY — admin override deferred v1.1+ per CA Q4.
+  if (tierRollup.blendedMarginStatus === "BELOW_FLOOR") {
+    throw new Error(
+      `Blocked — the accepted tier (${tierRollup.label}) is below the firm's margin floor. Cannot advance to complete.`,
+    );
+  }
+
+  const currentAmount = tierRollup.totalRevenue;
+
+  // ============================================================
+  // STEP 2 — Resolve customer (customer-map lookup)
+  // ============================================================
+  const [projectRow] = await db
+    .select({
+      id: projects.id,
+      hubspotDealId: projects.hubspotDealId,
+    })
+    .from(projects)
+    .where(eq(projects.id, quote.projectId))
+    .limit(1);
+  if (!projectRow || !projectRow.hubspotDealId) {
+    throw new Error("Project not found or not HubSpot-linked.");
+  }
+
+  // Look up the HubSpot company id via the cache row.
+  const [dealCache] = await db
+    .select({
+      associatedCompanyId: hubspotDealsCache.associatedCompanyId,
+      dealName: hubspotDealsCache.dealName,
+      dealFolderUrl: hubspotDealsCache.dealFolderUrl,
+      projectServiceS: hubspotDealsCache.projectServiceS,
+      projectCategory: hubspotDealsCache.projectCategory,
+      sourcingLocation: hubspotDealsCache.sourcingLocation,
+      businessSegmentId: hubspotDealsCache.businessSegmentId,
+      businessSegmentLabel: hubspotDealsCache.businessSegmentLabel,
+      clientPo: hubspotDealsCache.clientPo,
+      invoiceDateEst: hubspotDealsCache.invoiceDateEst,
+      productionShipDateEst: hubspotDealsCache.productionShipDateEst,
+      priority: hubspotDealsCache.priority,
+      dealType: hubspotDealsCache.dealType,
+    })
+    .from(hubspotDealsCache)
+    .where(eq(hubspotDealsCache.dealId, projectRow.hubspotDealId))
+    .limit(1);
+  if (!dealCache || !dealCache.associatedCompanyId) {
+    throw new Error(
+      `HubSpot deal ${projectRow.hubspotDealId} has no cached row or no associated company. Refresh HubSpot cache and retry.`,
+    );
+  }
+
+  const customer = await resolveNetsuiteCustomer(dealCache.associatedCompanyId);
+  if (customer.status !== "found") {
+    throw new Error(formatCustomerMissingError(customer));
+  }
+
+  // ============================================================
+  // STEP 3 — Resolve items (SKU-match)
+  // ============================================================
+  // Load assembly tree via loadAssemblyTree (F1.5 ASY/LEAF path).
+  const tree = await loadAssemblyTree(quoteId);
+  if (!tree || tree.assemblies.length === 0) {
+    throw new Error("Quote has no assemblies to push.");
+  }
+
+  // Every UNIQUE leaf SKU across all assemblies must resolve.
+  const uniqueSkus = Array.from(
+    new Set(
+      tree.assemblies
+        .flatMap((a) => a.children)
+        .map((child) => child.sku)
+        .filter((s): s is string => Boolean(s)),
+    ),
+  );
+  const resolutionResults: ResolveResult[] = [];
+  for (const sku of uniqueSkus) {
+    resolutionResults.push(await resolveNetsuiteItem(sku));
+  }
+  const resolutionError = formatResolutionErrors(resolutionResults);
+  if (resolutionError) throw new Error(resolutionError);
+  // Build a sku → resolved id map from the "found" results.
+  const nsIdBySku = new Map<string, string>();
+  for (const r of resolutionResults) {
+    if (r.status === "found") nsIdBySku.set(r.sku, r.netsuiteItemId);
+  }
+
+  // ============================================================
+  // STEP 4 — Resolve business_segment label (block on fetch fail)
+  // ============================================================
+  let resolvedBusinessSegmentLabel: string | null = null;
+  if (dealCache.businessSegmentId) {
+    // Per CA Q6: block push if fetch fails or enum id has no label.
+    resolvedBusinessSegmentLabel = await resolveBusinessSegmentLabel(
+      dealCache.businessSegmentId,
+      { dealIdForBackfill: projectRow.hubspotDealId },
+    );
+  }
+
+  // ============================================================
+  // STEP 5 — Item Group find-or-create — DELIBERATELY NOT INVOKED
+  // ============================================================
+  //
+  // Per CA disposition 2026-07-28 after exhaustive REST + SOAP probe:
+  // NetSuite's SO validator refuses Item Group lines at CREATE via
+  // BOTH REST and SOAP (identical USER_ERROR "Please enter a value
+  // for Amount"). The UI's `record.create` uses SuiteScript's N/record
+  // with different interactive-save semantics — that's why Aisha's
+  // manual flow works and the API path is closed.
+  //
+  // ⚠️ THIS IS CUSTOMER-VISIBLE — NOT COSMETIC.
+  //   The Item Group is what makes the customer's invoice show a
+  //   single turnkey line ($X per unit) instead of the freight,
+  //   customs, and setup components separately. INV2978 (Aisha's
+  //   canonical example): two grouped lines at $2.218 and $2.419
+  //   with freight/customs invisible — the group doing its job.
+  //   Flat lines from Nexus would expose those components on any
+  //   customer-facing document.
+  //   → Aisha's wrap step remains MANDATORY for anything invoiced.
+  //     Nexus emits correct prices; Aisha wraps in the NS UI post-
+  //     push before invoice generation.
+  //
+  // The `findOrCreateItemGroup` code + composition_hash + Nexus's
+  // `netsuite_item_groups` table stay live in the codebase. 8c-1's
+  // sandbox smoke (`npm run smoke:netsuite-item-groups`) exercises
+  // the find-or-create path end-to-end against real NetSuite;
+  // preserving that smoke prevents silent rot before Assembly
+  // migration (v1.1+ candidate) OR a RESTlet integration (if we
+  // ever choose that path) picks the primitives back up.
+  //
+  // See UX_BACKLOG entry "NetSuite Assembly migration (v1.1+)" for
+  // the strategic direction — Assemblies (proven via Probe 4 to work
+  // cleanly at REST) are the durable answer to the "grouped items on
+  // SO" problem; DPS already has 9 in the catalog, so this is
+  // expansion not greenfield.
+  //
+  // /* const itemGroupOutcomes … */  // ← intentionally not built
+  const itemGroupOutcomes: MarkCompleteResult["netsuite"]["itemGroups"] = [];
+
+  // ============================================================
+  // STEP 6 — CHECK netsuite_so_pushes for prior success (#145 case)
+  // ============================================================
+  const [priorSuccess] = await db
+    .select()
+    .from(netsuiteSoPushes)
+    .where(
+      and(
+        eq(netsuiteSoPushes.quoteId, quoteId),
+        eq(netsuiteSoPushes.acceptedTierId, quote.acceptedTierId),
+        eq(netsuiteSoPushes.status, "succeeded"),
+      ),
+    )
+    .orderBy(desc(netsuiteSoPushes.createdAt))
+    .limit(1);
+
+  const [firm] = await db
+    .select()
+    .from(firmSettings)
+    .where(isNull(firmSettings.effectiveUntil))
+    .orderBy(desc(firmSettings.effectiveFrom))
+    .limit(1);
+  if (!firm) {
+    throw new Error(
+      "No active firm_settings row; cannot resolve subsidiary/tax defaults.",
+    );
+  }
+
+  let salesOrderInternalId: string;
+  let salesOrderTranid: string | null;
+  let amountPushed: number;
+  let retryOutcome: MarkCompleteResult["retryOutcome"];
+
+  if (priorSuccess) {
+    // Convergence path — retry sees prior success, skips SO create,
+    // jumps to freeze-tx with the stored so_id.
+    salesOrderInternalId = priorSuccess.netsuiteSoId!;
+    salesOrderTranid = priorSuccess.netsuiteSoTranid;
+    amountPushed = Number(priorSuccess.amountPushed);
+    retryOutcome = "converged_from_prior_success";
+  } else {
+    // ============================================================
+    // STEP 7 — Build SO payload + REST POST create
+    // ============================================================
+    // Build per-line SO items: one line per assembly, referencing the
+    // Item Group internal id + tier qty + tier revenue-per-unit.
+    // Assemblies map to top-level skuRollups (NEW model — assemblies
+    // FLAT LINES per leaf — one SO line per leaf assembly-membership.
+    //
+    // Nexus's assemblies (parent SKUs like "SMOKE-MC-…-0") don't
+    // exist as NetSuite items; only LEAVES resolve to NS items via
+    // SKU-match. So the SO cannot reference an assembly directly —
+    // each leaf becomes its own SO line at its per-tier rate.
+    //
+    // Rate + quantity source (SkuPerTierRollup on the leaf's
+    // skuRollup entry):
+    //   • quantity = tier.qty × leaf.qtyPerParent
+    //     (member count × tier order size — the "effective units"
+    //     for this leaf at this tier)
+    //   • rate     = leaf.perTier.requiredSellPerUnit
+    //     (the per-effective-unit sell price the math layer computes;
+    //     multiplied by qty = leaf's revenue contribution to the
+    //     assembly's tier total)
+    // Sum of all leaf-line amounts = tier's totalRevenue by
+    // construction, so accountingly the SO balances to Nexus's math.
+    const tierId = quote.acceptedTierId;
+    const leafRollups = bundle.data.costing.skuRollups.filter(
+      (r) => r.skuRole === "leaf",
+    );
+    const lines: SalesOrderLine[] = [];
+    for (const leafRollup of leafRollups) {
+      // Locate the leaf's tree entry to get its SKU + name.
+      const treeLeaf = tree.assemblies
+        .flatMap((a) => a.children.map((c) => ({ assembly: a, child: c })))
+        .find(({ child }) => child.junctionId === leafRollup.skuId);
+      if (!treeLeaf?.child.sku) continue; // no SKU → skipped upstream by resolver
+      const nsId = nsIdBySku.get(treeLeaf.child.sku);
+      if (!nsId) continue;
+
+      const perTierRollup = leafRollup.perTier.find((pt) => pt.tierId === tierId);
+      if (!perTierRollup) continue;
+
+      // Effective qty for this leaf at this tier:
+      // tier.qty × qtyPerParent (leaves have qtyPerParent per math layer).
+      const qtyPerParent = Math.max(1, Math.round(leafRollup.qtyPerParent ?? 1));
+      const effectiveQty = (tierRow.qty ?? 0) * qtyPerParent;
+
+      lines.push({
+        netsuiteItemId: nsId,
+        sku: treeLeaf.child.sku,
+        description:
+          treeLeaf.child.name ||
+          `${treeLeaf.assembly.name} — ${treeLeaf.child.sku}`,
+        quantity: effectiveQty,
+        rate: Number(perTierRollup.requiredSellPerUnit),
+        unitCost:
+          perTierRollup.contributionCostPerUnit != null
+            ? Number(perTierRollup.contributionCostPerUnit)
+            : null,
+      });
+    }
+
+    if (lines.length === 0) {
+      throw new Error(
+        "No SO lines built — every leaf failed to resolve or had no per-tier rollup. Cannot push.",
+      );
+    }
+
+    const payload = buildSalesOrderPayload({
+      netsuiteCustomerId: customer.netsuiteCustomerId,
+      subsidiaryId: firm.netsuiteSubsidiaryId,
+      orderStatusCode: firm.netsuiteSoOrderStatusCode,
+      taxCodeId: firm.netsuiteDefaultTaxCodeId,
+      paymentTermsText: quote.paymentTermsSnapshot,
+      hubspotDealId: projectRow.hubspotDealId,
+      hubspotDealName: dealCache.dealName,
+      dealFolderUrl: dealCache.dealFolderUrl,
+      projectServiceS: dealCache.projectServiceS,
+      projectCategory: dealCache.projectCategory,
+      sourcingLocation: dealCache.sourcingLocation,
+      businessSegmentId: dealCache.businessSegmentId,
+      businessSegmentLabel: resolvedBusinessSegmentLabel,
+      clientPo: dealCache.clientPo,
+      invoiceDateEst: dealCache.invoiceDateEst,
+      productionShipDateEst: dealCache.productionShipDateEst,
+      priority: dealCache.priority,
+      dealType: dealCache.dealType,
+      lines,
+    });
+
+    const idempotencyKey = computeIdempotencyKey(
+      quoteId,
+      quote.acceptedTierId,
+      payload,
+    );
+
+    // ---- Write pending row BEFORE POST so retries see it ----
+    // (belt over the idempotency-key header). Failures on this
+    // write are non-fatal — we proceed to POST regardless; the
+    // header still deduplicates.
+    let pendingId: string | null = null;
+    try {
+      const [pending] = await db
+        .insert(netsuiteSoPushes)
+        .values({
+          quoteId,
+          acceptedTierId: quote.acceptedTierId,
+          status: "pending",
+          idempotencyKey,
+          amountPushed: String(currentAmount),
+          payloadSnapshot: payload,
+          startedByUserId: actorUserId,
+        })
+        .returning({ id: netsuiteSoPushes.id });
+      pendingId = pending.id;
+    } catch {
+      // Non-fatal — POST still proceeds
+    }
+
+    // Debug hook: NETSUITE_DEBUG_PAYLOAD=1 logs the SO body pre-POST.
+    // Load-bearing for sandbox smoke reproduction; kept as opt-in gate.
+    if (process.env.NETSUITE_DEBUG_PAYLOAD === "1") {
+      console.log("[markComplete] SO payload:\n" + JSON.stringify(payload, null, 2));
+    }
+
+    let created;
+    try {
+      created = await createSalesOrder(payload, { idempotencyKey });
+    } catch (e) {
+      // NS create failed. Update the pending row (if we managed to
+      // write it) to failed status with error detail. Then throw.
+      const err = e instanceof NetsuiteError ? e : null;
+      if (pendingId) {
+        try {
+          await db
+            .update(netsuiteSoPushes)
+            .set({
+              status: "failed",
+              errorClass: err?.className ?? "unknown",
+              errorDetail: err?.context.detail ?? String(e),
+              completedAt: new Date(),
+            })
+            .where(eq(netsuiteSoPushes.id, pendingId));
+        } catch {
+          // secondary write failed — original throw is the real error
+        }
+      }
+      throw e;
+    }
+
+    salesOrderInternalId = created.internalId;
+    salesOrderTranid = null; // caller can fetch tranId separately if needed
+    amountPushed = currentAmount;
+    retryOutcome = "fresh";
+
+    // ============================================================
+    // STEP 8 — PERSIST netsuite_so_pushes row (succeeded)
+    // ============================================================
+    //
+    // Path 3 sub-case 2 recovery (per CA):
+    //   If this attempt's local pendingId is null (in-memory only) but
+    //   a prior attempt DID insert a pending row with the same
+    //   idempotency_key, UPDATE that row in place rather than inserting
+    //   a fresh one. Two motivations:
+    //   1. Keeps the netsuite_so_pushes table clean — one row per
+    //      (quote, tier) attempt, not one succeeded + N orphaned
+    //      pending from prior retries.
+    //   2. Robustness: while the partial unique index only enforces
+    //      uniqueness on status='succeeded' (so a fresh insert
+    //      wouldn't violate against a stale pending), operational
+    //      hygiene beats "constraint permits it."
+    //
+    // Order: (a) update the current-attempt pendingId row if we have
+    // one; (b) else look for a matching idempotency_key row and update
+    // that; (c) else insert fresh.
+    if (pendingId) {
+      await db
+        .update(netsuiteSoPushes)
+        .set({
+          status: "succeeded",
+          netsuiteSoId: salesOrderInternalId,
+          netsuiteSoTranid: salesOrderTranid,
+          completedAt: new Date(),
+        })
+        .where(eq(netsuiteSoPushes.id, pendingId));
+    } else {
+      // Look for a stale pending row with the same idempotency_key
+      // (means a prior attempt's pending insert succeeded but this
+      // orchestrator run doesn't remember the id — retry path).
+      const [priorPending] = await db
+        .select({ id: netsuiteSoPushes.id })
+        .from(netsuiteSoPushes)
+        .where(
+          and(
+            eq(netsuiteSoPushes.quoteId, quoteId),
+            eq(netsuiteSoPushes.acceptedTierId, quote.acceptedTierId),
+            eq(netsuiteSoPushes.idempotencyKey, idempotencyKey),
+            eq(netsuiteSoPushes.status, "pending"),
+          ),
+        )
+        .orderBy(desc(netsuiteSoPushes.createdAt))
+        .limit(1);
+
+      if (priorPending) {
+        await db
+          .update(netsuiteSoPushes)
+          .set({
+            status: "succeeded",
+            netsuiteSoId: salesOrderInternalId,
+            netsuiteSoTranid: salesOrderTranid,
+            completedAt: new Date(),
+          })
+          .where(eq(netsuiteSoPushes.id, priorPending.id));
+      } else {
+        // Truly fresh — no prior pending row exists.
+        await db.insert(netsuiteSoPushes).values({
+          quoteId,
+          acceptedTierId: quote.acceptedTierId,
+          status: "succeeded",
+          idempotencyKey,
+          netsuiteSoId: salesOrderInternalId,
+          netsuiteSoTranid: salesOrderTranid,
+          amountPushed: String(currentAmount),
+          payloadSnapshot: payload,
+          startedByUserId: actorUserId,
+          completedAt: new Date(),
+        });
+      }
+    }
+  }
+
+  // ============================================================
+  // STEP 9 — DB tx: freeze + status='complete' + audit
+  // ============================================================
+  const completedAt = new Date();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(quotesTable)
+      .set({
+        status: "complete",
+        netsuiteSoId: salesOrderInternalId,
+        netsuiteSoTranid: salesOrderTranid,
+        netsuitePushedAt: completedAt,
+        netsuiteSoPushStatus: "succeeded",
+        netsuiteSoPushError: null,
+        updatedAt: completedAt,
+      })
+      .where(eq(quotesTable.id, quoteId));
+
+    await tx.insert(auditLog).values({
+      userId: actorUserId,
+      entityType: "quote",
+      entityId: quoteId,
+      action: "netsuite_so_pushed",
+      diffJson: {
+        from_status: "accepted",
+        to_status: "complete",
+        accepted_tier_id: quote.acceptedTierId,
+        accepted_tier_label: tierRow.label,
+        amount_pushed: currentAmount,
+        retry_outcome: retryOutcome,
+        netsuite: {
+          sales_order_internal_id: salesOrderInternalId,
+          sales_order_tranid: salesOrderTranid,
+          customer_netsuite_id: customer.netsuiteCustomerId,
+          item_groups: itemGroupOutcomes,
+        },
+      },
+    });
+  });
+
+  // ============================================================
+  // STEP 10 — Post-tx conditional HubSpot amount patch
+  //          (per §7.2 as amended — never blocks complete)
+  // ============================================================
+  // Fires whenever the current order total differs from the amount
+  // last pushed to HubSpot. Compares against the most-recent
+  // quote_accepted audit row's diff_json.hubspot.amount (which
+  // markAccepted / recordCustomerAcceptance write).
+  //
+  // Failure semantics per CA Amendment A: patch failure is LOGGED
+  // but MUST NOT block complete. Quote status is already 'complete';
+  // the amount drift becomes a HubSpot data-quality issue that a
+  // future retry / manual patch can fix.
+  const priorAcceptAmount = await loadPriorAcceptedAmount(quoteId);
+  const amountPatch = await runAmountPatchIfNeeded({
+    hubspotDealId: projectRow.hubspotDealId,
+    priorAmount: priorAcceptAmount,
+    currentAmount,
+  });
+
+  return {
+    completedAt,
+    netsuite: {
+      salesOrderId: salesOrderInternalId,
+      salesOrderTranid,
+      amountPushed,
+      itemGroups: itemGroupOutcomes,
+    },
+    amountPatch,
+    retryOutcome,
+  };
+}
+
+// ---------- helpers ----------
+
+async function loadQuoteOrThrow(quoteId: string) {
+  const rows = await db
+    .select()
+    .from(quotesTable)
+    .where(eq(quotesTable.id, quoteId))
+    .limit(1);
+  if (rows.length === 0) {
+    throw new Error(`Quote ${quoteId} not found.`);
+  }
+  return rows[0];
+}
+
+async function loadPriorAcceptedAmount(quoteId: string): Promise<number | null> {
+  const rows = await db
+    .select({ diffJson: auditLog.diffJson })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.entityType, "quote"),
+        eq(auditLog.entityId, quoteId),
+        eq(auditLog.action, "quote_accepted"),
+      ),
+    )
+    .orderBy(desc(auditLog.createdAt))
+    .limit(1);
+  const dj = rows[0]?.diffJson as Record<string, unknown> | undefined;
+  if (!dj) return null;
+  const hs = dj.hubspot as { amount?: number } | undefined;
+  return typeof hs?.amount === "number" ? hs.amount : null;
+}
+
+async function runAmountPatchIfNeeded(args: {
+  hubspotDealId: string;
+  priorAmount: number | null;
+  currentAmount: number;
+}): Promise<MarkCompleteResult["amountPatch"]> {
+  if (args.priorAmount === null) {
+    return { status: "skipped", prior: null, current: args.currentAmount, delta: null };
+  }
+  const delta = args.currentAmount - args.priorAmount;
+  if (Math.abs(delta) < 0.01) {
+    return { status: "skipped", prior: args.priorAmount, current: args.currentAmount, delta: 0 };
+  }
+
+  // Amount drift → PATCH HubSpot. Failure LOGGED but never thrown —
+  // per CA §7.2 amended: patch failure must NEVER block complete.
+  // Uses hubspot-write client (HUBSPOT_WRITE_ACCESS_TOKEN).
+  try {
+    const { getWriteClient } = await import("@/lib/hubspot");
+    const c = getWriteClient();
+    await c.crm.deals.basicApi.update(args.hubspotDealId, {
+      properties: { amount: String(args.currentAmount) },
+    });
+    return {
+      status: "patched",
+      prior: args.priorAmount,
+      current: args.currentAmount,
+      delta,
+    };
+  } catch (e) {
+    const errorDetail = e instanceof Error ? e.message : String(e);
+    console.error(
+      `[markComplete] HubSpot amount patch failed for deal ${args.hubspotDealId}: ${errorDetail}. Quote is complete; amount drift remains in HubSpot until manual patch.`,
+    );
+    return {
+      status: "failed",
+      prior: args.priorAmount,
+      current: args.currentAmount,
+      delta,
+      errorDetail,
+    };
+  }
+}

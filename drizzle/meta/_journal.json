@@ -316,6 +316,13 @@
       "when": 1785270878086,
       "tag": "0044_slice_12_step_8c2_hubspot_deals_cache_ext",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1785273641128,
+      "tag": "0045_slice_12_step_8c3_schema",
+      "breakpoints": true
     }
   ]
 }
