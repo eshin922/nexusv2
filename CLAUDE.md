@@ -2691,10 +2691,26 @@ Specifically:
 
 **Why this recurs:** fixtures feel like "test data" that can be
 invented for convenience. But every fixture value the walk touches
-IS the walk's test surface. A hardcoded value that happens to
-work with the current code masks bugs in the code path that
-reads from the true source — and future walks against real
-production data expose the bug post-launch.
+IS the walk's test surface. Two failure modes, both costly:
+
+- **Fixtures HIDE defects.** A hardcoded value that happens to
+  work with the current code masks bugs in the code path that
+  reads from the true source. #154's pre-set `accepted_tier_id`
+  masked the freeze-tx write gap across two walk rounds until CA
+  caught it. Future walks against real production data expose
+  the bug post-launch.
+- **Fixtures MANUFACTURE defects.** A divergent fixture value
+  can present as a bug that isn't there. Q12's collapse of
+  `client_name` and `deal_name` to the same SMOKE_TAG made CB
+  report a customer-name mapping defect — but the real
+  production code path was correct (`project-import` sources
+  `client_name` from `hubspot_deals_cache.associated_company_name`).
+  Review cycles spent diagnosing a bug the fixture had
+  hallucinated. A divergent fixture costs attention as well as
+  coverage.
+
+The rule catches both directions: fixtures that read from source
+neither hide bugs nor manufacture them.
 
 **Verification discipline:** when writing a fixture provisioner,
 grep every INSERT / UPDATE for hardcoded strings + numbers. For
