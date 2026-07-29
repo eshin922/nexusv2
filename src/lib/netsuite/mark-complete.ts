@@ -22,6 +22,7 @@ import {
   type ResolveResult,
 } from "./item-resolver";
 import { resolveBusinessSegmentLabel } from "./business-segment-resolver";
+import { resolveProjectSourceIdByLabel } from "./project-source-resolver";
 import { findOrCreateItemGroup } from "./item-groups";
 import {
   buildSalesOrderPayload,
@@ -260,14 +261,31 @@ export async function runMarkComplete(
   }
 
   // ============================================================
-  // STEP 4 — Resolve business_segment label (block on fetch fail)
+  // STEP 4 — Resolve list-typed enum fields (block on fetch fail)
   // ============================================================
+  // Two NS list fields need label / id translation before payload
+  // build. Fail-closed per CA (2026-07-28 Q6 + 2026-07-29 parity fix):
+  // never send a raw label to a list field; NS rejects the whole SO
+  // with USER_ERROR "Invalid Field Value X for the following field: Y".
+  //
+  //   1. business_segment — HubSpot returns the enum ID; NS accepts
+  //      the same numeric id in both `class` and `cseg_dps_bus_seg`.
+  //      Resolver's job is fetching the LABEL for backfill display.
+  //   2. project_source — HubSpot returns the LABEL ("Domestic"); NS
+  //      wants the internal id from `customlist_dps_project_source`.
+  //      Resolver's job is the reverse — label→id at push time.
   let resolvedBusinessSegmentLabel: string | null = null;
   if (dealCache.businessSegmentId) {
-    // Per CA Q6: block push if fetch fails or enum id has no label.
     resolvedBusinessSegmentLabel = await resolveBusinessSegmentLabel(
       dealCache.businessSegmentId,
       { dealIdForBackfill: projectRow.hubspotDealId },
+    );
+  }
+
+  let resolvedProjectSourceId: string | null = null;
+  if (dealCache.sourcingLocation) {
+    resolvedProjectSourceId = await resolveProjectSourceIdByLabel(
+      dealCache.sourcingLocation,
     );
   }
 
@@ -430,7 +448,7 @@ export async function runMarkComplete(
       dealFolderUrl: dealCache.dealFolderUrl,
       projectServiceS: dealCache.projectServiceS,
       projectCategory: dealCache.projectCategory,
-      sourcingLocation: dealCache.sourcingLocation,
+      projectSourceId: resolvedProjectSourceId,
       businessSegmentId: dealCache.businessSegmentId,
       businessSegmentLabel: resolvedBusinessSegmentLabel,
       clientPo: dealCache.clientPo,

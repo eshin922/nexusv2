@@ -311,17 +311,13 @@ async function provisionFixture(): Promise<Fixture> {
       NULL, NULL, NULL,
       'https://thedpsco.sharepoint.com/sites/TheDPSPortal/Shared%20Documents/Deals/Epicuren/PARITY-SMOKE',
       'Copacking', 'Co-Packing',
-      -- sourcing_location DELIBERATELY NULL here — Nexus stores the
-      -- TEXT LABEL ('Domestic') in this column, but NS's
-      -- custbody_dps_project_source is a LIST field requiring an
-      -- internal id. Sending the label errors with "Invalid Field
-      -- Value Domestic". This is a pre-existing bug in
-      -- sales-orders.ts:109 exposed by Class B parity; fix scope
-      -- belongs in Slice 13 R6 (label→id translation, mirror of
-      -- business_segment_resolver). Seed NULL here so the probe
-      -- completes and Class A/B/C bucket the remaining fields
-      -- cleanly.
-      NULL, '1', NULL,
+      -- sourcing_location NOW LANDS — project-source-resolver
+      -- translates the cache's text label ("Domestic") to the NS
+      -- customlist_dps_project_source id (=1) before payload build.
+      -- Prior probe run seeded NULL because sending the raw label
+      -- errored the whole POST; post-resolver-fix, the realistic
+      -- Epicuren value flows through and lands as {id: "1"}.
+      'Domestic', '1', NULL,
       '13969', '2026-09-07', '2026-09-07',
       NULL, NULL,
       NOW(), NOW(), NOW()

@@ -60,7 +60,13 @@ export interface SalesOrderPayloadInput {
   dealFolderUrl?: string | null;
   projectServiceS?: string | null;
   projectCategory?: string | null;
-  sourcingLocation?: string | null;
+  // NetSuite internal id for the project_source custom list — NOT the
+  // label. Cache stores the label; markComplete's STEP 4 resolves via
+  // project-source-resolver's SuiteQL lookup before payload build.
+  // Sending the label directly errors USER_ERROR "Invalid Field Value
+  // <label> for the following field: custbody_dps_project_source"
+  // (Class B parity finding, 2026-07-29).
+  projectSourceId?: string | null;
   businessSegmentId?: string | null;     // NetSuite class id (resolved via BS resolver → NS class)
   businessSegmentLabel?: string | null;  // fallback for readability
   clientPo?: string | null;
@@ -120,8 +126,8 @@ export function buildSalesOrderPayload(
     body.custbody_dps_project_service_s = input.projectServiceS;
   if (input.projectCategory)
     body.custbody_dps_project_category = input.projectCategory;
-  if (input.sourcingLocation)
-    body.custbody_dps_project_source = input.sourcingLocation;
+  if (input.projectSourceId)
+    body.custbody_dps_project_source = { id: input.projectSourceId };
   if (input.clientPo) body.custbody_dps_client_po = input.clientPo;
   if (input.invoiceDateEst)
     body.custbody_dps_est_invoice_date = input.invoiceDateEst;
