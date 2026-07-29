@@ -139,16 +139,116 @@ operational pre-flight.)
 
   Not this slice. Bank as durable coverage improvement.
 
+- **NetSuite `class` field is dead on live SOs; `custbody_dps_project_service_s` is the real signal**
+
+  **Driver:** Slice 12 Step 8c-3 Correction 1 cross-check
+  (2026-07-28).
+
+  **The finding:** Across the 30 newest SOs in the sandbox, **zero
+  have `class` populated** — every one shows `class=(none)`. The
+  NetSuite `classification` table has one `Turnkey` entry
+  (id=1790), but no SO uses it as its `class` field. The label
+  Edward remembered seeing ("Business Segment / TurnKey" on
+  SO2646) doesn't come from the `class` field — it may have been
+  a UI-rendered surface backed by a different column, or an
+  artifact of an older SO era.
+
+  **What SOs actually carry** as the "what type of work is this"
+  signal is `custbody_dps_project_service_s`. Every recent SO has
+  it populated (via the HubSpot workflow that copies from
+  `project_service_s_` on the deal). Distinct values in the 30
+  sampled: `Product 360°`, `Primary Packaging`, `Secondary
+  Packaging`, `Soft Goods & Accesories`, `Formulations`, `Other`.
+
+  **Related findings from the same probe:**
+  - HubSpot `business_segment` is populated on only 1 of 65 cached
+    deals (Epicuren-Pro Masks, `id=1` / label `Product 360°`).
+    The field exists but is essentially unused as a filter axis.
+  - HubSpot `business_segment` enum has ONLY 2 options today
+    (`1=Product 360°`, `3=DPS Packaging`). `Turnkey` is NOT in
+    the current enum; Product 360° is the current active label
+    (not retired as previously assumed).
+  - `custbody_dps_auto_generate_project` distribution across ALL
+    SOs: 413 `T` (58%), 284 `F` (40%), 1 `NULL`. In the newest
+    30, 21 of 30 (70%) have a `job` attached. Consistent with
+    Vu's ~60% baseline. The correlation of `has_job` with
+    `service_s` is imperfect — Primary/Secondary Packaging
+    attach ~50%; Product 360° / Soft Goods / Formulations attach
+    ~100%.
+
+  **Implications for any future Project-related work:**
+  - Don't filter/derive on `business_segment` — the coverage is
+    ~1.5% of deals. Under-populated at HubSpot.
+  - Don't filter on `class` — always empty on live SOs.
+  - Use `custbody_dps_project_service_s` (or its HubSpot source
+    `project_service_s_`) as the enum-shaped signal. It's
+    populated on essentially every SO and carries the granular
+    service classification PMs actually set.
+  - Historical `custbody_dps_auto_generate_project` distribution
+    can't support a business rule — the flag defaulted to `true`
+    on every SO until 2026-07-28. Populations generated under a
+    blanket default don't reveal intent.
+
+  **Slice 12 disposition (2026-07-28):** Projects stay out of
+  Nexus's scope entirely. Nexus does not set
+  `custbody_dps_auto_generate_project`. It defaults to whatever
+  NetSuite's default is (now `false` post-Vu-change). Amy
+  continues handling Projects manually as she does today.
+
+  If Project creation is ever brought back into Nexus's scope,
+  this entry is the starting map of what fields carry what
+  signals. Skip the dead ends (business_segment / class) and
+  start with `project_service_s`.
+
+- **NetSuite Item Group SO attachment via REST PATCH — CLOSED (Probe 5)**
+
+  **Driver:** Slice 12 Step 8c-3 Probe 5 (2026-07-28).
+
+  **The finding:** Following the SOAP-and-REST-both-refuse-at-
+  create probe (Assembly Migration entry below), Probe 5 tested
+  whether NetSuite's PATCH validator is more permissive than
+  POST — hypothesis being that the UI's "add group then price
+  members" flow might mirror a REST create-flat-then-PATCH-group
+  pattern. **It doesn't.**
+
+  Four PATCH variants tested against a successfully-POSTed flat
+  SO (customer 131860, group 64026, 3 leaf lines with rates):
+
+  ```
+  B1 · APPEND     PATCH items=[flat×3, group]                → 400 at [3]
+  B2 · REPLACE    PATCH items=[group, member×3-with-rates]   → 400 at [0]
+  B3 · REPLACE    PATCH items=[flat×3, group-at-end]         → 400 at [3]
+  B4 · REPLACE    PATCH items=[group-alone]                  → 400 at [0]
+  ```
+
+  Every variant returns the identical `USER_ERROR: "Please enter
+  a value for Amount"` at the group's position in the items
+  array. **PATCH validator behaves IDENTICALLY to POST validator
+  on Item Group lines.**
+
+  Combined with the earlier POST + SOAP probes, this closes ALL
+  API-surface paths for Item Group attachment to a Sales Order.
+  Only SuiteScript's `record.create` interactive-save code path
+  (behind the UI) accepts group lines on an SO.
+
+  **Implication for the Assembly Migration entry below:** the
+  Assembly path becomes even more clearly the durable answer.
+  Item Group primitives from Slice 12 Step 8c-1 stay live-tested
+  (`npm run smoke:netsuite-item-groups`) but only because the
+  Assembly migration might reuse them for Assembly find-or-create;
+  they cannot fill the SO-attachment role via any API surface.
+
 - **NetSuite Assembly migration (v1.1+ candidate)**
 
-  **Driver:** Slice 12 Step 8c-3 REST + SOAP probes (2026-07-28).
+  **Driver:** Slice 12 Step 8c-3 REST + SOAP + PATCH probes (2026-07-28).
   Slice 12 ships flat-lines-per-leaf on the NetSuite Sales Order
-  push because the Item Group SO-create path is closed at BOTH
-  REST and SOAP (probed exhaustively). This isn't a workaround —
-  it's a signal that the strategic answer is different from what
-  Slice 12 originally scoped.
+  push because the Item Group SO-create path is closed at ALL API
+  surfaces (probed exhaustively — POST, SOAP add, PATCH APPEND,
+  PATCH REPLACE). This isn't a workaround — it's a signal that
+  the strategic answer is different from what Slice 12 originally
+  scoped.
 
-  **Four aligning points make the case:**
+  **Five aligning points make the case (updated after Probe 5):**
 
   1. **NetSuite's API models Assemblies as first-class** — proven
      via Probe 4 (2026-07-28). REST POST of a SalesOrder with an
