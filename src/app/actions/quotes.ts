@@ -51,7 +51,7 @@ import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
   ActionGuardError,
   ERR,
-  quoteNotDraftMessage,
+  assertDraft,
   runAction,
   type ActionResult,
 } from "@/lib/action-result";
@@ -208,12 +208,6 @@ async function loadQuoteOrThrow(quoteId: string) {
   if (rows.length === 0)
     throw new ActionGuardError(ERR.QUOTE_NOT_FOUND, "Quote not found");
   return rows[0];
-}
-
-function assertDraft(quote: { status: string }) {
-  if (quote.status !== "draft") {
-    throw new ActionGuardError(ERR.QUOTE_NOT_DRAFT, quoteNotDraftMessage(quote.status));
-  }
 }
 
 function parseInt0(v: FormDataEntryValue | null, fallback: number): number {

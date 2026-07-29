@@ -2602,6 +2602,33 @@ snapshotted markup values on assemblies at send-time if that
 becomes needed) inherits the same invariant + the same
 disposition tree.
 
+**Enforcement — `assertNotFrozen` helper (added Slice 12 Step 10 §0.5).**
+Convention doesn't fail when a future writer skips the check. The
+`assertNotFrozen(quote)` helper in `src/lib/action-result.ts` does:
+throws `ActionGuardError(ERR.QUOTE_FROZEN, ...)` when
+`quote.status IN ('accepted', 'complete')`. Every future writer that
+might touch a Pattern 52 column MUST call it at the top of the action
+body — unless the writer is a sanctioned reopen path (`unmarkAccepted`,
+`reviseFromAccepted`) with explicit state-transition handling.
+
+**Canonical freeze-list inventory:** [`docs/pattern-52-freeze-list.md`](docs/pattern-52-freeze-list.md).
+30 columns across three checkpoints (draft → sent, sent → accepted,
+accepted → complete). Update this doc whenever a new freeze-list
+column lands.
+
+**Slice 13 §0.5 protocol:** every admin surface or reconcile action's
+§0.5 verification includes an explicit check: "does this write any
+Pattern 52 column?" If yes: `assertNotFrozen` at the top, or explicit
+reopen-path handling. Ship no admin action without addressing the
+guard — the freeze-list doc + helper co-locate so the answer is
+grep-able, not lore.
+
+**Naming clash to avoid:** `requireRevisable` in
+`src/lib/quote-guards.ts` has INVERTED semantics (asserts sent-or-
+accepted; used to gate the Revise-in-place transition). The helper
+here is `assertNotFrozen`, not `assertRevisable`, specifically to
+avoid the landmine.
+
 **Cross-references.**
 - Pattern 22 §0.5 verification protocol — new draft-locked
   columns should surface in schema-verification pre-flight.

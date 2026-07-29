@@ -816,9 +816,14 @@ export const firmSettings = pgTable(
     // CLAUDE.md "Versioned-table carry-forward audit" (HARD GATE
     // per v3 brief §5): once a new versioned row is inserted for a
     // margin edit, unchanged columns preserved from the prior row.
+    // Default is the DPS Sales pipeline "Won - In production" INTERNAL
+    // STAGE ID (not the label — labels are editable in the HubSpot UI;
+    // ids are stable). Per Slice 12 Step 7b fix pass + Step 10 §0.5
+    // reconciliation. Old default 'Closed Won' was a v3-brief §4.6
+    // assumption that didn't match the actual pipeline shape.
     hubspotDealStageOnAccept: text("hubspot_deal_stage_on_accept")
       .notNull()
-      .default("Closed Won"),
+      .default("195607084"),
     netsuiteSoStatusOnCreate: text("netsuite_so_status_on_create")
       .notNull()
       .default("Pending Fulfillment"),
@@ -2391,7 +2396,14 @@ export const netsuiteSoPushes = pgTable(
     quoteId: uuid("quote_id")
       .notNull()
       .references(() => quotes.id, { onDelete: "cascade" }),
-    acceptedTierId: uuid("accepted_tier_id").notNull(),
+    // FK RESTRICT — symmetric with quotes.accepted_tier_id per Slice 12
+    // Step 10 §0.5 RECOMMEND 2. Prevents tier delete out-of-band from
+    // stranding forensic push rows. App layer's assertDraft already
+    // blocks tier delete on non-draft quotes; DB constraint is defense
+    // in depth.
+    acceptedTierId: uuid("accepted_tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "restrict" }),
     // Enum text: 'pending' | 'succeeded' | 'failed'
     status: text("status").notNull(),
     netsuiteSoId: text("netsuite_so_id"),
