@@ -170,6 +170,7 @@ export function TabSalesOrder({
   const [modal, setModal] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [inFlightError, setInFlightError] = useState<string | null>(null);
+  const [errorCopied, setErrorCopied] = useState(false);
   const searchParams = useSearchParams();
   const { variant: devVariant, forceBelowFloor, forceUnmatched } = parseDevAxes(
     showStateSwitcher,
@@ -559,15 +560,40 @@ export function TabSalesOrder({
                     {failureDetail}
                   </div>
                 )}
-                <div className="acts">
-                  <button
-                    className="btn sm"
-                    onClick={() => setModal(true)}
-                    disabled={sendDisabled || isPending}
-                  >
-                    {isPending ? "Sending…" : "Retry send"}
-                  </button>
-                </div>
+                {/* Slice 12 Step 9 CD audit Item 2 — the in-box
+                    "Retry send" button was removed per CD amendment.
+                    The split banner explains; the advance bar acts
+                    (its own "Retry — send order to NetSuite" label
+                    carries the retry affordance and correctly
+                    reflects the send-blocked state via disabled).
+                    "Copy error" replaces it — always enabled when
+                    an error string exists, EVEN in a blocked below-
+                    floor state (a PM who can't send still needs to
+                    forward the error to whoever can unblock it). */}
+                {failureDetail && (
+                  <div className="acts">
+                    <button
+                      className="btn sm"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(failureDetail);
+                          setErrorCopied(true);
+                          setTimeout(() => setErrorCopied(false), 2000);
+                        } catch {
+                          // Clipboard API failed (denied permission /
+                          // insecure context) — leave the button
+                          // enabled; PM can still select-copy from
+                          // the .err block above. Silent failure per
+                          // "don't confuse the PM with unactionable
+                          // browser-permission errors."
+                        }
+                      }}
+                      data-testid="so-failed-copy-error"
+                    >
+                      {errorCopied ? "Copied ✓" : "Copy error"}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}

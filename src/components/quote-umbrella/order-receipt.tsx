@@ -188,15 +188,25 @@ export function OrderReceipt({
             {shortDate(acceptedAt)}
           </div>
         </div>
+        {/* Slice 12 Step 9 CD audit Item 1 — the stamp derives from
+            STATE, not soId nullability. Prior code checked
+            `placed && soId` which meant a placed order rendering
+            without a resolved id would show "no order number yet" —
+            a receipt asserting something false about itself. Now:
+            `placed` alone drives the "order placed" register; a
+            missing id gets a state-honest "(resolving…)" caption
+            rather than a "not placed" one. */}
         <div className="stamp">
-          {placed && soId ? (
-            <div className="n">{soId}</div>
+          {placed ? (
+            <div className="n">{soId ?? "(order number resolving…)"}</div>
           ) : (
             <div className="n pending">no order number yet</div>
           )}
           <div className="d">
-            {placed && soCreatedAt
-              ? "created " + shortDateTime(soCreatedAt)
+            {placed
+              ? soCreatedAt
+                ? "created " + shortDateTime(soCreatedAt)
+                : "created"
               : "NetSuite Sales Order"}
           </div>
         </div>
@@ -317,11 +327,16 @@ export function OrderReceipt({
           <span className="icon">
             {placed ? "✓" : failed ? "!" : "·"}
           </span>
+          {/* Slice 12 Step 9 CD audit Item 1 — same state-vs-nullability
+              fix as the header stamp. `placed` alone drives the "created"
+              register; a missing soId gets a resolving caption rather than
+              flipping back to the pre-send label. */}
           <span className="lbl">
             <strong>NetSuite</strong> — Sales Order{" "}
-            {placed && soId ? (
+            {placed ? (
               <span>
-                {soId} created · {netsuiteStatusOnPush}
+                {soId ?? "(order number resolving…)"} created ·{" "}
+                {netsuiteStatusOnPush}
               </span>
             ) : failed ? (
               <span>not created — endpoint rejected the order</span>
