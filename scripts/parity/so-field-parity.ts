@@ -282,13 +282,26 @@ async function provisionFixture(): Promise<Fixture> {
   cleanupQueue.deal = deal.id;
   console.log("  ✓ HubSpot deal:", deal.id);
 
-  // 2. Fabricated hubspot_deals_cache pointing at Epicuren's HS company
+  // 2. Fabricated hubspot_deals_cache pointing at Epicuren's HS company.
+  //
+  // Class B verification (CA disposition 2026-07-29): seed the cache
+  // row with REALISTIC values that a real synced Epicuren deal carries
+  // (values copied verbatim from deal 40412634025's cache row —
+  // the one that produced reference SO2646). Prior version seeded
+  // NULL for all the 8c-2 conditional fields; that fixture couldn't
+  // distinguish "the field is unwritten because cache is empty" from
+  // "the field is unwritten because the code path doesn't fire."
+  // Realistic seeding closes that inference.
   await sql`
     INSERT INTO hubspot_deals_cache (
       deal_id, deal_name, deal_stage, amount, close_date,
       associated_company_id, associated_company_name,
       sales_rep_id, sales_rep_name, sales_rep_email,
       pm_id, pm_name, pm_email,
+      deal_folder_url, project_service_s, project_category,
+      sourcing_location, business_segment_id, business_segment_label,
+      client_po, invoice_date_est, production_ship_date_est,
+      priority, deal_type,
       created_at_hubspot, updated_at_hubspot, last_synced_at
     ) VALUES (
       ${deal.id}, ${SMOKE_TAG}, ${ACCEPT_STAGE_ID},
@@ -296,6 +309,21 @@ async function provisionFixture(): Promise<Fixture> {
       ${EPICUREN_HS_COMPANY_ID}, 'Epicuren (parity smoke)',
       NULL, NULL, NULL,
       NULL, NULL, NULL,
+      'https://thedpsco.sharepoint.com/sites/TheDPSPortal/Shared%20Documents/Deals/Epicuren/PARITY-SMOKE',
+      'Copacking', 'Co-Packing',
+      -- sourcing_location DELIBERATELY NULL here — Nexus stores the
+      -- TEXT LABEL ('Domestic') in this column, but NS's
+      -- custbody_dps_project_source is a LIST field requiring an
+      -- internal id. Sending the label errors with "Invalid Field
+      -- Value Domestic". This is a pre-existing bug in
+      -- sales-orders.ts:109 exposed by Class B parity; fix scope
+      -- belongs in Slice 13 R6 (label→id translation, mirror of
+      -- business_segment_resolver). Seed NULL here so the probe
+      -- completes and Class A/B/C bucket the remaining fields
+      -- cleanly.
+      NULL, '1', NULL,
+      '13969', '2026-09-07', '2026-09-07',
+      NULL, NULL,
       NOW(), NOW(), NOW()
     )
   `;

@@ -99,8 +99,23 @@ export function buildSalesOrderPayload(
   }
 
   // 8c-2 field-fill (conditional — write only when populated).
-  if (input.dealFolderUrl)
+  //
+  // Slice 12 Step 9 CD audit follow-up — three parity mappings added
+  // per SO field-parity probe vs reference SO2646 (2026-07-29):
+  //   1. custbody_sharepoint_link mirrors custbody_dps_accounting_files.
+  //      Both hold the SharePoint URL; ref SO carries both simultaneously.
+  //   2. cseg_dps_bus_seg mirrors class from businessSegmentId. class is
+  //      the NS classification taxonomy; cseg is the parallel custom
+  //      segment taxonomy — ref carries the same segment id in both.
+  //   3. shipDate mirrors custbody_dps_pp_production_ship_date. NS uses
+  //      the standard shipDate field; the custom body field is retained
+  //      as a Nexus round-trip breadcrumb, but the standard field must
+  //      also carry the value or NS defaults to today (a real operational
+  //      error on every SO — CA's highest-stakes item in the parity set).
+  if (input.dealFolderUrl) {
     body.custbody_dps_accounting_files = input.dealFolderUrl;
+    body.custbody_sharepoint_link = input.dealFolderUrl;
+  }
   if (input.projectServiceS)
     body.custbody_dps_project_service_s = input.projectServiceS;
   if (input.projectCategory)
@@ -110,13 +125,18 @@ export function buildSalesOrderPayload(
   if (input.clientPo) body.custbody_dps_client_po = input.clientPo;
   if (input.invoiceDateEst)
     body.custbody_dps_est_invoice_date = input.invoiceDateEst;
-  if (input.productionShipDateEst)
+  if (input.productionShipDateEst) {
     body.custbody_dps_pp_production_ship_date = input.productionShipDateEst;
+    body.shipDate = input.productionShipDateEst;
+  }
   if (input.priority) body.custbody_dps_priority = input.priority;
   if (input.dealType) body.custbody_dps_deal_type = input.dealType;
   if (input.projectManagerNsId)
     body.custbody_project_manager = { id: input.projectManagerNsId };
-  if (input.businessSegmentId) body.class = { id: input.businessSegmentId };
+  if (input.businessSegmentId) {
+    body.class = { id: input.businessSegmentId };
+    body.cseg_dps_bus_seg = { id: input.businessSegmentId };
+  }
 
   // Lines — flat one-per-leaf (per CA disposition 2026-07-28).
   //
