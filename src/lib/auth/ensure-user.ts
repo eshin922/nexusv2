@@ -2,7 +2,6 @@ import "server-only";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { projects, users } from "@/db/schema";
-import { findHubspotOwnerByEmail } from "@/lib/hubspot";
 import { isAdmin } from "@/lib/admin-guard";
 import type { AuthenticationDependencies } from "@/lib/auth/identity-provider";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
@@ -59,7 +58,8 @@ export async function ensureUserWithAuthentication(
     [identity.firstName, identity.lastName].filter(Boolean).join(" ") || null;
   const role = isAdmin(email) ? "admin" : "pm";
 
-  const owner = await findHubspotOwnerByEmail(email);
+  const { hubspot } = await getApplicationDependencies();
+  const owner = await hubspot.findOwnerByEmail(email);
   const hubspotOwnerId = owner?.id ?? null;
 
   // Race-safe insert: returns the new row when this request wins the

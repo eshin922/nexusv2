@@ -28,7 +28,7 @@ import { desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { firmSettings, projects, quotes, quoteTiers, users } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
-import { findHubspotOwnerById } from "@/lib/hubspot";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { loadQuoteAddendum } from "@/lib/addendum-loader";
 import { toLocalIsoDate } from "@/lib/local-date";
 import { VENDOR_FIXTURE } from "@/lib/quote-fixtures";
@@ -180,7 +180,8 @@ export async function resolveCustomerView(args: {
       }
     }
     if (!preparedBy && project.hubspotOwnerId) {
-      const owner = await findHubspotOwnerById(project.hubspotOwnerId);
+      const { hubspot } = await getApplicationDependencies();
+      const owner = await hubspot.findOwnerById(project.hubspotOwnerId);
       if (owner && owner.email) {
         preparedBy = {
           name: owner.name ?? owner.email,

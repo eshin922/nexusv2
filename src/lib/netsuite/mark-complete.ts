@@ -32,6 +32,7 @@ import {
   type SalesOrderLine,
 } from "./sales-orders";
 import { NetsuiteError } from "./errors";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
 
 // Slice 12 Step 8c-3 — markComplete orchestrator.
 //
@@ -846,11 +847,8 @@ async function runAmountPatchIfNeeded(args: {
   // land on real HubSpot deals. Pairs with hubspot.ts:updateDealStage's
   // matching toFixed(2) on the initial acceptance-time amount write.
   try {
-    const { getWriteClient } = await import("@/lib/hubspot");
-    const c = getWriteClient();
-    await c.crm.deals.basicApi.update(args.hubspotDealId, {
-      properties: { amount: args.currentAmount.toFixed(2) },
-    });
+    const { hubspot } = await getApplicationDependencies();
+    await hubspot.updateDealAmount(args.hubspotDealId, args.currentAmount);
     return {
       status: "patched",
       prior: args.priorAmount,

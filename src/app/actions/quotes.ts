@@ -38,14 +38,10 @@ import {
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { getCostingBundle } from "@/app/actions/costing";
 import {
-  findHubspotOwnerById,
-  getDealStage,
-  HubspotError,
   searchProducts,
-  updateDealStage,
-  type DealStageInfo,
   type ProductSummary,
 } from "@/lib/hubspot";
+import type { HubSpotStage as DealStageInfo } from "@/lib/integrations/hubspot-provider";
 import { isHubspotLinkedDealId } from "@/lib/hubspot-linkage";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
@@ -1442,7 +1438,8 @@ export async function sendQuote(
       }
     }
     if (!preparedBy && project.hubspotOwnerId) {
-      const owner = await findHubspotOwnerById(project.hubspotOwnerId);
+      const { hubspot } = await getApplicationDependencies();
+      const owner = await hubspot.findOwnerById(project.hubspotOwnerId);
       if (owner && owner.email) {
         preparedBy = {
           name: owner.name ?? owner.email,
@@ -2246,7 +2243,10 @@ export async function markAccepted(
         // on retry — that's the poisoned target). Fall back to raw id
         // if pipeline lookup fails.
         try {
-          const captured = await getDealStage(project.hubspotDealId as string);
+          const { hubspot } = await getApplicationDependencies();
+          const captured = await hubspot.getDealStage(
+            project.hubspotDealId as string,
+          );
           fromStageLabel =
             captured.id === fromStageId ? captured.label : fromStageId;
         } catch {
@@ -2256,7 +2256,10 @@ export async function markAccepted(
         // Fresh capture path: either no pending, or pending is stale
         // (cross-version mismatch or partial state). Read current
         // deal stage; overwrite pending as a pair.
-        const fresh = await getDealStage(project.hubspotDealId as string);
+        const { hubspot } = await getApplicationDependencies();
+        const fresh = await hubspot.getDealStage(
+          project.hubspotDealId as string,
+        );
         fromStageId = fresh.id;
         fromStageLabel = fresh.label;
         // Durable pre-write. Direct UPDATE (no tx) so it survives
@@ -2274,13 +2277,14 @@ export async function markAccepted(
       // HubSpot's basicApi.update is a single PATCH; two properties
       // land atomically or both fail. See updateDealStage's opts.amount
       // rationale for why we consolidated over two separate calls.
-      toStage = await updateDealStage(
+      const { hubspot } = await getApplicationDependencies();
+      toStage = await hubspot.updateDealStage(
         project.hubspotDealId as string,
         firm.hubspotDealStageOnAccept,
         { amount: tierTurnkeyAmount },
       );
     } catch (e) {
-      const msg = e instanceof HubspotError ? e.message : String(e);
+      const msg = e instanceof Error ? e.message : String(e);
       throw new ActionGuardError(
         ERR.HUBSPOT,
         `HubSpot deal-stage push failed — acceptance not recorded, quote state unchanged. ${msg}`,
@@ -2520,12 +2524,13 @@ export async function unmarkAccepted(
     // External call FIRST (v3 §5.1 ordering).
     let rolledBackStage: DealStageInfo;
     try {
-      rolledBackStage = await updateDealStage(
+      const { hubspot } = await getApplicationDependencies();
+      rolledBackStage = await hubspot.updateDealStage(
         project.hubspotDealId as string,
         priorStageId,
       );
     } catch (e) {
-      const msg = e instanceof HubspotError ? e.message : String(e);
+      const msg = e instanceof Error ? e.message : String(e);
       throw new ActionGuardError(
         ERR.HUBSPOT,
         `HubSpot deal-stage rollback failed — quote state unchanged. ${msg}`,
