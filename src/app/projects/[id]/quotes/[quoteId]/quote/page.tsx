@@ -239,23 +239,26 @@ export default async function CustomerViewPage({
       pushError: quote.netsuiteSoPushError,
     };
 
-    // Slice 12 Step 10 Q13 — route-level guard for completed quotes.
-    // Sub-tab strip renders all tabs 'locked' at status='complete'
-    // (subtabs.ts:90), but the ?tab= URL param bypassed that: direct
-    // navigation to ?tab=accepted rendered a live acceptance form on
-    // a quote whose order is already in NetSuite. Server-side action
-    // guards reject the submit, but the render layer should never
-    // have shipped the form.
+    // Slice 12 Step 10 Q13 — route-level guard for completed quotes,
+    // refined at re-walk (2026-07-29) per CA disposition R1.
     //
-    // Coerce to 'preview' when the quote is complete. Preview renders
-    // the frozen v-current snapshot correctly; all other tabs on a
-    // complete quote are read-only anyway (nothing to submit). If a
-    // future need surfaces PM visibility of the SO receipt (?tab=tier)
-    // on a complete quote, that's a separate carve — the SO tab's
-    // receipt-state variant needs a broader render review (CB flagged
-    // an "unexplained first-load exception" today).
+    // Original guard: coerce every sub-tab to Preview on complete.
+    // Problem re-walk surfaced: sub-tab 5 (tier / Sales Order) is
+    // the canonical post-lock record — "what was agreed and what was
+    // ordered" per CD's audit. Blanket coercion removed the
+    // destination, not just the bypass. CB couldn't see the order
+    // number or timestamp anywhere in the UI (had to be read from
+    // the DB directly to verify Q15's SO2698 landed).
+    //
+    // Refined rule: sub-tab 5 stays reachable at complete (renders
+    // its receipt state). Sub-tabs 1-4 coerce to Preview — their
+    // submit-bearing forms would ship live on direct URL navigation.
+    // Server-side assertNotFrozen still rejects any submit that
+    // slips through.
     const activeTab =
-      quote.status === "complete" ? "preview" : activeTabRaw;
+      quote.status === "complete" && activeTabRaw !== "tier"
+        ? "preview"
+        : activeTabRaw;
 
     const showStateSwitcher =
       dev === "1" || process.env.NODE_ENV !== "production";

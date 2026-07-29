@@ -800,80 +800,90 @@ export function TabSalesOrder({
           </div>
         </div>
       ) : (
-        <>
-          {/* Slice 12 Step 8b · CB P1 fix — visible disabled-reason
-              surface directly adjacent to the CTA. Aggregates every
-              active reason (below-floor, unmapped customer, no
-              HubSpot company). PM reads this BEFORE hovering or
-              clicking the disabled Send button. */}
-          {sendDisabled && disabledReason && (
-            <div
-              role="status"
-              aria-live="polite"
-              data-testid="send-disabled-reason"
-              style={{
-                margin: "14px 0 0",
-                padding: "10px 14px",
-                background: "var(--warn-soft)",
-                border: "1px dashed var(--warn)",
-                borderRadius: 6,
-                fontSize: 12.5,
-                color: "var(--warn-ink, var(--ink-2))",
-                lineHeight: 1.55,
-              }}
-            >
-              <strong
+        // Q11 re-walk fix (R2) — hide the AdvanceBar entirely while
+        // the confirm modal is open. Pre-fix: modal was portaled
+        // (Q11 lift) but the sticky-positioned AdvanceBar in the tab
+        // body stayed fully opaque underneath the scrim → two live-
+        // looking Send buttons visible during the irreversible
+        // confirmation. Simplest correct fix: don't render the bar
+        // during modal-open. The Cancel button in the modal closes
+        // it; the bar comes back.
+        !modal && (
+          <>
+            {/* Slice 12 Step 8b · CB P1 fix — visible disabled-reason
+                surface directly adjacent to the CTA. Aggregates every
+                active reason (below-floor, unmapped customer, no
+                HubSpot company). PM reads this BEFORE hovering or
+                clicking the disabled Send button. */}
+            {sendDisabled && disabledReason && (
+              <div
+                role="status"
+                aria-live="polite"
+                data-testid="send-disabled-reason"
                 style={{
-                  fontFamily: "var(--mono)",
-                  fontSize: 10.5,
-                  letterSpacing: "0.04em",
-                  textTransform: "uppercase",
-                  marginRight: 8,
+                  margin: "14px 0 0",
+                  padding: "10px 14px",
+                  background: "var(--warn-soft)",
+                  border: "1px dashed var(--warn)",
+                  borderRadius: 6,
+                  fontSize: 12.5,
+                  color: "var(--warn-ink, var(--ink-2))",
+                  lineHeight: 1.55,
                 }}
               >
-                Send is disabled
-              </strong>
-              {disabledReason}
-            </div>
-          )}
-          <AdvanceBar
-            weight="heavy"
-            back={{ label: "Acceptance", onClick: () => onGo("accepted") }}
-            mid={
-              <span>
-                {carriedTier.label} · {usd(total)} ·{" "}
-                {netsuiteCustomerForReceipt.id}
-              </span>
-            }
-            caption={
-              sendDisabled
-                ? belowFloorDisabled
-                  ? "Blocked — tier is below the margin floor"
-                  : "Send is blocked — see reason above"
-                : "Irreversible — creates a Sales Order in NetSuite"
-            }
-            /* CB round 1 P1 — the label + disabled state have to
-               match. Prior version left the button reading "Send
-               order to NetSuite" even when disabled, so it looked
-               enabled next to a red banner saying it wouldn't send.
-               Label now flips to a blocked-state string; CSS
-               strengthens .r8-adv-btn.heavy:disabled to actually
-               look un-pressable on the dark slab. */
-            label={
-              isPending
-                ? "Sending…"
-                : sendDisabled
-                  ? "Blocked — cannot send"
-                  : failed
-                    ? "Retry — send order to NetSuite"
-                    : "Send order to NetSuite"
-            }
-            disabled={sendDisabled || isPending}
-            onAdvance={
-              sendDisabled || isPending ? undefined : () => setModal(true)
-            }
-          />
-        </>
+                <strong
+                  style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 10.5,
+                    letterSpacing: "0.04em",
+                    textTransform: "uppercase",
+                    marginRight: 8,
+                  }}
+                >
+                  Send is disabled
+                </strong>
+                {disabledReason}
+              </div>
+            )}
+            <AdvanceBar
+              weight="heavy"
+              back={{ label: "Acceptance", onClick: () => onGo("accepted") }}
+              mid={
+                <span>
+                  {carriedTier.label} · {usd(total)} ·{" "}
+                  {netsuiteCustomerForReceipt.id}
+                </span>
+              }
+              caption={
+                sendDisabled
+                  ? belowFloorDisabled
+                    ? "Blocked — tier is below the margin floor"
+                    : "Send is blocked — see reason above"
+                  : "Irreversible — creates a Sales Order in NetSuite"
+              }
+              /* CB round 1 P1 — the label + disabled state have to
+                 match. Prior version left the button reading "Send
+                 order to NetSuite" even when disabled, so it looked
+                 enabled next to a red banner saying it wouldn't send.
+                 Label now flips to a blocked-state string; CSS
+                 strengthens .r8-adv-btn.heavy:disabled to actually
+                 look un-pressable on the dark slab. */
+              label={
+                isPending
+                  ? "Sending…"
+                  : sendDisabled
+                    ? "Blocked — cannot send"
+                    : failed
+                      ? "Retry — send order to NetSuite"
+                      : "Send order to NetSuite"
+              }
+              disabled={sendDisabled || isPending}
+              onAdvance={
+                sendDisabled || isPending ? undefined : () => setModal(true)
+              }
+            />
+          </>
+        )
       )}
 
       {/* Q11 — SendOrderModal is now portal-backed via <Modal>.
