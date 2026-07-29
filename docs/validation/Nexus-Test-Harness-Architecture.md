@@ -17,6 +17,10 @@ The objective is production-quality integration boundaries, lifecycle safety, co
 7. Test-only destructive tooling is never imported by a route or server action.
 8. Production and Vercel production refuse isolated mode.
 9. All isolation rules have automated negative tests.
+10. Production modules are validation-mode unaware and depend only on shared
+    interfaces supplied through dependency injection.
+11. Provider selection occurs once at the process-start composition root; it
+    is not repeated in routes, actions, domain modules, or UI components.
 
 ## Runtime Classification
 
@@ -37,7 +41,7 @@ The objective is production-quality integration boundaries, lifecycle safety, co
 |---|---|---|
 | `src/lib/config/runtime-config.ts` | Parse and validate startup configuration | Prevents invalid production combinations and creates explicit readiness diagnostics |
 | `src/lib/integrations/provider-kind.ts` | Provider identity and capability metadata | Enables health/readiness and operational visibility |
-| `src/lib/integrations/composition.ts` | Controlled server-only dependency resolution | Removes concrete external SDK coupling from business actions |
+| `src/lib/integrations/composition.ts` | Process-start dependency-injection composition root | Supplies one validated production or isolated dependency graph without leaking mode checks into consumers |
 | `src/lib/integrations/hubspot-provider.ts` | HubSpot business-operation contract | Centralizes stage/amount/owner operations, errors, audit metadata, and future reconciliation |
 | `src/lib/integrations/netsuite-provider.ts` | NetSuite business-operation contract | Centralizes item/group/SO operations, errors, idempotency observations, and future reconciliation |
 | `src/lib/artifacts/artifact-storage.ts` | Quote artifact contract | Makes artifact lifecycle, metadata, and retrieval explicit beyond Supabase SDK details |
@@ -103,7 +107,20 @@ Allowed selector:
 
 - validated process-start environment passed by the isolated runner.
 
-Production code imports shared contracts and production implementations. Test-only implementations are loaded only by the isolated composition root after the safety gate proves isolated mode. Direct imports from `tests/harness` into ordinary routes/actions are forbidden and verified structurally.
+Production modules import shared contracts only. They do not read validation
+flags, select providers, or import test implementations. The process-start
+composition root constructs one dependency graph and injects either production
+implementations or isolated implementations after the safety gate has validated
+the complete configuration.
+
+Production implementations are the default graph. Test-only implementations
+are loaded only by the isolated composition root after isolation is proven.
+Direct imports from `tests/harness` into ordinary routes, actions, components,
+or domain modules are forbidden and verified structurally.
+
+The same rule applies to UI behavior: application components consume identity
+and session capabilities through injected shared interfaces. They do not branch
+on `NEXUS_ISOLATED_TEST` or provider-kind values.
 
 ## Shared Abstraction Review
 
@@ -182,6 +199,7 @@ Production code imports shared contracts and production implementations. Test-on
 - Playwright interception
 - Container/network restriction where feasible
 - Structural import checks
+- Structural checks forbidding validation-mode reads outside composition/startup
 - Production bundle checks
 - Negative tests for every rule
 - Secret scanning before evidence upload

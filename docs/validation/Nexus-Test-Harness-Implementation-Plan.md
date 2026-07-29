@@ -4,19 +4,19 @@
 
 | Field | Value |
 |---|---|
-| Status | Approved implementation plan — Phase 0 |
+| Status | Approved implementation plan — permanent platform branch |
 | Created | 2026-07-29 |
 | Repository | `eshin922/nexusv2` |
-| Implementation base | `feat/slice-12-step-10-walk-fixes` |
-| Base commit | `5fbe2b14f2f1f0c291078baaa49ae2266936cec8` |
-| Base relationship to `main` | 12 commits ahead, 0 behind |
-| Planned implementation branch | `feat/nexus-isolated-test-harness` |
-| Planned PR base before PR #160 merges | `feat/slice-12-step-10-walk-fixes` |
+| Implementation base | `main` after PR #160 |
+| Base commit | `aee51153545083444dd1f1ebb9b4d203c94d503b` |
+| Base relationship to `main` | Exact branch point |
+| Implementation branch | `feat/nexus-validation-platform` |
+| Slice 12 dependency | PR #160 merged at the base commit |
 | External access | Prohibited |
 
 ## Phase 0 Repository Assessment
 
-### Current state
+### Original assessment
 
 - Current branch: `feat/slice-12-step-10-walk-fixes`
 - Current commit: `5fbe2b14f2f1f0c291078baaa49ae2266936cec8`
@@ -39,17 +39,30 @@ All existing untracked and stashed work is user work. It will be preserved and e
 | #94 | Open, stale/divergent | Unrelated product hotfix | No planned harness overlap identified |
 | #63 | Open, stale/divergent | Historical documentation | No planned harness overlap identified |
 
-The harness will not modify or close any PR. Because PR #160 contains the lifecycle behavior under test, building directly on `main` would validate an obsolete implementation.
+### Stabilized state
+
+- PR #160 merged into `main` as
+  `aee51153545083444dd1f1ebb9b4d203c94d503b`.
+- Local `main` was fast-forwarded to that exact commit.
+- `feat/nexus-validation-platform` was created from that exact commit.
+- Completed reusable checkpoints were transplanted with `cherry-pick -x`.
+- The pre-DI authentication spike remains preserved only on
+  `feat/nexus-isolated-test-harness` at `59a69cf`; it is not part of this
+  branch and must not be transplanted verbatim.
+- Existing untracked documents and stashes remain untouched.
 
 ## Implementation Target
 
-Create `feat/nexus-isolated-test-harness` from exact commit:
+The permanent platform branch is:
 
 ```text
-5fbe2b14f2f1f0c291078baaa49ae2266936cec8
+feat/nexus-validation-platform
+base: aee51153545083444dd1f1ebb9b4d203c94d503b
 ```
 
-The initial PR should target `feat/slice-12-step-10-walk-fixes`. After PR #160 merges, the harness branch may be rebased or retargeted to updated `main` only after confirming the lifecycle delta remains equivalent and rerunning the full suite.
+This is the lowest production commit containing the Slice 12 lifecycle behavior
+required by the first complete feature suite. The reusable platform remains
+conceptually independent of Slice 12; Slice 12 is its first consumer.
 
 ## Proposed Architecture
 
@@ -76,11 +89,15 @@ SupabaseRealtimeProvider                       DisabledRealtimeProvider
 1. Production providers remain the default.
 2. Isolated providers are selected only at process start.
 3. No request field—query string, cookie, header, form field, or public route—may select isolated mode.
-4. Business actions receive dependencies through controlled server-only composition boundaries.
+4. Routes, actions, components, and domain modules depend only on shared
+   interfaces and receive dependencies through injection.
 5. Tests do not reproduce quote lifecycle logic.
 6. Fakes do not write Nexus lifecycle tables.
 7. Real payload builders, state guards, transactions, audits, idempotency, reconciliation, PDF rendering, and freeze behavior remain in execution.
 8. Test-only modules must be absent from production client bundles and unreachable from production server composition.
+9. Only the process-start composition root may read provider-selection or
+   validation-mode configuration.
+10. Production modules must not contain validation-mode conditionals.
 
 ## Planned File Changes
 
@@ -317,9 +334,9 @@ No command may read `.env.local` by default.
 
 | Risk/decision | Disposition |
 |---|---|
-| PR #160 not merged | Build child branch from its exact head; stacked PR until merge |
+| PR #160 lifecycle dependency | Resolved: merged into the permanent branch base at `aee5115` |
 | Large untracked worktree | Preserve; stage only explicit harness paths |
-| Auth seam could weaken Clerk | Server-only composition, production refusal, negative tests |
+| Auth seam could weaken Clerk | Shared interface plus dependency injection; Clerk remains the default production implementation; validation identity and UI adaptations land together with production-refusal and negative tests |
 | Fake providers could ship in bundles | Test-only paths plus controlled dynamic resolution; bundle verification |
 | Plain PostgreSQL migration incompatibility | Stop and document; never silently skip canonical SQL |
 | Process-local fake state under Next workers | Prefer database-backed/run-scoped fake ledger or one server-side composition instance |
