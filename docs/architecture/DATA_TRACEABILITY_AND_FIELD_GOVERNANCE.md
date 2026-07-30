@@ -70,19 +70,24 @@ Every governed field must have a trace that identifies:
    type, allowed null behavior, and business owner.
 3. **Acquisition:** synchronization, API read, user entry, configured lookup,
    default, or other mechanism, including timing and matching key.
-4. **Nexus persistence:** table and column, DTO or type, precision, snapshot or
+4. **Identity resolution:** when the value is a cross-system reference, the
+   governed dictionary or destination record that resolves source identity to
+   destination identity, its owner, and missing/inactive behavior.
+5. **Nexus persistence:** table and column, DTO or type, precision, snapshot or
    mutability semantics, and retention.
-5. **Transformation:** exact production symbol, normalization, resolution,
+6. **Transformation:** exact production symbol, normalization, resolution,
    derivation, rounding, conditional omission, and error behavior.
-6. **Outbound boundary:** provider, endpoint or record type, destination field,
+7. **Outbound boundary:** provider, endpoint or record type, destination field,
    payload representation, and idempotency or correlation identifier.
-7. **Destination lifecycle:** immediate value, sourced or defaulted value,
+8. **Transaction population:** the mechanism and owner that writes, sources,
+   defaults, or derives the destination transaction field.
+9. **Destination lifecycle:** immediate value, sourced or defaulted value,
    workflow or script mutation, and final observable value.
-8. **Downstream effect:** accounting, fulfillment, reporting, permissions,
+10. **Downstream effect:** accounting, fulfillment, reporting, permissions,
    customer presentation, audit, and artifact consequences.
-9. **Environment evidence:** relevant sandbox and production configuration
+11. **Environment evidence:** relevant sandbox and production configuration
    differences and why they do or do not change business meaning.
-10. **Regression evidence:** tests that protect approved mapping, omission,
+12. **Regression evidence:** tests that protect approved mapping, omission,
     failure, retry, and immutability behavior.
 
 A trace must distinguish copied, resolved, derived, defaulted, generated,
@@ -175,7 +180,36 @@ Each conclusion must be labeled as one of:
 - unknown requiring administrator evidence; or
 - unknown requiring a controlled sandbox probe.
 
-## 7. Ownership classifications
+## 7. Evidence classification
+
+Governance separates evidence by the decision it serves:
+
+### Decision-Critical Evidence
+
+Evidence is decision-critical when its absence could change whether Nexus
+writes, omits, reads, validates, blocks, or otherwise depends on a field.
+Decision-critical gaps keep the relevant ownership or implementation gate
+open. Examples include the authoritative source, identity resolver,
+transaction population owner, destination representation, duplicate-write
+risk, and required failure behavior.
+
+### Operational Provenance
+
+Operational provenance identifies the exact internal component, execution
+path, version, timestamp, or audit trail behind behavior whose Nexus
+implementation decision is already fixed. It supports maintenance,
+troubleshooting, auditing, migration, and incident response, but does not
+block the approved Nexus behavior.
+
+An open provenance item must state why it cannot change the current
+implementation decision and what future event would make it decision-critical.
+Provenance becomes decision-critical when the owning integration is changed,
+retired, replaced, fails its established contract, or transfers ownership.
+
+Do not use the `UNKNOWN` ownership classification for provenance-only gaps.
+Record ownership as closed and track provenance separately.
+
+## 8. Ownership classifications
 
 | Classification | Governance meaning | Nexus write policy |
 | --- | --- | --- |
@@ -192,7 +226,19 @@ own the source record while another system derives a transaction field from
 it. A governed identifier lookup can support deterministic resolution without
 transferring ownership of the referenced record.
 
-## 8. Decision gates
+For cross-system reference fields, governance records two distinct roles:
+
+- **Identity Resolution Owner:** owns the dictionary or synchronized
+  destination record that correlates the source identity to the destination
+  identity.
+- **Transaction Population Owner:** owns the mechanism that places the
+  resolved identity on the transaction.
+
+Closing identity resolution does not close transaction-field ownership and
+does not authorize Nexus to write the transaction field. The final ownership
+classification applies to transaction population at the destination boundary.
+
+## 9. Decision gates
 
 ### Evidence gate
 
@@ -230,7 +276,10 @@ transferring ownership of the referenced record.
 Failing a gate is protective behavior. It is not permission to weaken the gate
 or infer the missing contract.
 
-## 9. Implementation rules
+Operational provenance does not fail an implementation gate when
+decision-critical evidence already proves the required Nexus behavior.
+
+## 10. Implementation rules
 
 - Centralize mapping and omission logic at the production integration
   boundary.
@@ -253,7 +302,7 @@ or infer the missing contract.
   operational documentation with the implementation.
 - Do not mutate historical snapshots or artifacts to conform to a new mapping.
 
-## 10. Regression requirements
+## 11. Regression requirements
 
 Every approved mapping must have permanent coverage appropriate to its risk:
 
@@ -280,7 +329,7 @@ Assertions may be weakened only with trace-supported evidence. Skips, focused
 tests, retries, arbitrary waits, broad network exclusions, and silent snapshot
 replacement are not substitutes for diagnosis.
 
-## 11. Relationship to governance artifacts
+## 12. Relationship to governance artifacts
 
 This document defines the permanent process. Supporting artifacts have
 different responsibilities:
@@ -320,7 +369,7 @@ or parity classifications. Approved conclusions are promoted deliberately
 into the relevant contract, matrix, ADR when architectural ownership changes,
 and regression suite.
 
-## 12. Future applicability beyond Sales Orders
+## 13. Future applicability beyond Sales Orders
 
 Apply this standard to every future cross-system capability, including:
 

@@ -46,9 +46,10 @@ flat leaf lines, four-decimal normalization, quantity × rate reconciliation,
 deterministic idempotency, and completion retry-order invariants.
 
 These tests prove current Nexus behavior, not production/sandbox parity.
-Project Manager remains `UNKNOWN`; its evidence is specified in
-[PARITY_EVIDENCE_REQUESTS.md](PARITY_EVIDENCE_REQUESTS.md). Standard
-Sales Order `terms` is `NETSUITE_DERIVED`: a controlled sandbox REST creation
+Project Manager ownership is closed as `HUBSPOT_SYNC_OWNED` for both identity
+resolution and transaction population; exact create-time component provenance
+remains informational. Standard Sales Order `terms` is `NETSUITE_DERIVED`: a
+controlled sandbox REST creation
 probe proved that NetSuite populated Customer default Terms ID `7` when Nexus
 omitted the field. See
 [Standard Terms Ownership Evidence](STANDARD_TERMS_OWNERSHIP_EVIDENCE.md).
@@ -77,7 +78,7 @@ omitted the field. See
 | Deal type | HubSpot `dealtype` → cache | `hubspot-cache.ts`; `sales-orders.ts` | `custbody_dps_deal_type` | Optional | Copied when truthy | Same deal-type meaning | Source/destination option dictionaries and observed value |
 | Business class | HubSpot `business_segment` raw enum ID → cache | `hubspot-cache.ts`; `business-segment-resolver.ts`; `sales-orders.ts` | `class.id` | Optional | Raw ID passed after label lookup succeeds | Same classification; ID equivalence is not assumed | HubSpot option ID/label, NetSuite class dictionary, payload/SO |
 | DPS business segment | Same business-segment ID; derived mirror | `sales-orders.ts` | `cseg_dps_bus_seg.id` | Optional | Mirrors `class.id` | Same segment meaning and class/segment relationship | Production/sandbox class and custom-segment metadata |
-| Project manager | Builder input `projectManagerNsId`; intended HubSpot owner/PM → NetSuite employee mapping | `sales-orders.ts` | `custbody_project_manager.id` | Optional | Builder support and null/missing omission are unit-protected; completion does not supply it | `UNKNOWN` until Evidence Packet 1 resolves source and dictionary | Evidence Packet 1, employee mapping, payload absence, production/sandbox field |
+| Project manager | HubSpot `project_manager` → HubSpot Integration-governed NetSuite Employee identity | `sales-orders.ts` supports an input, but completion intentionally omits it | `custbody_project_manager.id` | Not required from Nexus | Omission is unit-protected; existing HubSpot integration owns population | `HUBSPOT_SYNC_OWNED`; Nexus must not write | [Project Manager Propagation Evidence](PROJECT_MANAGER_PROPAGATION_EVIDENCE.md); parity observations |
 | Item sublist | Nexus calculated leaf lines | `mark-complete.ts`; `sales-orders.ts` | `item.items[]` | Yes; at least one line enforced | Populated with flat leaf lines | Commercially equivalent lines except approved completed Item Group change | Full ordered line evidence and total reconciliation |
 
 ## Current outbound Sales Order line fields

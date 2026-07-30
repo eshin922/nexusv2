@@ -36,9 +36,9 @@ metadata or configuration.
 The completed repository-first investigations are:
 
 - [Project Manager propagation](../slice-13/PROJECT_MANAGER_PROPAGATION_EVIDENCE.md):
-  Nexus currently omits the field during completion. The authoritative source,
-  employee resolution, synchronization, sourcing, and automation owner remain
-  unresolved.
+  identity resolution and transaction population are closed as
+  `HUBSPOT_SYNC_OWNED` for Nexus implementation. Nexus omits the field. The
+  exact create-time component remains informational provenance only.
 - [Standard Terms ownership](../slice-13/STANDARD_TERMS_OWNERSHIP_EVIDENCE.md):
   ownership is closed as `NETSUITE_DERIVED`. A controlled sandbox REST probe
   proved NetSuite populated Customer default Terms when Nexus omitted the
@@ -73,6 +73,10 @@ For every export or answer:
 ## Requested administrator evidence
 
 ### Project Manager
+
+The Nexus implementation decision is closed. The historical request below is
+retained for audit context; only exact create-time component provenance remains
+open, and it is non-blocking unless the owning integration changes or retires.
 
 | Requested evidence | Why it is required | Expected return |
 | --- | --- | --- |

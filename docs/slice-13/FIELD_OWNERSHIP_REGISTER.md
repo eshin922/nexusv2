@@ -14,11 +14,10 @@ new Nexus write.
 
 ## Register
 
-| Field | Record | Ownership classification | Nexus behavior | Decision status | Evidence |
-| --- | --- | --- | --- | --- | --- |
-| Standard Terms (`terms`) | NetSuite Sales Order | `NETSUITE_DERIVED` | Omit; validate the NetSuite-derived result | **CLOSED** | [Standard Terms Ownership Evidence](STANDARD_TERMS_OWNERSHIP_EVIDENCE.md) |
-| Customer default Terms (`terms`) | NetSuite Customer | `SHARED_READ_ONLY_DEPENDENCY` | Do not write; rely on NetSuite ERP context | **CLOSED for Sales Order sourcing** | [Standard Terms Ownership Evidence](STANDARD_TERMS_OWNERSHIP_EVIDENCE.md) |
-| Project Manager (`custbody_project_manager`) | NetSuite Sales Order | `UNKNOWN` | Omit | Open | [Project Manager Propagation Evidence](PROJECT_MANAGER_PROPAGATION_EVIDENCE.md) |
+| Field | Identity Resolution Owner | Transaction Population Owner | Nexus Writes? | Decision Status | Provenance Status | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| Standard Terms (`terms`) | NetSuite Customer/ERP context | `NETSUITE_DERIVED` | No; omit and validate the derived result | **CLOSED** | Native sourcing versus synchronous NetSuite automation remains informational | [Standard Terms Ownership Evidence](STANDARD_TERMS_OWNERSHIP_EVIDENCE.md) |
+| Project Manager (`custbody_project_manager`) | HubSpot Integration via NetSuite Employee `HubSpot Project Manager ID` | `HUBSPOT_SYNC_OWNED` | No; omit and do not create a competing dictionary | **CLOSED for Nexus implementation** | **OPEN — informational only:** exact create-time integration component | [Project Manager Propagation Evidence](PROJECT_MANAGER_PROPAGATION_EVIDENCE.md) |
 
 Additional fields must be added only when their evidence report reaches a
 governance decision. Probable ownership is not an approved classification.

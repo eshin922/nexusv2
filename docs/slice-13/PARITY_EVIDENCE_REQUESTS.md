@@ -10,13 +10,15 @@ identifier guess, screenshot, or undocumented verbal rule is insufficient.
 Evidence must follow [PARITY_EVIDENCE_GUIDE.md](PARITY_EVIDENCE_GUIDE.md) and
 be referenced from [SALES_ORDER_PARITY_MATRIX.md](SALES_ORDER_PARITY_MATRIX.md).
 
-## Evidence Packet 1 — Project Manager
+## Evidence Packet 1 — Project Manager — CLOSED FOR NEXUS IMPLEMENTATION
 
-### Decision required
+### Decision
 
-Identify the authoritative business source for the Sales Order project manager
-and the governed mapping from that source identity to
-`custbody_project_manager.id`.
+HubSpot `project_manager` is the authoritative identity. The HubSpot
+Integration owns the NetSuite Employee identity dictionary and transaction
+population. Nexus must omit `custbody_project_manager` and must not create a
+competing mapping dictionary. Exact create-time component provenance remains
+open for information only.
 
 ### Candidate-source comparison
 
@@ -51,13 +53,14 @@ Do not select a candidate until business and technical evidence agree.
 
 | Decision | Value |
 |---|---|
-| Selected source | `UNKNOWN` |
-| Mapping owner | Requires manual discovery |
+| Selected source | HubSpot Deal `project_manager` |
+| Mapping owner | HubSpot Integration via NetSuite Employee `HubSpot Project Manager ID` |
 | Null behavior | Requires manual discovery |
 | Unmapped behavior | Requires manual discovery |
 | Inactive behavior | Requires manual discovery |
 | Production/sandbox classification | `UNKNOWN` |
-| Accounting/Operations approval | Pending |
+| Ownership decision | **CLOSED for Nexus implementation** |
+| Operational provenance | Open, informational only |
 
 ## Evidence Packet 2 — Standard Terms — CLOSED
 

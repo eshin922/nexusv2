@@ -81,7 +81,7 @@ parity.
 | Required headers and active optional custom fields | Unit-protected exact mapping | Remains `UNKNOWN` until transaction evidence |
 | `custbody_dps_payment_terms_text` | Unit-protected trim/populate/omit behavior | Remains `UNKNOWN` for business parity |
 | Standard `terms` | Unit-protected omission; ownership closed as `NETSUITE_DERIVED` | Parity remains `UNKNOWN` until production/sandbox equivalence is observed |
-| Project Manager | Builder support and null/missing omission unit-protected; completion omits it | `UNKNOWN`; Evidence Packet 1 required |
+| Project Manager | Omission unit-protected; ownership closed as `HUBSPOT_SYNC_OWNED` | Parity remains `UNKNOWN`; exact create-time component is informational provenance |
 | Flat leaf item, quantity, rate, and cost | Unit-protected payload plus completion invariants | Remains `UNKNOWN` until transaction evidence |
 | Line `amount` | Unit-protected omission and quantity × rate reconciliation | Remains `UNKNOWN` until NetSuite result evidence |
 | Historical, SuiteTax, bundle, opportunity, workflow, and unknown fields | Enumerated non-activation is unit-protected | Evidence classification remains field-specific |

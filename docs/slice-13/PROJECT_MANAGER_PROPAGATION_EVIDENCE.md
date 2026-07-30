@@ -5,6 +5,25 @@
 The NetSuite Sales Order Project Manager field is **not authorized for a Nexus
 production mapping**.
 
+Project Manager governance now separates two responsibilities:
+
+| Responsibility | Status | Owner / classification |
+| --- | --- | --- |
+| Identity Resolution | **CLOSED** | HubSpot Integration / `HUBSPOT_SYNC_OWNED` |
+| Transaction Population | **CLOSED for Nexus implementation** | HubSpot Integration / `HUBSPOT_SYNC_OWNED` |
+| Operational Provenance | **OPEN — informational only** | Exact create-time component not captured |
+
+Employee `194766` contains the custom field labeled
+`HubSpot Project Manager ID` with value `702872744`. That value exactly matches
+the HubSpot Deal `project_manager` owner established for the correlated
+transaction. The NetSuite Employee record is therefore the governed identity
+dictionary used to resolve HubSpot Project Manager owners to NetSuite
+Employees. Nexus must not create a competing mapping dictionary.
+
+The remaining question—exactly which integration component places
+`custbody_project_manager` on the Sales Order—is operational provenance. It
+does not change the closed Nexus decision to omit the field.
+
 Repository evidence proves that:
 
 - HubSpot has separate Deal Owner and Project Manager concepts.
@@ -24,10 +43,10 @@ populated independently of `hubspot_owner_id`. This establishes the CRM-side
 candidate identity, but not the authoritative Sales Order source or the
 HubSpot-to-NetSuite propagation mechanism.
 
-No repository or accessible NetSuite evidence proves whether native
-synchronization, transaction sourcing, a workflow, SuiteScript, or another
-mechanism owns the resulting Sales Order value. The provisional ownership
-classification therefore remains `UNKNOWN` under the
+The evidence establishes the existing HubSpot integration as the transaction
+population owner for Nexus implementation purposes. Whether it supplies the
+field directly in the create payload or invokes a tightly coupled NetSuite
+component remains informational provenance under the
 [Integration Ownership Principle](INTEGRATION_OWNERSHIP_PRINCIPLE.md).
 
 ## Scope and evidence boundary
@@ -52,7 +71,11 @@ Evidence labels used below:
 - **Controlled sandbox probe required:** behavior that must be observed on an
   owned sandbox transaction after administrator evidence and access gates pass.
 
-No production write was performed. No sandbox write was performed.
+A controlled sandbox REST probe created one disposable Sales Order while
+omitting `custbody_project_manager` and all Nexus custom body fields. The
+immediate GET returned the Project Manager field absent, with equal creation
+and last-modified timestamps. Exact memo verification preceded deletion;
+DELETE returned `204` and the final GET returned `404`.
 
 ## Known field identities
 
@@ -64,6 +87,7 @@ No production write was performed. No sandbox write was performed.
 | Cached HubSpot PM identity | `hubspot_deals_cache.pm_id`, `pm_name`, `pm_email` | Nexus cache | Repository-confirmed; population is configuration-gated |
 | Nexus project PM | `projects.pm_user_id` / `projects.pmUserId` | Nullable FK to `users.id` | Repository-confirmed |
 | Nexus user HubSpot identity | `users.hubspot_owner_id` / `users.hubspotOwnerId` | Nexus user record | Repository-confirmed |
+| NetSuite Employee HubSpot PM identity | Label `HubSpot Project Manager ID`; technical field ID not yet captured | NetSuite Employee `194766` | Administrator-confirmed value `702872744`, exactly matching the correlated HubSpot Project Manager owner |
 | Builder input | `projectManagerNsId` | `SalesOrderPayloadInput` | Repository-confirmed |
 | NetSuite destination script ID | `custbody_project_manager` | Sales Order body field | Repository-confirmed as the intended builder destination; active NetSuite field metadata remains unverified |
 | Intended destination value shape | `{ id: projectManagerNsId }` | NetSuite REST Sales Order payload | Repository-confirmed builder behavior; NetSuite acceptance/type remains unverified |
@@ -100,39 +124,36 @@ Manager frequently differed from Deal Owner, disproving any safe assumption
 that `hubspot_owner_id` and `project_manager` are interchangeable. Raw customer
 deal details and personal data were not persisted in this document.
 
-### 2. Native HubSpot-to-NetSuite synchronization
+### 2. Identity resolution through HubSpot integration
 
-The governing architecture establishes that native HubSpot-to-NetSuite
-synchronization remains authoritative for established CRM mappings. However,
-the repository contains no export of that integration's field map, matching
-rules, overwrite behavior, null-clearing behavior, or timing for
-`project_manager`.
+The NetSuite Employee custom field labeled `HubSpot Project Manager ID`
+contains the HubSpot owner identifier. Employee `194766` stores `702872744`,
+which exactly matches the correlated HubSpot Deal `project_manager` owner.
 
-It is therefore unknown whether the native integration:
+This closes identity resolution:
 
-- maps `project_manager`, `hubspot_owner_id`, or another property;
-- resolves a HubSpot owner to a NetSuite employee;
-- writes Project Manager to a synchronized customer, opportunity, job, or
-  transaction-related record;
-- leaves the value for NetSuite sourcing or automation;
-- ignores Project Manager entirely.
+HubSpot Deal `project_manager` owner ID
+→ search NetSuite Employee `HubSpot Project Manager ID`
+→ resolved NetSuite Employee internal ID.
 
-### 3. NetSuite source records and employee identity
+The HubSpot Integration owns and maintains this dictionary. The custom
+Employee field's technical script ID and lifecycle behavior remain useful
+operational metadata, but they do not block the identity-ownership decision.
+Nexus must not introduce an independent user-to-Employee dictionary.
 
-No deterministic HubSpot-owner-to-NetSuite-employee dictionary exists in the
-repository. `users.hubspot_owner_id` maps a Nexus user to a HubSpot owner only;
-it carries no NetSuite employee internal ID.
+### 3. Transaction population
 
-The configured NetSuite account was verified as a sandbox. During this
-checkpoint:
+The Sales Order field is stored, has blank Source List and Source From
+configuration, and is described as synchronized from HubSpot by searching the
+HubSpot Project Manager ID on Employee records. The correlated existing Sales
+Order contains Employee `194766`, but its Project Manager System Notes contain
+no matching rows.
 
-- the metadata-catalog root for `salesOrder` returned only record name/links,
-  not custom-field metadata;
-- read-only Sales Order GET and SuiteQL employee/Sales Order queries failed
-  with NetSuite `Invalid login attempt`.
-
-Those failures are an access/setup issue. They provide no evidence about field
-presence, employee mappings, sourcing, or automation.
+The controlled direct REST creation probe omitted
+`custbody_project_manager`; the immediate result also omitted the field. This
+rules out unconditional native field sourcing for that direct-create context.
+It does not identify the writer used by the established HubSpot-originated
+transaction path.
 
 ### 4. Sales Order sourcing and automation
 
@@ -180,11 +201,15 @@ or write a NetSuite Project Manager during completion.
 | Current environment does not enable PM caching | Repository-confirmed local configuration observation | `.env.local` presence check; value not printed because it is unset | Applies to the inspected environment only |
 | `projects.pmUserId` is a Nexus user FK | Repository-confirmed | `src/db/schema.ts` | Strong |
 | Import initializes project PM to null and refresh does not maintain it | Repository-confirmed | `src/app/actions/projects.ts` | Strong |
-| No Nexus-to-NetSuite employee dictionary/resolver exists | Repository-confirmed search | Schema, actions, NetSuite modules, fixtures, tests | Strong for current repository |
+| No Nexus-to-NetSuite employee dictionary/resolver exists | Repository-confirmed search | Schema, actions, NetSuite modules, fixtures, tests | Strong; Nexus must not create one because the Employee custom field is the governed dictionary |
+| Employee `194766` stores HubSpot PM owner `702872744` | Administrator-confirmed runtime evidence | NetSuite Employee custom field `HubSpot Project Manager ID` | Closes identity resolution as HubSpot Integration-owned |
+| Correlated Sales Order references Employee `194766` | Administrator-confirmed runtime evidence | Existing Sales Order Project Manager | Strong correlation; does not identify the transaction writer |
+| Direct REST creation with Project Manager omitted leaves it absent | Controlled sandbox evidence | Immediate Sales Order GET; guarded cleanup | Rules out unconditional direct-create sourcing in the probed context; does not exclude a HubSpot integration writer |
+| Project Manager System Notes contain no matching rows | Administrator-confirmed runtime evidence | Correlated Sales Order System Notes | No recorded post-create mutation; does not reveal a create-time writer |
 | Builder supports `custbody_project_manager` with an ID reference | Repository-confirmed | `src/lib/netsuite/sales-orders.ts`; `tests/unit/sales-order-accounting-contract.test.ts` | Proves serialization only, not NetSuite acceptance or ownership |
 | Completion omits Project Manager | Repository-confirmed | `src/lib/netsuite/mark-complete.ts`; accounting contract test | Strong |
-| Native sync ownership/propagation is known | Administrator evidence required | No active sync export in repository | Unknown |
-| Sales Order sourcing/workflow timing is known | Administrator evidence and controlled observation required | No form/workflow/script export or before/after record | Unknown |
+| Transaction population ownership is known for Nexus implementation | Correlated runtime and architecture evidence | HubSpot source identity, governed Employee dictionary, integration-created Sales Order, direct REST omission behavior | Closed as `HUBSPOT_SYNC_OWNED`; exact create-time component remains provenance-only |
+| Exact create-time payload or component is known | Operational provenance | Original execution payload is unavailable | Open informational item; does not block Nexus omission |
 | Sandbox and production behavior are equivalent | Administrator evidence and controlled observation required | No comparable records/configuration | Unknown |
 
 Repository history shows `projectManagerNsId` and
@@ -211,144 +236,72 @@ field blank, source it immediately, or populate it later through automation.
 
 ## Ownership analysis
 
-### Provisional classification: `UNKNOWN`
+### Identity Resolution: CLOSED
 
-`UNKNOWN` is required because:
+**Owner: HubSpot Integration**
+**Classification: `HUBSPOT_SYNC_OWNED`**
 
-- the native sync's Project Manager mapping is unavailable;
-- the authoritative business source has not been approved;
-- the NetSuite field metadata and employee reference contract are unavailable;
-- customer/opportunity/job/form sourcing is unverified;
-- workflow/SuiteScript ownership and timing are unverified;
-- no governed cross-system employee mapping exists;
-- sandbox/production parity is unverified.
+The NetSuite Employee custom field is the governed identity dictionary. Nexus
+may validate or reference this synchronized relationship only after a
+transaction ownership decision requires it; Nexus must not duplicate it.
 
-Possible final classifications remain:
+### Transaction Population: CLOSED for Nexus implementation
 
-- `HUBSPOT_SYNC_OWNED` if native synchronization directly maintains the value;
-- `NETSUITE_DERIVED` if Sales Order sourcing inherits it from an authoritative
-  synchronized record;
-- `NETSUITE_WORKFLOW_OR_SCRIPT_OWNED` if automation maintains it;
-- `SHARED_READ_ONLY_DEPENDENCY` if Nexus should only validate or reference an
-  already synchronized identity;
-- `NEXUS_OWNED` only if architecture explicitly transfers Sales Order field
-  responsibility to Nexus and provides a governed employee-resolution
-  contract.
+**Owner: HubSpot Integration**
+**Classification: `HUBSPOT_SYNC_OWNED`**
 
-Repository evidence does not justify selecting among them.
+Nexus must continue omitting `custbody_project_manager`. The established
+integration resolves the HubSpot Project Manager through the governed Employee
+dictionary and the correlated integration-created Sales Order contains that
+Employee. The field has no configured sourcing, direct REST omission leaves it
+absent, and Nexus never writes it.
 
-## Missing evidence
+### Operational Provenance: OPEN, informational only
 
-Minimum evidence needed for a final ownership decision:
+The original outbound payload or execution log has not been captured, so the
+exact create-time component is unknown. That detail cannot change the current
+Nexus decision: both direct integration population and a tightly coupled
+integration-owned handoff remain external to Nexus and prohibit a duplicate
+Nexus writer. Provenance becomes decision-critical only if the integration is
+changed, retired, replaced, or transfers ownership to Nexus.
 
-1. HubSpot native-sync export covering Deal Owner, `project_manager`, employee
-   references, and every target record/field it affects.
-2. NetSuite production and sandbox metadata for `custbody_project_manager`,
-   including record applicability, field type, source/list, mandatory status,
-   display behavior, and sourcing configuration.
-3. Active Sales Order form configuration relevant to Project Manager.
-4. Active workflow and SuiteScript deployments that read or write this field,
-   including timing and conditions.
-5. At least two correlated production examples tracing HubSpot
-   `project_manager` through synchronized records to the final Sales Order.
-6. Immediate and post-automation values for comparable sandbox Sales Orders
-   created without an explicit Nexus Project Manager.
-7. Production/sandbox employee identity comparison for those examples.
-8. Approved null, inactive, unmapped, and reassignment behavior.
-9. Named business and technical owners for the source, employee relationship,
-   and destination field.
+## Remaining operational provenance
 
-## Proposed administrator questions
+The exact create-time writer for `custbody_project_manager` on the correlated
+HubSpot-originated Sales Order remains uncaptured. This is not an
+implementation blocker. Null, inactive, unmapped, reassignment, and environment
+behavior remain future operational-contract evidence if Nexus begins
+validating the synchronized result.
 
-### HubSpot integration owner
+## Optional provenance capture
 
-1. Does native synchronization include `project_manager`,
-   `hubspot_owner_id`, or another user property?
-2. Which NetSuite record and field receives each property?
-3. How is a HubSpot owner resolved to a NetSuite employee?
-4. Does the integration create/update, overwrite, or clear the target on null?
-5. What is the synchronization timing and retry behavior?
-6. Are production and sandbox mappings identical? If not, provide the
-   root-caused difference.
+Inspect only the HubSpot automation execution that created the correlated
+Sales Order:
 
-### NetSuite administrator
+1. Open the correlated HubSpot Deal.
+2. Open its workflow or integration history for the execution that created the
+   Sales Order.
+3. Open only the Sales Order creation action or its sanitized outbound payload.
+4. Search that action for `project_manager`, `custbody_project_manager`, or the
+   resolved Employee internal ID.
+5. Record the action/workflow name and the exact source → lookup → destination
+   mapping. Stop; do not inventory unrelated workflows or actions.
 
-1. Confirm that `custbody_project_manager` is an active Sales Order body field
-   and provide its metadata and source list/record type.
-2. Is it sourced from customer, opportunity, job/project, transaction form, or
-   another record?
-3. Which workflows or SuiteScripts read or write it, and when?
-4. What happens when the employee is inactive, absent, or invalid?
-5. Does omission leave it blank, source it immediately, or populate it after
-   automation?
-6. Are employee internal IDs and automation behavior aligned between
-   production and sandbox?
-
-### Operations owner
-
-1. Is HubSpot `project_manager` the authoritative business assignment for a
-   Sales Order, or is another source authoritative?
-2. When a PM changes after quote acceptance, should an existing Sales Order
-   change?
-3. Should missing/unmapped/inactive PM block completion, warn, or remain blank?
-4. Which system owns assignment correction and audit history?
-
-## Optional controlled sandbox probe plan
-
-A controlled sandbox probe is justified **after** administrator exports answer
-the field/source/automation questions and sandbox authentication is repaired.
-It is not currently executable or safe as an ownership substitute.
-
-Use two synchronized sandbox records with approved, active PMs and one owned
-probe Sales Order per case:
-
-1. Record sandbox account, role, form, customer, linked synchronized record,
-   source HubSpot property, employee identity, workflow/script versions, and a
-   unique run ID.
-2. Capture the authoritative synchronized source records before Sales Order
-   creation.
-3. Create an owned Sales Order while omitting `custbody_project_manager`.
-4. Capture the create response and immediate structured GET.
-5. Wait on observable workflow/system-note completion, not an arbitrary sleep.
-6. Capture the post-automation Sales Order and system notes.
-7. Repeat with the second approved PM.
-8. If metadata and ownership approval require testing explicit assignment,
-   create a separate owned Sales Order with the documented employee reference;
-   never combine omission and explicit-write observations in one record.
-9. Exercise an approved null/unmapped/inactive case only with administrator
-   supervision and no production data.
-10. Delete or void only run-owned probe transactions using the approved
-    sandbox cleanup policy, and retain sanitized evidence externally.
-
-Expected observations:
-
-- source property and synchronized record value;
-- immediate Sales Order Project Manager value;
-- post-automation value and mutation actor;
-- whether omission sources/defaults the field;
-- whether explicit assignment is accepted, preserved, or overwritten;
-- failure response for the approved invalid case;
-- environment-specific employee IDs and equivalent business identity.
-
-Do not run this probe against production.
+This capture is optional and non-blocking. It is useful for support and future
+migration, but it does not reopen the Nexus implementation decision.
 
 ## Decision gate
 
-Production implementation remains blocked until:
+The Nexus implementation decision is closed:
 
-- field ownership is assigned exactly once;
-- the authoritative source and employee-resolution contract are approved;
-- immediate and post-automation behavior are evidenced;
-- null, inactive, unmapped, and reassignment behavior are approved;
-- sandbox/production differences are root-caused;
-- the permanent parity row can be completed without `UNKNOWN`;
-- regression and validation impact is defined.
+- the HubSpot Integration owns identity resolution and transaction
+  population;
+- Nexus omits `custbody_project_manager`;
+- Nexus does not create a second identity dictionary; and
+- optional provenance capture does not block release.
 
-If evidence shows HubSpot sync or NetSuite automation owns the field, the
-correct Nexus checkpoint is validation/reconciliation or fail-safe handling,
-not a duplicate mapping. If ownership is explicitly assigned to Nexus, the
-implementation must include the governed source/resolver, production mapping,
-regression tests, validation updates, and contract documentation in one
-bounded checkpoint.
+Any future proposal for Nexus to write the field requires an explicit
+ownership-transfer decision, null/inactive/unmapped/reassignment contracts,
+sandbox/production evidence, and regression and validation updates.
 
 **No production Project Manager mapping is authorized by this packet.**
