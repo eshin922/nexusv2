@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Newsreader, Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
 import { ApplicationAuthProvider } from "@/components/application-auth-provider";
-import { GlobalRealtimeProvider } from "@/components/global-realtime-provider";
+import { RealtimeCompositionProvider } from "@/lib/integrations/realtime-composition";
 import "./globals.css";
 
 // Slice RI.0 — CD's three font families loaded via next/font for
@@ -79,7 +79,7 @@ export default function RootLayout({
               reference tables (firm_settings, markup_defaults). Dispatches
               a window CustomEvent on changes; CostingStoreProvider folds
               it into the same reconcile pipe as per-quote events. */}
-          <GlobalRealtimeProvider />
+          <RealtimeCompositionProvider />
           {/* Slice RI.2 — AppShell renders the outer rail (Round 4)
               for authenticated users; sign-in/sign-up pages pass
               through unwrapped. Project surfaces add the inner rail

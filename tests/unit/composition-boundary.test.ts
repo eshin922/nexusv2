@@ -10,6 +10,7 @@ const ALLOWED_RUNTIME_SELECTION_FILES = new Set([
   "src/lib/auth/middleware-composition.ts",
   "src/lib/config/runtime-config.ts",
   "src/lib/integrations/composition.ts",
+  "src/lib/integrations/realtime-composition.tsx",
   "src/middleware.ts",
 ]);
 
@@ -47,6 +48,7 @@ test("production source never imports test harness modules outside composition",
   for (const file of trackedSourceFiles()) {
     if (
       file === "src/lib/integrations/composition.ts" ||
+      file === "src/lib/integrations/realtime-composition.tsx" ||
       file === "src/lib/auth/middleware-composition.ts"
     ) {
       continue;
