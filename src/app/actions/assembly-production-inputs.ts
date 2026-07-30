@@ -15,6 +15,10 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import { quoteForAssembly } from "@/lib/quote-guards";
+import {
+  parseIntegerInput,
+  parseMoneyTotal,
+} from "@/lib/numeric-input";
 
 // ---------- Slice 11.5 — assembly_production_inputs write actions ----------
 //
@@ -77,20 +81,6 @@ function trimOrNull(v: FormDataEntryValue | null): string | null {
   return s === "" ? null : s;
 }
 
-function parseNumericOrNull(v: FormDataEntryValue | null): string | null {
-  const s = String(v ?? "").trim();
-  if (s === "") return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? s : null;
-}
-
-function parseIntOrNull(v: FormDataEntryValue | null): number | null {
-  const s = String(v ?? "").trim();
-  if (s === "") return null;
-  const n = parseInt(s, 10);
-  return Number.isFinite(n) ? n : null;
-}
-
 function parseBool(v: FormDataEntryValue | null): boolean {
   return v === "on" || v === "true" || v === "1";
 }
@@ -117,19 +107,77 @@ export async function upsertAssemblyProductionInputs(
     if (!tierId) throw new ActionGuardError(ERR.VALIDATION, "tierId required");
 
     const user = await ensureUser();
-    const { quote } = await quoteForAssembly(assemblyId);
+    await quoteForAssembly(assemblyId);
 
-    const newFields = {
-      fillingBlendingCost: parseNumericOrNull(formData.get("fillingBlendingCost")),
-      cmAssemblyTotal: parseNumericOrNull(formData.get("cmAssemblyTotal")),
-      setupFeeTotal: parseNumericOrNull(formData.get("setupFeeTotal")),
-      toolingArtworkTotal: parseNumericOrNull(
-        formData.get("toolingArtworkTotal"),
+    const changedFieldRaw = String(formData.get("changedField") ?? "").trim();
+    const editableFields = [
+      "fillingBlendingCost",
+      "cmAssemblyTotal",
+      "setupFeeTotal",
+      "toolingArtworkTotal",
+      "rdTotal",
+      "otherServiceTotal",
+      "bulkRawCost",
+      "actualUnitsProduced",
+    ] as const;
+    const changedField =
+      changedFieldRaw === ""
+        ? null
+        : editableFields.find((field) => field === changedFieldRaw);
+    if (changedFieldRaw !== "" && !changedField) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Unknown production input field.",
+        "changedField",
+      );
+    }
+
+    const submittedFields = {
+      fillingBlendingCost: parseMoneyTotal(
+        formData.get("fillingBlendingCost"),
+        "fillingBlendingCost",
+        "Filling / blending tier total",
       ),
-      rdTotal: parseNumericOrNull(formData.get("rdTotal")),
-      otherServiceTotal: parseNumericOrNull(formData.get("otherServiceTotal")),
-      bulkRawCost: parseNumericOrNull(formData.get("bulkRawCost")),
-      actualUnitsProduced: parseIntOrNull(formData.get("actualUnitsProduced")),
+      cmAssemblyTotal: parseMoneyTotal(
+        formData.get("cmAssemblyTotal"),
+        "cmAssemblyTotal",
+        "Contract manufacturing tier total",
+      ),
+      setupFeeTotal: parseMoneyTotal(
+        formData.get("setupFeeTotal"),
+        "setupFeeTotal",
+        "Setup fee total",
+      ),
+      toolingArtworkTotal: parseMoneyTotal(
+        formData.get("toolingArtworkTotal"),
+        "toolingArtworkTotal",
+        "Tooling / artwork fee total",
+      ),
+      rdTotal: parseMoneyTotal(
+        formData.get("rdTotal"),
+        "rdTotal",
+        "Research / development fee total",
+      ),
+      otherServiceTotal: parseMoneyTotal(
+        formData.get("otherServiceTotal"),
+        "otherServiceTotal",
+        "Other service fee total",
+      ),
+      bulkRawCost: parseMoneyTotal(
+        formData.get("bulkRawCost"),
+        "bulkRawCost",
+        "Bulk raw tier total",
+      ),
+      actualUnitsProduced: parseIntegerInput(
+        formData.get("actualUnitsProduced"),
+        {
+          field: "actualUnitsProduced",
+          label: "Actual units produced",
+          nullable: true,
+          minExclusive: 0,
+          max: 2147483647,
+        },
+      ),
     };
 
     const existingRows = await db
@@ -185,12 +233,22 @@ export async function upsertAssemblyProductionInputs(
           assemblyId,
           tierId,
           ...inheritedPolicy,
-          ...newFields,
+          ...submittedFields,
         })
         .returning();
       const rowId = inserted.id;
+      const persistedFields = {
+        fillingBlendingCost: inserted.fillingBlendingCost,
+        cmAssemblyTotal: inserted.cmAssemblyTotal,
+        setupFeeTotal: inserted.setupFeeTotal,
+        toolingArtworkTotal: inserted.toolingArtworkTotal,
+        rdTotal: inserted.rdTotal,
+        otherServiceTotal: inserted.otherServiceTotal,
+        bulkRawCost: inserted.bulkRawCost,
+        actualUnitsProduced: inserted.actualUnitsProduced,
+      };
       const diff: Diff = {};
-      for (const [k, v] of Object.entries(newFields)) {
+      for (const [k, v] of Object.entries(persistedFields)) {
         if (v !== null) diff[k] = { from: null, to: v };
       }
       await logAudit({
@@ -200,8 +258,10 @@ export async function upsertAssemblyProductionInputs(
         action: "assembly_production_input_updated",
         diffJson: diff,
       });
-      revalidateQuoteTree(quote.projectId, quote.id);
-      return { rowId, ...newFields };
+      // The canonical action receipt updates this client and production
+      // realtime reconciles other sessions. Revalidation here remounts sibling
+      // cells and cancels their pending debounced saves.
+      return { rowId, ...persistedFields };
     }
 
     const row = existingRows[0];
@@ -216,6 +276,11 @@ export async function upsertAssemblyProductionInputs(
       bulkRawCost: row.bulkRawCost,
       actualUnitsProduced: row.actualUnitsProduced,
     };
+    // Autosave patches one cell. Preserve persisted siblings even when the
+    // component's server props predate lazy-row creation or a prior save.
+    const newFields = changedField
+      ? { ...before, [changedField]: submittedFields[changedField] }
+      : submittedFields;
 
     const diff: Diff = {};
     const numericKeys = [
@@ -243,21 +308,40 @@ export async function upsertAssemblyProductionInputs(
       return { rowId, ...before };
     }
 
-    await db
+    const [persisted] = await db
       .update(assemblyProductionInputs)
       .set({ ...newFields, updatedAt: new Date() })
-      .where(eq(assemblyProductionInputs.id, rowId));
+      .where(eq(assemblyProductionInputs.id, rowId))
+      .returning();
+
+    const persistedFields = {
+      fillingBlendingCost: persisted.fillingBlendingCost,
+      cmAssemblyTotal: persisted.cmAssemblyTotal,
+      setupFeeTotal: persisted.setupFeeTotal,
+      toolingArtworkTotal: persisted.toolingArtworkTotal,
+      rdTotal: persisted.rdTotal,
+      otherServiceTotal: persisted.otherServiceTotal,
+      bulkRawCost: persisted.bulkRawCost,
+      actualUnitsProduced: persisted.actualUnitsProduced,
+    };
+    const canonicalDiff: Diff = {};
+    for (const key of Object.keys(diff)) {
+      const field = key as keyof typeof persistedFields;
+      canonicalDiff[field] = {
+        from: before[field],
+        to: persistedFields[field],
+      };
+    }
 
     await logAudit({
       userId: user.id,
       entityType: "assembly_production_input",
       entityId: rowId,
       action: "assembly_production_input_updated",
-      diffJson: diff,
+      diffJson: canonicalDiff,
     });
 
-    revalidateQuoteTree(quote.projectId, quote.id);
-    return { rowId, ...newFields };
+    return { rowId, ...persistedFields };
   });
 }
 

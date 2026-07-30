@@ -16,22 +16,15 @@ import {
   resolveNetsuiteCustomer,
   formatCustomerMissingError,
 } from "./customer-map";
-import {
-  resolveNetsuiteItem,
-  formatResolutionErrors,
-  type ResolveResult,
-} from "./item-resolver";
-import { resolveBusinessSegmentLabel } from "./business-segment-resolver";
-import { resolveProjectSourceIdByLabel } from "./project-source-resolver";
+import { formatResolutionErrors, type ResolveResult } from "./item-resolver";
 import { findOrCreateItemGroup } from "./item-groups";
 import {
   buildSalesOrderPayload,
   computeIdempotencyKey,
-  createSalesOrder,
-  fetchSalesOrderTranid,
   type SalesOrderLine,
 } from "./sales-orders";
 import { NetsuiteError } from "./errors";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
 
 // Slice 12 Step 8c-3 — markComplete orchestrator.
 //
@@ -102,6 +95,7 @@ export async function runMarkComplete(
   input: MarkCompleteInput,
 ): Promise<MarkCompleteResult> {
   const { quoteId, actorUserId } = input;
+  const { netsuite } = await getApplicationDependencies();
 
   // ============================================================
   // STEP 1 — Load state + guards
@@ -251,7 +245,7 @@ export async function runMarkComplete(
   );
   const resolutionResults: ResolveResult[] = [];
   for (const sku of uniqueSkus) {
-    resolutionResults.push(await resolveNetsuiteItem(sku));
+    resolutionResults.push(await netsuite.resolveItem(sku));
   }
   const resolutionError = formatResolutionErrors(resolutionResults);
   if (resolutionError) throw new Error(resolutionError);
@@ -277,7 +271,7 @@ export async function runMarkComplete(
   //      Resolver's job is the reverse — label→id at push time.
   let resolvedBusinessSegmentLabel: string | null = null;
   if (dealCache.businessSegmentId) {
-    resolvedBusinessSegmentLabel = await resolveBusinessSegmentLabel(
+    resolvedBusinessSegmentLabel = await netsuite.resolveBusinessSegment(
       dealCache.businessSegmentId,
       { dealIdForBackfill: projectRow.hubspotDealId },
     );
@@ -285,7 +279,7 @@ export async function runMarkComplete(
 
   let resolvedProjectSourceId: string | null = null;
   if (dealCache.sourcingLocation) {
-    resolvedProjectSourceId = await resolveProjectSourceIdByLabel(
+    resolvedProjectSourceId = await netsuite.resolveProjectSource(
       dealCache.sourcingLocation,
     );
   }
@@ -393,7 +387,9 @@ export async function runMarkComplete(
     // Failure keeps NULL and stays non-blocking; success self-heals
     // the historical gap.
     if (salesOrderTranid === null) {
-      const backfilled = await fetchSalesOrderTranid(salesOrderInternalId);
+      const backfilled = await netsuite.fetchSalesOrderTranid(
+        salesOrderInternalId,
+      );
       if (backfilled !== null) {
         salesOrderTranid = backfilled;
         tranidFetchOutcome = "backfilled_on_retry";
@@ -530,7 +526,7 @@ export async function runMarkComplete(
 
     let created;
     try {
-      created = await createSalesOrder(payload, { idempotencyKey });
+      created = await netsuite.createSalesOrder(payload, { idempotencyKey });
     } catch (e) {
       // NS create failed. Update the pending row (if we managed to
       // write it) to failed status with error detail. Then throw.
@@ -592,7 +588,7 @@ export async function runMarkComplete(
     // The SO itself exists; tranid is diagnostic, not
     // correctness-critical. Backfill on next retry-convergence attempt
     // (see priorSuccess branch above).
-    const fresh = await fetchSalesOrderTranid(salesOrderInternalId);
+    const fresh = await netsuite.fetchSalesOrderTranid(salesOrderInternalId);
     if (fresh !== null) {
       salesOrderTranid = fresh;
       tranidFetchOutcome = "succeeded";
@@ -846,11 +842,8 @@ async function runAmountPatchIfNeeded(args: {
   // land on real HubSpot deals. Pairs with hubspot.ts:updateDealStage's
   // matching toFixed(2) on the initial acceptance-time amount write.
   try {
-    const { getWriteClient } = await import("@/lib/hubspot");
-    const c = getWriteClient();
-    await c.crm.deals.basicApi.update(args.hubspotDealId, {
-      properties: { amount: args.currentAmount.toFixed(2) },
-    });
+    const { hubspot } = await getApplicationDependencies();
+    await hubspot.updateDealAmount(args.hubspotDealId, args.currentAmount);
     return {
       status: "patched",
       prior: args.priorAmount,

@@ -10,6 +10,7 @@ import {
 } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { CostingStoreProvider } from "@/components/costing-store-provider";
+import { isProductionRealtimeConfigured } from "@/lib/integrations/realtime-composition";
 import { PricingPageHead } from "@/components/pricing/pricing-page-head";
 import { NavShell } from "@/components/nav/nav-shell";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
@@ -170,7 +171,10 @@ export default async function CostingPage({
       quoteId={quoteId}
       activeScenarioLabel={quote.scenarioLabel}
     >
-    <CostingStoreProvider snapshot={bundle.data}>
+    <CostingStoreProvider
+      snapshot={bundle.data}
+      realtimeEnabled={isProductionRealtimeConfigured()}
+    >
       {/* slice-pricing-surface-redesign · CB Step 9 re-walk Patch
           round 2 (2026-06-16) — classifier lifted to page-level
           provider. PricingPageHead + PricingSurfaceShell both

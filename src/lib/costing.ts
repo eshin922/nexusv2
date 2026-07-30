@@ -1027,27 +1027,37 @@ function computeLeafPerTier(args: {
 
   // ---------- production ----------
   // Per-tier amortization: divide production lump amounts by
-  // (actual_units_produced ?? tier.qty). When tier.qty is 0 the per-unit
+  // quoted tier quantity. When tier.qty is 0 the per-unit
   // amortization is undefined; treat as 0 (no contribution).
   let productionCostSum = 0;
   let separateServiceFees = 0;
   let rawCost = 0;
   if (production && tierQty > 0) {
-    const denom = num(production.actualUnitsProduced, tierQty);
-    const services =
+    // Customer quote pricing is always based on the quoted tier quantity.
+    // Actual output belongs to operational reconciliation and must not mutate
+    // the pricing that becomes a sent customer snapshot.
+    const denom = tierQty;
+    const internalProductionCogsTotal =
       num(production.fillingBlendingCost) +
-      num(production.cmAssemblyTotal) +
+      num(production.cmAssemblyTotal);
+    const oneTimeServiceFeeTotal =
       num(production.setupFeeTotal) +
       num(production.toolingArtworkTotal) +
       num(production.rdTotal) +
       num(production.otherServiceTotal);
-    const servicesPerUnit = denom > 0 ? services / denom : 0;
+    const internalProductionCogsPerUnit =
+      denom > 0 ? internalProductionCogsTotal / denom : 0;
+    const allocatedServiceFeesPerUnit =
+      production.allocateServiceFeesToCost && denom > 0
+        ? oneTimeServiceFeeTotal / denom
+        : 0;
 
-    if (production.allocateServiceFeesToCost) {
-      productionCostSum = servicesPerUnit;
-    } else {
-      separateServiceFees = servicesPerUnit;
-    }
+    // Filling/blending and CM assembly always remain internal COGS.
+    // Allocation-off one-time fees are projected exactly once by the
+    // customer-view resolver, outside unit cost and unit sell.
+    productionCostSum =
+      internalProductionCogsPerUnit + allocatedServiceFeesPerUnit;
+    separateServiceFees = 0;
 
     if (!production.customerShipsRaws) {
       const bulk = num(production.bulkRawCost);

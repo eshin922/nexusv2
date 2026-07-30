@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Newsreader, Instrument_Sans, JetBrains_Mono } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
 import { AppShell } from "@/components/app-shell";
-import { GlobalRealtimeProvider } from "@/components/global-realtime-provider";
+import { ApplicationAuthProvider } from "@/components/application-auth-provider";
+import { RealtimeCompositionProvider } from "@/lib/integrations/realtime-composition";
 import "./globals.css";
 
 // Slice RI.0 — CD's three font families loaded via next/font for
@@ -44,7 +44,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <ClerkProvider>
+    <ApplicationAuthProvider>
       {/* Slice RI.0 — data-theme="light" sets the app default; CD's
           tokens in design-tokens.css activate the light palette in
           :root. Slice RI.8 step 8 — pre-paint script reads
@@ -79,7 +79,7 @@ export default function RootLayout({
               reference tables (firm_settings, markup_defaults). Dispatches
               a window CustomEvent on changes; CostingStoreProvider folds
               it into the same reconcile pipe as per-quote events. */}
-          <GlobalRealtimeProvider />
+          <RealtimeCompositionProvider />
           {/* Slice RI.2 — AppShell renders the outer rail (Round 4)
               for authenticated users; sign-in/sign-up pages pass
               through unwrapped. Project surfaces add the inner rail
@@ -87,6 +87,6 @@ export default function RootLayout({
           <AppShell>{children}</AppShell>
         </body>
       </html>
-    </ClerkProvider>
+    </ApplicationAuthProvider>
   );
 }

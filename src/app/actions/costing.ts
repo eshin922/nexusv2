@@ -43,6 +43,11 @@ import {
 } from "@/lib/costing";
 import { buildQuoteCostingInputFromNewModel } from "@/lib/costing-adapter";
 import type { HydrateSnapshot } from "@/lib/costing-store";
+import {
+  parseMarginPercent,
+  parsePercentDisplay,
+  parsePositivePrice,
+} from "@/lib/numeric-input";
 
 // ---------- helpers ----------
 
@@ -113,16 +118,6 @@ function numericEquals(a: string | null, b: string | null): boolean {
   if (a === null && b === null) return true;
   if (a === null || b === null) return false;
   return Number(a) === Number(b);
-}
-
-// Convert a percent-display string ("5" for 5%) into the decimal stored in
-// DB ("0.0500"). Empty/null → null. Per CLAUDE.md percent convention.
-function percentDisplayToDecimal(v: FormDataEntryValue | null): string | null {
-  const s = String(v ?? "").trim();
-  if (s === "") return null;
-  const n = Number(s);
-  if (!Number.isFinite(n)) return null;
-  return (n / 100).toString();
 }
 
 function numOrNull(v: string | null): number | null {
@@ -564,7 +559,13 @@ export async function updateQuoteGlobalPriceAdj(
     const user = await ensureUser();
     const quote = await quoteByIdDraft(quoteId);
 
-    const newAdj = percentDisplayToDecimal(formData.get("globalPriceAdjPct"));
+    const newAdj = parsePercentDisplay(formData.get("globalPriceAdjPct"), {
+      field: "globalPriceAdjPct",
+      label: "Global price adjustment",
+      nullable: true,
+      minPercent: -99.99,
+      maxPercent: 999,
+    });
 
     if (numericEquals(quote.globalPriceAdjPct, newAdj)) {
       // No-op; return canonical snapshot.
@@ -637,7 +638,13 @@ export async function updateTierPriceAdj(
     // Re-uses the central draft guard via the quote.
     const quote = await quoteByIdDraft(tier.quoteId);
 
-    const newAdj = percentDisplayToDecimal(formData.get("tierPriceAdjPct"));
+    const newAdj = parsePercentDisplay(formData.get("tierPriceAdjPct"), {
+      field: "tierPriceAdjPct",
+      label: "Tier price adjustment",
+      nullable: true,
+      minPercent: -99.99,
+      maxPercent: 999,
+    });
 
     if (numericEquals(tier.tierPriceAdjPct, newAdj)) {
       return { tierId, tierPriceAdjPct: tier.tierPriceAdjPct };
@@ -688,7 +695,11 @@ export async function updateQuoteTargetMargin(
     const user = await ensureUser();
     const quote = await quoteByIdDraft(quoteId);
 
-    const newTarget = percentDisplayToDecimal(formData.get("targetMarginPct"));
+    const newTarget = parseMarginPercent(
+      formData.get("targetMarginPct"),
+      "targetMarginPct",
+      "Target margin",
+    );
 
     if (numericEquals(quote.targetMarginPct, newTarget)) {
       return { quoteId, targetMarginPct: quote.targetMarginPct };
@@ -751,7 +762,13 @@ export async function applySuggestedGlobalAdj(
     const user = await ensureUser();
     const quote = await quoteByIdDraft(quoteId);
 
-    const newAdj = percentDisplayToDecimal(formData.get("suggestedAdj"));
+    const newAdj = parsePercentDisplay(formData.get("suggestedAdj"), {
+      field: "suggestedAdj",
+      label: "Suggested adjustment",
+      nullable: true,
+      minPercent: -99.99,
+      maxPercent: 999,
+    });
     if (newAdj === null)
       throw new ActionGuardError(
         ERR.VALIDATION,
@@ -852,26 +869,11 @@ export async function updateAssemblyLeafOverride(
     }
 
     // Parse the value. Empty input → null → clear; non-empty → numeric.
-    const rawValue = String(formData.get("sellPriceOverride") ?? "").trim();
-    let parsedValue: number | null;
-    if (rawValue === "") {
-      parsedValue = null;
-    } else {
-      const n = Number(rawValue);
-      if (!Number.isFinite(n)) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "Sell price must be a number.",
-        );
-      }
-      if (n <= 0) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "Sell price must be greater than zero. To remove an override, use the ↺ revert affordance.",
-        );
-      }
-      parsedValue = n;
-    }
+    const parsedValueString = parsePositivePrice(
+      formData.get("sellPriceOverride"),
+    );
+    const parsedValue =
+      parsedValueString === null ? null : Number(parsedValueString);
 
     // Read previous value (if any) for the audit diff.
     const existingRows = await db

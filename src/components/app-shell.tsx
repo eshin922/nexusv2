@@ -1,5 +1,5 @@
 import "server-only";
-import { auth } from "@clerk/nextjs/server";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { OuterRail } from "./rails/outer-rail";
 
 // Slice RI.2 — Round 4 app shell. Always renders the outer rail for
@@ -12,7 +12,8 @@ import { OuterRail } from "./rails/outer-rail";
 // and never wrap in AppShell — those pages render at the root.
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
-  const { userId } = await auth();
+  const { authentication } = await getApplicationDependencies();
+  const userId = (await authentication.identity.current())?.externalUserId;
   // Unauthenticated → render children only (sign-in / sign-up pages).
   if (!userId) return <>{children}</>;
 

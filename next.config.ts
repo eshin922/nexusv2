@@ -1,4 +1,10 @@
 import type { NextConfig } from "next";
+import { assertRuntimeSafety } from "./src/lib/config/runtime-config";
+
+// Fail closed during configuration evaluation, before Next begins serving.
+// Ordinary production/development mode is unchanged; the strict checks apply
+// when isolated mode is requested at process start.
+assertRuntimeSafety();
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,

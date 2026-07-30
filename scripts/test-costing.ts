@@ -128,21 +128,43 @@ const input: QuoteCostingInput = {
       actualUnitsProduced: null,
     },
   ],
-  freight: [
+  freightLegGroups: [
+    { id: "journey-1", label: "Primary journey", displayOrder: 0 },
+  ],
+  freightLegs: [
     {
-      quoteSkuId: "bt",
-      tierId: "t1",
-      lineGroupId: "bt-frt",
-      totalFreight: 5000,
-      unitsInShipment: null,
-      // Slice 8 schema correction: PM enters total CBM directly per
-      // (SKU, line, tier). Single-SKU container at 50k bottles × 0.0001 m³
-      // each = 5 m³ total.
-      skuTotalCbm: 5,
-      markupPct: 0.3,
-      freightTreatment: "bundled",
+      id: "freight-1",
+      legGroupId: "journey-1",
+      direction: "inbound",
+      label: "Inbound",
+      origin: null,
+      destination: null,
+      crossesInternationalBorder: true,
+      treatment: "bundled",
+      mode: "ocean_fcl",
+      carrier: null,
+      incoterm: "DDP",
+      cargoReadyDate: null,
+      vesselEtd: null,
+      vesselEta: null,
+      actualDeliveryDate: null,
+      freightMarkupPct: 0.3,
+      dutyMarkupPct: 0,
+      tariffMarkupPct: 0,
+      customs: { dutyPct: 0.04, tariffPct: 0.25 },
+      displayOrder: 0,
     },
   ],
+  freightLegTiers: [
+    {
+      freightLegId: "freight-1",
+      tierId: "t1",
+      totalFreight: 5000,
+      unitsInShipment: null,
+    },
+  ],
+  cellOverrides: [],
+  cellTargets: [],
 };
 
 const out = computeQuoteCosting(input);
@@ -177,14 +199,14 @@ assert("productionCostPerUnit", bottle.productionCostPerUnit, 0.1);
 assert("rawCostPerUnit", bottle.rawCostPerUnit, 0);
 assert(
   "containerFreightPerUnit",
-  bottle.freightLines[0].containerFreightPerUnit,
+  bottle.freightLegs[0].containerFreightPerUnit,
   0.1,
 );
-assert("dutyPerUnit", bottle.freightLines[0].dutyPerUnit, 0.024);
-assert("tariffPerUnit", bottle.freightLines[0].tariffPerUnit, 0.15);
+assert("dutyPerUnit", bottle.freightLegs[0].dutyPerUnit, 0.024);
+assert("tariffPerUnit", bottle.freightLegs[0].tariffPerUnit, 0.15);
 assert(
   "landedFreightBeforeMarkup",
-  bottle.freightLines[0].landedFreightBeforeMarkup,
+  bottle.freightLegs[0].landedFreightBeforeMarkup,
   0.274,
 );
 // Slice RI.8 freight-markup feature — markup now applies to
@@ -194,7 +216,7 @@ assert(
 //        = (0.1 × 1.30) + 0.024 + 0.15 = 0.13 + 0.174 = 0.304.
 assert(
   "landedFreightWithMarkup (container-only markup)",
-  bottle.freightLines[0].landedFreightWithMarkup,
+  bottle.freightLegs[0].landedFreightWithMarkup,
   0.304,
 );
 assert("contributionCostPerUnit", bottle.contributionCostPerUnit, 0.874);
@@ -203,30 +225,28 @@ assert("contributionCostPerUnit", bottle.contributionCostPerUnit, 0.874);
 assert("requiredSellPerUnit", bottle.requiredSellPerUnit, 1.134);
 
 console.log("\n=== Cap (leaf) ===");
-assert("contributionCostPerUnit", cap.contributionCostPerUnit, 0.05);
-assert("requiredSellPerUnit", cap.requiredSellPerUnit, 0.07);
+// Quote-level freight applies to every leaf.
+assert("contributionCostPerUnit", cap.contributionCostPerUnit, 0.1645);
+assert("requiredSellPerUnit", cap.requiredSellPerUnit, 0.2145);
 
 console.log("\n=== Label (leaf) ===");
-assert("contributionCostPerUnit", label.contributionCostPerUnit, 0.02);
-assert("requiredSellPerUnit", label.requiredSellPerUnit, 0.03);
+assert("contributionCostPerUnit", label.contributionCostPerUnit, 0.1258);
+assert("requiredSellPerUnit", label.requiredSellPerUnit, 0.1658);
 
 console.log("\n=== Lip Oil (assembly) ===");
-assert("contributionCostPerUnit", lipOil.contributionCostPerUnit, 0.944);
-// Same -0.0522 shift from container-only freight markup.
-assert("requiredSellPerUnit", lipOil.requiredSellPerUnit, 1.234);
+assert("contributionCostPerUnit", lipOil.contributionCostPerUnit, 1.1643);
+assert("requiredSellPerUnit", lipOil.requiredSellPerUnit, 1.5143);
 
 console.log("\n=== Gift Set (top-level assembly) ===");
-assert("contributionCostPerUnit", giftSet.contributionCostPerUnit, 0.944);
-assert("requiredSellPerUnit", giftSet.requiredSellPerUnit, 1.234);
+assert("contributionCostPerUnit", giftSet.contributionCostPerUnit, 1.1643);
+assert("requiredSellPerUnit", giftSet.requiredSellPerUnit, 1.5143);
 
 console.log("\n=== Quote-level T1 (50k) ===");
-// Revenue shift: 0.0522 × 50000 units = 2610 less revenue.
-// 64310 - 2610 = 61700.
-assert("totalRevenue", tierRollup.totalRevenue, 61700, 0.5);
-assert("totalCost", tierRollup.totalCost, 47200, 0.5);
-// Margin: (61700 - 47200) / 61700 = 14500 / 61700 ≈ 0.235.
-assert("blendedMarginPct", tierRollup.blendedMarginPct, 0.235, 0.001);
-// 0.235 < floor (0.25) → BELOW_FLOOR (was BELOW_TARGET pre-change).
+// The canonical journey freight applies to each leaf before assembly rollup.
+assert("totalRevenue", tierRollup.totalRevenue, 75715, 0.5);
+assert("totalCost", tierRollup.totalCost, 58215, 0.5);
+assert("blendedMarginPct", tierRollup.blendedMarginPct, 0.23113, 0.001);
+// 0.23113 < floor (0.25) → BELOW_FLOOR.
 console.log(
   `  ${tierRollup.blendedMarginStatus === "BELOW_FLOOR" ? "PASS" : "FAIL"}  blendedMarginStatus = ${tierRollup.blendedMarginStatus} (expected BELOW_FLOOR)`,
 );
@@ -235,20 +255,17 @@ if (tierRollup.blendedMarginStatus !== "BELOW_FLOOR") failures += 1;
 assert(
   "suggestedGlobalAdjPct",
   tierRollup.suggestedGlobalAdjPct ?? -1,
-  0.18,
+  0.19,
   0.001,
 );
 
 console.log("\n=== Quote-level cost breakdown (T1) ===");
-// Expected: pkg = (0.50 + 0.05 + 0.02) × 50000 = 28500
-//           prod = (0.10 + 0 raw) × 50000 = 5000
-//           freight = 0.274 (bottle landed_before) × 50000 = 13700
-//           svc fees = 0 (allocate=true folds into prod)
-//           sum = 47200 ≈ totalCost ✓
+// Expected: packaging=28500, production=5000, journey freight and customs
+// across all leaves=24715, service fees=0, sum=58215.
 const b = tierRollup.costBreakdown;
 assert("breakdown.packaging", b.packaging, 28500, 0.5);
 assert("breakdown.production", b.production, 5000, 0.5);
-assert("breakdown.freight", b.freight, 13700, 0.5);
+assert("breakdown.freight", b.freight, 24715, 0.5);
 assert("breakdown.serviceFees", b.serviceFees, 0, 0.5);
 const breakdownSum = b.packaging + b.production + b.freight + b.serviceFees;
 assert("breakdown sum ≈ totalCost", breakdownSum, tierRollup.totalCost, 0.5);
@@ -307,17 +324,10 @@ console.log(
 );
 if (order !== expectedOrder) failures += 1;
 
-// ---- NULL sku_total_cbm graceful-handling test ----
-// Slice RI.8 Option B+ — domestic-freight fallback. NULL cbm no
-// longer zeros container freight; instead this SKU absorbs the
-// full line (v1's per-SKU-per-line assumption makes this safe).
-// Pre-RI.8 behavior was container=0 on NULL cbm; PMs entering
-// domestic freight with no CBM data saw zero contribution. The
-// fallback rule: when skuTotalCbm is unset, allocate the line's
-// total_freight evenly across effective_units → container =
-// total_freight / effective_units. Duty + tariff still apply on
-// top (factory-cost × pct).
-console.log("\n=== NULL sku_total_cbm — domestic-freight fallback ===");
+// ---- Multi-leg freight quoted-quantity fallback ----
+// When unitsInShipment is null, the canonical leg-tier model divides total
+// freight by the quoted tier quantity. Customs remains independently applied.
+console.log("\n=== multi-leg freight — quoted-quantity fallback ===");
 const nullCbmInput: QuoteCostingInput = {
   quote: { id: "q2", globalPriceAdjPct: 0 },
   firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
@@ -348,27 +358,51 @@ const nullCbmInput: QuoteCostingInput = {
     },
   ],
   production: [],
-  freight: [
+  freightLegGroups: [
+    { id: "journey-2", label: "Domestic journey", displayOrder: 0 },
+  ],
+  freightLegs: [
     {
-      quoteSkuId: "x",
-      tierId: "t1",
-      lineGroupId: "x-frt",
-      totalFreight: 1000,
-      unitsInShipment: null,
-      skuTotalCbm: null, // NULL — no CBM data yet
-      markupPct: 0.3,
-      freightTreatment: "bundled",
+      id: "freight-2",
+      legGroupId: "journey-2",
+      direction: "inbound",
+      label: "Domestic",
+      origin: null,
+      destination: null,
+      crossesInternationalBorder: true,
+      treatment: "bundled",
+      mode: "ltl_truck",
+      carrier: null,
+      incoterm: "DDP",
+      cargoReadyDate: null,
+      vesselEtd: null,
+      vesselEta: null,
+      actualDeliveryDate: null,
+      freightMarkupPct: 0.3,
+      dutyMarkupPct: 0.3,
+      tariffMarkupPct: 0.3,
+      customs: { dutyPct: 0.04, tariffPct: 0.25 },
+      displayOrder: 0,
     },
   ],
+  freightLegTiers: [
+    {
+      freightLegId: "freight-2",
+      tierId: "t1",
+      totalFreight: 1000,
+      unitsInShipment: null,
+    },
+  ],
+  cellOverrides: [],
+  cellTargets: [],
 };
 const nullOut = computeQuoteCosting(nullCbmInput);
 const nullLeaf = nullOut.skuRollups[0].perTier[0];
-const nullLine = nullLeaf.freightLines[0];
-// Domestic fallback: container = totalFreight / effectiveUnits
-// = 1000 / 10000 = 0.10 per unit. Prior assertion expected 0;
-// behavior changed in Slice RI.8 Option B+.
+const nullLine = nullLeaf.freightLegs[0];
+// Quoted-quantity fallback: container = totalFreight / tier quantity
+// = 1000 / 10000 = 0.10 per unit.
 assert(
-  "container/unit (NULL cbm — domestic fallback)",
+  "container/unit (quoted-quantity fallback)",
   nullLine.containerFreightPerUnit,
   1000 / 10000,
 );
@@ -420,7 +454,11 @@ const perTierInput: QuoteCostingInput = {
     { quoteSkuId: "x", tierId: "tB", lineGroupId: "g", unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0.4 },
   ],
   production: [],
-  freight: [],
+  freightLegGroups: [],
+  freightLegs: [],
+  freightLegTiers: [],
+  cellOverrides: [],
+  cellTargets: [],
 };
 const perTierOut = computeQuoteCosting(perTierInput);
 const revA = perTierOut.quoteRollup[0].totalRevenue;
@@ -558,7 +596,9 @@ const cellOverrideInput: QuoteCostingInput = {
     { quoteSkuId: "x", tierId: "tA", lineGroupId: "g", unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0.4 },
   ],
   production: [],
-  freight: [],
+  freightLegGroups: [],
+  freightLegs: [],
+  freightLegTiers: [],
   cellOverrides: [
     { quoteSkuId: "x", tierId: "tA", sellPriceOverride: 7.0 },
   ],
@@ -610,7 +650,9 @@ const partitionGranularityInput: QuoteCostingInput = {
     { quoteSkuId: "x", tierId: "t2", lineGroupId: "g", unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0.05 },
   ],
   production: [],
-  freight: [],
+  freightLegGroups: [],
+  freightLegs: [],
+  freightLegTiers: [],
   // Cell-level override on T2 specifically (T2 also has tier-adj).
   cellOverrides: [
     { quoteSkuId: "x", tierId: "t2", sellPriceOverride: 1.5 },
@@ -698,7 +740,8 @@ const competitiveBaseInput: QuoteCostingInput = {
   packaging: [
     { quoteSkuId: "x", tierId: "tA", lineGroupId: "g", unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0.4 },
   ],
-  production: [], freight: [],
+  production: [],
+  freightLegGroups: [], freightLegs: [], freightLegTiers: [],
   cellOverrides: [],
   cellTargets: [],
 };
@@ -845,7 +888,8 @@ const assemblyInput: QuoteCostingInput = {
   packaging: [
     { quoteSkuId: "leaf", tierId: "tA", lineGroupId: "g", unitCost: 1, qtyPerSellableUnit: 1, category: null, markupPct: 0.4 },
   ],
-  production: [], freight: [],
+  production: [],
+  freightLegGroups: [], freightLegs: [], freightLegTiers: [],
   cellOverrides: [],
   cellTargets: [
     // Stray assembly target in input — should be ignored by math layer.

@@ -23,12 +23,12 @@ type QuoteSku = SkuRow;
 // R6 treats production as variable lines per section. Bridge: map
 // each fixed cost field to a virtual "line" with R6 line metadata
 // (kind, category). Six virtual lines per SKU:
-//   1. Filling/blending — per-unit, Manufacturing
-//   2. CM assembly      — per-unit, Manufacturing
+//   1. Filling/blending — tier-total COGS, Manufacturing
+//   2. CM assembly      — tier-total COGS, Manufacturing
 //   3. Setup fee        — NRE, Tooling
 //   4. Tooling/artwork  — NRE, Tooling
 //   5. R&D              — NRE, R&D
-//   6. Other services   — per-unit, Other
+//   6. Other services   — one-time fee total, Other
 // (bulk_raw_cost is a separate row only when raws_mode = cm_sources;
 //  in dps_sources mode it lives in Bulk Raw section, in
 //  customer_supplies mode it's excluded.)
@@ -87,16 +87,16 @@ type VirtualLine = {
   field: CostField;
   name: string;
   category: string;
-  kind: "per_unit" | "amortized_nre";
+  kind: "tier_total_cogs" | "one_time_fee";
 };
 
 const VIRTUAL_LINES: VirtualLine[] = [
-  { field: "fillingBlendingCost", name: "Filling / blending", category: "Manufacturing", kind: "per_unit" },
-  { field: "cmAssemblyTotal", name: "CM assembly", category: "Manufacturing", kind: "per_unit" },
-  { field: "setupFeeTotal", name: "Setup fee", category: "Tooling", kind: "amortized_nre" },
-  { field: "toolingArtworkTotal", name: "Tooling / artwork", category: "Tooling", kind: "amortized_nre" },
-  { field: "rdTotal", name: "R&D", category: "R&D", kind: "amortized_nre" },
-  { field: "otherServiceTotal", name: "Other services", category: "Other", kind: "per_unit" },
+  { field: "fillingBlendingCost", name: "Filling / blending tier total", category: "Manufacturing", kind: "tier_total_cogs" },
+  { field: "cmAssemblyTotal", name: "CM assembly tier total", category: "Manufacturing", kind: "tier_total_cogs" },
+  { field: "setupFeeTotal", name: "Setup fee total", category: "Tooling", kind: "one_time_fee" },
+  { field: "toolingArtworkTotal", name: "Tooling / artwork total", category: "Tooling", kind: "one_time_fee" },
+  { field: "rdTotal", name: "R&D fee total", category: "R&D", kind: "one_time_fee" },
+  { field: "otherServiceTotal", name: "Other service fee total", category: "Other", kind: "one_time_fee" },
 ];
 
 const DEBOUNCE_MS = 500;
@@ -210,7 +210,7 @@ export function ProductionDrilldown({
             field: "bulkRawCost" as CostField,
             name: "Bulk raw cost",
             category: "Manufacturing",
-            kind: "per_unit" as const,
+            kind: "tier_total_cogs" as const,
           },
         ]
       : []),
@@ -348,24 +348,15 @@ function ProductionTable({
   disabled: boolean;
 }) {
   // Per-line × per-tier value computation:
-  //   - per-unit lines: raw value as-is
-  //   - amortized_nre lines (when allocate=true): NRE total / tier qty
-  //   - amortized_nre lines (when allocate=false): NRE total shown,
-  //     marked as "billed separately"
+  // Every production input is persisted and entered as a total. Resulting
+  // per-unit contributions are derived output, never the stored cell value.
   function lineCellValue(
     line: VirtualLine,
     tier: { id: string; qty: number | null },
   ): { display: number | null; raw: number | null; perUnit: boolean } {
     const row = rowsByTier.get(tier.id);
     const raw = num(row?.[line.field] ?? null);
-    if (raw === null) return { display: null, raw: null, perUnit: line.kind === "per_unit" };
-    if (line.kind === "per_unit") return { display: raw, raw, perUnit: true };
-    // amortized_nre
-    if (policy.allocateServiceFeesToCost) {
-      const tierQty = tier.qty ?? 0;
-      const amortized = tierQty > 0 ? raw / tierQty : 0;
-      return { display: amortized, raw, perUnit: false };
-    }
+    if (raw === null) return { display: null, raw: null, perUnit: false };
     return { display: raw, raw, perUnit: false };
   }
 
@@ -460,9 +451,9 @@ function ProductionRow({
   disabled: boolean;
 }) {
   const showAmortizedSub =
-    line.kind === "amortized_nre" && policy.allocateServiceFeesToCost;
+    line.kind === "one_time_fee" && policy.allocateServiceFeesToCost;
   const showBilledSeparatelySub =
-    line.kind === "amortized_nre" && !policy.allocateServiceFeesToCost;
+    line.kind === "one_time_fee" && !policy.allocateServiceFeesToCost;
 
   return (
     <div className="r6-dt-row">
@@ -474,15 +465,15 @@ function ProductionRow({
         {showBilledSeparatelySub && (
           <span className="sub">billed as one-time charge</span>
         )}
-        {!showAmortizedSub && !showBilledSeparatelySub && line.kind === "per_unit" && (
-          <span className="sub">priced per unit</span>
+        {line.kind === "tier_total_cogs" && (
+          <span className="sub">tier total · allocated across quoted units</span>
         )}
       </div>
       <div className="cat">{line.category}</div>
       <div className="sup">—</div>
       <div>
         <span className="r6-badge">
-          {line.kind === "amortized_nre" ? "NRE" : "per-unit"}
+          {line.kind === "one_time_fee" ? "one-time" : "tier total"}
         </span>
       </div>
       <div className="num">
@@ -529,6 +520,7 @@ function ProductionTierCell({
 
   const initialValue = row?.[line.field] ?? "";
   const [value, setValue] = useState(initialValue);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const valueRef = useRef(value);
   valueRef.current = value;
@@ -569,6 +561,7 @@ function ProductionTierCell({
     const fd = new FormData();
     fd.set("quoteSkuId", assemblyId);
     fd.set("tierId", tier.id);
+    fd.set("changedField", line.field);
     // Pass all current values; only the target field changes. Row may
     // be undefined for un-seeded (assembly, tier) cells; server INSERT
     // treats missing fields as null → defaults to policy defaults.
@@ -581,12 +574,30 @@ function ProductionTierCell({
     fd.set("bulkRawCost", line.field === "bulkRawCost" ? valueRef.current : (row?.bulkRawCost ?? ""));
     fd.set("actualUnitsProduced", row?.actualUnitsProduced?.toString() ?? "");
     startTransition(async () => {
-      await upsertAssemblyProductionInputs(fd);
+      const result = await upsertAssemblyProductionInputs(fd);
+      if (!result.ok) {
+        const previous = row?.[line.field] ?? "";
+        setValue(previous);
+        setValidationError(result.error.message);
+        if (row) {
+          updateProductionCell(sku.id, tier.id, {
+            [line.field]: num(previous),
+          });
+        }
+        return;
+      }
+      const canonical = result.data[line.field] ?? "";
+      setValue(canonical);
+      setValidationError(null);
+      updateProductionCell(sku.id, tier.id, {
+        [line.field]: num(canonical),
+      });
     });
   }
 
   function handleChange(v: string) {
     setValue(v);
+    setValidationError(null);
     const numeric = num(v);
     // Optimistic store update — pass the field-specific value
     if (row) {
@@ -598,14 +609,11 @@ function ProductionTierCell({
     debounce.current = setTimeout(fireSave, DEBOUNCE_MS);
   }
 
-  // Display value: per-unit lines show raw; amortized_nre lines show
-  // amortized when allocate=true, raw NRE total when allocate=false.
+  // The input always shows the persisted total. The per-unit value below is
+  // explanatory output from that total and is never saved into the field.
   const raw = num(value);
   const tierQty = tier.qty ?? 0;
-  const display =
-    raw !== null && line.kind === "amortized_nre" && policy.allocateServiceFeesToCost && tierQty > 0
-      ? raw / tierQty
-      : raw;
+  const display = raw;
 
   const isEmpty = display === null || display === 0;
 
@@ -616,18 +624,23 @@ function ProductionTierCell({
     >
       <input
         type="number"
+        aria-label={`${line.name} · ${tier.label}`}
         step="0.01"
         min={0}
         value={value}
+        aria-invalid={validationError !== null}
+        aria-describedby={
+          validationError ? `${sku.id}-${tier.id}-${line.field}-error` : undefined
+        }
         disabled={disabled}
         onChange={(e) => handleChange(e.target.value)}
         placeholder="—"
         title={
-          line.kind === "amortized_nre"
+          line.kind === "one_time_fee"
             ? policy.allocateServiceFeesToCost
-              ? `NRE total $${raw ?? 0}, amortized over ${tierQty.toLocaleString()} units`
-              : `NRE total $${raw ?? 0}, billed as one-time`
-            : undefined
+              ? `One-time fee total $${raw ?? 0}, allocated over ${tierQty.toLocaleString()} quoted units`
+              : `One-time fee total $${raw ?? 0}, billed once outside unit pricing`
+            : `Production COGS tier total $${raw ?? 0}, allocated over ${tierQty.toLocaleString()} quoted units`
         }
         style={{
           background: "transparent",
@@ -639,7 +652,21 @@ function ProductionTierCell({
           padding: 0,
         }}
       />
-      {line.kind === "amortized_nre" && raw !== null && policy.allocateServiceFeesToCost && tierQty > 0 && (
+      {validationError && (
+        <span
+          id={`${sku.id}-${tier.id}-${line.field}-error`}
+          role="alert"
+          className="raw"
+          style={{ color: "var(--danger)" }}
+        >
+          {validationError}
+        </span>
+      )}
+      {raw !== null &&
+        tierQty > 0 &&
+        (line.kind === "tier_total_cogs" ||
+          (line.kind === "one_time_fee" &&
+            policy.allocateServiceFeesToCost)) && (
         <span className="raw">
           → {fmtCurr2(raw / tierQty)}/u
         </span>
@@ -717,13 +744,13 @@ function SectionToggles({
         <div className="body">
           <div className="lab">Customer ships raws</div>
           <div className="desc">
-            If ON, packaging components are excluded from the unit cost. Use
-            when the customer hands raws to the CM.
+            If ON, customer-supplied bulk raw material is excluded from unit
+            cost. Packaging components remain included.
           </div>
           <div className="consequence">
             {customerShipsRawsEffective
-              ? "→ packaging cost excluded from this quote"
-              : "→ packaging cost included as priced"}
+              ? "→ bulk raw cost excluded from this quote"
+              : "→ bulk raw cost included as priced"}
           </div>
         </div>
       </button>
@@ -738,8 +765,8 @@ function SectionToggles({
         <div className="body">
           <div className="lab">Allocate service fees to unit cost</div>
           <div className="desc">
-            NRE, tooling, and R&amp;D amortize across units. If OFF, they
-            invoice separately as one-time charges.
+            Setup, tooling/artwork, R&amp;D, and other service fees allocate
+            across quoted units. If OFF, they invoice once as separate charges.
           </div>
           <div className="consequence">
             {policy.allocateServiceFeesToCost
@@ -770,9 +797,9 @@ function PostProdReconcile({
         </div>
       </div>
       <p className="desc">
-        After the run, log actuals to reconcile NRE per-unit. Production yield
-        (units actually filled vs. ordered) feeds NRE re-amortization. Formula
-        yield (mass-axis reconcile) lands when raws math layer extends.
+        Actual output is an operational reference only. It does not recalculate
+        draft customer pricing or mutate sent, accepted, snapshot, or PDF
+        values. A future reconciliation workflow requires a separate decision.
       </p>
       <div className="r6-yield-split">
         <div className={`r6-yield-block ${yieldLocked ? "locked" : ""}`}>
@@ -781,8 +808,8 @@ function PostProdReconcile({
             <span className="axis">units</span>
           </div>
           <p className="desc">
-            How many units actually came off the line, vs. quoted. Drives NRE
-            per-unit reconciliation and any tier-bracket movement.
+            How many units actually came off the line versus quoted. The delta
+            below is informational and has no customer-pricing effect.
           </p>
           <div className="r6-yield-block-grid">
             <div className="r6-yield-block-cell">
@@ -808,7 +835,7 @@ function PostProdReconcile({
               )}
             </div>
             <div className="r6-yield-block-cell">
-              <div className="lab">NRE per-unit delta</div>
+              <div className="lab">Pricing reconciliation</div>
               <div className={`val ${yieldLocked ? "" : "empty"}`}>—</div>
             </div>
           </div>
