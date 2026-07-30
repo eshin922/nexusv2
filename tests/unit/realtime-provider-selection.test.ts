@@ -18,4 +18,19 @@ test("isolated composition does not mount the production Supabase realtime clien
     composition,
     /if \(!mountsProductionRealtime\(runtime\.providers\.realtime\)\) \{\s*return null;/,
   );
+
+  const costingProvider = readFileSync(
+    "src/components/costing-store-provider.tsx",
+    "utf8",
+  );
+  assert.match(costingProvider, /if \(!quoteId \|\| !realtimeEnabled\) return;/);
+  for (const page of [
+    "src/app/projects/[id]/quotes/[quoteId]/costs/page.tsx",
+    "src/app/projects/[id]/quotes/[quoteId]/pricing/page.tsx",
+  ]) {
+    assert.match(
+      readFileSync(page, "utf8"),
+      /realtimeEnabled=\{isProductionRealtimeConfigured\(\)\}/,
+    );
+  }
 });
