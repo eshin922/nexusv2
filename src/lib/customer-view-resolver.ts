@@ -288,7 +288,7 @@ export async function resolveCustomerView(args: {
   // the resolver picked Tier 2, fees vanished from the render.
   //
   // Fix: aggregate ALL tier rows for each assembly:
-  //   - `allocateServiceFeesToCost`: AND-aggregate — if ANY tier
+  //   - `allocateServiceFeesToCost`: OR-aggregate — if ANY tier
   //     says alloc=true (fold into cost), treat the assembly as
   //     alloc=true. Safer against double-counting: the math layer
   //     amortizes per-tier (each row's own alloc), so if any tier
