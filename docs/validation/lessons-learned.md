@@ -48,12 +48,24 @@ generated directories are part of the result. Residue makes the next run
 non-deterministic and can cause unsafe ownership assumptions.
 
 Artifacts and fake-provider ledgers stay beneath one disposable owned root.
-Durable server logs may live in an explicitly named external run directory.
-Neither location is tracked source.
+Every execution uses a unique external directory derived from its validation
+run ID for server identity, PID evidence, stdout/stderr, and suite logs. Fixed
+or reused log roots let interrupted runs overwrite the evidence needed to prove
+ownership.
+
+Generated directory names are not ownership evidence. The safe lesson is to
+prove managed paths absent before validation, record their absolute paths in
+the unique external root, and remove only those manifest-listed paths. If a
+path predates the run, validation leaves it untouched and stops.
 
 On Windows, stopping only the npm wrapper may leave the Next child process
-alive. Record the wrapper PID at startup, discover its descendants, and stop
-only that owned tree.
+alive. A PID can also be reused. Record PID, creation time, exact command line,
+and run ID at startup; compare all of them before discovering descendants and
+stopping only that owned tree. A stale PID file never authorizes termination.
+
+Interrupted run roots remain read-only evidence until their markers, process
+identity, and generated-path manifest are reconciled. They are never reused by
+a new execution and normal cleanup never deletes their durable logs.
 
 ## Browser exclusions require causal evidence
 

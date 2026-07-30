@@ -12,24 +12,70 @@ PowerShell, the supported environment used to verify Slice 12.
 - Git and GitHub remotes available.
 - A clean feature branch based on the expected `origin/main`.
 - No production credentials in the validation shell.
+- Exclusive use of the repository worktree for the duration of the run; no
+  concurrent development server, build, or test process may write generated
+  paths there.
 
 ## 1. Prepare and load the environment
 
-Create the temporary file, then load it into the active PowerShell process.
-The example contains local placeholders, not production secrets.
+Create a unique run identity and exclusive external evidence root first. The
+timestamp aids operators; the GUID prevents collisions. An existing root is a
+hard stop and is never reused.
 
 ```powershell
-Copy-Item .env.validation.example .env.validation.local
+$workspaceRoot = (Resolve-Path .).Path
+$validationRunId = '{0}-{1}' -f `
+  (Get-Date -Format 'yyyyMMdd-HHmmss'), `
+  ([guid]::NewGuid().ToString('N').Substring(0, 12))
+$validationLogBase = 'C:\Code\nexus-validation-runs'
+$validationLogRoot = Join-Path $validationLogBase $validationRunId
 
-Get-Content .env.validation.local |
+New-Item -ItemType Directory -Force -Path $validationLogBase | Out-Null
+if (Test-Path -LiteralPath $validationLogRoot) {
+  throw "Run root already exists and will not be reused: $validationLogRoot"
+}
+New-Item -ItemType Directory -Path $validationLogRoot | Out-Null
+
+$validationEnvPath = Join-Path $workspaceRoot '.env.validation.local'
+$validationEnvCreatedByRun = -not (Test-Path -LiteralPath $validationEnvPath)
+if ($validationEnvCreatedByRun) {
+  Copy-Item .env.validation.example $validationEnvPath
+}
+
+Get-Content $validationEnvPath |
   Where-Object { $_ -and -not $_.StartsWith('#') } |
   ForEach-Object {
     $name, $value = $_.Split('=', 2)
     Set-Item -Path "Env:$name" -Value $value
   }
+
+$env:NEXUS_VALIDATION_RUN_ID = $validationRunId
+$env:NEXUS_VALIDATION_ARTIFACT_DIR = ".artifacts/validation/$validationRunId"
+$env:NEXUS_VALIDATION_ARTIFACT_ROOT = "$($env:NEXUS_VALIDATION_ARTIFACT_DIR)/artifacts"
+$env:NEXUS_FAKE_HUBSPOT_LEDGER = "$($env:NEXUS_VALIDATION_ARTIFACT_DIR)/fake-hubspot-calls.jsonl"
+
+$effectiveRunId = node --env-file=.env.validation.local `
+  -p "process.env.NEXUS_VALIDATION_RUN_ID"
+if ($effectiveRunId -ne $validationRunId) {
+  throw 'The app process would not inherit the unique validation run ID.'
+}
+
+[pscustomobject]@{
+  runId = $validationRunId
+  workspace = $workspaceRoot
+  branch = git branch --show-current
+  head = git rev-parse HEAD
+  createdAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+  environmentFile = $validationEnvPath
+  environmentFileCreatedByRun = $validationEnvCreatedByRun
+} |
+  ConvertTo-Json |
+  Set-Content -LiteralPath (Join-Path $validationLogRoot 'run-owner.json')
 ```
 
-The active process requires:
+The example contains local placeholders, not production secrets. A pre-existing
+`.env.validation.local` is loaded but never overwritten or claimed by the run;
+operators must review it before continuing. The active process requires:
 
 - `NODE_ENV=test`, `NEXUS_ISOLATED_TEST=1`
 - loopback `DATABASE_URL` and `DIRECT_URL` whose database name contains
@@ -60,7 +106,9 @@ expected safety-gate rejection; correct the environment and rerun.
 
 `validation:app`, `test:e2e`, and `test:e2e:headed` load
 `.env.validation.local` themselves. The database, migration, fixture, and
-isolation commands do not; they inherit this PowerShell environment.
+isolation commands do not; they inherit this PowerShell environment. Existing
+process variables take precedence over Node's environment file, so the
+explicit check above proves app and Playwright children retain the unique ID.
 
 ## 2. Verify repository state
 
@@ -73,6 +121,41 @@ git diff --check
 ```
 
 Stop if the branch, base, divergence, or working tree is unexpected.
+
+Before any command can create repository output, prove that every managed
+generated path is absent and record that fact in the unique external run root:
+
+```powershell
+$generatedPathCandidates = @(
+  '.next',
+  'test-results',
+  'playwright-report',
+  '.artifacts/validation'
+) | ForEach-Object {
+  [System.IO.Path]::GetFullPath((Join-Path $workspaceRoot $_))
+}
+
+$preExistingGeneratedPaths = @(
+  $generatedPathCandidates |
+    Where-Object { Test-Path -LiteralPath $_ }
+)
+if ($preExistingGeneratedPaths.Count -gt 0) {
+  throw "Generated paths predate this run and will not be touched: $($preExistingGeneratedPaths -join ', ')"
+}
+
+[pscustomobject]@{
+  runId = $validationRunId
+  workspace = $workspaceRoot
+  absentBeforeRun = $generatedPathCandidates
+} |
+  ConvertTo-Json |
+  Set-Content -LiteralPath (Join-Path $validationLogRoot 'generated-path-ownership.json')
+```
+
+Absence before execution is the ownership proof: if one of these paths appears
+later under the required exclusive-worktree lease, this run created it. If a
+path already exists, stop and let its owner archive or remove it; validation
+must not guess.
 
 ## 3. Inspect validation resource ownership
 
@@ -103,8 +186,10 @@ During final Slice 12 verification, the existing resources belonged to
 container, network, or volume merely to resolve a collision.
 
 Resources are owned by this run only after their project/service labels,
-validation database marker, loopback binding, and run intent agree. Unknown
-resources must not be changed.
+validation database marker, loopback binding, run intent, and exclusive use
+agree. Record the verified Compose project in the final report. Reusing an
+idle, verified stack grants this run an explicit cleanup lease; unknown or
+concurrently used resources must not be changed.
 
 ## 4. Run server-free gates
 
@@ -134,12 +219,10 @@ contract.
 
 ## 6. Start an owned server and wait for readiness
 
-Use an external log root. Record the wrapper PID before readiness polling:
+Use the unique `$validationLogRoot` created in step 1. Store the server PID,
+stdout, stderr, ownership identity, and every suite log beneath it:
 
 ```powershell
-$validationLogRoot = 'C:\Code\nexus-validation-runs\slice-12-merge-gate'
-New-Item -ItemType Directory -Force -Path $validationLogRoot | Out-Null
-
 $existingListener = Get-NetTCPConnection -LocalPort 3100 -State Listen -ErrorAction SilentlyContinue
 if ($existingListener) {
   throw "Port 3100 already has a listener; prove ownership before continuing."
@@ -154,7 +237,24 @@ $validationServer = Start-Process `
   -WindowStyle Hidden `
   -PassThru
 
-Set-Content "$validationLogRoot\validation-app.pid" $validationServer.Id
+$validationServerIdentity = Get-CimInstance Win32_Process `
+  -Filter "ProcessId = $($validationServer.Id)"
+if (
+  -not $validationServerIdentity -or
+  $validationServerIdentity.CommandLine -notmatch 'npm(\.cmd)?[" ]+run[" ]+validation:app'
+) {
+  Stop-Process -InputObject $validationServer -Force -ErrorAction SilentlyContinue
+  throw 'Started process does not match the expected validation server command.'
+}
+
+[pscustomobject]@{
+  runId = $validationRunId
+  pid = [int]$validationServerIdentity.ProcessId
+  creationDateUtc = $validationServerIdentity.CreationDate.ToUniversalTime().ToString('o')
+  commandLine = $validationServerIdentity.CommandLine
+} |
+  ConvertTo-Json |
+  Set-Content -LiteralPath (Join-Path $validationLogRoot 'validation-app-process.json')
 
 curl.exe --silent --show-error --fail `
   --retry 120 --retry-connrefused --retry-delay 1 --max-time 130 `
@@ -251,12 +351,48 @@ Invoke-ValidationSuite 'VAL-601' ($playwright + @(
 ## 8. Cleanup on success or failure
 
 Run cleanup in a `finally` path whenever this procedure is automated. First
-stop only the process tree rooted at the PID recorded by this run:
+validate the run marker and process identity. A matching PID number alone is
+never ownership proof:
 
 ```powershell
-$rootPid = [int](Get-Content "$validationLogRoot\validation-app.pid")
-Stop-OwnedProcessTree -RootPid $rootPid
+$runOwner = Get-Content `
+  -LiteralPath (Join-Path $validationLogRoot 'run-owner.json') |
+  ConvertFrom-Json
+if (
+  $runOwner.runId -ne $validationRunId -or
+  $runOwner.workspace -ne $workspaceRoot
+) {
+  throw 'Run-root ownership marker does not match this execution.'
+}
+
+$serverIdentityPath = Join-Path $validationLogRoot 'validation-app-process.json'
+if (Test-Path -LiteralPath $serverIdentityPath) {
+  $expectedServer = Get-Content -LiteralPath $serverIdentityPath |
+    ConvertFrom-Json
+  $currentServer = Get-CimInstance Win32_Process `
+    -Filter "ProcessId = $([int]$expectedServer.pid)" `
+    -ErrorAction SilentlyContinue
+
+  if ($currentServer) {
+    $currentCreationUtc = $currentServer.CreationDate.ToUniversalTime().ToString('o')
+    if (
+      $expectedServer.runId -ne $validationRunId -or
+      $currentCreationUtc -ne $expectedServer.creationDateUtc -or
+      $currentServer.CommandLine -ne $expectedServer.commandLine -or
+      $currentServer.CommandLine -notmatch 'npm(\.cmd)?[" ]+run[" ]+validation:app'
+    ) {
+      throw 'PID exists but does not match the owned validation server identity.'
+    }
+    Stop-OwnedProcessTree -RootPid ([int]$expectedServer.pid)
+  }
+}
 ```
+
+The identity file is absent when startup never reached process registration.
+If a recorded process no longer exists, it is already stopped. If any identity
+field differs, stop and report the cleanup blocker; never terminate the
+unrelated process now using that PID. The later port check still rejects an
+unregistered listener.
 
 Then remove fixture and Docker state through the safety-checked commands:
 
@@ -283,14 +419,42 @@ docker volume inspect nexus-validation-db-data *> $null
 if ($LASTEXITCODE -eq 0) { throw 'The owned validation volume remains.' }
 ```
 
-Remove only known temporary paths created by this run:
+Remove only paths whose external manifest proves they were absent before this
+run. The same manifest is used after success and failure:
 
 ```powershell
-Remove-Item .env.validation.local -Force -ErrorAction SilentlyContinue
-Remove-Item .next, test-results, playwright-report -Recurse -Force -ErrorAction SilentlyContinue
+$generatedOwnership = Get-Content `
+  -LiteralPath (Join-Path $validationLogRoot 'generated-path-ownership.json') |
+  ConvertFrom-Json
+if (
+  $generatedOwnership.runId -ne $validationRunId -or
+  $generatedOwnership.workspace -ne $workspaceRoot
+) {
+  throw 'Generated-path ownership marker does not match this execution.'
+}
 
-if (Test-Path .artifacts\validation) {
-  throw 'Validation artifacts remain.'
+foreach ($target in $generatedOwnership.absentBeforeRun) {
+  $resolvedTarget = [System.IO.Path]::GetFullPath($target)
+  if (-not $resolvedTarget.StartsWith($workspaceRoot + [System.IO.Path]::DirectorySeparatorChar)) {
+    throw "Refusing generated path outside the workspace: $resolvedTarget"
+  }
+  if (Test-Path -LiteralPath $resolvedTarget) {
+    Remove-Item -LiteralPath $resolvedTarget -Recurse -Force
+  }
+}
+
+if ($runOwner.environmentFileCreatedByRun) {
+  $ownedEnvironmentFile = [System.IO.Path]::GetFullPath($runOwner.environmentFile)
+  if ($ownedEnvironmentFile -ne (Join-Path $workspaceRoot '.env.validation.local')) {
+    throw 'Environment-file ownership marker has an unexpected path.'
+  }
+  Remove-Item -LiteralPath $ownedEnvironmentFile -Force -ErrorAction SilentlyContinue
+}
+
+foreach ($target in $generatedOwnership.absentBeforeRun) {
+  if (Test-Path -LiteralPath $target) {
+    throw "Owned generated path remains: $target"
+  }
 }
 
 git diff --check
@@ -299,8 +463,17 @@ if (git status --short) {
 }
 ```
 
-Do not delete external durable logs until the result has been reported. Never
-delete an unknown process or Docker resource without ownership proof.
+Do not delete `$validationLogRoot` during normal cleanup. It is durable evidence
+and supplies the ownership records used above. Never delete an unknown process,
+directory, or Docker resource without ownership proof.
+
+An interrupted run root is never reused. Treat it as read-only evidence:
+inspect `run-owner.json`, compare workspace and run ID, validate the complete
+saved process identity before stopping anything, and use only its
+`generated-path-ownership.json` to identify paths proven absent at that run's
+start. If identity cannot be proven, leave the process or path untouched and
+report the blocker. Archive stale run roots after investigation; do not point a
+new run at them.
 
 ## 9. Final report evidence
 
@@ -313,7 +486,8 @@ Record:
 - isolation proof and any expected safety rejection
 - environment/setup failures that ran no tests
 - strict browser-diagnostic result
-- server PID and readiness evidence
+- unique validation run ID and external log root
+- server PID, creation time, command identity, and readiness evidence
 - cleanup verification for process, port, fixtures, container, network, volume,
   artifacts, temporary files, diff check, and working tree
 - paths to retained external logs

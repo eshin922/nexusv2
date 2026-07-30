@@ -42,10 +42,15 @@ changes.
 - VAL-203–VAL-207 retain the statuses recorded in the
   [scenario registry](scenario-registry.md).
 - Windows-owned Next teardown can outlive the wrapper unless the complete owned
-  process tree is stopped.
+  process tree is stopped after PID, creation-time, command-line, and run-ID
+  verification.
 - Database/fixture CLI wrappers require the caller's validation environment;
   they do not load `.env.validation.local` themselves.
 - Compose identity can differ across worktrees and must be verified explicitly.
+- Generated directories require absence-before-run ownership manifests; an
+  existing path is never deleted by validation.
+- Every run requires a unique external log/PID root that is retained as durable
+  evidence and never reused.
 - Playwright currently selects one retry under `CI`; authoritative merge-gate
   commands override this with `--retries=0`.
 

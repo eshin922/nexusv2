@@ -31,7 +31,8 @@ is not a convenience environment for feature development.
    runs also use zero retries and fail fast.
 8. **Cleanup is part of correctness.** A run is incomplete until its owned
    processes, port listeners, fixture rows, database resources, artifacts, and
-   temporary files are gone.
+   temporary files are gone. Ownership must be established before creation or
+   reuse; a familiar name or stale PID is not proof.
 9. **A run leaves no residue.** The repository must have no tracked changes,
    and the run must leave no process, port, database, Docker container,
    network, volume, artifact, generated build/test directory, or temporary
@@ -41,8 +42,10 @@ is not a convenience environment for feature development.
     into browser code or create a second implementation of business logic.
 11. **Evidence is disposable and owned.** Validation PDFs, traces, screenshots,
     logs, and fake-provider JSONL ledgers live beneath one run-owned artifact
-    root or an explicit external log root. They may be retained for diagnosis,
-    but never become application state or tracked source.
+    root or a unique external log/PID root. Repository output is removed only
+    when a pre-run manifest proves the path was absent. External logs may be
+    retained for diagnosis, but never become application state or tracked
+    source.
 
 These principles govern all future harness architecture, fixtures, providers,
 scenarios, CI behavior, and maintenance. The acceptance checklist is

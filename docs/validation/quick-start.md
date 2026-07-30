@@ -34,11 +34,16 @@ For a local scenario, follow the environment and ownership steps in the
 [operational runbook](operational-runbook.md), then run:
 
 - server-free gates first;
+- one unique run ID and external log/PID root, with exclusive worktree use;
 - isolated database start, migrate, seed, and fixture validation;
 - explicitly owned server with observable HTTP readiness;
 - the selected Playwright project with one worker, zero retries, fail-fast,
   durable external logs, and hard ceilings;
 - success-or-failure cleanup and residue checks.
+
+Pre-existing generated directories and stale run roots are blockers, not
+cleanup targets. The runbook records absence-before-run ownership and verifies
+PID creation time plus command identity before stopping a server tree.
 
 Use [merge-gate.md](merge-gate.md) for merge acceptance. It is the sole
 authoritative checklist. Use validation—not development—when proving a

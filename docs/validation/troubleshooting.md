@@ -20,7 +20,16 @@ only when trace evidence proves a specific expected browser cancellation.
 
 On Windows, Playwright's owned Next server may hang after a passing test. This
 is runner teardown, not a product failure. Use an explicit server, terminate
-only its process tree, and retain logs outside tracked paths.
+only its process tree after matching the current process to the saved run ID,
+PID, creation time, and exact command line. A stale PID file or matching number
+alone must never trigger termination. Retain the unique external run root and
+logs outside tracked paths.
+
+If a generated directory predates validation, stop. Do not delete it. The
+supported procedure requires exclusive worktree use, proves managed paths
+absent before execution, and records them in the current run root. An
+interrupted run root is evidence: never reuse it, and never apply its cleanup
+records to a new run.
 
 For fixture drift, validate IDs, statuses, snapshots, review events, artifacts,
 and ledgers. Do not repair drift in browser tests.

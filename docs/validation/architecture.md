@@ -43,6 +43,9 @@ regenerate expected historical output.
   service, named network, and named volume.
 - `.artifacts/validation/<run-id>` owns fixture manifests, fake-provider
   ledgers, local PDFs, and Playwright output.
+- `C:\Code\nexus-validation-runs/<run-id>` is the unique durable external root
+  for run metadata, generated-path ownership, server process identity, and
+  logs. It is never reused or deleted during normal cleanup.
 - `tests/harness` owns deterministic fixtures, fake providers, network
   diagnostics, setup, and teardown.
 - `tests/e2e/{smoke,costing,slice-12}` maps to the configured Playwright
@@ -53,3 +56,8 @@ from working-directory context. Multiple worktrees can therefore encounter the
 same named resources under different project labels. Ownership is verified
 before reuse or cleanup; `COMPOSE_PROJECT_NAME` is fixed only to a proven
 identity. The runbook contains the procedure.
+
+Repository-generated directories are owned through an exclusive-worktree
+lease plus an external manifest proving each path was absent before execution.
+Server ownership uses run ID, PID, creation time, and exact command line; PID
+number alone is insufficient.

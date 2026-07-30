@@ -29,9 +29,16 @@ All boxes are merge blockers unless explicitly classified otherwise.
 - [ ] Run `git diff --check` before validation.
 - [ ] Create `.env.validation.local` from `.env.validation.example`, review it
       for loopback-only URLs, isolated providers, and absent real credentials.
+- [ ] Generate a unique `NEXUS_VALIDATION_RUN_ID` and create a new, exclusive
+      external root at `C:\Code\nexus-validation-runs\<run-id>`; reject an
+      existing root rather than reusing it.
 - [ ] Explicitly load that file into the PowerShell process used for database,
       migration, fixture, and isolation commands. Merely creating the file is
       insufficient. Follow the runbook's environment loader.
+- [ ] Prove `.next`, `test-results`, `playwright-report`, and
+      `.artifacts/validation` are absent before the run; record their exact
+      absolute paths in the unique root's ownership manifest. A pre-existing
+      path is a blocker and must not be deleted by validation.
 - [ ] Run `npm.cmd run validation:prove-isolation` and retain its proof.
 
 ### Server-free gates
@@ -55,9 +62,10 @@ All boxes are merge blockers unless explicitly classified otherwise.
 
 ### Browser gates
 
-- [ ] Start an explicitly owned validation server, record its wrapper PID,
-      redirect stdout/stderr outside tracked paths, and wait for an observable
-      HTTP response on `127.0.0.1:3100`.
+- [ ] Start an explicitly owned validation server; record run ID, PID, process
+      creation time, and exact command line beneath the unique external root.
+      Redirect server stdout/stderr there and wait for an observable HTTP
+      response on `127.0.0.1:3100`.
 - [ ] Run every suite with `--workers=1 --retries=0 --max-failures=1`, a
       Playwright test ceiling, and a hard outer process timeout:
   - [ ] Quote deep links:
@@ -80,7 +88,10 @@ one retry when `CI` is set unless the merge-gate command overrides it.
 
 ### Cleanup on success and failure
 
-- [ ] Stop only the owned validation-server process tree.
+- [ ] Before stopping the server, match its current PID, creation time, exact
+      command line, expected validation-server command, and run marker. Stop
+      only its owned descendant tree. A stale PID number alone authorizes
+      nothing.
 - [ ] Confirm port 3100 has no listener.
 - [ ] Run `npm.cmd run validation:fixtures:reset`.
 - [ ] Run `npm.cmd run validation:db:teardown`.
@@ -89,10 +100,14 @@ one retry when `CI` is set unless the merge-gate command overrides it.
 - [ ] Confirm the owned validation volume is removed.
 - [ ] Confirm validation artifacts are removed.
 - [ ] Remove the temporary `.env.validation.local` if the run created it.
-- [ ] Remove generated `.next`, `test-results`, and `playwright-report`
-      directories created by the run. Do not remove unknown paths.
+- [ ] Remove generated directories only from the current run's ownership
+      manifest, which proves each path was absent before execution. Use the
+      same rule after success and failure; do not remove unknown or
+      pre-existing paths.
 - [ ] Run `git diff --check` after validation.
 - [ ] Confirm `git status --short` is empty.
+- [ ] Retain the unique run ID and external log/root path in the final report;
+      do not delete durable external logs during normal cleanup.
 
 Cleanup is required even after a merge blocker. Never delete a container,
 network, volume, process, or directory without proving it belongs to the
