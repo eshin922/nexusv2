@@ -1,5 +1,5 @@
 import { assertRuntimeSafety } from "../../src/lib/config/runtime-config";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   resetFixtureWorld,
@@ -17,6 +17,19 @@ export default async function globalSetup() {
     }
   }
   const runId = process.env.NEXUS_VALIDATION_RUN_ID ?? "slice12";
+  const hubSpotLedger = process.env.NEXUS_FAKE_HUBSPOT_LEDGER;
+  if (hubSpotLedger) {
+    const resolvedLedger = path.resolve(hubSpotLedger);
+    const validationRoot = `${path.resolve(
+      process.cwd(),
+      ".artifacts",
+      "validation",
+    )}${path.sep}`;
+    if (!resolvedLedger.startsWith(validationRoot)) {
+      throw new Error("[playwright] fake HubSpot ledger escaped validation root");
+    }
+    await rm(resolvedLedger, { force: true });
+  }
   await resetFixtureWorld(runId);
   const manifest = await seedFixtureWorld(runId);
   const directory = path.resolve(
