@@ -26,7 +26,7 @@ import "server-only";
 //
 // Display-only. Never used as a lookup key or a HubSpot write target.
 
-import { loadPipelineStagesForLabel } from "./hubspot";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
 
 export async function resolveHubspotAcceptStageLabel(
   stored: string | null,
@@ -37,7 +37,8 @@ export async function resolveHubspotAcceptStageLabel(
   const looksLikeId = /^\d+$/.test(stored);
   if (!looksLikeId) return stored;
   try {
-    const stages = await loadPipelineStagesForLabel();
+    const { hubspot } = await getApplicationDependencies();
+    const stages = await hubspot.listDealStages();
     const match = stages.find((s) => s.id === stored);
     return match?.label ?? stored;
   } catch {

@@ -13,8 +13,8 @@ import { addDaysToIsoDate, toLocalIsoDate } from "@/lib/local-date";
 import {
   QUOTE_PDFS_BUCKET,
   buildQuotePdfStoragePath,
-  getSupabaseServer,
 } from "@/lib/supabase-server";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
 import {
   assemblies,
   assemblyLeafInputs,
@@ -38,14 +38,10 @@ import {
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { getCostingBundle } from "@/app/actions/costing";
 import {
-  findHubspotOwnerById,
-  getDealStage,
-  HubspotError,
   searchProducts,
-  updateDealStage,
-  type DealStageInfo,
   type ProductSummary,
 } from "@/lib/hubspot";
+import type { HubSpotStage as DealStageInfo } from "@/lib/integrations/hubspot-provider";
 import { isHubspotLinkedDealId } from "@/lib/hubspot-linkage";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
@@ -1442,7 +1438,8 @@ export async function sendQuote(
       }
     }
     if (!preparedBy && project.hubspotOwnerId) {
-      const owner = await findHubspotOwnerById(project.hubspotOwnerId);
+      const { hubspot } = await getApplicationDependencies();
+      const owner = await hubspot.findOwnerById(project.hubspotOwnerId);
       if (owner && owner.email) {
         preparedBy = {
           name: owner.name ?? owner.email,
@@ -1540,34 +1537,39 @@ export async function sendQuote(
     });
     const buffer = await renderToBuffer(doc);
 
-    const supabase = getSupabaseServer();
+    const { artifacts } = await getApplicationDependencies();
     const storagePath = buildQuotePdfStoragePath(quoteId, sendUuid);
-    const upload = await supabase.storage
-      .from(QUOTE_PDFS_BUCKET)
-      .upload(storagePath, buffer, {
+    try {
+      await artifacts.put({
+        bucket: QUOTE_PDFS_BUCKET,
+        path: storagePath,
+        body: buffer,
         contentType: "application/pdf",
-        upsert: false,
+        overwrite: false,
       });
-    if (upload.error) {
+    } catch (error) {
       throw new ActionGuardError(
         ERR.VALIDATION,
-        `PDF upload failed: ${upload.error.message}`,
+        `PDF upload failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
     // 30-day signed URL for internal PM re-download convenience
     // (D2 — internal-only; never handed to customer). Refresh on
     // demand by re-signing; the file itself lives forever.
-    const signed = await supabase.storage
-      .from(QUOTE_PDFS_BUCKET)
-      .createSignedUrl(storagePath, 60 * 60 * 24 * 30);
-    if (signed.error || !signed.data?.signedUrl) {
+    let pdfUrl: string;
+    try {
+      pdfUrl = await artifacts.createAccessUrl(
+        QUOTE_PDFS_BUCKET,
+        storagePath,
+        60 * 60 * 24 * 30,
+      );
+    } catch (error) {
       throw new ActionGuardError(
         ERR.VALIDATION,
-        `PDF signed URL generation failed: ${signed.error?.message ?? "no url"}`,
+        `PDF signed URL generation failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    const pdfUrl = signed.data.signedUrl;
 
     const result = await db.transaction(async (tx) => {
       // Pull next quote number from the sequence inside the transaction
@@ -2241,7 +2243,10 @@ export async function markAccepted(
         // on retry — that's the poisoned target). Fall back to raw id
         // if pipeline lookup fails.
         try {
-          const captured = await getDealStage(project.hubspotDealId as string);
+          const { hubspot } = await getApplicationDependencies();
+          const captured = await hubspot.getDealStage(
+            project.hubspotDealId as string,
+          );
           fromStageLabel =
             captured.id === fromStageId ? captured.label : fromStageId;
         } catch {
@@ -2251,7 +2256,10 @@ export async function markAccepted(
         // Fresh capture path: either no pending, or pending is stale
         // (cross-version mismatch or partial state). Read current
         // deal stage; overwrite pending as a pair.
-        const fresh = await getDealStage(project.hubspotDealId as string);
+        const { hubspot } = await getApplicationDependencies();
+        const fresh = await hubspot.getDealStage(
+          project.hubspotDealId as string,
+        );
         fromStageId = fresh.id;
         fromStageLabel = fresh.label;
         // Durable pre-write. Direct UPDATE (no tx) so it survives
@@ -2269,13 +2277,14 @@ export async function markAccepted(
       // HubSpot's basicApi.update is a single PATCH; two properties
       // land atomically or both fail. See updateDealStage's opts.amount
       // rationale for why we consolidated over two separate calls.
-      toStage = await updateDealStage(
+      const { hubspot } = await getApplicationDependencies();
+      toStage = await hubspot.updateDealStage(
         project.hubspotDealId as string,
         firm.hubspotDealStageOnAccept,
         { amount: tierTurnkeyAmount },
       );
     } catch (e) {
-      const msg = e instanceof HubspotError ? e.message : String(e);
+      const msg = e instanceof Error ? e.message : String(e);
       throw new ActionGuardError(
         ERR.HUBSPOT,
         `HubSpot deal-stage push failed — acceptance not recorded, quote state unchanged. ${msg}`,
@@ -2515,12 +2524,13 @@ export async function unmarkAccepted(
     // External call FIRST (v3 §5.1 ordering).
     let rolledBackStage: DealStageInfo;
     try {
-      rolledBackStage = await updateDealStage(
+      const { hubspot } = await getApplicationDependencies();
+      rolledBackStage = await hubspot.updateDealStage(
         project.hubspotDealId as string,
         priorStageId,
       );
     } catch (e) {
-      const msg = e instanceof HubspotError ? e.message : String(e);
+      const msg = e instanceof Error ? e.message : String(e);
       throw new ActionGuardError(
         ERR.HUBSPOT,
         `HubSpot deal-stage rollback failed — quote state unchanged. ${msg}`,
@@ -3918,17 +3928,21 @@ export async function resignSnapshotPdf(
       );
     }
 
-    const supabase = getSupabaseServer();
-    const signed = await supabase.storage
-      .from(bucket)
-      .createSignedUrl(storagePath, 60 * 60 * 24 * 30);
-    if (signed.error || !signed.data?.signedUrl) {
+    const { artifacts } = await getApplicationDependencies();
+    let url: string;
+    try {
+      url = await artifacts.createAccessUrl(
+        bucket,
+        storagePath,
+        60 * 60 * 24 * 30,
+      );
+    } catch (error) {
       throw new ActionGuardError(
         ERR.VALIDATION,
-        `Couldn't re-sign the PDF URL: ${signed.error?.message ?? "no url"}`,
+        `Couldn't re-sign the PDF URL: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
-    return { url: signed.data.signedUrl };
+    return { url };
   });
 }
