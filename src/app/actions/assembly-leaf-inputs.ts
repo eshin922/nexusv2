@@ -4,6 +4,11 @@ import { and, asc, eq, max } from "drizzle-orm";
 import { db } from "@/db";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
+  parseDecimalInput,
+  parseMarkupDecimal,
+  parseUnitMoney,
+} from "@/lib/numeric-input";
+import {
   assemblyLeafInputs,
   assemblyLeaves,
   auditLog,
@@ -94,13 +99,6 @@ async function logAudit(args: {
 function trimOrNull(v: FormDataEntryValue | null): string | null {
   const s = String(v ?? "").trim();
   return s === "" ? null : s;
-}
-
-function parseNumericOrNull(v: FormDataEntryValue | null): string | null {
-  const s = String(v ?? "").trim();
-  if (s === "") return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? s : null;
 }
 
 function numericEquals(a: string | null, b: string | null): boolean {
@@ -207,8 +205,16 @@ export async function updateAssemblyLeafInputLineMeta(
     const beforeRow = beforeRows[0];
 
     const newSupplier = trimOrNull(formData.get("supplier"));
-    const newQtyPerSellableUnit = parseNumericOrNull(
+    const newQtyPerSellableUnit = parseDecimalInput(
       formData.get("qtyPerSellableUnit"),
+      {
+        field: "qtyPerSellableUnit",
+        label: "Quantity per sellable unit",
+        nullable: true,
+        precision: 12,
+        scale: 4,
+        minExclusive: 0,
+      },
     );
     const newCategory = trimOrNull(formData.get("category"));
     const newInventoryEligible =
@@ -216,7 +222,11 @@ export async function updateAssemblyLeafInputLineMeta(
       formData.get("inventoryEligible") === "true";
     const newNotes = trimOrNull(formData.get("notes"));
 
-    const formMarkup = trimOrNull(formData.get("markupPct"));
+    const formMarkup = parseMarkupDecimal(
+      formData.get("markupPct"),
+      "markupPct",
+      "Packaging markup",
+    );
     const dbMarkup = beforeRow.markupPct;
     const dbCategory = beforeRow.category;
     const dbSource = beforeRow.markupPctSource;
@@ -417,8 +427,19 @@ export async function updateAssemblyLeafInputCell(
     // for the revalidate path.
     const { quote } = await quoteForAssemblyLeaf(assemblyLeaf.id);
 
-    const newUnitCost = parseNumericOrNull(formData.get("unitCost"));
-    const newPurchaseQty = parseNumericOrNull(formData.get("purchaseQty"));
+    const newUnitCost = parseUnitMoney(
+      formData.get("unitCost"),
+      "unitCost",
+      "Packaging unit cost",
+    );
+    const newPurchaseQty = parseDecimalInput(formData.get("purchaseQty"), {
+      field: "purchaseQty",
+      label: "Purchase quantity",
+      nullable: true,
+      precision: 18,
+      scale: 4,
+      min: 0,
+    });
 
     const before = { unit_cost: row.unitCost, purchase_qty: row.purchaseQty };
     const after = { unit_cost: newUnitCost, purchase_qty: newPurchaseQty };

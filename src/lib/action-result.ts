@@ -6,7 +6,7 @@
  * See CLAUDE.md "Action result pattern" for the project convention.
  */
 
-export type ActionError = { code: string; message: string };
+export type ActionError = { code: string; message: string; field?: string };
 
 export type ActionResult<T = void> =
   | { ok: true; data: T }
@@ -38,8 +38,12 @@ export function actionOk<T>(data?: T): ActionResult<T | undefined> {
   return { ok: true, data: data as T };
 }
 
-export function actionError(code: string, message: string): ActionResult<never> {
-  return { ok: false, error: { code, message } };
+export function actionError(
+  code: string,
+  message: string,
+  field?: string,
+): ActionResult<never> {
+  return { ok: false, error: { code, message, ...(field ? { field } : {}) } };
 }
 
 /**
@@ -49,11 +53,17 @@ export function actionError(code: string, message: string): ActionResult<never> 
  * sentinel, which Next.js needs to intercept.
  */
 export class ActionGuardError extends Error {
+  public readonly code: string;
+  public readonly field?: string;
+
   constructor(
-    public readonly code: string,
+    code: string,
     message: string,
+    field?: string,
   ) {
     super(message);
+    this.code = code;
+    this.field = field;
     this.name = "ActionGuardError";
   }
 }
@@ -109,7 +119,8 @@ export async function runAction<T>(
     const data = await fn();
     return actionOk(data);
   } catch (e) {
-    if (e instanceof ActionGuardError) return actionError(e.code, e.message);
+    if (e instanceof ActionGuardError)
+      return actionError(e.code, e.message, e.field);
     const pg = pgValidationError(e);
     if (pg) return actionError(pg.code, pg.message);
     throw e;
