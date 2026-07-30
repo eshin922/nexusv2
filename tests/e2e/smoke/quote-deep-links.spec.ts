@@ -35,8 +35,20 @@ for (const state of ["draft", "sent", "accepted", "failed", "complete"] as const
     });
     page.on("pageerror", (error) => pageFailures.push(error.message));
     page.on("requestfailed", (request) => {
+      const failure = request.failure()?.errorText ?? "";
+      const isExpectedCustomerPdfDownloadAbort =
+        request.method() === "GET" &&
+        request.resourceType() === "document" &&
+        /^\/api\/quotes\/[^/]+\/customer-pdf$/.test(
+          new URL(request.url()).pathname,
+        ) &&
+        failure === "net::ERR_ABORTED";
+      // Headless Chromium hands an inline PDF iframe response to its download
+      // manager, then reports the superseded document load as ERR_ABORTED.
+      if (isExpectedCustomerPdfDownloadAbort) return;
+
       requestFailures.push(
-        `${request.method()} ${request.url()} ${request.failure()?.errorText ?? ""}`,
+        `${request.method()} ${request.url()} ${failure}`,
       );
     });
 
