@@ -59,6 +59,23 @@ The audit must instantiate, at minimum:
 - any additional fields discovered from full production/sandbox responses or
   administrator exports.
 
+## Automated baseline status
+
+`tests/unit/sales-order-accounting-contract.test.ts` makes current Nexus
+projection behavior release-blocking. It does not classify cross-environment
+parity.
+
+| Matrix area | Automated contract status | Parity classification |
+|---|---|---|
+| Required headers and active optional custom fields | Unit-protected exact mapping | Remains `UNKNOWN` until transaction evidence |
+| `custbody_dps_payment_terms_text` | Unit-protected trim/populate/omit behavior | Remains `UNKNOWN` for business parity |
+| Standard `terms` | Unit-protected omission | `UNKNOWN`; Evidence Packet 2 required |
+| Project Manager | Builder support and null/missing omission unit-protected; completion omits it | `UNKNOWN`; Evidence Packet 1 required |
+| Flat leaf item, quantity, rate, and cost | Unit-protected payload plus completion invariants | Remains `UNKNOWN` until transaction evidence |
+| Line `amount` | Unit-protected omission and quantity × rate reconciliation | Remains `UNKNOWN` until NetSuite result evidence |
+| Historical, SuiteTax, bundle, opportunity, workflow, and unknown fields | Enumerated non-activation is unit-protected | Evidence classification remains field-specific |
+| Idempotency/retry | Deterministic-key tests plus completion ordering and DB uniqueness invariants | Environment behavior still requires evidence |
+
 ## Completion rules
 
 - One field has one final classification.

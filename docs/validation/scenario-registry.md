@@ -2,6 +2,35 @@
 
 Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
 
+## VAL-701 — Sales Order accounting payload contract
+
+- Business promise: Nexus sends only approved current Sales Order fields,
+  preserves flat-leaf commercial math, and does not activate evidence-gated
+  mappings.
+- Preconditions: deterministic pure payload input and canonical completion
+  source.
+- Inputs/actions: map complete and null/optional payloads; vary quote, tier,
+  payload, rate, cost, tax, payment text, and project-manager input.
+- Visible result: none; this is a server-boundary contract.
+- Persisted state: the successful-push uniqueness backstop is structurally
+  protected; unit tests perform no database mutation.
+- Numerical outcome: rate and unit cost normalize to four decimals; amount is
+  omitted and independently reconciles as quantity × rate.
+- Audit/artifact/provider: no writes; the protected object is the exact input
+  to `NetSuiteOperations.createSalesOrder`.
+- Security: historical, SuiteTax, bundle, opportunity, workflow-derived, and
+  unknown fields remain absent.
+- Failure modes: mapping drift, accidental field activation, inferred project
+  manager, standard-terms activation, explicit line amount, nondeterministic
+  key, or create-before-prior-success-check.
+- Layer/file: registered unit/structural contract,
+  `tests/unit/sales-order-accounting-contract.test.ts`.
+- Sources: `src/lib/netsuite/sales-orders.ts`,
+  `src/lib/netsuite/mark-complete.ts`, and `src/db/schema.ts`.
+- Maintenance: update the field universe and evidence classification before
+  changing an assertion.
+- Status: unit-protected; release-blocking through `npm run test:unit`.
+
 ## VAL-101 — Create and persist a basic quote
 
 - Business promise: supported quote setup, cost totals, pricing, and tiers save

@@ -1,0 +1,234 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+import {
+  buildSalesOrderPayload,
+  computeIdempotencyKey,
+  type SalesOrderPayloadInput,
+} from "../../src/lib/netsuite/sales-orders.ts";
+
+const fullInput: SalesOrderPayloadInput = {
+  netsuiteCustomerId: "customer-101",
+  subsidiaryId: "subsidiary-2",
+  orderStatusCode: "B",
+  taxCodeId: "tax-7",
+  paymentTermsText: "  50% deposit, balance on shipment  ",
+  hubspotDealId: "deal-40412634025",
+  hubspotDealName: "Accounting Contract",
+  dealFolderUrl: "https://example.invalid/accounting",
+  projectServiceS: "Co-Packing",
+  projectCategory: "Packaging",
+  projectSourceId: "source-3",
+  businessSegmentId: "segment-4",
+  businessSegmentLabel: "Personal Care",
+  clientPo: "PO-9001",
+  invoiceDateEst: "2026-09-15",
+  productionShipDateEst: "2026-10-01",
+  priority: "HIGH",
+  dealType: "newbusiness",
+  projectManagerNsId: "employee-88",
+  lines: [
+    {
+      netsuiteItemId: "item-123",
+      sku: "SKU-EXACT-123",
+      description: "Exact resolved leaf",
+      quantity: 250,
+      rate: 1.23456,
+      unitCost: 0.98765,
+    },
+  ],
+};
+
+const prohibitedFields = [
+  "terms",
+  "custbody_nexus_quote_id",
+  "custbody_dps_auto_generate_project",
+  "custbody_report_timestamp",
+  "custbody_dps_related_opportunity",
+  "custbody_stc_amount_after_discount",
+  "custbody_stc_tax_after_discount",
+  "custbody_stc_total_after_discount",
+  "custcol_2663_isperson",
+  "custcol_p2p_ln_allow_po",
+  "custcol_statistical_value_base_curr",
+  "opportunity",
+  "previousOpportunity",
+  "job",
+  "createdFrom",
+] as const;
+
+function own(record: unknown, key: string): boolean {
+  return (
+    typeof record === "object" &&
+    record !== null &&
+    Object.prototype.hasOwnProperty.call(record, key)
+  );
+}
+
+test("maps the verified required and optional Sales Order accounting fields", () => {
+  const payload = buildSalesOrderPayload(fullInput);
+
+  assert.deepEqual(payload, {
+    entity: { id: "customer-101" },
+    subsidiary: { id: "subsidiary-2" },
+    orderStatus: "B",
+    memo: "HubSpot Deal deal-40412634025 · Accounting Contract",
+    custbody_dps_deal_id: "deal-40412634025",
+    custbody_dps_payment_terms_text: "50% deposit, balance on shipment",
+    custbody_dps_accounting_files: "https://example.invalid/accounting",
+    custbody_sharepoint_link: "https://example.invalid/accounting",
+    custbody_dps_project_service_s: "Co-Packing",
+    custbody_dps_project_category: "Packaging",
+    custbody_dps_project_source: { id: "source-3" },
+    custbody_dps_client_po: "PO-9001",
+    custbody_dps_est_invoice_date: "2026-09-15",
+    custbody_dps_pp_production_ship_date: "2026-10-01",
+    shipDate: "2026-10-01",
+    custbody_dps_priority: "HIGH",
+    custbody_dps_deal_type: "newbusiness",
+    custbody_project_manager: { id: "employee-88" },
+    class: { id: "segment-4" },
+    cseg_dps_bus_seg: { id: "segment-4" },
+    item: {
+      items: [
+        {
+          item: { id: "item-123" },
+          quantity: 250,
+          rate: 1.2346,
+          description: "Exact resolved leaf",
+          taxCode: { id: "tax-7" },
+          custcol_dps_sku: "SKU-EXACT-123",
+          custcol_dps_unit_cost: 0.9877,
+        },
+      ],
+    },
+  });
+});
+
+test("omits optional, standard-terms, historical, derived, and unknown fields", () => {
+  const payload = buildSalesOrderPayload({
+    ...fullInput,
+    taxCodeId: null,
+    paymentTermsText: "   ",
+    dealFolderUrl: null,
+    projectServiceS: null,
+    projectCategory: null,
+    projectSourceId: null,
+    businessSegmentId: null,
+    businessSegmentLabel: null,
+    clientPo: null,
+    invoiceDateEst: null,
+    productionShipDateEst: null,
+    priority: null,
+    dealType: null,
+    projectManagerNsId: null,
+    lines: [{ ...fullInput.lines[0], unitCost: null }],
+  });
+  const line = (payload.item as { items: Array<Record<string, unknown>> }).items[0];
+
+  for (const field of prohibitedFields) {
+    assert.equal(own(payload, field), false, `header must omit ${field}`);
+    assert.equal(own(line, field), false, `line must omit ${field}`);
+  }
+  assert.equal(own(payload, "custbody_dps_payment_terms_text"), false);
+  assert.equal(own(payload, "custbody_project_manager"), false);
+  assert.equal(own(line, "taxCode"), false);
+  assert.equal(own(line, "custcol_dps_unit_cost"), false);
+  assert.equal(own(line, "amount"), false);
+});
+
+test("missing projectManagerNsId is omitted without identifier inference", () => {
+  const { projectManagerNsId: _omitted, ...withoutProjectManager } = fullInput;
+  const payload = buildSalesOrderPayload(withoutProjectManager);
+  assert.equal(own(payload, "custbody_project_manager"), false);
+});
+
+test("flat leaf lines preserve resolved item IDs and derive amount from quantity times rate", () => {
+  const payload = buildSalesOrderPayload(fullInput);
+  const lines = (payload.item as { items: Array<Record<string, unknown>> }).items;
+
+  assert.equal(lines.length, 1);
+  assert.deepEqual(lines[0].item, { id: "item-123" });
+  assert.equal(lines[0].custcol_dps_sku, "SKU-EXACT-123");
+  assert.equal(lines[0].quantity, 250);
+  assert.equal(lines[0].rate, 1.2346);
+  assert.equal(own(lines[0], "amount"), false);
+  assert.equal(
+    Number(lines[0].quantity) * Number(lines[0].rate),
+    308.65,
+  );
+});
+
+test("idempotency key is deterministic and changes with quote, tier, or payload", () => {
+  const payload = buildSalesOrderPayload(fullInput);
+  const key = computeIdempotencyKey("quote-1", "tier-1", payload);
+
+  assert.match(key, /^nxs-so-[0-9a-f]{40}$/);
+  assert.equal(computeIdempotencyKey("quote-1", "tier-1", payload), key);
+  assert.notEqual(computeIdempotencyKey("quote-2", "tier-1", payload), key);
+  assert.notEqual(computeIdempotencyKey("quote-1", "tier-2", payload), key);
+  assert.notEqual(
+    computeIdempotencyKey("quote-1", "tier-1", {
+      ...payload,
+      memo: "changed",
+    }),
+    key,
+  );
+});
+
+test("completion structurally resolves exact SKUs, computes quantities, and checks prior success before create", () => {
+  const source = readFileSync(
+    "src/lib/netsuite/mark-complete.ts",
+    "utf8",
+  );
+  const schema = readFileSync("src/db/schema.ts", "utf8");
+
+  assert.match(source, /resolutionResults\.push\(await netsuite\.resolveItem\(sku\)\)/);
+  assert.match(
+    source,
+    /if \(r\.status === "found"\) nsIdBySku\.set\(r\.sku, r\.netsuiteItemId\)/,
+  );
+  assert.match(
+    source,
+    /const qtyPerParent = Math\.max\(1, Math\.round\(leafRollup\.qtyPerParent \?\? 1\)\)/,
+  );
+  assert.match(
+    source,
+    /const effectiveQty = \(tierRow\.qty \?\? 0\) \* qtyPerParent/,
+  );
+  assert.match(source, /netsuiteItemId: nsId/);
+  assert.match(source, /quantity: effectiveQty/);
+
+  const payloadBuild = source.indexOf("const payload = buildSalesOrderPayload({");
+  const payloadBuildEnd = source.indexOf("\n    });", payloadBuild);
+  assert.ok(payloadBuild >= 0);
+  assert.ok(payloadBuildEnd > payloadBuild);
+  const completionInput = source.slice(payloadBuild, payloadBuildEnd);
+  assert.match(
+    completionInput,
+    /paymentTermsText: quote\.paymentTermsSnapshot/,
+  );
+  assert.doesNotMatch(completionInput, /projectManagerNsId/);
+
+  const priorLookup = source.indexOf("const [priorSuccess]");
+  const convergenceBranch = source.indexOf("if (priorSuccess)", priorLookup);
+  const freshCreateBranch = source.indexOf("} else {", convergenceBranch);
+  const createCall = source.indexOf("await netsuite.createSalesOrder(", convergenceBranch);
+  assert.ok(priorLookup >= 0);
+  assert.ok(convergenceBranch > priorLookup);
+  assert.ok(freshCreateBranch > convergenceBranch);
+  assert.ok(createCall > freshCreateBranch);
+  assert.equal(source.indexOf("await netsuite.createSalesOrder("), createCall);
+  assert.match(
+    source.slice(convergenceBranch, createCall),
+    /retryOutcome = "converged_from_prior_success"/,
+  );
+  assert.match(
+    source.slice(createCall, createCall + 160),
+    /await netsuite\.createSalesOrder\(\s*payload,\s*\{ idempotencyKey \}/,
+  );
+  assert.match(
+    schema,
+    /uniqueIndex\("netsuite_so_pushes_success_unique_idx"\)[\s\S]*?\.where\(sql`status = 'succeeded'`\)/,
+  );
+});

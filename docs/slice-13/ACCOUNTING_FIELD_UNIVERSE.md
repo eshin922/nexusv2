@@ -21,6 +21,7 @@ Primary evidence:
 - `src/lib/netsuite/composition-hash.ts`
 - `src/db/schema.ts`
 - `scripts/parity/so-field-parity.ts`
+- `tests/unit/sales-order-accounting-contract.test.ts`
 
 For compact tables, mapping-location filenames refer to these exact paths:
 `mark-complete.ts` = `src/lib/netsuite/mark-complete.ts`;
@@ -36,6 +37,18 @@ For compact tables, mapping-location filenames refer to these exact paths:
 necessarily required by NetSuite configuration. NetSuite-required status is
 **Requires sandbox discovery** unless repository guards prove it.
 
+## Automated contract checkpoint
+
+`tests/unit/sales-order-accounting-contract.test.ts` is release-blocking
+through the registered unit gate. It protects exact required/optional mapping,
+current custom payment-terms behavior, enumerated prohibited-field omissions,
+flat leaf lines, four-decimal normalization, quantity × rate reconciliation,
+deterministic idempotency, and completion retry-order invariants.
+
+These tests prove current Nexus behavior, not production/sandbox parity.
+Project Manager and standard `terms` remain `UNKNOWN`; their evidence is
+specified in [PARITY_EVIDENCE_REQUESTS.md](PARITY_EVIDENCE_REQUESTS.md).
+
 ## Current outbound Sales Order header
 
 | Business name | Nexus input / source system | Nexus mapping location | NetSuite destination | Required | Current implementation | Expected parity behavior | Evidence required |
@@ -45,8 +58,8 @@ necessarily required by NetSuite configuration. NetSuite-required status is
 | Order status | `firm_settings.netsuite_so_order_status_code`; Nexus | `mark-complete.ts`; `sales-orders.ts` | `orderStatus` | Yes | Populated | Same operational status behavior | Firm setting, NetSuite status dictionary, observed SO |
 | Memo | HubSpot deal ID + cached deal name; derived | `sales-orders.ts` | `memo` | Yes by builder | Populated as `HubSpot Deal <id> · <name>` | Meaning must be approved; text need not equal legacy formatting | Source values, payload, legacy and sandbox display |
 | HubSpot deal link | `projects.hubspot_deal_id`; HubSpot identity persisted by Nexus | `mark-complete.ts`; `sales-orders.ts` | `custbody_dps_deal_id` | Yes | Populated | Same source deal identity | Project row, HubSpot record, payload, SO |
-| Payment terms text | `quotes.payment_terms_snapshot`; Nexus immutable send snapshot | `mark-complete.ts`; `sales-orders.ts` | `custbody_dps_payment_terms_text` | Optional | Trimmed and populated when nonblank | Commercial terms equivalent; legacy standard `terms` behavior requires discovery | Snapshot, payload, production/sandbox terms fields |
-| Standard terms reference | Repository comments refer to `terms`; no active payload assignment | `sales-orders.ts` comments; historical briefs | `terms` | Unknown | Referenced but currently omitted; custom payment-terms text is sent instead | `UNKNOWN` until legacy terms sourcing/defaulting and NetSuite field type are discovered | Full payload, production/sandbox terms metadata and observed records |
+| Payment terms text | `quotes.payment_terms_snapshot`; Nexus immutable send snapshot | `mark-complete.ts`; `sales-orders.ts` | `custbody_dps_payment_terms_text` | Optional | Trim/populate/omit behavior is unit-protected | Commercial terms equivalent; legacy standard `terms` behavior requires discovery | Snapshot, payload, production/sandbox terms fields |
+| Standard terms reference | Repository comments refer to `terms`; no active payload assignment | `sales-orders.ts` comments; historical briefs | `terms` | Unknown | Omission is unit-protected; mapping remains unimplemented | `UNKNOWN` until Evidence Packet 2 resolves type and defaulting | Evidence Packet 2, payload, production/sandbox metadata and records |
 | Accounting files URL | HubSpot `monday_link` → `hubspot_deals_cache.deal_folder_url` | `hubspot-cache.ts`; `sales-orders.ts` | `custbody_dps_accounting_files` | Optional | Copied when truthy | Same approved URL | HubSpot raw property, cache, payload, SO |
 | SharePoint link | Same value as Accounting files URL; derived mirror | `sales-orders.ts` | `custbody_sharepoint_link` | Optional | Populated with identical URL when present | Same approved URL and downstream behavior | Both destination fields and workflow/use evidence |
 | Project service | HubSpot `project_service_s_` → cache | `hubspot-cache.ts`; `sales-orders.ts` | `custbody_dps_project_service_s` | Optional | Copied when truthy | Same business label/value | HubSpot property metadata/raw value, cache, payload, SO |
@@ -60,7 +73,7 @@ necessarily required by NetSuite configuration. NetSuite-required status is
 | Deal type | HubSpot `dealtype` → cache | `hubspot-cache.ts`; `sales-orders.ts` | `custbody_dps_deal_type` | Optional | Copied when truthy | Same deal-type meaning | Source/destination option dictionaries and observed value |
 | Business class | HubSpot `business_segment` raw enum ID → cache | `hubspot-cache.ts`; `business-segment-resolver.ts`; `sales-orders.ts` | `class.id` | Optional | Raw ID passed after label lookup succeeds | Same classification; ID equivalence is not assumed | HubSpot option ID/label, NetSuite class dictionary, payload/SO |
 | DPS business segment | Same business-segment ID; derived mirror | `sales-orders.ts` | `cseg_dps_bus_seg.id` | Optional | Mirrors `class.id` | Same segment meaning and class/segment relationship | Production/sandbox class and custom-segment metadata |
-| Project manager | Builder input `projectManagerNsId`; intended HubSpot owner/PM → NetSuite employee mapping | `sales-orders.ts` | `custbody_project_manager.id` | Optional | Builder supports it, but `mark-complete.ts` does not supply it; currently omitted | `UNKNOWN` until owner source and mapping contract are discovered | Legacy source, employee mapping, payload absence, production/sandbox observed field |
+| Project manager | Builder input `projectManagerNsId`; intended HubSpot owner/PM → NetSuite employee mapping | `sales-orders.ts` | `custbody_project_manager.id` | Optional | Builder support and null/missing omission are unit-protected; completion does not supply it | `UNKNOWN` until Evidence Packet 1 resolves source and dictionary | Evidence Packet 1, employee mapping, payload absence, production/sandbox field |
 | Item sublist | Nexus calculated leaf lines | `mark-complete.ts`; `sales-orders.ts` | `item.items[]` | Yes; at least one line enforced | Populated with flat leaf lines | Commercially equivalent lines except approved completed Item Group change | Full ordered line evidence and total reconciliation |
 
 ## Current outbound Sales Order line fields
