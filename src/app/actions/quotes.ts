@@ -1767,7 +1767,10 @@ export async function sendQuote(
       return { quoteNumber, sentAt };
     });
 
-    revalidateQuoteTree(quote.projectId, quoteId);
+    // SendQuoteFlow owns the post-send refresh: it first renders the success
+    // receipt, then calls router.refresh() when the PM closes that dialog.
+    // Revalidating here replaces the draft Send branch immediately and
+    // unmounts the receipt before it can be shown.
     return result;
   });
 }
