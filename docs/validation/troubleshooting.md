@@ -2,6 +2,18 @@
 
 Runtime safety failures mean a URL is not loopback, the database lacks its
 validation marker, production mode is active, or a provider is not isolated.
+They can also mean `.env.validation.local` exists but was never loaded into the
+current database/fixture CLI shell. This rejection occurs before product tests
+or mutation and is successful protection. Load the environment exactly as
+shown in the runbook and rerun the blocked gate.
+
+A Docker name conflict across worktrees is not permission to delete the
+container, network, or volume. Inspect Compose labels first. During final Slice
+12 verification, resources owned by project `nexusv2` collided with the
+reconstruction worktree's default `nexusv2-val601-clean` identity. Verified
+reuse with explicit `COMPOSE_PROJECT_NAME=nexusv2` was safe; destructive
+replacement would not have been. Cleanup targets only the identity proved to
+belong to the run.
 
 Unexpected outbound requests are failures. Capture URL and initiator; exclude
 only when trace evidence proves a specific expected browser cancellation.
@@ -23,3 +35,7 @@ Traces explain timing and cancellations; screenshots explain visible state;
 durable stdout/stderr explain server failures; fake-provider JSONL proves
 isolated side effects. Keep these outside tracked paths. Do not replace
 snapshots or add exclusions until trace evidence proves expected behavior.
+
+For exact environment, ownership, process-tree, and cleanup commands, use
+[operational-runbook.md](operational-runbook.md). For result classification,
+use [merge-gate.md](merge-gate.md).

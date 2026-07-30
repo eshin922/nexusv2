@@ -1,5 +1,21 @@
 # Nexus v2 — DPS Quoting Tool
 
+## Validation subsystem
+
+The isolated validation harness is a first-class project subsystem and is
+required before merge for changes to protected quote behavior. The sole
+acceptance checklist is
+[`docs/validation/merge-gate.md`](docs/validation/merge-gate.md); the
+authoritative execution procedure is
+[`docs/validation/operational-runbook.md`](docs/validation/operational-runbook.md).
+Core documentation intentionally does not duplicate those instructions.
+
+Slice 12 implementation and code validation are complete; the documentation
+handover records the current state and transition in
+[`docs/validation/slice-12-handover.md`](docs/validation/slice-12-handover.md).
+Before new Slice 13 feature work, complete field-level Sales Order lineage and
+behavioral-parity analysis across HubSpot → Nexus → NetSuite sandbox.
+
 ## Verification scripts
 
 DB-level invariant checkers in `scripts/verify/`. Each is a self-contained

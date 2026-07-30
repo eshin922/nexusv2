@@ -10,6 +10,12 @@
 - Every defect fix needs a regression test that fails if reintroduced.
 - Update applicable `docs/validation` files in the same diff.
 
+New work must conform to
+[VALIDATION_PRINCIPLES.md](VALIDATION_PRINCIPLES.md), register its promise in
+[scenario-registry.md](scenario-registry.md), and pass
+[merge-gate.md](merge-gate.md). Do not copy operational command sequences into
+test-writing guidance.
+
 Browser runs use one worker, zero retries, fail-fast, an explicit server, hard
 process ceilings, and durable untracked logs.
 

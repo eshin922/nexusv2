@@ -408,6 +408,30 @@ operational pre-flight.)
   signals. Skip the dead ends (business_segment / class) and
   start with `project_service_s`.
 
+- **Slice 13 entry gate — Sales Order lineage and behavioral parity**
+
+  **Priority:** must complete before new Slice 13 feature work.
+
+  Build a field-level trace across HubSpot → Nexus → NetSuite sandbox for every
+  accounting-relevant Sales Order field. Classify each result as `PARITY`,
+  `INTENTIONAL CHANGE`, `ENVIRONMENT DIFFERENCE`, `SOURCE DATA GAP`,
+  `MAPPING GAP`, `NETSUITE CONFIG GAP`, or `UNKNOWN / BLOCKER`.
+
+  Production and sandbox need not be literally identical where environment
+  configuration differs, but every difference must be traced to its root
+  source. Completed Item Groups are the only intended Accounting-visible
+  behavioral change. All other relevant SO data must remain commercially and
+  operationally equivalent or carry an explicit, evidence-backed environment
+  distinction.
+
+  Item Group creation requires valid item-level pricing. `$0.00` upstream
+  catalog pricing is sufficient to pass NetSuite validation, but it is a
+  technical placeholder only and must never become the commercial transaction
+  price. Unknown pricing lineage is a blocker.
+
+  Validation policy and handover:
+  `docs/validation/slice-12-handover.md`.
+
 - **NetSuite Item Group SO attachment — REOPENED, required for v1
   (Probes 5 → 7 + Vu's finding)**
 
