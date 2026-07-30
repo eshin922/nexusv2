@@ -46,8 +46,12 @@ flat leaf lines, four-decimal normalization, quantity × rate reconciliation,
 deterministic idempotency, and completion retry-order invariants.
 
 These tests prove current Nexus behavior, not production/sandbox parity.
-Project Manager and standard `terms` remain `UNKNOWN`; their evidence is
-specified in [PARITY_EVIDENCE_REQUESTS.md](PARITY_EVIDENCE_REQUESTS.md).
+Project Manager remains `UNKNOWN`; its evidence is specified in
+[PARITY_EVIDENCE_REQUESTS.md](PARITY_EVIDENCE_REQUESTS.md). Standard
+Sales Order `terms` is `NETSUITE_DERIVED`: a controlled sandbox REST creation
+probe proved that NetSuite populated Customer default Terms ID `7` when Nexus
+omitted the field. See
+[Standard Terms Ownership Evidence](STANDARD_TERMS_OWNERSHIP_EVIDENCE.md).
 
 ## Current outbound Sales Order header
 
@@ -59,7 +63,7 @@ specified in [PARITY_EVIDENCE_REQUESTS.md](PARITY_EVIDENCE_REQUESTS.md).
 | Memo | HubSpot deal ID + cached deal name; derived | `sales-orders.ts` | `memo` | Yes by builder | Populated as `HubSpot Deal <id> · <name>` | Meaning must be approved; text need not equal legacy formatting | Source values, payload, legacy and sandbox display |
 | HubSpot deal link | `projects.hubspot_deal_id`; HubSpot identity persisted by Nexus | `mark-complete.ts`; `sales-orders.ts` | `custbody_dps_deal_id` | Yes | Populated | Same source deal identity | Project row, HubSpot record, payload, SO |
 | Payment terms text | `quotes.payment_terms_snapshot`; Nexus immutable send snapshot | `mark-complete.ts`; `sales-orders.ts` | `custbody_dps_payment_terms_text` | Optional | Trim/populate/omit behavior is unit-protected | Commercial terms equivalent; legacy standard `terms` behavior requires discovery | Snapshot, payload, production/sandbox terms fields |
-| Standard terms reference | Repository comments refer to `terms`; no active payload assignment | `sales-orders.ts` comments; historical briefs | `terms` | Unknown | Omission is unit-protected; mapping remains unimplemented | `UNKNOWN` until Evidence Packet 2 resolves type and defaulting | Evidence Packet 2, payload, production/sandbox metadata and records |
+| Standard terms reference | NetSuite Customer/ERP context | `sales-orders.ts`; NetSuite REST sourcing probe | `terms` | Not required from Nexus | Omission is unit-protected; NetSuite derivation is probe-confirmed | `NETSUITE_DERIVED`; Nexus must not write | [Standard Terms Ownership Evidence](STANDARD_TERMS_OWNERSHIP_EVIDENCE.md); production/sandbox parity observations |
 | Accounting files URL | HubSpot `monday_link` → `hubspot_deals_cache.deal_folder_url` | `hubspot-cache.ts`; `sales-orders.ts` | `custbody_dps_accounting_files` | Optional | Copied when truthy | Same approved URL | HubSpot raw property, cache, payload, SO |
 | SharePoint link | Same value as Accounting files URL; derived mirror | `sales-orders.ts` | `custbody_sharepoint_link` | Optional | Populated with identical URL when present | Same approved URL and downstream behavior | Both destination fields and workflow/use evidence |
 | Project service | HubSpot `project_service_s_` → cache | `hubspot-cache.ts`; `sales-orders.ts` | `custbody_dps_project_service_s` | Optional | Copied when truthy | Same business label/value | HubSpot property metadata/raw value, cache, payload, SO |

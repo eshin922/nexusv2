@@ -6,7 +6,7 @@ This guide defines the evidence required to classify a row in
 [SALES_ORDER_PARITY_MATRIX.md](SALES_ORDER_PARITY_MATRIX.md). It supplements
 the field definitions in
 [ACCOUNTING_FIELD_UNIVERSE.md](ACCOUNTING_FIELD_UNIVERSE.md).
-Open Project Manager and Standard Terms requests are maintained in
+Open Project Manager requests and the closed Standard Terms decision record are maintained in
 [PARITY_EVIDENCE_REQUESTS.md](PARITY_EVIDENCE_REQUESTS.md).
 Field-write decisions are governed by the
 [Integration Ownership Principle](INTEGRATION_OWNERSHIP_PRINCIPLE.md).

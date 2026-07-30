@@ -59,15 +59,20 @@ Do not select a candidate until business and technical evidence agree.
 | Production/sandbox classification | `UNKNOWN` |
 | Accounting/Operations approval | Pending |
 
-## Evidence Packet 2 — Standard Terms
+## Evidence Packet 2 — Standard Terms — CLOSED
 
-### Decision required
+### Decision
 
-Define whether and how Nexus should populate standard NetSuite `terms`, and its
-relationship to the currently populated
-`custbody_dps_payment_terms_text`.
+Standard NetSuite Sales Order `terms` is `NETSUITE_DERIVED`. Nexus must omit
+the field. A controlled sandbox REST creation probe omitted `terms` and all
+custom body fields; the immediate GET returned Customer default Terms ID `7`.
+The probe record was memo-verified, deleted with HTTP `204`, and confirmed
+unavailable with a final HTTP `404`.
 
-### Required evidence
+The full evidence and decision are recorded in
+[Standard Terms Ownership Evidence](STANDARD_TERMS_OWNERSHIP_EVIDENCE.md).
+
+### Historical evidence request
 
 - NetSuite field script ID, business identity, and record/field type;
 - whether REST create accepts an internal ID, string, reference object, or
@@ -87,7 +92,7 @@ relationship to the currently populated
 - source and owner of the terms dictionary;
 - behavior when an immutable quote terms snapshot has no dictionary match.
 
-### Required sandbox probes
+### Historical sandbox probe plan
 
 1. Omit standard `terms` while sending the current custom text field.
 2. Send each supported standard-field representation identified by metadata.
@@ -99,11 +104,12 @@ relationship to the currently populated
 
 | Decision | Value |
 |---|---|
-| Standard field type | `UNKNOWN` |
-| Accepted REST representation | `UNKNOWN` |
-| Authoritative source | Current custom text uses `quotes.payment_terms_snapshot`; standard mapping undecided |
+| Standard field type | NetSuite reference field |
+| Accepted REST representation | Not required because Nexus is not authorized to write it |
+| Authoritative source | NetSuite Customer/ERP context |
 | Relationship to custom text field | `UNKNOWN` |
-| Omitted/default behavior | `UNKNOWN` |
-| Invalid-term behavior | `UNKNOWN` |
-| Production/sandbox classification | `UNKNOWN` |
-| Accounting approval | Pending |
+| Omitted/default behavior | NetSuite populated Customer default Terms ID `7` in the controlled sandbox probe |
+| Invalid-term behavior | Not required for the approved omission contract |
+| Ownership classification | `NETSUITE_DERIVED` |
+| Decision gate | **CLOSED** |
+| Production/sandbox parity classification | `UNKNOWN`; requires parity observation, not another ownership probe |

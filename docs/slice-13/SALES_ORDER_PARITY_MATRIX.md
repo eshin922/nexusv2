@@ -47,10 +47,12 @@ matrix ID must appear exactly once in each table.
 | Matrix ID | Ownership classification | Why Nexus writes |
 |---|---|---|
 | SO-000 | `UNKNOWN` | Not approved |
+| SO-TERMS | `NETSUITE_DERIVED` | Nexus does not write it; NetSuite populated Customer default Terms when omitted in the controlled sandbox REST probe. |
 
 | Matrix ID | Level | Business name | Technical source field | Source system | Nexus persisted/DTO field | Nexus mapping location | Transformation/default | Destination field | Required by Nexus | Required by NetSuite | Current implementation | Production observed | Sandbox observed | Expected parity behavior | Tolerance | Classification | Root cause | Evidence references | Owner | Remediation / due date | Regression test | Accounting approval |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | SO-000 | Header/Line/Group/Derived | TBD | TBD | HubSpot/Nexus/NetSuite | TBD | Repository path and symbol | Copy/derive/resolve/default/omit | TBD | Yes/No | Requires sandbox discovery | Populated/Omitted/Derived/Unsupported | TBD | TBD | Explicit business outcome | Exact or approved tolerance | `UNKNOWN` | TBD | Immutable evidence IDs | Requires manual discovery | TBD | TBD | Pending |
+| SO-TERMS | Header | Standard Terms | NetSuite Customer Terms / ERP context | NetSuite | None | `src/lib/netsuite/sales-orders.ts` | Nexus omits; NetSuite derives | `terms` | No | NetSuite-derived | Omitted by Nexus; populated by NetSuite | Requires production parity observation | Terms ID `7` sourced in sandbox probe | NetSuite supplies the approved Customer default without a Nexus write | Exact Term identity or approved environment mapping | `UNKNOWN` | Production/sandbox parity has not yet been established | [Standard Terms Ownership Evidence](STANDARD_TERMS_OWNERSHIP_EVIDENCE.md) | NetSuite | Preserve omission; validate during parity audit | `tests/unit/sales-order-accounting-contract.test.ts` | Ownership approved; parity pending |
 
 ## Required seed rows
 
@@ -78,7 +80,7 @@ parity.
 |---|---|---|
 | Required headers and active optional custom fields | Unit-protected exact mapping | Remains `UNKNOWN` until transaction evidence |
 | `custbody_dps_payment_terms_text` | Unit-protected trim/populate/omit behavior | Remains `UNKNOWN` for business parity |
-| Standard `terms` | Unit-protected omission | `UNKNOWN`; Evidence Packet 2 required |
+| Standard `terms` | Unit-protected omission; ownership closed as `NETSUITE_DERIVED` | Parity remains `UNKNOWN` until production/sandbox equivalence is observed |
 | Project Manager | Builder support and null/missing omission unit-protected; completion omits it | `UNKNOWN`; Evidence Packet 1 required |
 | Flat leaf item, quantity, rate, and cost | Unit-protected payload plus completion invariants | Remains `UNKNOWN` until transaction evidence |
 | Line `amount` | Unit-protected omission and quantity × rate reconciliation | Remains `UNKNOWN` until NetSuite result evidence |
