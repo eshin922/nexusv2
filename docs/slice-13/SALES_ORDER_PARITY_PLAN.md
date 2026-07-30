@@ -11,6 +11,10 @@ the only pre-approved Accounting-visible change. Every other relevant field
 must be commercially and operationally equivalent or have an approved,
 root-caused environment distinction.
 
+The [Integration Ownership Principle](INTEGRATION_OWNERSHIP_PRINCIPLE.md)
+governs whether Nexus may write a field. Ownership and parity classifications
+are separate, mandatory decisions.
+
 ## Audit method
 
 1. Agree the accounting-relevant field universe with Accounting and NetSuite
@@ -21,9 +25,12 @@ root-caused environment distinction.
    payload field, sandbox observed value, and downstream behavior.
 4. Compare meaning, units, precision, null/default behavior, references, line
    cardinality, totals, tax, dates, classifications, and identifiers.
-5. Assign exactly one classification and evidence owner.
-6. Resolve `UNKNOWN` and `BLOCKER` before shadow mode exit.
-7. Add regression coverage at the lowest appropriate layer for every confirmed
+5. Assign exactly one ownership classification and answer why Nexus should
+   write the field, if applicable.
+6. Assign exactly one parity classification and evidence owner.
+7. Resolve `UNKNOWN` ownership and parity `UNKNOWN` or `BLOCKER` before shadow
+   mode exit.
+8. Add regression coverage at the lowest appropriate layer for every confirmed
    mapping or defect.
 
 ## Classification vocabulary
@@ -40,6 +47,10 @@ root-caused environment distinction.
 | `BLOCKER` | Difference prevents safe commercial or operational equivalence. |
 
 ## Permanent parity matrix template
+
+The maintained matrix records, for every row, both exactly one ownership
+classification and exactly one parity classification. It also records why
+Nexus writes the field, or `Not approved` when Nexus is not its writer.
 
 One row represents one accounting-relevant body or line field.
 
@@ -87,6 +98,9 @@ require review.
 ## Audit exit criteria
 
 - Field universe approved by Accounting.
+- Every field has exactly one approved ownership classification.
+- Every Nexus-written field has an evidence-backed reason Nexus, rather than
+  the owning integration or ERP behavior, must write it.
 - Every row has complete evidence and no `UNKNOWN`/`BLOCKER`.
 - Every `INTENTIONAL_CHANGE` has explicit approval.
 - Environment distinctions are root-caused, not merely observed.

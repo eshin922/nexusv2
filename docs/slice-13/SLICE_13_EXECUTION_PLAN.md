@@ -28,6 +28,9 @@ Accounting-visible change.
 
 ## Success criteria
 
+- Every field Nexus writes has exactly one approved ownership classification
+  under the
+  [Integration Ownership Principle](INTEGRATION_OWNERSHIP_PRINCIPLE.md).
 - Every accounting-relevant Sales Order field has source-to-destination
   evidence and one approved classification from the
   [parity plan](SALES_ORDER_PARITY_PLAN.md).
@@ -43,6 +46,7 @@ Accounting-visible change.
 
 | Type | Item | Treatment |
 |---|---|---|
+| Architecture | Native HubSpot-to-NetSuite synchronization remains authoritative for its established CRM mappings. | Preserve it unless ownership is explicitly transferred by architecture; see the [Integration Ownership Principle](INTEGRATION_OWNERSHIP_PRINCIPLE.md). |
 | Risk | External HubSpot and NetSuite automation is not represented in this repository. | Manual administrator discovery and exported evidence are required. |
 | Risk | Sandbox configuration can legitimately differ from production. | Trace and classify the root cause; do not call every difference a defect. |
 | Risk | Existing parity tooling uses a fixed historical reference and live external credentials. | Treat it as discovery evidence until safety, repeatability, and fixture ownership are reviewed. |

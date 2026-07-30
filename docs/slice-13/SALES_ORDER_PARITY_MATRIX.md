@@ -21,6 +21,8 @@ Allowed classifications:
 
 The evidence standard and approval rules are in
 [PARITY_EVIDENCE_GUIDE.md](PARITY_EVIDENCE_GUIDE.md).
+The ownership vocabulary and write gate are in
+[INTEGRATION_OWNERSHIP_PRINCIPLE.md](INTEGRATION_OWNERSHIP_PRINCIPLE.md).
 
 ## Audit metadata
 
@@ -38,6 +40,13 @@ The evidence standard and approval rules are in
 | Audit date | TBD |
 
 ## Field matrix template
+
+The field matrix and the ownership register below form one audit record. Every
+matrix ID must appear exactly once in each table.
+
+| Matrix ID | Ownership classification | Why Nexus writes |
+|---|---|---|
+| SO-000 | `UNKNOWN` | Not approved |
 
 | Matrix ID | Level | Business name | Technical source field | Source system | Nexus persisted/DTO field | Nexus mapping location | Transformation/default | Destination field | Required by Nexus | Required by NetSuite | Current implementation | Production observed | Sandbox observed | Expected parity behavior | Tolerance | Classification | Root cause | Evidence references | Owner | Remediation / due date | Regression test | Accounting approval |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -78,6 +87,9 @@ parity.
 
 ## Completion rules
 
+- Every field has exactly one ownership classification.
+- Nexus writes a field only when evidence answers who owns it and why Nexus
+  should write it instead of relying on that owner.
 - One field has one final classification.
 - `UNKNOWN` and `BLOCKER` prevent audit exit.
 - `INTENTIONAL_CHANGE` requires explicit Accounting approval; completed Item

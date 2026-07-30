@@ -8,6 +8,8 @@ the field definitions in
 [ACCOUNTING_FIELD_UNIVERSE.md](ACCOUNTING_FIELD_UNIVERSE.md).
 Open Project Manager and Standard Terms requests are maintained in
 [PARITY_EVIDENCE_REQUESTS.md](PARITY_EVIDENCE_REQUESTS.md).
+Field-write decisions are governed by the
+[Integration Ownership Principle](INTEGRATION_OWNERSHIP_PRINCIPLE.md).
 
 ## Evidence principles
 
@@ -20,6 +22,9 @@ Open Project Manager and Standard Terms requests are maintained in
 - Do not use production writes to collect discovery evidence.
 - A missing value and an omitted field are distinct observations.
 - NetSuite defaulting or workflow mutation must be evidenced, not inferred.
+- Record exactly one ownership classification for every field before deciding
+  whether Nexus may write it.
+- A missing sandbox value does not transfer ownership to Nexus.
 - Historical comments and `scripts/parity/so-field-parity.ts` classifications
   are leads, not approvals.
 
@@ -31,6 +36,7 @@ Open Project Manager and Standard Terms requests are maintained in
    role, form, subsidiary, and relevant configuration versions.
 3. **Source:** HubSpot raw internal property names/values, association IDs, and
    option dictionaries; Nexus-owned settings/snapshots where applicable.
+   Record the field's ownership classification and evidence.
 4. **Persistence:** sanitized Nexus rows for deal cache, customer map, quote,
    accepted tier, costing output, push record, and Item Group cache.
 5. **Transformation:** exact repository symbol/commit plus resolver result,
