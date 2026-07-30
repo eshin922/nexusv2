@@ -30,6 +30,14 @@ A custom internal web application that replaces The DPS's family of cost workshe
 
 The build is sliced for incremental delivery. **Slice 12 is the MVP cutline** — at that point the tool replaces Excel for net-new quote builds. Slices 13–17 add the workspace features (deal organizer, scenarios, copy operations, dashboard) that make the tool a real workspace rather than just a quote builder.
 
+The Slice 12 implementation and isolated code-validation gates are complete.
+The harness is a first-class subsystem required before merge; its sole
+acceptance checklist is
+[`validation/merge-gate.md`](validation/merge-gate.md), and its authoritative
+execution procedure is
+[`validation/operational-runbook.md`](validation/operational-runbook.md).
+This documentation durability follow-up completes the handover.
+
 ---
 
 ## 2. Goals & Non-Goals
@@ -576,7 +584,21 @@ React-PDF template per tier. Send action transitions quote to `sent`. **End stat
 Mark-Accepted with tier selection. Both gates (line-level UNDERPRICED, quote-level BELOW FLOOR). Admin override flow with reason capture. Snapshot logic. HubSpot Quote create/update with `hs_cost_of_goods_sold`. Deal-field updates. Writeback failure handling and retry. **End state:** accept a quote → HubSpot has structured line items with margin populated. Tool now replaces Excel for net-new quote builds.
 
 ### Slice 13 — Deal Organizer (Project List) (2 sessions)
-Project-centric list with all columns from FR-13. Filters, search, bulk actions. **End state:** Edward (and team) can find any project at a glance.
+**Entry gate:** before new Slice 13 feature work, complete accounting-relevant
+Sales Order field lineage and behavioral-parity analysis across HubSpot →
+Nexus → NetSuite sandbox. Literal environment identity is not required, but
+every difference must be root-traced and classified as `PARITY`,
+`INTENTIONAL CHANGE`, `ENVIRONMENT DIFFERENCE`, `SOURCE DATA GAP`,
+`MAPPING GAP`, `NETSUITE CONFIG GAP`, or `UNKNOWN / BLOCKER`. Completed Item
+Groups are the only intended Accounting-visible behavioral change; all other
+relevant SO data must remain commercially and operationally equivalent.
+Item Groups require valid item-level pricing: a `$0.00` upstream catalog price
+may satisfy NetSuite validation but must never become the commercial
+transaction price.
+
+After that gate, deliver the project-centric list with all columns from FR-13,
+filters, search, and bulk actions. **End state:** Edward (and team) can find any
+project at a glance.
 
 ### Slice 14 — Scenarios + New Version + New Scenario (2 sessions)
 `scenario_label`, `scenario_status` on quotes. New Version action. New Scenario action with branching prompt. Flip-between tabs on project detail page. Auto-drop on accept logic. **End state:** PMs can run parallel scenarios within a project.

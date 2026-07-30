@@ -4,6 +4,27 @@ This file captures the longer-arc product direction that informs current
 slice decisions. Slice 5.5's assembly support is the first concrete step
 toward the v2 architecture described here.
 
+## Validation and Slice 13 entry policy
+
+The isolated validation harness is a first-class subsystem required before
+merge. Its sole checklist is
+[`validation/merge-gate.md`](validation/merge-gate.md), and the execution
+authority is
+[`validation/operational-runbook.md`](validation/operational-runbook.md).
+Operational details are not repeated in strategy documents.
+
+Slice 12 implementation and code validation are complete; the documentation
+durability follow-up closes its handover. Slice 13 begins with Sales Order
+field lineage and behavioral parity across HubSpot → Nexus → NetSuite sandbox,
+before new features. Literal cross-environment identity is not the goal.
+Every accounting-relevant difference must be traced and classified. Completed
+Item Groups are the intended Accounting-visible change; other relevant Sales
+Order data remains commercially and operationally equivalent.
+
+The Item Group path depends on valid item-level pricing. `$0.00` upstream
+catalog pricing is sufficient for NetSuite's validator, but it is never an
+acceptable commercial transaction price.
+
 ## Today (Slice 1 → Slice 12)
 
 - **HubSpot is canonical for Products.** Every `quote_sku` *was* a

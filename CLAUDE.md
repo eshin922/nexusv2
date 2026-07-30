@@ -1,3 +1,24 @@
+# Project validation policy and current priority
+
+The isolated validation harness is a first-class subsystem and its gate is
+required before merge. `docs/validation/merge-gate.md` is the sole acceptance
+checklist; `docs/validation/operational-runbook.md` is the authoritative
+execution procedure. Do not duplicate detailed operating instructions here.
+
+Slice 12 implementation and code validation are complete, subject to the
+documentation durability follow-up recorded in
+`docs/validation/slice-12-handover.md`. Before new Slice 13 feature work,
+complete Sales Order field lineage and behavioral parity across HubSpot →
+Nexus → NetSuite sandbox. Environment differences need not be literally
+identical, but every accounting-relevant difference must be root-traced and
+classified. Completed Item Groups are the only intended Accounting-visible
+behavioral change; all other relevant SO data remains commercially and
+operationally equivalent.
+
+The Item Group path requires valid item-level pricing. A `$0.00` upstream
+catalog price can satisfy NetSuite validation but must never become the
+commercial transaction price.
+
 # Surface naming canon (Slice RI.8 + canon revision May 2026)
 
 **Surface canon: 4 peer top-level surfaces — Setup → Costs → Pricing → Quote.**

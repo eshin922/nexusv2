@@ -4,10 +4,14 @@ For fixture, provider, configuration, or scenario changes:
 
 1. Identify affected promises and registry entries.
 2. Update fixture validation before browser behavior.
-3. Run server-free tests first, then affected browser/lifecycle scenarios.
+3. Run the affected layers, then the authoritative
+   [merge gate](merge-gate.md) when merge acceptance is required.
 4. Inspect artifacts and fake-provider ledgers.
 5. Run `git diff --check` and inspect tracked files for secrets or outputs.
 6. Update this documentation in the same change.
+
+Do not add alternate operational checklists here. Execution and cleanup belong
+to [operational-runbook.md](operational-runbook.md).
 
 Never mutate shared development/production data. Fixture reset is allowed only
 against a runtime-safety-validated local database. Ledgers and artifacts remain

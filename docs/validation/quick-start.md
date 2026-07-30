@@ -2,59 +2,50 @@
 
 Prerequisites: Node.js 22, npm dependencies installed with `npm.cmd install`,
 Docker Desktop with Compose, Chromium installed for Playwright, and
-`.env.validation.local` created from `.env.validation.example` using loopback
-URLs and fake credentials.
+an initially clean working tree.
 
-Supported database and fixture commands:
+Create and explicitly load the isolated environment:
 
 ```powershell
-npm.cmd run validation:db:start
-npm.cmd run validation:db:migrate
-npm.cmd run validation:db:reset
+Copy-Item .env.validation.example .env.validation.local
+Get-Content .env.validation.local |
+  Where-Object { $_ -and -not $_.StartsWith('#') } |
+  ForEach-Object {
+    $name, $value = $_.Split('=', 2)
+    Set-Item -Path "Env:$name" -Value $value
+  }
 npm.cmd run validation:prove-isolation
-npm.cmd run validation:seed
-npm.cmd run validation:fixtures:validate
-npm.cmd run validation:fixtures:reset
-npm.cmd run validation:db:teardown
 ```
 
-Run server-free checks first:
+Creating `.env.validation.local` alone is not sufficient for database,
+migration, fixture, or isolation npm commands; those inherit the active shell.
+`validation:app`, `test:e2e`, and `test:e2e:headed` load the file themselves.
+If the proof rejects missing or unsafe variables, no product test or mutation
+ran—the safety gate worked.
 
-```powershell
-npm.cmd run test:unit
-node --experimental-strip-types scripts/test-costing.ts
-git diff --check
-```
+Before Docker startup, inspect any existing `nexus-validation-db`,
+`nexus-validation` network, and `nexus-validation-db-data` volume. Compose
+project names default from working-directory context, so multiple worktrees can
+collide on these explicit resource names. Fix `COMPOSE_PROJECT_NAME` only after
+labels prove the existing project's identity and isolation; never delete an
+unknown resource to clear a name collision.
 
-For browser checks, start/migrate/seed the isolated database and explicitly
-manage the server on `127.0.0.1:3100`. Use one worker, zero retries, fail-fast,
-a hard outer ceiling, and logs outside tracked paths.
+For a local scenario, follow the environment and ownership steps in the
+[operational runbook](operational-runbook.md), then run:
 
-```powershell
-npm.cmd run validation:db:start
-npm.cmd run validation:db:migrate
-npm.cmd run validation:seed
-npm.cmd run validation:app
-node --env-file=.env.validation.local node_modules/@playwright/test/cli.js test <spec> --workers=1 --retries=0 --max-failures=1
-```
+- server-free gates first;
+- one unique run ID and external log/PID root, with exclusive worktree use;
+- isolated database start, migrate, seed, and fixture validation;
+- explicitly owned server with observable HTTP readiness;
+- the selected Playwright project with one worker, zero retries, fail-fast,
+  durable external logs, and hard ceilings;
+- success-or-failure cleanup and residue checks.
 
-On Windows, an owned Next server can hang after a passing test. Prefer an
-explicit server and stop only the process tree created by the run.
+Pre-existing generated directories and stale run roots are blockers, not
+cleanup targets. The runbook records absence-before-run ownership and verifies
+PID creation time plus command identity before stopping a server tree.
 
-Run headless by default. For headed inspection or Playwright Inspector:
-
-```powershell
-npm.cmd run test:e2e:headed -- <spec> --workers=1 --retries=0 --max-failures=1
-$env:PWDEBUG="1"
-npm.cmd run test:e2e -- <spec> --workers=1 --retries=0 --max-failures=1
-Remove-Item Env:PWDEBUG
-```
-
-Capture a trace for a single diagnostic run without changing committed config:
-
-```powershell
-npm.cmd run test:e2e -- <spec> --workers=1 --retries=0 --max-failures=1 --trace=on
-```
-
-CI uses the same commands non-interactively, retains bounded logs/traces as job
-artifacts, and tears down the isolated database after the job.
+Use [merge-gate.md](merge-gate.md) for merge acceptance. It is the sole
+authoritative checklist. Use validation—not development—when proving a
+registered business promise, provider boundary, artifact, or lifecycle
+contract. Use the normal development environment for exploratory feature work.

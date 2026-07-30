@@ -1,5 +1,10 @@
 # Architecture
 
+The governing constraints are in
+[VALIDATION_PRINCIPLES.md](VALIDATION_PRINCIPLES.md). ADRs 008–012 record why
+the harness uses physical isolation, deny-by-default networking, deterministic
+fixtures, serialized fail-fast browsers, and disposable evidence.
+
 The harness has four layers: pure unit tests for formulas and parsing;
 action/integration tests for persistence, authorization, audits, and providers;
 browser tests for valuable UI workflows; and lifecycle/artifact tests for
@@ -29,3 +34,30 @@ IDs. Fake providers record calls in JSONL beneath the validation artifact root;
 local artifact storage holds PDFs beneath the same root. Sent snapshots and PDF
 bytes are immutable evidence. Browser tests may inspect them but never
 regenerate expected historical output.
+
+## Environment and resource layout
+
+- `.env.validation.example` defines the supported isolated variables;
+  `.env.validation.local` is temporary and untracked.
+- `docker-compose.validation.yml` owns the marker-named local PostgreSQL
+  service, named network, and named volume.
+- `.artifacts/validation/<run-id>` owns fixture manifests, fake-provider
+  ledgers, local PDFs, and Playwright output.
+- `C:\Code\nexus-validation-runs/<run-id>` is the unique durable external root
+  for run metadata, generated-path ownership, server process identity, and
+  logs. It is never reused or deleted during normal cleanup.
+- `tests/harness` owns deterministic fixtures, fake providers, network
+  diagnostics, setup, and teardown.
+- `tests/e2e/{smoke,costing,slice-12}` maps to the configured Playwright
+  projects.
+
+Compose project identity is distinct from resource names and normally derives
+from working-directory context. Multiple worktrees can therefore encounter the
+same named resources under different project labels. Ownership is verified
+before reuse or cleanup; `COMPOSE_PROJECT_NAME` is fixed only to a proven
+identity. The runbook contains the procedure.
+
+Repository-generated directories are owned through an exclusive-worktree
+lease plus an external manifest proving each path was absent before execution.
+Server ownership uses run ID, PID, creation time, and exact command line; PID
+number alone is insufficient.
