@@ -64,6 +64,18 @@ test("draft Preview to Send to Client to Client Review", async ({
     // HTTP 200 text/x-component responses before Chromium reported the abort.
     if (isExpectedSupersededQuoteRscAbort) return;
 
+    const isExpectedSupersededSendActionReceipt =
+      request.method() === "POST" &&
+      request.resourceType() === "fetch" &&
+      /^\/projects\/[^/]+\/quotes\/[^/]+\/quote$/.test(url.pathname) &&
+      url.searchParams.get("tab") === "send" &&
+      request.headers()["next-action"] !== undefined &&
+      failure === "net::ERR_ABORTED";
+    // This trace recorded HTTP 200 text/x-component for the send Server Action
+    // before the successful transition to Client Review superseded its RSC
+    // receipt. Scope this to the quote send action; other POST aborts still fail.
+    if (isExpectedSupersededSendActionReceipt) return;
+
     requestFailures.push(
       `${request.method()} ${request.url()} ${failure}`,
     );
@@ -158,6 +170,8 @@ test("draft Preview to Send to Client to Client Review", async ({
       where entity_type = 'quote'
         and entity_id = ${fixture.quoteId}
         and action = 'quote_sent'
+      order by created_at desc
+      limit 1
     `;
     const pdf = audit?.diff_json?.pdf as
       | { bucket?: string; storagePath?: string }

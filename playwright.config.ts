@@ -38,5 +38,11 @@ export default defineConfig({
       fullyParallel: true,
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "costing-serial",
+      testMatch: /costing\/.*\.spec\.ts/,
+      workers: 1,
+      use: { ...devices["Desktop Chrome"] },
+    },
   ],
 });

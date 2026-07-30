@@ -4,6 +4,7 @@ import postgres from "postgres";
 import {
   resetFixtureWorld,
   seedFixtureWorld,
+  fixtureRecordIds,
   type FixtureManifest,
 } from "../../tests/harness/fixtures/world.ts";
 import { assertRuntimeSafety } from "../../src/lib/config/runtime-config.ts";
@@ -21,6 +22,7 @@ const manifestPath = path.join(artifactDirectory, "fixture-manifest.json");
 async function validate(manifest?: FixtureManifest) {
   assertRuntimeSafety();
   const sql = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
+  const { projectIds, quoteIds } = fixtureRecordIds(runId);
   try {
     const [counts] = await sql<{
       projects: number;
@@ -31,21 +33,16 @@ async function validate(manifest?: FixtureManifest) {
     }[]>`
       select
         (select count(*)::int from projects
-          where hubspot_deal_id like ${`validation\\_hs\\_deal\\_${runId}\\_%`} escape '\\') as projects,
-        (select count(*)::int from quotes q
-          join projects p on p.id = q.project_id
-          where p.hubspot_deal_id like ${`validation\\_hs\\_deal\\_${runId}\\_%`} escape '\\') as quotes,
+          where id in ${sql(projectIds)}) as projects,
+        (select count(*)::int from quotes
+          where id in ${sql(quoteIds)}) as quotes,
         (select count(*)::int from quote_tiers qt
-          join quotes q on q.id = qt.quote_id
-          join projects p on p.id = q.project_id
-          where p.hubspot_deal_id like ${`validation\\_hs\\_deal\\_${runId}\\_%`} escape '\\') as tiers,
+          where qt.quote_id in ${sql(quoteIds)}) as tiers,
         (select count(*)::int from netsuite_so_pushes nsp
-          join quotes q on q.id = nsp.quote_id
-          join projects p on p.id = q.project_id
-          where p.hubspot_deal_id like ${`validation\\_hs\\_deal\\_${runId}\\_%`} escape '\\') as pushes,
+          where nsp.quote_id in ${sql(quoteIds)}) as pushes,
         (select count(*)::int from projects
-          where hubspot_deal_id like ${`validation\\_hs\\_deal\\_${runId}\\_%`} escape '\\'
-            and hubspot_deal_id not like 'validation\\_%' escape '\\') as invalid_external_ids
+          where id in ${sql(projectIds)}
+            and hubspot_deal_id !~ '^[0-9]+$') as invalid_external_ids
     `;
     const expected = { projects: 5, quotes: 5, tiers: 10, pushes: 2 };
     for (const [key, value] of Object.entries(expected)) {

@@ -29,6 +29,14 @@ function uuid(runId: string, name: string): string {
   ].join("-");
 }
 
+export function fixtureRecordIds(runId: string) {
+  const states: FixtureState[] = ["draft", "sent", "accepted", "failed", "complete"];
+  return {
+    projectIds: states.map((state) => uuid(runId, `project-${state}`)),
+    quoteIds: states.map((state) => uuid(runId, `quote-${state}`)),
+  };
+}
+
 function fakeHubSpotObjectId(runId: string, name: string): string {
   const hex = createHash("sha256").update(`${runId}:${name}`).digest("hex");
   const suffix = (BigInt(`0x${hex.slice(0, 12)}`) % 1_000_000_000_000n)
@@ -299,6 +307,7 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
           deepLinks: {
             quote: `/projects/${projectId}/quotes/${quoteId}/quote`,
             setup: `/projects/${projectId}/quotes/${quoteId}/setup`,
+            costs: `/projects/${projectId}/quotes/${quoteId}/costs`,
           },
         };
       }
@@ -315,6 +324,10 @@ export async function resetFixtureWorld(runId: string): Promise<void> {
   const sql = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
   try {
     await sql.begin(async (tx) => {
+      const { quoteIds } = fixtureRecordIds(runId);
+      // Send flows create random audit IDs and audit_log has no quote FK
+      // cascade. Remove every audit tied to this deterministic fixture world.
+      await tx`delete from audit_log where entity_id in ${tx(quoteIds)}`;
       for (const state of ["draft", "sent", "accepted", "failed", "complete"]) {
         await tx`delete from audit_log where id = ${uuid(runId, `audit-${state}`)}`;
         const dealId = fakeHubSpotObjectId(runId, `deal-${state}`);
