@@ -18,3 +18,8 @@ export async function RealtimeCompositionProvider() {
   );
   return <GlobalRealtimeProvider />;
 }
+
+export function isProductionRealtimeConfigured(): boolean {
+  const runtime = assertRuntimeSafety();
+  return mountsProductionRealtime(runtime.providers.realtime);
+}

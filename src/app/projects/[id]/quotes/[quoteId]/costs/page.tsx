@@ -23,6 +23,7 @@ import { Suspense } from "react";
 import { listMarkupDefaults } from "@/app/actions/markup-defaults";
 import { getCostingBundle } from "@/app/actions/costing";
 import { CostingStoreProvider } from "@/components/costing-store-provider";
+import { isProductionRealtimeConfigured } from "@/lib/integrations/realtime-composition";
 import { ActiveTierUrlSync } from "@/components/pricing/active-tier-url-sync";
 import {
   CostsHeader,
@@ -534,7 +535,10 @@ export default async function CostBuildPage({
       quoteId={quoteId}
       activeScenarioLabel={quote.scenarioLabel}
     >
-    <CostingStoreProvider snapshot={bundle.data}>
+    <CostingStoreProvider
+      snapshot={bundle.data}
+      realtimeEnabled={isProductionRealtimeConfigured()}
+    >
       {/* URL ↔ store sync for active-tier selection. Suspense
           boundary required for useSearchParams in app router. */}
       <Suspense fallback={null}>

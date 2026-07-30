@@ -89,9 +89,11 @@ const GLOBAL_REF_EVENT = "nexus:global-ref-changed";
 
 export function CostingStoreProvider({
   snapshot,
+  realtimeEnabled,
   children,
 }: {
   snapshot: HydrateSnapshot;
+  realtimeEnabled: boolean;
   children: ReactNode;
 }) {
   // Stable store reference across re-renders. useRef + lazy init pattern:
@@ -168,7 +170,7 @@ export function CostingStoreProvider({
   // (the provider remounts when its key/quote changes upstream).
   const quoteId = snapshot.quoteId;
   useEffect(() => {
-    if (!quoteId) return;
+    if (!quoteId || !realtimeEnabled) return;
 
     const supabase = getSupabaseBrowser();
 
@@ -483,7 +485,7 @@ export function CostingStoreProvider({
       window.removeEventListener(GLOBAL_REF_EVENT, onGlobalRefChanged);
       hasSubscribedRef.current = false;
     };
-  }, [quoteId, scheduleReconcile]);
+  }, [quoteId, realtimeEnabled, scheduleReconcile]);
 
   return (
     <StoreContext.Provider value={storeRef.current}>
