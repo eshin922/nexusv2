@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nexus — Design Rounds Index</title>
+<style>
+  :root {
+    --paper:    oklch(0.985 0.006 85);
+    --paper-2:  oklch(0.965 0.008 85);
+    --paper-3:  oklch(0.94 0.012 85);
+    --paper-4:  oklch(0.91 0.014 85);
+    --ink:      oklch(0.22 0.02 250);
+    --ink-2:    oklch(0.36 0.02 250);
+    --ink-3:    oklch(0.50 0.02 250);
+    --ink-4:    oklch(0.62 0.015 250);
+    --rule:     oklch(0.88 0.012 85);
+    --accent:   oklch(0.45 0.12 250);
+    --display:  "Newsreader", "Iowan Old Style", Georgia, serif;
+    --sans:     "Instrument Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+    --mono:     "JetBrains Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .page {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 64px 48px 96px;
+  }
+  .header {
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 28px;
+    margin-bottom: 36px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 12px;
+  }
+  h1 {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 42px;
+    line-height: 1.1;
+    letter-spacing: -0.015em;
+    margin: 0 0 14px;
+  }
+  h1 em { color: var(--accent); font-style: italic; }
+  .lede {
+    font-family: var(--display);
+    font-size: 18px;
+    line-height: 1.5;
+    color: var(--ink-2);
+    max-width: 640px;
+    margin: 0;
+  }
+  .lede em { font-style: italic; color: var(--ink); }
+  .section-head {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 44px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .rounds {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .round {
+    display: grid;
+    grid-template-columns: 88px 1fr auto;
+    gap: 24px;
+    align-items: baseline;
+    padding: 20px 0;
+    border-bottom: 1px solid var(--rule);
+    text-decoration: none;
+    color: inherit;
+    transition: background 0.12s;
+  }
+  .round:hover { background: var(--paper-2); padding-left: 12px; padding-right: 12px; margin-left: -12px; margin-right: -12px; }
+  .round-id {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+  .round-body h3 {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 19px;
+    margin: 0 0 4px;
+    letter-spacing: -0.005em;
+  }
+  .round-body p {
+    margin: 0;
+    color: var(--ink-3);
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+  .round-body .states {
+    margin-top: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-4);
+    letter-spacing: 0.02em;
+  }
+  .arrow {
+    font-family: var(--mono);
+    color: var(--ink-4);
+    font-size: 14px;
+    align-self: center;
+  }
+  .round:hover .arrow { color: var(--accent); }
+  .docs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 28px;
+  }
+  .docs a {
+    display: block;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+    color: var(--ink-2);
+    text-decoration: none;
+    font-size: 13.5px;
+    transition: color 0.12s;
+  }
+  .docs a:hover { color: var(--accent); }
+  .docs a .doc-id {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-4);
+    letter-spacing: 0.04em;
+    margin-right: 8px;
+  }
+  .meta {
+    margin-top: 56px;
+    padding: 20px;
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    font-size: 12.5px;
+    color: var(--ink-3);
+  }
+  .meta strong { color: var(--ink); font-weight: 500; }
+  .meta code {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    background: var(--paper-3);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--ink-2);
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="header">
+    <div class="eyebrow">Nexus · Quoting platform</div>
+    <h1>Design rounds — <em>complete bundle</em></h1>
+    <p class="lede">Six rounds of design work, each rendered as a <em>self-contained</em> HTML file. Open any file directly — no server, no fetches, no missing assets. Every state of every surface is reachable via the in-page state strip and Tweaks panel.</p>
+  </header>
+
+  <div class="section-head">Rounds</div>
+  <div class="rounds">
+
+    <a class="round" href="Nexus Round 1.html">
+      <div class="round-id">R1</div>
+      <div class="round-body">
+        <h3>Initial concept exploration</h3>
+        <p>First-pass design concepts across the full quoting flow — Project, Quote setup, Cost input, Costing workspace. The starting point that R2+ refined.</p>
+        <div class="states">project · quote setup · cost input · costing workspace · designer notes</div>
+      </div>
+      <div class="arrow">→</div>
+    </a>
+
+    <a class="round" href="Nexus Round 2.html">
+      <div class="round-id">R2</div>
+      <div class="round-body">
+        <h3>Cost Build &amp; Costing Sheet</h3>
+        <p>Two-surface flow: Cost Build (PM input) → Costing Sheet (margin verdict + per-cell sell). Empty / partial / tunable stages.</p>
+        <div class="states">3 build stages · 3 costing scenarios · cost-stack waterfall · margin verdict pill</div>
+      </div>
+      <div class="arrow">→</div>
+    </a>
+
+    <a class="round" href="Nexus Round 2.5.html">
+      <div class="round-id">R2.5</div>
+      <div class="round-body">
+        <h3>Multi-tier mechanics</h3>
+        <p>Apply-to-all (60% case) vs. supplier-quote-sheet (40% volume-break case). Sparkline tier-spread vocabulary.</p>
+        <div class="states">apply-to-all · per-tier sheet · mark-as-flat · null discipline</div>
+      </div>
+      <div class="arrow">→</div>
+    </a>
+
+    <a class="round" href="Nexus Round 3.html">
+      <div class="round-id">R3</div>
+      <div class="round-body">
+        <h3>Customer view + Mark accepted</h3>
+        <p>PDF-preview metaphor for the customer-facing artifact, plus the internal Mark-Accepted workflow (locked / both-gates / pending).</p>
+        <div class="states">3 customer states · 3 mark-accepted states · tier-table vs single-tier PDF</div>
+      </div>
+      <div class="arrow">→</div>
+    </a>
+
+    <a class="round" href="Nexus Round 4.html">
+      <div class="round-id">R4</div>
+      <div class="round-body">
+        <h3>Workspace shell + deal organizer + project detail</h3>
+        <p>Two-tier rail (cross-project outer + per-project inner), HubSpot-anchored deal organizer, multi-scenario project detail, Copy Scenario / Copy Quote flows.</p>
+        <div class="states">3 organizer states · 3 project detail states · copy-within / copy-across</div>
+      </div>
+      <div class="arrow">→</div>
+    </a>
+
+    <a class="round" href="Nexus Round 5.html">
+      <div class="round-id">R5</div>
+      <div class="round-body">
+        <h3>Admin surfaces</h3>
+        <p>Firm policy (target/floor with effective-dated history), markup defaults (per-category), audit log (filterable, expandable diff).</p>
+        <div class="states">firm settings · markup defaults · audit log · 3 states each</div>
+      </div>
+      <div class="arrow">→</div>
+    </a>
+
+    <a class="round" href="Nexus Round 6.html">
+      <div class="round-id">R6</div>
+      <div class="round-body">
+        <h3>Cost Build redesign — single page, four peer sections</h3>
+        <p>Replaces the legacy four-tab IA. Cost stack on top, then Packaging · Production · Bulk Raw · Freight as peer drilldowns. Conditional RAW row driven by raws-mode. Deposit chips, dual-yield reconcile.</p>
+        <div class="states">3 states · 4 sections · 3 raws-modes · per-line treatments</div>
+      </div>
+      <div class="arrow">→</div>
+    </a>
+
+  </div>
+
+  <div class="section-head">Un-bundled prototype source (R1, R2, R2.5)</div>
+  <div class="docs">
+    <a href="source/README.md"><span class="doc-id">★</span>README — what's where</a>
+    <a href="source/round-1/Nexus Quoting Flow.html"><span class="doc-id">R1</span>Round 1 entry HTML</a>
+    <a href="source/round-2/Nexus Round 2.html"><span class="doc-id">R2</span>Round 2 entry HTML</a>
+    <a href="source/round-2.5/Nexus Round 2.5.html"><span class="doc-id">R2.5</span>Round 2.5 entry HTML</a>
+  </div>
+
+  <div class="section-head">Designer notes &amp; data-source maps</div>
+  <div class="docs">
+    <a href="docs/round-3-designer-notes.md"><span class="doc-id">R3</span>Designer notes</a>
+    <a href="docs/round-3-data-source-map.md"><span class="doc-id">R3</span>Data-source map</a>
+    <a href="docs/r4-designer-notes.md"><span class="doc-id">R4</span>Designer notes</a>
+    <a href="docs/r4-data-source-map.md"><span class="doc-id">R4</span>Data-source map</a>
+    <a href="docs/r5-designer-notes.md"><span class="doc-id">R5</span>Designer notes</a>
+    <a href="docs/r5-data-source-map.md"><span class="doc-id">R5</span>Data-source map</a>
+    <a href="docs/r6-designer-notes.md"><span class="doc-id">R6</span>Designer notes</a>
+    <a href="docs/r6-data-source-map.md"><span class="doc-id">R6</span>Data-source map</a>
+    <a href="UX_BACKLOG.md"><span class="doc-id">All</span>UX backlog (rolling)</a>
+  </div>
+
+  <div class="meta">
+    <strong>About these bundles.</strong> Each round HTML is fully inlined — CSS, JSX, fonts, data fixtures all live inside the file. You can open them straight from disk, drop them into a tar/zip, mail them around, or serve them statically. No build step, no network calls. To walk every state of a round: open the file, use the <code>state</code> strip across the top of the page, and toggle the <code>Tweaks</code> panel (bottom-right) for finer controls.
+  </div>
+
+</div>
+</body>
+</html>

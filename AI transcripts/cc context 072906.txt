@@ -1,0 +1,285 @@
+ Fable 5 is now a standard part of your Max plan▎ You can use up to 50% of your weekly usage limit on Fable 5. If you hit your limit, you can continue on Fable 5 with usage credits. Fable 5 draws down usage faster than Opus 4.8. Run /model and select Fable to use it. Learn more: https://support.claude.com/en/articles/15424964-claude-fable-5-promotional-access
+
+Two more batches — pending_hubspot code path + realtime publication state + item_groups schema:
+
+Searched for 1 pattern, read 1 file
+
+Evidence gathered. Spawning architect with the packaged data + code refs to synthesize the verification report per CA's 6 asks:
+
+● architect(Step 10 §0.5 schema verification)Backgrounded agent (↓ to manage · ctrl+o to expand)Read src\lib\netsuite\project-source-resolver.ts (85 lines)Read src\lib\netsuite\sales-orders.ts (225 lines)Referenced file src\lib\netsuite\mark-complete.tsReferenced file scripts\parity\so-field-parity.tsReferenced file src\components\quote-umbrella\tab-sales-order.tsx
+
+● Task "Step 10 §0.5 schema verification" still running in background
+
+Architect running in the background. I'll be notified when the verification report lands.
+
+✻ Baked for 7m 22s
+
+❯ status?
+
+Architect still running on Step 10 §0.5 verification (spawned ~a minute before your check). No results yet — the report covers 6 dimensions with code cross-references, so it needs some time to synthesize. I'll surface the report the moment it lands.
+
+Task list is accurate; #236 stays in_progress until the architect signs off, then #237 opens.
+
+✻ Brewed for 22s
+
+● Agent "Step 10 §0.5 schema verification" finished · 8m 46s
+
+Verification report landed. Summary:
+
+§0.5 verification — three findings pre-launch
+
+BLOCKER (must fix before v1 launch):
+
+Manual migration reconciliation — drizzle/manual/0036/0037/0046 are runtime-critical data fixes (HubSpot stage label + stage-ID key + tax code) that AREN'T tracked by drizzle-kit migrate. Fresh Supabase project rebuild silently fails HubSpot + NetSuite at runtime. ~2h to collapse into auto-migrations now; unbounded cost if hit in prod. Also manual/0045 vs auto/0045 duplication — pick one, delete the other.
+
+RECOMMEND (fix before launch, ~2-3h total):
+
+Pattern 52 freeze-list inventory — enumerate all 30 columns (CA's 27 + netsuiteSoTranid + netsuiteSoPushStatus + netsuiteSoPushError) in a canonical doc. Add assertRevisable helper. Currently held by convention — Slice 13 admin surfaces will trip this.
+
+netsuite_so_pushes.accepted_tier_id missing FK — single-line migration adding REFERENCES quote_tiers(id) ON DELETE RESTRICT. Zero rows to migrate. Symmetric with quotes.accepted_tier_id.
+
+BANK (post-v1):
+
+payload_snapshot retention policy (storage trivial at v1 scale)
+
+netsuiteSoId varchar(50) vs netsuiteSoTranid text type asymmetry (cosmetic)
+
+Stale customer_accepted_tier_id on unmark→revise path (not customer-visible today)
+
+OK (verified sound):
+
+Choice/commitment FK asymmetry survives design intent
+
+pendingHubspotFromStage* columns are correctly defensive (real failure mode, 2 columns + 1 UPDATE cost — keep)
+
+netsuite_item_groups shape ready for Slice 13 reactivation
+
+All Slice 12 additions are additive-only
+
+Full report is in the task output. Awaiting CA's disposition on the BLOCKER + two RECOMMENDs before Step 10 closes.
+
+✻ Crunched for 13m 48s
+
+❯ where's the output
+
+Full architect report was inline in the task-notification. Writing it to a durable location:
+
+● Write(docs\cc-slice-12-step-10-0-5-verification.md)Wrote 129 lines to docs\cc-slice-12-step-10-0-5-verification.md
+
+Slice 12 close verification — §0.5 report
+
+1. quotes schema shape
+
+13 columns added Slice 12 across migrations 0037-0046
+
+FK behavior confirmed: customer_accepted_tier_id SET NULL / accepted
+_tier_id RESTRICT / customer_accepted_recorded_by_user_id SET NULLymmetric — the ID is varchar from Step 3, the tranid mirror added 8c-3as text. Same field family, different types.)… +253 lines
+
+Report saved to docs/cc-slice-12-step-10-0-5-verification.md.
+
+✻ Worked for 1m 20s
+
+❯ CA → CC — §0.5 dispositionsBLOCKER — manual migrations: fix now, and it's bigger than the report frames it
+
+Three runtime-critical data fixes sit outside drizzle-kit migrate: the HubSpot stage label, the stage-ID key, and the tax code. A fresh Supabase project runs 0–45 and silently produces a system where HubSpot acceptance and NetSuite push both fail at runtime, not at startup. PMs discover it in production.
+
+Two things sharpen it beyond the report:
+
+"Oral knowledge only" is the actual defect. No manifest tracks which manual migrations have been applied to which environment. Right now that knowledge lives in one CC session and this conversation. That's the thing to fix, not just the three files.
+
+And Slice 13 makes it worse. The HubSpot price backfill and any NetSuite-side item update are exactly the same class — data fixes applied out-of-band. Without a model, we'd be adding to the pile.
+
+Take option (a): collapse into auto-tracked migrations. Idempotent SQL in a new auto-migration, so a rebuild reaches the same state. And delete manual/0045 — auto/0045 is in _journal.json and applied; the duplicate is a trap.
+
+One check first: confirm each manual migration's effect is currently present in the live DB before writing the idempotent version. If the DB and the file have diverged, the reconciliation would encode the wrong target state.
+
+RECOMMEND 1 — Pattern 52 freeze list: do it now
+
+An hour, and the Architect's cost framing is right: post-launch this becomes data corruption on completed quotes requiring audit reconstruction.
+
+The assertRevisable helper matters more than the doc. A list is a thing to remember; a helper is a thing that fails. Same reasoning as the complete-status-writer verifier — we chose enforcement over convention there and it caught a real gap.
+
+Add to Slice 13's §0.5 checklist: does this write any Pattern 52 column? Every admin surface in that slice will touch this.
+
+RECOMMEND 2 — missing FK: do it now
+
+One line, zero rows to migrate, symmetric with quotes.accepted_tier_id. No reason to defer.
+
+BANK — accepted
+
+payload_snapshot retention, the varchar(50)/text asymmetry, and stale customer_accepted_tier_id on the unmark→revise path. Agreed on all three.
+
+One note on the stale-data item: the Architect flags it as safe because no path renders those columns on a draft. That's a fact about today's UI, not an invariant. Slice 13's admin surfaces are exactly the kind of thing that would read them out of context. Bank it with that trigger named, not just as a low-priority item.
+
+All three land before Step 10 closes. One PR — and confirm the number with me before I signal, since we've had three collisions this session.
+
+Then: CB's umbrella walk, CLAUDE.md banks, and Slice 12 is done.
+
+Confirming disposition. Sequence: verify live DB state first (manual/0036, 0037, 0046 effects present), then build the fix set, then confirm PR # before push.
+
+Reading the three manual migrations to know what to verify:
+
+Read 3 files, listed 1 directory
+
+Now verifying the three manual migrations' effects are actually present in live DB:
+
+Ran 1 shell command
+
+Live DB confirms all three effects present. But one subtle: the COLUMN DEFAULT on hubspot_deal_stage_on_accept is still 'Closed Won'::text — manual/0036 only updated the row, never touched the default. On a fresh Supabase rebuild, seeding would produce a row with 'Closed Won' again. Checking schema.ts:
+
+Searched for 2 patterns
+
+Two divergences confirmed:
+
+hubspotDealStageOnAccept: schema.ts default still 'Closed Won' — needs fix
+
+netsuiteDefaultTaxCodeId: schema.ts + live DB agree (nullable, no default), but auto/0045 encodes the wrong shape
+
+Reading auto/0045 to see what a fresh rebuild would produce:
+
+Read 2 files
+
+Live DB reconciliation plan confirmed. Two divergences that a fresh Supabase rebuild would resurface:
+
+hubspot_deal_stage_on_accept column default is 'Closed Won'::text (from auto/0037) — schema.ts also still says .default("Closed Won") at line 821
+
+netsuite_default_tax_code_id column shape: auto/0045 encodes NOT NULL DEFAULT '-8'; schema.ts + live DB agree on nullable-no-default (manual/0046's fix)
+
+Checking PR #157 state before I do anything else — the walk-and-fix push discipline says hold pushes until Edward signals merge:
+
+Ran 1 shell command
+
+#157 merged. Clean slate to build the fix branch. Checking branch state:
+
+Ran 3 shell commands
+
+On new branch feat/slice-12-step-10-schema-close. Task #238 done, moving to #239 (migration collapse). Auditing all Pattern 52 columns first — need the canonical list for both the doc + the assertRevisable helper:
+
+Searched for 4 patterns, read 2 files
+
+Now editing schema.ts — line 2394 add FK, line 821 change default:
+
+● Update(src\db\schema.ts)Added 8 lines, removed 1 linequoteId: uuid("quote_id").notNull().references(() => quotes.id, { onDelete: "cascade" }),acceptedTierId: uuid("accepted_tier_id").notNull(),// FK RESTRICT — symmetric with quotes.accepted_tier_id per Slice12// Step 10 §0.5 RECOMMEND 2. Prevents tier delete out-of-band from// stranding forensic push rows. App layer's assertDraft already// blocks tier delete on non-draft quotes; DB constraint is defense// in depth.acceptedTierId: uuid("accepted_tier_id").notNull().references(() => quoteTiers.id, { onDelete: "restrict" }),// Enum text: 'pending' | 'succeeded' | 'failed'status: text("status").notNull(),netsuiteSoId: text("netsuite_so_id"),
+
+● Update(src\db\schema.ts)Added 6 lines, removed 1 line// CLAUDE.md "Versioned-table carry-forward audit" (HARD GATE// per v3 brief §5): once a new versioned row is inserted for a// margin edit, unchanged columns preserved from the prior row.// Default is the DPS Sales pipeline "Won - In production" INTERNAL// STAGE ID (not the label — labels are editable in the HubSpot UI;// ids are stable). Per Slice 12 Step 7b fix pass + Step 10 §0.5// reconciliation. Old default 'Closed Won' was a v3-brief §4.6// assumption that didn't match the actual pipeline shape.hubspotDealStageOnAccept: text("hubspot_deal_stage_on_accept").notNull().default("Closed Won"),.default("195607084"),netsuiteSoStatusOnCreate: text("netsuite_so_status_on_create").notNull().default("Pending Fulfillment"),
+
+Listed 1 directory
+
+Running drizzle-kit generate to emit the schema-diff migration:
+
+Read 1 file, ran 1 shell command
+
+Renaming with meaningful slug + augmenting with the data-fix UPDATEs from manual/0036/0037/0046:
+
+Searched for 1 pattern, ran 1 shell command
+
+● Update(drizzle\meta_journal.json)Added 1 line, removed 1 line"idx": 46,"version": "7","when": 1785309854907,"tag": "0046_daily_ser_duncan","tag": "0046_slice_12_step_10_reconcile_and_fk","breakpoints": true}]
+
+Now augmenting the migration with the data-fix UPDATEs + header:
+
+● Write(drizzle\0046_slice_12_step_10_reconcile_and_fk.sql)Error writing file
+
+Read 1 file
+
+-- Live-DB verification pre-write (2026-07-29, DIRECT_URL :5432):--   * firm_settings.hubspot_deal_stage_on_accept = '195607084' OK--   * firm_settings.netsuite_default_tax_code_id column is nullable,--     no default, active row is NULL OK--   * Zero rows with tax_code_id = '-8' OK--   * netsuite_so_pushes has 0 rows (FK add safe, no data migration)
+
+-- ---------- schema-diff (drizzle-kit generated) ----------
+
+ALTER TABLE "firm_settings" ALTER COLUMN "hubspot_deal_stage_on_accept"SET DEFAULT '195607084';--> statement-breakpointALTER TABLE "firm_settings" ALTER COLUMN "netsuite_default_tax_code_id"DROP DEFAULT;--> statement-breakpointALTER TABLE "firm_settings" ALTER COLUMN "netsuite_default_tax_code_id"DROP NOT NULL;--> statement-breakpointALTER TABLE "netsuite_so_pushes" ADD CONSTRAINT "netsuite_so_pushes_accepted_tier_id_quote_tiers_id_fk" FOREIGN KEY ("accepted_tier_id") REFERENCES "public"."quote_tiers"("id") ON DELETE restrict ON UPDATE no action;No newline at end of fileALTER TABLE "netsuite_so_pushes" ADD CONSTRAINT "netsuite_so_pushes_accepted_tier_id_quote_tiers_id_fk" FOREIGN KEY ("accepted_tier_id") REFERENCES "public"."quote_tiers"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+
+-- ---------- data-fix reconciliation (from deleted manual migrations) -
+
+-- manual/0036 + 0037 - HubSpot stage id reconciliation.-- On live prod: 0 rows updated (already '195607084').-- On fresh rebuild: converts the auto/0037-seeded 'Closed Won' default-- value on the active row to the correct internal stage id.UPDATE "firm_settings"SET "hubspot_deal_stage_on_accept" = '195607084'WHERE "effective_until" IS NULLAND "hubspot_deal_stage_on_accept" IN ('Closed Won', 'Won - In production');--> statement-breakpoint
+
+-- manual/0046 - reset any lingering '-8' tax code inherited from-- auto/0045's initial hardcoded default. Q4 REVISED (2026-07-28):-- let NetSuite's tax engine derive per-line tax from customer +-- ship-to; hardcoding overrides correct behavior on OTC/tooling-- lines for out-of-state customers.-- On live prod: 0 rows updated.-- On fresh rebuild: nulls the '-8' inherited from auto/0045.UPDATE "firm_settings"SET "netsuite_default_tax_code_id" = NULLWHERE "netsuite_default_tax_code_id" = '-8';
+
+Read 1 file, ran 1 shell command
+
+Now RECOMMEND 1 — extract shared guard module + add assertRevisable. Checking action-result.ts for existing shape:
+
+Searched for 8 patterns, read 3 files
+
+Adding shared guards to lib/action-result.ts:
+
+● Update(src\lib\action-result.ts)Added 4 lines// modes like QUOTE_NOT_DRAFT) and server (for tagging the cause).export const ERR = {QUOTE_NOT_DRAFT: "QUOTE_NOT_DRAFT",// Slice 12 Step 10 §0.5 RECOMMEND 1 — the "quote is frozen"// signal for writes that must not touch accepted/complete quotes// outside the sanctioned reopen path. See assertRevisable().QUOTE_FROZEN: "QUOTE_FROZEN",QUOTE_NOT_FOUND: "QUOTE_NOT_FOUND",NOT_FOUND: "NOT_FOUND",VALIDATION: "VALIDATION_ERROR",
+
+● Update(src\lib\action-result.ts)Added 48 linesexport function quoteNotDraftMessage(status: string): string {return This quote is in '${status}' status. Editing is disabled. To
+make changes, create a new draft version from the project page.;}
+
+export function quoteFrozenMessage(status: string): string {return This quote is in '${status}' status and has been frozen. Post
+-freeze edits require the reopen flow (revise, or explicit admin unmark
+).;}
+
+// ---------- shared quote-status guards ----------
+
+/**
+
+Draft-only guard. Historically duplicated as a private helper in
+
+src/app/actions/quotes.ts and src/app/actions/assemblies.ts;
+
+consolidated here Slice 12 Step 10 §0.5.
+
+
+
+Use for any write path where the write must only happen while the
+
+quote is still being drafted (freezes at send). The overwhelming
+
+majority of Nexus write actions fall into this bucket.*/export function assertDraft(quote: { status: string }): void {if (quote.status !== "draft") {throw new ActionGuardError(ERR.QUOTE_NOT_DRAFT, quoteNotDraftMessage(quote.status));}}
+
+/**
+
+Pattern 52 enforcement — rejects writes on frozen quotes.
+
+
+
+Fails on status IN ('accepted', 'complete'). Passes on 'draft' +
+
+'sent'. Use this guard whenever a NEW writer touches a column
+
+that carries a Pattern 52 commitment (see docs/pattern-52-freeze-list.md).
+
+
+
+Why this exists (Slice 12 Step 10 §0.5 RECOMMEND 1): Pattern 52
+
+held reproducibility guarantees by CONVENTION — the discipline was
+
+"don't add writers that don't check status." Convention doesn't
+
+fail when a future writer skips the check. This helper does.
+
+
+
+Sanctioned reopen paths (unmarkAccepted, reviseFromAccepted) do
+
+NOT call this guard — they handle their own state transitions
+
+with explicit intent (bumping version_number, downgrading status
+
+back to sent, etc.). Everything else goes through here.
+
+
+
+Slice 13 §0.5 checklist item: "does this write any Pattern 52
+
+column?" If yes, the action MUST call assertRevisable at the top,
+
+or CC surfaces the gap before implementation.*/export function assertRevisable(quote: { status: string }): void {if (quote.status === "accepted" || quote.status === "complete") {throw new ActionGuardError(ERR.QUOTE_FROZEN, quoteFrozenMessage(quote.status));}}
+
+Refactoring the two duplicated assertDraft privates to import the shared version:
+
+Read 1 file
+
+● Update(src\app\actions\assemblies.ts)Added 1 line, removed 1 lineActionGuardError,ERR,runAction,quoteNotDraftMessage,assertDraft,type ActionResult,} from "@/lib/action-result";import { revalidateQuoteTree } from "@/lib/revalidate";
+
+● Update(src\app\actions\assemblies.ts)Removed 9 linesreturn rows[0];}
+
+function assertDraft(quote: { status: string }) {if (quote.status !== "draft") {
+
+                     Sign in with your Anthropic account
+
+ogin                     Authorize design-system access for /design-syncwith your claude.ai accountins
+
+30 tasks (25 done, 2 in progress, 3 open)◼ Slice 12 — Quote umbrella + NetSuite finalization (Phase 3 kickoff)◼ Slice 12 Step 9 — Pricing CTA + audit sweep + Pattern 47 + follow-ups + f…◻ Follow-up slice: production per-line markup (edit + override firm default)◻ Slice 12 Step 10 — slice close◻ Doc reconciliation analysis for readiness discussion… +25 completed─────────────────────────────────────────────────────────────────────────────────────────❯ /login─────────────────────────────────────────────────────────────────────────────────────────⏵⏵ auto mode on (shift+tab

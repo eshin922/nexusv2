@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nexus · Round 6.2 — Freight panel complete</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="app/r4/styles.css" />
+<link rel="stylesheet" href="app/r6_2/styles.css" />
+</head>
+<body>
+
+<template id="__bundler_thumbnail">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+    <rect width="400" height="400" fill="oklch(0.97 0.012 85)"/>
+    <g transform="translate(120 120)">
+      <rect width="160" height="160" rx="20" fill="oklch(0.55 0.07 215)"/>
+      <text x="80" y="100" font-family="Georgia, serif" font-size="48" font-weight="500" fill="oklch(0.97 0.012 85)" text-anchor="middle">R6.2</text>
+    </g>
+    <text x="200" y="332" font-family="Georgia, serif" font-size="20" fill="oklch(0.35 0.02 250)" text-anchor="middle" font-style="italic">Freight</text>
+  </svg>
+</template>
+
+<div id="root"></div>
+
+<script>
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "theme": "light",
+    "mode": "dps_arranges"
+  }/*EDITMODE-END*/;
+</script>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script src="app/r6_2/data.js"></script>
+<script type="text/babel" src="app/r6_2/freight-panel.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+function Root() {
+  const [tweaks, setTweaks] = useState(window.TWEAK_DEFAULTS || { theme: "light", mode: "dps_arranges" });
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", tweaks.theme || "light");
+  }, [tweaks.theme]);
+  const setTweak = (k, v) => setTweaks(prev => {
+    const next = { ...prev, [k]: v };
+    window.parent.postMessage({ type: "__edit_mode_set_keys", edits: { [k]: v } }, "*");
+    return next;
+  });
+
+  const scenario = window.NXR6_2.scenarios[tweaks.mode];
+
+  return (
+    <main style={{ overflow: "hidden", minWidth: 0 }}>
+      <div className="r62-state-strip">
+        <span className="lbl">R6.2 mode</span>
+        <button className={tweaks.mode === "dps_arranges" ? "active" : ""}
+                onClick={() => setTweak("mode", "dps_arranges")}>① DPS arranges</button>
+        <button className={tweaks.mode === "multi_leg" ? "active" : ""}
+                onClick={() => setTweak("mode", "multi_leg")}>② Multi-leg journey</button>
+        <button className={tweaks.mode === "customer_arranges" ? "active" : ""}
+                onClick={() => setTweak("mode", "customer_arranges")}>③ Customer arranges</button>
+        <button className={tweaks.mode === "empty" ? "active" : ""}
+                onClick={() => setTweak("mode", "empty")}>④ Empty</button>
+        <span className="right">
+          <a href="Nexus Round 6.html">← R6 Cost build</a>
+          <a href="docs/r6-2-data-source-map.md">Data-source map</a>
+          <a href="docs/r6-2-designer-notes.md">Designer notes</a>
+        </span>
+      </div>
+
+      <window.NXR62Panel mode={tweaks.mode} onChangeMode={(m) => setTweak("mode", m)} scenario={scenario} />
+    </main>
+  );
+}
+window.TWEAK_DEFAULTS = TWEAK_DEFAULTS;
+ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
+</script>
+
+</body>
+</html>

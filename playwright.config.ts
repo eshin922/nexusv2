@@ -22,7 +22,7 @@ export default defineConfig({
   webServer: {
     command: "npm run validation:app",
     url: process.env.NEXUS_VALIDATION_BASE_URL ?? "http://127.0.0.1:3100",
-    reuseExistingServer: false,
+    reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
   projects: [

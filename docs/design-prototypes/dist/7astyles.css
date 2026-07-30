@@ -1,0 +1,291 @@
+/* ─── Round 7a — Nav IA styles ─── */
+
+/* Reuse r4 rail + base tokens; r7a adds prototype chrome + surface demos */
+
+.r7a-state-strip {
+  display: flex; gap: 4px; align-items: center;
+  padding: 8px 14px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.05em;
+  position: sticky; top: 0; z-index: 5;
+}
+.r7a-state-strip .lbl { color: var(--ink-4); margin-right: 8px; text-transform: uppercase; letter-spacing: 0.10em; }
+.r7a-state-strip button {
+  padding: 6px 12px; border-radius: 5px; color: var(--ink-3);
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: none; border: none; cursor: pointer;
+}
+.r7a-state-strip button:hover { color: var(--ink); }
+.r7a-state-strip button.active { background: var(--paper-3); color: var(--ink); }
+.r7a-state-strip .right { margin-left: auto; font-family: var(--mono); font-size: 10px; }
+.r7a-state-strip .right a { color: var(--ink-3); margin-left: 12px; }
+
+/* The page that hosts surface demos — same width budget as r6 page */
+.r7a-page { padding: 28px 40px 80px; max-width: 1480px; }
+
+/* Page head, repeated across all six surfaces with subtle variation per rule */
+.r7a-head {
+  display: grid; grid-template-columns: 1fr auto; gap: 24px;
+  align-items: flex-end;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 24px;
+}
+.r7a-head .lhs { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.r7a-head .breadcrumb {
+  font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+.r7a-head .breadcrumb a { color: var(--ink-3); text-decoration: none; }
+.r7a-head .breadcrumb a:hover { color: var(--ink); }
+.r7a-head .breadcrumb .here { color: var(--ink); }
+.r7a-head .breadcrumb .sep { color: var(--ink-4); margin: 0 6px; }
+.r7a-head .eyebrow {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em;
+  color: var(--ink-4); text-transform: uppercase;
+}
+.r7a-head h1 {
+  font-family: var(--display); font-weight: 500; font-size: 30px;
+  margin: 0; letter-spacing: -0.012em;
+  font-style: italic;
+}
+.r7a-head h1 em { font-style: normal; color: var(--ink-3); font-weight: 400; font-size: 22px; }
+.r7a-head .sub { font-size: 13px; color: var(--ink-3); margin: 0; max-width: 64ch; }
+
+/* Action cluster — primary right, secondary middle, back-direction left */
+.r7a-actions {
+  display: flex; align-items: center; gap: 8px;
+  flex-shrink: 0;
+}
+.r7a-actions .back {
+  margin-right: auto; padding-right: 10px;
+  border-right: 1px solid var(--rule);
+  display: flex; gap: 6px;
+}
+.r7a-actions .secondary { display: flex; gap: 6px; }
+.r7a-actions .primary-slot { display: flex; gap: 6px; }
+.r7a-actions .btn { white-space: nowrap; }
+
+/* "Next move" forward affordance — sits below the page head, full-width strip */
+.r7a-next-move {
+  display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: center;
+  padding: 14px 18px;
+  background: oklch(from var(--accent) l c h / 0.07);
+  border: 1px solid oklch(from var(--accent) l c h / 0.30);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  margin-bottom: 22px;
+}
+.r7a-next-move.terminal {
+  background: var(--paper-2);
+  border-color: var(--rule);
+  border-left-color: var(--ink-4);
+}
+.r7a-next-move .text { display: flex; flex-direction: column; gap: 3px; }
+.r7a-next-move .eyebrow {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-4);
+}
+.r7a-next-move .head {
+  font-family: var(--display); font-weight: 500; font-size: 16px;
+  letter-spacing: -0.005em; color: var(--ink);
+}
+.r7a-next-move .head em { font-style: italic; color: var(--ink-3); font-weight: 400; }
+.r7a-next-move .cta {
+  padding: 8px 16px; border-radius: 6px;
+  background: var(--accent); color: var(--paper);
+  font-family: var(--ui); font-size: 13px; font-weight: 500;
+  border: 1px solid var(--accent); cursor: pointer;
+}
+.r7a-next-move .cta:hover { background: var(--accent-ink); }
+.r7a-next-move.terminal .cta { display: none; }
+
+/* Surface-content stub — fake content underneath the head */
+.r7a-stub {
+  background: var(--paper-2);
+  border: 1px dashed var(--rule);
+  border-radius: 10px;
+  padding: 48px 36px;
+  display: grid; grid-template-columns: 1fr; gap: 16px;
+  font-family: var(--display); font-style: italic; font-size: 16px;
+  color: var(--ink-3);
+  text-align: center;
+}
+.r7a-stub .anno {
+  font-family: var(--mono); font-style: normal; font-size: 11px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--ink-4);
+}
+.r7a-stub .label { font-size: 22px; color: var(--ink); }
+
+/* Designer-rule callout: visible on each demoed surface */
+.r7a-rule {
+  margin: 16px 0;
+  padding: 12px 14px;
+  background: oklch(0.78 0.13 75 / 0.06);
+  border-left: 3px solid var(--warn);
+  border-radius: 0 6px 6px 0;
+  font-size: 12.5px; color: var(--ink-2); line-height: 1.55;
+}
+.r7a-rule .lbl {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--warn); margin-right: 8px;
+}
+.r7a-rule strong { color: var(--ink); font-weight: 500; }
+.r7a-rule code {
+  font-family: var(--mono); font-size: 11.5px;
+  background: var(--paper-3); color: var(--ink-2);
+  padding: 1px 5px; border-radius: 3px;
+}
+
+/* Home surface — resume-card + inbox */
+.r7a-home-grid {
+  display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px;
+  margin-bottom: 22px;
+}
+.r7a-resume {
+  background: var(--paper);
+  border: 1px solid var(--accent);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.r7a-resume .eyebrow {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--accent-ink);
+}
+.r7a-resume h3 {
+  font-family: var(--display); font-weight: 500; font-size: 18px;
+  margin: 0; letter-spacing: -0.005em;
+}
+.r7a-resume h3 em { font-style: italic; color: var(--ink-3); font-weight: 400; }
+.r7a-resume .meta {
+  font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+  letter-spacing: 0.04em;
+  display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+}
+.r7a-resume .meta .pip {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px;
+}
+.r7a-resume .meta .pip.below_floor { background: var(--bad); }
+.r7a-resume .meta .pip.below_target { background: var(--warn); }
+.r7a-resume .meta .pip.good { background: var(--good); }
+.r7a-resume .cta {
+  align-self: flex-start;
+  padding: 8px 14px; border-radius: 6px;
+  background: var(--accent); color: var(--paper);
+  font-family: var(--ui); font-size: 13px; font-weight: 500;
+  border: 1px solid var(--accent); cursor: pointer;
+}
+
+.r7a-inbox {
+  background: var(--paper);
+  border: 1px solid var(--rule); border-radius: 10px;
+  display: flex; flex-direction: column;
+}
+.r7a-inbox h4 {
+  font-family: var(--display); font-weight: 500; font-size: 14px;
+  margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--rule);
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.r7a-inbox h4 .meta {
+  font-family: var(--mono); font-size: 10px; color: var(--ink-4);
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+.r7a-inbox-row {
+  display: grid; grid-template-columns: 64px 1fr auto; gap: 10px; align-items: center;
+  padding: 10px 16px; border-top: 1px solid var(--rule);
+  cursor: pointer;
+}
+.r7a-inbox-row:first-of-type { border-top: none; }
+.r7a-inbox-row:hover { background: var(--paper-2); }
+.r7a-inbox-row .urgency {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.10em;
+  text-transform: uppercase;
+  display: flex; align-items: center; gap: 5px;
+}
+.r7a-inbox-row .urgency .dot { width: 5px; height: 5px; border-radius: 50%; }
+.r7a-inbox-row .urgency.now    { color: var(--bad); }
+.r7a-inbox-row .urgency.now .dot { background: var(--bad); }
+.r7a-inbox-row .urgency.today  { color: var(--warn); }
+.r7a-inbox-row .urgency.today .dot { background: var(--warn); }
+.r7a-inbox-row .text {
+  font-size: 12.5px; color: var(--ink-2);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.r7a-inbox-row .text .where {
+  font-family: var(--display); font-style: italic; font-size: 13px;
+  color: var(--ink); font-weight: 500;
+}
+.r7a-inbox-row .text .where em { color: var(--ink-3); font-style: normal; }
+.r7a-inbox-row .next {
+  font-family: var(--mono); font-size: 10.5px; color: var(--accent-ink);
+  letter-spacing: 0.04em; text-align: right;
+}
+
+/* IA-rule explainer panels (shown on the index / rule-tour surface) */
+.r7a-rules {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  margin: 14px 0 24px;
+}
+.r7a-rule-card {
+  background: var(--paper);
+  border: 1px solid var(--rule); border-radius: 10px;
+  padding: 16px 18px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.r7a-rule-card .id {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em;
+  color: var(--ink-4); text-transform: uppercase;
+}
+.r7a-rule-card .name {
+  font-family: var(--display); font-weight: 500; font-size: 16px;
+  letter-spacing: -0.005em; color: var(--ink);
+}
+.r7a-rule-card .body {
+  font-size: 12.5px; color: var(--ink-3); line-height: 1.55;
+}
+.r7a-rule-card .body strong { color: var(--ink); font-weight: 500; }
+.r7a-rule-card .body code {
+  font-family: var(--mono); font-size: 11.5px;
+  background: var(--paper-3); color: var(--ink-2);
+  padding: 1px 5px; border-radius: 3px;
+}
+
+/* Cluster grammar table (e) */
+.r7a-cluster {
+  background: var(--paper);
+  border: 1px solid var(--rule); border-radius: 10px;
+  overflow: hidden;
+}
+.r7a-cluster-head {
+  display: grid; grid-template-columns: 140px 1.4fr 1fr 1fr; gap: 12px;
+  padding: 10px 16px;
+  background: var(--paper-2); border-bottom: 1px solid var(--rule);
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.10em;
+  text-transform: uppercase; color: var(--ink-4);
+}
+.r7a-cluster-row {
+  display: grid; grid-template-columns: 140px 1.4fr 1fr 1fr; gap: 12px;
+  padding: 12px 16px; border-top: 1px solid var(--rule);
+  align-items: center;
+  font-size: 12.5px;
+}
+.r7a-cluster-row .surf {
+  font-family: var(--display); font-style: italic; font-size: 14px;
+  color: var(--ink); font-weight: 500;
+}
+.r7a-cluster-row .primary { color: var(--ink); }
+.r7a-cluster-row .secondary, .r7a-cluster-row .back {
+  color: var(--ink-3); font-family: var(--mono); font-size: 11.5px;
+}
+.r7a-cluster-row .back.none, .r7a-cluster-row .secondary.none {
+  color: var(--ink-4); font-style: italic;
+}
+
+/* Force the rail to render even when no project is "open" — for the Home demo */
+.r7a-shell { display: grid; grid-template-columns: 56px 240px 1fr; min-height: 100vh; }
+.r7a-shell.no-inner { grid-template-columns: 56px 1fr; }
+.r7a-shell.shed { grid-template-columns: 56px 1fr; }  /* customer-view rule */

@@ -1,0 +1,1071 @@
+═══ Full leaf catalogue in Nexus ═══
+  Total leaves (all states): 1068
+  Non-archived: 1065
+  With non-null SKU: 1022
+  Non-archived AND with SKU: 1020
+  HubSpot-linked (hubspot_product_id NOT NULL): 1052
+
+  Analyzing 1020 non-archived leaves with SKU
+
+  Resolved to a NS item (unique + non-Group + active): 961
+  Unresolved (does not exist in NS by SKU-match): 59
+  Resolved WITH /price populated: 24
+  Resolved WITHOUT /price (Vu's targeted set): 937
+
+═══ VU'S TARGETED-UPDATE LIST — full leaf catalogue ═══
+(937 items — set /price to 0.00 at pricelevel=1, currencypage=1)
+
+  NS_ID     itemtype      class   SKU (NS itemid)                 Leaf name (Nexus)
+  --------  ------------  ------  ------------------------------  --------------------------------------------------
+  47954     InvtPart      1       001                             Hurr - Lip Laquer
+  47855     InvtPart      1       002                             Hurr - Lip Gloss
+  47854     InvtPart      1       003                             Hurr - Lip Liner
+  1058      InvtPart      10      10000-GNX-Box                   Genexa - Box - Children's Acetaminophen Chewable (10000-GNX)
+  1076      InvtPart      10      10000-GNX-Label                 Genexa - Label - Children's Acetaminophen Chewable (10000-GN
+  59560     NonInvtPart   42      10014.V2                        Kirby Beauty - Hydrating Shampoo V.2 Film & Fill
+  54163     InvtPart      42      10015                           Kirby Beauty - Cécred Reconstructive Treatment Mask Fill
+  73012     InvtPart      42      10015.V3                        Kirby Beauty - Cecred Reconstructing Treatment Mask V.3 Clas
+  73062     InvtPart      42      10016                           New U Life - Malaysia AWE Bottle Filling & Packout
+  58133     NonInvtPart   42      10017                           New U Life - Taiwan AWE Bottle Filling & Packout
+  53961     NonInvtPart   42      10018                           New U Life - Hong Kong AWE Bottle Filling & Packout
+  72999     InvtPart      42      10019                           New U Life - USA AWE Bottle Filling & Packout
+  10298     InvtPart      42      10024                           Kirby Beauty - Hydrating Conditioner Print & Fill
+  55101     NonInvtPart   42      10024.V2                        Kirby Beauty – Hydrating Conditioner V.2 Film & Fill
+  59156     NonInvtPart   42      10025-Fill                      Kirby Beauty - Silk Rinse 1oz
+  998       InvtPart      10      10033-GNX-Box                   Genexa - Box - Kids' Pain & Fever Cherry (10033-GNX)
+  997       InvtPart      64      10033-GNX-Label                 Genexa - Label - Kids' Pain & Fever Cherry (10033-GNX)
+  1039      InvtPart      10      10035-GNX-Box                   Genexa - Box - Kids' Multi-Symptom Cold (10035-GNX)
+  1035      InvtPart      64      10035-GNX-Label                 Genexa - Label - Kids' Multi-Symptom Cold (10035-GNX)
+  1065      InvtPart      64      10040-GNX-BackLabel             Genexa - Label - 10040-GNX-BackLabel
+  1063      InvtPart      64      10040-GNX-DosageCupLabel        Genexa - Label - 10040-GNX-DosageCupLabel
+  59558     NonInvtPart   42      10041                           Kirby Beauty - Clarifying Shampoo & Scalp Scrub Print & Fill
+  1073      InvtPart      64      10041-GNX-BackLabel             Genexa - Label - 10041-GNX-BackLabel
+  1064      InvtPart      64      10041-GNX-FrontLabel            Genexa - Label - 10041-GNX-FrontLabel
+  68978     InvtPart      42      10041.V2                        Kirby Beauty - Clarifying Shampoo & Scalp Scrub V.2 Film & F
+  72943     InvtPart      42      10042.V2                        Kirby Beauty - Moisturizing Deep Conditioner Print & Fill
+  73065     InvtPart      42      10042.V3                        Kirby Beauty - Moisturizing Deep Conditioner Version 3 Class
+  1029      InvtPart      10      10045-GNX-Box                   Genexa - Box - Kids' Cough & Chest (10045-GNX)
+  1031      InvtPart      64      10045-GNX-Label                 Genexa - Label - Kids' Cough & Chest (10045-GNX)
+  72988     InvtPart      42      10048.V2                        Kirby Beauty - Detoxifying Shampoo V.2 Film & Fill
+  1067      InvtPart      10      10052-GNX-Box                   Genexa - Box -Daytime & Nighttime Cold & Flu Severe Combo Pa
+  1043      InvtPart      10      10063-GNX-Box                   Genexa - Box - Kids' Nighttime Cough (10063-GNX)
+  1030      InvtPart      64      10063-GNX-Label                 Genexa - Label - Kids' Nighttime Cough (10063-GNX)
+  1024      InvtPart      10      10064-GNX-Box                    Genexa - Box - Kids' Cough (10064-GNX)
+  1001      InvtPart      10      10070-GNX-Box                   Genexa - Box - Kids' Pain & Fever 2pk (10070-GNX)
+  1057      InvtPart      10      100A-Box                        Genexa - Box - Kids' Allergy (100A)
+  1060      InvtPart      10      100A-Label                      Genexa - Label - Kids' Allergy (100A)
+  49955     NonInvtPart   42      10993                           New U Life - Korea AWE Bottle Filling & Packout
+  28049     InvtPart      66      10PK-01-DC02                    Haus Labs - DTC Card 
+  1361      InvtPart      276     10PK-01-DC03                    Haus Labs - DTC Card
+  68175     InvtPart      276     10PK-01-DC04                    Haus Labs - DTC Welcome Card v5
+  2568      InvtPart      10      10PK-01-SP00                    Haus Labs - Small Shippers
+  69583     InvtPart      276     10PK-02-DC04                    Haus Labs - DTC Welcome Card v5 
+  71228     InvtPart      276     10PK-03-DC00                    Haus Labs - DTC Card (Atomic Shake)
+  71229     InvtPart      276     10PK-03-DC01                    Haus Labs - DTC Card (Lip Application)
+  56105     NonInvtPart   42      11022                           New U Life - Japan AWE Bottle Filling & Packout 
+  73061     InvtPart      42      11689                           New U Life - China AWE Bottle Filling & Packout
+  71328     InvtPart      1       12-AHM-GAS                      Emi Jay - Aura Hair + Body Mist Gasket
+  73753     InvtPart      1       12-AHM-PRI-056-1                Emi Jay - Aura Hair Mist Toasted Sugar Pump 
+  73754     InvtPart      1       12-AHM-PRI-056-2                Emi Jay - Aura Hair Mist Toasted Sugar Bottle 
+  73751     InvtPart      1       12-AHM-PRI-241-1                Emi Jay - Aura Hair Mist Lychee Baby Pump
+  73752     InvtPart      1       12-AHM-PRI-241-2                Emi Jay - Aura Hair Mist Lychee Baby Bottle
+  71428     InvtPart      1       12-AHM-PRI-309-1                Emi Jay - Aura Hair + Body Mist in Mochi Milk Bottle 
+  1062      InvtPart      64      153A-Box                        Genexa - Box - Kids' Cough & Chest (153A)
+  1040      InvtPart      64      153A-Label                      Genexa - Label - Kids' Cough & Chest (153A)
+  1075      InvtPart      10      154A-Box                        Genexa - Box - Honey Cough Syrup (154A)
+  1074      InvtPart      10      154A-Label                      Genexa - Label - Honey Cough Syrup (154A)
+  1052      InvtPart      64      16A-Label                       Genexa - Label - Antacid Maximum (16A)
+  12220     InvtPart      64      185308                          Guide Beauty - GB Guide Line Brown (PMS 7533)
+  60889     InvtPart      58      1CCYSCOOP P                     Koby - 1cc Scooper
+  73045     InvtPart      42      20024                           Kirby Beauty - Hydrating Conditioner
+  11914     InvtPart      10      20028                           SNIF - Vow Factor 2ml UC
+  28149     InvtPart      10      20051                           SNIF - Slice Society 2ml UC
+  28150     InvtPart      10      20052                           SNIF - Soda Snob 2ml UC 
+  996       InvtPart      10      20LP-01-PV00                    Mini Lip Trio
+  53861     InvtPart      276     21AL-03-7729                    Haus Labs - Discovery Set Card Fair v2
+  53863     InvtPart      276     21AL-06-7736                    Haus Labs - Discovery Set Card Light v2
+  53862     InvtPart      276     21AL-06-7743                    Haus Labs - Discovery Set Card Medium v2
+  50460     InvtPart      66      21AL-11-7804                    Haus Labs - Discovery Set Card v3 (Deep v1.5)
+  50459     InvtPart      276     21AL-12-7798                    Haus Labs - Discovery Set Card v3 (Medium Deep v1.5)
+  50458     InvtPart      276     21AL-13-7750                    Haus Labs - Discovery Set Card v3 (Medium v1.5)
+  19441     InvtPart      66      21AL-14-6470                    Haus Labs - Discovery Set Card (Light Medium)
+  50457     InvtPart      276     21AL-14-7781                    Haus Labs - Discovery Set Card v3 (Light Medium v1.5)  
+  19440     InvtPart      66      21AL-15-6487                    Haus Labs - Discovery Set Card (Light)
+  50456     InvtPart      276     21AL-15-7767                    Haus Labs - Discovery Set Card v3 (Light v1.5) 
+  19442     InvtPart      66      21AL-16-6494                    Haus Labs - Discovery Set Card (Fair)
+  50455     InvtPart      276     21AL-16-7774                    Haus Labs - Discovery Set Card v3 (Fair v1.5)
+  992       InvtPart      10      22LP-01-SC00                    Lip Lacquer
+  13822     InvtPart      10      34500                           Vaxa - Orlo Nutrition Omega-3 Pouch
+  52858     InvtPart      10      34500-1                         Vaxa - Orlo Nutrition Omega-3 Pouch 
+  54889     InvtPart      10      34501                           Vaxa - Orlo Nutrition Prenatal DHA Pouch
+  54888     InvtPart      10      34506                           Vaxa - Orlo Nutrition DHA Pouch
+  60687     InvtPart      10      351                             Brain MD - Brain Boost on the Go UC 
+  73052     InvtPart      42      351-FFP                         Brain MD - Brain Boost Film, Fill, Packout
+  73002     InvtPart      42      351-FG                          BrainMD - Brain Boost on the Go
+  60688     InvtPart      10      351-Film                        Brain MD - Brain Boost on the Go Film
+  48254     InvtPart      10      351-UC                          Brain MD - Brain Boost UC
+  73064     InvtPart      42      355                             BrainMD - Hydration 
+  72980     InvtPart      42      355-ASSEMBLY                    BrainMD - Hydration Assembly
+  73057     InvtPart      42      355-Blend                       BrainMD - Hydration Blending
+  73056     InvtPart      42      355-FFS                         BrainMD - Hydration FFS
+  57838     InvtPart      173     355-Raws                        BrainMD - Hydration Raws
+  53059     InvtPart      276     35PK-01-DC00                    Haus Labs - DTC Card (Holiday)
+  1066      InvtPart      10      39A-Box                         Genexa - Box - Kids' Pain & Fever (39A)
+  1059      InvtPart      10      39A-Label                       Genexa - Label - Kids' Pain & Fever (39A)
+  51755     InvtPart      10      3pc Capsule 160cc UC PR Box     Lemme - 3pc Capsule UC PR Box
+  32049     InvtPart      10      3pc Gummy Bottle PR             Lemme - 3pc Gummy Bottle PR Box
+  12425     NonInvtPart   168     3PL-0001                        Assembly
+  12427     NonInvtPart   168     3PL-0002                        Pick and Pack
+  12426     NonInvtPart   168     3PL-0003                        Warehousing
+  12429     NonInvtPart   60      3PL-0004                        Palletizing
+  12430     NonInvtPart   168     3PL-0005                        Tape
+  67075     InvtPart      10      4548                            Vaxa - Orlo Nutrition Omega 3 + B12 Pouch
+  1061      InvtPart      64      4A-Label                        Genexa - Label - Kids Allergy Care (4A)
+  60887     InvtPart      1       4OZJAR P                        Koby - 4oz Jar
+  49755     InvtPart      10      4PACK-4500                      Vaxa - ACTIVE OMEGA-3 (4-Pack Box)
+  49757     InvtPart      10      4PACK-4501                      Vaxa - ACTIVE PRENATAL DHA (4-Pack Box)
+  49756     InvtPart      10      4PACK-4506                      Vaxa - ACTIVE DHA (4-Pack Box)
+  48754     NonInvtPart   42      50010-Fill                      Kirby Beauty - Fermented Rice & Rose Protein Ritual
+  53560     InvtPart      1       5601                            Glo Pharma Ourself - 150ml Bottle w/ PCR
+  53559     InvtPart      1       5601-P                          Glo Pharma Ourself - 150ml Bottle Pump
+  63621     InvtPart      1       70-400 - PMS 803C Smooth Cap    Koby - 70-400 Smooth Cap
+  60888     InvtPart      1       70-400YLWCAP P                  Koby - 70-400 Smooth Cap
+  9294      InvtPart      10      7U30833                         SNIF - Vanilla Vice 10ml UC
+  14440     InvtPart      10      7U30904                         SNIF - Sweet Ash 2ml UC #20040
+  8293      InvtPart      10      7U30906                         SNIF - Vanilla Vice 2ml UC #20045
+  19969     InvtPart      10      7U30910                         SNIF - Heal the Way 2ml UC #20049
+  19968     InvtPart      10      7U30938                         SNIF - Coco Shimmy 2ml UC #20050
+  10197     InvtPart      58      800338                          ZO -  Tote Bag Larger Size
+  10097     InvtPart      58      800339                          ZO - Neoprene Pouch
+  28850     NonInvtPart   42      8099-03-0028                    Rodan & Fields - AHS Sample 10pk
+  29999     NonInvtPart   42      8099-03-0028-Card               Rodan & Fields - AHS Sample 10pk - Cards
+  72990     InvtPart      42      854535008648                    Kuju Coffee - Cloud Creamer Unsweetened (8ct)
+  63013     InvtPart      10      A02618                          Primally Pure - 2ml Antioxidant Balm Sample Sachet
+  24248     InvtPart      10      ABH10-19905                     ABH - Kit #9 Clear Favorites Brow Duo Kit 
+  24249     InvtPart      10      ABH10-19906                     ABH - Kit #10 Frozen & Fuller Looking Brow Trio Kit - Soft B
+  24250     InvtPart      10      ABH10-19907                     ABH - Kit #10 Frozen & Fuller Looking Brow Trio Kit - Medium
+  24251     InvtPart      10      ABH10-19908                     ABH - Kit #10 Frozen & Fuller Looking Brow Trio Kit - Dark B
+  24252     InvtPart      10      ABH10-19909                     ABH - Kit #10 Frozen & Fuller Looking Brow Trio Kit - Ebony
+  24253     InvtPart      10      ABH10-19910                     ABH - Kit #10 Frozen & Fuller Looking Brow Trio Kit - Taupe
+  24348     InvtPart      10      ABH10-19911                     ABH - Kit #11 Sparkle Gloss Duo Kit
+  24254     InvtPart      10      ABH10-19912                     ABH - Kit #12 Tinted Gloss Duo Kit
+  24255     InvtPart      10      ABH10-19913                     ABH - Kit #13 Lengthened & Volumized Lash Duo Kit
+  24256     InvtPart      10      ABH10-19914                     ABH - Kit #14 Velour Lip Duo Kit
+  24257     InvtPart      10      ABH10-19915                     ABH - Kit #15 Sculpted Brow & Lash Duo Kit 
+  24854     InvtPart      10      ABH10-19916                     ABH - Kit #16 Mini Glam Kit - Modern Ren - Soft Brown
+  24853     InvtPart      10      ABH10-19917                     ABH - Kit #16 Mini Glam Kit - Modern Ren - Medium Brown
+  24448     InvtPart      10      ABH10-19918                     ABH - Kit #16 Mini Glam Kit - Modern Ren - Dark Brown 
+  24258     InvtPart      10      ABH10-19919                     ABH - Kit #16 Mini Glam Kit - Modern Ren - Ebony
+  24259     InvtPart      10      ABH10-19920                     ABH - Kit #16 Mini Glam Kit - Modern Ren - Taupe
+  24648     InvtPart      10      ABH10-19921                     ABH - Kit #17 Mini Glam Kit - Sultry
+  24449     InvtPart      10      ABH10-19922                     ABH - Kit #18 Fall Romance Deluxe Trio Kit
+  24649     InvtPart      10      ABH10-19923                     ABH - Kit #19 Blushed Lip & Cheek Duo Kit 
+  24748     InvtPart      10      ABH10-19924                     ABH - Kit #20 Laminated Brow Essentials Kit
+  24652     InvtPart      10      ABH10-19925                     ABH - Kit #21 Lifted & Defined Brow Duo Kit - Soft Brown
+  24653     InvtPart      10      ABH10-19926                     ABH - Kit #21 Lifted & Defined Brow Duo Kit - Medium Brown 
+  24948     InvtPart      10      ABH10-19927                     ABH - Kit #21 Lifted & Defined Brow Duo Kit - Dark Brown
+  24848     InvtPart      10      ABH10-19928                     ABH - Kit #21 Lifted & Defined Brow Duo Kit - Ebony
+  24849     InvtPart      10      ABH10-19929                     ABH - Kit #21 Lifted & Defined Brow Duo Kit - Taupe
+  24850     InvtPart      10      ABH10-19930                     ABH - Kit #22 International Tinted Lipgloss Trio Kit 
+  24851     InvtPart      10      ABH10-19931                     ABH - Kit #23 Liquid Liner Duo Kit 
+  24852     InvtPart      10      ABH10-19932                     ABH - Kit #24 International Lip Velvet Kit 
+  50855     InvtPart      1       ABH25-36182                     Anastasia Beverly Hills - 10ml Bottle
+  50955     InvtPart      1       ABH26-36182                     Anastasia Beverly Hills - 10ml Cap
+  6592      InvtPart      58      ABH40-85050                     ABH - Zip Top Nylon Bag - Black
+  27949     InvtPart      58      ABH99-00325                     ABH - Silicone Pouch
+  27849     InvtPart      58      ABH99-00326                     ABH - Neoprene Bag
+  27850     InvtPart      58      ABH99-50044                     ABH - Corduroy Pouch
+  26648     InvtPart      10      Ameva2                          Yuni Beauty/Ameva - Multipotent Serum
+  72946     InvtPart      42      ASSEMBLY-30 Caffeinated         Iconic Beauty - 30 Count Pouch Caffeinated 
+  72944     InvtPart      42      ASSEMBLY-30 Decaf               Iconic Beauty - 30 Count Pouch Decaf 
+  72947     InvtPart      42      ASSEMBLY-7 Caffeinated          Iconic Beauty - 7 Count Pouch Caffeinated 
+  14723     NonInvtPart   42      ASSEMBLY-7 Decaf                Iconic Beauty - 7 Count Pouch Decaf
+  1068      InvtPart      58      BA020800                        Sol de Janeiro - Bum Bum Jet Set Bag
+  1051      InvtPart      58      BA020900                        Sol de Janeiro - Bom Dia Jet Set Bag
+  1048      InvtPart      58      BA021000                        Sol de Janeiro - Beija Flor Jet Set Bag
+  46354     InvtPart      58      BA033200                        Sol de Janeiro - Bum Bum Jet Set Bag v1
+  58956     InvtPart      58      BA033201                        Sol de Janeiro - Bum Bum Jet Set Bag v2
+  46454     InvtPart      58      BA033300                        Sol de Janeiro - Bom Dia Jet Set Bag v1
+  60459     InvtPart      58      BA033301                        Sol de Janeiro - Bom Dia Jet Set Bag v2
+  43752     InvtPart      58      BA033400                        Sol de Janeiro - Beija Flor Jet Set Bag 
+  58957     InvtPart      58      BA033401                        Sol de Janeiro - Beija Flor Jet Set Bag v2
+  8694      InvtPart      58      BA040200                        Sol de Janeiro - Delicia Drench Jet Set Bag
+  15222     InvtPart      58      BA052700                        Sol de Janeiro - Joia Hair Jet Set Bag H24
+  58955     InvtPart      58      BA052701                        Sol de Janeiro - Joia Hair Jet Set Bag H24
+  67475     InvtPart      58      BA126800                        Sol De Janeiro - Gen Z '62 Jet Set Bckpck (CN)
+  71529     InvtPart      58      BA146400                         SOL - Hydr '39 Jet Set Backpack
+  71528     InvtPart      58      BA146600                        SOL - Hydr '48 Jet Set Backpack
+  71628     InvtPart      58      BA146800                         SOL - Hydr '68 Jet Set Backpack
+  61411     InvtPart      10      Bag 1 (green)                   Evvy - Green Flex Pouch
+  61412     InvtPart      10      Bag 2 (purple)                  Evvy - Purple Flex Pouch
+  61510     InvtPart      10      Bag 3 (blue)                    Evvy - Blue Flex Pouch
+  48154     InvtPart      10      BC-001                          Beautycore - UC
+  72987     InvtPart      42      BG-4ml                          Dune Suncare - Bod Guard 4ml Film & Fill
+  73008     InvtPart      42      BHMDDRCMINI                     Beverly Hills MD Dermal Repair Complex Sample Packette
+  73006     InvtPart      42      BHMDRRYRSNFMINI-PKT-R1          Beverly Hills MD Resurface + Restore Youth Revealing System 
+  64527     InvtPart      58      BHMDSOCKS                       Beverly Hills MD HydraRescueMoisturizer Socks
+  45154     InvtPart      10      BK15-LK-MINIPAL                 JSC - LOLLIPOP KILLER MINI PALETTE
+  72948     InvtPart      42      BLD-FILL Caffeinated            Iconic Beauty - Blend and Fill Stickpack Caffeinated  
+  14923     NonInvtPart   42      BLD-FILL Decaf                  Iconic Beauty - Blend and Fill Stickpack Decaf
+  73063     InvtPart      42      Blending & Filling              Blending & Filling
+  72976     InvtPart      42      BM-NB-005-S                     Riddle Oil - Summer Scent Sampler
+  34651     NonInvtPart   42      BM-NB-005-S-BLEND               Riddle Oil - Blending - Nude Beach
+  28749     NonInvtPart   42      BM-NB-120-R                     Riddle Oil - Nude Beach Spray Lotion 120ml
+  72957     InvtPart      42      BM-PO-120-R                     Riddle Oil - Poppy Spray Lotion 120ml 
+  64828     InvtPart      1       BO-BCP-100                      Nemah - 100ml Belly Oil Bulb + Collar + Pipette
+  64830     InvtPart      1       BO-BCP-50                       Nemah - 50ml Belly Oil Bulb + Collar + Pipette
+  64829     InvtPart      1       BO-BOT-100                      Nemah - 100ml Belly Oil Glass Bottle
+  64831     InvtPart      1       BO-BOT-50                       Nemah - 50ml Belly Oil Glass Bottle
+  64827     InvtPart      1       BO-CAP-01                       Nemah - 100mL/50mL Belly Oil Cap
+  66374     InvtPart      1       BO-PP-WPR                       Nemah - PP Wipers
+  4686      InvtPart      1       Bottle_Capsule + Capsule_Caps   Lemme - Capsule Bottle 160cc + CRC Cap
+  40850     InvtPart      1       Bottle_Capsule_B                Lemme - Capsule Bottle 160cc 
+  4586      InvtPart      1       Bottle_Gummy + Caps_Gummy       Lemme - Gummy Bottle 300cc + CRC Cap
+  1004      InvtPart      1       Bottle_Tincture + Caps_Tincture  Lemme - 1oz Tincture Bottle + Cap
+  52758     InvtPart      1       BREAD-BOTTLE-26                 Bread - Hair Gel Airlessio Bottle
+  52759     InvtPart      1       BREAD-CAP-26                    Bread - Hair Gel Airlessio Bottle Cap + Pump
+  14322     InvtPart      64      C447-0001                       Guide Beauty - GB BRW MED - GB BTM LBL BROW MOMENT MEDIUM 
+  14323     InvtPart      64      C447-00014                      Guide Beauty -  GB BRW LIGHT - GB BTM LBL BROW MOMENT LIGHT 
+  14324     InvtPart      64      C447-00016                      Guide Beauty - GB BRW DARK - GB BTM LBL BROW MOMENT DARK
+  1770      InvtPart      1       Capsules_Caps_ CR               Lemme - Capsule CRC Cap 
+  22748     InvtPart      10      Carton_Capsule _Burn_v02        Lemme - Burn Capsule UC (160cc)
+  46154     InvtPart      10      Carton_Capsule _Burn_v03        Lemme - Burn Capsule UC (160cc) 
+  6392      InvtPart      10      Carton_Capsule_Burn_v01         Lemme - Burn Capsule UC (160cc) 
+  61087     InvtPart      10      Carton_Capsule_Burn_v04         Lemme - Burn Capsule UC (160cc) 
+  63921     InvtPart      10      Carton_Capsule_Burn_v05         Lemme - Burn Capsule UC v5 (160cc)
+  6293      InvtPart      10      Carton_Capsule_Curb_v01         Lemme - Curb Capsule UC (160cc)
+  13121     InvtPart      10      Carton_Capsule_Curb_v02         Lemme - Curb Capsule UC (160cc)
+  24548     InvtPart      10      Carton_Capsule_Curb_v03         Lemme - Curb Capsule UC (160cc) 
+  57733     InvtPart      10      Carton_Capsule_Curb_v04         Lemme - Curb Capsule v4 UC (160cc)
+  63221     InvtPart      10      Carton_Capsule_Curb_v05         Lemme - Curb Capsule v5 UC (160cc)
+  6494      InvtPart      10      Carton_Capsule_Debloat_v01      Lemme - Debloat Capsule UC (160cc) 
+  13222     InvtPart      10      Carton_Capsule_Debloat_v02      Lemme - Debloat Capsule UC (160cc) 
+  46155     InvtPart      10      Carton_Capsule_Debloat_v03      Lemme - Debloat Capsule UC (160cc) 
+  48854     InvtPart      10      Carton_Capsule_GLP-1 Daily_v01  Lemme - GLP-1 Daily Capsule UC (160cc)
+  53659     InvtPart      10      Carton_Capsule_GLP-1 Daily_v02  Lemme - GLP-1 Daily Capsule UC v02 (160cc) 
+  54287     InvtPart      10      Carton_Capsule_GLP-1 Daily_v03  Lemme - GLP-1 Daily Capsule UC v03 (160cc) 
+  62010     InvtPart      10      Carton_Capsule_GLP-1 Daily_v04  Lemme - GLP-1 Daily Capsule UC v04 (160cc)
+  50255     InvtPart      10      Carton_Capsule_Grow_v01         Lemme - Grow Capsule UC
+  62511     InvtPart      10      Carton_Capsule_Grow_v01.1       Lemme - Grow Capsule UC v1.1
+  2968      InvtPart      10      Carton_Capsule_Mama_v01         Lemme - Mama Capsule UC
+  6492      InvtPart      10      Carton_Capsule_Purr_v01         Lemme - Purr Capsule UC (160cc) 
+  13221     InvtPart      10      Carton_Capsule_Purr_v02         Lemme - Purr Capsule UC (160cc) 
+  49855     InvtPart      10      Carton_Capsule_Purr_v03         Lemme - Purr Capsule UC (160cc)
+  58840     InvtPart      10      Carton_Capsule_Purr_v04         Lemme - Purr Capsule UC v04 (160cc) 
+  34549     InvtPart      10      Carton_Capsule_Smooth_v01       Lemme - Smooth Capsule UC (160cc)  
+  46254     InvtPart      10      Carton_Capsule_Smooth_v02       Lemme - Smooth Capsule UC (160cc)   
+  995       InvtPart      10      Carton_Tincture_PMS_v01         Lemme - PMS Tincture UC
+  1003      InvtPart      10      Carton_Tincture_Sea_v01         Lemme - Seamoss Tincture UC
+  12921     InvtPart      10      Carton_Tincture_Sea_v02         Lemme - Seamoss Tincture UC
+  33549     InvtPart      10      Carton_Tincture_Sea_v03         Lemme - Seamoss Tincture UC
+  1054      InvtPart      10      CBBM-UC-R2                      City Beauty Beyond Mascara Volumizing Treatment
+  1000      InvtPart      10      CBLIDLT-UC-R2                   City Beauty Lid Lifting Treatment UC
+  1072      InvtPart      10      CBLP-UC-R3                      City Beauty City Lips Folding Unit Carton
+  999       InvtPart      10      CBLP-UC-R5                      City Beauty City Lips UC
+  1056      InvtPart      10      CBLPMT-UC-R3                    City Beauty City Lips Matte Unit Carton
+  1055      InvtPart      10      CBNO-UC-R1                      City Beauty City Lips Night Oil Unit Carton
+  31857     InvtPart      10      Chews PR Box                    Lemme - Chews PR Box
+  67875     InvtPart      1       CIRQADIAN-Bottle100ml-AM        CIRQADIAN - Away Message 100mL Bottle
+  68075     InvtPart      1       CIRQADIAN-Bottle100ml-BS        CIRQADIAN - Brain Stems 100mL Bottle 
+  68076     InvtPart      1       CIRQADIAN-Bottle100ml-GA        CIRQADIAN - Good Anjou 100mL Bottle  
+  67879     InvtPart      1       CIRQADIAN-Bottle10ml-AM         CIRQADIAN - Away Message 10mL Bottle 
+  68077     InvtPart      1       CIRQADIAN-Bottle10ml-BS         CIRQADIAN - Brain Stems 10mL Bottle 
+  68078     InvtPart      1       CIRQADIAN-Bottle10ml-GA         CIRQADIAN - Good Anjou 10mL Bottle 
+  72139     InvtPart      -       Cirqadian-BS                    Cirqadian - Brain Stems 100ml (FG) 
+  67876     InvtPart      1       CIRQADIAN-Cap100ml              CIRQADIAN - 100mL Cap
+  67878     InvtPart      1       CIRQADIAN-Cap10ml               CIRQADIAN - 10mL Cap 
+  73004     InvtPart      42      CIRQADIAN-FG                    CIRQADIAN - TURNKEY
+  72140     InvtPart      -       Cirqadian-RS                    Cirqadian - The Ritual Set (FG)
+  67975     InvtPart      1       CIRQADIAN-Sprayer100ml          CIRQADIAN - 100mL Sprayer
+  67877     InvtPart      1       CIRQADIAN-Sprayer10ml           CIRQADIAN - 10mL Sprayer 
+  7393      InvtPart      1       CN022300                        Sol de Janeiro - Rio Radiance SPF Body Spray 200ml, V1
+  7392      InvtPart      1       CN028700                        Sol de Janeiro - Rio Radiance SPF Body Spray 200ml EU
+  26248     InvtPart      1       CO-BOTTLE                       Iris and Romeo - Creamy Oil Glow Activator Serum Bottle
+  26249     InvtPart      1       CO-BOTTLE-Trial                 Iris and Romeo - Creamy Oil Glow Activator Serum Bottle Line
+  26250     InvtPart      1       CO-CAP                          Iris and Romeo - Creamy Oil Glow Activator Serum Overcap
+  26251     InvtPart      1       CO-PUMP                         Iris and Romeo - Creamy Oil Glow Activator Serum Pump
+  1009      InvtPart      10      COR-0001                        Corrugated Shipper
+  1002      InvtPart      10      COR-0002                        Corrugated Display
+  1010      InvtPart      10      COR-0003                        Corrugated Insert
+  70628     InvtPart      173     CQRW.AWYMSG100ML                Cirqadian - Raw Materials, Away Message 100ml
+  70631     InvtPart      173     CQRW.AWYMSG10ML                 Cirqadian - Raw Materials, Away Message 10ml 
+  70629     InvtPart      173     CQRW.BRNSTMS100ML               Cirqadian - Raw Materials, Brain Stems 100ml
+  70632     InvtPart      173     CQRW.BRNSTMS10ML                Cirqadian - Raw Materials, Brain Stems 10ml 
+  70630     InvtPart      173     CQRW.GDANJ100ML                 Cirqadian - Raw Materials, Good Anjou 100ml
+  70633     InvtPart      173     CQRW.GDANJ10ML                  Cirqadian - Raw Materials, Good Anjou 10ml 
+  71028     NonInvtPart   42      CRQ-100MLCOPACK                 Cirqadian - 100ml Blend/Fill
+  70830     InvtPart      10      CRQ-100MLUC-BS                  Cirqadian - Brain Stems 100ml Unit Carton
+  71128     InvtPart      10      CRQ-100mlUC-Liner               Cirqadian - 100ml UC Liner
+  71029     NonInvtPart   42      CRQ-10MLCOPACK                  Cirqadian - 10ml Fill/Blend
+  70928     InvtPart      10      CRQ-DISCOVERYUC                 Cirqadian - 10ml Discovery Unit Cartons
+  72036     InvtPart      10      CRQ-DTC-Insert                  Cirqadian - DTC Insert
+  71936     InvtPart      10      CRQ-DTC-Shipper                 Cirqadian - DTC Shipper
+  70931     InvtPart      10      CRQ-PRBoxes                     Cirqadian - 3 Bottle PR/Gifting Kit
+  73348     InvtPart      10      CRQ-Shipper-Card                Cirqadian - Shipper Cards
+  56221     InvtPart      -       CS-WSLIP-01                     Iris & Romeo - Weekend Skin Lip Shade Label
+  56222     InvtPart      -       CS-WSLIP-02                     Iris & Romeo - Weekend Skin Lip Shade Label 
+  56223     InvtPart      -       CS-WSLIP-03                     Iris & Romeo - Weekend Skin Lip Shade Label
+  29849     InvtPart      10      CY048000                        Sol de Janeiro - Discovery Cream Trio '25
+  65930     InvtPart      10      CY117900                        Cylinder, Body Cream, Discovery Set '26
+  5388      InvtPart      1       DBWH-04OZ                       Roman Health - Women's Hair Loss White 4oz
+  5387      InvtPart      1       DDHL-010LA                      Roman Health - Women's Hair Loss Dropper 
+  68284     InvtPart      173     DPS- CFM-Fl10                   Covert for Men- Floramac 10, 16kg bag
+  31686     InvtPart      10      DPS-000-1001                    000 Media - Slipcase
+  9594      InvtPart      58      DPS-1001                        DPS - Canvas Tote
+  1080      InvtPart      10      DPS-AC-RB2023-1                 Holiday Rigid Box - 2023
+  52458     InvtPart      10      DPS-ALI-1001                    Alinea - Welcome Box
+  61610     InvtPart      10      DPS-ATM-1001                    ATM Collection - Stickers
+  61710     InvtPart      10      DPS-ATM-1002                    ATM Collection - Tissue Paper 
+  61810     InvtPart      10      DPS-ATM-1003                    ATM Collection - Small Paper Shopping Bags
+  61910     InvtPart      10      DPS-ATM-1004                    ATM Collection - Medium Paper Shopping Bags 
+  61811     InvtPart      10      DPS-ATM-1005                    ATM Collection - Large Paper Shopping Bags  
+  62110     InvtPart      58      DPS-ATM-1006                    ATM Collections - Garment Neck Tag (S)
+  62210     InvtPart      58      DPS-ATM-1007                    ATM Collections - Garment Neck Tag (M) 
+  62111     InvtPart      58      DPS-ATM-1008                    ATM Collections - Garment Neck Tag (L) 
+  62310     InvtPart      10      DPS-ATM-1009                    ATM Collections - Hang Tag Set 
+  63321     InvtPart      58      DPS-ATM-1010                    ATM Collections - Garment Neck Tag (XS) 
+  63322     InvtPart      58      DPS-ATM-1011                    ATM Collections - Garment Neck Tag (XL)
+  63334     InvtPart      58      DPS-ATM-1012                    ATM Collections - Garment Neck Tag (XXL)
+  63323     InvtPart      58      DPS-ATM-1013                    ATM Collections - Garment Neck Tag (28)
+  63421     InvtPart      58      DPS-ATM-1014                    ATM Collections - Garment Neck Tag (30)
+  63324     InvtPart      58      DPS-ATM-1015                    ATM Collections - Garment Neck Tag (32) 
+  63325     InvtPart      58      DPS-ATM-1016                    ATM Collections - Garment Neck Tag (34)
+  63326     InvtPart      58      DPS-ATM-1017                    ATM Collections - Garment Neck Tag (36) 
+  63327     InvtPart      58      DPS-ATM-1018                    ATM Collections - Garment Neck Tag (38) 
+  63328     InvtPart      58      DPS-ATM-1019                    ATM Collections - Garment Neck Tag (0) 
+  63329     InvtPart      58      DPS-ATM-1020                    ATM Collections - Garment Neck Tag (2) 
+  63330     InvtPart      58      DPS-ATM-1021                    ATM Collections - Garment Neck Tag (4) 
+  63331     InvtPart      58      DPS-ATM-1022                    ATM Collections - Garment Neck Tag (6) 
+  63521     InvtPart      58      DPS-ATM-1023                    ATM Collections - Garment Neck Tag (8) 
+  63332     InvtPart      58      DPS-ATM-1024                    ATM Collections - Garment Neck Tag (10)
+  63333     InvtPart      58      DPS-ATM-1025                    ATM Collections - Garment Neck Tag (12) 
+  63723     InvtPart      58      DPS-ATM-1026                    ATM Collections - Garment Neck Tag (40) 
+  63721     InvtPart      58      DPS-ATM-1027                    ATM Collections - Garment Neck Tag (42) 
+  63722     InvtPart      58      DPS-ATM-1028                    ATM Collections - Garment Neck Tag (44) 
+  1079      InvtPart      1       DPS-BKN-CAP-1                   Beekeepers Naturals - 24/410 Ribbed PP Cap
+  66476     InvtPart      1       DPS-BOTTLE-0001                  Primary - Bottle
+  68279     InvtPart      173     DPS-CFM- RIO                    Covert for Men- RED IRON OXIDE (Y) CP-82001
+  52959     InvtPart      10      DPS-CFM-1001                    Covert For Men - Unit Carton
+  53058     InvtPart      1       DPS-CFM-1002                    Covert For Men - Tubes
+  53359     InvtPart      10      DPS-CFM-1003                    Covert for Men - Sticker Labels
+  57851     InvtPart      173     DPS-CFM-1004                    Covert for Men - Raw Materials
+  53459     InvtPart      10      DPS-CFM-1005                    Covert for Men - Wafer Seals
+  68282     InvtPart      173     DPS-CFM-BAW                     Covert For Men- Behenic Acid Wax CS-55.1156lb
+  68377     InvtPart      173     DPS-CFM-BIO                     Covert for Men- BROWN IRON (M) OXIDE CP-88002
+  68477     InvtPart      173     DPS-CFM-EUTANOLG                Covert for Men- Eutanol G, 165kg drum
+  68277     InvtPart      173     DPS-CFM-KCW                     Covert for Men- KAOLIN WHITE CLAY
+  68281     InvtPart      173     DPS-CFM-OPP                     Covert for Men- Optiphen Plus Preservative 8lb bag
+  68283     InvtPart      173     DPS-CFM-Ozokerite               Covert For Men- Ozokerite 164/171 Wax 292P- 25kg box
+  68577     InvtPart      173     DPS-CFM-SOL                     Covert for Men-SOLINE
+  68280     InvtPart      173     DPS-CFM-Sunflower Wax           Covert for Men- Sunflower Wax
+  68777     InvtPart      173     DPS-CFM-TD                      Covert for Men- KRONOS 3333  TITANIUM DIOXIDE. 44lb bag
+  68278     InvtPart      173     DPS-CFM-TIO                     Covert for Men- Tan Iron Oxide CP-1002
+  68677     InvtPart      173     DPS-CFM-VITC                    Covert for Men-Vitamin C (TETRAHEXYLDECYL ASCORBATE)
+  68285     InvtPart      173     DPS-CFM-ZCOTE                   Covert for Men- Zinc Oxide Micronized, 10kg bag
+  1082      InvtPart      10      DPS-CONL-RB-1                   Concha Labs - Rigid Box & Sleeve
+  17833     InvtPart      10      DPS-DPS-1001                    DPS - MULA Bath Salts
+  1069      InvtPart      10      DPS-DRSQ-1002                   Dr. Squatch - Avengers - Rigid Box
+  1078      InvtPart      10      DPS-DRSQ-1003                   Dr. Squatch - Cologne Spray
+  4485      InvtPart      64      DPS-DRSQ-1004                   Dr. Squatch - Cover Up Barcode Label
+  70528     InvtPart      1       DPS-EJ-1001                     Emi Jay - 22mm x 1.0mm PE Gasket
+  36349     InvtPart      10      DPS-EL-1001                     Extract Labs – Muscle & Recovery Lotion Sachet
+  59959     InvtPart      10      DPS-EL-1002                     Extract Labs - Muscle Extract Sachet w/ Filling 
+  3671      InvtPart      64      DPS-ELE-1001                    Elevate WAV - Hybrid Cherry Slushie 1/8th Flower Jar Label
+  3673      InvtPart      64      DPS-ELE-1002                    Elevate - WAV Lemon Cherry Gelato Hybrid 1/8th Flower Jar La
+  3674      InvtPart      64      DPS-ELE-1003                    Elevate - WAV Skittles Hybrid 1/8th Flower Jar Label
+  3672      InvtPart      64      DPS-ELE-1004                    Elevate - WAV Blackberry Kush Indica 1/8th Flower Jar Label
+  3675      InvtPart      64      DPS-ELE-1005                    Elevate - WAV Frosted Rainbow Cereal Indica 1/8th Flower Jar
+  3676      InvtPart      64      DPS-ELE-1006                    Elevate - WAV Grape Soda Indica 1/8th Flower Jar Label
+  3677      InvtPart      64      DPS-ELE-1007                    Elevate - WAV Blue Dream Sativa 1/8th Flower Jar Label
+  3678      InvtPart      64      DPS-ELE-1008                    Elevate - WAV Durban Poison Sativa 1/8th Flower Jar Label
+  3771      InvtPart      64      DPS-ELE-1009                    Elevate - WAV Live Soil Sour Diesel Sativa 1/8th Flower Jar 
+  3772      InvtPart      64      DPS-ELE-1010                    Elevate - WAV Live Soil Gelinade Hybrid 1/8th Flower Jar Lab
+  3773      InvtPart      64      DPS-ELE-1011                    Elevate - WAV Live Soil Lemon Cherry Gelato Hybrid 1/8th Flo
+  3872      InvtPart      64      DPS-ELE-1012                    Elevate - WAV Live Soil Skittlez Cube Hybrid 1/8th Flower Ja
+  3774      InvtPart      64      DPS-ELE-1013                    Elevate - WAV Live Soil Grand Daddy Pluto Indica 1/8th Flowe
+  3775      InvtPart      64      DPS-ELE-1014                    Elevate - WAV Live Soil Sherb Cream Pie Indica 1/8th Flower 
+  3776      InvtPart      64      DPS-ELE-1015                    Elevate - WAV Live Soil Zushi Indica 1/8th Flower Jar Label
+  4082      InvtPart      64      DPS-ELE-1016                    Elevate - WAV Live Soil Purple Zushi Hybrid 1/8th Flower Jar
+  4083      InvtPart      64      DPS-ELE-1017                    Elevate - WAV Live Soil Black Cherry Gelato Hybrid 1/8th Flo
+  5087      InvtPart      64      DPS-ELE-1018                    Elevate - Version 1 Dizzies Sticker
+  5088      InvtPart      64      DPS-ELE-1019                    Elevate - Version 2 Dizzies Sticker
+  5187      InvtPart      64      DPS-ELE-1020                    Elevate - Version 3 Dizzies Sticker
+  5089      InvtPart      64      DPS-ELE-1022                    Elevate - Version 5 Dizzies Sticker
+  5090      InvtPart      64      DPS-ELE-1023                    Elevate - Version 6 Dizzies Sticker
+  5091      InvtPart      64      DPS-ELE-1024                    Elevate - Version 7 Dizzies Sticker
+  5092      InvtPart      64      DPS-ELE-1025                    Elevate - Version 8 Dizzies Sticker
+  5093      InvtPart      64      DPS-ELE-1026                    Elevate - Version 9 Dizzies Sticker
+  5096      InvtPart      64      DPS-ELE-1027                    Elevate - Version 10 Dizzies Sticker
+  5097      InvtPart      64      DPS-ELE-1028                    Elevate - Version 11 Dizzies Sticker
+  5098      InvtPart      64      DPS-ELE-1029                    Elevate - Version 12 Dizzies Sticker
+  5094      InvtPart      64      DPS-ELE-1030                    Elevate - Version 13 Dizzies Sticker
+  5095      InvtPart      64      DPS-ELE-1031                    Elevate - Version 14 Dizzies Sticker
+  5100      InvtPart      64      DPS-ELE-1032                    Elevate - Version 15 Dizzies Sticker
+  5099      InvtPart      64      DPS-ELE-1033                    Elevate - Version 16 Dizzies Sticker
+  5287      InvtPart      64      DPS-ELE-1034                    Elevate - Version 17 Dizzies Sticker
+  5104      InvtPart      64      DPS-ELE-1035                    Elevate - Version 18 Dizzies Sticker
+  5102      InvtPart      64      DPS-ELE-1036                    Elevate - Version 19 Dizzies Sticker
+  5103      InvtPart      64      DPS-ELE-1037                    Elevate - Version 20 Dizzies Sticker
+  5101      InvtPart      64      DPS-ELE-1038                    Elevate - Version 21 Dizzies Sticker
+  5188      InvtPart      64      DPS-ELE-1039                    Elevate - Version 22 Dizzies Sticker
+  5105      InvtPart      64      DPS-ELE-1040                    Elevate - Version 23 Dizzies Sticker
+  5107      InvtPart      64      DPS-ELE-1041                    Elevate - Version 24 Dizzies Sticker
+  5108      InvtPart      64      DPS-ELE-1042                    Elevate - Version 25 Dizzies Sticker
+  5106      InvtPart      64      DPS-ELE-1043                    Elevate - Version 26 Dizzies Sticker
+  8595      InvtPart      1       DPS-ELE-1044                    Elevate - Huxley's 60ml Blue Cap + Clear PET Bottle 
+  8596      InvtPart      1       DPS-ELE-1045                    Elevate - Huxley's 60ml Green Cap + Clear PET Bottle
+  8597      InvtPart      1       DPS-ELE-1046                    Elevate - Huxley's 60ml Yellow Cap + Clear PET Bottle
+  8594      InvtPart      1       DPS-ELE-1047                    Elevate - Huxley's 60ml Red Cap + Clear PET Bottle
+  1071      InvtPart      1       DPS-ELE-CAP-1                   Elevate - 10 Caps 60ml Clear Plastic Bottle Colored Caps
+  1089      InvtPart      64      DPS-ELE-COA-1                   Elevate - Coalition 10 Caps Bottle Label (Canadian Bottle)
+  1086      InvtPart      64      DPS-ELE-COA-CRB-1               Coalition CR Bag Batch Code Label Direct Thermal
+  1090      InvtPart      10      DPS-ELE-CS-1                    Elevate - 30ct Case Shipper
+  1077      InvtPart      10      DPS-ELE-UC-1                    Elevate - Cigarette Box
+  1087      InvtPart      58      DPS-ES-1001                     Eyeshadow Stick
+  2868      InvtPart      10      DPS-FACE-1001                   Facetory - Mini Album SLBTT UC
+  60061     InvtPart      1       DPS-FAN-1001                    Fanny - Polyfoil Tubes
+  60062     InvtPart      10      DPS-FAN-1002                    Fanny - Bum Butter UC
+  993       InvtPart      10      DPS-FFF-SCR-1                   Scratch Off Cards
+  66174     InvtPart      10      DPS-FILL-0001                   Custom Dunnage
+  3468      InvtPart      10      DPS-FRE-1001                    Freck Beauty - Magnetic Foldover Rigid Box with Drawer, Pape
+  48455     InvtPart      1       DPS-HG-1001                     Hugh & Grace - Matte Bottle w/ Pump (Black)
+  48454     InvtPart      1       DPS-HG-1002                     Hugh & Grace - Matte Bottle w/ Pump (White)
+  47754     InvtPart      10      DPS-HURR-1001                   Hurr - 3pc Unit Carton Set
+  66775     InvtPart      1       DPS-JAR-1001                    Primary - Jar
+  2368      InvtPart      1       DPS-JAR-1036                    Kitsch - Dry Shampoo 
+  2168      InvtPart      1       DPS-JAR-1041                    Elevate Glass Jar w/ CRC Cap 3oz
+  25168     InvtPart      1       DPS-JAR-1044                    Kitsch - Dry Shampoo
+  25048     InvtPart      1       DPS-JAR-1045                    Kitsch - Dry Shampoo
+  1037      InvtPart      10      DPS-JLF-CRBL-1                  Centerpiece Round Box Liner
+  1027      InvtPart      10      DPS-JLF-GRBL-1                  Grandiose Round Box Liner
+  1042      InvtPart      10      DPS-JLF-JBL-1                   Jumbo Box Liner
+  1032      InvtPart      10      DPS-JLF-LHBL-1                  Large Heart Box Liner
+  1036      InvtPart      10      DPS-JLF-LRBL-1                  Large Round Box Liner
+  1028      InvtPart      10      DPS-JLF-LRL-1                   Long Rectangle Liner
+  1046      InvtPart      10      DPS-JLF-LSBL-1                  Large Square Box Liner
+  1033      InvtPart      10      DPS-JLF-MHBL-1                  Medium Heart Box Liner
+  10399     InvtPart      10      DPS-JLF-MRBB-1                  JLF - Medium Round Box Black
+  1038      InvtPart      10      DPS-JLF-MRBL-1                  Medium Round Box Liner
+  10398     InvtPart      10      DPS-JLF-MRBP-1                  JLF - Medium Round Box Pink
+  10397     InvtPart      10      DPS-JLF-MRBSW-1                 JLF - Medium Round Box Signature White
+  1041      InvtPart      10      DPS-JLF-MSBL-1                  Medium Square Box Liner
+  1044      InvtPart      10      DPS-JLF-SLCRBL-1                Small Low Centerpiece Round Box Liner
+  63115     InvtPart      1       DPS-JOOP-1001                   Joop Skincare - 1oz Amber Glass Bottle 
+  63116     InvtPart      1       DPS-JOOP-1002                   Joop Skincare - Black Boston Round Cap with 75mm Pipette
+  63117     InvtPart      10      DPS-JOOP-1003                   Joop Skincare - Label
+  57338     InvtPart      1       DPS-JOYMODE-1001                Joymode - 200ml PET Jar
+  57339     InvtPart      1       DPS-JOYMODE-1002                Joymode - 200ml Cap
+  57340     InvtPart      1       DPS-JOYMODE-1003                Joymode - 600ml PET Jar
+  57341     InvtPart      1       DPS-JOYMODE-1004                Joymode - 600ml Cap
+  57633     InvtPart      1       DPS-JOYMODE-1005                Joymode - 18cc Scooper
+  1085      InvtPart      10      DPS-JSC-PAL-1                   Cotton Candy Palette
+  1034      InvtPart      10      DPS-JSC-PAL-2                   Summer eyeshadow palette
+  58537     InvtPart      1       DPS-KIALA-1001                  Kiala - Powder Replacement Lids
+  58538     InvtPart      1       DPS-KIALA-1002                  Kiala - PP Custom CRC Lid + Seal
+  58539     InvtPart      1       DPS-KIALA-1003                  Kiala - Custom PET 350ml Bottle
+  60559     InvtPart      58      DPS-KIALA-1004                  Kiala - 14.8cc Scoops
+  61210     InvtPart      10      DPS-KIALA-1005                  Kiala - Watermelon Slush Shrink Sleeves
+  61310     InvtPart      10      DPS-KIALA-1006                  Kiala - Tropical Splash Shrink Sleeves
+  61212     InvtPart      10      DPS-KIALA-1007                  Kiala - Miami Vice Shrink Sleeves
+  61211     InvtPart      10      DPS-KIALA-1008                  Kiala - Mixed Berry Shrink Sleeves
+  61311     InvtPart      10      DPS-KIALA-1009                  Kiala - Carnival Candy - Shrink Sleeves
+  64327     InvtPart      -       DPS-KIALA-1010                  Kiala - Gummy Jar Label
+  2270      InvtPart      1       DPS-KIT-1001                    Kitsch - 8oz Aluminum Bottle with 30% PCR Sprayer
+  22848     InvtPart      10      DPS-KUJU-1001                   Kuju - Cloud Creamer Film (Pure & Unsweetened)
+  22849     InvtPart      10      DPS-KUJU-1002                   Kuju - Cloud Creamer Film (Vanilla Cream)
+  1022      InvtPart      10      DPS-LEM-1011                    Lemme - 1pc Capsule Bottle PR Box
+  1025      InvtPart      10      DPS-LEM-1012                    Lemme - 2pc Capsule PR Box
+  42751     InvtPart      10      DPS-LMER-1001                   La Mer - PR Box with TOA Insert
+  42654     InvtPart      10      DPS-LMER-1002                   La Mer - PR Box without TOA Insert
+  42651     InvtPart      10      DPS-LMER-1003                   La Mer - Velvet Drawstring Bag
+  42653     InvtPart      10      DPS-LMER-1004                   La Mer - Shipping Carton 
+  42771     InvtPart      10      DPS-LMER-1005                   La Mer - Kraft Dunnage Paper
+  33454     InvtPart      1       DPS-LOOV-1001                   LOOV - Cleanse 80ml Foam Pump
+  33456     InvtPart      1       DPS-LOOV-1002                   LOOV - Heal 30ml Tube 
+  33458     InvtPart      1       DPS-LOOV-1003                   LOOV - Restore 75ml Tube 
+  33457     InvtPart      1       DPS-LOOV-1004                   LOOV - Shield 75ml Tube 
+  4185      InvtPart      58      DPS-MOT-1001                    Motivated - 100g Tyvek Bag
+  12020     InvtPart      10      DPS-MYTH-1001                   Mythologie - General Fantasy Candle UC
+  7492      InvtPart      10      DPS-NEC-1001                    Necessaire - 2023 Holiday Gift Printed Shipper + Insert
+  7493      InvtPart      10      DPS-NEC-1003                    Necessaire - 2023 Holiday Gift Shipper Packout
+  55904     InvtPart      10      DPS-OS-1001                     Off Season - PR Box
+  62812     InvtPart      10      DPS-OS-1002                     Off Season - RTW Gifting Box
+  2668      InvtPart      10      DPS-OUT-1001                    Outset - Gift Bag 8 x 10
+  6692      InvtPart      1       DPS-P231008                     theDPS - 100ml PET JAR w/ Cap + Liner 
+  73046     InvtPart      42      DPS-PCW-1001                    Perfect Coffee Water - Line Trial
+  48954     InvtPart      1       DPS-PE-1001                     Pretty Evil - Horrorwood Palette
+  49054     InvtPart      10      DPS-PE-1002                     Pretty Evil - Horrorwood Palette UC
+  49154     InvtPart      1       DPS-PE-1003                     Pretty Evil - Liquid Lipstick Vial
+  49055     InvtPart      10      DPS-PE-1004                     Pretty Evil - Liquid Lipstick Vial UC
+  49254     InvtPart      1       DPS-PE-1005                     Pretty Evil - Pomade Jar
+  49056     InvtPart      10      DPS-PE-1006                     Pretty Evil - Pomade Jar UC
+  49155     InvtPart      1       DPS-PE-1007                     Pretty Evil - Eyeliner
+  49156     InvtPart      10      DPS-PE-1008                     Pretty Evil - Eyeliner UC
+  67275     InvtPart      10      DPS-PE-1009                     Pretty Evil - Healing Hell Tattoo Balm Unit Carton
+  67276     InvtPart      1       DPS-PE-1010                     Pretty Evil - Healing Hell Tattoo Balm Tube
+  67375     InvtPart      10      DPS-PE-1011                     Pretty Evil - Beard Cream UC
+  67376     InvtPart      1       DPS-PE-1012                     Pretty Evil - Beard Cream Tube
+  59759     InvtPart      1       DPS-PEL-1001                    Pelotan - 6oz Bottle
+  59760     InvtPart      1       DPS-PEL-1002                    Pelotan - 4oz Bottle
+  59859     InvtPart      1       DPS-PEL-1003                    Pelotan - Sprayer
+  59761     InvtPart      1       DPS-PEL-1004                    Pelotan - 2oz Roll-on Bottle
+  59762     InvtPart      10      DPS-PEL-1005                    Pelotan - DFU 12.5 x 10
+  59763     InvtPart      10      DPS-PEL-1006                    Pelotan - Aftersun 100ml UC
+  59860     InvtPart      10      DPS-PEL-1007                    Pelotan - Aftersun 200ml UC
+  59764     InvtPart      10      DPS-PEL-1008                    Pelotan - Roll on Label
+  59861     InvtPart      10      DPS-PEL-1009                    Pelotan - 200ml Label
+  59765     InvtPart      10      DPS-PEL-1010                    Pelotan - 100ml Label
+  59659     InvtPart      10      DPS-PP-1001                     Petite Plume - Tissue
+  59660     InvtPart      10      DPS-PP-1002                     Petite Plume - Sticker Seal
+  65730     InvtPart      58      DPS-PPS-1248                    1. DPS-PPS-1248
+  50055     InvtPart      10      DPS-PV-1001                     Pura Vida - Small Mailers 6.75 x 9.2 x 2
+  50155     InvtPart      10      DPS-PV-1002                     Pura Vida - Medium Mailers 14 x 17 x 2
+  50156     InvtPart      10      DPS-PV-1003                     Pura Vida - Large Mailers 18 x 20 x 2
+  16223     InvtPart      10      DPS-REJ-1001                    Rejuvica - RETF Shippers
+  16323     InvtPart      10      DPS-REJ-1002                    Rejuvica - 2 Bottle Insert
+  16324     InvtPart      10      DPS-REJ-1003                    Rejuvica - 3 Bottle Insert 
+  9696      InvtPart      58      DPS-RMS-1001                    RMS - Cosmetic Bag
+  2468      InvtPart      10      DPS-SAS-1001                    Stronger and Stronger - Bracelet Rigid Box
+  44572     NonInvtPart   42      DPS-SFUEL-1001                  SFuels - ZONE 2 Pomegranate Acai Target
+  44270     NonInvtPart   42      DPS-SFUEL-1002                  SFuels - ZONE 2 Strawberry Lemonade Target 
+  44271     InvtPart      10      DPS-SFUEL-1003                  SFuels - ZONE 2 Pomegranate Acai Target Film
+  44379     InvtPart      10      DPS-SFUEL-1004                  SFuels - ZONE 2 Strawberry Lemonade Target Film 
+  1088      InvtPart      10      DPS-SNIF-RB-1                   SNIF - Dead Dino - Rigid Box
+  1091      InvtPart      10      DPS-SNIF-S-1                    SNIF - Dead Dino - Sleeve
+  1081      InvtPart      10      DPS-SNIF-UC-3                   SNIF - Strawberry Moon - Box (20023)
+  29249     NonInvtPart   42      DPS-SPJ-1001                    Smart Pressed Juice - Fill Sachet- Protein 25g
+  72958     InvtPart      42      DPS-SPJ-1002                    Smart Pressed Juice - Fill Sachet- Greens 8g
+  29253     NonInvtPart   42      DPS-SPJ-1003                    Smart Pressed Juice - Fill Sachet- Beets 5g 
+  29252     NonInvtPart   42      DPS-SPJ-1004                    Smart Pressed Juice - Fill Sachet- Pineapple 8g  
+  29255     NonInvtPart   42      DPS-SPJ-1005                    Smart Pressed Juice - 1 Day Cleanse 
+  72967     InvtPart      42      DPS-SPJ-1006                    Smart Pressed Juice - 3 Day Cleanse 
+  29349     NonInvtPart   42      DPS-SPJ-1007                    Smart Pressed Juice - 7 Day Cleanse  
+  57935     InvtPart      173     DPS-SPJ-1008                    Smart Pressed Juice - Protein Bulk
+  31449     NonInvtPart   173     DPS-SPJ-1009                    Smart Pressed Juice - Greens Bulk 
+  31451     NonInvtPart   173     DPS-SPJ-1010                    Smart Pressed Juice - Beets Bulk  
+  57936     InvtPart      173     DPS-SPJ-1011                    Smart Pressed Juice - Pineapple Fiber Bulk  
+  56732     InvtPart      10      DPS-SPJ-1012                    Smart Pressed Juice - Film  12x4 - Vanilla
+  56733     InvtPart      10      DPS-SPJ-1013                    Smart Pressed Juice - Film 12x3 - Greens
+  56734     InvtPart      10      DPS-SPJ-1014                    Smart Pressed Juice - Film 12x3 - Beets
+  56735     InvtPart      10      DPS-SPJ-1015                    Smart Pressed Juice - Film 12x3 - Pineapple
+  57032     InvtPart      58      DPS-SUP-1001                    Supreme - Sunglass Acrylic Display
+  33349     InvtPart      10      DPS-SWW-1001                    Sarah Wragge Wellness - Minerals Film
+  33350     InvtPart      10      DPS-SWW-1002                    Sarah Wragge Wellness - Minerals Pouches
+  72969     InvtPart      42      DPS-SWW-1003                    Sarah Wragge Wellness - Minerals FFS Tolling
+  33351     NonInvtPart   42      DPS-SWW-1004                    Sarah Wragge Wellness - Minerals Packout
+  33649     InvtPart      10      DPS-SWW-1005                    Sarah Wragge Wellness - Coffee Film
+  33749     InvtPart      10      DPS-SWW-1006                    Sarah Wragge Wellness - Coffee Pouches
+  33751     NonInvtPart   42      DPS-SWW-1007                    Sarah Wragge Wellness - Coffee FFS Tolling 
+  72971     InvtPart      42      DPS-SWW-1008                    Sarah Wragge Wellness - Coffee Packout 
+  33650     InvtPart      10      DPS-SWW-1009                    Sarah Wragge Wellness - Greens Film 
+  33752     InvtPart      10      DPS-SWW-1010                    Sarah Wragge Wellness - Greens Pouches 
+  72974     InvtPart      42      DPS-SWW-1011                    Sarah Wragge Wellness - Greens FFS Tolling  
+  72977     InvtPart      42      DPS-SWW-1012                    Sarah Wragge Wellness - Greens Packout  
+  35649     NonInvtPart   173     DPS-SWW-1013                    Sarah Wragge Wellness - Greens Raw Material
+  66075     InvtPart      10      DPS-TISSUE-0001                 Tissue
+  1869      InvtPart      1       DPS-TUBE-1021                   Bryght Deodorant Tube w/ PE Applicator 100ml
+  66074     InvtPart      10      DPS-UC-0001                     Unit Carton
+  66475     InvtPart      1       DPS-UPCHARGE-0001               Upcharge
+  55502     InvtPart      1       DPS-VER-1001                    Veracity - 40ml Glass Vial
+  55503     InvtPart      1       DPS-VER-1002                    Veracity - Stock Black Cap
+  38051     InvtPart      1       DPS-VOL-1001                    Volta - Glitter Pot
+  38050     InvtPart      10      DPS-VOL-1002                    Volta - Glitter Pot UC
+  38052     InvtPart      10      DPS-VOL-1003                    Volta - Glitter Pot UC
+  38150     InvtPart      1       DPS-VOL-1004                    Volta - Glitter Pot
+  9996      InvtPart      58      DPS-WL-1001                     White Label - RMS Cosmetic Bag
+  62913     InvtPart      -       DPS-WYN-1001                    Wyndzy - Labels
+  18434     InvtPart      10      DPS-YUNI-1001                   Yuni Beauty - Balancing Act Cream 
+  18435     InvtPart      10      DPS-YUNI-1002                   Yuni Beauty - Unscented Shower Sheets
+  11001     NonInvtPart   6       DS-0001                         Art Direction
+  11002     NonInvtPart   6       DS-0002                         Brand Guidelines
+  11003     NonInvtPart   6       DS-0003                         Copywriting
+  11004     NonInvtPart   6       DS-0004                         Identity System
+  11005     NonInvtPart   6       DS-0005                         Logo Design
+  11006     NonInvtPart   6       DS-0006                         Photography
+  11011     NonInvtPart   6       DS-0007                         Positioning
+  11010     NonInvtPart   6       DS-0008                         Website Design
+  72136     InvtPart      42      EPICURENMSK1                    Epicuren- Mask #1
+  72137     InvtPart      42      EPICURENMSK2                    Epicuren- Mask #2
+  71834     InvtPart      1       FBS-BOT-01                      Nemah - 150ml Firming Serum Bottle
+  73248     InvtPart      1       FBS-CAP-01                      Nemah - 150ml Firming Serum Cap/Pump
+  67575     NonInvtPart   42      FG-Booklet                      Tower 28 - Foundation Sample Booklet
+  72950     InvtPart      42      FILL-SEAL Caffeinated           Iconic Beauty - Form, Fill, and Seal Stickpacks Caffeinated
+  14724     NonInvtPart   42      FILL-SEAL Decaf                 Iconic Beauty - Form, Fill, and Seal Stickpacks Decaf
+  4389      NonInvtPart   60      FR-0001                         Domestic Freight
+  4390      NonInvtPart   60      FR-0002                         Air Freight
+  4388      NonInvtPart   60      FR-0003                         Fedex
+  4387      NonInvtPart   60      FR-0004                         Ocean Freight
+  4386      NonInvtPart   60      FR-0005                         UPS
+  4385      NonInvtPart   60      FR-0006                         Trucking
+  12431     NonInvtPart   60      FR-0007                         DDP
+  27250     InvtPart      1       FW50BTLABP                      Futurewise - 50ml Oval Airless Bottle 
+  27249     InvtPart      1       FW50PMPABP                      Futurewise - 50ml Oval Airless Pump
+  1049      InvtPart      276     G0081004                        Sol de Janeiro - Bum Bum Jet Set Insert Card
+  65830     NonInvtPart   61      HKSSHIPFEE                      HANKS Shipping
+  1070      InvtPart      276     IC005100                        Sol de Janeiro - Beija Flor Jet Set Insert Card (Old)
+  1467      NonInvtPart   66      IC016300                        Sol de Janeiro - Bom Dia Jet Set Insert Card (Global)
+  3368      InvtPart      276     IC027200                        Sol de Janeiro - Bum Bum Jet Set Insert Card
+  46355     InvtPart      276     IC033500                        Sol de Janeiro - Bum Bum Jet Set Insert Card v1 FSC Mix 
+  46356     InvtPart      276     IC033600                        Sol de Janeiro - Bom Dia Jet Set Insert Card v1 -FSC Mix 
+  43753     InvtPart      276     IC033700                        Sol de Janeiro - Beija Flor Jet Set Insert Card v1 FSC Mix 
+  3268      InvtPart      276     IC034700                        Sol de Janeiro - Beija Flor Jet Set Insert Card - 09.2023
+  8695      InvtPart      276     IC040300                        Sol de Janeiro - Delicia Drench Insert Card
+  55202     InvtPart      276     IC040301                        Sol de Janeiro - Delicia Drench Insert Card v2 - FSC Mix
+  24148     InvtPart      276     IC052600                        Sol de Janeiro - H24 Joia Hair Insert Card
+  60159     InvtPart      276     IC065500                        Sol de Janeiro - Bum Bum Jet Set Insert Card v1 - FSC Mix (F
+  60259     InvtPart      276     IC065600                        Sol de Janeiro - Bom Dia Jet Set Insert Card v1 - FSC Mix (F
+  60359     InvtPart      276     IC065700                        Sol de Janeiro - Beija Flor Jet Set Insert Card v1 - FSC Mix
+  60260     InvtPart      276     IC065800                        Sol de Janeiro - Delicia Drench Jet Set Insert Card v1 - FSC
+  67675     InvtPart      276     IC129400                        Sol De Janeiro - IC, Hydration '62 Jet Set
+  73448     InvtPart      276     IC146500                        Sol De Janeiro - IC, Hydration '39Jet Set
+  73555     InvtPart      276     IC146700                        Sol De Janeiro - IC, Hydration '48 Jet Set  
+  73554     InvtPart      276     IC146900                        Sol De Janeiro - IC, Hydration '68 Jet Set 
+  73449     InvtPart      276     IC164800                        Sol De Janeiro - IC, Hydration '68 Jet Set (FR)
+  73648     InvtPart      276     IC164900                        Sol De Janeiro - IC, Hydration '48 Jet Set (FR)  
+  73548     InvtPart      276     IC165000                        Sol De Janeiro - IC, Hydration '39 Jet Set (FR) 
+  57533     InvtPart      10      Insert Card                     Lemme - Insert Card
+  1083      InvtPart      10      Item #  20020                   SNIF - Tart Deco UC
+  58237     InvtPart      58      JSC-JSC-J1520-AC-MB-U-R-BK-0NA  JSC - Quilted Makeup Bag Black
+  58236     InvtPart      58      JSC-JSC-J1520-AC-MB-U-R-PK-0NA  JSC - Quilted Makeup Bag Pink
+  58238     InvtPart      58      JSC-JSC-J1521-AC-MB-U-R-BK-0NA  JSC - Faux Leather Snap Clip Bag Black
+  58239     InvtPart      58      JSC-JSC-J1521-AC-MB-U-R-PK-0NA  JSC - Faux Leather Snap Clip Bag Pink
+  1006      InvtPart      64      L-0001                          Labels
+  62611     InvtPart      -       L039                            Koby - Dog Probiotic Label
+  62711     InvtPart      -       L040                            Koby - Cat Probiotic Label 
+  34249     InvtPart      64      Label_Capsule_ Smooth_v01       Lemme - Smooth Capsule Label 
+  1161      InvtPart      64      Label_Capsule_Burn_v00          Lemme - Burn Capsule Label (150cc)
+  3070      InvtPart      64      Label_Capsule_Burn_v01          Lemme - Burn Capsule Label (160cc)
+  6294      InvtPart      277     Label_Capsule_Burn_v02          Lemme - Burn Capsule Label (160cc)
+  1162      InvtPart      64      Label_Capsule_Curb_v00          Lemme - Curb Capsule Label (150cc)
+  3168      InvtPart      64      Label_Capsule_Curb_v01          Lemme - Curb Capsule Label (160cc)
+  6292      InvtPart      64      Label_Capsule_Curb_v02          Lemme - Curb Capsule Label (160cc)
+  22648     InvtPart      64      Label_Capsule_Curb_v03          Lemme - Curb Capsule Label
+  6495      InvtPart      64      Label_Capsule_Debloat_v01       Lemme - Debloat Capsule Label (160cc) 
+  13022     InvtPart      64      Label_Capsule_Debloat_v02       Lemme - Debloat Capsule Label (160cc) 
+  2969      InvtPart      64      Label_Capsule_Mama_v01          Lemme - Mama Capsule Label (150cc)
+  3871      InvtPart      64      Label_Capsule_Mama_v02          Lemme - Mama Capsule Label (160cc) 
+  6493      InvtPart      64      Label_Capsule_Purr_v01          Lemme - Purr Capsule Label (160cc) 
+  13021     InvtPart      64      Label_Capsule_Purr_v02          Lemme - Purr Capsule Label (160cc) 
+  32849     InvtPart      64      Label_Gummy_ Chill_v03          Lemme - Chill Gummy Label 
+  33049     InvtPart      64      Label_Gummy_ Debloat_v03        Lemme - Debloat Gummy Label 
+  35950     InvtPart      64      Label_Gummy_ Debloat_v04        Lemme - Debloat Gummy Label 
+  32749     InvtPart      64      Label_Gummy_ Matcha_v03         Lemme - Matcha Gummy Label  
+  32949     InvtPart      64      Label_Gummy_ Sleep_v03          Lemme - Sleep Gummy Label 
+  22048     InvtPart      64      Label_Gummy_Caffeinate_v01      Lemme - Caffeinate Gummy Label
+  32449     InvtPart      64      Label_Gummy_Caffeinate_v02      Lemme - Caffeinate Gummy Label
+  2971      InvtPart      64      Label_Gummy_Chill_v01           Lemme - Chill Gummy Label
+  11616     InvtPart      64      Label_Gummy_Chill_v02           Lemme - Chill Gummy Label
+  1026      InvtPart      64      Label_Gummy_Debloat_v01         Lemme - Debloat Gummy Label
+  17440     InvtPart      64      Label_Gummy_Debloat_v02         Lemme - Debloat Gummy Label
+  2970      InvtPart      64      Label_Gummy_Focus_v01           Lemme - Focus Gummy Label
+  11517     InvtPart      64      Label_Gummy_Focus_v03           Lemme - Focus Gummy Label
+  3069      InvtPart      64      Label_Gummy_Glow_v01            Lemme - Glow Gummy Label
+  21948     InvtPart      64      Label_Gummy_Glow_v02            Lemme - Glow Gummy Label
+  994       InvtPart      64      Label_Gummy_Matcha_v01          Lemme - Matcha Gummy Label 
+  11518     InvtPart      64      Label_Gummy_Matcha_v02          Lemme - Matcha Gummy Label 
+  1023      InvtPart      64      Label_Gummy_Purr_v01            Lemme - Purr Gummy Label
+  17433     InvtPart      64      Label_Gummy_Purr_v02            Lemme - Purr Gummy Label
+  35949     InvtPart      64      Label_Gummy_Purr_v03            Lemme - Purr Gummy Label 
+  11519     InvtPart      64      Label_Gummy_Sleep_v02           Lemme - Sleep Gummy Label
+  3068      InvtPart      64      Label_Tincture_PMS_v01          Lemme - PMS Tincture Label
+  1005      InvtPart      64      Label_Tincture_Sea_v01          Lemme - Seamoss Tincture Label
+  11714     InvtPart      64      Label_Tincture_Sea_v02          Lemme - Seamoss Tincture Label
+  62612     InvtPart      10      LB024                           Koby - Dog Probiotic UC
+  62613     InvtPart      10      LB025                           Koby - Cat Probiotic UC 
+  52358     InvtPart      1       LC-TUBE                         Iris & Romeo - Lip Cocoon Tube 15ml: NOURISH
+  66575     InvtPart      1       LC-TUBE-02                      Iris & Romeo - Lip Cocoon Tube - 15ml: FREEDOM
+  66576     InvtPart      1       LC-TUBE-03                      Iris & Romeo - Lip Cocoon  Tube - 15ml: TRANQUIL
+  66675     InvtPart      1       LC-TUBE-04                      Iris & Romeo - Lip Cocoon  Tube - 15ml: SOLACE
+  7092      InvtPart      10      Lemme - 1 Bottle UC Capsule PR Bx  Lemme - 1 Bottle UC Capsule PR Box 
+  49555     InvtPart      1       Lemme - Custom Tin Pill Container  Lemme - Custom Tin Pill Container 
+  55602     InvtPart      10      Lemme - Fiber PR Box            Lemme - Fiber PR Box
+  58336     InvtPart      10      Lemme - Play PR Box             Lemme - Play PR Box
+  8292      InvtPart      10      Lemme - Sleep Gummy PR Box (Clock Design)  Lemme - Sleep Gummy PR Box
+  24048     InvtPart      64      Lemme - Sticker Sheets          Lemme - Sticker Sheet 3 Versions
+  60987     InvtPart      10      Lemme Immunity PR Box           Lemme - Immunity PR Box
+  59357     InvtPart      10      Lemme Wang - Corrugated Mailer  Lemme - Corrugated Mailer
+  59257     InvtPart      10      Lemme Wang - Corrugated Mailer Foam  Lemme - Polyethylene Foam
+  58637     InvtPart      10      Lemme Wang - Lollipop Flex Pkg Pouch  Lemme - Lollipop Flex Pouch
+  5692      InvtPart      10      LemmeGiftBags                   Lemme - Gift Bag
+  16422     InvtPart      58      LMH38-CLIP                      Blue Mercury - Hair Claw Clip
+  57133     InvtPart      10      LMH43-EC                        Blue Mercury - H25 Revive In Five Envelope Carton
+  57132     InvtPart      58      LMH43-HT                        Blue Mercury - H25 Revive in Five Hair Tie
+  53259     InvtPart      1       LO-Bottle                       Iris & Romeo - Lip Oil Bottle
+  53261     InvtPart      1       LO-WIPER                        Iris & Romeo - Lip Oil Wiper
+  72998     InvtPart      42      Lollipop Co-packing             Lemme - Lollipop Co-packing
+  47454     InvtPart      10      Lollipop PR Box                 Lemme - Lollipop PR Box
+  53260     InvtPart      1       LP-CAP                          Iris & Romeo - Lip Oil Cap
+  31774     InvtPart      10      lytepow-stick-film-M            LyteLine - Lyte Pow Film
+  49655     InvtPart      10      Magnet Sheet                    Lemme - Pill Container Magnet
+  5992      InvtPart      1       MAMH-ONSZ                       Roman Health - Men's Hair Loss Sprayer
+  49455     InvtPart      1       MAMH-ONSZ-V2                    Roman Health - Men's Hair Loss Sprayer 0.12cc
+  63821     InvtPart      1       MBMH-04OZ-V2                    Roman Health - Men's Hair Loss Bottle Black 4oz v2 Mane Spra
+  56621     NonInvtPart   42      MF-PT00106-Blend/Fill           Moon Juice - Sleepy Magnesi-Om Blend/Fill/Packout
+  57233     NonInvtPart   42      MF-PT00106-Fill                 Moon Juice - Sleepy Mag Sachet Blend/Fill/Packout
+  56622     InvtPart      10      MF-PT00106-Film                 Moon Juice - Sleepy Magnesi-Om Film
+  56623     InvtPart      10      MF-PT00106-UC                   Moon Juice - Sleepy Magnesi-Om UC
+  31682     NonInvtPart   42      MFG-Fill-LPOW-Stick             LyteLine - Lyte Pow Stick - Fill
+  43519     NonInvtPart   42      MFG-Fill-LSRP                   LyteLine - LyteShow Rip Pack Fill Charge
+  73053     InvtPart      42      MFG-Fill-LSRP-Packout           LyteLine - LyteShow Rip Pack Packout
+  53158     NonInvtPart   42      MG-2ml                          Dune Suncare - Mug Guard 2ml Film & Fill
+  70106     InvtPart      10      MISTR-1001                      MISTR - Sachet Rollstock - Front
+  70206     InvtPart      10      MISTR-1002                      MISTR - Sachet Rollstock - Back
+  64727     NonInvtPart   61      MISTR-Sample-0001               OTC - Printed Sample Sheet
+  70728     InvtPart      10      MISTR-SKU1                      Mistr - Side Seal Sachet (Sildenafil 56g/Tadalafil 12mg)
+  70729     InvtPart      10      MISTR-SKU2                      Mistr - Side Seal Sachet (Sildenafil 84g/Tadalafil 17mg) 
+  72336     InvtPart      10      MISTR.1003                      MISTR - Sachet Rollstock Test Roll - Front 
+  72436     InvtPart      10      MISTR.1004                      MISTR - Sachet Rollstock Test Roll - Back
+  25684     InvtPart      10      MK-003                          RMS - Hydra Bronzer Influencer Boxes
+  25848     InvtPart      10      MK-003-Assembly                 RMS - Hydra Bronzer Influencer Boxes Assembly
+  32549     InvtPart      58      MK-006                          White Label - RMS Setting Powder Influencer Bag
+  36249     InvtPart      58      MK-008                          RMS - Mini Skincare Bag
+  39318     InvtPart      10      MK-009                          RMS - Legendary Lipstick Nudes Box
+  64427     InvtPart      58      MR031400                        1. Merch, Yellow Cosmetic Pouch'26
+  64428     InvtPart      58      MR044400                        1. Merch, Pink Cosmetic Pouch'26
+  58437     InvtPart      58      MR095100                        Sol de Janeiro - Merch, Stadium Bag
+  73148     InvtPart      58      MR172600                        Sol De Janeiro - Mothers Day Pink Mist Set
+  73149     InvtPart      58      MR172700                        Sol De Janeiro - Seasons of SOL Set
+  31458     InvtPart      10      OG2ESPAL-CMT                    JSC - Orgy 2 Palette
+  31457     InvtPart      10      OG2ESPAL-PET                    JSC - Orgy 2 Palette PET Sheet
+  50555     InvtPart      10      ON-4535-OMGSTART                Vaxa - ACTIVE OMEGA-3 Retail Starter Kit
+  50655     InvtPart      10      ON-4536-DHASTART                Vaxa - ACTIVE DHA Retail Starter Kit
+  50656     InvtPart      10      ON-4537-PRESTART                Vaxa - ACTIVE PRENATAL DHA Retail Starter Kit
+  51257     NonInvtPart   173     Organic Greens V1               Sarah Wragge Wellness - Organic Greens Bulk
+  12621     NonInvtPart   42      OSPL                            New U Life - US Neuravie Passionfruit Turnkey 
+  73058     InvtPart      42      OSPL-10014                      New U Life - Japan AWE Bottle Filling & Packout 
+  11012     NonInvtPart   61      OTC-0001                        OTC - Art / Prep / Proof
+  4081      NonInvtPart   61      OTC-0002                        OTC - Cutting Die
+  4079      NonInvtPart   61      OTC-0003                        OTC - Processing Fee
+  4078      NonInvtPart   61      OTC-0004                        OTC - Printing Plates
+  4077      NonInvtPart   61      OTC-0005                        OTC - Tooling
+  4076      NonInvtPart   61      OTC-0006                        OTC - Mold
+  4075      NonInvtPart   61      OTC-0007                        OTC - Foil Dies
+  4074      NonInvtPart   61      OTC-0008                        OTC - Deboss Dies
+  4072      NonInvtPart   61      OTC-0009                        OTC - Emboss Dies
+  11000     NonInvtPart   61      OTC-0010                        OTC - Testing
+  20344     NonInvtPart   10      OTC-0011                        OTC - Mockup
+  21447     NonInvtPart   60      OTC-0012                        OTC - Freight, Duties, Tariff
+  15622     NonInvtPart   61      OTC-0017                        OTC - Pre-Production Sample
+  16222     NonInvtPart   62      OTC-0018                        OTC - Formulation Fee
+  18062     NonInvtPart   61      OTC-0019                        OTC - Cutting Die 2
+  20645     NonInvtPart   6       OTC-0020                        OTC - Creative Services
+  22949     NonInvtPart   60      OTC-0021                        OTC - Warehousing Fees
+  24650     NonInvtPart   61      OTC-0022                        OTC - Pre-Production Sample 2
+  24651     NonInvtPart   61      OTC-0023                        OTC - Pre-Production Sample 3
+  26348     NonInvtPart   61      OTC-0024                        OTC - Setup Charge
+  26255     NonInvtPart   61      OTC-0025                        OTC - Misc
+  26253     NonInvtPart   61      OTC-0026                        OTC - Misc 2
+  27349     NonInvtPart   61      OTC-0027                        OTC - Palletization 
+  35157     NonInvtPart   61      OTC-0028                        OTC - Ink Drawdowns
+  35158     NonInvtPart   61      OTC-0029                        OTC - Product Flush
+  35159     NonInvtPart   61      OTC-0030                        OTC - Hard Proof
+  36681     NonInvtPart   61      OTC-0031                        OTC - Re-Test
+  38450     NonInvtPart   61      OTC-0032                        OTC - Plates/Cylinder
+  44983     NonInvtPart   61      OTC-0033                        OTC - Dumping Powder
+  43952     NonInvtPart   61      OTC-0034                        OTC - Drum Scrapping 
+  43953     NonInvtPart   61      OTC-0035                        OTC - Change Over Fee
+  19840     NonInvtPart   60      OTC-0036                        OTC - Customs
+  48554     NonInvtPart   61      OTC-0037                        OTC - Re-Packing
+  48555     NonInvtPart   61      OTC-0038                        OTC - Additional Micros
+  48654     NonInvtPart   61      OTC-0039                        OTC - Samples 
+  48655     NonInvtPart   61      OTC-0040                        OTC - Samples
+  49157     NonInvtPart   61      OTC-0041                        OTC - Cutting Die
+  50755     NonInvtPart   61      OTC-0042                        OTC - Line Trial 
+  51860     NonInvtPart   61      OTC-0043                        OTC - Pallets
+  49454     Service       61      OTC-0044                        OTC - Service
+  53759     NonInvtPart   61      OTC-0045                        OTC - Disposal
+  54062     NonInvtPart   61      OTC-0046                        OTC - Tooling 
+  54387     NonInvtPart   61      OTC-0047                        OTC - Pick/Pack/Pull
+  60060     NonInvtPart   61      OTC-0048                        OTC - Product Validation
+  59157     NonInvtPart   61      OTC-0050                        OTC - Formulation Services
+  70829     NonInvtPart   61      OTC-0052                        OTC - Pilot Run
+  72636     NonInvtPart   61      OTC-0053                        OTC - Master Carton
+  72637     NonInvtPart   61      OTC-0054                        OTC - Inner Carton 
+  73549     InvtPart      61      OTC-0055                        OTC - HRIPT Testing
+  73550     InvtPart      61      OTC-0056                        OTC - PET Testing ISO 11930
+  73852     NonInvtPart   61      OTC-0057                        OTC - PET Testing USP<61>
+  73552     InvtPart      61      OTC-0058                        OTC - PET Testing USP<62>
+  73853     NonInvtPart   61      OTC-0059                        OTC - Stability Testing
+  29649     InvtPart      10      Pack-Seasoning Original         Susie Q's - Packaging of Seasoning Shots - Original
+  38980     NonInvtPart   42      Pack-Seasoning Original - Fill  Susie Q's - Fill Packaging of Seasoning Shots - Original
+  29551     InvtPart      10      Pack-Seasoning Pink             Susie Q's - Packaging of Seasoning Shots - Pink
+  38750     InvtPart      42      Pack-Seasoning Pink-Fill        Susie Q's - Fill Packaging of Seasoning Shots - Pink 
+  29550     InvtPart      10      Pack-Seasoning Red              Susie Q's - Packaging of Seasoning Shots - Red
+  9798      InvtPart      276     Packaging: Enrich Translation Insert Booklet  Karam MD - Enrich Insert
+  9796      InvtPart      276     Packaging: Illuminate Translation Insert Booklet  Karam MD - Illuminate Insert 
+  9896      InvtPart      276     Packaging: Polish Translation Insert Booklet  Karam MD - Polish Insert
+  9797      InvtPart      276     Packaging: Quench Translation Insert Booklet  Karam MD - Quench Insert 
+  9697      InvtPart      276     Packaging: Rinse Translation Insert Booklet  Karam MD - Rinse Insert
+  66875     InvtPart      1       PATT002990-CMP01                Pattern Beauty - Dry Exfoliating Scrub 100mL 3.4oz Jar
+  57433     InvtPart      1       PATT002990-CMP02                Pattern Beauty - Exfoliating Jar 8oz
+  64628     InvtPart      1       PATT002991-CMP02                Pattern Beauty - 70mm Sealing Disc 
+  57334     InvtPart      1       PATT002991-CMP03                Pattern Beauty - 8oz Jar Lid
+  59458     InvtPart      1       PATT002993-CMP01                Pattern Beauty - Moisturizing Body Wash 3 fl oz
+  57335     InvtPart      1       PATT002993-CMP02                Pattern Beauty - Moisturizing Oil Body Wash 12oz
+  57336     InvtPart      1       PATT003000-CMP01                Pattern Beauty - 5oz Body Oil Bottle
+  58033     InvtPart      1       PATT003001-CMP01                Pattern Beauty - 5oz Body Oil Pump
+  59459     InvtPart      1       PATT003004-CMP01                Pattern Beauty - Hydrating Body Lotion 3oz
+  59457     InvtPart      1       PATT003005-CMP01                Pattern Beauty - 3oz Flip Cap
+  57337     InvtPart      1       PATT003007-CMP01                Pattern Beauty - 14oz Body Lotion Bottle
+  66876     InvtPart      1       PATT003011-CMP01                Pattern Beauty - 100mL 3.4oz Body Cream Jar
+  66975     InvtPart      1       PATT003012-CMP01                Pattern Beauty - 70mm Cap for 100mL 3.4oz
+  57333     InvtPart      1       PATT003015-CMP01                Pattern Beauty - Body Cream 8oz Jar
+  64627     InvtPart      1       PATT003016-CMP01                Pattern Beauty - Body Scrub 8oz 250mL 70mm Lid 
+  69178     InvtPart      1       PATT003204-CMP01                Pattern Beauty - 200mL Body Serum Bottle
+  69278     InvtPart      1       PATT003205-CMP01                Pattern Beauty - Body Serum Pump
+  66877     InvtPart      1       PATT003240-CMP01                Pattern Beauty - Moisturizing Body Wash 3oz Bottle (R2)
+  61312     InvtPart      10      Pillow Box 2                    Evvy - Pillow Box
+  9095      InvtPart      10      PK0000161                       Dr. Squatch - Glacial Falls Spray Cologne
+  8994      InvtPart      10      PK0000162                       Dr. Squatch - Woodland Pine Spray Cologne
+  8995      InvtPart      10      PK0000163                       Dr. Squatch - Fireside Bourbon Spray Cologne
+  1045      InvtPart      10      PK0000233                       Dr. Squatch - Harry Potter - Rigid Box
+  9094      InvtPart      10      PK0000308                       Dr. Squatch - Rainforest Mist Spray Cologne
+  17233     InvtPart      10      PK0000309-EU                    Dr. Squatch - Woodland Pine (EU) Cologne Box
+  17234     InvtPart      10      PK0000310-EU                    Dr. Squatch - Fireside Bourbon (EU) Cologne Box 
+  17333     InvtPart      10      PK0000311-EU                    Dr. Squatch - Glacial Falls (EU) Cologne Box
+  17733     InvtPart      10      PK0000464                       Dr. Squatch - Stark Reactor Cologne Box
+  47654     InvtPart      58      PK10029                         Moon Juice - Stir Stick Magnesi-Om Sleepy Cherry Kit
+  31683     NonInvtPart   42      PKG-ASB-LPOW-Stick-16PK         LyteLine - Lyte Pow Stick - Assembly
+  70006     NonInvtPart   42      PKG-ASB-LS-03RP-SAMPLE          LyteLine - LyteShow 3ct Rip Pack Sample
+  1011      InvtPart      1       PP-0001                         Primary - Glass
+  1015      InvtPart      1       PP-0002                         Primary - Plastic
+  1007      InvtPart      1       PP-0003                         Primary - Pouch
+  1016      InvtPart      1       PP-0004                         Primary - Pump
+  1008      InvtPart      1       PP-0005                         Primary - Cap
+  1018      InvtPart      1       PP-0006                         Primary - Eyeliner
+  1014      InvtPart      1       PP-0007                         Primary - Compact
+  1021      InvtPart      1       PP-0008                         Primary - Pallette
+  1020      InvtPart      1       PP-0009                         Primary - Mascara
+  1012      InvtPart      1       PP-0010                         Primary - Lipstick
+  1047      InvtPart      1       PP-0011                         Primary - Tin
+  65430     InvtPart      10      PP-TISSUE-0001                  Petite Plume - Feather Tissue
+  7692      InvtPart      64      Probio-White Vietnam 60's Label  Probiohealth - Probio-White Vietnam Label 
+  56932     InvtPart      1       RADT-008Z                       Roman - 8oz Bottle Cap
+  15522     InvtPart      1       RARC-04OZ                       Roman Health - CRC Cap
+  27149     InvtPart      1       RARC-04OZ-SEAL                  Roman Health - Pressure Seal 
+  56833     InvtPart      1       RBCB-008Z                       Roman - 8oz Conditioner Bottle
+  11814     InvtPart      1       RBRJ-04OZ                       Roman Health - 4 oz Glass Jar
+  56832     InvtPart      1       RBSB-008Z                       Roman - 8oz Shampoo Bottle
+  23455     InvtPart      10      REV-LL-06                       Revyve - Lemon Lime Hangover Blend
+  72953     InvtPart      42      REV-LL-06-FILL                  Revyve - Lemon Lime Hangover Blend + Fill + Assembly
+  23148     InvtPart      10      REV-LL-06-SUP                   Revyve - Lemon Lime Hangover Blend Pouch SUP 
+  23454     InvtPart      10      REV-RB-06                       Revyve - Raspberry Hangover Blend
+  72954     InvtPart      42      REV-RB-06-FILL                  Revyve - Raspberry Hangover Blend + Fill + Assembly
+  23048     InvtPart      10      REV-RB-06-SUP                   Revyve - Raspberry Hangover Blend Pouch SUP  
+  64032     NonInvtPart   10291   Ro-TEST-01                      Testing: Current opacity (20%) without any UV protection
+  64031     NonInvtPart   10291   Ro-TEST-02                      Testing: Current opacity (20%) with UV spray
+  64230     NonInvtPart   10291   Ro-TEST-03                      Testing: Current opacity (20%) with UV added to black lacque
+  64228     NonInvtPart   10291   Ro-TEST-04                      Testing: 30 Opacity with UV added to black lacquer raw mater
+  64229     NonInvtPart   10291   Ro-TEST-05                      Testing: 50 Opacity with UV added to black lacquer raw mater
+  64030     NonInvtPart   10291   Ro-TEST-06                      Testing: 75 Opacity with UV added to black lacquer raw mater
+  55302     InvtPart      10      S2G Lavender + Peppermint       Scent2Go - Lavendar + Peppermint Film
+  55303     InvtPart      10      S2G Lemon + Mint                Scent2Go Mint & Lemon Film
+  55402     NonInvtPart   42      S2GLP Blend + Fill              Scent2Go - Lavendar + Peppermint Sachet Blend/Fill/Packout
+  55304     NonInvtPart   42      S2GML Blend + Fill              Scent2Go - Mint & Lemon Sachet Blend/Fill/Packout
+  72956     InvtPart      42      SA-XX-001-NB-R                  Riddle Oil - Sample Kit + Nude Beach 1ml
+  11214     InvtPart      42      SA-XX-001-R                     Riddle Oil - Sample Kit Fill and Packout (7 scents)
+  54689     InvtPart      58      SAV-2-EU-J&JAU                  Dr. Squatch - Soap Saver
+  54789     InvtPart      58      SAV-2-EU-J&JEU                  Dr. Squatch - Soap Saver
+  54691     InvtPart      58      SAV-2-EU-J&JUK                  Dr. Squatch - Soap Saver 
+  54688     InvtPart      58      SAV-2-EU-SCI                    Dr. Squatch - Soap Saver
+  56731     InvtPart      58      Scalp Scrubber - 0% PCR         Nulastin - Scalp Scrubber
+  54488     InvtPart      58      SCB-BDY-01                      Dr. Squatch - Body Scrubber
+  54589     InvtPart      58      SCB-BDY-01-EU-J&JAU             Dr. Squatch - Body Scrubber
+  54489     InvtPart      58      SCB-BDY-01-EU-J&JEU             Dr. Squatch - Body Scrubber
+  54690     InvtPart      58      SCB-BDY-01-EU-J&JUK             Dr. Squatch - Body Scrubber
+  54588     InvtPart      58      SCB-BDY-01-EU-SCI               Dr. Squatch - Body Scrubber
+  54788     InvtPart      58      SCB-BDY-01-VIP                  Dr. Squatch - Body Scrubber
+  25548     InvtPart      10      Sexual Performance Booster 30ct Box  JoyMode - Sexual Performance Booster 30ct Box
+  25448     InvtPart      10      Sexual Performance Booster Retail Box  JoyMode - Sexual Performance Booster Retail Box
+  56521     InvtPart      10      SHIPPER                         Tracy Anderson - Ecomm Shipper RETF
+  1013      InvtPart      10      SP-0001                         Secondary - Folding Carton
+  1017      InvtPart      10      SP-0002                         Secondary - Rigid Box
+  1019      InvtPart      10      SP-0003                         Secondary - Mailer
+  39750     InvtPart      10      Sprouts End Cap Display         Lemme - Sprouts Endcap Topper and Shelf Strips
+  51957     NonInvtPart   42      SWW-Coffee-Assembly             Sarah Wragge Wellness - Coffee Unflavored Assembly
+  51956     NonInvtPart   42      SWW-Coffee-FFS                  Sarah Wragge Wellness - Coffee Unflavored FFS
+  52159     InvtPart      10      SWW-Coffee-Film                 Sarah Wragge Wellness - Coffee Film
+  52058     InvtPart      10      SWW-Coffee-Pouches              Sarah Wragge Wellness - Coffee Pouches
+  72992     InvtPart      42      SWW-CoffeeCocoa-Assembly        Sarah Wragge Wellness - Coffee Cocoa Assembly
+  55805     NonInvtPart   42      SWW-CoffeeCocoa-FFS             Sarah Wragge Wellness - Coffee Cocoa FFS
+  55803     InvtPart      10      SWW-CoffeeCocoa-Film            Sarah Wragge Wellness - Coffee Cocoa Film 
+  55804     InvtPart      10      SWW-CoffeeCocoa-Pouches         Sarah Wragge Wellness - Coffee Cocoa Pouches 
+  51857     NonInvtPart   42      SWW-Greens-Assembly             Sarah Wragge Wellness - Greens Assembly
+  72979     InvtPart      42      SWW-Greens-Blend&Fill           Sarah Wragge Wellness - Greens Blend&Fill
+  52060     InvtPart      10      SWW-Greens-Film                 Sarah Wragge Wellness - Greens Film
+  69706     InvtPart      10      SWW-Greens-Film2                Sarah Wragge Wellness - Greens Film V.2
+  69707     InvtPart      10      SWW-Greens-Pouches2             Sarah Wragge Wellness - Greens Pouches V.2
+  52160     InvtPart      10      SWW-GreensBulk-Pouches          Sarah Wragge Wellness - Greens Bulk Pouches  
+  72982     InvtPart      42      SWW-Minerals-Assembly           Sarah Wragge Wellness - Minerals Assembly
+  51858     NonInvtPart   42      SWW-Minerals-FFS                Sarah Wragge Wellness - Minerals FFS
+  52061     InvtPart      10      SWW-Minerals-Film               Sarah Wragge Wellness - Minerals Film
+  52158     InvtPart      10      SWW-Minerals-Pouches            Sarah Wragge Wellness - Minerals Pouches  
+  72975     InvtPart      42      T023-03-ASY0                    Tower 28 - Sunnydays Sample Packettes Revised Shades Sampled
+  73009     InvtPart      42      T083-01-ASYO                    Tower 28 Foundation Packette Assembly 
+  67576     NonInvtPart   42      T28-TandemA                     Tower 28 - Foundation Tandem A
+  73005     InvtPart      42      T28-TandemB                     Tower 28 - Foundation Tandem B
+  32649     InvtPart      58      TB6013                          Tocca - Viaggio Pochette (Cosmetic Bag)
+  41253     InvtPart      58      TCS-BAR-01-AUS                  Dr. Squatch - Bar Soap Travel Case + UC
+  40970     InvtPart      58      TCS-BAR-01-CA                   Dr. Squatch - Bar Soap Travel Case + UC 
+  41250     InvtPart      58      TCS-BAR-01-CAN                  Dr. Squatch - Bar Soap Travel Case + UC
+  41254     InvtPart      58      TCS-BAR-01-EU                   Dr. Squatch - Bar Soap Travel Case + UC  
+  41450     InvtPart      58      TCS-BAR-01-KY                   Dr. Squatch - Bar Soap Travel Case + UC
+  41251     InvtPart      58      TCS-BAR-01-NET                  Dr. Squatch - Bar Soap Travel Case + UC
+  41151     InvtPart      58      TCS-BAR-01-PA                   Dr. Squatch - Bar Soap Travel Case + UC
+  41152     InvtPart      58      TCS-BAR-01-RCA                  Dr. Squatch - Bar Soap Travel Case + UC
+  41252     InvtPart      58      TCS-BAR-01-UK                   Dr. Squatch - Bar Soap Travel Case + UC
+  25453     InvtPart      10      Testosterone Support Complex Box  JoyMode - Testosterone Support Complex Box
+  62410     InvtPart      58      TG25C007-CHN                    Teddy Fresh - Custom Charm
+  12321     InvtPart      64      TLCE-4                          Guide Beauty - GB Guide Line Black (PMS 7721)
+  12320     InvtPart      64      TLCE-8                          Guide Beauty - GB Guide Line Navy (PMS 541) 
+  29749     InvtPart      58      Tooling - Cap / Base / Cover    Dr. Squatch - Tooling for Travel Case
+  4787      InvtPart      1       TU031900                        Sol de Janeiro - Discovery Cream Trio '24 
+  55001     InvtPart      10      UC-LC                           Iris & Romeo - Lip Cocoon Tube UC (Nourish)
+  65530     InvtPart      10      UC-LC-02                        Iris & Romeo - Lip Cocoon Tube UC (Rose)
+  69806     InvtPart      10      UC-LC-03                        Iris & Romeo - Lip Cocoon Tube UC (Tranquil) 
+  69906     InvtPart      10      UC-LC-04                        Iris & Romeo - Lip Cocoon Tube UC (Solace) 
+  56321     InvtPart      10      UC-WSLIP-01                     Iris & Romeo - Weekend Skin Lip Balm UC
+  56322     InvtPart      10      UC-WSLIP-02                     Iris & Romeo - Weekend Skin Lip Balm UC 
+  56421     InvtPart      10      UC-WSLIP-03                     Iris & Romeo - Weekend Skin Lip Balm UC
+  66274     InvtPart      10      UC-WSLIP-04                     Iris & Romeo - Weekend Skin Lip Balm UC
+  66275     InvtPart      10      UC-WSLIP-05                     Iris & Romeo - Weekend Skin Lip Balm UC
+  66276     InvtPart      10      UC-WSLIP-06                     Iris & Romeo - Weekend Skin Lip Balm UC
+  61410     InvtPart      10      Unit Carton                     Evvy - Unit Carton
+  43151     NonInvtPart   42      VHOSCHOC1SVG1CT-Fill            VitaHustle - Superfood Protein Chocolate Cacao Filling 
+  42952     InvtPart      10      VHOSCHOC1SVG1CT-Film            VitaHustle - Superfood Protein Chocolate Cacao Film 
+  43055     NonInvtPart   42      VHOSCHOC1SVG1CT-Packout         VitaHustle - Superfood Protein Chocolate Cacao Packout in 10
+  43054     InvtPart      10      VHOSCHOC1SVG1CT-Seal            VitaHustle - Superfood Protein Chocolate Cacao Seal 
+  43053     InvtPart      10      VHOSCHOC1SVG1CT-UC              VitaHustle - Superfood Protein Chocolate Cacao UC 
+  39500     InvtPart      66      VHOSVAN1SVG1CT                  VitaHustle - Superfood Protein Vanilla Bean - 1 SVG Packet
+  43051     NonInvtPart   42      VHOSVAN1SVG1CT-Fill             VitaHustle - Superfood Protein Vanilla Bean Filling
+  42951     InvtPart      10      VHOSVAN1SVG1CT-Film             VitaHustle - Superfood Protein Vanilla Bean Film
+  43056     NonInvtPart   42      VHOSVAN1SVG1CT-Packout          VitaHustle - Superfood Protein Vanilla Bean Packout in 10 
+  43251     InvtPart      10      VHOSVAN1SVG1CT-Seal             VitaHustle - Superfood Protein Vanilla Bean Seal
+  43052     InvtPart      10      VHOSVAN1SVG1CT-UC               VitaHustle - Superfood Protein Vanilla Bean UC
+  1050      InvtPart      66      VHPKGONEBRO                     VitaHustle Superfood 12pg Starter Booklet
+  59057     InvtPart      1       W18BMBS                         Get W - Mini Credit Card Spray Bottle
+  59056     InvtPart      1       W18SMBS                         Get W - Mini Credit Card Spray Sprayer
+  47554     InvtPart      10      Wake Up PR Box                  Lemme - Wake Up PR Box
+  72237     InvtPart      1790    WFG842                          W LABS COLOGNE SPRAY - WFG842
+  72538     InvtPart      1       WFG842 - Bottle                 Get W - 100ml Wild Adventure Bottle 
+  72539     InvtPart      1       WFG842 - Sprayer                Get W - 100ml Wild Adventure Sprayer
+  72841     NonInvtPart   42      WFG842-A&F                      Get W - Wild Adventure Alcohol & Fill 
+  72141     InvtPart      1790    WFL844                          W LABS COLOGNE SPRAY - WFL844
+  72536     InvtPart      1       WFL844 - Bottle                 Get W - 100ml Bad Boy Bottle
+  72537     InvtPart      1       WFL844 - Sprayer                Get W - 100ml Bad Boy Sprayer
+  72840     InvtPart      42      WFL844-A&F                      Get W - Bad Boy Alcohol & Fill
+
+  ─── NS_ID list (comma-separated, for Vu's SuiteQL WHERE IN) ───
+  47954, 47855, 47854, 1058, 1076, 59560, 54163, 73012, 73062, 58133, 53961, 72999, 10298, 55101, 59156, 998, 997, 1039, 1035, 1065, 1063, 59558, 1073, 1064, 68978, 72943, 73065, 1029, 1031, 72988, 1067, 1043, 1030, 1024, 1001, 1057, 1060, 49955, 28049, 1361, 68175, 2568, 69583, 71228, 71229, 56105, 73061, 71328, 73753, 73754, 73751, 73752, 71428, 1062, 1040, 1075, 1074, 1052, 12220, 60889, 73045, 11914, 28149, 28150, 996, 53861, 53863, 53862, 50460, 50459, 50458, 19441, 50457, 19440, 50456, 19442, 50455, 992, 13822, 52858, 54889, 54888, 60687, 73052, 73002, 60688, 48254, 73064, 72980, 73057, 73056, 57838, 53059, 1066, 1059, 51755, 32049, 12425, 12427, 12426, 12429, 12430, 67075, 1061, 60887, 49755, 49757, 49756, 48754, 53560, 53559, 63621, 60888, 9294, 14440, 8293, 19969, 19968, 10197, 10097, 28850, 29999, 72990, 63013, 24248, 24249, 24250, 24251, 24252, 24253, 24348, 24254, 24255, 24256, 24257, 24854, 24853, 24448, 24258, 24259, 24648, 24449, 24649, 24748, 24652, 24653, 24948, 24848, 24849, 24850, 24851, 24852, 50855, 50955, 6592, 27949, 27849, 27850, 26648, 72946, 72944, 72947, 14723, 1068, 1051, 1048, 46354, 58956, 46454, 60459, 43752, 58957, 8694, 15222, 58955, 67475, 71529, 71528, 71628, 61411, 61412, 61510, 48154, 72987, 73008, 73006, 64527, 45154, 72948, 14923, 73063, 72976, 34651, 28749, 72957, 64828, 64830, 64829, 64831, 64827, 66374, 4686, 40850, 4586, 1004, 52758, 52759, 14322, 14323, 14324, 1770, 22748, 46154, 6392, 61087, 63921, 6293, 13121, 24548, 57733, 63221, 6494, 13222, 46155, 48854, 53659, 54287, 62010, 50255, 62511, 2968, 6492, 13221, 49855, 58840, 34549, 46254, 995, 1003, 12921, 33549, 1054, 1000, 1072, 999, 1056, 1055, 31857, 67875, 68075, 68076, 67879, 68077, 68078, 72139, 67876, 67878, 73004, 72140, 67975, 67877, 7393, 7392, 26248, 26249, 26250, 26251, 1009, 1002, 1010, 70628, 70631, 70629, 70632, 70630, 70633, 71028, 70830, 71128, 71029, 70928, 72036, 71936, 70931, 73348, 56221, 56222, 56223, 29849, 65930, 5388, 5387, 68284, 31686, 9594, 1080, 52458, 61610, 61710, 61810, 61910, 61811, 62110, 62210, 62111, 62310, 63321, 63322, 63334, 63323, 63421, 63324, 63325, 63326, 63327, 63328, 63329, 63330, 63331, 63521, 63332, 63333, 63723, 63721, 63722, 1079, 66476, 68279, 52959, 53058, 53359, 57851, 53459, 68282, 68377, 68477, 68277, 68281, 68283, 68577, 68280, 68777, 68278, 68677, 68285, 1082, 17833, 1069, 1078, 4485, 70528, 36349, 59959, 3671, 3673, 3674, 3672, 3675, 3676, 3677, 3678, 3771, 3772, 3773, 3872, 3774, 3775, 3776, 4082, 4083, 5087, 5088, 5187, 5089, 5090, 5091, 5092, 5093, 5096, 5097, 5098, 5094, 5095, 5100, 5099, 5287, 5104, 5102, 5103, 5101, 5188, 5105, 5107, 5108, 5106, 8595, 8596, 8597, 8594, 1071, 1089, 1086, 1090, 1077, 1087, 2868, 60061, 60062, 993, 66174, 3468, 48455, 48454, 47754, 66775, 2368, 2168, 25168, 25048, 1037, 1027, 1042, 1032, 1036, 1028, 1046, 1033, 10399, 1038, 10398, 10397, 1041, 1044, 63115, 63116, 63117, 57338, 57339, 57340, 57341, 57633, 1085, 1034, 58537, 58538, 58539, 60559, 61210, 61310, 61212, 61211, 61311, 64327, 2270, 22848, 22849, 1022, 1025, 42751, 42654, 42651, 42653, 42771, 33454, 33456, 33458, 33457, 4185, 12020, 7492, 7493, 55904, 62812, 2668, 6692, 73046, 48954, 49054, 49154, 49055, 49254, 49056, 49155, 49156, 67275, 67276, 67375, 67376, 59759, 59760, 59859, 59761, 59762, 59763, 59860, 59764, 59861, 59765, 59659, 59660, 65730, 50055, 50155, 50156, 16223, 16323, 16324, 9696, 2468, 44572, 44270, 44271, 44379, 1088, 1091, 1081, 29249, 72958, 29253, 29252, 29255, 72967, 29349, 57935, 31449, 31451, 57936, 56732, 56733, 56734, 56735, 57032, 33349, 33350, 72969, 33351, 33649, 33749, 33751, 72971, 33650, 33752, 72974, 72977, 35649, 66075, 1869, 66074, 66475, 55502, 55503, 38051, 38050, 38052, 38150, 9996, 62913, 18434, 18435, 11001, 11002, 11003, 11004, 11005, 11006, 11011, 11010, 72136, 72137, 71834, 73248, 67575, 72950, 14724, 4389, 4390, 4388, 4387, 4386, 4385, 12431, 27250, 27249, 1049, 65830, 1070, 1467, 3368, 46355, 46356, 43753, 3268, 8695, 55202, 24148, 60159, 60259, 60359, 60260, 67675, 73448, 73555, 73554, 73449, 73648, 73548, 57533, 1083, 58237, 58236, 58238, 58239, 1006, 62611, 62711, 34249, 1161, 3070, 6294, 1162, 3168, 6292, 22648, 6495, 13022, 2969, 3871, 6493, 13021, 32849, 33049, 35950, 32749, 32949, 22048, 32449, 2971, 11616, 1026, 17440, 2970, 11517, 3069, 21948, 994, 11518, 1023, 17433, 35949, 11519, 3068, 1005, 11714, 62612, 62613, 52358, 66575, 66576, 66675, 7092, 49555, 55602, 58336, 8292, 24048, 60987, 59357, 59257, 58637, 5692, 16422, 57133, 57132, 53259, 53261, 72998, 47454, 53260, 31774, 49655, 5992, 49455, 63821, 56621, 57233, 56622, 56623, 31682, 43519, 73053, 53158, 70106, 70206, 64727, 70728, 70729, 72336, 72436, 25684, 25848, 32549, 36249, 39318, 64427, 64428, 58437, 73148, 73149, 31458, 31457, 50555, 50655, 50656, 51257, 12621, 73058, 11012, 4081, 4079, 4078, 4077, 4076, 4075, 4074, 4072, 11000, 20344, 21447, 15622, 16222, 18062, 20645, 22949, 24650, 24651, 26348, 26255, 26253, 27349, 35157, 35158, 35159, 36681, 38450, 44983, 43952, 43953, 19840, 48554, 48555, 48654, 48655, 49157, 50755, 51860, 49454, 53759, 54062, 54387, 60060, 59157, 70829, 72636, 72637, 73549, 73550, 73852, 73552, 73853, 29649, 38980, 29551, 38750, 29550, 9798, 9796, 9896, 9797, 9697, 66875, 57433, 64628, 57334, 59458, 57335, 57336, 58033, 59459, 59457, 57337, 66876, 66975, 57333, 64627, 69178, 69278, 66877, 61312, 9095, 8994, 8995, 1045, 9094, 17233, 17234, 17333, 17733, 47654, 31683, 70006, 1011, 1015, 1007, 1016, 1008, 1018, 1014, 1021, 1020, 1012, 1047, 65430, 7692, 56932, 15522, 27149, 56833, 11814, 56832, 23455, 72953, 23148, 23454, 72954, 23048, 64032, 64031, 64230, 64228, 64229, 64030, 55302, 55303, 55402, 55304, 72956, 11214, 54689, 54789, 54691, 54688, 56731, 54488, 54589, 54489, 54690, 54588, 54788, 25548, 25448, 56521, 1013, 1017, 1019, 39750, 51957, 51956, 52159, 52058, 72992, 55805, 55803, 55804, 51857, 72979, 52060, 69706, 69707, 52160, 72982, 51858, 52061, 52158, 72975, 73009, 67576, 73005, 32649, 41253, 40970, 41250, 41254, 41450, 41251, 41151, 41152, 41252, 25453, 62410, 12321, 12320, 29749, 4787, 55001, 65530, 69806, 69906, 56321, 56322, 56421, 66274, 66275, 66276, 61410, 43151, 42952, 43055, 43054, 43053, 39500, 43051, 42951, 43056, 43251, 43052, 1050, 59057, 59056, 47554, 72237, 72538, 72539, 72841, 72141, 72536, 72537, 72840
+
+═══ Unresolved leaves — separate blocker from pricing ═══
+(59 — these SKUs don't match any active non-Group item in NS)
+
+  SKU                             HubSpot_prod_id   Leaf name
+  ------------------------------  ----------------  ------------------------------------------------------------
+  	CRQ-100MLUC-AM                 43305706024       Cirqadian - Away Message 100ml Unit Carton
+  	CRQ-100MLUC-GA                 43298390428       Cirqadian - Good Anjou 100ml Unit Carton 
+   12-AHM-PRI-309-2               44048773540       Emi Jay - Aura Hair + Body Mist in Mochi Milk Spray + Cap
+   IC073000                       2939615846        Sol de Janeiro - Delicia Drench Insert Card (THA) - FSC Mix
+   Label_Capsule_Burn180_v01      2742475618        Lemme - Burn Capsule Label 180ct
+   Label_Tincture_Sea_v03         2742485569        Lemme - Seamoss Tincture Label 
+   OTC-0051                       29250124138       OTC - Small Batch Set Up
+  20021                           2024904370        SNIF - Dead Dino 2ml UC
+  351-Tolling                     23290818050       Brain MD - Brain Boost on the Go Tolling 
+  CC-12oz                         2911930380        Coca Cola - 12oz Bottle
+  CC-12oz -Label -1.3             2911930392        Coca Cola - 12Oz Bottle - Label - 1.3
+  CC-12oz-Bottle 1.1              2911876415        Coca Cola - 12Oz Bottle -1.1
+  CC-12oz-Cap-1.2                 2911930389        Coca Cola - 12Oz Bottle - Cap 1.2
+  CC-12oz-Filling-1.4             2911930393        Coca Cola - 12Oz - Filling 
+  Cirqadian-AM                    44405645592       Cirqadian - Away Message 100ml (FG)
+  Cirqadian-GA                    44370499089       Cirqadian - Good Anjou 100ml (FG)
+  DPS-1002                        2742530123        DPS - Primary Samples
+  DPS-NEW-1001                    2845750679        New U Life - US MLT Raspberry Lemonade 20ct
+  G0233000                        2023909454        Sol de Janeiro - Bom Dia Jet Set Insert Card (Holiday)
+  HBS-1-SMOKE-001                 45118279741       HBS-1 smoke leaf
+  LEAF-GLW-30-PP                  -                 30ml Glass Dropper Bottle · Type III soda-lime · matte black
+  LEAF-GLW-FCT                    -                 Folding carton · 200gsm SBS · matte lamination · embossed lo
+  LEAF-GLW-SG                     -                 Soft goods insert · velvet pouch w/ ribbon tie
+  LEAF-GLW-TP                     -                 Master carton · ECT-32 · 12-up · holds 12 units
+  LEAF-GLW-UNK                    -                 Unknown component (no Product Type set — drives type-picker 
+  Lemme - Jewelry PR Box          2895334830        Lemme - Jewelry PR Box 
+  LIB-PP-BOTTLE-30ML              -                 Glass bottle · 30ml · amber
+  LIB-PP-BOTTLE-50ML              -                 Glass bottle · 50ml · amber
+  LIB-PP-DROPPER-30ML             -                 Glass dropper · 30ml
+  LIB-PP-DROPPER-50ML             -                 Glass dropper · 50ml
+  LIB-SG-POUCH-TRAVEL             -                 Cotton travel pouch · drawstring
+  LIB-SP-CARTON-30ML              -                 Folding carton · 30ml
+  LIB-SP-CARTON-50ML              -                 Folding carton · 50ml
+  LIB-SP-LABEL-30ML               -                 Wraparound label · 30ml
+  LIB-SP-LABEL-50ML               -                 Wraparound label · 50ml
+  Nexus-Smoke-Test-1              45125951891       Nexus Smoke Test 1
+  PKG-10111                       2421380532        Tubby Todd - Canvas Cosmetic Bag
+  Raw1                            3082069653        BrainMD - Sodium Citrate (Sodium)
+  Raw10                           3082069779        BrainMD - Allulose
+  Raw11                           3082069780        BrainMD - Citric Acid
+  Raw12                           3082069786        BrainMD - Malic Acid
+  Raw13                           3080219649        BrainMD - Raspberry Flavor A19-00
+  Raw14                           3080219650        BrainMD - Beet Juice Powder
+  Raw15                           3080219652        BrainMD - Silicon Dioxide Powder
+  Raw16                           3082069792        BrainMD - Stevia Reb A 95%
+  Raw17                           18100693904       BrainMD - Organic Nuflow
+  Raw2                            3082069652        BrainMD - Sea Salt (Sodium)
+  Raw3                            3080219517        BrainMD - Potassium Citrate (Potassium)
+  Raw4                            3082069765        BrainMD - Magnesium Citrate (Magnesium)
+  Raw5                            3082069768        BrainMD - Vitamin C (Ascorbic Acid)
+  Raw6                            3082069770        BrainMD - Niacinamide (Vitamin B3)
+  Raw7                            3082069776        BrainMD - Pyridoxal-5-phosphate (Vitamin B6)
+  Raw8                            3082069777        BrainMD - Methylcobalamin (Vitamin B12)
+  Raw9                            3080219567        BrainMD - L-Theanine
+  Raws-001                        22745844385       Raw Ingredients
+  SHP-1184-01                     2667080612        Wyn - Large RETF Shipper 
+  SHP-773-01                      2667081739        Wyn - Small RETF Shipper
+  TCS-BAR-01                      2798772660        Dr. Squatch - Bar Soap Travel Case + UC 
+  TEST-LFC2-1718456000            45131405476       LFC-2 test leaf 1718456000
+
+═══ Additional Q — do Nexus-authored leaves arrive in NS unpriced? ═══
+
+  Trace of Nexus's HubSpot Product create flow
+  (src/lib/hubspot-mapper.ts:106-117, called from src/app/actions/leaves.ts):
+
+    mapLeafToHubspotCreate({name, sku?, unitCost?, url?})
+      → HubSpot Product { name, hs_sku?, hs_cost_of_goods_sold?, hs_url? }
+
+  Line 20 of hubspot-mapper.ts is explicit:
+    | price  | (no column)  | (skip)  | sell-price lives on quote_skus, not leaves |
+
+  Nexus does NOT set 'price' on the HubSpot Product create. Only cost
+  (hs_cost_of_goods_sold), NOT sell-price. And Nexus never touches
+  NetSuite's REST /price endpoint at leaf creation.
+
+  The HubSpot → NetSuite sync path (whatever bidirectional connector
+  DPS uses — OpsHub or similar) is outside Nexus's control. Whether
+  that connector defaults a $0 price on NS-side item creation
+  depends on its own field-map config. From SuiteQL evidence:
+    - 89 of 1350 active items are priced (7%). Most items in the
+      account (1261 / 93%) are unpriced.
+    - This ratio suggests the sync pipeline does NOT set a default
+      price at item creation.
+
+  Implication for the trickle:
+    Every new leaf a PM creates via AddProductModal → HubSpot →
+    NS sync arrives in NetSuite unpriced. Vu's bulk update fixes
+    today's catalogue; the same query will need to run periodically
+    unless one of the following lands:
+      (a) The HubSpot → NS sync config is updated to default $0.00
+          price at item creation (Ops-Hub-side change, not Nexus)
+      (b) Nexus adds a post-create hook that PATCH-sets $0.00 on
+          the newly-created NS item (adds NS API call to the leaf
+          create flow — requires Nexus to know the NS item id
+          post-sync, which depends on sync latency + surface access)
+      (c) A scheduled Nexus job that periodically scans for
+          unpriced items and PATCH-sets $0.00
+
+  Option (a) is cleanest — sync-tool config is where "default at
+  creation" belongs, not application code. Option (b) races the
+  sync latency. Option (c) is a stopgap.
+
+  ─── Sample: pick a Nexus-linked leaf that resolves to NS, show its /price ───
+    001                           hubspot=2853887367  NS_id=47954  /price=UNPRICED
+    002                           hubspot=2853861677  NS_id=47855  /price=UNPRICED
+    003                           hubspot=2853861647  NS_id=47854  /price=UNPRICED
