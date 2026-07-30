@@ -1,4 +1,6 @@
 import "server-only";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname, resolve, sep } from "node:path";
 import type {
   HubSpotOperations,
   HubSpotStage,
@@ -19,7 +21,23 @@ function scenario(): string {
 }
 
 function record(operation: string, input: Record<string, unknown>) {
-  calls.push({ operation, input, at: new Date().toISOString() });
+  const call = { operation, input, at: new Date().toISOString() };
+  calls.push(call);
+
+  const configured = process.env.NEXUS_FAKE_HUBSPOT_LEDGER;
+  if (configured) {
+    const target = resolve(configured);
+    const validationRoot = `${resolve(
+      process.cwd(),
+      ".artifacts",
+      "validation",
+    )}${sep}`;
+    if (!target.startsWith(validationRoot)) {
+      throw new Error("[fake-hubspot] ledger must be under .artifacts/validation");
+    }
+    mkdirSync(dirname(target), { recursive: true });
+    appendFileSync(target, `${JSON.stringify(call)}\n`, "utf8");
+  }
 }
 
 function fail(operation: string) {

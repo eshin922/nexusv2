@@ -29,6 +29,16 @@ function uuid(runId: string, name: string): string {
   ].join("-");
 }
 
+function fakeHubSpotObjectId(runId: string, name: string): string {
+  const hex = createHash("sha256").update(`${runId}:${name}`).digest("hex");
+  const suffix = (BigInt(`0x${hex.slice(0, 12)}`) % 1_000_000_000_000n)
+    .toString()
+    .padStart(12, "0");
+  // HubSpot object IDs are numeric. Reserve a conspicuous synthetic range so
+  // the real linkage predicate is exercised without resembling fixture labels.
+  return `999${suffix}`;
+}
+
 function assertRunId(runId: string) {
   if (!/^[a-z0-9][a-z0-9_-]{2,40}$/i.test(runId)) {
     throw new Error("[fixtures] runId must be 3-41 safe identifier characters");
@@ -115,7 +125,7 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
       }
 
       for (const state of states) {
-        const dealId = `validation_hs_deal_${runId}_${state}`;
+        const dealId = fakeHubSpotObjectId(runId, `deal-${state}`);
         const projectId = uuid(runId, `project-${state}`);
         const quoteId = uuid(runId, `quote-${state}`);
         const tier1 = uuid(runId, `tier-${state}-1`);
@@ -147,7 +157,8 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
           ) values (
             ${projectId}, ${dealId}, 'validation_hs_owner_pm',
             ${`Validation ${state} deal`}, 'Validation Customer',
-            ${pmId}, ${pmId}, 'turnkey', 'active', 'Validation Sent',
+            ${state === "draft" ? null : pmId}, ${pmId},
+            'turnkey', 'active', 'Validation Sent',
             ${pmId}, '2026-01-15T12:00:00Z'
           )
         `;
@@ -306,8 +317,16 @@ export async function resetFixtureWorld(runId: string): Promise<void> {
     await sql.begin(async (tx) => {
       for (const state of ["draft", "sent", "accepted", "failed", "complete"]) {
         await tx`delete from audit_log where id = ${uuid(runId, `audit-${state}`)}`;
-        await tx`delete from projects where hubspot_deal_id = ${`validation_hs_deal_${runId}_${state}`}`;
-        await tx`delete from hubspot_deals_cache where deal_id = ${`validation_hs_deal_${runId}_${state}`}`;
+        const dealId = fakeHubSpotObjectId(runId, `deal-${state}`);
+        const legacyDealId = `validation_hs_deal_${runId}_${state}`;
+        await tx`
+          delete from projects
+          where hubspot_deal_id in (${dealId}, ${legacyDealId})
+        `;
+        await tx`
+          delete from hubspot_deals_cache
+          where deal_id in (${dealId}, ${legacyDealId})
+        `;
       }
       await tx`delete from netsuite_customer_map where hubspot_company_id = ${`validation_hs_company_${runId}`}`;
       for (const index of [1, 2, 3]) {
