@@ -75,7 +75,10 @@
   font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em;
   color: var(--ink-4); text-transform: uppercase;
 }
-.lib-head .head-actions { display: flex; align-items: center; gap: 8px; }
+.lib-head .head-actions {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  flex-wrap: wrap;
+}
 
 /* Subtle refresh control (forensic, not primary) */
 .lib-refresh {

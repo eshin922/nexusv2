@@ -81,15 +81,19 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
   try {
     await sql.begin(async (tx) => {
       await tx`
-        insert into users (id, clerk_user_id, email, name, role, hubspot_owner_id)
-        values
-          (${pmId}, 'validation_clerk_pm', 'pm@nexus-validation.invalid',
-           'Validation PM', 'pm', 'validation_hs_owner_pm'),
-          (${adminId}, 'validation_clerk_admin', 'admin@nexus-validation.invalid',
-           'Validation Admin', 'admin', 'validation_hs_owner_admin')
-        on conflict (clerk_user_id) do update set
-          email = excluded.email, name = excluded.name,
-          role = excluded.role, hubspot_owner_id = excluded.hubspot_owner_id
+          insert into users (
+            id, clerk_user_id, email, name, role, hubspot_owner_id,
+            can_create_leaves
+          )
+          values
+            (${pmId}, 'validation_clerk_pm', 'pm@nexus-validation.invalid',
+             'Validation PM', 'pm', 'validation_hs_owner_pm', true),
+            (${adminId}, 'validation_clerk_admin', 'admin@nexus-validation.invalid',
+             'Validation Admin', 'admin', 'validation_hs_owner_admin', true)
+          on conflict (clerk_user_id) do update set
+            email = excluded.email, name = excluded.name,
+            role = excluded.role, hubspot_owner_id = excluded.hubspot_owner_id,
+            can_create_leaves = excluded.can_create_leaves
       `;
       await tx`
         insert into firm_settings (

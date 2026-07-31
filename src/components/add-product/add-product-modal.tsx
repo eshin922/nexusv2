@@ -502,6 +502,7 @@ function LeafFields(props: {
         <span className="lbl req">Leaf name</span>
         <input
           type="text"
+          aria-label="Leaf name"
           value={props.name}
           onChange={(e) => props.onName(e.target.value)}
           placeholder="e.g., 30ml Glass Dropper Bottle · Type III soda-lime"
@@ -512,6 +513,7 @@ function LeafFields(props: {
         <div className="field">
           <span className="lbl req">Leaf Product Type</span>
           <select
+            aria-label="Leaf Product Type"
             value={props.typeId}
             onChange={(e) => props.onTypeId(e.target.value)}
           >
@@ -532,6 +534,7 @@ function LeafFields(props: {
           <span className="lbl">SKU</span>
           <input
             type="text"
+            aria-label="SKU"
             value={props.sku}
             onChange={(e) => props.onSku(e.target.value)}
             placeholder="Supplier SKU or internal ref"
@@ -543,6 +546,7 @@ function LeafFields(props: {
           <span className="lbl">Unit cost</span>
           <input
             type="text"
+            aria-label="Unit cost"
             inputMode="decimal"
             value={props.unitCost}
             onChange={(e) => props.onUnitCost(e.target.value)}
@@ -553,6 +557,7 @@ function LeafFields(props: {
           <span className="lbl">URL · supplier reference</span>
           <input
             type="text"
+            aria-label="URL · supplier reference"
             value={props.url}
             onChange={(e) => props.onUrl(e.target.value)}
             placeholder="https://..."

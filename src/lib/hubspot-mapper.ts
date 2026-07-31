@@ -1,5 +1,6 @@
 import "server-only";
-import type { HubspotProductRaw, ProductCreateInput } from "./hubspot";
+import type { HubspotProductRaw } from "./hubspot";
+import type { HubSpotProductCreateInput } from "./integrations/hubspot-provider";
 
 // slice-hubspot-bidirectional — field-mapping translator between
 // HubSpot Product shape and Nexus `leaves` shape. Pure functions:
@@ -108,8 +109,8 @@ export function mapLeafToHubspotCreate(input: {
   sku?: string | null;
   unitCost?: string | null;
   url?: string | null;
-}): ProductCreateInput {
-  const out: ProductCreateInput = { name: input.name };
+}): HubSpotProductCreateInput {
+  const out: HubSpotProductCreateInput = { name: input.name };
   if (input.sku) out.hs_sku = input.sku;
   if (input.unitCost) out.hs_cost_of_goods_sold = input.unitCost;
   if (input.url) out.hs_url = input.url;

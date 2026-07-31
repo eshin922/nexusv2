@@ -185,3 +185,23 @@ when its governing invariant has permanent regression evidence.
   `tests/e2e/slice-12/workspace-governance.spec.ts` (`VAL-105`).
 - **Release status:** V1 operator-trust blocker; resolved in code pending
   verification and operator approval.
+
+## PB-013 / PVS-018 — Product Library creation disappears during catalog load
+
+- **Observation:** Product Library briefly claimed `Your library is empty`,
+  then removed `Create new product` when the asynchronous catalog arrived.
+- **Root cause:** Empty counts were also used as the unresolved initial state,
+  and creation was mounted only inside empty/no-result branches.
+- **Business impact:** PMs received contradictory catalog information and lost
+  the discoverable path for creating a reusable component as soon as the
+  library contained data.
+- **Governing invariant:** Loading, loaded, empty, and no-results are distinct
+  states. Permission-governed Product creation remains available in all four.
+- **Fix:** Track initial catalog resolution explicitly, render the established
+  loading treatment until it resolves, and retain the existing `Create new
+  product` action in the Library header. Preserve HubSpot Product → Nexus LEAF
+  → Library refresh → explicit Attach sequencing.
+- **Regression evidence:** `tests/unit/product-library-contract.test.ts` and
+  `tests/e2e/slice-12/product-library-create-component.spec.ts` (`VAL-106`).
+- **Release status:** V1 core-operator blocker; automated verification passed
+  2026-07-31; operator approval remains required.

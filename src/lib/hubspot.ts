@@ -1,5 +1,9 @@
 import "server-only";
 import { Client } from "@hubspot/api-client";
+import type {
+  HubSpotProductCreateInput,
+  HubSpotProductCreateResult,
+} from "@/lib/integrations/hubspot-provider";
 
 // DPS "Sales" pipeline (id=108896657). Slice 2 surfaces only deals up to and
 // including the Project Setup ("Purchase Order") phase — anything in
@@ -533,29 +537,6 @@ export async function findProductBySku(
 // validation also gates Unit price + Product type at the form
 // boundary). Empty-string values are dropped before send; HubSpot
 // treats missing properties as unchanged.
-export type ProductCreateInput = {
-  name: string;
-  hs_sku?: string;
-  description?: string;
-  hs_images?: string;
-  hs_url?: string;
-  hubspot_owner_id?: string;
-  price?: string;
-  hs_cost_of_goods_sold?: string;
-  markup?: string;
-  hs_product_type?: string;
-  tax_schedule?: string;
-  fsc_claim_type?: string;
-  fsc_status?: string;
-  fsc_supplier_verified?: string;
-};
-
-export type ProductCreateResult = {
-  id: string;
-  hs_sku: string | null;
-  name: string;
-};
-
 // slice-hubspot-bidirectional — raw HubSpot product shape used by
 // the pull flow. Preserves the archive flag + the full property
 // bag so the mapper (src/lib/hubspot-mapper.ts) has everything it
@@ -609,8 +590,8 @@ export async function listProducts(opts: {
 }
 
 export async function createProduct(
-  input: ProductCreateInput,
-): Promise<ProductCreateResult> {
+  input: HubSpotProductCreateInput,
+): Promise<HubSpotProductCreateResult> {
   const c = getProductsClient();
   const properties: Record<string, string> = {};
   for (const [k, v] of Object.entries(input)) {
