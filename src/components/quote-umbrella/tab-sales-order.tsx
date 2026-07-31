@@ -315,7 +315,7 @@ export function TabSalesOrder({
       level: "bad",
       label: "HubSpot company not resolved",
       detail:
-        "This project's HubSpot deal has no cached company association. Refresh HubSpot on the project page (Project Detail → Refresh) and retry.",
+        "This project's governed HubSpot company lineage is incomplete. Contact an administrator before retrying.",
     });
   }
 

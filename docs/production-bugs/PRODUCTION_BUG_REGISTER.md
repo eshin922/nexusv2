@@ -139,3 +139,27 @@ when its governing invariant has permanent regression evidence.
 - **Regression evidence:** `tests/unit/crm-presentation.test.ts` and
   `tests/e2e/slice-12/workspace-governance.spec.ts` (`VAL-105`).
 - **Release status:** V1 release blocker; resolved pending operator approval.
+
+## PB-011 — Undefined project actions exposed in V1
+
+- **Observation:** Project Detail exposed manual `Refresh from HubSpot` and
+  `Archive` controls without approved V1 synchronization, authorization,
+  lifecycle, reporting, or recovery contracts. Refresh produced an opaque
+  production Server Components failure for a legacy sample project whose
+  stored deal identifier did not resolve in HubSpot.
+- **Root cause:** Engineering utilities for cache refresh and soft-archive
+  compatibility were promoted to operator actions before their business
+  boundaries were governed.
+- **Business impact:** Refresh could rewrite CRM snapshots, Nexus owner linkage,
+  and downstream customer-resolution inputs; Archive could hide active work
+  without an operator recovery path.
+- **Governing invariant:** V1 exposes only governed actions required by
+  `Import from HubSpot → Build → Cost → Price → Send → Accept → Complete`.
+- **Fix:** Remove both Project Detail controls and any user-facing direction to
+  use manual project refresh. Preserve import synchronization, cache/provider
+  infrastructure, server actions, project-status schema, audit compatibility,
+  and direct-route readability of historical archived records.
+- **Regression evidence:** `tests/unit/project-v1-action-surface.test.ts` and
+  `tests/e2e/slice-12/workspace-governance.spec.ts` (`VAL-105`).
+- **Release status:** V1 production-risk closure; resolved in code pending
+  operator approval.

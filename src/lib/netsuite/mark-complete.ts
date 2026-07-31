@@ -216,7 +216,7 @@ export async function runMarkComplete(
     .limit(1);
   if (!dealCache || !dealCache.associatedCompanyId) {
     throw new Error(
-      `HubSpot deal ${projectRow.hubspotDealId} has no cached row or no associated company. Refresh HubSpot cache and retry.`,
+      `HubSpot deal ${projectRow.hubspotDealId} has no cached row or associated company. Governed HubSpot lineage is required before completion.`,
     );
   }
 

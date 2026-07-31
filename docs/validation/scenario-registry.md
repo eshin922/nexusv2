@@ -13,17 +13,20 @@ Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
   whose HubSpot owner has no Nexus-user dependency.
 - Visible result: `Rev. N` identifies the active Quote revision; no inert New
   Project/New Version affordance appears; stage labels are readable and
-  consistent; Sales Owner uses the cached HubSpot owner name.
+  consistent; Sales Owner uses the cached HubSpot owner name; Project Detail
+  exposes neither manual Refresh from HubSpot nor Project Archive.
 - Persisted state: none; presentation reads the existing project/cache
-  snapshot. Import and refresh remain the only writers.
+  snapshot. Governed HubSpot import remains the operator synchronization entry
+  point; retained compatibility actions are not exposed in V1.
 - Audit/artifact/provider: no mutation or artifact; the fake HubSpot stage
   catalog is the only provider read and network isolation remains strict.
 - Failure modes: raw numeric stage IDs, stale labels, invented users, generic
-  Version terminology, Nexus-only creation copy, or divergent labels between
-  surfaces.
+  Version terminology, Nexus-only creation copy, divergent labels between
+  surfaces, or exposure of undefined manual refresh/archive actions.
 - Layer/file: unit contracts plus browser coverage in
   `tests/unit/crm-presentation.test.ts`,
-  `tests/unit/quote-revision-workflow.test.ts`, and
+  `tests/unit/quote-revision-workflow.test.ts`,
+  `tests/unit/project-v1-action-surface.test.ts`, and
   `tests/e2e/slice-12/workspace-governance.spec.ts`.
 - Release classification: release-blocking; operator approval remains required.
 - Status: implemented.
