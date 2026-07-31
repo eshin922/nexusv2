@@ -15,6 +15,10 @@ export type FakeHubSpotCall = {
 const calls: FakeHubSpotCall[] = [];
 const dealStages = new Map<string, HubSpotStage>();
 const dealAmounts = new Map<string, number>();
+const vendors = [
+  { id: "900000000000001", name: "Validation Packaging Vendor" },
+  { id: "900000000000002", name: "Validation Contract Manufacturer" },
+] as const;
 
 function scenario(): string {
   return process.env.NEXUS_FAKE_HUBSPOT_SCENARIO ?? "success";
@@ -79,6 +83,24 @@ export const fakeHubSpot: HubSpotOperations = {
     fail("owner-by-id");
     if (scenario() === "not-found") return null;
     return { name: "Validation Owner", email: "owner@nexus-validation.invalid" };
+  },
+  async searchVendors(query, limit = 20) {
+    record("vendor-search", { query, limit });
+    fail("vendor-search");
+    const normalized = query.trim().toLowerCase();
+    return vendors
+      .filter((vendor) => vendor.name.toLowerCase().includes(normalized))
+      .slice(0, limit)
+      .map((vendor) => ({ ...vendor }));
+  },
+  async resolveVendor(companyId) {
+    record("vendor-resolve", { companyId });
+    fail("vendor-resolve");
+    if (scenario() === "vendor-ineligible" || scenario() === "not-found") {
+      return null;
+    }
+    const found = vendors.find((vendor) => vendor.id === companyId);
+    return found ? { ...found } : null;
   },
   async listDealStages() {
     record("deal-stage-list", {});

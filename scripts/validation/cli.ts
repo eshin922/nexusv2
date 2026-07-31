@@ -123,9 +123,9 @@ function schemaVersion(): void {
     ].join(" "),
   ]);
   const lines = output.split(/\r?\n/).filter(Boolean);
-  if (lines[0] !== "47" || lines[1] !== "schema-ready") {
+  if (lines[0] !== "48" || lines[1] !== "schema-ready") {
     throw new Error(
-      `[validation] schema assertion failed: expected 47 + schema-ready, got ${JSON.stringify(lines)}`,
+      `[validation] schema assertion failed: expected 48 + schema-ready, got ${JSON.stringify(lines)}`,
     );
   }
   console.log(`[validation] schema assertion passed: ${lines.join(", ")}`);

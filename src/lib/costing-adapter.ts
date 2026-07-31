@@ -106,6 +106,9 @@ export type AdapterAssemblyLeafInputRow = {
   assemblyLeafId: string;
   tierId: string;
   lineGroupId: string;
+  pricingVendorHubspotCompanyId: string | null;
+  pricingVendorNameSnapshot: string | null;
+  pricingDate: string | null;
   unitCost: string | null;
   qtyPerSellableUnit: string | null;
   category: string | null;

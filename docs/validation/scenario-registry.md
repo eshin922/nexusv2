@@ -83,6 +83,52 @@ Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
   two exact field audits.
 - Status: implemented.
 
+## VAL-104 — Governed Pricing Vendor provenance
+
+- Business promise: a draft packaging pricing line records the optional
+  governed HubSpot Vendor whose pricing established its cost, plus the
+  optional date on that pricing source, without implying an awarded vendor.
+- Preconditions: isolated draft fixture; fake HubSpot contains deterministic
+  companies classified as Vendor; a second fixture line retains legacy
+  supplier text only.
+- Inputs: select `Validation Contract Manufacturer` from governed search and
+  enter Pricing Date `2026-07-15`.
+- User actions: search, select, observe both Server Action receipts, reload,
+  and open the sent fixture.
+- Visible result: canonical HubSpot name and date survive reload; legacy text
+  is read-only fallback; sent inputs are disabled.
+- Persisted state: stable Company ID `900000000000002`, canonical name snapshot,
+  and date-only value propagate to every logical-line tier sibling; legacy
+  `supplier` remains unchanged.
+- Numerical result: none; provenance never changes costing math.
+- Audit: Vendor identity/name and Pricing Date changes are recorded exactly
+  once with canonical persisted values; rejected identities produce no
+  success audit.
+- Customer artifact/provider effects: fake HubSpot ledger records filtered
+  search and exact resolution; customer preview, PDF, HubSpot writeback, and
+  NetSuite payloads receive none of these fields.
+- Security: the server ignores client names, revalidates newly selected IDs,
+  preserves historical name snapshots, and applies draft/frozen quote guards.
+- Failure modes: free-text entry, stale or non-Vendor acceptance, partial
+  sibling propagation, snapshot rename, clone loss, post-send mutation,
+  external traffic, or customer/ERP leakage.
+- Layer/file: unit boundary contracts plus browser/database/audit coverage in
+  `tests/unit/pricing-vendor-contract.test.ts` and
+  `tests/e2e/costing/basic-quote-persistence.spec.ts`.
+- Release classification: release-blocking.
+- Sources: HubSpot provider boundary, packaging metadata action, quote graph
+  propagation, costing loader/store, and validation fixture/provider.
+- Maintenance: retain exact-ID server resolution and the immutable snapshot
+  distinction; do not make legacy supplier writable.
+- Evidence: VAL-104 passed with one worker and zero retries in 15.9 seconds
+  (26.4 seconds including isolated setup).
+- Harness follow-up: Windows `Start-Process` may expose a null `ExitCode` after
+  Playwright has already logged a successful result. Durable Playwright output
+  is authoritative for that incident; wrapper exit capture remains a
+  non-blocking harness defect and must not trigger test retries or assertion
+  changes.
+- Status: implemented, verified, and release-blocking.
+
 ## VAL-102 — Required fields and invalid input
 
 - Promise: malformed, negative, non-finite, over-precision, zero-divisor, and

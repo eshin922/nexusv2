@@ -2040,7 +2040,8 @@ export const quoteAttachments = pgTable(
 // siblings). Pattern carries through from OLD `packaging_inputs`
 // semantics.
 //
-// Line-level fields (supplier, qty_per_sellable_unit, category,
+// Line-level fields (pricing provenance, legacy supplier,
+// qty_per_sellable_unit, category,
 // markup_pct, markup_pct_source, inventory_eligible, notes,
 // sort_order) duplicate across tier rows of the same line_group_id;
 // mass updates of line metadata happen at the action layer via
@@ -2066,6 +2067,15 @@ export const assemblyLeafInputs = pgTable(
     sortOrder: integer("sort_order").notNull().default(0),
 
     // Line-level (duplicated across tier rows of the same line_group_id):
+    // Slice 13 BV-001 — governed pricing provenance. HubSpot Company ID is
+    // the stable identity; the name is snapshotted at selection time and is
+    // never rewritten by later HubSpot renames. `supplier` remains strictly
+    // legacy read-only compatibility evidence.
+    pricingVendorHubspotCompanyId: text(
+      "pricing_vendor_hubspot_company_id",
+    ),
+    pricingVendorNameSnapshot: text("pricing_vendor_name_snapshot"),
+    pricingDate: date("pricing_date"),
     supplier: text("supplier"),
     qtyPerSellableUnit: numeric("qty_per_sellable_unit"),
     category: text("category"),

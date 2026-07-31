@@ -6,6 +6,8 @@ import {
   getDealStage,
   getWriteClient,
   loadPipelineStagesForLabel,
+  resolveVendorCompany,
+  searchVendorCompanies,
   updateDealStage,
 } from "@/lib/hubspot";
 
@@ -14,6 +16,8 @@ export const productionHubSpot: HubSpotOperations = {
   kind: "production",
   findOwnerByEmail: findHubspotOwnerByEmail,
   findOwnerById: findHubspotOwnerById,
+  searchVendors: searchVendorCompanies,
+  resolveVendor: resolveVendorCompany,
   listDealStages: loadPipelineStagesForLabel,
   getDealStage,
   updateDealStage,

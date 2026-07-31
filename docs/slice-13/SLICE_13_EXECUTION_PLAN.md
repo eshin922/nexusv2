@@ -64,6 +64,8 @@ Accounting-visible change.
 ### BV-001 — Pricing Vendor Identity
 
 - **Release:** V1.
+- **Status:** complete; governed identity, historical provenance, compatibility,
+  UX, and VAL-104 release-blocking evidence passed.
 - **Business capability:** replace free-text supplier entry with an optional,
   governed HubSpot Vendor lookup.
 - **Identity contract:** persist a stable vendor identity and the pricing
@@ -71,8 +73,10 @@ Accounting-visible change.
 - **Compatibility:** preserve existing records that contain free-text supplier
   values; absence of a governed vendor remains valid because vendor selection
   is optional.
-- **Optional Pricing Date:** may be included in V1 only after its exact business
-  meaning and scope are confirmed.
+- **Pricing Date:** optional date shown on the vendor quote or pricing source
+  used to establish the logical packaging-line cost; copied on clone,
+  draft-editable, and frozen after send. It is not an entry, PO, effective, or
+  awarded-vendor date.
 - **NetSuite boundary:** do not project Pricing Vendor to NetSuite in V1.
 - **V1 boundary:** do not implement vendor-quote parsing, sourcing
   recommendations, or procurement automation.

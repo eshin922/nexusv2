@@ -2,7 +2,8 @@
 
 ## Status
 
-**Approved in principle; V1 implementation prerequisites remain open.**
+**V1 COMPLETE — implementation, UX review, focused validation, and diff review
+passed.**
 
 ## Business promise
 
@@ -47,21 +48,15 @@ Repository evidence:
 - Nexus does not imply that Pricing Vendor is the awarded vendor.
 - Nexus does not create or synchronize vendor master records.
 
-## Optional Pricing Date
+## Pricing Date
 
-V1 may include an optional `pricing_date`, but its exact business meaning must
-be confirmed before schema or UI implementation. It must not be coded until
-the business specifies whether the date means, for example, the vendor quote
-date, the date pricing was received, or another governed event.
+`pricing_date` is the optional date shown on the vendor quote or pricing source
+used to establish the cost for the logical packaging pricing line. It is
+line-scoped, copied during quote cloning, editable only while the quote is a
+draft, and frozen as historical pricing provenance after send.
 
-The confirmed meaning must define:
-
-- which business event the date represents;
-- who supplies it;
-- whether it is copied during quote cloning;
-- whether it remains immutable in sent/completed history;
-- null behavior; and
-- whether it applies to a cost line or a broader quote scope.
+It is not the Nexus entry date, purchasing effective date, Purchase Order
+date, or awarded-vendor date.
 
 ## Compatibility contract
 
@@ -90,14 +85,44 @@ Pricing Vendor selection.
 Automated vendor-quote ingestion is V1.5. Broader sourcing and procurement
 intelligence is V2.
 
-## Implementation prerequisites
+## Closed implementation prerequisites
 
-1. Confirm the authoritative HubSpot company property and exact value that
-   means Vendor.
-2. Confirm the exact business meaning and scope of Pricing Date.
-3. Determine whether an existing local HubSpot company projection can serve
-   the lookup or identify the smallest required read boundary.
-4. Produce a read-only census of populated legacy `supplier` values.
+1. HubSpot company property `type` with exact value `VENDOR` is authoritative.
+2. Pricing Date has the approved line-scoped meaning above.
+3. No local Vendor projection exists; V1 uses the existing HubSpot provider
+   boundary for read-only filtered search and exact-ID revalidation.
+4. The legacy census found populated values across draft and historical rows
+   with consistent logical-line siblings. The additive migration does not
+   transform them.
+
+## Implementation evidence
+
+- `assembly_leaf_inputs` stores the stable Company ID, immutable name snapshot,
+  and date-only Pricing Date.
+- The production action resolves a newly selected ID through HubSpot and never
+  trusts a submitted name.
+- The action rejects missing, archived, unnamed, and non-Vendor identities
+  before persistence or success audit.
+- Tier creation, preset replacement, quote cloning, loaders, local state, and
+  deterministic fixtures preserve the governed fields.
+- The former `supplier` input is no longer editable and appears only as
+  read-only legacy evidence when no governed identity exists.
+- Customer, PDF, HubSpot writeback, and NetSuite boundaries do not receive
+  Pricing Vendor provenance.
+
+## Closeout evidence
+
+- Live browser review verified governed search, optional clear state, explicit
+  no-result feedback, replacement, Pricing Date, save/reload, legacy fallback,
+  and sent/completed read-only presentation.
+- VAL-104 verifies the stable ID and immutable name snapshot across every tier
+  sibling and records the fake-provider search/resolution ledger.
+- Clone preservation is protected at the canonical quote-graph copy boundary;
+  governed fields are copied with the logical line and remain internal.
+- HubSpot lookup failure returns a visible load error and does not mutate the
+  previous canonical value.
+- Full boundary review found no customer, PDF, HubSpot-writeback, or NetSuite
+  projection.
 
 ## V1 exit criteria
 

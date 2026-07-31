@@ -12,7 +12,7 @@ remains governed by the
 
 | Order | Gate | Business owner | Technical owner | Dependencies | Exit criteria | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Pricing Vendor identity | Purchasing/PM | Nexus engineering | HubSpot Vendor classification; Pricing Date meaning; cache/query boundary; legacy supplier census | Stable optional HubSpot Company identity and name snapshot persist; legacy values remain readable; no NetSuite/procurement projection | **APPROVED IN PRINCIPLE — prerequisites open** |
+| 1 | Pricing Vendor identity | Purchasing/PM | Nexus engineering | Closed: HubSpot `type=VENDOR`; approved line-scoped Pricing Date; direct provider read boundary; completed legacy census | Stable optional HubSpot Company identity, immutable name snapshot, and Pricing Date persist; legacy values remain read-only; no NetSuite/procurement projection; VAL-104 passes | **V1 COMPLETE** |
 | 2 | Below-floor margin approval | Finance/Commercial Leadership | Nexus engineering; Slack administrator for routing | Governed Commercial Approver permission/list; initial membership; self-approval and notification policy | Exact tier/version/economic state requires valid authorized approval; material economics invalidate; Slack failure never approves | **BUSINESS CONTRACT APPROVED — implementation open** |
 | 3 | Idempotent Sales Order send | Accounting | Nexus engineering; NetSuite administrator | Durable send identity; frozen payload; correlation/recovery evidence; concurrency contract | One quote revision creates at most one Sales Order; response-loss and concurrency converge safely | **INTEGRITY CONTRACT CONFIRMED — implementation open** |
 | 4 | Item Group applicability and pricing | Accounting/Finance | Nexus engineering; NetSuite administrator | Canonical applicability datum; controlled member-rate pricing evidence; required permissions; durable send orchestration | Applicable completion creates/reuses one deterministic group, uses it once, and preserves accepted commercial total; non-applicable flows remain correct | **OWNERSHIP SETTLED — applicability/pricing closure open** |
@@ -32,9 +32,9 @@ remains governed by the
 
 ### Pricing Vendor
 
-- What exact HubSpot company property and value identifies a Vendor?
-- What exact business event does optional Pricing Date represent?
-- What is the correct Pricing Date scope?
+No unresolved business question remains. Final readiness depends on focused
+validation and review of the additive migration and compatibility behavior.
+Those checks passed; the gate is closed.
 
 ### Below-floor approval
 
