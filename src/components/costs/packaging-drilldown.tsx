@@ -43,7 +43,7 @@ type QuoteSku = {
 // One flat list across all SKUs (R6 anchor-SKU pattern). When the
 // quote has multiple SKUs, the SKU label appears in the row's name
 // sub-text. v1 ships display + inline number inputs for tier cells +
-// governed vendor/date inputs and inline numeric inputs for markup.
+// governed Pricing Vendor inputs and inline numeric inputs for markup.
 
 type PackagingInputRow = {
   packaging_inputs: {
@@ -54,7 +54,6 @@ type PackagingInputRow = {
     sortOrder: number;
     pricingVendorHubspotCompanyId: string | null;
     pricingVendorNameSnapshot: string | null;
-    pricingDate: string | null;
     supplier: string | null;
     qtyPerSellableUnit: string | null;
     category: string | null;
@@ -73,7 +72,6 @@ type LineForUI = {
   quoteSkuId: string;
   pricingVendorHubspotCompanyId: string | null;
   pricingVendorNameSnapshot: string | null;
-  pricingDate: string | null;
   supplier: string | null;
   qtyPerSellableUnit: string | null;
   category: string | null;
@@ -137,7 +135,6 @@ export function PackagingDrilldown({
         quoteSkuId: row.quoteSkuId,
         pricingVendorHubspotCompanyId: row.pricingVendorHubspotCompanyId,
         pricingVendorNameSnapshot: row.pricingVendorNameSnapshot,
-        pricingDate: row.pricingDate,
         supplier: row.supplier,
         qtyPerSellableUnit: row.qtyPerSellableUnit,
         category: row.category,
@@ -264,7 +261,17 @@ export function PackagingDrilldown({
         <div className="r6-dt-head">
           <span>Component</span>
           <span>Category</span>
-          <span>Pricing Vendor / Date</span>
+          <span>
+            Pricing Source{" "}
+            <span
+              className="pricing-source-info"
+              title="The HubSpot Vendor whose pricing was used for this quote; not the awarded or purchasing vendor."
+              aria-label="About Pricing Source"
+              tabIndex={0}
+            >
+              ⓘ
+            </span>
+          </span>
           <span className="num">Markup</span>
           {tiers.map((t) => (
             <span key={t.id} className="num">
@@ -369,11 +376,10 @@ function PackagingRow({
     line.pricingVendorHubspotCompanyId;
   const storeVendorName =
     storeLineRow?.pricingVendorNameSnapshot ?? line.pricingVendorNameSnapshot;
-  const storePricingDate = storeLineRow?.pricingDate ?? line.pricingDate;
   const [vendorId, setVendorId] = useState(storeVendorId);
   const [vendorName, setVendorName] = useState(storeVendorName);
-  const [pricingDate, setPricingDate] = useState(storePricingDate ?? "");
   const [vendorQuery, setVendorQuery] = useState(storeVendorName ?? "");
+  const [vendorEditing, setVendorEditing] = useState(false);
   const [vendorResults, setVendorResults] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -387,14 +393,12 @@ function PackagingRow({
   const stateRef = useRef({
     vendorId,
     vendorName,
-    pricingDate,
     category,
     markupPct,
   });
   stateRef.current = {
     vendorId,
     vendorName,
-    pricingDate,
     category,
     markupPct,
   };
@@ -406,15 +410,14 @@ function PackagingRow({
   useEffect(() => {
     setVendorId(storeVendorId);
     setVendorName(storeVendorName);
-    setPricingDate(storePricingDate ?? "");
     setVendorQuery(storeVendorName ?? "");
+    setVendorEditing(false);
     setVendorSearchComplete(false);
     setCategory(storeCategory);
     setMarkupPct(storeMarkupPct);
     canonicalRef.current = {
       vendorId: storeVendorId,
       vendorName: storeVendorName,
-      pricingDate: storePricingDate ?? "",
       category: storeCategory,
       markupPct: storeMarkupPct,
     };
@@ -422,7 +425,6 @@ function PackagingRow({
     line.lineGroupId,
     storeVendorId,
     storeVendorName,
-    storePricingDate,
     storeCategory,
     storeMarkupPct,
   ]);
@@ -438,7 +440,6 @@ function PackagingRow({
   function fireMetaSave(overrides: Partial<{
     vendorId: string | null;
     vendorName: string | null;
-    pricingDate: string;
     category: string;
     markupPct: string;
   }> = {}) {
@@ -446,7 +447,6 @@ function PackagingRow({
     const fd = new FormData();
     fd.set("lineGroupId", line.lineGroupId);
     fd.set("pricingVendorHubspotCompanyId", s.vendorId ?? "");
-    fd.set("pricingDate", s.pricingDate);
     fd.set("category", s.category);
     fd.set("markupPct", s.markupPct);
     fd.set("qtyPerSellableUnit", line.qtyPerSellableUnit ?? "");
@@ -459,13 +459,12 @@ function PackagingRow({
         setVendorId(previous.vendorId);
         setVendorName(previous.vendorName);
         setVendorQuery(previous.vendorName ?? "");
-        setPricingDate(previous.pricingDate);
+        setVendorEditing(false);
         setCategory(previous.category);
         setMarkupPct(previous.markupPct);
         updateLineMeta(line.lineGroupId, {
           pricingVendorHubspotCompanyId: previous.vendorId,
           pricingVendorNameSnapshot: previous.vendorName,
-          pricingDate: previous.pricingDate || null,
           category: previous.category || null,
           markupPct: num(previous.markupPct),
           qtyPerSellableUnit: num(line.qtyPerSellableUnit),
@@ -476,11 +475,10 @@ function PackagingRow({
       setVendorId(result.data.pricingVendorHubspotCompanyId);
       setVendorName(result.data.pricingVendorNameSnapshot);
       setVendorQuery(result.data.pricingVendorNameSnapshot ?? "");
-      setPricingDate(result.data.pricingDate ?? "");
+      setVendorEditing(false);
       canonicalRef.current = {
         vendorId: result.data.pricingVendorHubspotCompanyId,
         vendorName: result.data.pricingVendorNameSnapshot,
-        pricingDate: result.data.pricingDate ?? "",
         category: result.data.category ?? "",
         markupPct: result.data.markupPct ?? "",
       };
@@ -488,7 +486,6 @@ function PackagingRow({
         pricingVendorHubspotCompanyId:
           result.data.pricingVendorHubspotCompanyId,
         pricingVendorNameSnapshot: result.data.pricingVendorNameSnapshot,
-        pricingDate: result.data.pricingDate,
         category: result.data.category,
         markupPct: num(result.data.markupPct),
         qtyPerSellableUnit: num(result.data.qtyPerSellableUnit),
@@ -500,7 +497,6 @@ function PackagingRow({
   function scheduleMetaSave(overrides: Partial<{
     vendorId: string | null;
     vendorName: string | null;
-    pricingDate: string;
     category: string;
     markupPct: string;
   }>) {
@@ -603,28 +599,79 @@ function PackagingRow({
         </select>
       </div>
 
-      {/* Governed Pricing Vendor and historical pricing date. */}
-      <div className="sup" style={{ position: "relative" }}>
-        <input
-          type="search"
-          aria-label="Pricing Vendor"
-          value={vendorQuery}
-          disabled={disabled}
-          onChange={(event) => {
-            const query = event.target.value;
-            setVendorQuery(query);
-            if (vendorId) {
-              setVendorId(null);
-              setVendorName(null);
-            }
-            scheduleVendorSearch(query);
-          }}
-          placeholder="Search HubSpot Vendors"
-          autoComplete="off"
-          style={{ width: "100%" }}
-        />
+      {/* Governed Pricing Vendor with compatibility-only legacy evidence. */}
+      <div className="sup pricing-source">
+        {vendorId && !vendorEditing ? (
+          <div className="pricing-source-selected">
+            <span className="pricing-source-label">Selected vendor</span>
+            <span className="pricing-source-name">{vendorName}</span>
+            {!disabled && (
+              <span className="pricing-source-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVendorEditing(true);
+                    setVendorQuery("");
+                    setVendorResults([]);
+                    setVendorSearchComplete(false);
+                  }}
+                >
+                  Change
+                </button>
+                <button
+                  type="button"
+                  aria-label="Clear Pricing Vendor"
+                  onClick={() => {
+                    stateRef.current = {
+                      ...stateRef.current,
+                      vendorId: null,
+                      vendorName: null,
+                    };
+                    setVendorId(null);
+                    setVendorName(null);
+                    setVendorQuery("");
+                    setVendorResults([]);
+                    setVendorSearchComplete(false);
+                    scheduleMetaSave({ vendorId: null, vendorName: null });
+                  }}
+                >
+                  Clear
+                </button>
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="pricing-source-search">
+            <input
+              type="search"
+              aria-label="Pricing Vendor"
+              value={vendorQuery}
+              disabled={disabled}
+              onChange={(event) => {
+                const query = event.target.value;
+                setVendorQuery(query);
+                scheduleVendorSearch(query);
+              }}
+              placeholder="Search HubSpot Vendors"
+              autoComplete="off"
+            />
+            {vendorId && !disabled && (
+              <button
+                type="button"
+                onClick={() => {
+                  setVendorEditing(false);
+                  setVendorQuery(vendorName ?? "");
+                  setVendorResults([]);
+                  setVendorSearchComplete(false);
+                }}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        )}
         {searching && <span className="sub">Searching…</span>}
-        {!disabled && vendorResults.length > 0 && (
+        {!disabled && (!vendorId || vendorEditing) && vendorResults.length > 0 && (
           <div
             role="listbox"
             aria-label="Pricing Vendor results"
@@ -655,6 +702,7 @@ function PackagingRow({
                   setVendorId(vendor.id);
                   setVendorName(vendor.name);
                   setVendorQuery(vendor.name);
+                  setVendorEditing(false);
                   setVendorResults([]);
                   setVendorSearchComplete(false);
                   scheduleMetaSave({
@@ -677,55 +725,20 @@ function PackagingRow({
             ))}
           </div>
         )}
-        {vendorId && !disabled && (
-          <button
-            type="button"
-            aria-label="Clear Pricing Vendor"
-            onClick={() => {
-              stateRef.current = {
-                ...stateRef.current,
-                vendorId: null,
-                vendorName: null,
-              };
-              setVendorId(null);
-              setVendorName(null);
-              setVendorQuery("");
-              setVendorResults([]);
-              setVendorSearchComplete(false);
-              scheduleMetaSave({ vendorId: null, vendorName: null });
-            }}
-          >
-            Clear
-          </button>
-        )}
         {!vendorId && line.supplier && (
-          <span className="sub">
-            Legacy supplier (historical): {line.supplier}
-          </span>
+          <div className="pricing-source-legacy">
+            <span className="pricing-source-label">Historical supplier</span>
+            <span>{line.supplier}</span>
+          </div>
         )}
         {!searching &&
           vendorSearchComplete &&
           vendorResults.length === 0 &&
           !vendorError && (
-            <span className="sub">No matching HubSpot Vendors.</span>
+            <span className="pricing-source-empty" role="status">
+              No eligible HubSpot Vendors match “{vendorQuery.trim()}”.
+            </span>
         )}
-        <span className="sub">
-          Source of quoted pricing; not the awarded or purchasing vendor.
-        </span>
-        <input
-          type="date"
-          aria-label="Pricing Date"
-          value={pricingDate}
-          disabled={disabled}
-          onChange={(event) => {
-            const value = event.target.value;
-            stateRef.current = { ...stateRef.current, pricingDate: value };
-            setPricingDate(value);
-            scheduleMetaSave({ pricingDate: value });
-          }}
-          title="Date shown on the vendor quote or pricing source"
-          style={{ width: "100%" }}
-        />
         {vendorError && (
           <span role="alert" className="sub">
             {vendorError}

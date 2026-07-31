@@ -382,7 +382,7 @@ test("VAL-103 concurrent debounced cost edits persist without save loss", async 
   expect(networkLedger.filter((entry) => entry.blocked)).toEqual([]);
 });
 
-test("VAL-104 governed Pricing Vendor and Pricing Date persist as line provenance", async ({
+test("VAL-104 governed Pricing Vendor persists without exposing dormant Pricing Date", async ({
   page,
   networkLedger,
 }) => {
@@ -408,6 +408,11 @@ test("VAL-104 governed Pricing Vendor and Pricing Date persist as line provenanc
     where entity_type = 'assembly_leaf_input_line'
       and entity_id = ${lineGroupId}
       and action = 'assembly_leaf_input_line_updated'
+  `;
+  await setupSql`
+    update assembly_leaf_inputs
+    set pricing_date = '2026-07-15'::date
+    where line_group_id = ${lineGroupId}
   `;
   await setupSql.end();
   const consoleFailures: string[] = [];
@@ -462,13 +467,10 @@ test("VAL-104 governed Pricing Vendor and Pricing Date persist as line provenanc
     scenarioContext.getByText("Validation draft assembly"),
   ).toHaveCount(0);
 
-  const vendorInput = page
-    .getByRole("searchbox", { name: "Pricing Vendor" })
-    .first();
-  await expect(vendorInput).toHaveValue("Validation Packaging Vendor");
-  await expect(
-    page.getByText("Legacy supplier (historical): Validation Supplier").first(),
-  ).toBeVisible();
+  await expect(page.getByText("Selected vendor").first()).toBeVisible();
+  await expect(page.getByText("Validation Packaging Vendor").first()).toBeVisible();
+  await expect(firstPackagingRow.getByText("Historical supplier")).toHaveCount(0);
+  await expect(page.getByLabel("Pricing Date")).toHaveCount(0);
 
   const clearReceipt = page.waitForResponse(
     (candidate) =>
@@ -478,10 +480,14 @@ test("VAL-104 governed Pricing Vendor and Pricing Date persist as line provenanc
   );
   await page.getByRole("button", { name: "Clear Pricing Vendor" }).first().click();
   await (await clearReceipt).finished();
+  const vendorInput = page
+    .getByRole("searchbox", { name: "Pricing Vendor" })
+    .first();
   await expect(vendorInput).toHaveValue("");
   await expect(
-    page.getByText("Legacy supplier (historical): Validation Supplier").first(),
+    firstPackagingRow.getByText("Historical supplier"),
   ).toBeVisible();
+  await expect(firstPackagingRow.getByText("Validation Supplier")).toBeVisible();
 
   const emptySearchReceipt = page.waitForResponse(
     (candidate) =>
@@ -491,7 +497,9 @@ test("VAL-104 governed Pricing Vendor and Pricing Date persist as line provenanc
   );
   await vendorInput.fill("No Matching Vendor");
   await (await emptySearchReceipt).finished();
-  await expect(page.getByText("No matching HubSpot Vendors.").first()).toBeVisible();
+  await expect(
+    page.getByText('No eligible HubSpot Vendors match “No Matching Vendor”.'),
+  ).toBeVisible();
 
   const searchReceipt = page.waitForResponse(
     (candidate) =>
@@ -511,16 +519,6 @@ test("VAL-104 governed Pricing Vendor and Pricing Date persist as line provenanc
     .getByRole("option", { name: "Validation Contract Manufacturer" })
     .click();
   await (await saveVendorReceipt).finished();
-
-  const pricingDateInput = page.locator('input[aria-label="Pricing Date"]').first();
-  const saveDateReceipt = page.waitForResponse(
-    (candidate) =>
-      candidate.request().method() === "POST" &&
-      candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
-      candidate.ok(),
-  );
-  await pricingDateInput.fill("2026-07-15");
-  await (await saveDateReceipt).finished();
 
   const sql = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
   try {
@@ -570,39 +568,27 @@ test("VAL-104 governed Pricing Vendor and Pricing Date persist as line provenanc
       ),
     ).toHaveLength(2);
     expect(
-      audits.filter((audit) =>
-        Object.hasOwn(audit.diff_json, "pricing_date"),
-      ),
-    ).toHaveLength(1);
+      audits.filter((audit) => Object.hasOwn(audit.diff_json, "pricing_date")),
+    ).toHaveLength(0);
   } finally {
     await sql.end();
   }
 
   await page.reload({ waitUntil: "networkidle" });
   await expect(
-    page.getByRole("searchbox", { name: "Pricing Vendor" }).first(),
-  ).toHaveValue("Validation Contract Manufacturer");
-  await expect(
-    page.locator('input[aria-label="Pricing Date"]').first(),
-  ).toHaveValue("2026-07-15");
+    page.getByText("Validation Contract Manufacturer").first(),
+  ).toBeVisible();
+  await expect(page.getByLabel("Pricing Date")).toHaveCount(0);
 
   const sent = fixtures.quotes.sent;
   await page.goto(sent.deepLinks.costs, { waitUntil: "networkidle" });
-  await expect(
-    page.getByRole("searchbox", { name: "Pricing Vendor" }).first(),
-  ).toBeDisabled();
-  await expect(
-    page.locator('input[aria-label="Pricing Date"]').first(),
-  ).toBeDisabled();
+  await expect(page.getByLabel("Pricing Date")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Clear Pricing Vendor" })).toHaveCount(0);
 
   const complete = fixtures.quotes.complete;
   await page.goto(complete.deepLinks.costs, { waitUntil: "networkidle" });
-  await expect(
-    page.getByRole("searchbox", { name: "Pricing Vendor" }).first(),
-  ).toBeDisabled();
-  await expect(
-    page.locator('input[aria-label="Pricing Date"]').first(),
-  ).toBeDisabled();
+  await expect(page.getByLabel("Pricing Date")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Clear Pricing Vendor" })).toHaveCount(0);
 
   const ledgerPath = process.env.NEXUS_FAKE_HUBSPOT_LEDGER;
   expect(ledgerPath).toBeTruthy();

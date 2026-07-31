@@ -88,7 +88,6 @@ export type StoredPackagingRow = CostingPackagingInput & {
   rowId: string;
   pricingVendorHubspotCompanyId: string | null;
   pricingVendorNameSnapshot: string | null;
-  pricingDate: string | null;
   legacySupplier: string | null;
 };
 export type StoredProductionRow = CostingProductionInput; // keyed by (skuId, tierId)
@@ -337,7 +336,6 @@ export type PackagingLineMetaFields = Partial<
     | "qtyPerSellableUnit"
     | "pricingVendorHubspotCompanyId"
     | "pricingVendorNameSnapshot"
-    | "pricingDate"
   >
 >;
 export type ProductionCellFields = Partial<

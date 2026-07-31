@@ -1,3 +1,7 @@
+/**
+ * Reserved date-only parser for a future automated pricing-source ingestion
+ * boundary. V1 deliberately has no UI or Server Action caller for this field.
+ */
 export class PricingDateValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -5,11 +9,6 @@ export class PricingDateValidationError extends Error {
   }
 }
 
-/**
- * Parses the date shown on the vendor quote or other pricing source.
- * The value is deliberately date-only: timezone conversion would corrupt
- * historical pricing provenance.
- */
 export function parsePricingDateOnly(value: string | null): string | null {
   const raw = value?.trim() || null;
   if (raw === null) return null;

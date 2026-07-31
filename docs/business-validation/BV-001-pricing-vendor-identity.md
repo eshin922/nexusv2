@@ -48,15 +48,17 @@ Repository evidence:
 - Nexus does not imply that Pricing Vendor is the awarded vendor.
 - Nexus does not create or synchronize vendor master records.
 
-## Pricing Date
+## V1 product simplification
 
-`pricing_date` is the optional date shown on the vendor quote or pricing source
-used to establish the cost for the logical packaging pricing line. It is
-line-scoped, copied during quote cloning, editable only while the quote is a
-draft, and frozen as historical pricing provenance after send.
+PMs make exactly one pricing-provenance decision: **Who did this price come
+from?** Pricing Date is intentionally absent from the V1 UI and PM workflow.
+Nexus does not accept, persist, propagate, or audit user-entered Pricing Date
+values.
 
-It is not the Nexus entry date, purchasing effective date, Purchase Order
-date, or awarded-vendor date.
+The nullable production `pricing_date` column remains dormant. Existing values
+are not displayed, rewritten, backfilled, or removed. Automated vendor-quote
+ingestion may populate it from a trustworthy source in V1.5 or later; manual
+entry must not return without a new business validation decision.
 
 ## Compatibility contract
 
@@ -88,7 +90,7 @@ intelligence is V2.
 ## Closed implementation prerequisites
 
 1. HubSpot company property `type` with exact value `VENDOR` is authoritative.
-2. Pricing Date has the approved line-scoped meaning above.
+2. Pricing Date is deliberately excluded from the V1 PM workflow.
 3. No local Vendor projection exists; V1 uses the existing HubSpot provider
    boundary for read-only filtered search and exact-ID revalidation.
 4. The legacy census found populated values across draft and historical rows
@@ -97,14 +99,15 @@ intelligence is V2.
 
 ## Implementation evidence
 
-- `assembly_leaf_inputs` stores the stable Company ID, immutable name snapshot,
-  and date-only Pricing Date.
+- `assembly_leaf_inputs` stores the stable Company ID and immutable name
+  snapshot. Its nullable `pricing_date` column is dormant compatibility schema.
 - The production action resolves a newly selected ID through HubSpot and never
   trusts a submitted name.
 - The action rejects missing, archived, unnamed, and non-Vendor identities
   before persistence or success audit.
 - Tier creation, preset replacement, quote cloning, loaders, local state, and
-  deterministic fixtures preserve the governed fields.
+  deterministic fixtures preserve governed Vendor identity without propagating
+  dormant Pricing Date values.
 - The former `supplier` input is no longer editable and appears only as
   read-only legacy evidence when no governed identity exists.
 - Customer, PDF, HubSpot writeback, and NetSuite boundaries do not receive
@@ -113,8 +116,8 @@ intelligence is V2.
 ## Closeout evidence
 
 - Live browser review verified governed search, optional clear state, explicit
-  no-result feedback, replacement, Pricing Date, save/reload, legacy fallback,
-  and sent/completed read-only presentation.
+  no-result feedback, replacement, save/reload, legacy fallback, and
+  sent/completed read-only presentation. Pricing Date is absent.
 - VAL-104 verifies the stable ID and immutable name snapshot across every tier
   sibling and records the fake-provider search/resolution ledger.
 - Clone preservation is protected at the canonical quote-graph copy boundary;
@@ -130,7 +133,7 @@ intelligence is V2.
   snapshot.
 - The selection remains optional.
 - Legacy values remain readable without guessed identity.
-- Pricing Date, if included, has an approved exact meaning.
+- The V1 workflow contains no manual Pricing Date decision.
 - No NetSuite or procurement behavior is introduced.
 - Persistence, compatibility, clone, authorization, and network-isolation
   tests pass.
