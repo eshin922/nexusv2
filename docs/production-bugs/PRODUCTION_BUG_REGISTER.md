@@ -14,10 +14,15 @@ when its governing invariant has permanent regression evidence.
   action had succeeded or whether a quote remained editable.
 - **Governing invariant:** Every Nexus surface displays the same canonical
   quote lifecycle state that controls server-side editability.
-- **Fix:** Provide exhaustive presentation for every database quote status,
-  fail visibly for unknown future statuses, and select the deal-level quote by
-  scenario version and creation chronology rather than status priority or
-  mutable update time.
+- **Fix:** Provide exhaustive presentation for every database quote status and
+  fail visibly for unknown future statuses. The badge, filters, selected quote
+  ID, scenario, version, and status all come from the same organizer record.
+  Latest-quote selection deliberately retains the established `updated_at`
+  projection.
+- **Future decision:** Nexus has no single immutable chronology that can rank a
+  newly created quote in one scenario against an in-place revision in another.
+  Authoritative cross-scenario commercial chronology is a separate business
+  decision and is not part of PB-001.
 - **Regression evidence:** `tests/unit/quote-lifecycle-surfaces.test.ts` and
   `tests/e2e/slice-12/lifecycle-surface-consistency.spec.ts`.
 - **Release status:** V1 release blocker; resolved. Focused lifecycle unit and

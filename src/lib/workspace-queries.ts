@@ -150,15 +150,12 @@ export type DealOrganizerRow = {
   } | null;
 };
 
-// Deal-level latest quote projection:
-//   1. Highest version_number wins inside each scenario family.
-//   2. Across those scenario representatives, newest created_at wins.
-//   3. Equal created_at values use version_number as the deterministic
-//      tie-breaker. Status and updated_at never influence selection.
-//
-// This preserves revision chronology without allowing a later edit to an
-// older quote to make that quote appear current. The selected id and version
-// travel with the status so every organizer badge is traceable to its source.
+// Existing deal-level latest quote projection: most recently updated quote
+// wins. This intentionally preserves established behavior while Nexus lacks
+// one immutable chronology that can compare an in-place revision in one
+// scenario with a newly created quote in another. The selected id, scenario,
+// version, creation time, activity time, and canonical status travel together
+// so every organizer badge remains traceable to its source record.
 export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
   const rows = await db.execute<{
     id: string;
@@ -174,7 +171,6 @@ export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
     latest_quote_status: QuoteStatus | null;
     latest_quote_created_at: Date | null;
     latest_quote_updated_at: Date | null;
-    latest_quote_chronology_tie_count: number | null;
   }>(sql`
     SELECT
       p.id,
@@ -189,31 +185,14 @@ export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
       lq.version_number AS latest_quote_version_number,
       lq.status AS latest_quote_status,
       lq.created_at AS latest_quote_created_at,
-      lq.updated_at AS latest_quote_updated_at,
-      lq.chronology_tie_count AS latest_quote_chronology_tie_count
+      lq.updated_at AS latest_quote_updated_at
     FROM projects p
     LEFT JOIN LATERAL (
-      WITH scenario_latest AS (
-        SELECT DISTINCT ON (q.scenario_label)
-          q.id, q.scenario_label, q.version_number, q.status,
-          q.created_at, q.updated_at
-        FROM quotes q
-        WHERE q.project_id = p.id
-        ORDER BY q.scenario_label, q.version_number DESC, q.created_at DESC
-      ),
-      ranked AS (
-        SELECT scenario_latest.*,
-          dense_rank() OVER (
-            ORDER BY scenario_latest.created_at DESC,
-                     scenario_latest.version_number DESC
-          ) AS chronology_rank
-        FROM scenario_latest
-      )
-      SELECT ranked.id, ranked.scenario_label, ranked.version_number,
-             ranked.status, ranked.created_at, ranked.updated_at,
-             count(*) OVER ()::int AS chronology_tie_count
-      FROM ranked
-      WHERE ranked.chronology_rank = 1
+      SELECT q.id, q.scenario_label, q.version_number, q.status,
+             q.created_at, q.updated_at
+      FROM quotes q
+      WHERE q.project_id = p.id
+      ORDER BY q.updated_at DESC
       LIMIT 1
     ) lq ON TRUE
     WHERE p.status = 'active'
@@ -234,14 +213,7 @@ export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
     latest_quote_status: QuoteStatus | null;
     latest_quote_created_at: Date | null;
     latest_quote_updated_at: Date | null;
-    latest_quote_chronology_tie_count: number | null;
-  }>).map((r) => {
-    if ((r.latest_quote_chronology_tie_count ?? 0) > 1) {
-      throw new Error(
-        `Organizer quote chronology is ambiguous for project ${r.id}: scenario representatives share creation time and version.`,
-      );
-    }
-    return {
+  }>).map((r) => ({
     id: r.id,
     clientName: r.client_name,
     dealName: r.deal_name,
@@ -263,8 +235,7 @@ export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
           updatedAt: r.latest_quote_updated_at!,
         }
       : null,
-    };
-  });
+  }));
 }
 
 // Inner rail — scenarios for a project. Returns one row per
