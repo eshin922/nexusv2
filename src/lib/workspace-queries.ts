@@ -148,14 +148,16 @@ export type DealOrganizerRow = {
     createdAt: Date;
     updatedAt: Date;
   } | null;
+  hasAnyQuotes: boolean;
 };
 
-// Existing deal-level latest quote projection: most recently updated quote
-// wins. This intentionally preserves established behavior while Nexus lacks
-// one immutable chronology that can compare an in-place revision in one
-// scenario with a newly created quote in another. The selected id, scenario,
-// version, creation time, activity time, and canonical status travel together
-// so every organizer badge remains traceable to its source record.
+// Existing deal-level latest quote projection: the most recently updated
+// eligible quote wins. Dropped scenarios are historical-only and cannot
+// represent current commercial work. Among non-dropped scenarios this
+// intentionally preserves established updated_at behavior while Nexus lacks
+// one immutable cross-scenario chronology. The selected id, scenario, version,
+// creation time, activity time, and canonical status travel together so every
+// organizer badge remains traceable to its source record.
 export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
   const { loadHubspotStageCatalog } = await import("@/lib/hubspot-stage-label");
   const { presentHubspotStage } = await import("@/lib/crm-presentation");
@@ -174,6 +176,7 @@ export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
     latest_quote_status: QuoteStatus | null;
     latest_quote_created_at: Date | null;
     latest_quote_updated_at: Date | null;
+    has_any_quotes: boolean;
   }>(sql`
     SELECT
       p.id,
@@ -188,13 +191,15 @@ export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
       lq.version_number AS latest_quote_version_number,
       lq.status AS latest_quote_status,
       lq.created_at AS latest_quote_created_at,
-      lq.updated_at AS latest_quote_updated_at
+      lq.updated_at AS latest_quote_updated_at,
+      EXISTS (SELECT 1 FROM quotes aq WHERE aq.project_id = p.id) AS has_any_quotes
     FROM projects p
     LEFT JOIN LATERAL (
       SELECT q.id, q.scenario_label, q.version_number, q.status,
              q.created_at, q.updated_at
       FROM quotes q
       WHERE q.project_id = p.id
+        AND q.scenario_status <> 'dropped'
       ORDER BY q.updated_at DESC
       LIMIT 1
     ) lq ON TRUE
@@ -216,6 +221,7 @@ export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
     latest_quote_status: QuoteStatus | null;
     latest_quote_created_at: Date | null;
     latest_quote_updated_at: Date | null;
+    has_any_quotes: boolean;
   }>).map((r) => ({
     id: r.id,
     clientName: r.client_name,
@@ -238,6 +244,7 @@ export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
           updatedAt: r.latest_quote_updated_at!,
         }
       : null,
+    hasAnyQuotes: r.has_any_quotes,
   }));
 }
 

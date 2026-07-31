@@ -190,7 +190,11 @@ export function DealOrganizerProjectList({
                         </span>
                       </>
                     ) : (
-                      <span className="italic text-ink-4">No quotes yet</span>
+                      <span className="italic text-ink-4">
+                        {r.hasAnyQuotes
+                          ? "No Active Scenario"
+                          : "No quotes yet"}
+                      </span>
                     )}
                   </td>
                   <td className="px-3 py-2.5">

@@ -14,7 +14,9 @@ Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
 - Visible result: `Rev. N` identifies the active Quote revision; no inert New
   Project/New Version affordance appears; stage labels are readable and
   consistent; Sales Owner uses the cached HubSpot owner name; Project Detail
-  exposes neither manual Refresh from HubSpot nor Project Archive.
+  exposes neither manual Refresh from HubSpot nor Project Archive. Dropped
+  scenarios remain historical: Organizer selects the latest-updated non-dropped
+  quote or displays `No Active Scenario` when none exists.
 - Persisted state: none; presentation reads the existing project/cache
   snapshot. Governed HubSpot import remains the operator synchronization entry
   point; retained compatibility actions are not exposed in V1.
@@ -22,7 +24,8 @@ Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
   catalog is the only provider read and network isolation remains strict.
 - Failure modes: raw numeric stage IDs, stale labels, invented users, generic
   Version terminology, Nexus-only creation copy, divergent labels between
-  surfaces, or exposure of undefined manual refresh/archive actions.
+  surfaces, exposure of undefined manual refresh/archive actions, or promotion
+  of a dropped draft/sent quote as current commercial work.
 - Layer/file: unit contracts plus browser coverage in
   `tests/unit/crm-presentation.test.ts`,
   `tests/unit/quote-revision-workflow.test.ts`,
