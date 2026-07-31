@@ -66,7 +66,7 @@ export default async function Home() {
           <div className="flex items-center gap-2">
             <Link
               href="/import"
-              className="rounded border border-accent bg-accent px-3 py-1.5 text-sm font-medium text-paper hover:bg-accent-ink"
+              className="rounded border border-accent bg-accent px-3 py-1.5 text-sm font-medium !text-white transition-colors hover:bg-accent-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 active:bg-accent-ink"
             >
               Import from HubSpot
             </Link>
@@ -126,7 +126,7 @@ function EmptyState() {
       <div className="mt-4 flex items-center gap-2">
         <Link
           href="/import"
-          className="rounded border border-accent bg-accent px-3 py-1.5 text-sm font-medium text-paper hover:bg-accent-ink"
+          className="rounded border border-accent bg-accent px-3 py-1.5 text-sm font-medium !text-white transition-colors hover:bg-accent-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 active:bg-accent-ink"
         >
           Import from HubSpot
         </Link>
