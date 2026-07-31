@@ -21,6 +21,36 @@ function manifest(): FixtureManifest {
   ) as FixtureManifest;
 }
 
+test("Product creation hierarchy preserves the approved ASY default", async ({
+  page,
+}) => {
+  await page.goto(manifest().quotes.draft.deepLinks.setup, {
+    waitUntil: "networkidle",
+  });
+  await page.getByRole("button", { name: /add component/i }).click();
+  const library = page.getByRole("dialog", { name: /library/i });
+  await library
+    .getByRole("button", { name: "+ Create new product", exact: true })
+    .first()
+    .click();
+
+  const modal = page.getByRole("dialog", { name: /add product/i });
+  const modes = modal.locator(".a1v2-mode-toggle > button");
+  await expect(modes).toHaveCount(2);
+  await expect(modes.nth(0)).toContainText("LEAF");
+  await expect(modes.nth(1)).toContainText("ASY");
+  await expect(modes.nth(1)).toHaveClass(/active/);
+  await expect(modes.nth(0)).toBeEnabled();
+  await expect(modes.nth(1)).toBeEnabled();
+  await modes.nth(0).focus();
+  await expect(modes.nth(0)).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(modes.nth(1)).toBeFocused();
+  await modal.screenshot({
+    path: ".artifacts/validation/product-library-hierarchy-after.png",
+  });
+});
+
 test("PVS-018 Product Library preserves creation through every catalog state", async ({
   page,
   networkLedger,

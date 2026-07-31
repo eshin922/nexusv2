@@ -247,21 +247,21 @@ export function AddProductModal({
               <div className="a1v2-mode-toggle">
                 <button
                   type="button"
-                  className={mode === "asy" ? "active" : ""}
-                  onClick={() => setMode("asy")}
-                  disabled={pending}
-                >
-                  <span className="lab">ASY</span>
-                  <span className="desc">Quotable product · commercial fields</span>
-                </button>
-                <button
-                  type="button"
                   className={mode === "leaf" ? "active" : ""}
                   onClick={() => setMode("leaf")}
                   disabled={pending}
                 >
                   <span className="lab">LEAF</span>
                   <span className="desc">Reusable component · type + specs</span>
+                </button>
+                <button
+                  type="button"
+                  className={mode === "asy" ? "active" : ""}
+                  onClick={() => setMode("asy")}
+                  disabled={pending}
+                >
+                  <span className="lab">ASY</span>
+                  <span className="desc">Quotable product · commercial fields</span>
                 </button>
               </div>
             </div>
