@@ -11,13 +11,6 @@ export const ACTIVE_STAGE_IDS = [
   "195274342", // Project Setup           (≈ "Purchase Order" in spec)
 ] as const;
 
-export const STAGE_LABEL_BY_ID: Record<string, string> = {
-  "195274338": "New (Acquiring Info)",
-  "195274339": "Development & Quoting",
-  "195274340": "Formal Quoting",
-  "195274342": "Project Setup",
-};
-
 export type ProductSummary = {
   id: string;
   name: string;

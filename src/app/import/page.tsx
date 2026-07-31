@@ -3,6 +3,8 @@ import { Suspense } from "react";
 import { getCacheStatus, isStale } from "@/lib/hubspot-cache";
 import { DealList } from "./deal-list";
 import { RefreshHeader } from "./refresh-header";
+import { ACTIVE_STAGE_IDS } from "@/lib/hubspot";
+import { loadHubspotStageCatalog } from "@/lib/hubspot-stage-label";
 
 const PAGE_SIZE = 50;
 
@@ -18,6 +20,10 @@ export default async function ImportPage({
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
 
   const status = await getCacheStatus();
+  const stages = await loadHubspotStageCatalog();
+  const activeStageLabels = ACTIVE_STAGE_IDS.map(
+    (id) => stages.find((stage) => stage.id === id)?.label,
+  ).filter((label): label is string => Boolean(label));
   const pollOnMount = status.count === 0 || isStale(status.lastSyncedAt);
 
   return (
@@ -29,8 +35,11 @@ export default async function ImportPage({
           </Link>
           <h1 className="mt-1 text-2xl font-semibold">Import a deal</h1>
           <p className="text-sm text-gray-600">
-            Search active-pipeline deals (New, Development &amp; Quoting,
-            Formal Quoting, Project Setup).
+            Search active-pipeline deals
+            {activeStageLabels.length > 0
+              ? ` (${activeStageLabels.join(", ")})`
+              : ""}
+            .
           </p>
         </div>
         <RefreshHeader
@@ -64,7 +73,12 @@ export default async function ImportPage({
       </form>
 
       <Suspense fallback={<SyncingPlaceholder />}>
-        <DealList query={query} page={page} pageSize={PAGE_SIZE} />
+        <DealList
+          query={query}
+          page={page}
+          pageSize={PAGE_SIZE}
+          stages={stages}
+        />
       </Suspense>
     </main>
   );

@@ -171,9 +171,9 @@ export function DealOrganizerProjectList({
                     </Link>
                   </td>
                   <td className="px-3 py-2.5 text-xs text-ink-3">
-                    {r.dealStage ? (
+                    {r.dealStageLabel ? (
                       <span className="rounded border border-rule px-1.5 py-0 font-mono text-[10px] uppercase tracking-wide">
-                        {r.dealStage}
+                        {r.dealStageLabel}
                       </span>
                     ) : (
                       <span className="text-ink-4">—</span>
@@ -186,7 +186,7 @@ export function DealOrganizerProjectList({
                           {r.latestQuote.scenarioLabel}
                         </span>
                         <span className="ml-1 font-mono text-[10px] text-ink-4">
-                          v{r.latestQuote.versionNumber}
+                          Rev. {r.latestQuote.versionNumber}
                         </span>
                       </>
                     ) : (
@@ -197,7 +197,7 @@ export function DealOrganizerProjectList({
                     {r.latestQuote && chip && (
                       <span
                         className={`inline-block rounded border px-1.5 py-0 font-mono text-[10px] font-medium uppercase tracking-wide ${chip.cls}`}
-                        title={`Quote ${r.latestQuote.id} · v${r.latestQuote.versionNumber}${chip.editable ? "" : " · read-only"}`}
+                        title={`Quote ${r.latestQuote.id} · Rev. ${r.latestQuote.versionNumber}${chip.editable ? "" : " · read-only"}`}
                       >
                         {chip.label}
                       </span>

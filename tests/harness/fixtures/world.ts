@@ -166,8 +166,8 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
             ${projectId}, ${dealId}, 'validation_hs_owner_pm',
             ${`Validation ${state} deal`}, 'Validation Customer',
             ${state === "draft" ? null : pmId}, ${pmId},
-            'turnkey', 'active', 'Validation Sent',
-            ${pmId}, '2026-01-15T12:00:00Z'
+            'turnkey', 'active', 'validation_stage_sent',
+            ${pmId}, now()
           )
         `;
         await tx`
