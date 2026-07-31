@@ -13,6 +13,8 @@ Accounting-visible change.
 - Discover the current system and external operating environment.
 - Establish Sales Order field lineage, evidence, and difference disposition.
 - Inventory integrations and their owners, triggers, and retirement effects.
+- Complete the V1 business-validation requirement for governed pricing-vendor
+  identity while preserving existing supplier records.
 - Run Nexus in sandbox-only shadow mode while legacy production processing
   remains authoritative.
 - Prepare operations, training, UAT, cutover, go-live, hypercare, and legacy
@@ -23,6 +25,7 @@ Accounting-visible change.
 - Literal byte identity between production and sandbox.
 - Production writes during discovery, parity audit, or shadow mode.
 - New Slice 13 features before the Sales Order parity gate closes.
+- Vendor-quote parsing, sourcing recommendations, or procurement automation.
 - Treating a `$0.00` upstream catalog price as a commercial transaction price.
 - Assuming undocumented external configuration from repository client code.
 
@@ -55,6 +58,42 @@ Accounting-visible change.
 | Assumption | Completed Item Groups are the sole intended Accounting-visible change. | Escalate any additional intentional change through Go/No-Go governance. |
 | Dependency | Production and sandbox field dictionaries, scripts, workflows, roles, forms, tax, terms, and item configuration. | Requires manual discovery. |
 | Dependency | Representative production transaction set and approved handling of sensitive evidence. | Requires Accounting and IT approval. |
+
+## Business-validation requirements
+
+### BV-001 — Pricing Vendor Identity
+
+- **Release:** V1.
+- **Business capability:** replace free-text supplier entry with an optional,
+  governed HubSpot Vendor lookup.
+- **Identity contract:** persist a stable vendor identity and the pricing
+  provenance used by the quote.
+- **Compatibility:** preserve existing records that contain free-text supplier
+  values; absence of a governed vendor remains valid because vendor selection
+  is optional.
+- **Optional Pricing Date:** may be included in V1 only after its exact business
+  meaning and scope are confirmed.
+- **NetSuite boundary:** do not project Pricing Vendor to NetSuite in V1.
+- **V1 boundary:** do not implement vendor-quote parsing, sourcing
+  recommendations, or procurement automation.
+- **V1.5:** automated vendor-quote ingestion.
+- **V2:** broader sourcing and procurement intelligence.
+
+### Remaining V1 production-readiness gates
+
+The authoritative business-gate status is maintained in the
+[Production Readiness Register](../business-validation/PRODUCTION_READINESS_REGISTER.md):
+
+1. Pricing Vendor identity.
+2. Below-floor margin approval.
+3. Idempotent Sales Order send.
+4. Item Group applicability and commercial pricing.
+
+Below-floor authority is a governed Commercial Approver permission or list,
+not the `admin` role. Admin may administer that authority. A later firm-floor
+policy change does not by itself invalidate an approval already granted for
+the recorded policy and commercial facts; material quote-economic change,
+tier change, or revision does invalidate it.
 
 ## Exit criteria
 
