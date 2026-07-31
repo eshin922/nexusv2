@@ -275,3 +275,19 @@ Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
 - Sources: send action, snapshots, artifact storage, PDF route.
 - Maintenance: never regenerate expected historical artifacts.
 - Status: partially protected by VAL-601; pricing immutability extension pending.
+
+## VAL-208 — Bulk pricing preview, apply, and exact undo
+
+- Promise: preview never mutates pricing; explicit Apply persists the displayed
+  tier adjustments and prices; immediate Undo restores captured prior values.
+- Preconditions/actions: deterministic multi-tier draft; preview, cancel,
+  apply, undo, apply again, and reload.
+- Visible result: every tier shows current adjustment/price, delta, and
+  resulting adjustment/price with explicit Preview and Apply boundaries.
+- Persistence/audit: preview and cancel write nothing; Apply and Undo each
+  produce root and derived tier audits; stale Undo is rejected.
+- Layer/evidence: release-blocking unit and browser coverage in
+  `tests/unit/pricing-lift.test.ts` and
+  `tests/e2e/costing/bulk-pricing-lift.spec.ts`.
+- Maintenance: Undo is session-scoped; reload ends Undo eligibility.
+- Status: implemented.

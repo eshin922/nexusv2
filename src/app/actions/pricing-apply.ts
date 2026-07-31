@@ -33,7 +33,7 @@
 // path"). Forgery defense can layer in later via re-derive (Slice
 // 9.4b pattern) if analytics integrity needs surface.
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, pricingEvents, quoteTiers, quotes } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -45,6 +45,12 @@ import {
 } from "@/lib/action-result";
 import { quoteByIdDraft } from "@/lib/quote-guards";
 import { revalidateQuoteTree } from "@/lib/revalidate";
+import { getCostingBundle } from "@/app/actions/costing";
+import {
+  buildGlobalPricingPreview,
+  type GlobalPricingPreview,
+} from "@/lib/pricing-lift";
+import { composePricingAdjustment } from "@/lib/pricing-adjustment";
 
 // Bound applyDelta to a sane range. Suggestion math caps at numeric(5,4)
 // effective_adj domain anyway; this is belt-and-suspenders.
@@ -67,8 +73,33 @@ function computeNewAdj(
   applyDelta: number,
 ): string {
   // (1 + current) * (1 + delta) - 1, kept as string for numeric column.
-  const next = (1 + currentEffectiveAdj) * (1 + applyDelta) - 1;
+  const next = composePricingAdjustment(currentEffectiveAdj, applyDelta);
   return next.toString();
+}
+
+export async function previewGlobalAdj(
+  formData: FormData,
+): Promise<ActionResult<GlobalPricingPreview>> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    const applyDeltaRaw = String(formData.get("applyDelta") ?? "").trim();
+    if (!quoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+    if (!applyDeltaRaw)
+      throw new ActionGuardError(ERR.VALIDATION, "applyDelta required");
+    const applyDelta = validateApplyDelta(applyDeltaRaw);
+    await ensureUser();
+    await quoteByIdDraft(quoteId);
+    const bundle = await getCostingBundle(quoteId);
+    if (!bundle.ok) {
+      throw new ActionGuardError(bundle.error.code, bundle.error.message);
+    }
+    const preview = buildGlobalPricingPreview(bundle.data, applyDelta);
+    for (const tier of preview.tiers) {
+      assertNewAdjFitsBound(String(tier.resultingAdjustment), tier.label);
+    }
+    return preview;
+  });
 }
 
 // Bug #2 fix (α): pre-check composed new_adj fits the numeric(5,4)
@@ -210,13 +241,15 @@ export async function applySurgicalAdj(
 
 export async function applyGlobalAdj(
   formData: FormData,
-): Promise<ActionResult<{ quoteId: string; tierCount: number }>> {
+): Promise<ActionResult<{ quoteId: string; tierCount: number; auditId: string }>> {
   return runAction(async () => {
     const quoteId = String(formData.get("quoteId") ?? "").trim();
     const applyToRaw = String(formData.get("applyTo") ?? "").trim();
     const applyDeltaRaw = String(formData.get("applyDelta") ?? "").trim();
     const optionRecommended =
       String(formData.get("optionRecommended") ?? "").trim() === "true";
+    const expectedPreviewRaw =
+      String(formData.get("expectedPreview") ?? "").trim();
 
     if (!quoteId)
       throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
@@ -250,6 +283,30 @@ export async function applyGlobalAdj(
     }
 
     const globalAdj = Number(quote.globalPriceAdjPct ?? 0);
+    if (expectedPreviewRaw) {
+      let expected: Array<{
+        tierId: string;
+        priorPersistedAdjustment: string | null;
+        resultingAdjustment: number;
+      }>;
+      try {
+        expected = JSON.parse(expectedPreviewRaw) as typeof expected;
+      } catch {
+        throw new ActionGuardError(ERR.VALIDATION, "Pricing preview is malformed");
+      }
+      for (const item of expected) {
+        const tier = tierMap.get(item.tierId);
+        if (
+          !tier ||
+          String(tier.tierPriceAdjPct) !== String(item.priorPersistedAdjustment)
+        ) {
+          throw new ActionGuardError(
+            ERR.VALIDATION,
+            "Pricing changed after Preview; preview the changes again",
+          );
+        }
+      }
+    }
 
     // Bug #2 fix (α): pre-check ALL tier new_adj values BEFORE any
     // writes (including root audit). Atomic-fail semantic — if any
@@ -293,7 +350,6 @@ export async function applyGlobalAdj(
       .returning({ id: auditLog.id });
 
     // 2. Per-tier writes + derived audit rows.
-    const newAdjByTier: Array<{ tierId: string; from: string | null; to: string }> = [];
     for (const { tierId: tid, tier, newAdj } of newAdjPlanned) {
 
       await db
@@ -332,6 +388,89 @@ export async function applyGlobalAdj(
     });
 
     revalidateQuoteTree(quote.projectId, quote.id);
-    return { quoteId, tierCount: applyTo.length };
+    return { quoteId, tierCount: applyTo.length, auditId: rootAudit.id };
+  });
+}
+
+export async function undoGlobalAdj(
+  formData: FormData,
+): Promise<ActionResult<{ quoteId: string; tierCount: number }>> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    const auditId = String(formData.get("auditId") ?? "").trim();
+    if (!quoteId || !auditId) {
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId and auditId required");
+    }
+    const user = await ensureUser();
+    const quote = await quoteByIdDraft(quoteId);
+    const roots = await db.select().from(auditLog).where(and(
+      eq(auditLog.id, auditId),
+      eq(auditLog.entityType, "quote"),
+      eq(auditLog.entityId, quoteId),
+      eq(auditLog.action, "pricing_suggestion_global_applied"),
+    )).limit(1);
+    if (!roots[0]) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "Bulk pricing apply not found");
+    }
+    const children = await db.select().from(auditLog).where(and(
+      eq(auditLog.causedByAuditId, auditId),
+      eq(auditLog.entityType, "quote_tier"),
+      eq(auditLog.action, "tier_price_adj_updated"),
+    ));
+    if (children.length === 0) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "Bulk pricing apply has no tier changes");
+    }
+    const tierRows = await db.select().from(quoteTiers).where(eq(quoteTiers.quoteId, quoteId));
+    const tierMap = new Map(tierRows.map((tier) => [tier.id, tier]));
+    const restores = children.map((child) => {
+      const diff = child.diffJson as {
+        tier_price_adj_pct?: { from?: string | null; to?: string | null };
+      };
+      const change = diff.tier_price_adj_pct;
+      const tier = tierMap.get(child.entityId);
+      if (!tier || !change || change.to == null) {
+        throw new ActionGuardError(ERR.VALIDATION, "Bulk pricing receipt is incomplete");
+      }
+      if (
+        tier.tierPriceAdjPct == null ||
+        Number(tier.tierPriceAdjPct) !== Number(change.to)
+      ) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `Tier ${tier.label} changed after Apply; Undo was not performed`,
+        );
+      }
+      return { tier, from: change.from ?? null, to: change.to };
+    });
+    const [undoAudit] = await db.insert(auditLog).values({
+      userId: user.id,
+      entityType: "quote",
+      entityId: quoteId,
+      action: "pricing_suggestion_global_undone",
+      diffJson: {
+        source: "pricing_suggestion_global_undo",
+        applied_audit_id: auditId,
+        tier_count: restores.length,
+      },
+    }).returning({ id: auditLog.id });
+    for (const restore of restores) {
+      await db.update(quoteTiers).set({
+        tierPriceAdjPct: restore.from,
+        updatedAt: new Date(),
+      }).where(eq(quoteTiers.id, restore.tier.id));
+      await db.insert(auditLog).values({
+        userId: user.id,
+        entityType: "quote_tier",
+        entityId: restore.tier.id,
+        action: "tier_price_adj_updated",
+        diffJson: {
+          tier_price_adj_pct: { from: restore.to, to: restore.from },
+          source: "pricing_suggestion_global_undo",
+        },
+        causedByAuditId: undoAudit.id,
+      });
+    }
+    revalidateQuoteTree(quote.projectId, quote.id);
+    return { quoteId, tierCount: restores.length };
   });
 }

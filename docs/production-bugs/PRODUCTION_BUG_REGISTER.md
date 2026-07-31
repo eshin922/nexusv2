@@ -66,6 +66,25 @@ when its governing invariant has permanent regression evidence.
   (`VAL-104`) and `tests/unit/costing-surface-contract.test.ts`.
 - **Release status:** V1 release blocker; resolved.
 
+## PB-004 — Bulk pricing transparency and exact undo
+
+- **Observation:** “Preview” immediately persisted a global adjustment without
+  showing tier-level price effects or providing a safe reversal.
+- **Business impact:** A commercial pricing mutation could occur before the PM
+  understood which tiers and customer prices would change.
+- **Governing invariant:** Bulk pricing changes are transparent before
+  persistence and exactly reversible immediately afterward.
+- **Fix:** Preview is a read-only canonical costing projection showing each
+  tier’s current adjustment and price, delta, resulting adjustment, and
+  resulting price. Only Apply persists and audits. A bounded in-session Undo
+  restores exact prior persisted values from the Apply audit receipt, refuses
+  stale receipts, and writes its own audit cascade.
+- **Undo boundary:** Undo is available only in the current UI session after a
+  successful Apply. Apply survives reload; Undo intentionally does not.
+- **Regression evidence:** `tests/unit/pricing-lift.test.ts` and
+  `tests/e2e/costing/bulk-pricing-lift.spec.ts`.
+- **Release status:** V1 release blocker; resolved.
+
 ## PB-007 — Cost-context SKU eligibility
 
 - **Observation:** “Other SKUs in this scenario” included ASY records even

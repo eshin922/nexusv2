@@ -17,8 +17,8 @@
 //   - Mode-transition flash via `previousModeRef` + 30s timer
 //     (rendering chrome, not classifier responsibility)
 //   - Apply-path handlers wiring to Slice 9.4b server actions
-//     (applySurgicalAdj, applyGlobalAdj) and Slice 9.2 manual
-//     GPA path (updateQuoteGlobalPriceAdj from DetailGlobalAdjust)
+//     (applySurgicalAdj, applyGlobalAdj), read-only bulk preview,
+//     and receipt-based exact bulk Undo
 //   - Local UI state: applyError, justUpdatedAt
 //
 // Apply-delta + apply-to resolution: the classifier QuoteState's
@@ -35,8 +35,10 @@ import type { Mode } from "@/lib/pricing-classifier";
 import {
   applyGlobalAdj,
   applySurgicalAdj,
+  previewGlobalAdj,
+  undoGlobalAdj,
 } from "@/app/actions/pricing-apply";
-import { updateQuoteGlobalPriceAdj } from "@/app/actions/costing";
+import type { GlobalPricingPreview } from "@/lib/pricing-lift";
 import {
   ActionCard,
   AcceptRiskBanner,
@@ -101,6 +103,12 @@ export function PricingSurfaceShell({
 
   // Apply-path handlers ─────────────────────────────────────────
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [globalPreview, setGlobalPreview] =
+    useState<GlobalPricingPreview | null>(null);
+  const [bulkAuditId, setBulkAuditId] = useState<string | null>(null);
+  const [bulkPending, setBulkPending] = useState(false);
+  const [pricingConfirmation, setPricingConfirmation] =
+    useState<string | null>(null);
 
   async function onApply(kind: "apply_surgical" | "apply_global") {
     setApplyError(null);
@@ -171,23 +179,61 @@ export function PricingSurfaceShell({
     // for closed-enum exhaustiveness).
   }
 
-  // CB Patch round 3 BUG-B disposition (2026-06-16) — re-instated.
-  // DetailGlobalAdjust "Preview →" button is the only commit
-  // affordance on PSR for the global price adj; it writes
-  // quote.global_price_adj_pct via Slice 9.2's
-  // updateQuoteGlobalPriceAdj action and lets the reconcile pipe
-  // trigger classifier re-run + mode-transition flash. (Naming
-  // mismatch with semantics — the button reads "Preview →" per CD
-  // prototype copy; PSR-13 smoke walk and CD §6 docs use "Preview"
-  // to mean "commit + show projected." Future v1.1+ work may
-  // separate preview-only from commit-and-show; banked.)
+  // PB-004: Preview is read-only. Apply is the only mutation boundary.
+  // The server recomputes the projection with canonical costing math.
   async function onPreviewGlobalAdjust(liftPct: number) {
     setApplyError(null);
+    setPricingConfirmation(null);
+    setBulkPending(true);
     const fd = new FormData();
     fd.set("quoteId", quoteId);
-    fd.set("globalPriceAdjPct", String(liftPct));
-    const r = await updateQuoteGlobalPriceAdj(fd);
+    fd.set("applyDelta", String(liftPct / 100));
+    const r = await previewGlobalAdj(fd);
+    setBulkPending(false);
     if (!r.ok) setApplyError(r.error.message);
+    else setGlobalPreview(r.data);
+  }
+
+  async function onApplyGlobalPreview() {
+    if (!globalPreview) return;
+    setApplyError(null);
+    setBulkPending(true);
+    const fd = new FormData();
+    fd.set("quoteId", quoteId);
+    fd.set("applyTo", globalPreview.tiers.map((tier) => tier.tierId).join(","));
+    fd.set("applyDelta", String(globalPreview.applyDelta));
+    fd.set("optionRecommended", "false");
+    fd.set("expectedPreview", JSON.stringify(globalPreview.tiers.map((tier) => ({
+      tierId: tier.tierId,
+      priorPersistedAdjustment: tier.priorPersistedAdjustment,
+      resultingAdjustment: tier.resultingAdjustment,
+    }))));
+    const r = await applyGlobalAdj(fd);
+    setBulkPending(false);
+    if (!r.ok) {
+      setApplyError(r.error.message);
+      return;
+    }
+    setBulkAuditId(r.data.auditId);
+    setGlobalPreview(null);
+    setPricingConfirmation("Pricing updated.");
+  }
+
+  async function onUndoGlobalAdjust() {
+    if (!bulkAuditId) return;
+    setApplyError(null);
+    setBulkPending(true);
+    const fd = new FormData();
+    fd.set("quoteId", quoteId);
+    fd.set("auditId", bulkAuditId);
+    const r = await undoGlobalAdj(fd);
+    setBulkPending(false);
+    if (!r.ok) {
+      setApplyError(r.error.message);
+      return;
+    }
+    setBulkAuditId(null);
+    setPricingConfirmation("Pricing restored.");
   }
 
   // Per-mode mount — single-responsibility zones; composer decides
@@ -267,6 +313,13 @@ export function PricingSurfaceShell({
         state={state}
         quoteId={quoteId}
         onPreviewGlobalAdjust={onPreviewGlobalAdjust}
+        globalPreview={globalPreview}
+        onCancelGlobalPreview={() => setGlobalPreview(null)}
+        onApplyGlobalPreview={onApplyGlobalPreview}
+        onUndoGlobalAdjust={onUndoGlobalAdjust}
+        canUndoGlobalAdjust={bulkAuditId !== null}
+        pricingMutationPending={bulkPending}
+        pricingConfirmation={pricingConfirmation}
       />
     </section>
   );
