@@ -48,6 +48,12 @@ test("fake HubSpot Product creation is deterministic and ledgered", async () => 
     hs_sku: "VAL-COMP-001",
     name: "Validation Reusable Component",
     price: "0.00",
+    submittedProperties: { ...input, price: "0.00" },
+    responseBody: {
+      id: "998000000000001",
+      properties: { ...input, price: "0.00" },
+      archived: false,
+    },
   });
   assert.deepEqual(
     readFakeHubSpotCalls().map(({ operation, input: callInput }) => ({

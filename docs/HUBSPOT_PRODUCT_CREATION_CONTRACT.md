@@ -26,6 +26,11 @@ Nexus calls the governed HubSpot provider before inserting the local LEAF. A
 HubSpot rejection therefore creates no local LEAF. The returned stable HubSpot
 Product ID is persisted only after successful creation.
 
+For controlled production evidence, the canonical `leaf_create` audit record
+retains the exact provider-submitted Product properties and the parsed HubSpot
+create response body. These fields contain Product data only; authorization
+headers and access tokens are never recorded.
+
 ## Evidence status
 
 - HubSpot property identity/type: **PROVEN** by read-only production Properties

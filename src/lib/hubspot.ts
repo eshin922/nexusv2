@@ -611,6 +611,8 @@ export async function createProduct(
       hs_sku: resp.properties?.hs_sku ?? null,
       name: resp.properties?.name ?? properties.name,
       price: resp.properties?.price ?? properties.price ?? null,
+      submittedProperties: { ...properties },
+      responseBody: JSON.parse(JSON.stringify(resp)) as Record<string, unknown>,
     };
   } catch (err) {
     // Surface the SDK's status + HubSpot-side reason so the

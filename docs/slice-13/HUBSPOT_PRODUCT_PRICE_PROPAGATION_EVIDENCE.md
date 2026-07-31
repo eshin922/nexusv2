@@ -15,6 +15,8 @@ the CRM catalog node, not NetSuite Item or Item Group readiness.
 
 ## Controlled live verification record
 
-Pending. Record Nexus LEAF ID, HubSpot Product ID, redacted submitted payload,
-returned Product representation, duplicate/association checks, and retained or
-approved cleanup disposition here.
+Pending. The `leaf_create` audit captures provider-submitted Product properties
+and the parsed create response without credentials. Record Nexus LEAF ID,
+HubSpot Product ID, immediate/later read-backs, price history,
+duplicate/association checks, and retained or approved cleanup disposition
+here.

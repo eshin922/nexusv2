@@ -33,6 +33,8 @@ export type HubSpotProductCreateResult = {
   hs_sku: string | null;
   name: string;
   price: string | null;
+  submittedProperties: Record<string, string>;
+  responseBody: Record<string, unknown>;
 };
 
 const HUBSPOT_PRODUCT_PRICE = /^\d+(?:\.\d+)?$/;

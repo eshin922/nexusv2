@@ -113,11 +113,18 @@ export const fakeHubSpot: HubSpotOperations = {
       throw new Error("HubSpot fake product-create failure");
     }
     productSequence += 1;
+    const id = `998${String(productSequence).padStart(12, "0")}`;
     return {
-      id: `998${String(productSequence).padStart(12, "0")}`,
+      id,
       hs_sku: normalizedInput.hs_sku ?? null,
       name: normalizedInput.name,
       price: normalizedInput.price,
+      submittedProperties: { ...normalizedInput } as Record<string, string>,
+      responseBody: {
+        id,
+        properties: { ...normalizedInput },
+        archived: false,
+      },
     };
   },
   async listDealStages() {
