@@ -36,7 +36,7 @@ test("an unknown future status fails visibly instead of falling back to draft", 
   });
 });
 
-test("organizer preserves the established updated-at latest-quote projection", async () => {
+test("organizer excludes dropped history and preserves updated-at ordering", async () => {
   const source = await readFile(
     new URL("../../src/lib/workspace-queries.ts", import.meta.url),
     "utf8",
@@ -45,11 +45,25 @@ test("organizer preserves the established updated-at latest-quote projection", a
     source.indexOf("export async function getDealOrganizerProjects"),
     source.indexOf("// Inner rail", source.indexOf("getDealOrganizerProjects")),
   );
+  assert.match(
+    organizerSource,
+    /q\.scenario_status <> 'dropped'[\s\S]*ORDER BY q\.updated_at DESC[\s\S]*LIMIT 1/,
+  );
   assert.match(organizerSource, /ORDER BY q\.updated_at DESC[\s\S]*LIMIT 1/);
+  assert.match(organizerSource, /EXISTS \(SELECT 1 FROM quotes aq WHERE aq\.project_id = p\.id\) AS has_any_quotes/);
   assert.doesNotMatch(
     organizerSource,
     /chronology_rank|DISTINCT ON \(q\.scenario_label\)/,
   );
+});
+
+test("organizer renders an explicit all-dropped state", async () => {
+  const source = await readFile(
+    new URL("../../src/components/deal-organizer/project-list.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /hasAnyQuotes[\s\S]*"No Active Scenario"/);
+  assert.doesNotMatch(source, /latestQuote \?[^:]+:[^;]+dropped/i);
 });
 
 test("lifecycle invalidation is page-scoped and costing autosave remains quote-only", async () => {

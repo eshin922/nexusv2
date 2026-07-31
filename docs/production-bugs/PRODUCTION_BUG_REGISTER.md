@@ -163,3 +163,25 @@ when its governing invariant has permanent regression evidence.
   `tests/e2e/slice-12/workspace-governance.spec.ts` (`VAL-105`).
 - **Release status:** V1 production-risk closure; resolved in code pending
   operator approval.
+
+## PB-012 / PVS-017 — Dropped scenario selected as current quote
+
+- **Observation:** Project Detail showed `Alt 1` as `DROPPED`, while the Deals
+  Organizer presented that same historical quote as the project's current
+  `DRAFT` quote even though active sent scenarios remained.
+- **Root cause:** The Organizer selected the latest `quotes.updated_at` across
+  every scenario. Dropping a scenario intentionally preserves quote lifecycle
+  status but updates `updated_at`, making dropped history win the projection.
+- **Business impact:** Historical work could displace the actual current
+  commercial proposal and misstate project status and filters.
+- **Governing invariant:** Dropped scenarios are historical only. When a
+  non-dropped scenario exists, select the most recently updated eligible quote;
+  when every scenario is dropped, render `No Active Scenario` without promoting
+  history.
+- **Fix:** Exclude `scenario_status = 'dropped'` only at the Organizer current-
+  quote projection. Preserve existing `updated_at` ordering among eligible
+  scenarios and leave every lifecycle and historical record unchanged.
+- **Regression evidence:** `tests/unit/quote-lifecycle-surfaces.test.ts` and
+  `tests/e2e/slice-12/workspace-governance.spec.ts` (`VAL-105`).
+- **Release status:** V1 operator-trust blocker; resolved in code pending
+  verification and operator approval.

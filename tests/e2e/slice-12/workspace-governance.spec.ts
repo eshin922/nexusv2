@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import postgres from "postgres";
 import { test, expect } from "../../harness/network/playwright-fixture";
 import type { FixtureManifest } from "../../harness/fixtures/world";
 
@@ -65,8 +66,11 @@ test("workspace uses governed quote, owner, stage, and creation language", async
     contentType: "image/png",
   });
 
-  await draftRow.getByRole("link").click();
-  await expect(page).toHaveURL(new RegExp(`/projects/${manifest().quotes.draft.projectId}$`));
+  const projectUrl = new RegExp(`/projects/${manifest().quotes.draft.projectId}$`);
+  await Promise.all([
+    page.waitForURL(projectUrl, { timeout: 15_000 }),
+    draftRow.getByRole("link").click(),
+  ]);
   await expect(page.getByText(/Sales:\s*Validation Owner/)).toBeVisible();
   await expect(page.getByText("validation_stage_sent", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Quote · Rev. 1", { exact: true })).toBeVisible();
@@ -88,6 +92,91 @@ test("workspace uses governed quote, owner, stage, and creation language", async
   });
 
   await testInfo.attach("browser-diagnostics.json", {
+    body: Buffer.from(JSON.stringify({ failures, networkLedger }, null, 2)),
+    contentType: "application/json",
+  });
+  expect(failures.console, "console errors and warnings").toEqual([]);
+  expect(failures.page, "uncaught page errors").toEqual([]);
+  expect(failures.request, "failed browser requests").toEqual([]);
+});
+
+test("PVS-017 Organizer excludes dropped history from current selection", async ({
+  page,
+  networkLedger,
+}, testInfo) => {
+  const sql = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
+  const projectIds = {
+    mixed: "71000000-0000-4000-8000-000000000001",
+    multiple: "71000000-0000-4000-8000-000000000002",
+    dropped: "71000000-0000-4000-8000-000000000003",
+  } as const;
+  const failures = { console: [] as string[], page: [] as string[], request: [] as string[] };
+  page.on("console", (message) => {
+    if (message.type() === "error" || /warning/i.test(message.type())) {
+      failures.console.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => failures.page.push(error.message));
+  page.on("requestfailed", (request) => {
+    failures.request.push(
+      `${request.method()} ${request.url()} ${request.failure()?.errorText ?? ""}`,
+    );
+  });
+
+  try {
+    await sql`
+      insert into projects (id, hubspot_deal_id, deal_name, client_name, status, deal_stage)
+      values
+        (${projectIds.mixed}, '971000000001', 'PVS mixed scenario deal', 'PVS Customer', 'active', 'validation_stage_sent'),
+        (${projectIds.multiple}, '971000000002', 'PVS multiple active deal', 'PVS Customer', 'active', 'validation_stage_sent'),
+        (${projectIds.dropped}, '971000000003', 'PVS all dropped deal', 'PVS Customer', 'active', 'validation_stage_sent')
+    `;
+    await sql`
+      insert into quotes (
+        id, project_id, scenario_label, scenario_status, version_number,
+        status, created_at, updated_at
+      ) values
+        ('72000000-0000-4000-8000-000000000001', ${projectIds.mixed}, 'Current Sent', 'active', 1, 'sent', '2026-07-01T10:00:00Z', '2026-07-01T10:00:00Z'),
+        ('72000000-0000-4000-8000-000000000002', ${projectIds.mixed}, 'Dropped Draft', 'dropped', 1, 'draft', '2026-07-01T11:00:00Z', '2026-07-02T10:00:00Z'),
+        ('72000000-0000-4000-8000-000000000003', ${projectIds.multiple}, 'Older Active', 'active', 1, 'draft', '2026-07-01T10:00:00Z', '2026-07-01T10:00:00Z'),
+        ('72000000-0000-4000-8000-000000000004', ${projectIds.multiple}, 'Newer Active', 'active', 2, 'sent', '2026-07-01T11:00:00Z', '2026-07-02T10:00:00Z'),
+        ('72000000-0000-4000-8000-000000000005', ${projectIds.dropped}, 'Dropped Draft', 'dropped', 1, 'draft', '2026-07-01T10:00:00Z', '2026-07-02T10:00:00Z'),
+        ('72000000-0000-4000-8000-000000000006', ${projectIds.dropped}, 'Dropped Sent', 'dropped', 2, 'sent', '2026-07-01T11:00:00Z', '2026-07-03T10:00:00Z')
+    `;
+
+    await page.goto("/", { waitUntil: "networkidle" });
+
+    const mixed = page.getByRole("row").filter({ hasText: "PVS mixed scenario deal" });
+    await expect(mixed).toContainText("Current Sent");
+    await expect(mixed).toContainText("Rev. 1");
+    await expect(mixed).toContainText("SENT");
+    await expect(mixed).not.toContainText("Dropped Draft");
+
+    const multiple = page.getByRole("row").filter({ hasText: "PVS multiple active deal" });
+    await expect(multiple).toContainText("Newer Active");
+    await expect(multiple).toContainText("Rev. 2");
+    await expect(multiple).toContainText("SENT");
+
+    const dropped = page.getByRole("row").filter({ hasText: "PVS all dropped deal" });
+    await expect(dropped).toContainText("No Active Scenario");
+    await expect(dropped).not.toContainText("Dropped Draft");
+    await expect(dropped).not.toContainText("Dropped Sent");
+    await expect(dropped).not.toContainText("DRAFT");
+    await expect(dropped).not.toContainText("SENT");
+
+    await testInfo.attach("pvs-017-organizer.png", {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: "image/png",
+    });
+  } finally {
+    await sql`
+      delete from projects
+      where id in (${projectIds.mixed}, ${projectIds.multiple}, ${projectIds.dropped})
+    `;
+    await sql.end();
+  }
+
+  await testInfo.attach("pvs-017-browser-diagnostics.json", {
     body: Buffer.from(JSON.stringify({ failures, networkLedger }, null, 2)),
     contentType: "application/json",
   });
