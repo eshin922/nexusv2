@@ -240,7 +240,7 @@ Locked candidate mapping table for CA + Edward review:
 | `hs_images` | `leaves.image_url` | ✓ | (skip) | first URL only; pull doesn't push image edits |
 | `hs_product_type` | (no map) | (skip) | (skip) | HubSpot enum ≠ nexus taxonomy; preserve product_type_id on pull |
 | `description` | (no nexus column) | (skip) | (skip) | candidate column add; not required for v1 |
-| `price` | (no nexus column) | (skip) | (skip) | sell-price lives on quote_skus, not leaves |
+| `price` | (no nexus column) | (skip) | ✓ | explicit valid value or technical `0.00` default; never commercial quote price |
 | `hubspot_owner_id` | `leaves.owner_id` | conditional | (skip) | map via `users.hubspot_owner_id` join; skip if no match |
 | `fsc_claim_type` | `leaves.fsc_claim` | conditional | (skip) | text-to-bool coercion; `null/none → false`; any value → true |
 | `fsc_status` | `leaves.fsc_status` | ✓ | (skip) | direct text |
@@ -250,9 +250,11 @@ Locked candidate mapping table for CA + Edward review:
 **Pull-only fields** (read but don't write back): owner mapping
 + fsc fields + archive state.
 
-**Push-only fields:** none — push is a strict subset of pull.
+**Push-only fields:** `price` is supplied only as a HubSpot/NetSuite catalog
+prerequisite. It is intentionally not persisted to `leaves` and never feeds
+quote pricing or Sales Order rates.
 
-**Skipped fields:** description + price (no column); hs_product_type
+**Skipped pull fields:** description + price (no column); hs_product_type
 (taxonomy mismatch).
 
 **CA + Edward disposition needed on:**

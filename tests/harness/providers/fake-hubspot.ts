@@ -5,6 +5,7 @@ import type {
   HubSpotOperations,
   HubSpotStage,
 } from "@/lib/integrations/hubspot-provider";
+import { normalizeHubSpotProductCreateInput } from "../../../src/lib/integrations/hubspot-provider.ts";
 
 export type FakeHubSpotCall = {
   operation: string;
@@ -105,7 +106,8 @@ export const fakeHubSpot: HubSpotOperations = {
     return found ? { ...found } : null;
   },
   async createProduct(input) {
-    record("product-create", { ...input });
+    const normalizedInput = normalizeHubSpotProductCreateInput(input);
+    record("product-create", { ...normalizedInput });
     fail("product-create");
     if (input.name === "Validation Product Provider Failure") {
       throw new Error("HubSpot fake product-create failure");
@@ -113,8 +115,9 @@ export const fakeHubSpot: HubSpotOperations = {
     productSequence += 1;
     return {
       id: `998${String(productSequence).padStart(12, "0")}`,
-      hs_sku: input.hs_sku ?? null,
-      name: input.name,
+      hs_sku: normalizedInput.hs_sku ?? null,
+      name: normalizedInput.name,
+      price: normalizedInput.price,
     };
   },
   async listDealStages() {

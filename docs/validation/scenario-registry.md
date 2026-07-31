@@ -2,6 +2,28 @@
 
 Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
 
+## VAL-107 — Default HubSpot Product catalog price
+
+- Business promise: Nexus-authored reusable components do not require PM price
+  entry but always send a valid HubSpot Product catalog price; the technical
+  zero never becomes commercial quote or Sales Order pricing.
+- Inputs/actions: create without price; map blank, explicit zero, explicit
+  nonzero, and invalid values; exercise provider rejection.
+- Persisted/provider result: missing/blank/zero sends canonical `0.00`;
+  nonzero is preserved; invalid input reaches no provider; HubSpot failure
+  creates no LEAF; successful provider ID remains HubSpot-first.
+- Isolation evidence: deterministic fake provider ledger records the canonical
+  payload and Playwright denies real outbound traffic.
+- Live evidence: controlled production Product create/read-back is required
+  before HubSpot zero creation is marked proven.
+- Separate evidence node: HubSpot Product → NetSuite Item price propagation is
+  untested and cannot be inferred from Product creation.
+- Layer/file: `tests/unit/product-library-contract.test.ts` and
+  `tests/e2e/slice-12/product-library-create-component.spec.ts`.
+- Release classification: follow-up catalog prerequisite; live verification
+  and operator review required.
+- Status: implemented.
+
 ## VAL-106 — Governed reusable-component creation
 
 - Business promise: a PM can create a reusable component from Product Library

@@ -22,6 +22,11 @@ export default defineConfig({
   webServer: {
     command: "npm run validation:app",
     url: process.env.NEXUS_VALIDATION_BASE_URL ?? "http://127.0.0.1:3100",
+    env: {
+      NEXUS_FAKE_HUBSPOT_LEDGER:
+        process.env.NEXUS_FAKE_HUBSPOT_LEDGER ??
+        `.artifacts/validation/${process.env.NEXUS_VALIDATION_RUN_ID ?? "slice12"}/fake-hubspot-calls.jsonl`,
+    },
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

@@ -4,6 +4,7 @@ import type {
   HubSpotProductCreateInput,
   HubSpotProductCreateResult,
 } from "@/lib/integrations/hubspot-provider";
+import { normalizeHubSpotProductCreateInput } from "@/lib/integrations/hubspot-provider";
 
 // DPS "Sales" pipeline (id=108896657). Slice 2 surfaces only deals up to and
 // including the Project Setup ("Purchase Order") phase — anything in
@@ -593,8 +594,9 @@ export async function createProduct(
   input: HubSpotProductCreateInput,
 ): Promise<HubSpotProductCreateResult> {
   const c = getProductsClient();
+  const normalizedInput = normalizeHubSpotProductCreateInput(input);
   const properties: Record<string, string> = {};
-  for (const [k, v] of Object.entries(input)) {
+  for (const [k, v] of Object.entries(normalizedInput)) {
     if (v === undefined || v === null) continue;
     const trimmed = typeof v === "string" ? v.trim() : String(v);
     if (trimmed === "") continue;
@@ -608,6 +610,7 @@ export async function createProduct(
       id: resp.id,
       hs_sku: resp.properties?.hs_sku ?? null,
       name: resp.properties?.name ?? properties.name,
+      price: resp.properties?.price ?? properties.price ?? null,
     };
   } catch (err) {
     // Surface the SDK's status + HubSpot-side reason so the

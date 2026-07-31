@@ -93,7 +93,9 @@ export async function createLeaf(
     }
 
     // HubSpot-first write-back. Push mapping per Concern C
-    // disposition: name + sku + unit_cost + url ONLY. Other
+    // disposition: name + sku + unit_cost + url + technical catalog price.
+    // Price defaults to 0.00 at the mapper/provider boundary and is never a
+    // Nexus quote or Sales Order transaction rate. Other
     // HubSpot product attributes (description, owner, FSC fields,
     // image_url) stay HubSpot-empty until pull-back or HubSpot UI
     // edit.

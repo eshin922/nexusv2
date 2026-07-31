@@ -134,6 +134,26 @@ test("PVS-018 Product Library preserves creation through every catalog state", a
     `;
     expect(createdLeaf?.hubspot_product_id).toMatch(/^998\d{12}$/);
     createdLeafId = createdLeaf.id;
+    const productCreateCalls = readFileSync(
+      path.resolve(
+        process.cwd(),
+        ".artifacts",
+        "validation",
+        runId,
+        "fake-hubspot-calls.jsonl",
+      ),
+      "utf8",
+    )
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { operation: string; input: Record<string, unknown> })
+      .filter(
+        (call) =>
+          call.operation === "product-create" && call.input.name === successfulName,
+      );
+    expect(productCreateCalls).toHaveLength(1);
+    expect(productCreateCalls[0]?.input.price).toBe("0.00");
     const beforeAttach = await sql<{ n: number }[]>`
       select count(*)::int as n from assembly_leaves where leaf_id = ${createdLeafId}
     `;
