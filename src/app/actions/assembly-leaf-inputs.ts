@@ -19,10 +19,6 @@ import { ensureUser } from "@/lib/auth/ensure-user";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import type { HubSpotVendor } from "@/lib/integrations/hubspot-provider";
 import {
-  parsePricingDateOnly,
-  PricingDateValidationError,
-} from "@/lib/pricing-vendor";
-import {
   ActionGuardError,
   ERR,
   runAction,
@@ -58,7 +54,6 @@ export type PackagingLineSnapshot = {
   lineGroupId: string;
   pricingVendorHubspotCompanyId: string | null;
   pricingVendorNameSnapshot: string | null;
-  pricingDate: string | null;
   supplier: string | null;
   qtyPerSellableUnit: string | null;
   category: string | null;
@@ -226,21 +221,6 @@ export async function updateAssemblyLeafInputLineMeta(
     const requestedVendorId = trimOrNull(
       formData.get("pricingVendorHubspotCompanyId"),
     );
-    let newPricingDate: string | null;
-    try {
-      newPricingDate = parsePricingDateOnly(
-        trimOrNull(formData.get("pricingDate")),
-      );
-    } catch (error) {
-      if (error instanceof PricingDateValidationError) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          error.message,
-          "pricingDate",
-        );
-      }
-      throw error;
-    }
     let newPricingVendor: HubSpotVendor | null = null;
     if (requestedVendorId !== null) {
       if (
@@ -325,7 +305,6 @@ export async function updateAssemblyLeafInputLineMeta(
       pricing_vendor_hubspot_company_id:
         beforeRow.pricingVendorHubspotCompanyId,
       pricing_vendor_name_snapshot: beforeRow.pricingVendorNameSnapshot,
-      pricing_date: beforeRow.pricingDate,
       qty_per_sellable_unit: beforeRow.qtyPerSellableUnit,
       category: beforeRow.category,
       markup_pct: beforeRow.markupPct,
@@ -336,7 +315,6 @@ export async function updateAssemblyLeafInputLineMeta(
     const after = {
       pricing_vendor_hubspot_company_id: newPricingVendor?.id ?? null,
       pricing_vendor_name_snapshot: newPricingVendor?.name ?? null,
-      pricing_date: newPricingDate,
       qty_per_sellable_unit: newQtyPerSellableUnit,
       category: newCategory,
       markup_pct: nextMarkupPct,
@@ -348,7 +326,6 @@ export async function updateAssemblyLeafInputLineMeta(
     function snapshot(
       pricingVendorHubspotCompanyId: string | null,
       pricingVendorNameSnapshot: string | null,
-      pricingDate: string | null,
       supplier: string | null,
       qty: string | null,
       category: string | null,
@@ -361,7 +338,6 @@ export async function updateAssemblyLeafInputLineMeta(
         lineGroupId,
         pricingVendorHubspotCompanyId,
         pricingVendorNameSnapshot,
-        pricingDate,
         supplier,
         qtyPerSellableUnit: qty,
         category,
@@ -377,7 +353,6 @@ export async function updateAssemblyLeafInputLineMeta(
       return snapshot(
         beforeRow.pricingVendorHubspotCompanyId,
         beforeRow.pricingVendorNameSnapshot,
-        beforeRow.pricingDate,
         beforeRow.supplier,
         beforeRow.qtyPerSellableUnit,
         beforeRow.category,
@@ -393,7 +368,6 @@ export async function updateAssemblyLeafInputLineMeta(
       .set({
         pricingVendorHubspotCompanyId: newPricingVendor?.id ?? null,
         pricingVendorNameSnapshot: newPricingVendor?.name ?? null,
-        pricingDate: newPricingDate,
         qtyPerSellableUnit: newQtyPerSellableUnit,
         category: newCategory,
         markupPct: nextMarkupPct,
@@ -418,7 +392,6 @@ export async function updateAssemblyLeafInputLineMeta(
     return snapshot(
       newPricingVendor?.id ?? null,
       newPricingVendor?.name ?? null,
-      newPricingDate,
       beforeRow.supplier,
       newQtyPerSellableUnit,
       newCategory,

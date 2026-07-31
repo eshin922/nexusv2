@@ -2,28 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
-  parsePricingDateOnly,
-  PricingDateValidationError,
-} from "../../src/lib/pricing-vendor.ts";
-import {
   fakeHubSpot,
   readFakeHubSpotCalls,
   resetFakeHubSpot,
 } from "../harness/providers/fake-hubspot.ts";
-
-test("pricing date is nullable, date-only, and calendar-valid", () => {
-  assert.equal(parsePricingDateOnly(null), null);
-  assert.equal(parsePricingDateOnly(""), null);
-  assert.equal(parsePricingDateOnly(" 2026-07-30 "), "2026-07-30");
-  assert.throws(
-    () => parsePricingDateOnly("07/30/2026"),
-    PricingDateValidationError,
-  );
-  assert.throws(
-    () => parsePricingDateOnly("2026-02-30"),
-    PricingDateValidationError,
-  );
-});
 
 test("fake HubSpot boundary filters Vendor search and resolves exact stable IDs", async () => {
   resetFakeHubSpot();
@@ -112,10 +94,10 @@ test("server action trusts only the exact HubSpot ID and canonical provider name
     "utf8",
   );
   assert.match(component, /Pricing Vendors could not be loaded\./);
-  assert.match(component, /No matching HubSpot Vendors\./);
+  assert.match(component, /No eligible HubSpot Vendors match/);
   assert.match(
     component,
-    /Source of quoted pricing; not the awarded or purchasing vendor\./,
+    /not the awarded or purchasing vendor\./,
   );
 
   const guards = await readFile(
@@ -129,7 +111,7 @@ test("server action trusts only the exact HubSpot ID and canonical provider name
   assert.match(guards, /quote\.status !== "draft"/);
 });
 
-test("tier, preset, and clone paths preserve governed pricing provenance", async () => {
+test("tier, preset, and clone paths preserve governed vendor identity only", async () => {
   const source = await readFile(
     new URL("../../src/app/actions/quotes.ts", import.meta.url),
     "utf8",
@@ -137,13 +119,41 @@ test("tier, preset, and clone paths preserve governed pricing provenance", async
   for (const field of [
     "pricingVendorHubspotCompanyId",
     "pricingVendorNameSnapshot",
-    "pricingDate",
   ]) {
     assert.ok(
       source.split(field).length >= 7,
       `${field} must be selected and inserted by tier, preset, and clone paths`,
     );
   }
+  assert.doesNotMatch(source, /pricingDate/);
+});
+
+test("Pricing Date is dormant while its nullable production column remains", async () => {
+  const [component, action, schema, migration] = await Promise.all([
+    readFile(
+      new URL(
+        "../../src/components/costs/packaging-drilldown.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL("../../src/app/actions/assembly-leaf-inputs.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../../src/db/schema.ts", import.meta.url), "utf8"),
+    readFile(
+      new URL(
+        "../../drizzle/0047_slice_13_pricing_vendor_identity.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ]);
+  assert.doesNotMatch(component, /Pricing Date|pricingDate/);
+  assert.doesNotMatch(action, /Pricing Date|pricingDate|pricing_date/);
+  assert.match(schema, /pricingDate: date\("pricing_date"\)/);
+  assert.match(migration, /ADD COLUMN "pricing_date" date/);
 });
 
 test("Pricing Vendor provenance is absent from customer and NetSuite boundaries", async () => {

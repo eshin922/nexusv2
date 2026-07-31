@@ -86,24 +86,26 @@ Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
 ## VAL-104 — Governed Pricing Vendor provenance
 
 - Business promise: a draft packaging pricing line records the optional
-  governed HubSpot Vendor whose pricing established its cost, plus the
-  optional date on that pricing source, without implying an awarded vendor.
+  governed HubSpot Vendor whose pricing established its cost without implying
+  an awarded vendor or requiring a second manual provenance decision.
 - Preconditions: isolated draft fixture; fake HubSpot contains deterministic
   companies classified as Vendor; a second fixture line retains legacy
   supplier text only.
-- Inputs: select `Validation Contract Manufacturer` from governed search and
-  enter Pricing Date `2026-07-15`.
-- User actions: search, select, observe both Server Action receipts, reload,
-  and open the sent fixture.
-- Visible result: canonical HubSpot name and date survive reload; legacy text
-  is read-only fallback; sent inputs are disabled.
+- Inputs: select `Validation Contract Manufacturer` from governed search.
+- User actions: clear the current selection, observe historical compatibility
+  evidence, search, select, observe the Server Action receipts, reload, and
+  open sent/completed fixtures.
+- Visible result: search, selected, empty, unavailable, and historical states
+  are visually distinct; the canonical HubSpot name survives reload; legacy
+  text is read-only fallback; frozen quotes expose no edit actions; Pricing
+  Date is absent.
 - Persisted state: stable Company ID `900000000000002`, canonical name snapshot,
-  and date-only value propagate to every logical-line tier sibling; legacy
-  `supplier` remains unchanged.
+  propagate to every logical-line tier sibling; legacy `supplier` and any
+  existing dormant `pricing_date` remain unchanged.
 - Numerical result: none; provenance never changes costing math.
-- Audit: Vendor identity/name and Pricing Date changes are recorded exactly
-  once with canonical persisted values; rejected identities produce no
-  success audit.
+- Audit: Vendor identity/name changes are recorded exactly once with canonical
+  persisted values; no Pricing Date audit is written; rejected identities
+  produce no success audit.
 - Customer artifact/provider effects: fake HubSpot ledger records filtered
   search and exact resolution; customer preview, PDF, HubSpot writeback, and
   NetSuite payloads receive none of these fields.
@@ -119,9 +121,11 @@ Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
 - Sources: HubSpot provider boundary, packaging metadata action, quote graph
   propagation, costing loader/store, and validation fixture/provider.
 - Maintenance: retain exact-ID server resolution and the immutable snapshot
-  distinction; do not make legacy supplier writable.
-- Evidence: VAL-104 passed with one worker and zero retries in 15.9 seconds
-  (26.4 seconds including isolated setup).
+  distinction; do not make legacy supplier writable or reintroduce manual
+  Pricing Date entry. The dormant column is reserved for trustworthy automated
+  ingestion in V1.5 or later.
+- Evidence: VAL-104 passed with one worker and zero retries in 10.6 seconds
+  (11.6 seconds including Playwright startup) during PB-008 closeout.
 - Harness follow-up: Windows `Start-Process` may expose a null `ExitCode` after
   Playwright has already logged a successful result. Durable Playwright output
   is authoritative for that incident; wrapper exit capture remains a

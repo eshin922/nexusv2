@@ -73,10 +73,10 @@ Accounting-visible change.
 - **Compatibility:** preserve existing records that contain free-text supplier
   values; absence of a governed vendor remains valid because vendor selection
   is optional.
-- **Pricing Date:** optional date shown on the vendor quote or pricing source
-  used to establish the logical packaging-line cost; copied on clone,
-  draft-editable, and frozen after send. It is not an entry, PO, effective, or
-  awarded-vendor date.
+- **Pricing Date:** intentionally excluded from the V1 PM workflow. The
+  nullable production column remains dormant and existing values remain
+  untouched. A future automated vendor-quote ingestion path may populate it in
+  V1.5 or later from a trustworthy source.
 - **NetSuite boundary:** do not project Pricing Vendor to NetSuite in V1.
 - **V1 boundary:** do not implement vendor-quote parsing, sourcing
   recommendations, or procurement automation.

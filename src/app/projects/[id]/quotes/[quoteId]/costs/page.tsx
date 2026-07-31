@@ -295,7 +295,6 @@ export default async function CostBuildPage({
       sortOrder: number;
       pricingVendorHubspotCompanyId: string | null;
       pricingVendorNameSnapshot: string | null;
-      pricingDate: string | null;
       supplier: string | null;
       qtyPerSellableUnit: string | null;
       category: string | null;
@@ -391,7 +390,6 @@ export default async function CostBuildPage({
         r.assembly_leaf_inputs.pricingVendorHubspotCompanyId,
       pricingVendorNameSnapshot:
         r.assembly_leaf_inputs.pricingVendorNameSnapshot,
-      pricingDate: r.assembly_leaf_inputs.pricingDate,
       supplier: r.assembly_leaf_inputs.supplier,
       qtyPerSellableUnit: r.assembly_leaf_inputs.qtyPerSellableUnit,
       category: r.assembly_leaf_inputs.category,

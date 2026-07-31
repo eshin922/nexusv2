@@ -58,13 +58,33 @@ when its governing invariant has permanent regression evidence.
   with its governed LEAF name and SKU; Pricing Vendor identifies only where
   that pricing originated.
 - **Fix:** Use the existing LEAF name as the primary component label and its SKU
-  as supporting identity. Keep Pricing Vendor and Pricing Date in their
-  dedicated provenance column. No new component-identity field was added:
+  as supporting identity. Keep Pricing Vendor in its dedicated provenance
+  column. No new component-identity field was added:
   existing product/LEAF identity, category, notes, and pricing provenance were
   audited and were sufficient.
 - **Regression evidence:** `tests/e2e/costing/basic-quote-persistence.spec.ts`
   (`VAL-104`) and `tests/unit/costing-surface-contract.test.ts`.
 - **Release status:** V1 release blocker; resolved.
+
+## PB-008 — Pricing Source experience
+
+- **Observation:** Pricing Vendor search, selected state, repeated guidance,
+  Historical Supplier, and Pricing Date competed inside one narrow table cell.
+- **Classification:** Product refinement following Visual Design Fidelity and
+  Design System Fidelity review; not a pricing-calculation defect.
+- **Business impact:** PMs could not immediately distinguish the one governed
+  decision from compatibility evidence and contextual guidance.
+- **Governing invariant:** A PM makes exactly one V1 pricing-provenance
+  decision: who supplied the price.
+- **Fix:** Give search, selected, empty, unavailable, and historical states
+  distinct hierarchy; move guidance to the column-level information affordance;
+  remove Pricing Date from the V1 UI and mutation workflow while leaving its
+  nullable production column dormant and existing values untouched.
+- **Regression evidence:** `tests/unit/pricing-vendor-contract.test.ts` and
+  `tests/e2e/costing/basic-quote-persistence.spec.ts` (`VAL-104`).
+- **Release status:** **RESOLVED.** Unit and release-blocking VAL-104 browser
+  coverage pass, and the desktop and narrow-desktop visual review confirms the
+  governed vendor is primary while legacy evidence remains subordinate.
 
 ## PB-004 — Bulk pricing transparency and exact undo
 
