@@ -101,6 +101,9 @@ export function LibraryBrowseModal({
   // the empty-state branching reads the PM-facing "is there
   // anything to browse" signal.
   const [libraryTotalActive, setLibraryTotalActive] = useState(0);
+  const [catalogState, setCatalogState] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
   const [scenarioLabel, setScenarioLabel] = useState("");
   // slice-library-modal-polish Step 2 — clientName threaded for the
   // CD redesign subtitle "{client} · {qid}" landing in Step 3. NULL
@@ -144,6 +147,7 @@ export function LibraryBrowseModal({
         });
         if (!result.ok) {
           setError(result.error.message);
+          setCatalogState("error");
           return;
         }
         setRows(result.data.rows);
@@ -152,6 +156,7 @@ export function LibraryBrowseModal({
         setLibraryTotalActive(result.data.libraryTotalActive);
         setScenarioLabel(result.data.scenarioLabel);
         setClientName(result.data.clientName);
+        setCatalogState("ready");
       });
     }, SEARCH_DEBOUNCE_MS);
     return () => {
@@ -182,6 +187,7 @@ export function LibraryBrowseModal({
     setTotal(0);
     setLibraryTotal(0);
     setLibraryTotalActive(0);
+    setCatalogState("loading");
     setScenarioLabel("");
     setClientName(null);
     setError(null);
@@ -415,6 +421,20 @@ export function LibraryBrowseModal({
             </span>
           </div>
           <div className="head-actions">
+            <button
+              type="button"
+              className="a1v2-btn primary sm"
+              onClick={() => setCreateOpen(true)}
+              disabled={!permissions.canCreateLeaves}
+              aria-disabled={!permissions.canCreateLeaves}
+              title={
+                permissions.canCreateLeaves
+                  ? "Create a new HubSpot Product and reusable library component"
+                  : "You don't have permission to create new products. Ask an admin."
+              }
+            >
+              + Create new product
+            </button>
             {/* Subtle refresh — forensic affordance per CD §5. Same
                 permission gate + click handler as the Step 5
                 (predecessor slice) inline pull entry point; the
@@ -790,7 +810,27 @@ export function LibraryBrowseModal({
                 archived rows exist (rows.length > 0). Otherwise
                 the filtered-empty ∅ shape triggers on no-row
                 results. */}
-            {libraryTotalActive === 0 ? (
+            {catalogState === "loading" ? (
+              <div className="lib-empty" role="status" aria-live="polite">
+                <span
+                  className="h-5 w-5 animate-spin rounded-full border-2 border-gray-400 border-t-transparent"
+                  aria-hidden="true"
+                />
+                <h3>Loading components</h3>
+                <p>Checking the reusable Product Library.</p>
+              </div>
+            ) : catalogState === "error" && rows.length === 0 ? (
+              <div className="lib-empty" role="status">
+                <div className="glyph" aria-hidden="true">
+                  !
+                </div>
+                <h3>Library unavailable</h3>
+                <p>
+                  The catalog could not be loaded. You can still create a new
+                  product or try again later.
+                </p>
+              </div>
+            ) : libraryTotalActive === 0 ? (
               /* slice-library-modal-polish Step 6 — library-empty
                  shape per CD §4. Generative glyph ⊹; two equal-
                  weight CTAs (Create new + Refresh from HubSpot —

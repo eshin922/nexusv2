@@ -2,6 +2,35 @@
 
 Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
 
+## VAL-106 — Governed reusable-component creation
+
+- Business promise: a PM can create a reusable component from Product Library
+  regardless of catalog state, without a false empty-state transition or real
+  outbound traffic in isolated validation.
+- Preconditions: editable deterministic draft, `can_create_leaves`, one target
+  ASY, isolated HubSpot provider, and an owned validation database/artifact
+  root.
+- Inputs/actions: open Product Library in loading, loaded, empty, and no-result
+  states; create a LEAF through `Create new product`; verify it; explicitly
+  attach it to the selected ASY; exercise deterministic provider rejection.
+- Visible result: loading never claims the library is empty; creation remains
+  available in every state; the successful LEAF appears without browser reload;
+  Attach remains a separate operator action.
+- Persisted state: HubSpot creation succeeds before the LEAF insert; the stable
+  returned Product ID is persisted; provider failure creates no LEAF; explicit
+  Attach creates exactly one assembly/LEAF junction.
+- Audit/artifact/provider: canonical `leaf_create` and
+  `assembly_leaf_attach` evidence; deterministic fake Product-create ledger;
+  strict outbound-network denial and browser diagnostics.
+- Failure modes: false empty flash, disappearing creation, local-first orphan,
+  client-invented HubSpot ID, automatic attachment, provider bypass, real
+  outbound traffic, or local persistence after provider failure.
+- Layer/file: provider/unit contract in
+  `tests/unit/product-library-contract.test.ts`; browser/persistence workflow in
+  `tests/e2e/slice-12/product-library-create-component.spec.ts`.
+- Release classification: release-blocking; operator approval remains required.
+- Status: implemented.
+
 ## VAL-105 — Governed workspace presentation
 
 - Business promise: the operator workspace uses HubSpot-first project

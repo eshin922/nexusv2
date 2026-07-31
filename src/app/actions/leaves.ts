@@ -16,8 +16,8 @@ import {
   type LibraryBrowseResult,
 } from "@/lib/library-browse-loader";
 import { ensureUser } from "@/lib/auth/ensure-user";
-import { createProduct, HubspotError } from "@/lib/hubspot";
 import { mapLeafToHubspotCreate } from "@/lib/hubspot-mapper";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { revalidatePath } from "next/cache";
 
 // Phase A.1 v2 impl-4 — server actions for the leaves library table.
@@ -106,14 +106,15 @@ export async function createLeaf(
 
     let hubspotProductId: string;
     try {
-      const result = await createProduct(hubspotInput);
+      const { hubspot } = await getApplicationDependencies();
+      const result = await hubspot.createProduct(hubspotInput);
       hubspotProductId = result.id;
     } catch (err) {
       // HubSpot failures (network, 4xx, 5xx) surface as VALIDATION
       // so the modal UI can render the message inline. No local
       // row created.
       const message =
-        err instanceof HubspotError
+        err instanceof Error
           ? `Could not create product in HubSpot: ${err.message}`
           : "Could not create product in HubSpot (unknown error).";
       throw new ActionGuardError(ERR.VALIDATION, message);

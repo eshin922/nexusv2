@@ -60,6 +60,12 @@ recovery capabilities remain technical evidence gates.
 - What existing business datum determines detailed items, Item Group, or
   finished-good Assembly?
 - What controlled sandbox result approves the member-rate pricing procedure?
+- Nexus-authored reusable components currently create HubSpot Products without
+  setting `price`. HubSpot → NetSuite native synchronization may default or
+  source an item price, but the repository does not prove it. Before Item Group
+  go-live, verify that newly synchronized items satisfy the item-level pricing
+  prerequisite without allowing a `$0.00` catalog placeholder to become the
+  commercial Sales Order price.
 
 ## Scope boundaries
 

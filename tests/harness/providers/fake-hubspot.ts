@@ -19,6 +19,7 @@ const vendors = [
   { id: "900000000000001", name: "Validation Packaging Vendor" },
   { id: "900000000000002", name: "Validation Contract Manufacturer" },
 ] as const;
+let productSequence = 0;
 
 function scenario(): string {
   return process.env.NEXUS_FAKE_HUBSPOT_SCENARIO ?? "success";
@@ -63,6 +64,7 @@ export function resetFakeHubSpot() {
   calls.length = 0;
   dealStages.clear();
   dealAmounts.clear();
+  productSequence = 0;
 }
 
 export const fakeHubSpot: HubSpotOperations = {
@@ -101,6 +103,19 @@ export const fakeHubSpot: HubSpotOperations = {
     }
     const found = vendors.find((vendor) => vendor.id === companyId);
     return found ? { ...found } : null;
+  },
+  async createProduct(input) {
+    record("product-create", { ...input });
+    fail("product-create");
+    if (input.name === "Validation Product Provider Failure") {
+      throw new Error("HubSpot fake product-create failure");
+    }
+    productSequence += 1;
+    return {
+      id: `998${String(productSequence).padStart(12, "0")}`,
+      hs_sku: input.hs_sku ?? null,
+      name: input.name,
+    };
   },
   async listDealStages() {
     record("deal-stage-list", {});
