@@ -72,6 +72,8 @@ test("workspace uses governed quote, owner, stage, and creation language", async
   await expect(page.getByText("Quote · Rev. 1", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open Quote · Rev. 1" })).toBeVisible();
   await expect(page.getByText(/\bversion\b/i)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Refresh from HubSpot" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Archive", exact: true })).toHaveCount(0);
   await testInfo.attach("after-project-detail.png", {
     body: await page.screenshot({ fullPage: true }),
     contentType: "image/png",

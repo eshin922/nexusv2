@@ -8,6 +8,12 @@ status, and unresolved business questions. Technical Go/No-Go execution
 remains governed by the
 [Slice 13 readiness checklist](../slice-13/GO_LIVE_READINESS_CHECKLIST.md).
 
+V1 operator scope excludes manual project refresh and Project Archive/
+Unarchive until synchronization overwrite boundaries and archive lifecycle,
+authorization, reporting, and recovery have approved contracts. Their retained
+server/schema compatibility does not make them production-ready workflows; see
+PB-011 in the [Production Bug Register](../production-bugs/PRODUCTION_BUG_REGISTER.md).
+
 ## V1 gates
 
 | Order | Gate | Business owner | Technical owner | Dependencies | Exit criteria | Status |

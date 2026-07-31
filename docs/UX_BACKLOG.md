@@ -4405,11 +4405,11 @@ operational pre-flight.)
   button on it, not a separate destination. Defer to Slice 13.5 once the 
   Deal Organizer ships in Slice 13.
 
-- [Slice 3] No way to unarchive a project from the UI. Archive flow exists,
-  the inverse doesn't. Currently requires a direct DB update. Add an
-  "Unarchive" button (visible only when status=archived) parallel to the
-  archive flow, with audit entry. Cheap addition; pull into Slice 13.5 with
-  the Deal Organizer's archive filters.
+- [Deferred after V1 validation] Project Archive/Unarchive has no approved
+  lifecycle, authorization, reporting, or recovery contract. Both operator
+  entry points remain excluded from V1; retained status/action compatibility
+  must not be treated as approval to expose the workflow. Revisit through
+  Business Validation rather than adding an isolated Unarchive button.
 
 - [Slice 4] Open question: should Nexus support creating new HubSpot Products
   from within the tool, or is reference-only the right model?

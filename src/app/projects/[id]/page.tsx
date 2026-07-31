@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/db";
 import {
@@ -19,7 +19,6 @@ import {
   getProjectScenarioCards,
   type ScenarioCard,
 } from "@/lib/workspace-queries";
-import { archiveProject } from "@/app/actions/projects";
 import { createQuote } from "@/app/actions/quotes";
 import { InnerRail } from "@/components/rails/inner-rail";
 import { NewScenarioTrigger } from "@/components/scenario-create/new-scenario-trigger";
@@ -43,8 +42,6 @@ function defaultQuoteSurface(
   if (!v.hasCostInputs) return `${base}/costs`;
   return `${base}/pricing`;
 }
-import { ConfirmButton } from "./confirm-button";
-import { RefreshProjectButton } from "./refresh-button";
 
 // Slice RI.3 — Project Detail rebuild per Round 4 design. Three
 // composition pieces:
@@ -247,35 +244,25 @@ export default async function ProjectDetailPage({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <RefreshProjectButton projectId={project.id} />
-          {hubspotUrl && (
-            <a
-              href={hubspotUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded border border-rule px-3 py-1.5 text-xs text-ink-3 hover:bg-paper-2 hover:text-ink"
-            >
-              ↗ View deal in HubSpot
-            </a>
-          )}
-          {project.status === "active" && (
-            <form action={archiveProject}>
-              <input type="hidden" name="projectId" value={project.id} />
-              <ConfirmButton
-                message="Archive this project?"
-                className="rounded border border-bad bg-bad-soft px-3 py-1.5 text-xs text-bad hover:opacity-80"
+        {(hubspotUrl || project.status === "archived") && (
+          <div className="flex items-center gap-2">
+            {hubspotUrl && (
+              <a
+                href={hubspotUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded border border-rule px-3 py-1.5 text-xs text-ink-3 hover:bg-paper-2 hover:text-ink"
               >
-                Archive
-              </ConfirmButton>
-            </form>
-          )}
-          {project.status === "archived" && (
-            <span className="rounded bg-paper-3 px-2 py-0.5 text-xs font-medium text-ink-3">
-              Archived
-            </span>
-          )}
-        </div>
+                ↗ View deal in HubSpot
+              </a>
+            )}
+            {project.status === "archived" && (
+              <span className="rounded bg-paper-3 px-2 py-0.5 text-xs font-medium text-ink-3">
+                Archived
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Two-column main: scenarios on left, activity rail on right */}

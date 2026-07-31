@@ -65,8 +65,10 @@ Fetches one deal via `deals.basicApi.getById`, builds a cache row,
 upserts via `onConflictDoUpdate`. Used by:
 
 - `importDeal` — imports always hit fresh HubSpot data.
-- `refreshFromHubspot` (per-project Refresh button) — single-deal refresh
-  threads through cache so all read paths use the same source.
+- Retained `refreshFromHubspot` compatibility action — the single-deal refresh
+  threads through cache so all read paths use the same source. It has no V1
+  operator entry point pending an approved synchronization and overwrite
+  contract.
 - Implicit support for closed deals: `syncDealById` writes any deal,
   including closed ones, into the cache. They coexist with active rows
   and are not touched by `syncDeals` (its DELETE filter is the
@@ -82,9 +84,11 @@ upserts via `onConflictDoUpdate`. Used by:
 | populated + fresh (≤15 min) | render cache instantly, no sync |
 | populated + stale (>15 min) | render cache instantly, fire `syncDeals()` via `after()` (post-response, errors logged not thrown) |
 
-Manual "Refresh from HubSpot" — clicking the badge or the explicit
+The Import workspace cache refresh — clicking its cache badge or explicit
 button calls the `refreshDealsCache` server action which forces
 `syncDeals()` regardless of staleness, then `revalidatePath('/import')`.
+This governed import-cache operation is distinct from manual refresh of an
+already-imported project, which is intentionally excluded from V1.
 
 ### Badge polling
 
