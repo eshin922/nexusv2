@@ -626,7 +626,10 @@ export default async function CostBuildPage({
           otherSkus={(() => {
             const leaves = skus.filter((s) => s.skuRole === "leaf");
             const anchor = leaves[0] ?? skus[0];
-            return skus
+            // Cost context contains only cost-bearing LEAF junctions. ASY
+            // records describe sellable assemblies but do not own the
+            // packaging input cells shown on this surface.
+            return leaves
               .filter((s) => s.id !== anchor?.id)
               .map((s) => ({
                 id: s.id,

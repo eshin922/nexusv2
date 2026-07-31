@@ -45,3 +45,39 @@ when its governing invariant has permanent regression evidence.
   `tests/e2e/slice-12/lifecycle-surface-consistency.spec.ts`.
 - **Release status:** V1 release blocker; resolved. Focused lifecycle unit and
   browser verification passed on 2026-07-30.
+
+## PB-006 — Packaging component identity
+
+- **Observation:** Packaging cost rows presented Pricing Vendor or legacy
+  Supplier as the primary row label, obscuring the component being costed.
+- **Root cause:** The row label preferred pricing-provenance values even though
+  the row already resolves to a cost-bearing `leaves` record.
+- **Business impact:** Users could mistake the source of pricing for the
+  packaging component itself.
+- **Governing invariant:** A packaging cost row identifies what is being costed
+  with its governed LEAF name and SKU; Pricing Vendor identifies only where
+  that pricing originated.
+- **Fix:** Use the existing LEAF name as the primary component label and its SKU
+  as supporting identity. Keep Pricing Vendor and Pricing Date in their
+  dedicated provenance column. No new component-identity field was added:
+  existing product/LEAF identity, category, notes, and pricing provenance were
+  audited and were sufficient.
+- **Regression evidence:** `tests/e2e/costing/basic-quote-persistence.spec.ts`
+  (`VAL-104`) and `tests/unit/costing-surface-contract.test.ts`.
+- **Release status:** V1 release blocker; resolved.
+
+## PB-007 — Cost-context SKU eligibility
+
+- **Observation:** “Other SKUs in this scenario” included ASY records even
+  though this packaging-costing context is backed by LEAF input cells.
+- **Root cause:** The anchor was selected from filtered LEAFs, but the remaining
+  options were rebuilt from the unfiltered ASY-and-LEAF collection.
+- **Business impact:** Users saw non-cost-eligible assembly records alongside
+  selectable packaging components.
+- **Governing invariant:** A packaging-cost context exposes only cost-bearing
+  LEAF junctions; ASYs remain assembly context and are not packaging cells.
+- **Fix:** Build both the anchor and remaining SKU list from the same LEAF-only
+  collection.
+- **Regression evidence:** `tests/e2e/costing/basic-quote-persistence.spec.ts`
+  (`VAL-104`) and `tests/unit/costing-surface-contract.test.ts`.
+- **Release status:** V1 release blocker; resolved.

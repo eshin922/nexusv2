@@ -129,6 +129,30 @@ Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
   changes.
 - Status: implemented, verified, and release-blocking.
 
+### PB-006/PB-007 costing-surface extension
+
+- Business promise: every packaging row names its existing governed LEAF
+  component, while Pricing Vendor remains pricing provenance; “Other SKUs”
+  exposes only cost-bearing LEAF junctions and never ASY records.
+- Preconditions: deterministic draft fixture with one ASY, three LEAFs,
+  packaging inputs, and governed plus legacy supplier provenance.
+- Visible result: the first row displays `Validation Leaf 1` and
+  `VAL-SLICE12-1`; the context menu displays only the other two LEAFs.
+- Persisted/numerical/audit result: none; this is a read-only projection and
+  does not alter costing, persistence, or audit behavior.
+- Provider/artifact effect: none; existing strict network isolation remains
+  active.
+- Layer/files: unit source contract in
+  `tests/unit/costing-surface-contract.test.ts` and browser assertion in
+  `tests/e2e/costing/basic-quote-persistence.spec.ts` (`VAL-104`).
+- Release classification: release-blocking.
+- Maintenance: do not introduce a separate component identity while the
+  `assembly_leaf_inputs → assembly_leaves → leaves` path supplies canonical
+  name and SKU. Keep ASYs out of LEAF-cost selection surfaces.
+- Evidence: VAL-104 passed with one worker and zero retries in 13.1 seconds
+  (22.9 seconds including isolated Playwright startup) on 2026-07-30.
+- Status: implemented, verified, and release-blocking.
+
 ## VAL-102 — Required fields and invalid input
 
 - Promise: malformed, negative, non-finite, over-precision, zero-divisor, and

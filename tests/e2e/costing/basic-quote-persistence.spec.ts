@@ -438,6 +438,30 @@ test("VAL-104 governed Pricing Vendor and Pricing Date persist as line provenanc
   });
   expect(response?.status()).toBe(200);
 
+  // PB-006/PB-007: component identity comes from the cost-bearing LEAF,
+  // while the scenario selector exposes only other eligible LEAFs.
+  const firstPackagingRow = page.locator(".r6-dt.pkg .r6-dt-row").first();
+  await expect(firstPackagingRow.locator(".name .lab")).toHaveText(
+    "Validation Leaf 1",
+  );
+  await expect(firstPackagingRow.locator(".name .sub")).toContainText(
+    "VAL-SLICE12-1",
+  );
+  await expect(firstPackagingRow.locator(".name .lab")).not.toHaveText(
+    "Validation Packaging Vendor",
+  );
+  await page
+    .getByText("Other SKUs in this scenario (2)", { exact: false })
+    .click();
+  const scenarioContext = page.getByRole("region", {
+    name: "SKU + scenario context",
+  });
+  await expect(scenarioContext.getByText("Validation Leaf 2")).toBeVisible();
+  await expect(scenarioContext.getByText("Validation Leaf 3")).toBeVisible();
+  await expect(
+    scenarioContext.getByText("Validation draft assembly"),
+  ).toHaveCount(0);
+
   const vendorInput = page
     .getByRole("searchbox", { name: "Pricing Vendor" })
     .first();
@@ -453,7 +477,7 @@ test("VAL-104 governed Pricing Vendor and Pricing Date persist as line provenanc
       candidate.ok(),
   );
   await page.getByRole("button", { name: "Clear Pricing Vendor" }).first().click();
-  await clearReceipt;
+  await (await clearReceipt).finished();
   await expect(vendorInput).toHaveValue("");
   await expect(
     page.getByText("Legacy supplier (historical): Validation Supplier").first(),
@@ -466,7 +490,7 @@ test("VAL-104 governed Pricing Vendor and Pricing Date persist as line provenanc
       candidate.ok(),
   );
   await vendorInput.fill("No Matching Vendor");
-  await emptySearchReceipt;
+  await (await emptySearchReceipt).finished();
   await expect(page.getByText("No matching HubSpot Vendors.").first()).toBeVisible();
 
   const searchReceipt = page.waitForResponse(
@@ -476,7 +500,7 @@ test("VAL-104 governed Pricing Vendor and Pricing Date persist as line provenanc
       candidate.ok(),
   );
   await vendorInput.fill("Contract");
-  await searchReceipt;
+  await (await searchReceipt).finished();
   const saveVendorReceipt = page.waitForResponse(
     (candidate) =>
       candidate.request().method() === "POST" &&
@@ -486,7 +510,7 @@ test("VAL-104 governed Pricing Vendor and Pricing Date persist as line provenanc
   await page
     .getByRole("option", { name: "Validation Contract Manufacturer" })
     .click();
-  await saveVendorReceipt;
+  await (await saveVendorReceipt).finished();
 
   const pricingDateInput = page.locator('input[aria-label="Pricing Date"]').first();
   const saveDateReceipt = page.waitForResponse(
@@ -496,7 +520,7 @@ test("VAL-104 governed Pricing Vendor and Pricing Date persist as line provenanc
       candidate.ok(),
   );
   await pricingDateInput.fill("2026-07-15");
-  await saveDateReceipt;
+  await (await saveDateReceipt).finished();
 
   const sql = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
   try {

@@ -540,22 +540,23 @@ function PackagingRow({
     });
   }
 
-  // Prefer governed pricing provenance; legacy supplier is display-only.
-  const lineName = vendorName || line.supplier || "Untitled line";
   const skuLabel = sku?.skuLabel ?? "";
   const productName = sku?.productName ?? "";
+  // The library LEAF is the cost-bearing component identity. Pricing Vendor
+  // remains provenance in its own column and must never replace what is being
+  // costed. `quoteSkuId` resolves through assembly_leaves to this LEAF.
+  const componentName = productName || skuLabel || "Unknown component";
 
   return (
     <div className="r6-dt-row">
       {/* Component name + sub (SKU + qty/unit + inv-eligible badge) */}
       <div className="name">
-        <span className="lab">{lineName}</span>
-        {(skuLabel || productName) && (
+        <span className="lab">{componentName}</span>
+        {(skuLabel || line.qtyPerSellableUnit) && (
           <span className="sub">
             {skuLabel}
-            {skuLabel && productName ? " · " : ""}
-            {productName}
-            {line.qtyPerSellableUnit ? ` · ${line.qtyPerSellableUnit}/unit` : ""}
+            {skuLabel && line.qtyPerSellableUnit ? " · " : ""}
+            {line.qtyPerSellableUnit ? `${line.qtyPerSellableUnit}/unit` : ""}
           </span>
         )}
         {line.inventoryEligible && (
