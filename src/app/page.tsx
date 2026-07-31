@@ -70,18 +70,6 @@ export default async function Home() {
             >
               Import from HubSpot
             </Link>
-            {/* + New project: button shown but not yet wired in RI.2;
-                same treatment as Import for visual rhythm. Functional
-                wiring deferred (existing /import covers HubSpot path;
-                the "New project" purely-Nexus flow lands later). */}
-            <button
-              type="button"
-              disabled
-              title="New project (Nexus-only) — coming soon"
-              className="rounded border border-rule bg-paper px-3 py-1.5 text-sm font-medium text-ink-3 disabled:cursor-not-allowed"
-            >
-              + New project
-            </button>
           </div>
         </div>
 
@@ -133,8 +121,7 @@ function EmptyState() {
     <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-rule bg-paper-2 px-6 py-16 text-center">
       <div className="font-display text-2xl text-ink">No deals yet</div>
       <p className="max-w-md text-sm text-ink-3">
-        Import a deal from HubSpot to start building quotes, or create a
-        Nexus-only project from scratch.
+        Import a deal from HubSpot to start building quotes in Nexus.
       </p>
       <div className="mt-4 flex items-center gap-2">
         <Link
