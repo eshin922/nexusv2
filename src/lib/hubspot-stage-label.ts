@@ -19,14 +19,29 @@ import "server-only";
 // Degrades gracefully:
 //   - Stored value is a label (not an id) → return as-is (no lookup)
 //   - Stored value is an id + resolver matches → return the label
-//   - Stored value is an id + resolver doesn't match → return the raw id
+//   - Stored value is an id + resolver doesn't match → fail closed visibly
 //   - firm_settings has no active row → return a generic phrase
-//   - Pipeline API call fails → return the raw stored value or a
-//     generic phrase, DO NOT block page render
+//   - Pipeline API call fails → return the readable unknown-stage label,
+//     DO NOT leak an internal id or block page render
 //
 // Display-only. Never used as a lookup key or a HubSpot write target.
 
 import { getApplicationDependencies } from "@/lib/integrations/composition";
+import type { HubSpotStage } from "@/lib/integrations/hubspot-provider";
+import {
+  presentHubspotStage,
+  UNKNOWN_HUBSPOT_STAGE_LABEL,
+} from "@/lib/crm-presentation";
+export { presentHubspotStage } from "@/lib/crm-presentation";
+
+export async function loadHubspotStageCatalog(): Promise<HubSpotStage[]> {
+  try {
+    const { hubspot } = await getApplicationDependencies();
+    return await hubspot.listDealStages();
+  } catch {
+    return [];
+  }
+}
 
 export async function resolveHubspotAcceptStageLabel(
   stored: string | null,
@@ -39,11 +54,8 @@ export async function resolveHubspotAcceptStageLabel(
   try {
     const { hubspot } = await getApplicationDependencies();
     const stages = await hubspot.listDealStages();
-    const match = stages.find((s) => s.id === stored);
-    return match?.label ?? stored;
+    return presentHubspotStage(stored, stages) ?? "the accept stage";
   } catch {
-    // API failure — degrade to the raw id. Sub-tab 4's copy still
-    // renders; it's less friendly but honest about state.
-    return stored;
+    return UNKNOWN_HUBSPOT_STAGE_LABEL;
   }
 }

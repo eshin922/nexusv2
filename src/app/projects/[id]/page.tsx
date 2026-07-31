@@ -3,8 +3,16 @@ import { notFound } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/db";
-import { projects, quotes, quoteTiers, users } from "@/db/schema";
-import { STAGE_LABEL_BY_ID } from "@/lib/hubspot";
+import {
+  hubspotDealsCache,
+  projects,
+  quotes,
+  quoteTiers,
+  users,
+} from "@/db/schema";
+import { loadHubspotStageCatalog } from "@/lib/hubspot-stage-label";
+import { presentHubspotStage } from "@/lib/crm-presentation";
+import { presentSalesOwner } from "@/lib/sales-owner-presentation";
 import {
   getProjectActivity,
   getProjectLineage,
@@ -73,7 +81,16 @@ export default async function ProjectDetailPage({
   const projectRows = await db
     .select({
       project: projects,
-      salesRep: { id: salesRep.id, name: salesRep.name, email: salesRep.email },
+      salesRep: {
+        id: salesRep.id,
+        name: salesRep.name,
+        email: salesRep.email,
+        hubspotOwnerId: salesRep.hubspotOwnerId,
+      },
+      cachedDealOwner: {
+        id: hubspotDealsCache.salesRepId,
+        name: hubspotDealsCache.salesRepName,
+      },
       pm: { id: pm.id, name: pm.name, email: pm.email },
       importedBy: {
         id: importedBy.id,
@@ -83,18 +100,29 @@ export default async function ProjectDetailPage({
     })
     .from(projects)
     .leftJoin(salesRep, eq(salesRep.id, projects.salesRepUserId))
+    .leftJoin(
+      hubspotDealsCache,
+      eq(hubspotDealsCache.dealId, projects.hubspotDealId),
+    )
     .leftJoin(pm, eq(pm.id, projects.pmUserId))
     .leftJoin(importedBy, eq(importedBy.id, projects.importedByUserId))
     .where(eq(projects.id, id))
     .limit(1);
 
   if (projectRows.length === 0) notFound();
-  const { project, salesRep: rep, pm: pmRow, importedBy: imp } = projectRows[0];
+  const {
+    project,
+    salesRep: rep,
+    cachedDealOwner,
+    pm: pmRow,
+    importedBy: imp,
+  } = projectRows[0];
 
-  const [scenarios, activity, lineage] = await Promise.all([
+  const [scenarios, activity, lineage, stages] = await Promise.all([
     getProjectScenarioCards(project.id),
     getProjectActivity(project.id, 30),
     getProjectLineage(project.id),
+    loadHubspotStageCatalog(),
   ]);
 
   // canonical-scenario-create-flow Step 6 — modal props loader.
@@ -152,9 +180,14 @@ export default async function ProjectDetailPage({
     currentScenarioTierLabels = tierRows.map((r) => r.label);
   }
 
-  const stageLabel = project.dealStage
-    ? STAGE_LABEL_BY_ID[project.dealStage] ?? project.dealStage
-    : null;
+  const stageLabel = presentHubspotStage(project.dealStage, stages);
+  const salesOwnerName = presentSalesOwner(
+    project.hubspotOwnerId,
+    cachedDealOwner,
+    rep
+      ? { id: rep.hubspotOwnerId, name: rep.name ?? rep.email }
+      : null,
+  );
 
   const hubId = process.env.HUBSPOT_PROD_HUB_ID;
   const hubspotUrl = hubId
@@ -202,11 +235,13 @@ export default async function ProjectDetailPage({
                 PM: <span className="text-ink-2">{pmRow.name ?? pmRow.email}</span>
               </span>
             )}
-            {rep && (
-              <span>
-                Sales: <span className="text-ink-2">{rep.name ?? rep.email}</span>
-              </span>
-            )}
+            <span>
+              Sales: {salesOwnerName ? (
+                <span className="text-ink-2">{salesOwnerName}</span>
+              ) : (
+                <span className="text-bad">HubSpot owner unavailable</span>
+              )}
+            </span>
             {project.lastHubspotRefreshAt && (
               <span>synced {fmtRelative(project.lastHubspotRefreshAt)}</span>
             )}
@@ -268,7 +303,7 @@ export default async function ProjectDetailPage({
             <NextActionCard
               tone="good"
               title={`${project.clientName ?? project.dealName} accepted ${acceptedScenario.scenarioLabel}`}
-              body={`v${acceptedScenario.versions.find((v) => v.status === "accepted")?.versionNumber} accepted ${
+              body={`Rev. ${acceptedScenario.versions.find((v) => v.status === "accepted")?.versionNumber} accepted ${
                 acceptedScenario.versions.find((v) => v.status === "accepted")
                   ?.acceptedAt
                   ? fmtAbsolute(
@@ -347,7 +382,7 @@ export default async function ProjectDetailPage({
                       className="text-accent-ink hover:text-accent"
                     >
                       {l.fromProjectClientName ?? l.fromProjectDealName} ·{" "}
-                      {l.fromQuoteScenarioLabel} v{l.fromQuoteVersionNumber}
+                      {l.fromQuoteScenarioLabel} · Rev. {l.fromQuoteVersionNumber}
                     </Link>{" "}
                     <span className="text-ink-4">{fmtRelative(l.forkedAt)}</span>
                   </li>
@@ -483,8 +518,7 @@ function ScenarioCardView({
           </div>
           <div className="mt-1 flex items-center gap-2 text-xs text-ink-3">
             <span>
-              {scenario.versions.length} version
-              {scenario.versions.length === 1 ? "" : "s"}
+              Quote · Rev. {latest.versionNumber}
             </span>
             {/* canonical-scenario-create-flow Step 7 — 📎 N attachment
                 count chip. Renders only when count > 0; clicking
@@ -537,7 +571,7 @@ function ScenarioCardView({
             href={defaultQuoteSurface(projectId, latest)}
             className="rounded border border-rule bg-paper px-2.5 py-1 text-xs font-medium text-ink hover:border-rule-2 hover:bg-paper-2"
           >
-            Open · v{latest.versionNumber}
+            Open Quote · Rev. {latest.versionNumber}
           </Link>
           {/* Post-Step-6 follow-up (2026-07-15) — scenario actions
               menu (Copy / Drop). Renders only for active scenarios;
@@ -565,7 +599,7 @@ function ScenarioCardView({
               className="flex flex-1 items-center gap-2 hover:text-accent"
             >
               <span className="font-mono text-[10px] text-ink-3">
-                v{v.versionNumber}
+                Rev. {v.versionNumber}
               </span>
               {/* Slice RI.7 — customer-facing quote_number, assigned at
                   sendQuote. Renders adjacent to version number for

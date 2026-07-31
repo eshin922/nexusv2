@@ -137,9 +137,9 @@ export async function InnerRail({
             </div>
           )}
           <div className="truncate text-xs text-ink-2">{header.dealName}</div>
-          {header.dealStage && (
+          {header.dealStageLabel && (
             <div className="mt-1 inline-block rounded border border-rule px-1.5 py-0 font-mono text-[9px] uppercase tracking-wide text-ink-3">
-              {header.dealStage}
+              {header.dealStageLabel}
             </div>
           )}
         </div>

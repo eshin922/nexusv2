@@ -2,6 +2,32 @@
 
 Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
 
+## VAL-105 — Governed workspace presentation
+
+- Business promise: the operator workspace uses HubSpot-first project
+  creation, current CRM labels, the authoritative Deal Owner, and unambiguous
+  Scenario/Quote revision language.
+- Preconditions: isolated HubSpot provider, deterministic imported projects,
+  one active quote per scenario, and historical multi-row compatibility.
+- Inputs/actions: open Deals, Project Detail, and Import; inspect a project
+  whose HubSpot owner has no Nexus-user dependency.
+- Visible result: `Rev. N` identifies the active Quote revision; no inert New
+  Project/New Version affordance appears; stage labels are readable and
+  consistent; Sales Owner uses the cached HubSpot owner name.
+- Persisted state: none; presentation reads the existing project/cache
+  snapshot. Import and refresh remain the only writers.
+- Audit/artifact/provider: no mutation or artifact; the fake HubSpot stage
+  catalog is the only provider read and network isolation remains strict.
+- Failure modes: raw numeric stage IDs, stale labels, invented users, generic
+  Version terminology, Nexus-only creation copy, or divergent labels between
+  surfaces.
+- Layer/file: unit contracts plus browser coverage in
+  `tests/unit/crm-presentation.test.ts`,
+  `tests/unit/quote-revision-workflow.test.ts`, and
+  `tests/e2e/slice-12/workspace-governance.spec.ts`.
+- Release classification: release-blocking; operator approval remains required.
+- Status: implemented.
+
 ## VAL-701 — Sales Order accounting payload contract
 
 - Business promise: Nexus sends only approved current Sales Order fields,

@@ -138,7 +138,7 @@ export type DealOrganizerRow = {
   dealName: string;
   hubspotDealId: string;
   status: string; // 'active' | 'archived'
-  dealStage: string | null;
+  dealStageLabel: string | null;
   glyph: ProjectGlyph;
   latestQuote: {
     id: string;
@@ -157,6 +157,9 @@ export type DealOrganizerRow = {
 // version, creation time, activity time, and canonical status travel together
 // so every organizer badge remains traceable to its source record.
 export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
+  const { loadHubspotStageCatalog } = await import("@/lib/hubspot-stage-label");
+  const { presentHubspotStage } = await import("@/lib/crm-presentation");
+  const stages = await loadHubspotStageCatalog();
   const rows = await db.execute<{
     id: string;
     client_name: string | null;
@@ -219,7 +222,7 @@ export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
     dealName: r.deal_name,
     hubspotDealId: r.hubspot_deal_id,
     status: r.status,
-    dealStage: r.deal_stage,
+    dealStageLabel: presentHubspotStage(r.deal_stage, stages),
     glyph: {
       projectId: r.id,
       letter: letterFor(r.client_name ?? r.deal_name),
@@ -633,7 +636,7 @@ export type RailProjectHeader = {
   id: string;
   clientName: string | null;
   dealName: string;
-  dealStage: string | null;
+  dealStageLabel: string | null;
   glyph: ProjectGlyph;
 };
 
@@ -652,11 +655,14 @@ export async function getProjectHeader(
     .limit(1);
   if (rows.length === 0) return null;
   const r = rows[0];
+  const { loadHubspotStageCatalog } = await import("@/lib/hubspot-stage-label");
+  const { presentHubspotStage } = await import("@/lib/crm-presentation");
+  const stages = await loadHubspotStageCatalog();
   return {
     id: r.id,
     clientName: r.clientName,
     dealName: r.dealName,
-    dealStage: r.dealStage,
+    dealStageLabel: presentHubspotStage(r.dealStage, stages),
     glyph: {
       projectId: r.id,
       letter: letterFor(r.clientName ?? r.dealName),

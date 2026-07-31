@@ -120,3 +120,22 @@ when its governing invariant has permanent regression evidence.
 - **Regression evidence:** `tests/e2e/costing/basic-quote-persistence.spec.ts`
   (`VAL-104`) and `tests/unit/costing-surface-contract.test.ts`.
 - **Release status:** V1 release blocker; resolved.
+
+## PB-010 — Governed CRM presentation
+
+- **Observation:** Operator surfaces could expose raw HubSpot stage IDs, stale
+  hardcoded labels, or omit the Sales Owner when that owner had no Nexus user.
+- **Root cause:** Organizer, Project Detail, and Import used three different
+  stage presentation paths; Project Detail treated a Nexus user join as the
+  source of Sales Owner presentation.
+- **Business impact:** CRM-owned identities appeared inconsistent even though
+  the stored HubSpot lineage was correct.
+- **Governing invariant:** HubSpot Deal Owner and current pipeline metadata are
+  authoritative for operator presentation. Nexus user identity is separate.
+- **Fix:** Resolve all three surfaces through the provider-backed current stage
+  catalog; fail closed for unknown stages; render the cached HubSpot owner name
+  against `projects.hubspot_owner_id`, with a matching Nexus identity only as a
+  fallback.
+- **Regression evidence:** `tests/unit/crm-presentation.test.ts` and
+  `tests/e2e/slice-12/workspace-governance.spec.ts` (`VAL-105`).
+- **Release status:** V1 release blocker; resolved pending operator approval.

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { after } from "next/server";
 import { importDeal } from "@/app/actions/projects";
-import { STAGE_LABEL_BY_ID } from "@/lib/hubspot";
+import { loadHubspotStageCatalog } from "@/lib/hubspot-stage-label";
+import { presentHubspotStage } from "@/lib/crm-presentation";
 import {
   getCacheStatus,
   isStale,
@@ -15,10 +16,12 @@ export async function DealList({
   query,
   page,
   pageSize,
+  stages,
 }: {
   query: string;
   page: number;
   pageSize: number;
+  stages: Awaited<ReturnType<typeof loadHubspotStageCatalog>>;
 }) {
   const status = await getCacheStatus();
 
@@ -41,7 +44,6 @@ export async function DealList({
     readCacheForQuery({ query, limit: pageSize, offset }),
     readCacheCount({ query }),
   ]);
-
   return (
     <ResultTable
       rows={rows}
@@ -49,6 +51,7 @@ export async function DealList({
       query={query}
       page={page}
       pageSize={pageSize}
+      stages={stages}
     />
   );
 }
@@ -59,12 +62,14 @@ function ResultTable({
   query,
   page,
   pageSize,
+  stages,
 }: {
   rows: DealCacheRow[];
   total: number;
   query: string;
   page: number;
   pageSize: number;
+  stages: Awaited<ReturnType<typeof loadHubspotStageCatalog>>;
 }) {
   if (rows.length === 0) {
     return (
@@ -111,7 +116,7 @@ function ResultTable({
                   {d.salesRepName ?? <span className="text-gray-400">—</span>}
                 </td>
                 <td className="px-4 py-2 text-gray-700">
-                  {STAGE_LABEL_BY_ID[d.dealStage ?? ""] ?? d.dealStage ?? "—"}
+                  {presentHubspotStage(d.dealStage, stages) ?? "—"}
                 </td>
                 <td className="px-4 py-2 font-mono text-xs text-gray-500">
                   {d.dealId}

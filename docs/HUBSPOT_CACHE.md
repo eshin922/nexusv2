@@ -21,7 +21,7 @@ query stays single-table:
 |---|---|
 | `deal_id` (PK) | HubSpot deal object id |
 | `deal_name` | `dealname` (defaults to `'(unnamed)'`) |
-| `deal_stage` | `dealstage` — stage id; UI maps via `STAGE_LABEL_BY_ID` |
+| `deal_stage` | `dealstage` — stage id; UI resolves the current label through the HubSpot provider stage catalog |
 | `amount` | `amount` |
 | `close_date` | `closedate` (cast to date) |
 | `sales_rep_id` | `hubspot_owner_id` |
