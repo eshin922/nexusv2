@@ -32,7 +32,37 @@ export type HubSpotProductCreateResult = {
   id: string;
   hs_sku: string | null;
   name: string;
+  price: string | null;
+  submittedProperties: Record<string, string>;
+  responseBody: Record<string, unknown>;
 };
+
+const HUBSPOT_PRODUCT_PRICE = /^\d+(?:\.\d+)?$/;
+
+/**
+ * HubSpot Product catalog price contract. Missing and blank prices become the
+ * technical catalog prerequisite 0.00; an explicitly supplied nonnegative
+ * decimal is preserved. This value is not a Nexus quote or transaction rate.
+ */
+export function canonicalizeHubSpotProductPrice(
+  price: string | null | undefined,
+): string {
+  const value = String(price ?? "").trim();
+  if (value === "") return "0.00";
+  if (!HUBSPOT_PRODUCT_PRICE.test(value) || !Number.isFinite(Number(value))) {
+    throw new Error("HubSpot Product price must be a nonnegative decimal number.");
+  }
+  return Number(value) === 0 ? "0.00" : value;
+}
+
+export function normalizeHubSpotProductCreateInput(
+  input: HubSpotProductCreateInput,
+): HubSpotProductCreateInput & { price: string } {
+  return {
+    ...input,
+    price: canonicalizeHubSpotProductPrice(input.price),
+  };
+}
 
 export interface HubSpotOperations {
   readonly name: string;

@@ -6,6 +6,34 @@ import {
   readFakeHubSpotCalls,
   resetFakeHubSpot,
 } from "../harness/providers/fake-hubspot.ts";
+import { mapLeafToHubspotCreate } from "../../src/lib/hubspot-mapper.ts";
+import { canonicalizeHubSpotProductPrice } from "../../src/lib/integrations/hubspot-provider.ts";
+
+test("HubSpot Product price defaults and explicit values fail closed", () => {
+  assert.equal(canonicalizeHubSpotProductPrice(undefined), "0.00");
+  assert.equal(canonicalizeHubSpotProductPrice("   "), "0.00");
+  assert.equal(canonicalizeHubSpotProductPrice("0"), "0.00");
+  assert.equal(canonicalizeHubSpotProductPrice("0.00"), "0.00");
+  assert.equal(canonicalizeHubSpotProductPrice("19.95"), "19.95");
+  assert.throws(
+    () => canonicalizeHubSpotProductPrice("not-a-number"),
+    /nonnegative decimal/,
+  );
+  assert.throws(
+    () => canonicalizeHubSpotProductPrice("-1.00"),
+    /nonnegative decimal/,
+  );
+});
+
+test("Nexus-to-HubSpot mapping always supplies canonical catalog price", () => {
+  assert.equal(mapLeafToHubspotCreate({ name: "Missing" }).price, "0.00");
+  assert.equal(mapLeafToHubspotCreate({ name: "Blank", price: " " }).price, "0.00");
+  assert.equal(mapLeafToHubspotCreate({ name: "Zero", price: "0.0" }).price, "0.00");
+  assert.equal(
+    mapLeafToHubspotCreate({ name: "Explicit", price: "24.50" }).price,
+    "24.50",
+  );
+});
 
 test("fake HubSpot Product creation is deterministic and ledgered", async () => {
   resetFakeHubSpot();
@@ -19,13 +47,20 @@ test("fake HubSpot Product creation is deterministic and ledgered", async () => 
     id: "998000000000001",
     hs_sku: "VAL-COMP-001",
     name: "Validation Reusable Component",
+    price: "0.00",
+    submittedProperties: { ...input, price: "0.00" },
+    responseBody: {
+      id: "998000000000001",
+      properties: { ...input, price: "0.00" },
+      archived: false,
+    },
   });
   assert.deepEqual(
     readFakeHubSpotCalls().map(({ operation, input: callInput }) => ({
       operation,
       input: callInput,
     })),
-    [{ operation: "product-create", input }],
+    [{ operation: "product-create", input: { ...input, price: "0.00" } }],
   );
 });
 

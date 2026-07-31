@@ -93,7 +93,9 @@ export async function createLeaf(
     }
 
     // HubSpot-first write-back. Push mapping per Concern C
-    // disposition: name + sku + unit_cost + url ONLY. Other
+    // disposition: name + sku + unit_cost + url + technical catalog price.
+    // Price defaults to 0.00 at the mapper/provider boundary and is never a
+    // Nexus quote or Sales Order transaction rate. Other
     // HubSpot product attributes (description, owner, FSC fields,
     // image_url) stay HubSpot-empty until pull-back or HubSpot UI
     // edit.
@@ -105,10 +107,14 @@ export async function createLeaf(
     });
 
     let hubspotProductId: string;
+    let hubspotSubmittedProperties: Record<string, string>;
+    let hubspotResponseBody: Record<string, unknown>;
     try {
       const { hubspot } = await getApplicationDependencies();
       const result = await hubspot.createProduct(hubspotInput);
       hubspotProductId = result.id;
+      hubspotSubmittedProperties = result.submittedProperties;
+      hubspotResponseBody = result.responseBody;
     } catch (err) {
       // HubSpot failures (network, 4xx, 5xx) surface as VALIDATION
       // so the modal UI can render the message inline. No local
@@ -152,6 +158,10 @@ export async function createLeaf(
         owner_id: newRow.ownerId,
         url: newRow.url,
         hubspot_product_id: newRow.hubspotProductId,
+        hubspot_product_create_request: {
+          properties: hubspotSubmittedProperties,
+        },
+        hubspot_product_create_response: hubspotResponseBody,
         source: "nexus_authored",
         created_by: user.id,
       },

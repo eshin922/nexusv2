@@ -1,6 +1,9 @@
 import "server-only";
 import type { HubspotProductRaw } from "./hubspot";
-import type { HubSpotProductCreateInput } from "./integrations/hubspot-provider";
+import {
+  normalizeHubSpotProductCreateInput,
+  type HubSpotProductCreateInput,
+} from "./integrations/hubspot-provider";
 
 // slice-hubspot-bidirectional — field-mapping translator between
 // HubSpot Product shape and Nexus `leaves` shape. Pure functions:
@@ -18,7 +21,7 @@ import type { HubSpotProductCreateInput } from "./integrations/hubspot-provider"
 // | hs_images               | image_url         | pull only | first URL only |
 // | hs_product_type         | (skip)            | (skip)    | HubSpot enum ≠ nexus product_types taxonomy |
 // | description             | (no column)       | (skip)    | Catch #12 — no nexus column; revisit v1.1+ |
-// | price                   | (no column)       | (skip)    | sell-price lives on quote_skus, not leaves |
+// | price                   | (no column)       | push only | explicit value or technical 0.00 default; never quote price |
 // | hubspot_owner_id        | owner_id          | pull cond | mapped via users.hubspot_owner_id lookup |
 // | fsc_claim_type          | fsc_claim         | pull cond | text-to-bool coercion |
 // | fsc_status              | fsc_status        | pull      | direct text |
@@ -26,7 +29,7 @@ import type { HubSpotProductCreateInput } from "./integrations/hubspot-provider"
 // | (raw.archived)          | archived          | pull      | from HubSpot top-level archive flag |
 //
 // Push direction (Nexus → HubSpot) is the strict subset:
-//   name + hs_sku + hs_cost_of_goods_sold + hs_url
+//   name + hs_sku + hs_cost_of_goods_sold + hs_url + catalog price
 // matching what AddProductModal LEAF mode collects from the PM.
 
 export type MappedLeafFromHubspot = {
@@ -109,10 +112,12 @@ export function mapLeafToHubspotCreate(input: {
   sku?: string | null;
   unitCost?: string | null;
   url?: string | null;
+  price?: string | null;
 }): HubSpotProductCreateInput {
   const out: HubSpotProductCreateInput = { name: input.name };
   if (input.sku) out.hs_sku = input.sku;
   if (input.unitCost) out.hs_cost_of_goods_sold = input.unitCost;
   if (input.url) out.hs_url = input.url;
-  return out;
+  if (input.price !== undefined && input.price !== null) out.price = input.price;
+  return normalizeHubSpotProductCreateInput(out);
 }

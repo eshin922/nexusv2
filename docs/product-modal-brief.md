@@ -24,8 +24,14 @@ Mirror HubSpot's product schema exactly. Send values, display labels — they di
 
 **Required (block submit if blank):**
 - **Name** → `name`
-- **Unit price** → `price`
 - **Product type** → `hs_product_type` (enum; stricter than HubSpot, which allows blank)
+
+**Catalog-price boundary (PVS-018 follow-up):**
+- **Unit price** → `price` (`number`/currency in HubSpot).
+- Price is not a required PM field for reusable-component creation.
+- Missing or blank price is sent as the technical catalog default `0.00`.
+- An explicit valid nonnegative decimal is preserved; invalid input fails closed.
+- This property is not a Nexus quote sell price or NetSuite Sales Order rate.
 
 **Optional (mirror HubSpot):**
 - **SKU** → `hs_sku` (with live duplicate check, see below)
