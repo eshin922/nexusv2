@@ -203,5 +203,9 @@ when its governing invariant has permanent regression evidence.
   → Library refresh → explicit Attach sequencing.
 - **Regression evidence:** `tests/unit/product-library-contract.test.ts` and
   `tests/e2e/slice-12/product-library-create-component.spec.ts` (`VAL-106`).
-- **Release status:** V1 core-operator blocker; automated verification passed
-  2026-07-31; operator approval remains required.
+- **Release status:** Nexus-side PVS-018 work complete. Automated and controlled
+  production verification passed 2026-07-31, including canonical HubSpot
+  `price: "0.00"`, stable HubSpot ID persistence, HubSpot-first ordering, and
+  empty unintended-association checks. HubSpot Product Unit price → NetSuite
+  Base Price propagation remains the separate external HPP-4 integration
+  readiness item and does not block closure of this Nexus work item.
