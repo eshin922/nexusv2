@@ -232,13 +232,18 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
           for (const [tierIndex, tierId] of [tier1, tier2].entries()) {
             await tx`
               insert into assembly_leaf_inputs (
-                id, assembly_leaf_id, tier_id, line_group_id, supplier,
+                id, assembly_leaf_id, tier_id, line_group_id,
+                pricing_vendor_hubspot_company_id,
+                pricing_vendor_name_snapshot, pricing_date, supplier,
                 qty_per_sellable_unit, category, markup_pct,
                 markup_pct_source, unit_cost, purchase_qty
               ) values (
                 ${uuid(runId, `input-${state}-${index}-${tierIndex}`)},
                 ${junctionId}, ${tierId},
                 ${uuid(runId, `line-${state}-${index}`)},
+                ${index === 0 ? "900000000000001" : null},
+                ${index === 0 ? "Validation Packaging Vendor" : null},
+                ${index === 0 ? "2026-01-10" : null},
                 'Validation Supplier', 1, 'primary_packaging', 1,
                 'manual_override', 0.10, ${tierIndex === 0 ? 100 : 500}
               )

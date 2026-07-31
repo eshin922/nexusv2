@@ -330,6 +330,13 @@
       "when": 1785309854907,
       "tag": "0046_slice_12_step_10_reconcile_and_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1785462682183,
+      "tag": "0047_slice_13_pricing_vendor_identity",
+      "breakpoints": true
     }
   ]
 }

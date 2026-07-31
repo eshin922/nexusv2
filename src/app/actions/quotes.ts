@@ -43,7 +43,10 @@ import {
 } from "@/lib/hubspot";
 import type { HubSpotStage as DealStageInfo } from "@/lib/integrations/hubspot-provider";
 import { isHubspotLinkedDealId } from "@/lib/hubspot-linkage";
-import { revalidateQuoteTree } from "@/lib/revalidate";
+import {
+  revalidateQuoteLifecycleSurfaces,
+  revalidateQuoteTree,
+} from "@/lib/revalidate";
 import {
   ActionGuardError,
   ERR,
@@ -659,6 +662,11 @@ export async function addTier(formData: FormData): Promise<ActionResult<void>> {
       lineGroupId: assemblyLeafInputs.lineGroupId,
       assemblyLeafId: assemblyLeafInputs.assemblyLeafId,
       sortOrder: assemblyLeafInputs.sortOrder,
+      pricingVendorHubspotCompanyId:
+        assemblyLeafInputs.pricingVendorHubspotCompanyId,
+      pricingVendorNameSnapshot:
+        assemblyLeafInputs.pricingVendorNameSnapshot,
+      pricingDate: assemblyLeafInputs.pricingDate,
       supplier: assemblyLeafInputs.supplier,
       qtyPerSellableUnit: assemblyLeafInputs.qtyPerSellableUnit,
       category: assemblyLeafInputs.category,
@@ -685,6 +693,9 @@ export async function addTier(formData: FormData): Promise<ActionResult<void>> {
       tierId: tier.id,
       lineGroupId: l.lineGroupId,
       sortOrder: l.sortOrder,
+      pricingVendorHubspotCompanyId: l.pricingVendorHubspotCompanyId,
+      pricingVendorNameSnapshot: l.pricingVendorNameSnapshot,
+      pricingDate: l.pricingDate,
       supplier: l.supplier,
       qtyPerSellableUnit: l.qtyPerSellableUnit,
       category: l.category,
@@ -1047,6 +1058,11 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
       lineGroupId: assemblyLeafInputs.lineGroupId,
       assemblyLeafId: assemblyLeafInputs.assemblyLeafId,
       sortOrder: assemblyLeafInputs.sortOrder,
+      pricingVendorHubspotCompanyId:
+        assemblyLeafInputs.pricingVendorHubspotCompanyId,
+      pricingVendorNameSnapshot:
+        assemblyLeafInputs.pricingVendorNameSnapshot,
+      pricingDate: assemblyLeafInputs.pricingDate,
       supplier: assemblyLeafInputs.supplier,
       qtyPerSellableUnit: assemblyLeafInputs.qtyPerSellableUnit,
       category: assemblyLeafInputs.category,
@@ -1196,6 +1212,10 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
             tierId: tier.id,
             lineGroupId: line.lineGroupId,
             sortOrder: line.sortOrder,
+            pricingVendorHubspotCompanyId:
+              line.pricingVendorHubspotCompanyId,
+            pricingVendorNameSnapshot: line.pricingVendorNameSnapshot,
+            pricingDate: line.pricingDate,
             supplier: line.supplier,
             qtyPerSellableUnit: line.qtyPerSellableUnit,
             category: line.category,
@@ -1971,7 +1991,7 @@ export async function reviseQuote(
       };
     });
 
-    revalidateQuoteTree(quote.projectId, quoteId);
+    revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
     return result;
   });
 }
@@ -2424,7 +2444,7 @@ export async function markAccepted(
       }
     });
 
-    revalidateQuoteTree(quote.projectId, quoteId);
+    revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
     return {
       acceptedAt,
       hubspot: {
@@ -2603,7 +2623,7 @@ export async function unmarkAccepted(
       });
     });
 
-    revalidateQuoteTree(quote.projectId, quoteId);
+    revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
     return { revertedAt, hubspot: { to: rolledBackStage } };
   });
 }
@@ -2680,7 +2700,7 @@ export async function recordCustomerAcceptance(
       });
     });
 
-    revalidateQuoteTree(quote.projectId, quoteId);
+    revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
   });
 }
 
@@ -2728,7 +2748,7 @@ export async function clearCustomerAcceptance(
       });
     });
 
-    revalidateQuoteTree(quote.projectId, quoteId);
+    revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
   });
 }
 
@@ -2999,6 +3019,10 @@ async function cloneQuoteGraph(
               tierId: newTierId,
               lineGroupId: newLineGroupId,
               sortOrder: r.sortOrder,
+              pricingVendorHubspotCompanyId:
+                r.pricingVendorHubspotCompanyId,
+              pricingVendorNameSnapshot: r.pricingVendorNameSnapshot,
+              pricingDate: r.pricingDate,
               supplier: r.supplier,
               qtyPerSellableUnit: r.qtyPerSellableUnit,
               category: r.category,
@@ -3837,7 +3861,7 @@ export async function markComplete(
 
     // Load quote for revalidate targets (project id + quote id).
     const quote = await loadQuoteOrThrow(quoteId);
-    revalidateQuoteTree(quote.projectId, quoteId);
+    revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
 
     return {
       completedAt: result.completedAt,

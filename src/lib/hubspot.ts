@@ -302,6 +302,87 @@ export type OwnerDetail = {
   email: string | null;
 };
 
+export type HubSpotVendor = {
+  id: string;
+  name: string;
+};
+
+const HUBSPOT_VENDOR_TYPE = "VENDOR";
+
+function toVendor(company: {
+  id: string;
+  archived?: boolean;
+  properties?: Record<string, string | null | undefined>;
+}): HubSpotVendor | null {
+  if (company.archived) return null;
+  const properties = company.properties ?? {};
+  if (properties.type !== HUBSPOT_VENDOR_TYPE) return null;
+  const name = properties.name?.trim();
+  if (!name) return null;
+  return { id: company.id, name };
+}
+
+/** Read-only governed Vendor lookup for BV-001. */
+export async function searchVendorCompanies(
+  query: string,
+  limit = 20,
+): Promise<HubSpotVendor[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  const c = getReadClient();
+  try {
+    const response = await c.crm.companies.searchApi.doSearch({
+      query: trimmed,
+      filterGroups: [
+        {
+          filters: [
+            {
+              propertyName: "type",
+              operator: "EQ" as never,
+              value: HUBSPOT_VENDOR_TYPE,
+            },
+          ],
+        },
+      ],
+      sorts: ["name"],
+      properties: ["name", "type"],
+      limit: Math.min(Math.max(limit, 1), 100),
+      after: "0",
+    });
+    return (response.results ?? [])
+      .map((company) => toVendor(company))
+      .filter((vendor): vendor is HubSpotVendor => vendor !== null);
+  } catch (error) {
+    throw new HubspotError("Failed to search HubSpot Vendor companies", error);
+  }
+}
+
+/**
+ * Resolve selection identity at the write boundary. Archived, unnamed, missing,
+ * and no-longer-Vendor companies all resolve to null so callers fail closed.
+ */
+export async function resolveVendorCompany(
+  companyId: string,
+): Promise<HubSpotVendor | null> {
+  const id = companyId.trim();
+  if (!id) return null;
+  const c = getReadClient();
+  try {
+    const company = await c.crm.companies.basicApi.getById(
+      id,
+      ["name", "type"],
+      [],
+      [],
+      false,
+    );
+    return toVendor(company);
+  } catch (error: unknown) {
+    const failure = error as { code?: unknown; statusCode?: unknown };
+    if (Number(failure.code ?? failure.statusCode) === 404) return null;
+    throw new HubspotError(`Failed to resolve HubSpot Vendor ${id}`, error);
+  }
+}
+
 // Lists all org owners (HubSpot has no batch-by-id endpoint). At DPS scale
 // this is a single page (~16 owners). Returns details keyed by owner id —
 // callers index into this for whichever IDs they actually need.

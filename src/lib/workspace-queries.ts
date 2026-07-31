@@ -7,6 +7,7 @@ import {
   userPinnedProjects,
   userProjectVisits,
 } from "@/db/schema";
+import type { QuoteStatus } from "@/db/schema";
 
 // Slice RI.2 — server-side queries for the outer rail's Pinned +
 // Recent sections + the Home (Deal organizer) project list.
@@ -143,14 +144,18 @@ export type DealOrganizerRow = {
     id: string;
     scenarioLabel: string;
     versionNumber: number;
-    status: string; // 'draft' | 'sent' | 'accepted'
+    status: QuoteStatus;
+    createdAt: Date;
     updatedAt: Date;
   } | null;
 };
 
-// Latest-quote-per-project via DISTINCT ON. Postgres-specific; mirrors
-// the per-project-latest pattern used elsewhere. Returns rows ordered
-// by project.updatedAt DESC by default; filters applied at action layer.
+// Existing deal-level latest quote projection: most recently updated quote
+// wins. This intentionally preserves established behavior while Nexus lacks
+// one immutable chronology that can compare an in-place revision in one
+// scenario with a newly created quote in another. The selected id, scenario,
+// version, creation time, activity time, and canonical status travel together
+// so every organizer badge remains traceable to its source record.
 export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
   const rows = await db.execute<{
     id: string;
@@ -163,7 +168,8 @@ export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
     latest_quote_id: string | null;
     latest_quote_scenario_label: string | null;
     latest_quote_version_number: number | null;
-    latest_quote_status: string | null;
+    latest_quote_status: QuoteStatus | null;
+    latest_quote_created_at: Date | null;
     latest_quote_updated_at: Date | null;
   }>(sql`
     SELECT
@@ -178,10 +184,12 @@ export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
       lq.scenario_label AS latest_quote_scenario_label,
       lq.version_number AS latest_quote_version_number,
       lq.status AS latest_quote_status,
+      lq.created_at AS latest_quote_created_at,
       lq.updated_at AS latest_quote_updated_at
     FROM projects p
     LEFT JOIN LATERAL (
-      SELECT q.id, q.scenario_label, q.version_number, q.status, q.updated_at
+      SELECT q.id, q.scenario_label, q.version_number, q.status,
+             q.created_at, q.updated_at
       FROM quotes q
       WHERE q.project_id = p.id
       ORDER BY q.updated_at DESC
@@ -202,7 +210,8 @@ export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
     latest_quote_id: string | null;
     latest_quote_scenario_label: string | null;
     latest_quote_version_number: number | null;
-    latest_quote_status: string | null;
+    latest_quote_status: QuoteStatus | null;
+    latest_quote_created_at: Date | null;
     latest_quote_updated_at: Date | null;
   }>).map((r) => ({
     id: r.id,
@@ -222,6 +231,7 @@ export async function getDealOrganizerProjects(): Promise<DealOrganizerRow[]> {
           scenarioLabel: r.latest_quote_scenario_label!,
           versionNumber: r.latest_quote_version_number!,
           status: r.latest_quote_status!,
+          createdAt: r.latest_quote_created_at!,
           updatedAt: r.latest_quote_updated_at!,
         }
       : null,

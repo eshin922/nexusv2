@@ -20,3 +20,18 @@ export function revalidateQuoteTree(projectId: string, quoteId: string) {
   revalidatePath(`${base}/quote`); // Slice RI.6 (snapshot reads)
   revalidatePath(`${base}/mark-accepted`); // Slice RI.6 (sub-state derivation)
 }
+
+/**
+ * Lifecycle mutations also change the organizer projection and project
+ * activity feed. Keep these invalidations separate from revalidateQuoteTree:
+ * per-cell costing autosaves must never remount project/home surfaces and
+ * cancel a sibling cell's pending debounce.
+ */
+export function revalidateQuoteLifecycleSurfaces(
+  projectId: string,
+  quoteId: string,
+) {
+  revalidateQuoteTree(projectId, quoteId);
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/");
+}

@@ -8,12 +8,18 @@ export type HubSpotOwnerById = {
   name: string | null;
   email: string | null;
 };
+export type HubSpotVendor = {
+  id: string;
+  name: string;
+};
 
 export interface HubSpotOperations {
   readonly name: string;
   readonly kind: "production" | "isolated";
   findOwnerByEmail(email: string): Promise<HubSpotOwnerByEmail | null>;
   findOwnerById(ownerId: string): Promise<HubSpotOwnerById | null>;
+  searchVendors(query: string, limit?: number): Promise<HubSpotVendor[]>;
+  resolveVendor(companyId: string): Promise<HubSpotVendor | null>;
   listDealStages(): Promise<HubSpotStage[]>;
   getDealStage(dealId: string): Promise<HubSpotStage>;
   updateDealStage(

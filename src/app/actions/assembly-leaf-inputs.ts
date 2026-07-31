@@ -16,6 +16,12 @@ import {
   quoteTiers,
 } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
+import type { HubSpotVendor } from "@/lib/integrations/hubspot-provider";
+import {
+  parsePricingDateOnly,
+  PricingDateValidationError,
+} from "@/lib/pricing-vendor";
 import {
   ActionGuardError,
   ERR,
@@ -50,6 +56,9 @@ import { reconcileWarnings } from "./warnings";
 
 export type PackagingLineSnapshot = {
   lineGroupId: string;
+  pricingVendorHubspotCompanyId: string | null;
+  pricingVendorNameSnapshot: string | null;
+  pricingDate: string | null;
   supplier: string | null;
   qtyPerSellableUnit: string | null;
   category: string | null;
@@ -99,6 +108,16 @@ async function logAudit(args: {
 function trimOrNull(v: FormDataEntryValue | null): string | null {
   const s = String(v ?? "").trim();
   return s === "" ? null : s;
+}
+
+export async function searchPricingVendors(
+  query: string,
+): Promise<HubSpotVendor[]> {
+  await ensureUser();
+  const trimmed = query.trim();
+  if (trimmed.length < 2) return [];
+  const { hubspot } = await getApplicationDependencies();
+  return hubspot.searchVendors(trimmed, 20);
 }
 
 function numericEquals(a: string | null, b: string | null): boolean {
@@ -193,7 +212,7 @@ export async function updateAssemblyLeafInputLineMeta(
       throw new ActionGuardError(ERR.VALIDATION, "lineGroupId required");
 
     const user = await ensureUser();
-    const { quote } = await quoteForAssemblyLeafInputLineGroup(lineGroupId);
+    await quoteForAssemblyLeafInputLineGroup(lineGroupId);
 
     const beforeRows = await db
       .select()
@@ -204,7 +223,49 @@ export async function updateAssemblyLeafInputLineMeta(
       throw new ActionGuardError(ERR.NOT_FOUND, "Line not found");
     const beforeRow = beforeRows[0];
 
-    const newSupplier = trimOrNull(formData.get("supplier"));
+    const requestedVendorId = trimOrNull(
+      formData.get("pricingVendorHubspotCompanyId"),
+    );
+    let newPricingDate: string | null;
+    try {
+      newPricingDate = parsePricingDateOnly(
+        trimOrNull(formData.get("pricingDate")),
+      );
+    } catch (error) {
+      if (error instanceof PricingDateValidationError) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          error.message,
+          "pricingDate",
+        );
+      }
+      throw error;
+    }
+    let newPricingVendor: HubSpotVendor | null = null;
+    if (requestedVendorId !== null) {
+      if (
+        requestedVendorId === beforeRow.pricingVendorHubspotCompanyId &&
+        beforeRow.pricingVendorNameSnapshot
+      ) {
+        // A snapshot is historical evidence, not a live company label. Resolve
+        // only a newly selected identity; unrelated edits must never rewrite it
+        // after a HubSpot rename.
+        newPricingVendor = {
+          id: requestedVendorId,
+          name: beforeRow.pricingVendorNameSnapshot,
+        };
+      } else {
+        const { hubspot } = await getApplicationDependencies();
+        newPricingVendor = await hubspot.resolveVendor(requestedVendorId);
+        if (!newPricingVendor) {
+          throw new ActionGuardError(
+            ERR.VALIDATION,
+            "Pricing Vendor is missing, archived, or no longer classified as a HubSpot Vendor.",
+            "pricingVendorHubspotCompanyId",
+          );
+        }
+      }
+    }
     const newQtyPerSellableUnit = parseDecimalInput(
       formData.get("qtyPerSellableUnit"),
       {
@@ -261,7 +322,10 @@ export async function updateAssemblyLeafInputLineMeta(
     }
 
     const before = {
-      supplier: beforeRow.supplier,
+      pricing_vendor_hubspot_company_id:
+        beforeRow.pricingVendorHubspotCompanyId,
+      pricing_vendor_name_snapshot: beforeRow.pricingVendorNameSnapshot,
+      pricing_date: beforeRow.pricingDate,
       qty_per_sellable_unit: beforeRow.qtyPerSellableUnit,
       category: beforeRow.category,
       markup_pct: beforeRow.markupPct,
@@ -270,7 +334,9 @@ export async function updateAssemblyLeafInputLineMeta(
       notes: beforeRow.notes,
     };
     const after = {
-      supplier: newSupplier,
+      pricing_vendor_hubspot_company_id: newPricingVendor?.id ?? null,
+      pricing_vendor_name_snapshot: newPricingVendor?.name ?? null,
+      pricing_date: newPricingDate,
       qty_per_sellable_unit: newQtyPerSellableUnit,
       category: newCategory,
       markup_pct: nextMarkupPct,
@@ -280,6 +346,9 @@ export async function updateAssemblyLeafInputLineMeta(
     };
 
     function snapshot(
+      pricingVendorHubspotCompanyId: string | null,
+      pricingVendorNameSnapshot: string | null,
+      pricingDate: string | null,
       supplier: string | null,
       qty: string | null,
       category: string | null,
@@ -290,6 +359,9 @@ export async function updateAssemblyLeafInputLineMeta(
     ): PackagingLineSnapshot {
       return {
         lineGroupId,
+        pricingVendorHubspotCompanyId,
+        pricingVendorNameSnapshot,
+        pricingDate,
         supplier,
         qtyPerSellableUnit: qty,
         category,
@@ -303,6 +375,9 @@ export async function updateAssemblyLeafInputLineMeta(
     const diff = diffOf(before, after);
     if (Object.keys(diff).length === 0) {
       return snapshot(
+        beforeRow.pricingVendorHubspotCompanyId,
+        beforeRow.pricingVendorNameSnapshot,
+        beforeRow.pricingDate,
         beforeRow.supplier,
         beforeRow.qtyPerSellableUnit,
         beforeRow.category,
@@ -316,7 +391,9 @@ export async function updateAssemblyLeafInputLineMeta(
     await db
       .update(assemblyLeafInputs)
       .set({
-        supplier: newSupplier,
+        pricingVendorHubspotCompanyId: newPricingVendor?.id ?? null,
+        pricingVendorNameSnapshot: newPricingVendor?.name ?? null,
+        pricingDate: newPricingDate,
         qtyPerSellableUnit: newQtyPerSellableUnit,
         category: newCategory,
         markupPct: nextMarkupPct,
@@ -335,10 +412,14 @@ export async function updateAssemblyLeafInputLineMeta(
       diffJson: diff,
     });
 
-    revalidateQuoteTree(quote.projectId, quote.id);
-
+    // Per-cell metadata autosave returns the canonical persisted receipt and
+    // realtime reconciles other sessions. Revalidating the quote tree here can
+    // remount sibling inputs and cancel a second pending debounced edit.
     return snapshot(
-      newSupplier,
+      newPricingVendor?.id ?? null,
+      newPricingVendor?.name ?? null,
+      newPricingDate,
+      beforeRow.supplier,
       newQtyPerSellableUnit,
       newCategory,
       nextMarkupPct,

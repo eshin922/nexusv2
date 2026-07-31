@@ -293,6 +293,9 @@ export default async function CostBuildPage({
       tierId: string;
       lineGroupId: string;
       sortOrder: number;
+      pricingVendorHubspotCompanyId: string | null;
+      pricingVendorNameSnapshot: string | null;
+      pricingDate: string | null;
       supplier: string | null;
       qtyPerSellableUnit: string | null;
       category: string | null;
@@ -384,6 +387,11 @@ export default async function CostBuildPage({
       tierId: r.assembly_leaf_inputs.tierId,
       lineGroupId: r.assembly_leaf_inputs.lineGroupId,
       sortOrder: r.assembly_leaf_inputs.sortOrder,
+      pricingVendorHubspotCompanyId:
+        r.assembly_leaf_inputs.pricingVendorHubspotCompanyId,
+      pricingVendorNameSnapshot:
+        r.assembly_leaf_inputs.pricingVendorNameSnapshot,
+      pricingDate: r.assembly_leaf_inputs.pricingDate,
       supplier: r.assembly_leaf_inputs.supplier,
       qtyPerSellableUnit: r.assembly_leaf_inputs.qtyPerSellableUnit,
       category: r.assembly_leaf_inputs.category,
@@ -618,7 +626,10 @@ export default async function CostBuildPage({
           otherSkus={(() => {
             const leaves = skus.filter((s) => s.skuRole === "leaf");
             const anchor = leaves[0] ?? skus[0];
-            return skus
+            // Cost context contains only cost-bearing LEAF junctions. ASY
+            // records describe sellable assemblies but do not own the
+            // packaging input cells shown on this surface.
+            return leaves
               .filter((s) => s.id !== anchor?.id)
               .map((s) => ({
                 id: s.id,
@@ -797,25 +808,37 @@ function bulkRawSublabel(
 // describes what the section will hold (drives PM toward population).
 
 function packagingSublabel(
-  rows: Array<{ packaging_inputs: { lineGroupId: string; supplier: string | null; inventoryEligible: boolean } }>,
+  rows: Array<{
+    packaging_inputs: {
+      lineGroupId: string;
+      pricingVendorNameSnapshot: string | null;
+      supplier: string | null;
+      inventoryEligible: boolean;
+    };
+  }>,
 ): string {
   if (rows.length === 0)
     return "Bottle, dropper, label, carton — markup defaults from category";
   // Dedup by lineGroupId — one logical line has N tier rows in DB
-  const lines = new Map<string, { supplier: string | null; inventoryEligible: boolean }>();
+  const lines = new Map<
+    string,
+    { vendor: string | null; inventoryEligible: boolean }
+  >();
   for (const r of rows) {
     if (!lines.has(r.packaging_inputs.lineGroupId)) {
       lines.set(r.packaging_inputs.lineGroupId, {
-        supplier: r.packaging_inputs.supplier,
+        vendor:
+          r.packaging_inputs.pricingVendorNameSnapshot ??
+          r.packaging_inputs.supplier,
         inventoryEligible: r.packaging_inputs.inventoryEligible,
       });
     }
   }
   const inventoryCount = [...lines.values()].filter((l) => l.inventoryEligible).length;
-  const supplierSet = new Set(
-    [...lines.values()].map((l) => l.supplier).filter((s): s is string => !!s),
+  const vendorSet = new Set(
+    [...lines.values()].map((l) => l.vendor).filter((s): s is string => !!s),
   );
-  return `${inventoryCount} inventory-eligible · ${supplierSet.size} supplier${supplierSet.size === 1 ? "" : "s"}`;
+  return `${inventoryCount} inventory-eligible · ${vendorSet.size} pricing vendor${vendorSet.size === 1 ? "" : "s"}`;
 }
 
 function productionSublabel(

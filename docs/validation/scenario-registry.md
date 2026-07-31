@@ -2,6 +2,35 @@
 
 Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
 
+## VAL-701 — Sales Order accounting payload contract
+
+- Business promise: Nexus sends only approved current Sales Order fields,
+  preserves flat-leaf commercial math, and does not activate evidence-gated
+  mappings.
+- Preconditions: deterministic pure payload input and canonical completion
+  source.
+- Inputs/actions: map complete and null/optional payloads; vary quote, tier,
+  payload, rate, cost, tax, payment text, and project-manager input.
+- Visible result: none; this is a server-boundary contract.
+- Persisted state: the successful-push uniqueness backstop is structurally
+  protected; unit tests perform no database mutation.
+- Numerical outcome: rate and unit cost normalize to four decimals; amount is
+  omitted and independently reconciles as quantity × rate.
+- Audit/artifact/provider: no writes; the protected object is the exact input
+  to `NetSuiteOperations.createSalesOrder`.
+- Security: historical, SuiteTax, bundle, opportunity, workflow-derived, and
+  unknown fields remain absent.
+- Failure modes: mapping drift, accidental field activation, inferred project
+  manager, standard-terms activation, explicit line amount, nondeterministic
+  key, or create-before-prior-success-check.
+- Layer/file: registered unit/structural contract,
+  `tests/unit/sales-order-accounting-contract.test.ts`.
+- Sources: `src/lib/netsuite/sales-orders.ts`,
+  `src/lib/netsuite/mark-complete.ts`, and `src/db/schema.ts`.
+- Maintenance: update the field universe and evidence classification before
+  changing an assertion.
+- Status: unit-protected; release-blocking through `npm run test:unit`.
+
 ## VAL-101 — Create and persist a basic quote
 
 - Business promise: supported quote setup, cost totals, pricing, and tiers save
@@ -53,6 +82,76 @@ Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
   with sleeps. Transport changes must still prove two distinct receipts and
   two exact field audits.
 - Status: implemented.
+
+## VAL-104 — Governed Pricing Vendor provenance
+
+- Business promise: a draft packaging pricing line records the optional
+  governed HubSpot Vendor whose pricing established its cost, plus the
+  optional date on that pricing source, without implying an awarded vendor.
+- Preconditions: isolated draft fixture; fake HubSpot contains deterministic
+  companies classified as Vendor; a second fixture line retains legacy
+  supplier text only.
+- Inputs: select `Validation Contract Manufacturer` from governed search and
+  enter Pricing Date `2026-07-15`.
+- User actions: search, select, observe both Server Action receipts, reload,
+  and open the sent fixture.
+- Visible result: canonical HubSpot name and date survive reload; legacy text
+  is read-only fallback; sent inputs are disabled.
+- Persisted state: stable Company ID `900000000000002`, canonical name snapshot,
+  and date-only value propagate to every logical-line tier sibling; legacy
+  `supplier` remains unchanged.
+- Numerical result: none; provenance never changes costing math.
+- Audit: Vendor identity/name and Pricing Date changes are recorded exactly
+  once with canonical persisted values; rejected identities produce no
+  success audit.
+- Customer artifact/provider effects: fake HubSpot ledger records filtered
+  search and exact resolution; customer preview, PDF, HubSpot writeback, and
+  NetSuite payloads receive none of these fields.
+- Security: the server ignores client names, revalidates newly selected IDs,
+  preserves historical name snapshots, and applies draft/frozen quote guards.
+- Failure modes: free-text entry, stale or non-Vendor acceptance, partial
+  sibling propagation, snapshot rename, clone loss, post-send mutation,
+  external traffic, or customer/ERP leakage.
+- Layer/file: unit boundary contracts plus browser/database/audit coverage in
+  `tests/unit/pricing-vendor-contract.test.ts` and
+  `tests/e2e/costing/basic-quote-persistence.spec.ts`.
+- Release classification: release-blocking.
+- Sources: HubSpot provider boundary, packaging metadata action, quote graph
+  propagation, costing loader/store, and validation fixture/provider.
+- Maintenance: retain exact-ID server resolution and the immutable snapshot
+  distinction; do not make legacy supplier writable.
+- Evidence: VAL-104 passed with one worker and zero retries in 15.9 seconds
+  (26.4 seconds including isolated setup).
+- Harness follow-up: Windows `Start-Process` may expose a null `ExitCode` after
+  Playwright has already logged a successful result. Durable Playwright output
+  is authoritative for that incident; wrapper exit capture remains a
+  non-blocking harness defect and must not trigger test retries or assertion
+  changes.
+- Status: implemented, verified, and release-blocking.
+
+### PB-006/PB-007 costing-surface extension
+
+- Business promise: every packaging row names its existing governed LEAF
+  component, while Pricing Vendor remains pricing provenance; “Other SKUs”
+  exposes only cost-bearing LEAF junctions and never ASY records.
+- Preconditions: deterministic draft fixture with one ASY, three LEAFs,
+  packaging inputs, and governed plus legacy supplier provenance.
+- Visible result: the first row displays `Validation Leaf 1` and
+  `VAL-SLICE12-1`; the context menu displays only the other two LEAFs.
+- Persisted/numerical/audit result: none; this is a read-only projection and
+  does not alter costing, persistence, or audit behavior.
+- Provider/artifact effect: none; existing strict network isolation remains
+  active.
+- Layer/files: unit source contract in
+  `tests/unit/costing-surface-contract.test.ts` and browser assertion in
+  `tests/e2e/costing/basic-quote-persistence.spec.ts` (`VAL-104`).
+- Release classification: release-blocking.
+- Maintenance: do not introduce a separate component identity while the
+  `assembly_leaf_inputs → assembly_leaves → leaves` path supplies canonical
+  name and SKU. Keep ASYs out of LEAF-cost selection surfaces.
+- Evidence: VAL-104 passed with one worker and zero retries in 13.1 seconds
+  (22.9 seconds including isolated Playwright startup) on 2026-07-30.
+- Status: implemented, verified, and release-blocking.
 
 ## VAL-102 — Required fields and invalid input
 
@@ -176,3 +275,19 @@ Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
 - Sources: send action, snapshots, artifact storage, PDF route.
 - Maintenance: never regenerate expected historical artifacts.
 - Status: partially protected by VAL-601; pricing immutability extension pending.
+
+## VAL-208 — Bulk pricing preview, apply, and exact undo
+
+- Promise: preview never mutates pricing; explicit Apply persists the displayed
+  tier adjustments and prices; immediate Undo restores captured prior values.
+- Preconditions/actions: deterministic multi-tier draft; preview, cancel,
+  apply, undo, apply again, and reload.
+- Visible result: every tier shows current adjustment/price, delta, and
+  resulting adjustment/price with explicit Preview and Apply boundaries.
+- Persistence/audit: preview and cancel write nothing; Apply and Undo each
+  produce root and derived tier audits; stale Undo is rejected.
+- Layer/evidence: release-blocking unit and browser coverage in
+  `tests/unit/pricing-lift.test.ts` and
+  `tests/e2e/costing/bulk-pricing-lift.spec.ts`.
+- Maintenance: Undo is session-scoped; reload ends Undo eligibility.
+- Status: implemented.

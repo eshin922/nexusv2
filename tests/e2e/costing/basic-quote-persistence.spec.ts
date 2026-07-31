@@ -381,3 +381,254 @@ test("VAL-103 concurrent debounced cost edits persist without save loss", async 
   expect(requestFailures, "unexpected failed requests").toEqual([]);
   expect(networkLedger.filter((entry) => entry.blocked)).toEqual([]);
 });
+
+test("VAL-104 governed Pricing Vendor and Pricing Date persist as line provenance", async ({
+  page,
+  networkLedger,
+}) => {
+  test.setTimeout(90_000);
+  const fixtures = await manifest();
+  const draft = fixtures.quotes.draft;
+  const setupSql = postgres(process.env.DATABASE_URL!, {
+    max: 1,
+    prepare: false,
+  });
+  const [fixtureLine] = await setupSql<{ line_group_id: string }[]>`
+    select ali.line_group_id
+    from assembly_leaf_inputs ali
+    join assembly_leaves al on al.id = ali.assembly_leaf_id
+    join assemblies a on a.id = al.assembly_id
+    where a.quote_id = ${draft.quoteId}
+    order by ali.sort_order, ali.line_group_id
+    limit 1
+  `;
+  const lineGroupId = fixtureLine.line_group_id;
+  await setupSql`
+    delete from audit_log
+    where entity_type = 'assembly_leaf_input_line'
+      and entity_id = ${lineGroupId}
+      and action = 'assembly_leaf_input_line_updated'
+  `;
+  await setupSql.end();
+  const consoleFailures: string[] = [];
+  const pageFailures: string[] = [];
+  const requestFailures: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" || /warning/i.test(message.type())) {
+      consoleFailures.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => pageFailures.push(error.message));
+  page.on("requestfailed", (request) => {
+    const failure = request.failure()?.errorText ?? "";
+    const url = new URL(request.url());
+    const expectedSupersededRsc =
+      request.method() === "GET" &&
+      request.resourceType() === "fetch" &&
+      /^\/projects\/[^/]+\/quotes\/[^/]+\/costs$/.test(url.pathname) &&
+      url.searchParams.has("_rsc") &&
+      failure === "net::ERR_ABORTED";
+    if (!expectedSupersededRsc) {
+      requestFailures.push(`${request.method()} ${request.url()} ${failure}`);
+    }
+  });
+
+  const response = await page.goto(draft.deepLinks.costs, {
+    waitUntil: "networkidle",
+  });
+  expect(response?.status()).toBe(200);
+
+  // PB-006/PB-007: component identity comes from the cost-bearing LEAF,
+  // while the scenario selector exposes only other eligible LEAFs.
+  const firstPackagingRow = page.locator(".r6-dt.pkg .r6-dt-row").first();
+  await expect(firstPackagingRow.locator(".name .lab")).toHaveText(
+    "Validation Leaf 1",
+  );
+  await expect(firstPackagingRow.locator(".name .sub")).toContainText(
+    "VAL-SLICE12-1",
+  );
+  await expect(firstPackagingRow.locator(".name .lab")).not.toHaveText(
+    "Validation Packaging Vendor",
+  );
+  await page
+    .getByText("Other SKUs in this scenario (2)", { exact: false })
+    .click();
+  const scenarioContext = page.getByRole("region", {
+    name: "SKU + scenario context",
+  });
+  await expect(scenarioContext.getByText("Validation Leaf 2")).toBeVisible();
+  await expect(scenarioContext.getByText("Validation Leaf 3")).toBeVisible();
+  await expect(
+    scenarioContext.getByText("Validation draft assembly"),
+  ).toHaveCount(0);
+
+  const vendorInput = page
+    .getByRole("searchbox", { name: "Pricing Vendor" })
+    .first();
+  await expect(vendorInput).toHaveValue("Validation Packaging Vendor");
+  await expect(
+    page.getByText("Legacy supplier (historical): Validation Supplier").first(),
+  ).toBeVisible();
+
+  const clearReceipt = page.waitForResponse(
+    (candidate) =>
+      candidate.request().method() === "POST" &&
+      candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
+      candidate.ok(),
+  );
+  await page.getByRole("button", { name: "Clear Pricing Vendor" }).first().click();
+  await (await clearReceipt).finished();
+  await expect(vendorInput).toHaveValue("");
+  await expect(
+    page.getByText("Legacy supplier (historical): Validation Supplier").first(),
+  ).toBeVisible();
+
+  const emptySearchReceipt = page.waitForResponse(
+    (candidate) =>
+      candidate.request().method() === "POST" &&
+      candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
+      candidate.ok(),
+  );
+  await vendorInput.fill("No Matching Vendor");
+  await (await emptySearchReceipt).finished();
+  await expect(page.getByText("No matching HubSpot Vendors.").first()).toBeVisible();
+
+  const searchReceipt = page.waitForResponse(
+    (candidate) =>
+      candidate.request().method() === "POST" &&
+      candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
+      candidate.ok(),
+  );
+  await vendorInput.fill("Contract");
+  await (await searchReceipt).finished();
+  const saveVendorReceipt = page.waitForResponse(
+    (candidate) =>
+      candidate.request().method() === "POST" &&
+      candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
+      candidate.ok(),
+  );
+  await page
+    .getByRole("option", { name: "Validation Contract Manufacturer" })
+    .click();
+  await (await saveVendorReceipt).finished();
+
+  const pricingDateInput = page.locator('input[aria-label="Pricing Date"]').first();
+  const saveDateReceipt = page.waitForResponse(
+    (candidate) =>
+      candidate.request().method() === "POST" &&
+      candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
+      candidate.ok(),
+  );
+  await pricingDateInput.fill("2026-07-15");
+  await (await saveDateReceipt).finished();
+
+  const sql = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
+  try {
+    const rows = await sql<{
+      line_group_id: string;
+      pricing_vendor_hubspot_company_id: string;
+      pricing_vendor_name_snapshot: string;
+      pricing_date: string;
+      supplier: string;
+    }[]>`
+      select ali.line_group_id, ali.pricing_vendor_hubspot_company_id,
+             ali.pricing_vendor_name_snapshot, ali.pricing_date::text,
+             ali.supplier
+      from assembly_leaf_inputs ali
+      join assembly_leaves al on al.id = ali.assembly_leaf_id
+      join assemblies a on a.id = al.assembly_id
+      where a.quote_id = ${draft.quoteId}
+      order by ali.sort_order, ali.line_group_id, ali.tier_id
+      limit 2
+    `;
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((row) => row.line_group_id))).toEqual(
+      new Set([lineGroupId]),
+    );
+    for (const row of rows) {
+      expect(row).toEqual({
+        line_group_id: lineGroupId,
+        pricing_vendor_hubspot_company_id: "900000000000002",
+        pricing_vendor_name_snapshot: "Validation Contract Manufacturer",
+        pricing_date: "2026-07-15",
+        supplier: "Validation Supplier",
+      });
+    }
+    const audits = await sql<{ diff_json: Record<string, unknown> }[]>`
+      select diff_json from audit_log
+      where entity_type = 'assembly_leaf_input_line'
+        and entity_id = ${lineGroupId}
+        and action = 'assembly_leaf_input_line_updated'
+      order by created_at
+    `;
+    expect(
+      audits.filter((audit) =>
+        Object.hasOwn(
+          audit.diff_json,
+          "pricing_vendor_hubspot_company_id",
+        ),
+      ),
+    ).toHaveLength(2);
+    expect(
+      audits.filter((audit) =>
+        Object.hasOwn(audit.diff_json, "pricing_date"),
+      ),
+    ).toHaveLength(1);
+  } finally {
+    await sql.end();
+  }
+
+  await page.reload({ waitUntil: "networkidle" });
+  await expect(
+    page.getByRole("searchbox", { name: "Pricing Vendor" }).first(),
+  ).toHaveValue("Validation Contract Manufacturer");
+  await expect(
+    page.locator('input[aria-label="Pricing Date"]').first(),
+  ).toHaveValue("2026-07-15");
+
+  const sent = fixtures.quotes.sent;
+  await page.goto(sent.deepLinks.costs, { waitUntil: "networkidle" });
+  await expect(
+    page.getByRole("searchbox", { name: "Pricing Vendor" }).first(),
+  ).toBeDisabled();
+  await expect(
+    page.locator('input[aria-label="Pricing Date"]').first(),
+  ).toBeDisabled();
+
+  const complete = fixtures.quotes.complete;
+  await page.goto(complete.deepLinks.costs, { waitUntil: "networkidle" });
+  await expect(
+    page.getByRole("searchbox", { name: "Pricing Vendor" }).first(),
+  ).toBeDisabled();
+  await expect(
+    page.locator('input[aria-label="Pricing Date"]').first(),
+  ).toBeDisabled();
+
+  const ledgerPath = process.env.NEXUS_FAKE_HUBSPOT_LEDGER;
+  expect(ledgerPath).toBeTruthy();
+  const ledger = (await readFile(path.resolve(ledgerPath!), "utf8"))
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { operation: string; input: object });
+  expect(
+    ledger.some(
+      (entry) =>
+        entry.operation === "vendor-search" &&
+        (entry.input as { query?: string }).query === "Contract",
+    ),
+  ).toBe(true);
+  expect(
+    ledger.some(
+      (entry) =>
+        entry.operation === "vendor-resolve" &&
+        (entry.input as { companyId?: string }).companyId ===
+          "900000000000002",
+    ),
+  ).toBe(true);
+
+  expect(consoleFailures, "unexpected console failures").toEqual([]);
+  expect(pageFailures, "unexpected page errors").toEqual([]);
+  expect(requestFailures, "unexpected failed requests").toEqual([]);
+  expect(networkLedger.filter((entry) => entry.blocked)).toEqual([]);
+});

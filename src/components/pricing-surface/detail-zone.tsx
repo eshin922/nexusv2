@@ -39,6 +39,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { QuoteState, TierRollup } from "@/lib/pricing-classifier";
+import type { GlobalPricingPreview } from "@/lib/pricing-lift";
 import { fmtPct, fmtPct0, fmtQty, fmtUsd2 } from "./format";
 
 // ──────────────────────────────────────────────────────────────────
@@ -87,6 +88,13 @@ export function DetailZone({
   state,
   quoteId,
   onPreviewGlobalAdjust,
+  globalPreview,
+  onCancelGlobalPreview,
+  onApplyGlobalPreview,
+  onUndoGlobalAdjust,
+  canUndoGlobalAdjust,
+  pricingMutationPending,
+  pricingConfirmation,
 }: {
   state: QuoteState;
   quoteId: string;
@@ -94,6 +102,13 @@ export function DetailZone({
   // handler that calls updateQuoteGlobalPriceAdj. Optional so
   // standalone consumers (storybook, test fixtures) can omit.
   onPreviewGlobalAdjust?: (liftPct: number) => void | Promise<void>;
+  globalPreview?: GlobalPricingPreview | null;
+  onCancelGlobalPreview?: () => void;
+  onApplyGlobalPreview?: () => void | Promise<void>;
+  onUndoGlobalAdjust?: () => void | Promise<void>;
+  canUndoGlobalAdjust?: boolean;
+  pricingMutationPending?: boolean;
+  pricingConfirmation?: string | null;
 }) {
   // Hydration safety: default OPEN on both SSR and initial client
   // render (matches readSessionOpen's "no preference → open"
@@ -132,6 +147,13 @@ export function DetailZone({
           <DetailGlobalAdjust
             state={state}
             onPreview={onPreviewGlobalAdjust}
+            preview={globalPreview}
+            onCancel={onCancelGlobalPreview}
+            onApply={onApplyGlobalPreview}
+            onUndo={onUndoGlobalAdjust}
+            canUndo={canUndoGlobalAdjust}
+            pending={pricingMutationPending}
+            confirmation={pricingConfirmation}
           />
           <DetailTierTable state={state} />
           <DetailCostStack state={state} />
@@ -151,17 +173,30 @@ export function DetailZone({
 // (numeric(5,4) decimal; UI shows the % integer). The prototype's
 // "global_lift_pct" was design-side notation. Input value is the
 // PM-edited integer percentage; onPreview receives the percentage
-// number (caller converts to the decimal at write time).
+// number (caller converts to the decimal for canonical preview/apply).
 //
-// onPreview is page-composer-supplied (Step 7); v1 ships a no-op
-// placeholder so the input still echoes keystrokes.
+// onPreview is page-composer-supplied and performs no persistence.
 
 export function DetailGlobalAdjust({
   state,
   onPreview,
+  preview,
+  onCancel,
+  onApply,
+  onUndo,
+  canUndo,
+  pending,
+  confirmation,
 }: {
   state: QuoteState;
   onPreview?: (liftPct: number) => void;
+  preview?: GlobalPricingPreview | null;
+  onCancel?: () => void;
+  onApply?: () => void;
+  onUndo?: () => void;
+  canUndo?: boolean;
+  pending?: boolean;
+  confirmation?: string | null;
 }) {
   // Convert decimal global_price_adj_pct (e.g., 0.05) → integer %
   // for display (5). Use 0 when the input field is empty / unparseable
@@ -204,7 +239,10 @@ export function DetailGlobalAdjust({
             type="text"
             inputMode="decimal"
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              onCancel?.();
+            }}
             aria-label="Global lift percentage"
           />
           <span className="unit">% sell-price lift</span>
@@ -222,11 +260,47 @@ export function DetailGlobalAdjust({
               cursor: "pointer",
             }}
             onClick={handlePreview}
+            disabled={pending}
           >
-            Preview →
+            Preview Changes
           </button>
         </div>
       </div>
+      {preview && (
+        <div aria-label="Bulk pricing preview" style={{ marginTop: 12 }}>
+          <p><strong>Preview only.</strong> No changes have been committed.</p>
+          <table className="psr-tier-table">
+            <thead><tr>
+              <th>Tier</th><th>Current adjustment</th><th>Current price</th>
+              <th>Delta</th><th>Resulting adjustment</th><th>Resulting price</th>
+            </tr></thead>
+            <tbody>
+              {preview.tiers.map((tier) => (
+                <tr key={tier.tierId}>
+                  <td>{tier.label}</td>
+                  <td>{fmtPct(tier.currentAdjustment)}%</td>
+                  <td>{fmtUsd2(tier.currentCustomerPrice)}</td>
+                  <td>{tier.adjustmentDelta >= 0 ? "+" : ""}{fmtPct(tier.adjustmentDelta)}%</td>
+                  <td>{fmtPct(tier.resultingAdjustment)}%</td>
+                  <td>{fmtUsd2(tier.resultingCustomerPrice)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button type="button" onClick={onCancel} disabled={pending}>Cancel</button>
+            <button type="button" className="cta" onClick={onApply} disabled={pending}>
+              {pending ? "Applying…" : "Apply"}
+            </button>
+          </div>
+        </div>
+      )}
+      {confirmation && (
+        <div role="status" style={{ marginTop: 10 }}>
+          {confirmation}
+          {canUndo && <> <button type="button" onClick={onUndo} disabled={pending}>Undo</button></>}
+        </div>
+      )}
     </div>
   );
 }

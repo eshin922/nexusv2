@@ -84,7 +84,13 @@ import { validateQuote, type WarningSpec } from "./validation";
 // where applicable and pass through to computeQuoteCosting unchanged
 // (extra fields are ignored by the pure function).
 
-export type StoredPackagingRow = CostingPackagingInput & { rowId: string };
+export type StoredPackagingRow = CostingPackagingInput & {
+  rowId: string;
+  pricingVendorHubspotCompanyId: string | null;
+  pricingVendorNameSnapshot: string | null;
+  pricingDate: string | null;
+  legacySupplier: string | null;
+};
 export type StoredProductionRow = CostingProductionInput; // keyed by (skuId, tierId)
 
 // Slice R6.2 — freight is per-quote, not per-SKU. Stored rows mirror
@@ -324,7 +330,15 @@ export type PackagingCellFields = Partial<
 // rows on save. The store mirrors that behavior — updatePackagingLineMeta
 // writes the field to every row sharing the lineGroupId.
 export type PackagingLineMetaFields = Partial<
-  Pick<StoredPackagingRow, "category" | "markupPct" | "qtyPerSellableUnit">
+  Pick<
+    StoredPackagingRow,
+    | "category"
+    | "markupPct"
+    | "qtyPerSellableUnit"
+    | "pricingVendorHubspotCompanyId"
+    | "pricingVendorNameSnapshot"
+    | "pricingDate"
+  >
 >;
 export type ProductionCellFields = Partial<
   Omit<

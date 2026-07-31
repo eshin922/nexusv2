@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import {
   deleteAssemblyLeafInputLine,
+  searchPricingVendors,
   updateAssemblyLeafInputCell,
   updateAssemblyLeafInputLineMeta,
 } from "@/app/actions/assembly-leaf-inputs";
@@ -36,13 +37,13 @@ type QuoteSku = {
 //   .r6-empty-drawer when no lines exist
 //   .drawer-toolbar — line count + summary + + Line / From inventory
 //   .r6-dt.pkg — flat table:
-//     Component (name + sub) | Category | Supplier | Markup | per-tier | actions
+//     Component (name + sub) | Category | Pricing vendor | Markup | per-tier | actions
 //   Total row at bottom
 //
 // One flat list across all SKUs (R6 anchor-SKU pattern). When the
 // quote has multiple SKUs, the SKU label appears in the row's name
 // sub-text. v1 ships display + inline number inputs for tier cells +
-// inline text/number inputs for supplier / markup.
+// governed vendor/date inputs and inline numeric inputs for markup.
 
 type PackagingInputRow = {
   packaging_inputs: {
@@ -51,6 +52,9 @@ type PackagingInputRow = {
     tierId: string;
     lineGroupId: string;
     sortOrder: number;
+    pricingVendorHubspotCompanyId: string | null;
+    pricingVendorNameSnapshot: string | null;
+    pricingDate: string | null;
     supplier: string | null;
     qtyPerSellableUnit: string | null;
     category: string | null;
@@ -67,6 +71,9 @@ type LineForUI = {
   lineGroupId: string;
   sortOrder: number;
   quoteSkuId: string;
+  pricingVendorHubspotCompanyId: string | null;
+  pricingVendorNameSnapshot: string | null;
+  pricingDate: string | null;
   supplier: string | null;
   qtyPerSellableUnit: string | null;
   category: string | null;
@@ -128,6 +135,9 @@ export function PackagingDrilldown({
         lineGroupId: row.lineGroupId,
         sortOrder: row.sortOrder,
         quoteSkuId: row.quoteSkuId,
+        pricingVendorHubspotCompanyId: row.pricingVendorHubspotCompanyId,
+        pricingVendorNameSnapshot: row.pricingVendorNameSnapshot,
+        pricingDate: row.pricingDate,
         supplier: row.supplier,
         qtyPerSellableUnit: row.qtyPerSellableUnit,
         category: row.category,
@@ -194,8 +204,10 @@ export function PackagingDrilldown({
   }
 
   const inventoryEligibleCount = lines.filter((l) => l.inventoryEligible).length;
-  const supplierSet = new Set(
-    lines.map((l) => l.supplier).filter((s): s is string => !!s),
+  const vendorSet = new Set(
+    lines
+      .map((line) => line.pricingVendorNameSnapshot ?? line.supplier)
+      .filter((value): value is string => !!value),
   );
 
   // Tier sums for foot
@@ -229,7 +241,7 @@ export function PackagingDrilldown({
             Markup defaults: <strong>per category</strong>
           </span>
           <span>·</span>
-          <span>{inventoryEligibleCount} inventory-eligible · {supplierSet.size} supplier{supplierSet.size === 1 ? "" : "s"}</span>
+          <span>{inventoryEligibleCount} inventory-eligible · {vendorSet.size} pricing vendor{vendorSet.size === 1 ? "" : "s"}</span>
         </div>
         <div className="rhs">
           <AddLineButton
@@ -252,7 +264,7 @@ export function PackagingDrilldown({
         <div className="r6-dt-head">
           <span>Component</span>
           <span>Category</span>
-          <span>Supplier</span>
+          <span>Pricing Vendor / Date</span>
           <span className="num">Markup</span>
           {tiers.map((t) => (
             <span key={t.id} className="num">
@@ -339,14 +351,9 @@ function PackagingRow({
   const activeTierId = useCostingStore(selectActiveTierId);
   const updateLineMeta = useCostingStore(selectUpdatePackagingLineMeta);
 
-  // Slice 11.5.1 MIG-8 close-gate — subscribe to store for live
-  // category + markupPct values. Same prop-vs-store-snapshot
-  // architectural issue as PackagingCellInput below: the `line`
-  // prop is RSC-rendered and stale; the store reflects realtime
-  // reconciles. `supplier` and `qtyPerSellableUnit` are NOT in
-  // the store (StoredPackagingRow omits them) — those still
-  // depend on prop updates and won't reflect cross-tab edits
-  // until a follow-up extends StoredPackagingRow. Banked.
+  // Subscribe to the local store so governed pricing provenance and pricing
+  // inputs reflect the canonical server receipt and realtime reconciliation.
+  // The legacy supplier remains prop-only because it is immutable evidence.
   const storePackaging = useCostingStore(selectPackaging);
   const storeLineRow = storePackaging.find(
     (p) => p.lineGroupId === line.lineGroupId,
@@ -357,62 +364,171 @@ function PackagingRow({
       ? String(storeLineRow.markupPct)
       : (line.markupPct ?? "");
 
-  const [supplier, setSupplier] = useState(line.supplier ?? "");
+  const storeVendorId =
+    storeLineRow?.pricingVendorHubspotCompanyId ??
+    line.pricingVendorHubspotCompanyId;
+  const storeVendorName =
+    storeLineRow?.pricingVendorNameSnapshot ?? line.pricingVendorNameSnapshot;
+  const storePricingDate = storeLineRow?.pricingDate ?? line.pricingDate;
+  const [vendorId, setVendorId] = useState(storeVendorId);
+  const [vendorName, setVendorName] = useState(storeVendorName);
+  const [pricingDate, setPricingDate] = useState(storePricingDate ?? "");
+  const [vendorQuery, setVendorQuery] = useState(storeVendorName ?? "");
+  const [vendorResults, setVendorResults] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [vendorSearchComplete, setVendorSearchComplete] = useState(false);
+  const [vendorError, setVendorError] = useState<string | null>(null);
+  const [searching, startSearchTransition] = useTransition();
   const [category, setCategory] = useState(storeCategory);
   const [markupPct, setMarkupPct] = useState(storeMarkupPct);
-  const supplierDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stateRef = useRef({ supplier, category, markupPct });
-  stateRef.current = { supplier, category, markupPct };
+  const metaDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stateRef = useRef({
+    vendorId,
+    vendorName,
+    pricingDate,
+    category,
+    markupPct,
+  });
+  stateRef.current = {
+    vendorId,
+    vendorName,
+    pricingDate,
+    category,
+    markupPct,
+  };
+  const canonicalRef = useRef(stateRef.current);
 
-  // Sync local input state on EITHER line identity change OR
-  // value change. supplier is prop-driven (not in store);
-  // category + markupPct are store-driven for cross-tab sync.
+  // Sync local input state on either line identity or canonical value change.
   // Wait-for-quiet at the provider level (QUIET_PERIOD_MS=800ms)
   // prevents mid-typing clobber.
   useEffect(() => {
-    setSupplier(line.supplier ?? "");
+    setVendorId(storeVendorId);
+    setVendorName(storeVendorName);
+    setPricingDate(storePricingDate ?? "");
+    setVendorQuery(storeVendorName ?? "");
+    setVendorSearchComplete(false);
     setCategory(storeCategory);
     setMarkupPct(storeMarkupPct);
-  }, [line.lineGroupId, line.supplier, storeCategory, storeMarkupPct]);
+    canonicalRef.current = {
+      vendorId: storeVendorId,
+      vendorName: storeVendorName,
+      pricingDate: storePricingDate ?? "",
+      category: storeCategory,
+      markupPct: storeMarkupPct,
+    };
+  }, [
+    line.lineGroupId,
+    storeVendorId,
+    storeVendorName,
+    storePricingDate,
+    storeCategory,
+    storeMarkupPct,
+  ]);
 
   useEffect(
     () => () => {
-      if (supplierDebounce.current) clearTimeout(supplierDebounce.current);
+      if (metaDebounce.current) clearTimeout(metaDebounce.current);
+      if (searchDebounce.current) clearTimeout(searchDebounce.current);
     },
     [],
   );
 
   function fireMetaSave(overrides: Partial<{
-    supplier: string;
+    vendorId: string | null;
+    vendorName: string | null;
+    pricingDate: string;
     category: string;
     markupPct: string;
   }> = {}) {
     const s = { ...stateRef.current, ...overrides };
     const fd = new FormData();
     fd.set("lineGroupId", line.lineGroupId);
-    fd.set("supplier", s.supplier);
+    fd.set("pricingVendorHubspotCompanyId", s.vendorId ?? "");
+    fd.set("pricingDate", s.pricingDate);
     fd.set("category", s.category);
     fd.set("markupPct", s.markupPct);
     fd.set("qtyPerSellableUnit", line.qtyPerSellableUnit ?? "");
     fd.set("inventoryEligible", line.inventoryEligible ? "true" : "false");
     fd.set("notes", line.notes ?? "");
     startTransition(async () => {
-      await updateAssemblyLeafInputLineMeta(fd);
-    });
-    updateLineMeta(line.lineGroupId, {
-      category: s.category || null,
-      markupPct: num(s.markupPct),
-      qtyPerSellableUnit: num(line.qtyPerSellableUnit),
+      const result = await updateAssemblyLeafInputLineMeta(fd);
+      if (!result.ok) {
+        const previous = canonicalRef.current;
+        setVendorId(previous.vendorId);
+        setVendorName(previous.vendorName);
+        setVendorQuery(previous.vendorName ?? "");
+        setPricingDate(previous.pricingDate);
+        setCategory(previous.category);
+        setMarkupPct(previous.markupPct);
+        updateLineMeta(line.lineGroupId, {
+          pricingVendorHubspotCompanyId: previous.vendorId,
+          pricingVendorNameSnapshot: previous.vendorName,
+          pricingDate: previous.pricingDate || null,
+          category: previous.category || null,
+          markupPct: num(previous.markupPct),
+          qtyPerSellableUnit: num(line.qtyPerSellableUnit),
+        });
+        setVendorError(result.error.message);
+        return;
+      }
+      setVendorId(result.data.pricingVendorHubspotCompanyId);
+      setVendorName(result.data.pricingVendorNameSnapshot);
+      setVendorQuery(result.data.pricingVendorNameSnapshot ?? "");
+      setPricingDate(result.data.pricingDate ?? "");
+      canonicalRef.current = {
+        vendorId: result.data.pricingVendorHubspotCompanyId,
+        vendorName: result.data.pricingVendorNameSnapshot,
+        pricingDate: result.data.pricingDate ?? "",
+        category: result.data.category ?? "",
+        markupPct: result.data.markupPct ?? "",
+      };
+      updateLineMeta(line.lineGroupId, {
+        pricingVendorHubspotCompanyId:
+          result.data.pricingVendorHubspotCompanyId,
+        pricingVendorNameSnapshot: result.data.pricingVendorNameSnapshot,
+        pricingDate: result.data.pricingDate,
+        category: result.data.category,
+        markupPct: num(result.data.markupPct),
+        qtyPerSellableUnit: num(result.data.qtyPerSellableUnit),
+      });
+      setVendorError(null);
     });
   }
 
   function scheduleMetaSave(overrides: Partial<{
-    supplier: string;
+    vendorId: string | null;
+    vendorName: string | null;
+    pricingDate: string;
     category: string;
     markupPct: string;
   }>) {
-    if (supplierDebounce.current) clearTimeout(supplierDebounce.current);
-    supplierDebounce.current = setTimeout(() => fireMetaSave(overrides), DEBOUNCE_MS);
+    if (metaDebounce.current) clearTimeout(metaDebounce.current);
+    metaDebounce.current = setTimeout(() => fireMetaSave(overrides), DEBOUNCE_MS);
+  }
+
+  function scheduleVendorSearch(query: string) {
+    if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    if (query.trim().length < 2) {
+      setVendorResults([]);
+      setVendorSearchComplete(false);
+      return;
+    }
+    setVendorSearchComplete(false);
+    searchDebounce.current = setTimeout(() => {
+      startSearchTransition(async () => {
+        try {
+          setVendorResults(await searchPricingVendors(query));
+          setVendorSearchComplete(true);
+          setVendorError(null);
+        } catch {
+          setVendorResults([]);
+          setVendorSearchComplete(false);
+          setVendorError("Pricing Vendors could not be loaded.");
+        }
+      });
+    }, 250);
   }
 
   function handleDelete() {
@@ -424,22 +540,23 @@ function PackagingRow({
     });
   }
 
-  // Component name = supplier + qty/unit hint, fallback "Untitled line"
-  const lineName = supplier || "Untitled line";
   const skuLabel = sku?.skuLabel ?? "";
   const productName = sku?.productName ?? "";
+  // The library LEAF is the cost-bearing component identity. Pricing Vendor
+  // remains provenance in its own column and must never replace what is being
+  // costed. `quoteSkuId` resolves through assembly_leaves to this LEAF.
+  const componentName = productName || skuLabel || "Unknown component";
 
   return (
     <div className="r6-dt-row">
       {/* Component name + sub (SKU + qty/unit + inv-eligible badge) */}
       <div className="name">
-        <span className="lab">{lineName}</span>
-        {(skuLabel || productName) && (
+        <span className="lab">{componentName}</span>
+        {(skuLabel || line.qtyPerSellableUnit) && (
           <span className="sub">
             {skuLabel}
-            {skuLabel && productName ? " · " : ""}
-            {productName}
-            {line.qtyPerSellableUnit ? ` · ${line.qtyPerSellableUnit}/unit` : ""}
+            {skuLabel && line.qtyPerSellableUnit ? " · " : ""}
+            {line.qtyPerSellableUnit ? `${line.qtyPerSellableUnit}/unit` : ""}
           </span>
         )}
         {line.inventoryEligible && (
@@ -486,27 +603,134 @@ function PackagingRow({
         </select>
       </div>
 
-      {/* Supplier — inline editable text */}
-      <div className="sup">
+      {/* Governed Pricing Vendor and historical pricing date. */}
+      <div className="sup" style={{ position: "relative" }}>
         <input
-          type="text"
-          value={supplier}
+          type="search"
+          aria-label="Pricing Vendor"
+          value={vendorQuery}
           disabled={disabled}
-          onChange={(e) => {
-            const v = e.target.value;
-            setSupplier(v);
-            scheduleMetaSave({ supplier: v });
+          onChange={(event) => {
+            const query = event.target.value;
+            setVendorQuery(query);
+            if (vendorId) {
+              setVendorId(null);
+              setVendorName(null);
+            }
+            scheduleVendorSearch(query);
           }}
-          placeholder="—"
-          style={{
-            background: "transparent",
-            border: "none",
-            font: "inherit",
-            color: "inherit",
-            padding: 0,
-            width: "100%",
-          }}
+          placeholder="Search HubSpot Vendors"
+          autoComplete="off"
+          style={{ width: "100%" }}
         />
+        {searching && <span className="sub">Searching…</span>}
+        {!disabled && vendorResults.length > 0 && (
+          <div
+            role="listbox"
+            aria-label="Pricing Vendor results"
+            style={{
+              position: "absolute",
+              zIndex: 20,
+              top: "24px",
+              left: 0,
+              minWidth: "240px",
+              padding: "4px",
+              border: "1px solid var(--line)",
+              background: "var(--paper)",
+              boxShadow: "var(--shadow)",
+            }}
+          >
+            {vendorResults.map((vendor) => (
+              <button
+                key={vendor.id}
+                type="button"
+                role="option"
+                aria-selected={vendor.id === vendorId}
+                onClick={() => {
+                  stateRef.current = {
+                    ...stateRef.current,
+                    vendorId: vendor.id,
+                    vendorName: vendor.name,
+                  };
+                  setVendorId(vendor.id);
+                  setVendorName(vendor.name);
+                  setVendorQuery(vendor.name);
+                  setVendorResults([]);
+                  setVendorSearchComplete(false);
+                  scheduleMetaSave({
+                    vendorId: vendor.id,
+                    vendorName: vendor.name,
+                  });
+                }}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "6px",
+                  border: 0,
+                  background: "transparent",
+                  cursor: "pointer",
+                }}
+              >
+                {vendor.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {vendorId && !disabled && (
+          <button
+            type="button"
+            aria-label="Clear Pricing Vendor"
+            onClick={() => {
+              stateRef.current = {
+                ...stateRef.current,
+                vendorId: null,
+                vendorName: null,
+              };
+              setVendorId(null);
+              setVendorName(null);
+              setVendorQuery("");
+              setVendorResults([]);
+              setVendorSearchComplete(false);
+              scheduleMetaSave({ vendorId: null, vendorName: null });
+            }}
+          >
+            Clear
+          </button>
+        )}
+        {!vendorId && line.supplier && (
+          <span className="sub">
+            Legacy supplier (historical): {line.supplier}
+          </span>
+        )}
+        {!searching &&
+          vendorSearchComplete &&
+          vendorResults.length === 0 &&
+          !vendorError && (
+            <span className="sub">No matching HubSpot Vendors.</span>
+        )}
+        <span className="sub">
+          Source of quoted pricing; not the awarded or purchasing vendor.
+        </span>
+        <input
+          type="date"
+          aria-label="Pricing Date"
+          value={pricingDate}
+          disabled={disabled}
+          onChange={(event) => {
+            const value = event.target.value;
+            stateRef.current = { ...stateRef.current, pricingDate: value };
+            setPricingDate(value);
+            scheduleMetaSave({ pricingDate: value });
+          }}
+          title="Date shown on the vendor quote or pricing source"
+          style={{ width: "100%" }}
+        />
+        {vendorError && (
+          <span role="alert" className="sub">
+            {vendorError}
+          </span>
+        )}
       </div>
 
       {/* Markup % chip — inline editable number */}
