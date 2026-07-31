@@ -14,14 +14,17 @@ Status values: `planned`, `unit-protected`, `implemented`, `blocked`.
   creates no LEAF; successful provider ID remains HubSpot-first.
 - Isolation evidence: deterministic fake provider ledger records the canonical
   payload and Playwright denies real outbound traffic.
-- Live evidence: controlled production Product create/read-back is required
-  before HubSpot zero creation is marked proven.
+- Live evidence: proven 2026-07-31 by controlled production Product
+  `46747676852` / Nexus LEAF `0d34a287-d766-4858-a259-dc9f6b51973b`;
+  provider request, raw create response, direct read-backs, price history,
+  uniqueness, and empty Product association checks are recorded in the HPP
+  evidence graph.
 - Separate evidence node: HubSpot Product → NetSuite Item price propagation is
   untested and cannot be inferred from Product creation.
 - Layer/file: `tests/unit/product-library-contract.test.ts` and
   `tests/e2e/slice-12/product-library-create-component.spec.ts`.
 - Release classification: follow-up catalog prerequisite; live verification
-  and operator review required.
+  passed and operator review remains required.
 - Status: implemented.
 
 ## VAL-106 — Governed reusable-component creation

@@ -36,7 +36,10 @@ headers and access tokens are never recorded.
 - HubSpot property identity/type: **PROVEN** by read-only production Properties
   API metadata and official HubSpot Products API documentation.
 - Mapping/default/provider ledger: **PROVEN IN ISOLATION** by VAL-107.
-- Live Nexus create and HubSpot zero read-back: **UNTESTED** until the controlled
-  production verification is recorded.
+- Live Nexus create and HubSpot zero read-back: **PROVEN** on 2026-07-31 by
+  controlled Product `46747676852`, linked from Nexus LEAF
+  `0d34a287-d766-4858-a259-dc9f6b51973b`; request, create response, two direct
+  read-backs, price history, uniqueness, and empty association checks are
+  recorded in the evidence graph.
 - HubSpot Product price → NetSuite Item price propagation: **UNTESTED** and a
   separate controlled synchronization experiment.
