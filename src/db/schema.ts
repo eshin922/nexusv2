@@ -53,6 +53,7 @@ export const quoteStatus = pgEnum("quote_status", [
   // override only; v1.5+).
   "complete",
 ]);
+export type QuoteStatus = (typeof quoteStatus.enumValues)[number];
 
 // Slice 12 Step 3 — Client Review feed event types (v3 brief §5.1
 // Round 3 amendment 1). pgEnum, not text, so bad values fail at the

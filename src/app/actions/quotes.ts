@@ -43,7 +43,10 @@ import {
 } from "@/lib/hubspot";
 import type { HubSpotStage as DealStageInfo } from "@/lib/integrations/hubspot-provider";
 import { isHubspotLinkedDealId } from "@/lib/hubspot-linkage";
-import { revalidateQuoteTree } from "@/lib/revalidate";
+import {
+  revalidateQuoteLifecycleSurfaces,
+  revalidateQuoteTree,
+} from "@/lib/revalidate";
 import {
   ActionGuardError,
   ERR,
@@ -1988,7 +1991,7 @@ export async function reviseQuote(
       };
     });
 
-    revalidateQuoteTree(quote.projectId, quoteId);
+    revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
     return result;
   });
 }
@@ -2441,7 +2444,7 @@ export async function markAccepted(
       }
     });
 
-    revalidateQuoteTree(quote.projectId, quoteId);
+    revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
     return {
       acceptedAt,
       hubspot: {
@@ -2620,7 +2623,7 @@ export async function unmarkAccepted(
       });
     });
 
-    revalidateQuoteTree(quote.projectId, quoteId);
+    revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
     return { revertedAt, hubspot: { to: rolledBackStage } };
   });
 }
@@ -2697,7 +2700,7 @@ export async function recordCustomerAcceptance(
       });
     });
 
-    revalidateQuoteTree(quote.projectId, quoteId);
+    revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
   });
 }
 
@@ -2745,7 +2748,7 @@ export async function clearCustomerAcceptance(
       });
     });
 
-    revalidateQuoteTree(quote.projectId, quoteId);
+    revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
   });
 }
 
@@ -3858,7 +3861,7 @@ export async function markComplete(
 
     // Load quote for revalidate targets (project id + quote id).
     const quote = await loadQuoteOrThrow(quoteId);
-    revalidateQuoteTree(quote.projectId, quoteId);
+    revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
 
     return {
       completedAt: result.completedAt,

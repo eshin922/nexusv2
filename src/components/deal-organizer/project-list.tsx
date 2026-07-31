@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { DealOrganizerRow } from "@/lib/workspace-queries";
 import { ProjectGlyph } from "@/components/rails/project-glyph";
+import {
+  organizerStatusPresentation,
+  QUOTE_STATUS_PRESENTATION,
+} from "@/lib/quote-lifecycle";
 
 // Slice RI.2 — Round 4 Deal Organizer project list. Table-style
 // (subtle borders + hover tint, NOT card-per-row), columns:
@@ -49,11 +53,23 @@ function fmtRelative(d: Date | string): string {
   return `${months}mo ago`;
 }
 
-const STATUS_CHIP: Record<string, { cls: string; label: string }> = {
-  draft: { cls: "border-warn/40 bg-warn-soft text-warn", label: "DRAFT" },
-  sent: { cls: "border-accent/40 bg-accent-soft text-accent-ink", label: "SENT" },
-  accepted: { cls: "border-good/40 bg-good-soft text-good", label: "ACCEPTED" },
-};
+const STATUS_CLASS = {
+  draft: "border-warn/40 bg-warn-soft text-warn",
+  sent: "border-accent/40 bg-accent-soft text-accent-ink",
+  accepted: "border-good/40 bg-good-soft text-good",
+  superseded: "border-rule bg-paper-3 text-ink-4",
+  lost: "border-rule bg-paper-3 text-ink-4",
+  complete: "border-good/40 bg-good-soft text-good",
+} as const satisfies Record<keyof typeof QUOTE_STATUS_PRESENTATION, string>;
+
+function statusChip(status: string) {
+  const presentation = organizerStatusPresentation(status);
+  const cls =
+    status in STATUS_CLASS
+      ? STATUS_CLASS[status as keyof typeof STATUS_CLASS]
+      : "border-bad/40 bg-bad-soft text-bad";
+  return { ...presentation, cls };
+}
 
 export function DealOrganizerProjectList({
   rows,
@@ -67,7 +83,8 @@ export function DealOrganizerProjectList({
     return rows.filter((r) => {
       const status = r.latestQuote?.status;
       if (filter === "draft") return status === "draft";
-      if (filter === "active") return status === "draft" || status === "sent";
+      if (filter === "active")
+        return status ? organizerStatusPresentation(status).active : false;
       if (filter === "accepted") return status === "accepted";
       return true;
     });
@@ -122,8 +139,8 @@ export function DealOrganizerProjectList({
             </tr>
           ) : (
             filtered.map((r) => {
-              const status = r.latestQuote?.status ?? "draft";
-              const chip = STATUS_CHIP[status] ?? STATUS_CHIP.draft;
+              const status = r.latestQuote?.status;
+              const chip = status ? statusChip(status) : null;
               const lastActivity =
                 r.latestQuote?.updatedAt ?? new Date(0);
               return (
@@ -177,9 +194,10 @@ export function DealOrganizerProjectList({
                     )}
                   </td>
                   <td className="px-3 py-2.5">
-                    {r.latestQuote && (
+                    {r.latestQuote && chip && (
                       <span
                         className={`inline-block rounded border px-1.5 py-0 font-mono text-[10px] font-medium uppercase tracking-wide ${chip.cls}`}
+                        title={`Quote ${r.latestQuote.id} · v${r.latestQuote.versionNumber}${chip.editable ? "" : " · read-only"}`}
                       >
                         {chip.label}
                       </span>
