@@ -73,12 +73,12 @@ export function CostsHeader({
           <span className="sep">·</span>
           {quote.scenarioLabel}
           <span className="sep">·</span>
-          v{quote.versionNumber} {quote.status}
+          Rev. {quote.versionNumber} {quote.status}
         </div>
         <h1>
           Costs{" "}
           <em>
-            · {quote.scenarioLabel} v{quote.versionNumber}
+            · {quote.scenarioLabel} · Rev. {quote.versionNumber}
           </em>
         </h1>
         <p className="sub">
@@ -108,16 +108,6 @@ export function CostsHeader({
         >
           View as customer →
         </Link>
-        {/* + New version — inert v1; wiring lands with scenario
-            versioning workflow (UX_BACKLOG). */}
-        <button
-          type="button"
-          className="btn"
-          disabled
-          title="+ New version — wiring lands with scenario versioning slice"
-        >
-          + New version
-        </button>
         <button
           type="button"
           className="btn primary"
@@ -150,8 +140,8 @@ export function SentStatusBanner({ status }: { status: string }) {
     >
       This quote is in{" "}
       <span style={{ fontFamily: "var(--mono)" }}>{status}</span> status.
-      Editing is disabled. Create a new draft version from the project page
-      to make changes.
+      Editing is disabled. Use Revise from Client Review to create the next
+      draft revision.
     </div>
   );
 }
