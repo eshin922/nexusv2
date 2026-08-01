@@ -246,10 +246,10 @@ export async function deleteAssembly(
             position: asm.position,
           },
           cascaded_junctions: junctionRows.map((r) => ({
-            junction_id: r.junction.id,
             quote_leaf_id: detached.find(
               (membership) => membership.assemblyLeafId === r.junction.id,
             )?.quoteLeafId,
+            assembly_leaf_id: r.junction.id,
             leaf_id: r.junction.leafId,
             leaf_sku: r.leafSku,
             leaf_name: r.leafName,
@@ -285,7 +285,7 @@ export async function deleteAssembly(
  */
 export async function attachAssemblyLeaf(
   formData: FormData,
-): Promise<ActionResult<{ junctionId: string }>> {
+): Promise<ActionResult<{ quoteLeafId: string; junctionId: string }>> {
   return runAction(async () => {
     const assemblyId = String(formData.get("assemblyId") ?? "").trim();
     const leafId = String(formData.get("leafId") ?? "").trim();
@@ -362,11 +362,12 @@ export async function attachAssemblyLeaf(
         });
         await tx.insert(auditLog).values({
           userId: user.id,
-          entityType: "assembly_leaf",
-          entityId: attached.assemblyLeafId,
+          entityType: "quote_leaf",
+          entityId: attached.quoteLeafId,
           action: "assembly_leaf_attach",
           diffJson: {
             assembly_id: assemblyId,
+            assembly_leaf_id: attached.assemblyLeafId,
             leaf_id: leafId,
             quote_leaf_id: attached.quoteLeafId,
             quantity: attached.quantity,
@@ -384,7 +385,10 @@ export async function attachAssemblyLeaf(
 
     revalidateQuoteTree(quote.projectId, asm.quoteId);
 
-    return { junctionId: membership.assemblyLeafId };
+    return {
+      quoteLeafId: membership.quoteLeafId,
+      junctionId: membership.assemblyLeafId,
+    };
   });
 }
 
@@ -423,15 +427,16 @@ export async function detachAssemblyLeaf(
       if (!detached) return;
 
       // Per CLAUDE.md audit_log namespace — `assembly_leaf_detach`:
-      // entity_id = the deleted junction row's PK; diff_json carries
-      // assembly + leaf identity so reconstruction is possible from audit.
+      // entity_id is the canonical quote_leaf PK; diff_json retains the
+      // legacy junction plus Product and reusable LEAF context.
       await tx.insert(auditLog).values({
         userId: user.id,
-        entityType: "assembly_leaf",
-        entityId: junctionId,
+        entityType: "quote_leaf",
+        entityId: detached.quoteLeafId,
         action: "assembly_leaf_detach",
         diffJson: {
           assembly_id: junction.assemblyId,
+          assembly_leaf_id: junctionId,
           leaf_id: junction.leafId,
           quote_leaf_id: detached.quoteLeafId,
           quantity: junction.quantity,
@@ -640,8 +645,8 @@ export async function reorderAssemblyLeaves(
         entityId: assemblyId,
         action: "assembly_leaves_reordered",
         diffJson: {
-          ordered_junction_ids: ids,
           ordered_quote_leaf_ids: reordered.map((row) => row.quoteLeafId),
+          ordered_assembly_leaf_ids: ids,
         },
       });
     });

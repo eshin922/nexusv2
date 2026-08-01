@@ -4,11 +4,11 @@
 
 **Approved governing engineering plan for Slice 1.**
 
-Expand and Backfill implementation checkpoints are approved. Current execution
-authority is limited to the local Compatibility implementation checkpoint:
-shared grouped-membership writers, database/runtime invariants, and isolated
-rehearsal. Migration activation, production migration, push, merge, deployment,
-Cutover, and Contract require later explicit approval.
+Expand, Backfill, and Compatibility implementation checkpoints are approved.
+Current execution authority is limited to the local Cutover implementation
+checkpoint: canonical identity lookups, shared domain types, evidence, and
+isolated rehearsal. Migration activation, production migration, push, merge,
+deployment, and Contract require later explicit approval.
 
 ## Goal
 
