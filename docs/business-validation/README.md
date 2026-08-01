@@ -33,6 +33,13 @@ the business contract.
 - [BV-005 — Below-Floor Margin Approval](BV-005-below-floor-margin-approval.md)
 - [Production Readiness Register](PRODUCTION_READINESS_REGISTER.md)
 
+BV-006 is the [Product Structure Contract](BV-006-product-structure-contract.md).
+
+BV-007 is the [Product Setup Workflow](BV-007-product-setup-workflow.md).
+
+BV-008 is the
+[Commercial Product Transition](BV-008-commercial-product-transition.md).
+
 BV-002 is not assigned in the completed Business Validation work. Identifiers
 are stable and are not renumbered to close gaps.
 
