@@ -22,6 +22,28 @@ const vendors = [
 ] as const;
 let productSequence = 0;
 
+function catalogSize(kind: "active" | "archived"): number {
+  const key = kind === "active"
+    ? "NEXUS_FAKE_HUBSPOT_ACTIVE_PRODUCTS"
+    : "NEXUS_FAKE_HUBSPOT_ARCHIVED_PRODUCTS";
+  return Math.max(0, Number.parseInt(process.env[key] ?? (kind === "active" ? "1032" : "3"), 10));
+}
+
+function fakeCatalogProduct(index: number, archived: boolean) {
+  const number = index + 1;
+  return {
+    id: `${archived ? "997" : "996"}${String(number).padStart(12, "0")}`,
+    archived,
+    properties: {
+      name: `Validation Catalog Product ${String(number).padStart(4, "0")}`,
+      hs_sku: `PVS020-${archived ? "A" : "P"}-${String(number).padStart(4, "0")}`,
+      price: "0.00",
+      hs_cost_of_goods_sold: String(100 + number),
+      hs_url: `https://validation.invalid/products/${number}`,
+    },
+  };
+}
+
 function scenario(): string {
   return process.env.NEXUS_FAKE_HUBSPOT_SCENARIO ?? "success";
 }
@@ -125,6 +147,19 @@ export const fakeHubSpot: HubSpotOperations = {
         properties: { ...normalizedInput },
         archived: false,
       },
+    };
+  },
+  async listProducts(opts = {}) {
+    const archived = opts.includeArchived ?? false;
+    const size = catalogSize(archived ? "archived" : "active");
+    const offset = Math.max(0, Number.parseInt(opts.after ?? "0", 10));
+    const limit = Math.min(opts.limit ?? 100, 100);
+    record("product-list", { after: opts.after, limit, includeArchived: archived });
+    fail("product-list");
+    const end = Math.min(offset + limit, size);
+    return {
+      results: Array.from({ length: end - offset }, (_, i) => fakeCatalogProduct(offset + i, archived)),
+      nextAfter: end < size ? String(end) : null,
     };
   },
   async listDealStages() {

@@ -46,12 +46,20 @@ export type PullFromHubSpotResult = {
   archivedCount: number;
   nextAfter: string | null;
   rootAuditId: string;
+  timings: {
+    hubspotMs: number;
+    lookupMs: number;
+    databaseMs: number;
+    revalidationMs: number;
+    totalMs: number;
+  };
 };
 
 export async function pullFromHubSpot(
   input: PullFromHubSpotInput,
 ): Promise<ActionResult<PullFromHubSpotResult>> {
   return runAction(async () => {
+    const actionStartedAt = performance.now();
     const { projectId, after, batchNumber, includeArchived } = input;
     if (!projectId)
       throw new ActionGuardError(ERR.VALIDATION, "projectId required");
@@ -60,13 +68,27 @@ export async function pullFromHubSpot(
 
     const user = await assertCanCreateLeaves();
 
-    const result = await pullProductsBatch({
-      userId: user.id,
-      projectId,
-      after,
-      batchNumber,
-      includeArchived,
-    });
+    let result;
+    try {
+      result = await pullProductsBatch({
+        userId: user.id,
+        projectId,
+        after,
+        batchNumber,
+        includeArchived,
+      });
+    } catch (error) {
+      console.error("hubspot_product_refresh_batch_failed", {
+        projectId,
+        batchNumber,
+        includeArchived,
+        error: error instanceof Error ? error.message : "Unknown refresh failure",
+      });
+      throw new ActionGuardError(
+        ERR.HUBSPOT,
+        "Product refresh failed. No changes were saved for this batch; retry resumes from the same batch.",
+      );
+    }
 
     // Revalidate library-list surfaces so pulled rows surface in
     // the library browse modal + assembly tree dropdowns. Setup
@@ -74,8 +96,17 @@ export async function pullFromHubSpot(
     // (assemblies + attached leaves only), but library browse
     // modal lives at the Setup-page level and benefits from the
     // revalidation.
+    const revalidationStartedAt = performance.now();
     revalidatePath("/projects/[id]/quotes/[quoteId]/setup", "page");
+    const revalidationMs = Math.round(performance.now() - revalidationStartedAt);
 
-    return result;
+    return {
+      ...result,
+      timings: {
+        ...result.timings,
+        revalidationMs,
+        totalMs: Math.round(performance.now() - actionStartedAt),
+      },
+    };
   });
 }

@@ -36,6 +36,15 @@ export type HubSpotProductCreateResult = {
   submittedProperties: Record<string, string>;
   responseBody: Record<string, unknown>;
 };
+export type HubSpotProductRaw = {
+  id: string;
+  archived: boolean;
+  properties: Record<string, string | null>;
+};
+export type HubSpotProductPage = {
+  results: HubSpotProductRaw[];
+  nextAfter: string | null;
+};
 
 const HUBSPOT_PRODUCT_PRICE = /^\d+(?:\.\d+)?$/;
 
@@ -74,6 +83,11 @@ export interface HubSpotOperations {
   createProduct(
     input: HubSpotProductCreateInput,
   ): Promise<HubSpotProductCreateResult>;
+  listProducts(opts?: {
+    after?: string;
+    limit?: number;
+    includeArchived?: boolean;
+  }): Promise<HubSpotProductPage>;
   listDealStages(): Promise<HubSpotStage[]>;
   getDealStage(dealId: string): Promise<HubSpotStage>;
   updateDealStage(
