@@ -2,7 +2,8 @@ import "server-only";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, leaves, users } from "@/db/schema";
-import { listProducts, type HubspotProductRaw } from "./hubspot";
+import type { HubSpotProductRaw } from "./integrations/hubspot-provider";
+import { getApplicationDependencies } from "./integrations/composition";
 import {
   mapHubspotToLeaf,
   type MappedLeafFromHubspot,
@@ -40,24 +41,37 @@ export type PullBatchResult = {
   archivedCount: number;
   nextAfter: string | null;
   rootAuditId: string;
+  timings: PullBatchTimings;
+};
+
+export type PullBatchTimings = {
+  hubspotMs: number;
+  lookupMs: number;
+  databaseMs: number;
+  totalMs: number;
 };
 
 export async function pullProductsBatch(
   opts: PullBatchOptions,
 ): Promise<PullBatchResult> {
   const startedAt = new Date();
+  const totalStartedAt = performance.now();
 
   // 1. Fetch a batch from HubSpot.
-  const batch = await listProducts({
+  const hubspotStartedAt = performance.now();
+  const { hubspot } = await getApplicationDependencies();
+  const batch = await hubspot.listProducts({
     after: opts.after,
     limit: 100,
     includeArchived: opts.includeArchived,
   });
+  const hubspotMs = Math.round(performance.now() - hubspotStartedAt);
 
   if (batch.results.length === 0) {
     // Empty batch — still emit a root audit row for traceability
     // (operators can see "pull ran and found nothing in this
     // bucket"). No derived rows.
+    const databaseStartedAt = performance.now();
     const [rootAudit] = await db
       .insert(auditLog)
       .values({
@@ -79,6 +93,18 @@ export async function pullProductsBatch(
         },
       })
       .returning({ id: auditLog.id });
+    const timings = {
+      hubspotMs,
+      lookupMs: 0,
+      databaseMs: Math.round(performance.now() - databaseStartedAt),
+      totalMs: Math.round(performance.now() - totalStartedAt),
+    };
+    console.info("hubspot_product_refresh_batch", {
+      batchNumber: opts.batchNumber,
+      includeArchived: opts.includeArchived,
+      processed: 0,
+      timings,
+    });
     return {
       processed: 0,
       added: 0,
@@ -86,6 +112,7 @@ export async function pullProductsBatch(
       archivedCount: 0,
       nextAfter: null,
       rootAuditId: rootAudit.id,
+      timings,
     };
   }
 
@@ -93,6 +120,7 @@ export async function pullProductsBatch(
   // mapper's owner translation. Single fetch per batch — at DPS
   // scale (~12 users) this is negligible cost; index on
   // users.hubspot_owner_id supports it.
+  const lookupStartedAt = performance.now();
   const userRows = await db
     .select({ id: users.id, hubspotOwnerId: users.hubspotOwnerId })
     .from(users);
@@ -120,10 +148,11 @@ export async function pullProductsBatch(
       { id: e.id, wasArchived: e.archived },
     ]),
   );
+  const lookupMs = Math.round(performance.now() - lookupStartedAt);
 
   // 4. Map each raw to leaf shape (pure function, no DB).
   const mappedEntries: Array<{
-    raw: HubspotProductRaw;
+    raw: HubSpotProductRaw;
     mapped: MappedLeafFromHubspot;
   }> = batch.results.map((raw) => ({
     raw,
@@ -138,6 +167,7 @@ export async function pullProductsBatch(
   let archivedCount = 0;
   let rootAuditId = "";
 
+  const databaseStartedAt = performance.now();
   await db.transaction(async (tx) => {
     const [rootAudit] = await tx
       .insert(auditLog)
@@ -161,7 +191,10 @@ export async function pullProductsBatch(
       .returning({ id: auditLog.id });
     rootAuditId = rootAudit.id;
 
-    for (const { mapped } of mappedEntries) {
+    // PVS-020: issue independent per-product mutations together so postgres-js
+    // can pipeline them on the transaction connection. The former serial loop
+    // paid one network round trip per Product before the UI saw batch progress.
+    await Promise.all(mappedEntries.map(async ({ mapped }) => {
       const prev = existingByHubspotId.get(mapped.hubspotProductId);
 
       if (prev) {
@@ -253,7 +286,7 @@ export async function pullProductsBatch(
           },
         });
       }
-    }
+    }));
 
     // Update root audit row with final counts. JSONB column —
     // overwrite the whole diff_json since this is the canonical
@@ -277,6 +310,22 @@ export async function pullProductsBatch(
       .where(eq(auditLog.id, rootAuditId));
   });
 
+  const timings = {
+    hubspotMs,
+    lookupMs,
+    databaseMs: Math.round(performance.now() - databaseStartedAt),
+    totalMs: Math.round(performance.now() - totalStartedAt),
+  };
+  console.info("hubspot_product_refresh_batch", {
+    batchNumber: opts.batchNumber,
+    includeArchived: opts.includeArchived,
+    processed: batch.results.length,
+    added,
+    updated,
+    archived: archivedCount,
+    timings,
+  });
+
   return {
     processed: batch.results.length,
     added,
@@ -284,5 +333,6 @@ export async function pullProductsBatch(
     archivedCount,
     nextAfter: batch.nextAfter,
     rootAuditId,
+    timings,
   };
 }

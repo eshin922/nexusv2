@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { pullFromHubSpot } from "@/app/actions/hubspot-pull";
 
@@ -85,11 +85,13 @@ export function usePullFromHubSpot(opts: {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryCursor, setRetryCursor] = useState<PullRetryCursor | null>(null);
   const [latestBatch, setLatestBatch] = useState<PullLatestBatch | null>(null);
+  const pullInFlightRef = useRef(false);
 
   const isPulling =
     phase === "pulling-active" || phase === "pulling-archived";
 
   function reset() {
+    pullInFlightRef.current = false;
     setPhase("idle");
     setTotals(ZERO_TOTALS);
     setErrorMessage(null);
@@ -107,6 +109,7 @@ export function usePullFromHubSpot(opts: {
 
     while (true) {
       setPhase(includeArchived ? "pulling-archived" : "pulling-active");
+      const requestStartedAt = performance.now();
       const result = await pullFromHubSpot({
         projectId,
         after,
@@ -118,10 +121,17 @@ export function usePullFromHubSpot(opts: {
         setErrorMessage(result.error.message);
         setRetryCursor({ after, batchNumber, includeArchived });
         setPhase("error");
+        pullInFlightRef.current = false;
         return;
       }
 
       const r = result.data;
+      console.info("hubspot_product_refresh_client_batch", {
+        batchNumber,
+        includeArchived,
+        clientRoundTripMs: Math.round(performance.now() - requestStartedAt),
+        serverTimings: r.timings,
+      });
       acc = {
         processed: acc.processed + r.processed,
         added: acc.added + r.added,
@@ -145,6 +155,7 @@ export function usePullFromHubSpot(opts: {
           continue;
         }
         setPhase("complete");
+        pullInFlightRef.current = false;
         router.refresh();
         onComplete?.();
         return;
@@ -156,7 +167,20 @@ export function usePullFromHubSpot(opts: {
   }
 
   function handleStart() {
+    if (pullInFlightRef.current) return;
+    const clickedAt = performance.now();
+    console.info("hubspot_product_refresh_click", { atMs: Math.round(clickedAt) });
     reset();
+    pullInFlightRef.current = true;
+    // PVS-020: publish pending feedback in the click event itself. State set
+    // inside startTransition can be deferred until the first server action
+    // yields, which made the refresh appear inert during its slowest interval.
+    setPhase("pulling-active");
+    requestAnimationFrame(() => {
+      console.info("hubspot_product_refresh_first_visible_feedback", {
+        elapsedMs: Math.round(performance.now() - clickedAt),
+      });
+    });
     startTransition(() => {
       void runPullLoop(
         { after: undefined, batchNumber: 1, includeArchived: false },
@@ -166,7 +190,8 @@ export function usePullFromHubSpot(opts: {
   }
 
   function handleRetry() {
-    if (!retryCursor) return;
+    if (!retryCursor || pullInFlightRef.current) return;
+    pullInFlightRef.current = true;
     setErrorMessage(null);
     setPhase(
       retryCursor.includeArchived ? "pulling-archived" : "pulling-active",
