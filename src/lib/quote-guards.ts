@@ -14,6 +14,11 @@ import {
   ERR,
   quoteNotDraftMessage,
 } from "./action-result";
+import {
+  legacyAssemblyLeafId,
+  lookupCanonicalAttachmentByLegacyId,
+  type CanonicalAttachmentIdentity,
+} from "./product-structure/canonical-attachment-identity";
 
 // Shared draft + ownership guards used by every cost-input action
 // layer (packaging, production, freight, costing). Hoisted Slice 7;
@@ -129,7 +134,15 @@ export async function quoteForAssembly(
 // assembly_leaves only).
 export async function quoteForAssemblyLeaf(
   assemblyLeafId: string,
-): Promise<{ quote: Quote; assembly: Assembly; assemblyLeaf: AssemblyLeaf }> {
+): Promise<{
+  quote: Quote;
+  assembly: Assembly;
+  assemblyLeaf: AssemblyLeaf;
+  attachment: CanonicalAttachmentIdentity;
+}> {
+  const attachment = await lookupCanonicalAttachmentByLegacyId(
+    legacyAssemblyLeafId(assemblyLeafId),
+  );
   const rows = await db
     .select({
       quote: quotes,
@@ -144,8 +157,18 @@ export async function quoteForAssemblyLeaf(
   if (rows.length === 0)
     throw new ActionGuardError(ERR.NOT_FOUND, "Assembly leaf not found");
   const { quote, assembly, assemblyLeaf } = rows[0];
+  if (
+    attachment.quoteId !== quote.id ||
+    attachment.assemblyId !== assembly.id ||
+    attachment.leafId !== assemblyLeaf.leafId
+  ) {
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      "Commercial attachment identity does not match its Quote membership.",
+    );
+  }
   requireDraft(quote);
-  return { quote, assembly, assemblyLeaf };
+  return { quote, assembly, assemblyLeaf, attachment };
 }
 
 // Resolve quote ownership through (assembly_leaf_inputs.line_group_id
@@ -163,6 +186,7 @@ export async function quoteForAssemblyLeafInputLineGroup(
   quote: Quote;
   assembly: Assembly;
   assemblyLeaf: AssemblyLeaf;
+  attachment: CanonicalAttachmentIdentity;
   lineGroupId: string;
 }> {
   const rows = await db
@@ -186,8 +210,21 @@ export async function quoteForAssemblyLeafInputLineGroup(
       "Packaging line not found",
     );
   const { quote, assembly, assemblyLeaf } = rows[0];
+  const attachment = await lookupCanonicalAttachmentByLegacyId(
+    legacyAssemblyLeafId(assemblyLeaf.id),
+  );
+  if (
+    attachment.quoteId !== quote.id ||
+    attachment.assemblyId !== assembly.id ||
+    attachment.leafId !== assemblyLeaf.leafId
+  ) {
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      "Commercial attachment identity does not match its Quote membership.",
+    );
+  }
   requireDraft(quote);
-  return { quote, assembly, assemblyLeaf, lineGroupId };
+  return { quote, assembly, assemblyLeaf, attachment, lineGroupId };
 }
 
 // Slice R6.2 — resolve quote ownership through (leg-group → quote).

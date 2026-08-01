@@ -337,6 +337,13 @@
       "when": 1785462682183,
       "tag": "0047_slice_13_pricing_vendor_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1785543095436,
+      "tag": "0048_product_structure_slice1_expand",
+      "breakpoints": true
     }
   ]
 }

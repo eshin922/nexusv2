@@ -147,7 +147,7 @@ export async function addAssemblyLeafInput(
       throw new ActionGuardError(ERR.VALIDATION, "quoteSkuId required");
 
     const user = await ensureUser();
-    const { quote } = await quoteForAssemblyLeaf(assemblyLeafId);
+    const { quote, attachment } = await quoteForAssemblyLeaf(assemblyLeafId);
 
     const tiers = await db
       .select({ id: quoteTiers.id })
@@ -185,6 +185,7 @@ export async function addAssemblyLeafInput(
       entityId: lineGroupId,
       action: "assembly_leaf_input_line_added",
       diffJson: {
+        quote_leaf_id: attachment.quoteLeafId,
         assembly_leaf_id: assemblyLeafId,
         tier_count: tiers.length,
         sort_order: sortOrder,
@@ -207,7 +208,7 @@ export async function updateAssemblyLeafInputLineMeta(
       throw new ActionGuardError(ERR.VALIDATION, "lineGroupId required");
 
     const user = await ensureUser();
-    await quoteForAssemblyLeafInputLineGroup(lineGroupId);
+    const { attachment } = await quoteForAssemblyLeafInputLineGroup(lineGroupId);
 
     const beforeRows = await db
       .select()
@@ -383,7 +384,11 @@ export async function updateAssemblyLeafInputLineMeta(
       entityType: "assembly_leaf_input_line",
       entityId: lineGroupId,
       action: "assembly_leaf_input_line_updated",
-      diffJson: diff,
+      diffJson: {
+        quote_leaf_id: attachment.quoteLeafId,
+        assembly_leaf_id: attachment.assemblyLeafId,
+        ...diff,
+      },
     });
 
     // Per-cell metadata autosave returns the canonical persisted receipt and
@@ -413,7 +418,7 @@ export async function deleteAssemblyLeafInputLine(
       throw new ActionGuardError(ERR.VALIDATION, "lineGroupId required");
 
     const user = await ensureUser();
-    const { quote } = await quoteForAssemblyLeafInputLineGroup(lineGroupId);
+    const { quote, attachment } = await quoteForAssemblyLeafInputLineGroup(lineGroupId);
 
     const beforeRow = (
       await db
@@ -436,6 +441,8 @@ export async function deleteAssemblyLeafInputLine(
       entityId: lineGroupId,
       action: "assembly_leaf_input_line_deleted",
       diffJson: {
+        quote_leaf_id: attachment.quoteLeafId,
+        assembly_leaf_id: attachment.assemblyLeafId,
         supplier: beforeRow?.supplier ?? null,
         category: beforeRow?.category ?? null,
       },
@@ -479,7 +486,7 @@ export async function updateAssemblyLeafInputCell(
     const { row, assemblyLeaf } = rows[0];
     // Reuse quoteForAssemblyLeaf to validate draft + recover quote
     // for the revalidate path.
-    const { quote } = await quoteForAssemblyLeaf(assemblyLeaf.id);
+    const { quote, attachment } = await quoteForAssemblyLeaf(assemblyLeaf.id);
 
     const newUnitCost = parseUnitMoney(
       formData.get("unitCost"),
@@ -523,8 +530,17 @@ export async function updateAssemblyLeafInputCell(
       action: "assembly_leaf_input_cell_updated",
       diffJson:
         cascade.inserted + cascade.resolved + cascade.evaluated > 0
-          ? { ...diff, cascaded_warnings: cascade }
-          : diff,
+          ? {
+              quote_leaf_id: attachment.quoteLeafId,
+              assembly_leaf_id: assemblyLeaf.id,
+              ...diff,
+              cascaded_warnings: cascade,
+            }
+          : {
+              quote_leaf_id: attachment.quoteLeafId,
+              assembly_leaf_id: assemblyLeaf.id,
+              ...diff,
+            },
     });
 
     revalidateQuoteTree(quote.projectId, quote.id);

@@ -837,6 +837,7 @@ export async function updateAssemblyLeafOverride(
   formData: FormData,
 ): Promise<
   ActionResult<{
+    quoteLeafId: string;
     quoteSkuId: string;
     tierId: string;
     sellPriceOverride: string | null;
@@ -852,7 +853,7 @@ export async function updateAssemblyLeafOverride(
 
     const user = await ensureUser();
     // Quote draft + ownership through the assembly_leaf.
-    const { quote } = await quoteForAssemblyLeaf(assemblyLeafId);
+    const { quote, attachment } = await quoteForAssemblyLeaf(assemblyLeafId);
 
     // Verify tier belongs to the same quote (defense in depth — FK
     // alone can't catch cross-quote tier IDs).
@@ -894,6 +895,7 @@ export async function updateAssemblyLeafOverride(
     // No-op: incoming value matches stored value.
     if (numericEquals(previousValue, parsedValue?.toString() ?? null)) {
       return {
+        quoteLeafId: attachment.quoteLeafId,
         quoteSkuId: assemblyLeafId,
         tierId,
         sellPriceOverride: previousValue,
@@ -939,6 +941,7 @@ export async function updateAssemblyLeafOverride(
       entityId: `${assemblyLeafId}:${tierId}`,
       action: "assembly_leaf_sell_override_updated",
       diffJson: {
+        quote_leaf_id: attachment.quoteLeafId,
         assembly_leaf_id: assemblyLeafId,
         tier_id: tierId,
         sell_price_override: {
@@ -951,6 +954,7 @@ export async function updateAssemblyLeafOverride(
     revalidateQuoteTree(quote.projectId, quote.id);
 
     return {
+      quoteLeafId: attachment.quoteLeafId,
       quoteSkuId: assemblyLeafId,
       tierId,
       sellPriceOverride: storedValue,
@@ -986,6 +990,7 @@ export async function updateAssemblyLeafTarget(
   formData: FormData,
 ): Promise<
   ActionResult<{
+    quoteLeafId: string;
     quoteSkuId: string;
     tierId: string;
     clientTargetPricePerUnit: string | null;
@@ -1000,7 +1005,7 @@ export async function updateAssemblyLeafTarget(
       throw new ActionGuardError(ERR.VALIDATION, "tierId required");
 
     const user = await ensureUser();
-    const { quote } = await quoteForAssemblyLeaf(assemblyLeafId);
+    const { quote, attachment } = await quoteForAssemblyLeaf(assemblyLeafId);
 
     // Verify tier belongs to the same quote.
     const tierRows = await db
@@ -1057,6 +1062,7 @@ export async function updateAssemblyLeafTarget(
 
     if (numericEquals(previousValue, parsedValue?.toString() ?? null)) {
       return {
+        quoteLeafId: attachment.quoteLeafId,
         quoteSkuId: assemblyLeafId,
         tierId,
         clientTargetPricePerUnit: previousValue,
@@ -1102,6 +1108,7 @@ export async function updateAssemblyLeafTarget(
       entityId: `${assemblyLeafId}:${tierId}`,
       action: "assembly_leaf_client_target_updated",
       diffJson: {
+        quote_leaf_id: attachment.quoteLeafId,
         assembly_leaf_id: assemblyLeafId,
         tier_id: tierId,
         client_target_price_per_unit: {
@@ -1114,6 +1121,7 @@ export async function updateAssemblyLeafTarget(
     revalidateQuoteTree(quote.projectId, quote.id);
 
     return {
+      quoteLeafId: attachment.quoteLeafId,
       quoteSkuId: assemblyLeafId,
       tierId,
       clientTargetPricePerUnit: storedValue,
