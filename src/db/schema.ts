@@ -1824,14 +1824,14 @@ export const assemblyLeaves = pgTable(
       (): AnyPgColumn => assemblyLeaves.id,
       { onDelete: "cascade" },
     ),
-    // Slice 1 compatibility pointer. Nullable during Expand/Backfill; Contract
-    // makes it NOT NULL only after every legacy membership reconciles exactly.
+    // Slice 1 compatibility pointer. Contract makes this mandatory after every
+    // legacy membership reconciles exactly; Direct quote_leaves need no legacy
+    // projection and are unaffected.
     // quote_leaves.id is canonical; assembly_leaves.id remains the temporary
     // operational identity for current ASY-backed consumers.
-    quoteLeafId: uuid("quote_leaf_id").references(
-      (): AnyPgColumn => quoteLeaves.id,
-      { onDelete: "cascade" },
-    ),
+    quoteLeafId: uuid("quote_leaf_id")
+      .notNull()
+      .references((): AnyPgColumn => quoteLeaves.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

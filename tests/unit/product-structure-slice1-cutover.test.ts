@@ -24,6 +24,7 @@ const classifiedIdentityFiles = new Set([
   "src/lib/product-structure/grouped-membership-compatibility.ts", "src/lib/quote-guards.ts",
   "src/lib/scenario-copy-loader.ts", "src/lib/workspace-queries.ts",
   "scripts/parity/so-field-parity.ts", "scripts/product-structure/slice1-compatibility-rehearsal.ts",
+  "scripts/product-structure/slice1-contract-rehearsal.ts",
   "scripts/product-structure/slice1-cutover-rehearsal.ts", "scripts/product-structure/slice1-preflight.ts",
   "scripts/provision-cb-step10-fixture.ts", "scripts/provision-cb-step8b-fixture.ts",
   "scripts/provision-cb-step8c4-fixture.ts", "scripts/seed-sample-order.mjs",

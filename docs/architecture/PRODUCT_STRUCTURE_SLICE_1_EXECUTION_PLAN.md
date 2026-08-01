@@ -4,11 +4,11 @@
 
 **Approved governing engineering plan for Slice 1.**
 
-Expand, Backfill, and Compatibility implementation checkpoints are approved.
-Current execution authority is limited to the local Cutover implementation
-checkpoint: canonical identity lookups, shared domain types, evidence, and
-isolated rehearsal. Migration activation, production migration, push, merge,
-deployment, and Contract require later explicit approval.
+Expand, Backfill, Compatibility, and Cutover implementation checkpoints are
+approved. Current execution authority is limited to the local Contract
+implementation checkpoint: inactive contraction DDL, runtime nullability,
+invariants, rollback, and isolated rehearsal. Migration activation, production
+migration, push, merge, and deployment require later explicit approval.
 
 ## Goal
 
@@ -686,20 +686,21 @@ consumer remains.
 
 ## Rollout strategy
 
-1. Rehearse all migrations and reconciliation against an isolated production
-   copy.
-2. Deploy Expand without behavior change.
-3. Run production preflight and resolve every blocking exception outside the
-   migration.
-4. Establish the Product Structure write pause.
-5. Run Backfill and full reconciliation.
-6. Deploy compatibility runtime before reopening writes.
-7. Observe dual writes with automated reconciliation.
-8. Enforce membership and Quote-consistency constraints.
-9. Cut canonical identity lookup and evidence emission over without changing
-   business consumers.
-10. After the observation gate, enforce the non-null compatibility mapping.
-11. Stop and obtain operator approval for Slice 1 only.
+The final governed production sequence and stage-specific rollback points are
+recorded in `PRODUCT_STRUCTURE_SLICE_1_CONTRACT_CHECKPOINT.md`. In summary:
+
+1. Deploy an Expand-compatible runtime if production does not already contain
+   it.
+2. Install the database Product Structure write pause and drain old writers.
+3. Run final preflight; stop on every undispositioned conflict.
+4. Apply Migration 0049 only through its controlled path and reconcile.
+5. Deploy Compatibility and Cutover runtime while writes remain paused.
+6. Retire old instances and prove every production writer uses the boundary.
+7. Remove the write pause and observe zero-drift reconciliation for the
+   approved window.
+8. Apply the controlled Contract migration and reconcile again.
+9. Complete unchanged-workflow operator smoke and record Slice 1 approval.
+10. Stop before every later Product Structure slice.
 
 ## Rollback strategy
 

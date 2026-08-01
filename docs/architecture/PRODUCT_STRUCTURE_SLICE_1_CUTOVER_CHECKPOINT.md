@@ -76,7 +76,7 @@ are explicit later-slice dependencies, not ambiguous shared-domain identity.
 
 | Files | Classification |
 | --- | --- |
-| `scripts/product-structure/slice1-preflight.ts`, `slice1-compatibility-rehearsal.ts`, `slice1-cutover-rehearsal.ts` | Governed Slice 1 classification, reconciliation, compatibility, and isolated Cutover evidence |
+| `scripts/product-structure/slice1-preflight.ts`, `slice1-compatibility-rehearsal.ts`, `slice1-cutover-rehearsal.ts`, `slice1-contract-rehearsal.ts` | Governed Slice 1 classification, reconciliation, compatibility, Cutover, and Contract evidence |
 | `scripts/parity/so-field-parity.ts`, `scripts/smoke/mark-complete.ts` | Isolated parity/smoke fixture construction and legacy downstream verification; not production writers |
 | `scripts/provision-cb-step8b-fixture.ts`, `provision-cb-step8c4-fixture.ts`, `provision-cb-step10-fixture.ts`, `seed-sample-order.mjs` | Disposable fixture/seed writers; deliberately excluded from production writer inventory and must not target production |
 | `scripts/verify/costing-adapter.ts`, `sample-order-margin.ts`, `slice-11-5-1-warnings-parity.ts` | Read-only or in-memory legacy downstream verification, deferred with the consumers they verify |
