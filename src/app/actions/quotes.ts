@@ -44,6 +44,9 @@ import {
 import type { HubSpotStage as DealStageInfo } from "@/lib/integrations/hubspot-provider";
 import { isHubspotLinkedDealId } from "@/lib/hubspot-linkage";
 import {
+  attachGroupedMembership,
+} from "@/lib/product-structure/grouped-membership-compatibility";
+import {
   revalidateQuoteLifecycleSurfaces,
   revalidateQuoteTree,
 } from "@/lib/revalidate";
@@ -2927,38 +2930,21 @@ async function cloneQuoteGraph(
       .where(inArray(assemblyLeaves.assemblyId, sourceAssemblyIds))
       .orderBy(asc(assemblyLeaves.position));
     if (sourceJunctions.length > 0) {
-      const insertedJunctions = await tx
-        .insert(assemblyLeaves)
-        .values(
-          sourceJunctions.map((j) => {
-            const newAsyId = assemblyIdMap.get(j.assemblyId);
-            if (!newAsyId) {
-              throw new Error(
-                `clone: assembly_leaves row referenced unmapped assembly ${j.assemblyId}`,
-              );
-            }
-            return {
-              assemblyId: newAsyId,
-              leafId: j.leafId, // SAME library leaf reference per Cloneable bucket
-              quantity: j.quantity,
-              position: j.position,
-              parentAssemblyLeafId: null, // single-level v1 invariant
-            };
-          }),
-        )
-        .returning({
-          id: assemblyLeaves.id,
-          assemblyId: assemblyLeaves.assemblyId,
-          position: assemblyLeaves.position,
+      for (const sourceJunction of sourceJunctions) {
+        const newAsyId = assemblyIdMap.get(sourceJunction.assemblyId);
+        if (!newAsyId) {
+          throw new Error(
+            `clone: assembly_leaves row referenced unmapped assembly ${sourceJunction.assemblyId}`,
+          );
+        }
+        const attached = await attachGroupedMembership(tx, {
+          quoteId: newQuoteId,
+          assemblyId: newAsyId,
+          leafId: sourceJunction.leafId,
+          quantity: sourceJunction.quantity,
+          position: sourceJunction.position,
         });
-      // Pair source → new by (new_assembly_id, position). Both are
-      // unique within a source assembly + position is preserved 1:1.
-      for (const src of sourceJunctions) {
-        const newAsyId = assemblyIdMap.get(src.assemblyId);
-        const match = insertedJunctions.find(
-          (i) => i.assemblyId === newAsyId && i.position === src.position,
-        );
-        if (match) assemblyLeafIdMap.set(src.id, match.id);
+        assemblyLeafIdMap.set(sourceJunction.id, attached.assemblyLeafId);
       }
     }
 

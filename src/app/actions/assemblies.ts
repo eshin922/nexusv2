@@ -19,6 +19,13 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import { revalidateQuoteTree } from "@/lib/revalidate";
+import {
+  attachGroupedMembership,
+  detachGroupedMembership,
+  detachGroupedMembershipsForAssembly,
+  GroupedMembershipConflictError,
+  reorderGroupedMemberships,
+} from "@/lib/product-structure/grouped-membership-compatibility";
 
 // Phase A.1 v2 impl-2 — server actions for the assemblies table.
 // Mirrors src/app/actions/quotes.ts patterns: runAction wrapper,
@@ -220,33 +227,38 @@ export async function deleteAssembly(
       .innerJoin(leaves, eq(leaves.id, assemblyLeaves.leafId))
       .where(eq(assemblyLeaves.assemblyId, assemblyId));
 
-    await db.delete(assemblies).where(eq(assemblies.id, assemblyId));
-
-    await db.insert(auditLog).values({
-      userId: user.id,
-      entityType: "assembly",
-      entityId: assemblyId,
-      action: "assembly_deleted",
-      diffJson: {
-        deleted_assembly: {
-          id: asm.id,
-          quote_id: asm.quoteId,
-          sku: asm.sku,
-          name: asm.name,
-          pack_label: asm.packLabel,
-          product_type_id: asm.productTypeId,
-          position: asm.position,
+    await db.transaction(async (tx) => {
+      const detached = await detachGroupedMembershipsForAssembly(tx, assemblyId);
+      await tx.delete(assemblies).where(eq(assemblies.id, assemblyId));
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "assembly",
+        entityId: assemblyId,
+        action: "assembly_deleted",
+        diffJson: {
+          deleted_assembly: {
+            id: asm.id,
+            quote_id: asm.quoteId,
+            sku: asm.sku,
+            name: asm.name,
+            pack_label: asm.packLabel,
+            product_type_id: asm.productTypeId,
+            position: asm.position,
+          },
+          cascaded_junctions: junctionRows.map((r) => ({
+            junction_id: r.junction.id,
+            quote_leaf_id: detached.find(
+              (membership) => membership.assemblyLeafId === r.junction.id,
+            )?.quoteLeafId,
+            leaf_id: r.junction.leafId,
+            leaf_sku: r.leafSku,
+            leaf_name: r.leafName,
+            quantity: r.junction.quantity,
+            position: r.junction.position,
+          })),
+          cascaded_junction_count: junctionRows.length,
         },
-        cascaded_junctions: junctionRows.map((r) => ({
-          junction_id: r.junction.id,
-          leaf_id: r.junction.leafId,
-          leaf_sku: r.leafSku,
-          leaf_name: r.leafName,
-          quantity: r.junction.quantity,
-          position: r.junction.position,
-        })),
-        cascaded_junction_count: junctionRows.length,
-      },
+      });
     });
 
     revalidateQuoteTree(quote.projectId, asm.quoteId);
@@ -338,34 +350,41 @@ export async function attachAssemblyLeaf(
       .where(eq(assemblyLeaves.assemblyId, assemblyId));
     const nextPosition = (posRow[0]?.maxPos ?? -1) + 1;
 
-    const inserted = await db
-      .insert(assemblyLeaves)
-      .values({
-        assemblyId,
-        leafId,
-        quantity: quantityRaw === "" ? "1" : quantityRaw,
-        position: nextPosition,
-      })
-      .returning();
-    const newJunction = inserted[0];
-
-    // Audit: `assembly_leaf_attach` per CLAUDE.md namespace.
-    await db.insert(auditLog).values({
-      userId: user.id,
-      entityType: "assembly_leaf",
-      entityId: newJunction.id,
-      action: "assembly_leaf_attach",
-      diffJson: {
-        assembly_id: assemblyId,
-        leaf_id: leafId,
-        quantity: newJunction.quantity,
-        position: newJunction.position,
-      },
-    });
+    let membership;
+    try {
+      membership = await db.transaction(async (tx) => {
+        const attached = await attachGroupedMembership(tx, {
+          quoteId: asm.quoteId,
+          assemblyId,
+          leafId,
+          quantity: quantityRaw === "" ? "1" : quantityRaw,
+          position: nextPosition,
+        });
+        await tx.insert(auditLog).values({
+          userId: user.id,
+          entityType: "assembly_leaf",
+          entityId: attached.assemblyLeafId,
+          action: "assembly_leaf_attach",
+          diffJson: {
+            assembly_id: assemblyId,
+            leaf_id: leafId,
+            quote_leaf_id: attached.quoteLeafId,
+            quantity: attached.quantity,
+            position: attached.position,
+          },
+        });
+        return attached;
+      });
+    } catch (error) {
+      if (error instanceof GroupedMembershipConflictError) {
+        throw new ActionGuardError(ERR.VALIDATION, error.message);
+      }
+      throw error;
+    }
 
     revalidateQuoteTree(quote.projectId, asm.quoteId);
 
-    return { junctionId: newJunction.id };
+    return { junctionId: membership.assemblyLeafId };
   });
 }
 
@@ -395,27 +414,30 @@ export async function detachAssemblyLeaf(
     const quote = await loadQuoteOrThrow(assembly.quoteId);
     assertDraft(quote);
 
-    // Junction-only delete. Library leaf stays (assembly_leaves.leaf_id
-    // is ON DELETE RESTRICT — couldn't cascade-delete the leaf even
-    // if we wanted to). Spec values persist; reattach via library
-    // browse (impl-5) preserves them.
-    await db.delete(assemblyLeaves).where(eq(assemblyLeaves.id, junctionId));
+    // Compatibility detach explicitly deletes legacy first (preserving its
+    // dependent-cost cascades), then canonical. The reusable LEAF remains.
+    await db.transaction(async (tx) => {
+      const detached = await detachGroupedMembership(tx, {
+        assemblyLeafId: junctionId,
+      });
+      if (!detached) return;
 
-    // Per CLAUDE.md audit_log namespace — `assembly_leaf_detach`:
-    // entity_id = the deleted junction row's PK; diff_json carries
-    // assembly + leaf identity so reconstruction of the workflow is
-    // possible from audit alone.
-    await db.insert(auditLog).values({
-      userId: user.id,
-      entityType: "assembly_leaf",
-      entityId: junctionId,
-      action: "assembly_leaf_detach",
-      diffJson: {
-        assembly_id: junction.assemblyId,
-        leaf_id: junction.leafId,
-        quantity: junction.quantity,
-        position: junction.position,
-      },
+      // Per CLAUDE.md audit_log namespace — `assembly_leaf_detach`:
+      // entity_id = the deleted junction row's PK; diff_json carries
+      // assembly + leaf identity so reconstruction is possible from audit.
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "assembly_leaf",
+        entityId: junctionId,
+        action: "assembly_leaf_detach",
+        diffJson: {
+          assembly_id: junction.assemblyId,
+          leaf_id: junction.leafId,
+          quote_leaf_id: detached.quoteLeafId,
+          quantity: junction.quantity,
+          position: junction.position,
+        },
+      });
     });
 
     revalidateQuoteTree(quote.projectId, assembly.quoteId);
@@ -606,21 +628,22 @@ export async function reorderAssemblyLeaves(
         );
     }
 
+    const user = await ensureUser();
     await db.transaction(async (tx) => {
-      for (let i = 0; i < ids.length; i++) {
-        await tx
-          .update(assemblyLeaves)
-          .set({ position: i })
-          .where(eq(assemblyLeaves.id, ids[i]));
-      }
-    });
-
-    await db.insert(auditLog).values({
-      userId: (await ensureUser()).id,
-      entityType: "assembly",
-      entityId: assemblyId,
-      action: "assembly_leaves_reordered",
-      diffJson: { ordered_junction_ids: ids },
+      const reordered = await reorderGroupedMemberships(tx, {
+        assemblyId,
+        orderedAssemblyLeafIds: ids,
+      });
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "assembly",
+        entityId: assemblyId,
+        action: "assembly_leaves_reordered",
+        diffJson: {
+          ordered_junction_ids: ids,
+          ordered_quote_leaf_ids: reordered.map((row) => row.quoteLeafId),
+        },
+      });
     });
 
     revalidateQuoteTree(quote.projectId, asm.quoteId);
