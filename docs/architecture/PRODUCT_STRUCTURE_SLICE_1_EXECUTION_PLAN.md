@@ -4,11 +4,11 @@
 
 **Approved governing engineering plan for Slice 1.**
 
-Current execution authority is limited to the first review checkpoint: contract
-status corrections, Expand schema and migration code, deterministic preflight
-and reconciliation tooling, migration and invariant tests, and the file-level
-Compatibility boundary plan. Production migration, compatibility runtime,
-push, merge, and deployment require later explicit approval.
+Expand is approved. Current execution authority is limited to the local
+Backfill implementation checkpoint: draft Migration 0049, manifest-selected
+rollback, database-enforced write-pause tooling, reconciliation evidence, and
+isolated rehearsal. Production migration, compatibility runtime, push, merge,
+and deployment require later explicit approval.
 
 ## Goal
 

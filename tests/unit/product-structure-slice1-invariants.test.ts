@@ -100,3 +100,71 @@ test("Expand migration is additive and does not expose Direct writers", async ()
   ]);
   assert.doesNotMatch(actions.join("\n"), /attachQuoteLeaf|attachDirectLeaf/);
 });
+
+test("proposed Backfill is bounded, fail-closed, and identity-only", async () => {
+  const migration = await readFile(
+    new URL("../../drizzle/0049_product_structure_slice1_backfill.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(migration, /approved_maximum_row_ceiling constant integer := 250/);
+  assert.match(migration, /source_count > approved_maximum_row_ceiling/);
+  assert.match(migration, /blocker_count <> 0/);
+  for (const classification of PREFLIGHT_CLASSIFICATIONS) {
+    assert.match(migration, new RegExp(classification));
+  }
+  assert.match(migration, /pg_advisory_xact_lock/);
+  assert.match(migration, /SET LOCAL nexus\.product_structure_write_bypass = 'migration-0049'/);
+  assert.match(migration, /LOCK TABLE assembly_leaves IN SHARE ROW EXCLUSIVE MODE/);
+  assert.match(migration, /parent_assembly_leaf_id IS NULL/);
+  assert.match(migration, /SET quote_leaf_id = s\.final_quote_leaf_id/);
+  assert.match(migration, /INSERT INTO quote_leaves/);
+  assert.match(migration, /slice1_backfill_manifest/);
+  assert.match(migration, /original_leaf_spec_version_id/);
+  assert.match(migration, /specification_pin_preservation_status/);
+  assert.match(migration, /prior_created_mapping/);
+  assert.doesNotMatch(
+    migration,
+    /assembly_leaf_inputs|assembly_leaf_overrides|assembly_leaf_targets|quote_snapshots|netsuite_so_pushes/,
+  );
+  assert.doesNotMatch(migration, /DELETE FROM|DROP TABLE|ALTER COLUMN/);
+});
+
+test("write pause blocks mixed-version writers at the database boundary", async () => {
+  const pause = await readFile(
+    new URL("../../scripts/product-structure/slice1-write-pause.sql", import.meta.url),
+    "utf8",
+  );
+  const resume = await readFile(
+    new URL("../../scripts/product-structure/slice1-write-resume.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(pause, /BEFORE INSERT OR UPDATE OR DELETE ON assembly_leaves/);
+  assert.match(pause, /BEFORE INSERT OR UPDATE OR DELETE ON quote_leaves/);
+  assert.match(pause, /IS DISTINCT FROM 'migration-0049'/);
+  assert.match(resume, /DROP TRIGGER IF EXISTS slice1_write_pause ON assembly_leaves/);
+  assert.match(resume, /DROP TRIGGER IF EXISTS slice1_write_pause ON quote_leaves/);
+});
+
+test("draft Backfill cannot be applied by the generic migration command", async () => {
+  const journal = JSON.parse(
+    await readFile(new URL("../../drizzle/meta/_journal.json", import.meta.url), "utf8"),
+  ) as { entries: Array<{ tag: string }> };
+  assert.equal(
+    journal.entries.some((entry) => entry.tag === "0049_product_structure_slice1_backfill"),
+    false,
+  );
+  assert.equal(journal.entries.at(-1)?.tag, "0048_product_structure_slice1_expand");
+});
+
+test("Backfill rollback is manifest-selected and clears pointers first", async () => {
+  const rollback = await readFile(
+    new URL("../../scripts/product-structure/slice1-backfill-rollback.sql", import.meta.url),
+    "utf8",
+  );
+  const clearAt = rollback.indexOf("UPDATE assembly_leaves al SET quote_leaf_id = NULL");
+  const deleteAt = rollback.indexOf("DELETE FROM quote_leaves ql");
+  assert.ok(clearAt >= 0 && deleteAt > clearAt);
+  assert.match(rollback, /action_classification = 'created'/);
+  assert.match(rollback, /NOT m\.original_canonical_row_existed/);
+  assert.match(rollback, /Rollback selection uncertain/);
+});
