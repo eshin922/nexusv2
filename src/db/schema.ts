@@ -1698,6 +1698,9 @@ export const assemblies = pgTable(
   (t) => [
     // Unique SKU per quote (allows same SKU across different quotes).
     uniqueIndex("assemblies_quote_sku_idx").on(t.quoteId, t.sku),
+    // Slice 1 canonical quote attachment identity: candidate key for the
+    // quote-consistent composite FK from quote_leaves. `id` remains the PK.
+    uniqueIndex("assemblies_id_quote_idx").on(t.id, t.quoteId),
     // Tree-order rendering on Setup surface.
     index("assemblies_quote_position_idx").on(t.quoteId, t.position),
   ],
@@ -1821,6 +1824,14 @@ export const assemblyLeaves = pgTable(
       (): AnyPgColumn => assemblyLeaves.id,
       { onDelete: "cascade" },
     ),
+    // Slice 1 compatibility pointer. Nullable during Expand/Backfill; Contract
+    // makes it NOT NULL only after every legacy membership reconciles exactly.
+    // quote_leaves.id is canonical; assembly_leaves.id remains the temporary
+    // operational identity for current ASY-backed consumers.
+    quoteLeafId: uuid("quote_leaf_id").references(
+      (): AnyPgColumn => quoteLeaves.id,
+      { onDelete: "cascade" },
+    ),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1832,6 +1843,7 @@ export const assemblyLeaves = pgTable(
     uniqueIndex("assembly_leaves_top_level_unique_idx")
       .on(t.assemblyId, t.leafId)
       .where(sql`parent_assembly_leaf_id IS NULL`),
+    uniqueIndex("assembly_leaves_quote_leaf_idx").on(t.quoteLeafId),
     // Tree-order rendering.
     index("assembly_leaves_assembly_position_idx").on(
       t.assemblyId,
@@ -1910,10 +1922,12 @@ export const leafSpecs = pgTable(
 
 // ---------- quote_leaves (per-quote pinning; Phase A.1 v2) ----------
 
-// Per-quote pinning of leaf-spec versions. One row per
-// (quote, assembly, leaf) triple. `leaf_spec_version_id` references
-// the specific leaf_specs row pinned at send time; NULL for draft
-// quotes (drafts auto-update; sent quotes stay pinned).
+// Canonical quote-scoped commercial attachment identity. A nullable
+// assembly_id supports both approved structural forms:
+//   NULL     = Direct Component
+//   NOT NULL = Product-member Component
+// `leaf_spec_version_id` references the specific leaf_specs row pinned at send
+// time; NULL for draft quotes (drafts auto-update; sent quotes stay pinned).
 //
 // `assembly_id` carried alongside `leaf_id` for query convenience
 // (per-quote per-ASY views read directly without re-joining
@@ -1936,9 +1950,7 @@ export const quoteLeaves = pgTable(
     quoteId: uuid("quote_id")
       .notNull()
       .references(() => quotes.id, { onDelete: "cascade" }),
-    assemblyId: uuid("assembly_id")
-      .notNull()
-      .references(() => assemblies.id, { onDelete: "cascade" }),
+    assemblyId: uuid("assembly_id"),
     leafId: uuid("leaf_id")
       .notNull()
       .references(() => leaves.id, { onDelete: "restrict" }),
@@ -1958,6 +1970,20 @@ export const quoteLeaves = pgTable(
     // "Where is this spec version pinned?" queries (replenishment
     // view + cascade-warning lookups).
     index("quote_leaves_leaf_version_idx").on(t.leafId, t.leafSpecVersionId),
+    index("quote_leaves_grouped_position_idx").on(
+      t.quoteId,
+      t.assemblyId,
+      t.position,
+      t.id,
+    ),
+    index("quote_leaves_direct_position_idx")
+      .on(t.quoteId, t.position, t.id)
+      .where(sql`assembly_id IS NULL`),
+    foreignKey({
+      columns: [t.assemblyId, t.quoteId],
+      foreignColumns: [assemblies.id, assemblies.quoteId],
+      name: "quote_leaves_assembly_quote_fk",
+    }).onDelete("cascade"),
   ],
 );
 
