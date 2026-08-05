@@ -1,9 +1,10 @@
 import "server-only";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   quotes as quotesTable,
   quoteTiers,
+  quoteSnapshots,
   projects,
   firmSettings,
   hubspotDealsCache,
@@ -25,6 +26,7 @@ import {
 } from "./sales-orders";
 import { NetsuiteError } from "./errors";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
+import { requireResolvedQuoteCosts } from "@/lib/quote-cost-completeness";
 
 // Slice 12 Step 8c-3 — markComplete orchestrator.
 //
@@ -141,6 +143,29 @@ export async function runMarkComplete(
       "Accepted tier not found on this quote — data integrity issue.",
     );
   }
+
+  const acceptedSnapshotRows = await db
+    .select({ id: quoteSnapshots.id })
+    .from(quoteSnapshots)
+    .where(
+      and(
+        eq(quoteSnapshots.quoteId, quoteId),
+        isNull(quoteSnapshots.supersededAt),
+      ),
+    )
+    .limit(2);
+  if (acceptedSnapshotRows.length !== 1) {
+    throw new Error(
+      `Accepted Quote must resolve exactly one active sent snapshot; found ${acceptedSnapshotRows.length}.`,
+    );
+  }
+  const acceptedSnapshotId = acceptedSnapshotRows[0].id;
+
+  // Phase 1 defense in depth. Governed customer send already rejects an
+  // unresolved cost, so accepted Quotes cannot normally reach this state.
+  // Keep the guard before costing and every NetSuite resolution/write for
+  // protection against out-of-band lifecycle mutation.
+  await requireResolvedQuoteCosts(quoteId);
 
   const bundle = await getCostingBundle(quoteId);
   if (!bundle.ok) {
@@ -333,7 +358,7 @@ export async function runMarkComplete(
     .where(
       and(
         eq(netsuiteSoPushes.quoteId, quoteId),
-        eq(netsuiteSoPushes.acceptedTierId, effectiveAcceptedTierId),
+        eq(netsuiteSoPushes.quoteSnapshotId, acceptedSnapshotId),
         eq(netsuiteSoPushes.status, "succeeded"),
       ),
     )
@@ -467,7 +492,7 @@ export async function runMarkComplete(
       );
     }
 
-    const payload = buildSalesOrderPayload({
+    const builtPayload = buildSalesOrderPayload({
       netsuiteCustomerId: customer.netsuiteCustomerId,
       subsidiaryId: firm.netsuiteSubsidiaryId,
       orderStatusCode: firm.netsuiteSoOrderStatusCode,
@@ -489,33 +514,66 @@ export async function runMarkComplete(
       lines,
     });
 
-    const idempotencyKey = computeIdempotencyKey(
-      quoteId,
-      effectiveAcceptedTierId,
-      payload,
-    );
+    let [durableAttempt] = await db
+      .select({
+        id: netsuiteSoPushes.id,
+        payloadSnapshot: netsuiteSoPushes.payloadSnapshot,
+      })
+      .from(netsuiteSoPushes)
+      .where(
+        and(
+          eq(netsuiteSoPushes.quoteId, quoteId),
+          eq(netsuiteSoPushes.quoteSnapshotId, acceptedSnapshotId),
+          sql`${netsuiteSoPushes.payloadSnapshot} IS NOT NULL`,
+        ),
+      )
+      .orderBy(asc(netsuiteSoPushes.createdAt))
+      .limit(1);
+    let payload = (durableAttempt?.payloadSnapshot ?? builtPayload) as Record<string, unknown>;
+    const idempotencyKey = computeIdempotencyKey(quoteId, acceptedSnapshotId);
 
-    // ---- Write pending row BEFORE POST so retries see it ----
-    // (belt over the idempotency-key header). Failures on this
-    // write are non-fatal — we proceed to POST regardless; the
-    // header still deduplicates.
-    let pendingId: string | null = null;
-    try {
-      const [pending] = await db
-        .insert(netsuiteSoPushes)
-        .values({
-          quoteId,
-          acceptedTierId: effectiveAcceptedTierId,
-          status: "pending",
-          idempotencyKey,
-          amountPushed: String(currentAmount),
-          payloadSnapshot: payload,
-          startedByUserId: actorUserId,
-        })
-        .returning({ id: netsuiteSoPushes.id });
-      pendingId = pending.id;
-    } catch {
-      // Non-fatal — POST still proceeds
+    // The snapshot-keyed attempt and first payload must be durable before
+    // POST. A concurrent loser reloads and replays the winner's payload.
+    let pendingId: string;
+    if (durableAttempt) {
+      pendingId = durableAttempt.id;
+      await db
+        .update(netsuiteSoPushes)
+        .set({ status: "pending", errorClass: null, errorDetail: null })
+        .where(eq(netsuiteSoPushes.id, pendingId));
+    } else {
+      try {
+        const [pending] = await db
+          .insert(netsuiteSoPushes)
+          .values({
+            quoteId,
+            acceptedTierId: effectiveAcceptedTierId,
+            quoteSnapshotId: acceptedSnapshotId,
+            status: "pending",
+            idempotencyKey,
+            amountPushed: String(currentAmount),
+            payloadSnapshot: payload,
+            startedByUserId: actorUserId,
+          })
+          .returning({ id: netsuiteSoPushes.id });
+        pendingId = pending.id;
+      } catch {
+        [durableAttempt] = await db
+          .select({
+            id: netsuiteSoPushes.id,
+            payloadSnapshot: netsuiteSoPushes.payloadSnapshot,
+          })
+          .from(netsuiteSoPushes)
+          .where(eq(netsuiteSoPushes.quoteSnapshotId, acceptedSnapshotId))
+          .limit(1);
+        if (!durableAttempt?.payloadSnapshot) {
+          throw new Error(
+            "Could not establish the durable Sales Order send identity before NetSuite execution.",
+          );
+        }
+        pendingId = durableAttempt.id;
+        payload = durableAttempt.payloadSnapshot as Record<string, unknown>;
+      }
     }
 
     // Debug hook: NETSUITE_DEBUG_PAYLOAD=1 logs the SO body pre-POST.
@@ -638,6 +696,7 @@ export async function runMarkComplete(
           and(
             eq(netsuiteSoPushes.quoteId, quoteId),
             eq(netsuiteSoPushes.acceptedTierId, effectiveAcceptedTierId),
+            eq(netsuiteSoPushes.quoteSnapshotId, acceptedSnapshotId),
             eq(netsuiteSoPushes.idempotencyKey, idempotencyKey),
             eq(netsuiteSoPushes.status, "pending"),
           ),
@@ -660,6 +719,7 @@ export async function runMarkComplete(
         await db.insert(netsuiteSoPushes).values({
           quoteId,
           acceptedTierId: effectiveAcceptedTierId,
+          quoteSnapshotId: acceptedSnapshotId,
           status: "succeeded",
           idempotencyKey,
           netsuiteSoId: salesOrderInternalId,

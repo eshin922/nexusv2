@@ -53,13 +53,17 @@ test("existing authentication and draft guards remain on operator actions", asyn
   }
 });
 
-test("0049 remains inactive while compatibility runtime is tested explicitly", async () => {
+test("controlled Slice 1 migrations remain inactive as later additive migrations advance", async () => {
   const journal = JSON.parse(await read("drizzle/meta/_journal.json")) as {
     entries: Array<{ tag: string }>;
   };
-  assert.equal(journal.entries.at(-1)?.tag, "0048_product_structure_slice1_expand");
+  assert.equal(journal.entries.at(-1)?.tag, "0052_phase_1_sales_order_snapshot_identity");
   assert.equal(
     journal.entries.some((entry) => entry.tag === "0049_product_structure_slice1_backfill"),
+    false,
+  );
+  assert.equal(
+    journal.entries.some((entry) => entry.tag === "0050_product_structure_slice1_contract"),
     false,
   );
 });

@@ -159,21 +159,13 @@ test("flat leaf lines preserve resolved item IDs and derive amount from quantity
   );
 });
 
-test("idempotency key is deterministic and changes with quote, tier, or payload", () => {
-  const payload = buildSalesOrderPayload(fullInput);
-  const key = computeIdempotencyKey("quote-1", "tier-1", payload);
+test("idempotency key is stable for one accepted sent snapshot", () => {
+  const key = computeIdempotencyKey("quote-1", "snapshot-1");
 
   assert.match(key, /^nxs-so-[0-9a-f]{40}$/);
-  assert.equal(computeIdempotencyKey("quote-1", "tier-1", payload), key);
-  assert.notEqual(computeIdempotencyKey("quote-2", "tier-1", payload), key);
-  assert.notEqual(computeIdempotencyKey("quote-1", "tier-2", payload), key);
-  assert.notEqual(
-    computeIdempotencyKey("quote-1", "tier-1", {
-      ...payload,
-      memo: "changed",
-    }),
-    key,
-  );
+  assert.equal(computeIdempotencyKey("quote-1", "snapshot-1"), key);
+  assert.notEqual(computeIdempotencyKey("quote-2", "snapshot-1"), key);
+  assert.notEqual(computeIdempotencyKey("quote-1", "snapshot-2"), key);
 });
 
 test("completion structurally resolves exact SKUs, computes quantities, and checks prior success before create", () => {
@@ -199,7 +191,7 @@ test("completion structurally resolves exact SKUs, computes quantities, and chec
   assert.match(source, /netsuiteItemId: nsId/);
   assert.match(source, /quantity: effectiveQty/);
 
-  const payloadBuild = source.indexOf("const payload = buildSalesOrderPayload({");
+  const payloadBuild = source.indexOf("const builtPayload = buildSalesOrderPayload({");
   const payloadBuildEnd = source.indexOf("\n    });", payloadBuild);
   assert.ok(payloadBuild >= 0);
   assert.ok(payloadBuildEnd > payloadBuild);
@@ -231,4 +223,14 @@ test("completion structurally resolves exact SKUs, computes quantities, and chec
     schema,
     /uniqueIndex\("netsuite_so_pushes_success_unique_idx"\)[\s\S]*?\.where\(sql`status = 'succeeded'`\)/,
   );
+  assert.match(source, /acceptedSnapshotRows\.length !== 1/);
+  assert.match(source, /computeIdempotencyKey\(quoteId, acceptedSnapshotId\)/);
+  assert.match(source, /durableAttempt\?\.payloadSnapshot \?\? builtPayload/);
+  assert.match(source, /Could not establish the durable Sales Order send identity before NetSuite execution/);
+  assert.match(schema, /quoteSnapshotId: uuid\("quote_snapshot_id"\)/);
+  assert.match(
+    schema,
+    /netsuite_so_pushes_snapshot_success_unique_idx[\s\S]*?quote_snapshot_id IS NOT NULL/,
+  );
+  assert.match(schema, /netsuite_so_pushes_snapshot_attempt_unique_idx/);
 });

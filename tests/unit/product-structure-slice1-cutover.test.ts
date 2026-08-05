@@ -19,17 +19,22 @@ const classifiedIdentityFiles = new Set([
   "src/components/spec-entry/spec-entry-surface.tsx", "src/components/spec-entry/spec-panel.tsx",
   "src/components/spec-entry/type-picker.tsx", "src/db/schema.ts", "src/lib/addendum-loader.ts",
   "src/lib/assembly-tree.ts", "src/lib/costing-adapter.ts", "src/lib/leaf-spec-loader.ts",
+  "src/lib/commercial-settings.ts",
   "src/lib/library-browse-loader.ts", "src/lib/nav/home-queries.ts", "src/lib/netsuite/item-resolver.ts",
   "src/lib/netsuite/mark-complete.ts", "src/lib/product-structure/canonical-attachment-identity.ts",
   "src/lib/product-structure/grouped-membership-compatibility.ts", "src/lib/quote-guards.ts",
+  "src/lib/quote-cost-completeness-contract.ts", "src/lib/quote-cost-completeness.ts",
   "src/lib/scenario-copy-loader.ts", "src/lib/workspace-queries.ts",
   "scripts/parity/so-field-parity.ts", "scripts/product-structure/slice1-compatibility-rehearsal.ts",
   "scripts/product-structure/slice1-contract-rehearsal.ts",
   "scripts/product-structure/slice1-cutover-rehearsal.ts", "scripts/product-structure/slice1-preflight.ts",
   "scripts/provision-cb-step10-fixture.ts", "scripts/provision-cb-step8b-fixture.ts",
   "scripts/provision-cb-step8c4-fixture.ts", "scripts/seed-sample-order.mjs",
+  "scripts/validation/phase-1-identity-reachability.ts",
+  "scripts/validation/fixtures.ts",
   "scripts/smoke/mark-complete.ts", "scripts/verify/costing-adapter.ts",
   "scripts/verify/sample-order-margin.ts", "scripts/verify/slice-11-5-1-warnings-parity.ts",
+  "tests/harness/fixtures/world.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {
@@ -46,7 +51,11 @@ async function sourceFiles(dir: string): Promise<string[]> {
 test("every source identity usage has an explicit Cutover classification", async () => {
   const identity = /assemblyLeafId|assembly_leaf_id|assemblyLeaves\.id|assembly_leaves\.id|quoteLeafId|quote_leaf_id|leafId|leaf_id|junctionId/;
   const matches: string[] = [];
-  for (const file of [...await sourceFiles("src"), ...await sourceFiles("scripts")]) {
+  for (const file of [
+    ...await sourceFiles("src"),
+    ...await sourceFiles("scripts"),
+    ...await sourceFiles("tests/harness"),
+  ]) {
     if (identity.test(await read(file))) matches.push(file);
   }
   assert.deepEqual(matches.sort(), [...classifiedIdentityFiles].sort());
@@ -84,6 +93,6 @@ test("Direct production writer stays unreachable and Migration 0049 stays inacti
   assert.doesNotMatch(journal, /0049_product_structure_slice1_backfill/);
   assert.match(boundary, /assemblyId: args\.assemblyId/);
   assert.doesNotMatch(boundary, /assemblyId:\s*null/);
-  assert.match(rehearsal, /databaseName\.includes\("compatibility_test"\)/);
+  assert.match(rehearsal, /assertRuntimeSafety\(\)/);
   assert.match(rehearsal, /assemblyId: null/);
 });

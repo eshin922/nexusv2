@@ -115,6 +115,17 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
           updated_by_user_id = excluded.updated_by_user_id
       `;
       await tx`
+        insert into markup_defaults (
+          category, default_markup_pct, updated_by_user_id, updated_at
+        ) values
+          ('primary_packaging', 0.2000, ${adminId}, '2026-01-15T11:00:00Z'),
+          ('Other', 0.1500, ${adminId}, '2026-01-15T11:00:00Z')
+        on conflict (category) do update set
+          default_markup_pct = excluded.default_markup_pct,
+          updated_by_user_id = excluded.updated_by_user_id,
+          updated_at = excluded.updated_at
+      `;
+      await tx`
         insert into netsuite_customer_map (
           hubspot_company_id, netsuite_customer_id,
           netsuite_customer_display_name, verified_by_user_id
@@ -229,9 +240,20 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
         `;
         for (const [index, leafId] of leafIds.entries()) {
           const junctionId = uuid(runId, `junction-${state}-${index}`);
+          const quoteLeafId = uuid(runId, `quote-leaf-${state}-${index}`);
           await tx`
-            insert into assembly_leaves (id, assembly_id, leaf_id, quantity, position)
-            values (${junctionId}, ${assemblyId}, ${leafId}, 1, ${index})
+            insert into quote_leaves (
+              id, quote_id, assembly_id, leaf_id, quantity, position
+            ) values (
+              ${quoteLeafId}, ${quoteId}, ${assemblyId}, ${leafId}, 1, ${index}
+            )
+          `;
+          await tx`
+            insert into assembly_leaves (
+              id, assembly_id, leaf_id, quote_leaf_id, quantity, position
+            ) values (
+              ${junctionId}, ${assemblyId}, ${leafId}, ${quoteLeafId}, 1, ${index}
+            )
           `;
           for (const [tierIndex, tierId] of [tier1, tier2].entries()) {
             await tx`
@@ -337,6 +359,13 @@ export async function resetFixtureWorld(runId: string): Promise<void> {
       // Send flows create random audit IDs and audit_log has no quote FK
       // cascade. Remove every audit tied to this deterministic fixture world.
       await tx`delete from audit_log where entity_id in ${tx(quoteIds)}`;
+      // Markup pins intentionally RESTRICT canonical attachments and tiers.
+      // Remove their Quote-scoped parent first so fixture reset can cascade the
+      // rest of the graph without weakening the production integrity FKs.
+      await tx`
+        delete from quote_commercial_settings_pins
+        where quote_id in ${tx(quoteIds)}
+      `;
       for (const state of ["draft", "sent", "accepted", "failed", "complete"]) {
         await tx`delete from audit_log where id = ${uuid(runId, `audit-${state}`)}`;
         const dealId = fakeHubSpotObjectId(runId, `deal-${state}`);

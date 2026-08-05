@@ -131,12 +131,13 @@ test("draft Preview to Send to Client to Client Review", async ({
     expect(quote?.pdf_url).toContain("/quote-pdfs/");
 
     const snapshots = await sql<{
+      id: string;
       version_number: number;
       quote_number: string;
       pdf_url: string;
       superseded_at: Date | null;
     }[]>`
-      select version_number, quote_number, pdf_url, superseded_at
+      select id, version_number, quote_number, pdf_url, superseded_at
       from quote_snapshots where quote_id = ${fixture.quoteId}
     `;
     expect(snapshots).toHaveLength(1);
@@ -146,6 +147,41 @@ test("draft Preview to Send to Client to Client Review", async ({
       pdf_url: quote?.pdf_url,
       superseded_at: null,
     });
+
+    const pins = await sql<{
+      quote_snapshot_id: string;
+      target_margin_pct: string;
+      floor_margin_pct: string;
+      primary_packaging_outcomes: number;
+      invalid_attachment_outcomes: number;
+    }[]>`
+      select
+        p.quote_snapshot_id,
+        p.target_margin_pct,
+        p.floor_margin_pct,
+        count(*) filter (
+          where mp.category = 'primary_packaging'
+            and mp.chosen_rung = 'primary_packaging'
+            and mp.markup_pct = 0.2000
+        )::int as primary_packaging_outcomes,
+        count(*) filter (
+          where ql.quote_id <> p.quote_id or qt.quote_id <> p.quote_id
+        )::int as invalid_attachment_outcomes
+      from quote_commercial_settings_pins p
+      join quote_commercial_markup_pins mp on mp.pin_id = p.id
+      join quote_leaves ql on ql.id = mp.quote_leaf_id
+      join quote_tiers qt on qt.id = mp.tier_id
+      where p.quote_id = ${fixture.quoteId}
+        and p.superseded_at is null
+      group by p.id
+    `;
+    expect(pins).toEqual([{
+      quote_snapshot_id: snapshots[0].id,
+      target_margin_pct: "0.3500",
+      floor_margin_pct: "0.2500",
+      primary_packaging_outcomes: 6,
+      invalid_attachment_outcomes: 0,
+    }]);
 
     const reviewEvents = await sql<{
       event_type: string;

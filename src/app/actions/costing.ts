@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import {
   // Slice 11.5 — NEW-model cost-data tables (Step 2 schema).
@@ -11,13 +11,11 @@ import {
   assemblyLeaves,
   assemblyProductionInputs,
   auditLog,
-  firmSettings,
   freightCustomerArrangesMeta,
   freightLegGroups,
   freightLegs,
   freightLegTiers,
   leaves,
-  markupDefaults,
   quotes,
   quoteTiers,
   quoteWarnings,
@@ -41,6 +39,8 @@ import {
   type QuoteCostingInput,
   type QuoteCostingResult,
 } from "@/lib/costing";
+import { resolveQuoteCommercialSettings } from "@/lib/commercial-settings";
+import type { CommercialSettingsResolution } from "@/lib/commercial-settings-contract";
 import { buildQuoteCostingInputFromNewModel } from "@/lib/costing-adapter";
 import type { HydrateSnapshot } from "@/lib/costing-store";
 import {
@@ -410,19 +410,7 @@ export async function getQuoteCosting(
     // — admin update path closes the prior row's effective_until before
     // inserting the new), order by effective_from desc to pick the
     // newest.
-    const fsRows = await db
-      .select()
-      .from(firmSettings)
-      .where(isNull(firmSettings.effectiveUntil))
-      .orderBy(desc(firmSettings.effectiveFrom))
-      .limit(1);
-    const fs = fsRows[0];
-    if (!fs) {
-      throw new ActionGuardError(
-        ERR.NOT_FOUND,
-        "firm_settings has no current row; run scripts/seed-firm-settings.mjs",
-      );
-    }
+    const commercial = await resolveQuoteCommercialSettings(quoteId);
 
     // Slice 11.5 Step 3 — NEW-model read path. Load NEW-model
     // cost-data tables + freight (model-agnostic) + tiers +
@@ -432,7 +420,6 @@ export async function getQuoteCosting(
       tiers,
       newModelData,
       freightLoad,
-      mks,
     ] = await Promise.all([
       db
         .select()
@@ -442,14 +429,11 @@ export async function getQuoteCosting(
       loadNewModelCostDataForQuote(quoteId),
       // Slice R6.2 — multi-leg journey freight load (4 joined tables).
       loadFreightForQuote(quoteId),
-      db.select().from(markupDefaults),
     ]);
 
     // Plain Record (not Map) so the snapshot serializes cleanly across
     // the RSC server→client boundary. See costing.ts type comment.
-    const markupMap: Record<string, number> = Object.fromEntries(
-      mks.map((m) => [m.category, Number(m.defaultMarkupPct)]),
-    );
+    const markupMap = commercial.markupDefaults;
 
     const freightProjection = projectFreightInputs(freightLoad);
 
@@ -464,8 +448,8 @@ export async function getQuoteCosting(
         targetMarginPct: numOrNull(quote.targetMarginPct),
       },
       firmSettings: {
-        targetMarginPct: num(fs.targetMarginPct),
-        floorMarginPct: num(fs.floorMarginPct),
+        targetMarginPct: commercial.targetMarginPct,
+        floorMarginPct: commercial.floorMarginPct,
       },
       markupDefaults: markupMap,
       tiers: tiers.map((t) => ({
@@ -1194,21 +1178,9 @@ export async function applyClientTargetSolveTierAdj(
     // Inline duplication is acceptable for Slice 9.4b's scope; backlog
     // entry exists to extract `loadCostingState(quoteId)` shared helper
     // when a third call site emerges.
-    const fsRows = await db
-      .select()
-      .from(firmSettings)
-      .where(isNull(firmSettings.effectiveUntil))
-      .orderBy(desc(firmSettings.effectiveFrom))
-      .limit(1);
-    const fs = fsRows[0];
-    if (!fs) {
-      throw new ActionGuardError(
-        ERR.NOT_FOUND,
-        "firm_settings has no current row.",
-      );
-    }
+    const commercial = await resolveQuoteCommercialSettings(quoteId);
     // Slice 11.5 Step 3 — NEW-model read path (mirrors getQuoteCosting).
-    const [tiersFresh, newModelData, freightLoad, mks] = await Promise.all([
+    const [tiersFresh, newModelData, freightLoad] = await Promise.all([
       db
         .select()
         .from(quoteTiers)
@@ -1217,12 +1189,9 @@ export async function applyClientTargetSolveTierAdj(
       loadNewModelCostDataForQuote(quoteId),
       // Slice R6.2 — multi-leg journey freight load.
       loadFreightForQuote(quoteId),
-      db.select().from(markupDefaults),
     ]);
 
-    const markupMap: Record<string, number> = Object.fromEntries(
-      mks.map((m) => [m.category, Number(m.defaultMarkupPct)]),
-    );
+    const markupMap = commercial.markupDefaults;
 
     const freightProjection = projectFreightInputs(freightLoad);
 
@@ -1235,8 +1204,8 @@ export async function applyClientTargetSolveTierAdj(
         targetMarginPct: numOrNull(quote.targetMarginPct),
       },
       firmSettings: {
-        targetMarginPct: num(fs.targetMarginPct),
-        floorMarginPct: num(fs.floorMarginPct),
+        targetMarginPct: commercial.targetMarginPct,
+        floorMarginPct: commercial.floorMarginPct,
       },
       markupDefaults: markupMap,
       tiers: tiersFresh.map((t) => ({
@@ -1467,6 +1436,7 @@ export async function applyClientTargetSolveTierAdj(
 // using getQuoteCosting without dragging the bundle shape in.
 export async function getCostingBundle(
   quoteId: string,
+  commercialOverride?: CommercialSettingsResolution,
 ): Promise<ActionResult<HydrateSnapshot>> {
   return runAction(async () => {
     const bundleT0 = Date.now();
@@ -1479,19 +1449,11 @@ export async function getCostingBundle(
       throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found");
     const quote = quoteRows[0];
 
-    const fsRows = await timed("firm_settings", quoteId, db
-      .select()
-      .from(firmSettings)
-      .where(isNull(firmSettings.effectiveUntil))
-      .orderBy(desc(firmSettings.effectiveFrom))
-      .limit(1));
-    const fs = fsRows[0];
-    if (!fs) {
-      throw new ActionGuardError(
-        ERR.NOT_FOUND,
-        "firm_settings has no current row; run scripts/seed-firm-settings.mjs",
-      );
-    }
+    const commercial = commercialOverride ?? await timed(
+      "commercial_settings",
+      quoteId,
+      resolveQuoteCommercialSettings(quoteId),
+    );
 
     // Slice 11.5 Step 3 — NEW-model read path. Load NEW-model
     // cost-data + freight (model-agnostic) + tiers + markup_defaults
@@ -1499,7 +1461,7 @@ export async function getCostingBundle(
     // unchanged. The HydrateSnapshot is constructed below directly
     // from the input + raw NEW-model rows (rowId attached for the
     // store's optimistic-edit pattern).
-    const [tiers, newModelData, freightLoad, mks] = await Promise.all([
+    const [tiers, newModelData, freightLoad] = await Promise.all([
       timed("tiers", quoteId, db
         .select()
         .from(quoteTiers)
@@ -1510,7 +1472,6 @@ export async function getCostingBundle(
       // of 4 sub-queries; each instrumented separately inside
       // loadFreightForQuote.)
       timed("freight.total", quoteId, loadFreightForQuote(quoteId)),
-      timed("markup_defaults", quoteId, db.select().from(markupDefaults)),
     ]);
 
     // Cumulative wall-clock for the whole bundle. Threshold-gated
@@ -1525,9 +1486,7 @@ export async function getCostingBundle(
 
     // Plain Record (not Map) so the snapshot serializes cleanly across
     // the RSC server→client boundary. See costing.ts type comment.
-    const markupMap: Record<string, number> = Object.fromEntries(
-      mks.map((m) => [m.category, Number(m.defaultMarkupPct)]),
-    );
+    const markupMap = commercial.markupDefaults;
 
     const freightProjection = projectFreightInputs(freightLoad);
 
@@ -1552,8 +1511,8 @@ export async function getCostingBundle(
         targetMarginPct: numOrNull(quote.targetMarginPct),
       },
       firmSettings: {
-        targetMarginPct: num(fs.targetMarginPct),
-        floorMarginPct: num(fs.floorMarginPct),
+        targetMarginPct: commercial.targetMarginPct,
+        floorMarginPct: commercial.floorMarginPct,
       },
       markupDefaults: markupMap,
       tiers: tierList,

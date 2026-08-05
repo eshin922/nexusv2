@@ -145,7 +145,7 @@ test("write pause blocks mixed-version writers at the database boundary", async 
   assert.match(resume, /DROP TRIGGER IF EXISTS slice1_write_pause ON quote_leaves/);
 });
 
-test("draft Backfill cannot be applied by the generic migration command", async () => {
+test("draft Backfill remains outside the generic migration command", async () => {
   const journal = JSON.parse(
     await readFile(new URL("../../drizzle/meta/_journal.json", import.meta.url), "utf8"),
   ) as { entries: Array<{ tag: string }> };
@@ -153,7 +153,7 @@ test("draft Backfill cannot be applied by the generic migration command", async 
     journal.entries.some((entry) => entry.tag === "0049_product_structure_slice1_backfill"),
     false,
   );
-  assert.equal(journal.entries.at(-1)?.tag, "0048_product_structure_slice1_expand");
+  assert.equal(journal.entries.at(-1)?.tag, "0052_phase_1_sales_order_snapshot_identity");
 });
 
 test("Backfill rollback is manifest-selected and clears pointers first", async () => {

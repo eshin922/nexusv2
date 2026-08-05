@@ -177,20 +177,16 @@ export function buildSalesOrderPayload(
 }
 
 /**
- * Deterministic idempotency key for a (quote, tier, payload) triple.
- * Same triple → same key. Different payloads (same quote+tier) →
- * different key: caller should treat that as an anomaly (payload
- * drift on retry) but the netsuite_so_pushes CHECK-then-write is
- * the primary defense; this header is belt-and-suspenders.
+ * Deterministic idempotency key for the accepted sent snapshot of a Quote.
+ * Payload movement cannot mint a second identity; retries replay the first
+ * payload durably associated with this snapshot.
  */
 export function computeIdempotencyKey(
   quoteId: string,
-  acceptedTierId: string,
-  payload: Record<string, unknown>,
+  quoteSnapshotId: string,
 ): string {
-  const canonical = JSON.stringify(payload);
   const hash = createHash("sha256")
-    .update(`${quoteId}|${acceptedTierId}|${canonical}`)
+    .update(`${quoteId}|${quoteSnapshotId}`)
     .digest("hex");
   // Prefix identifies Nexus-authored keys unambiguously in NetSuite
   // logs; the hash is deterministic in inputs.

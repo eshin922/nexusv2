@@ -35,13 +35,13 @@ import { VENDOR_FIXTURE } from "@/lib/quote-fixtures";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import type {
   CustomerView,
-  CustomerViewFreightLine,
   CustomerViewPreparedBy,
   CustomerViewServiceFee,
   CustomerViewSku,
   CustomerViewTier,
   CustomerViewVendor,
 } from "@/types/quote";
+import type { CommercialSettingsResolution } from "@/lib/commercial-settings-contract";
 
 export type CustomerViewSearchParams = {
   layout?: string;
@@ -106,8 +106,9 @@ const FEE_COPY = [
 export async function resolveCustomerView(args: {
   quoteId: string;
   searchParams?: CustomerViewSearchParams;
+  commercialSettingsOverride?: CommercialSettingsResolution;
 }): Promise<ResolveCustomerViewResult> {
-  const { quoteId, searchParams = {} } = args;
+  const { quoteId, searchParams = {}, commercialSettingsOverride } = args;
   const { layout, detail, addendum } = searchParams;
 
   // Quote + project join. Consumer validates projectId separately
@@ -130,7 +131,7 @@ export async function resolveCustomerView(args: {
   const firm = firmRows[0] ?? null;
 
   const addendumData = await loadQuoteAddendum(quoteId);
-  const bundle = await getCostingBundle(quoteId);
+  const bundle = await getCostingBundle(quoteId, commercialSettingsOverride);
   if (!bundle.ok) {
     return { ok: false, kind: "bundle_error", message: bundle.error.message };
   }
@@ -364,35 +365,9 @@ export async function resolveCustomerView(args: {
     }
   }
 
-  // Pass-through freight projection (Step 5.2).
-  const passThroughLegs = bundle.data.freightLegs.filter(
-    (l) => l.treatment === "pass_through",
-  );
-  const freightLines: CustomerViewFreightLine[] = passThroughLegs.map((leg) => {
-    const tierAmounts: number[] = tiers.map((t) => {
-      for (const rollup of leafSkus) {
-        const perTier = rollup.perTier.find((pt) => pt.tierId === t.id);
-        if (!perTier) continue;
-        const legBreak = perTier.freightLegs.find(
-          (fb) => fb.legId === leg.id,
-        );
-        if (!legBreak) continue;
-        return (
-          legBreak.containerFreightWithMarkupPerUnit +
-          legBreak.dutyWithMarkupPerUnit +
-          legBreak.tariffWithMarkupPerUnit
-        );
-      }
-      return 0;
-    });
-    return {
-      id: leg.id,
-      label: leg.label ?? "Freight",
-      sub: "",
-      qtyLabel: "Per unit · per shipment",
-      tierAmounts,
-    };
-  });
+  // BV-009: freight remains in commercial costing. When bundled into unit
+  // price it has no separate customer-facing line, avoiding double signaling.
+  const freightLines: [] = [];
 
   const view: CustomerView = {
     vendor,
