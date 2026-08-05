@@ -153,7 +153,7 @@ test("draft Backfill remains outside the generic migration command", async () =>
     journal.entries.some((entry) => entry.tag === "0049_product_structure_slice1_backfill"),
     false,
   );
-  assert.equal(journal.entries.at(-1)?.tag, "0052_phase_1_sales_order_snapshot_identity");
+  assert.equal(journal.entries.at(-1)?.tag, "0053_phase_2_component_freight_expand");
 });
 
 test("Backfill rollback is manifest-selected and clears pointers first", async () => {

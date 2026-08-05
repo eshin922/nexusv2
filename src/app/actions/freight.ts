@@ -7,9 +7,11 @@ import {
   auditLog,
   freightCustomerArrangesMeta,
   freightLegGroups,
+  freightLegComponentTierCosts,
   freightLegs,
   freightLegTiers,
   quotes,
+  quoteLeaves,
   quoteTiers,
 } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -94,7 +96,6 @@ export type FreightLegSnapshot = {
   vesselEtd: string | null;
   vesselEta: string | null;
   actualDeliveryDate: string | null;
-  freightMarkupPct: string;
   dutyMarkupPct: string;
   tariffMarkupPct: string;
   customs: { duty_pct?: number; tariff_pct?: number };
@@ -107,6 +108,14 @@ export type FreightLegTierSnapshot = {
   tierId: string;
   totalFreight: string | null;
   unitsInShipment: number | null;
+};
+
+export type FreightComponentTierCostSnapshot = {
+  id: string;
+  freightLegId: string;
+  quoteLeafId: string;
+  tierId: string;
+  actualFreightCost: string | null;
 };
 
 export type FreightCustomerArrangesMetaSnapshot = {
@@ -494,9 +503,6 @@ export async function addLeg(
     const actualDeliveryDate = parseDateOrNull(
       formData.get("actualDeliveryDate"),
     );
-    // Markup pcts default 0.3000 when omitted; parseMarkupPct returns
-    // "0.3000" on empty input.
-    const freightMarkupPct = parseMarkupPct(formData.get("freightMarkupPct"));
     const dutyMarkupPct = parseMarkupPct(formData.get("dutyMarkupPct"));
     const tariffMarkupPct = parseMarkupPct(formData.get("tariffMarkupPct"));
     const dutyPctRaw = parseCustomsPct(formData.get("dutyPct"));
@@ -545,7 +551,6 @@ export async function addLeg(
         vesselEtd,
         vesselEta,
         actualDeliveryDate,
-        freightMarkupPct,
         dutyMarkupPct,
         tariffMarkupPct,
         customs,
@@ -767,7 +772,6 @@ export async function updateLegMarkup(
     const component = String(formData.get("component") ?? "").trim();
     if (!legId) throw new ActionGuardError(ERR.VALIDATION, "legId required");
     if (
-      component !== "freight" &&
       component !== "duty" &&
       component !== "tariff"
     ) {
@@ -781,12 +785,7 @@ export async function updateLegMarkup(
     const { quote, leg } = await quoteForLeg(legId);
 
     const newPct = parseMarkupPct(formData.get("value"));
-    const colKey =
-      component === "freight"
-        ? "freightMarkupPct"
-        : component === "duty"
-          ? "dutyMarkupPct"
-          : "tariffMarkupPct";
+    const colKey = component === "duty" ? "dutyMarkupPct" : "tariffMarkupPct";
     const beforePct = leg[colKey];
 
     if (numericEquals(beforePct, newPct)) {
@@ -998,6 +997,93 @@ export async function updateLegTierCell(
   });
 }
 
+// Logistics enters the attributed actual cost; Nexus validates identity but
+// never allocates or spreads the value.
+export async function updateFreightComponentTierCost(
+  formData: FormData,
+): Promise<ActionResult<FreightComponentTierCostSnapshot>> {
+  return runAction(async () => {
+    const freightLegId = String(formData.get("freightLegId") ?? "").trim();
+    const quoteLeafId = String(formData.get("quoteLeafId") ?? "").trim();
+    const tierId = String(formData.get("tierId") ?? "").trim();
+    if (!freightLegId || !quoteLeafId || !tierId) {
+      throw new ActionGuardError(ERR.VALIDATION, "Freight leg, Quote leaf, and tier are required.");
+    }
+    const actualFreightCost = parseNumericOrNull(formData.get("actualFreightCost"));
+    if (actualFreightCost !== null && Number(actualFreightCost) < 0) {
+      throw new ActionGuardError(ERR.VALIDATION, "Actual freight cost must be at least 0.");
+    }
+    const user = await ensureUser();
+    const identity = await db
+      .select({
+        quoteId: freightLegGroups.quoteId,
+        projectId: quotes.projectId,
+        status: quotes.status,
+        leafQuoteId: quoteLeaves.quoteId,
+        tierQuoteId: quoteTiers.quoteId,
+      })
+      .from(freightLegs)
+      .innerJoin(freightLegGroups, eq(freightLegGroups.id, freightLegs.legGroupId))
+      .innerJoin(quotes, eq(quotes.id, freightLegGroups.quoteId))
+      .innerJoin(quoteLeaves, eq(quoteLeaves.id, quoteLeafId))
+      .innerJoin(quoteTiers, eq(quoteTiers.id, tierId))
+      .where(eq(freightLegs.id, freightLegId));
+    if (identity.length !== 1) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "Freight component identity did not resolve exactly once.");
+    }
+    const owner = identity[0];
+    if (owner.quoteId !== owner.leafQuoteId || owner.quoteId !== owner.tierQuoteId) {
+      throw new ActionGuardError(ERR.VALIDATION, "Freight component identity crosses Quotes.");
+    }
+    if (owner.status !== "draft") {
+      throw new ActionGuardError(ERR.QUOTE_NOT_DRAFT, `Quote is ${owner.status} and not editable.`);
+    }
+    const [saved] = await db
+      .insert(freightLegComponentTierCosts)
+      .values({ freightLegId, quoteLeafId, tierId, actualFreightCost })
+      .onConflictDoUpdate({
+        target: [
+          freightLegComponentTierCosts.freightLegId,
+          freightLegComponentTierCosts.quoteLeafId,
+          freightLegComponentTierCosts.tierId,
+        ],
+        set: { actualFreightCost, updatedAt: new Date() },
+      })
+      .returning();
+    await logAudit({
+      userId: user.id,
+      entityType: "freight_component_input",
+      entityId: saved.id,
+      action: "freight_component_cost_updated",
+      diffJson: { quote_leaf_id: quoteLeafId, actual_freight_cost: actualFreightCost },
+    });
+    revalidateQuoteTree(owner.projectId, owner.quoteId);
+    return saved;
+  });
+}
+
+export async function updateQuoteFreightMarkup(
+  formData: FormData,
+): Promise<ActionResult<{ quoteId: string; freightMarkupPct: string }>> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+    const quote = await quoteByIdDraft(quoteId);
+    const user = await ensureUser();
+    const freightMarkupPct = parseMarkupPct(formData.get("freightMarkupPct"));
+    await db.update(quotes).set({ freightMarkupPct, updatedAt: new Date() }).where(eq(quotes.id, quoteId));
+    await logAudit({
+      userId: user.id,
+      entityType: "quote",
+      entityId: quoteId,
+      action: "quote_freight_markup_updated",
+      diffJson: { from: quote.freightMarkupPct, to: freightMarkupPct },
+    });
+    revalidateQuoteTree(quote.projectId, quoteId);
+    return { quoteId, freightMarkupPct };
+  });
+}
+
 // Reorder legs within a leg-group by swapping display_order with the
 // prev or next sibling. Per Gap 9 entry-order is the v1 policy;
 // drag-grip ships v1.1.
@@ -1206,7 +1292,6 @@ function shapeLegSnapshot(
     vesselEtd: leg.vesselEtd,
     vesselEta: leg.vesselEta,
     actualDeliveryDate: leg.actualDeliveryDate,
-    freightMarkupPct: leg.freightMarkupPct,
     dutyMarkupPct: leg.dutyMarkupPct,
     tariffMarkupPct: leg.tariffMarkupPct,
     customs:

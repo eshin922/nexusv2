@@ -25,6 +25,7 @@ import {
   auditLog,
   firmSettings,
   freightCustomerArrangesMeta,
+  freightLegComponentTierCosts,
   freightLegGroups,
   freightLegs,
   freightLegTiers,
@@ -32,6 +33,8 @@ import {
   quotes,
   quoteReviewEvents,
   quoteSnapshots,
+  quoteSnapshotFreightInputs,
+  quoteLeaves,
   quoteCommercialMarkupPins,
   quoteCommercialSettingsPins,
   quoteTiers,
@@ -234,6 +237,16 @@ function trimOrNull(v: FormDataEntryValue | null): string | null {
   return s === "" ? null : s;
 }
 
+async function activeFreightMarkupDefault(): Promise<string> {
+  const [firm] = await db
+    .select({ value: firmSettings.freightMarkupPctDefault })
+    .from(firmSettings)
+    .where(isNull(firmSettings.effectiveUntil))
+    .orderBy(desc(firmSettings.effectiveFrom))
+    .limit(1);
+  return firm?.value ?? "0.3000";
+}
+
 // ---------- quote-level actions ----------
 
 // Initial-quote creator. Used by NextActionCard's "Open Setup →"
@@ -249,6 +262,7 @@ export async function createQuote(formData: FormData) {
   if (!projectId) throw new Error("projectId required");
 
   const user = await ensureUser();
+  const freightMarkupPct = await activeFreightMarkupDefault();
 
   const maxRow = await db
     .select({ max: max(quotes.versionNumber) })
@@ -270,6 +284,7 @@ export async function createQuote(formData: FormData) {
       versionNumber,
       status: "draft",
       globalPriceAdjPct: "0",
+      freightMarkupPct,
       createdByUserId: user.id,
     })
     .returning({ id: quotes.id });
@@ -325,6 +340,7 @@ export async function createScenario(input: {
       );
 
     const user = await ensureUser();
+    const freightMarkupPct = await activeFreightMarkupDefault();
 
     // Resolve scenario label: PM-provided OR auto "Alt N" (next
     // integer not in use within project).
@@ -369,6 +385,7 @@ export async function createScenario(input: {
           versionNumber: 1,
           status: "draft",
           globalPriceAdjPct: "0",
+          freightMarkupPct,
           createdByUserId: user.id,
           intentNote,
           customerTargetTierLabel,
@@ -1405,9 +1422,47 @@ export async function sendQuote(
     // before producing an external artifact. Compatibility identity failures
     // are hard failures; the approved transition never guesses a mapping.
     const commercialPinPlan = await prepareQuoteCommercialPin(quoteId);
+    const [freightInputRows, freightRateRows] = await Promise.all([
+      db
+        .select({ input: freightLegComponentTierCosts, tierQty: quoteTiers.qty })
+        .from(freightLegComponentTierCosts)
+        .innerJoin(quoteLeaves, eq(quoteLeaves.id, freightLegComponentTierCosts.quoteLeafId))
+        .innerJoin(quoteTiers, eq(quoteTiers.id, freightLegComponentTierCosts.tierId))
+        .where(eq(quoteLeaves.quoteId, quoteId)),
+      db
+        .select()
+        .from(freightLegTiers)
+        .innerJoin(freightLegs, eq(freightLegs.id, freightLegTiers.freightLegId))
+        .innerJoin(freightLegGroups, eq(freightLegGroups.id, freightLegs.legGroupId))
+        .where(eq(freightLegGroups.quoteId, quoteId)),
+    ]);
+    const freightRateByLegTier = new Map(
+      freightRateRows.map((row) => [
+        `${row.freight_leg_tiers.freightLegId}:${row.freight_leg_tiers.tierId}`,
+        row.freight_leg_tiers,
+      ]),
+    );
+    const freightSnapshotPlan = freightInputRows.map(({ input, tierQty }) => {
+      if (input.actualFreightCost === null) {
+        throw new ActionGuardError(ERR.VALIDATION, "Component freight cost is unresolved.");
+      }
+      const rate = freightRateByLegTier.get(`${input.freightLegId}:${input.tierId}`);
+      const effectiveUnits = rate?.unitsInShipment ?? tierQty ?? 0;
+      if (effectiveUnits <= 0) {
+        throw new ActionGuardError(ERR.VALIDATION, "Component freight effective units must be greater than zero.");
+      }
+      return {
+        sourceFreightLegId: input.freightLegId,
+        sourceQuoteLeafId: input.quoteLeafId,
+        sourceTierId: input.tierId,
+        actualFreightCost: input.actualFreightCost,
+        effectiveUnits,
+      };
+    });
     const sendCommercialSettings = {
       targetMarginPct: Number(commercialPinPlan.targetMarginPct),
       floorMarginPct: Number(commercialPinPlan.floorMarginPct),
+      freightMarkupPct: Number(quote.freightMarkupPct),
       markupDefaults: Object.fromEntries(
         commercialPinPlan.markupRows.map((row) => [row.category, Number(row.markupPct)]),
       ),
@@ -1702,6 +1757,7 @@ export async function sendQuote(
           quoteSnapshotId: snapshot.id,
           targetMarginPct: commercialPinPlan.targetMarginPct,
           floorMarginPct: commercialPinPlan.floorMarginPct,
+          freightMarkupPct: quote.freightMarkupPct,
           supersededAt: null,
           createdByUserId: user.id,
         })
@@ -1713,6 +1769,11 @@ export async function sendQuote(
             pinId: settingsPin.id,
             ...row,
           })),
+        );
+      }
+      if (freightSnapshotPlan.length > 0) {
+        await tx.insert(quoteSnapshotFreightInputs).values(
+          freightSnapshotPlan.map((input) => ({ quoteSnapshotId: snapshot.id, ...input })),
         );
       }
 
@@ -2865,6 +2926,7 @@ async function cloneQuoteGraph(
       // Cloneable (from source)
       globalPriceAdjPct: source.globalPriceAdjPct,
       targetMarginPct: source.targetMarginPct,
+      freightMarkupPct: source.freightMarkupPct,
       // Slice 11 Step 4 PDF-render-axis columns (added to Cloneable
       // 2026-07-15 per Edward's disposition after copy-audit diff).
       // These are PM display preferences (single vs tier, itemized
@@ -2940,6 +3002,7 @@ async function cloneQuoteGraph(
     .where(eq(assemblies.quoteId, args.sourceQuoteId))
     .orderBy(asc(assemblies.position));
   const assemblyIdMap = new Map<string, string>(); // sourceAssemblyId → newAssemblyId
+  const quoteLeafIdMap = new Map<string, string>();
   if (sourceAssemblies.length > 0) {
     const insertedAssemblies = await tx
       .insert(assemblies)
@@ -3003,6 +3066,7 @@ async function cloneQuoteGraph(
           position: sourceJunction.position,
         });
         assemblyLeafIdMap.set(sourceJunction.id, attached.assemblyLeafId);
+        quoteLeafIdMap.set(sourceJunction.quoteLeafId, attached.quoteLeafId);
       }
     }
 
@@ -3236,7 +3300,6 @@ async function cloneQuoteGraph(
               mode: l.mode,
               carrier: l.carrier,
               incoterm: l.incoterm,
-              freightMarkupPct: l.freightMarkupPct,
               dutyMarkupPct: l.dutyMarkupPct,
               tariffMarkupPct: l.tariffMarkupPct,
               customs: l.customs,
@@ -3286,6 +3349,36 @@ async function cloneQuoteGraph(
               tierId: newTierId,
               totalFreight: r.totalFreight,
               unitsInShipment: r.unitsInShipment,
+            };
+          }),
+        );
+      }
+
+      const sourceComponentFreightCosts = await tx
+        .select()
+        .from(freightLegComponentTierCosts)
+        .where(
+          inArray(
+            freightLegComponentTierCosts.freightLegId,
+            sourceLegIds,
+          ),
+        );
+      if (sourceComponentFreightCosts.length > 0) {
+        await tx.insert(freightLegComponentTierCosts).values(
+          sourceComponentFreightCosts.map((row) => {
+            const newLegId = freightLegIdMap.get(row.freightLegId);
+            const newQuoteLeafId = quoteLeafIdMap.get(row.quoteLeafId);
+            const newTierId = tierIdMap.get(row.tierId);
+            if (!newLegId || !newQuoteLeafId || !newTierId) {
+              throw new Error(
+                `clone: component freight input has unmapped canonical identity (leg=${row.freightLegId}, quote_leaf=${row.quoteLeafId}, tier=${row.tierId})`,
+              );
+            }
+            return {
+              freightLegId: newLegId,
+              quoteLeafId: newQuoteLeafId,
+              tierId: newTierId,
+              actualFreightCost: row.actualFreightCost,
             };
           }),
         );

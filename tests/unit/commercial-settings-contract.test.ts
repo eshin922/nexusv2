@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { resolveCommercialSettingsForLifecycle } from "../../src/lib/commercial-settings-contract.ts";
 
-const live = { targetMarginPct: 0.35, floorMarginPct: 0.25, markupDefaults: { Other: 0.3 } };
-const pinned = { targetMarginPct: 0.4, floorMarginPct: 0.28, markupDefaults: { Other: 0.32 } };
+const live = { targetMarginPct: 0.35, floorMarginPct: 0.25, freightMarkupPct: 0.3, markupDefaults: { Other: 0.3 } };
+const pinned = { targetMarginPct: 0.4, floorMarginPct: 0.28, freightMarkupPct: 0.42, markupDefaults: { Other: 0.32 } };
 
 test("drafts always resolve live commercial settings", () => {
   assert.deepEqual(resolveCommercialSettingsForLifecycle({ status: "draft", live, pinned }), { ...live, source: "live" });

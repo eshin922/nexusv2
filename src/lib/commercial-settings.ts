@@ -163,7 +163,7 @@ export async function resolveQuoteCommercialSettings(
   quoteId: string,
 ): Promise<CommercialSettingsResolution> {
   const [quoteRows, firmRows, liveMarkupRows, pinRows] = await Promise.all([
-    db.select({ status: quotes.status }).from(quotes).where(eq(quotes.id, quoteId)).limit(1),
+    db.select({ status: quotes.status, freightMarkupPct: quotes.freightMarkupPct }).from(quotes).where(eq(quotes.id, quoteId)).limit(1),
     db.select().from(firmSettings).where(isNull(firmSettings.effectiveUntil)).orderBy(desc(firmSettings.effectiveFrom)).limit(1),
     db.select().from(markupDefaults),
     db.select().from(quoteCommercialSettingsPins).where(and(eq(quoteCommercialSettingsPins.quoteId, quoteId), isNull(quoteCommercialSettingsPins.supersededAt))).limit(1),
@@ -176,6 +176,7 @@ export async function resolveQuoteCommercialSettings(
   const live = {
     targetMarginPct: Number(firm.targetMarginPct),
     floorMarginPct: Number(firm.floorMarginPct),
+    freightMarkupPct: Number(quote.freightMarkupPct),
     markupDefaults: Object.fromEntries(
       liveMarkupRows.map((row) => [row.category, Number(row.defaultMarkupPct)]),
     ),
@@ -217,6 +218,7 @@ export async function resolveQuoteCommercialSettings(
     pinned: {
       targetMarginPct: Number(pin.targetMarginPct),
       floorMarginPct: Number(pin.floorMarginPct),
+      freightMarkupPct: Number(pin.freightMarkupPct),
       markupDefaults: pinnedMarkup,
     },
   });

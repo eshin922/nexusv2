@@ -91,6 +91,7 @@ export type AdapterAssemblyRow = {
 // productName + skuLabel.
 export type AdapterAssemblyLeafRow = {
   id: string;
+  quoteLeafId: string;
   assemblyId: string;
   leafId: string;
   quantity: string | number; // numeric column — Drizzle returns string
@@ -154,6 +155,7 @@ export type BuildQuoteCostingInputFromNewModelArgs = {
     id: string;
     globalPriceAdjPct: number;
     targetMarginPct: number | null;
+    freightMarkupPct: number;
   };
   firmSettings: {
     targetMarginPct: number;
@@ -170,6 +172,7 @@ export type BuildQuoteCostingInputFromNewModelArgs = {
   freightLegGroups: CostingFreightLegGroup[];
   freightLegs: CostingFreightLeg[];
   freightLegTiers: CostingFreightLegTier[];
+  freightComponentTierCosts: QuoteCostingInput["freightComponentTierCosts"];
 };
 
 // ---------- Adapter implementation ----------
@@ -208,6 +211,7 @@ export function buildQuoteCostingInputFromNewModel(
   for (const a of args.assemblies) {
     skus.push({
       id: a.id,
+      canonicalQuoteLeafId: null,
       parentSkuId: null,
       qtyPerParent: null,
       skuRole: "assembly",
@@ -220,6 +224,7 @@ export function buildQuoteCostingInputFromNewModel(
   for (const al of args.assemblyLeaves) {
     skus.push({
       id: al.id,
+      canonicalQuoteLeafId: al.quoteLeafId,
       parentSkuId: al.assemblyId,
       qtyPerParent: num(al.quantity),
       skuRole: "leaf",
@@ -331,6 +336,7 @@ export function buildQuoteCostingInputFromNewModel(
     freightLegGroups: args.freightLegGroups,
     freightLegs: args.freightLegs,
     freightLegTiers: args.freightLegTiers,
+    freightComponentTierCosts: args.freightComponentTierCosts,
     cellOverrides,
     cellTargets,
   };
