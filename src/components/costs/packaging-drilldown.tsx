@@ -342,6 +342,25 @@ export function PackagingDrilldown({
   );
 }
 
+/**
+ * **DEPRECATED — awaiting demonstrated business workflow.**
+ *
+ * Retained only in the populated state, where adding a second cost line
+ * against an already-inherited component is the one shape this could
+ * legitimately serve (e.g. one component split across two vendors).
+ *
+ * No such workflow has been demonstrated. As of 2026-08-05 every
+ * multi-line-per-leaf row in production belongs to `SMOKE-CB-STEP10`, a
+ * smoke-test quote. No PM has used it.
+ *
+ * This affordance is not the Setup → Costs contract and must never again
+ * stand in for it: structure is inherited from Setup, never re-declared
+ * here. It was removed from the empty state for exactly that reason.
+ *
+ * If no real DPS workflow surfaces, removal is scheduled as a separate
+ * business-approved cleanup rather than carried forward indefinitely. Do
+ * not extend, re-site, or reintroduce it into an empty-state surface.
+ */
 function PackagingAddLineActions({
   leafSkus,
   editable,

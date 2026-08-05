@@ -139,6 +139,57 @@ test("backfill is draft-only, additive, and idempotent", () => {
   );
 });
 
+test("overlapping materialisation paths cannot double-insert a row", () => {
+  // Four paths can reach the same (leaf, tier): attach, tier-add, preset, and
+  // backfill. Each needs its own guard, because they run independently and in
+  // any order — a leaf attached, then a tier added, then a backfill run must
+  // still yield exactly one inherited row.
+  const addTier = actionBody(quotesSrc, "addTier");
+  assert.match(
+    addTier,
+    /if \(coveredLeafIds\.has\(leaf\.id\)\) continue/,
+    "tier-add must skip leaves the line fan-out already covered",
+  );
+  assert.match(
+    backfillSrc,
+    /not exists \(\s*select 1 from assembly_leaf_inputs/i,
+    "backfill must skip (leaf, tier) pairs that already have a row",
+  );
+  assert.match(
+    backfillSrc,
+    /not exists \(\s*select 1 from assembly_production_inputs/i,
+    "backfill must skip (assembly, tier) pairs that already have a row",
+  );
+  // Attach materialises only for the leaf it just created, so it cannot
+  // collide with a pre-existing row by construction — but it must run after
+  // the duplicate-attach rejection, not before.
+  const attach = actionBody(assembliesSrc, "attachAssemblyLeaf");
+  assert.ok(
+    attach.indexOf("already attached to this assembly") <
+      attach.indexOf("materializePackagingForLeaf("),
+    "duplicate-attach rejection must precede materialisation",
+  );
+});
+
+test("Setup structure is visible in Costs without any manually added cost line", () => {
+  // The business contract: an operator never adds a line to make Setup
+  // structure appear. Visibility must follow from materialisation alone, so
+  // neither materialiser may depend on a pre-existing line.
+  for (const fn of ["materializePackagingForLeaf", "materializeProductionForAssembly"]) {
+    const start = assembliesSrc.indexOf(`async function ${fn}`);
+    const body = assembliesSrc.slice(start, start + 1600);
+    assert.ok(
+      !/assemblyLeafInputs\)?\s*\.?\s*where|existingLines/.test(body),
+      `${fn} must not condition materialisation on an existing line`,
+    );
+    assert.match(
+      body,
+      /from\(quoteTiers\)/,
+      `${fn} must fan out across every existing tier`,
+    );
+  }
+});
+
 test("Gate 4b Structural Inheritance is recorded in the implementation standard", () => {
   assert.match(standardSrc, /Structural Inheritance/);
   assert.match(
