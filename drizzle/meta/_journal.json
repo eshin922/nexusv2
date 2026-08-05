@@ -358,6 +358,13 @@
       "when": 1785789000000,
       "tag": "0052_phase_1_sales_order_snapshot_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1785790800000,
+      "tag": "0053_phase_2_component_freight_expand",
+      "breakpoints": true
     }
   ]
 }

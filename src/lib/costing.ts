@@ -134,6 +134,7 @@ export type SkuRoleValue = "leaf" | "assembly";
 
 export type CostingSku = {
   id: string;
+  canonicalQuoteLeafId?: string | null;
   parentSkuId: string | null;
   qtyPerParent: number | null;
   skuRole: SkuRoleValue;
@@ -242,6 +243,12 @@ export type CostingFreightLeg = {
   // Both nullable; no math impact (PM-reference only).
   vesselEta: string | null;
   actualDeliveryDate: string | null;
+  // TRANSITIONAL — superseded as commercial authority by the quote-level
+  // markup introduced in migration 0053, but RETAINED so this release stays
+  // additive in type surface. Existing consumers still read it and must keep
+  // compiling. Removed in PR-E alongside the code that replaces them; the
+  // physical column drops in PR-G / migration 0056, only after Stage 4 and
+  // operator validation. See docs/release/PR-D-CONSTRUCTION-BRIEF.md.
   freightMarkupPct: number;
   dutyMarkupPct: number;
   tariffMarkupPct: number;
@@ -254,6 +261,14 @@ export type CostingFreightLegTier = {
   tierId: string;
   totalFreight: number | null;
   unitsInShipment: number | null;
+};
+
+export type CostingFreightComponentTierCost = {
+  freightLegId: string;
+  quoteLeafId: string;
+  tierId: string;
+  actualFreightCost: number | null;
+  effectiveUnits?: number;
 };
 
 // Slice 9.3 — per-cell sell-price override. Sparse: rows exist ONLY
@@ -297,6 +312,7 @@ export type QuoteCostingInput = {
     id: string;
     globalPriceAdjPct: number;
     targetMarginPct: number | null;
+    freightMarkupPct?: number;
   };
   firmSettings: { targetMarginPct: number; floorMarginPct: number };
   // Record (not Map) so the snapshot survives RSC server→client
@@ -318,6 +334,7 @@ export type QuoteCostingInput = {
   freightLegGroups: CostingFreightLegGroup[];
   freightLegs: CostingFreightLeg[];
   freightLegTiers: CostingFreightLegTier[];
+  freightComponentTierCosts?: CostingFreightComponentTierCost[];
   // Slice 9.3 — sparse per-cell sell-price overrides. Empty array =
   // no overrides anywhere. Order doesn't matter; computeQuoteCosting
   // builds a `${skuId}::${tierId}` lookup map internally.
@@ -976,6 +993,8 @@ function computeLeafPerTier(args: {
   // iterates legs and resolves per-tier rate rows by tierId.
   freightLegs: CostingFreightLeg[];
   freightLegTiers: CostingFreightLegTier[];
+  freightComponentTierCosts: CostingFreightComponentTierCost[];
+  freightMarkupPct: number;
   globalAdj: number;
   markupDefaults: Record<string, number>;
   // Slice 9.3 — per-cell sell-price override. null = no override
@@ -1000,6 +1019,8 @@ function computeLeafPerTier(args: {
     production,
     freightLegs,
     freightLegTiers,
+    freightComponentTierCosts = [],
+    freightMarkupPct = 0.3,
     globalAdj,
     markupDefaults,
     cellOverride,
@@ -1119,10 +1140,24 @@ function computeLeafPerTier(args: {
     const legTier = freightLegTiers.find(
       (lt) => lt.freightLegId === leg.id && lt.tierId === tier.id,
     );
-    const total = num(legTier?.totalFreight ?? null);
-    const effectiveUnits = num(legTier?.unitsInShipment ?? null, tierQty);
+    const componentCost = freightComponentTierCosts.find(
+      (cost) =>
+        cost.freightLegId === leg.id &&
+        cost.tierId === tier.id &&
+        cost.quoteLeafId === sku.canonicalQuoteLeafId,
+    );
+    const hasComponentMode = freightComponentTierCosts.some(
+      (cost) => cost.freightLegId === leg.id && cost.tierId === tier.id,
+    );
+    const total = hasComponentMode
+      ? num(componentCost?.actualFreightCost ?? null)
+      : num(legTier?.totalFreight ?? null);
+    const effectiveUnits = num(
+      componentCost?.effectiveUnits ?? legTier?.unitsInShipment ?? null,
+      tierQty,
+    );
     const container = total > 0 && effectiveUnits > 0 ? total / effectiveUnits : 0;
-    const containerWithMarkup = container * (1 + leg.freightMarkupPct);
+    const containerWithMarkup = container * (1 + freightMarkupPct);
 
     const customsEligible =
       leg.crossesInternationalBorder && leg.incoterm === "DDP";
@@ -1155,7 +1190,7 @@ function computeLeafPerTier(args: {
       tariffWithMarkupPerUnit: tariffWithMarkup,
       landedFreightBeforeMarkup: landedBefore,
       landedFreightWithMarkup: landedWithMarkup,
-      freightMarkupPct: leg.freightMarkupPct,
+      freightMarkupPct,
       dutyMarkupPct: leg.dutyMarkupPct,
       tariffMarkupPct: leg.tariffMarkupPct,
       customsEligible,
@@ -1510,6 +1545,8 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
           production: prod,
           freightLegs: sortedLegs,
           freightLegTiers: input.freightLegTiers,
+          freightComponentTierCosts: input.freightComponentTierCosts ?? [],
+          freightMarkupPct: input.quote.freightMarkupPct ?? 0.3,
           globalAdj: effectiveAdj,
           markupDefaults,
           cellOverride,

@@ -1,6 +1,7 @@
 export type CommercialSettingsValues = {
   targetMarginPct: number;
   floorMarginPct: number;
+  freightMarkupPct: number;
   markupDefaults: Record<string, number>;
 };
 

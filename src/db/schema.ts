@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   boolean,
+  check,
   date,
   foreignKey,
   index,
@@ -352,6 +353,9 @@ export const quotes = pgTable(
     // verdict (GOOD / BELOW_TARGET / BELOW_FLOOR thresholds). Wired
     // up in Slice 9.2 alongside the per-tier price adjustment.
     targetMarginPct: numeric("target_margin_pct", { precision: 5, scale: 4 }),
+    freightMarkupPct: numeric("freight_markup_pct", { precision: 5, scale: 4 })
+      .notNull()
+      .default("0.3000"),
     // Self-FK; declared via foreignKey() below.
     copiedFromQuoteId: uuid("copied_from_quote_id"),
     customerFacingNotes: text("customer_facing_notes"),
@@ -698,6 +702,10 @@ export const quoteCommercialSettingsPins = pgTable(
       precision: 5,
       scale: 4,
     }).notNull(),
+    freightMarkupPct: numeric("freight_markup_pct", {
+      precision: 5,
+      scale: 4,
+    }).notNull(),
     supersededAt: timestamp("superseded_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -887,6 +895,12 @@ export const firmSettings = pgTable(
     floorMarginPct: numeric("floor_margin_pct", { precision: 5, scale: 4 })
       .notNull()
       .default("0.2500"),
+    freightMarkupPctDefault: numeric("freight_markup_pct_default", {
+      precision: 5,
+      scale: 4,
+    })
+      .notNull()
+      .default("0.3000"),
     // slice-pricing-surface-redesign Step 2 — policy gates surfaced
     // by the Pricing surface classifier per CD data-source map. Both
     // default true to preserve current production behavior (override
@@ -1071,6 +1085,17 @@ export const freightLegs = pgTable(
     actualDeliveryDate: date("actual_delivery_date"),
 
     // Per-component markup pills
+    //
+    // TRANSITIONAL — `freight_markup_pct` is superseded as commercial
+    // authority by `quotes.freight_markup_pct` (this migration, 0053). The
+    // declaration is RETAINED here deliberately so this release stays additive
+    // in both schema and type surface: existing consumers still reference it
+    // and must keep compiling.
+    //
+    // Removal of the declaration belongs to PR-E, together with the code that
+    // replaces those consumers. The physical column drops in PR-G / migration
+    // 0056, only after Stage 4 and operator validation. See
+    // docs/release/PR-D-CONSTRUCTION-BRIEF.md.
     freightMarkupPct: numeric("freight_markup_pct", { precision: 5, scale: 4 })
       .notNull()
       .default("0.3000"),
@@ -2098,6 +2123,83 @@ export const quoteLeaves = pgTable(
       foreignColumns: [assemblies.id, assemblies.quoteId],
       name: "quote_leaves_assembly_quote_fk",
     }).onDelete("cascade"),
+  ],
+);
+
+// ---------- Phase 2 — manually entered component freight ----------
+// Logistics supplies the actual amount. Nexus never allocates it. The
+// database migration installs a same-Quote constraint trigger across the leg,
+// canonical Quote leaf, and tier because the leg reaches Quote through its
+// group. Billable freight is derived and is intentionally not stored here.
+export const freightLegComponentTierCosts = pgTable(
+  "freight_leg_component_tier_costs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    freightLegId: uuid("freight_leg_id")
+      .notNull()
+      .references(() => freightLegs.id, { onDelete: "cascade" }),
+    quoteLeafId: uuid("quote_leaf_id")
+      .notNull()
+      .references(() => quoteLeaves.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+    actualFreightCost: numeric("actual_freight_cost", {
+      precision: 12,
+      scale: 2,
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("freight_leg_component_tier_costs_identity_idx").on(
+      t.freightLegId,
+      t.quoteLeafId,
+      t.tierId,
+    ),
+    index("freight_leg_component_tier_costs_leaf_idx").on(t.quoteLeafId),
+    check(
+      "freight_leg_component_tier_costs_nonnegative",
+      sql`${t.actualFreightCost} IS NULL OR ${t.actualFreightCost} >= 0`,
+    ),
+  ],
+);
+
+// Immutable freight inputs associated with one commercial send snapshot.
+// Source IDs are evidence rather than FKs so later draft edits/deletes cannot
+// cascade into sent history.
+export const quoteSnapshotFreightInputs = pgTable(
+  "quote_snapshot_freight_inputs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteSnapshotId: uuid("quote_snapshot_id")
+      .notNull()
+      .references(() => quoteSnapshots.id, { onDelete: "cascade" }),
+    sourceFreightLegId: uuid("source_freight_leg_id").notNull(),
+    sourceQuoteLeafId: uuid("source_quote_leaf_id").notNull(),
+    sourceTierId: uuid("source_tier_id").notNull(),
+    actualFreightCost: numeric("actual_freight_cost", {
+      precision: 12,
+      scale: 2,
+    }).notNull(),
+    effectiveUnits: integer("effective_units").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("quote_snapshot_freight_inputs_identity_idx").on(
+      t.quoteSnapshotId,
+      t.sourceFreightLegId,
+      t.sourceQuoteLeafId,
+      t.sourceTierId,
+    ),
+    check("quote_snapshot_freight_inputs_cost_nonnegative", sql`${t.actualFreightCost} >= 0`),
+    check("quote_snapshot_freight_inputs_units_positive", sql`${t.effectiveUnits} > 0`),
   ],
 );
 

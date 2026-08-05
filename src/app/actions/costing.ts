@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
   // Slice 11.5 — NEW-model cost-data tables (Step 2 schema).
@@ -12,11 +12,15 @@ import {
   assemblyProductionInputs,
   auditLog,
   freightCustomerArrangesMeta,
+  freightLegComponentTierCosts,
   freightLegGroups,
   freightLegs,
   freightLegTiers,
   leaves,
   quotes,
+  quoteLeaves,
+  quoteSnapshotFreightInputs,
+  quoteSnapshots,
   quoteTiers,
   quoteWarnings,
 } from "@/db/schema";
@@ -140,8 +144,58 @@ async function loadFreightForQuote(quoteId: string): Promise<{
   legRows: Array<typeof freightLegs.$inferSelect>;
   legTierRows: Array<typeof freightLegTiers.$inferSelect>;
   custMetaRows: Array<typeof freightCustomerArrangesMeta.$inferSelect>;
+  componentCostRows: Array<{
+    freightLegId: string;
+    quoteLeafId: string;
+    tierId: string;
+    actualFreightCost: string | null;
+    effectiveUnits?: number;
+  }>;
 }> {
-  const [legGroupRows, legJoinRows, legTierJoinRows, metaJoinRows] =
+  const [lifecycle] = await db
+    .select({ status: quotes.status, snapshotId: quoteSnapshots.id })
+    .from(quotes)
+    .leftJoin(
+      quoteSnapshots,
+      and(
+        eq(quoteSnapshots.quoteId, quotes.id),
+        isNull(quoteSnapshots.supersededAt),
+      ),
+    )
+    .where(eq(quotes.id, quoteId))
+    .limit(1);
+  if (!lifecycle) throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found");
+  const useSnapshot = lifecycle.status !== "draft" && lifecycle.snapshotId;
+  const componentCostPromise: Promise<Array<{
+    freightLegId: string;
+    quoteLeafId: string;
+    tierId: string;
+    actualFreightCost: string | null;
+    effectiveUnits?: number;
+  }>> = useSnapshot
+    ? db
+        .select({ input: quoteSnapshotFreightInputs })
+        .from(quoteSnapshotFreightInputs)
+        .where(eq(quoteSnapshotFreightInputs.quoteSnapshotId, lifecycle.snapshotId!))
+        .then((rows) => rows.map(({ input }) => ({
+          freightLegId: input.sourceFreightLegId,
+          quoteLeafId: input.sourceQuoteLeafId,
+          tierId: input.sourceTierId,
+          actualFreightCost: input.actualFreightCost,
+          effectiveUnits: input.effectiveUnits,
+        })))
+    : db
+        .select({ cost: freightLegComponentTierCosts })
+        .from(freightLegComponentTierCosts)
+        .innerJoin(quoteLeaves, eq(quoteLeaves.id, freightLegComponentTierCosts.quoteLeafId))
+        .where(eq(quoteLeaves.quoteId, quoteId))
+        .then((rows) => rows.map(({ cost }) => ({
+          freightLegId: cost.freightLegId,
+          quoteLeafId: cost.quoteLeafId,
+          tierId: cost.tierId,
+          actualFreightCost: cost.actualFreightCost,
+        })));
+  const [legGroupRows, legJoinRows, legTierJoinRows, metaJoinRows, componentCostRows] =
     await Promise.all([
       timed("freight.groups", quoteId, db
         .select()
@@ -183,12 +237,14 @@ async function loadFreightForQuote(quoteId: string): Promise<{
           eq(freightLegGroups.id, freightLegs.legGroupId),
         )
         .where(eq(freightLegGroups.quoteId, quoteId))),
+      timed("freight.component_costs", quoteId, componentCostPromise),
     ]);
   return {
     legGroupRows,
     legRows: legJoinRows.map((r) => r.freight_legs),
     legTierRows: legTierJoinRows.map((r) => r.freight_leg_tiers),
     custMetaRows: metaJoinRows.map((r) => r.freight_customer_arranges_meta),
+    componentCostRows,
   };
 }
 
@@ -199,10 +255,18 @@ function projectFreightInputs(args: {
   legRows: Array<typeof freightLegs.$inferSelect>;
   legTierRows: Array<typeof freightLegTiers.$inferSelect>;
   custMetaRows: Array<typeof freightCustomerArrangesMeta.$inferSelect>;
+  componentCostRows: Array<{
+    freightLegId: string;
+    quoteLeafId: string;
+    tierId: string;
+    actualFreightCost: string | null;
+    effectiveUnits?: number;
+  }>;
 }): {
   freightLegGroups: QuoteCostingInput["freightLegGroups"];
   freightLegs: QuoteCostingInput["freightLegs"];
   freightLegTiers: QuoteCostingInput["freightLegTiers"];
+  freightComponentTierCosts: QuoteCostingInput["freightComponentTierCosts"];
   storedLegTiers: Array<
     QuoteCostingInput["freightLegTiers"][number] & { rowId: string }
   >;
@@ -234,6 +298,11 @@ function projectFreightInputs(args: {
       vesselEtd: leg.vesselEtd,
       vesselEta: leg.vesselEta,
       actualDeliveryDate: leg.actualDeliveryDate,
+      // TRANSITIONAL — retained so CostingFreightLeg.freightMarkupPct stays
+      // populated from real data in this release. Same governed default the
+      // column carries (.notNull().default("0.3000")) and the same one the
+      // sibling duty/tariff fields already use. Removed in PR-E with the
+      // rest of the leg-level markup path.
       freightMarkupPct: num(leg.freightMarkupPct, 0.3),
       dutyMarkupPct: num(leg.dutyMarkupPct, 0.3),
       tariffMarkupPct: num(leg.tariffMarkupPct, 0.3),
@@ -257,6 +326,13 @@ function projectFreightInputs(args: {
       tierId: lt.tierId,
       totalFreight: numOrNull(lt.totalFreight),
       unitsInShipment: lt.unitsInShipment,
+    })),
+    freightComponentTierCosts: args.componentCostRows.map((row) => ({
+      freightLegId: row.freightLegId,
+      quoteLeafId: row.quoteLeafId,
+      tierId: row.tierId,
+      actualFreightCost: numOrNull(row.actualFreightCost),
+      effectiveUnits: row.effectiveUnits,
     })),
     storedLegTiers: args.legTierRows.map((lt) => ({
       rowId: lt.id,
@@ -446,6 +522,7 @@ export async function getQuoteCosting(
         id: quote.id,
         globalPriceAdjPct: num(quote.globalPriceAdjPct),
         targetMarginPct: numOrNull(quote.targetMarginPct),
+        freightMarkupPct: commercial.freightMarkupPct,
       },
       firmSettings: {
         targetMarginPct: commercial.targetMarginPct,
@@ -471,6 +548,7 @@ export async function getQuoteCosting(
           id: al.id,
           assemblyId: al.assemblyId,
           leafId: al.leafId,
+          quoteLeafId: al.quoteLeafId,
           quantity: al.quantity,
           position: al.position,
           leafName: lib?.name ?? "",
@@ -517,6 +595,7 @@ export async function getQuoteCosting(
       freightLegGroups: freightProjection.freightLegGroups,
       freightLegs: freightProjection.freightLegs,
       freightLegTiers: freightProjection.freightLegTiers,
+      freightComponentTierCosts: freightProjection.freightComponentTierCosts,
     });
 
     return computeQuoteCosting(input);
@@ -1202,6 +1281,7 @@ export async function applyClientTargetSolveTierAdj(
         id: quote.id,
         globalPriceAdjPct: num(quote.globalPriceAdjPct),
         targetMarginPct: numOrNull(quote.targetMarginPct),
+        freightMarkupPct: commercial.freightMarkupPct,
       },
       firmSettings: {
         targetMarginPct: commercial.targetMarginPct,
@@ -1227,6 +1307,7 @@ export async function applyClientTargetSolveTierAdj(
           id: al.id,
           assemblyId: al.assemblyId,
           leafId: al.leafId,
+          quoteLeafId: al.quoteLeafId,
           quantity: al.quantity,
           position: al.position,
           leafName: lib?.name ?? "",
@@ -1273,6 +1354,7 @@ export async function applyClientTargetSolveTierAdj(
       freightLegGroups: freightProjection.freightLegGroups,
       freightLegs: freightProjection.freightLegs,
       freightLegTiers: freightProjection.freightLegTiers,
+      freightComponentTierCosts: freightProjection.freightComponentTierCosts,
     });
 
     // Defense in depth — leaf-only invariant on the origin cell.
@@ -1509,6 +1591,7 @@ export async function getCostingBundle(
         id: quote.id,
         globalPriceAdjPct: num(quote.globalPriceAdjPct),
         targetMarginPct: numOrNull(quote.targetMarginPct),
+        freightMarkupPct: commercial.freightMarkupPct,
       },
       firmSettings: {
         targetMarginPct: commercial.targetMarginPct,
@@ -1528,6 +1611,7 @@ export async function getCostingBundle(
           id: al.id,
           assemblyId: al.assemblyId,
           leafId: al.leafId,
+          quoteLeafId: al.quoteLeafId,
           quantity: al.quantity,
           position: al.position,
           leafName: lib?.name ?? "",
@@ -1574,6 +1658,7 @@ export async function getCostingBundle(
       freightLegGroups: freightProjection.freightLegGroups,
       freightLegs: freightProjection.freightLegs,
       freightLegTiers: freightProjection.freightLegTiers,
+      freightComponentTierCosts: freightProjection.freightComponentTierCosts,
     });
 
     // Snapshot-shape derivations from the input + raw rows. The
