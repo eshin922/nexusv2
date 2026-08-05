@@ -58,8 +58,16 @@ test("create writes exactly the selected membership, not every component", () =>
 test("all components are selected by default, and that is shown explicitly", () => {
   assert.match(
     drilldown,
-    /useState<string\[\]>\(\(\) => components\.map\(\(item\) => item\.id\)\)/,
-    "picker must start with every eligible component selected",
+    /defaultSelected \?\? components\.map\(\(item\) => item\.id\)/,
+    "picker falls back to every eligible component when no default is supplied",
+  );
+  // First shipment for a product defaults to everything; later shipments
+  // default to whatever is still unassigned, falling back to everything once
+  // coverage is complete so an overlapping shipment does not open empty.
+  assert.match(
+    drilldown,
+    /modalShipments\.length === 0 \|\| modalCoverage\.unassigned\.length === 0\s*\?\s*modalComponents\s*:\s*modalCoverage\.unassigned/,
+    "default must follow coverage state",
   );
   // "All selected" must be visible rather than implied — the previous
   // treatment rendered read-only chips, so membership was invisible.
@@ -120,6 +128,27 @@ test("editing membership after creation still works", () => {
   // The edit-time checkbox fieldset must survive this change.
   assert.match(drilldown, /fr-shipment-contents/);
   assert.match(drilldown, /Edit shipment contents/);
+});
+
+test("shipment coverage is surfaced on the Freight page", () => {
+  // The operator must be able to see which components are still unassigned
+  // without opening each shipment in turn.
+  assert.match(drilldown, /function shipmentCoverage\(/);
+  assert.match(drilldown, /fr-coverage/);
+  assert.match(drilldown, /not yet\s*\n?\s*in any shipment/);
+  assert.match(drilldown, /All \{productComponents\.length\} components are in a shipment\./);
+  // Component chips carry their own assigned/unassigned state.
+  assert.match(drilldown, /Not yet in any shipment/);
+});
+
+test("coverage treats overlap as legitimate, not as double-counting", () => {
+  // A component may travel in more than one shipment (part ocean, part air),
+  // so coverage is "nothing left over" rather than "assignments == count".
+  assert.match(
+    drilldown,
+    /complete: productComponents\.length > 0 && unassigned\.length === 0/,
+    "completeness must be defined by the remainder, not by a sum",
+  );
 });
 
 test("freight totals are unaffected by membership — it is descriptive only", () => {
