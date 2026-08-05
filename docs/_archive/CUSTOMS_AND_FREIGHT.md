@@ -1,3 +1,36 @@
+> # ⛔ ARCHIVED — SUPERSEDED MODEL. NOT AN IMPLEMENTATION REFERENCE.
+>
+> **Archived:** 2026-08-04 · **Superseded by:** the Freight worksheet model
+> (Phase 2, 2026-08)
+>
+> **This document describes CBM-proportional freight allocation — the model the
+> business explicitly rejected.** It is retained as history only.
+>
+> **Do not implement from this document.** An engineer following it would
+> allocate freight cost across components, violating two current rules:
+>
+> - [`NEXUS_IMPLEMENTATION_STANDARD.md` §1](../NEXUS_IMPLEMENTATION_STANDARD.md)
+>   — Nexus records what the operator determined; it does not recreate the
+>   operator's reasoning. Logistics determines freight cost from a forwarding
+>   workbook; Nexus does not re-derive it.
+> - [`NEXUS_IMPLEMENTATION_STANDARD.md` §5](../NEXUS_IMPLEMENTATION_STANDARD.md)
+>   — shipment membership is evidence, not allocation. Contribution enters the
+>   owning commercial product **once**, never once per component.
+>
+> **Current authority:**
+> [`../design-authority/freight-1a/BUNDLE.md`](../design-authority/freight-1a/BUNDLE.md)
+> · [`../phase-2-freight-dom-parity-audit.md`](../phase-2-freight-dom-parity-audit.md)
+> · [`../AUTHORITY_MAP.md`](../AUTHORITY_MAP.md) *(Freight authority register)*
+>
+> **Why it was replaced:**
+> [`../AUTHORITY_TIMELINE.md`](../AUTHORITY_TIMELINE.md) Era 6.
+>
+> **Why it is kept:** the `quote_skus` customs columns and the percent-display
+> convention it documents still describe shipped schema, and the rejected model
+> is the clearest available record of *what* was rejected and why.
+
+---
+
 # Customs and freight — landed-cost data model
 
 Slice 6.5 introduced per-SKU customs columns on `quote_skus`. Slice 7

@@ -31,6 +31,7 @@ the business contract.
 - [BV-003 — Master Data Ownership](BV-003-master-data-ownership.md)
 - [BV-004 — Business Decision Matrix](BV-004-business-decision-matrix.md)
 - [BV-005 — Below-Floor Margin Approval](BV-005-below-floor-margin-approval.md)
+- [BV-009 — Freight Treatment](BV-009-freight-treatment.md) — ⚠️ **RECONSTRUCTION, NOT RATIFIED**
 - [Production Readiness Register](PRODUCTION_READINESS_REGISTER.md)
 
 BV-006 is the [Product Structure Contract](BV-006-product-structure-contract.md).
@@ -42,6 +43,24 @@ BV-008 is the
 
 BV-002 is not assigned in the completed Business Validation work. Identifiers
 are stable and are not renumbered to close gaps.
+
+## ⚠️ BV-009 was cited before it was written, and was never written
+
+BV-009 is cited as governing authority in eleven places across five files,
+including production code. **No such document has ever existed** in any branch
+at any point in history — verified 2026-08-04.
+
+[BV-009 — Freight Treatment](BV-009-freight-treatment.md) is a **reconstruction
+assembled from those citations**. It quotes only text that already exists in
+documents citing BV-009; nothing is inferred or filled in. **It is not
+ratified** and is not business authority until Edward ratifies, amends, or
+rejects it. Tracked as [OD-001](../OPEN_DECISIONS.md).
+
+**The generalisable lesson: an identifier is not a document.** Citing one
+creates the appearance of authority without the substance, and the gap is
+invisible until someone follows the reference. When a Business Validation
+document is cited by a phase specification or by code, the document must exist
+before the citation ships.
 
 ## Relationship to other authoritative documents
 

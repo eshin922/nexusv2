@@ -1,0 +1,181 @@
+/* Nexus — Costs Workspace
+   ═══════════════════════════════════════════════════════════════════════════
+   CANONICAL STYLESHEET — CC adopts this verbatim (Pattern 30).
+   Depends on the root tokens in /styles.css.
+
+   THE THREE THINGS THIS STYLESHEET ENCODES
+   ────────────────────────────────────────
+   1. ONE SCROLLING SURFACE. Every cost entry point is present at all times.
+      Collapsing may hide COMPLETED work; nothing may hide PENDING work.
+   2. SECTION-MAJOR. Sections outer, SKU rows within — because costing is
+      multi-owner and an owner should work one region, not ten.
+   3. TIER COLUMNS ALIGN DOWN THE WHOLE PAGE, one-time section included. A
+      section table is already a matrix, so the geometry is structural rather
+      than a convention.                                       ← LOAD-BEARING
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.cw-shell { min-height: 100vh; background: var(--paper); display: flex; flex-direction: column; }
+.cw-topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 10px 24px; border-bottom: 1px solid var(--rule); background: var(--paper-2); flex-wrap: wrap;
+}
+.cw-crumb { font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; color: var(--ink-3); }
+.cw-crumb .dim { color: var(--ink-4); }
+.cw-crumb strong { color: var(--ink); font-weight: 500; }
+
+.cw-main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 268px; gap: 22px; padding: 22px 24px 64px; align-items: start; }
+
+.cw-h1 { font-family: var(--display); font-size: 30px; font-weight: 400; letter-spacing: -0.022em; color: var(--ink); margin: 0 0 6px; }
+.cw-h1 em { font-style: italic; color: var(--ink-3); }
+.cw-sub { font-size: 13px; color: var(--ink-2); line-height: 1.55; margin: 0 0 20px; max-width: 76ch; }
+
+/* ─── Section ─────────────────────────────────────────────
+   One owner's region. Never a tab, never a switch. */
+.cw-section { background: var(--paper-2); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+.cw-section + .cw-section { margin-top: 18px; }
+.cw-shead {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+  padding: 13px 18px; background: var(--paper-3); border-bottom: 1px solid var(--rule); flex-wrap: wrap;
+}
+.cw-shead .t { font-family: var(--display); font-size: 17px; font-weight: 500; color: var(--ink); letter-spacing: -0.012em; }
+.cw-shead .owner {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-3);
+}
+.cw-shead .fam {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--ink-4); border: 1px solid var(--rule-2); border-radius: 3px; padding: 2px 6px;
+}
+
+/* ─── Rows: SKU rows × tier columns ───────────────────────
+   Identical grid template in every section, so a tier reads straight down the
+   entire page — packaging → production → shipping & one-time, no exception. */
+.cw-row {
+  display: grid; grid-template-columns: minmax(190px, 1.35fr) repeat(4, minmax(104px, 1fr));
+  border-top: 1px solid var(--rule);
+}
+.cw-row:first-child { border-top: none; }
+.cw-row.head { background: var(--paper-3); position: sticky; top: 0; z-index: 2; }
+.cw-row.sub { background: var(--paper); }
+.cw-row.total { background: var(--paper-3); border-top: 1.5px solid var(--ink-3); }
+
+.cw-lab { padding: 11px 16px; display: flex; align-items: center; gap: 9px; min-width: 0; }
+.cw-lab .chev { font-family: var(--mono); font-size: 10px; color: var(--ink-4); flex: 0 0 10px; }
+.cw-lab .n { display: block; font-size: 13px; color: var(--ink); font-weight: 500; line-height: 1.25; }
+.cw-lab .m { display: block; font-family: var(--mono); font-size: 9.5px; color: var(--ink-4); margin-top: 2px; }
+.cw-lab.pad { padding-left: 42px; }
+.cw-lab .colhead { font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); }
+.cw-row.total .cw-lab .n { font-weight: 600; }
+
+button.cw-lab { background: none; border: none; cursor: pointer; text-align: left; font-family: inherit; width: 100%; }
+button.cw-lab:hover .n { color: var(--accent-ink); }
+
+.cw-cell {
+  display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 2px;
+  padding: 10px 16px; border-left: 1px solid var(--rule);
+}
+.cw-cell .v { font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.cw-row.total .cw-cell .v { font-size: 14px; font-weight: 600; }
+.cw-cell .s { font-family: var(--mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.03em; }
+.cw-cell .tlab { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink); }
+.cw-cell .rec { color: oklch(0.56 0.13 72); }
+.cw-cell.muted .v { color: var(--ink-4); }
+
+/* A completed SKU row collapses to a summary line. Chrome reduction, not
+   information hiding — the number stays, the editing affordances go. Nothing
+   incomplete ever collapses, and nothing collapses below 4 SKUs.
+                                                                ← LOAD-BEARING */
+.cw-row.folded .cw-lab .n { font-weight: 400; color: var(--ink-2); }
+.cw-fold {
+  font-family: var(--mono); font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--good); background: var(--good-soft); border-radius: 3px; padding: 1px 5px;
+}
+
+/* Status marker per SKU row */
+.cw-st { font-family: var(--mono); font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase; border-radius: 3px; padding: 1px 5px; }
+.cw-st.complete { background: var(--good-soft); color: var(--good); }
+.cw-st.progress { background: var(--warn-soft); color: var(--warn); }
+.cw-st.notstarted { background: var(--paper-3); color: var(--ink-4); border: 1px dashed var(--rule-2); }
+
+/* One-time section: no SKU dimension, but a line may name the SKU it belongs to */
+.cw-scope {
+  font-family: var(--mono); font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-3); background: var(--paper-3); border-radius: 3px; padding: 1px 5px;
+}
+.cw-note { padding: 10px 16px 12px 16px; font-size: 11.5px; font-style: italic; color: var(--ink-3); line-height: 1.5; }
+
+/* Origin readout on an expanded line */
+.cw-origin {
+  grid-column: 1 / -1; padding: 9px 16px 11px 42px;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.03em; color: var(--ink-4); line-height: 1.6;
+}
+.cw-origin strong { color: var(--ink-3); font-weight: 500; }
+
+/* ═══ Completeness ledger ═════════════════════════════════
+   A matrix, not a list: the section OWNER reads a column, whoever closes the
+   quote reads a ROW, and both get their answer from one object with no mode
+   change. Persistent — on a page of unbounded length a ledger that scrolls
+   away is decorative.                                         ← LOAD-BEARING */
+.cw-rail { position: sticky; top: 22px; }
+.cw-ledger { background: var(--paper-2); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+.cw-lhead { padding: 12px 14px; border-bottom: 1px solid var(--rule); background: var(--paper-3); }
+.cw-lhead .k { font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); }
+.cw-lhead .count { font-family: var(--display); font-size: 19px; font-weight: 500; color: var(--ink); letter-spacing: -0.015em; margin-top: 4px; }
+.cw-lhead .count.done { color: var(--good); }
+
+.cw-lgrid { display: grid; grid-template-columns: 1fr 34px 34px; }
+.cw-lgrid .hd {
+  font-family: var(--mono); font-size: 8px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--ink-4); padding: 8px 4px 6px; text-align: center;
+}
+.cw-lgrid .hd.l { text-align: left; padding-left: 14px; }
+.cw-lgrid .sk {
+  font-family: var(--mono); font-size: 10px; color: var(--ink-2); padding: 7px 4px 7px 14px;
+  border-top: 1px solid var(--rule); display: flex; align-items: center;
+}
+.cw-lgrid .dot { border-top: 1px solid var(--rule); display: flex; align-items: center; justify-content: center; padding: 7px 0; }
+.cw-lgrid .dot i { width: 9px; height: 9px; border-radius: 50%; display: block; }
+.cw-lgrid .dot i.complete { background: var(--good); }
+.cw-lgrid .dot i.progress { background: var(--warn); }
+.cw-lgrid .dot i.notstarted { background: none; border: 1px dashed var(--rule-2); }
+
+.cw-lrow {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 9px 14px; border-top: 1.5px solid var(--rule-2);
+  font-family: var(--mono); font-size: 10px; color: var(--ink-2);
+}
+.cw-lrow .st { font-size: 9px; letter-spacing: 0.06em; }
+.cw-lrow .st.progress { color: var(--warn); }
+.cw-lrow .st.complete { color: var(--good); }
+
+/* "not yet" — never a blank. A blank is ambiguous between "zero cost" and
+   "nobody has looked", and the schema already defines NULL as the latter. */
+.cw-legend {
+  padding: 10px 14px; border-top: 1px solid var(--rule); background: var(--paper-3);
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.04em; color: var(--ink-4); line-height: 1.7;
+}
+
+/* The claim, asserted on screen. Same precedent as the cost stack's
+   reconciliation strip: a guarantee nothing checks is a comment. ← LOAD-BEARING */
+.cw-check {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 9px 16px; border-top: 1px solid var(--rule); background: var(--good-soft);
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.03em; color: var(--good);
+}
+.cw-check.bad { background: var(--bad-soft); color: var(--bad); }
+
+.cw-dn {
+  margin-top: 18px; padding: 11px 15px; border-radius: 4px;
+  background: oklch(0.96 0.04 88); border-left: 3px solid oklch(0.65 0.16 75);
+  font-size: 12px; line-height: 1.55; color: oklch(0.30 0.05 80); max-width: 92ch;
+}
+.cw-dn .eyebrow { font-family: var(--mono); font-size: 9px; letter-spacing: 0.10em; text-transform: uppercase; color: oklch(0.45 0.10 75); margin-bottom: 4px; }
+.cw-dn code { font-family: var(--mono); font-size: 11px; background: oklch(0.92 0.03 85); padding: 0 4px; border-radius: 3px; }
+
+@media (max-width: 1080px) {
+  .cw-main { grid-template-columns: minmax(0, 1fr); }
+  .cw-rail { position: static; order: -1; }
+  .cw-row { grid-template-columns: minmax(130px, 1fr) repeat(4, minmax(74px, 1fr)); }
+  .cw-cell, .cw-lab { padding: 9px 10px; }
+  .cw-lab.pad { padding-left: 22px; }
+  .cw-origin { padding-left: 22px; }
+}

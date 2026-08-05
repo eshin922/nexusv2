@@ -1,0 +1,376 @@
+/* Nexus Round 10 — Pricing traceability
+   ═══════════════════════════════════════════════════════════════════════════
+   CANONICAL STYLESHEET — CC adopts this verbatim (Pattern 30).
+   Depends on root tokens + .btn/.chip primitives in /styles.css.
+
+   WHAT THIS STYLESHEET ENCODES
+   ────────────────────────────
+   A trace is ARITHMETIC MADE VISIBLE, not a breakdown list. So the visual
+   system has exactly one job: make every level readable as an equation whose
+   operands reproduce its parent. Three consequences drive everything below:
+
+     1. Every expanded level states WHAT IT IS EXPLAINING in its own header.
+        A level read in isolation must be self-describing (same reason R9's
+        continuation pages carry a running header).                ← LOAD-BEARING
+     2. The OPERATION line is typographically distinct from the OPERANDS.
+        Operands alone answer "what is this made of"; the operator asked
+        "why is it what it is". The operation is the answer.        ← LOAD-BEARING
+     3. Terminal nodes look like PEOPLE, not numbers. Every chain ends in an
+        actor, a date and a document — never in another derived figure.
+                                                                    ← LOAD-BEARING
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.r10-shell { min-height: 100vh; background: var(--paper); display: flex; flex-direction: column; }
+
+.r10-topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 10px 24px; border-bottom: 1px solid var(--rule); background: var(--paper-2);
+  flex-wrap: wrap;
+}
+.r10-crumb { font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; color: var(--ink-3); }
+.r10-crumb .dim { color: var(--ink-4); }
+.r10-crumb strong { color: var(--ink); font-weight: 500; }
+.r10-topbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.r10-flag {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em;
+  padding: 4px 8px; border-radius: 4px; background: var(--paper-3);
+  color: var(--ink-3); border: 1px solid var(--rule);
+}
+.r10-flag.on { background: var(--accent-soft); color: var(--accent-ink); border-color: oklch(from var(--accent) l c h / 0.35); }
+
+.r10-body { flex: 1; padding: 22px 24px 64px; }
+.r10-h1 {
+  font-family: var(--display); font-size: 23px; font-weight: 500;
+  letter-spacing: -0.018em; color: var(--ink); margin: 0 0 4px;
+}
+.r10-h1 em { font-style: italic; color: var(--ink-3); }
+.r10-sub { font-size: 13px; color: var(--ink-2); line-height: 1.55; margin: 0 0 18px; max-width: 72ch; }
+
+/* ═══ THE PRICING GRID ════════════════════════════════════
+   Tiers are columns. SKUs are rows. House idiom, unchanged from Pricing,
+   R8 tier selection and the customer PDF.
+   The DEFAULT must answer the routine question without any expansion —
+   sell price + margin is enough to decide "is this price right?".
+   Disclosure serves the exception.                            ← LOAD-BEARING */
+.r10-grid {
+  background: var(--paper-2); border: 1px solid var(--rule);
+  border-radius: 10px; overflow: hidden;
+}
+.r10-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.4fr) repeat(4, minmax(130px, 1fr));
+  border-top: 1px solid var(--rule);
+}
+.r10-row:first-child { border-top: none; }
+.r10-row.head { background: var(--paper-3); }
+.r10-hcell { padding: 11px 16px; }
+.r10-hcell.tier { text-align: right; }
+.r10-hcell .tlab {
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  color: var(--ink); letter-spacing: 0.06em;
+}
+.r10-hcell .tqty {
+  font-family: var(--mono); font-size: 9.5px; color: var(--ink-4);
+  letter-spacing: 0.04em; margin-top: 3px;
+}
+.r10-hcell .rec { color: oklch(0.56 0.13 72); }
+.r10-hcell .colhead {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-4);
+}
+
+.r10-skucell { padding: 13px 16px; min-width: 0; }
+.r10-skucell .name { font-size: 13.5px; font-weight: 500; color: var(--ink); line-height: 1.3; }
+.r10-skucell .meta {
+  font-family: var(--mono); font-size: 9.5px; color: var(--ink-4);
+  letter-spacing: 0.02em; margin-top: 3px;
+}
+.r10-skucell .meta .code { color: var(--ink-3); }
+
+/* Price cell — the entry point to every trace */
+.r10-cell {
+  display: flex; flex-direction: column; align-items: flex-end; justify-content: center;
+  gap: 3px; padding: 12px 16px; background: none; border: none;
+  border-left: 1px solid var(--rule); cursor: pointer; font-family: inherit;
+  text-align: right; position: relative;
+}
+.r10-cell:hover { background: var(--paper-3); }
+.r10-cell.open { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.r10-cell .price {
+  font-family: var(--mono); font-size: 15px; color: var(--ink);
+  font-variant-numeric: tabular-nums; letter-spacing: 0.01em;
+}
+.r10-cell.open .price { color: var(--accent-ink); font-weight: 600; }
+.r10-cell .margin {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.04em;
+}
+.r10-cell .margin.good { color: var(--good); }
+.r10-cell .margin.below_target { color: var(--warn); }
+.r10-cell .margin.below_floor { color: var(--bad); }
+/* An overridden price is not derived. It must never look like a computed one. */
+.r10-cell .ovtag {
+  font-family: var(--mono); font-size: 8px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--warn); background: var(--warn-soft); border-radius: 3px; padding: 1px 5px;
+}
+.r10-cell .why {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--ink-4); opacity: 0; transition: opacity 0.12s;
+}
+.r10-cell:hover .why, .r10-cell.open .why { opacity: 1; }
+.r10-cell.open .why { color: var(--accent-ink); }
+
+/* ═══ THE TRACE ═══════════════════════════════════════════
+   Opens inline, directly beneath the row it explains. The page never
+   navigates and the originating cell never leaves the screen. */
+.r10-trace {
+  grid-column: 1 / -1;
+  background: var(--paper);
+  border-top: 1px solid var(--accent);
+  padding: 0;
+}
+
+/* Anchor — repeats the question being answered. Sticky, so at depth 5 the
+   operator still knows which number they are inside of. */
+.r10-anchor {
+  position: sticky; top: 0; z-index: 3;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding: 12px 20px; flex-wrap: wrap;
+  background: var(--accent-soft);
+  border-bottom: 1px solid oklch(from var(--accent) l c h / 0.35);
+}
+.r10-anchor .q {
+  font-family: var(--display); font-size: 16px; font-weight: 500;
+  color: var(--ink); letter-spacing: -0.01em;
+}
+.r10-anchor .q em { font-style: italic; color: var(--accent-ink); }
+.r10-anchor .meta {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; color: var(--ink-3);
+}
+.r10-anchor .acts { display: flex; gap: 8px; align-items: center; }
+
+.r10-levels { padding: 6px 20px 18px; }
+
+/* ─── A level ─────────────────────────────────────────────
+   header (what it explains) → operation (why) → operands (what) */
+.r10-level { position: relative; padding: 10px 0 2px 0; }
+.r10-level + .r10-level { border-top: 1px dashed var(--rule); }
+.r10-nest {
+  margin-left: 14px; padding-left: 16px;
+  border-left: 2px solid var(--rule);
+}
+.r10-nest.d1 { border-left-color: oklch(from var(--accent) l c h / 0.55); }
+.r10-nest.d2 { border-left-color: oklch(from var(--accent) l c h / 0.40); }
+.r10-nest.d3 { border-left-color: oklch(from var(--accent) l c h / 0.28); }
+.r10-nest.d4 { border-left-color: var(--rule-2); }
+
+.r10-lhead {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+}
+.r10-lhead .depth {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.10em;
+  text-transform: uppercase; color: var(--ink-4); white-space: nowrap;
+  background: var(--paper-3); border-radius: 3px; padding: 2px 6px;
+}
+.r10-lhead .what {
+  font-family: var(--display); font-size: 15px; font-weight: 500;
+  color: var(--ink); letter-spacing: -0.008em; min-width: 0;
+}
+.r10-lhead .val {
+  font-family: var(--mono); font-size: 14px; color: var(--ink);
+  font-variant-numeric: tabular-nums; margin-left: auto;
+}
+.r10-lhead .unit {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--ink-4);
+}
+
+/* THE OPERATION — the answer to "why". Typographically the loudest thing in
+   a level after its value, because it is what distinguishes this from a
+   breakdown list.                                              ← LOAD-BEARING */
+.r10-op {
+  display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap;
+  margin: 7px 0 2px;
+  padding: 8px 12px; border-radius: 6px;
+  background: var(--paper-2); border: 1px solid var(--rule);
+}
+.r10-op .eq {
+  font-family: var(--mono); font-size: 12.5px; color: var(--ink-4); flex-shrink: 0;
+}
+.r10-op .expr {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-2);
+  letter-spacing: 0.01em; line-height: 1.6; font-variant-numeric: tabular-nums;
+}
+.r10-op .kindtag {
+  font-family: var(--mono); font-size: 8px; letter-spacing: 0.10em; text-transform: uppercase;
+  color: var(--ink-4); border: 1px solid var(--rule-2); border-radius: 3px;
+  padding: 1px 5px; margin-left: auto; flex-shrink: 0;
+}
+.r10-note {
+  font-size: 11.5px; font-style: italic; color: var(--ink-3);
+  line-height: 1.5; margin: 6px 0 0; max-width: 78ch;
+}
+.r10-note.warn { color: var(--warn); font-style: normal; }
+
+/* ─── Operand rows ────────────────────────────────────────
+   Each is itself a number that can state its own operation. */
+.r10-operands { margin: 8px 0 0; display: flex; flex-direction: column; }
+.r10-operand {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 7px 10px; border: none; border-radius: 5px; background: none;
+  cursor: pointer; font-family: inherit; text-align: left; width: 100%;
+}
+.r10-operand:hover { background: var(--paper-2); }
+.r10-operand.leaf { cursor: default; }
+.r10-operand.leaf:hover { background: none; }
+.r10-operand .chev {
+  flex: 0 0 12px; font-family: var(--mono); font-size: 10px; color: var(--ink-4);
+}
+.r10-operand.leaf .chev { color: var(--rule-2); }
+.r10-operand .oname { font-size: 12.5px; color: var(--ink-2); line-height: 1.35; min-width: 0; }
+.r10-operand:hover .oname { color: var(--ink); }
+.r10-operand .oval {
+  font-family: var(--mono); font-size: 12px; color: var(--ink);
+  font-variant-numeric: tabular-nums; margin-left: auto; flex-shrink: 0;
+}
+.r10-operand .otag {
+  font-family: var(--mono); font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-4); flex-shrink: 0;
+}
+
+/* ─── Terminal: a human act ───────────────────────────────
+   Chains end in a person, never in another derived number. This block must
+   look categorically unlike an arithmetic level.               ← LOAD-BEARING */
+.r10-origin {
+  display: flex; align-items: flex-start; gap: 12px;
+  margin: 8px 0 4px; padding: 12px 14px;
+  background: oklch(0.97 0.012 90); border: 1px solid var(--rule-2);
+  border-left: 3px solid var(--ink-3); border-radius: 6px;
+}
+[data-theme="dark"] .r10-origin { background: var(--paper-3); }
+.r10-origin .seal {
+  flex: 0 0 26px; height: 26px; border-radius: 50%;
+  background: var(--paper); border: 1px solid var(--rule-2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--ink-3);
+}
+.r10-origin .body { flex: 1; min-width: 0; }
+.r10-origin .who { font-size: 13px; color: var(--ink); font-weight: 500; }
+.r10-origin .when {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em;
+  color: var(--ink-4); margin-top: 2px;
+}
+.r10-origin .doc {
+  display: inline-block; margin-top: 6px;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.02em;
+  color: var(--accent-ink); background: var(--accent-soft);
+  border-radius: 4px; padding: 3px 8px;
+}
+.r10-origin .onote {
+  font-size: 12px; color: var(--ink-2); line-height: 1.5; margin-top: 7px;
+}
+.r10-origin .stop {
+  font-family: var(--mono); font-size: 8px; letter-spacing: 0.11em; text-transform: uppercase;
+  color: var(--ink-4); margin-top: 8px; display: block;
+}
+
+/* Sourced terminals carry a supplier; thin ones carry only actor + date.
+   The thin grade is NOT styled as deficient — "who set this and when" is a
+   complete answer to the stopping rule.                        ← LOAD-BEARING */
+.r10-origin.sourced { border-left-color: var(--accent); }
+
+/* ─── Resolution: a CHOICE, not arithmetic ────────────────
+   The losing candidates are what make the winner legible — this is why the
+   fallback chain is shown rather than just its result.         ← LOAD-BEARING */
+.r10-res { margin: 8px 0 4px; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+.r10-res-row {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 8px 13px; border-top: 1px solid var(--rule);
+}
+.r10-res-row:first-child { border-top: none; }
+.r10-res-row .mark {
+  flex: 0 0 14px; font-family: var(--mono); font-size: 10px; color: var(--ink-4); text-align: center;
+}
+.r10-res-row .lvl { font-size: 12.5px; color: var(--ink-3); }
+.r10-res-row .pv {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-3);
+  margin-left: auto; font-variant-numeric: tabular-nums;
+}
+.r10-res-row.absent { background: var(--paper-2); }
+.r10-res-row.absent .lvl, .r10-res-row.absent .pv { color: var(--ink-4); text-decoration: line-through; text-decoration-thickness: 1px; }
+.r10-res-row.absent .why { text-decoration: none; }
+.r10-res-row.won { background: var(--good-soft); }
+.r10-res-row.won .mark { color: var(--good); }
+.r10-res-row.won .lvl { color: var(--ink); font-weight: 500; }
+.r10-res-row.won .pv { color: var(--good); font-weight: 600; }
+.r10-res-row .why { font-size: 11px; font-style: italic; color: var(--ink-4); flex-basis: 100%; margin-left: 24px; }
+
+/* ─── Override: replaces the chain, is not part of it ─────
+   The superseded computation stays visible but is unmistakably NOT the
+   arithmetic behind the quoted number.                         ← LOAD-BEARING */
+.r10-override {
+  margin: 4px 0 10px; padding: 15px 18px; border-radius: 8px;
+  background: var(--warn-soft); border: 1px solid oklch(from var(--warn) l c h / 0.42);
+  border-left-width: 3px;
+}
+.r10-override .lead {
+  font-family: var(--display); font-size: 16px; font-weight: 500;
+  color: var(--ink); letter-spacing: -0.01em;
+}
+.r10-override .sub { font-size: 12.5px; color: var(--ink-2); line-height: 1.55; margin-top: 5px; max-width: 74ch; }
+.r10-override .nochain {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--warn); margin-top: 9px; display: flex; align-items: center; gap: 6px;
+}
+.r10-superseded {
+  margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--rule-2);
+}
+.r10-superseded > .cap {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.10em; text-transform: uppercase;
+  color: var(--ink-4); margin-bottom: 6px; display: block;
+}
+.r10-superseded .r10-level { opacity: 0.72; }
+
+/* ─── Flagged-out branch (customer_ships_raws etc.) ──────── */
+.r10-flagged {
+  margin: 8px 0 4px; padding: 11px 14px; border-radius: 6px;
+  background: var(--paper-3); border: 1px dashed var(--rule-2);
+  font-size: 12.5px; color: var(--ink-3); line-height: 1.5;
+}
+.r10-flagged strong { color: var(--ink-2); }
+
+/* ─── Reconciliation footer ───────────────────────────────
+   States that the level's operands reproduce its parent exactly. This is the
+   assertion R6's fixture could not have made.                  ← LOAD-BEARING */
+.r10-recon {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 10px 0 2px; padding: 8px 12px; border-radius: 6px;
+  background: var(--good-soft); border: 1px solid oklch(from var(--good) l c h / 0.3);
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.03em; color: var(--good);
+}
+.r10-recon .x { color: var(--bad); }
+
+/* ─── Inline designer note (prototype only — strip) ─────── */
+.r10-dn {
+  margin-top: 18px; padding: 11px 15px; border-radius: 4px;
+  background: oklch(0.96 0.04 88); border-left: 3px solid oklch(0.65 0.16 75);
+  font-size: 12px; line-height: 1.55; color: oklch(0.30 0.05 80); max-width: 88ch;
+}
+[data-theme="dark"] .r10-dn { background: oklch(0.22 0.05 80); color: oklch(0.85 0.04 85); }
+.r10-dn .dn-eyebrow {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.10em; text-transform: uppercase;
+  color: oklch(0.45 0.10 75); margin-bottom: 4px;
+}
+[data-theme="dark"] .r10-dn .dn-eyebrow { color: oklch(0.75 0.12 75); }
+.r10-dn code { font-family: var(--mono); font-size: 11px; background: oklch(0.92 0.03 85); padding: 0 4px; border-radius: 3px; }
+[data-theme="dark"] .r10-dn code { background: oklch(0.30 0.04 80); }
+
+/* ─── Narrow / stacked ───────────────────────────────────── */
+@media (max-width: 1000px) {
+  .r10-row { grid-template-columns: minmax(140px, 1fr) repeat(4, minmax(96px, 1fr)); }
+  .r10-cell { padding: 10px 10px; }
+  .r10-cell .price { font-size: 13px; }
+  .r10-body { padding: 18px 14px 56px; }
+  .r10-levels { padding: 6px 12px 16px; }
+  .r10-nest { margin-left: 6px; padding-left: 10px; }
+  .r10-lhead .val { flex-basis: 100%; margin-left: 0; text-align: right; }
+}

@@ -1,0 +1,11 @@
+# Design-authority bundles are byte-preserved.
+#
+# These files ARE the executable specification (Pattern 30 / the Design
+# Authority discipline). Their integrity is asserted by SHA-256 in
+# docs/design-authority/**/SHA256SUMS and by a checksum test. Letting git
+# renormalize line endings on checkout silently changes those bytes and
+# fails the integrity check on a file nobody edited — which is exactly the
+# false alarm that erodes trust in a governance control.
+#
+# -text disables all EOL conversion for the tracked bundle sources.
+docs/design-authority/** -text
