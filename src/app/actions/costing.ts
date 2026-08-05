@@ -13,13 +13,19 @@ import {
   auditLog,
   freightCustomerArrangesMeta,
   freightLegComponentTierCosts,
+  freightCustomsBreaks,
+  freightCustomsEntries,
+  freightDestinationBreaks,
+  freightDestinations,
   freightLegGroups,
   freightLegs,
   freightLegTiers,
+  freightSubcategories,
   leaves,
   quotes,
   quoteLeaves,
   quoteSnapshotFreightInputs,
+  quoteSnapshotFreightWorkbooks,
   quoteSnapshots,
   quoteTiers,
   quoteWarnings,
@@ -46,6 +52,7 @@ import {
 import { resolveQuoteCommercialSettings } from "@/lib/commercial-settings";
 import type { CommercialSettingsResolution } from "@/lib/commercial-settings-contract";
 import { buildQuoteCostingInputFromNewModel } from "@/lib/costing-adapter";
+import type { FreightWorkbook } from "@/lib/freight-workbook";
 import type { HydrateSnapshot } from "@/lib/costing-store";
 import {
   parseMarginPercent,
@@ -298,12 +305,6 @@ function projectFreightInputs(args: {
       vesselEtd: leg.vesselEtd,
       vesselEta: leg.vesselEta,
       actualDeliveryDate: leg.actualDeliveryDate,
-      // TRANSITIONAL — retained so CostingFreightLeg.freightMarkupPct stays
-      // populated from real data in this release. Same governed default the
-      // column carries (.notNull().default("0.3000")) and the same one the
-      // sibling duty/tariff fields already use. Removed in PR-E with the
-      // rest of the leg-level markup path.
-      freightMarkupPct: num(leg.freightMarkupPct, 0.3),
       dutyMarkupPct: num(leg.dutyMarkupPct, 0.3),
       tariffMarkupPct: num(leg.tariffMarkupPct, 0.3),
       customs: (() => {
@@ -347,6 +348,118 @@ function projectFreightInputs(args: {
       auditNote: m.auditNote,
     })),
   };
+}
+
+async function loadWorksheetFreightForQuote(
+  quoteId: string,
+): Promise<NonNullable<QuoteCostingInput["freightShipmentBreaks"]>> {
+  const [quote] = await db
+    .select({ status: quotes.status, snapshotId: quoteSnapshots.id })
+    .from(quotes)
+    .leftJoin(quoteSnapshots, and(eq(quoteSnapshots.quoteId, quotes.id), isNull(quoteSnapshots.supersededAt)))
+    .where(eq(quotes.id, quoteId)).limit(1);
+  if (!quote) return [];
+  if (quote.status !== "draft" && quote.snapshotId) {
+    const [snapshot] = await db.select({ workbook: quoteSnapshotFreightWorkbooks.workbook })
+      .from(quoteSnapshotFreightWorkbooks)
+      .where(eq(quoteSnapshotFreightWorkbooks.quoteSnapshotId, quote.snapshotId)).limit(1);
+    if (snapshot) return projectSnapshotWorkbook(snapshot.workbook as FreightWorkbook);
+  }
+  if (quote.status !== "draft") return [];
+  const rows = await db
+    .select({
+      subcategoryId: freightSubcategories.id,
+      assemblyId: freightSubcategories.assemblyId,
+      treatment: freightSubcategories.treatment,
+      tierId: freightDestinationBreaks.tierId,
+      tierUnits: quoteTiers.qty,
+      freightAmount: freightDestinationBreaks.freightAmount,
+      freightMarkupPct: freightDestinationBreaks.freightMarkupPct,
+    })
+    .from(freightSubcategories)
+    .innerJoin(
+      freightDestinations,
+      and(
+        eq(freightDestinations.id, freightSubcategories.selectedDestinationId),
+        eq(freightDestinations.freightSubcategoryId, freightSubcategories.id),
+      ),
+    )
+    .innerJoin(freightDestinationBreaks, eq(freightDestinationBreaks.freightDestinationId, freightDestinations.id))
+    .innerJoin(quoteTiers, eq(quoteTiers.id, freightDestinationBreaks.tierId))
+    .where(eq(freightSubcategories.quoteId, quoteId));
+  if (rows.length === 0) return [];
+  const assemblyIds = [...new Set(rows.map((row) => row.assemblyId))];
+  const anchors = await db.select({ id: assemblyLeaves.id, assemblyId: assemblyLeaves.assemblyId, position: assemblyLeaves.position })
+    .from(assemblyLeaves).where(inArray(assemblyLeaves.assemblyId, assemblyIds)).orderBy(asc(assemblyLeaves.position));
+  const anchorByAssembly = new Map<string, string>();
+  for (const anchor of anchors) if (!anchorByAssembly.has(anchor.assemblyId)) anchorByAssembly.set(anchor.assemblyId, anchor.id);
+  const customs = await db.select({
+    subcategoryId: freightCustomsEntries.freightSubcategoryId,
+    tierId: freightCustomsBreaks.tierId,
+    chargeType: freightCustomsBreaks.chargeType,
+    amount: freightCustomsBreaks.amount,
+    markupPct: freightCustomsBreaks.markupPct,
+  }).from(freightCustomsBreaks)
+    .innerJoin(freightCustomsEntries, eq(freightCustomsEntries.id, freightCustomsBreaks.freightCustomsEntryId))
+    .innerJoin(freightSubcategories, eq(freightSubcategories.id, freightCustomsEntries.freightSubcategoryId))
+    .where(eq(freightSubcategories.quoteId, quoteId));
+  const charge = (subcategoryId: string, tierId: string, type: "duty" | "tariff") =>
+    customs.find((row) => row.subcategoryId === subcategoryId && row.tierId === tierId && row.chargeType === type);
+  return rows.map((row) => {
+    const duty = charge(row.subcategoryId, row.tierId, "duty");
+    const tariff = charge(row.subcategoryId, row.tierId, "tariff");
+    const ownerSkuId = anchorByAssembly.get(row.assemblyId);
+    if (!ownerSkuId) throw new ActionGuardError(ERR.VALIDATION, "Freight-owning commercial product has no costing item");
+    return {
+      freightSubcategoryId: row.subcategoryId,
+      ownerSkuId,
+      tierId: row.tierId,
+      tierUnits: row.tierUnits ?? 0,
+      treatment: row.treatment,
+      freightAmount: numOrNull(row.freightAmount),
+      freightMarkupPct: num(row.freightMarkupPct, 0),
+      dutyAmount: numOrNull(duty?.amount ?? null),
+      dutyMarkupPct: num(duty?.markupPct ?? null, 0),
+      tariffAmount: numOrNull(tariff?.amount ?? null),
+      tariffMarkupPct: num(tariff?.markupPct ?? null, 0),
+    };
+  });
+}
+
+function projectSnapshotWorkbook(
+  workbook: FreightWorkbook,
+): NonNullable<QuoteCostingInput["freightShipmentBreaks"]> {
+  const selectedDestinationIds = new Set(
+    workbook.subcategories.map((row) => row.selectedDestinationId).filter((id): id is string => id !== null),
+  );
+  const selectedBreaks = workbook.breaks.filter((row) => selectedDestinationIds.has(row.freightDestinationId));
+  const customsBySubcategory = new Map(workbook.customsEntries.map((row) => [row.freightSubcategoryId, row.id]));
+  const customsCharge = (subcategoryId: string, tierId: string, chargeType: "duty" | "tariff") => {
+    const entryId = customsBySubcategory.get(subcategoryId);
+    return workbook.customsBreaks.find((row) => row.freightCustomsEntryId === entryId && row.tierId === tierId && row.chargeType === chargeType);
+  };
+  return selectedBreaks.map((row) => {
+    const destination = workbook.destinations.find((candidate) => candidate.id === row.freightDestinationId);
+    const subcategory = workbook.subcategories.find((candidate) => candidate.id === destination?.freightSubcategoryId);
+    if (!subcategory) throw new ActionGuardError(ERR.VALIDATION, "Freight snapshot contains a drifting destination mapping");
+    const ownerSkuId = workbook.costingContext.ownerSkuByAssembly[subcategory.assemblyId];
+    if (!ownerSkuId) throw new ActionGuardError(ERR.VALIDATION, "Freight snapshot has no commercial-product costing anchor");
+    const duty = customsCharge(subcategory.id, row.tierId, "duty");
+    const tariff = customsCharge(subcategory.id, row.tierId, "tariff");
+    return {
+      freightSubcategoryId: subcategory.id,
+      ownerSkuId,
+      tierId: row.tierId,
+      tierUnits: workbook.costingContext.tierUnitsByTier[row.tierId] ?? 0,
+      treatment: subcategory.treatment,
+      freightAmount: numOrNull(row.freightAmount),
+      freightMarkupPct: num(row.freightMarkupPct, 0),
+      dutyAmount: numOrNull(duty?.amount ?? null),
+      dutyMarkupPct: num(duty?.markupPct ?? null, 0),
+      tariffAmount: numOrNull(tariff?.amount ?? null),
+      tariffMarkupPct: num(tariff?.markupPct ?? null, 0),
+    };
+  });
 }
 
 // ---------- Slice 11.5 — NEW-model cost-data loader ----------
@@ -492,11 +605,7 @@ export async function getQuoteCosting(
     // cost-data tables + freight (model-agnostic) + tiers +
     // markup_defaults; adapter builds QuoteCostingInput; math layer
     // unchanged.
-    const [
-      tiers,
-      newModelData,
-      freightLoad,
-    ] = await Promise.all([
+    const [tiers, newModelData, freightLoad, worksheetFreight] = await Promise.all([
       db
         .select()
         .from(quoteTiers)
@@ -505,6 +614,7 @@ export async function getQuoteCosting(
       loadNewModelCostDataForQuote(quoteId),
       // Slice R6.2 — multi-leg journey freight load (4 joined tables).
       loadFreightForQuote(quoteId),
+      loadWorksheetFreightForQuote(quoteId),
     ]);
 
     // Plain Record (not Map) so the snapshot serializes cleanly across
@@ -596,6 +706,7 @@ export async function getQuoteCosting(
       freightLegs: freightProjection.freightLegs,
       freightLegTiers: freightProjection.freightLegTiers,
       freightComponentTierCosts: freightProjection.freightComponentTierCosts,
+      freightShipmentBreaks: worksheetFreight,
     });
 
     return computeQuoteCosting(input);
@@ -1259,7 +1370,7 @@ export async function applyClientTargetSolveTierAdj(
     // when a third call site emerges.
     const commercial = await resolveQuoteCommercialSettings(quoteId);
     // Slice 11.5 Step 3 — NEW-model read path (mirrors getQuoteCosting).
-    const [tiersFresh, newModelData, freightLoad] = await Promise.all([
+    const [tiersFresh, newModelData, freightLoad, worksheetFreight] = await Promise.all([
       db
         .select()
         .from(quoteTiers)
@@ -1268,6 +1379,7 @@ export async function applyClientTargetSolveTierAdj(
       loadNewModelCostDataForQuote(quoteId),
       // Slice R6.2 — multi-leg journey freight load.
       loadFreightForQuote(quoteId),
+      loadWorksheetFreightForQuote(quoteId),
     ]);
 
     const markupMap = commercial.markupDefaults;
@@ -1355,6 +1467,7 @@ export async function applyClientTargetSolveTierAdj(
       freightLegs: freightProjection.freightLegs,
       freightLegTiers: freightProjection.freightLegTiers,
       freightComponentTierCosts: freightProjection.freightComponentTierCosts,
+      freightShipmentBreaks: worksheetFreight,
     });
 
     // Defense in depth — leaf-only invariant on the origin cell.
@@ -1543,7 +1656,7 @@ export async function getCostingBundle(
     // unchanged. The HydrateSnapshot is constructed below directly
     // from the input + raw NEW-model rows (rowId attached for the
     // store's optimistic-edit pattern).
-    const [tiers, newModelData, freightLoad] = await Promise.all([
+    const [tiers, newModelData, freightLoad, worksheetFreight] = await Promise.all([
       timed("tiers", quoteId, db
         .select()
         .from(quoteTiers)
@@ -1554,6 +1667,7 @@ export async function getCostingBundle(
       // of 4 sub-queries; each instrumented separately inside
       // loadFreightForQuote.)
       timed("freight.total", quoteId, loadFreightForQuote(quoteId)),
+      timed("freight.worksheet", quoteId, loadWorksheetFreightForQuote(quoteId)),
     ]);
 
     // Cumulative wall-clock for the whole bundle. Threshold-gated
@@ -1659,6 +1773,7 @@ export async function getCostingBundle(
       freightLegs: freightProjection.freightLegs,
       freightLegTiers: freightProjection.freightLegTiers,
       freightComponentTierCosts: freightProjection.freightComponentTierCosts,
+      freightShipmentBreaks: worksheetFreight,
     });
 
     // Snapshot-shape derivations from the input + raw rows. The

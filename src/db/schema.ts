@@ -151,6 +151,19 @@ export const freightLegMode = pgEnum("freight_leg_mode", [
   "exw_pickup",
   "other",
 ]);
+export const freightFactSource = pgEnum("freight_fact_source", [
+  "manual",
+  "imported",
+  "corrected_after_import",
+]);
+export const freightCustomsSource = pgEnum("freight_customs_source", [
+  "invoice",
+  "estimate",
+]);
+export const freightCustomsChargeType = pgEnum("freight_customs_charge_type", [
+  "duty",
+  "tariff",
+]);
 
 // Slice 5.5 — assembly support. A SKU is one of:
 //   - leaf: terminal SKU (no children); the typical orderable item.
@@ -1085,20 +1098,6 @@ export const freightLegs = pgTable(
     actualDeliveryDate: date("actual_delivery_date"),
 
     // Per-component markup pills
-    //
-    // TRANSITIONAL — `freight_markup_pct` is superseded as commercial
-    // authority by `quotes.freight_markup_pct` (this migration, 0053). The
-    // declaration is RETAINED here deliberately so this release stays additive
-    // in both schema and type surface: existing consumers still reference it
-    // and must keep compiling.
-    //
-    // Removal of the declaration belongs to PR-E, together with the code that
-    // replaces those consumers. The physical column drops in PR-G / migration
-    // 0056, only after Stage 4 and operator validation. See
-    // docs/release/PR-D-CONSTRUCTION-BRIEF.md.
-    freightMarkupPct: numeric("freight_markup_pct", { precision: 5, scale: 4 })
-      .notNull()
-      .default("0.3000"),
     dutyMarkupPct: numeric("duty_markup_pct", { precision: 5, scale: 4 })
       .notNull()
       .default("0.3000"),
@@ -2201,6 +2200,172 @@ export const quoteSnapshotFreightInputs = pgTable(
     check("quote_snapshot_freight_inputs_cost_nonnegative", sql`${t.actualFreightCost} >= 0`),
     check("quote_snapshot_freight_inputs_units_positive", sql`${t.effectiveUnits} > 0`),
   ],
+);
+
+// ---------- Phase 2 worksheet freight replacement ----------
+// V1 is manual entry. V2 import drafts use the same tables and provenance.
+// A subcategory is one shipment owned by one commercial product (assembly).
+export const freightSubcategories = pgTable(
+  "freight_subcategories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id").notNull().references(() => quotes.id, { onDelete: "cascade" }),
+    assemblyId: uuid("assembly_id").notNull().references(() => assemblies.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    origin: text("origin"),
+    carrierForwarder: text("carrier_forwarder"),
+    incoterm: freightIncoterm("incoterm"),
+    cargoReadyDate: date("cargo_ready_date"),
+    journeyLabel: text("journey_label"),
+    treatment: freightTreatment("treatment").notNull().default("bundled"),
+    crossesInternationalBorder: boolean("crosses_international_border").notNull().default(false),
+    selectedDestinationId: uuid("selected_destination_id"),
+    selectionReason: text("selection_reason"),
+    displayOrder: integer("display_order").notNull().default(0),
+    source: freightFactSource("source").notNull().default("manual"),
+    fieldProvenance: jsonb("field_provenance").notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("freight_subcategories_quote_order_idx").on(t.quoteId, t.displayOrder),
+    index("freight_subcategories_assembly_idx").on(t.assemblyId),
+  ],
+);
+
+// Traceability only. No amount, markup, share, allocation, weight, or CBM.
+export const freightSubcategoryItems = pgTable(
+  "freight_subcategory_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    freightSubcategoryId: uuid("freight_subcategory_id").notNull().references(() => freightSubcategories.id, { onDelete: "cascade" }),
+    assemblyLeafId: uuid("assembly_leaf_id").notNull().references(() => assemblyLeaves.id, { onDelete: "cascade" }),
+    source: freightFactSource("source").notNull().default("manual"),
+    fieldProvenance: jsonb("field_provenance").notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("freight_subcategory_items_identity_idx").on(t.freightSubcategoryId, t.assemblyLeafId),
+    index("freight_subcategory_items_leaf_idx").on(t.assemblyLeafId),
+  ],
+);
+
+export const freightDestinations = pgTable(
+  "freight_destinations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    freightSubcategoryId: uuid("freight_subcategory_id").notNull().references(() => freightSubcategories.id, { onDelete: "cascade" }),
+    destination: text("destination").notNull(),
+    consignee: text("consignee"),
+    transitDays: text("transit_days"),
+    quoteReference: text("quote_reference"),
+    internalNotes: text("internal_notes"),
+    sameValueAllBreaks: boolean("same_value_all_breaks").notNull().default(true),
+    displayOrder: integer("display_order").notNull().default(0),
+    source: freightFactSource("source").notNull().default("manual"),
+    fieldProvenance: jsonb("field_provenance").notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("freight_destinations_id_subcategory_idx").on(t.id, t.freightSubcategoryId),
+    index("freight_destinations_subcategory_order_idx").on(t.freightSubcategoryId, t.displayOrder),
+  ],
+);
+
+export const freightDestinationBreaks = pgTable(
+  "freight_destination_breaks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    freightDestinationId: uuid("freight_destination_id").notNull().references(() => freightDestinations.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id").notNull().references(() => quoteTiers.id, { onDelete: "cascade" }),
+    freightAmount: numeric("freight_amount", { precision: 12, scale: 2 }),
+    freightMarkupPct: numeric("freight_markup_pct", { precision: 5, scale: 4 }),
+    mode: freightLegMode("mode"),
+    shipmentNote: text("shipment_note"),
+    cbm: numeric("cbm", { precision: 12, scale: 3 }),
+    source: freightFactSource("source").notNull().default("manual"),
+    fieldProvenance: jsonb("field_provenance").notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("freight_destination_breaks_identity_idx").on(t.freightDestinationId, t.tierId),
+    index("freight_destination_breaks_tier_idx").on(t.tierId),
+    check("freight_destination_breaks_amount_nonnegative", sql`${t.freightAmount} IS NULL OR ${t.freightAmount} >= 0`),
+    check("freight_destination_breaks_cbm_nonnegative", sql`${t.cbm} IS NULL OR ${t.cbm} >= 0`),
+  ],
+);
+
+export const freightCustomsEntries = pgTable(
+  "freight_customs_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    freightSubcategoryId: uuid("freight_subcategory_id").notNull().references(() => freightSubcategories.id, { onDelete: "cascade" }),
+    sourceMode: freightCustomsSource("source_mode").notNull().default("invoice"),
+    invoiceReference: text("invoice_reference"),
+    entryDescription: text("entry_description"),
+    source: freightFactSource("source").notNull().default("manual"),
+    fieldProvenance: jsonb("field_provenance").notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("freight_customs_entries_subcategory_idx").on(t.freightSubcategoryId)],
+);
+
+export const freightCustomsBreaks = pgTable(
+  "freight_customs_breaks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    freightCustomsEntryId: uuid("freight_customs_entry_id").notNull().references(() => freightCustomsEntries.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id").notNull().references(() => quoteTiers.id, { onDelete: "cascade" }),
+    chargeType: freightCustomsChargeType("charge_type").notNull(),
+    amount: numeric("amount", { precision: 12, scale: 2 }),
+    markupPct: numeric("markup_pct", { precision: 5, scale: 4 }),
+    rateBase: numeric("rate_base", { precision: 12, scale: 2 }),
+    ratePct: numeric("rate_pct", { precision: 7, scale: 6 }),
+    detail: text("detail"),
+    source: freightFactSource("source").notNull().default("manual"),
+    fieldProvenance: jsonb("field_provenance").notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("freight_customs_breaks_identity_idx").on(t.freightCustomsEntryId, t.chargeType, t.tierId),
+    index("freight_customs_breaks_tier_idx").on(t.tierId),
+    check("freight_customs_breaks_amount_nonnegative", sql`${t.amount} IS NULL OR ${t.amount} >= 0`),
+  ],
+);
+
+// Operational metadata. It is audit-logged and excluded from commercial math.
+export const freightDestinationTracking = pgTable(
+  "freight_destination_tracking",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    freightDestinationId: uuid("freight_destination_id").notNull().references(() => freightDestinations.id, { onDelete: "cascade" }),
+    etd: date("etd"),
+    eta: date("eta"),
+    actualDeliveryDate: date("actual_delivery_date"),
+    source: freightFactSource("source").notNull().default("manual"),
+    fieldProvenance: jsonb("field_provenance").notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("freight_destination_tracking_destination_idx").on(t.freightDestinationId)],
+);
+
+// Complete immutable worksheet graph for one commercial send. The graph keeps
+// the same subcategory/destination/break/member/customs/tracking grains and all
+// per-field provenance without foreign keys back to mutable draft records.
+export const quoteSnapshotFreightWorkbooks = pgTable(
+  "quote_snapshot_freight_workbooks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteSnapshotId: uuid("quote_snapshot_id").notNull().references(() => quoteSnapshots.id, { onDelete: "cascade" }),
+    workbook: jsonb("workbook").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("quote_snapshot_freight_workbooks_snapshot_idx").on(t.quoteSnapshotId)],
 );
 
 // ---------- quote_attachments (canonical scenario-create flow) ----------

@@ -365,6 +365,20 @@
       "when": 1785790800000,
       "tag": "0053_phase_2_component_freight_expand",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1785792600000,
+      "tag": "0054_phase_2_worksheet_freight_expand",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1785880800000,
+      "tag": "0055_phase_2_worksheet_freight_snapshots",
+      "breakpoints": true
     }
   ]
 }

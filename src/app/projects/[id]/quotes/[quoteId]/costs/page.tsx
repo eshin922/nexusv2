@@ -10,8 +10,6 @@ import {
   assemblyProductionInputs,
   bulkRawSectionMeta,
   costSectionDeposits,
-  freightLegGroups,
-  freightLegs,
   leaves,
   projects,
   quotes,
@@ -40,6 +38,7 @@ import { PackagingDrilldown } from "@/components/costs/packaging-drilldown";
 import { ProductionDrilldown } from "@/components/costs/production-drilldown";
 import { FreightDrilldown } from "@/components/costs/freight-drilldown";
 import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
+import { loadFreightWorkbook, type FreightWorkbook } from "@/lib/freight-workbook";
 
 // Slice RI.4 — Costs unification per Round 6 + Bulk Raw correction.
 //
@@ -164,10 +163,9 @@ export default async function CostBuildPage({
     newPkgInputRows,
     newProdInputRows,
     tiers,
-    freightGroupRows,
-    freightLegRows,
     categories,
     bulkRawMeta,
+    freightWorkbook,
   ] = await Promise.all([
     db
       .select()
@@ -215,28 +213,14 @@ export default async function CostBuildPage({
     // the sublabel / section-count rendering. The drilldown component
     // pulls leg-tier data from the CostingStore (already hydrated via
     // bundle.data above), so we don't need to re-load it here.
-    db
-      .select()
-      .from(freightLegGroups)
-      .where(eq(freightLegGroups.quoteId, quote.id))
-      .orderBy(asc(freightLegGroups.displayOrder)),
-    db
-      .select({ leg: freightLegs })
-      .from(freightLegs)
-      .innerJoin(
-        freightLegGroups,
-        eq(freightLegGroups.id, freightLegs.legGroupId),
-      )
-      .where(eq(freightLegGroups.quoteId, quote.id))
-      .orderBy(asc(freightLegs.displayOrder)),
     listMarkupDefaults(),
     db
       .select()
       .from(bulkRawSectionMeta)
       .where(eq(bulkRawSectionMeta.quoteId, quote.id))
       .limit(1),
+    loadFreightWorkbook(quote.id),
   ]);
-  const freightLegList = freightLegRows.map((r) => r.leg);
 
   // Slice 11.5 Step 3 — NEW-model → OLD-wrapper-shape reshape.
   // Synthesizes objects that match the shapes downstream drilldowns
@@ -582,21 +566,6 @@ export default async function CostBuildPage({
                 }
               : null;
           })()}
-          otherSkus={(() => {
-            const leaves = skus.filter((s) => s.skuRole === "leaf");
-            const anchor = leaves[0] ?? skus[0];
-            // Cost context contains only cost-bearing LEAF junctions. ASY
-            // records describe sellable assemblies but do not own the
-            // packaging input cells shown on this surface.
-            return leaves
-              .filter((s) => s.id !== anchor?.id)
-              .map((s) => ({
-                id: s.id,
-                skuLabel: s.skuLabel,
-                productName: s.productName,
-                skuRole: s.skuRole,
-              }));
-          })()}
           tierCount={tiers.length}
           unitsTotal={tiers.reduce((sum, t) => sum + (t.qty ?? 0), 0)}
         />
@@ -658,16 +627,30 @@ export default async function CostBuildPage({
           <SectionWithDrilldown
             id="freight"
             name="Freight"
-            sublabel={freightSublabel(freightGroupRows, freightLegList)}
-            statusChip={freightStatusChip(freightLegList.length)}
+            sublabel={freightSublabel(
+              freightWorkbook.subcategories.length,
+              freightWorkbook.destinations.length,
+              freightUndecidedCount(freightWorkbook),
+              freightWorkbook.subcategories.filter((row) => row.crossesInternationalBorder).length,
+            )}
+            indicatorChip={freightIndicatorChip(freightUndecidedCount(freightWorkbook))}
+            statusChip={freightStatusChip(freightWorkbook.subcategories.length)}
             tiers={tierBrief}
             sectionKind="freight"
-            lineCount={freightLegList.length}
+            lineCount={freightWorkbook.subcategories.length}
           >
             <FreightDrilldown
               quoteId={quote.id}
               tiers={tiers}
               editable={editable}
+              workbook={freightWorkbook}
+              products={newAssemblyRows.map((row) => ({ id: row.id, label: row.name || row.sku }))}
+              components={newAssemblyLeafJoinRows.map((row) => ({
+                id: row.assembly_leaves.id,
+                assemblyId: row.assembly_leaves.assemblyId,
+                label: row.leaves.name,
+                sku: row.leaves.sku,
+              }))}
             />
           </SectionWithDrilldown>
         </CostBuildAccordion>
@@ -780,29 +763,55 @@ function productionIndicatorChip(
 // Slice R6.2 — sublabel describes the journey shape: total legs +
 // treatment split + customs-eligible count. Replaces the legacy
 // per-(line, SKU) phrasing.
+// Freight family summary — disposition C1.
+//
+// The `freight-1a` bundle carried this line inside its own `cw-shead`
+// section header. Design Authority here is MIGRATE, not reinstate: the
+// bundle's authority is the operator information, not its original
+// Costs-page shell. The accordion header is the single owner of the
+// title and section ownership, so the summary is published upward into
+// it rather than re-created in a second header inside the body.
+//
+// The collapsed section therefore keeps exposing operator-critical state,
+// which is the property the bundle's placement provided.
+//
+// "shipment" is the approved operator term (disposition C3); the schema
+// entity remains `freight_subcategories`.
 function freightSublabel(
-  groups: Array<{ id: string; label: string }>,
-  legs: Array<{
-    id: string;
-    legGroupId: string;
-    treatment: "bundled" | "pass_through";
-    crossesInternationalBorder: boolean;
-    incoterm: "DDP" | "DAP" | "FOB" | "EXW" | "FCA" | "CIF" | null;
-  }>,
+  subcategories: number,
+  destinations: number,
+  undecided: number,
+  clearsCustoms: number,
 ): string {
-  if (legs.length === 0)
-    return "Multi-leg journey, per-component markup — customs on DDP border-crossing legs";
-  const bundled = legs.filter((l) => l.treatment === "bundled").length;
-  const pass = legs.filter((l) => l.treatment === "pass_through").length;
-  const customsCount = legs.filter(
-    (l) => l.crossesInternationalBorder && l.incoterm === "DDP",
+  if (subcategories === 0) return "Record freight decisions by shipment, destination, and quantity break";
+  return [
+    `${subcategories} shipment${subcategories === 1 ? "" : "s"}`,
+    `${destinations} destination${destinations === 1 ? "" : "s"} priced`,
+    ...(undecided > 0 ? [`${undecided} undecided`] : []),
+    `${clearsCustoms} clears customs`,
+  ].join(" · ");
+}
+
+// Unresolved-work indicator on the collapsed header (disposition C1).
+// A multi-destination shipment with no selection makes the freight total
+// provisional; the operator must be able to see that without opening the
+// section. `indicatorChip` renders inline with the sublabel in the
+// always-visible header, so no new host affordance is required.
+function freightIndicatorChip(undecided: number) {
+  if (undecided === 0) return undefined;
+  return {
+    label: `${undecided} shipment${undecided === 1 ? "" : "s"} undecided`,
+    tone: "warn" as const,
+  };
+}
+
+// A shipment is undecided when it has priced alternatives but no chosen
+// destination. Single-destination shipments are never undecided — there is
+// nothing to choose between.
+function freightUndecidedCount(workbook: FreightWorkbook): number {
+  return workbook.subcategories.filter(
+    (shipment) =>
+      workbook.destinations.filter((row) => row.freightSubcategoryId === shipment.id).length > 1 &&
+      !shipment.selectedDestinationId,
   ).length;
-  const groupCount = groups.length;
-  const groupPhrase =
-    groupCount === 1
-      ? `${legs.length} leg${legs.length === 1 ? "" : "s"}`
-      : `${groupCount} journeys · ${legs.length} legs`;
-  const treatmentPhrase = `${bundled} bundled, ${pass} passthrough`;
-  const customsPhrase = customsCount > 0 ? ` · ${customsCount} customs` : "";
-  return `${groupPhrase} · ${treatmentPhrase}${customsPhrase}`;
 }

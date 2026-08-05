@@ -32,8 +32,34 @@ async function validate(manifest?: FixtureManifest) {
       canonical_attachments: number;
       invalid_identity_mappings: number;
       invalid_external_ids: number;
+      freight_subcategories: number;
+      freight_destinations: number;
+      freight_breaks: number;
+      freight_memberships: number;
+      freight_customs_breaks: number;
+      invalid_tracking_destinations: number;
     }[]>`
       select
+        (select count(*)::int from freight_subcategories fs
+          where fs.quote_id in ${sql(quoteIds)}) as freight_subcategories,
+        (select count(*)::int from freight_destinations fd
+          join freight_subcategories fs on fs.id = fd.freight_subcategory_id
+          where fs.quote_id in ${sql(quoteIds)}) as freight_destinations,
+        (select count(*)::int from freight_destination_breaks fb
+          join freight_destinations fd on fd.id = fb.freight_destination_id
+          join freight_subcategories fs on fs.id = fd.freight_subcategory_id
+          where fs.quote_id in ${sql(quoteIds)}) as freight_breaks,
+        (select count(*)::int from freight_subcategory_items fi
+          join freight_subcategories fs on fs.id = fi.freight_subcategory_id
+          where fs.quote_id in ${sql(quoteIds)}) as freight_memberships,
+        (select count(*)::int from freight_customs_breaks cb
+          join freight_customs_entries ce on ce.id = cb.freight_customs_entry_id
+          join freight_subcategories fs on fs.id = ce.freight_subcategory_id
+          where fs.quote_id in ${sql(quoteIds)}) as freight_customs_breaks,
+        (select count(*)::int from freight_destination_tracking ft
+          join freight_destinations fd on fd.id = ft.freight_destination_id
+          join freight_subcategories fs on fs.id = fd.freight_subcategory_id
+          where fs.quote_id in ${sql(quoteIds)} and fs.selected_destination_id <> fd.id) as invalid_tracking_destinations,
         (select count(*)::int from projects
           where id in ${sql(projectIds)}) as projects,
         (select count(*)::int from quotes
@@ -58,12 +84,18 @@ async function validate(manifest?: FixtureManifest) {
             and hubspot_deal_id !~ '^[0-9]+$') as invalid_external_ids
     `;
     const expected = {
-      projects: 5,
-      quotes: 5,
-      tiers: 10,
+      projects: 8,
+      quotes: 8,
+      tiers: 16,
       pushes: 2,
-      canonical_attachments: 15,
+      canonical_attachments: 32,
       invalid_identity_mappings: 0,
+      freight_subcategories: 6,
+      freight_destinations: 12,
+      freight_breaks: 24,
+      freight_memberships: 24,
+      freight_customs_breaks: 20,
+      invalid_tracking_destinations: 0,
     };
     for (const [key, value] of Object.entries(expected)) {
       if (counts[key as keyof typeof expected] !== value) {
@@ -75,6 +107,9 @@ async function validate(manifest?: FixtureManifest) {
     }
     if (manifest && Object.keys(manifest.quotes).length !== 5) {
       throw new Error("[fixtures] manifest does not contain every lifecycle state");
+    }
+    if (manifest && Object.keys(manifest.operatorQuotes).length !== 3) {
+      throw new Error("[fixtures] manifest does not contain every operator scale fixture");
     }
     return counts;
   } finally {
