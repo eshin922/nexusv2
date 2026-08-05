@@ -1,0 +1,583 @@
+/* Nexus — Freight section · three approaches
+   ═══════════════════════════════════════════════════════════════════════════
+   CANONICAL STYLESHEET. Depends on root tokens in /styles.css and the section
+   shell in app/costs/styles.css (.cw-section, .cw-shead) which is UNCHANGED.
+
+   Three organising choices, not three skins:
+     1a  fr-*     nested comparison table — hierarchy as container
+     1b  fr1b-*   flat rate ledger — hierarchy as a sort key
+     1c  fr1c-*   decision cards + entry drawer — hierarchy as decision unit
+
+   Shared vocabulary (tier geometry, selection, SKU chips, entry inputs) is
+   deliberately common across all three, so what differs between the options is
+   the STRUCTURE and not the styling.                        ← LOAD-BEARING
+
+   NEXUS ADOPTION NOTE
+   -------------------
+   Option A (1a) was selected. The 1b and 1c rule sets were adopted with the
+   rest of this stylesheet and never referenced by any production component —
+   `1a.jsx` uses neither prefix. 53 dead rule blocks were removed after the
+   canonical DOM migration completed and repository inspection confirmed zero
+   consumers. The variant scheme is described above because it explains why
+   the shared vocabulary is shared; the rules themselves are recoverable from
+   docs/design-authority/_intake/freight-1a.zip.
+
+   Deliberate departure from Pattern 30 verbatim adoption, recorded here and
+   in docs/phase-2-freight-dom-parity-audit.md row 13.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Option scaffold (review page only, not part of the section) ─── */
+.fr-page { padding: 24px 28px 96px; max-width: 1500px; }
+.fr-opt { margin-bottom: 44px; }
+.fr-opthead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.fr-badge {
+  font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  color: var(--paper); background: var(--ink); border-radius: 4px; padding: 3px 8px;
+}
+.fr-opthead .t { font-family: var(--display); font-size: 23px; font-weight: 500; color: var(--ink); letter-spacing: -0.015em; }
+.fr-opthead .k {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4);
+  border: 1px solid var(--rule-2); border-radius: 3px; padding: 2px 7px;
+}
+.fr-trade { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: 10px 0 16px;
+  border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; background: var(--paper); }
+.fr-trade > div { padding: 10px 14px; border-left: 1px solid var(--rule); }
+.fr-trade > div:first-child { border-left: none; }
+.fr-trade .k {
+  display: block; font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--ink-4); margin-bottom: 4px;
+}
+.fr-trade .v { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
+.fr-trade .breaks { background: var(--bad-soft); }
+.fr-trade .breaks .v { color: var(--ink); }
+
+.fr-shape { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+.fr-shape .k { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4); }
+.fr-shape button {
+  background: var(--paper); border: 1px solid var(--rule-2); border-radius: 5px; padding: 4px 10px;
+  font-family: var(--mono); font-size: 10px; color: var(--ink-2); cursor: pointer;
+}
+.fr-shape button.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+/* ─── Shared: tier geometry ───────────────────────────────
+   One template per option, applied to every row inside it, so a tier reads
+   straight down — the Costs page rule, three breaks instead of four. */
+.fr-grid { display: grid; grid-template-columns: minmax(300px, 1.8fr) repeat(var(--freight-tier-count, 3), minmax(128px, 1fr)); }
+.fr-cell {
+  padding: 7px 14px; border-left: 1px solid var(--rule);
+  display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 2px;
+}
+.fr-cell .v { font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.fr-cell .s { font-family: var(--mono); font-size: 8.5px; color: var(--ink-4); letter-spacing: 0.03em; }
+.fr-cell .s.mode { color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.07em; }
+
+.fr-tierhead { background: var(--paper-3); border-bottom: 1px solid var(--rule); }
+.fr-tierhead .lab {
+  padding: 9px 16px; display: flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4);
+}
+.fr-tierhead .fr-cell .v { font-size: 11px; letter-spacing: 0.06em; }
+.fr-tierhead .rec { color: var(--warn); }
+
+/* ─── Shared: SKU assignment ──────────────────────────────
+   Assignment says WHICH SKUs the freight is for. It does not divide the cost.
+   Chips, therefore — not a rate column, not a split field.   ← LOAD-BEARING */
+.fr-skus { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.fr-skus .k { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-4); margin-right: 2px; }
+.fr-chip {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.03em; padding: 2px 7px; border-radius: 3px;
+  border: 1px solid var(--rule-2); background: var(--paper); color: var(--ink-4); cursor: pointer;
+}
+.fr-chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+.fr-chip.all { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+
+/* ─── Shared: stated once ─────────────────────────────────
+   Origin, forwarder, incoterm, cargo-ready, treatment — subcategory-level.
+   Mode and the shipment note are NOT here: the documents put them on the tier
+   row (LTL at 25K, FTL at 100K).                            ← LOAD-BEARING */
+.fr-fields { display: flex; flex-wrap: wrap; gap: 3px 18px; }
+.fr-fields .f { display: flex; align-items: baseline; gap: 6px; }
+.fr-fields .k { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-4); }
+.fr-fields .v { font-size: 12px; color: var(--ink-2); }
+.fr-fields .v.mono { font-family: var(--mono); font-size: 11px; }
+
+/* ─── Shared: selection + comparison ─────────────────────
+   Selection is typographic weight, never visibility. The unselected rows are
+   the comparison that justified the winner; they are never what collapses. */
+.fr-pick {
+  flex: 0 0 auto; width: 15px; height: 15px; border-radius: 50%;
+  border: 1.5px solid var(--rule-2); background: var(--paper);
+  display: grid; place-items: center; padding: 0; cursor: pointer;
+}
+.fr-pick:hover { border-color: var(--accent); }
+.fr-pick.on { border-color: var(--accent); background: var(--accent); }
+.fr-pick.on::after { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--paper); }
+
+.fr-vs {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.02em; white-space: nowrap;
+  padding: 2px 7px; border-radius: 3px;
+  background: var(--paper-3); color: var(--ink-3); border: 1px solid var(--rule);
+}
+.fr-vs.worse { color: var(--bad); border-color: color-mix(in oklch, var(--bad) 35%, var(--rule)); }
+.fr-vs.better { color: var(--good); border-color: color-mix(in oklch, var(--good) 40%, var(--rule)); }
+.fr-vs.win { color: var(--accent-ink); border-color: var(--accent); background: var(--accent-soft); }
+
+/* Decision strip — the answer to "three choices without a wall". Present on
+   the subcategory head in every option, so a PM gets the decision and its cost
+   without expanding anything. */
+.fr-decision {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.02em; color: var(--ink-3);
+}
+.fr-decision .chose { color: var(--accent-ink); font-weight: 600; }
+.fr-decision .sep { color: var(--ink-4); }
+
+/* ─── Shared: entry inputs ───────────────────────────────
+   A transcription surface. The form receives numbers she already has, in the
+   order she has them. */
+.fr-in {
+  width: 100%; box-sizing: border-box; text-align: right;
+  font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums;
+  color: var(--ink); background: var(--paper-2);
+  border: 1px solid var(--rule); border-radius: 4px; padding: 4px 7px;
+}
+.fr-in:focus { outline: none; border-color: var(--accent); background: var(--paper); }
+.fr-in.pct { color: var(--ink-2); }
+.fr-in.txt { text-align: left; font-family: var(--ui); }
+.fr-tog {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--accent); text-decoration: underline; text-underline-offset: 2px;
+}
+.fr-tog:hover { color: var(--accent-ink); }
+
+/* One value across tiers is the DEFAULT MOTION at 27 totals, not a shortcut.
+   The span is the meaning: not three equal numbers, one number that didn't
+   vary. Persistence stays per-tier either way.               ← LOAD-BEARING */
+.fr-flat { grid-column: 2 / -1; border-left: 1px solid var(--rule); padding: 7px 14px; display: flex; align-items: center; gap: 10px; }
+.fr-flat .fr-in { width: 118px; }
+.fr-flat .note { font-family: var(--mono); font-size: 8.5px; color: var(--ink-4); letter-spacing: 0.03em; }
+.fr-flat .note em { color: var(--ink-3); font-style: normal; }
+
+.fr-warnflag {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.04em;
+  color: oklch(0.48 0.13 60); background: var(--warn-soft);
+  border: 1px solid color-mix(in oklch, var(--warn) 40%, var(--rule));
+  border-radius: 3px; padding: 1px 6px; white-space: nowrap;
+}
+
+/* ═══ 1a · NESTED COMPARISON TABLE ═════════════════════════
+   Hierarchy as container. At rest the section IS the comparison: one line per
+   destination, three tier figures, delta against the winner. Entry is the
+   disclosed state — pressing a row reveals exactly option 1b's tier rows. */
+/* Subcategories are cards on the section's ground. One mechanism does all the
+   separating — the gap between cards is the section showing through — so no
+   hard rules, no filled chips, no stacked tint bands trying to signal a break
+   that a simple edge already makes.                          ← LOAD-BEARING */
+.fr-sc {
+  margin: 12px; background: var(--paper);
+  border: 1px solid var(--rule-2); border-radius: 8px; overflow: hidden;
+  box-shadow: 0 1px 2px oklch(0.20 0.02 255 / 0.05);
+}
+.fr-sc.import { border-left: 3px solid var(--accent); }
+
+.fr-schead {
+  padding: 13px 16px 12px; background: var(--paper-2);
+  border-bottom: 1px solid var(--rule);
+  display: flex; flex-direction: column; gap: 7px;
+}
+.fr-eyebrow {
+  display: flex; align-items: baseline; gap: 7px;
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4);
+}
+.fr-eyebrow .num { color: var(--ink-3); font-weight: 600; }
+.fr-eyebrow .kind { color: var(--accent-ink); }
+.fr-scname { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.fr-scname .ships { font-family: var(--display); font-size: 17px; font-weight: 500; color: var(--ink); letter-spacing: -0.012em; }
+.fr-scname .from { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.02em; }
+.fr-scname .count {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--ink-4); border: 1px solid var(--rule-2); border-radius: 3px; padding: 2px 6px;
+}
+.fr-scname .count.undecided { color: var(--warn); border-color: var(--warn); }
+
+.fr-dest { border-top: 1px solid var(--rule); background: var(--paper); }
+.fr-dest.sel { background: var(--accent-soft); }
+.fr-dlab { padding: 8px 16px; display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.fr-sc:not(.solo) .fr-dlab { padding-left: 22px; }
+/* A real floor. Without one, min-width:0 lets the name shrink to zero width
+   against its fixed siblings and its block children overflow the box. */
+.fr-dname { flex: 1 1 200px; min-width: 190px; }
+.fr-dname .n { display: block; font-size: 13px; color: var(--ink-2); line-height: 1.3; }
+.fr-dest.sel .fr-dname .n { color: var(--ink); font-weight: 600; }
+.fr-dname .m { display: flex; gap: 8px; flex-wrap: wrap; font-family: var(--mono); font-size: 9px; color: var(--ink-4); margin-top: 2px; }
+.fr-dest.sel .fr-sellcell .v { font-weight: 600; }
+.fr-edit {
+  flex: 0 0 auto; background: none; border: 1px solid transparent; border-radius: 4px; padding: 2px 7px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-4); cursor: pointer;
+}
+.fr-edit:hover, .fr-edit.on { border-color: var(--rule-2); color: var(--accent); background: var(--paper); }
+
+.fr-entry { border-top: 1px dashed var(--rule); background: var(--paper-2); }
+.fr-elab {
+  padding: 6px 16px; display: flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-4);
+}
+.fr-sc:not(.solo) .fr-elab { padding-left: 32px; }
+
+.fr-reason { border-top: 1px solid var(--rule); padding: 9px 16px 10px 22px; background: var(--paper-2);
+  display: flex; gap: 9px; align-items: baseline; }
+.fr-reason .k { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-4); flex: 0 0 auto; }
+.fr-reason .t { font-size: 12px; color: var(--ink-2); line-height: 1.5; max-width: 88ch; }
+.fr-reason .t.empty { color: var(--ink-4); font-style: italic; }
+
+/* Two lines, two sources, two voices. The computed comparison is the system's,
+   stated in mono, and present before any choice exists; the reason is the
+   operator's and is prose. Cally read the old single line as help deciding — it
+   was, in part, and in part it was knowledge only she has.     ← LOAD-BEARING */
+.fr-reason.sys { background: var(--paper-3); }
+.fr-reason.sys .t { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.01em; color: var(--ink-3); line-height: 1.6; }
+.fr-reason.sys .t strong { color: var(--accent-ink); font-weight: 600; }
+.fr-reason.sys .t .flag { color: var(--warn); }
+
+.fr-dname .m .varies { color: var(--warn); }
+
+/* Both add affordances are frequent acts — a dashed ghost button made them read
+   as optional and they got lost in a dense section. Real buttons: the
+   destination one accent-outlined inside its subcategory, the section one
+   filled, on its own band, at the width of the surface it extends. */
+.fr-add {
+  border-top: 1px solid var(--rule); padding: 10px 16px 11px 22px; background: var(--paper);
+}
+.fr-add.sec {
+  padding: 14px 16px; background: var(--paper-3);
+  border-top: 1px solid var(--rule);
+}
+.fr-addbtn {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--paper); border: 1px solid var(--accent); border-radius: 6px;
+  padding: 7px 13px; cursor: pointer; white-space: nowrap;
+  font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--accent-ink);
+  transition: background 120ms, color 120ms;
+}
+.fr-addbtn .pl { font-size: 13px; line-height: 1; }
+.fr-addbtn:hover { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+.fr-addbtn.big {
+  background: var(--ink); border-color: var(--ink); color: var(--paper);
+  padding: 9px 16px; font-size: 11px; letter-spacing: 0.08em;
+}
+.fr-addbtn.big:hover { background: var(--accent); border-color: var(--accent); }
+
+/* One label everywhere. The single-destination case doesn't get a different
+   button — it gets the CONSEQUENCE stated where it happens, because adding a
+   second destination is what turns a leg into a choice.       ← LOAD-BEARING */
+.fr-addnote { display: block; margin-top: 5px; font-size: 11.5px; color: var(--ink-4); line-height: 1.45; max-width: 74ch; }
+
+/* A draft destination appears IN PLACE, expanded, never behind a modal — a
+   candidate exists to be compared, and a modal covers the rows it is compared
+   against. Inline for a thing with siblings; modal only for a container that
+   has none.                                                   ← LOAD-BEARING */
+.fr-dest.draft { background: var(--paper-3); box-shadow: inset 3px 0 0 var(--accent); }
+.fr-dest.draft .fr-dname .n { color: var(--ink-4); font-style: italic; }
+.fr-inherit {
+  font-family: var(--mono); font-size: 8px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-4); border: 1px dashed var(--rule-2); border-radius: 3px; padding: 1px 4px;
+}
+.fr-din {
+  font-family: var(--ui); font-size: 13px; color: var(--ink); background: var(--paper);
+  border: 1px solid var(--accent); border-radius: 4px; padding: 3px 7px; width: 190px;
+}
+.fr-din:focus { outline: none; }
+
+.fr-del {
+  flex: 0 0 auto; background: none; border: 1px solid transparent; border-radius: 4px; padding: 2px 6px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-4); cursor: pointer;
+}
+.fr-del:hover { border-color: color-mix(in oklch, var(--bad) 40%, var(--rule)); color: var(--bad); background: var(--paper); }
+
+/* Removing the SELECTED destination does not silently promote the next
+   cheapest. Nexus does not determine anything — choosing which candidate
+   reaches the price is hers, so the subcategory goes unselected, loudly. */
+.fr-lost {
+  border-top: 1px solid var(--rule); padding: 9px 16px 9px 22px; background: var(--warn-soft);
+  display: flex; gap: 9px; align-items: baseline;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.02em; color: var(--ink-2);
+}
+.fr-lost .mk { color: oklch(0.52 0.14 60); flex: 0 0 auto; }
+.fr-lost button { margin-left: auto; }
+
+.fr-total { background: var(--paper-3); border-top: 1.5px solid var(--ink-3); }
+.fr-total .lab { padding: 11px 16px; display: flex; flex-direction: column; gap: 2px; }
+.fr-total .lab .n { font-size: 13px; font-weight: 600; color: var(--ink); }
+.fr-total .lab .m { font-family: var(--mono); font-size: 9px; color: var(--ink-4); }
+.fr-total .fr-cell .v { font-size: 14.5px; font-weight: 600; }
+
+.fr-assert {
+  display: flex; gap: 9px; align-items: baseline; padding: 9px 16px;
+  border-top: 1px solid var(--rule); background: var(--good-soft);
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.02em; color: var(--ink-2);
+}
+.fr-assert.open { background: var(--warn-soft); }
+.fr-assert .mk { flex: 0 0 auto; color: var(--good); }
+.fr-assert.open .mk { color: oklch(0.52 0.14 60); }
+
+/* ═══ 1b · FLAT RATE LEDGER ════════════════════════════════
+   Hierarchy as a sort key, not a container. This is literally worksheet rows
+   41–68: one row per destination × tier, with freight type and description on
+   the row where the documents put them. Nothing to create, nothing to expand. */
+
+
+/* ═══ 1c · DECISION CARDS + ENTRY DRAWER ═══════════════════
+   Hierarchy as decision unit. One card per subcategory, always compact; the
+   alternatives live on the card as a delta strip so they can never be
+   collapsed away. Entry moves into a drawer — which is the cost, and it
+   conflicts with the Costs page's one-scrolling-surface rule. Named, not hidden. */
+
+
+/* ─── Customs — internals preserved, placement moved ───── */
+.fr-customs { border-top: 1px solid var(--rule); background: var(--paper-2); }
+.fr-chead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 11px 16px 9px 22px; }
+.fr-customs .h { font-family: var(--display); font-size: 15px; font-weight: 500; color: var(--ink); }
+.fr-entryref { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); letter-spacing: 0.02em; }
+.fr-srcpick { margin-left: auto; display: flex; border: 1px solid var(--rule-2); border-radius: 5px; overflow: hidden; }
+.fr-src {
+  background: var(--paper); border: none; padding: 4px 9px; cursor: pointer;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-3);
+}
+.fr-src + .fr-src { border-left: 1px solid var(--rule-2); }
+.fr-src.on { background: var(--ink); color: var(--paper); }
+
+.fr-cgrid { display: grid; grid-template-columns: minmax(200px, 1.5fr) 152px repeat(var(--freight-tier-count, 3), minmax(112px, 1fr)); }
+.fr-chd { background: var(--paper-3); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.fr-chd > div {
+  padding: 6px 12px; border-left: 1px solid var(--rule);
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4);
+}
+.fr-chd > div:first-child { border-left: none; }
+.fr-chd > div.n { text-align: right; }
+.fr-crow { border-top: 1px solid var(--rule); background: var(--paper); }
+.fr-crow > div { padding: 6px 12px; border-left: 1px solid var(--rule); min-width: 0; }
+.fr-crow > div:first-child { border-left: none; }
+.fr-crow .lb { font-size: 12px; color: var(--ink-2); display: flex; flex-direction: column; gap: 2px; justify-content: center; }
+.fr-crow .lb .n { color: var(--ink); font-weight: 500; }
+.fr-crow .lb .d { font-family: var(--mono); font-size: 8.5px; color: var(--ink-4); letter-spacing: 0.02em; }
+.fr-crow .mk { display: flex; gap: 4px; align-items: center; }
+.fr-crow .mk .fr-in { padding: 3px 5px; font-size: 11px; }
+.fr-crow .hs { font-family: var(--mono); font-size: 10px; color: var(--ink-4); display: flex; align-items: center; }
+.fr-crow .n { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.fr-crow .n.dim { justify-content: center; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+.fr-crow .n .v { font-family: var(--mono); font-size: 12px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.fr-crow .n .s { font-family: var(--mono); font-size: 8.5px; color: var(--ink-4); }
+.fr-crow.tot { background: var(--paper-3); border-top: 1.5px solid var(--ink-3); }
+.fr-crow.tot .lb { font-weight: 600; color: var(--ink); }
+.fr-crow.tot .n .v { font-size: 13.5px; font-weight: 600; }
+
+.fr-math {
+  margin: 9px 16px 12px 22px; padding: 8px 11px; background: var(--paper-3);
+  border: 1px solid var(--rule); border-radius: 5px;
+  font-family: var(--mono); font-size: 10px; color: var(--ink-2); letter-spacing: 0.02em; line-height: 1.6;
+}
+.fr-math .kw { color: var(--accent-ink); }
+.fr-math .bad { color: var(--bad); }
+.fr-math .ok { color: var(--good); }
+.fr-attach { display: inline-flex; align-items: center; gap: 6px; margin: 0 16px 12px; font-family: var(--mono); font-size: 10px; color: var(--accent); }
+/* Closes the block, so the next subcategory's head cannot read as a continuation. */
+.fr-customs { padding-bottom: 2px; }
+
+/* ONE ROW GRAMMAR FOR EVERY COST IN THE SECTION. The defect was not
+   duty-editable-vs-freight-captioned — it was that a cost was a caption
+   anywhere. Every cost row now reads: the amount she types × the markup she
+   sets → the derived sell. Freight per destination, duty/tariff/fees per entry,
+   same grammar, each typeable where the fact lives.          ← LOAD-BEARING */
+.fr-entrycell { align-items: stretch; gap: 4px; }
+.fr-entrycell .mrow { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.fr-entrycell .mrow .x { font-family: var(--mono); font-size: 9px; color: var(--ink-4); }
+.fr-entrycell .mrow .fr-in { width: 42px; padding: 2px 4px; font-size: 10.5px; }
+.fr-entrycell .mrow .arr { font-family: var(--mono); font-size: 9px; color: var(--ink-4); }
+.fr-entrycell .mrow .sell {
+  font-family: var(--mono); font-size: 11.5px; color: var(--accent-ink); font-variant-numeric: tabular-nums;
+}
+.fr-dest.sel .fr-entrycell .mrow .sell { font-weight: 600; }
+.fr-entrycell .cbm { font-family: var(--mono); font-size: 8px; color: var(--ink-4); text-align: right; }
+
+/* ─── The empty state ────────────────────────────────────
+   NOT a blank table with one empty row — that teaches the one-leg shape the
+   whole redesign exists to correct. A prompt that names the model instead. */
+.fr-empty { padding: 30px 20px 32px; text-align: center; background: var(--paper); }
+.fr-empty .t { font-family: var(--display); font-size: 19px; font-weight: 500; color: var(--ink); }
+.fr-empty .s { font-size: 12.5px; color: var(--ink-3); line-height: 1.6; margin: 7px auto 14px; max-width: 60ch; }
+.fr-empty .btn { white-space: nowrap; }
+
+/* ─── Walkthrough scaffold (review only, not part of the section) ─── */
+.fr-seq { border: 1px solid var(--rule); border-radius: 9px; background: var(--paper); margin: 0 0 14px; overflow: hidden; }
+.fr-steps { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--rule); background: var(--paper-3); }
+.fr-step {
+  flex: 1 1 auto; min-width: 100px; background: none; border: none; border-left: 1px solid var(--rule);
+  padding: 8px 9px; cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 2px;
+}
+.fr-step:first-child { border-left: none; }
+.fr-step .n { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.1em; color: var(--ink-4); }
+.fr-step .l { font-size: 11.5px; color: var(--ink-3); line-height: 1.25; }
+.fr-step.on { background: var(--paper); }
+.fr-step.on .n { color: var(--accent-ink); font-weight: 600; }
+.fr-step.on .l { color: var(--ink); font-weight: 500; }
+.fr-caption { padding: 11px 16px 12px; display: flex; flex-direction: column; gap: 6px; }
+.fr-caption .k { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4); }
+.fr-caption .t { font-size: 12.5px; color: var(--ink-2); line-height: 1.55; max-width: 96ch; }
+.fr-caption .types {
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink); background: var(--paper-3);
+  border: 1px solid var(--rule); border-radius: 5px; padding: 7px 10px; line-height: 1.7;
+}
+.fr-caption .types .lbl { color: var(--ink-4); }
+.fr-caption .cost { font-family: var(--mono); font-size: 10px; color: oklch(0.48 0.13 60); letter-spacing: 0.02em; line-height: 1.5; }
+
+/* ─── Supporting-detail fold ─────────────────────────────
+   A single control per subcategory rather than four — four toggles in a dense
+   section is the clutter it was meant to remove. The collapsed summary names
+   what is inside, so nothing hides silently, and anything PENDING keeps the
+   fold open and says why.                                     ← LOAD-BEARING */
+.fr-fold {
+  border-top: 1px solid var(--rule); background: var(--paper-2);
+  padding: 7px 16px 7px 22px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.fr-foldbtn {
+  display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  background: none; border: none; padding: 2px 0; cursor: pointer;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.fr-foldbtn .cv { color: var(--ink-4); font-size: 9px; }
+.fr-foldbtn:hover { color: var(--accent-ink); }
+.fr-foldbtn.on { color: var(--ink); }
+.fr-foldbtn:disabled { cursor: default; color: var(--ink-3); }
+
+.fr-chips { display: flex; gap: 5px; flex-wrap: wrap; }
+.fr-fchip {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.03em;
+  color: var(--ink-4); background: var(--paper); border: 1px solid var(--rule); border-radius: 3px; padding: 1px 6px;
+}
+.fr-fchip.warn {
+  color: oklch(0.48 0.13 60); background: var(--warn-soft);
+  border-color: color-mix(in oklch, var(--warn) 40%, var(--rule));
+}
+.fr-forced {
+  margin-left: auto; font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.05em;
+  text-transform: uppercase; color: oklch(0.48 0.13 60);
+}
+
+/* ─── Tracking — the section's second purpose ────────────
+   She plans and tracks shipments here, not only costs them. ONE strip per
+   subcategory, tied to the chosen destination, because only the chosen one ever
+   moves — three candidates would otherwise carry three sets of permanently
+   empty date fields.                                         ← LOAD-BEARING */
+.fr-track {
+  border-top: 1px solid var(--rule); padding: 10px 16px 11px 22px; background: var(--paper-2);
+  display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+}
+.fr-track > .k {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--accent-ink); flex: 0 0 auto;
+}
+.fr-track.pending > .k { color: var(--ink-4); }
+.fr-track .none { font-size: 12px; color: var(--ink-4); font-style: italic; }
+.fr-tfields { display: flex; gap: 16px; flex-wrap: wrap; }
+.fr-tfields .f { display: flex; align-items: baseline; gap: 7px; }
+.fr-tfields .k { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-4); }
+.fr-tin.sm { width: 128px; padding: 4px 7px; font-size: 12px; }
+/* Native date input. Stored ISO, displayed by the picker's own locale format —
+   the operator never types a format, so no date can be ambiguous between two
+   surfaces. Freeform text could be wrong in a way nothing downstream detects. */
+.fr-tin.date { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
+.fr-tin.date::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.55; }
+.fr-tin.date:hover::-webkit-calendar-picker-indicator { opacity: 1; }
+.fr-tin.sm.date { width: 150px; }
+.fr-tfields .unset { font-family: var(--mono); font-size: 8.5px; color: var(--ink-4); font-style: italic; }
+.fr-track.stale { background: var(--warn-soft); }
+.fr-track .warn { flex: 1 1 100%; font-family: var(--mono); font-size: 9.5px; color: oklch(0.48 0.13 60); }
+
+/* A note, not a quote reference and not an attachment. She has the document
+   open while typing and nobody else reads it — so the field presumes no
+   document exists and holds whatever she wants for herself. */
+.fr-note {
+  font-family: var(--mono); font-size: 9.5px; color: var(--ink-3);
+  background: transparent; border: none; border-bottom: 1px dashed var(--rule-2);
+  padding: 1px 2px; width: 190px; margin-top: 3px; display: block;
+}
+.fr-note:focus { outline: none; border-bottom-color: var(--accent); color: var(--ink); }
+.fr-note::placeholder { color: var(--ink-4); font-style: italic; }
+
+/* ─── Creation surface ───────────────────────────────────
+   Replaces "Add freight leg". Asks what ships and from where — the
+   subcategory — and stops. Rates go on the section, where the comparison
+   between candidates is visible; a modal cannot show a comparison against the
+   rows it is covering.                                      ← LOAD-BEARING */
+.fr-scrim { position: fixed; inset: 0; background: oklch(0.20 0.02 255 / 0.42); display: grid; place-items: center; padding: 24px; z-index: 60; }
+.fr-modal { width: min(560px, 100%); background: var(--paper); border: 1px solid var(--rule-2); border-radius: 12px;
+  box-shadow: 0 24px 48px -20px oklch(0.20 0.02 255 / 0.4); overflow: hidden; }
+.fr-mhead { padding: 16px 20px 13px; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+.fr-mhead .t { font-family: var(--display); font-size: 19px; font-weight: 500; color: var(--ink); }
+.fr-mhead .s { font-size: 12px; color: var(--ink-3); margin-top: 4px; line-height: 1.5; max-width: 58ch; }
+.fr-mbody { padding: 16px 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+.fr-mbody .full { grid-column: 1 / -1; }
+.fr-lbl { display: block; font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 4px; }
+.fr-tin { width: 100%; box-sizing: border-box; font-family: var(--ui); font-size: 13px; color: var(--ink);
+  background: var(--paper-2); border: 1px solid var(--rule); border-radius: 5px; padding: 7px 9px; }
+.fr-tin:focus { outline: none; border-color: var(--accent); background: var(--paper); }
+.fr-hint { font-size: 11.5px; color: var(--ink-3); line-height: 1.5; margin-top: 3px; }
+.fr-mfoot { padding: 12px 20px; border-top: 1px solid var(--rule); background: var(--paper-2); display: flex; align-items: center; gap: 10px; }
+.fr-mfoot .sp { margin-right: auto; font-family: var(--mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.05em; }
+
+@media (max-width: 1000px) {
+  .fr-grid { grid-template-columns: minmax(230px, 1fr) repeat(var(--freight-tier-count, 3), minmax(94px, 1fr)); }
+  /* Nothing is hidden here. Cally asked for the markup column to stay visible
+     so it can be adjusted, and a break column that vanishes is a fact the
+     operator can no longer enter.                             ← LOAD-BEARING */
+  .fr-cgrid { grid-template-columns: minmax(120px, 1fr) 108px repeat(var(--freight-tier-count, 3), minmax(84px, 0.9fr)); }
+  .fr-crow .mk .fr-in { padding: 3px 3px; font-size: 10px; }
+  .fr-crow .lb .d { display: none; }
+  /* The chips and the edit affordance take their own line rather than
+     competing with the name for one narrow track. */
+  .fr-dname { flex: 1 1 100%; min-width: 0; }
+  .fr-trade { grid-template-columns: 1fr; }
+  .fr-trade > div { border-left: none; border-top: 1px solid var(--rule); }
+  .fr-mbody { grid-template-columns: 1fr; }
+}
+
+/* Approved source deviations: Setup-owned product grouping and dynamic quote
+   tiers. These rules adapt only the four dispositioned conflicts; the bundled
+   freight hierarchy and visual grammar above remain authoritative. */
+.freight-authority { --freight-tier-count: 3; }
+.fr-product-group { border-top: 1px solid var(--rule); background: var(--paper-2); }
+.fr-product-head {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 12px 16px; border-bottom: 1px solid var(--rule); background: var(--paper-2);
+}
+.fr-product-head > .identity { display: flex; flex-direction: column; min-width: 190px; }
+.fr-product-head .product-name { font-family: var(--display); font-size: 17px; font-weight: 500; color: var(--ink); }
+.fr-product-head .source, .fr-product-components .k {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--ink-4);
+}
+.fr-product-components { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.fr-product-head > .fr-addbtn { margin-left: auto; }
+.fr-inherited {
+  display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+  padding: 8px; background: var(--paper-2); border: 1px solid var(--rule); border-radius: 5px;
+}
+.fr-inherited .k { flex: 1 0 100%; font-family: var(--mono); font-size: 8.5px; text-transform: uppercase; color: var(--ink-4); }
+.fr-product-components .fr-chip, .fr-inherited .fr-chip { cursor: default; }
+.fr-shipment-contents { display: flex; gap: 5px; flex-wrap: wrap; border: 1px solid var(--rule); padding: 5px; }
+.fr-dest-draft { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.fr-dest-draft .fr-din { width: 160px; }
+.fr-dest-draft .fr-note { width: 150px; }
+.fr-entryref { display: flex; align-items: baseline; gap: 7px; flex: 1 1 auto; }
+.fr-entryref .fr-note { display: inline-block; margin: 0; }
+.fr-srcpick .fr-src { display: inline-flex; align-items: center; gap: 5px; }
+.fr-edit-disclosure { font-family: var(--mono); font-size: 9px; color: var(--ink-3); }
+.fr-edit-disclosure summary { cursor: pointer; }
+.fr-edit-disclosure form { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
+.fr-edit-disclosure input, .fr-edit-disclosure select { border: 1px solid var(--rule); border-radius: 3px; padding: 4px; min-width: 90px; }
+.fr-edit-disclosure .fr-shipment-contents { flex: 1 0 100%; }
+.fr-edit-disclosure .fr-shipment-contents label { display: inline-flex; align-items: center; gap: 3px; }

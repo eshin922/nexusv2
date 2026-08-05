@@ -173,6 +173,7 @@ export type BuildQuoteCostingInputFromNewModelArgs = {
   freightLegs: CostingFreightLeg[];
   freightLegTiers: CostingFreightLegTier[];
   freightComponentTierCosts: QuoteCostingInput["freightComponentTierCosts"];
+  freightShipmentBreaks?: QuoteCostingInput["freightShipmentBreaks"];
 };
 
 // ---------- Adapter implementation ----------
@@ -337,6 +338,7 @@ export function buildQuoteCostingInputFromNewModel(
     freightLegs: args.freightLegs,
     freightLegTiers: args.freightLegTiers,
     freightComponentTierCosts: args.freightComponentTierCosts,
+    freightShipmentBreaks: args.freightShipmentBreaks ?? [],
     cellOverrides,
     cellTargets,
   };

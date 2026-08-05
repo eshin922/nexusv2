@@ -25,15 +25,22 @@ import {
   auditLog,
   firmSettings,
   freightCustomerArrangesMeta,
+  freightCustomsBreaks,
+  freightCustomsEntries,
+  freightDestinationBreaks,
+  freightDestinations,
   freightLegComponentTierCosts,
   freightLegGroups,
   freightLegs,
   freightLegTiers,
+  freightSubcategories,
+  freightSubcategoryItems,
   projects,
   quotes,
   quoteReviewEvents,
   quoteSnapshots,
   quoteSnapshotFreightInputs,
+  quoteSnapshotFreightWorkbooks,
   quoteLeaves,
   quoteCommercialMarkupPins,
   quoteCommercialSettingsPins,
@@ -48,6 +55,7 @@ import {
 } from "@/lib/hubspot";
 import type { HubSpotStage as DealStageInfo } from "@/lib/integrations/hubspot-provider";
 import { isHubspotLinkedDealId } from "@/lib/hubspot-linkage";
+import { loadFreightWorkbook, type FreightWorkbook } from "@/lib/freight-workbook";
 import {
   attachGroupedMembership,
 } from "@/lib/product-structure/grouped-membership-compatibility";
@@ -1747,6 +1755,16 @@ export async function sendQuote(
         createdByUserId: user.id,
       }).returning({ id: quoteSnapshots.id });
 
+      // Phase 2 worksheet freight is frozen inside the same transaction as
+      // the Quote snapshot. The one-to-one snapshot FK is the durable
+      // association; any workbook, pin, snapshot, or Quote update failure
+      // rolls the entire commercial send back.
+      const freightWorkbook = await loadFreightWorkbook(quoteId, tx);
+      await tx.insert(quoteSnapshotFreightWorkbooks).values({
+        quoteSnapshotId: snapshot.id,
+        workbook: freightWorkbook,
+      });
+
       // Phase 1: snapshot + commercial pin are one transaction and explicitly
       // associated by the non-null, unique quote_snapshot_id FK. Any header or
       // child failure aborts this transaction, including the snapshot insert.
@@ -2894,6 +2912,89 @@ export async function clearCustomerAcceptance(
 // All inserts run inside the caller's transaction `tx`. Returns
 // the new quote id. Does NOT emit the scenario_copied audit row —
 // caller does that with their source_type discriminator.
+async function cloneFreightWorksheet(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  workbook: FreightWorkbook,
+  newQuoteId: string,
+  assemblyIdMap: Map<string, string>,
+  assemblyLeafIdMap: Map<string, string>,
+  tierIdMap: Map<string, string>,
+) {
+  const subcategoryIdMap = new Map<string, string>();
+  const destinationIdMap = new Map<string, string>();
+  const customsEntryIdMap = new Map<string, string>();
+  for (const row of workbook.subcategories) {
+    const assemblyId = assemblyIdMap.get(row.assemblyId);
+    if (!assemblyId) throw new Error(`clone: freight subcategory has unmapped assembly ${row.assemblyId}`);
+    const [inserted] = await tx.insert(freightSubcategories).values({
+      quoteId: newQuoteId, assemblyId, label: row.label, origin: row.origin,
+      carrierForwarder: row.carrierForwarder, incoterm: row.incoterm,
+      cargoReadyDate: row.cargoReadyDate, journeyLabel: row.journeyLabel,
+      treatment: row.treatment, crossesInternationalBorder: row.crossesInternationalBorder,
+      selectedDestinationId: null, selectionReason: row.selectionReason,
+      displayOrder: row.displayOrder, source: row.source, fieldProvenance: row.fieldProvenance,
+    }).returning({ id: freightSubcategories.id });
+    subcategoryIdMap.set(row.id, inserted.id);
+  }
+  for (const row of workbook.memberships) {
+    const freightSubcategoryId = subcategoryIdMap.get(row.freightSubcategoryId);
+    const assemblyLeafId = assemblyLeafIdMap.get(row.assemblyLeafId);
+    if (!freightSubcategoryId || !assemblyLeafId) throw new Error("clone: freight membership has unmapped identity");
+    await tx.insert(freightSubcategoryItems).values({ freightSubcategoryId, assemblyLeafId, source: row.source, fieldProvenance: row.fieldProvenance });
+  }
+  for (const row of workbook.destinations) {
+    const freightSubcategoryId = subcategoryIdMap.get(row.freightSubcategoryId);
+    if (!freightSubcategoryId) throw new Error("clone: freight destination has unmapped subcategory");
+    const [inserted] = await tx.insert(freightDestinations).values({
+      freightSubcategoryId, destination: row.destination, consignee: row.consignee,
+      transitDays: row.transitDays, quoteReference: row.quoteReference,
+      internalNotes: row.internalNotes, sameValueAllBreaks: row.sameValueAllBreaks,
+      displayOrder: row.displayOrder, source: row.source, fieldProvenance: row.fieldProvenance,
+    }).returning({ id: freightDestinations.id });
+    destinationIdMap.set(row.id, inserted.id);
+  }
+  for (const row of workbook.subcategories) {
+    if (!row.selectedDestinationId) continue;
+    const id = subcategoryIdMap.get(row.id);
+    const selectedDestinationId = destinationIdMap.get(row.selectedDestinationId);
+    if (!id || !selectedDestinationId) throw new Error("clone: selected freight destination has drifting identity");
+    await tx.update(freightSubcategories).set({ selectedDestinationId }).where(eq(freightSubcategories.id, id));
+  }
+  for (const row of workbook.breaks) {
+    const freightDestinationId = destinationIdMap.get(row.freightDestinationId);
+    const tierId = tierIdMap.get(row.tierId);
+    if (!freightDestinationId || !tierId) throw new Error("clone: freight break has unmapped identity");
+    await tx.insert(freightDestinationBreaks).values({
+      freightDestinationId, tierId, freightAmount: row.freightAmount,
+      freightMarkupPct: row.freightMarkupPct, mode: row.mode,
+      shipmentNote: row.shipmentNote, cbm: row.cbm,
+      source: row.source, fieldProvenance: row.fieldProvenance,
+    });
+  }
+  for (const row of workbook.customsEntries) {
+    const freightSubcategoryId = subcategoryIdMap.get(row.freightSubcategoryId);
+    if (!freightSubcategoryId) throw new Error("clone: customs entry has unmapped subcategory");
+    const [inserted] = await tx.insert(freightCustomsEntries).values({
+      freightSubcategoryId, sourceMode: row.sourceMode,
+      invoiceReference: row.invoiceReference, entryDescription: row.entryDescription,
+      source: row.source, fieldProvenance: row.fieldProvenance,
+    }).returning({ id: freightCustomsEntries.id });
+    customsEntryIdMap.set(row.id, inserted.id);
+  }
+  for (const row of workbook.customsBreaks) {
+    const freightCustomsEntryId = customsEntryIdMap.get(row.freightCustomsEntryId);
+    const tierId = tierIdMap.get(row.tierId);
+    if (!freightCustomsEntryId || !tierId) throw new Error("clone: customs break has unmapped identity");
+    await tx.insert(freightCustomsBreaks).values({
+      freightCustomsEntryId, tierId, chargeType: row.chargeType,
+      amount: row.amount, markupPct: row.markupPct, rateBase: row.rateBase,
+      ratePct: row.ratePct, detail: row.detail,
+      source: row.source, fieldProvenance: row.fieldProvenance,
+    });
+  }
+  // Tracking is operational execution state and intentionally starts empty.
+}
+
 async function cloneQuoteGraph(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   args: {
@@ -3002,6 +3103,7 @@ async function cloneQuoteGraph(
     .where(eq(assemblies.quoteId, args.sourceQuoteId))
     .orderBy(asc(assemblies.position));
   const assemblyIdMap = new Map<string, string>(); // sourceAssemblyId → newAssemblyId
+  const assemblyLeafIdMap = new Map<string, string>();
   const quoteLeafIdMap = new Map<string, string>();
   if (sourceAssemblies.length > 0) {
     const insertedAssemblies = await tx
@@ -3043,7 +3145,6 @@ async function cloneQuoteGraph(
     // build assemblyLeafIdMap so downstream cost-input clones
     // (assembly_leaf_inputs, assembly_leaf_overrides,
     // assembly_leaf_targets) can resolve source → new leaf refs.
-    const assemblyLeafIdMap = new Map<string, string>();
     const sourceAssemblyIds = sourceAssemblies.map((a) => a.id);
     const sourceJunctions = await tx
       .select()
@@ -3233,6 +3334,16 @@ async function cloneQuoteGraph(
       );
     }
   }
+
+  const sourceFreightWorkbook = await loadFreightWorkbook(args.sourceQuoteId, tx);
+  await cloneFreightWorksheet(
+    tx,
+    sourceFreightWorkbook,
+    newQuoteId,
+    assemblyIdMap,
+    assemblyLeafIdMap,
+    tierIdMap,
+  );
 
   // Clone freight_leg_groups + freight_legs (R6.2 leg-based model).
   // Quote-keyed (FK to quotes.id directly per schema.ts:862).

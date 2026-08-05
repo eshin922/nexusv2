@@ -20,7 +20,7 @@ function input(markup: number): QuoteCostingInput {
       origin: null, destination: null, crossesInternationalBorder: false,
       treatment: "bundled", mode: "ocean_fcl", carrier: null, incoterm: null,
       cargoReadyDate: null, vesselEtd: null, vesselEta: null,
-      actualDeliveryDate: null, freightMarkupPct: 0.3, dutyMarkupPct: 0,
+      actualDeliveryDate: null, dutyMarkupPct: 0,
       tariffMarkupPct: 0, customs: {}, displayOrder: 0,
     }],
     freightLegTiers: [{ freightLegId: "leg", tierId: "tier", totalFreight: null, unitsInShipment: null }],

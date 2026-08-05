@@ -243,13 +243,6 @@ export type CostingFreightLeg = {
   // Both nullable; no math impact (PM-reference only).
   vesselEta: string | null;
   actualDeliveryDate: string | null;
-  // TRANSITIONAL — superseded as commercial authority by the quote-level
-  // markup introduced in migration 0053, but RETAINED so this release stays
-  // additive in type surface. Existing consumers still read it and must keep
-  // compiling. Removed in PR-E alongside the code that replaces them; the
-  // physical column drops in PR-G / migration 0056, only after Stage 4 and
-  // operator validation. See docs/release/PR-D-CONSTRUCTION-BRIEF.md.
-  freightMarkupPct: number;
   dutyMarkupPct: number;
   tariffMarkupPct: number;
   customs: CostingLegCustoms;
@@ -270,6 +263,69 @@ export type CostingFreightComponentTierCost = {
   actualFreightCost: number | null;
   effectiveUnits?: number;
 };
+
+/**
+ * Worksheet freight is owned by one commercial product. Component membership
+ * describes what is inside the shipment and is deliberately absent from this
+ * arithmetic boundary: changing membership can never change the contribution.
+ */
+export type ShipmentContributionInput = {
+  tierUnits: number;
+  freightAmount: number | null;
+  freightMarkupPct: number;
+  dutyAmount: number | null;
+  dutyMarkupPct: number;
+  tariffAmount: number | null;
+  tariffMarkupPct: number;
+};
+
+export type ShipmentContribution = {
+  freightCostPerUnit: number;
+  freightBillablePerUnit: number;
+  dutyCostPerUnit: number;
+  dutyBillablePerUnit: number;
+  tariffCostPerUnit: number;
+  tariffBillablePerUnit: number;
+  totalCostPerUnit: number;
+  totalBillablePerUnit: number;
+};
+
+export type CostingFreightShipmentBreak = ShipmentContributionInput & {
+  freightSubcategoryId: string;
+  ownerSkuId: string;
+  tierId: string;
+  treatment: "bundled" | "pass_through";
+};
+
+export function computeShipmentContribution(
+  input: ShipmentContributionInput,
+): ShipmentContribution {
+  const units = num(input.tierUnits);
+  const perUnit = (amount: number | null) =>
+    units > 0 ? num(amount) / units : 0;
+  const freightCostPerUnit = perUnit(input.freightAmount);
+  const dutyCostPerUnit = perUnit(input.dutyAmount);
+  const tariffCostPerUnit = perUnit(input.tariffAmount);
+  const freightBillablePerUnit =
+    freightCostPerUnit * (1 + num(input.freightMarkupPct));
+  const dutyBillablePerUnit =
+    dutyCostPerUnit * (1 + num(input.dutyMarkupPct));
+  const tariffBillablePerUnit =
+    tariffCostPerUnit * (1 + num(input.tariffMarkupPct));
+
+  return {
+    freightCostPerUnit,
+    freightBillablePerUnit,
+    dutyCostPerUnit,
+    dutyBillablePerUnit,
+    tariffCostPerUnit,
+    tariffBillablePerUnit,
+    totalCostPerUnit:
+      freightCostPerUnit + dutyCostPerUnit + tariffCostPerUnit,
+    totalBillablePerUnit:
+      freightBillablePerUnit + dutyBillablePerUnit + tariffBillablePerUnit,
+  };
+}
 
 // Slice 9.3 — per-cell sell-price override. Sparse: rows exist ONLY
 // when a PM has set an explicit override on a (SKU, tier) cell.
@@ -335,6 +391,7 @@ export type QuoteCostingInput = {
   freightLegs: CostingFreightLeg[];
   freightLegTiers: CostingFreightLegTier[];
   freightComponentTierCosts?: CostingFreightComponentTierCost[];
+  freightShipmentBreaks?: CostingFreightShipmentBreak[];
   // Slice 9.3 — sparse per-cell sell-price overrides. Empty array =
   // no overrides anywhere. Order doesn't matter; computeQuoteCosting
   // builds a `${skuId}::${tierId}` lookup map internally.
@@ -540,6 +597,28 @@ export type QuoteCostingResult = {
 const FALLBACK_MARKUP = 0.3;
 const PRODUCTION_MARKUP_CATEGORY = "Manufacturing";
 const RAW_MARKUP_CATEGORY = "Raw ingredients"; // Slice 9 will likely add this; falls back to Other today
+
+// Phase 2 freight model cutover — diagnostic for the shadowing case.
+//
+// The math layer is pure: this reports, it does not mutate state and it
+// does not change any returned value. It is deduped because
+// computeQuoteCosting runs on every optimistic recompute and an
+// un-deduped warning would be per-keystroke noise.
+//
+// Deliberately NOT an exception. A quote carrying both models is a
+// legitimate mid-retirement state, and the worksheet result is correct.
+// This exists so the discard is visible rather than silent.
+const shadowedFreightReports = new Set<string>();
+function reportLegacyFreightShadowed(legCount: number, breakCount: number): void {
+  const key = `${legCount}:${breakCount}`;
+  if (shadowedFreightReports.has(key)) return;
+  shadowedFreightReports.add(key);
+  console.warn(
+    `[freight-model] Worksheet is authoritative (${breakCount} shipment break(s)); ` +
+      `${legCount} legacy freight leg(s) present and not consulted. ` +
+      `Expected during the staged legacy-model retirement.`,
+  );
+}
 
 function num(v: number | null | undefined, fallback = 0): number {
   return v == null ? fallback : v;
@@ -994,6 +1073,7 @@ function computeLeafPerTier(args: {
   freightLegs: CostingFreightLeg[];
   freightLegTiers: CostingFreightLegTier[];
   freightComponentTierCosts: CostingFreightComponentTierCost[];
+  freightShipmentBreaks: CostingFreightShipmentBreak[];
   freightMarkupPct: number;
   globalAdj: number;
   markupDefaults: Record<string, number>;
@@ -1020,6 +1100,7 @@ function computeLeafPerTier(args: {
     freightLegs,
     freightLegTiers,
     freightComponentTierCosts = [],
+    freightShipmentBreaks = [],
     freightMarkupPct = 0.3,
     globalAdj,
     markupDefaults,
@@ -1136,7 +1217,36 @@ function computeLeafPerTier(args: {
   let totalContainerWithMarkup = 0;
   let totalDutyTariffWithMarkup = 0;
   let customsLegCount = 0;
-  for (const leg of freightLegs) {
+
+  // ---------- freight model selection ----------
+  // Phase 2 replaced the leg/component/tier freight model with the
+  // worksheet model (subcategory -> destination candidates -> quantity
+  // breaks). Both models are still resident in the schema during the
+  // staged retirement; this is the single point at which one of them
+  // is chosen.
+  //
+  // The rule: presence of ANY worksheet shipment break means the
+  // worksheet is authoritative for this quote and the legacy legs are
+  // not consulted at all. The two are mutually exclusive by
+  // construction — never summed, never merged.
+  //
+  // Retirement plan: docs/AUTHORITY_TIMELINE.md Era 6.
+  // Consumer inventory + removal sequence: the legacy tables are
+  // scheduled for drop after V1; until then this predicate is the
+  // boundary between the two models.
+  const worksheetIsAuthoritative = freightShipmentBreaks.length > 0;
+  const legacyLegsShadowed = worksheetIsAuthoritative && freightLegs.length > 0;
+  if (legacyLegsShadowed) {
+    // Both models carry data for this quote. The worksheet wins, and
+    // the legacy legs contribute nothing. This is expected during the
+    // retirement window for quotes that predate the cutover, but it is
+    // reported because silently discarding cost data is exactly the
+    // failure mode a model cutover produces.
+    reportLegacyFreightShadowed(freightLegs.length, freightShipmentBreaks.length);
+  }
+  const activeFreightLegs = worksheetIsAuthoritative ? [] : freightLegs;
+
+  for (const leg of activeFreightLegs) {
     const legTier = freightLegTiers.find(
       (lt) => lt.freightLegId === leg.id && lt.tierId === tier.id,
     );
@@ -1203,6 +1313,21 @@ function computeLeafPerTier(args: {
     totalDutyTariffBefore += duty + tariff;
     totalContainerWithMarkup += containerWithMarkup;
     totalDutyTariffWithMarkup += dutyWithMarkup + tariffWithMarkup;
+  }
+
+  // Worksheet freight is shipment-centric and assembly-owned. The adapter
+  // resolves one deterministic math-leaf carrier for the owning product so the
+  // existing leaf-based downstream stack receives the contribution once. SKU
+  // membership is intentionally absent from this input and calculation.
+  for (const shipment of freightShipmentBreaks) {
+    if (shipment.ownerSkuId !== sku.id || shipment.tierId !== tier.id) continue;
+    const contribution = computeShipmentContribution(shipment);
+    totalLandedBefore += contribution.totalCostPerUnit;
+    totalLandedWithMarkup += contribution.totalBillablePerUnit;
+    totalContainerBefore += contribution.freightCostPerUnit;
+    totalDutyTariffBefore += contribution.dutyCostPerUnit + contribution.tariffCostPerUnit;
+    totalContainerWithMarkup += contribution.freightBillablePerUnit;
+    totalDutyTariffWithMarkup += contribution.dutyBillablePerUnit + contribution.tariffBillablePerUnit;
   }
 
   // ---------- contribution + required sell ----------
@@ -1546,6 +1671,7 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
           freightLegs: sortedLegs,
           freightLegTiers: input.freightLegTiers,
           freightComponentTierCosts: input.freightComponentTierCosts ?? [],
+          freightShipmentBreaks: input.freightShipmentBreaks ?? [],
           freightMarkupPct: input.quote.freightMarkupPct ?? 0.3,
           globalAdj: effectiveAdj,
           markupDefaults,

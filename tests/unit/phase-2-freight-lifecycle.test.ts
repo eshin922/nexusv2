@@ -52,10 +52,13 @@ test("sent costing reads pinned markup and freight-input snapshot", async () => 
   assert.match(costing, /freightMarkupPct: commercial\.freightMarkupPct/);
 });
 
-test("customer and NetSuite boundaries include unresolved component freight", async () => {
+test("customer and NetSuite boundaries validate selected worksheet commercial inputs", async () => {
   const completeness = await read("src/lib/quote-cost-completeness.ts");
 
-  assert.match(completeness, /from\(freightLegComponentTierCosts\)/);
-  assert.match(completeness, /isNull\(freightLegComponentTierCosts\.actualFreightCost\)/);
+  assert.match(completeness, /loadFreightWorkbook\(quoteId\)/);
+  assert.match(completeness, /select exactly one valid destination/);
+  assert.match(completeness, /enter Freight and Freight Markup/);
+  assert.match(completeness, /crossesInternationalBorder/);
+  assert.match(completeness, /"duty", "tariff"/);
   assert.match(completeness, /return \[\.\.\.packaging, \.\.\.freight\]/);
 });

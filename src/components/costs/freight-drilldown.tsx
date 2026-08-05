@@ -1,2078 +1,326 @@
-"use client";
+﻿"use client";
 
-import React, { useEffect, useRef, useState, useTransition } from "react";
-import { Modal } from "@/components/modal/modal";
+import { useMemo, useRef, useState, useTransition } from "react";
+import type { CSSProperties } from "react";
+import { useRouter } from "next/navigation";
 import {
-  addLeg,
-  addLegGroup,
-  deleteLeg,
-  deleteLegGroup,
-  moveLeg,
-  updateCustomerArrangesMeta,
-  updateLegCustoms,
-  updateLegMarkup,
-  updateLegMetadata,
-  updateLegTierCell,
-} from "@/app/actions/freight";
-import { useCostingStore } from "@/components/costing-store-provider";
-import {
-  selectFreightCustomerArrangesMeta,
-  selectFreightLegGroups,
-  selectFreightLegs,
-  selectFreightLegTiers,
-  selectUpdateFreightCustomerArrangesMeta,
-  selectUpdateFreightLegCustoms,
-  selectUpdateFreightLegMarkup,
-  selectUpdateFreightLegMeta,
-  selectUpdateFreightLegTier,
-} from "@/lib/costing-store";
+  addFreightDestination,
+  createFreightSubcategory,
+  deleteFreightDestination,
+  selectFreightDestination,
+  updateFreightCustomsBreak,
+  updateFreightCustomsEntry,
+  updateFreightDestination,
+  updateFreightDestinationBreakGroup,
+  updateFreightSubcategory,
+  updateFreightTracking,
+} from "@/app/actions/freight-worksheet";
+import type { FreightWorkbook } from "@/lib/freight-workbook";
 
-// ---------------------------------------------------------------------------
-// Slice R6.2 commit 2 — Freight drilldown rebuilt against the multi-leg
-// journey model. Renders INSIDE the Costs section accordion (not the
-// CD prototype's standalone-page chrome). Layout grammar mirrors
-// docs/design-prototypes/dist/r6_2_freight-panel.jsx + r6_2_styles.css
-// per Pattern 30 canonical-CSS-imported-verbatim:
-//
-//   Mode chooser (DPS arranges · Multi-leg · Customer arranges · Empty)
-//   Leg-group wrapper (label · leg count · journey transit caption)
-//     Leg head (direction chip · route · ↔ BORDER · treatment toggle · ⋯)
-//     Leg body grid (mode · carrier · incoterm · cargo ready · vessel ETD · freight markup)
-//     Per-tier rate table (rate × markup → billable per unit)
-//     Customs cluster (DDP + crosses_border) with duty/tariff markup pills
-//     PDF slot (P1 visual; upload P2)
-//
-// Page chrome from the prototype (eyebrow / h1 / sub / page-level
-// "+ Add leg" / Save draft) is INTENTIONALLY stripped — the host is
-// the costs page accordion section header. Add-Leg fires as a centered
-// Modal (Setup's primitive) instead of the prototype's slide-in drawer.
-// ---------------------------------------------------------------------------
+type Tier = { id: string; label: string; qty: number | null; recommended?: boolean };
+type Product = { id: string; label: string };
+type Component = { id: string; assemblyId: string; label: string; sku: string | null };
+type Result = { ok: boolean; data?: Record<string, unknown>; error?: { message: string } };
 
-const FREIGHT_LEG_MODES = [
-  { value: "parcel", label: "Parcel" },
-  { value: "ocean_fcl", label: "Ocean FCL" },
-  { value: "ocean_lcl", label: "Ocean LCL" },
-  { value: "air_freight", label: "Air freight" },
-  { value: "air_express", label: "Air express" },
-  { value: "ltl_truck", label: "LTL truck" },
-  { value: "truckload", label: "Truckload" },
-  { value: "drayage", label: "Drayage" },
-  { value: "exw_pickup", label: "EXW pickup" },
-  { value: "other", label: "Other" },
-] as const;
+const money4 = (value: number) => `$${value.toFixed(4)}`;
+const money2 = (value: number) => value.toLocaleString("en-US", { style: "currency", currency: "USD" });
+const autosave = (formId: string) => () => {
+  const form = document.getElementById(formId);
+  if (form instanceof HTMLFormElement) form.requestSubmit();
+};
+const fields = (values: Record<string, string | number | null | undefined>) => {
+  const data = new FormData();
+  Object.entries(values).forEach(([key, value]) => data.set(key, value === null || value === undefined ? "" : String(value)));
+  return data;
+};
 
-const INCOTERMS = [
-  { value: "DDP", label: "DDP", desc: "Delivered Duty Paid" },
-  { value: "DAP", label: "DAP", desc: "Delivered At Place" },
-  { value: "FOB", label: "FOB", desc: "Free On Board" },
-  { value: "EXW", label: "EXW", desc: "Ex Works" },
-  { value: "FCA", label: "FCA", desc: "Free Carrier" },
-  { value: "CIF", label: "CIF", desc: "Cost Insurance Freight" },
-] as const;
-
-type Tier = { id: string; label: string; qty: number | null };
-
-function fmtCurr2(n: number): string {
-  return n.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function fmtPct(decimal: number, fractionDigits = 1): string {
-  return `${(decimal * 100).toFixed(fractionDigits)}%`;
-}
-
-function fmtDate(d: string | null): string {
-  return d ?? "—";
-}
-
-function transitWeeksBetween(
-  cargoReady: string | null,
-  etd: string | null,
-): number | null {
-  if (!cargoReady || !etd) return null;
-  const diffMs = new Date(etd).getTime() - new Date(cargoReady).getTime();
-  if (!Number.isFinite(diffMs)) return null;
-  return Math.round((diffMs / (1000 * 60 * 60 * 24 * 7)) * 10) / 10;
-}
-
-// ---- top-level ----
-
-export function FreightDrilldown({
-  quoteId,
-  tiers,
-  editable,
-}: {
+export function FreightDrilldown(props: {
   quoteId: string;
   tiers: Tier[];
   editable: boolean;
+  workbook: FreightWorkbook;
+  products: Product[];
+  components: Component[];
 }) {
-  const legGroups = useCostingStore(selectFreightLegGroups);
-  const legs = useCostingStore(selectFreightLegs);
-  const [addLegOpen, setAddLegOpen] = useState<{ legGroupId: string } | null>(
-    null,
+  const { quoteId, tiers, editable, workbook, products, components } = props;
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  const [createProductId, setCreateProductId] = useState<string | null>(null);
+  const [openDestinations, setOpenDestinations] = useState<string[]>(() =>
+    workbook.destinations.length <= 2 ? workbook.destinations.map((row) => row.id) : [],
   );
-  const [pendingAddGroup, startAddGroupTransition] = useTransition();
+  const [openSupport, setOpenSupport] = useState<string[]>([]);
 
-  if (tiers.length === 0) {
-    return (
-      <div
-        style={{
-          padding: "12px 14px",
-          background: "var(--warn-soft)",
-          border: "1px solid oklch(from var(--warn) l c h / 0.40)",
-          borderRadius: 6,
-          fontSize: 13,
-          color: "var(--warn)",
-        }}
-      >
-        Add at least one tier to the quote before entering freight legs.
-      </div>
-    );
-  }
+  // Section-level expand-all (disposition C1). The bundle justifies this as
+  // the answer to Option A's own weakness — nine disclosures to type
+  // twenty-seven totals. It operates on destination rows, not on the host
+  // accordion, so it stays in the section body rather than migrating
+  // upward with the family summary.
+  const allDestinationIds = workbook.destinations.map((row) => row.id);
+  const allDetailOpen =
+    allDestinationIds.length > 0 && openDestinations.length === allDestinationIds.length;
 
-  function handleAddFirstLeg() {
-    // Auto-create the first leg-group if none exists yet, then open
-    // the add-leg modal pointing at it. v1 typically has one journey
-    // per quote; multi-route flows are P2.
-    if (legGroups.length > 0) {
-      setAddLegOpen({ legGroupId: legGroups[0].id });
-      return;
-    }
-    const fd = new FormData();
-    fd.set("quoteId", quoteId);
-    fd.set("label", "Outbound · journey 1");
-    startAddGroupTransition(async () => {
-      const result = await addLegGroup(fd);
-      if (result.ok) {
-        setAddLegOpen({ legGroupId: result.data.id });
+  const submit = (action: (fd: FormData) => Promise<Result>, onSuccess?: (result: Result) => void) => (fd: FormData) => {
+    setMessage(null);
+    startTransition(async () => {
+      const result = await action(fd);
+      if (!result.ok) setMessage(result.error?.message ?? "Unable to save freight worksheet.");
+      else {
+        if (result.data?.selectionCleared) setMessage(`${result.data.deletedDestination} was removed. No destination is in the price; choose one explicitly.`);
+        onSuccess?.(result);
+        router.refresh();
       }
     });
-  }
+  };
 
-  if (legGroups.length === 0) {
-    return (
-      <>
-        <div className="r62-empty">
-          <div className="glyph">∅</div>
-          <h4>No freight entered yet</h4>
-          <p>
-            Build a journey of one or more legs — Shenzhen → Long Beach is
-            one leg; Shenzhen → Busan → Long Beach is two. Customs lands
-            on each border-crossing leg with DPS-customs obligation.
-          </p>
-          <div className="actions">
-            <button
-              type="button"
-              className="btn primary"
-              disabled={!editable || pendingAddGroup}
-              onClick={handleAddFirstLeg}
-            >
-              + Add first leg
-            </button>
-          </div>
-        </div>
-        {addLegOpen && (
-          <AddLegModal
-            legGroupId={addLegOpen.legGroupId}
-            tiers={tiers}
-            onClose={() => setAddLegOpen(null)}
-          />
-        )}
-      </>
-    );
-  }
+  return <div className="cw-section freight-authority" style={{ "--freight-tier-count": tiers.length } as CSSProperties}>
+    <div className="fr-grid fr-tierhead"><div className="lab">Freight · sell per unit{allDestinationIds.length > 0 && <button className={`fr-edit${allDetailOpen ? " on" : ""}`} onClick={() => setOpenDestinations(allDetailOpen ? [] : allDestinationIds)}>{allDetailOpen ? "hide all detail" : `show type + description · all ${allDestinationIds.length}`}</button>}</div>{tiers.map((tier) => <div className="fr-cell" key={tier.id}><span className="v">{tier.label}{tier.recommended && <span className="rec"> ★</span>}</span><span className="s">{tier.qty?.toLocaleString()} units</span></div>)}</div>
+    {message && <div className="fr-lost" role="alert"><span className="mk">!</span><span>{message}</span></div>}
 
-  return (
-    <>
-      {legGroups.map((group) => {
-        const groupLegs = legs.filter((l) => l.legGroupId === group.id);
-        return (
-          <LegGroupBlock
-            key={group.id}
-            group={group}
-            legs={groupLegs}
-            tiers={tiers}
-            editable={editable}
-            onAddLeg={() => setAddLegOpen({ legGroupId: group.id })}
-          />
-        );
-      })}
-      {addLegOpen && (
-        <AddLegModal
-          legGroupId={addLegOpen.legGroupId}
-          tiers={tiers}
-          onClose={() => setAddLegOpen(null)}
-        />
-      )}
-    </>
-  );
+    {products.map((product) => {
+      const productComponents = components.filter((item) => item.assemblyId === product.id);
+      const shipments = workbook.subcategories.filter((item) => item.assemblyId === product.id);
+      return <div className={`fr-product-group${products.length === 1 ? " single" : ""}`} key={product.id}>
+        <div className="fr-product-head"><div className="identity"><strong className="product-name">{product.label}</strong><span className="source">Commercial structure from Setup</span></div><div className="fr-product-components"><span className="k">Components</span>{productComponents.map((item) => <span className="fr-chip on" key={item.id}>{item.label}</span>)}</div>{editable && <button className="fr-addbtn" onClick={() => setCreateProductId(product.id)}>{shipments.length ? "+ Record shipment" : products.length === 1 ? "+ What ships" : "+ Record shipment"}</button>}</div>
+        {shipments.length === 0 && <div className="fr-empty"><div className="t">Nothing ships yet</div><div className="s">Record the Logistics decision for this Setup product. Its components, SKU hierarchy and quantity tiers are already established.</div></div>}
+        {shipments.map((shipment, index) => <ShipmentLedger
+          key={shipment.id} shipment={shipment} index={index} count={shipments.length}
+          tiers={tiers} workbook={workbook} components={components} editable={editable} pending={pending}
+          openDestinations={openDestinations} setOpenDestinations={setOpenDestinations}
+          supportOpen={openSupport.includes(shipment.id)} setSupportOpen={(open: boolean) => setOpenSupport((rows) => open ? [...new Set([...rows, shipment.id])] : rows.filter((id) => id !== shipment.id))}
+          submit={submit}
+        />)}
+      </div>;
+    })}
+    {workbook.subcategories.length > 0 && <TotalStrip tiers={tiers} workbook={workbook}/>}
+    {createProductId && <CreateShipmentModal quoteId={quoteId} product={products.find((item) => item.id === createProductId)} components={components.filter((item) => item.assemblyId === createProductId)} pending={pending} close={() => setCreateProductId(null)} submit={submit(createFreightSubcategory, () => setCreateProductId(null))}/>}
+  </div>;
 }
 
-// ---- leg-group ----
-
-function LegGroupBlock({
-  group,
-  legs,
-  tiers,
-  editable,
-  onAddLeg,
-}: {
-  group: { id: string; label: string; displayOrder: number };
-  legs: Array<{
-    id: string;
-    legGroupId: string;
-    cargoReadyDate: string | null;
-    vesselEtd: string | null;
-  }>;
-  tiers: Tier[];
-  editable: boolean;
-  onAddLeg: () => void;
-}) {
-  const [pendingDelete, startDeleteTransition] = useTransition();
-
-  // Journey transit caption: max(vessel_etd) − min(cargo_ready_date)
-  // across the group's legs. Hidden if ANY leg is missing either date
-  // (Gap 6 disposition).
-  const journeyTransitWeeks = (() => {
-    if (legs.length === 0) return null;
-    let maxEtdMs = -Infinity;
-    let minCargoMs = Infinity;
-    for (const leg of legs) {
-      if (!leg.cargoReadyDate || !leg.vesselEtd) return null;
-      const cargoMs = new Date(leg.cargoReadyDate).getTime();
-      const etdMs = new Date(leg.vesselEtd).getTime();
-      if (!Number.isFinite(cargoMs) || !Number.isFinite(etdMs)) return null;
-      if (cargoMs < minCargoMs) minCargoMs = cargoMs;
-      if (etdMs > maxEtdMs) maxEtdMs = etdMs;
-    }
-    const ms = maxEtdMs - minCargoMs;
-    if (!Number.isFinite(ms) || ms <= 0) return null;
-    return Math.round((ms / (1000 * 60 * 60 * 24 * 7)) * 10) / 10;
-  })();
-
-  function handleDeleteGroup() {
-    if (
-      !confirm(
-        `Delete "${group.label}" — all ${legs.length} leg${legs.length === 1 ? "" : "s"} and per-tier rates will be removed.`,
-      )
-    )
-      return;
-    const fd = new FormData();
-    fd.set("legGroupId", group.id);
-    startDeleteTransition(async () => {
-      await deleteLegGroup(fd);
-    });
-  }
-
-  return (
-    <div className="r62-leg-group" style={{ marginBottom: 12 }}>
-      <div className="r62-leg-group-head">
-        <span className="label">{group.label}</span>
-        <span className="meta">
-          · {legs.length} leg{legs.length === 1 ? "" : "s"}
-          {journeyTransitWeeks !== null && (
-            <span style={{ marginLeft: 12, color: "var(--ink-2)" }}>
-              · {journeyTransitWeeks}w total transit
-            </span>
-          )}
-        </span>
-        <button
-          type="button"
-          className="add-leg"
-          disabled={!editable}
-          onClick={onAddLeg}
-        >
-          + Add leg
-        </button>
-        <button
-          type="button"
-          onClick={handleDeleteGroup}
-          disabled={!editable || pendingDelete}
-          title="Delete journey"
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "var(--ink-3)",
-            cursor: "pointer",
-            padding: "0 6px",
-            fontFamily: "var(--mono)",
-            fontSize: 14,
-          }}
-        >
-          ···
-        </button>
-      </div>
-      {legs.length === 0 ? (
-        <div
-          style={{
-            padding: "24px 18px",
-            textAlign: "center",
-            color: "var(--ink-3)",
-            fontSize: 13,
-          }}
-        >
-          No legs yet — click <em>+ Add leg</em> above to add the first.
-        </div>
-      ) : (
-        legs.map((_leg, idx) => (
-          <LegBlock
-            key={legs[idx].id}
-            legId={legs[idx].id}
-            tiers={tiers}
-            editable={editable}
-            position={idx}
-            siblingCount={legs.length}
-          />
-        ))
-      )}
+function ShipmentLedger({ shipment, index, count, tiers, workbook, components, editable, pending, openDestinations, setOpenDestinations, supportOpen, setSupportOpen, submit }: any) {
+  const destinations = workbook.destinations.filter((row: any) => row.freightSubcategoryId === shipment.id);
+  const memberships = workbook.memberships.filter((row: any) => row.freightSubcategoryId === shipment.id);
+  const selected = destinations.find((row: any) => row.id === shipment.selectedDestinationId);
+  const customsEntry = workbook.customsEntries.find((row: any) => row.freightSubcategoryId === shipment.id);
+  const tracking = workbook.tracking.find((row: any) => row.freightDestinationId === shipment.selectedDestinationId);
+  const staleTracking = workbook.tracking.find((row: any) => row.freightDestinationId !== shipment.selectedDestinationId && destinations.some((destination: any) => destination.id === row.freightDestinationId) && (row.etd || row.eta || row.actualDeliveryDate));
+  const displayedTracking = tracking ?? staleTracking;
+  const forcedSupport = destinations.length > 1 && (!!selected && !shipment.selectionReason || !!staleTracking);
+  const shownSupport = supportOpen || forcedSupport;
+  return <div className={`fr-sc${destinations.length === 1 ? " solo" : ""}${shipment.crossesInternationalBorder ? " import" : ""}`}>
+    <div className="fr-schead">
+      <div className="fr-eyebrow"><span className="num">{index + 1} of {count}</span><span>what ships</span><span className={shipment.crossesInternationalBorder ? "kind" : undefined}>· {shipment.crossesInternationalBorder ? "import · clears customs" : "domestic · no border"}</span></div>
+      <div className="fr-scname"><span className="ships">{shipment.label}</span><span className="from">from {shipment.origin || "not set"}</span>{destinations.length > 1 && <span className={`count${shipment.selectedDestinationId ? "" : " undecided"}`}>{destinations.length} destinations priced</span>}</div>
+      <div className="fr-skus"><span className="k">for</span>{memberships.length === components.filter((item: Component) => item.assemblyId === shipment.assemblyId).length && <span className="fr-chip all">all {memberships.length} SKUs</span>}{memberships.map((membership: any) => { const item = components.find((component: Component) => component.id === membership.assemblyLeafId); return item ? <span className="fr-chip on" key={item.id} title={item.label}>{item.sku || item.label}</span> : null; })}</div>
+      <div className="fr-fields"><Fact label="carrier" value={shipment.carrierForwarder}/><Fact label="incoterm" value={shipment.incoterm}/><Fact label="journey" value={shipment.journeyLabel}/><Fact label="cargo ready" value={shipment.cargoReadyDate}/><Fact label="treatment" value={shipment.treatment === "pass_through" ? "pass-through" : "bundled · amortised across units"}/></div>
+      {destinations.length > 1 && <DecisionSummary shipment={shipment} destinations={destinations} selected={selected} tiers={tiers} workbook={workbook}/>}
+      {editable && <ShipmentEdit shipment={shipment} memberships={memberships} components={components} pending={pending} submit={submit(updateFreightSubcategory)}/>}
     </div>
-  );
+
+    {destinations.map((destination: any) => <DestinationRow key={destination.id} destination={destination} shipment={shipment} destinations={destinations} selected={selected} tiers={tiers} workbook={workbook} editable={editable} pending={pending} open={openDestinations.includes(destination.id)} toggle={() => setOpenDestinations((rows: string[]) => rows.includes(destination.id) ? rows.filter((id) => id !== destination.id) : [...rows, destination.id])} submit={submit}/>)}
+
+    {editable && <InlineDestination shipmentId={shipment.id} pending={pending} submit={submit(addFreightDestination)}/>}
+    {shipment.crossesInternationalBorder && <CustomsLedger shipment={shipment} tiers={tiers} entry={customsEntry} workbook={workbook} editable={editable} pending={pending} submitBreak={submit(updateFreightCustomsBreak)} submitEntry={submit(updateFreightCustomsEntry)}/>}
+    <div className="fr-fold"><button className={`fr-foldbtn${shownSupport ? " on" : ""}`} onClick={() => setSupportOpen(!shownSupport)} disabled={forcedSupport}><span className="cv">{shownSupport ? "▾" : "▸"}</span>{shownSupport ? "Hide supporting detail" : "Supporting detail"}</button><span className="fr-chips">{supportChips(shipment, destinations, tracking, staleTracking).map((chip) => <span className={`fr-fchip${chip.warn ? " warn" : ""}`} key={chip.t}>{chip.t}</span>)}</span>{forcedSupport && <span className="fr-forced">kept open — needs attention</span>}</div>
+    {shownSupport && <><Comparison destinations={destinations} selected={selected} tiers={tiers} workbook={workbook}/>{destinations.length > 1 && <SelectionReason shipment={shipment} selected={selected} editable={editable} pending={pending} submit={submit(selectFreightDestination)}/>}<TrackingStrip selected={selected} tracking={displayedTracking} stale={staleTracking} pending={pending} submit={submit(updateFreightTracking)}/></>}
+  </div>;
 }
 
-// ---- single leg ----
-
-function LegBlock({
-  legId,
-  tiers,
-  editable,
-  position,
-  siblingCount,
-}: {
-  legId: string;
-  tiers: Tier[];
-  editable: boolean;
-  position: number;
-  siblingCount: number;
-}) {
-  const legs = useCostingStore(selectFreightLegs);
-  const legMaybe = legs.find((l) => l.id === legId);
-  const legTiers = useCostingStore(selectFreightLegTiers);
-  const meta = useCostingStore(selectFreightCustomerArrangesMeta);
-  const updateLegMeta = useCostingStore(selectUpdateFreightLegMeta);
-  const updateLegMarkupStore = useCostingStore(selectUpdateFreightLegMarkup);
-  const updateLegCustomsStore = useCostingStore(
-    selectUpdateFreightLegCustoms,
-  );
-  const updateMetaStore = useCostingStore(
-    selectUpdateFreightCustomerArrangesMeta,
-  );
-  const [pending, startTransition] = useTransition();
-
-  if (!legMaybe) return null;
-  // `leg` is non-null past this point; aliased so the closures
-  // below (selectTreatment, fireMetaSave, etc.) get a stable
-  // non-null type without TS narrowing across closure boundaries.
-  const leg = legMaybe;
-
-  // Customer-arranges mode (per Slice R6.2 design) is signaled by the
-  // leg having a customer_arranges_meta row attached. We use the
-  // meta presence as the mode discriminator since meta-on-leg is the
-  // architectural commitment.
-  const customerMeta = meta.find((m) => m.freightLegId === legId);
-  const isCustomerArranges = Boolean(customerMeta);
-
-  // Customs cluster visibility per Gap 12 + math contract:
-  // crosses_international_border AND incoterm === 'DDP'. Hidden for
-  // customer-arranges legs entirely.
-  const showCustoms =
-    !isCustomerArranges &&
-    leg.crossesInternationalBorder &&
-    leg.incoterm === "DDP";
-
-  const computedTransit = transitWeeksBetween(
-    leg.cargoReadyDate,
-    leg.vesselEtd,
-  );
-
-  function fireMetaSave(formFields: Record<string, string | null>) {
-    if (!editable) return;
-    const fd = new FormData();
-    fd.set("legId", legId);
-    for (const [k, v] of Object.entries(formFields)) {
-      fd.set(k, v ?? "");
-    }
-    startTransition(async () => {
-      await updateLegMetadata(fd);
-    });
-  }
-
-  function selectTreatment(t: "bundled" | "pass_through") {
-    if (!editable || pending || t === leg.treatment) return;
-    updateLegMeta(legId, { treatment: t });
-    fireMetaSave({ treatment: t });
-  }
-
-  function handleDeleteLeg() {
-    if (!editable) return;
-    if (!confirm(`Delete this leg?`)) return;
-    const fd = new FormData();
-    fd.set("legId", legId);
-    startTransition(async () => {
-      await deleteLeg(fd);
-    });
-  }
-
-  function handleMoveLeg(direction: "up" | "down") {
-    if (!editable) return;
-    const fd = new FormData();
-    fd.set("legId", legId);
-    fd.set("direction", direction);
-    startTransition(async () => {
-      await moveLeg(fd);
-    });
-  }
-
-  return (
-    <div className="r62-leg">
-      <div className="r62-leg-head">
-        <span className={`direction ${leg.direction}`}>{leg.direction}</span>
-        <div className="lhs">
-          <span className="lab">{leg.label ?? "(unlabeled leg)"}</span>
-          <span className="route">
-            <span>{leg.origin ?? "—"}</span>
-            <span className="arrow">→</span>
-            <span>
-              {leg.destination ??
-                (isCustomerArranges ? "(customer's destination)" : "—")}
-            </span>
-            {leg.crossesInternationalBorder && (
-              <span
-                style={{
-                  fontFamily: "var(--mono)",
-                  fontSize: 9,
-                  letterSpacing: 0.06,
-                  padding: "1px 6px",
-                  borderRadius: 3,
-                  marginLeft: 6,
-                  background: "oklch(0.55 0.07 215 / 0.12)",
-                  color: "oklch(0.45 0.10 215)",
-                  textTransform: "uppercase",
-                }}
-              >
-                ↔ border
-              </span>
-            )}
-          </span>
-        </div>
-        {!isCustomerArranges ? (
-          <div className="r62-treat">
-            <button
-              type="button"
-              className={leg.treatment === "bundled" ? "on bundled" : ""}
-              disabled={!editable || pending}
-              onClick={() => selectTreatment("bundled")}
-            >
-              Bundled
-            </button>
-            <button
-              type="button"
-              className={
-                leg.treatment === "pass_through" ? "on passthrough" : ""
-              }
-              disabled={!editable || pending}
-              onClick={() => selectTreatment("pass_through")}
-            >
-              Passthrough
-            </button>
-          </div>
-        ) : (
-          <span
-            style={{
-              fontFamily: "var(--mono)",
-              fontSize: 10.5,
-              color: "var(--ink-3)",
-              letterSpacing: "0.05em",
-            }}
-          >
-            COST = $0 · METADATA ONLY
-          </span>
-        )}
-        <LegActionMenu
-          position={position}
-          siblingCount={siblingCount}
-          editable={editable}
-          pending={pending}
-          onDelete={handleDeleteLeg}
-          onMoveUp={() => handleMoveLeg("up")}
-          onMoveDown={() => handleMoveLeg("down")}
-        />
-      </div>
-
-      {/* Leg body grid */}
-      <div
-        className="r62-leg-body"
-        style={{
-          gridTemplateColumns: isCustomerArranges
-            ? "1fr 1fr 1fr 1fr"
-            : "1fr 1fr 1fr 1fr 1fr",
-        }}
-      >
-        <BodyField label="Mode">
-          {isCustomerArranges ? (
-            <div className="display">
-              {FREIGHT_LEG_MODES.find((m) => m.value === leg.mode)?.label ??
-                "—"}
-            </div>
-          ) : (
-            <select
-              defaultValue={leg.mode ?? ""}
-              disabled={!editable}
-              onChange={(e) => {
-                const v = e.target.value || null;
-                updateLegMeta(legId, { mode: v as typeof leg.mode });
-                fireMetaSave({ mode: v });
-              }}
-            >
-              <option value="">—</option>
-              {FREIGHT_LEG_MODES.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          )}
-        </BodyField>
-        <BodyField label="Carrier / forwarder">
-          {isCustomerArranges ? (
-            <div
-              className="display"
-              style={{ color: "var(--ink-4)", fontStyle: "italic" }}
-            >
-              (customer&rsquo;s choice)
-            </div>
-          ) : (
-            <DebouncedTextInput
-              key={`carrier-${legId}`}
-              defaultValue={leg.carrier ?? ""}
-              disabled={!editable || pending}
-              placeholder="—"
-              onCommit={(v) => {
-                updateLegMeta(legId, { carrier: v });
-                fireMetaSave({ carrier: v });
-              }}
-            />
-          )}
-        </BodyField>
-        <BodyField label="Incoterm">
-          <select
-            defaultValue={leg.incoterm ?? ""}
-            disabled={!editable}
-            onChange={(e) => {
-              const v = e.target.value || null;
-              updateLegMeta(legId, { incoterm: v as typeof leg.incoterm });
-              fireMetaSave({ incoterm: v });
-            }}
-          >
-            <option value="">—</option>
-            {INCOTERMS.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.value} — {t.desc}
-              </option>
-            ))}
-          </select>
-        </BodyField>
-        <BodyField label="Cargo ready">
-          <LegDateInput
-            value={leg.cargoReadyDate}
-            disabled={!editable}
-            onCommit={(v) => {
-              updateLegMeta(legId, { cargoReadyDate: v });
-              fireMetaSave({ cargoReadyDate: v });
-            }}
-          />
-        </BodyField>
-        {!isCustomerArranges && (
-          <BodyField
-            label={
-              <>
-                Vessel ETD
-                {(leg.incoterm === "FOB" || leg.incoterm === "EXW") && (
-                  <span
-                    style={{
-                      marginLeft: 4,
-                      fontSize: 9,
-                      color: "var(--ink-4)",
-                      fontStyle: "italic",
-                      letterSpacing: 0,
-                    }}
-                  >
-                    · optional
-                  </span>
-                )}
-              </>
-            }
-          >
-            <LegDateInput
-              value={leg.vesselEtd}
-              disabled={!editable}
-              onCommit={(v) => {
-                updateLegMeta(legId, { vesselEtd: v });
-                fireMetaSave({ vesselEtd: v });
-              }}
-            />
-          </BodyField>
-        )}
-        {/* Slice R6.2 commit 4 — forwarder ETA + actual delivery date.
-            Both nullable, never required by incoterm class. */}
-        {!isCustomerArranges && (
-          <BodyField label="Vessel ETA">
-            <LegDateInput
-              value={leg.vesselEta}
-              disabled={!editable}
-              onCommit={(v) => {
-                updateLegMeta(legId, { vesselEta: v });
-                fireMetaSave({ vesselEta: v });
-              }}
-            />
-          </BodyField>
-        )}
-        <BodyField label="Actual delivery">
-          <LegDateInput
-            value={leg.actualDeliveryDate}
-            disabled={!editable}
-            onCommit={(v) => {
-              updateLegMeta(legId, { actualDeliveryDate: v });
-              fireMetaSave({ actualDeliveryDate: v });
-            }}
-          />
-        </BodyField>
-      </div>
-
-      {/* Freight markup + transit caption row (DPS-arranges modes only) */}
-      {!isCustomerArranges && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            padding: "10px 18px",
-            borderBottom: "1px solid var(--rule)",
-            background: "var(--paper-2)",
-          }}
-        >
-          <span
-            style={{
-              fontFamily: "var(--mono)",
-              fontSize: 9.5,
-              letterSpacing: 0.1,
-              color: "var(--ink-4)",
-              textTransform: "uppercase",
-              marginRight: 8,
-            }}
-          >
-            Freight markup
-          </span>
-          <MarkupPill
-            value={leg.freightMarkupPct}
-            disabled={!editable}
-            onCommit={(v) => {
-              updateLegMarkupStore(legId, "freight", v);
-              const fd = new FormData();
-              fd.set("legId", legId);
-              fd.set("component", "freight");
-              fd.set("value", (v * 100).toFixed(2));
-              startTransition(async () => {
-                await updateLegMarkup(fd);
-              });
-            }}
-          />
-          {computedTransit !== null && (
-            <span
-              style={{
-                marginLeft: "auto",
-                fontFamily: "var(--mono)",
-                fontSize: 10,
-                color: "var(--ink-4)",
-                letterSpacing: 0.04,
-              }}
-            >
-              · {computedTransit}w in transit
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Customer-arranges populated state (cargo ready already on leg head) */}
-      {isCustomerArranges && customerMeta && (
-        <div className="r62-customer-meta">
-          <div className="field">
-            <div className="lbl">Customer freight contact</div>
-            <DebouncedTextInput
-              key={`contact-${legId}`}
-              defaultValue={customerMeta.customerContact ?? ""}
-              disabled={!editable || pending}
-              placeholder="Name · email"
-              onCommit={(v) => {
-                updateMetaStore(legId, { customerContact: v });
-                const fd = new FormData();
-                fd.set("legId", legId);
-                fd.set("customerContact", v ?? "");
-                fd.set("auditNote", customerMeta.auditNote ?? "");
-                startTransition(async () => {
-                  await updateCustomerArrangesMeta(fd);
-                });
-              }}
-            />
-          </div>
-          <div className="field audit-note-field">
-            <div className="lbl">Audit note</div>
-            <DebouncedTextarea
-              key={`audit-${legId}`}
-              defaultValue={customerMeta.auditNote ?? ""}
-              disabled={!editable || pending}
-              placeholder="Pickup window, 3PL details, contractual references…"
-              onCommit={(v) => {
-                updateMetaStore(legId, { auditNote: v });
-                const fd = new FormData();
-                fd.set("legId", legId);
-                fd.set("customerContact", customerMeta.customerContact ?? "");
-                fd.set("auditNote", v ?? "");
-                startTransition(async () => {
-                  await updateCustomerArrangesMeta(fd);
-                });
-              }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Per-tier rate table (DPS-arranges only) */}
-      {!isCustomerArranges && (
-        <PerTierRateTable
-          legId={legId}
-          tiers={tiers}
-          legTiers={legTiers}
-          freightMarkupPct={leg.freightMarkupPct}
-          editable={editable}
-        />
-      )}
-
-      {/* Customs cluster (DDP + crosses_border) */}
-      {showCustoms && (
-        <CustomsCluster
-          legId={legId}
-          incoterm={leg.incoterm ?? "DDP"}
-          customs={leg.customs}
-          dutyMarkupPct={leg.dutyMarkupPct}
-          tariffMarkupPct={leg.tariffMarkupPct}
-          editable={editable}
-          onCustomsCommit={(fields) => {
-            updateLegCustomsStore(legId, fields);
-            const fd = new FormData();
-            fd.set("legId", legId);
-            if ("dutyPct" in fields) {
-              fd.set(
-                "dutyPct",
-                fields.dutyPct === undefined ? "" : String(fields.dutyPct * 100),
-              );
-            }
-            if ("tariffPct" in fields) {
-              fd.set(
-                "tariffPct",
-                fields.tariffPct === undefined
-                  ? ""
-                  : String(fields.tariffPct * 100),
-              );
-            }
-            startTransition(async () => {
-              await updateLegCustoms(fd);
-            });
-          }}
-          onMarkupCommit={(component, value) => {
-            updateLegMarkupStore(legId, component, value);
-            const fd = new FormData();
-            fd.set("legId", legId);
-            fd.set("component", component);
-            fd.set("value", (value * 100).toFixed(2));
-            startTransition(async () => {
-              await updateLegMarkup(fd);
-            });
-          }}
-        />
-      )}
-
-      {/* PDF slot — P1 visual; upload P2 per Gap 24 */}
-      {!isCustomerArranges && (
-        <div className="r62-pdf empty">
-          ↑ Attach forwarder quote PDF
-          <span className="r62-phase-tag p2" style={{ marginLeft: 8 }}>
-            upload · P2
-          </span>
-        </div>
-      )}
+function DestinationRow({ destination, shipment, destinations, selected, tiers, workbook, editable, pending, open, toggle, submit }: any) {
+  const rows = workbook.breaks.filter((row: any) => row.freightDestinationId === destination.id);
+  const [flat, setFlat] = useState(destination.sameValueAllBreaks);
+  const isSelected = destination.id === shipment.selectedDestinationId;
+  const priced = rows.some((row: any) => row.freightAmount !== null);
+  // A destination added after the first inherits type + markup from the one
+  // above it (addFreightDestination seeds mode / markup / note from the
+  // prior destination's breaks). The disclosure holds until the operator
+  // prices it, at which point the values are theirs rather than carried.
+  // A first destination has nothing to inherit from, so its breaks carry
+  // neither mode nor markup and this is self-limiting.
+  const inherited = !priced && rows.some((row: any) => row.mode || row.freightMarkupPct !== null);
+  const modes = tiers.map((tier: Tier) => rows.find((row: any) => row.tierId === tier.id)?.mode ?? "");
+  const varies = new Set(modes).size > 1;
+  const comparisonTier: Tier | undefined = tiers.find((tier: Tier) => tier.recommended) ?? tiers[tiers.length - 1] ?? tiers[0];
+  const delta = !isSelected && selected && comparisonTier
+    ? sellPerUnit(destination, comparisonTier, workbook) - sellPerUnit(selected, comparisonTier, workbook)
+    : null;
+  const rowRef = useRef<HTMLDivElement>(null);
+  const saveBreaks = () => {
+    if (!rowRef.current) return;
+    const data = fields({ destinationId: destination.id, sourceTierId: tiers[0]?.id, breakMode: flat ? "flat" : "different" });
+    rowRef.current.querySelectorAll<HTMLInputElement>("[data-break-field]").forEach((input) => data.set(input.name, input.value));
+    submit(updateFreightDestinationBreakGroup)(data);
+  };
+  return <div className={`fr-dest${isSelected && destinations.length > 1 ? " sel" : ""}`} ref={rowRef}>
+    <div className="fr-grid">
+      <div className="fr-dlab">{destinations.length > 1 && <button className={`fr-pick${isSelected ? " on" : ""}`} disabled={!editable || !priced || pending} aria-label={`Select ${destination.destination}`} onClick={() => submit(selectFreightDestination)(fields({ freightSubcategoryId: shipment.id, destinationId: destination.id, selectionReason: shipment.selectionReason }))}/>}<span className="fr-dname"><span className="n">{destinations.length > 1 ? "to " : ""}{destination.destination}{destination.consignee ? ` · ${destination.consignee}` : ""}</span><span className="m"><span>{destination.transitDays || "transit not set"} door to door</span><span className={varies ? "varies" : ""}>{varies ? modes.map((mode: string) => mode.replace("Domestic ", "").replace("Ocean ", "")).join(" / ") : modes[0]}</span>{inherited && <span className="fr-inherit">type + markup inherited</span>}</span><input className="fr-note" defaultValue={destination.internalNotes ?? ""} placeholder="note — optional" disabled={!editable} onBlur={(event) => submit(updateFreightDestination)(fields({ destinationId: destination.id, destination: destination.destination, consignee: destination.consignee, transitDays: destination.transitDays, quoteReference: destination.quoteReference, internalNotes: event.currentTarget.value }))}/></span>{isSelected && destinations.length > 1 && <span className="fr-vs win">in the price</span>}{destinations.length > 1 && !isSelected && priced && delta !== null && <span className={`fr-vs ${delta > 0 ? "worse" : "better"}`}>{delta > 0 ? "+" : "−"}{money4(Math.abs(delta)).slice(1)}/unit</span>}{destinations.length > 1 && !priced && <span className="fr-vs">no total yet</span>}<button type="button" className="fr-tog" onClick={() => setFlat(!flat)}>{flat ? "differs by break" : "one value, all breaks"}</button><button className={`fr-edit${open ? " on" : ""}`} onClick={toggle}>{open ? "hide detail" : "type + description"}</button>{destinations.length > 1 && editable && <button className="fr-del" disabled={pending} onClick={() => submit(deleteFreightDestination)(fields({ destinationId: destination.id }))}>remove</button>}</div>
+      {tiers.map((tier: Tier, tierIndex: number) => { const row = rows.find((item: any) => item.tierId === tier.id); const amount = Number(row?.freightAmount ?? 0); const markup = Number(row?.freightMarkupPct ?? 0); const customsEntry = workbook.customsEntries.find((item: any) => item.freightSubcategoryId === shipment.id); const customsSell = customsEntry && tier.qty ? workbook.customsBreaks.filter((item: any) => item.freightCustomsEntryId === customsEntry.id && item.tierId === tier.id).reduce((sum: number, item: any) => sum + Number(item.amount ?? 0) * (1 + Number(item.markupPct ?? 0)), 0) / tier.qty : 0; return <div className="fr-cell fr-entrycell" key={tier.id}>{row ? flat && tierIndex > 0 ? <span className="cbm">one value, all breaks</span> : <><input className="fr-in" data-break-field name={`freightAmount:${tier.id}`} type="number" min="0" step="0.01" defaultValue={row.freightAmount ?? ""} placeholder="total cost" disabled={!editable} onBlur={saveBreaks}/><span className="mrow"><span className="x">×</span><input className="fr-in pct" data-break-field name={`freightMarkupPct:${tier.id}`} type="number" min="0" step="0.01" defaultValue={row.freightMarkupPct === null ? "" : markup * 100} disabled={!editable} onBlur={saveBreaks}/><span className="arr">→</span><span className="sell">{priced && tier.qty ? money4(amount * (1 + markup) / tier.qty) : "—"}</span></span>{shipment.crossesInternationalBorder && priced && <span className="cbm">incl. d/t {money4(customsSell).slice(1)}</span>}</> : "—"}</div>; })}
     </div>
-  );
+    {/* Mode and description render for EVERY break regardless of flat state.
+        "One value, all breaks" governs the freight amount only — a shipment
+        may be LTL at one break and FTL at another while sharing one
+        negotiated amount. Suppressing these inputs when flat would collapse
+        the operational identity of the individual quantity breaks. */}
+    {open && <div className="fr-entry"><div className="fr-grid"><div className="fr-elab">freight type · per break</div>{rows.map((row: any) => <div className="fr-cell" key={row.id}><input className="fr-in txt" data-break-field name={`mode:${row.tierId}`} defaultValue={row.mode ?? ""} placeholder="Domestic LTL" disabled={!editable} onBlur={saveBreaks}/></div>)}</div><div className="fr-grid"><div className="fr-elab">item / description</div>{rows.map((row: any) => <div className="fr-cell" key={row.id}><input className="fr-in txt" data-break-field name={`shipmentNote:${row.tierId}`} defaultValue={row.shipmentNote ?? ""} placeholder="4 pallets" disabled={!editable} onBlur={saveBreaks}/></div>)}</div>{editable && <DestinationEdit destination={destination} pending={pending} submit={submit(updateFreightDestination)}/>}</div>}
+  </div>;
 }
 
-// ---- per-tier rate table ----
+function InlineDestination({ shipmentId, pending, submit }: any) { const [open, setOpen] = useState(false); return <div className="fr-add">{!open ? <button className="fr-addbtn" onClick={() => setOpen(true)}><span className="pl">+</span> Another destination</button> : <form action={submit} className="fr-dest-draft"><input type="hidden" name="freightSubcategoryId" value={shipmentId}/><input className="fr-din" autoFocus required name="destination" placeholder="destination — e.g. Aurora, OH"/><input className="fr-din" name="transitDays" placeholder="transit days"/><input className="fr-din" name="consignee" placeholder="consignee — optional"/><input className="fr-note" name="internalNotes" placeholder="note — optional"/><button className="btn primary" disabled={pending}>Add destination</button><button className="btn ghost" type="button" onClick={() => setOpen(false)}>Cancel</button></form>}<span className="fr-addnote">A second destination makes this a choice: one goes in the price, the rest stay as the comparison that justified it.</span></div>; }
 
-function PerTierRateTable({
-  legId,
-  tiers,
-  legTiers,
-  freightMarkupPct,
-  editable,
-}: {
-  legId: string;
-  tiers: Tier[];
-  legTiers: Array<{
-    rowId: string;
-    freightLegId: string;
-    tierId: string;
-    totalFreight: number | null;
-    unitsInShipment: number | null;
-  }>;
-  freightMarkupPct: number;
-  editable: boolean;
-}) {
-  const updateLegTier = useCostingStore(selectUpdateFreightLegTier);
-  const [pending, startTransition] = useTransition();
-
-  return (
-    <div className="r62-tier-table">
-      <div className="r62-tier-thead">
-        <span>Tier</span>
-        <span>Units</span>
-        <span className="num">Total freight (cost)</span>
-        <span className="num">Per unit (billable)</span>
-        <span></span>
-      </div>
-      {tiers.map((t) => {
-        const row = legTiers.find(
-          (lt) => lt.freightLegId === legId && lt.tierId === t.id,
-        );
-        const effectiveUnits = row?.unitsInShipment ?? t.qty ?? 0;
-        const billablePerUnit =
-          row?.totalFreight !== null &&
-          row?.totalFreight !== undefined &&
-          effectiveUnits > 0
-            ? (row.totalFreight * (1 + freightMarkupPct)) / effectiveUnits
-            : null;
-        return (
-          <div key={t.id} className="r62-tier-row">
-            <span className="tier-label">{t.label}</span>
-            <span className="units">
-              {(t.qty ?? 0).toLocaleString()}
-            </span>
-            <span className="num">
-              <TierTotalFreightCell
-                rowId={row?.rowId ?? null}
-                defaultValue={row?.totalFreight ?? null}
-                disabled={!editable || pending}
-                onCommit={(value) => {
-                  if (!row) return;
-                  updateLegTier(row.rowId, { totalFreight: value });
-                  const fd = new FormData();
-                  fd.set("rowId", row.rowId);
-                  fd.set("totalFreight", value === null ? "" : String(value));
-                  fd.set(
-                    "unitsInShipment",
-                    row.unitsInShipment === null
-                      ? ""
-                      : String(row.unitsInShipment),
-                  );
-                  startTransition(async () => {
-                    await updateLegTierCell(fd);
-                  });
-                }}
-              />
-            </span>
-            <span className="num per-unit">
-              {billablePerUnit === null ? (
-                <span
-                  style={{
-                    color: "var(--ink-4)",
-                    fontStyle: "italic",
-                    fontFamily: "var(--ui)",
-                    fontSize: 11,
-                  }}
-                >
-                  —
-                </span>
-              ) : (
-                <>
-                  {fmtCurr2(billablePerUnit)}
-                  <span className="raw">
-                    ${(row?.totalFreight ?? 0).toLocaleString()} ×{" "}
-                    {(1 + freightMarkupPct).toFixed(2)} ÷{" "}
-                    {effectiveUnits.toLocaleString()}
-                  </span>
-                </>
-              )}
-            </span>
-            <span></span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function TierTotalFreightCell({
-  rowId,
-  defaultValue,
-  disabled,
-  onCommit,
-}: {
-  rowId: string | null;
-  defaultValue: number | null;
-  disabled: boolean;
-  onCommit: (value: number | null) => void;
-}) {
-  const [value, setValue] = useState<string>(
-    defaultValue === null ? "" : String(defaultValue),
-  );
-  // Re-hydrate on rowId / external value change.
-  useEffect(() => {
-    setValue(defaultValue === null ? "" : String(defaultValue));
-  }, [rowId, defaultValue]);
-
-  if (!rowId) {
-    return (
-      <span
-        style={{
-          color: "var(--ink-4)",
-          fontStyle: "italic",
-          fontFamily: "var(--ui)",
-          fontSize: 11,
-        }}
-      >
-        —
+function CustomsLedger({ shipment, tiers, entry, workbook, editable, pending, submitBreak, submitEntry }: any) {
+  const columns = `minmax(200px, 1.5fr) 152px repeat(${tiers.length}, minmax(112px, 1fr))`;
+  const customsRef = useRef<HTMLDivElement>(null);
+  const saveEntry = () => {
+    const root = customsRef.current;
+    if (!root) return;
+    submitEntry(fields({
+      freightSubcategoryId: shipment.id,
+      invoiceReference: root.querySelector<HTMLInputElement>('[name="invoiceReference"]')?.value,
+      entryDescription: root.querySelector<HTMLInputElement>('[name="entryDescription"]')?.value,
+    }));
+  };
+  const saveBreak = (chargeType: string, tierId: string) => {
+    const root = customsRef.current;
+    if (!root) return;
+    submitBreak(fields({
+      freightSubcategoryId: shipment.id,
+      tierId,
+      chargeType,
+      amount: root.querySelector<HTMLInputElement>(`[data-customs-amount="${chargeType}:${tierId}"]`)?.value,
+      markupPct: root.querySelector<HTMLInputElement>(`[data-customs-markup="${chargeType}:${tierId}"]`)?.value,
+    }));
+  };
+  return <div className="fr-customs" ref={customsRef}>
+    <div className="fr-chead">
+      <span className="h">Customs entry</span>
+      <span className="fr-entryref">
+        <input className="fr-note" name="invoiceReference" defaultValue={entry?.invoiceReference ?? ""} placeholder="invoice reference" disabled={!editable} onBlur={saveEntry}/>
+        <input className="fr-note" name="entryDescription" defaultValue={entry?.entryDescription ?? ""} placeholder="entry note" disabled={!editable} onBlur={saveEntry}/>
       </span>
+    </div>
+    <div className="fr-cgrid fr-chd" style={{ gridTemplateColumns: columns }}>
+      <div>charge · entered once, carried to all {workbook.destinations.filter((row: any) => row.freightSubcategoryId === shipment.id).length}</div>
+      <div>markup</div>
+      {tiers.map((tier: Tier) => <div className="n" key={tier.id}>{tier.label} · {tier.qty?.toLocaleString()} units</div>)}
+    </div>
+    {(["duty", "tariff"] as const).map((chargeType) => {
+      const label = chargeType === "duty" ? "Duty" : "Tariff";
+      return <div className="fr-cgrid fr-crow" style={{ gridTemplateColumns: columns }} key={chargeType}>
+        <div className="lb"><span className="n">{label}</span><span className="d">invoice-entered amount</span></div>
+        <div className="mk">{tiers.map((tier: Tier) => {
+          const current = entry && workbook.customsBreaks.find((row: any) => row.freightCustomsEntryId === entry.id && row.tierId === tier.id && row.chargeType === chargeType);
+          return <input className="fr-in pct" data-customs-markup={`${chargeType}:${tier.id}`} type="number" min="0" step="0.01" defaultValue={current?.markupPct === null || current?.markupPct === undefined ? "" : Number(current.markupPct) * 100} disabled={!editable} onBlur={() => saveBreak(chargeType, tier.id)} key={tier.id}/>;
+        })}</div>
+        {tiers.map((tier: Tier) => {
+          const current = entry && workbook.customsBreaks.find((row: any) => row.freightCustomsEntryId === entry.id && row.tierId === tier.id && row.chargeType === chargeType);
+          const amount = Number(current?.amount ?? 0);
+          const markup = Number(current?.markupPct ?? 0);
+          return <div className="n" key={tier.id}>
+            <input className="fr-in" data-customs-amount={`${chargeType}:${tier.id}`} type="number" min="0" step="0.01" defaultValue={current?.amount ?? ""} disabled={!editable} onBlur={() => saveBreak(chargeType, tier.id)}/>
+            <span className="s">sell {money2(amount * (1 + markup))}</span>
+          </div>;
+        })}
+      </div>;
+    })}
+    <div className="fr-cgrid fr-crow tot" style={{ gridTemplateColumns: columns }}>
+      <div className="lb"><span className="n">Carried to every destination</span></div>
+      <div className="mk"/>
+      {tiers.map((tier: Tier) => {
+        const rows = entry ? workbook.customsBreaks.filter((row: any) => row.freightCustomsEntryId === entry.id && row.tierId === tier.id) : [];
+        const amount = rows.reduce((sum: number, row: any) => sum + Number(row.amount ?? 0), 0);
+        const sell = rows.reduce((sum: number, row: any) => sum + Number(row.amount ?? 0) * (1 + Number(row.markupPct ?? 0)), 0);
+        return <div className="n" key={tier.id}><span className="v">{money2(amount)}</span><span className="s">{tier.qty ? money4(sell / tier.qty) : "—"}/unit sell</span></div>;
+      })}
+    </div>
+  </div>;
+}
+
+// Incoterm is an enum-backed `<select>`, not the bundle's free-text input:
+// the persisted authority is the `freightIncoterm` pgEnum, and free text
+// would admit values the column rejects. Journey, treatment and transit are
+// governed schema columns surfaced at creation. Recorded as an approved
+// deviation in docs/phase-2-freight-dom-parity-audit.md (F-G).
+function CreateShipmentModal({ quoteId, product, components, pending, close, submit }: any) { return <div className="fr-scrim" onMouseDown={(event) => event.target === event.currentTarget && close()}><form className="fr-modal" action={submit}><div className="fr-mhead"><div className="t">What shipment am I recording?</div><div className="s"><strong>{product?.label}</strong> and its commercial structure come from Setup. Record only the Logistics decision here.</div></div><div className="fr-mbody"><input type="hidden" name="quoteId" value={quoteId}/><input type="hidden" name="assemblyId" value={product?.id ?? ""}/><div className="fr-inherited full"><span className="k">Shipment contents from Setup</span>{components.map((item: Component) => <span className="fr-chip on" key={item.id}>{item.label}{item.sku ? ` · ${item.sku}` : ""}</span>)}<div className="fr-hint">Contents come from this product&apos;s Setup components and cannot cross into another product. Change them with Edit shipment contents.</div></div><div className="full"><label className="fr-lbl" htmlFor="freight-label">what ships</label><input id="freight-label" className="fr-tin" required name="label" placeholder="Packaging from overseas — bottles + sprayers"/></div><div><label className="fr-lbl" htmlFor="freight-origin">from</label><input id="freight-origin" className="fr-tin" name="origin" placeholder="Ningbo, China"/></div><div><label className="fr-lbl" htmlFor="freight-carrier">forwarder or carrier</label><input id="freight-carrier" className="fr-tin" name="carrierForwarder" placeholder="Straight Forwarding, Inc."/></div><div><label className="fr-lbl" htmlFor="freight-incoterm">incoterm</label><select id="freight-incoterm" className="fr-tin" name="incoterm"><option value="">Choose</option>{["DDP","DAP","FOB","EXW","FCA","CIF"].map((item) => <option key={item}>{item}</option>)}</select></div><div><label className="fr-lbl" htmlFor="freight-journey">journey</label><input id="freight-journey" className="fr-tin" name="journeyLabel" placeholder="Outbound · journey 1"/></div><div><label className="fr-lbl" htmlFor="freight-ready">cargo ready</label><input id="freight-ready" className="fr-tin date" name="cargoReadyDate" type="date"/></div><div><label className="fr-lbl" htmlFor="freight-treatment">treatment</label><select id="freight-treatment" className="fr-tin" name="treatment" defaultValue="bundled"><option value="bundled">Bundled · amortised across units</option><option value="pass_through">Pass-through</option></select></div><div className="full"><label className="fr-lbl">does this shipment cross a border?</label><div className="fr-srcpick"><label className="fr-src on"><input type="radio" name="crossesInternationalBorder" value="true" defaultChecked/> yes — it clears customs</label><label className="fr-src"><input type="radio" name="crossesInternationalBorder" value="false"/> no — domestic</label></div><div className="fr-hint">Crossing a border adds the customs entry — invoice-entered Duty and Tariff, recorded once and carried to every destination.</div></div><div className="full"><label className="fr-lbl" htmlFor="freight-destination">first destination</label><input id="freight-destination" className="fr-tin" required name="destination" placeholder="Edina, MN 55439"/><div className="fr-hint">One destination is the whole thing for most shipments. Add alternatives only when you priced them.</div></div><div><label className="fr-lbl" htmlFor="freight-transit">transit</label><input id="freight-transit" className="fr-tin" name="transitDays" placeholder="42 days"/></div></div><div className="fr-mfoot"><span className="sp">freight type, description and rates are entered per break, on the section</span><button className="btn ghost" type="button" onClick={close}>Cancel</button><button className="btn primary" disabled={pending}>Add</button></div></form></div>; }
+
+function ShipmentEdit({ shipment, memberships, components, pending, submit }: any) { return <details className="fr-edit-disclosure"><summary>Edit shipment</summary><form action={submit}><input type="hidden" name="freightSubcategoryId" value={shipment.id}/><input required name="label" defaultValue={shipment.label}/><input name="origin" defaultValue={shipment.origin ?? ""}/><input name="carrierForwarder" defaultValue={shipment.carrierForwarder ?? ""}/><input name="incoterm" defaultValue={shipment.incoterm ?? ""}/><input name="journeyLabel" defaultValue={shipment.journeyLabel ?? ""}/><input name="cargoReadyDate" type="date" defaultValue={shipment.cargoReadyDate ?? ""}/><select name="treatment" defaultValue={shipment.treatment}><option value="bundled">Bundled</option><option value="pass_through">Pass-through</option></select><label><input type="checkbox" name="crossesInternationalBorder" value="true" defaultChecked={shipment.crossesInternationalBorder}/> clears customs</label><fieldset className="fr-shipment-contents"><legend>Edit shipment contents</legend>{components.filter((item: Component) => item.assemblyId === shipment.assemblyId).map((item: Component) => <label key={item.id}><input type="checkbox" name="assemblyLeafId" value={item.id} defaultChecked={memberships.some((row: any) => row.assemblyLeafId === item.id)}/> {item.label}</label>)}</fieldset><button disabled={pending}>Save</button></form></details>; }
+function DestinationEdit({ destination, pending, submit }: any) { return <details className="fr-edit-disclosure"><summary>Edit destination</summary><form action={submit}><input type="hidden" name="destinationId" value={destination.id}/><input required name="destination" defaultValue={destination.destination}/><input name="consignee" defaultValue={destination.consignee ?? ""}/><input name="transitDays" defaultValue={destination.transitDays ?? ""}/><input name="quoteReference" defaultValue={destination.quoteReference ?? ""}/><input name="internalNotes" defaultValue={destination.internalNotes ?? ""}/><button disabled={pending}>Save</button></form></details>; }
+function TrackingStrip({ selected, tracking, stale, pending, submit }: any) {
+  if (!selected) return <div className="fr-track pending"><span className="k">shipment</span><span className="none">no destination chosen — nothing ships yet, so there is nothing to track</span></div>;
+  const formId = `tracking-${selected.id}`;
+  return <form id={formId} className={`fr-track${stale ? " stale" : ""}`} action={submit}>
+    <input type="hidden" name="destinationId" value={tracking?.freightDestinationId ?? selected.id}/>
+    <span className="k">shipment · {selected.destination}</span>
+    {/* `<label className="f">` rather than the source's `<div className="f">`
+        — an accepted Nexus accessibility extension; the class tree, field
+        order and the `unset` indicator are canonical. */}
+    <div className="fr-tfields">
+      <TrackingField label="vessel etd" name="etd" value={tracking?.etd ?? null} formId={formId}/>
+      <TrackingField label="vessel eta" name="eta" value={tracking?.eta ?? null} formId={formId}/>
+      <TrackingField label="actual delivery" name="actualDeliveryDate" value={tracking?.actualDeliveryDate ?? null} formId={formId}/>
+    </div>
+    {stale && <span className="warn">these dates were entered for a different endpoint — an ETA for one destination is not an ETA for another</span>}
+  </form>;
+}
+// Supporting-detail chips, built conditionally per the bundle's `Support`
+// (freight-1a/app/freight/1a.jsx). Comparison and reason chips are
+// multi-destination concepts and are omitted for a single-destination
+// shipment; the tracking chip appears only once tracking exists.
+//
+// The bundle's fourth chip — `duty workings`, paired with the `fr-math`
+// block — is EXCLUDED from V1 per disposition C2: it is designer rationale
+// for the worksheet's invoice-entered customs model, not operator-facing
+// functionality. V1 remains invoice-entered Duty and Tariff only.
+function supportChips(
+  shipment: { selectionReason: string | null },
+  destinations: unknown[],
+  tracking: { eta: string | null } | undefined,
+  staleTracking: unknown,
+): Array<{ t: string; warn?: boolean }> {
+  const multi = destinations.length > 1;
+  const chips: Array<{ t: string; warn?: boolean }> = [];
+  if (multi) chips.push({ t: "comparison" });
+  if (multi) chips.push(shipment.selectionReason ? { t: "why recorded" } : { t: "why not recorded", warn: true });
+  if (tracking || staleTracking) {
+    chips.push(
+      staleTracking
+        ? { t: "dates entered for another endpoint", warn: true }
+        : { t: tracking?.eta ? `eta ${tracking.eta}` : "no eta set" },
     );
   }
-
-  function commitIfChanged() {
-    const stripped = value.trim();
-    if (stripped === "" && defaultValue === null) return;
-    if (stripped !== "" && Number(stripped) === defaultValue) return;
-    const next = stripped === "" ? null : Number(stripped);
-    onCommit(Number.isFinite(next as number) || next === null ? next : null);
-  }
-
-  return (
-    <input
-      type="number"
-      step="1"
-      min={0}
-      value={value}
-      disabled={disabled}
-      placeholder="total $"
-      aria-label="Total freight cost for this tier"
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={commitIfChanged}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          (e.currentTarget as HTMLInputElement).blur();
-        }
-      }}
-    />
-  );
+  return chips;
 }
 
-// ---- customs cluster ----
-
-function CustomsCluster({
-  legId: _legId,
-  incoterm,
-  customs,
-  dutyMarkupPct,
-  tariffMarkupPct,
-  editable,
-  onCustomsCommit,
-  onMarkupCommit,
-}: {
-  legId: string;
-  incoterm: string;
-  customs: { dutyPct?: number; tariffPct?: number };
-  dutyMarkupPct: number;
-  tariffMarkupPct: number;
-  editable: boolean;
-  onCustomsCommit: (fields: {
-    dutyPct?: number | undefined;
-    tariffPct?: number | undefined;
-  }) => void;
-  onMarkupCommit: (component: "duty" | "tariff", value: number) => void;
-}) {
-  return (
-    <div className="r62-customs">
-      <div className="r62-customs-head">
-        <span className="lab">
-          Customs · {incoterm} · border crossing
-        </span>
-        <span className="desc">
-          Duty + tariff land on freight at port of entry · markup applied
-          to amount, not rate
-        </span>
-      </div>
-      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <div className="cell">
-          <div className="ck">Duty rate</div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
-            <CustomsPctCell
-              defaultValue={customs.dutyPct ?? null}
-              disabled={!editable}
-              onCommit={(v) =>
-                onCustomsCommit({ dutyPct: v === null ? undefined : v })
-              }
-            />
-            <MarkupPill
-              value={dutyMarkupPct}
-              disabled={!editable}
-              onCommit={(v) => onMarkupCommit("duty", v)}
-            />
-          </div>
-        </div>
-        <div className="cell">
-          <div className="ck">Tariff (Section 301)</div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
-            <CustomsPctCell
-              defaultValue={customs.tariffPct ?? null}
-              disabled={!editable}
-              onCommit={(v) =>
-                onCustomsCommit({ tariffPct: v === null ? undefined : v })
-              }
-            />
-            <MarkupPill
-              value={tariffMarkupPct}
-              disabled={!editable}
-              onCommit={(v) => onMarkupCommit("tariff", v)}
-            />
-          </div>
-        </div>
-      </div>
-      <div
-        style={{
-          marginTop: 8,
-          paddingTop: 8,
-          borderTop: "1px dashed oklch(0.55 0.07 215 / 0.25)",
-          fontFamily: "var(--mono)",
-          fontSize: 10,
-          color: "var(--ink-4)",
-          letterSpacing: 0.04,
-          textTransform: "uppercase",
-        }}
-      >
-        Math: duty_billable = duty_pct × goods_cost × (1 + duty_markup) ·
-        tariff same · feeds D+T row
-      </div>
-    </div>
-  );
+function TrackingField({ label, name, value, formId }: { label: string; name: string; value: string | null; formId: string }) {
+  return <label className="f"><span className="k">{label}</span><input className="fr-tin sm date" type="date" name={name} defaultValue={value ?? ""} onBlur={autosave(formId)}/>{!value && <span className="unset">not set</span>}</label>;
 }
 
-function CustomsPctCell({
-  defaultValue,
-  disabled,
-  onCommit,
-}: {
-  defaultValue: number | null;
-  disabled: boolean;
-  onCommit: (value: number | null) => void;
-}) {
-  const [value, setValue] = useState<string>(
-    defaultValue === null ? "" : (defaultValue * 100).toFixed(1),
-  );
-  useEffect(() => {
-    setValue(defaultValue === null ? "" : (defaultValue * 100).toFixed(1));
-  }, [defaultValue]);
-
-  function commitIfChanged() {
-    const stripped = value.trim();
-    if (stripped === "" && defaultValue === null) return;
-    const n = stripped === "" ? null : Number(stripped) / 100;
-    if (
-      n !== null &&
-      defaultValue !== null &&
-      Math.abs(n - defaultValue) < 1e-9
-    )
-      return;
-    onCommit(n);
-  }
-
-  return (
-    <input
-      type="number"
-      step="0.1"
-      min={0}
-      value={value}
-      disabled={disabled}
-      placeholder="0.0%"
-      style={{ flex: "0 0 60px" }}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={commitIfChanged}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          (e.currentTarget as HTMLInputElement).blur();
-        }
-      }}
-    />
-  );
+function Fact({ label, value }: { label: string; value: unknown }) { return <div className="f"><span className="k">{label}</span><span className="v">{String(value || "not set")}</span></div>; }
+function sellPerUnit(destination: any, tier: Tier, workbook: FreightWorkbook) {
+  const row = workbook.breaks.find((item: any) => item.freightDestinationId === destination?.id && item.tierId === tier.id);
+  return tier.qty ? Number(row?.freightAmount ?? 0) * (1 + Number(row?.freightMarkupPct ?? 0)) / tier.qty : 0;
 }
-
-// ---- markup pill ----
-
-function MarkupPill({
-  value,
-  disabled,
-  onCommit,
-}: {
-  value: number;
-  disabled: boolean;
-  onCommit: (value: number) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [editValue, setEditValue] = useState<string>(
-    (value * 100).toFixed(0),
-  );
-  const isDefault = Math.abs(value - 0.3) < 0.0001;
-
-  useEffect(() => {
-    setEditValue((value * 100).toFixed(0));
-  }, [value]);
-
-  function commitIfChanged() {
-    setOpen(false);
-    const stripped = editValue.trim();
-    if (stripped === "") {
-      // Empty → revert to current (Gap 13).
-      setEditValue((value * 100).toFixed(0));
-      return;
-    }
-    const n = Number(stripped);
-    if (!Number.isFinite(n)) {
-      setEditValue((value * 100).toFixed(0));
-      return;
-    }
-    if (n < 0 || n > 999.99) {
-      // Range reject inline (Gap 13). Revert.
-      setEditValue((value * 100).toFixed(0));
-      return;
-    }
-    const dec = n / 100;
-    if (Math.abs(dec - value) < 1e-9) return;
-    onCommit(dec);
-  }
-
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        marginLeft: 8,
-      }}
-    >
-      {open ? (
-        <input
-          autoFocus
-          type="number"
-          step="1"
-          min={0}
-          value={editValue}
-          disabled={disabled}
-          onChange={(e) => setEditValue(e.target.value)}
-          onBlur={commitIfChanged}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              (e.currentTarget as HTMLInputElement).blur();
-            } else if (e.key === "Escape") {
-              setEditValue((value * 100).toFixed(0));
-              setOpen(false);
-            }
-          }}
-          style={{
-            width: 48,
-            padding: "2px 6px",
-            border: "1px solid var(--accent)",
-            borderRadius: 4,
-            fontFamily: "var(--mono)",
-            fontSize: 11,
-            background: "var(--paper)",
-            color: "var(--ink)",
-            textAlign: "right",
-          }}
-        />
-      ) : (
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => setOpen(true)}
-          title={
-            isDefault
-              ? "Default markup — click to override"
-              : "Override — click to edit"
-          }
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 3,
-            padding: "1px 6px",
-            borderRadius: 4,
-            fontFamily: "var(--mono)",
-            fontSize: 10,
-            background: isDefault
-              ? "var(--paper-3)"
-              : "oklch(from var(--accent) l c h / 0.12)",
-            color: isDefault ? "var(--ink-3)" : "var(--accent-ink)",
-            border: `1px solid ${
-              isDefault ? "var(--rule)" : "oklch(from var(--accent) l c h / 0.30)"
-            }`,
-            cursor: disabled ? "not-allowed" : "pointer",
-            lineHeight: 1.4,
-            letterSpacing: 0.02,
-          }}
-        >
-          × {(1 + value).toFixed(2)}
-          {!isDefault && (
-            <span style={{ fontSize: 9, opacity: 0.7 }}>OVR</span>
-          )}
-        </button>
-      )}
-    </span>
-  );
+function Comparison({ destinations, selected, tiers, workbook }: any) {
+  if (destinations.length < 2) return null;
+  const tier: Tier | undefined = tiers.find((item: Tier) => item.recommended) ?? tiers[tiers.length - 1] ?? tiers[0];
+  const selectedValue = selected && tier ? sellPerUnit(selected, tier, workbook) : null;
+  return <div className="fr-reason sys"><span className="k">comparison · {tier?.label ?? "quantity break"}</span><span className="t">{destinations.map((destination: any, index: number) => { const value = tier ? sellPerUnit(destination, tier, workbook) : 0; const delta = selectedValue === null ? null : value - selectedValue; return <span key={destination.id}><strong>{destination.destination}</strong>{destination.id === selected?.id ? " · in the price" : delta === null ? " · comparison retained" : ` · ${delta >= 0 ? "+" : "−"}${money4(Math.abs(delta))}/unit`}{index < destinations.length - 1 ? "; " : ""}</span>; })}</span></div>;
 }
-
-// ---- leg action menu (delete / move) ----
-
-function LegActionMenu({
-  position,
-  siblingCount,
-  editable,
-  pending,
-  onDelete,
-  onMoveUp,
-  onMoveDown,
-}: {
-  position: number;
-  siblingCount: number;
-  editable: boolean;
-  pending: boolean;
-  onDelete: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function onDocClick(e: MouseEvent) {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [open]);
-
-  return (
-    <div
-      ref={ref}
-      className="actions"
-      style={{ position: "relative", cursor: "pointer" }}
-    >
-      <button
-        type="button"
-        disabled={!editable || pending}
-        onClick={() => setOpen((v) => !v)}
-        style={{
-          background: "transparent",
-          border: "none",
-          color: "var(--ink-3)",
-          cursor: "pointer",
-          padding: "0 6px",
-          fontFamily: "var(--mono)",
-          fontSize: 14,
-        }}
-        title="Leg actions"
-      >
-        ···
-      </button>
-      {open && (
-        <div
-          style={{
-            position: "absolute",
-            right: 0,
-            top: "calc(100% + 4px)",
-            zIndex: 10,
-            background: "var(--paper)",
-            border: "1px solid var(--rule)",
-            borderRadius: 6,
-            boxShadow: "0 4px 12px oklch(0 0 0 / 0.12)",
-            minWidth: 140,
-            padding: "4px 0",
-          }}
-        >
-          <MenuItem
-            label="Delete leg"
-            onClick={() => {
-              setOpen(false);
-              onDelete();
-            }}
-          />
-          <MenuItem
-            label="Move up"
-            disabled={position === 0}
-            onClick={() => {
-              setOpen(false);
-              onMoveUp();
-            }}
-          />
-          <MenuItem
-            label="Move down"
-            disabled={position === siblingCount - 1}
-            onClick={() => {
-              setOpen(false);
-              onMoveDown();
-            }}
-          />
-        </div>
-      )}
-    </div>
-  );
+function SelectionReason({ shipment, selected, editable, submit }: any) { const formId = `selection-reason-${shipment.id}`; return <form id={formId} className="fr-reason" action={submit}><input type="hidden" name="freightSubcategoryId" value={shipment.id}/><input type="hidden" name="destinationId" value={selected?.id ?? ""}/><span className="k">why · {shipment.selectionReason ? "Logistics" : "unrecorded"}</span><input className="t" name="selectionReason" defaultValue={shipment.selectionReason ?? ""} placeholder="the deltas above are the system's; the reason is yours — add what the numbers don't say" disabled={!editable || !selected} onBlur={autosave(formId)}/></form>; }
+function DecisionSummary({ selected, destinations, tiers, workbook }: any) { const tier: Tier | undefined = tiers.find((item: Tier) => item.recommended) ?? tiers[tiers.length - 1] ?? tiers[0]; const selectedValue = selected && tier ? sellPerUnit(selected, tier, workbook) : null; return <div className="fr-decision">{selected ? <><span className="chose">{selected.destination} chosen</span><span className="sep">·</span><span>{destinations.length - 1} comparison option{destinations.length === 2 ? "" : "s"} retained</span>{selectedValue !== null && <span className="sep">· {money4(selectedValue)}/unit at {tier?.label}</span>}</> : <span className="fr-vs worse">no destination selected</span>}</div>; }
+function TotalStrip({ tiers, workbook }: any) {
+  const totals = useMemo(() => tiers.map((tier: Tier) => workbook.subcategories.reduce((sum: number, shipment: any) => { const destination = workbook.destinations.find((row: any) => row.id === shipment.selectedDestinationId); const row = destination && workbook.breaks.find((item: any) => item.freightDestinationId === destination.id && item.tierId === tier.id); const customsEntry = workbook.customsEntries.find((item: any) => item.freightSubcategoryId === shipment.id); const customs = customsEntry ? workbook.customsBreaks.filter((item: any) => item.freightCustomsEntryId === customsEntry.id && item.tierId === tier.id).reduce((value: number, item: any) => value + Number(item.amount ?? 0) * (1 + Number(item.markupPct ?? 0)), 0) : 0; return sum + (tier.qty ? (Number(row?.freightAmount ?? 0) * (1 + Number(row?.freightMarkupPct ?? 0)) + customs) / tier.qty : 0); }, 0)), [tiers, workbook]);
+  // Conditional meta line per the bundle's `TotalStrip`. An unselected
+  // multi-destination shipment is the state that makes this total
+  // provisional, so it is named rather than silently summed to zero.
+  // "shipment" is the approved operator term for the bundle's
+  // "subcategory" (disposition C3).
+  const count = workbook.subcategories.length;
+  const undecided = workbook.subcategories.filter((shipment: any) =>
+    workbook.destinations.filter((row: any) => row.freightSubcategoryId === shipment.id).length > 1 && !shipment.selectedDestinationId,
+  ).length;
+  const meta = undecided
+    ? `${undecided} shipment${undecided > 1 ? "s have" : " has"} no selection`
+    : `sum of the selected destination in each of ${count} shipment${count > 1 ? "s" : ""}`;
+  return <><div className="fr-grid fr-total"><div className="lab"><span className="n">Freight sell per unit</span><span className="m">{meta}</span></div>{totals.map((total: number, index: number) => <div className="fr-cell" key={tiers[index].id}><span className="v">{money4(total)}</span><span className="s">freight + duty/tariff</span></div>)}</div><div className="fr-assert"><span className="mk">✓</span><span>Candidate destinations are internal — they reach neither the quote nor the PDF. Freight, duty and tariff stay separate rows into Pricing&apos;s cost stack.</span></div></>;
 }
-
-function MenuItem({
-  label,
-  disabled,
-  onClick,
-}: {
-  label: string;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      style={{
-        display: "block",
-        width: "100%",
-        padding: "6px 12px",
-        textAlign: "left",
-        background: "transparent",
-        border: "none",
-        color: disabled ? "var(--ink-4)" : "var(--ink)",
-        fontSize: 12,
-        cursor: disabled ? "not-allowed" : "pointer",
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-// ---- body grid field wrapper ----
-
-function BodyField({
-  label,
-  children,
-}: {
-  label: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="field">
-      <div className="lbl">{label}</div>
-      {children}
-    </div>
-  );
-}
-
-// ---- leg-body date input (blur-commit) ----
-//
-// Slice R6.2 commit 4 hotfix — every leg-body date field was wired
-// to save on every onChange, which wrapped the action in
-// startTransition and flipped `pending` to true → `disabled` toggled
-// mid-typing → focus kicked off the date segment. Same shape as the
-// RI.8 numeric-autosave focus-loss issue; same fix: local state per
-// keystroke, persist at commit boundaries (blur + Enter). Used by
-// cargo_ready, vessel_etd, vessel_eta, actual_delivery on the leg
-// body. Modal-side date inputs are local-state-only (no server save
-// per keystroke) so they don't need this primitive.
-function LegDateInput({
-  value,
-  disabled,
-  onCommit,
-}: {
-  value: string | null;
-  disabled: boolean;
-  onCommit: (value: string | null) => void;
-}) {
-  const [draft, setDraft] = useState(value ?? "");
-  // Re-hydrate when the leg's stored value changes from outside
-  // (Realtime reconcile, store-driven snapshot update).
-  useEffect(() => {
-    setDraft(value ?? "");
-  }, [value]);
-
-  function commitIfChanged() {
-    const next = draft === "" ? null : draft;
-    if (next === value) return;
-    // Reject invalid partial dates (browser sometimes lets them
-    // through if focus moves before completion). Same regex the
-    // action layer uses.
-    if (next !== null && !/^\d{4}-\d{2}-\d{2}$/.test(next)) {
-      setDraft(value ?? "");
-      return;
-    }
-    onCommit(next);
-  }
-
-  return (
-    <input
-      type="date"
-      value={draft}
-      disabled={disabled}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commitIfChanged}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          (e.currentTarget as HTMLInputElement).blur();
-        }
-      }}
-    />
-  );
-}
-
-// ---- debounced text input + textarea (autosave on blur) ----
-
-function DebouncedTextInput({
-  defaultValue,
-  disabled,
-  placeholder,
-  onCommit,
-}: {
-  defaultValue: string;
-  disabled: boolean;
-  placeholder?: string;
-  onCommit: (value: string | null) => void;
-}) {
-  const [value, setValue] = useState(defaultValue);
-  useEffect(() => {
-    setValue(defaultValue);
-  }, [defaultValue]);
-  function commitIfChanged() {
-    const trimmed = value.trim();
-    const next = trimmed === "" ? null : trimmed;
-    const prev = defaultValue.trim() === "" ? null : defaultValue;
-    if (next === prev) return;
-    onCommit(next);
-  }
-  return (
-    <input
-      type="text"
-      value={value}
-      disabled={disabled}
-      placeholder={placeholder}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={commitIfChanged}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          (e.currentTarget as HTMLInputElement).blur();
-        }
-      }}
-    />
-  );
-}
-
-function DebouncedTextarea({
-  defaultValue,
-  disabled,
-  placeholder,
-  onCommit,
-}: {
-  defaultValue: string;
-  disabled: boolean;
-  placeholder?: string;
-  onCommit: (value: string | null) => void;
-}) {
-  const [value, setValue] = useState(defaultValue);
-  useEffect(() => {
-    setValue(defaultValue);
-  }, [defaultValue]);
-  function commitIfChanged() {
-    const next = value === "" ? null : value;
-    const prev = defaultValue === "" ? null : defaultValue;
-    if (next === prev) return;
-    onCommit(next);
-  }
-  return (
-    <textarea
-      value={value}
-      disabled={disabled}
-      placeholder={placeholder}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={commitIfChanged}
-    />
-  );
-}
-
-// ---- add-leg modal ----
-
-// Slice R6.2 — Add Leg modal uses the canonical .r62-drawer-* form
-// register inside a centered Modal overlay (per kickoff: same field
-// set as the slide-in drawer, different chrome). Modal primitive
-// provides the portal + overlay positioning; the inner sections
-// (.r62-drawer-head/body/foot, .field/.lbl, .row-pair, .row-route,
-// .r62-drawer-section, .r62-drawer-rates, .r62-drawer-customs,
-// .r62-drawer-pdf) match the canonical R6.2 prototype's AddLegDrawer
-// design 1:1.
-function AddLegModal({
-  legGroupId,
-  tiers,
-  onClose,
-}: {
-  legGroupId: string;
-  tiers: Tier[];
-  onClose: () => void;
-}) {
-  const [direction, setDirection] = useState<"inbound" | "outbound">(
-    "outbound",
-  );
-  const [label, setLabel] = useState("");
-  const [origin, setOrigin] = useState("");
-  const [destination, setDestination] = useState("");
-  const [mode, setMode] = useState<string>("ocean_fcl");
-  const [carrier, setCarrier] = useState("");
-  const [incoterm, setIncoterm] = useState<string>("DDP");
-  const [cargoReadyDate, setCargoReadyDate] = useState("");
-  const [vesselEtd, setVesselEtd] = useState("");
-  // Slice R6.2 commit 4 — forwarder ETA + actual delivery date.
-  // Both nullable; no incoterm-class required-fields rule.
-  const [vesselEta, setVesselEta] = useState("");
-  const [actualDeliveryDate, setActualDeliveryDate] = useState("");
-  const [crossesBorder, setCrossesBorder] = useState(true);
-  const [treatment, setTreatment] = useState<"bundled" | "pass_through">(
-    "bundled",
-  );
-  // Per-component markup pcts (canonical: default 0.30, overridable
-  // per-leg, per Cally's tariff-anomaly case). Sent to addLeg as
-  // decimals already wired in the action layer.
-  const [freightMk, setFreightMk] = useState(0.3);
-  const [dutyMk, setDutyMk] = useState(0.3);
-  const [tariffMk, setTariffMk] = useState(0.3);
-  // Customs rates (canonical: percent-display). Sent to addLeg which
-  // stores them in the leg's customs JSONB.
-  const [dutyPct, setDutyPct] = useState("");
-  const [tariffPct, setTariffPct] = useState("");
-  // Per-tier rate seed values. Keyed by tierId; raw string per input
-  // (kept as string so partial typed values don't get round-tripped
-  // through Number() on every keystroke). Sent to addLeg as
-  // `tierRate_<tierId>` formdata keys.
-  const [tierRates, setTierRates] = useState<Record<string, string>>({});
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
-
-  // Customs cluster visibility — same rule as the rendered leg
-  // (crosses_international_border AND incoterm === 'DDP').
-  const showCustoms = crossesBorder && incoterm === "DDP";
-
-  function handleSubmit() {
-    setError(null);
-    const fd = new FormData();
-    fd.set("legGroupId", legGroupId);
-    fd.set("direction", direction);
-    fd.set("label", label);
-    fd.set("origin", origin);
-    fd.set("destination", destination);
-    fd.set("crossesInternationalBorder", crossesBorder ? "true" : "false");
-    fd.set("treatment", treatment);
-    fd.set("mode", mode);
-    fd.set("carrier", carrier);
-    fd.set("incoterm", incoterm);
-    fd.set("cargoReadyDate", cargoReadyDate);
-    fd.set("vesselEtd", vesselEtd);
-    fd.set("vesselEta", vesselEta);
-    fd.set("actualDeliveryDate", actualDeliveryDate);
-    // Per-component markup decimals → percent-display for the action
-    // layer's parseMarkupPct helper (divides by 100 on store).
-    fd.set("freightMarkupPct", (freightMk * 100).toFixed(2));
-    fd.set("dutyMarkupPct", (dutyMk * 100).toFixed(2));
-    fd.set("tariffMarkupPct", (tariffMk * 100).toFixed(2));
-    if (showCustoms) {
-      if (dutyPct.trim() !== "") fd.set("dutyPct", dutyPct);
-      if (tariffPct.trim() !== "") fd.set("tariffPct", tariffPct);
-    }
-    // Per-tier rate seed values. Only forward non-empty entries;
-    // the action layer treats absent/empty as null total_freight.
-    for (const t of tiers) {
-      const raw = (tierRates[t.id] ?? "").trim();
-      if (raw !== "") fd.set(`tierRate_${t.id}`, raw);
-    }
-    startTransition(async () => {
-      const result = await addLeg(fd);
-      if (result.ok) {
-        onClose();
-      } else {
-        setError(result.error.message);
-      }
-    });
-  }
-
-  return (
-    <Modal open onClose={onClose} size="lg">
-      <div className="r62-drawer-head">
-        <div>
-          <h2>Add freight leg</h2>
-          <p className="sub">
-            Customs cluster appears when this leg crosses an international
-            border with DPS-customs obligation.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="close"
-          onClick={onClose}
-          aria-label="Close"
-        >
-          ✕
-        </button>
-      </div>
-
-      <div className="r62-drawer-body">
-        <div className="row-pair">
-          <div className="field">
-            <div className="lbl">Direction</div>
-            <select
-              value={direction}
-              onChange={(e) =>
-                setDirection(e.target.value as "inbound" | "outbound")
-              }
-            >
-              <option value="inbound">Inbound</option>
-              <option value="outbound">Outbound</option>
-            </select>
-          </div>
-          <div className="field">
-            <div className="lbl">Incoterm</div>
-            <select
-              value={incoterm}
-              onChange={(e) => setIncoterm(e.target.value)}
-            >
-              {INCOTERMS.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.value} — {t.desc}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="field">
-          <div className="lbl">Label</div>
-          <input
-            type="text"
-            value={label}
-            placeholder="e.g., Shenzhen → Busan · Bulk container"
-            onChange={(e) => setLabel(e.target.value)}
-          />
-        </div>
-
-        <div className="row-pair">
-          <div className="field">
-            <div className="lbl">Mode</div>
-            <select value={mode} onChange={(e) => setMode(e.target.value)}>
-              {FREIGHT_LEG_MODES.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <div className="lbl">Carrier</div>
-            <input
-              type="text"
-              value={carrier}
-              placeholder="Sino Logistics"
-              onChange={(e) => setCarrier(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="row-route">
-          <div className="field">
-            <div className="lbl">Origin</div>
-            <input
-              type="text"
-              value={origin}
-              placeholder="Shenzhen Yantian Port"
-              onChange={(e) => setOrigin(e.target.value)}
-            />
-          </div>
-          <span className="arrow">→</span>
-          <div className="field">
-            <div className="lbl">Destination</div>
-            <input
-              type="text"
-              value={destination}
-              placeholder="Long Beach Port"
-              onChange={(e) => setDestination(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="row-pair">
-          <div className="field">
-            <div className="lbl">Cargo ready date</div>
-            <input
-              type="date"
-              value={cargoReadyDate}
-              onChange={(e) => setCargoReadyDate(e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <div className="lbl">
-              Vessel ETD
-              {(incoterm === "FOB" || incoterm === "EXW") && (
-                <span
-                  style={{
-                    marginLeft: 4,
-                    fontSize: 9,
-                    color: "var(--ink-4)",
-                    fontStyle: "italic",
-                    textTransform: "none",
-                    letterSpacing: 0,
-                  }}
-                >
-                  · optional
-                </span>
-              )}
-            </div>
-            <input
-              type="date"
-              value={vesselEtd}
-              onChange={(e) => setVesselEtd(e.target.value)}
-            />
-          </div>
-        </div>
-
-        {/* Slice R6.2 commit 4 — forwarder ETA + actual delivery date.
-            Both nullable; actual_delivery_date typically filled in
-            post-shipment, not at quote time. */}
-        <div className="row-pair">
-          <div className="field">
-            <div className="lbl">
-              Vessel ETA
-              <span
-                style={{
-                  marginLeft: 4,
-                  fontSize: 9,
-                  color: "var(--ink-4)",
-                  fontStyle: "italic",
-                  textTransform: "none",
-                  letterSpacing: 0,
-                }}
-              >
-                · forwarder estimate
-              </span>
-            </div>
-            <input
-              type="date"
-              value={vesselEta}
-              onChange={(e) => setVesselEta(e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <div className="lbl">
-              Actual delivery date
-              <span
-                style={{
-                  marginLeft: 4,
-                  fontSize: 9,
-                  color: "var(--ink-4)",
-                  fontStyle: "italic",
-                  textTransform: "none",
-                  letterSpacing: 0,
-                }}
-              >
-                · post-shipment
-              </span>
-            </div>
-            <input
-              type="date"
-              value={actualDeliveryDate}
-              onChange={(e) => setActualDeliveryDate(e.target.value)}
-            />
-          </div>
-        </div>
-
-        {/* Crosses-border checkbox — canonical inline paper-2 box */}
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            padding: "10px 14px",
-            background: "var(--paper-2)",
-            border: "1px solid var(--rule)",
-            borderRadius: 6,
-            fontSize: 12,
-            cursor: "pointer",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={crossesBorder}
-            onChange={(e) => setCrossesBorder(e.target.checked)}
-          />
-          <span>Crosses international border with DPS-customs obligation</span>
-          <span
-            style={{
-              marginLeft: "auto",
-              fontFamily: "var(--mono)",
-              fontSize: 9.5,
-              color: "var(--ink-4)",
-              letterSpacing: 0.06,
-              textTransform: "uppercase",
-            }}
-          >
-            drives customs visibility
-          </span>
-        </label>
-
-        {/* Treatment toggle — canonical .r62-treat per-line shape */}
-        <div className="field">
-          <div className="lbl">Treatment</div>
-          <div className="r62-treat" style={{ alignSelf: "flex-start" }}>
-            <button
-              type="button"
-              className={treatment === "bundled" ? "on bundled" : ""}
-              onClick={() => setTreatment("bundled")}
-            >
-              Bundled
-            </button>
-            <button
-              type="button"
-              className={
-                treatment === "pass_through" ? "on passthrough" : ""
-              }
-              onClick={() => setTreatment("pass_through")}
-            >
-              Passthrough
-            </button>
-          </div>
-        </div>
-
-        {/* Markup pcts panel — canonical: three inline pills,
-            paper-2 box, mono caption "per-component · default 0.30" */}
-        <div
-          style={{
-            padding: "10px 14px",
-            background: "var(--paper-2)",
-            border: "1px solid var(--rule)",
-            borderRadius: 6,
-          }}
-        >
-          <div
-            style={{
-              fontFamily: "var(--mono)",
-              fontSize: 9.5,
-              letterSpacing: 0.1,
-              textTransform: "uppercase",
-              color: "var(--ink-4)",
-              marginBottom: 8,
-            }}
-          >
-            Markup pcts · per-component · default 0.30
-          </div>
-          <div
-            style={{
-              display: "flex",
-              gap: 18,
-              alignItems: "center",
-              fontSize: 12,
-            }}
-          >
-            <span>
-              Freight{" "}
-              <MarkupPill
-                value={freightMk}
-                disabled={false}
-                onCommit={setFreightMk}
-              />
-            </span>
-            <span>
-              Duty{" "}
-              <MarkupPill
-                value={dutyMk}
-                disabled={false}
-                onCommit={setDutyMk}
-              />
-            </span>
-            <span>
-              Tariff{" "}
-              <MarkupPill
-                value={tariffMk}
-                disabled={false}
-                onCommit={setTariffMk}
-              />
-            </span>
-          </div>
-        </div>
-
-        {/* Rates per tier — canonical .r62-drawer-rates mini-table.
-            Enabled inputs; values seed `freight_leg_tiers.total_freight`
-            on add. Per-unit billable caption recomputes live from
-            tier.qty + freightMk pill so PMs see the marked-up
-            per-unit before they commit. */}
-        <div className="r62-drawer-section">
-          <h4>Rates per tier</h4>
-          <div className="r62-drawer-rates">
-            <span className="h">Tier</span>
-            <span className="h num">Total freight</span>
-            <span className="h num">Per unit (billable)</span>
-            {tiers.map((t) => {
-              const raw = tierRates[t.id] ?? "";
-              const totalNum = raw.trim() === "" ? null : Number(raw);
-              const billablePerUnit =
-                totalNum !== null &&
-                Number.isFinite(totalNum) &&
-                totalNum > 0 &&
-                t.qty !== null &&
-                t.qty > 0
-                  ? (totalNum * (1 + freightMk)) / t.qty
-                  : null;
-              return (
-                <React.Fragment key={t.id}>
-                  <span className="t-lab">{t.label}</span>
-                  <input
-                    type="number"
-                    step="1"
-                    min={0}
-                    value={raw}
-                    placeholder="$ — "
-                    aria-label={`Total freight cost for ${t.label}`}
-                    onChange={(e) =>
-                      setTierRates((prev) => ({
-                        ...prev,
-                        [t.id]: e.target.value,
-                      }))
-                    }
-                  />
-                  <span
-                    className={
-                      billablePerUnit !== null
-                        ? "per-unit computed"
-                        : "per-unit"
-                    }
-                  >
-                    {billablePerUnit !== null
-                      ? fmtCurr2(billablePerUnit)
-                      : "—"}
-                  </span>
-                </React.Fragment>
-              );
-            })}
-          </div>
-          <p
-            style={{
-              margin: 0,
-              fontFamily: "var(--mono)",
-              fontSize: 9.5,
-              letterSpacing: 0.04,
-              color: "var(--ink-4)",
-            }}
-          >
-            Per unit = total × (1 + freight markup) ÷ tier units
-          </p>
-        </div>
-
-        {/* Customs section — canonical .r62-drawer-section with
-            .grid3 layout. Visible only when crosses_border + DDP. */}
-        {showCustoms && (
-          <div className="r62-drawer-section">
-            <h4>Customs · {incoterm} · border</h4>
-            <div
-              className="grid3"
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 12,
-              }}
-            >
-              <div className="field">
-                <div className="lbl">Duty %</div>
-                <input
-                  type="number"
-                  step="0.1"
-                  min={0}
-                  value={dutyPct}
-                  placeholder="5.8"
-                  onChange={(e) => setDutyPct(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <div className="lbl">Tariff %</div>
-                <input
-                  type="number"
-                  step="0.1"
-                  min={0}
-                  value={tariffPct}
-                  placeholder="7.5"
-                  onChange={(e) => setTariffPct(e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* PDF attachment slot — visual P1; upload P2 per Gap 24 */}
-        <div className="r62-drawer-pdf">
-          ↑ Attach forwarder quote PDF{" "}
-          <span className="r62-phase-tag p2" style={{ marginLeft: 8 }}>
-            upload · P2
-          </span>
-        </div>
-
-        {error && (
-          <div
-            role="alert"
-            style={{
-              padding: "10px 14px",
-              background: "var(--bad-soft)",
-              border: "1px solid oklch(from var(--bad) l c h / 0.40)",
-              borderRadius: 6,
-              fontSize: 12,
-              color: "var(--bad)",
-            }}
-          >
-            {error}
-          </div>
-        )}
-      </div>
-
-      <div className="r62-drawer-foot">
-        <span className="left">
-          Border + incoterm drive customs visibility · markup applied to amount
-        </span>
-        <div className="right">
-          <button type="button" onClick={onClose} disabled={pending}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="primary"
-            onClick={handleSubmit}
-            disabled={pending}
-          >
-            {pending ? "Adding…" : "Add leg"}
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-// Helpers + utilities banked above; fmtPct + fmtDate kept for future
-// surface polish (currently unreferenced in this build).
-void fmtPct;
-void fmtDate;

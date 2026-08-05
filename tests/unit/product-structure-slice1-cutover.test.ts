@@ -8,7 +8,7 @@ const read = (file: string) => readFile(path.join(root, file), "utf8");
 
 const classifiedIdentityFiles = new Set([
   "src/app/actions/assemblies.ts", "src/app/actions/assembly-leaf-inputs.ts",
-  "src/app/actions/costing.ts",
+  "src/app/actions/costing.ts", "src/app/actions/freight-worksheet.ts",
   // CLASSIFIED — transitional. actions/freight.ts writes component-tier costs
   // keyed on canonical quoteLeafId, with the fail-closed identity guards
   // covered by phase-2-freight-lifecycle. Transitional compatibility
@@ -20,7 +20,7 @@ const classifiedIdentityFiles = new Set([
   "src/app/projects/[id]/quotes/[quoteId]/leaves/[leafId]/specs/page.tsx",
   "src/app/projects/[id]/quotes/[quoteId]/page.tsx", "src/components/add-product/add-product-modal.tsx",
   "src/components/assembly-tree/asy-row.tsx", "src/components/assembly-tree/leaf-context-menu.tsx",
-  "src/components/costing-store-provider.tsx", "src/components/costs/production-drilldown.tsx",
+  "src/components/costing-store-provider.tsx", "src/components/costs/freight-drilldown.tsx", "src/components/costs/production-drilldown.tsx",
   "src/components/library/library-browse-modal.tsx", "src/components/spec-entry/change-type-modal.tsx",
   "src/components/spec-entry/spec-entry-surface.tsx", "src/components/spec-entry/spec-panel.tsx",
   "src/components/spec-entry/type-picker.tsx", "src/db/schema.ts", "src/lib/addendum-loader.ts",
@@ -28,7 +28,7 @@ const classifiedIdentityFiles = new Set([
   // CLASSIFIED — enduring. costing.ts carries canonicalQuoteLeafId on
   // CostingSku; the math layer keys on canonical identity by design.
   "src/lib/costing.ts",
-  "src/lib/leaf-spec-loader.ts",
+  "src/lib/freight-workbook.ts", "src/lib/leaf-spec-loader.ts",
   "src/lib/commercial-settings.ts",
   "src/lib/library-browse-loader.ts", "src/lib/nav/home-queries.ts", "src/lib/netsuite/item-resolver.ts",
   "src/lib/netsuite/mark-complete.ts", "src/lib/product-structure/canonical-attachment-identity.ts",

@@ -228,7 +228,7 @@ export type CostingStoreState = {
   ) => void;
   updateFreightLegMarkup: (
     legId: string,
-    component: "freight" | "duty" | "tariff",
+    component: "duty" | "tariff",
     value: number,
   ) => void;
   updateFreightLegCustoms: (
@@ -650,12 +650,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     // (`freight_leg_markup_updated`) with diff_json.component flag.
     updateFreightLegMarkup: (legId, component, value) =>
       set((s) => {
-        const key =
-          component === "freight"
-            ? "freightMarkupPct"
-            : component === "duty"
-              ? "dutyMarkupPct"
-              : "tariffMarkupPct";
+        const key = component === "duty" ? "dutyMarkupPct" : "tariffMarkupPct";
         const freightLegs = s.freightLegs.map((leg) =>
           leg.id === legId ? { ...leg, [key]: value } : leg,
         );

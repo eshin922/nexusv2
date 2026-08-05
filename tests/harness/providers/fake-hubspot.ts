@@ -18,7 +18,7 @@ const dealStages = new Map<string, HubSpotStage>();
 const dealAmounts = new Map<string, number>();
 const vendors = [
   { id: "900000000000001", name: "Validation Packaging Vendor" },
-  { id: "900000000000002", name: "Validation Contract Manufacturer" },
+  { id: "900000000000002", name: "Acme Contract Manufacturing" },
 ] as const;
 let productSequence = 0;
 
