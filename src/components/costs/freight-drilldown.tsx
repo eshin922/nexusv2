@@ -94,15 +94,36 @@ export function FreightDrilldown(props: {
   const allDetailOpen =
     allDestinationIds.length > 0 && openDestinations.length === allDestinationIds.length;
 
+  // Write-to-render timing diagnostic.
+  //
+  // Operators report 20-45s before a Freight edit is visible. The
+  // database accounts for ~1s of that, so the remaining time is somewhere in
+  // action -> revalidatePath -> RSC regeneration -> transfer -> paint. These
+  // marks split that span so the fix targets the measured hop rather than an
+  // inference about it.
+  //
+  // `browser update` is the honest end of the span: it fires after the
+  // refreshed RSC payload has been applied and React has painted, which is
+  // the moment the operator can actually read the new number.
   const submit = (action: (fd: FormData) => Promise<Result>, onSuccess?: (result: Result) => void) => (fd: FormData) => {
     setMessage(null);
+    const t0 = performance.now();
+    const since = (label: string) =>
+      console.log(`[freight-timing] ${label.padEnd(22)} ${(performance.now() - t0).toFixed(0)} ms`);
+    since("submit");
     startTransition(async () => {
+      since("action start");
       const result = await action(fd);
+      since("action complete");
       if (!result.ok) setMessage(result.error?.message ?? "Unable to save freight worksheet.");
       else {
         if (result.data?.selectionCleared) setMessage(`${result.data.deletedDestination} was removed. No destination is in the price; choose one explicitly.`);
         onSuccess?.(result);
+        since("refresh start");
         router.refresh();
+        // startTransition resolves once the refreshed tree has been applied,
+        // so the next frame is the first on which the operator sees it.
+        requestAnimationFrame(() => since("browser update"));
       }
     });
   };
@@ -219,7 +240,7 @@ function DestinationRow({ destination, shipment, destinations, selected, tiers, 
   return <div className={`fr-dest${isSelected && destinations.length > 1 ? " sel" : ""}`} ref={rowRef}>
     <div className="fr-grid">
       <div className="fr-dlab">{destinations.length > 1 && <button className={`fr-pick${isSelected ? " on" : ""}`} disabled={!editable || !priced || pending} aria-label={`Select ${destination.destination}`} onClick={() => submit(selectFreightDestination)(fields({ freightSubcategoryId: shipment.id, destinationId: destination.id, selectionReason: shipment.selectionReason }))}/>}<span className="fr-dname"><span className="n">{destinations.length > 1 ? "to " : ""}{destination.destination}{destination.consignee ? ` · ${destination.consignee}` : ""}</span><span className="m"><span>{destination.transitDays || "transit not set"} door to door</span><span className={varies ? "varies" : ""}>{varies ? modes.map((mode: string) => mode.replace("Domestic ", "").replace("Ocean ", "")).join(" / ") : modes[0]}</span>{inherited && <span className="fr-inherit">type + markup inherited</span>}</span><input className="fr-note" defaultValue={destination.internalNotes ?? ""} placeholder="note — optional" disabled={!editable} onBlur={(event) => submit(updateFreightDestination)(fields({ destinationId: destination.id, destination: destination.destination, consignee: destination.consignee, transitDays: destination.transitDays, quoteReference: destination.quoteReference, internalNotes: event.currentTarget.value }))}/></span>{isSelected && destinations.length > 1 && <span className="fr-vs win">in the price</span>}{destinations.length > 1 && !isSelected && priced && delta !== null && <span className={`fr-vs ${delta > 0 ? "worse" : "better"}`}>{delta > 0 ? "+" : "−"}{money4(Math.abs(delta)).slice(1)}/unit</span>}{destinations.length > 1 && !priced && <span className="fr-vs">no total yet</span>}<button type="button" className="fr-tog" onClick={() => setFlat(!flat)}>{flat ? "differs by break" : "one value, all breaks"}</button><button className={`fr-edit${open ? " on" : ""}`} onClick={toggle}>{open ? "hide detail" : "type + description"}</button>{destinations.length > 1 && editable && <button className="fr-del" disabled={pending} onClick={() => submit(deleteFreightDestination)(fields({ destinationId: destination.id }))}>remove</button>}</div>
-      {tiers.map((tier: Tier, tierIndex: number) => { const row = rows.find((item: any) => item.tierId === tier.id); const amount = Number(row?.freightAmount ?? 0); const markup = Number(row?.freightMarkupPct ?? 0); const customsEntry = workbook.customsEntries.find((item: any) => item.freightSubcategoryId === shipment.id); const customsSell = customsEntry && tier.qty ? workbook.customsBreaks.filter((item: any) => item.freightCustomsEntryId === customsEntry.id && item.tierId === tier.id).reduce((sum: number, item: any) => sum + Number(item.amount ?? 0) * (1 + Number(item.markupPct ?? 0)), 0) / tier.qty : 0; return <div className="fr-cell fr-entrycell" key={tier.id}>{row ? flat && tierIndex > 0 ? <span className="cbm">one value, all breaks</span> : <><input className="fr-in" data-break-field name={`freightAmount:${tier.id}`} type="number" min="0" step="0.01" defaultValue={row.freightAmount ?? ""} placeholder="total cost" disabled={!editable} onBlur={saveBreaks}/><span className="mrow"><span className="x">×</span><input className="fr-in pct" data-break-field name={`freightMarkupPct:${tier.id}`} type="number" min="0" step="0.01" defaultValue={row.freightMarkupPct === null ? "" : markup * 100} disabled={!editable} onBlur={saveBreaks}/><span className="arr">→</span><span className="sell">{priced && tier.qty ? money4(amount * (1 + markup) / tier.qty) : "—"}</span></span>{shipment.crossesInternationalBorder && priced && <span className="cbm">incl. d/t {money4(customsSell).slice(1)}</span>}</> : "—"}</div>; })}
+      {tiers.map((tier: Tier, tierIndex: number) => { const row = rows.find((item: any) => item.tierId === tier.id); const amount = Number(row?.freightAmount ?? 0); const markup = Number(row?.freightMarkupPct ?? 0); const customsEntry = workbook.customsEntries.find((item: any) => item.freightSubcategoryId === shipment.id); const customsSell = customsEntry && tier.qty ? workbook.customsBreaks.filter((item: any) => item.freightCustomsEntryId === customsEntry.id && item.tierId === tier.id).reduce((sum: number, item: any) => sum + Number(item.amount ?? 0) * (1 + Number(item.markupPct ?? 0)), 0) / tier.qty : 0; return <div className="fr-cell fr-entrycell" key={tier.id}>{row ? flat && tierIndex > 0 ? <span className="cbm">one value, all breaks</span> : <><input className="fr-in" data-break-field name={`freightAmount:${tier.id}`} type="number" min="0" step="0.01" defaultValue={row.freightAmount ?? ""} placeholder="total cost" disabled={!editable} onBlur={saveBreaks}/><span className="mrow"><span className="x">×</span><input className="fr-in pct" data-break-field name={`freightMarkupPct:${tier.id}`} type="number" min="0" max="999" step="1" placeholder="40" aria-label="Freight markup, whole percent" title="Enter whole percent — 40 means 40%" defaultValue={row.freightMarkupPct === null ? "" : markup * 100} disabled={!editable} onBlur={saveBreaks}/><span className="arr">→</span><span className="sell">{priced && tier.qty ? money4(amount * (1 + markup) / tier.qty) : "—"}</span></span>{shipment.crossesInternationalBorder && priced && <span className="cbm">incl. d/t {money4(customsSell).slice(1)}</span>}</> : "—"}</div>; })}
     </div>
     {/* Mode and description render for EVERY break regardless of flat state.
         "One value, all breaks" governs the freight amount only — a shipment
@@ -274,7 +295,7 @@ function CustomsLedger({ shipment, tiers, entry, workbook, editable, pending, su
         <div className="lb"><span className="n">{label}</span><span className="d">invoice-entered amount</span></div>
         <div className="mk">{tiers.map((tier: Tier) => {
           const current = entry && workbook.customsBreaks.find((row: any) => row.freightCustomsEntryId === entry.id && row.tierId === tier.id && row.chargeType === chargeType);
-          return <input className="fr-in pct" data-customs-markup={`${chargeType}:${tier.id}`} type="number" min="0" step="0.01" defaultValue={current?.markupPct === null || current?.markupPct === undefined ? "" : Number(current.markupPct) * 100} disabled={!editable} onBlur={() => saveBreak(chargeType, tier.id)} key={tier.id}/>;
+          return <input className="fr-in pct" data-customs-markup={`${chargeType}:${tier.id}`} type="number" min="0" max="999" step="1" placeholder="10" aria-label="Markup, whole percent" title="Enter whole percent — 10 means 10%" defaultValue={current?.markupPct === null || current?.markupPct === undefined ? "" : Number(current.markupPct) * 100} disabled={!editable} onBlur={() => saveBreak(chargeType, tier.id)} key={tier.id}/>;
         })}</div>
         {tiers.map((tier: Tier) => {
           const current = entry && workbook.customsBreaks.find((row: any) => row.freightCustomsEntryId === entry.id && row.tierId === tier.id && row.chargeType === chargeType);
@@ -378,8 +399,83 @@ function ShipmentContentsPicker({
   );
 }
 
-function ShipmentEdit({ shipment, memberships, components, pending, submit }: any) { return <details className="fr-edit-disclosure"><summary>Edit shipment</summary><form action={submit}><input type="hidden" name="freightSubcategoryId" value={shipment.id}/><input required name="label" defaultValue={shipment.label}/><input name="origin" defaultValue={shipment.origin ?? ""}/><input name="carrierForwarder" defaultValue={shipment.carrierForwarder ?? ""}/><input name="incoterm" defaultValue={shipment.incoterm ?? ""}/><input name="journeyLabel" defaultValue={shipment.journeyLabel ?? ""}/><input name="cargoReadyDate" type="date" defaultValue={shipment.cargoReadyDate ?? ""}/><select name="treatment" defaultValue={shipment.treatment}><option value="bundled">Bundled</option><option value="pass_through">Pass-through</option></select><label><input type="checkbox" name="crossesInternationalBorder" value="true" defaultChecked={shipment.crossesInternationalBorder}/> clears customs</label><fieldset className="fr-shipment-contents"><legend>Edit shipment contents</legend>{components.filter((item: Component) => item.assemblyId === shipment.assemblyId).map((item: Component) => <label key={item.id}><input type="checkbox" name="assemblyLeafId" value={item.id} defaultChecked={memberships.some((row: any) => row.assemblyLeafId === item.id)}/> {item.label}</label>)}</fieldset><button disabled={pending}>Save</button></form></details>; }
-function DestinationEdit({ destination, pending, submit }: any) { return <details className="fr-edit-disclosure"><summary>Edit destination</summary><form action={submit}><input type="hidden" name="destinationId" value={destination.id}/><input required name="destination" defaultValue={destination.destination}/><input name="consignee" defaultValue={destination.consignee ?? ""}/><input name="transitDays" defaultValue={destination.transitDays ?? ""}/><input name="quoteReference" defaultValue={destination.quoteReference ?? ""}/><input name="internalNotes" defaultValue={destination.internalNotes ?? ""}/><button disabled={pending}>Save</button></form></details>; }
+/**
+ * Shipment edit.
+ *
+ * Every control is labelled, and each carries its own required/optional
+ * marker. The previous form was a row of bare inputs whose meaning depended
+ * entirely on position, so a blank field was indistinguishable from an
+ * optional one and the operator could not tell what was blocking completion.
+ *
+ * Optional here means commercially optional -- freight still prices without
+ * it. Only the shipment name is required, because it is what every later
+ * surface refers to the shipment by.
+ */
+function ShipmentEdit({ shipment, memberships, components, pending, submit }: any) {
+  const own = components.filter((item: Component) => item.assemblyId === shipment.assemblyId);
+  const selectedCount = own.filter((item: Component) =>
+    memberships.some((row: any) => row.assemblyLeafId === item.id)).length;
+  // Names what is still unrecorded, so completion is readable rather than
+  // inferred from which boxes happen to look empty.
+  const missing = [
+    !shipment.origin && "origin",
+    !shipment.carrierForwarder && "forwarder or carrier",
+    !shipment.incoterm && "incoterm",
+    !shipment.cargoReadyDate && "cargo ready date",
+  ].filter(Boolean) as string[];
+
+  return <details className="fr-edit-disclosure"><summary>Edit shipment</summary>
+    <form action={submit} className="fr-editform">
+      <input type="hidden" name="freightSubcategoryId" value={shipment.id}/>
+      <div className="fr-field"><label htmlFor={`se-label-${shipment.id}`}>what ships <span className="req">required</span></label><input id={`se-label-${shipment.id}`} required name="label" defaultValue={shipment.label} placeholder="Packaging from overseas — bottles + sprayers"/></div>
+      <div className="fr-field"><label htmlFor={`se-origin-${shipment.id}`}>from <span className="opt">optional</span></label><input id={`se-origin-${shipment.id}`} name="origin" defaultValue={shipment.origin ?? ""} placeholder="Ningbo, China"/></div>
+      <div className="fr-field"><label htmlFor={`se-carrier-${shipment.id}`}>forwarder or carrier <span className="opt">optional</span></label><input id={`se-carrier-${shipment.id}`} name="carrierForwarder" defaultValue={shipment.carrierForwarder ?? ""} placeholder="Straight Forwarding, Inc."/></div>
+      <div className="fr-field"><label htmlFor={`se-incoterm-${shipment.id}`}>incoterm <span className="opt">optional</span></label><select id={`se-incoterm-${shipment.id}`} name="incoterm" defaultValue={shipment.incoterm ?? ""}><option value="">Not set</option>{["DDP","DAP","FOB","EXW","FCA","CIF"].map((item) => <option key={item}>{item}</option>)}</select></div>
+      <div className="fr-field"><label htmlFor={`se-journey-${shipment.id}`}>journey <span className="opt">optional</span></label><input id={`se-journey-${shipment.id}`} name="journeyLabel" defaultValue={shipment.journeyLabel ?? ""} placeholder="Outbound · journey 1"/></div>
+      <div className="fr-field"><label htmlFor={`se-ready-${shipment.id}`}>cargo ready <span className="opt">optional</span></label><input id={`se-ready-${shipment.id}`} name="cargoReadyDate" type="date" defaultValue={shipment.cargoReadyDate ?? ""}/></div>
+      <div className="fr-field"><label htmlFor={`se-treatment-${shipment.id}`}>treatment <span className="req">required</span></label><select id={`se-treatment-${shipment.id}`} name="treatment" defaultValue={shipment.treatment}><option value="bundled">Bundled · amortised across units</option><option value="pass_through">Pass-through</option></select></div>
+      <div className="fr-field check"><label><input type="checkbox" name="crossesInternationalBorder" value="true" defaultChecked={shipment.crossesInternationalBorder}/> crosses a border — it clears customs</label></div>
+      <fieldset className="fr-shipment-contents"><legend>Shipment contents <span className="req">at least one</span></legend>
+        {own.map((item: Component) => <label key={item.id}><input type="checkbox" name="assemblyLeafId" value={item.id} defaultChecked={memberships.some((row: any) => row.assemblyLeafId === item.id)}/> {item.label}</label>)}
+        <span className="fr-hint">{selectedCount} of {own.length} selected. Assignment says which SKUs the freight is for. It does not divide the cost.</span>
+      </fieldset>
+      <div className="fr-editfoot">
+        <span className="fr-missing">{missing.length === 0 ? "All shipment detail recorded." : `Not recorded yet: ${missing.join(", ")}. None of these block pricing.`}</span>
+        <button disabled={pending}>Save shipment</button>
+      </div>
+    </form>
+  </details>;
+}
+/**
+ * Destination edit.
+ *
+ * Previously a run of unlabelled inputs appended after the destination row,
+ * which read as loose fields rather than one editable destination record --
+ * the operator had to reverse-engineer the column order to know what each
+ * box held. Now grouped as its own labelled form.
+ */
+function DestinationEdit({ destination, pending, submit }: any) {
+  const missing = [
+    !destination.consignee && "consignee",
+    !destination.transitDays && "transit",
+    !destination.quoteReference && "forwarder quote reference",
+  ].filter(Boolean) as string[];
+
+  return <details className="fr-edit-disclosure"><summary>Edit destination</summary>
+    <form action={submit} className="fr-editform">
+      <input type="hidden" name="destinationId" value={destination.id}/>
+      <div className="fr-field"><label htmlFor={`de-dest-${destination.id}`}>destination <span className="req">required</span></label><input id={`de-dest-${destination.id}`} required name="destination" defaultValue={destination.destination} placeholder="Edina, MN 55439"/></div>
+      <div className="fr-field"><label htmlFor={`de-consignee-${destination.id}`}>consignee <span className="opt">optional</span></label><input id={`de-consignee-${destination.id}`} name="consignee" defaultValue={destination.consignee ?? ""} placeholder="Acme Beauty DC"/></div>
+      <div className="fr-field"><label htmlFor={`de-transit-${destination.id}`}>transit <span className="opt">optional</span></label><input id={`de-transit-${destination.id}`} name="transitDays" defaultValue={destination.transitDays ?? ""} placeholder="42 days"/></div>
+      <div className="fr-field"><label htmlFor={`de-ref-${destination.id}`}>forwarder quote reference <span className="opt">optional</span></label><input id={`de-ref-${destination.id}`} name="quoteReference" defaultValue={destination.quoteReference ?? ""} placeholder="SF-2026-0142"/></div>
+      <div className="fr-field wide"><label htmlFor={`de-note-${destination.id}`}>note <span className="opt">optional</span></label><input id={`de-note-${destination.id}`} name="internalNotes" defaultValue={destination.internalNotes ?? ""} placeholder="what the numbers do not say"/></div>
+      <div className="fr-editfoot">
+        <span className="fr-missing">{missing.length === 0 ? "All destination detail recorded." : `Not recorded yet: ${missing.join(", ")}. None of these block pricing.`}</span>
+        <button disabled={pending}>Save destination</button>
+      </div>
+    </form>
+  </details>;
+}
 function TrackingStrip({ selected, tracking, stale, pending, submit }: any) {
   if (!selected) return <div className="fr-track pending"><span className="k">shipment</span><span className="none">no destination chosen — nothing ships yet, so there is nothing to track</span></div>;
   const formId = `tracking-${selected.id}`;

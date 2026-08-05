@@ -151,6 +151,54 @@ test("coverage treats overlap as legitimate, not as double-counting", () => {
   );
 });
 
+test("markup states one operator contract: whole percent", () => {
+  // The round-trip was already correct and consistent — the action divides by
+  // 100 (`Number(raw) / 100`) and the UI multiplies by 100 — but nothing told
+  // the operator, and step="0.01" actively implied decimal input. This is a
+  // labelling fix; storage stays numeric(5,4) and no action changed.
+  const markupInputs = drilldown.match(/type="number"[^>]*whole percent[^>]*>/g) ?? [];
+  assert.ok(markupInputs.length >= 2, "freight and customs markup must both declare the contract");
+  for (const input of markupInputs) {
+    assert.match(input, /step="1"/, "whole-percent fields must step by 1, not 0.01");
+    assert.match(input, /placeholder="\d+"/, "a worked example must be shown");
+    assert.match(input, /aria-label="[^"]*whole percent/);
+  }
+});
+
+test("edit forms label every field and report what is unrecorded", () => {
+  for (const form of ["ShipmentEdit", "DestinationEdit"]) {
+    const start = drilldown.indexOf(`function ${form}(`);
+    assert.ok(start >= 0, `${form} not found`);
+    const body = drilldown.slice(start, start + 4200);
+    // Position must never be the only cue for what a control holds.
+    assert.match(body, /className="fr-editform"/, `${form} must use the labelled grid`);
+    // Every visible control must be labelled either explicitly (id + <label
+    // htmlFor>) or implicitly (wrapped in a <label>). Checkboxes here use the
+    // wrapped form, which is valid association; hidden inputs carry no
+    // operator meaning.
+    assert.ok(
+      !/<input(?![^>]*type="hidden")(?![^>]*type="checkbox")(?![^>]*id=)/.test(body),
+      `${form} must not render an unlabelled input`,
+    );
+    // Required vs optional distinguishable, and completion stated rather
+    // than inferred from which boxes look empty.
+    assert.match(body, /className="req"/, `${form} must mark required fields`);
+    assert.match(body, /className="opt"/, `${form} must mark optional fields`);
+    assert.match(body, /Not recorded yet:/, `${form} must name what is missing`);
+    assert.match(body, /None of these block pricing\./, `${form} must say whether it blocks`);
+  }
+});
+
+test("write-to-render timing is instrumented end to end", () => {
+  // The measured span the fix will target. Client marks bracket the action
+  // and the refresh; the server mark isolates revalidation cost.
+  for (const mark of ["submit", "action start", "action complete", "refresh start", "browser update"]) {
+    assert.ok(drilldown.includes(`since("${mark}")`), `missing client mark: ${mark}`);
+  }
+  assert.match(drilldown, /requestAnimationFrame\(\(\) => since\("browser update"\)\)/,
+    "the final mark must fire after paint, not after the promise resolves");
+});
+
 test("freight totals are unaffected by membership — it is descriptive only", () => {
   // Nothing in the costing path may read membership. If this ever fails, a
   // membership edit has become capable of moving a price, which contradicts

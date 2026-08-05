@@ -564,6 +564,31 @@
   text-transform: uppercase; opacity: .75;
 }
 .fr-coverage.complete { color: var(--ink-3); background: var(--paper-2); }
+/* Labelled edit forms (operator-clarity completion). The prior treatment was
+   a run of bare inputs whose meaning depended on position, so a blank field
+   was indistinguishable from an optional one. Each field now carries its own
+   label and required/optional marker, and the foot names what is unrecorded. */
+.fr-editform { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px 12px; padding: 10px 0; }
+.fr-editform .fr-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.fr-editform .fr-field.wide { grid-column: 1 / -1; }
+.fr-editform .fr-field.check { grid-column: 1 / -1; justify-content: center; }
+.fr-editform .fr-field > label {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--ink-3);
+  display: flex; align-items: baseline; gap: 6px;
+}
+.fr-editform .fr-field > label .req,
+.fr-editform legend .req { color: var(--warn); letter-spacing: .06em; }
+.fr-editform .fr-field > label .opt { color: var(--ink-3); opacity: .6; letter-spacing: .06em; }
+.fr-editform .fr-field input,
+.fr-editform .fr-field select { width: 100%; min-width: 0; }
+.fr-editform .fr-shipment-contents { grid-column: 1 / -1; }
+.fr-editform .fr-shipment-contents .fr-hint { flex: 1 0 100%; margin-top: 2px; }
+.fr-editfoot {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: 12px;
+  flex-wrap: wrap; justify-content: space-between; padding-top: 2px;
+}
+.fr-editfoot .fr-missing { font-size: 11px; color: var(--ink-3); }
 .fr-product-head {
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
   padding: 12px 16px; border-bottom: 1px solid var(--rule); background: var(--paper-2);
