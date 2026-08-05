@@ -618,3 +618,61 @@ test("VAL-104 governed Pricing Vendor persists without exposing dormant Pricing 
   expect(requestFailures, "unexpected failed requests").toEqual([]);
   expect(networkLedger.filter((entry) => entry.blocked)).toEqual([]);
 });
+
+test("PHASE2 Packaging targets each SKU and omits the Bulk Raw surface", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const draft = (await manifest()).quotes.draft;
+  const response = await page.goto(draft.deepLinks.costs, {
+    waitUntil: "networkidle",
+  });
+  expect(response?.status()).toBe(200);
+
+  await expect(page.getByRole("button", { name: /^Add line · VAL-/ })).toHaveCount(3);
+  await expect(page.getByText("Bulk Raw", { exact: true })).toHaveCount(0);
+  await expect(
+    page.locator('button[aria-controls="section-freight-drawer"]'),
+  ).toHaveCount(1);
+
+  const targetSku = `VAL-${runId.toUpperCase()}-3`;
+  const sql = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
+  try {
+    const [{ count: before }] = await sql<{ count: number }[]>`
+      select count(distinct ali.line_group_id)::int as count
+      from assembly_leaf_inputs ali
+      join assembly_leaves al on al.id = ali.assembly_leaf_id
+      join assemblies a on a.id = al.assembly_id
+      join leaves l on l.id = al.leaf_id
+      where a.quote_id = ${draft.quoteId} and l.sku = ${targetSku}
+    `;
+
+    const actionResponse = page.waitForResponse(
+      (candidate) =>
+        candidate.request().method() === "POST" &&
+        candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
+        candidate.ok(),
+    );
+    await page.getByRole("button", { name: `Add line · ${targetSku}` }).click();
+    await actionResponse;
+
+    await expect.poll(async () => {
+      const [{ count }] = await sql<{ count: number }[]>`
+        select count(distinct ali.line_group_id)::int as count
+        from assembly_leaf_inputs ali
+        join assembly_leaves al on al.id = ali.assembly_leaf_id
+        join assemblies a on a.id = al.assembly_id
+        join leaves l on l.id = al.leaf_id
+        where a.quote_id = ${draft.quoteId} and l.sku = ${targetSku}
+      `;
+      return count;
+    }).toBe(before + 1);
+  } finally {
+    await sql.end();
+  }
+
+  await page.reload({ waitUntil: "networkidle" });
+  await expect(
+    page.locator(".r6-dt.pkg .r6-dt-row .name .sub", { hasText: targetSku }),
+  ).toHaveCount(2);
+});
