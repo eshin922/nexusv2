@@ -90,6 +90,30 @@ Governed changes use *Edit shipment contents* and cannot cross that product.
 **Why:** membership is evidence, not authorship (standard §5). Inheriting from
 Setup means Costs never originates structure.
 
+**Amended 2026-08-05 — operator correction (tier 2) + business disposition
+(tier 1).** Inheritance seeded the shipment with *every* eligible component and
+offered no way to change that at creation, so every shipment implicitly
+contained every SKU. Operator validation found this made the primary
+multi-SKU use case unrepresentable: split shipments, partial ocean / partial
+air, staggered production releases, and customer-specific groupings all
+require assigning a subset at the moment the shipment is recorded.
+
+The create modal now carries the bundle's own assignment control — `SkuChips`
+(`app/freight/1a.jsx:114`), the interactive `onToggle` chip set the prototype
+already specified but which the implementation had rendered as read-only
+chips. Every eligible component starts selected, so the common single-shipment
+case is unchanged; at least one must remain selected.
+
+This **refines the bundle's intent rather than violating it** (standard §2):
+inheritance from Setup is preserved — the picker is seeded from Setup, cannot
+offer anything outside the product, and Costs still originates no structure.
+What changed is that the inherited set became visible and editable instead of
+implicit. *Edit shipment contents* remains available for later changes.
+
+Membership remains descriptive: it says which SKUs the freight is for and
+never divides the cost. Nothing in the costing path reads it, and a regression
+test asserts that neither `costing.ts` nor `costing-adapter.ts` may.
+
 ### D3 · V1 customs scope
 
 Invoice-entered **Duty** and **Tariff** only. MPF/HMF remain within Duty.

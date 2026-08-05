@@ -83,7 +83,17 @@ test("creation inherits membership from the owning Setup assembly and stores no 
   const end = source.indexOf("async function draftSubcategory", start);
   const create = source.slice(start, end);
   assert.match(create, /quote\.id !== quoteId/);
-  assert.match(create, /const memberIds = members\.map\(\(member\) => member\.id\)/);
-  assert.doesNotMatch(create, /fd\.getAll\("assemblyLeafId"\)/);
+  // SUPERSEDED 2026-08-05 by approved business disposition. This previously
+  // asserted membership was ALL eligible components and that create must NOT
+  // read `fd.getAll("assemblyLeafId")`. Operator validation found that made
+  // split shipments unmodellable — every shipment implicitly contained every
+  // SKU. Tier 1 disposition + tier 2 operator correction outrank the prior
+  // contract (NEXUS_IMPLEMENTATION_STANDARD §2); recorded as an approved
+  // deviation in docs/design-authority/freight-1a/BUNDLE.md.
+  assert.match(create, /fd\.getAll\("assemblyLeafId"\)/);
+  assert.match(create, /membershipProvided/);
+  // Scope rule is unchanged: membership may not cross into another product.
+  assert.match(create, /Shipment membership must belong to its commercial product/);
+  // ENDURING: membership is descriptive and must never become allocation.
   assert.doesNotMatch(create, /allocation|share|weight|cbm/i);
 });

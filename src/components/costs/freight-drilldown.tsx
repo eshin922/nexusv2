@@ -241,7 +241,66 @@ function CustomsLedger({ shipment, tiers, entry, workbook, editable, pending, su
 // would admit values the column rejects. Journey, treatment and transit are
 // governed schema columns surfaced at creation. Recorded as an approved
 // deviation in docs/phase-2-freight-dom-parity-audit.md (F-G).
-function CreateShipmentModal({ quoteId, product, components, pending, close, submit }: any) { return <div className="fr-scrim" onMouseDown={(event) => event.target === event.currentTarget && close()}><form className="fr-modal" action={submit}><div className="fr-mhead"><div className="t">What shipment am I recording?</div><div className="s"><strong>{product?.label}</strong> and its commercial structure come from Setup. Record only the Logistics decision here.</div></div><div className="fr-mbody"><input type="hidden" name="quoteId" value={quoteId}/><input type="hidden" name="assemblyId" value={product?.id ?? ""}/><div className="fr-inherited full"><span className="k">Shipment contents from Setup</span>{components.map((item: Component) => <span className="fr-chip on" key={item.id}>{item.label}{item.sku ? ` · ${item.sku}` : ""}</span>)}<div className="fr-hint">Contents come from this product&apos;s Setup components and cannot cross into another product. Change them with Edit shipment contents.</div></div><div className="full"><label className="fr-lbl" htmlFor="freight-label">what ships</label><input id="freight-label" className="fr-tin" required name="label" placeholder="Packaging from overseas — bottles + sprayers"/></div><div><label className="fr-lbl" htmlFor="freight-origin">from</label><input id="freight-origin" className="fr-tin" name="origin" placeholder="Ningbo, China"/></div><div><label className="fr-lbl" htmlFor="freight-carrier">forwarder or carrier</label><input id="freight-carrier" className="fr-tin" name="carrierForwarder" placeholder="Straight Forwarding, Inc."/></div><div><label className="fr-lbl" htmlFor="freight-incoterm">incoterm</label><select id="freight-incoterm" className="fr-tin" name="incoterm"><option value="">Choose</option>{["DDP","DAP","FOB","EXW","FCA","CIF"].map((item) => <option key={item}>{item}</option>)}</select></div><div><label className="fr-lbl" htmlFor="freight-journey">journey</label><input id="freight-journey" className="fr-tin" name="journeyLabel" placeholder="Outbound · journey 1"/></div><div><label className="fr-lbl" htmlFor="freight-ready">cargo ready</label><input id="freight-ready" className="fr-tin date" name="cargoReadyDate" type="date"/></div><div><label className="fr-lbl" htmlFor="freight-treatment">treatment</label><select id="freight-treatment" className="fr-tin" name="treatment" defaultValue="bundled"><option value="bundled">Bundled · amortised across units</option><option value="pass_through">Pass-through</option></select></div><div className="full"><label className="fr-lbl">does this shipment cross a border?</label><div className="fr-srcpick"><label className="fr-src on"><input type="radio" name="crossesInternationalBorder" value="true" defaultChecked/> yes — it clears customs</label><label className="fr-src"><input type="radio" name="crossesInternationalBorder" value="false"/> no — domestic</label></div><div className="fr-hint">Crossing a border adds the customs entry — invoice-entered Duty and Tariff, recorded once and carried to every destination.</div></div><div className="full"><label className="fr-lbl" htmlFor="freight-destination">first destination</label><input id="freight-destination" className="fr-tin" required name="destination" placeholder="Edina, MN 55439"/><div className="fr-hint">One destination is the whole thing for most shipments. Add alternatives only when you priced them.</div></div><div><label className="fr-lbl" htmlFor="freight-transit">transit</label><input id="freight-transit" className="fr-tin" name="transitDays" placeholder="42 days"/></div></div><div className="fr-mfoot"><span className="sp">freight type, description and rates are entered per break, on the section</span><button className="btn ghost" type="button" onClick={close}>Cancel</button><button className="btn primary" disabled={pending}>Add</button></div></form></div>; }
+function CreateShipmentModal({ quoteId, product, components, pending, close, submit }: any) { return <div className="fr-scrim" onMouseDown={(event) => event.target === event.currentTarget && close()}><form className="fr-modal" action={submit}><div className="fr-mhead"><div className="t">What shipment am I recording?</div><div className="s"><strong>{product?.label}</strong> and its commercial structure come from Setup. Record only the Logistics decision here.</div></div><div className="fr-mbody"><input type="hidden" name="quoteId" value={quoteId}/><input type="hidden" name="assemblyId" value={product?.id ?? ""}/><ShipmentContentsPicker components={components}/><div className="full"><label className="fr-lbl" htmlFor="freight-label">what ships</label><input id="freight-label" className="fr-tin" required name="label" placeholder="Packaging from overseas — bottles + sprayers"/></div><div><label className="fr-lbl" htmlFor="freight-origin">from</label><input id="freight-origin" className="fr-tin" name="origin" placeholder="Ningbo, China"/></div><div><label className="fr-lbl" htmlFor="freight-carrier">forwarder or carrier</label><input id="freight-carrier" className="fr-tin" name="carrierForwarder" placeholder="Straight Forwarding, Inc."/></div><div><label className="fr-lbl" htmlFor="freight-incoterm">incoterm</label><select id="freight-incoterm" className="fr-tin" name="incoterm"><option value="">Choose</option>{["DDP","DAP","FOB","EXW","FCA","CIF"].map((item) => <option key={item}>{item}</option>)}</select></div><div><label className="fr-lbl" htmlFor="freight-journey">journey</label><input id="freight-journey" className="fr-tin" name="journeyLabel" placeholder="Outbound · journey 1"/></div><div><label className="fr-lbl" htmlFor="freight-ready">cargo ready</label><input id="freight-ready" className="fr-tin date" name="cargoReadyDate" type="date"/></div><div><label className="fr-lbl" htmlFor="freight-treatment">treatment</label><select id="freight-treatment" className="fr-tin" name="treatment" defaultValue="bundled"><option value="bundled">Bundled · amortised across units</option><option value="pass_through">Pass-through</option></select></div><div className="full"><label className="fr-lbl">does this shipment cross a border?</label><div className="fr-srcpick"><label className="fr-src on"><input type="radio" name="crossesInternationalBorder" value="true" defaultChecked/> yes — it clears customs</label><label className="fr-src"><input type="radio" name="crossesInternationalBorder" value="false"/> no — domestic</label></div><div className="fr-hint">Crossing a border adds the customs entry — invoice-entered Duty and Tariff, recorded once and carried to every destination.</div></div><div className="full"><label className="fr-lbl" htmlFor="freight-destination">first destination</label><input id="freight-destination" className="fr-tin" required name="destination" placeholder="Edina, MN 55439"/><div className="fr-hint">One destination is the whole thing for most shipments. Add alternatives only when you priced them.</div></div><div><label className="fr-lbl" htmlFor="freight-transit">transit</label><input id="freight-transit" className="fr-tin" name="transitDays" placeholder="42 days"/></div></div><div className="fr-mfoot"><span className="sp">freight type, description and rates are entered per break, on the section</span><button className="btn ghost" type="button" onClick={close}>Cancel</button><button className="btn primary" disabled={pending}>Add</button></div></form></div>; }
+
+/**
+ * Shipment contents selector for the create modal.
+ *
+ * Every eligible component starts selected, which preserves the common case —
+ * one shipment carrying the whole product — and leaves single-component quotes
+ * behaving exactly as before. The operator deselects to model a split: partial
+ * ocean / partial air, staggered releases, customer-specific groupings.
+ *
+ * "All selected" is shown explicitly rather than implied. The previous
+ * treatment rendered the same components as read-only chips, so a shipment
+ * silently contained everything and the only way to change it was an Edit
+ * disclosure the operator had no reason to open mid-flow.
+ *
+ * Toggle chips (not checkboxes) follow the Design Authority's `SkuChips`,
+ * which models assignment as `<button className={"fr-chip" + (on ? " on" : "")}
+ * onClick={() => onToggle(id)}>`. Selected ids post as `assemblyLeafId`, the
+ * same field `updateFreightSubcategory` already consumes.
+ */
+function ShipmentContentsPicker({ components }: { components: Component[] }) {
+  const [selected, setSelected] = useState<string[]>(() => components.map((item) => item.id));
+  const all = selected.length === components.length;
+  const toggle = (id: string) =>
+    setSelected((rows) => (rows.includes(id) ? rows.filter((row) => row !== id) : [...rows, id]));
+
+  return (
+    <div className="fr-inherited full">
+      <span className="k">this shipment is for</span>
+      {/* Marker so the action can tell "deselected everything" from "caller
+          predates this selector" — without it, an empty selection would be
+          indistinguishable from an absent field and would select all. */}
+      <input type="hidden" name="membershipProvided" value="1" />
+      {selected.map((id) => (
+        <input key={id} type="hidden" name="assemblyLeafId" value={id} />
+      ))}
+      <div className="fr-skus" style={{ marginTop: 2 }}>
+        {all && <span className="fr-chip all">all {components.length} SKUs</span>}
+        {components.map((item) => (
+          <button
+            type="button"
+            key={item.id}
+            className={"fr-chip" + (selected.includes(item.id) ? " on" : "")}
+            title={item.label}
+            aria-pressed={selected.includes(item.id)}
+            onClick={() => toggle(item.id)}
+          >
+            {item.sku || item.label}
+          </button>
+        ))}
+      </div>
+      <div className="fr-hint">
+        {selected.length === 0
+          ? "Select at least one component — a shipment must carry something."
+          : "Assignment says which SKUs the freight is for. It does not divide the cost."}{" "}
+        Contents cannot cross into another product, and can be changed later with Edit shipment contents.
+      </div>
+    </div>
+  );
+}
 
 function ShipmentEdit({ shipment, memberships, components, pending, submit }: any) { return <details className="fr-edit-disclosure"><summary>Edit shipment</summary><form action={submit}><input type="hidden" name="freightSubcategoryId" value={shipment.id}/><input required name="label" defaultValue={shipment.label}/><input name="origin" defaultValue={shipment.origin ?? ""}/><input name="carrierForwarder" defaultValue={shipment.carrierForwarder ?? ""}/><input name="incoterm" defaultValue={shipment.incoterm ?? ""}/><input name="journeyLabel" defaultValue={shipment.journeyLabel ?? ""}/><input name="cargoReadyDate" type="date" defaultValue={shipment.cargoReadyDate ?? ""}/><select name="treatment" defaultValue={shipment.treatment}><option value="bundled">Bundled</option><option value="pass_through">Pass-through</option></select><label><input type="checkbox" name="crossesInternationalBorder" value="true" defaultChecked={shipment.crossesInternationalBorder}/> clears customs</label><fieldset className="fr-shipment-contents"><legend>Edit shipment contents</legend>{components.filter((item: Component) => item.assemblyId === shipment.assemblyId).map((item: Component) => <label key={item.id}><input type="checkbox" name="assemblyLeafId" value={item.id} defaultChecked={memberships.some((row: any) => row.assemblyLeafId === item.id)}/> {item.label}</label>)}</fieldset><button disabled={pending}>Save</button></form></details>; }
 function DestinationEdit({ destination, pending, submit }: any) { return <details className="fr-edit-disclosure"><summary>Edit destination</summary><form action={submit}><input type="hidden" name="destinationId" value={destination.id}/><input required name="destination" defaultValue={destination.destination}/><input name="consignee" defaultValue={destination.consignee ?? ""}/><input name="transitDays" defaultValue={destination.transitDays ?? ""}/><input name="quoteReference" defaultValue={destination.quoteReference ?? ""}/><input name="internalNotes" defaultValue={destination.internalNotes ?? ""}/><button disabled={pending}>Save</button></form></details>; }

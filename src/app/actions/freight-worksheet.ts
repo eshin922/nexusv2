@@ -59,9 +59,33 @@ export async function createFreightSubcategory(fd: FormData): Promise<ActionResu
     const user = await ensureUser();
     const { quote, assembly } = await quoteForAssembly(assemblyId);
     if (quote.id !== quoteId) throw new ActionGuardError(ERR.VALIDATION, "Commercial product does not belong to Quote");
+    // Shipment membership — which of this product's components travel in this
+    // shipment. Descriptive only: it records what the freight is FOR and never
+    // divides the cost (Design Authority, `1a.jsx`: "Assignment says WHICH
+    // SKUs the freight is for. It does not divide the cost."). Nothing in the
+    // costing path reads it.
+    //
+    // Previously every eligible component was written unconditionally, so
+    // every shipment implicitly contained every SKU and split shipments could
+    // not be modelled at creation. Selection now comes from the modal, using
+    // the same `assemblyLeafId` field name and product-scope rule that
+    // `updateFreightSubcategory` already enforces.
     const members = await db.select({ id: assemblyLeaves.id }).from(assemblyLeaves).where(eq(assemblyLeaves.assemblyId, assemblyId));
-    const memberIds = members.map((member) => member.id);
-    if (memberIds.length === 0) throw new ActionGuardError(ERR.VALIDATION, "Add components in Setup before recording freight");
+    const eligible = new Set(members.map((member) => member.id));
+    if (eligible.size === 0) throw new ActionGuardError(ERR.VALIDATION, "Add components in Setup before recording freight");
+    const requested = [...new Set(fd.getAll("assemblyLeafId").map(String).filter(Boolean))];
+    // `membershipProvided` distinguishes "the operator deselected everything"
+    // from "this caller predates the selector". Without it an empty selection
+    // is indistinguishable from an absent field, and deselecting every
+    // component would silently select all of them.
+    const membershipProvided = str(fd, "membershipProvided") === "1";
+    if (membershipProvided && requested.length === 0) {
+      throw new ActionGuardError(ERR.VALIDATION, "Select at least one component for this shipment.");
+    }
+    const memberIds = membershipProvided ? requested : [...eligible];
+    if (memberIds.some((memberId) => !eligible.has(memberId))) {
+      throw new ActionGuardError(ERR.VALIDATION, "Shipment membership must belong to its commercial product");
+    }
     const [order] = await db.select({ value: max(freightSubcategories.displayOrder) }).from(freightSubcategories).where(eq(freightSubcategories.quoteId, quoteId));
     const created = await db.transaction(async (tx) => {
       const [subcategory] = await tx.insert(freightSubcategories).values({
