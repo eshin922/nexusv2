@@ -209,3 +209,49 @@ when its governing invariant has permanent regression evidence.
   empty unintended-association checks. HubSpot Product Unit price → NetSuite
   Base Price propagation remains the separate external HPP-4 integration
   readiness item and does not block closure of this Nexus work item.
+
+## PB-014 — Release sequencing allowed application code to depend on undeployed schema
+
+- **Observation:** Every quote's Costs tab returned a server error in
+  production. The failure began with the Production deployment of the PR-E
+  merge commit (`77f679cb`, 2026-08-05T17:10:19Z) and persisted until the
+  worksheet migrations were applied.
+- **Root cause:** Application code that reads the worksheet Freight schema was
+  merged to `main` and auto-deployed while the shared Supabase project was
+  still at migration `0053`. `loadFreightWorkbook` is called unconditionally
+  from the Costs route and issues `select … from freight_subcategories` before
+  any existence check, so the missing relation raised `42P01`. The Costs page
+  catches render-path exceptions only to attach phase context and then
+  re-throws, so there was no degraded-section path — the whole route failed.
+  Verified directly by executing the route's first statement against
+  production, not inferred from symptoms.
+- **Business impact:** Costs — the primary cost-authoring surface — was
+  unavailable to all PMs for the duration of the window. No data was lost or
+  written incorrectly; the failure was read-path only.
+- **Governing invariant:** On the shared dev/prod Supabase project, every
+  schema object an actively deployed route reads must already exist in the
+  target environment before that route ships.
+- **Fix:** Applied migrations `0054` and `0055` to the shared project. Both are
+  purely additive — no `DROP` of any kind. Post-migration verification
+  confirmed the journal tail at `0055`, all seven live worksheet tables plus
+  snapshot storage present, no `0056` cutover, the legacy
+  `freight_legs.freight_markup_pct` column retained, the Costs route query
+  succeeding, and Packaging/Production row counts byte-identical to the
+  pre-migration baseline.
+- **Permanent release control:** Before merging or deploying application code
+  that reads new schema, verify the required additive migrations already exist
+  in the target environment, or apply them first as part of the deployment
+  sequence.
+- **Applying that control in practice:** Additive DDL is invisible to the
+  previously deployed application, so schema-first ordering has no window of
+  breakage; the reverse ordering makes the window the entire deploy. A green
+  Vercel check does not discharge this control — it reports that the build
+  compiled, and a dynamic route's build never contacts the database.
+- **Prior art:** This is the Slice 8 production crash (digest `2641917463`)
+  in mirror image. There a migration landed ahead of its code; here code landed
+  ahead of its migration. The blast radius is the same in both directions,
+  which is why the control is stated as an ordering requirement rather than as
+  a caution about one direction.
+- **Release status:** Resolved at the database layer 2026-08-05; migration and
+  query-level verification passed. Rendered-page confirmation in production is
+  tracked as the remaining check.
