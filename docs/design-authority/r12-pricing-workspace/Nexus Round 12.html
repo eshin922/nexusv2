@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nexus · Round 12 — the Pricing page as a working surface</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css" />
+<!-- R10 canonical — the trace. Unchanged. -->
+<link rel="stylesheet" href="app/r10/styles.css" />
+<!-- R11 addendum — the page around it. -->
+<link rel="stylesheet" href="app/r11/styles.css" />
+<!-- R12 addendum — staging, deltas, direct price. -->
+<link rel="stylesheet" href="app/r12/styles.css" />
+</head>
+<body>
+
+<template id="__bundler_thumbnail">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+    <rect width="400" height="400" fill="oklch(0.97 0.012 85)"/>
+    <g transform="translate(60 96)">
+      <rect x="0" y="0" width="280" height="18" rx="4" fill="oklch(0.86 0.06 240)"/>
+      <rect x="0" y="26" width="280" height="12" rx="3" fill="oklch(0.90 0.02 240)"/>
+      <rect x="0" y="44" width="280" height="12" rx="3" fill="oklch(0.90 0.02 240)"/>
+      <rect x="146" y="44" width="66" height="12" rx="3" fill="oklch(0.55 0.13 250)"/>
+      <path d="M179 62 v18 h22" stroke="oklch(0.45 0.02 255)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+      <rect x="201" y="72" width="79" height="12" rx="3" fill="oklch(0.94 0.02 240)"/>
+      <path d="M212 90 v18 h22" stroke="oklch(0.45 0.02 255)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+      <rect x="234" y="100" width="46" height="12" rx="3" fill="oklch(0.96 0.014 240)"/>
+    </g>
+    <text x="200" y="286" font-family="Georgia, serif" font-size="23" fill="oklch(0.30 0.02 250)" text-anchor="middle">stage, then commit</text>
+    <text x="200" y="314" font-family="Georgia, serif" font-size="16" font-style="italic" fill="oklch(0.50 0.02 250)" text-anchor="middle">a working surface</text>
+  </svg>
+</template>
+
+<div id="root"></div>
+
+<script>
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "theme": "light",
+    "allocate": true,
+    "shipsRaws": false
+  }/*EDITMODE-END*/;
+</script>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<!-- R10: the contract + the trace components, reused verbatim -->
+<script src="app/r10/data.js"></script>
+<script type="text/babel" src="app/r10/pricing-trace.jsx"></script>
+<!-- R11: quote-level projections + the composed page -->
+<script src="app/r11/data.js"></script>
+<!-- R12 supersedes R11's page component; R11's data layer is reused unchanged. -->
+<script type="text/babel" src="app/r12/pricing-page.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+function Root() {
+  const [tweaks, setTweaks] = useState(window.TWEAK_DEFAULTS || { theme: "light", allocate: true, shipsRaws: false });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", tweaks.theme || "light");
+  }, [tweaks.theme]);
+
+  const setTweak = (k, v) => setTweaks(prev => {
+    const edits = typeof k === "object" ? k : { [k]: v };
+    window.parent.postMessage({ type: "__edit_mode_set_keys", edits }, "*");
+    return { ...prev, ...edits };
+  });
+
+  return (
+    <div className="r12-root">
+      <window.PricingWorkspace tweaks={tweaks} />
+      <window.TweaksPanel title="R12 · Pricing workspace">
+        <window.TweakSection label="Costing flags — these change the chain's shape" />
+        <window.TweakToggle
+          label="Allocate service fees to cost"
+          value={tweaks.allocate !== false}
+          onChange={v => setTweak("allocate", v)}
+        />
+        <window.TweakToggle
+          label="Customer ships raws"
+          value={!!tweaks.shipsRaws}
+          onChange={v => setTweak("shipsRaws", v)}
+        />
+        <window.TweakSection label="Preview" />
+        <window.TweakRadio
+          label="Theme"
+          value={tweaks.theme}
+          options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }]}
+          onChange={v => setTweak("theme", v)}
+        />
+      </window.TweaksPanel>
+    </div>
+  );
+}
+
+window.TWEAK_DEFAULTS = TWEAK_DEFAULTS;
+ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
+</script>
+
+</body>
+</html>

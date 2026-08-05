@@ -1,23 +1,62 @@
-# Project validation policy and current priority
+# What this file is, and what governs above it
+
+**This file is the platform pattern library — tier 4 authority.** It records
+conventions, banked lessons, and environment constraints learned during
+construction. It is the largest and most-referenced document in the project and
+almost all of it remains valid.
+
+**It is not the project's governing authority.** Four documents outrank it:
+
+| Document | Governs |
+|---|---|
+| `docs/NEXUS_IMPLEMENTATION_STANDARD.md` | **Method.** The governing principle, eight gates, five-tier precedence |
+| `docs/AUTHORITY_MAP.md` | Which document governs what, right now |
+| `docs/AUTHORITY_TIMELINE.md` | Why it is this way; what would change it |
+| `docs/OPEN_DECISIONS.md` | What is undecided, who decides, what settles it |
+
+**Read the standard before implementing anything.** The one sentence that
+governs the most decisions:
+
+> Nexus records what the operator determined. It does not recreate the
+> operator's reasoning.
+
+## Reading this file safely
+
+Patterns here were banked during the **slice-based era** (2026-04 → 2026-07).
+Their *technical* content is sound and still applies. Their *sequencing* context
+is superseded — work is now organised into four phases, not numbered slices.
+
+When a pattern below refers to "Slice N," "the v1 release path," or "the next
+slice," read it as **historical framing around a still-valid technical lesson.**
+Where a pattern's technical claim conflicts with the implementation standard,
+the standard wins (tier 1 and 2 outrank tier 4).
+
+**Amended 2026-08-04.** The former preamble here carried the Slice 13 entry
+policy and a twelve-item v1 release-path sequence. Both are superseded by the
+four-phase model. They are preserved as history in
+`docs/AUTHORITY_TIMELINE.md` Era 1 and in `docs/validation/slice-12-handover.md`,
+which is a historical record and is not retro-edited.
+
+# Project validation policy
 
 The isolated validation harness is a first-class subsystem and its gate is
 required before merge. `docs/validation/merge-gate.md` is the sole acceptance
 checklist; `docs/validation/operational-runbook.md` is the authoritative
 execution procedure. Do not duplicate detailed operating instructions here.
 
-Slice 12 implementation and code validation are complete, subject to the
-documentation durability follow-up recorded in
-`docs/validation/slice-12-handover.md`. Before new Slice 13 feature work,
-complete Sales Order field lineage and behavioral parity across HubSpot →
-Nexus → NetSuite sandbox. Environment differences need not be literally
-identical, but every accounting-relevant difference must be root-traced and
-classified. Completed Item Groups are the only intended Accounting-visible
-behavioral change; all other relevant SO data remains commercially and
-operationally equivalent.
+# Standing business constraints
 
-The Item Group path requires valid item-level pricing. A `$0.00` upstream
-catalog price can satisfy NetSuite validation but must never become the
-commercial transaction price.
+These are not slice-scoped and do not expire:
+
+- **Item Group pricing.** The Item Group path requires valid item-level
+  pricing. A `$0.00` upstream catalog price can satisfy NetSuite validation but
+  **must never become the commercial transaction price.**
+- **Sales Order parity.** Every accounting-relevant difference across
+  HubSpot → Nexus → NetSuite must be root-traced and classified. Environment
+  differences need not be literally identical. Completed Item Groups are the
+  only intended Accounting-visible behavioral change; all other relevant SO
+  data remains commercially and operationally equivalent. Tracked in
+  `docs/slice-13/SALES_ORDER_PARITY_MATRIX.md`.
 
 # Surface naming canon (Slice RI.8 + canon revision May 2026)
 
@@ -2921,6 +2960,31 @@ scope), it's MEDIUM.
 
 ## v1 release-path slice sequencing (banked May 2026; revised
 2026-05-17 per canon revision)
+
+> **⚠️ SUPERSEDED 2026-08-04 — HISTORICAL ONLY. DO NOT SEQUENCE WORK FROM
+> THIS SECTION.**
+>
+> The numbered v1 release path below was replaced by the **four-phase model**
+> on 2026-08-03. Phases are organised around business outcomes with independent
+> reversibility, not implementation increments.
+>
+> **Current sequencing:** `CROSS-PHASE-AUTHORITY-DEPENDENCY-MAP.md` (authority
+> per phase, dependency graph, reversibility) and `README.md` (current status).
+> **Why it changed:** `docs/AUTHORITY_TIMELINE.md` Era 4.
+>
+> | Phase | Status |
+> |---|---|
+> | 1 · Quote Commercial Integrity | Frozen and shipped |
+> | 2 · Costs Workspace | In progress — design fidelity open |
+> | 3 · Pricing Workspace | Not started — blocked on Phase 2 operator acceptance |
+> | 4 · Margin Approval | Not started — blocked on Phase 3 + BV-005 amendment |
+>
+> **Retained** because it records what shipped and in what order, which is the
+> fastest way to date a piece of code or understand why a subsystem looks the
+> way it does. The ✅ entries below are accurate history. The unshipped items
+> have been reorganised into phases, not cancelled — the **discovery items** at
+> the foot of this section remain open and are tracked in
+> `docs/OPEN_DECISIONS.md` (OD-006).
 
 Captured here so the sequencing survives context compaction
 and future CC sessions see the queued shape. Subject to
