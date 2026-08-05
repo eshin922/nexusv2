@@ -8,8 +8,6 @@ import {
   assemblyLeafInputs,
   assemblyLeaves,
   assemblyProductionInputs,
-  bulkRawCategories,
-  bulkRawIngredients,
   bulkRawSectionMeta,
   costSectionDeposits,
   freightLegGroups,
@@ -41,7 +39,6 @@ import { SectionWithDrilldown } from "@/components/costs/section-with-drilldown"
 import { PackagingDrilldown } from "@/components/costs/packaging-drilldown";
 import { ProductionDrilldown } from "@/components/costs/production-drilldown";
 import { FreightDrilldown } from "@/components/costs/freight-drilldown";
-import { BulkRawDrilldown } from "@/components/costs/bulk-raw-drilldown";
 import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
 
 // Slice RI.4 — Costs unification per Round 6 + Bulk Raw correction.
@@ -54,10 +51,8 @@ import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
 //   1. Page header — "Costs · [Scenario] vN" + meta strip + warning chip
 //   2. Cost stack header — multi-tier side-by-side per-tier columns
 //      (5 rows by default; 6 rows when raws-mode = dps_sources)
-//   3. Mode selector — three radio cards for raws-mode (drives Bulk Raw
-//      visibility + cost-stack-row composition)
-//   4. Section rows (Packaging / Production / Bulk Raw [conditional] /
-//      Freight) — each with summary header (chevron + name + status
+//   3. Section rows (Packaging / Production / Freight) — each with
+//      summary header (chevron + name + status
 //      chip + per-tier mini-stack + open/close + deposit badge) + inline
 //      drill-down panel below when expanded
 //
@@ -453,42 +448,10 @@ export default async function CostBuildPage({
     });
   }
 
-  // Phase 2: Bulk Raw categories/ingredients only when in dps_sources
-  // mode (the only time the data is rendered). Skip otherwise — saves
-  // 2 queries per page load when mode = cm_sources / customer_supplies.
-  const rawsModeForFetch =
-    bulkRawMeta[0]?.rawsMode ?? "cm_sources";
-  const [bulkRawCats, bulkRawIngs, deposits] = await Promise.all([
-    rawsModeForFetch === "dps_sources"
-      ? db
-          .select()
-          .from(bulkRawCategories)
-          .where(eq(bulkRawCategories.quoteId, quote.id))
-          .orderBy(asc(bulkRawCategories.sortOrder))
-      : Promise.resolve(
-          [] as (typeof bulkRawCategories.$inferSelect)[],
-        ),
-    rawsModeForFetch === "dps_sources"
-      ? db
-          .select()
-          .from(bulkRawIngredients)
-          .innerJoin(
-            bulkRawCategories,
-            eq(bulkRawCategories.id, bulkRawIngredients.categoryId),
-          )
-          .where(eq(bulkRawCategories.quoteId, quote.id))
-          .orderBy(asc(bulkRawIngredients.sortOrder))
-      : Promise.resolve(
-          [] as Array<{
-            bulk_raw_ingredients: typeof bulkRawIngredients.$inferSelect;
-            bulk_raw_categories: typeof bulkRawCategories.$inferSelect;
-          }>,
-        ),
-    db
-      .select()
-      .from(costSectionDeposits)
-      .where(eq(costSectionDeposits.quoteId, quote.id)),
-  ]);
+  const deposits = await db
+    .select()
+    .from(costSectionDeposits)
+    .where(eq(costSectionDeposits.quoteId, quote.id));
 
   if (!bundle.ok) {
     console.log(
@@ -522,12 +485,10 @@ export default async function CostBuildPage({
     qty: t.qty,
   }));
 
-  // Bulk Raw section ALWAYS renders as a peer (per Round 6 + Bulk Raw
-  // correction; Designer audit C-1). Mode selector lives INSIDE the
-  // section (mode-declaration zone). When raws-mode != dps_sources,
-  // the drilldown shows the mode selector + INACTIVE message; when
-  // dps_sources, full categories + ingredients UI.
-  const validSections = ["packaging", "production", "bulk_raw", "freight"];
+  // Bulk Raw plumbing remains available for compatibility, but its operator
+  // surface is outside V1. The Costs workspace exposes the three active
+  // operator sections only.
+  const validSections = ["packaging", "production", "freight"];
   const openSection =
     expandedSection && validSections.includes(expandedSection)
       ? expandedSection
@@ -649,8 +610,7 @@ export default async function CostBuildPage({
             state is client-managed via <CostBuildAccordion> context
             (RI.4 perf fix per Edward smoke item (a)). All drawer
             content stays mounted server-side; CSS hides/shows on
-            toggle. Mode selector lives inside the Bulk Raw drilldown
-            per Round 6 + Bulk Raw correction (Designer audit C-1). */}
+            toggle. */}
         <CostBuildAccordion
           initialOpen={openSection}
           projectId={project.id}
@@ -692,36 +652,6 @@ export default async function CostBuildPage({
               inputRows={prodRows}
               editable={editable}
               rawsMode={rawsMode}
-            />
-          </SectionWithDrilldown>
-
-          {/* Bulk Raw section — always renders per Round 6 + Bulk Raw
-              correction (mode-declaration zone). Drilldown content
-              varies by mode: when dps_sources, categories + ingredients;
-              when cm_sources or customer_supplies, INACTIVE message
-              with explanation. Designer audit C-1. */}
-          <SectionWithDrilldown
-            id="bulk_raw"
-            name="Bulk Raw"
-            sublabel={bulkRawSublabel(rawsMode, bulkRawCats.length, bulkRawIngs.length)}
-            statusChip={bulkRawStatusChip(
-              rawsMode,
-              bulkRawCats.length,
-              bulkRawIngs.length,
-            )}
-            tiers={tierBrief}
-            sectionKind="bulk_raw"
-            lineCount={bulkRawCats.length}
-            deposit={deposits.find((d) => d.sectionKind === "bulk_raw")}
-          >
-            <BulkRawDrilldown
-              quoteId={quote.id}
-              rawsMode={rawsMode}
-              categories={bulkRawCats}
-              ingredients={bulkRawIngs.map((r) => ({
-                ...r.bulk_raw_ingredients,
-              }))}
-              editable={editable}
             />
           </SectionWithDrilldown>
 
@@ -769,36 +699,6 @@ function freightStatusChip(rowCount: number) {
   if (rowCount === 0) return { kind: "empty" as const };
   return { kind: "in_progress" as const };
 }
-function bulkRawStatusChip(
-  rawsMode: "cm_sources" | "dps_sources" | "customer_supplies",
-  catCount: number,
-  ingCount: number,
-) {
-  // R6 cost-build-page.jsx:174-180: when raws are accounted for
-  // elsewhere (cm_sources / customer_supplies), Bulk Raw section is
-  // semantically "complete." NOT "INACTIVE."
-  if (rawsMode !== "dps_sources") return { kind: "complete" as const };
-  if (catCount === 0) return { kind: "empty" as const };
-  return { kind: "in_progress" as const };
-}
-
-function bulkRawSublabel(
-  rawsMode: "cm_sources" | "dps_sources" | "customer_supplies",
-  catCount: number,
-  ingCount: number,
-): string {
-  switch (rawsMode) {
-    case "cm_sources":
-      return "CM sources raws — folded into Production";
-    case "customer_supplies":
-      return "Customer supplies raws — no cost contribution";
-    case "dps_sources":
-      if (catCount === 0)
-        return "Oil base, actives, fragrance, preservatives — billed in kg / L / mL";
-      return `${catCount} categor${catCount === 1 ? "y" : "ies"} · ${ingCount} ingredient${ingCount === 1 ? "" : "s"} · native units`;
-  }
-}
-
 // Sublabel helpers — semantic meta per R6 source
 // (cost-build-page.jsx lines 144-146, 160-164, 184-192, 210-214).
 // PMs read these to understand "what's the shape of this section's

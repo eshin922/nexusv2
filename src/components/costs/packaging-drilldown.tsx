@@ -188,13 +188,7 @@ export function PackagingDrilldown({
         title="No packaging components yet"
         body="Add the bottle, dropper, label, and any cartons. Markup defaults will fill in from the firm's category rates — adjust per-line if needed."
         actions={
-          <AddLineButton
-            quoteSkuId={leafSkus[0].id}
-            disabled={!editable}
-            tooltip={
-              leafSkus.length > 1 ? `Adds to ${leafSkus[0].skuLabel}` : undefined
-            }
-          />
+          <PackagingAddLineActions leafSkus={leafSkus} editable={editable} />
         }
       />
     );
@@ -241,13 +235,7 @@ export function PackagingDrilldown({
           <span>{inventoryEligibleCount} inventory-eligible · {vendorSet.size} pricing vendor{vendorSet.size === 1 ? "" : "s"}</span>
         </div>
         <div className="rhs">
-          <AddLineButton
-            quoteSkuId={leafSkus[0].id}
-            disabled={!editable}
-            tooltip={
-              leafSkus.length > 1 ? `Adds to ${leafSkus[0].skuLabel}` : undefined
-            }
-          />
+          <PackagingAddLineActions leafSkus={leafSkus} editable={editable} />
         </div>
       </div>
 
@@ -318,6 +306,33 @@ export function PackagingDrilldown({
           <span></span>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PackagingAddLineActions({
+  leafSkus,
+  editable,
+}: {
+  leafSkus: QuoteSku[];
+  editable: boolean;
+}) {
+  const multipleSkus = leafSkus.length > 1;
+
+  return (
+    <div
+      className="flex flex-wrap justify-end gap-2"
+      aria-label="Add packaging line by SKU"
+    >
+      {leafSkus.map((sku) => (
+        <AddLineButton
+          key={sku.id}
+          quoteSkuId={sku.id}
+          disabled={!editable}
+          label={multipleSkus ? `Add line · ${sku.skuLabel}` : "Add line"}
+          tooltip={multipleSkus ? `Adds to ${sku.skuLabel}` : undefined}
+        />
+      ))}
     </div>
   );
 }
