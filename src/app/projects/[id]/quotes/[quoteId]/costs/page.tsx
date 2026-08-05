@@ -38,7 +38,7 @@ import { PackagingDrilldown } from "@/components/costs/packaging-drilldown";
 import { ProductionDrilldown } from "@/components/costs/production-drilldown";
 import { FreightDrilldown } from "@/components/costs/freight-drilldown";
 import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
-import { loadFreightWorkbook, type FreightWorkbook } from "@/lib/freight-workbook";
+import type { FreightWorkbook } from "@/lib/freight-workbook";
 
 // Slice RI.4 — Costs unification per Round 6 + Bulk Raw correction.
 //
@@ -165,7 +165,6 @@ export default async function CostBuildPage({
     tiers,
     categories,
     bulkRawMeta,
-    freightWorkbook,
   ] = await Promise.all([
     db
       .select()
@@ -219,7 +218,6 @@ export default async function CostBuildPage({
       .from(bulkRawSectionMeta)
       .where(eq(bulkRawSectionMeta.quoteId, quote.id))
       .limit(1),
-    loadFreightWorkbook(quote.id),
   ]);
 
   // Slice 11.5 Step 3 — NEW-model → OLD-wrapper-shape reshape.
@@ -462,6 +460,14 @@ export default async function CostBuildPage({
 
   const editable = quote.status === "draft";
   const rawsMode = bulkRawMeta[0]?.rawsMode ?? "cm_sources";
+
+  // PR-F — worksheet Freight authority now travels in the costing
+  // bundle so the client store can carry it and realtime reconciles can
+  // refresh it. Read from the bundle rather than issuing a second
+  // `loadFreightWorkbook(quote.id)` here: both paths call the same
+  // loader, so sourcing it once keeps this page's query count unchanged.
+  // Placed after the `bundle.ok` guard above, which narrows the result.
+  const freightWorkbook = bundle.data.freightWorkbook;
 
   const tierBrief = tiers.map((t) => ({
     id: t.id,

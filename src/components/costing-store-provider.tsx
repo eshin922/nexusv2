@@ -126,6 +126,11 @@ export function CostingStoreProvider({
   // the initial subscribe; subsequent ones are reconnect-after-disconnect
   // and warrant a catch-up reconcile. (#50)
   const hasSubscribedRef = useRef(false);
+  // PR-F — the worksheet channel tracks its own first-subscribe. Sharing
+  // the ref above would let whichever channel subscribed first consume
+  // the other's initial SUBSCRIBED, so a later genuine reconnect on that
+  // channel would skip its catch-up reconcile.
+  const hasSubscribedWorksheetRef = useRef(false);
 
   // Shared wait-for-quiet reconcile scheduler. Both the snapshot-prop
   // useEffect and the realtime handler call this. Cancels any in-flight
@@ -262,6 +267,66 @@ export function CostingStoreProvider({
       if (!legId) return false;
       const legs = storeRef.current?.getState().freightLegs ?? [];
       return legs.some((l) => l.id === legId);
+    };
+
+    // PR-F — worksheet Freight membership checks.
+    //
+    // Only `freight_subcategories` carries `quote_id`, so it is the one
+    // worksheet table that can filter at the DB layer. Every other
+    // worksheet table keys on a parent worksheet row, so they follow the
+    // established broad-subscribe + client-side-membership idiom above,
+    // resolving against the workbook the store now carries.
+    //
+    // A newly inserted child row can arrive before the reconcile that
+    // first puts its parent in the store. That is safe: the insert of
+    // the parent fires its own event on the same channel, and the
+    // coalesce window collapses the pair into one re-fetch. Missing the
+    // child event costs nothing because the re-fetch reads all seven
+    // tables together.
+    const workbook = () =>
+      storeRef.current?.getState().freightWorkbook ?? null;
+
+    const idFrom = (
+      newRow: Record<string, unknown> | null | undefined,
+      oldRow: Record<string, unknown> | null | undefined,
+      column: string,
+    ): string | undefined =>
+      (newRow?.[column] as string | undefined) ??
+      (oldRow?.[column] as string | undefined);
+
+    const isWorksheetSubcategoryChild = (
+      newRow: Record<string, unknown> | null | undefined,
+      oldRow: Record<string, unknown> | null | undefined,
+    ): boolean => {
+      const subcategoryId = idFrom(newRow, oldRow, "freight_subcategory_id");
+      if (!subcategoryId) return false;
+      return (
+        workbook()?.subcategories.some((row) => row.id === subcategoryId) ??
+        false
+      );
+    };
+
+    const isWorksheetDestinationChild = (
+      newRow: Record<string, unknown> | null | undefined,
+      oldRow: Record<string, unknown> | null | undefined,
+    ): boolean => {
+      const destinationId = idFrom(newRow, oldRow, "freight_destination_id");
+      if (!destinationId) return false;
+      return (
+        workbook()?.destinations.some((row) => row.id === destinationId) ??
+        false
+      );
+    };
+
+    const isWorksheetCustomsChild = (
+      newRow: Record<string, unknown> | null | undefined,
+      oldRow: Record<string, unknown> | null | undefined,
+    ): boolean => {
+      const entryId = idFrom(newRow, oldRow, "freight_customs_entry_id");
+      if (!entryId) return false;
+      return (
+        workbook()?.customsEntries.some((row) => row.id === entryId) ?? false
+      );
     };
 
     // **Slice 11.5.1 hotfix (MIG-8 close-gate):** Supabase Realtime
@@ -472,6 +537,104 @@ export function CostingStoreProvider({
         // seeing remote changes until reload. No toast spam.
       });
 
+    // PR-F — THIRD channel: worksheet Freight authority.
+    //
+    // The seven worksheet tables need seven bindings. The existing two
+    // channels already carry 6 (cost) and 7 (structure); adding these to
+    // either would cross the 10-binding-per-channel limit and silently
+    // kill that channel — the exact MIG-8 failure documented above. A
+    // dedicated channel keeps all three under the cap (6 / 7 / 7).
+    //
+    // Publication membership for these tables ships in
+    // `drizzle/manual/0036_realtime_publication_phase_2_worksheet_freight.sql`.
+    // Without it, these bindings are inert: no error, just no events.
+    const worksheetChannel = supabase
+      .channel(`quote:${quoteId}:freight-worksheet`)
+      // The only worksheet table carrying quote_id — filter at the DB.
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "freight_subcategories",
+          filter: `quote_id=eq.${quoteId}`,
+        },
+        triggerCoalescedReconcile,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "freight_subcategory_items" },
+        (payload) => {
+          if (isWorksheetSubcategoryChild(payload.new, payload.old)) {
+            triggerCoalescedReconcile();
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "freight_destinations" },
+        (payload) => {
+          if (isWorksheetSubcategoryChild(payload.new, payload.old)) {
+            triggerCoalescedReconcile();
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "freight_customs_entries" },
+        (payload) => {
+          if (isWorksheetSubcategoryChild(payload.new, payload.old)) {
+            triggerCoalescedReconcile();
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "freight_destination_breaks" },
+        (payload) => {
+          if (isWorksheetDestinationChild(payload.new, payload.old)) {
+            triggerCoalescedReconcile();
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "freight_destination_tracking",
+        },
+        (payload) => {
+          if (isWorksheetDestinationChild(payload.new, payload.old)) {
+            triggerCoalescedReconcile();
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "freight_customs_breaks" },
+        (payload) => {
+          if (isWorksheetCustomsChild(payload.new, payload.old)) {
+            triggerCoalescedReconcile();
+          }
+        },
+      )
+      .subscribe((status) => {
+        // Catch-up on resubscribe, matching the two channels above.
+        // `hasSubscribedRef` is deliberately NOT reused here: it is
+        // owned by the cost/structure pair, and sharing it would let
+        // whichever channel subscribed first swallow the other's
+        // first-subscribe, turning a genuine reconnect into a missed
+        // catch-up.
+        if (status === "SUBSCRIBED") {
+          if (hasSubscribedWorksheetRef.current) {
+            triggerCoalescedReconcile();
+          } else {
+            hasSubscribedWorksheetRef.current = true;
+          }
+        }
+      });
+
     // Global ref-changed listener: GlobalRealtimeProvider dispatches
     // this when admin edits firm_settings or markup_defaults. Routes
     // through the same coalesce + scheduleReconcile pipe.
@@ -482,6 +645,7 @@ export function CostingStoreProvider({
       if (coalesceRef.current) clearTimeout(coalesceRef.current);
       void supabase.removeChannel(costChannel);
       void supabase.removeChannel(structureChannel);
+      void supabase.removeChannel(worksheetChannel);
       window.removeEventListener(GLOBAL_REF_EVENT, onGlobalRefChanged);
       hasSubscribedRef.current = false;
     };
