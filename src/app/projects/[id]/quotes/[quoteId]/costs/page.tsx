@@ -262,6 +262,11 @@ export default async function CostBuildPage({
     qtyPerParent: string | null;
     dutyPct: string | null;
     tariffPct: string | null;
+    // Setup-owned product type. NULL means the component was never typed in
+    // Setup. Costs still inherits it — a missing type must not suppress
+    // structure — but the surface flags it, because category-derived markup
+    // defaults cannot resolve without one.
+    productTypeId: string | null;
     createdAt: Date;
     updatedAt: Date;
   };
@@ -327,6 +332,7 @@ export default async function CostBuildPage({
       lastHubspotRefreshAt: null,
       parentSkuId: null,
       skuRole: "assembly",
+      productTypeId: a.productTypeId ?? null,
       qtyPerParent: null,
       dutyPct: null,
       tariffPct: null,
@@ -350,6 +356,7 @@ export default async function CostBuildPage({
       lastHubspotRefreshAt: null,
       parentSkuId: al.assemblyId,
       skuRole: "leaf",
+      productTypeId: leaf.productTypeId ?? null,
       qtyPerParent: al.quantity,
       dutyPct: null,
       tariffPct: null,

@@ -35,6 +35,10 @@ const classifiedIdentityFiles = new Set([
   "src/lib/product-structure/grouped-membership-compatibility.ts", "src/lib/quote-guards.ts",
   "src/lib/quote-cost-completeness-contract.ts", "src/lib/quote-cost-completeness.ts",
   "src/lib/scenario-copy-loader.ts", "src/lib/workspace-queries.ts",
+  // Setup → Costs inheritance backfill. Reads assembly_leaves.id to insert the
+  // inherited cost rows those leaves owe. Legacy identity, read-only against
+  // structure — it never writes an identity column.
+  "scripts/backfill/setup-costs-inheritance.ts",
   "scripts/parity/so-field-parity.ts", "scripts/product-structure/slice1-compatibility-rehearsal.ts",
   "scripts/product-structure/slice1-contract-rehearsal.ts",
   "scripts/product-structure/slice1-cutover-rehearsal.ts", "scripts/product-structure/slice1-preflight.ts",

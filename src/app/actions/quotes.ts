@@ -736,6 +736,33 @@ export async function addTier(formData: FormData): Promise<ActionResult<void>> {
       // unit_cost and purchase_qty start null on the new tier — PM fills in.
     });
   }
+
+  // Setup → Costs inheritance. Fanning out existing lines (above) only
+  // reaches leaves that already carry one. A leaf attached in Setup that
+  // has no line yet would be skipped, so the new tier would inherit less
+  // structure than the quote actually has — the same missing-inheritance
+  // defect this correction exists to remove, reappearing per tier.
+  //
+  // Every attached leaf therefore owes a row on the new tier. Leaves
+  // already covered by the fan-out are excluded so a leaf legitimately
+  // carrying several vendor lines is not given a spurious extra one.
+  const coveredLeafIds = new Set(newRows.map((r) => r.assemblyLeafId));
+  const allLeaves = await db
+    .select({ id: assemblyLeaves.id, position: assemblyLeaves.position })
+    .from(assemblyLeaves)
+    .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
+    .where(eq(assemblies.quoteId, quoteId));
+  for (const leaf of allLeaves) {
+    if (coveredLeafIds.has(leaf.id)) continue;
+    newRows.push({
+      assemblyLeafId: leaf.id,
+      tierId: tier.id,
+      lineGroupId: randomUUID(),
+      sortOrder: leaf.position,
+      // Cost fields NULL — inherited structure awaiting operator entry.
+    });
+  }
+
   if (newRows.length > 0) {
     await db.insert(assemblyLeafInputs).values(newRows);
   }
