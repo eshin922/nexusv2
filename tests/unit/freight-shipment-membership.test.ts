@@ -33,6 +33,10 @@ const adapter = await readFile(
   new URL("../../src/lib/costing-adapter.ts", import.meta.url),
   "utf8",
 );
+const claudeMd = await readFile(
+  new URL("../../CLAUDE.md", import.meta.url),
+  "utf8",
+);
 
 function actionBody(name: string): string {
   const start = action.indexOf(`export async function ${name}`);
@@ -197,6 +201,43 @@ test("write-to-render timing is instrumented end to end", () => {
   }
   assert.match(drilldown, /requestAnimationFrame\(\(\) => since\("browser update"\)\)/,
     "the final mark must fire after paint, not after the promise resolves");
+});
+
+test("pending state is action-scoped, not surface-scoped (Pattern 47f)", () => {
+  // The reported defect: one shared transition gated six controls, so editing
+  // a break left "+ Record shipment" dead. No validation rule was involved —
+  // the button's only condition was the shared flag.
+  assert.ok(
+    !/pending=\{pending\}/.test(drilldown),
+    "no control may receive the surface-wide pending flag",
+  );
+  assert.match(drilldown, /const busy = \(key: string\) => pendingKey === key/);
+  // Every submit must declare the action instance that owns it.
+  const unkeyed = drilldown.match(/submit\((update|create|add|delete|select)[A-Za-z]*\)/g) ?? [];
+  assert.deepEqual(unkeyed, [], "every submit must pass an ownership key");
+  // Keys carry the entity id, so one row cannot disable a sibling's controls.
+  for (const key of ["editDestination:", "editShipment:", "createShipment:", "addDestination:"]) {
+    assert.ok(drilldown.includes(key), `missing scoped key: ${key}`);
+  }
+});
+
+test("every disabled operator control states its reason", () => {
+  // A greyed primary action with no explanation is not acceptable operator
+  // behaviour, independent of how long the underlying action takes.
+  const reasons = drilldown.match(/title=\{[^}]*\?\s*"[^"]+…"/g) ?? [];
+  assert.ok(reasons.length >= 4, `expected reasons on disabled actions, saw ${reasons.length}`);
+  // The reported control specifically.
+  assert.match(drilldown, /title=\{pending \? "Recording this shipment…" : undefined\}/);
+  assert.match(drilldown, /\{pending \? "Recording…" : "Add"\}/,
+    "the primary action should also say what it is doing, not only grey out");
+});
+
+test("Pattern 47(f) is recorded in the pattern library", () => {
+  assert.match(claudeMd, /Pending state MUST be action-scoped/);
+  assert.match(claudeMd, /Every disabled operator control must communicate why/);
+  // Reconciliation ownership is deliberately not standardised yet — it is
+  // being decided from timing evidence, not codified from assumption.
+  assert.match(claudeMd, /NOT yet standardised/);
 });
 
 test("freight totals are unaffected by membership — it is descriptive only", () => {

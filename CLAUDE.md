@@ -2177,6 +2177,55 @@ autosave requires:
     buttons, and double-click protection is real. The rule is
     input-specific.
 
+(f) **Pending state MUST be action-scoped.** A control may be
+    disabled only by the pending state of **the action that control
+    initiates**. Sharing one transition across unrelated actions in a
+    component is prohibited: an in-flight write then disables
+    workflows the operator has every right to use.
+
+    Rule (e) permits `disabled={pending}` on buttons. It never said
+    *which* pending, and that gap is where this failure lives — a
+    surface-wide flag satisfies (e) completely while still making
+    unrelated controls dead.
+
+    **Every disabled operator control must communicate why.** A
+    greyed primary action with no explanation is not acceptable
+    operator behaviour. Use visible text, `title`, or an accessible
+    description naming the cause.
+
+    Implementation is free — separate transitions per action, or one
+    transition plus a keyed `pendingKey` — provided ownership is
+    explicit. Keys should carry the entity id, so editing one row
+    cannot disable a sibling's controls.
+
+    **Reference moment (2026-08-05).** Freight ran one
+    `useTransition` gating six controls, and the transition wrapped
+    `router.refresh()`, so `isPending` stayed true for the whole
+    20–45s refresh window. An operator completed the Create Shipment
+    form and found **Add** permanently disabled with nothing on
+    screen explaining it. No validation rule was involved: the
+    button's only condition was the shared flag.
+
+    A survey found this project-wide, measured as controls gated per
+    transition: `add-product-modal` 7.0, `freight-drilldown` 6.0,
+    `quote-umbrella/add-entry` 5.0, `attachment-list-modal` 5.0,
+    `library-browse-modal` 4.0, `quote-target-margin-popover` 3.0,
+    `production-drilldown` 1.0, `packaging-drilldown` **0.33**.
+    Packaging — the surface operators call responsive — runs three
+    transitions and gates one control.
+
+    **Freight is the proving ground; the other seven are follow-on
+    candidates, not Phase 2 work.**
+
+    **Held open:** whether reconciliation (`router.refresh()`, store
+    reconcile) belongs inside or outside the action's transition is
+    NOT yet standardised. It is being decided from write-to-render
+    timing evidence rather than assumption. Rule (f) governs
+    ownership; it does not yet govern reconciliation.
+
+    Where (e) protects **focus**, (f) protects **availability** —
+    the same failure of pending state leaking past what it describes.
+
 **Sub-pattern for fields where per-keystroke save is wrong UX**
 (dates, currency-with-mid-typing-partials, multi-character atomic
 values): use **blur/Enter commit pattern**. `LegDateInput` in
