@@ -30,10 +30,19 @@ console.log(`Checking: ${hostMatch?.[1] ?? "(unknown host)"}\n`);
 const sql = postgres(url, { prepare: false, max: 2 });
 
 const TABLES = [
-  "quote_skus",
+  // PR-F: `quote_skus`, `packaging_inputs`, and `production_inputs` were
+  // listed here until this pass. Slice 11.5.1 DROPPED all three (drizzle
+  // `0035`), so the script reported them as missing from the publication
+  // on every run — three standing false positives that a real missing
+  // table could hide behind. Removed so the output is trustworthy.
+  //
+  // Known remaining gap, NOT closed here to keep PR-F's boundary narrow:
+  // the Slice 11.5.1 NEW-model tables (assemblies, assembly_leaves,
+  // quote_leaves, assembly_leaf_inputs, assembly_production_inputs,
+  // assembly_leaf_overrides, assembly_leaf_targets) are in the
+  // publication via `drizzle/manual/0018` but were never added to this
+  // list, so they go unverified. Tracked separately.
   "quote_tiers",
-  "packaging_inputs",
-  "production_inputs",
   // Slice R6.2 — multi-leg freight tables added to the publication
   // via drizzle/manual/0002_supabase_realtime_r6_2_freight.sql.
   // Legacy `freight_inputs` retired commit 3 (drop SQL
@@ -51,6 +60,21 @@ const TABLES = [
   // input change) propagate cross-PM via the same coalesce + reconcile
   // pipe. RLS-off matching the others.
   "quote_warnings",
+  // PR-F — Phase 2 worksheet Freight authority. Added to the
+  // publication via
+  // `drizzle/manual/0036_realtime_publication_phase_2_worksheet_freight.sql`
+  // and subscribed on the third channel (`quote:<id>:freight-worksheet`).
+  //
+  // `quote_snapshot_freight_workbooks` is deliberately absent: it is
+  // written once at send and frozen thereafter (Pattern 52 draft-lock),
+  // so it has no live state to propagate.
+  "freight_subcategories",
+  "freight_subcategory_items",
+  "freight_destinations",
+  "freight_destination_breaks",
+  "freight_customs_entries",
+  "freight_customs_breaks",
+  "freight_destination_tracking",
 ] as const;
 
 // --- 1. Replication membership in supabase_realtime publication ---

@@ -52,7 +52,7 @@ import {
 import { resolveQuoteCommercialSettings } from "@/lib/commercial-settings";
 import type { CommercialSettingsResolution } from "@/lib/commercial-settings-contract";
 import { buildQuoteCostingInputFromNewModel } from "@/lib/costing-adapter";
-import type { FreightWorkbook } from "@/lib/freight-workbook";
+import { loadFreightWorkbook, type FreightWorkbook } from "@/lib/freight-workbook";
 import type { HydrateSnapshot } from "@/lib/costing-store";
 import {
   parseMarginPercent,
@@ -1839,6 +1839,17 @@ export async function getCostingBundle(
       acceptReasonKind: w.acceptReasonKind,
     }));
 
+    // PR-F — worksheet Freight authority for the client store, so a
+    // realtime reconcile carries the same shape the RSC prop carried at
+    // first render.
+    //
+    // Awaited on its own rather than folded into a surrounding
+    // Promise.all: `loadFreightWorkbook` runs its own internal fan-out,
+    // and nesting it would add its width to this function's burst.
+    // Sequencing caps peak demand at max(inner, outer) instead of their
+    // sum. See CLAUDE.md "getCostingBundle parallel-query discipline".
+    const freightWorkbook = await loadFreightWorkbook(quoteId);
+
     const snapshot: HydrateSnapshot = {
       quoteId: quote.id,
       projectId: quote.projectId,
@@ -1854,6 +1865,7 @@ export async function getCostingBundle(
       freightLegs: freightLegList,
       freightLegTiers: freightLegTierList,
       freightCustomerArrangesMeta: freightCustomerArrangesMetaList,
+      freightWorkbook,
       cellOverrides: cellOverrideList,
       cellTargets: cellTargetList,
       costing: result,

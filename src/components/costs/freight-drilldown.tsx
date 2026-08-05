@@ -16,6 +16,8 @@ import {
   updateFreightTracking,
 } from "@/app/actions/freight-worksheet";
 import type { FreightWorkbook } from "@/lib/freight-workbook";
+import { useCostingStore } from "@/components/costing-store-provider";
+import { selectFreightWorkbook } from "@/lib/costing-store";
 
 type Tier = { id: string; label: string; qty: number | null; recommended?: boolean };
 type Product = { id: string; label: string };
@@ -42,7 +44,21 @@ export function FreightDrilldown(props: {
   products: Product[];
   components: Component[];
 }) {
-  const { quoteId, tiers, editable, workbook, products, components } = props;
+  const { quoteId, tiers, editable, products, components } = props;
+
+  // PR-F — Pattern 41 ("RSC snapshot props vs Zustand store").
+  //
+  // `props.workbook` is an RSC server snapshot: frozen at render time,
+  // and it does NOT refresh when a realtime event reconciles the store.
+  // Rendering from it directly is exactly the drift that made cross-tab
+  // packaging edits invisible in Slice 11.5.1 MIG-8 — the store updated,
+  // the prop did not, and the surface kept painting stale values.
+  //
+  // So derive from the store, and fall back to the prop only for the
+  // first render before the provider has hydrated. The fallback is not
+  // dead code: this component can mount inside that window.
+  const storeWorkbook = useCostingStore(selectFreightWorkbook);
+  const workbook = storeWorkbook ?? props.workbook;
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);

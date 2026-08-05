@@ -15,6 +15,10 @@ import {
   type QuoteCostingResult,
 } from "./costing";
 import { validateQuote, type WarningSpec } from "./validation";
+// PR-F — type-only import. `freight-workbook.ts` imports the server-only
+// `db` client; erasing this at compile time keeps the store client-safe.
+// Same posture as `freight-drilldown.tsx`, which is a client component.
+import type { FreightWorkbook } from "./freight-workbook";
 
 // ============================================================================
 // Slice 8 — Costing store (Zustand, per-quote instance)
@@ -137,6 +141,18 @@ export type CostingStoreState = {
   freightLegs: StoredFreightLeg[];
   freightLegTiers: StoredFreightLegTier[];
   freightCustomerArrangesMeta: StoredFreightCustomerArrangesMeta[];
+  // PR-F — worksheet Freight authority, carried as one composite slice.
+  //
+  // Held whole rather than split into seven flat arrays because the
+  // realtime contract is a coarse re-fetch (see CLAUDE.md "Realtime ↔
+  // optimistic store contract": no granular row merging). The seven
+  // worksheet tables are re-read together by `loadFreightWorkbook` and
+  // replaced wholesale on reconcile, so splitting them would add
+  // surface area without adding resolution.
+  //
+  // Display-only: `recompute()` does not read it. Worksheet figures
+  // reach the math layer through the freight-leg adapter, not here.
+  freightWorkbook: FreightWorkbook;
   // Slice 9.3 — sparse per-cell sell-price overrides. Empty array =
   // no overrides. Mutated by `updateCellOverride(skuId, tierId, value)`
   // (upsert / clear pattern; see action below).
@@ -285,6 +301,10 @@ export type HydrateSnapshot = {
   freightLegs: StoredFreightLeg[];
   freightLegTiers: StoredFreightLegTier[];
   freightCustomerArrangesMeta: StoredFreightCustomerArrangesMeta[];
+  // PR-F — worksheet Freight authority. Populated by getCostingBundle
+  // via `loadFreightWorkbook`, so a reconcile carries the same shape
+  // the RSC prop carried at first render.
+  freightWorkbook: FreightWorkbook;
   // Slice 9.3 — sparse per-cell sell-price overrides (rows that exist
   // in DB at hydration time). Empty array if no overrides on this quote.
   cellOverrides: CostingCellOverride[];
@@ -484,6 +504,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     freightLegs: initial.freightLegs,
     freightLegTiers: initial.freightLegTiers,
     freightCustomerArrangesMeta: initial.freightCustomerArrangesMeta,
+    freightWorkbook: initial.freightWorkbook,
     cellOverrides: initial.cellOverrides,
     cellTargets: initial.cellTargets,
     // Slice 9.4a — view-state. Defaults to null on store creation;
@@ -515,6 +536,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         freightLegs: snapshot.freightLegs,
         freightLegTiers: snapshot.freightLegTiers,
         freightCustomerArrangesMeta: snapshot.freightCustomerArrangesMeta,
+        freightWorkbook: snapshot.freightWorkbook,
         cellOverrides: snapshot.cellOverrides,
         cellTargets: snapshot.cellTargets,
         costing: snapshot.costing,
@@ -547,6 +569,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         freightLegs: snapshot.freightLegs,
         freightLegTiers: snapshot.freightLegTiers,
         freightCustomerArrangesMeta: snapshot.freightCustomerArrangesMeta,
+        freightWorkbook: snapshot.freightWorkbook,
         cellOverrides: snapshot.cellOverrides,
         cellTargets: snapshot.cellTargets,
         costing: snapshot.costing,
@@ -954,6 +977,14 @@ export const selectTierPriceAdj =
 // remote edit. With ~27 rows per quote at v1 scale, subscribing to
 // the full array is fine — every cell re-renders on every reconcile.
 export const selectPackaging = (s: CostingStoreState) => s.packaging;
+
+// PR-F — worksheet Freight authority for the Costs drilldown.
+//
+// Pattern 41: the drilldown receives an RSC server snapshot as a prop,
+// which is frozen at render time and never refreshes on reconcile. It
+// must derive from this selector and fall back to the prop only when
+// the store has not hydrated a workbook yet.
+export const selectFreightWorkbook = (s: CostingStoreState) => s.freightWorkbook;
 
 // Slice 9.3 — per-cell override action selector.
 export const selectUpdateCellOverride = (s: CostingStoreState) =>
