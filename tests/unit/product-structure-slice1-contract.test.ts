@@ -49,7 +49,7 @@ test("Contract assets remain inactive and Direct production writes remain absent
 
 test("controlled rehearsal proves null abort, rollback, hashes, and reapplication", async () => {
   const rehearsal = await read("scripts/product-structure/slice1-contract-rehearsal.ts");
-  assert.match(rehearsal, /databaseName\.includes\("compatibility_test"\)/);
+  assert.match(rehearsal, /assertRuntimeSafety\(\)/);
   assert.match(rehearsal, /legacy_missing_mapping=1/);
   assert.match(rehearsal, /dataHashesUnchanged: true/);
   assert.match(rehearsal, /forwardReapplyMs/);

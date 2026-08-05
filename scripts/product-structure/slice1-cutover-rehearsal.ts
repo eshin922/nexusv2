@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../src/db/index.ts";
 import * as schema from "../../src/db/schema.ts";
+import { assertRuntimeSafety } from "../../src/lib/config/runtime-config.ts";
 import {
   CanonicalAttachmentResolutionError,
   canonicalQuoteLeafId,
@@ -13,10 +14,7 @@ import {
 
 const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
 if (!url) throw new Error("DIRECT_URL or DATABASE_URL is required");
-const databaseName = new URL(url).pathname.slice(1);
-if (!databaseName.includes("compatibility_test")) {
-  throw new Error("Cutover rehearsal refused: database name lacks compatibility_test");
-}
+assertRuntimeSafety();
 
 async function main() {
   const [mapped] = await db

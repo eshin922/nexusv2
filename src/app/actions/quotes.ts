@@ -32,6 +32,8 @@ import {
   quotes,
   quoteReviewEvents,
   quoteSnapshots,
+  quoteCommercialMarkupPins,
+  quoteCommercialSettingsPins,
   quoteTiers,
   users,
 } from "@/db/schema";
@@ -67,6 +69,8 @@ import {
   type ScenarioCopyPickerRow,
 } from "@/lib/scenario-copy-loader";
 import { requireRevisable } from "@/lib/quote-guards";
+import { requireResolvedQuoteCosts } from "@/lib/quote-cost-completeness";
+import { prepareQuoteCommercialPin } from "@/lib/commercial-settings";
 
 // ---------- tier presets (internal — "use server" disallows non-async exports) ----------
 
@@ -1391,6 +1395,25 @@ export async function sendQuote(
     const project = projectRows[0];
     const firm = firmRows[0];
 
+    // Phase 1 — draft construction intentionally permits unresolved costs.
+    // Customer send is the commercial-validity boundary. Validate before PDF
+    // rendering/upload so a rejected send leaves no external artifact and no
+    // snapshot, pin, audit, or status side effect.
+    await requireResolvedQuoteCosts(quoteId);
+
+    // Resolve the send's commercial policy onto canonical quote_leaves.id
+    // before producing an external artifact. Compatibility identity failures
+    // are hard failures; the approved transition never guesses a mapping.
+    const commercialPinPlan = await prepareQuoteCommercialPin(quoteId);
+    const sendCommercialSettings = {
+      targetMarginPct: Number(commercialPinPlan.targetMarginPct),
+      floorMarginPct: Number(commercialPinPlan.floorMarginPct),
+      markupDefaults: Object.fromEntries(
+        commercialPinPlan.markupRows.map((row) => [row.category, Number(row.markupPct)]),
+      ),
+      source: "live" as const,
+    };
+
     if (!firm.quoteNumberPrefix) {
       throw new ActionGuardError(
         ERR.VALIDATION,
@@ -1538,6 +1561,7 @@ export async function sendQuote(
         detail: sendDetailLevel || undefined,
         addendum: sendAddendumRaw || undefined,
       },
+      commercialSettingsOverride: sendCommercialSettings,
     });
     if (!resolved.ok) {
       throw new ActionGuardError(
@@ -1644,7 +1668,7 @@ export async function sendQuote(
       // superseded_at intentionally NULL — this is the current
       // sent version. Revise (Step 6) flips it and increments
       // quote.version_number; the next send INSERTs a fresh row.
-      await tx.insert(quoteSnapshots).values({
+      const [snapshot] = await tx.insert(quoteSnapshots).values({
         quoteId,
         versionNumber: quote.versionNumber,
         effectiveFrom: sentAt,
@@ -1666,7 +1690,31 @@ export async function sendQuote(
         pdfUrl,
         acceptedSnapshotJson: null,
         createdByUserId: user.id,
-      });
+      }).returning({ id: quoteSnapshots.id });
+
+      // Phase 1: snapshot + commercial pin are one transaction and explicitly
+      // associated by the non-null, unique quote_snapshot_id FK. Any header or
+      // child failure aborts this transaction, including the snapshot insert.
+      const [settingsPin] = await tx
+        .insert(quoteCommercialSettingsPins)
+        .values({
+          quoteId,
+          quoteSnapshotId: snapshot.id,
+          targetMarginPct: commercialPinPlan.targetMarginPct,
+          floorMarginPct: commercialPinPlan.floorMarginPct,
+          supersededAt: null,
+          createdByUserId: user.id,
+        })
+        .returning({ id: quoteCommercialSettingsPins.id });
+
+      if (commercialPinPlan.markupRows.length > 0) {
+        await tx.insert(quoteCommercialMarkupPins).values(
+          commercialPinPlan.markupRows.map((row) => ({
+            pinId: settingsPin.id,
+            ...row,
+          })),
+        );
+      }
 
       const [updated] = await tx
         .update(quotes)
@@ -1908,6 +1956,16 @@ export async function reviseQuote(
           ),
         )
         .returning({ id: quoteSnapshots.id, versionNumber: quoteSnapshots.versionNumber });
+
+      await tx
+        .update(quoteCommercialSettingsPins)
+        .set({ supersededAt: revisedAt })
+        .where(
+          and(
+            eq(quoteCommercialSettingsPins.quoteId, quoteId),
+            isNull(quoteCommercialSettingsPins.supersededAt),
+          ),
+        );
 
       // Flip the quote row: draft + version bump. Snapshot mirror
       // columns + pdf_url + sent_at STAY per the header rationale.

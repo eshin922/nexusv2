@@ -3,13 +3,11 @@ import { performance } from "node:perf_hooks";
 import { readFile } from "node:fs/promises";
 import postgres from "postgres";
 import { runReconciliation } from "./slice1-preflight.ts";
+import { assertRuntimeSafety } from "../../src/lib/config/runtime-config.ts";
 
 const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
 if (!url) throw new Error("DIRECT_URL or DATABASE_URL is required");
-const databaseName = new URL(url).pathname.slice(1);
-if (!databaseName.includes("compatibility_test")) {
-  throw new Error("Contract rehearsal refused: database name lacks compatibility_test");
-}
+assertRuntimeSafety();
 
 const sql = postgres(url, { max: 1, prepare: false });
 const migration = await readFile(

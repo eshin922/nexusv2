@@ -673,6 +673,120 @@ export const quoteSnapshots = pgTable(
   ],
 );
 
+// ---------- Phase 1 — pinned commercial settings ----------
+//
+// One active Quote-scoped pin is written atomically with each customer-send
+// snapshot. Revision supersedes the active pin without deleting it. The
+// snapshot FK provides the durable point-in-time association while Quote
+// remains the business identity.
+export const quoteCommercialSettingsPins = pgTable(
+  "quote_commercial_settings_pins",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    quoteSnapshotId: uuid("quote_snapshot_id")
+      .notNull()
+      .unique()
+      .references(() => quoteSnapshots.id, { onDelete: "cascade" }),
+    targetMarginPct: numeric("target_margin_pct", {
+      precision: 5,
+      scale: 4,
+    }).notNull(),
+    floorMarginPct: numeric("floor_margin_pct", {
+      precision: 5,
+      scale: 4,
+    }).notNull(),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (t) => [
+    uniqueIndex("quote_commercial_settings_pins_active_idx")
+      .on(t.quoteId)
+      .where(sql`superseded_at IS NULL`),
+    index("quote_commercial_settings_pins_quote_idx").on(
+      t.quoteId,
+      t.createdAt.desc(),
+    ),
+  ],
+);
+
+// Phase 1 — per-send markup pin.
+//
+// GRAIN: the unique key is (pin_id, quote_leaf_id, tier_id, category), but
+// the VALUE currently depends only on `category`. `prepareQuoteCommercialPin`
+// resolves every coordinate against `markup_defaults`, so for a given
+// category every (leaf, tier) row in a pin carries the SAME markup_pct by
+// construction.
+//
+// The grain is therefore recording the RESOLUTION COORDINATE — proof of
+// which (leaf, tier, category) combinations existed at send time and what
+// each resolved to — not storage for varying values. This is deliberate and
+// is the forensic record for a sent quote's commercial policy.
+//
+// WHY PER-LINE MARKUP IS NOT PINNED HERE: a PM's manual per-line override
+// lives on `assembly_leaf_inputs.markup_pct`, which is quote-owned and
+// draft-locked (Pattern 52). It cannot change after send, so it needs no
+// pin. This table exists to freeze FIRM-LEVEL values that CAN change —
+// `markup_defaults`, `firm_settings.target/floor_margin_pct`.
+//
+// ⚠️ TRIPWIRE — DO NOT DELETE THE RESOLVER'S CONFLICT THROW.
+// `resolveQuoteCommercialSettings` collapses these rows to
+// Record<category, pct> and throws on a same-category disagreement. Given
+// the current writer that throw is UNREACHABLE, and it will look like dead
+// defensive code. It is not. It is the guard that fires if a future writer
+// ever makes markup vary per leaf or per tier — at which point the correct
+// response is to WIDEN THE RESOLVER to return per-coordinate values, not to
+// remove the throw. Removing it would let a sent quote resolve to an
+// arbitrary one of several conflicting markups, silently.
+//
+// See docs/OPEN_DECISIONS.md and the engineering review finding F2.
+export const quoteCommercialMarkupPins = pgTable(
+  "quote_commercial_markup_pins",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pinId: uuid("pin_id")
+      .notNull()
+      .references(() => quoteCommercialSettingsPins.id, {
+        onDelete: "cascade",
+      }),
+    quoteLeafId: uuid("quote_leaf_id")
+      .notNull()
+      .references((): AnyPgColumn => quoteLeaves.id, { onDelete: "restrict" }),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "restrict" }),
+    category: text("category").notNull(),
+    chosenRung: text("chosen_rung").notNull(),
+    markupPct: numeric("markup_pct", { precision: 5, scale: 4 }).notNull(),
+    sourceUserId: uuid("source_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    sourceSetAt: timestamp("source_set_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("quote_commercial_markup_pins_resolution_idx").on(
+      t.pinId,
+      t.quoteLeafId,
+      t.tierId,
+      t.category,
+    ),
+    index("quote_commercial_markup_pins_attachment_idx").on(
+      t.quoteLeafId,
+      t.tierId,
+    ),
+  ],
+);
+
 // ---------- Slice 12 Step 3 — Client Review feed ----------
 //
 // Append-only PM-facing activity log per v3 brief §4.3 + §5.1 Round 3.
@@ -2418,9 +2532,9 @@ export const netsuiteCustomerMap = pgTable(
 //      row for (quote_id, accepted_tier_id) → skips SO create entirely,
 //      jumps to freeze-tx step 9 with the stored so_id. No duplicate SO.
 //
-// Partial unique index on (quote_id, accepted_tier_id) WHERE
-// status='succeeded' — belt-and-suspenders backstop against the CHECK.
-// Failed/pending rows don't block; only a second SUCCESS would.
+// One snapshot-keyed attempt row freezes the first payload. A Quote-scoped
+// succeeded unique index preserves Quote → Sales Order 1:1 independently of
+// tier movement or retry timing.
 //
 // idempotency_key mirrors the NetSuite REST X-NetSuite-Idempotency-Key
 // header value we sent — belt over CHECK-then-write. If the DB rollback
@@ -2441,6 +2555,12 @@ export const netsuiteSoPushes = pgTable(
     acceptedTierId: uuid("accepted_tier_id")
       .notNull()
       .references(() => quoteTiers.id, { onDelete: "restrict" }),
+    // Nullable only for pre-Phase-1 forensic rows. Every governed Phase-1
+    // attempt supplies the accepted active sent snapshot before any NS write.
+    quoteSnapshotId: uuid("quote_snapshot_id").references(
+      () => quoteSnapshots.id,
+      { onDelete: "restrict" },
+    ),
     // Enum text: 'pending' | 'succeeded' | 'failed'
     status: text("status").notNull(),
     netsuiteSoId: text("netsuite_so_id"),
@@ -2464,8 +2584,14 @@ export const netsuiteSoPushes = pgTable(
     // Partial unique — at most one SUCCEEDED push per (quote, tier).
     // Failed/pending rows accumulate across retry attempts.
     uniqueIndex("netsuite_so_pushes_success_unique_idx")
-      .on(t.quoteId, t.acceptedTierId)
+      .on(t.quoteId)
       .where(sql`status = 'succeeded'`),
+    uniqueIndex("netsuite_so_pushes_snapshot_success_unique_idx")
+      .on(t.quoteSnapshotId)
+      .where(sql`status = 'succeeded' AND quote_snapshot_id IS NOT NULL`),
+    uniqueIndex("netsuite_so_pushes_snapshot_attempt_unique_idx")
+      .on(t.quoteSnapshotId)
+      .where(sql`quote_snapshot_id IS NOT NULL`),
     // Fast CHECK-then-write lookup.
     index("netsuite_so_pushes_quote_tier_idx").on(
       t.quoteId,

@@ -29,6 +29,8 @@ async function validate(manifest?: FixtureManifest) {
       quotes: number;
       tiers: number;
       pushes: number;
+      canonical_attachments: number;
+      invalid_identity_mappings: number;
       invalid_external_ids: number;
     }[]>`
       select
@@ -40,11 +42,29 @@ async function validate(manifest?: FixtureManifest) {
           where qt.quote_id in ${sql(quoteIds)}) as tiers,
         (select count(*)::int from netsuite_so_pushes nsp
           where nsp.quote_id in ${sql(quoteIds)}) as pushes,
+        (select count(*)::int from quote_leaves ql
+          where ql.quote_id in ${sql(quoteIds)}) as canonical_attachments,
+        (select count(*)::int
+          from assembly_leaves al
+          join assemblies a on a.id = al.assembly_id
+          left join quote_leaves ql on ql.id = al.quote_leaf_id
+          where a.quote_id in ${sql(quoteIds)}
+            and (
+              ql.id is null or ql.quote_id <> a.quote_id
+              or ql.assembly_id <> al.assembly_id or ql.leaf_id <> al.leaf_id
+            )) as invalid_identity_mappings,
         (select count(*)::int from projects
           where id in ${sql(projectIds)}
             and hubspot_deal_id !~ '^[0-9]+$') as invalid_external_ids
     `;
-    const expected = { projects: 5, quotes: 5, tiers: 10, pushes: 2 };
+    const expected = {
+      projects: 5,
+      quotes: 5,
+      tiers: 10,
+      pushes: 2,
+      canonical_attachments: 15,
+      invalid_identity_mappings: 0,
+    };
     for (const [key, value] of Object.entries(expected)) {
       if (counts[key as keyof typeof expected] !== value) {
         throw new Error(`[fixtures] expected ${value} ${key}, found ${counts[key as keyof typeof expected]}`);
