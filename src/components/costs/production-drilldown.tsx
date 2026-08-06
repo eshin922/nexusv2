@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { startCostsTiming } from "@/lib/costs-timing";
 import { buildTreeRenderOrder, type SkuRow } from "@/lib/sku-tree";
 import {
   updateAssemblyProductionPolicy,
@@ -573,8 +574,12 @@ function ProductionTierCell({
     fd.set("otherServiceTotal", line.field === "otherServiceTotal" ? valueRef.current : (row?.otherServiceTotal ?? ""));
     fd.set("bulkRawCost", line.field === "bulkRawCost" ? valueRef.current : (row?.bulkRawCost ?? ""));
     fd.set("actualUnitsProduced", row?.actualUnitsProduced?.toString() ?? "");
+    const mark = startCostsTiming("production", "service-fee");
+    mark("submit");
     startTransition(async () => {
+      mark("action start");
       const result = await upsertAssemblyProductionInputs(fd);
+      mark("action complete");
       if (!result.ok) {
         const previous = row?.[line.field] ?? "";
         setValue(previous);
