@@ -20,6 +20,7 @@ import { ensureUser } from "@/lib/auth/ensure-user";
 import { resolveBreakFieldSources } from "@/lib/freight-break-write";
 import { quoteByIdDraft, quoteForAssembly } from "@/lib/quote-guards";
 import { revalidateQuoteTree } from "@/lib/revalidate";
+import { FREIGHT_LEG_MODES, enumLabel, isFreightLegMode } from "@/lib/enum-labels";
 
 type FieldSource = "manual" | "imported" | "corrected_after_import";
 const provenance = (fields: string[], source: FieldSource = "manual") =>
@@ -38,6 +39,31 @@ const numberOrNull = (fd: FormData, key: string) => {
   if (!Number.isFinite(value) || value < 0) throw new ActionGuardError(ERR.VALIDATION, `${key} must be at least 0`);
   return String(value);
 };
+// Governed-vocabulary guard for freight mode.
+//
+// `freight_destination_breaks.mode` is a Postgres enum. Before this guard the
+// UI submitted free text, so the DATABASE was the first validator: a plausible
+// operator value ("Ocean FCL") produced `invalid input value for enum
+// freight_leg_mode`, a 500, and a full-page Costs runtime error.
+//
+// The UI is now a governed select, but that alone is not a contract — a stale
+// client, a replayed action, or a future caller could still submit anything.
+// Validate here so an invalid value becomes a controlled field error and never
+// reaches persistence.
+//
+// Empty is valid: mode is optional and clears to NULL.
+const modeOrNull = (fd: FormData, key: string) => {
+  const raw = str(fd, key);
+  if (!raw) return null;
+  if (!isFreightLegMode(raw)) {
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      `Freight type must be one of: ${FREIGHT_LEG_MODES.map(enumLabel).join(", ")}.`,
+    );
+  }
+  return raw;
+};
+
 const markupOrNull = (fd: FormData, key: string) => {
   const raw = str(fd, key);
   if (!raw) return null;
@@ -216,7 +242,7 @@ export async function updateFreightDestinationBreak(fd: FormData): Promise<Actio
       .innerJoin(quotes, eq(quotes.id, freightSubcategories.quoteId)).where(eq(freightDestinationBreaks.id, id)).limit(1);
     if (!row) throw new ActionGuardError(ERR.NOT_FOUND, "Freight break not found");
     await quoteByIdDraft(row.quote.id);
-    const mode = nullable(fd, "mode") as typeof row.item.mode;
+    const mode = modeOrNull(fd, "mode") as typeof row.item.mode;
     await db.update(freightDestinationBreaks).set({
       freightAmount: numberOrNull(fd, "freightAmount"), freightMarkupPct: markupOrNull(fd, "freightMarkupPct"), mode,
       shipmentNote: nullable(fd, "shipmentNote"), cbm: numberOrNull(fd, "cbm"), updatedAt: new Date(),
@@ -263,7 +289,7 @@ export async function updateFreightDestinationBreakGroup(fd: FormData): Promise<
         });
         await tx.update(freightDestinationBreaks).set({
           freightAmount: numberOrNull(fd, `freightAmount:${amountKey}`), freightMarkupPct: markupOrNull(fd, `freightMarkupPct:${amountKey}`),
-          mode: (modeKey ? nullable(fd, `mode:${modeKey}`) : row.mode) as typeof row.mode,
+          mode: (modeKey ? modeOrNull(fd, `mode:${modeKey}`) : row.mode) as typeof row.mode,
           shipmentNote: noteKey ? nullable(fd, `shipmentNote:${noteKey}`) : row.shipmentNote,
           updatedAt: new Date(),
           source: correctedSource(row.source), fieldProvenance: mergeProvenance(row.fieldProvenance, fields, row.source),
