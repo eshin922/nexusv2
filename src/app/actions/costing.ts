@@ -1840,6 +1840,20 @@ export async function getCostingBundle(
     }));
 
     const snapshot: HydrateSnapshot = {
+      // Freshness authority for reconciliation ordering.
+      //
+      // Stamped here, at the single point where every snapshot for every
+      // Costs surface is constructed, so all snapshots a client can receive
+      // share one clock domain and compare directly. Taken at the END of the
+      // load so it reflects when the data was actually read, not when the
+      // request arrived.
+      //
+      // Monotonic in practice rather than by construction: Vercel function
+      // clocks are NTP-synced, and the reordering this guards against spans
+      // seconds (competing full-page renders), not milliseconds. If instance
+      // skew ever becomes material, the stronger form is a database clock
+      // (`select now()`) — one shared source, at the cost of a round trip.
+      revision: Date.now(),
       quoteId: quote.id,
       projectId: quote.projectId,
       globalPriceAdjPct: num(quote.globalPriceAdjPct),

@@ -136,16 +136,37 @@ export function CostingStoreProvider({
   // useCallback with empty deps because the function only references refs
   // (storeRef, debounceRef) — both stable across renders. The captured
   // `snap` parameter is fresh per call.
+  // Two independent protections. They guard different failures and neither
+  // substitutes for the other:
+  //
+  //   ORDERING (authoritative, in the store) — `snapshot.revision` vs
+  //   `lastAppliedRevision`. Guarantees a server render that predates one
+  //   already applied can never overwrite it, no matter what order the
+  //   responses arrive in.
+  //
+  //   QUIET PERIOD (here) — defers while the operator is actively typing, so
+  //   even a genuinely newer snapshot does not interrupt mid-entry.
+  //
+  // Cancelling the timer is deliberately NOT relied on for freshness. It only
+  // avoids redundant work: clearTimeout discards a pending *callback*, but
+  // each scheduled call had already captured its own snapshot in closure, so
+  // whichever ran last won by arrival order. That is the defect this replaces
+  // — the guard now lives in the store, where it cannot be raced.
   const scheduleReconcile = useCallback((snap: HydrateSnapshot) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const tryReconcile = () => {
-      const lastEdit = storeRef.current?.getState().lastUserEditAt ?? 0;
-      const sinceEdit = Date.now() - lastEdit;
+      const state = storeRef.current?.getState();
+      if (!state) return;
+      // Drop a snapshot already superseded rather than holding a retry timer
+      // alive for it through the whole quiet period.
+      if (snap.revision <= state.lastAppliedRevision) return;
+      const sinceEdit = Date.now() - state.lastUserEditAt;
       if (sinceEdit < QUIET_PERIOD_MS) {
         debounceRef.current = setTimeout(tryReconcile, RETRY_INTERVAL_MS);
         return;
       }
-      storeRef.current?.getState().reconcile(snap);
+      // The store re-checks the revision; this is not the enforcement point.
+      state.reconcile(snap);
     };
     debounceRef.current = setTimeout(tryReconcile, 100);
   }, []);

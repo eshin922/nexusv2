@@ -175,7 +175,15 @@ export type CostingStoreState = {
 
   // Bookkeeping
   hydrated: boolean; // false until first hydrate() call
-  lastReconcileAt: number; // ms epoch; used by debounce in provider
+  /**
+   * Revision of the most recently APPLIED snapshot. Reconciliation compares
+   * against this and rejects anything not strictly newer.
+   *
+   * Replaces `lastReconcileAt`, which was written on every hydrate/reconcile
+   * and never read — a client-clock timestamp cannot order server renders, so
+   * it could not have served as the authority even if it had been consulted.
+   */
+  lastAppliedRevision: number;
   // ms epoch of the user's most recent input edit (any updateXxx call).
   // The provider's reconcile path reads this to defer overwriting
   // optimistic state while the user is actively typing — see
@@ -270,6 +278,22 @@ export type CostingStoreState = {
 };
 
 export type HydrateSnapshot = {
+  /**
+   * Freshness authority for reconciliation ordering.
+   *
+   * Stamped SERVER-side at snapshot construction (`getCostingBundle`), so
+   * every snapshot for a quote is measured on the same clock domain and two
+   * snapshots are directly comparable. The client never mints one.
+   *
+   * This exists because reconciliation previously had NO ordering guarantee:
+   * the provider cancelled a pending *timer*, but each scheduled call had
+   * already captured its own snapshot in closure, so whichever was scheduled
+   * last won by arrival order rather than by freshness. A server render that
+   * predated an operator's save could therefore land after it and overwrite
+   * it — Packaging values vanishing after a tab-out, one returning later as a
+   * fresher snapshot arrived.
+   */
+  revision: number;
   quoteId: string;
   projectId: string;
   globalPriceAdjPct: number;
@@ -402,7 +426,7 @@ export type FreightCustomerArrangesMetaFields = Partial<
 // quote, investigate before making the rollup async or memoized.
 
 function recompute(
-  s: Omit<CostingStoreState, "costing" | "warnings" | "hydrated" | "lastReconcileAt"> & {
+  s: Omit<CostingStoreState, "costing" | "warnings" | "hydrated" | "lastAppliedRevision"> & {
     [K in keyof CostingStoreState as K extends `update${string}` | "hydrate" | "reconcile"
       ? never
       : K]: CostingStoreState[K];
@@ -496,7 +520,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     warnings: warningsFromSnapshot(initial),
     persistedWarnings: initial.persistedWarnings,
     hydrated: true,
-    lastReconcileAt: Date.now(),
+    lastAppliedRevision: initial.revision,
     lastUserEditAt: 0,
 
     hydrate: (snapshot) =>
@@ -521,7 +545,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         warnings: warningsFromSnapshot(snapshot),
         persistedWarnings: snapshot.persistedWarnings,
         hydrated: true,
-        lastReconcileAt: Date.now(),
+        lastAppliedRevision: snapshot.revision,
         lastUserEditAt: 0,
       }),
 
@@ -532,7 +556,20 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     // the server snapshot is canonical, the next user typing burst
     // starts a fresh "in-flight" window.
     reconcile: (snapshot) =>
-      set({
+      set((s) => {
+        // Ordering guard. A snapshot must be strictly newer than the one
+        // already applied, or it is discarded untouched.
+        //
+        // Equality is rejected as well as staleness: two renders stamped in
+        // the same millisecond carry the same data, so re-applying one can
+        // only cost work and risk clobbering an optimistic edit made in
+        // between.
+        //
+        // Returning `{}` leaves every slice — packaging, production, freight,
+        // overrides, targets — exactly as it is. This is what stops a server
+        // render that predates an operator's save from erasing it.
+        if (snapshot.revision <= s.lastAppliedRevision) return {};
+        return {
         quoteId: snapshot.quoteId,
         projectId: snapshot.projectId,
         globalPriceAdjPct: snapshot.globalPriceAdjPct,
@@ -552,8 +589,9 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         costing: snapshot.costing,
         warnings: warningsFromSnapshot(snapshot),
         persistedWarnings: snapshot.persistedWarnings,
-        lastReconcileAt: Date.now(),
+        lastAppliedRevision: snapshot.revision,
         lastUserEditAt: 0,
+        };
       }),
 
     // Every updateXxx action below stamps lastUserEditAt = Date.now()
