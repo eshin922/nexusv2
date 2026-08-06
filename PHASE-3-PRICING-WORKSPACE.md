@@ -222,8 +222,11 @@ the client's benchmark is a commercial risk, not a policy breach.
 
 **8 · The page boundary.**
 **Preserved from production, untouched:** scenario context · *"Tune price &
-review"* and its state line · **Your next move** CTA · SENDABLE badge and
-verdict · *"What you're sending"*.
+review"* and its state line · SENDABLE badge and verdict · *"What you're
+sending"*.
+
+**Your next move is NO LONGER on this list** — see Amendment A-9. It is
+promoted to the single workflow authority rather than preserved as-is.
 
 **`Show pricing detail` is removed as a control.** Not re-ordered — removed. The
 detail is the page.
@@ -257,7 +260,7 @@ check is a comparison rather than new plumbing.
 |---|---|
 | Pricing page route and components | replaced below the banner |
 | Banner components | **preserved untouched** |
-| `computeQuoteCosting` | **read-only** — compute twice, change nothing |
+| `computeQuoteCosting` | **read-only for business arithmetic** — compute twice, change no number. **May return additional computation structure** — see Amendment A-1 |
 | New lift table `(quote_leaf_id, tier_id)` | schema addition |
 | `assembly_leaf_overrides` | **untouched** — do not overload |
 | `quote_leaves` | canonical attachment identity — Slice 1 |
@@ -581,3 +584,75 @@ Phase 3 operator validation must prove:
 - the downstream pricing chain displays correct live values;
 - the compliance-grid interaction remains unchanged; and
 - `overflow: clip` and the explanatory comment remain intact.
+
+---
+
+# Amendments — recorded during Gate 1B
+
+Both amendments were raised as findings against this document, dispositioned by
+Edward on 2026-08-06, and are recorded here rather than applied silently. The
+inline text above carries the change; this section carries the reasoning, so a
+future reader is not left inferring why a line moved.
+
+## Amendment A-1 · `computeQuoteCosting` read-only, scoped
+
+**Was:** *"`computeQuoteCosting` — **read-only** — compute twice, change
+nothing."*
+
+**Now:** read-only governs **business arithmetic**. Returning additional
+computation structure does not violate the contract.
+
+**Why.** Gate 1B established that the engine already computes the operations and
+operands the node graph requires, and discards them — they exist only as
+intermediate locals inside `computeLeafPerTier` and `rollUpAssemblyPerTier`. The
+graph is therefore **preserved and exposed, not constructed in parallel.**
+
+The original wording would have blocked that, and the block would have produced
+the worse outcome: a second traversal re-deriving values the engine already has,
+which is the exact divergence the graph exists to remove. A parallel
+representation that agrees with the engine today is one refactor away from
+disagreeing with it silently.
+
+**What the amendment does not permit.** No existing number may change. Every
+scalar in `QuoteCostingResult` must equal the value of its corresponding node,
+asserted rather than assumed. That assertion is the boundary between "exposing
+structure" and "changing the engine", and it is the thing to test.
+
+**Disposition:** Edward, 2026-08-06 — *"Read-only governs business arithmetic.
+Returning additional computation structure does not violate that contract."*
+
+## Amendment A-9 · Your next move is promoted, not preserved
+
+**Was:** listed in §8 among elements *"preserved from production, untouched."*
+
+**Now:** removed from that list. It becomes the **single workflow authority** —
+the engine-driven statement of the required next action, which every
+presentation surface consumes.
+
+**Why.** The finding was not about the component. It was that **three surfaces
+independently state the next action**, and the page holds them apart by hand:
+
+- `preview_pdf` is filtered out of the action-card list *everywhere*, because the
+  banner already shows it — *"Duplicating it as a middle-page action card was
+  confusing PMs"*
+- in `suggestion_led` mode the recommended action is filtered out of the list,
+  because `SuggestionCard` is the recommended-action surface — so PMs see *"ONE ★
+  marker per render"*
+
+Manual deduplication between surfaces is the same failure mode as two
+computations under one label, one layer up. Preserving the banner untouched would
+have preserved the duplication with it.
+
+**Correction to the original premise, recorded because it changes the work.** The
+banner is *not* static today — `pricing-page-head.tsx:180` already drives label,
+href and help text from the classifier's recommended action. The gap is not
+"static to dynamic"; it is three authorities to one.
+
+**Consequential decision, still open:**
+`src/components/nav/your-next-move-banner.tsx` is a shared primitive serving every
+surface with three states. Whether it is specialised for Pricing or promoted for
+all surfaces is A-10, and other surfaces depend on its current contract.
+
+**Disposition:** Edward, 2026-08-06 — *"The problem is not the 'Your Next Move'
+component itself. The problem is multiple independent workflow surfaces. Gate 1B
+should establish one workflow authority that all presentation surfaces consume."*
