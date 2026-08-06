@@ -1,0 +1,786 @@
+[
+ {
+  "action": "leaf_create",
+  "entity_type": "leaf",
+  "rows": "1063",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1063"
+ },
+ {
+  "action": "updated",
+  "entity_type": "packaging_line",
+  "rows": "104",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "104"
+ },
+ {
+  "action": "updated",
+  "entity_type": "production_input",
+  "rows": "89",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "89"
+ },
+ {
+  "action": "updated",
+  "entity_type": "packaging_input",
+  "rows": "87",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "87"
+ },
+ {
+  "action": "hubspot_pull_batch",
+  "entity_type": "project",
+  "rows": "85",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "85"
+ },
+ {
+  "action": "freight_breaks_updated",
+  "entity_type": "freight_destination",
+  "rows": "84",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "84"
+ },
+ {
+  "action": "global_price_adj_updated",
+  "entity_type": "quote",
+  "rows": "84",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "84"
+ },
+ {
+  "action": "assembly_leaf_input_cell_updated",
+  "entity_type": "assembly_leaf_input",
+  "rows": "81",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "81"
+ },
+ {
+  "action": "tier_price_adj_updated",
+  "entity_type": "quote_tier",
+  "rows": "78",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "78"
+ },
+ {
+  "action": "updated",
+  "entity_type": "freight_input",
+  "rows": "73",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "73"
+ },
+ {
+  "action": "quote_review_event_added",
+  "entity_type": "quote_review_event",
+  "rows": "46",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "46"
+ },
+ {
+  "action": "created",
+  "entity_type": "quote_sku",
+  "rows": "46",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "46"
+ },
+ {
+  "action": "created",
+  "entity_type": "quote",
+  "rows": "41",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "41"
+ },
+ {
+  "action": "updated",
+  "entity_type": "quote_tier",
+  "rows": "40",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "40"
+ },
+ {
+  "action": "updated",
+  "entity_type": "freight_line",
+  "rows": "36",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "36"
+ },
+ {
+  "action": "production_policy_updated",
+  "entity_type": "quote_sku",
+  "rows": "35",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "35"
+ },
+ {
+  "action": "created",
+  "entity_type": "quote_tier",
+  "rows": "32",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "32"
+ },
+ {
+  "action": "role_converted",
+  "entity_type": "quote_sku",
+  "rows": "32",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "32"
+ },
+ {
+  "action": "assembly_production_input_updated",
+  "entity_type": "assembly_production_input",
+  "rows": "29",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "29"
+ },
+ {
+  "action": "freight_customs_break_updated",
+  "entity_type": "freight_customs_break",
+  "rows": "28",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "28"
+ },
+ {
+  "action": "customs_updated",
+  "entity_type": "quote_sku",
+  "rows": "28",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "28"
+ },
+ {
+  "action": "created",
+  "entity_type": "packaging_line",
+  "rows": "28",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "28"
+ },
+ {
+  "action": "assembly_leaf_input_line_updated",
+  "entity_type": "assembly_leaf_input_line",
+  "rows": "22",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "22"
+ },
+ {
+  "action": "created",
+  "entity_type": "project",
+  "rows": "18",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "18"
+ },
+ {
+  "action": "quote_sent",
+  "entity_type": "quote",
+  "rows": "16",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "16"
+ },
+ {
+  "action": "assembly_leaf_attach",
+  "entity_type": "assembly_leaf",
+  "rows": "16",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "16"
+ },
+ {
+  "action": "updated",
+  "entity_type": "freight_leg",
+  "rows": "16",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "16"
+ },
+ {
+  "action": "deleted",
+  "entity_type": "quote_sku",
+  "rows": "15",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "15"
+ },
+ {
+  "action": "cell_override_updated",
+  "entity_type": "quote_sku_tier",
+  "rows": "15",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "15"
+ },
+ {
+  "action": "freight_destination_created",
+  "entity_type": "freight_destination",
+  "rows": "15",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "15"
+ },
+ {
+  "action": "cell_target_updated",
+  "entity_type": "quote_sku_tier_target",
+  "rows": "14",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "14"
+ },
+ {
+  "action": "updated",
+  "entity_type": "quote_sku",
+  "rows": "14",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "14"
+ },
+ {
+  "action": "leaf_spec_field_edit",
+  "entity_type": "leaf_spec",
+  "rows": "13",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "13"
+ },
+ {
+  "action": "quote_accepted",
+  "entity_type": "quote",
+  "rows": "13",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "13"
+ },
+ {
+  "action": "deleted",
+  "entity_type": "quote_tier",
+  "rows": "12",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "12"
+ },
+ {
+  "action": "scenario_copied",
+  "entity_type": "quote",
+  "rows": "11",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "11"
+ },
+ {
+  "action": "assembly_created",
+  "entity_type": "assembly",
+  "rows": "11",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "11"
+ },
+ {
+  "action": "freight_markup_updated",
+  "entity_type": "freight_line",
+  "rows": "10",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "10"
+ },
+ {
+  "action": "tier_preset_applied",
+  "entity_type": "quote",
+  "rows": "9",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "9"
+ },
+ {
+  "action": "netsuite_customer_map_created",
+  "entity_type": "netsuite_customer_map",
+  "rows": "9",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "9"
+ },
+ {
+  "action": "assembly_leaf_attach",
+  "entity_type": "quote_leaf",
+  "rows": "9",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "9"
+ },
+ {
+  "action": "assembly_leaf_input_line_added",
+  "entity_type": "assembly_leaf_input_line",
+  "rows": "9",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "9"
+ },
+ {
+  "action": "created",
+  "entity_type": "freight_line",
+  "rows": "8",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "8"
+ },
+ {
+  "action": "freight_destination_deleted",
+  "entity_type": "freight_destination",
+  "rows": "8",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "8"
+ },
+ {
+  "action": "recommended_updated",
+  "entity_type": "quote_tier",
+  "rows": "8",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "8"
+ },
+ {
+  "action": "notes_updated",
+  "entity_type": "quote",
+  "rows": "7",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "7"
+ },
+ {
+  "action": "skus_reordered",
+  "entity_type": "quote",
+  "rows": "7",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "7"
+ },
+ {
+  "action": "quote_level_client_target_updated",
+  "entity_type": "quote_tier",
+  "rows": "7",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "7"
+ },
+ {
+  "action": "quote_reverted",
+  "entity_type": "quote",
+  "rows": "6",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "6"
+ },
+ {
+  "action": "quote_revised",
+  "entity_type": "quote",
+  "rows": "6",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "6"
+ },
+ {
+  "action": "scenario_dropped",
+  "entity_type": "project",
+  "rows": "6",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "6"
+ },
+ {
+  "action": "leaf_product_type_assigned",
+  "entity_type": "leaf",
+  "rows": "6",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "6"
+ },
+ {
+  "action": "raws_mode_updated",
+  "entity_type": "bulk_raw_section_meta",
+  "rows": "6",
+  "with_summary": "6",
+  "with_label": "0",
+  "with_diff": "6"
+ },
+ {
+  "action": "assemblies_reordered",
+  "entity_type": "quote",
+  "rows": "5",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "5"
+ },
+ {
+  "action": "unassigned_from_parent",
+  "entity_type": "quote_sku",
+  "rows": "5",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "5"
+ },
+ {
+  "action": "assembly_production_policy_updated",
+  "entity_type": "assembly",
+  "rows": "5",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "5"
+ },
+ {
+  "action": "created",
+  "entity_type": "freight_leg_group",
+  "rows": "5",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "5"
+ },
+ {
+  "action": "pricing_suggestion_global_applied",
+  "entity_type": "quote",
+  "rows": "4",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "4"
+ },
+ {
+  "action": "assigned_to_parent",
+  "entity_type": "quote_sku",
+  "rows": "4",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "4"
+ },
+ {
+  "action": "warning_accepted",
+  "entity_type": "quote_warnings",
+  "rows": "4",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "4"
+ },
+ {
+  "action": "freight_destination_updated",
+  "entity_type": "freight_destination",
+  "rows": "4",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "4"
+ },
+ {
+  "action": "refreshed",
+  "entity_type": "project",
+  "rows": "4",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "4"
+ },
+ {
+  "action": "netsuite_item_group_created",
+  "entity_type": "netsuite_item_group",
+  "rows": "4",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "4"
+ },
+ {
+  "action": "freight_subcategory_created",
+  "entity_type": "freight_subcategory",
+  "rows": "4",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "4"
+ },
+ {
+  "action": "notes_updated",
+  "entity_type": "assembly",
+  "rows": "4",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "4"
+ },
+ {
+  "action": "firm_settings_updated",
+  "entity_type": "firm_settings",
+  "rows": "4",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "4"
+ },
+ {
+  "action": "sku_created_auto_for_cost_migration",
+  "entity_type": "quote_sku",
+  "rows": "4",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "4"
+ },
+ {
+  "action": "quote_attachment_added",
+  "entity_type": "quote",
+  "rows": "3",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "3"
+ },
+ {
+  "action": "leaf_spec_type_change",
+  "entity_type": "leaf",
+  "rows": "3",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "3"
+ },
+ {
+  "action": "quote_target_margin_updated",
+  "entity_type": "quote",
+  "rows": "3",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "3"
+ },
+ {
+  "action": "created",
+  "entity_type": "freight_leg",
+  "rows": "3",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "3"
+ },
+ {
+  "action": "update",
+  "entity_type": "firm_settings",
+  "rows": "3",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "3"
+ },
+ {
+  "action": "reordered",
+  "entity_type": "quote_sku",
+  "rows": "2",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "2"
+ },
+ {
+  "action": "scenario_recommended_changed",
+  "entity_type": "project",
+  "rows": "2",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "2"
+ },
+ {
+  "action": "markup_reverted_to_default",
+  "entity_type": "packaging_line",
+  "rows": "2",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "2"
+ },
+ {
+  "action": "assembly_leaf_input_line_deleted",
+  "entity_type": "assembly_leaf_input_line",
+  "rows": "2",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "2"
+ },
+ {
+  "action": "leaf_archive",
+  "entity_type": "leaf",
+  "rows": "2",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "2"
+ },
+ {
+  "action": "quote_completed",
+  "entity_type": "quote",
+  "rows": "2",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "2"
+ },
+ {
+  "action": "role_converted_destructive",
+  "entity_type": "quote_sku",
+  "rows": "2",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "2"
+ },
+ {
+  "action": "tier_value_copied",
+  "entity_type": "freight_line",
+  "rows": "2",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "2"
+ },
+ {
+  "action": "assembly_deleted",
+  "entity_type": "assembly",
+  "rows": "2",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "2"
+ },
+ {
+  "action": "assembly_leaf_detach",
+  "entity_type": "quote_leaf",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "delete",
+  "entity_type": "markup_defaults",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "user_phone_updated",
+  "entity_type": "user",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "freight_shipment_deleted",
+  "entity_type": "freight_subcategory",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "reordered",
+  "entity_type": "freight_line",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "leaf_restored",
+  "entity_type": "leaf",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "create",
+  "entity_type": "markup_defaults",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "unarchived_db_fix",
+  "entity_type": "project",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "freight_destination_selected",
+  "entity_type": "freight_subcategory",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "deleted",
+  "entity_type": "packaging_line",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "scenario_dropped",
+  "entity_type": "quote",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "assembly_leaf_detach",
+  "entity_type": "assembly_leaf",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "update",
+  "entity_type": "markup_defaults",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "quote_attachment_removed",
+  "entity_type": "quote",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "leaf_spec_create",
+  "entity_type": "leaf_spec",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "sample_order_seeded",
+  "entity_type": "project",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ },
+ {
+  "action": "archived",
+  "entity_type": "project",
+  "rows": "1",
+  "with_summary": "0",
+  "with_label": "0",
+  "with_diff": "1"
+ }
+]

@@ -1394,7 +1394,36 @@ export const auditLog = pgTable(
   "audit_log",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    /**
+     * Live relationship to the acting user. Nullable, and nulled on user
+     * deletion — that is correct for a live navigation link and is exactly why
+     * it cannot be the only record of who acted.
+     */
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    /**
+     * Event-time actor snapshots — Gate 1A.
+     *
+     * The Pricing trace's stopping rule is "you stop when you reach a person"
+     * (R10/R11). With identity held only in `user_id`, deleting one Nexus user
+     * silently nulls it across every historical row, and every chain that
+     * terminated in that person retroactively terminates in nothing. A trace
+     * ending in "unknown" is not a thin terminal, it is a broken one.
+     *
+     * Provenance is a statement about what happened, and what happened does not
+     * change when someone leaves. So identity is COPIED at write time rather
+     * than joined at read time.
+     *
+     * `actorUserId` deliberately carries NO foreign key: an FK would reintroduce
+     * the very coupling this removes. It exists for durable disambiguation when
+     * two people share a display name.
+     *
+     * Nullable in this step by design. Old application code may still be
+     * writing during deployment, so NOT NULL is deferred until every writer is
+     * proven to populate them — see docs/audit-sweep/. Backfilling is only
+     * possible while every current `user_id` still resolves.
+     */
+    actorUserId: uuid("actor_user_id"),
+    actorDisplayName: text("actor_display_name"),
     entityType: text("entity_type").notNull(),
     // text rather than uuid so non-UUID-PK entities (e.g.,
     // markup_defaults uses category text as PK) can audit cleanly.

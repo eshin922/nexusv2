@@ -1,0 +1,33 @@
+-- Gate 1A · audit actor integrity — additive schema only.
+--
+-- THE DEFECT. `audit_log.user_id` is the only record of who acted, and its FK
+-- is ON DELETE SET NULL. Deleting one Nexus user silently nulls it across every
+-- historical row. The Pricing trace's stopping rule is "you stop when you reach
+-- a person"; every chain terminating in that person would retroactively
+-- terminate in nothing, and a trace ending in "unknown" is not a thin terminal,
+-- it is a broken one.
+--
+-- Provenance is a statement about what happened, and what happened does not
+-- change when someone leaves. Identity is therefore COPIED at write time rather
+-- than joined at read time.
+--
+-- WHY NULLABLE HERE. Old application code can still be writing during
+-- deployment. Making these NOT NULL in the same step that adds them would
+-- reject writes from any instance that has not yet rolled over. NOT NULL is a
+-- later, separate migration, applied only once every writer is proven to
+-- populate them.
+--
+-- WHY NO FOREIGN KEY on actor_user_id. An FK would reintroduce exactly the
+-- coupling this removes — the column exists to survive deletion of the row it
+-- would otherwise point at.
+--
+-- `user_id` and its FK are deliberately UNCHANGED. It remains the live
+-- navigation link and is still useful while the user exists; SET NULL becomes
+-- harmless once identity no longer depends on it. Changing the delete rule
+-- would trade a provenance problem for a user-deletion failure.
+--
+-- Additive only: no existing row is read or modified by this migration.
+-- Backfill is a separate authorized step.
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_user_id uuid;
+--> statement-breakpoint
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_display_name text;

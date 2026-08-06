@@ -1,0 +1,590 @@
+[
+ {
+  "action": "archived",
+  "entity_type": "project",
+  "shape_digest": "0c06f72cf042f35f0d780729fa5a4977",
+  "rows": "1"
+ },
+ {
+  "action": "assemblies_reordered",
+  "entity_type": "quote",
+  "shape_digest": "17495388081962a923b785450533c50c",
+  "rows": "5"
+ },
+ {
+  "action": "assembly_created",
+  "entity_type": "assembly",
+  "shape_digest": "ca53598f0c0687250dee938a00cb788d",
+  "rows": "11"
+ },
+ {
+  "action": "assembly_deleted",
+  "entity_type": "assembly",
+  "shape_digest": "92967bf58f42b858d657aefbb2084c57",
+  "rows": "2"
+ },
+ {
+  "action": "assembly_leaf_attach",
+  "entity_type": "assembly_leaf",
+  "shape_digest": "4102c51123e5809a38a733a8f98b6127",
+  "rows": "16"
+ },
+ {
+  "action": "assembly_leaf_attach",
+  "entity_type": "quote_leaf",
+  "shape_digest": "93385ca790ec2c018e57302c0d404e54",
+  "rows": "9"
+ },
+ {
+  "action": "assembly_leaf_detach",
+  "entity_type": "assembly_leaf",
+  "shape_digest": "6e9942bafb2582d3d0edb5b9d9928189",
+  "rows": "1"
+ },
+ {
+  "action": "assembly_leaf_detach",
+  "entity_type": "quote_leaf",
+  "shape_digest": "c4aacb36e9099074adcabde48b18b165",
+  "rows": "1"
+ },
+ {
+  "action": "assembly_leaf_input_cell_updated",
+  "entity_type": "assembly_leaf_input",
+  "shape_digest": "d76eefcbff2b318361bcfa3f281b671e",
+  "rows": "81"
+ },
+ {
+  "action": "assembly_leaf_input_line_added",
+  "entity_type": "assembly_leaf_input_line",
+  "shape_digest": "80518ae1071cc32d847e3c9780fb584a",
+  "rows": "9"
+ },
+ {
+  "action": "assembly_leaf_input_line_deleted",
+  "entity_type": "assembly_leaf_input_line",
+  "shape_digest": "a5cdb6b2180df03764af38e67cdad769",
+  "rows": "2"
+ },
+ {
+  "action": "assembly_leaf_input_line_updated",
+  "entity_type": "assembly_leaf_input_line",
+  "shape_digest": "48a469714cb50ccd2489c63ef9477fcc",
+  "rows": "22"
+ },
+ {
+  "action": "assembly_production_input_updated",
+  "entity_type": "assembly_production_input",
+  "shape_digest": "5f3b5e16b16a99a82805eb0ad01e6c54",
+  "rows": "29"
+ },
+ {
+  "action": "assembly_production_policy_updated",
+  "entity_type": "assembly",
+  "shape_digest": "5482bd9d04eab54b0ac1c9632886a95d",
+  "rows": "5"
+ },
+ {
+  "action": "assigned_to_parent",
+  "entity_type": "quote_sku",
+  "shape_digest": "f33fcb429787a541ec1c6784792d4bcb",
+  "rows": "4"
+ },
+ {
+  "action": "cell_override_updated",
+  "entity_type": "quote_sku_tier",
+  "shape_digest": "9c1c298c5bcf13d0b0ae0e3aca8886a0",
+  "rows": "15"
+ },
+ {
+  "action": "cell_target_updated",
+  "entity_type": "quote_sku_tier_target",
+  "shape_digest": "3ab8bba4e7f171f649d64222a62f8159",
+  "rows": "14"
+ },
+ {
+  "action": "create",
+  "entity_type": "markup_defaults",
+  "shape_digest": "0420c91ec13c38d4cb0dfea84a70853b",
+  "rows": "1"
+ },
+ {
+  "action": "created",
+  "entity_type": "freight_leg",
+  "shape_digest": "d3b4c5f74eaceeb650b1e66a63c2682e",
+  "rows": "3"
+ },
+ {
+  "action": "created",
+  "entity_type": "freight_leg_group",
+  "shape_digest": "34acbdaeb94ac701f84420c9d0843220",
+  "rows": "5"
+ },
+ {
+  "action": "created",
+  "entity_type": "freight_line",
+  "shape_digest": "b8586ff875b62b951bad7bf88f96304b",
+  "rows": "8"
+ },
+ {
+  "action": "created",
+  "entity_type": "packaging_line",
+  "shape_digest": "ffa3c44d310729afec0c9e55506de0ff",
+  "rows": "28"
+ },
+ {
+  "action": "created",
+  "entity_type": "project",
+  "shape_digest": "b0b83d6ce2e3a4d4aac8cc0f75f01ca5",
+  "rows": "18"
+ },
+ {
+  "action": "created",
+  "entity_type": "quote",
+  "shape_digest": "04f3c93fc6be270a597f59e0ef897cb3",
+  "rows": "41"
+ },
+ {
+  "action": "created",
+  "entity_type": "quote_sku",
+  "shape_digest": "f55b191ea1092d0074e4905c2f57631f",
+  "rows": "46"
+ },
+ {
+  "action": "created",
+  "entity_type": "quote_tier",
+  "shape_digest": "f30da63b96c796f3c23d82154ecf710f",
+  "rows": "32"
+ },
+ {
+  "action": "customs_updated",
+  "entity_type": "quote_sku",
+  "shape_digest": "6799ba1e53332f832bd472fa503bfca0",
+  "rows": "28"
+ },
+ {
+  "action": "delete",
+  "entity_type": "markup_defaults",
+  "shape_digest": "4b6c5ae43bfd79e41a542514c409182f",
+  "rows": "1"
+ },
+ {
+  "action": "deleted",
+  "entity_type": "packaging_line",
+  "shape_digest": "5b6ebee342227673623cb88981556601",
+  "rows": "1"
+ },
+ {
+  "action": "deleted",
+  "entity_type": "quote_sku",
+  "shape_digest": "3b7788623e6ba424faabeac59294f63b",
+  "rows": "15"
+ },
+ {
+  "action": "deleted",
+  "entity_type": "quote_tier",
+  "shape_digest": "3696db563225f51d5ede819e81d08d79",
+  "rows": "12"
+ },
+ {
+  "action": "firm_settings_updated",
+  "entity_type": "firm_settings",
+  "shape_digest": "e4b76d1d6a3e91738d264ecd0bd491ac",
+  "rows": "4"
+ },
+ {
+  "action": "freight_breaks_updated",
+  "entity_type": "freight_destination",
+  "shape_digest": "be862e2f7ebd35976681b2b8a39fcbb5",
+  "rows": "84"
+ },
+ {
+  "action": "freight_customs_break_updated",
+  "entity_type": "freight_customs_break",
+  "shape_digest": "5d89c6446393c9156736502cd2dc2d20",
+  "rows": "28"
+ },
+ {
+  "action": "freight_destination_created",
+  "entity_type": "freight_destination",
+  "shape_digest": "06b979dab190800b17f5a5dd1d02e1c1",
+  "rows": "15"
+ },
+ {
+  "action": "freight_destination_deleted",
+  "entity_type": "freight_destination",
+  "shape_digest": "ab113c9c5a52394c302395100fb4762f",
+  "rows": "8"
+ },
+ {
+  "action": "freight_destination_selected",
+  "entity_type": "freight_subcategory",
+  "shape_digest": "ff2c2374cab630dccc90f7d7f461b04b",
+  "rows": "1"
+ },
+ {
+  "action": "freight_destination_updated",
+  "entity_type": "freight_destination",
+  "shape_digest": "3260d0830c8e7dc9832174c536b7eb87",
+  "rows": "4"
+ },
+ {
+  "action": "freight_markup_updated",
+  "entity_type": "freight_line",
+  "shape_digest": "b7057192e9ec207240693540587eb197",
+  "rows": "10"
+ },
+ {
+  "action": "freight_shipment_deleted",
+  "entity_type": "freight_subcategory",
+  "shape_digest": "51af09cd0e08bea4d63e52a6c89e80f8",
+  "rows": "1"
+ },
+ {
+  "action": "freight_subcategory_created",
+  "entity_type": "freight_subcategory",
+  "shape_digest": "b6899a0ba533fbbb651f5e5c15bf7db6",
+  "rows": "4"
+ },
+ {
+  "action": "global_price_adj_updated",
+  "entity_type": "quote",
+  "shape_digest": "ad6eda71154864b28e84d805d77fe1e9",
+  "rows": "84"
+ },
+ {
+  "action": "hubspot_pull_batch",
+  "entity_type": "project",
+  "shape_digest": "60d63a96776afa8ef63f31f38e230703",
+  "rows": "85"
+ },
+ {
+  "action": "leaf_archive",
+  "entity_type": "leaf",
+  "shape_digest": "f173615e5881e731f8581fa3e2a7d8b5",
+  "rows": "2"
+ },
+ {
+  "action": "leaf_create",
+  "entity_type": "leaf",
+  "shape_digest": "010e7d5aaa0cc205b99adae235eb2e48",
+  "rows": "1063"
+ },
+ {
+  "action": "leaf_product_type_assigned",
+  "entity_type": "leaf",
+  "shape_digest": "39e18e0c5984b5089acc9bc34e266570",
+  "rows": "6"
+ },
+ {
+  "action": "leaf_restored",
+  "entity_type": "leaf",
+  "shape_digest": "c7095f1d69c925d0b230410eb54502b0",
+  "rows": "1"
+ },
+ {
+  "action": "leaf_spec_create",
+  "entity_type": "leaf_spec",
+  "shape_digest": "c4c52827f867eb2a1b27b28cd74a9897",
+  "rows": "1"
+ },
+ {
+  "action": "leaf_spec_field_edit",
+  "entity_type": "leaf_spec",
+  "shape_digest": "08148e00eaaf6ae41a3649653f975a45",
+  "rows": "13"
+ },
+ {
+  "action": "leaf_spec_type_change",
+  "entity_type": "leaf",
+  "shape_digest": "5faa91c193e471f7da9c8e7a248a72bf",
+  "rows": "3"
+ },
+ {
+  "action": "markup_reverted_to_default",
+  "entity_type": "packaging_line",
+  "shape_digest": "3ac5bb2bc0dde0c7c4c541ebeafad544",
+  "rows": "2"
+ },
+ {
+  "action": "netsuite_customer_map_created",
+  "entity_type": "netsuite_customer_map",
+  "shape_digest": "0f9c4610561ad32bd82b0483df5df48c",
+  "rows": "9"
+ },
+ {
+  "action": "netsuite_item_group_created",
+  "entity_type": "netsuite_item_group",
+  "shape_digest": "57bacfbfa2c79de53ef2d8398a353e48",
+  "rows": "4"
+ },
+ {
+  "action": "notes_updated",
+  "entity_type": "assembly",
+  "shape_digest": "068f062f5b2b1ab1b0239fd2cdb938f3",
+  "rows": "4"
+ },
+ {
+  "action": "notes_updated",
+  "entity_type": "quote",
+  "shape_digest": "f27cf9188c74010f40bd74a529e2da4b",
+  "rows": "7"
+ },
+ {
+  "action": "pricing_suggestion_global_applied",
+  "entity_type": "quote",
+  "shape_digest": "0fa5395ddd3f8af897f39589e922cad8",
+  "rows": "4"
+ },
+ {
+  "action": "production_policy_updated",
+  "entity_type": "quote_sku",
+  "shape_digest": "de591ed1e1027a9805d45d114c17e18b",
+  "rows": "35"
+ },
+ {
+  "action": "quote_accepted",
+  "entity_type": "quote",
+  "shape_digest": "ad74ced8a7ae420cfdca95fc9acdb346",
+  "rows": "13"
+ },
+ {
+  "action": "quote_attachment_added",
+  "entity_type": "quote",
+  "shape_digest": "e1925c2cf8d59901d94a492ae92b54d0",
+  "rows": "3"
+ },
+ {
+  "action": "quote_attachment_removed",
+  "entity_type": "quote",
+  "shape_digest": "4cfe0b1c8e872aaa769de4204e264cd7",
+  "rows": "1"
+ },
+ {
+  "action": "quote_completed",
+  "entity_type": "quote",
+  "shape_digest": "5c0da52442ef381830db85fdb6799ac8",
+  "rows": "2"
+ },
+ {
+  "action": "quote_level_client_target_updated",
+  "entity_type": "quote_tier",
+  "shape_digest": "fad7d52d76c5a89e2ff4986c766987f7",
+  "rows": "7"
+ },
+ {
+  "action": "quote_reverted",
+  "entity_type": "quote",
+  "shape_digest": "de75cfefc18a3ffc02dbfbfde0df85eb",
+  "rows": "6"
+ },
+ {
+  "action": "quote_review_event_added",
+  "entity_type": "quote_review_event",
+  "shape_digest": "4b11474a4e8cff46869647e710295daf",
+  "rows": "46"
+ },
+ {
+  "action": "quote_revised",
+  "entity_type": "quote",
+  "shape_digest": "e3871228bdee370d48eac16178c0ed20",
+  "rows": "6"
+ },
+ {
+  "action": "quote_sent",
+  "entity_type": "quote",
+  "shape_digest": "06d297a5fe8674af6d2975ce9e822422",
+  "rows": "16"
+ },
+ {
+  "action": "quote_target_margin_updated",
+  "entity_type": "quote",
+  "shape_digest": "d4703e677c8dca7c7eae636f2701793a",
+  "rows": "3"
+ },
+ {
+  "action": "raws_mode_updated",
+  "entity_type": "bulk_raw_section_meta",
+  "shape_digest": "cb9001c811c24a6add2abbb3b09617dd",
+  "rows": "6"
+ },
+ {
+  "action": "recommended_updated",
+  "entity_type": "quote_tier",
+  "shape_digest": "5a6ecd2e54a5aaf859e1f2d4ead548a0",
+  "rows": "8"
+ },
+ {
+  "action": "refreshed",
+  "entity_type": "project",
+  "shape_digest": "aab4e5e86474c34d12f8ea6cdec5bab8",
+  "rows": "4"
+ },
+ {
+  "action": "reordered",
+  "entity_type": "freight_line",
+  "shape_digest": "8c692755698694a0f7f2eccdf6cd3204",
+  "rows": "1"
+ },
+ {
+  "action": "reordered",
+  "entity_type": "quote_sku",
+  "shape_digest": "a63ba63402662a78aa8207d4effd5539",
+  "rows": "2"
+ },
+ {
+  "action": "role_converted",
+  "entity_type": "quote_sku",
+  "shape_digest": "267af7b15b6255725590b0aaa7b52759",
+  "rows": "32"
+ },
+ {
+  "action": "role_converted_destructive",
+  "entity_type": "quote_sku",
+  "shape_digest": "3580c184d25ece1d4afbddc89cf748cc",
+  "rows": "2"
+ },
+ {
+  "action": "sample_order_seeded",
+  "entity_type": "project",
+  "shape_digest": "a2a41da255eb1aeaf3e74186ebecac04",
+  "rows": "1"
+ },
+ {
+  "action": "scenario_copied",
+  "entity_type": "quote",
+  "shape_digest": "d75139f4e27d0f3dc86ca50d77d17925",
+  "rows": "11"
+ },
+ {
+  "action": "scenario_dropped",
+  "entity_type": "project",
+  "shape_digest": "3fbe1be16a149cad2e900eff81c649f5",
+  "rows": "6"
+ },
+ {
+  "action": "scenario_dropped",
+  "entity_type": "quote",
+  "shape_digest": "acb541f440bd7d1245a07521fbd59480",
+  "rows": "1"
+ },
+ {
+  "action": "scenario_recommended_changed",
+  "entity_type": "project",
+  "shape_digest": "ed03344caa38a762a7e399ee5279085c",
+  "rows": "2"
+ },
+ {
+  "action": "sku_created_auto_for_cost_migration",
+  "entity_type": "quote_sku",
+  "shape_digest": "02cc6f865ec23a2cd8e435e83f0c6c69",
+  "rows": "4"
+ },
+ {
+  "action": "skus_reordered",
+  "entity_type": "quote",
+  "shape_digest": "cfa5e60684437e04cb806c51d8329b79",
+  "rows": "7"
+ },
+ {
+  "action": "tier_preset_applied",
+  "entity_type": "quote",
+  "shape_digest": "9f6edabe966c068bd7fe99216da51797",
+  "rows": "9"
+ },
+ {
+  "action": "tier_price_adj_updated",
+  "entity_type": "quote_tier",
+  "shape_digest": "210f01a1a59f818c0ae6c31a13e2c9c8",
+  "rows": "78"
+ },
+ {
+  "action": "tier_value_copied",
+  "entity_type": "freight_line",
+  "shape_digest": "d0eebc66b7c7c44aac390bb4447b29ec",
+  "rows": "2"
+ },
+ {
+  "action": "unarchived_db_fix",
+  "entity_type": "project",
+  "shape_digest": "4985a97289561f31700796010f42de3d",
+  "rows": "1"
+ },
+ {
+  "action": "unassigned_from_parent",
+  "entity_type": "quote_sku",
+  "shape_digest": "39c89325b2da46f098c30a0b7439bf3b",
+  "rows": "5"
+ },
+ {
+  "action": "update",
+  "entity_type": "firm_settings",
+  "shape_digest": "8fcbf16c728a0fddb4f0eae903fadb20",
+  "rows": "3"
+ },
+ {
+  "action": "update",
+  "entity_type": "markup_defaults",
+  "shape_digest": "db00aaf2cb154879d04c53f3f5fe3082",
+  "rows": "1"
+ },
+ {
+  "action": "updated",
+  "entity_type": "freight_input",
+  "shape_digest": "f927b2cb07837e66a67e9957285ac97e",
+  "rows": "73"
+ },
+ {
+  "action": "updated",
+  "entity_type": "freight_leg",
+  "shape_digest": "6b24bd57b4c9185f14820abbfe869b2d",
+  "rows": "16"
+ },
+ {
+  "action": "updated",
+  "entity_type": "freight_line",
+  "shape_digest": "fe05e50b9ca4b2ab452158d28e101762",
+  "rows": "36"
+ },
+ {
+  "action": "updated",
+  "entity_type": "packaging_input",
+  "shape_digest": "50f7f388806cb632653d080fca9568dc",
+  "rows": "87"
+ },
+ {
+  "action": "updated",
+  "entity_type": "packaging_line",
+  "shape_digest": "7816d2e800afe6a109ca5437402b43b7",
+  "rows": "104"
+ },
+ {
+  "action": "updated",
+  "entity_type": "production_input",
+  "shape_digest": "792a15b70290082a38e652bbb8b1ce1b",
+  "rows": "89"
+ },
+ {
+  "action": "updated",
+  "entity_type": "quote_sku",
+  "shape_digest": "bd81fe8c30e56507142d2c6849d9b210",
+  "rows": "14"
+ },
+ {
+  "action": "updated",
+  "entity_type": "quote_tier",
+  "shape_digest": "0a938bc975c7e237557a58219d15ab3e",
+  "rows": "40"
+ },
+ {
+  "action": "user_phone_updated",
+  "entity_type": "user",
+  "shape_digest": "a9a1e9d52c03cdf47d95e7cf1ad60ea9",
+  "rows": "1"
+ },
+ {
+  "action": "warning_accepted",
+  "entity_type": "quote_warnings",
+  "shape_digest": "24b64e9dd7a8bedfd969666a735aaae6",
+  "rows": "4"
+ }
+]
