@@ -77,6 +77,25 @@ export function isFallbackActorIdentity(displayName: string | null): boolean {
 }
 
 /**
+ * The system actors permitted to terminate a trace.
+ *
+ * A closed set, deliberately. Every entry is a claim that some process acts on
+ * its own behalf, and each one is a place a Gate 1B trace can legitimately stop
+ * without reaching a person — so adding one should require saying so out loud,
+ * not passing a new string at a call site.
+ *
+ * Names read as systems, never as people. A trace that stops here must be
+ * unmistakably reporting a machine act; anything that could be misread as a
+ * human name would defeat the distinction this exists to make.
+ */
+export const SYSTEM_ACTORS = {
+  /** NetSuite Item Group push with no acting operator. */
+  netsuiteIntegration: "NetSuite integration",
+} as const;
+
+export type SystemActor = (typeof SYSTEM_ACTORS)[keyof typeof SYSTEM_ACTORS];
+
+/**
  * Resolve the acting user, or refuse. Returns the display name to snapshot.
  */
 async function requireActor(userId: string, exec: Executor): Promise<string> {
@@ -135,6 +154,7 @@ export async function writeAuditEntry(entry: AuditEntry, tx?: Executor): Promise
     // reintroduce the coupling this exists to remove.
     actorUserId: entry.userId,
     actorDisplayName,
+    actorKind: "human" as const,
     entityType: entry.entityType,
     entityId: entry.entityId,
     action: entry.action,
@@ -161,6 +181,7 @@ export async function writeAuditEntryReturningId(
       userId: entry.userId,
       actorUserId: entry.userId,
       actorDisplayName,
+      actorKind: "human" as const,
       entityType: entry.entityType,
       entityId: entry.entityId,
       action: entry.action,
@@ -201,6 +222,7 @@ export async function writeAuditEntries(
       userId: entry.userId,
       actorUserId: entry.userId,
       actorDisplayName,
+      actorKind: "human" as const,
       entityType: entry.entityType,
       entityId: entry.entityId,
       action: entry.action,
@@ -210,6 +232,49 @@ export async function writeAuditEntries(
       ...(entry.causedByAuditId !== undefined ? { causedByAuditId: entry.causedByAuditId } : {}),
     })),
   );
+}
+
+export type SystemAuditEntry = Omit<AuditEntry, "userId"> & {
+  /** Must come from SYSTEM_ACTORS. The set is closed on purpose. */
+  systemActor: SystemActor;
+};
+
+/**
+ * Write one audit row for an act with no acting person.
+ *
+ * The row terminates in the system, explicitly. `actor_user_id` is NULL and
+ * `actor_kind` is `system`, so a Gate 1B trace arriving here reports a machine
+ * act rather than reporting that it failed to find a human. Those are different
+ * outcomes and the trace must be able to tell them apart without guessing from
+ * a null.
+ *
+ * `user_id` is left NULL as well. Attaching a live user to a machine act would
+ * make the row look operator-initiated to anything reading the FK, which is the
+ * fabrication this model exists to prevent.
+ *
+ * Use this ONLY where no person acted. If an operator triggered the work, the
+ * event is human even though a machine performed it — pass their id to
+ * `writeAuditEntry` instead. The distinction is who is accountable, not what
+ * executed.
+ */
+export async function writeSystemAuditEntry(
+  entry: SystemAuditEntry,
+  tx?: Executor,
+): Promise<void> {
+  const exec = tx ?? db;
+  await exec.insert(auditLog).values({
+    userId: null,
+    actorUserId: null,
+    actorDisplayName: entry.systemActor,
+    actorKind: "system" as const,
+    entityType: entry.entityType,
+    entityId: entry.entityId,
+    action: entry.action,
+    diffJson: entry.diffJson ?? {},
+    ...(entry.summary !== undefined ? { summary: entry.summary } : {}),
+    ...(entry.entityLabel !== undefined ? { entityLabel: entry.entityLabel } : {}),
+    ...(entry.causedByAuditId !== undefined ? { causedByAuditId: entry.causedByAuditId } : {}),
+  });
 }
 
 /**

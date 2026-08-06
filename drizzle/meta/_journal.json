@@ -414,6 +414,13 @@
       "when": 1786052400000,
       "tag": "0060_audit_actor_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1786056000000,
+      "tag": "0061_audit_actor_kind",
+      "breakpoints": true
     }
   ]
 }

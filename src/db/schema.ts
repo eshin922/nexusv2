@@ -79,6 +79,13 @@ export const scenarioStatus = pgEnum("scenario_status", [
   "accepted",
 ]);
 
+/**
+ * Who an audit row terminates in — Gate 1A actor model. A pgEnum rather than
+ * text so a third kind cannot appear by typo; adding one should be a decision,
+ * since each kind is a claim about what the trace means when it stops there.
+ */
+export const auditActorKind = pgEnum("audit_actor_kind", ["human", "system"]);
+
 export const acceptSource = pgEnum("accept_source", [
   "manual_button",
   "hubspot_stage_change",
@@ -1424,6 +1431,27 @@ export const auditLog = pgTable(
      */
     actorUserId: uuid("actor_user_id"),
     actorDisplayName: text("actor_display_name"),
+    /**
+     * What KIND of actor this row terminates in — Gate 1A actor model.
+     *
+     * Gate 1B's trace stops when it reaches a person. Without this column, a
+     * system-generated event is indistinguishable from a human event whose
+     * actor went missing: both are a null. The trace would have to infer the
+     * difference from an absence, and an absence cannot tell you whether
+     * nobody acted or whether we merely lost track of who did.
+     *
+     * So the exception is recorded as intent rather than as a gap. A `system`
+     * row terminates explicitly, as itself — not as a missing human.
+     *
+     *   human   actor_user_id required, actor_display_name required
+     *   system  actor_user_id NULL,     actor_display_name is the system's
+     *           own identity, never a fabricated person
+     *
+     * Enforced by a CHECK constraint on the shape rather than by making
+     * actor_user_id NOT NULL, which would assert that every audit row
+     * describes a person — the thing that is not true.
+     */
+    actorKind: auditActorKind("actor_kind"),
     entityType: text("entity_type").notNull(),
     // text rather than uuid so non-UUID-PK entities (e.g.,
     // markup_defaults uses category text as PK) can audit cleanly.

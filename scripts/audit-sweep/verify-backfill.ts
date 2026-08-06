@@ -90,6 +90,29 @@ if (cover.named === cover.human)
   pass(`${cover.named}/${cover.human} actor_display_name non-empty`);
 else fail(`actor_display_name empty or null on ${Number(cover.human) - Number(cover.named)} row(s)`);
 
+// --------------------------------------------------------- actor model
+const kinds = await all<{ actor_kind: string | null; rows: string }>(sql`
+  select actor_kind::text as actor_kind, count(*)::text as rows
+    from audit_log group by 1 order by 2 desc
+`);
+const unclassified = kinds.find((k) => k.actor_kind === null);
+if (unclassified) fail(`${unclassified.rows} row(s) with no actor_kind`);
+else
+  pass(
+    `every row classified — ${kinds.map((k) => `${k.rows} ${k.actor_kind}`).join(", ")}`,
+  );
+
+const shapeViolations = await one<{ bad: string }>(sql`
+  select count(*)::text as bad from audit_log
+   where not (
+     (actor_kind = 'human'  and actor_user_id is not null) or
+     (actor_kind = 'system' and actor_user_id is null)
+   )
+`);
+if (shapeViolations.bad === "0")
+  pass("actor shape holds: human carries an id, system carries none");
+else fail(`${shapeViolations.bad} row(s) violate the human/system shape`);
+
 if (cover.machine_rows === "0") pass("no machine-authored rows present");
 else
   console.log(

@@ -53,37 +53,25 @@ const ALLOWLIST: readonly string[] = [
 ];
 
 /**
- * The machine-actor exception, pinned to a COUNT and not merely to a file.
+ * Pinned exceptions — currently NONE, and that is the point.
  *
- * A file-level allow-list entry would let a second machine writer be added to
- * the same file and inherit a sanction it was never granted — which is how a
- * narrow exception becomes a category. Requiring an exact count means the
- * exception covers the one call site it was reasoned about, and anything else
- * in the same file fails the build.
+ * There was one: item-groups.ts wrote a bare null actor for unattended NetSuite
+ * pushes, because the shared writer fails closed and could not express an act
+ * with no person behind it. It was pinned to a count rather than a file, so a
+ * second machine writer could not quietly inherit a sanction it was never
+ * granted.
  *
- * If more machine writers legitimately appear, the answer is an explicit
- * system-actor model — an actor-kind on the row, so a machine event is
- * readable AS a machine event — not a wider allow-list. A Pricing provenance
- * chain must never terminate here: these rows are not evidence of a person.
+ * The actor model resolved it rather than widening it. `actor_kind` makes a
+ * machine act sayable — `system`, with an explicit system identity and a null
+ * actor_user_id — so item-groups.ts now routes through the writer like
+ * everything else, and the exception has no subject left.
+ *
+ * That is the shape any future case should take. A machine-authored event is
+ * not grounds to re-open this list; it is grounds to add a SYSTEM_ACTORS entry.
+ * The list stays here, empty and enforced, because an exception mechanism that
+ * has to be re-invented under pressure gets invented badly.
  */
-const EXCEPTIONS: readonly { file: string; expected: number; why: string }[] = [
-  // Gate 1A, 2026-08-06. NetSuite Item Group audit rows are written by a
-  // machine step whose actor is `userId: string | null`. Converting it would
-  // change behaviour three ways at once: the shared writer would reject the
-  // null actor and abort a NetSuite push mid-flight; suppressing the row would
-  // change which events emit; and inventing a system actor would introduce a
-  // synthetic person into a trace whose whole premise is that it terminates in
-  // a real one. None is a neutral conversion, and neutrality was the sweep's
-  // constraint.
-  //
-  // Removing this entry, or adding a second direct insert to this file, MUST
-  // fail the verifier. Both confirmed by running it.
-  {
-    file: "src/lib/netsuite/item-groups.ts",
-    expected: 1,
-    why: "machine-actor NetSuite Item Group write; actor is `string | null`",
-  },
-];
+const EXCEPTIONS: readonly { file: string; expected: number; why: string }[] = [];
 
 // Drizzle: `.insert(auditLog)`, with or without a `tx.`/`db.` receiver.
 // Raw SQL: `INSERT INTO audit_log`, any casing/whitespace.
@@ -168,13 +156,16 @@ const GUIDANCE =
   "Every audit row must go through src/lib/audit.ts:\n" +
   "  writeAuditEntry({ userId, entityType, entityId, action, diffJson }, tx)\n" +
   "  writeAuditEntryReturningId(...)  — when derived rows need causedByAuditId\n" +
-  "  writeAuditEntries([...], tx)     — cascade batches, one statement\n\n" +
+  "  writeAuditEntries([...], tx)     — cascade batches, one statement\n" +
+  "  writeSystemAuditEntry({ systemActor, ... }, tx)  — no person acted\n\n" +
   "Pass the transaction whenever the audit belongs to the write it describes.\n" +
   "A direct insert skips actor resolution and writes a row that names nobody\n" +
   "once that user is deleted.\n\n" +
-  "A machine-authored event is NOT a reason to widen the exception. It needs an\n" +
-  "explicit system-actor contract, so the row reads as a machine event rather\n" +
-  "than as a person — a Pricing provenance chain must never terminate in one.\n";
+  "If no person acted, that is not a reason to bypass the writer — it is what\n" +
+  "writeSystemAuditEntry is for. Add an entry to SYSTEM_ACTORS so the row reads\n" +
+  "as a machine event rather than as a missing human. If an operator triggered\n" +
+  "the work, the event is HUMAN even though a machine performed it: the model\n" +
+  "draws its line at accountability, not at mechanism.\n";
 
 if (violations.length > 0 || countErrors.length > 0) {
   if (violations.length > 0) {
@@ -196,5 +187,5 @@ if (violations.length > 0 || countErrors.length > 0) {
 
 console.log(
   `audit_log single-writer: OK — no direct inserts under src/ ` +
-    `(${ALLOWLIST.length} allow-listed, ${EXCEPTIONS.length} pinned exception).`,
+    `(${ALLOWLIST.length} allow-listed, ${EXCEPTIONS.length} pinned exceptions).`,
 );
