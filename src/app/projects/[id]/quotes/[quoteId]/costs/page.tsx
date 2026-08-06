@@ -39,6 +39,11 @@ import { ProductionDrilldown } from "@/components/costs/production-drilldown";
 import { FreightDrilldown } from "@/components/costs/freight-drilldown";
 import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
 import { loadFreightWorkbook, type FreightWorkbook } from "@/lib/freight-workbook";
+import {
+  describeInvalidTierQuantities,
+  findInvalidTierQuantities,
+  setupTierEditorHref,
+} from "@/lib/tier-quantity-gate";
 
 // Slice RI.4 — Costs unification per Round 6 + Bulk Raw correction.
 //
@@ -262,6 +267,11 @@ export default async function CostBuildPage({
     qtyPerParent: string | null;
     dutyPct: string | null;
     tariffPct: string | null;
+    // Setup-owned product type. NULL means the component was never typed in
+    // Setup. Costs still inherits it — a missing type must not suppress
+    // structure — but the surface flags it, because category-derived markup
+    // defaults cannot resolve without one.
+    productTypeId: string | null;
     createdAt: Date;
     updatedAt: Date;
   };
@@ -327,6 +337,7 @@ export default async function CostBuildPage({
       lastHubspotRefreshAt: null,
       parentSkuId: null,
       skuRole: "assembly",
+      productTypeId: a.productTypeId ?? null,
       qtyPerParent: null,
       dutyPct: null,
       tariffPct: null,
@@ -350,6 +361,7 @@ export default async function CostBuildPage({
       lastHubspotRefreshAt: null,
       parentSkuId: al.assemblyId,
       skuRole: "leaf",
+      productTypeId: leaf.productTypeId ?? null,
       qtyPerParent: al.quantity,
       dutyPct: null,
       tariffPct: null,
@@ -460,7 +472,20 @@ export default async function CostBuildPage({
     );
   }
 
-  const editable = quote.status === "draft";
+  // Setup → Costs waterfall gate.
+  //
+  // Tier quantity is the denominator for per-unit allocation, sell, and
+  // margin, so entering costs against a tier with no quantity produces values
+  // that cannot be resolved into a price. A quote may hold unset quantities
+  // while Setup is being built; it may not proceed into *editable* Costs.
+  //
+  // Read access is deliberately preserved. Legacy, cloned, seeded, imported,
+  // and already-sent quotes exist with unset quantities — 3 of them were sent
+  // that way — and must remain viewable. Blocking the read would hide
+  // commercial history to enforce a rule authored after it was written.
+  const invalidTierQuantities = findInvalidTierQuantities(tiers);
+  const tierQuantitiesOk = invalidTierQuantities.length === 0;
+  const editable = quote.status === "draft" && tierQuantitiesOk;
   const rawsMode = bulkRawMeta[0]?.rawsMode ?? "cm_sources";
 
   const tierBrief = tiers.map((t) => ({
@@ -531,7 +556,38 @@ export default async function CostBuildPage({
         {/* Slice RI.7 — page-level state notice. Banner moved out of
             CostsHeader's flex container (was squeezing the title
             column to 1-2-word wraps once it appeared on sent quotes). */}
-        {!editable && <SentStatusBanner status={quote.status} />}
+        {/* Tier-quantity gate. Shown ahead of the sent-status banner so a
+            draft blocked purely on quantities is told what to fix, rather
+            than being left to infer a fault in the cost sections. Names each
+            affected tier and links back to the editor that owns it. */}
+        {!tierQuantitiesOk && (
+          <div
+            role="alert"
+            className="mb-3 rounded border border-warn bg-warn-soft px-4 py-3 text-sm text-warn"
+          >
+            <strong>{describeInvalidTierQuantities(invalidTierQuantities)}</strong>{" "}
+            {quote.status === "draft"
+              ? "Costs stay read-only until every tier has a quantity above zero — per-unit cost, sell price, and margin are all calculated against it."
+              : "This quote was sent with the quantity unset, so per-unit figures cannot be shown. It is preserved exactly as sent."}
+            {quote.status === "draft" && (
+              <>
+                {" "}
+                <Link
+                  href={setupTierEditorHref(
+                    projectId,
+                    quoteId,
+                    invalidTierQuantities[0]?.tierId,
+                  )}
+                  className="underline underline-offset-2"
+                >
+                  Set the quantity in Setup →
+                </Link>
+              </>
+            )}
+          </div>
+        )}
+
+        {quote.status !== "draft" && <SentStatusBanner status={quote.status} />}
 
         {/* Slice RI.9 § 3.3 — YOUR NEXT MOVE banner. Cost build →
             Costing (Pricing) is the canonical forward step. Hides on

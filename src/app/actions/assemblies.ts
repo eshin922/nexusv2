@@ -1,14 +1,18 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblies,
+  assemblyLeafInputs,
   assemblyLeaves,
+  assemblyProductionInputs,
   auditLog,
   leaves,
   productTypes,
   quotes,
+  quoteTiers,
 } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
@@ -148,40 +152,53 @@ export async function createAssembly(
         ? sku
         : `ASY-${quoteId.slice(0, 8)}-${nextPosition + 1}`;
 
-    const inserted = await db
-      .insert(assemblies)
-      .values({
-        quoteId,
-        sku: skuValue,
-        name,
-        productTypeId,
-        description,
-        unitPrice: unitPriceRaw === "" ? null : unitPriceRaw,
-        unitCost: unitCostRaw === "" ? null : unitCostRaw,
-        markupPct: markupPctRaw === "" ? null : markupPctRaw,
-        ownerId: ownerIdRaw === "" ? null : ownerIdRaw,
-        position: nextPosition,
-      })
-      .returning();
-    const newRow = inserted[0];
+    // Transactional so the assembly and its inherited Production rows commit
+    // together. An assembly without its rows is the defect this corrects.
+    const newRow = await db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(assemblies)
+        .values({
+          quoteId,
+          sku: skuValue,
+          name,
+          productTypeId,
+          description,
+          unitPrice: unitPriceRaw === "" ? null : unitPriceRaw,
+          unitCost: unitCostRaw === "" ? null : unitCostRaw,
+          markupPct: markupPctRaw === "" ? null : markupPctRaw,
+          ownerId: ownerIdRaw === "" ? null : ownerIdRaw,
+          position: nextPosition,
+        })
+        .returning();
+      const row = inserted[0];
 
-    await db.insert(auditLog).values({
-      userId: user.id,
-      entityType: "assembly",
-      entityId: newRow.id,
-      action: "assembly_created",
-      diffJson: {
-        quote_id: quoteId,
-        sku: newRow.sku,
-        name: newRow.name,
-        product_type_id: newRow.productTypeId,
-        description: newRow.description,
-        unit_price: newRow.unitPrice,
-        unit_cost: newRow.unitCost,
-        markup_pct: newRow.markupPct,
-        owner_id: newRow.ownerId,
-        position: newRow.position,
-      },
+      // Setup → Costs inheritance: Production is assembly-scoped, so a new
+      // assembly owes one row per existing tier.
+      const inheritedTierRows = await materializeProductionForAssembly(tx, {
+        quoteId,
+        assemblyId: row.id,
+      });
+
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "assembly",
+        entityId: row.id,
+        action: "assembly_created",
+        diffJson: {
+          quote_id: quoteId,
+          sku: row.sku,
+          name: row.name,
+          product_type_id: row.productTypeId,
+          description: row.description,
+          unit_price: row.unitPrice,
+          unit_cost: row.unitCost,
+          markup_pct: row.markupPct,
+          owner_id: row.ownerId,
+          position: row.position,
+          inherited_production_tier_rows: inheritedTierRows,
+        },
+      });
+      return row;
     });
 
     revalidateQuoteTree(quote.projectId, quoteId);
@@ -283,6 +300,76 @@ export async function deleteAssembly(
  * canonical wire of the impl-1-banked action). diff_json carries
  * {assembly_id, leaf_id, quantity, position}.
  */
+// ============================================================================
+// Setup → Costs inheritance
+// ============================================================================
+//
+// Setup owns product structure; Costs inherits it. An operator never
+// re-creates a Setup-owned leaf or assembly from the Costs surface — they
+// only enter cost values against structure Setup already established.
+//
+// These two helpers are the materialisation path that makes that true. They
+// insert cost rows with every cost field left NULL: the row asserts "this
+// structure exists and is awaiting a cost", not "this costs nothing". The
+// distinction matters downstream — NULL renders as an empty cell awaiting
+// entry, whereas 0 would be a priced line.
+//
+// Both are transaction-scoped so structure and its inherited cost rows commit
+// together. A leaf that exists without its rows is the exact defect this
+// corrects, and a partial commit would reintroduce it.
+
+/** One inherited Packaging row per (leaf × existing tier). */
+async function materializePackagingForLeaf(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  args: { quoteId: string; assemblyLeafId: string; sortOrder: number },
+): Promise<number> {
+  const tiers = await tx
+    .select({ id: quoteTiers.id })
+    .from(quoteTiers)
+    .where(eq(quoteTiers.quoteId, args.quoteId));
+  if (tiers.length === 0) return 0;
+
+  // One line_group_id shared across the tier fan-out: a "line" is one
+  // commercial component priced at several quantities, not several lines.
+  const lineGroupId = randomUUID();
+  await tx.insert(assemblyLeafInputs).values(
+    tiers.map((t) => ({
+      assemblyLeafId: args.assemblyLeafId,
+      tierId: t.id,
+      lineGroupId,
+      sortOrder: args.sortOrder,
+      // Cost fields intentionally omitted — NULL means "awaiting operator
+      // entry". Category and markup resolve from firm defaults at read time.
+    })),
+  );
+  return tiers.length;
+}
+
+/** One inherited Production row per (assembly × existing tier). */
+async function materializeProductionForAssembly(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  args: { quoteId: string; assemblyId: string },
+): Promise<number> {
+  const tiers = await tx
+    .select({ id: quoteTiers.id })
+    .from(quoteTiers)
+    .where(eq(quoteTiers.quoteId, args.quoteId));
+  if (tiers.length === 0) return 0;
+
+  await tx.insert(assemblyProductionInputs).values(
+    tiers.map((t) => ({
+      assemblyId: args.assemblyId,
+      tierId: t.id,
+      // Policy defaults match addTier's existing seeding, so a row created
+      // here and one created by a later tier-add are indistinguishable.
+      customerShipsRaws: false,
+      allocateServiceFeesToCost: true,
+      // Per-tier fee fields omitted — NULL, awaiting operator entry.
+    })),
+  );
+  return tiers.length;
+}
+
 export async function attachAssemblyLeaf(
   formData: FormData,
 ): Promise<ActionResult<{ quoteLeafId: string; junctionId: string }>> {
@@ -360,6 +447,14 @@ export async function attachAssemblyLeaf(
           quantity: quantityRaw === "" ? "1" : quantityRaw,
           position: nextPosition,
         });
+        // Setup → Costs inheritance. The leaf becomes visible on Costs with
+        // empty cost cells for every tier, so the operator enters values
+        // rather than re-declaring the component.
+        const inheritedTierRows = await materializePackagingForLeaf(tx, {
+          quoteId: asm.quoteId,
+          assemblyLeafId: attached.assemblyLeafId,
+          sortOrder: nextPosition,
+        });
         await tx.insert(auditLog).values({
           userId: user.id,
           entityType: "quote_leaf",
@@ -372,6 +467,7 @@ export async function attachAssemblyLeaf(
             quote_leaf_id: attached.quoteLeafId,
             quantity: attached.quantity,
             position: attached.position,
+            inherited_packaging_tier_rows: inheritedTierRows,
           },
         });
         return attached;

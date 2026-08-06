@@ -152,10 +152,37 @@ when someone believes they know the answer.
 | **2** | **Business Authority** | Which approved business contract governs this? | A BV document or phase specification is cited by identifier and it exists |
 | **3** | **External Authority** | What external business artifact already exists? | The artifact is named, and its relationship to Nexus is stated (record / import / reference / none) |
 | **4** | **Data Traceability** | Where does every operator-entered field go? | Each field is traced through the full propagation chain (§7) with no orphans |
+| **4b** | **Structural Inheritance** | Which upstream surface owns the structure this surface operates on, and what materialises it here? | A named materialisation path exists and has regression coverage, or the absence of inheritance is explicitly dispositioned |
 | **5** | **Commercial vs Operational Authority** | Which of these values can change a price? | Every field is classified commercial or operational, and operational fields are proven unable to mutate commercial history |
 | **6** | **Snapshot / Clone / Revision** | What happens to this data at send, clone, and revise? | Behaviour is specified for all three, including which values freeze |
 | **7** | **Regression Contract** | What permanent test proves the invariant? | The invariant is stated, and the test that protects it is named |
 | **8** | **Design Authority** | What is the executable visual specification? | The bundle is identified and tracked, or its absence is explicitly dispositioned |
+
+### On gate 4b — structural inheritance
+
+Gates 1 through 7 are **outbound**: they follow data the operator enters, or
+that arrives from an external artifact, and trace it downstream. Gate 4b is the
+only **inbound** question. It asks what must already exist on a surface before
+the operator can enter anything at all.
+
+The gap it closes is not hypothetical. Costs shipped without any materialisation
+path from Setup: attaching a component in Setup wrote structure rows and
+stopped, so cost rows existed only where a PM had manually created them. Every
+other gate passed. The workflow "PM enters packaging costs per component per
+tier" satisfies gate 1 completely, because gate 1 never asks *against which
+rows, and who created them*. Gate 7's regression contract then protected the
+entry behaviour — which worked — while the missing inheritance stayed invisible
+to it.
+
+The defect survived because **every other gate examines a single surface, and
+this one lived in the seam between two**. Setup was correct. Costs was correct.
+The relationship between them was owned by nobody.
+
+Answer 4b with a named path — an action, a migration, a projection — not an
+intention. "Costs inherits from Setup" is not an answer; `attachAssemblyLeaf`
+materialises one `assembly_leaf_inputs` row per existing tier" is. If a surface
+genuinely inherits nothing, say so explicitly; an unanswered 4b is the shape
+this failure takes.
 
 ### On gate 3 — external authority
 

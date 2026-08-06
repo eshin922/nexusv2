@@ -28,6 +28,8 @@ type QuoteSku = {
   parentSkuId: string | null;
   qtyPerParent: string | null;
   sortOrder: number;
+  // Setup-owned. NULL when the component was never typed in Setup.
+  productTypeId?: string | null;
 };
 
 // Slice RI.4 — Packaging drill-down per R6 source
@@ -183,16 +185,29 @@ export function PackagingDrilldown({
   }
 
   if (lines.length === 0) {
+    // Setup owns product structure; Costs inherits it. Attaching a component
+    // in Setup materialises its cost rows here, so a quote whose Setup is
+    // populated is never empty on this surface.
+    //
+    // The previous treatment rendered one "Add line · <component>" button per
+    // leaf, which invited the operator to re-declare structure Setup already
+    // owned — and on a 15-component quote produced a wall of fifteen buttons.
+    // It is deliberately not replaced with a different add affordance: the
+    // correct remedy for an empty Costs surface is to populate Setup.
     return (
       <EmptyDrawer
-        title="No packaging components yet"
-        body="Add the bottle, dropper, label, and any cartons. Markup defaults will fill in from the firm's category rates — adjust per-line if needed."
-        actions={
-          <PackagingAddLineActions leafSkus={leafSkus} editable={editable} />
-        }
+        title="No components in Setup yet"
+        body="Packaging lines are inherited from the components on this quote's Setup. Add components there and they will appear here with a cost cell for every tier."
       />
     );
   }
+
+  // Governed warning for inherited components with no Setup product type.
+  // Inheritance is never suppressed by a missing type — the line still appears
+  // and is still costable — but the category-derived markup default cannot
+  // resolve without one, so the gap is surfaced rather than silently absorbed.
+  // The fix belongs in Setup, which owns the type.
+  const untypedLeaves = leafSkus.filter((s) => !s.productTypeId);
 
   const inventoryEligibleCount = lines.filter((l) => l.inventoryEligible).length;
   const vendorSet = new Set(
@@ -217,6 +232,23 @@ export function PackagingDrilldown({
 
   return (
     <div>
+      {untypedLeaves.length > 0 && (
+        <div
+          role="status"
+          aria-label="Components missing a Setup product type"
+          className="mb-2 rounded border border-warn bg-warn-soft px-3 py-2 text-xs text-warn"
+        >
+          <strong>
+            {untypedLeaves.length}{" "}
+            {untypedLeaves.length === 1 ? "component has" : "components have"}
+          </strong>{" "}
+          no product type set in Setup
+          {": "}
+          {untypedLeaves.map((s) => s.productName).join(", ")}. These lines are
+          still costable, but markup defaults can&rsquo;t resolve from a
+          category until the type is set in Setup.
+        </div>
+      )}
       {/* Drawer toolbar — canonical .drawer-toolbar inside .r6-drawer
           (parent SectionWithDrilldown applies .r6-drawer to the
           collapsible region). 10/14 padding / paper bg / 1px rule /
@@ -310,6 +342,25 @@ export function PackagingDrilldown({
   );
 }
 
+/**
+ * **DEPRECATED — awaiting demonstrated business workflow.**
+ *
+ * Retained only in the populated state, where adding a second cost line
+ * against an already-inherited component is the one shape this could
+ * legitimately serve (e.g. one component split across two vendors).
+ *
+ * No such workflow has been demonstrated. As of 2026-08-05 every
+ * multi-line-per-leaf row in production belongs to `SMOKE-CB-STEP10`, a
+ * smoke-test quote. No PM has used it.
+ *
+ * This affordance is not the Setup → Costs contract and must never again
+ * stand in for it: structure is inherited from Setup, never re-declared
+ * here. It was removed from the empty state for exactly that reason.
+ *
+ * If no real DPS workflow surfaces, removal is scheduled as a separate
+ * business-approved cleanup rather than carried forward indefinitely. Do
+ * not extend, re-site, or reintroduce it into an empty-state surface.
+ */
 function PackagingAddLineActions({
   leafSkus,
   editable,

@@ -398,6 +398,12 @@ function TierColumn({
               status="incomplete"
               pct={null}
               targetPct={effectiveTargetPct}
+              // Tier quantity is the denominator for every per-unit figure
+              // in this stack. When it is unset the stack cannot render, and
+              // a generic "awaiting inputs" misattributes that to the cost
+              // sections — which may be complete and correct. Name the real
+              // blocker instead.
+              missingTierQty={!(tierQty > 0)}
             />
           </>
         )}
@@ -492,10 +498,18 @@ function MarginRow({
   status,
   pct,
   targetPct,
+  missingTierQty = false,
 }: {
   status: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR" | "incomplete";
   pct: number | null;
   targetPct: number;
+  /**
+   * True when this tier has no usable quantity. Distinguishes "the cost
+   * sections are still being filled in" from "there is no quantity to divide
+   * by", which are different problems on different surfaces. Reported an
+   * operator against Packaging when Packaging was complete and correct.
+   */
+  missingTierQty?: boolean;
 }) {
   const statusClass =
     status === "GOOD"
@@ -509,7 +523,9 @@ function MarginRow({
     <div className={`margin ${statusClass}`}>
       <span className="pip" aria-hidden />
       {status === "incomplete"
-        ? "awaiting inputs"
+        ? missingTierQty
+          ? "missing tier quantity"
+          : "awaiting inputs"
         : pct != null
           ? `${fmtPct(pct)} margin`
           : "—"}
