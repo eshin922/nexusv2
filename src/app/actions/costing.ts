@@ -1820,26 +1820,6 @@ export async function getCostingBundle(
 
     const result = computeQuoteCosting(input);
 
-    // Trace points 5-7 — calculation inputs, calculation output, and what the
-    // bundle hands the client, all stamped with the revision that joins them
-    // back to "action persisted".
-    //
-    // `authority` is the shadowing verdict made explicit: worksheet rows
-    // suppress the legacy leg model, so a value sourced from the wrong model
-    // is visible here rather than inferred from behaviour.
-    const tracedAuthority =
-      (input.freightShipmentBreaks?.length ?? 0) > 0
-        ? "worksheet"
-        : freightLegList.length > 0
-          ? "legacy"
-          : "none";
-    for (const shipment of input.freightShipmentBreaks ?? []) {
-    }
-    // The Cost Stack reads these buckets, so tracing them is what makes a
-    // stale on-screen Freight/Duty figure attributable to the calculation
-    // rather than to the display.
-    for (const rollup of result.quoteRollup) {
-    }
 
     // Slice 9.5 — load persisted warnings (active + accepted) into
     // the snapshot so the client store can attach DB ids onto

@@ -30,6 +30,28 @@ const mergeProvenance = (current: unknown, fields: string[], source: FieldSource
   ...(current && typeof current === "object" && !Array.isArray(current) ? current : {}),
   ...provenance(fields, correctedSource(source)),
 });
+/**
+ * Post-commit causal revision — the ordering contract for Freight mutations.
+ *
+ * The reconciliation pipe cannot tell a fresh snapshot from a stale one by
+ * timing alone: a slow read racing a fast second edit, or two operators on one
+ * quote, can deliver an OLDER snapshot after a newer write. A monotonic marker
+ * minted AFTER the write commits gives the client something to compare against,
+ * so an out-of-order snapshot is detectable rather than silently applied.
+ *
+ * `pg_snapshot_xmax(pg_current_snapshot())` is read outside the transaction, so
+ * it reflects state the write is already part of. Every mutation returns it;
+ * consumers may ignore it, but no path may omit it — a single path without the
+ * marker is a path with no ordering guarantee, which is exactly how this gap
+ * went unnoticed on ten of eleven actions (F-3).
+ */
+async function committedRevision(): Promise<string | null> {
+  const rows = await db.execute<{ revision: string | null }>(
+    sql`select pg_snapshot_xmax(pg_current_snapshot())::text as revision`,
+  );
+  return (rows as unknown as Array<{ revision: string | null }>)[0]?.revision ?? null;
+}
+
 const str = (fd: FormData, key: string) => String(fd.get(key) ?? "").trim();
 const nullable = (fd: FormData, key: string) => str(fd, key) || null;
 const numberOrNull = (fd: FormData, key: string) => {
@@ -75,7 +97,7 @@ async function audit(userId: string, entityType: string, entityId: string, actio
   await db.insert(auditLog).values({ userId, entityType, entityId, action, diffJson });
 }
 
-export async function createFreightSubcategory(fd: FormData): Promise<ActionResult<{ id: string; quoteId: string }>> {
+export async function createFreightSubcategory(fd: FormData): Promise<ActionResult<{ id: string; quoteId: string; revision: string | null }>> {
   return runAction(async () => {
     const quoteId = str(fd, "quoteId");
     const assemblyId = str(fd, "assemblyId");
@@ -134,8 +156,9 @@ export async function createFreightSubcategory(fd: FormData): Promise<ActionResu
       return subcategory;
     });
     await audit(user.id, "freight_subcategory", created.id, "freight_subcategory_created", { quoteId, assemblyId, memberIds });
+    const revision = await committedRevision();
     revalidateQuoteTree(quote.projectId, quoteId);
-    return { id: created.id, quoteId };
+    return { revision, id: created.id, quoteId };
   });
 }
 
@@ -146,7 +169,7 @@ async function draftSubcategory(id: string) {
   return row;
 }
 
-export async function updateFreightSubcategory(fd: FormData): Promise<ActionResult<{ id: string }>> {
+export async function updateFreightSubcategory(fd: FormData): Promise<ActionResult<{ id: string; revision: string | null }>> {
   return runAction(async () => {
     const id = str(fd, "freightSubcategoryId");
     const label = str(fd, "label");
@@ -174,12 +197,13 @@ export async function updateFreightSubcategory(fd: FormData): Promise<ActionResu
       })));
       await tx.insert(auditLog).values({ userId: user.id, entityType: "freight_subcategory", entityId: id, action: "freight_subcategory_updated", diffJson: { fields, membership: { from: beforeMembers.map((row) => row.id), to: memberIds } } });
     });
+    const revision = await committedRevision();
     revalidateQuoteTree(quote.projectId, quote.id);
-    return { id };
+    return { revision, id };
   });
 }
 
-export async function updateFreightDestination(fd: FormData): Promise<ActionResult<{ id: string }>> {
+export async function updateFreightDestination(fd: FormData): Promise<ActionResult<{ id: string; revision: string | null }>> {
   return runAction(async () => {
     const id = str(fd, "destinationId");
     const destination = str(fd, "destination");
@@ -199,12 +223,13 @@ export async function updateFreightDestination(fd: FormData): Promise<ActionResu
       }).where(eq(freightDestinations.id, id));
       await tx.insert(auditLog).values({ userId: user.id, entityType: "freight_destination", entityId: id, action: "freight_destination_updated", diffJson: { fields } });
     });
+    const revision = await committedRevision();
     revalidateQuoteTree(row.quote.projectId, row.quote.id);
-    return { id };
+    return { revision, id };
   });
 }
 
-export async function addFreightDestination(fd: FormData): Promise<ActionResult<{ id: string }>> {
+export async function addFreightDestination(fd: FormData): Promise<ActionResult<{ id: string; revision: string | null }>> {
   return runAction(async () => {
     const subcategoryId = str(fd, "freightSubcategoryId");
     const destination = str(fd, "destination");
@@ -233,12 +258,13 @@ export async function addFreightDestination(fd: FormData): Promise<ActionResult<
       };
     }));
     await audit(user.id, "freight_destination", created.id, "freight_destination_created", { subcategoryId });
+    const revision = await committedRevision();
     revalidateQuoteTree(quote.projectId, quote.id);
-    return { id: created.id };
+    return { revision, id: created.id };
   });
 }
 
-export async function selectFreightDestination(fd: FormData): Promise<ActionResult<{ subcategoryId: string; destinationId: string }>> {
+export async function selectFreightDestination(fd: FormData): Promise<ActionResult<{ subcategoryId: string; destinationId: string; revision: string | null }>> {
   return runAction(async () => {
     const subcategoryId = str(fd, "freightSubcategoryId");
     const destinationId = str(fd, "destinationId");
@@ -251,12 +277,13 @@ export async function selectFreightDestination(fd: FormData): Promise<ActionResu
       source: correctedSource(subcategory.source), fieldProvenance: mergeProvenance(subcategory.fieldProvenance, ["selectedDestinationId", "selectionReason"], subcategory.source),
     }).where(eq(freightSubcategories.id, subcategoryId));
     await audit(user.id, "freight_subcategory", subcategoryId, "freight_destination_selected", { from: subcategory.selectedDestinationId, to: destinationId });
+    const revision = await committedRevision();
     revalidateQuoteTree(quote.projectId, quote.id);
-    return { subcategoryId, destinationId };
+    return { revision, subcategoryId, destinationId };
   });
 }
 
-export async function updateFreightDestinationBreak(fd: FormData): Promise<ActionResult<{ id: string }>> {
+export async function updateFreightDestinationBreak(fd: FormData): Promise<ActionResult<{ id: string; revision: string | null }>> {
   return runAction(async () => {
     const id = str(fd, "breakId");
     const user = await ensureUser();
@@ -273,8 +300,9 @@ export async function updateFreightDestinationBreak(fd: FormData): Promise<Actio
       source: correctedSource(row.item.source), fieldProvenance: mergeProvenance(row.item.fieldProvenance, ["freightAmount", "freightMarkupPct", "mode", "shipmentNote", "cbm"], row.item.source),
     }).where(eq(freightDestinationBreaks.id, id));
     await audit(user.id, "freight_destination_break", id, "freight_destination_break_updated", { destinationId: row.item.freightDestinationId });
+    const revision = await committedRevision();
     revalidateQuoteTree(row.quote.projectId, row.quote.id);
-    return { id };
+    return { revision, id };
   });
 }
 
@@ -327,29 +355,13 @@ export async function updateFreightDestinationBreakGroup(fd: FormData): Promise<
       }
       await tx.insert(auditLog).values({ userId: user.id, entityType: "freight_destination", entityId: destinationId, action: "freight_breaks_updated", diffJson: { breakMode: flat ? "one_value_all_breaks" : "differs_by_break", tierIds: rows.map((row) => row.tierId) } });
     });
-    // Trace point 3 — what is actually committed, read back from the database
-    // AFTER the transaction, with the post-commit revision. This is the join
-    // key: every read-side event carries the revision it observed, so the
-    const persisted = await db
-      .select({
-        id: freightDestinationBreaks.id,
-        tierId: freightDestinationBreaks.tierId,
-        freightAmount: freightDestinationBreaks.freightAmount,
-        freightMarkupPct: freightDestinationBreaks.freightMarkupPct,
-        mode: freightDestinationBreaks.mode,
-        revision: sql<string>`pg_snapshot_xmax(pg_current_snapshot())::text`,
-        committedAt: sql<string>`now()::text`,
-      })
-      .from(freightDestinationBreaks)
-      .where(eq(freightDestinationBreaks.freightDestinationId, destinationId));
-    for (const row of persisted) {
-    }
+    const revision = await committedRevision();
     revalidateQuoteTree(owner.quote.projectId, owner.quote.id);
-    return { destinationId, revision: persisted[0]?.revision ?? null };
+    return { destinationId, revision };
   });
 }
 
-export async function deleteFreightDestination(fd: FormData): Promise<ActionResult<{ subcategoryId: string; deletedDestination: string; selectionCleared: boolean }>> {
+export async function deleteFreightDestination(fd: FormData): Promise<ActionResult<{ subcategoryId: string; deletedDestination: string; selectionCleared: boolean; revision: string | null }>> {
   return runAction(async () => {
     const destinationId = str(fd, "destinationId");
     const user = await ensureUser();
@@ -365,12 +377,13 @@ export async function deleteFreightDestination(fd: FormData): Promise<ActionResu
       await tx.delete(freightDestinations).where(eq(freightDestinations.id, destinationId));
       await tx.insert(auditLog).values({ userId: user.id, entityType: "freight_destination", entityId: destinationId, action: "freight_destination_deleted", diffJson: { subcategoryId: row.subcategory.id, destination: row.destination.destination, wasSelected: row.subcategory.selectedDestinationId === destinationId } });
     });
+    const revision = await committedRevision();
     revalidateQuoteTree(row.quote.projectId, row.quote.id);
-    return { subcategoryId: row.subcategory.id, deletedDestination: row.destination.destination, selectionCleared: row.subcategory.selectedDestinationId === destinationId };
+    return { revision, subcategoryId: row.subcategory.id, deletedDestination: row.destination.destination, selectionCleared: row.subcategory.selectedDestinationId === destinationId };
   });
 }
 
-export async function updateFreightCustomsEntry(fd: FormData): Promise<ActionResult<{ id: string }>> {
+export async function updateFreightCustomsEntry(fd: FormData): Promise<ActionResult<{ id: string; revision: string | null }>> {
   return runAction(async () => {
     const subcategoryId = str(fd, "freightSubcategoryId");
     const user = await ensureUser();
@@ -384,12 +397,13 @@ export async function updateFreightCustomsEntry(fd: FormData): Promise<ActionRes
       source: correctedSource(current?.source ?? "manual"), fieldProvenance: mergeProvenance(current?.fieldProvenance, ["invoiceReference", "entryDescription"], current?.source ?? "manual"),
     } }).returning({ id: freightCustomsEntries.id });
     await audit(user.id, "freight_customs_entry", saved.id, "freight_customs_entry_updated", { subcategoryId });
+    const revision = await committedRevision();
     revalidateQuoteTree(quote.projectId, quote.id);
-    return { id: saved.id };
+    return { revision, id: saved.id };
   });
 }
 
-export async function updateFreightCustomsBreak(fd: FormData): Promise<ActionResult<{ id: string }>> {
+export async function updateFreightCustomsBreak(fd: FormData): Promise<ActionResult<{ id: string; revision: string | null }>> {
   return runAction(async () => {
     const subcategoryId = str(fd, "freightSubcategoryId");
     const tierId = str(fd, "tierId");
@@ -409,14 +423,15 @@ export async function updateFreightCustomsBreak(fd: FormData): Promise<ActionRes
       source: correctedSource(currentBreak?.source ?? "manual"), fieldProvenance: mergeProvenance(currentBreak?.fieldProvenance, ["amount", "markupPct", "detail"], currentBreak?.source ?? "manual"),
     }}).returning({ id: freightCustomsBreaks.id });
     await audit(user.id, "freight_customs_break", saved.id, "freight_customs_break_updated", { chargeType, tierId });
+    const revision = await committedRevision();
     revalidateQuoteTree(quote.projectId, quote.id);
-    return saved;
+    return { ...saved, revision };
   });
 }
 
 // Tracking is operational metadata: selected-destination guard applies, while
 // sent commercial snapshots remain immutable and pricing is never recomputed.
-export async function updateFreightTracking(fd: FormData): Promise<ActionResult<{ destinationId: string }>> {
+export async function updateFreightTracking(fd: FormData): Promise<ActionResult<{ destinationId: string; revision: string | null }>> {
   return runAction(async () => {
     const destinationId = str(fd, "destinationId");
     const user = await ensureUser();
@@ -431,8 +446,9 @@ export async function updateFreightTracking(fd: FormData): Promise<ActionResult<
     if (!values.etd && !values.eta && !values.actualDeliveryDate) {
       await db.delete(freightDestinationTracking).where(eq(freightDestinationTracking.freightDestinationId, destinationId));
       await audit(user.id, "freight_destination_tracking", destinationId, "freight_tracking_cleared", { operational: true });
+      const revision = await committedRevision();
       revalidateQuoteTree(row.quote.projectId, row.quote.id);
-      return { destinationId };
+      return { revision, destinationId };
     }
     await db.insert(freightDestinationTracking).values({
       freightDestinationId: destinationId, ...values,
@@ -442,7 +458,8 @@ export async function updateFreightTracking(fd: FormData): Promise<ActionResult<
       source: correctedSource(row.tracking?.source ?? "manual"), fieldProvenance: mergeProvenance(row.tracking?.fieldProvenance, ["etd", "eta", "actualDeliveryDate"], row.tracking?.source ?? "manual"),
     }});
     await audit(user.id, "freight_destination_tracking", destinationId, "freight_tracking_updated", { operational: true });
+    const revision = await committedRevision();
     revalidateQuoteTree(row.quote.projectId, row.quote.id);
-    return { destinationId };
+    return { revision, destinationId };
   });
 }
