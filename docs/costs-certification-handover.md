@@ -614,3 +614,80 @@ with a coalescing window stable at 400–403 ms in every case. Amplification is
 gone. But the shared bundle read remains 7.3–7.8 s regardless of write shape,
 so coalescing alone does not reach the responsiveness bar. Classify #183 as
 effective-but-insufficient, not ineffective.
+
+### F-5 · Shipment lifecycle gap — Record Shipment is create-only
+
+**Confirmed defect. Costs certification blocker. NOT a prerequisite for the
+regional latency experiment.**
+
+`createFreightSubcategory` creates a shipment. Nothing deletes one. There is no
+`deleteFreightSubcategory` in the action layer, no remove control in
+`freight-drilldown.tsx`, and no `delete(freightSubcategories)` anywhere in the
+tree. The only deletes in `freight-worksheet.ts` are on subcategory *items*
+(line 171), destinations (399) and tracking (466).
+
+An operator who records a shipment by mistake cannot undo it. Discovered while
+attempting governed cleanup of the audit fixture, which is why the inert
+`ZZ-AUDIT baseline shipment` remains in quote `52bd0077`.
+
+**Do not solve this with an unreviewed hard delete.** Decide first:
+
+1. **Delete vs archive/void.** A shipment that was real and is now cancelled is
+   not the same as one recorded in error. Commercial history may need the
+   former retained.
+2. **Non-empty behaviour.** What happens when destinations, breaks, customs
+   amounts or commercial values exist? Refuse, cascade, or require the operator
+   to empty it first.
+3. **Cascade boundaries.** `freight_destinations` → `freight_destination_breaks`
+   → tracking, and `freight_customs_entries` → `freight_customs_breaks`. Which
+   of these follow the shipment out, and which are blocked by their presence.
+4. **Recoverability.** Hard delete is unrecoverable in a shared prod database
+   with no dev/staging split (see "Single Supabase project"). Soft-delete with
+   a restore path may be the safer default.
+5. **Audit history.** Per the transition-not-mechanism convention, the action
+   name records the state change; `diff_json` carries the pre-delete snapshot
+   of the shipment plus every cascaded row, as `deleteSku` does for subtrees.
+6. **Operator confirmation.** Destructive and outward-facing enough to warrant
+   explicit confirmation naming what will be removed.
+7. **Frozen-quote restriction.** Must call `assertNotFrozen` (Pattern 52) — a
+   sent, accepted or complete quote's freight structure is part of what was
+   quoted. Only the sanctioned reopen paths may touch it.
+
+Reference: audit fixture cleanup, 2026-08-06, quote `52bd0077`.
+
+### Revised fixture baseline — quote `52bd0077` (pre-intervention)
+
+Captured 2026-08-06 WITH the inert `ZZ-AUDIT baseline shipment` present, per
+the disposition to re-baseline rather than implement deletion for cleanup. The
+audit record must remain unchanged and no further audit records may be added
+during the before/after comparison.
+
+| Entity | Count |
+|---|---|
+| freight_subcategories (shipments) | 2 |
+| freight_destinations | 4 |
+| freight_destination_breaks | 16 |
+| freight_customs_entries | 1 |
+| freight_customs_breaks | 4 |
+| quote_tiers | 4 |
+| assemblies | 1 |
+| assembly_leaves | 2 |
+| quote_leaves | 2 |
+
+Digests — must be identical in the post-intervention run:
+
+```
+freight_digest  0fed0bf6828550630803745e1c50fed0
+customs_digest  2015fb21d13b1b41c0ac9072bef1b1aa
+tier_digest     5d3f134870f5beff7dcf02af61c68586
+```
+
+`freight_digest` covers shipment label, destination, tier, amount, markup, mode
+and shipment note across all 16 breaks. `customs_digest` covers charge type,
+tier, amount and markup across all 4 customs breaks (all amounts NULL).
+`tier_digest` covers label, qty, sort order, per-tier adjustment and the
+recommended flag.
+
+The inert shipment adds one subcategory, one destination and four breaks to the
+bundle's row counts. That shifts absolute bundle size slightly but is constant
+across both runs, so the controlled comparison holds.
