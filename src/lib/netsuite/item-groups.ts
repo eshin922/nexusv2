@@ -2,6 +2,7 @@ import "server-only";
 import { and, eq, like, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { netsuiteItemGroups, auditLog } from "@/db/schema";
+import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import {
   computeCompositionHash,
   externalIdForHash,
@@ -327,6 +328,26 @@ interface AuditArgs {
 }
 
 async function writeAudit(args: AuditArgs): Promise<void> {
+  // GATE 1A EXCEPTION -- deliberately still a direct insert.
+  //
+  // `AuditArgs.userId` is `string | null`: a system-initiated NetSuite push has
+  // no acting person. The shared writer fails closed on an unresolved actor,
+  // which is right for operator actions but cannot express a system act.
+  //
+  // Both available conversions change behaviour, so neither is mechanical:
+  //   · route through the writer -> the write is rejected, and a system push
+  //     loses its audit row entirely (emission changes)
+  //   · skip the write when userId is null -> same loss, made silent
+  //   · write with a null actor -> recreates the unattributable row that all
+  //     of Gate 1A exists to eliminate
+  //
+  // The sweep's rule is that it changes how audit rows are written, never what
+  // an action means or when it emits. Choosing among the three is a business
+  // disposition about what a system actor IS, so this call site keeps its
+  // current behaviour byte-for-byte and is listed as an explicit exception in
+  // the single-writer verifier until that is decided.
+  //
+  // No such row exists today: 0 of 2,701 audit rows carry a null actor.
   await db.insert(auditLog).values({
     userId: args.userId,
     entityType: "netsuite_item_group",

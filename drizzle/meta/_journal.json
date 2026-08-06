@@ -400,6 +400,13 @@
       "when": 1786042800000,
       "tag": "0058_packaging_materialization_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1786051800000,
+      "tag": "0059_audit_actor_snapshots",
+      "breakpoints": true
     }
   ]
 }

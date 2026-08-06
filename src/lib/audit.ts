@@ -1,7 +1,8 @@
 import "server-only";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, users } from "@/db/schema";
+import { ActionGuardError, ERR } from "@/lib/action-result";
 
 /**
  * The single writer for `audit_log` — Gate 1A.
@@ -34,10 +35,72 @@ import { auditLog, users } from "@/db/schema";
  * every chain that terminated in them. Provenance is a statement about what
  * happened, and what happened does not change when someone leaves.
  *
- * The display name is resolved as a scalar subquery inside the INSERT rather
- * than a prior SELECT, so this costs no additional round trip and stays correct
- * when the caller has only a user id.
+ * FAILS CLOSED ON AN UNRESOLVED ACTOR. A scalar subquery that quietly returned
+ * NULL would write exactly the broken terminal this exists to prevent, so the
+ * actor is resolved and asserted before anything is written. An audit row
+ * naming nobody is worse than a rejected write: the write can be retried, the
+ * unattributable row cannot be repaired.
+ *
+ * A user who EXISTS but has no display name is a different case and must not be
+ * blocked -- `users.name` is nullable and one current user has none. Blocking
+ * would stop that person performing any audited action. They get a deterministic
+ * identifier instead, which is R11's "thin terminal": a person was reached, and
+ * their name simply was not recorded. That is a fact, not a gap.
  */
+
+/**
+ * Never empty. A user with no recorded name still terminates a chain in a
+ * person; the terminal states the absence rather than rendering nothing.
+ */
+function displayNameFor(id: string, name: string | null): string {
+  const trimmed = (name ?? "").trim();
+  return trimmed !== "" ? trimmed : `${FALLBACK_ACTOR_PREFIX}${id.slice(0, 8)})`;
+}
+
+/**
+ * A fallback identity is NOT a sourced display name.
+ *
+ * The trace grades terminals: sourced ones carry a real recorded identity, thin
+ * ones state an absence. `Unnamed user (8f3a1c2d)` reached a person and says
+ * their name was never recorded — it must not be rendered as though someone
+ * actually typed that. Without this distinction the fallback would silently
+ * upgrade thin provenance into full provenance, which is the failure the two
+ * terminal grades exist to prevent.
+ *
+ * Consumers grade with `isFallbackActorIdentity`; the prefix and the predicate
+ * live together so the format cannot drift away from its own detector.
+ */
+const FALLBACK_ACTOR_PREFIX = "Unnamed user (";
+
+export function isFallbackActorIdentity(displayName: string | null): boolean {
+  return (displayName ?? "").startsWith(FALLBACK_ACTOR_PREFIX);
+}
+
+/**
+ * Resolve the acting user, or refuse. Returns the display name to snapshot.
+ */
+async function requireActor(userId: string, exec: Executor): Promise<string> {
+  if (!userId?.trim()) {
+    throw new ActionGuardError(
+      ERR.DATA_INTEGRITY,
+      "An audit entry was attempted without an acting user.",
+    );
+  }
+  const [row] = await exec
+    .select({ id: users.id, name: users.name })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!row) {
+    // The supplied id does not resolve. Writing the row anyway would produce an
+    // audit entry that names nobody -- the broken terminal, created fresh.
+    throw new ActionGuardError(
+      ERR.DATA_INTEGRITY,
+      "The acting user for this audit entry could not be resolved, so the action was not recorded and was not saved.",
+    );
+  }
+  return displayNameFor(row.id, row.name);
+}
 
 /** Transaction handle, so audit writes join the transaction they describe. */
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -64,12 +127,14 @@ export type AuditEntry = {
  */
 export async function writeAuditEntry(entry: AuditEntry, tx?: Executor): Promise<void> {
   const exec = tx ?? db;
+  const actorDisplayName = await requireActor(entry.userId, exec);
   await exec.insert(auditLog).values({
     userId: entry.userId,
-    // Snapshotted at write time. actor_user_id carries no FK by design: an FK
-    // would reintroduce the coupling this exists to remove.
+    // Snapshotted at write time, always from the SUPPLIED id and independent of
+    // the live FK. actor_user_id carries no FK by design: an FK would
+    // reintroduce the coupling this exists to remove.
     actorUserId: entry.userId,
-    actorDisplayName: sql`(select ${users.name} from ${users} where ${users.id} = ${entry.userId})`,
+    actorDisplayName,
     entityType: entry.entityType,
     entityId: entry.entityId,
     action: entry.action,
@@ -89,12 +154,13 @@ export async function writeAuditEntryReturningId(
   tx?: Executor,
 ): Promise<string> {
   const exec = tx ?? db;
+  const actorDisplayName = await requireActor(entry.userId, exec);
   const [row] = await exec
     .insert(auditLog)
     .values({
       userId: entry.userId,
       actorUserId: entry.userId,
-      actorDisplayName: sql`(select ${users.name} from ${users} where ${users.id} = ${entry.userId})`,
+      actorDisplayName,
       entityType: entry.entityType,
       entityId: entry.entityId,
       action: entry.action,
@@ -108,14 +174,53 @@ export async function writeAuditEntryReturningId(
 }
 
 /**
- * Resolve an actor's display name. Exposed for the backfill only — runtime
- * writes resolve it inline above, without a second round trip.
+ * Write several audit rows in ONE statement.
+ *
+ * Cascade patterns emit a root row plus N derived rows and insert the derived
+ * set as a single batch. Looping `writeAuditEntry` would turn one statement
+ * into N — a change in how the action emits, which the sweep must not make.
+ * The actor is resolved once for the batch, since every row in a cascade shares
+ * one acting person by construction.
+ */
+export async function writeAuditEntries(
+  entries: AuditEntry[],
+  tx?: Executor,
+): Promise<void> {
+  if (entries.length === 0) return;
+  const exec = tx ?? db;
+  const userIds = new Set(entries.map((e) => e.userId));
+  if (userIds.size !== 1) {
+    throw new ActionGuardError(
+      ERR.DATA_INTEGRITY,
+      "A batched audit write mixed acting users; cascade rows must share one actor.",
+    );
+  }
+  const actorDisplayName = await requireActor(entries[0].userId, exec);
+  await exec.insert(auditLog).values(
+    entries.map((entry) => ({
+      userId: entry.userId,
+      actorUserId: entry.userId,
+      actorDisplayName,
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      action: entry.action,
+      diffJson: entry.diffJson ?? {},
+      ...(entry.summary !== undefined ? { summary: entry.summary } : {}),
+      ...(entry.entityLabel !== undefined ? { entityLabel: entry.entityLabel } : {}),
+      ...(entry.causedByAuditId !== undefined ? { causedByAuditId: entry.causedByAuditId } : {}),
+    })),
+  );
+}
+
+/**
+ * Exposed for the backfill, which must apply the same never-empty rule to
+ * historical rows that runtime writes apply to new ones.
  */
 export async function resolveActorDisplayName(userId: string): Promise<string | null> {
   const [row] = await db
-    .select({ name: users.name })
+    .select({ id: users.id, name: users.name })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
-  return row?.name ?? null;
+  return row ? displayNameFor(row.id, row.name) : null;
 }

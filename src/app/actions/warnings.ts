@@ -29,6 +29,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, quotes, quoteWarnings } from "@/db/schema";
+import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
   ActionGuardError,
@@ -379,7 +380,7 @@ export async function acceptWarning(formData: FormData): Promise<
       })
       .where(eq(quoteWarnings.id, warningId));
 
-    await db.insert(auditLog).values({
+    await writeAuditEntry({
       userId: user.id,
       entityType: "quote_warnings",
       entityId: warningId,
