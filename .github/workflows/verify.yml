@@ -1,0 +1,92 @@
+# Minimal CI gate for `main`.
+#
+# WHAT THIS IS FOR. Before this, nothing gated a merge: no CI, no hooks, and no
+# branch protection. 297 unit tests, 18 verifiers and 2 preservation baselines
+# all ran only when a person remembered. The Vercel status was advisory — PRs
+# were merged while it was still pending, because nothing prevented it.
+#
+# This runs the two checks that are deterministic and need nothing external, and
+# it is deliberately narrow. It is not a CI/CD redesign.
+#
+# WHAT IS DELIBERATELY NOT HERE:
+#
+#   S-7 preservation      needs .env.local and the shared live database. A
+#                         transient pool error would present as a code
+#                         regression, which is worse than not running it. Stays
+#                         a named manual checkpoint before and after engine
+#                         changes until it can run against deterministic
+#                         isolated fixtures.
+#   Playwright e2e        needs the validation database and app running.
+#   NetSuite/HubSpot      hit live sandboxes.
+#   Deployment            Vercel already does this, and separately.
+#
+# GOVERNANCE BOUNDARY — these do not substitute for one another:
+#
+#   CI (this file)   protects `main` — code correctness at merge time
+#   F-2              protects the shared database — migration execution requires
+#                    explicit authorization
+#   OD-012           protects migration generation — `db:generate` is unsafe
+#                    until the drizzle snapshot lineage is repaired
+#
+# A green CI run says nothing about whether a migration was authorized, and an
+# authorized migration says nothing about whether the code is correct.
+
+name: verify
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Read-only. This gate reports; it does not write to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same ref — the newest commit is the one
+  # whose result matters, and a stale queued run holding a required check makes
+  # a mergeable PR look blocked.
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22.x matches local. The suites depend on --experimental-strip-types
+          # and a custom ESM loader; older majors do not have them.
+          node-version: 22
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      # The GOVERNED command, not an ad hoc runner. Its loader supplies the
+      # server-contract shims and native type-stripping preserves ESM semantics.
+      # `npx tsx --test` transpiles to CJS, fails to transform every top-level-
+      # await file, and reports those transform errors as test failures — which
+      # once produced a persistent, plausible, entirely fabricated count of
+      # "pre-existing failures". See CLAUDE.md, "Merge and certification
+      # evidence must use the repository-governed test commands."
+      - name: unit tests
+        run: npm run test:unit
+
+      # Eight structural checks: customer-view + react-pdf containment, font
+      # register coverage, autosave focus stability, two single-writer guards,
+      # pricing classifier invariants, NetSuite adapter contract. All are
+      # environment-free; none touches a database.
+      #
+      # These also run on every Vercel build via the npm lifecycle. Running them
+      # here too is intentional: there they fail the DEPLOYMENT, here they fail
+      # the MERGE, and with a shared production database those are different
+      # protections.
+      - name: structural verifiers
+        run: npm run prebuild
