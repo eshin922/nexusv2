@@ -32,9 +32,51 @@ function probe(baseHref) {
   return existsSync(fileURLToPath(baseHref)) ? baseHref : null;
 }
 
+/**
+ * `next/cache` only exists inside the framework's module graph. Verification
+ * scripts read; they never revalidate. Stubbing the invalidation API to no-ops
+ * therefore cannot change any value a script measures — but note the asymmetry:
+ * this makes WRITE paths silently non-revalidating under a script, so a script
+ * that mutates through an action must not rely on revalidation having happened.
+ */
+const NEXT_CACHE_STUB =
+  "data:text/javascript," +
+  encodeURIComponent(
+    "export const revalidatePath = () => {};" +
+      "export const revalidateTag = () => {};" +
+      "export const unstable_cache = (fn) => fn;" +
+      "export const unstable_noStore = () => {};",
+  );
+
 export async function resolve(specifier, context, nextResolve) {
   if (specifier === "server-only") {
     return { url: "data:text/javascript,export {};", shortCircuit: true };
+  }
+  if (specifier === "next/cache") {
+    return { url: NEXT_CACHE_STUB, shortCircuit: true };
+  }
+  /**
+   * Server-action modules import auth and navigation at module scope for their
+   * WRITE actions, so importing one read function drags the whole framework in.
+   *
+   * Stubbing these is only safe when the function under test does not call
+   * them, and that must be VERIFIED per script rather than assumed — a stubbed
+   * guard is a guard that passes. Checked for the S-7 baseline:
+   * `getCostingBundle` calls neither `ensureUser` nor `requireAdmin*`; the
+   * imports serve sibling write actions in the same file.
+   *
+   * Any script that exercises a write path must not rely on these stubs.
+   */
+  if (specifier === "next/navigation") {
+    return {
+      url:
+        "data:text/javascript," +
+        encodeURIComponent(
+          "export const redirect = () => { throw new Error('redirect() called under a verification script'); };" +
+            "export const notFound = () => { throw new Error('notFound() called under a verification script'); };",
+        ),
+      shortCircuit: true,
+    };
   }
 
   if (specifier.startsWith("@/")) {
