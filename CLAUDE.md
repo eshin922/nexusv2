@@ -2177,6 +2177,55 @@ autosave requires:
     buttons, and double-click protection is real. The rule is
     input-specific.
 
+(f) **Pending state MUST be action-scoped.** A control may be
+    disabled only by the pending state of **the action that control
+    initiates**. Sharing one transition across unrelated actions in a
+    component is prohibited: an in-flight write then disables
+    workflows the operator has every right to use.
+
+    Rule (e) permits `disabled={pending}` on buttons. It never said
+    *which* pending, and that gap is where this failure lives — a
+    surface-wide flag satisfies (e) completely while still making
+    unrelated controls dead.
+
+    **Every disabled operator control must communicate why.** A
+    greyed primary action with no explanation is not acceptable
+    operator behaviour. Use visible text, `title`, or an accessible
+    description naming the cause.
+
+    Implementation is free — separate transitions per action, or one
+    transition plus a keyed `pendingKey` — provided ownership is
+    explicit. Keys should carry the entity id, so editing one row
+    cannot disable a sibling's controls.
+
+    **Reference moment (2026-08-05).** Freight ran one
+    `useTransition` gating six controls, and the transition wrapped
+    `router.refresh()`, so `isPending` stayed true for the whole
+    20–45s refresh window. An operator completed the Create Shipment
+    form and found **Add** permanently disabled with nothing on
+    screen explaining it. No validation rule was involved: the
+    button's only condition was the shared flag.
+
+    A survey found this project-wide, measured as controls gated per
+    transition: `add-product-modal` 7.0, `freight-drilldown` 6.0,
+    `quote-umbrella/add-entry` 5.0, `attachment-list-modal` 5.0,
+    `library-browse-modal` 4.0, `quote-target-margin-popover` 3.0,
+    `production-drilldown` 1.0, `packaging-drilldown` **0.33**.
+    Packaging — the surface operators call responsive — runs three
+    transitions and gates one control.
+
+    **Freight is the proving ground; the other seven are follow-on
+    candidates, not Phase 2 work.**
+
+    **Held open:** whether reconciliation (`router.refresh()`, store
+    reconcile) belongs inside or outside the action's transition is
+    NOT yet standardised. It is being decided from write-to-render
+    timing evidence rather than assumption. Rule (f) governs
+    ownership; it does not yet govern reconciliation.
+
+    Where (e) protects **focus**, (f) protects **availability** —
+    the same failure of pending state leaking past what it describes.
+
 **Sub-pattern for fields where per-keystroke save is wrong UX**
 (dates, currency-with-mid-typing-partials, multi-character atomic
 values): use **blur/Enter commit pattern**. `LegDateInput` in
@@ -2855,6 +2904,73 @@ NetSuite.
 - Pattern 32 pre-production tolerance — permits deferrals with
   rationale; the TODO-marker convention makes those deferrals
   legible + timer-attached rather than silent.
+
+## Pattern 55 — "Avoid refresh amplification"
+
+Standing pattern — banked from the Freight write-to-render investigation
+(2026-08-05).
+
+**The rule.** A burst of related operator edits must not trigger independent
+full-page refreshes for each individual field. Reconciliation is coalesced so
+that **work scales with the operator interaction, not with the number of
+fields edited.**
+
+**Why this is easy to get wrong.** Refreshing after a save is obviously
+correct in isolation, and each call site looks harmless — `await action();
+router.refresh()`. The defect only exists in aggregate, so it is invisible in
+code review of any single handler and invisible in local development, where
+a page render costs ~100ms and fifteen of them still feel instant.
+
+**Reference moment.** Freight autosaved on blur and called `router.refresh()`
+per field. Deployed measurement of one operator interaction:
+
+- **~14-15 concurrent `GET /costs`** requests
+- **~12 render starts, 1 completion** — eleven abandoned *after* paying
+  `post-auth` (338-1058ms) and `post-meta` (463-1784ms)
+- the surviving render took **3689ms**, against **106-110ms** for the same
+  page in the isolated harness
+
+Each render runs an 8-wide `Promise.all`, so ~15 in flight is roughly **120
+concurrent database operations against a pool sized `max: 3`**. This is the
+pool-saturation shape already documented in this file, reached through
+self-inflicted fan-out rather than user traffic. Operators saw 7-12s per
+request and 20-45s before a value settled.
+
+**What the measurement ruled out** — and why measuring first mattered:
+
+- `revalidateQuoteTree` (8 `revalidatePath` calls): **0-1ms**. The leading
+  hypothesis before measurement, and completely wrong.
+- The database: ~1s of a 20-45s wait.
+- RSC page regeneration: ~110ms server-side in isolation.
+
+The cost was never in any single hop. It was the **count**.
+
+**How to apply.** Route reconciliation through a trailing debounce keyed to
+the surface, so each edit cancels and re-arms the pending refresh and a burst
+settles into exactly one read-back. Server **writes stay immediate and
+independent** — only the read-back coalesces. A ~400ms window absorbs
+tabbing across a row while keeping a deliberate single edit prompt.
+
+**Recognition heuristic.** If a handler ends in `router.refresh()` (or any
+whole-surface invalidation) and the surface has more than one autosaving
+field, the amplification already exists. Count the fields an operator
+touches in one pass; that is the multiplier.
+
+**What this does not license.** Coalescing the read-back does not make the
+surface responsive on its own — it removes contention. Optimistic local
+rendering is the companion that makes the edit visible immediately, and the
+two are complementary: an overlay alone would mask a stampede that is still
+saturating the pool for every other reader.
+
+**Cross-references.**
+- Pattern 47(f) (action-scoped pending) — same investigation; ownership of
+  in-flight state rather than volume of it.
+- "Realtime <-> optimistic store contract" — the `COALESCE_MS` /
+  wait-for-quiet pipe in `costing-store-provider.tsx` is the same discipline
+  applied to inbound realtime events. Pattern 55 is its outbound twin.
+- "getCostingBundle parallel-query discipline" — documents why a burst of
+  8-wide reads saturates the pool; this pattern is how the burst count
+  multiplies.
 
 ## Designer audit rubric expansions (banked from rest-of-app sweep Step 10, 2026-05-14)
 

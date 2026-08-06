@@ -6,8 +6,14 @@ const source = await readFile(new URL("../../src/components/costs/freight-drilld
 
 test("draft worksheet exposes business-language correction surfaces", () => {
   assert.match(source, /Edit shipment/);
-  assert.match(source, /submit\(updateFreightSubcategory\)/);
-  assert.match(source, /submit\(updateFreightDestination\)/);
+  // SUPERSEDED 2026-08-05 by Pattern 47(f). These asserted the unkeyed
+  // `submit(action)` shape, which required one shared pending flag across the
+  // surface — an in-flight write then disabled unrelated controls. Every
+  // submit now declares the action instance that owns it. The enduring
+  // intent, that these correction surfaces exist and are reachable, is
+  // preserved; only the call shape changed.
+  assert.match(source, /submit\(updateFreightSubcategory, `editShipment:/);
+  assert.match(source, /submit\(updateFreightDestination, `editDestination:/);
   assert.match(source, /Edit shipment contents/);
   assert.doesNotMatch(source, /foreign key|junction|quote_leaf|subcategory id/i);
 });

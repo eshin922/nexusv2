@@ -10,6 +10,12 @@ import { revalidatePath } from "next/cache";
  * As future cost-input slices add new sub-pages, append them here.
  */
 export function revalidateQuoteTree(projectId: string, quoteId: string) {
+  // Write-to-render timing diagnostic. Eight paths are invalidated per
+  // mutation; this reports how long that call itself costs, which separates
+  // "revalidation is slow" from "regenerating the page afterwards is slow".
+  // Pairs with the [freight-timing] client marks. Cheap enough to leave in
+  // while the Freight latency defect is open.
+  const revalidateStart = Date.now();
   const base = `/projects/${projectId}/quotes/${quoteId}`;
   revalidatePath(base);
   revalidatePath(`${base}/packaging`);
@@ -19,6 +25,9 @@ export function revalidateQuoteTree(projectId: string, quoteId: string) {
   revalidatePath(`${base}/costs`); // Slice RI.4
   revalidatePath(`${base}/quote`); // Slice RI.6 (snapshot reads)
   revalidatePath(`${base}/mark-accepted`); // Slice RI.6 (sub-state derivation)
+  console.log(
+    `[revalidate-timing] revalidateQuoteTree 8 paths ${Date.now() - revalidateStart} ms quote=${quoteId}`,
+  );
 }
 
 /**

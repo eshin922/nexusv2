@@ -15,7 +15,15 @@ test("Costs exposes the worksheet hierarchy in business language", async () => {
 test("membership inherits Setup context and never becomes allocation", async () => {
   const source = await readFile(new URL("../../src/components/costs/freight-drilldown.tsx", import.meta.url), "utf8");
   assert.match(source, /Commercial structure from Setup/);
-  assert.match(source, /Shipment contents from Setup/);
+  // SUPERSEDED 2026-08-05: contents are now selectable at creation rather than
+  // inherited read-only. The Setup-inheritance intent is preserved — the
+  // picker is seeded from Setup with every component selected and cannot
+  // offer anything outside the product — but the operator may deselect to
+  // model a split shipment. See docs/design-authority/freight-1a/BUNDLE.md.
+  assert.match(source, /this shipment is for/);
+  assert.match(source, /all \{components\.length\} SKUs/);
+  // ENDURING: assignment says which SKUs the freight is for; it never divides
+  // the cost. Membership must not acquire an allocation dimension.
   assert.doesNotMatch(source, /allocation method|allocation value|CBM allocation/i);
 });
 
