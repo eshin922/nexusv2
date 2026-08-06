@@ -2,12 +2,10 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import {
-  deleteAssemblyLeafInputLine,
   searchPricingVendors,
   updateAssemblyLeafInputCell,
   updateAssemblyLeafInputLineMeta,
 } from "@/app/actions/assembly-leaf-inputs";
-import { AddLineButton } from "@/app/projects/[id]/quotes/[quoteId]/packaging/add-line-button";
 import { useCostingStore } from "@/components/costing-store-provider";
 import {
   selectActiveTierId,
@@ -173,23 +171,26 @@ export function PackagingDrilldown({
   }
 
   const leafSkus = skus.filter((s) => s.skuRole === "leaf");
+  // Setup owns packaging structure; Costs prices it. There is no author-here
+  // path, so the only empty state that can legitimately persist is "Setup has
+  // no components yet" — and the remedy is Setup, not this surface.
   if (leafSkus.length === 0) {
     return (
       <EmptyDrawer
-        title="No leaf SKUs yet"
-        body="Add at least one leaf SKU to the quote before entering packaging inputs."
+        title="No components in Setup yet"
+        body="Packaging prices the components defined in Setup. Add the bottle, dropper, label and any cartons there — each is its own component — and they will appear here automatically, ready to price."
       />
     );
   }
 
   if (lines.length === 0) {
+    // Components exist but their priced rows do not. Materialization runs on
+    // both attach and tier creation, so this should be unreachable; if it is
+    // reached, the structure is present and the rows are the thing missing.
     return (
       <EmptyDrawer
-        title="No packaging components yet"
-        body="Add the bottle, dropper, label, and any cartons. Markup defaults will fill in from the firm's category rates — adjust per-line if needed."
-        actions={
-          <PackagingAddLineActions leafSkus={leafSkus} editable={editable} />
-        }
+        title="Packaging rows have not been created for these components"
+        body="Setup defines these components, so their cost rows should exist. Add or re-save a tier to materialize them; if they still do not appear, report this quote."
       />
     );
   }
@@ -234,9 +235,7 @@ export function PackagingDrilldown({
           <span>·</span>
           <span>{inventoryEligibleCount} inventory-eligible · {vendorSet.size} pricing vendor{vendorSet.size === 1 ? "" : "s"}</span>
         </div>
-        <div className="rhs">
-          <PackagingAddLineActions leafSkus={leafSkus} editable={editable} />
-        </div>
+
       </div>
 
       {/* Flat table */}
@@ -306,33 +305,6 @@ export function PackagingDrilldown({
           <span></span>
         </div>
       </div>
-    </div>
-  );
-}
-
-function PackagingAddLineActions({
-  leafSkus,
-  editable,
-}: {
-  leafSkus: QuoteSku[];
-  editable: boolean;
-}) {
-  const multipleSkus = leafSkus.length > 1;
-
-  return (
-    <div
-      className="flex flex-wrap justify-end gap-2"
-      aria-label="Add packaging line by SKU"
-    >
-      {leafSkus.map((sku) => (
-        <AddLineButton
-          key={sku.id}
-          quoteSkuId={sku.id}
-          disabled={!editable}
-          label={multipleSkus ? `Add line · ${sku.skuLabel}` : "Add line"}
-          tooltip={multipleSkus ? `Adds to ${sku.skuLabel}` : undefined}
-        />
-      ))}
     </div>
   );
 }
@@ -560,15 +532,6 @@ function PackagingRow({
         }
       });
     }, 250);
-  }
-
-  function handleDelete() {
-    if (!confirm("Delete this packaging line?")) return;
-    const fd = new FormData();
-    fd.set("lineGroupId", line.lineGroupId);
-    startTransition(async () => {
-      await deleteAssemblyLeafInputLine(fd);
-    });
   }
 
   const skuLabel = sku?.skuLabel ?? "";
@@ -823,26 +786,6 @@ function PackagingRow({
         />
       ))}
 
-      {/* Actions */}
-      <div className="actions">
-        <button
-          type="button"
-          onClick={handleDelete}
-          disabled={disabled || pending}
-          title="Delete line"
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "var(--ink-3)",
-            cursor: "pointer",
-            padding: "0 4px",
-            fontFamily: "var(--mono)",
-            fontSize: "14px",
-          }}
-        >
-          ···
-        </button>
-      </div>
     </div>
   );
 }

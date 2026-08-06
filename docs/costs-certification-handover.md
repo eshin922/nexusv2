@@ -930,3 +930,129 @@ destinations, destination breaks, customs entries and breaks; and by the same
 logic any packaging or production input that feeds a tier total.
 
 Reference: F-5 shipment lifecycle, 2026-08-06.
+
+---
+
+## 0.14 Packaging structure ownership regression (post-certification)
+
+**Root cause: structure→cost materialization was one-directional.**
+
+Packaging rows (`assembly_leaf_inputs`) are per `(leaf × tier)`. Fan-out existed
+only on the tier axis — `addTier`, `applyTierPreset`, `clearCustomerAcceptance`
+each cloned every line group across a new tier. `attachAssemblyLeaf` wrote
+nothing.
+
+That made materialization depend on authoring ORDER:
+
+| Quote | Order | Rows |
+|---|---|---|
+| `2f29af72` | components → tiers | 3×3 = 9 ✅ |
+| `f88c22e3` | components → tiers | 3×2 = 6 ✅ |
+| `52bd0077` | **tiers → components** | **0** ❌ |
+
+Every quote in the database except one had materialized correctly *by accident
+of authoring order*, which is why the defect read as intermittent.
+
+Same class as the tier→freight-break propagation defect fixed earlier on this
+branch: a propagation contract implemented on one axis only.
+
+**Secondary defect — "Add line · Add line".** Not a duplicated render.
+`AddLineRow` correctly rendered one button per leaf SKU; both leaves had
+`leaves.sku = NULL`, and `skuLabel` falls back to `""` (`costs/page.tsx:344`),
+so both buttons printed `"Add line · "` with a dangling separator. Resolved by
+removing the control entirely.
+
+### Fix
+
+`src/lib/packaging-materialization.ts` — one idempotent helper, routed from
+`addTier`, `applyTierPreset` and `attachAssemblyLeaf`. Inline fan-out deleted,
+not duplicated. Contract:
+
+- a newly attached leaf receives one default line group spanning every tier
+- a newly added tier receives a row for every existing line group
+- idempotent at `(leaf, tier, line_group)`
+- no existing row, value or line group modified or removed
+
+Manual Add Line workflow and `addAssemblyLeafInput` removed — Business
+Authority confirms Setup owns packaging structure. Empty state now directs the
+operator to Setup.
+
+### Frozen legacy exceptions — NOT repaired
+
+- **3 missing rows on 2 sent quotes** (`180e6410` ×2, `9de0a19d` ×1). Creating
+  authoritative cost inputs after send would change an input to derived
+  customer-facing output on already-issued terms. Requires separate commercial
+  disposition.
+- **3 multi-line-group leaves on `SMOKE-CB-STEP10`** (status `complete`, all
+  rows priced). Legacy shape from before Setup owned this structure. The
+  one-group rule governs what is CREATED, not what already exists; normalising
+  them would rewrite priced rows on a completed quote.
+
+### F-8 · Read-time projection — future architectural alternative
+
+Deliberately NOT implemented here. Costs could project `structure × tiers` at
+read time and persist a row only when a value is entered, making the empty
+state impossible by construction and removing the materialization contract
+entirely. That is the structurally correct end state under "Setup owns
+structure, Costs consumes it" — write-time materialization keeps a contract
+that a future third axis can forget, which is exactly how this defect arose.
+
+Out of scope for a release regression; recorded as the successor design.
+
+### 0.15 Migration 0058 executed · line deletion removed · removal-propagation gap
+
+**Migration `0058` journalled and executed 2026-08-06** under the eight-row
+draft-only contract.
+
+| | Before | After |
+|---|---|---|
+| `assembly_leaf_inputs` total | 275 | **283** (+8) |
+| Priced rows | 169 | **169** (unchanged) |
+| Draft leaf×tier gaps | 8 | **0** |
+| Sent leaf×tier gaps | 3 | **3** (preserved) |
+| Frozen-quote digest | `6fd3b4cf…` | `6fd3b4cf…` (identical) |
+
+`52bd0077` now holds 2 leaves × 4 tiers = 8 rows, 1 line group each, 0 priced.
+
+**Packaging line deletion removed.** `deleteAssemblyLeafInputLine` had exactly
+two consumers — the drilldown import and one call from a per-row `···` control.
+Both removed along with the action. Deleting a line in Costs was structure
+authorship in the pricing surface, and it was self-healing in a confusing way:
+removing a leaf's only line group left the leaf bare, so the next
+materialization recreated one, discarding entered costs with no record of why.
+
+### F-9 · Setup→Costs removal propagation — governance gap, NOT a data gap
+
+**Propagation itself works.** `detachAssemblyLeaf` is draft-guarded
+(`assertDraft`), and every dependent cost row follows through schema CASCADE on
+`assembly_leaf_id`: `assembly_leaf_inputs`, `assembly_leaf_overrides`,
+`assembly_leaf_targets`, `freight_subcategory_items`, and nested
+`assembly_leaves`. No orphans are possible.
+
+**Two governance gaps against the standard F-5 set for the same shape:**
+
+1. **No commercial-value guard.** F-5 refuses to delete a shipment holding
+   priced breaks, markups, customs amounts, tracking or a selection reason.
+   `detachAssemblyLeaf` has no equivalent — detaching a component silently
+   cascades away every priced packaging row, sell-price override and client
+   target attached to it. 169 priced rows exist today; nothing warns before
+   they go.
+
+2. **The audit does not record what was destroyed.**
+   `freight_shipment_deleted` carries a pre-delete snapshot plus cascade counts
+   across five child tables. `assembly_leaf_detach` records only junction
+   identity — assembly, leaf, quote_leaf, quantity, position. It does not say
+   how many priced rows, overrides or targets went with it, so there is no
+   forensic record of destroyed cost data.
+
+Asymmetry worth naming: removing a *shipment* is refused when it holds value;
+removing a *component* — which can hold far more — is not.
+
+Recommended shape, mirroring F-5 rather than inventing a second discipline:
+count priced rows, overrides and targets before detaching; either refuse or
+require explicit confirmation naming the blast radius; and extend
+`assembly_leaf_detach`'s `diff_json` with cascade counts.
+
+Not fixed here: this is a Setup-surface lifecycle change, outside the Packaging
+materialization regression, and it deserves the same seven-question treatment
+F-5 received rather than being folded in.

@@ -15,6 +15,7 @@ import {
   buildQuotePdfStoragePath,
 } from "@/lib/supabase-server";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
+import { materializePackagingRows } from "@/lib/packaging-materialization";
 import {
   assemblies,
   assemblyLeafInputs,
@@ -773,63 +774,13 @@ export async function addTier(formData: FormData): Promise<ActionResult<void>> {
     })
     .returning({ id: quoteTiers.id });
 
-  // Slice 11.5.1 — migrated to NEW-model. Auto-create empty
-  // assembly_leaf_inputs rows for this new tier across every existing
-  // line group (one row per line × the new tier). Keeps the
-  // (line × tier) grid contiguous so the UI doesn't have to render
-  // holes. Dedupe by line_group_id at the action layer; the unique
-  // constraint on (assembly_leaf, line_group, tier) catches any
-  // accidental dupes.
-  const existingLines = await db
-    .select({
-      lineGroupId: assemblyLeafInputs.lineGroupId,
-      assemblyLeafId: assemblyLeafInputs.assemblyLeafId,
-      sortOrder: assemblyLeafInputs.sortOrder,
-      pricingVendorHubspotCompanyId:
-        assemblyLeafInputs.pricingVendorHubspotCompanyId,
-      pricingVendorNameSnapshot:
-        assemblyLeafInputs.pricingVendorNameSnapshot,
-      supplier: assemblyLeafInputs.supplier,
-      qtyPerSellableUnit: assemblyLeafInputs.qtyPerSellableUnit,
-      category: assemblyLeafInputs.category,
-      markupPct: assemblyLeafInputs.markupPct,
-      markupPctSource: assemblyLeafInputs.markupPctSource,
-      inventoryEligible: assemblyLeafInputs.inventoryEligible,
-      notes: assemblyLeafInputs.notes,
-    })
-    .from(assemblyLeafInputs)
-    .innerJoin(
-      assemblyLeaves,
-      eq(assemblyLeaves.id, assemblyLeafInputs.assemblyLeafId),
-    )
-    .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
-    .where(eq(assemblies.quoteId, quoteId));
-
-  const seen = new Set<string>();
-  const newRows: (typeof assemblyLeafInputs.$inferInsert)[] = [];
-  for (const l of existingLines) {
-    if (seen.has(l.lineGroupId)) continue;
-    seen.add(l.lineGroupId);
-    newRows.push({
-      assemblyLeafId: l.assemblyLeafId,
-      tierId: tier.id,
-      lineGroupId: l.lineGroupId,
-      sortOrder: l.sortOrder,
-      pricingVendorHubspotCompanyId: l.pricingVendorHubspotCompanyId,
-      pricingVendorNameSnapshot: l.pricingVendorNameSnapshot,
-      supplier: l.supplier,
-      qtyPerSellableUnit: l.qtyPerSellableUnit,
-      category: l.category,
-      markupPct: l.markupPct,
-      markupPctSource: l.markupPctSource,
-      inventoryEligible: l.inventoryEligible,
-      notes: l.notes,
-      // unit_cost and purchase_qty start null on the new tier — PM fills in.
-    });
-  }
-  if (newRows.length > 0) {
-    await db.insert(assemblyLeafInputs).values(newRows);
-  }
+  // Packaging structure materializes through the shared helper on BOTH axes
+  // -- a new tier here, a newly attached Setup leaf in attachAssemblyLeaf.
+  // The fan-out that used to live inline is gone; duplicating it was how the
+  // leaf axis came to be missing one.
+  const packagingSeeded = await db.transaction(async (tx) =>
+    materializePackagingRows(tx, quoteId),
+  );
 
   // Slice 11.5.1 — migrated to NEW-model. assembly_production_inputs
   // rows auto-create per (assembly × tier) instead of per (leaf SKU ×
@@ -917,7 +868,7 @@ export async function addTier(formData: FormData): Promise<ActionResult<void>> {
     diffJson: {
       quote_id: quoteId,
       sort_order: sortOrder,
-      packaging_rows_seeded: newRows.length,
+      packaging_rows_seeded: packagingSeeded.inserted,
       production_rows_seeded: productionRowsSeeded,
       freight_rows_seeded: freightRowsSeeded,
       worksheet_freight_breaks_seeded: worksheetBreaksSeeded,
@@ -1335,31 +1286,9 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
     // Slice 11.5.1 — reseed assembly_leaf_inputs: each preserved
     // line × each new tier.
     if (preservedLines.length > 0) {
-      const seedRows: (typeof assemblyLeafInputs.$inferInsert)[] = [];
-      for (const line of preservedLines) {
-        for (const tier of newTiers) {
-          seedRows.push({
-            assemblyLeafId: line.assemblyLeafId,
-            tierId: tier.id,
-            lineGroupId: line.lineGroupId,
-            sortOrder: line.sortOrder,
-            pricingVendorHubspotCompanyId:
-              line.pricingVendorHubspotCompanyId,
-            pricingVendorNameSnapshot: line.pricingVendorNameSnapshot,
-            supplier: line.supplier,
-            qtyPerSellableUnit: line.qtyPerSellableUnit,
-            category: line.category,
-            markupPct: line.markupPct,
-            markupPctSource: line.markupPctSource,
-            inventoryEligible: line.inventoryEligible,
-            notes: line.notes,
-            // unit_cost and purchase_qty intentionally null — costs
-            // reset because they depend on the tier volume.
-          });
-        }
-      }
-      await tx.insert(assemblyLeafInputs).values(seedRows);
-      cellsSeeded = seedRows.length;
+      // Same shared contract as addTier and attachAssemblyLeaf.
+      const seeded = await materializePackagingRows(tx, quoteId);
+      cellsSeeded = seeded.inserted;
     }
 
     // Slice 11.5.1 — reseed assembly_production_inputs: each

@@ -138,67 +138,18 @@ async function lookupCategoryDefault(
 // Replaces OLD addPackagingLine. FormData field "quoteSkuId" carries
 // the assembly_leaf.id (Q2 (a) — preserve prop names, point at NEW
 // table IDs).
-export async function addAssemblyLeafInput(
-  formData: FormData,
-): Promise<ActionResult<void>> {
-  return runAction(async () => {
-    const assemblyLeafId = String(formData.get("quoteSkuId") ?? "").trim();
-    if (!assemblyLeafId)
-      throw new ActionGuardError(ERR.VALIDATION, "quoteSkuId required");
+/**
+ * REMOVED: addAssemblyLeafInput (manual "Add line" in Packaging).
+ *
+ * Setup owns packaging structure; Costs consumes and prices it. Multiple
+ * cartons, labels or inserts are separate Setup components, not PM-authored
+ * cost rows. Packaging rows now materialize from Setup structure through
+ * src/lib/packaging-materialization.ts on both axes -- leaf attach and tier
+ * creation -- so there is no state this action was needed to reach.
+ *
+ * Business Authority confirmation, 2026-08-06.
+ */
 
-    const user = await ensureUser();
-    const { quote, attachment } = await quoteForAssemblyLeaf(assemblyLeafId);
-
-    const tiers = await db
-      .select({ id: quoteTiers.id })
-      .from(quoteTiers)
-      .where(eq(quoteTiers.quoteId, quote.id))
-      .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt));
-    if (tiers.length === 0) {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Add at least one tier to the quote before adding packaging lines.",
-      );
-    }
-
-    const maxRow = await db
-      .select({ max: max(assemblyLeafInputs.sortOrder) })
-      .from(assemblyLeafInputs)
-      .where(eq(assemblyLeafInputs.assemblyLeafId, assemblyLeafId));
-    const sortOrder = (maxRow[0]?.max ?? -1) + 1;
-
-    const lineGroupId = crypto.randomUUID();
-
-    await db.insert(assemblyLeafInputs).values(
-      tiers.map((t) => ({
-        assemblyLeafId,
-        tierId: t.id,
-        lineGroupId,
-        sortOrder,
-        inventoryEligible: false,
-      })),
-    );
-
-    await logAudit({
-      userId: user.id,
-      entityType: "assembly_leaf_input_line",
-      entityId: lineGroupId,
-      action: "assembly_leaf_input_line_added",
-      diffJson: {
-        quote_leaf_id: attachment.quoteLeafId,
-        assembly_leaf_id: assemblyLeafId,
-        tier_count: tiers.length,
-        sort_order: sortOrder,
-      },
-    });
-
-    revalidateQuoteTree(quote.projectId, quote.id);
-  });
-}
-
-// Replaces OLD updatePackagingLineMetadata. Sticky-markup tracking
-// per OLD packaging.ts rules 1-4 (see commit history); preserved
-// verbatim with assembly_leaf_inputs as the target table.
 export async function updateAssemblyLeafInputLineMeta(
   formData: FormData,
 ): Promise<ActionResult<PackagingLineSnapshot>> {
@@ -409,54 +360,22 @@ export async function updateAssemblyLeafInputLineMeta(
 }
 
 // Replaces OLD deletePackagingLine.
-export async function deleteAssemblyLeafInputLine(
-  formData: FormData,
-): Promise<ActionResult<void>> {
-  return runAction(async () => {
-    const lineGroupId = String(formData.get("lineGroupId") ?? "").trim();
-    if (!lineGroupId)
-      throw new ActionGuardError(ERR.VALIDATION, "lineGroupId required");
+/**
+ * REMOVED: deleteAssemblyLeafInputLine (manual "delete line" in Packaging).
+ *
+ * Removed alongside the add path for the same reason: Setup owns packaging
+ * structure and Costs only prices it. Deleting a line here was structure
+ * authorship inside the pricing surface, and it was self-healing in a
+ * confusing way -- removing a leaf's only line group left the leaf bare, so
+ * the next materialization simply recreated one, discarding the operator's
+ * entered costs with no record of why.
+ *
+ * Removing a component is a Setup action. Its Costs rows follow through the
+ * schema cascade on assembly_leaf_inputs.assembly_leaf_id.
+ *
+ * Business Authority, 2026-08-06.
+ */
 
-    const user = await ensureUser();
-    const { quote, attachment } = await quoteForAssemblyLeafInputLineGroup(lineGroupId);
-
-    const beforeRow = (
-      await db
-        .select({
-          supplier: assemblyLeafInputs.supplier,
-          category: assemblyLeafInputs.category,
-        })
-        .from(assemblyLeafInputs)
-        .where(eq(assemblyLeafInputs.lineGroupId, lineGroupId))
-        .limit(1)
-    )[0];
-
-    await db
-      .delete(assemblyLeafInputs)
-      .where(eq(assemblyLeafInputs.lineGroupId, lineGroupId));
-
-    await logAudit({
-      userId: user.id,
-      entityType: "assembly_leaf_input_line",
-      entityId: lineGroupId,
-      action: "assembly_leaf_input_line_deleted",
-      diffJson: {
-        quote_leaf_id: attachment.quoteLeafId,
-        assembly_leaf_id: attachment.assemblyLeafId,
-        supplier: beforeRow?.supplier ?? null,
-        category: beforeRow?.category ?? null,
-      },
-    });
-
-    revalidateQuoteTree(quote.projectId, quote.id);
-  });
-}
-
-// ---------- per-tier cell actions ----------
-
-// Replaces OLD updatePackagingTierCell. FormData field "rowId"
-// carries the assembly_leaf_inputs.id (Q2 (a) — preserve prop
-// names).
 export async function updateAssemblyLeafInputCell(
   formData: FormData,
 ): Promise<ActionResult<PackagingCellSnapshot>> {

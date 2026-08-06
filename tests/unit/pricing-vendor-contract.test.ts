@@ -112,20 +112,36 @@ test("server action trusts only the exact HubSpot ID and canonical provider name
 });
 
 test("tier, preset, and clone paths preserve governed vendor identity only", async () => {
-  const source = await readFile(
-    new URL("../../src/app/actions/quotes.ts", import.meta.url),
-    "utf8",
-  );
+  // The tier and preset fan-outs moved into the shared materialization helper
+  // (packaging-materialization.ts) so the leaf axis could not keep being
+  // forgotten. Vendor identity is still preserved on every path -- it is just
+  // preserved in one place now instead of three, so the invariant is asserted
+  // where the copying actually happens rather than by counting occurrences in
+  // quotes.ts.
+  const [source, helper] = await Promise.all([
+    readFile(new URL("../../src/app/actions/quotes.ts", import.meta.url), "utf8"),
+    readFile(
+      new URL("../../src/lib/packaging-materialization.ts", import.meta.url),
+      "utf8",
+    ),
+  ]);
   for (const field of [
     "pricingVendorHubspotCompanyId",
     "pricingVendorNameSnapshot",
   ]) {
+    // Read from the template row and written onto the new row.
     assert.ok(
-      source.split(field).length >= 7,
-      `${field} must be selected and inserted by tier, preset, and clone paths`,
+      helper.split(field).length >= 3,
+      `${field} must be carried by the shared materialization helper`,
+    );
+    // The clone path still lives in quotes.ts and must carry it too.
+    assert.ok(
+      source.split(field).length >= 3,
+      `${field} must be preserved by the clone path in quotes.ts`,
     );
   }
   assert.doesNotMatch(source, /pricingDate/);
+  assert.doesNotMatch(helper, /pricingDate/);
 });
 
 test("Pricing Date is dormant while its nullable production column remains", async () => {

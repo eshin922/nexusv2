@@ -49,7 +49,9 @@ test("costs expose every SKU without a switching control", async () => {
 
   assert.doesNotMatch(page, /otherSkus/);
   assert.doesNotMatch(context, /Other SKUs in this scenario|<details/);
-  assert.match(packaging, /leafSkus\.map\(\(sku\) => \(/);
+  // Every leaf SKU still reaches Packaging; it arrives as priced structure
+  // from Setup rather than through a per-SKU authoring control.
+  assert.match(packaging, /leafSkus/);
   assert.match(page, /<PackagingDrilldown[\s\S]*?skus=\{skus\}/);
 });
 
@@ -79,8 +81,12 @@ test("single-SKU context and scenario navigation remain unchanged", async () => 
   assert.doesNotMatch(page, /skus\.length\s*[><=!]/);
 });
 
-test("packaging exposes a governed add-line target for every leaf SKU", async () => {
-  const [drilldown, button] = await Promise.all([
+test("packaging exposes no add-line control — Setup owns the structure", async () => {
+  // Business Authority, 2026-08-06: Setup owns packaging structure and Costs
+  // only prices it. Multiple cartons, labels or inserts are separate Setup
+  // components, not PM-authored cost rows. This replaces the former contract
+  // that required a per-SKU add-line target.
+  const [drilldown, actions] = await Promise.all([
     readFile(
       new URL(
         "../../src/components/costs/packaging-drilldown.tsx",
@@ -89,19 +95,18 @@ test("packaging exposes a governed add-line target for every leaf SKU", async ()
       "utf8",
     ),
     readFile(
-      new URL(
-        "../../src/app/projects/[id]/quotes/[quoteId]/packaging/add-line-button.tsx",
-        import.meta.url,
-      ),
+      new URL("../../src/app/actions/assembly-leaf-inputs.ts", import.meta.url),
       "utf8",
     ),
   ]);
 
-  assert.match(drilldown, /leafSkus\.map\(\(sku\) => \(/);
-  assert.match(drilldown, /quoteSkuId=\{sku\.id\}/);
-  assert.match(drilldown, /`Add line · \$\{sku\.skuLabel\}`/);
-  assert.doesNotMatch(drilldown, /quoteSkuId=\{leafSkus\[0\]\.id\}/);
-  assert.match(button, /fd\.set\("quoteSkuId", quoteSkuId\)/);
+  assert.doesNotMatch(drilldown, /AddLineButton|PackagingAddLineActions/);
+  assert.doesNotMatch(drilldown, /Add line/);
+  // The action is gone, not merely unreferenced.
+  assert.doesNotMatch(actions, /export async function addAssemblyLeafInput/);
+  // The empty state points at Setup instead of inviting authorship here.
+  assert.match(drilldown, /No components in Setup yet/);
+  assert.match(drilldown, /defined in Setup/);
 });
 
 test("packaging rows keep their explicit SKU association", async () => {

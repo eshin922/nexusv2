@@ -16,8 +16,12 @@ test("every legacy-keyed production mutation reaches canonical identity through 
   // one place. See canonical-attachment-operator-boundary.test.ts.
   assert.equal((guards.match(/lookupCanonicalAttachmentByLegacyId\(/g) ?? []).length, 1);
   assert.equal((guards.match(/resolveAttachmentForOperator\(/g) ?? []).length, 3);
-  assert.equal((packaging.match(/quoteForAssemblyLeaf\(/g) ?? []).length, 2);
-  assert.equal((packaging.match(/quoteForAssemblyLeafInputLineGroup\(/g) ?? []).length, 2);
+  // One fewer call site since addAssemblyLeafInput was removed: Setup now owns
+  // packaging structure, so Costs no longer has a create path to guard.
+  assert.equal((packaging.match(/quoteForAssemblyLeaf\(/g) ?? []).length, 1);
+  // One fewer since deleteAssemblyLeafInputLine was removed: Costs no longer
+  // has a structure-delete path to guard.
+  assert.equal((packaging.match(/quoteForAssemblyLeafInputLineGroup\(/g) ?? []).length, 1);
   assert.equal((costing.match(/quoteForAssemblyLeaf\(/g) ?? []).length, 2);
   assert.doesNotMatch(packaging, /lookupCanonicalAttachmentByLegacyId/);
   assert.doesNotMatch(costing, /lookupCanonicalAttachmentByLegacyId/);
