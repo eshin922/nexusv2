@@ -998,3 +998,61 @@ structure, Costs consumes it" — write-time materialization keeps a contract
 that a future third axis can forget, which is exactly how this defect arose.
 
 Out of scope for a release regression; recorded as the successor design.
+
+### 0.15 Migration 0058 executed · line deletion removed · removal-propagation gap
+
+**Migration `0058` journalled and executed 2026-08-06** under the eight-row
+draft-only contract.
+
+| | Before | After |
+|---|---|---|
+| `assembly_leaf_inputs` total | 275 | **283** (+8) |
+| Priced rows | 169 | **169** (unchanged) |
+| Draft leaf×tier gaps | 8 | **0** |
+| Sent leaf×tier gaps | 3 | **3** (preserved) |
+| Frozen-quote digest | `6fd3b4cf…` | `6fd3b4cf…` (identical) |
+
+`52bd0077` now holds 2 leaves × 4 tiers = 8 rows, 1 line group each, 0 priced.
+
+**Packaging line deletion removed.** `deleteAssemblyLeafInputLine` had exactly
+two consumers — the drilldown import and one call from a per-row `···` control.
+Both removed along with the action. Deleting a line in Costs was structure
+authorship in the pricing surface, and it was self-healing in a confusing way:
+removing a leaf's only line group left the leaf bare, so the next
+materialization recreated one, discarding entered costs with no record of why.
+
+### F-9 · Setup→Costs removal propagation — governance gap, NOT a data gap
+
+**Propagation itself works.** `detachAssemblyLeaf` is draft-guarded
+(`assertDraft`), and every dependent cost row follows through schema CASCADE on
+`assembly_leaf_id`: `assembly_leaf_inputs`, `assembly_leaf_overrides`,
+`assembly_leaf_targets`, `freight_subcategory_items`, and nested
+`assembly_leaves`. No orphans are possible.
+
+**Two governance gaps against the standard F-5 set for the same shape:**
+
+1. **No commercial-value guard.** F-5 refuses to delete a shipment holding
+   priced breaks, markups, customs amounts, tracking or a selection reason.
+   `detachAssemblyLeaf` has no equivalent — detaching a component silently
+   cascades away every priced packaging row, sell-price override and client
+   target attached to it. 169 priced rows exist today; nothing warns before
+   they go.
+
+2. **The audit does not record what was destroyed.**
+   `freight_shipment_deleted` carries a pre-delete snapshot plus cascade counts
+   across five child tables. `assembly_leaf_detach` records only junction
+   identity — assembly, leaf, quote_leaf, quantity, position. It does not say
+   how many priced rows, overrides or targets went with it, so there is no
+   forensic record of destroyed cost data.
+
+Asymmetry worth naming: removing a *shipment* is refused when it holds value;
+removing a *component* — which can hold far more — is not.
+
+Recommended shape, mirroring F-5 rather than inventing a second discipline:
+count priced rows, overrides and targets before detaching; either refuse or
+require explicit confirmation naming the blast radius; and extend
+`assembly_leaf_detach`'s `diff_json` with cascade counts.
+
+Not fixed here: this is a Setup-surface lifecycle change, outside the Packaging
+materialization regression, and it deserves the same seven-question treatment
+F-5 received rather than being folded in.

@@ -148,7 +148,7 @@ test("the empty state directs the operator to Setup", () => {
   assert.match(drilldown, /defined in Setup/);
 });
 
-test("migration 0058 is draft-only, idempotent, and unjournalled", () => {
+test("migration 0058 is draft-only and idempotent", () => {
   // Draft-only: frozen quotes are excluded, per the derived-output freeze
   // discipline that F-7 records.
   assert.ok((migration.match(/q\.status = 'draft'/g) ?? []).length >= 2);
@@ -159,7 +159,9 @@ test("migration 0058 is draft-only, idempotent, and unjournalled", () => {
   // Never modifies or removes.
   assert.doesNotMatch(migration, /\bUPDATE assembly_leaf_inputs\b/);
   assert.doesNotMatch(migration, /\bDELETE FROM assembly_leaf_inputs\b/);
-  // Unjournalled until execution is authorized.
+  // Journalled and executed 2026-08-06 under the eight-row draft-only
+  // contract: 275 -> 283 rows, sent-quote gap of 3 preserved, priced rows
+  // unchanged at 169, frozen digest identical.
   const journal = read("drizzle/meta/_journal.json");
-  assert.doesNotMatch(journal, /0058_packaging_materialization_backfill/);
+  assert.match(journal, /0058_packaging_materialization_backfill/);
 });

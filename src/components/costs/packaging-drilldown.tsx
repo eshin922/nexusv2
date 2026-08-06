@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import {
-  deleteAssemblyLeafInputLine,
   searchPricingVendors,
   updateAssemblyLeafInputCell,
   updateAssemblyLeafInputLineMeta,
@@ -535,15 +534,6 @@ function PackagingRow({
     }, 250);
   }
 
-  function handleDelete() {
-    if (!confirm("Delete this packaging line?")) return;
-    const fd = new FormData();
-    fd.set("lineGroupId", line.lineGroupId);
-    startTransition(async () => {
-      await deleteAssemblyLeafInputLine(fd);
-    });
-  }
-
   const skuLabel = sku?.skuLabel ?? "";
   const productName = sku?.productName ?? "";
   // The library LEAF is the cost-bearing component identity. Pricing Vendor
@@ -796,26 +786,6 @@ function PackagingRow({
         />
       ))}
 
-      {/* Actions */}
-      <div className="actions">
-        <button
-          type="button"
-          onClick={handleDelete}
-          disabled={disabled || pending}
-          title="Delete line"
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "var(--ink-3)",
-            cursor: "pointer",
-            padding: "0 4px",
-            fontFamily: "var(--mono)",
-            fontSize: "14px",
-          }}
-        >
-          ···
-        </button>
-      </div>
     </div>
   );
 }
