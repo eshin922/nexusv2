@@ -28,6 +28,12 @@ const classifiedIdentityFiles = new Set([
   // CLASSIFIED — enduring. costing.ts carries canonicalQuoteLeafId on
   // CostingSku; the math layer keys on canonical identity by design.
   "src/lib/costing.ts",
+  // CLASSIFIED — enduring. Gate 1B node keys are built from canonical
+  // identity (quoteLeafId / tierId / lineGroupId) BY DESIGN: a key must be a
+  // pure function of position in the computation so two graphs can be joined
+  // for staged-vs-committed deltas. Naming the identity here is the contract,
+  // not a legacy reference — positional keys would break that join.
+  "src/lib/costing-nodes.ts",
   "src/lib/freight-workbook.ts", "src/lib/leaf-spec-loader.ts",
   "src/lib/commercial-settings.ts",
   "src/lib/library-browse-loader.ts", "src/lib/nav/home-queries.ts", "src/lib/netsuite/item-resolver.ts",
