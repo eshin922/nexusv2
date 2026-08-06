@@ -5205,3 +5205,57 @@ string from Postgres for non-text types — calling `.getTime()` or
 Discovered Slice 5.6 when `getCacheStatus` used `sql<Date | null>` for
 `max(last_synced_at)`; the value came back as a string and crashed
 `isStale`/the cache-status route on every populated-cache visit.
+
+## Pattern 56 — "Latency margins hide missing ordering contracts"
+
+Standing pattern — banked from the Costs regional co-location experiment
+(2026-08-06).
+
+**The rule.** A slow system serialises itself. When every write settles long
+before the next read arrives, an absent causality guarantee is indistinguishable
+from a working one — the timing margin does the ordering by accident. Removing
+the latency does not introduce a race; it **exposes one that was always there**.
+
+So: when a performance change lands, re-examine every ordering assumption the
+old timing was silently satisfying. Verify causality explicitly rather than
+relying on a margin that just disappeared.
+
+**Reference moment.** Co-locating Vercel functions with the database
+(`iad1` → `pdx1`, both then `us-west-2`) cut the Costs shared read from
+7.3–7.8s to 772–960ms. Two things surfaced immediately that had been invisible:
+
+1. **Ten of eleven Freight mutations returned no committed revision** (F-3).
+   Nothing had ever failed. During certification `customsBreak`,
+   `addDestination` and `createShipment` all logged `rev=?` and converged
+   correctly anyway — by timing, not by contract. Under a 7-second read the
+   write had always settled first.
+2. **Realtime and refresh reconciliation stopped collapsing into one cycle.**
+   They had appeared as a single event only because both were slow. Once fast,
+   they resolve distinctly — which makes a snapshot that is newer than what is
+   applied but older than the operator's own write newly reachable.
+
+Neither was caused by the speedup. Both were pre-existing contract gaps whose
+symptoms the latency had been absorbing.
+
+**Recognition heuristic.** After any change that materially reduces latency,
+ask of each ordering-sensitive path:
+
+- Did this path ever *prove* its ordering, or did it only ever *observe* the
+  right outcome?
+- What is the smallest timing margin under which it still holds?
+- If two events previously appeared as one, what interleaving does splitting
+  them now permit?
+
+A path that cannot answer the first question has a convention, not a contract.
+
+**Corollary — the inverse is a diagnostic.** A bug that appears only after a
+system gets faster is usually not a new bug. Look for the guarantee the old
+timing was supplying for free.
+
+**Cross-references.**
+- Pattern 55 (refresh amplification) — the same investigation; that one is
+  about volume of reconciliation, this one about ordering of it.
+- "Realtime <-> optimistic store contract" — the wait-for-quiet and coalesce
+  pipe whose behaviour changed shape under the new timings.
+- Pattern 50 (compliance-basis intersection state) — sibling discipline: two
+  subsystems agreeing by coincidence rather than by construction.
