@@ -85,3 +85,18 @@ export function startCostsTiming(
     );
   };
 }
+
+/**
+ * Emit a single point event that is not part of a span.
+ *
+ * The reconciliation pipe has no operator "submit" to start a clock from — one
+ * edit can arm, coalesce and apply several times. What the audit needs there is
+ * a COUNT per action burst, not a duration, so these are logged unspanned and
+ * tallied by the `[costs-timing]` console filter alongside the spans.
+ */
+export function markCostsEvent(scope: string, event: string, detail = ""): void {
+  if (!ENABLED) return;
+  console.log(
+    `[costs-timing] ${scope.padEnd(10)} ${event.padEnd(18)} ${detail.padEnd(18)} ${String(Math.round(performance.now())).padStart(6)} ms`,
+  );
+}

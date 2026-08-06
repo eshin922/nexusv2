@@ -18,6 +18,7 @@ import {
 import type { FreightWorkbook } from "@/lib/freight-workbook";
 import { FREIGHT_LEG_MODES, enumLabel } from "@/lib/enum-labels";
 import { alignBreaksToTiers } from "@/lib/freight-tier-cells";
+import { startCostsTiming, type CostsTimingMark } from "@/lib/costs-timing";
 
 type Tier = { id: string; label: string; qty: number | null; recommended?: boolean };
 type Product = { id: string; label: string };
@@ -145,7 +146,7 @@ export function FreightDrilldown(props: {
   // untouched -- every edit still persists immediately and independently;
   // only the read-back is coalesced.
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleRefresh = (since?: (label: string) => void) => {
+  const scheduleRefresh = (since?: CostsTimingMark) => {
     if (refreshTimerRef.current) {
       clearTimeout(refreshTimerRef.current);
       since?.("refresh coalesced");
@@ -167,9 +168,12 @@ export function FreightDrilldown(props: {
   const submit = (action: (fd: FormData) => Promise<Result>, key: string, onSuccess?: (result: Result) => void) => (fd: FormData) => {
     setMessage(null);
     setPendingKey(key);
-    const t0 = performance.now();
-    const since = (label: string) =>
-      console.log(`[freight-timing] ${label.padEnd(22)} ${(performance.now() - t0).toFixed(0)} ms`);
+    // Unified with Packaging and Production on the shared span helper. The
+    // audit has to tell a Freight-specific problem apart from a shared
+    // Costs-provider one; that is only possible if all three surfaces report
+    // the same stages in the same format. `key` carries the specific action,
+    // so the nine audited actions stay distinguishable within the surface.
+    const since = startCostsTiming("freight", key.split(":")[0]);
     since("submit");
     startTransition(async () => {
       since("action start");
