@@ -3,6 +3,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, leaves, productTypes } from "@/db/schema";
+import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import {
   ActionGuardError,
   ERR,
@@ -145,7 +146,7 @@ export async function createLeaf(
     // 'nexus_authored'` distinguishes PM-driven creates from
     // pull-driven creates (which carry source='hubspot_pull' via
     // the pullProductsBatch executor in src/lib/hubspot-pull.ts).
-    await db.insert(auditLog).values({
+    await writeAuditEntry({
       userId: user.id,
       entityType: "leaf",
       entityId: newRow.id,
@@ -222,7 +223,7 @@ export async function restoreLeaf(
       .set({ archived: false, updatedAt: new Date() })
       .where(eq(leaves.id, leafId));
 
-    await db.insert(auditLog).values({
+    await writeAuditEntry({
       userId: user.id,
       entityType: "leaf",
       entityId: leafId,

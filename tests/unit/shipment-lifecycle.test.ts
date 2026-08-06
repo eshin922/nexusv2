@@ -126,12 +126,17 @@ test("5 · a frozen quote is refused before any evaluation or mutation", () => {
 test("6 · the subtree is removed atomically, audit inside the same transaction", () => {
   assert.match(body, /db\.transaction\(async \(tx\) => \{/);
   assert.ok(
-    body.indexOf("tx.insert(auditLog)") < body.indexOf("tx.delete(freightSubcategories)"),
+    body.indexOf("writeAuditEntry({") < body.indexOf("tx.delete(freightSubcategories)"),
     "the pre-delete snapshot must be written before the delete it describes",
   );
   // Both inside the transaction: a failed audit or delete rolls back the pair.
+  //
+  // The audit now goes through the Gate 1A single writer (src/lib/audit.ts)
+  // rather than inserting directly. The trailing `tx` argument is what enlists
+  // it in THIS transaction instead of committing on its own connection — so
+  // that argument, not the insert call, is what this assertion has to see.
   const tx = body.slice(body.indexOf("db.transaction"));
-  assert.match(tx, /tx\.insert\(auditLog\)/);
+  assert.match(tx, /writeAuditEntry\(\{[\s\S]*?\},\s*tx,?\s*\)/);
   assert.match(tx, /tx\.delete\(freightSubcategories\)/);
 });
 

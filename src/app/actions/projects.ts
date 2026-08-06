@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { auditLog, projects, users } from "@/db/schema";
+import { writeAuditEntry } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { HubspotError } from "@/lib/hubspot";
 import { syncDealById } from "@/lib/hubspot-cache";
@@ -33,6 +34,11 @@ function diffOf<T extends Record<string, unknown>>(
   return d;
 }
 
+/**
+ * Delegates to the single audit writer (src/lib/audit.ts). Kept as a local
+ * alias so call sites in this file are unchanged -- the sweep changes how audit
+ * rows are written, never what an action means or when it emits.
+ */
 async function logAudit(args: {
   userId: string;
   entityType: string;
@@ -40,13 +46,7 @@ async function logAudit(args: {
   action: string;
   diffJson?: object;
 }) {
-  await db.insert(auditLog).values({
-    userId: args.userId,
-    entityType: args.entityType,
-    entityId: args.entityId,
-    action: args.action,
-    diffJson: args.diffJson ?? {},
-  });
+  await writeAuditEntry(args);
 }
 
 async function resolveSalesRepUserId(ownerEmail: string | null): Promise<string | null> {

@@ -4,6 +4,7 @@ import { asc, count, eq, isNotNull, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { assemblyLeafInputs, auditLog, markupDefaults } from "@/db/schema";
+import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { requireAdminAction } from "@/lib/admin-guard";
 import {
   ActionGuardError,
@@ -97,7 +98,7 @@ export async function upsertMarkupDefault(
         })
         .returning();
 
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: admin.id,
         entityType: "markup_defaults",
         entityId: category,
@@ -114,7 +115,7 @@ export async function upsertMarkupDefault(
               // join entity_id back to make sense of the shape).
               to: { category, defaultMarkupPct: pctDecimal },
             },
-      });
+      }, tx);
 
       return created;
     });
@@ -320,7 +321,7 @@ export async function deleteMarkupDefault(
         .delete(markupDefaults)
         .where(eq(markupDefaults.category, category));
 
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: admin.id,
         entityType: "markup_defaults",
         entityId: category,
@@ -336,7 +337,7 @@ export async function deleteMarkupDefault(
           // looking for older rows should query both.
           orphaned_assembly_leaf_input_rows: n,
         },
-      });
+      }, tx);
 
       return n;
     });

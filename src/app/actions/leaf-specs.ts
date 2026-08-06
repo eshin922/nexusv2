@@ -3,6 +3,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, leafSpecs, leaves, productTypes } from "@/db/schema";
+import { writeAuditEntries, writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import {
   ActionGuardError,
   ERR,
@@ -170,7 +171,7 @@ export async function updateLeafSpec(
     // the caused_by_audit_id pattern; per-field saves don't need
     // a root since each save is atomic.
     if (isFirstCreate) {
-      await db.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "leaf_spec",
         entityId: specId,
@@ -183,7 +184,7 @@ export async function updateLeafSpec(
         },
       });
     }
-    await db.insert(auditLog).values({
+    await writeAuditEntry({
       userId: user.id,
       entityType: "leaf_spec",
       entityId: specId,
@@ -289,7 +290,7 @@ export async function assignLeafProductType(
     // No `leaf_spec_type_change` audit on initial assignment —
     // that action is reserved for actual type SWITCHES (Step 9).
     // Use a generic write on the leaf entity.
-    await db.insert(auditLog).values({
+    await writeAuditEntry({
       userId: user.id,
       entityType: "leaf",
       entityId: leafId,
@@ -420,9 +421,8 @@ export async function changeLeafProductType(
       }
 
       // Root audit row.
-      const root = await tx
-        .insert(auditLog)
-        .values({
+      const rootId = await writeAuditEntryReturningId(
+        {
           userId: user.id,
           entityType: "leaf",
           entityId: leafId,
@@ -433,13 +433,13 @@ export async function changeLeafProductType(
             cleared_field_count: clearedFields.length,
             current_spec_id: current?.id ?? null,
           },
-        })
-        .returning({ id: auditLog.id });
-      const rootId = root[0].id;
+        },
+        tx,
+      );
 
       // Derived audit rows per cleared field (cascade pattern).
       if (current && clearedFields.length > 0) {
-        await tx.insert(auditLog).values(
+        await writeAuditEntries(
           clearedFields.map(([fieldKey, value]) => ({
             userId: user.id,
             entityType: "leaf_spec",
@@ -454,6 +454,7 @@ export async function changeLeafProductType(
               source: "type_change_clear",
             },
           })),
+          tx,
         );
       }
     });

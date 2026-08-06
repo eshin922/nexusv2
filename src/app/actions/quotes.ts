@@ -48,6 +48,7 @@ import {
   quoteTiers,
   users,
 } from "@/db/schema";
+import { writeAuditEntry } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { getCostingBundle } from "@/app/actions/costing";
 import {
@@ -202,6 +203,11 @@ function diffOf<T extends Record<string, unknown>>(
   return d;
 }
 
+/**
+ * Delegates to the single audit writer (src/lib/audit.ts). Kept as a local
+ * alias so call sites in this file are unchanged -- the sweep changes how audit
+ * rows are written, never what an action means or when it emits.
+ */
 async function logAudit(args: {
   userId: string;
   entityType: string;
@@ -209,13 +215,7 @@ async function logAudit(args: {
   action: string;
   diffJson?: object;
 }) {
-  await db.insert(auditLog).values({
-    userId: args.userId,
-    entityType: args.entityType,
-    entityId: args.entityId,
-    action: args.action,
-    diffJson: args.diffJson ?? {},
-  });
+  await writeAuditEntry(args);
 }
 
 async function loadQuoteOrThrow(quoteId: string) {
@@ -450,7 +450,7 @@ export async function createScenario(input: {
             .returning({ id: quotes.id });
 
           if (dropped.length > 0) {
-            await tx.insert(auditLog).values({
+            await writeAuditEntry({
               userId: user.id,
               entityType: "project",
               entityId: projectId,
@@ -462,14 +462,14 @@ export async function createScenario(input: {
                 dropped_quote_ids: dropped.map((d) => d.id),
                 audit_source: "canonical_modal",
               },
-            });
+            }, tx);
           }
         }
       }
 
       // Audit: enhanced quote.created shape per CLAUDE.md namespace
       // (canonical-modal source tag).
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote",
         entityId: row.id,
@@ -484,13 +484,13 @@ export async function createScenario(input: {
           drop_current_scenario_choice: dropCurrentScenario,
           audit_source: "canonical_modal",
         },
-      });
+      }, tx);
 
       // setScenarioRecommended audit row for the flip event (when
       // applicable). Captures the from/to pair for cross-quote
       // forensic reconstruction.
       if (scenarioRecommended) {
-        await tx.insert(auditLog).values({
+        await writeAuditEntry({
           userId: user.id,
           entityType: "project",
           entityId: projectId,
@@ -500,7 +500,7 @@ export async function createScenario(input: {
             project_id: projectId,
             audit_source: "canonical_modal",
           },
-        });
+        }, tx);
       }
     });
 
@@ -558,7 +558,7 @@ export async function setScenarioRecommended(input: {
         .set({ isRecommended: true, updatedAt: new Date() })
         .where(eq(quotes.id, quoteId));
 
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "project",
         entityId: target.projectId,
@@ -568,7 +568,7 @@ export async function setScenarioRecommended(input: {
           to_quote_id: quoteId,
           project_id: target.projectId,
         },
-      });
+      }, tx);
     });
 
     revalidatePath(`/projects/${target.projectId}`);
@@ -1869,7 +1869,7 @@ export async function sendQuote(
       // diff_json sub-object — no independent emit path (snapshots are
       // immutable for sent quotes per DEC-8; no other action writes
       // these fields). Folding avoids audit row duplication.
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote",
         entityId: quoteId,
@@ -1912,7 +1912,7 @@ export async function sendQuote(
             derived_from: preparedBy.derivedFrom,
           },
         },
-      });
+      }, tx);
 
       // Slice 12 Step 5b — auto-log the send as a system entry in
       // the Client Review feed per §0 Round 4 disposition. Becomes
@@ -1936,7 +1936,7 @@ export async function sendQuote(
       // amendment 1 — forensic replay independent of feed-table
       // integrity. Every quote_review_events INSERT gets a
       // quote_review_event_added audit row.
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote_review_event",
         entityId: reviewEvent.id,
@@ -1948,7 +1948,7 @@ export async function sendQuote(
           system: true,
           note: `Quote v${quote.versionNumber} sent to ${preparedBy.email}`,
         },
-      });
+      }, tx);
 
       return { quoteNumber, sentAt };
     });
@@ -2101,7 +2101,7 @@ export async function reviseQuote(
       // diff_json captures the state transition + linked snapshot id
       // so forensic replay can reconstruct which snapshot was
       // closed.
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote",
         entityId: quoteId,
@@ -2118,7 +2118,7 @@ export async function reviseQuote(
               }
             : null,
         },
-      });
+      }, tx);
 
       // Slice 12 Step 10 Q10 — Client Review feed entry for the
       // revise transition. Pre-Q10 the feed showed nothing when a PM
@@ -2146,7 +2146,7 @@ export async function reviseQuote(
         })
         .returning({ id: quoteReviewEvents.id });
 
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote_review_event",
         entityId: reviseEvent.id,
@@ -2159,7 +2159,7 @@ export async function reviseQuote(
           note: `Revised at v${priorVersion} → returned to editable draft as v${newVersion}.`,
           source: "revise_auto_log",
         },
-      });
+      }, tx);
 
       return {
         newVersionNumber: newVersion,
@@ -2519,7 +2519,7 @@ export async function markAccepted(
         })
         .where(eq(quotes.id, quoteId));
 
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote",
         entityId: quoteId,
@@ -2548,7 +2548,7 @@ export async function markAccepted(
             amount: tierTurnkeyAmount,
           },
         },
-      });
+      }, tx);
 
       // Auto-log a system feed entry so the review timeline captures
       // the acceptance moment alongside the sent + PM-authored events.
@@ -2564,7 +2564,7 @@ export async function markAccepted(
         })
         .returning({ id: quoteReviewEvents.id });
 
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote_review_event",
         entityId: ev.id,
@@ -2577,7 +2577,7 @@ export async function markAccepted(
           note: `Marked accepted at v${quote.versionNumber} (PM proxy).`,
           source: "mark_accepted_auto_log",
         },
-      });
+      }, tx);
 
       // Step 8a — second review-events row for the PM's transcription
       // of the customer's own words. Skipped entirely when the note
@@ -2602,7 +2602,7 @@ export async function markAccepted(
           })
           .returning({ id: quoteReviewEvents.id });
 
-        await tx.insert(auditLog).values({
+        await writeAuditEntry({
           userId: user.id,
           entityType: "quote_review_event",
           entityId: pmEv.id,
@@ -2615,7 +2615,7 @@ export async function markAccepted(
             note,
             source: "acceptance_capture",
           },
-        });
+        }, tx);
         noteRowInserted = true;
       }
     });
@@ -2750,7 +2750,7 @@ export async function unmarkAccepted(
         })
         .where(eq(quotes.id, quoteId));
 
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote",
         entityId: quoteId,
@@ -2768,7 +2768,7 @@ export async function unmarkAccepted(
             rolled_back_to_stage_label: rolledBackStage.label,
           },
         },
-      });
+      }, tx);
 
       // System feed entry captures the rollback moment.
       const [ev] = await tx
@@ -2783,7 +2783,7 @@ export async function unmarkAccepted(
         })
         .returning({ id: quoteReviewEvents.id });
 
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote_review_event",
         entityId: ev.id,
@@ -2796,7 +2796,7 @@ export async function unmarkAccepted(
           note: `Acceptance rolled back at v${quote.versionNumber}.`,
           source: "unmark_accepted_auto_log",
         },
-      });
+      }, tx);
     });
 
     revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
@@ -2863,7 +2863,7 @@ export async function recordCustomerAcceptance(
         })
         .where(eq(quotes.id, quoteId));
 
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote",
         entityId: quoteId,
@@ -2873,7 +2873,7 @@ export async function recordCustomerAcceptance(
           recorded_by_user_id: user.id,
           email_ref: emailRef,
         },
-      });
+      }, tx);
     });
 
     revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
@@ -2915,13 +2915,13 @@ export async function clearCustomerAcceptance(
         })
         .where(eq(quotes.id, quoteId));
 
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote",
         entityId: quoteId,
         action: "customer_acceptance_cleared",
         diffJson: { from: priorTierId, to: null },
-      });
+      }, tx);
     });
 
     revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
@@ -3667,7 +3667,7 @@ export async function copyScenarioWithinProject(input: {
             .returning({ id: quotes.id });
           droppedSourceQuoteIds = dropped.map((d) => d.id);
           if (droppedSourceQuoteIds.length > 0) {
-            await tx.insert(auditLog).values({
+            await writeAuditEntry({
               userId: user.id,
               entityType: "project",
               entityId: projectId,
@@ -3679,7 +3679,7 @@ export async function copyScenarioWithinProject(input: {
                 dropped_quote_ids: droppedSourceQuoteIds,
                 audit_source: "fr12_copy_supersede",
               },
-            });
+            }, tx);
           }
         }
       }
@@ -3687,7 +3687,7 @@ export async function copyScenarioWithinProject(input: {
       // scenario_copied audit row per Q10. source_type discriminator
       // disambiguates within-project from cross-project; source +
       // target project ids identical here.
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote",
         entityId: newQuoteId,
@@ -3702,7 +3702,7 @@ export async function copyScenarioWithinProject(input: {
           dropped_source_quote_id: droppedSourceQuoteIds[0] ?? null,
           dropped_scenario_label: droppedScenarioLabel,
         },
-      });
+      }, tx);
     });
 
     revalidatePath(`/projects/${projectId}`);
@@ -3807,7 +3807,7 @@ export async function copyQuoteFromProject(input: {
       // scenario_copied audit row per Q10. source_project_id
       // populated (not inferable from source_quote at audit-read
       // time without a join; persist for forensic continuity).
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote",
         entityId: newQuoteId,
@@ -3821,7 +3821,7 @@ export async function copyQuoteFromProject(input: {
           intent_note: intentNote,
           customer_target_tier_label: customerTargetTierLabel,
         },
-      });
+      }, tx);
     });
 
     revalidatePath(`/projects/${targetProjectId}`);
@@ -3937,7 +3937,7 @@ export async function dropScenario(input: {
         )
         .returning({ id: quotes.id });
 
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "project",
         entityId: projectId,
@@ -3948,7 +3948,7 @@ export async function dropScenario(input: {
           dropped_quote_ids: dropped.map((d) => d.id),
           audit_source: "scenario_actions_menu",
         },
-      });
+      }, tx);
 
       revalidatePath(`/projects/${projectId}`);
 
@@ -4054,7 +4054,7 @@ export async function renameScenarioLabel(input: {
         );
       }
 
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "project",
         entityId: projectId,
@@ -4065,7 +4065,7 @@ export async function renameScenarioLabel(input: {
           affected_quote_ids: renamed.map((r) => r.id),
           audit_source: "scenario_actions_menu",
         },
-      });
+      }, tx);
 
       revalidatePath(`/projects/${projectId}`);
 

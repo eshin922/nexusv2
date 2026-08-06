@@ -1,7 +1,13 @@
 import "server-only";
 import { and, eq, like, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { netsuiteItemGroups, auditLog } from "@/db/schema";
+import { netsuiteItemGroups } from "@/db/schema";
+import {
+  SYSTEM_ACTORS,
+  writeAuditEntry,
+  writeAuditEntryReturningId,
+  writeSystemAuditEntry,
+} from "@/lib/audit";
 import {
   computeCompositionHash,
   externalIdForHash,
@@ -327,14 +333,30 @@ interface AuditArgs {
 }
 
 async function writeAudit(args: AuditArgs): Promise<void> {
-  await db.insert(auditLog).values({
-    userId: args.userId,
+  // The first explicit system actor — Gate 1A actor model.
+  //
+  // `AuditArgs.userId` is `string | null` per CALL, not per code path: the same
+  // Item Group push runs both operator-initiated and unattended. So the branch
+  // is on whether a person actually acted, which is what the trace needs to
+  // report, rather than on which module happens to execute the write.
+  //
+  // An operator-triggered push is a HUMAN event even though a machine performed
+  // it. The distinction the model draws is accountability, not mechanism.
+  //
+  // An unattended push is a SYSTEM event and terminates as one, explicitly.
+  // Previously this wrote a bare null actor — a row that a trace could not
+  // distinguish from a human event whose actor had gone missing. It now says
+  // which it is.
+  const shared = {
     entityType: "netsuite_item_group",
     entityId: args.compositionHash,
     action: args.action,
-    diffJson: {
-      ...args.diff,
-      quote_id: args.quoteId,
-    },
-  });
+    diffJson: { ...args.diff, quote_id: args.quoteId },
+  };
+
+  if (args.userId !== null) {
+    await writeAuditEntry({ ...shared, userId: args.userId });
+    return;
+  }
+  await writeSystemAuditEntry({ ...shared, systemActor: SYSTEM_ACTORS.netsuiteIntegration });
 }

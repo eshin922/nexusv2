@@ -2,6 +2,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { netsuiteCustomerMap, hubspotDealsCache, auditLog } from "@/db/schema";
+import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 
 // Slice 12 Step 8c-3 — HubSpot company → NetSuite customer resolver
 // (CA disposition 2026-07-28, option B'). Deterministic key from a
@@ -138,7 +139,7 @@ export async function upsertCustomerMap(input: {
         verifiedAt: now,
         verifiedByUserId: input.actorUserId,
       });
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: input.actorUserId,
         entityType: "netsuite_customer_map",
         entityId: hubspotCompanyId,
@@ -148,7 +149,7 @@ export async function upsertCustomerMap(input: {
           netsuite_customer_id: netsuiteCustomerId,
           netsuite_customer_display_name: displayName,
         },
-      });
+      }, tx);
       return { created: true };
     }
 
@@ -166,7 +167,7 @@ export async function upsertCustomerMap(input: {
       })
       .where(eq(netsuiteCustomerMap.hubspotCompanyId, hubspotCompanyId));
 
-    await tx.insert(auditLog).values({
+    await writeAuditEntry({
       userId: input.actorUserId,
       entityType: "netsuite_customer_map",
       entityId: hubspotCompanyId,
@@ -182,7 +183,7 @@ export async function upsertCustomerMap(input: {
           to: displayName,
         },
       },
-    });
+    }, tx);
     return { created: false };
   });
 }

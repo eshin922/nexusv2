@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, quoteAttachments, quotes } from "@/db/schema";
+import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
   ActionGuardError,
@@ -125,7 +126,7 @@ export async function addQuoteAttachment(
       .returning();
 
     // Audit per CLAUDE.md namespace (added below in this slice).
-    await db.insert(auditLog).values({
+    await writeAuditEntry({
       userId: user.id,
       entityType: "quote",
       entityId: quoteId,
@@ -183,7 +184,7 @@ export async function removeQuoteAttachment(
     await db.delete(quoteAttachments).where(eq(quoteAttachments.id, attachmentId));
 
     // Audit with pre-delete snapshot.
-    await db.insert(auditLog).values({
+    await writeAuditEntry({
       userId: user.id,
       entityType: "quote",
       entityId: attachment.quoteId,

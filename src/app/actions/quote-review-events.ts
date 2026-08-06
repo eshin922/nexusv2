@@ -8,6 +8,7 @@ import {
   quoteReviewEventType,
   quotes,
 } from "@/db/schema";
+import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { requireRevisable } from "@/lib/quote-guards";
 import { revalidateQuoteTree } from "@/lib/revalidate";
@@ -114,7 +115,7 @@ export async function addQuoteReviewEvent(
       // Mirror to audit_log per v3 §5.1 R3 amendment 1. Slice 9.2
       // namespace convention: source='pm_add' discriminates from
       // Step 5b's system sends which omit the source key.
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote_review_event",
         entityId: inserted.id,
@@ -127,7 +128,7 @@ export async function addQuoteReviewEvent(
           note,
           source: "pm_add",
         },
-      });
+      }, tx);
 
       return inserted;
     });

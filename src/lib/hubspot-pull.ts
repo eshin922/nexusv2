@@ -2,6 +2,7 @@ import "server-only";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, leaves, users } from "@/db/schema";
+import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import type { HubSpotProductRaw } from "./integrations/hubspot-provider";
 import { getApplicationDependencies } from "./integrations/composition";
 import {
@@ -72,9 +73,7 @@ export async function pullProductsBatch(
     // (operators can see "pull ran and found nothing in this
     // bucket"). No derived rows.
     const databaseStartedAt = performance.now();
-    const [rootAudit] = await db
-      .insert(auditLog)
-      .values({
+    const rootAudit = await writeAuditEntryReturningId({
         userId: opts.userId,
         entityType: "project",
         entityId: opts.projectId,
@@ -91,8 +90,7 @@ export async function pullProductsBatch(
           next_after: null,
           audit_source: "hubspot_pull",
         },
-      })
-      .returning({ id: auditLog.id });
+      });
     const timings = {
       hubspotMs,
       lookupMs: 0,
@@ -111,7 +109,7 @@ export async function pullProductsBatch(
       updated: 0,
       archivedCount: 0,
       nextAfter: null,
-      rootAuditId: rootAudit.id,
+      rootAuditId: rootAudit,
       timings,
     };
   }
@@ -169,9 +167,7 @@ export async function pullProductsBatch(
 
   const databaseStartedAt = performance.now();
   await db.transaction(async (tx) => {
-    const [rootAudit] = await tx
-      .insert(auditLog)
-      .values({
+    const rootAudit = await writeAuditEntryReturningId({
         userId: opts.userId,
         entityType: "project",
         entityId: opts.projectId,
@@ -187,9 +183,8 @@ export async function pullProductsBatch(
           next_after: batch.nextAfter,
           audit_source: "hubspot_pull",
         },
-      })
-      .returning({ id: auditLog.id });
-    rootAuditId = rootAudit.id;
+      }, tx);
+    rootAuditId = rootAudit;
 
     // PVS-020: issue independent per-product mutations together so postgres-js
     // can pipeline them on the transaction connection. The former serial loop
@@ -230,7 +225,7 @@ export async function pullProductsBatch(
         // archive direction; un-archive is rare and TODO; the
         // archived state flips silently in the UPDATE above.
         if (mapped.archived && !prev.wasArchived) {
-          await tx.insert(auditLog).values({
+          await writeAuditEntry({
             userId: opts.userId,
             entityType: "leaf",
             entityId: prev.id,
@@ -240,7 +235,7 @@ export async function pullProductsBatch(
               reason: "hubspot_archived",
               source: "hubspot_pull",
             },
-          });
+          }, tx);
         }
       } else {
         // INSERT new leaf. The unique partial index on
@@ -272,7 +267,7 @@ export async function pullProductsBatch(
         // links to the root batch row; audit readers can filter
         // out cascade-derived creates by `caused_by_audit_id
         // IS NULL`.
-        await tx.insert(auditLog).values({
+        await writeAuditEntry({
           userId: opts.userId,
           entityType: "leaf",
           entityId: newRow.id,
@@ -284,7 +279,7 @@ export async function pullProductsBatch(
             hubspot_product_id: mapped.hubspotProductId,
             source: "hubspot_pull",
           },
-        });
+        }, tx);
       }
     }));
 

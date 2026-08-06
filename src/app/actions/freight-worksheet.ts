@@ -17,6 +17,7 @@ import {
   quotes,
 } from "@/db/schema";
 import { ActionGuardError, ERR, assertNotFrozen, runAction, type ActionResult } from "@/lib/action-result";
+import { writeAuditEntry } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { resolveBreakFieldSources } from "@/lib/freight-break-write";
 import { quoteByIdDraft, quoteForAssembly } from "@/lib/quote-guards";
@@ -94,8 +95,17 @@ const markupOrNull = (fd: FormData, key: string) => {
   if (!Number.isFinite(pct) || pct < 0 || pct > 9.9999) throw new ActionGuardError(ERR.VALIDATION, `${key} must be between 0% and 999.99%`);
   return String(pct);
 };
+/**
+ * Delegates to the single audit writer (src/lib/audit.ts).
+ *
+ * The POSITIONAL signature is kept deliberately. Its five parameters are
+ * userId, entityType, entityId, action -- four strings in a row -- so rewriting
+ * the seven call sites to an object form risks a transposition that would
+ * typecheck cleanly and only surface as mislabelled history. Converting the
+ * body alone leaves every call site byte-identical.
+ */
 async function audit(userId: string, entityType: string, entityId: string, action: string, diffJson: object) {
-  await db.insert(auditLog).values({ userId, entityType, entityId, action, diffJson });
+  await writeAuditEntry({ userId, entityType, entityId, action, diffJson });
 }
 
 export async function createFreightSubcategory(fd: FormData): Promise<ActionResult<{ id: string; quoteId: string; revision: string | null }>> {
@@ -196,7 +206,7 @@ export async function updateFreightSubcategory(fd: FormData): Promise<ActionResu
         freightSubcategoryId: id, assemblyLeafId, source: correctedSource(subcategory.source),
         fieldProvenance: provenance(["assemblyLeafId"], correctedSource(subcategory.source)),
       })));
-      await tx.insert(auditLog).values({ userId: user.id, entityType: "freight_subcategory", entityId: id, action: "freight_subcategory_updated", diffJson: { fields, membership: { from: beforeMembers.map((row) => row.id), to: memberIds } } });
+      await writeAuditEntry({ userId: user.id, entityType: "freight_subcategory", entityId: id, action: "freight_subcategory_updated", diffJson: { fields, membership: { from: beforeMembers.map((row) => row.id), to: memberIds } } }, tx);
     });
     const revision = await committedRevision();
     revalidateQuoteTree(quote.projectId, quote.id);
@@ -222,7 +232,7 @@ export async function updateFreightDestination(fd: FormData): Promise<ActionResu
         quoteReference: nullable(fd, "quoteReference"), internalNotes: nullable(fd, "internalNotes"), updatedAt: new Date(),
         source: correctedSource(row.destination.source), fieldProvenance: mergeProvenance(row.destination.fieldProvenance, fields, row.destination.source),
       }).where(eq(freightDestinations.id, id));
-      await tx.insert(auditLog).values({ userId: user.id, entityType: "freight_destination", entityId: id, action: "freight_destination_updated", diffJson: { fields } });
+      await writeAuditEntry({ userId: user.id, entityType: "freight_destination", entityId: id, action: "freight_destination_updated", diffJson: { fields } }, tx);
     });
     const revision = await committedRevision();
     revalidateQuoteTree(row.quote.projectId, row.quote.id);
@@ -296,7 +306,7 @@ export async function addFreightDestination(fd: FormData): Promise<ActionResult<
           fieldProvenance: provenance(["mode", "freightMarkupPct", "shipmentNote"]),
         };
       }));
-      await tx.insert(auditLog).values({ userId: user.id, entityType: "freight_destination", entityId: created.id, action: "freight_destination_created", diffJson: { subcategoryId } });
+      await writeAuditEntry({ userId: user.id, entityType: "freight_destination", entityId: created.id, action: "freight_destination_created", diffJson: { subcategoryId } }, tx);
       return { createdId: created.id };
     });
 
@@ -404,7 +414,7 @@ export async function updateFreightDestinationBreakGroup(fd: FormData): Promise<
           source: correctedSource(row.source), fieldProvenance: mergeProvenance(row.fieldProvenance, fields, row.source),
         }).where(eq(freightDestinationBreaks.id, row.id));
       }
-      await tx.insert(auditLog).values({ userId: user.id, entityType: "freight_destination", entityId: destinationId, action: "freight_breaks_updated", diffJson: { breakMode: flat ? "one_value_all_breaks" : "differs_by_break", tierIds: rows.map((row) => row.tierId) } });
+      await writeAuditEntry({ userId: user.id, entityType: "freight_destination", entityId: destinationId, action: "freight_breaks_updated", diffJson: { breakMode: flat ? "one_value_all_breaks" : "differs_by_break", tierIds: rows.map((row) => row.tierId) } }, tx);
     });
     const revision = await committedRevision();
     revalidateQuoteTree(owner.quote.projectId, owner.quote.id);
@@ -426,7 +436,7 @@ export async function deleteFreightDestination(fd: FormData): Promise<ActionResu
     await db.transaction(async (tx) => {
       if (row.subcategory.selectedDestinationId === destinationId) await tx.update(freightSubcategories).set({ selectedDestinationId: null, selectionReason: null, updatedAt: new Date(), fieldProvenance: mergeProvenance(row.subcategory.fieldProvenance, ["selectedDestinationId", "selectionReason"], row.subcategory.source) }).where(eq(freightSubcategories.id, row.subcategory.id));
       await tx.delete(freightDestinations).where(eq(freightDestinations.id, destinationId));
-      await tx.insert(auditLog).values({ userId: user.id, entityType: "freight_destination", entityId: destinationId, action: "freight_destination_deleted", diffJson: { subcategoryId: row.subcategory.id, destination: row.destination.destination, wasSelected: row.subcategory.selectedDestinationId === destinationId } });
+      await writeAuditEntry({ userId: user.id, entityType: "freight_destination", entityId: destinationId, action: "freight_destination_deleted", diffJson: { subcategoryId: row.subcategory.id, destination: row.destination.destination, wasSelected: row.subcategory.selectedDestinationId === destinationId } }, tx);
     });
     const revision = await committedRevision();
     revalidateQuoteTree(row.quote.projectId, row.quote.id);
@@ -543,7 +553,7 @@ export async function deleteFreightSubcategory(fd: FormData): Promise<ActionResu
       // Snapshot inside the same transaction as the delete, so the audit row is
       // the only surviving record of what existed and cannot commit without the
       // deletion it describes.
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "freight_subcategory",
         entityId: subcategoryId,
@@ -573,7 +583,7 @@ export async function deleteFreightSubcategory(fd: FormData): Promise<ActionResu
             subcategoryItems: items.length,
           },
         },
-      });
+      }, tx);
       // Children fall to schema cascades: items, destinations (-> breaks,
       // tracking) and customs entries (-> customs breaks). The boundary is the
       // shipment subtree; nothing outside the owning quote references it.

@@ -10,6 +10,7 @@ import {
   productTypes,
   quotes,
 } from "@/db/schema";
+import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
   ActionGuardError,
@@ -166,7 +167,7 @@ export async function createAssembly(
       .returning();
     const newRow = inserted[0];
 
-    await db.insert(auditLog).values({
+    await writeAuditEntry({
       userId: user.id,
       entityType: "assembly",
       entityId: newRow.id,
@@ -231,7 +232,7 @@ export async function deleteAssembly(
     await db.transaction(async (tx) => {
       const detached = await detachGroupedMembershipsForAssembly(tx, assemblyId);
       await tx.delete(assemblies).where(eq(assemblies.id, assemblyId));
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "assembly",
         entityId: assemblyId,
@@ -259,7 +260,7 @@ export async function deleteAssembly(
           })),
           cascaded_junction_count: junctionRows.length,
         },
-      });
+      }, tx);
     });
 
     revalidateQuoteTree(quote.projectId, asm.quoteId);
@@ -361,7 +362,7 @@ export async function attachAssemblyLeaf(
           quantity: quantityRaw === "" ? "1" : quantityRaw,
           position: nextPosition,
         });
-        await tx.insert(auditLog).values({
+        await writeAuditEntry({
           userId: user.id,
           entityType: "quote_leaf",
           entityId: attached.quoteLeafId,
@@ -374,7 +375,7 @@ export async function attachAssemblyLeaf(
             quantity: attached.quantity,
             position: attached.position,
           },
-        });
+        }, tx);
         return attached;
       });
     } catch (error) {
@@ -439,7 +440,7 @@ export async function detachAssemblyLeaf(
       // Per CLAUDE.md audit_log namespace — `assembly_leaf_detach`:
       // entity_id is the canonical quote_leaf PK; diff_json retains the
       // legacy junction plus Product and reusable LEAF context.
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote_leaf",
         entityId: detached.quoteLeafId,
@@ -452,7 +453,7 @@ export async function detachAssemblyLeaf(
           quantity: junction.quantity,
           position: junction.position,
         },
-      });
+      }, tx);
     });
 
     revalidateQuoteTree(quote.projectId, assembly.quoteId);
@@ -502,7 +503,7 @@ export async function updateAssemblyNotes(
     // No dedicated audit action banked in CLAUDE.md for ASY notes
     // edits; use generic `notes_updated` (parallels the convention
     // used by other free-text-field edits like quote.customer_facing_notes).
-    await db.insert(auditLog).values({
+    await writeAuditEntry({
       userId: (await ensureUser()).id,
       entityType: "assembly",
       entityId: assemblyId,
@@ -581,7 +582,7 @@ export async function reorderAssemblies(
     // refinement could cascade per-assembly position rows linked via
     // caused_by_audit_id, but the single audit row is sufficient for
     // forensic reconstruction (the ordered list is the change).
-    await db.insert(auditLog).values({
+    await writeAuditEntry({
       userId: (await ensureUser()).id,
       entityType: "quote",
       entityId: quoteId,
@@ -649,7 +650,7 @@ export async function reorderAssemblyLeaves(
         assemblyId,
         orderedAssemblyLeafIds: ids,
       });
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "assembly",
         entityId: assemblyId,
@@ -658,7 +659,7 @@ export async function reorderAssemblyLeaves(
           ordered_quote_leaf_ids: reordered.map((row) => row.quoteLeafId),
           ordered_assembly_leaf_ids: ids,
         },
-      });
+      }, tx);
     });
 
     revalidateQuoteTree(quote.projectId, asm.quoteId);

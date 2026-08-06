@@ -11,6 +11,7 @@ import {
   netsuiteSoPushes,
   auditLog,
 } from "@/db/schema";
+import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { getCostingBundle } from "@/app/actions/costing";
 import { loadAssemblyTree } from "@/lib/assembly-tree";
 import {
@@ -781,7 +782,7 @@ export async function runMarkComplete(
     // Bank (CLAUDE.md): name audit actions after the transition,
     // not the mechanism — especially when the mechanism is the
     // interesting part. The convention slips at exactly that moment.
-    await tx.insert(auditLog).values({
+    await writeAuditEntry({
       userId: actorUserId,
       entityType: "quote",
       entityId: quoteId,
@@ -810,7 +811,7 @@ export async function runMarkComplete(
           item_groups: itemGroupOutcomes,
         },
       },
-    });
+    }, tx);
   });
 
   // ============================================================

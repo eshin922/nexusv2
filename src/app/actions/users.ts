@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { auditLog, users } from "@/db/schema";
+import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { requireAdminAction } from "@/lib/admin-guard";
 import {
   ActionGuardError,
@@ -80,13 +81,13 @@ export async function updateUserPhone(
         .where(eq(users.id, userId))
         .returning();
 
-      await tx.insert(auditLog).values({
+      await writeAuditEntry({
         userId: admin.id,
         entityType: "user",
         entityId: userId,
         action: "user_phone_updated",
         diffJson: { from: prior.phone, to: phone },
-      });
+      }, tx);
 
       return [row];
     });

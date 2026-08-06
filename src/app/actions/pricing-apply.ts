@@ -36,6 +36,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, pricingEvents, quoteTiers, quotes } from "@/db/schema";
+import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
   ActionGuardError,
@@ -197,7 +198,7 @@ export async function applySurgicalAdj(
 
     // 2. Audit log — same action as manual updateTierPriceAdj; namespaced
     //    source per Disposition B.
-    await db.insert(auditLog).values({
+    await writeAuditEntry({
       userId: user.id,
       entityType: "quote_tier",
       entityId: tierId,
@@ -333,9 +334,7 @@ export async function applyGlobalAdj(
     // 1. Cascade audit root row — entity = quote; new action value
     //    (pricing_suggestion_global_applied) namespaces the user-action
     //    summary distinct from per-tier writes that follow.
-    const [rootAudit] = await db
-      .insert(auditLog)
-      .values({
+    const rootAudit = await writeAuditEntryReturningId({
         userId: user.id,
         entityType: "quote",
         entityId: quoteId,
@@ -346,8 +345,7 @@ export async function applyGlobalAdj(
           apply_delta: applyDelta,
           tier_count: applyTo.length,
         },
-      })
-      .returning({ id: auditLog.id });
+      });
 
     // 2. Per-tier writes + derived audit rows.
     for (const { tierId: tid, tier, newAdj } of newAdjPlanned) {
@@ -357,7 +355,7 @@ export async function applyGlobalAdj(
         .set({ tierPriceAdjPct: newAdj, updatedAt: new Date() })
         .where(eq(quoteTiers.id, tid));
 
-      await db.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote_tier",
         entityId: tid,
@@ -369,7 +367,7 @@ export async function applyGlobalAdj(
           },
           source: "pricing_suggestion_global",
         },
-        causedByAuditId: rootAudit.id,
+        causedByAuditId: rootAudit,
       });
     }
 
@@ -388,7 +386,7 @@ export async function applyGlobalAdj(
     });
 
     revalidateQuoteTree(quote.projectId, quote.id);
-    return { quoteId, tierCount: applyTo.length, auditId: rootAudit.id };
+    return { quoteId, tierCount: applyTo.length, auditId: rootAudit };
   });
 }
 
@@ -442,7 +440,7 @@ export async function undoGlobalAdj(
       }
       return { tier, from: change.from ?? null, to: change.to };
     });
-    const [undoAudit] = await db.insert(auditLog).values({
+    const undoAudit = await writeAuditEntryReturningId({
       userId: user.id,
       entityType: "quote",
       entityId: quoteId,
@@ -452,13 +450,13 @@ export async function undoGlobalAdj(
         applied_audit_id: auditId,
         tier_count: restores.length,
       },
-    }).returning({ id: auditLog.id });
+    });
     for (const restore of restores) {
       await db.update(quoteTiers).set({
         tierPriceAdjPct: restore.from,
         updatedAt: new Date(),
       }).where(eq(quoteTiers.id, restore.tier.id));
-      await db.insert(auditLog).values({
+      await writeAuditEntry({
         userId: user.id,
         entityType: "quote_tier",
         entityId: restore.tier.id,
@@ -467,7 +465,7 @@ export async function undoGlobalAdj(
           tier_price_adj_pct: { from: restore.to, to: restore.from },
           source: "pricing_suggestion_global_undo",
         },
-        causedByAuditId: undoAudit.id,
+        causedByAuditId: undoAudit,
       });
     }
     revalidateQuoteTree(quote.projectId, quote.id);

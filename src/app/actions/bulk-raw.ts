@@ -8,6 +8,7 @@ import {
   bulkRawSectionMeta,
   quotes,
 } from "@/db/schema";
+import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
   ActionGuardError,
@@ -59,7 +60,7 @@ export async function setRawsMode(
           updated_at = now()
     `);
 
-    await db.insert(auditLog).values({
+    await writeAuditEntry({
       userId: user.id,
       entityType: "bulk_raw_section_meta",
       entityId: quoteId,

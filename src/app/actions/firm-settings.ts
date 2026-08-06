@@ -4,6 +4,7 @@ import { and, desc, eq, isNull, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { auditLog, firmSettings, projects, quotes } from "@/db/schema";
+import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { requireAdminAction } from "@/lib/admin-guard";
 import {
   ActionGuardError,
@@ -135,13 +136,13 @@ async function versionedFirmSettingsUpdate(args: {
 
     const [created] = await tx.insert(firmSettings).values(newRow).returning();
 
-    await tx.insert(auditLog).values({
+    await writeAuditEntry({
       userId: adminUserId,
       entityType: "firm_settings",
       entityId: created.id,
       action: "firm_settings_updated",
       diffJson: auditDiff,
-    });
+    }, tx);
 
     return created;
   });

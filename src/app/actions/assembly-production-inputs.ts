@@ -7,6 +7,7 @@ import {
   assemblyProductionInputs,
   auditLog,
 } from "@/db/schema";
+import { writeAuditEntry } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
   ActionGuardError,
@@ -60,6 +61,11 @@ export type ProductionPolicySnapshot = {
 
 type Diff = Record<string, { from: unknown; to: unknown }>;
 
+/**
+ * Delegates to the single audit writer (src/lib/audit.ts). Kept as a local
+ * alias so call sites in this file are unchanged -- the sweep changes how audit
+ * rows are written, never what an action means or when it emits.
+ */
 async function logAudit(args: {
   userId: string;
   entityType: string;
@@ -67,13 +73,7 @@ async function logAudit(args: {
   action: string;
   diffJson?: object;
 }) {
-  await db.insert(auditLog).values({
-    userId: args.userId,
-    entityType: args.entityType,
-    entityId: args.entityId,
-    action: args.action,
-    diffJson: args.diffJson ?? {},
-  });
+  await writeAuditEntry(args);
 }
 
 function trimOrNull(v: FormDataEntryValue | null): string | null {
