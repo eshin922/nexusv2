@@ -196,10 +196,15 @@ test("edit forms label every field and report what is unrecorded", () => {
 test("write-to-render timing is instrumented end to end", () => {
   // The measured span the fix will target. Client marks bracket the action
   // and the refresh; the server mark isolates revalidation cost.
-  for (const mark of ["submit", "action start", "action complete", "refresh start", "browser update"]) {
+  // Action-phase marks fire inline; reconciliation marks fire from the
+  // coalesce timer, so those are optional-chained through `since?.`.
+  for (const mark of ["submit", "action start", "action complete"]) {
     assert.ok(drilldown.includes(`since("${mark}")`), `missing client mark: ${mark}`);
   }
-  assert.match(drilldown, /requestAnimationFrame\(\(\) => since\("browser update"\)\)/,
+  for (const mark of ["refresh start", "browser update", "refresh coalesced"]) {
+    assert.ok(drilldown.includes(`since?.("${mark}")`), `missing reconcile mark: ${mark}`);
+  }
+  assert.match(drilldown, /requestAnimationFrame\(\(\) => since\?\.\("browser update"\)\)/,
     "the final mark must fire after paint, not after the promise resolves");
 });
 
@@ -230,6 +235,34 @@ test("every disabled operator control states its reason", () => {
   assert.match(drilldown, /title=\{pending \? "Recording this shipment…" : undefined\}/);
   assert.match(drilldown, /\{pending \? "Recording…" : "Add"\}/,
     "the primary action should also say what it is doing, not only grey out");
+});
+
+test("reconciliation is coalesced, not issued per field (Pattern 55)", () => {
+  // Measured on the deployed preview: one interaction produced ~14-15
+  // concurrent GET /costs, ~12 render starts and 1 completion, because every
+  // autosave-on-blur called router.refresh() directly.
+  const directRefreshes = drilldown.match(/(?<!\/\/[^\n]*)\brouter\.refresh\(\)/g) ?? [];
+  assert.equal(directRefreshes.length, 1, "router.refresh() must have exactly one call site");
+  // ...and that call site must be inside the debounce, not a handler.
+  assert.match(
+    drilldown,
+    /refreshTimerRef\.current = setTimeout\(\(\) => \{[\s\S]{0,240}router\.refresh\(\)/,
+    "the single refresh must fire from the coalesce timer",
+  );
+  // Each edit cancels and re-arms, so a burst settles into one read-back.
+  assert.match(drilldown, /clearTimeout\(refreshTimerRef\.current\)/);
+  assert.match(drilldown, /const REFRESH_COALESCE_MS = \d+/);
+  // Timer must be cleared on unmount or a queued refresh fires into a dead tree.
+  assert.match(drilldown, /useEffect\(\(\) => \(\) => \{[\s\S]{0,120}clearTimeout\(refreshTimerRef\.current\)/);
+  // Writes stay immediate — only the read-back coalesces.
+  assert.match(drilldown, /const result = await action\(fd\)/);
+});
+
+test("Pattern 55 is recorded in the pattern library", () => {
+  assert.match(claudeMd, /Pattern 55 — "Avoid refresh amplification"/);
+  assert.match(claudeMd, /work scales with the operator interaction/);
+  // The measurement that ruled out the wrong hypothesis must stay recorded.
+  assert.match(claudeMd, /revalidateQuoteTree.*0-1ms|0-1ms/);
 });
 
 test("Pattern 47(f) is recorded in the pattern library", () => {

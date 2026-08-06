@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -28,6 +28,13 @@ const autosave = (formId: string) => () => {
   const form = document.getElementById(formId);
   if (form instanceof HTMLFormElement) form.requestSubmit();
 };
+// Reconciliation coalesce window. Long enough to absorb a burst of blurs as
+// the operator tabs across a row, short enough that a deliberate single edit
+// still reconciles promptly. Mirrors the 250ms realtime coalesce in
+// costing-store-provider; blur bursts are slower than keystrokes, so this
+// sits slightly wider.
+const REFRESH_COALESCE_MS = 400;
+
 const fields = (values: Record<string, string | number | null | undefined>) => {
   const data = new FormData();
   Object.entries(values).forEach(([key, value]) => data.set(key, value === null || value === undefined ? "" : String(value)));
@@ -94,21 +101,10 @@ export function FreightDrilldown(props: {
   const allDetailOpen =
     allDestinationIds.length > 0 && openDestinations.length === allDestinationIds.length;
 
-  // Write-to-render timing diagnostic.
-  //
-  // Operators report 20-45s before a Freight edit is visible. The
-  // database accounts for ~1s of that, so the remaining time is somewhere in
-  // action -> revalidatePath -> RSC regeneration -> transfer -> paint. These
-  // marks split that span so the fix targets the measured hop rather than an
-  // inference about it.
-  //
-  // `browser update` is the honest end of the span: it fires after the
-  // refreshed RSC payload has been applied and React has painted, which is
-  // the moment the operator can actually read the new number.
   // Action-scoped pending (Pattern 47(f)).
   //
   // A single shared transition previously gated every control on this
-  // surface, so any in-flight write disabled unrelated workflows — most
+  // surface, so any in-flight write disabled unrelated workflows -- most
   // visibly, editing a break left "+ Record shipment" dead with no
   // explanation. Availability is now keyed to the action that owns it:
   // `pendingKey` names the specific action instance in flight, and a control
@@ -117,11 +113,54 @@ export function FreightDrilldown(props: {
   // The key carries the entity id, so editing one destination cannot disable
   // the controls of its sibling.
   //
-  // NOTE: `router.refresh()` deliberately remains inside the transition for
-  // now. Whether reconciliation belongs inside or outside the action boundary
-  // is held pending the write-to-render timing evidence.
+  // Write-to-render timing marks are retained alongside it. They are what
+  // identified the refresh-amplification defect below, and they stay while
+  // the deployed latency is still being reduced. `browser update` fires after
+  // paint, so it reports when the operator can actually read the value.
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const busy = (key: string) => pendingKey === key;
+
+  // Coalesced reconciliation — refresh amplification correction.
+  //
+  // Every autosave-on-blur previously called router.refresh() directly. A
+  // burst of related edits (freight, then markup, then duty, or tabbing
+  // through one row) therefore issued one FULL-PAGE refresh per field.
+  //
+  // Measured on the deployed preview, one interaction produced ~14-15
+  // concurrent GET /costs requests. Renders started ~12 times and completed
+  // once: eleven were abandoned after already paying post-auth (338-1058ms)
+  // and post-meta (463-1784ms), and the survivor took 3689ms. Each render
+  // runs an 8-wide Promise.all, so ~15 in flight is ~120 concurrent database
+  // operations against a pool sized max:3 -- the documented saturation shape,
+  // reached through self-inflicted fan-out rather than user traffic.
+  //
+  // revalidateQuoteTree is NOT the cause; it measured 0-1ms. The cost is the
+  // refresh count, so the fix is to make refreshes scale with the operator's
+  // interaction rather than with the number of fields they touched.
+  //
+  // Trailing debounce: each edit cancels the pending refresh and re-arms it,
+  // so a burst settles into exactly one reconciliation. Server writes are
+  // untouched -- every edit still persists immediately and independently;
+  // only the read-back is coalesced.
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRefresh = (since?: (label: string) => void) => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      since?.("refresh coalesced");
+    }
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      since?.("refresh start");
+      router.refresh();
+      // The transition resolves once the refreshed tree is applied, so the
+      // next frame is the first on which the operator can read the value.
+      requestAnimationFrame(() => since?.("browser update"));
+    }, REFRESH_COALESCE_MS);
+  };
+
+  useEffect(() => () => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+  }, []);
 
   const submit = (action: (fd: FormData) => Promise<Result>, key: string, onSuccess?: (result: Result) => void) => (fd: FormData) => {
     setMessage(null);
@@ -138,11 +177,7 @@ export function FreightDrilldown(props: {
       else {
         if (result.data?.selectionCleared) setMessage(`${result.data.deletedDestination} was removed. No destination is in the price; choose one explicitly.`);
         onSuccess?.(result);
-        since("refresh start");
-        router.refresh();
-        // startTransition resolves once the refreshed tree has been applied,
-        // so the next frame is the first on which the operator sees it.
-        requestAnimationFrame(() => since("browser update"));
+        scheduleRefresh(since);
       }
       setPendingKey(null);
     });

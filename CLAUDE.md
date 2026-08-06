@@ -2905,6 +2905,73 @@ NetSuite.
   rationale; the TODO-marker convention makes those deferrals
   legible + timer-attached rather than silent.
 
+## Pattern 55 — "Avoid refresh amplification"
+
+Standing pattern — banked from the Freight write-to-render investigation
+(2026-08-05).
+
+**The rule.** A burst of related operator edits must not trigger independent
+full-page refreshes for each individual field. Reconciliation is coalesced so
+that **work scales with the operator interaction, not with the number of
+fields edited.**
+
+**Why this is easy to get wrong.** Refreshing after a save is obviously
+correct in isolation, and each call site looks harmless — `await action();
+router.refresh()`. The defect only exists in aggregate, so it is invisible in
+code review of any single handler and invisible in local development, where
+a page render costs ~100ms and fifteen of them still feel instant.
+
+**Reference moment.** Freight autosaved on blur and called `router.refresh()`
+per field. Deployed measurement of one operator interaction:
+
+- **~14-15 concurrent `GET /costs`** requests
+- **~12 render starts, 1 completion** — eleven abandoned *after* paying
+  `post-auth` (338-1058ms) and `post-meta` (463-1784ms)
+- the surviving render took **3689ms**, against **106-110ms** for the same
+  page in the isolated harness
+
+Each render runs an 8-wide `Promise.all`, so ~15 in flight is roughly **120
+concurrent database operations against a pool sized `max: 3`**. This is the
+pool-saturation shape already documented in this file, reached through
+self-inflicted fan-out rather than user traffic. Operators saw 7-12s per
+request and 20-45s before a value settled.
+
+**What the measurement ruled out** — and why measuring first mattered:
+
+- `revalidateQuoteTree` (8 `revalidatePath` calls): **0-1ms**. The leading
+  hypothesis before measurement, and completely wrong.
+- The database: ~1s of a 20-45s wait.
+- RSC page regeneration: ~110ms server-side in isolation.
+
+The cost was never in any single hop. It was the **count**.
+
+**How to apply.** Route reconciliation through a trailing debounce keyed to
+the surface, so each edit cancels and re-arms the pending refresh and a burst
+settles into exactly one read-back. Server **writes stay immediate and
+independent** — only the read-back coalesces. A ~400ms window absorbs
+tabbing across a row while keeping a deliberate single edit prompt.
+
+**Recognition heuristic.** If a handler ends in `router.refresh()` (or any
+whole-surface invalidation) and the surface has more than one autosaving
+field, the amplification already exists. Count the fields an operator
+touches in one pass; that is the multiplier.
+
+**What this does not license.** Coalescing the read-back does not make the
+surface responsive on its own — it removes contention. Optimistic local
+rendering is the companion that makes the edit visible immediately, and the
+two are complementary: an overlay alone would mask a stampede that is still
+saturating the pool for every other reader.
+
+**Cross-references.**
+- Pattern 47(f) (action-scoped pending) — same investigation; ownership of
+  in-flight state rather than volume of it.
+- "Realtime <-> optimistic store contract" — the `COALESCE_MS` /
+  wait-for-quiet pipe in `costing-store-provider.tsx` is the same discipline
+  applied to inbound realtime events. Pattern 55 is its outbound twin.
+- "getCostingBundle parallel-query discipline" — documents why a burst of
+  8-wide reads saturates the pool; this pattern is how the burst count
+  multiplies.
+
 ## Designer audit rubric expansions (banked from rest-of-app sweep Step 10, 2026-05-14)
 
 Each entry below is an additional sweep criterion future Designer
