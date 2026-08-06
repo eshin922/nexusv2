@@ -17,7 +17,6 @@ import {
 } from "@/lib/costing-store";
 import { getCostingBundle } from "@/app/actions/costing";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
-import { markCostsEvent } from "@/lib/costs-timing";
 
 // Slice 8 sub-step 3 + 6 + Slice 8.5 #48-#50 — context + provider +
 // hook for the per-quote costing store.
@@ -154,15 +153,12 @@ export function CostingStoreProvider({
   // whichever ran last won by arrival order. That is the defect this replaces
   // — the guard now lives in the store, where it cannot be raced.
   const scheduleReconcile = useCallback((snap: HydrateSnapshot) => {
-    // Audit instrumentation (TEMPORARY, non-production — see costs-timing.ts).
     // Counting arm / superseded / applied separately is what distinguishes
     // "one action produced N reconciliation cycles" from "one action produced
     // N re-renders that mostly did nothing".
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
-      markCostsEvent("reconcile", "armed re-armed", `rev=${snap.revision}`);
     } else {
-      markCostsEvent("reconcile", "armed", `rev=${snap.revision}`);
     }
     const tryReconcile = () => {
       const state = storeRef.current?.getState();
@@ -170,7 +166,6 @@ export function CostingStoreProvider({
       // Drop a snapshot already superseded rather than holding a retry timer
       // alive for it through the whole quiet period.
       if (snap.revision <= state.lastAppliedRevision) {
-        markCostsEvent("reconcile", "superseded", `rev=${snap.revision}`);
         return;
       }
       const sinceEdit = Date.now() - state.lastUserEditAt;
@@ -180,7 +175,6 @@ export function CostingStoreProvider({
       }
       // The store re-checks the revision; this is not the enforcement point.
       state.reconcile(snap);
-      markCostsEvent("reconcile", "applied", `rev=${snap.revision}`);
     };
     debounceRef.current = setTimeout(tryReconcile, 100);
   }, []);

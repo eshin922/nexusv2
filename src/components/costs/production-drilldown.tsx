@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { startCostsTiming } from "@/lib/costs-timing";
 import { buildTreeRenderOrder, type SkuRow } from "@/lib/sku-tree";
 import {
   updateAssemblyProductionPolicy,
@@ -574,10 +573,7 @@ function ProductionTierCell({
     fd.set("otherServiceTotal", line.field === "otherServiceTotal" ? valueRef.current : (row?.otherServiceTotal ?? ""));
     fd.set("bulkRawCost", line.field === "bulkRawCost" ? valueRef.current : (row?.bulkRawCost ?? ""));
     fd.set("actualUnitsProduced", row?.actualUnitsProduced?.toString() ?? "");
-    const mark = startCostsTiming("production", "service-fee");
-    mark("submit");
     startTransition(async () => {
-      mark("action start");
       // Restores the last server-confirmed value in both the local input and
       // the store the Cost Stack reads from. Without this on the THROWN path,
       // a failed write leaves the optimistic projection on screen looking
@@ -596,13 +592,11 @@ function ProductionTierCell({
       try {
         result = await upsertAssemblyProductionInputs(fd);
       } catch {
-        mark("action complete");
         rollback(
           "The value could not be saved and has been reverted. Please try again; if this keeps happening, report this quote.",
         );
         return;
       }
-      mark("action complete");
       if (!result.ok) {
         rollback(result.error.message);
         return;
