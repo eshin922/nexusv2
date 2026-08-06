@@ -469,8 +469,10 @@ function PackagingRow({
     fd.set("inventoryEligible", line.inventoryEligible ? "true" : "false");
     fd.set("notes", line.notes ?? "");
     startTransition(async () => {
-      const result = await updateAssemblyLeafInputLineMeta(fd);
-      if (!result.ok) {
+      // `canonicalRef` is the last SERVER-CONFIRMED state, captured before the
+      // optimistic projection was applied — so it is the correct thing to
+      // restore on any failure, not the pre-keystroke local value.
+      const rollback = (message: string) => {
         const previous = canonicalRef.current;
         setVendorId(previous.vendorId);
         setVendorName(previous.vendorName);
@@ -485,7 +487,25 @@ function PackagingRow({
           markupPct: num(previous.markupPct),
           qtyPerSellableUnit: num(line.qtyPerSellableUnit),
         });
-        setVendorError(result.error.message);
+        setVendorError(message);
+      };
+
+      let result: Awaited<ReturnType<typeof updateAssemblyLeafInputLineMeta>>;
+      try {
+        result = await updateAssemblyLeafInputLineMeta(fd);
+      } catch {
+        // A THROWN failure — rejected request, transport error, or a server
+        // exception that escaped runAction — never reaches the !result.ok
+        // branch below. Without this catch the optimistic projection stays on
+        // screen for a write that never happened, which is exactly how an
+        // unpersisted markup edit came to look saved. Roll back and say so.
+        rollback(
+          "The edit could not be saved and has been reverted. Please try again; if this keeps happening, report this quote.",
+        );
+        return;
+      }
+      if (!result.ok) {
+        rollback(result.error.message);
         return;
       }
       setVendorId(result.data.pricingVendorHubspotCompanyId);
@@ -865,6 +885,12 @@ function PackagingTierCell({
     : null;
 
   const [unitCost, setUnitCost] = useState(storeUnitCost ?? "");
+  const [cellError, setCellError] = useState<string | null>(null);
+  // Last SERVER-CONFIRMED value for this cell, captured at the first keystroke
+  // of an edit burst — before the optimistic store write. It cannot be read
+  // back from the store at failure time, because the optimistic write has
+  // already overwritten it there. Null means "no edit in flight".
+  const preEditRef = useRef<string | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const valueRef = useRef(unitCost);
   valueRef.current = unitCost;
@@ -895,14 +921,42 @@ function PackagingTierCell({
 
   function fireSave() {
     if (!cell) return;
+    const rowId = cell.rowId;
+    const restore = preEditRef.current;
     const fd = new FormData();
-    fd.set("rowId", cell.rowId);
+    fd.set("rowId", rowId);
     fd.set("unitCost", valueRef.current);
     fd.set("purchaseQty", "");
     const mark = timingRef.current;
     startTransition(async () => {
       mark?.("action start");
-      await updateAssemblyLeafInputCell(fd);
+      // Restore the pre-edit value in BOTH places the operator can see it —
+      // the local input and the store the Cost Stack derives from — so a
+      // failed write leaves nothing behind that looks saved.
+      const rollback = (message: string) => {
+        preEditRef.current = null;
+        setUnitCost(restore ?? "");
+        updatePackagingCell(rowId, { unitCost: num(restore ?? "") });
+        setCellError(message);
+      };
+      let result: Awaited<ReturnType<typeof updateAssemblyLeafInputCell>>;
+      try {
+        result = await updateAssemblyLeafInputCell(fd);
+      } catch {
+        // Thrown failures bypass any ok-check. Previously this call discarded
+        // its result entirely, so neither a governed error nor a thrown one
+        // could roll the optimistic cell back.
+        rollback(
+          "The cost could not be saved and has been reverted. Please try again; if this keeps happening, report this quote.",
+        );
+        return;
+      }
+      if (!result.ok) {
+        rollback(result.error.message);
+        return;
+      }
+      preEditRef.current = null;
+      setCellError(null);
       mark?.("action complete");
     });
   }
@@ -911,6 +965,8 @@ function PackagingTierCell({
     // Costs Plumbing Certification §4 — the span starts at operator input.
     timingRef.current = startCostsTiming("packaging", "tier-cost");
     timingRef.current("submit");
+    if (preEditRef.current === null) preEditRef.current = storeUnitCost ?? "";
+    setCellError(null);
     setUnitCost(value);
     if (cell) {
       const numeric = num(value);
@@ -961,6 +1017,16 @@ function PackagingTierCell({
           title={`Landed: cost × (1+${(m * 100).toFixed(0)}%) × ${q}/unit`}
         >
           → {fmtCurr2(landed)}
+        </span>
+      )}
+      {cellError && (
+        <span
+          className="raw"
+          role="alert"
+          title={cellError}
+          style={{ color: "var(--danger, #b3261e)", whiteSpace: "normal" }}
+        >
+          {cellError}
         </span>
       )}
     </span>

@@ -1,5 +1,5 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblies,
@@ -7,6 +7,7 @@ import {
   assemblyLeaves,
   freightLegGroups,
   freightLegs,
+  quoteLeaves,
   quotes,
 } from "@/db/schema";
 import {
@@ -15,10 +16,117 @@ import {
   quoteNotDraftMessage,
 } from "./action-result";
 import {
+  CanonicalAttachmentResolutionError,
   legacyAssemblyLeafId,
   lookupCanonicalAttachmentByLegacyId,
   type CanonicalAttachmentIdentity,
 } from "./product-structure/canonical-attachment-identity";
+
+// ---------------------------------------------------------------------------
+// Canonical attachment resolution at the operator write boundary
+// ---------------------------------------------------------------------------
+//
+// `lookupCanonicalAttachmentByLegacyId` fails closed by design and MUST keep
+// doing so — it is the invariant that stops a mis-resolved attachment from
+// being written against the wrong quote. That hard exception is correct
+// everywhere except one place: an operator action.
+//
+// There, an unconverted throw escapes `runAction` (which re-raises anything
+// that is not an ActionGuardError), so the operator gets a full-page runtime
+// boundary instead of a handled failure — and the optimistic projection that
+// was applied before the call never learns the write failed, leaving an
+// unpersisted value on screen looking saved.
+//
+// So the conversion happens HERE, at the boundary, and only here. The
+// resolver is untouched; migrations, jobs and any non-action caller still get
+// the hard exception. What changes is that an operator now receives a
+// governed DATA_INTEGRITY result and keeps their workspace.
+//
+// This is containment, not repair. The underlying cause is that
+// `assembly_leaves.quote_leaf_id` was never populated — migration 0049 was
+// authored but deliberately withheld from the journal, so 129 of 137 rows
+// have no canonical pointer. See docs/costs-certification-handover.md §0.5.
+// Removing this boundary handler once the population lands would be wrong
+// anyway: the invariant can still fail, and when it does the operator should
+// still be told rather than dropped into a crash.
+
+const ATTACHMENT_INTEGRITY_MESSAGE =
+  "This product's structure could not be resolved, so the edit was not saved. " +
+  "Nothing was changed. Please report this quote so the structure can be repaired.";
+
+/**
+ * Diagnostic read taken ONLY on the failure path.
+ *
+ * The resolver reports that resolution failed, not why. Support needs the
+ * distinction between "no canonical row exists at all" and "a row exists but
+ * the pointer is missing or drifting", because those have different repairs.
+ * Cheap to compute here; never runs on the success path.
+ */
+async function describeAttachmentFailure(assemblyLeafId: string) {
+  const rows = await db
+    .select({
+      assemblyId: assemblyLeaves.assemblyId,
+      leafId: assemblyLeaves.leafId,
+      pointer: assemblyLeaves.quoteLeafId,
+      quoteId: assemblies.quoteId,
+    })
+    .from(assemblyLeaves)
+    .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
+    .where(eq(assemblyLeaves.id, assemblyLeafId))
+    .limit(1);
+  if (rows.length === 0) return { assemblyLeafId, reason: "legacy_row_not_found" };
+
+  const row = rows[0];
+  const candidates = await db
+    .select({ id: quoteLeaves.id })
+    .from(quoteLeaves)
+    .where(
+      and(
+        eq(quoteLeaves.quoteId, row.quoteId),
+        eq(quoteLeaves.assemblyId, row.assemblyId),
+        eq(quoteLeaves.leafId, row.leafId),
+      ),
+    )
+    .limit(5);
+
+  const candidateCount = candidates.length;
+  const reason =
+    row.pointer === null
+      ? candidateCount === 0
+        ? "missing_pointer_no_canonical_row"
+        : "missing_pointer_canonical_row_available"
+      : candidateCount === 0
+        ? "pointer_present_but_unresolvable"
+        : "drifting_mapping";
+
+  return {
+    assemblyLeafId,
+    quoteId: row.quoteId,
+    assemblyId: row.assemblyId,
+    leafId: row.leafId,
+    pointer: row.pointer,
+    candidateCount,
+    reason,
+  };
+}
+
+/** Resolve at an operator boundary: hard failure becomes a governed result. */
+async function resolveAttachmentForOperator(
+  assemblyLeafId: string,
+): Promise<CanonicalAttachmentIdentity> {
+  try {
+    return await lookupCanonicalAttachmentByLegacyId(
+      legacyAssemblyLeafId(assemblyLeafId),
+    );
+  } catch (e) {
+    if (!(e instanceof CanonicalAttachmentResolutionError)) throw e;
+    console.error(
+      "[canonical-attachment] resolution failed at operator write boundary",
+      { ...(await describeAttachmentFailure(assemblyLeafId)), error: e.message },
+    );
+    throw new ActionGuardError(ERR.DATA_INTEGRITY, ATTACHMENT_INTEGRITY_MESSAGE);
+  }
+}
 
 // Shared draft + ownership guards used by every cost-input action
 // layer (packaging, production, freight, costing). Hoisted Slice 7;
@@ -140,9 +248,7 @@ export async function quoteForAssemblyLeaf(
   assemblyLeaf: AssemblyLeaf;
   attachment: CanonicalAttachmentIdentity;
 }> {
-  const attachment = await lookupCanonicalAttachmentByLegacyId(
-    legacyAssemblyLeafId(assemblyLeafId),
-  );
+  const attachment = await resolveAttachmentForOperator(assemblyLeafId);
   const rows = await db
     .select({
       quote: quotes,
@@ -210,9 +316,7 @@ export async function quoteForAssemblyLeafInputLineGroup(
       "Packaging line not found",
     );
   const { quote, assembly, assemblyLeaf } = rows[0];
-  const attachment = await lookupCanonicalAttachmentByLegacyId(
-    legacyAssemblyLeafId(assemblyLeaf.id),
-  );
+  const attachment = await resolveAttachmentForOperator(assemblyLeaf.id);
   if (
     attachment.quoteId !== quote.id ||
     attachment.assemblyId !== assembly.id ||

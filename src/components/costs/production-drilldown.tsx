@@ -578,17 +578,33 @@ function ProductionTierCell({
     mark("submit");
     startTransition(async () => {
       mark("action start");
-      const result = await upsertAssemblyProductionInputs(fd);
-      mark("action complete");
-      if (!result.ok) {
+      // Restores the last server-confirmed value in both the local input and
+      // the store the Cost Stack reads from. Without this on the THROWN path,
+      // a failed write leaves the optimistic projection on screen looking
+      // saved — see docs/costs-certification-handover.md §0.1.
+      const rollback = (message: string) => {
         const previous = row?.[line.field] ?? "";
         setValue(previous);
-        setValidationError(result.error.message);
+        setValidationError(message);
         if (row) {
           updateProductionCell(sku.id, tier.id, {
             [line.field]: num(previous),
           });
         }
+      };
+      let result: Awaited<ReturnType<typeof upsertAssemblyProductionInputs>>;
+      try {
+        result = await upsertAssemblyProductionInputs(fd);
+      } catch {
+        mark("action complete");
+        rollback(
+          "The value could not be saved and has been reverted. Please try again; if this keeps happening, report this quote.",
+        );
+        return;
+      }
+      mark("action complete");
+      if (!result.ok) {
+        rollback(result.error.message);
         return;
       }
       const canonical = result.data[line.field] ?? "";
@@ -724,7 +740,23 @@ function SectionToggles({
           ).toString(),
         );
         fd.set("notes", policy.notes ?? "");
-        await updateAssemblyProductionPolicy(fd);
+        // No optimistic projection here — the toggle renders from the RSC
+        // prop, so a failure cannot leave an unpersisted value on screen and
+        // the rollback contract does not apply. It DOES currently discard the
+        // result, so a governed failure is invisible to the operator; that is
+        // logged as a separate finding rather than fixed here, since surfacing
+        // it needs an error slot this control does not have. The catch exists
+        // so a thrown failure cannot become an unhandled rejection.
+        try {
+          const res = await updateAssemblyProductionPolicy(fd);
+          if (!res.ok) {
+            console.error("[production-policy] write failed", res.error);
+            break;
+          }
+        } catch (e) {
+          console.error("[production-policy] write threw", e);
+          break;
+        }
       }
     });
   }
