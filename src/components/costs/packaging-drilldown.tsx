@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { startCostsTiming, type CostsTimingMark } from "@/lib/costs-timing";
 import {
   deleteAssemblyLeafInputLine,
   searchPricingVendors,
@@ -841,6 +842,7 @@ function PackagingTierCell({
   disabled: boolean;
 }) {
   const cell = line.cells.get(tierId);
+  const timingRef = useRef<CostsTimingMark | null>(null);
   const [pending, startTransition] = useTransition();
   const updatePackagingCell = useCostingStore(selectUpdatePackagingCell);
 
@@ -897,16 +899,26 @@ function PackagingTierCell({
     fd.set("rowId", cell.rowId);
     fd.set("unitCost", valueRef.current);
     fd.set("purchaseQty", "");
+    const mark = timingRef.current;
     startTransition(async () => {
+      mark?.("action start");
       await updateAssemblyLeafInputCell(fd);
+      mark?.("action complete");
     });
   }
 
   function handleChange(value: string) {
+    // Costs Plumbing Certification §4 — the span starts at operator input.
+    timingRef.current = startCostsTiming("packaging", "tier-cost");
+    timingRef.current("submit");
     setUnitCost(value);
     if (cell) {
       const numeric = num(value);
       updatePackagingCell(cell.rowId, { unitCost: numeric });
+      // Optimistic store write: this is when the operator can READ the new
+      // value. Freight has no equivalent, which is the asymmetry the audit
+      // is measuring.
+      timingRef.current("browser update");
     }
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(fireSave, DEBOUNCE_MS);
