@@ -175,7 +175,15 @@ export type CostingStoreState = {
 
   // Bookkeeping
   hydrated: boolean; // false until first hydrate() call
-  lastReconcileAt: number; // ms epoch; used by debounce in provider
+  /**
+   * Revision of the most recently APPLIED snapshot. Reconciliation compares
+   * against this and rejects anything not strictly newer.
+   *
+   * Replaces `lastReconcileAt`, which was written on every hydrate/reconcile
+   * and never read — a client-clock timestamp cannot order server renders, so
+   * it could not have served as the authority even if it had been consulted.
+   */
+  lastAppliedRevision: number;
   // ms epoch of the user's most recent input edit (any updateXxx call).
   // The provider's reconcile path reads this to defer overwriting
   // optimistic state while the user is actively typing — see
@@ -190,9 +198,32 @@ export type CostingStoreState = {
   // time the second save's snapshot has arrived with 0.6.
   lastUserEditAt: number;
 
+  /**
+   * F-3 Phase B — write causality.
+   *
+   * `lastAppliedRevision` guarantees reconciliation never goes BACKWARDS. It
+   * does not guarantee a snapshot contains the operator's own write. With
+   * lastApplied=100 and a write committed at 120, a snapshot at 110 is newer
+   * than what is applied — so the monotonic gate passes it — yet predates the
+   * write, and applying it reverts the operator's value on screen until a
+   * later snapshot restores it.
+   *
+   * This holds the revision the most recent local write committed at. Until a
+   * snapshot at or beyond it is applied, sub-threshold candidates are held
+   * rather than applied. Null means no write is outstanding, which is the
+   * common case and must stay on the untouched fast path.
+   */
+  awaitedRevision: number | null;
+  /** ms epoch the current await began — bounds the gate so it cannot wedge. */
+  awaitedSince: number;
+
   // Actions
   hydrate: (snapshot: HydrateSnapshot) => void;
   reconcile: (snapshot: HydrateSnapshot) => void;
+  /** Record the revision a local write committed at. Highest outstanding wins. */
+  awaitCommitted: (revision: number) => void;
+  /** Abandon the causal requirement without claiming it was satisfied. */
+  releaseAwaited: () => void;
   updatePackagingCell: (rowId: string, fields: PackagingCellFields) => void;
   updatePackagingLineMeta: (
     lineGroupId: string,
@@ -270,6 +301,40 @@ export type CostingStoreState = {
 };
 
 export type HydrateSnapshot = {
+  /**
+   * Freshness authority for reconciliation ordering.
+   *
+   * A Postgres transaction marker — `pg_snapshot_xmax(pg_current_snapshot())`
+   * — captured on the FIRST read of `getCostingBundle`. It advances when a
+   * transaction commits, so it orders snapshots by **what they could see**,
+   * not by when they finished.
+   *
+   * A wall clock cannot do this job. Stamped at completion it orders render
+   * completion, which loses the earlier-start/later-finish race:
+   *
+   *     A begins (reads pre-mutation data)
+   *     mutation commits
+   *     B begins (reads post-mutation data)
+   *     B completes first
+   *     A completes LAST  ->  higher completion time, older data, A wins
+   *
+   * Taken at the start and sourced from the database counter, A's revision is
+   * strictly lower than B's and is rejected regardless of arrival order. It is
+   * also skew-free: one database clock rather than N function-instance clocks.
+   *
+   * Conservative by construction. A read beginning before a commit may still
+   * observe it, so its revision can understate freshness — that costs a
+   * discarded update, never a corrupted one.
+   *
+   * This exists because reconciliation previously had NO ordering guarantee:
+   * the provider cancelled a pending *timer*, but each scheduled call had
+   * already captured its own snapshot in closure, so whichever was scheduled
+   * last won by arrival order rather than by freshness. A server render that
+   * predated an operator's save could therefore land after it and overwrite
+   * it — Packaging values vanishing after a tab-out, one returning later as a
+   * fresher snapshot arrived.
+   */
+  revision: number;
   quoteId: string;
   projectId: string;
   globalPriceAdjPct: number;
@@ -402,7 +467,7 @@ export type FreightCustomerArrangesMetaFields = Partial<
 // quote, investigate before making the rollup async or memoized.
 
 function recompute(
-  s: Omit<CostingStoreState, "costing" | "warnings" | "hydrated" | "lastReconcileAt"> & {
+  s: Omit<CostingStoreState, "costing" | "warnings" | "hydrated" | "lastAppliedRevision"> & {
     [K in keyof CostingStoreState as K extends `update${string}` | "hydrate" | "reconcile"
       ? never
       : K]: CostingStoreState[K];
@@ -496,8 +561,22 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     warnings: warningsFromSnapshot(initial),
     persistedWarnings: initial.persistedWarnings,
     hydrated: true,
-    lastReconcileAt: Date.now(),
+    lastAppliedRevision: initial.revision,
+    awaitedRevision: null,
+    awaitedSince: 0,
     lastUserEditAt: 0,
+
+    // Highest outstanding revision governs: two rapid writes must not let the
+    // earlier one's lower threshold retire the later one's requirement.
+    awaitCommitted: (revision) =>
+      set((s) => {
+        if (!Number.isFinite(revision)) return {};
+        if (revision <= s.lastAppliedRevision) return {};
+        if (s.awaitedRevision !== null && revision <= s.awaitedRevision) return {};
+        return { awaitedRevision: revision, awaitedSince: Date.now() };
+      }),
+
+    releaseAwaited: () => set(() => ({ awaitedRevision: null, awaitedSince: 0 })),
 
     hydrate: (snapshot) =>
       set({
@@ -521,7 +600,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         warnings: warningsFromSnapshot(snapshot),
         persistedWarnings: snapshot.persistedWarnings,
         hydrated: true,
-        lastReconcileAt: Date.now(),
+        lastAppliedRevision: snapshot.revision,
         lastUserEditAt: 0,
       }),
 
@@ -532,7 +611,27 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     // the server snapshot is canonical, the next user typing burst
     // starts a fresh "in-flight" window.
     reconcile: (snapshot) =>
-      set({
+      set((s) => {
+        // Ordering guard. A snapshot must be strictly newer than the one
+        // already applied, or it is discarded untouched.
+        //
+        // Equality is rejected as well as staleness: two renders stamped in
+        // the same millisecond carry the same data, so re-applying one can
+        // only cost work and risk clobbering an optimistic edit made in
+        // between.
+        //
+        // Returning `{}` leaves every slice — packaging, production, freight,
+        // overrides, targets — exactly as it is. This is what stops a server
+        // render that predates an operator's save from erasing it.
+        if (snapshot.revision <= s.lastAppliedRevision) return {};
+        return {
+        // Causal requirement is satisfied only by a snapshot that actually
+        // reaches the awaited revision. Anything lower is held by the
+        // provider and never arrives here.
+        awaitedRevision:
+          s.awaitedRevision !== null && snapshot.revision >= s.awaitedRevision
+            ? null
+            : s.awaitedRevision,
         quoteId: snapshot.quoteId,
         projectId: snapshot.projectId,
         globalPriceAdjPct: snapshot.globalPriceAdjPct,
@@ -552,8 +651,9 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         costing: snapshot.costing,
         warnings: warningsFromSnapshot(snapshot),
         persistedWarnings: snapshot.persistedWarnings,
-        lastReconcileAt: Date.now(),
+        lastAppliedRevision: snapshot.revision,
         lastUserEditAt: 0,
+        };
       }),
 
     // Every updateXxx action below stamps lastUserEditAt = Date.now()

@@ -15,6 +15,7 @@ import {
   quoteTiers,
 } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
+import { type FreightLegMode, isFreightLegMode } from "@/lib/enum-labels";
 import {
   ActionGuardError,
   ERR,
@@ -126,19 +127,10 @@ export type FreightCustomerArrangesMetaSnapshot = {
 
 // ---- Enum vocabularies (mirror DB enums one-for-one) ----
 
-const FREIGHT_LEG_MODES = [
-  "parcel",
-  "ocean_fcl",
-  "ocean_lcl",
-  "air_freight",
-  "air_express",
-  "ltl_truck",
-  "truckload",
-  "drayage",
-  "exw_pickup",
-  "other",
-] as const;
-type FreightLegModeValue = (typeof FREIGHT_LEG_MODES)[number];
+// Single source: the same list the governed selector renders and the worksheet
+// action validates against, so a legacy leg and a worksheet break can never
+// disagree about what the enum admits. See src/lib/enum-labels.ts.
+type FreightLegModeValue = FreightLegMode;
 
 const INCOTERMS = ["DDP", "DAP", "FOB", "EXW", "FCA", "CIF"] as const;
 type IncotermValue = (typeof INCOTERMS)[number];
@@ -216,9 +208,7 @@ function parseLegMode(
 ): FreightLegModeValue | null {
   const s = trimOrNull(v);
   if (!s) return null;
-  return (FREIGHT_LEG_MODES as readonly string[]).includes(s)
-    ? (s as FreightLegModeValue)
-    : null;
+  return isFreightLegMode(s) ? s : null;
 }
 
 function parseIncoterm(v: FormDataEntryValue | null): IncotermValue | null {

@@ -29,6 +29,18 @@ export const ERR = {
   // requireAdminAction so admin-gated action POST replays return
   // a stable, recognizable code clients can branch on.
   FORBIDDEN: "FORBIDDEN",
+  // Deliberately NOT VALIDATION_ERROR. Validation means the operator
+  // supplied something the system can reject and they can correct.
+  // DATA_INTEGRITY means the stored structure itself could not be
+  // resolved: nothing the operator typed was wrong, nothing they can
+  // retype will help, and no write was attempted. Collapsing the two
+  // would tell an operator to fix input that is already correct, and
+  // would hide a structural fault behind routine form noise.
+  //
+  // The write boundary converts the resolver's hard exception into
+  // this code so the workspace survives; the resolver itself keeps
+  // throwing, so migrations and jobs still fail closed.
+  DATA_INTEGRITY: "DATA_INTEGRITY",
   HUBSPOT: "HUBSPOT_ERROR",
 } as const;
 

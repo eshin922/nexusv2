@@ -51,7 +51,13 @@ test("Freight inherits commercial-product ownership from its product-group entry
   assert.match(source, /products\.map\(\(product\)/);
   assert.match(source, /setCreateProductId\(product\.id\)/);
   assert.match(source, /type="hidden" name="assemblyId" value=\{product\?\.id/);
-  assert.match(source, /Shipment contents from Setup/);
+  // SUPERSEDED 2026-08-05: the create modal listed contents read-only under
+  // "Shipment contents from Setup". It now carries the Design Authority's own
+  // interactive assignment control (`SkuChips`, 1a.jsx:114), whose label is
+  // "this freight is for". Ownership scoping — the assertions above — is
+  // unchanged; only the read-only treatment was superseded.
+  assert.match(source, /this shipment is for/);
+  assert.match(source, /ShipmentContentsPicker/);
   assert.doesNotMatch(source, /<select required name="assemblyId"/);
   assert.doesNotMatch(source, /name="assemblyLeafId"[^>]*type="checkbox"[^>]*defaultChecked/);
 });

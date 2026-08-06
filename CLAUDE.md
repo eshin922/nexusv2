@@ -2177,6 +2177,55 @@ autosave requires:
     buttons, and double-click protection is real. The rule is
     input-specific.
 
+(f) **Pending state MUST be action-scoped.** A control may be
+    disabled only by the pending state of **the action that control
+    initiates**. Sharing one transition across unrelated actions in a
+    component is prohibited: an in-flight write then disables
+    workflows the operator has every right to use.
+
+    Rule (e) permits `disabled={pending}` on buttons. It never said
+    *which* pending, and that gap is where this failure lives — a
+    surface-wide flag satisfies (e) completely while still making
+    unrelated controls dead.
+
+    **Every disabled operator control must communicate why.** A
+    greyed primary action with no explanation is not acceptable
+    operator behaviour. Use visible text, `title`, or an accessible
+    description naming the cause.
+
+    Implementation is free — separate transitions per action, or one
+    transition plus a keyed `pendingKey` — provided ownership is
+    explicit. Keys should carry the entity id, so editing one row
+    cannot disable a sibling's controls.
+
+    **Reference moment (2026-08-05).** Freight ran one
+    `useTransition` gating six controls, and the transition wrapped
+    `router.refresh()`, so `isPending` stayed true for the whole
+    20–45s refresh window. An operator completed the Create Shipment
+    form and found **Add** permanently disabled with nothing on
+    screen explaining it. No validation rule was involved: the
+    button's only condition was the shared flag.
+
+    A survey found this project-wide, measured as controls gated per
+    transition: `add-product-modal` 7.0, `freight-drilldown` 6.0,
+    `quote-umbrella/add-entry` 5.0, `attachment-list-modal` 5.0,
+    `library-browse-modal` 4.0, `quote-target-margin-popover` 3.0,
+    `production-drilldown` 1.0, `packaging-drilldown` **0.33**.
+    Packaging — the surface operators call responsive — runs three
+    transitions and gates one control.
+
+    **Freight is the proving ground; the other seven are follow-on
+    candidates, not Phase 2 work.**
+
+    **Held open:** whether reconciliation (`router.refresh()`, store
+    reconcile) belongs inside or outside the action's transition is
+    NOT yet standardised. It is being decided from write-to-render
+    timing evidence rather than assumption. Rule (f) governs
+    ownership; it does not yet govern reconciliation.
+
+    Where (e) protects **focus**, (f) protects **availability** —
+    the same failure of pending state leaking past what it describes.
+
 **Sub-pattern for fields where per-keystroke save is wrong UX**
 (dates, currency-with-mid-typing-partials, multi-character atomic
 values): use **blur/Enter commit pattern**. `LegDateInput` in
@@ -2855,6 +2904,73 @@ NetSuite.
 - Pattern 32 pre-production tolerance — permits deferrals with
   rationale; the TODO-marker convention makes those deferrals
   legible + timer-attached rather than silent.
+
+## Pattern 55 — "Avoid refresh amplification"
+
+Standing pattern — banked from the Freight write-to-render investigation
+(2026-08-05).
+
+**The rule.** A burst of related operator edits must not trigger independent
+full-page refreshes for each individual field. Reconciliation is coalesced so
+that **work scales with the operator interaction, not with the number of
+fields edited.**
+
+**Why this is easy to get wrong.** Refreshing after a save is obviously
+correct in isolation, and each call site looks harmless — `await action();
+router.refresh()`. The defect only exists in aggregate, so it is invisible in
+code review of any single handler and invisible in local development, where
+a page render costs ~100ms and fifteen of them still feel instant.
+
+**Reference moment.** Freight autosaved on blur and called `router.refresh()`
+per field. Deployed measurement of one operator interaction:
+
+- **~14-15 concurrent `GET /costs`** requests
+- **~12 render starts, 1 completion** — eleven abandoned *after* paying
+  `post-auth` (338-1058ms) and `post-meta` (463-1784ms)
+- the surviving render took **3689ms**, against **106-110ms** for the same
+  page in the isolated harness
+
+Each render runs an 8-wide `Promise.all`, so ~15 in flight is roughly **120
+concurrent database operations against a pool sized `max: 3`**. This is the
+pool-saturation shape already documented in this file, reached through
+self-inflicted fan-out rather than user traffic. Operators saw 7-12s per
+request and 20-45s before a value settled.
+
+**What the measurement ruled out** — and why measuring first mattered:
+
+- `revalidateQuoteTree` (8 `revalidatePath` calls): **0-1ms**. The leading
+  hypothesis before measurement, and completely wrong.
+- The database: ~1s of a 20-45s wait.
+- RSC page regeneration: ~110ms server-side in isolation.
+
+The cost was never in any single hop. It was the **count**.
+
+**How to apply.** Route reconciliation through a trailing debounce keyed to
+the surface, so each edit cancels and re-arms the pending refresh and a burst
+settles into exactly one read-back. Server **writes stay immediate and
+independent** — only the read-back coalesces. A ~400ms window absorbs
+tabbing across a row while keeping a deliberate single edit prompt.
+
+**Recognition heuristic.** If a handler ends in `router.refresh()` (or any
+whole-surface invalidation) and the surface has more than one autosaving
+field, the amplification already exists. Count the fields an operator
+touches in one pass; that is the multiplier.
+
+**What this does not license.** Coalescing the read-back does not make the
+surface responsive on its own — it removes contention. Optimistic local
+rendering is the companion that makes the edit visible immediately, and the
+two are complementary: an overlay alone would mask a stampede that is still
+saturating the pool for every other reader.
+
+**Cross-references.**
+- Pattern 47(f) (action-scoped pending) — same investigation; ownership of
+  in-flight state rather than volume of it.
+- "Realtime <-> optimistic store contract" — the `COALESCE_MS` /
+  wait-for-quiet pipe in `costing-store-provider.tsx` is the same discipline
+  applied to inbound realtime events. Pattern 55 is its outbound twin.
+- "getCostingBundle parallel-query discipline" — documents why a burst of
+  8-wide reads saturates the pool; this pattern is how the burst count
+  multiplies.
 
 ## Designer audit rubric expansions (banked from rest-of-app sweep Step 10, 2026-05-14)
 
@@ -5089,3 +5205,103 @@ string from Postgres for non-text types — calling `.getTime()` or
 Discovered Slice 5.6 when `getCacheStatus` used `sql<Date | null>` for
 `max(last_synced_at)`; the value came back as a string and crashed
 `isStale`/the cache-status route on every populated-cache visit.
+
+## Pattern 56 — "Latency margins hide missing ordering contracts"
+
+Standing pattern — banked from the Costs regional co-location experiment
+(2026-08-06).
+
+**The rule.** A slow system serialises itself. When every write settles long
+before the next read arrives, an absent causality guarantee is indistinguishable
+from a working one — the timing margin does the ordering by accident. Removing
+the latency does not introduce a race; it **exposes one that was always there**.
+
+So: when a performance change lands, re-examine every ordering assumption the
+old timing was silently satisfying. Verify causality explicitly rather than
+relying on a margin that just disappeared.
+
+**Reference moment.** Co-locating Vercel functions with the database
+(`iad1` → `pdx1`, both then `us-west-2`) cut the Costs shared read from
+7.3–7.8s to 772–960ms. Two things surfaced immediately that had been invisible:
+
+1. **Ten of eleven Freight mutations returned no committed revision** (F-3).
+   Nothing had ever failed. During certification `customsBreak`,
+   `addDestination` and `createShipment` all logged `rev=?` and converged
+   correctly anyway — by timing, not by contract. Under a 7-second read the
+   write had always settled first.
+2. **Realtime and refresh reconciliation stopped collapsing into one cycle.**
+   They had appeared as a single event only because both were slow. Once fast,
+   they resolve distinctly — which makes a snapshot that is newer than what is
+   applied but older than the operator's own write newly reachable.
+
+Neither was caused by the speedup. Both were pre-existing contract gaps whose
+symptoms the latency had been absorbing.
+
+**Recognition heuristic.** After any change that materially reduces latency,
+ask of each ordering-sensitive path:
+
+- Did this path ever *prove* its ordering, or did it only ever *observe* the
+  right outcome?
+- What is the smallest timing margin under which it still holds?
+- If two events previously appeared as one, what interleaving does splitting
+  them now permit?
+
+A path that cannot answer the first question has a convention, not a contract.
+
+**Corollary — the inverse is a diagnostic.** A bug that appears only after a
+system gets faster is usually not a new bug. Look for the guarantee the old
+timing was supplying for free.
+
+**Cross-references.**
+- Pattern 55 (refresh amplification) — the same investigation; that one is
+  about volume of reconciliation, this one about ordering of it.
+- "Realtime <-> optimistic store contract" — the wait-for-quiet and coalesce
+  pipe whose behaviour changed shape under the new timings.
+- Pattern 50 (compliance-basis intersection state) — sibling discipline: two
+  subsystems agreeing by coincidence rather than by construction.
+
+## Merge and certification evidence must use repository-governed test commands
+
+**Standing rule — banked 2026-08-06 from the Costs certification merge gate.**
+
+> Merge and certification evidence must use the repository-governed test
+> commands. Ad hoc runner invocations are diagnostic only unless proven
+> equivalent to the project command.
+
+`package.json` defines `test:unit` as:
+
+```
+node --experimental-strip-types \
+     --experimental-loader=./tests/support/server-contract-loader.mjs \
+     --test tests/unit/*.test.ts
+```
+
+Both flags are load-bearing. The loader supplies the server-contract shims the
+suite depends on, and native type-stripping preserves ESM semantics.
+
+**Reference moment.** Certification evidence was gathered with
+`npx tsx --test tests/unit/*.test.ts` instead. That invocation omits the loader
+and transpiles to CJS, so every test file using top-level await failed to
+*transform* — and the transform errors were counted as test failures. The
+result was a persistent, plausible-looking "12 pre-existing failures" that was
+reported across several turns and offered as a pre-merge acknowledgement.
+
+Under the governed command: `main` was 122/122 green, and the branch had five
+genuine regressions the wrong runner had buried among fabricated ones. The bad
+number was worse than no number, because it manufactured a category of
+"pre-existing failures" that made real regressions look like inherited noise.
+
+**Why the usual sanity check did not catch it.** Comparing two branches with
+the same broken command produced a self-consistent delta, so the comparison
+looked rigorous while both sides were wrong. Stashing and re-running only ever
+established "these failures predate my uncommitted edits" — never "these
+failures predate the branch."
+
+**The check that would have caught it:** run the governed command on `main`
+first. A clean baseline is the only thing that makes a delta meaningful; a
+branch comparison against an unverified baseline is not evidence.
+
+**Applies to:** merge readiness, certification verdicts, regression claims, and
+any statement of the form "these failures are pre-existing." Ad hoc runners
+remain fine for iterating on a single file — just never for a number that
+appears in a report.

@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   // Slice 11.5 — NEW-model cost-data tables (Step 2 schema).
@@ -1635,14 +1635,23 @@ export async function getCostingBundle(
 ): Promise<ActionResult<HydrateSnapshot>> {
   return runAction(async () => {
     const bundleT0 = Date.now();
+    // Reconciliation freshness authority, captured on the FIRST read of the
+    // bundle. See the `revision` field on HydrateSnapshot for why this is a
+    // database transaction marker rather than a wall clock, and why it is
+    // taken at the start rather than the end.
     const quoteRows = await timed("quote_lookup", quoteId, db
-      .select()
+      .select({
+        quotes,
+        revision: sql<string>`pg_snapshot_xmax(pg_current_snapshot())::text`,
+      })
       .from(quotes)
       .where(eq(quotes.id, quoteId))
       .limit(1));
     if (quoteRows.length === 0)
       throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found");
-    const quote = quoteRows[0];
+    const quote = quoteRows[0].quotes;
+    // Causally-ordered reconciliation revision — see HydrateSnapshot.revision.
+    const bundleRevision = Number(quoteRows[0].revision);
 
     const commercial = commercialOverride ?? await timed(
       "commercial_settings",
@@ -1811,6 +1820,7 @@ export async function getCostingBundle(
 
     const result = computeQuoteCosting(input);
 
+
     // Slice 9.5 — load persisted warnings (active + accepted) into
     // the snapshot so the client store can attach DB ids onto
     // engine-computed specs by identity tuple, enabling per-row
@@ -1840,6 +1850,7 @@ export async function getCostingBundle(
     }));
 
     const snapshot: HydrateSnapshot = {
+      revision: bundleRevision,
       quoteId: quote.id,
       projectId: quote.projectId,
       globalPriceAdjPct: num(quote.globalPriceAdjPct),

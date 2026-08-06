@@ -9,7 +9,13 @@ const pinWriter = readFileSync("src/lib/commercial-settings.ts", "utf8");
 const proof = readFileSync("scripts/validation/phase-1-identity-reachability.ts", "utf8");
 
 test("every legacy-keyed production mutation reaches canonical identity through a governed guard", () => {
-  assert.equal((guards.match(/lookupCanonicalAttachmentByLegacyId\(/g) ?? []).length, 2);
+  // The raw resolver is now reached once, inside resolveAttachmentForOperator,
+  // which both write boundaries call. The invariant is unchanged -- two
+  // legacy-keyed mutation paths reach canonical identity through a governed
+  // guard -- but the call is centralised so the boundary conversion lives in
+  // one place. See canonical-attachment-operator-boundary.test.ts.
+  assert.equal((guards.match(/lookupCanonicalAttachmentByLegacyId\(/g) ?? []).length, 1);
+  assert.equal((guards.match(/resolveAttachmentForOperator\(/g) ?? []).length, 3);
   assert.equal((packaging.match(/quoteForAssemblyLeaf\(/g) ?? []).length, 2);
   assert.equal((packaging.match(/quoteForAssemblyLeafInputLineGroup\(/g) ?? []).length, 2);
   assert.equal((costing.match(/quoteForAssemblyLeaf\(/g) ?? []).length, 2);

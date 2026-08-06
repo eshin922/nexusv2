@@ -657,6 +657,97 @@ export async function searchHubspotProductsAction(
 
 // ---------- tier actions ----------
 
+/**
+ * Materialise worksheet Freight break rows for a newly added tier.
+ *
+ * A quote tier is a column across the whole Costs workspace, so adding one
+ * must extend every downstream structure. `addTier` already fanned out to
+ * packaging inputs, production inputs and the legacy freight LEG model, but
+ * never to `freight_destination_breaks` — the worksheet model. Destinations
+ * therefore stayed pinned to the tiers that existed when they were created.
+ *
+ * Operator evidence (quote 2f29af72): destinations created before the second
+ * and third tiers carried ONE break row while destinations created afterwards
+ * carried three. At a tier with no break row there is no amount to price, so
+ * Design Authority Row 04 (amount x markup -> sell per unit at the actual
+ * Quote break) could not compute. It presented as a first-destination defect
+ * only because the first destinations happened to predate the tiers; a later
+ * destination created before them fails identically.
+ *
+ * Inherits `mode`, `freightMarkupPct` and `shipmentNote` from the
+ * destination's own existing breaks — the same rule `addFreightDestination`
+ * applies across destinations, applied here across tiers. `freightAmount` is
+ * deliberately NOT inherited: an amount is a negotiated figure for a specific
+ * quantity break and must be entered, never carried across quantities.
+ *
+ * Additive and idempotent: only (destination, tier) pairs with no existing row
+ * are inserted, so repeated propagation cannot duplicate and entered values
+ * are never overwritten.
+ *
+ * Does not touch the governed first-vs-later destination creation behaviour,
+ * commercial math, or resolveBreakFieldSources.
+ */
+async function seedWorksheetFreightBreaksForTiers(
+  executor: Pick<typeof db, "select" | "insert">,
+  quoteId: string,
+  tierIds: string[],
+): Promise<number> {
+  if (tierIds.length === 0) return 0;
+
+  const destinations = await executor
+    .select({ id: freightDestinations.id })
+    .from(freightDestinations)
+    .innerJoin(
+      freightSubcategories,
+      eq(freightSubcategories.id, freightDestinations.freightSubcategoryId),
+    )
+    .where(eq(freightSubcategories.quoteId, quoteId));
+  if (destinations.length === 0) return 0;
+
+  const destinationIds = destinations.map((row) => row.id);
+  const existing = await executor
+    .select({
+      freightDestinationId: freightDestinationBreaks.freightDestinationId,
+      tierId: freightDestinationBreaks.tierId,
+      mode: freightDestinationBreaks.mode,
+      freightMarkupPct: freightDestinationBreaks.freightMarkupPct,
+      shipmentNote: freightDestinationBreaks.shipmentNote,
+    })
+    .from(freightDestinationBreaks)
+    .where(inArray(freightDestinationBreaks.freightDestinationId, destinationIds));
+
+  const present = new Set(
+    existing.map((row) => `${row.freightDestinationId}:${row.tierId}`),
+  );
+  // Inheritance source: any existing break on the same destination. They carry
+  // the destination's current type/markup state, which is what a new quantity
+  // break should start from.
+  const inheritFrom = new Map<string, (typeof existing)[number]>();
+  for (const row of existing) {
+    if (!inheritFrom.has(row.freightDestinationId)) {
+      inheritFrom.set(row.freightDestinationId, row);
+    }
+  }
+
+  const rows: (typeof freightDestinationBreaks.$inferInsert)[] = [];
+  for (const destinationId of destinationIds) {
+    const prior = inheritFrom.get(destinationId);
+    for (const tierId of tierIds) {
+      if (present.has(`${destinationId}:${tierId}`)) continue;
+      rows.push({
+        freightDestinationId: destinationId,
+        tierId,
+        mode: prior?.mode ?? null,
+        freightMarkupPct: prior?.freightMarkupPct ?? null,
+        shipmentNote: prior?.shipmentNote ?? null,
+      });
+    }
+  }
+  if (rows.length === 0) return 0;
+  await executor.insert(freightDestinationBreaks).values(rows);
+  return rows.length;
+}
+
 export async function addTier(formData: FormData): Promise<ActionResult<void>> {
   return runAction(async () => {
   const quoteId = String(formData.get("quoteId") ?? "").trim();
@@ -809,6 +900,15 @@ export async function addTier(formData: FormData): Promise<ActionResult<void>> {
     freightRowsSeeded = existingLegs.length;
   }
 
+  // Worksheet Freight model — the leg fan-out above covers only the legacy
+  // model. Without this, existing destinations stay pinned to the tiers that
+  // existed when they were created.
+  const worksheetBreaksSeeded = await seedWorksheetFreightBreaksForTiers(
+    db,
+    quoteId,
+    [tier.id],
+  );
+
   await logAudit({
     userId: user.id,
     entityType: "quote_tier",
@@ -820,6 +920,7 @@ export async function addTier(formData: FormData): Promise<ActionResult<void>> {
       packaging_rows_seeded: newRows.length,
       production_rows_seeded: productionRowsSeeded,
       freight_rows_seeded: freightRowsSeeded,
+      worksheet_freight_breaks_seeded: worksheetBreaksSeeded,
     },
   });
 
@@ -1206,6 +1307,7 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
   let cellsSeeded = 0;
   let productionCellsSeeded = 0;
   let freightCellsSeeded = 0;
+  let worksheetBreaksSeeded = 0;
   await db.transaction(async (tx) => {
     // Delete all existing tiers — cascade kills all packaging_inputs rows.
     // (Per-tier cost values are intentionally lost; different volumes
@@ -1300,6 +1402,15 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
       await tx.insert(freightLegTiers).values(seedRows);
       freightCellsSeeded = seedRows.length;
     }
+
+    // Worksheet Freight model — same gap as addTier. A preset that replaces
+    // the tier set must extend existing destinations to every new tier, or
+    // they stay pinned to tiers that no longer exist.
+    worksheetBreaksSeeded = await seedWorksheetFreightBreaksForTiers(
+      tx,
+      quoteId,
+      newTiers.map((t) => t.id),
+    );
   });
 
   await logAudit({

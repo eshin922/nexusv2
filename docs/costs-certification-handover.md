@@ -1,0 +1,932 @@
+# Costs Certification — session handover
+
+**Written 2026-08-06. Amended 2026-08-06 (later).** Resume point for the Costs
+Functional + Operational Certification. Everything below is verified state,
+not intention.
+
+> **Sections 1–2 below are SUPERSEDED.** The five-action reproduction is
+> **held**. It was aborted at Action 1 by a release-blocking defect. Read
+> **Section 0** first — it is the authoritative state of this workstream.
+> Later sections remain accurate as reference for the deployment, the
+> instrumentation and the corrections that had already landed.
+
+---
+
+## 0. Authoritative state (2026-08-06, later session)
+
+### 0.1 Action 1 was aborted — it is not freshness evidence
+
+The five-action reproduction never produced a freshness measurement. Action 1
+(Packaging markup, the store-backed control) aborted, and surfaced two
+release-blocking defects instead:
+
+1. The Packaging row displayed an optimistic derived value for a write that
+   **never persisted**. The operator saw a successful-looking edit that did
+   not exist in the database.
+2. `CanonicalAttachmentResolutionError` crashed the entire Costs workspace
+   during the post-edit render — a full-page runtime boundary, not a handled
+   error.
+
+Action 1 must not be cited as a control. The freshness question is still
+completely open.
+
+### 0.2 Causal chain
+
+One chain, four links:
+
+```
+canonical pointer missing (assembly_leaves.quote_leaf_id IS NULL)
+  → lookupCanonicalAttachmentByLegacyId resolves ZERO rows
+  → CanonicalAttachmentResolutionError escapes the action contract
+      (runAction re-throws anything that is not ActionGuardError)
+  → optimistic projection receives no governed failure, never rolls back
+  → workspace crashes with an unpersisted value still on screen
+```
+
+`src/lib/action-result.ts:115-128` is the escape point: `runAction` converts
+`ActionGuardError` and pg validation errors only, and re-throws everything
+else.
+
+The resolver is reached from exactly two call sites, both **write-path**
+guards — `quoteForAssemblyLeaf` (`src/lib/quote-guards.ts:143`) and
+`quoteForAssemblyLeafInputLineGroup` (`:213`). That is why affected quotes
+render fine until an operator edits something.
+
+### 0.3 Blast radius (measured)
+
+| | |
+|---|---|
+| `assembly_leaves` rows total | 137 |
+| Orphaned (`quote_leaf_id IS NULL`) | **129 (94%)** |
+| Quotes containing legacy rows | 24 |
+| Quotes containing orphans | 21 |
+| Fully pointered quotes | 3 |
+| `quote_leaves` rows database-wide | 17, across 4 quotes |
+
+Affected quote statuses: 10 draft, 8 sent, 2 accepted, 1 complete.
+
+**The three fully-pointered quotes are exactly the three outside the orphan
+set** — confirmed, not assumed:
+
+| Quote | Status | Legacy | Canonical | Orphans | Created |
+|---|---|---|---|---|---|
+| `f88c22e3` Ed's Test Scenario | draft | 3 | 3 | 0 | 2026-08-01 |
+| `2f29af72` Primary (governed fixture) | draft | 3 | 3 | 0 | 2026-08-05 |
+| `52bd0077` ZZ-VALIDATION-tier-propagation | draft | 2 | 2 | 0 | 2026-08-06 |
+
+All three postdate migration `0048` (2026-08-01), which added the
+`quote_leaf_id` column. They are clean because the **current writer** sets
+both sides — not because any backfill ran.
+
+Consequence: **Validation 1 and Validation 2 results stand.** Both fixtures
+are clean. `27581262` (SAMPLE TEST 3 - ED) is 9/9 orphaned and is the
+reproduction case.
+
+### 0.4 Why only 17 canonical rows exist across 4 quotes
+
+The fourth quote is `e23f0e2c` ("5K / 15K / 50K — China sources", **sent**,
+2026-06-18): 9 legacy rows, 9 canonical rows, **9 orphans**. Its canonical
+rows came from `scripts/seed-sample-order.mjs` at Slice 11.5 close, which
+writes `quote_leaves` directly. It predates the pointer column, so nothing
+ever linked the two sides.
+
+So: 3 + 3 + 2 (current writer, linked) + 9 (sample seed, unlinked) = 17.
+
+That also explains the earlier finding that only 9 of 129 orphans resolve to
+exactly one candidate — those 9 are all `e23f0e2c`.
+
+### 0.5 Migration `0049` root cause — it was deliberately gated, and never ran
+
+`drizzle/0049_product_structure_slice1_backfill.sql` exists and performs
+exactly the required repair. **It has never executed.** Four independent
+confirmations:
+
+1. **Its own header states the reason.** Line 1–2:
+   *"Product Structure Slice 1 / Migration B (DRAFT — intentionally absent
+   from `drizzle/meta/_journal.json` until the production review gate
+   opens)."*
+2. **The journal skips it.** `_journal.json` has 54 entries; idx 48 is
+   `0048_product_structure_slice1_expand`, idx 49 is
+   `0051_phase_1_commercial_settings_pins`. Neither `0049` nor `0050` appears.
+   Drizzle executes only journalled migrations, so both files are inert.
+3. **54 journalled, 54 applied** in `drizzle.__drizzle_migrations`. No gap,
+   no partial run.
+4. **Its schema does not exist.** `0049` line 20 is the only
+   `CREATE SCHEMA product_structure_migration` in the tree, nothing drops it,
+   and `pg_namespace` has no such row. Its run log
+   (`slice1_backfill_runs` / `slice1_backfill_manifest`) is **durable**, not
+   temp — had it ever run, the evidence would still be there.
+
+**The real defect is sequencing, not SQL.** This is expand–migrate–contract
+where `0048` (expand) shipped and was journalled, `0049` (migrate) and `0050`
+(contract) were deliberately withheld behind a review gate that never
+opened — **but the runtime resolver that requires the pointer shipped
+anyway.** Code began depending on an invariant whose population step was
+still gated.
+
+Ruled out explicitly:
+
+| Hypothesis | Verdict |
+|---|---|
+| Ran against an earlier, smaller dataset | **No** — the durable schema would survive |
+| Predicate excluded valid legacy rows | **No** — replay classifies 129/129 cleanly |
+| Later rows created by an old writer | **Only 9** (`e23f0e2c`), not 129 |
+| Partial / failed execution | **No** — never started; postcondition would have raised |
+
+`0049`'s postcondition (lines 286–304) raises unless **every** root-level
+`assembly_leaves` row has a valid pointer at commit. A successful run is
+incompatible with 129 orphans.
+
+### 0.6 Replaying `0049`'s classification today — read-only
+
+Its eligibility predicate is:
+
+```sql
+FROM assembly_leaves al JOIN assemblies a ON a.id = al.assembly_id
+WHERE al.parent_assembly_leaf_id IS NULL   -- no nested legacy memberships
+  AND al.quote_leaf_id IS NULL             -- not already pointered
+```
+classified `created` when no `(quote_id, assembly_id, leaf_id)` match exists,
+`reused` otherwise.
+
+Replayed against current data:
+
+| Classification | Rows | Would become |
+|---|---|---|
+| `missing_canonical_row` | **120** | `created` |
+| `exact_existing_match` | **17** | `reused` (9 eligible + 8 already pointered) |
+| all six blocker categories | **0** | — |
+
+Canonical-side blockers (`orphan_canonical_grouped_row`,
+`cross_quote_product_reference`): **0**.
+
+Eligible set = 129 = 120 `created` + 9 `reused`. Source count 137 is under the
+migration's own 250-row ceiling. **Every guard `0049` enforces would pass
+today.**
+
+### 0.7 Is replay idempotent and safe?
+
+The **logic** is idempotent by construction: `CREATE SCHEMA/TABLE IF NOT
+EXISTS`; eligibility filtered on `quote_leaf_id IS NULL`; the `UPDATE` guarded
+again with `AND al.quote_leaf_id IS NULL`; already-linked rows untouched;
+`prior_created_mapping` exists specifically to keep ids stable across a
+rollback-and-rerun.
+
+But **`0049` should not simply be journalled as-is**, for three reasons:
+
+1. It opens with `BEGIN;` and ends with `COMMIT;` while drizzle already wraps
+   migrations in a transaction. Needs verification before execution.
+2. Journalling `0049` invites `0050` (contract) to follow, and `0050`
+   sets `assembly_leaves.quote_leaf_id NOT NULL` (line 103). **That is
+   explicitly out of scope** until this investigation is reviewed.
+3. Its header ties execution to a *"governed external Product Structure write
+   pause"* which has not been arranged.
+
+Recommended scope, **not yet authorized**: a new corrective migration that
+takes `0049`'s classification, guards and postcondition verbatim, omits the
+contract step, and is journalled normally.
+
+### 0.8 Open uncertainty — frozen quotes
+
+11 of the 21 affected quotes are **sent (8), accepted (2), or complete (1)**.
+Backfilling a pointer is identity repair, not commercial mutation — no price,
+cost, quantity or margin changes. But creating `quote_leaves` rows for frozen
+quotes introduces rows that resolution and snapshot paths may read, and
+Pattern 52 (draft-lock snapshot immutability) holds reproducibility by
+**convention**, not by schema.
+
+`0049` copies `quantity`, `position` and `created_at` from the legacy row and
+sets `leaf_spec_version_id` and `pinned_at` to `NULL`, so no specification pin
+is invented. That is reassuring but **not** a proof of commercial neutrality
+for frozen quotes. **This remains open and must be reviewed before any
+population runs.**
+
+---
+
+## 1. Where to resume — SUPERSEDED
+
+**Superseded.** The five-action reproduction is held pending the canonical
+population decision. Deployment facts below remain accurate.
+
+| | |
+|---|---|
+| Branch | `certify/costs-operational` @ `8c31051` (pushed) |
+| Preview | `https://nexusv2-wl66dgpsg-eshin922s-projects.vercel.app` |
+| Quote under test | `52bd0077-20af-4345-8856-45003bfca8b3` |
+| Project | `71ced625-2b64-4887-925a-a524e038ce30` |
+| Costs URL | `/projects/71ced625-…/quotes/52bd0077-…/costs?section=freight` |
+
+Deployment identity was verified by **SHA**, not by alias. Re-verify with
+`vercel ls --json` if anything is redeployed.
+
+> **Do not commit to `certify/costs-operational` before the run.** Any push
+> triggers a new Vercel deployment on a NEW origin, which drops the Clerk
+> session and forces another manual sign-in. Finish the reproduction first.
+
+---
+
+## 2. The open question
+
+Operator reports **field calculations are stale**. This is a **Functional
+Certification blocker** and is NOT yet classified.
+
+The reproduction must identify the first point where the new value becomes
+absent · incorrect · older than the committed revision · correctly calculated
+but omitted from the returned bundle · correctly returned but not visibly
+rendered · or correct throughout but operationally delayed.
+
+Classification is per path, one of: calculation trigger failure · stale
+calculation input · stale authoritative read · stale reconciliation snapshot ·
+stale client render · correct but operationally delayed. **Dual classification
+is allowed** — a functional blocker and an operational blocker are not mutually
+exclusive.
+
+### Standing hypothesis — NOT proven, do not act on it
+
+`grep freightShipmentBreaks src/lib/costing-store.ts` returns **nothing**. The
+Zustand store carries `freightLegGroups / freightLegs / freightLegTiers` — the
+legacy leg model, which `costing.ts:1237` (`worksheetIsAuthoritative`) shadows
+whenever worksheet rows exist. So the store holds inert legacy freight state
+and does not hold the authoritative worksheet inputs.
+
+If that is the cause, a Freight edit **cannot** produce an optimistic recompute
+— the client lacks the inputs to recompute from — while Packaging can, because
+`packaging` rows are store-backed. That is the reason Packaging markup is the
+control case.
+
+This is static evidence plus a hypothesis. It is textbook Pattern 41, which
+CLAUDE.md already names `freight-drilldown.tsx` as an unfixed instance of.
+**Do not implement an optimistic Freight model until the trace names the first
+point where freshness is lost.**
+
+---
+
+## 3. Run procedure
+
+Order: **Packaging markup (control) → Freight amount → Freight markup → Duty →
+Tariff.**
+
+Produce **one joined timeline per action**: client submit revision + value →
+server-received → normalized → persisted + commit revision → authoritative
+worksheet value read → calculation inputs → calculation outputs → bundle
+authority + returned values → reconciliation revision applied → final value
+visibly rendered.
+
+**Join on the post-commit revision.** The write and the RSC read are separate
+requests; the render cannot see the action's `traceId`. The action returns its
+post-commit revision and the client logs `traceId` beside it:
+
+```
+traceId ──(action)──> commitRevision ──(bundle)──> rendered value
+```
+
+`clientRevision` is captured at submit, so **a reconciliation applying an older
+snapshot shows up as a revision going backwards** rather than being inferred.
+
+### Flag explicitly
+
+- revision moves backward
+- authoritative loader reads older than the commit
+- `calc input` differs from `worksheet read`
+- `calc output` correct but bundle or UI stale
+- any previously valid Freight / Duty / Tariff / **Cost Stack** value that
+  temporarily disappears during the sequence
+
+### Boundaries
+
+Use **trace events**, not arbitrary polling, as timing boundaries. Read the
+affected worksheet cell and the Cost Stack value at three points: immediately
+after submission, when `reconcile applied` fires, and when the RSC render
+completes.
+
+**The final boundary must be DOM-confirmed** — rendered revision and value.
+Network completion is NOT operator-visible completion. (Browser-side request
+status has already been wrong once this session; see §7.)
+
+### Known gaps — label, do not infer
+
+- **Duty and Tariff** write through `updateFreightCustomsBreak`, which is **not**
+  instrumented for points 2 / 2b / 3. Substitute a direct post-write DB read
+  stamped with its own `now()` and `pg_snapshot_xmax`, and mark
+  server-received / normalized / action-persisted as **NOT INSTRUMENTED**.
+- **Packaging** has client timing plus the shared `calc input` / `calc output` /
+  `bundle returned` events (those live in the bundle and fire for every
+  surface), but no packaging-specific 2 / 2b / 3. Edward ruled this sufficient
+  for the control — do not add more before the run.
+- **Tier 4 has no quantity** and correctly renders `—`. Use **Tiers 1–3 only**
+  for per-unit freshness.
+
+---
+
+## 4. Instrumentation reference
+
+Two collectors, both gated on `NEXT_PUBLIC_VERCEL_ENV !== "production"`
+(deliberately not `NODE_ENV` — preview builds run `NODE_ENV=production`, which
+would silence exactly the environment being measured).
+
+**`[costs-trace]`** — `src/lib/costs-trace.ts`, follows a VALUE. One JSON line
+per event; fields: `point`, `traceId`, `quoteId`, `action`, `destinationId`,
+`breakId`, `tierId`, `clientRevision`, `serverRevision`, `authority`, `values`,
+`at`.
+
+| Point | Location | Captures |
+|---|---|---|
+| `submit` (client) | `freight-drilldown.tsx` | input, `traceId`, `clientRevision` |
+| `action received` | `updateFreightDestinationBreakGroup` | raw values before coercion |
+| `action normalized` | same, per break | next values **+ the priors they replace** |
+| `action persisted` | same, post-commit | DB read-back + commit revision + `now()` |
+| `worksheet read` | `loadWorksheetFreightForQuote` | what the authoritative loader read |
+| `calc input` | bundle, pre-compute | exact inputs to `computeQuoteCosting` |
+| `calc output` | bundle, post-compute | per-tier freight/packaging/production/serviceFees/totalCost/margin |
+| `bundle returned` | bundle return | worksheet vs legacy row counts + authority |
+
+`authority: worksheet | legacy | none` is emitted on every read-side event, so
+a value sourced from the shadowed model is visible rather than deduced.
+
+**`[costs-timing]`** — `src/lib/costs-timing.ts`, measures DURATION. All three
+surfaces now share one format (Freight previously emitted its own
+`[freight-timing]`, which made the surfaces incomparable). Stages: `submit`,
+`action start`, `action complete`, `refresh coalesced`, `refresh start`,
+`browser update` (fired on rAF, so it reports when the operator can READ the
+value). `scheduleReconcile` marks **armed / re-armed / superseded / applied** —
+counts, not durations, because one edit can arm, coalesce and apply repeatedly.
+
+Server-side `[costs-trace]` and `[bundle:*]` / `[costs:<quote>]` marks land in
+**Vercel function logs**; client marks in the **browser console**.
+
+The client reads the revision through the store **API**, not a subscription, so
+tracing cannot itself trigger a re-render and perturb what it measures.
+
+---
+
+## 5. Certification state
+
+| Item | State |
+|---|---|
+| Tier propagation | **PASSED** — Validation 2, all seven checks |
+| Freight Type enum contract | **PASSED** |
+| Tier ordering | Correction built + deployed; **browser proof pending** |
+| Field calculation freshness | **OPEN · release-blocking** — reproduction not run |
+| Costs responsiveness / lag | **OPEN · release-blocking** |
+| PR #183 effectiveness | **Not proven** |
+| Costs Functional Certification | **OPEN** |
+| Costs Operational Certification | **Not started** — correctly blocked behind functional |
+
+### Held — do not start until functional is closed
+
+- Nine-action responsiveness audit (Add Destination, Record Shipment, Freight
+  Type change, Freight amount change, Duty change, Tariff change, Packaging
+  markup change, Component Attach, Cost Stack update).
+  Pass conditions are not "fewer refreshes": one governed reconciliation cycle
+  per action burst · no duplicate submission window · no disappearing or
+  reappearing values · no Cost Stack temporary loss of Freight/Duty ·
+  operator-visible completion in an acceptable range · scroll and editing
+  context preserved.
+- Any optimistic Freight model.
+- PR #182 (`fix/setup-costs-inheritance`) — Validation 3, not yet run, and
+  deliberately **excluded** from the certification branch.
+- PR #180 / PR-F, publication `0036`, PR-G, Phase 3.
+
+### Responsiveness — measured, not impression
+
+One add-destination on the pre-coalescing branch:
+
+```
+05:04:56.119  POST starts   [bundle:tiers] 404ms
+05:04:57.572  destination row committed        → ~1.45s write path
+05:04:58.122  GET render #1 [bundle:nm.assemblies] 669ms · post-meta 768ms
+05:04:58.505  GET render #2 [bundle:quote_lookup] 997ms · post-auth 566ms
+05:04:58.987  GET render #3 post-auth 829ms
+```
+
+Three concurrent full-bundle re-renders per write, stages approaching 1s.
+Refresh amplification remains the **hypothesis**; PR #183's coalescing is in
+the certification branch but its effectiveness is unproven.
+
+---
+
+## 6. Branch inventory
+
+| Branch | Head | Contains |
+|---|---|---|
+| `certify/costs-operational` | `8c31051` | all five corrections + instrumentation |
+| `fix/costs-reconciliation-ordering` | `231967e` | Validation 1 **PASS** |
+| `fix/tier-freight-break-propagation` | `7972abf` | Validation 2 **PASS** |
+| `fix/freight-mode-enum-contract` | `9f24145` | enum contract |
+| `fix/freight-tier-ordering` | `fac311e` | tier alignment |
+| `fix/freight-shipment-membership` | `461d2b2` | PR #183, coalescing |
+| `validate/tier-freight-break-propagation` | `3f61a97` | propagation + enum + ordering |
+| `fix/setup-costs-inheritance` | `e0f30da` | PR #182, **not** in certification branch |
+
+**No PRs opened** for the correction branches. 222/222 unit tests, TypeScript
+clean, all prebuild verifiers PASS on `certify/costs-operational`.
+
+Merge note: `freight-drilldown.tsx` conflicted between PR #183's action-scoped
+pending and the enum + ordering changes. Resolved keeping **both** —
+`busy(...)` / `submit(action, key)` scoping retained, `cells.map` alignment
+applied on top. `rows.map` count is 0.
+
+---
+
+## 7. Data state and cautions
+
+**Governed fixture `2f29af72-805b-446c-866c-73e9b0991b1a` — untouched.**
+Re-verify at close:
+
+| Slice | Digest |
+|---|---|
+| quote | `2905b287e4be07ac76a4d77b1913cdf3` |
+| tiers | `8531e9c59e3dc36c17188b3e0e371c95` |
+| breaks | `4935793b4851b6694db4557af9fd0748` |
+| packaging | `aae4b5a05b36ddb600a05eb974d80cfe` |
+
+**`52bd0077`** is the Validation 2 evidence artifact — preserve. State: 3
+destinations (Los Angeles CA selected, ZZ-VAL Newark NJ, ZZ-VAL Savannah GA),
+4 tiers (1,000 / 5,000 / 10,000 / none), 12 break rows, LA in differs-by-break
+with amounts 4200 / 4200 / 9000 / null at 18% markup.
+
+### Cautions earned the hard way this session
+
+- **Browser-reported 503s are unreliable.** `read_network_requests` reported
+  503 for a POST that demonstrably committed. Vercel logs showed no error.
+  Always correlate against server logs before treating a 503 as real.
+- **The `find` tool mislabels table columns.** It reported markup fields as
+  "Tier 1" twice and contaminated two validation runs. Verify column identity
+  from the **database** or from the `aria-label` attributes added in
+  `fac311e` (`Freight type · Tier N`, `Item or description · Tier N`).
+- **`form_input` does not fire blur.** Number and text inputs commit on blur —
+  set the value, then click the field and press Tab. `<select>` commits on
+  change and needs no blur.
+- **Shared dev/prod Supabase.** Any migration or manual SQL is a production
+  change. Session-mode pooler `:5432` only.
+- **`git add -A` sweeps scratch files.** `q-validation.mjs` / `q-watch.mjs` are
+  in `.git/info/exclude`. `tests/e2e/costing/costs-reconciliation-ordering.spec.ts`
+  is deliberately untracked — it belongs to
+  `fix/costs-reconciliation-ordering`, not to any commit made so far.
+
+---
+
+## 8. Cleanup owed when certification closes
+
+Both instrumentation modules are marked TEMPORARY and must be removed once the
+verdict is recorded: `src/lib/costs-trace.ts`, `src/lib/costs-timing.ts`, and
+their call sites in `freight-drilldown.tsx`, `packaging-drilldown.tsx`,
+`production-drilldown.tsx`, `costing-store-provider.tsx`,
+`freight-worksheet.ts`, `costing.ts`.
+
+---
+
+## 0.9 Confirmed findings logged 2026-08-06
+
+### F-1 · Invariant-governance defect — six raw-SQL fixture writers
+
+**Confirmed defect. Release-blocking for `NOT NULL` enforcement, not for Costs
+certification.**
+
+Production code cannot create an unpointered `assembly_leaves` row:
+`src/lib/product-structure/grouped-membership-compatibility.ts` is the only
+writer in `src/`, it inserts the canonical `quote_leaves` row first and always
+sets `quoteLeafId`, and both callers (`actions/assemblies.ts` for create and
+attach, `actions/quotes.ts` for clone, copy and revision) route through it.
+
+Six writers under `scripts/` bypass it entirely with raw SQL:
+
+| File | Line |
+|---|---|
+| `scripts/seed-sample-order.mjs` | 365 |
+| `scripts/provision-cb-step10-fixture.ts` | 284 |
+| `scripts/provision-cb-step8b-fixture.ts` | 169 |
+| `scripts/provision-cb-step8c4-fixture.ts` | 221 |
+| `scripts/smoke/mark-complete.ts` | 254 |
+| `scripts/parity/so-field-parity.ts` | 395 |
+
+All six do `INSERT INTO assembly_leaves (assembly_id, leaf_id, quantity,
+position)` with no pointer. **These are the origin of the 129 orphans.** This
+is Pattern 53 at structural rather than commercial grain: fixtures that do not
+mirror what production writers do, which is how a structural invariant was
+violated 129 times without any surface reporting it.
+
+Sequence, in order, each as its own change:
+1. Route all six through the canonical creation path.
+2. Validate that fixture provisioning still produces pointered rows.
+3. Only then propose `assembly_leaves.quote_leaf_id NOT NULL` as a separate
+   governed change.
+
+Applying the constraint before step 1 would break every fixture provisioner
+and every CB smoke walk.
+
+### F-2 · Process finding — shared-database migration authorization
+
+**Standing process change, effective immediately.**
+
+Migration `0056` was authored, journalled and applied inside a single working
+session against the **shared dev/prod Supabase project**. It was transactional
+and fail-closed, and the disposition authorizing the repair was explicit — but
+authorization to *perform a repair* is not the same as authorization to
+*execute it against production at a particular moment*.
+
+**Future migrations against the shared database require explicit execution
+authorization before application, separately from approval of the change
+itself.** Transactional safety and a fail-closed postcondition reduce the blast
+radius of a bad migration; they do not substitute for the operator choosing
+when production is written to.
+
+The correct shape: author the migration, report the predicted classification
+and the digest plan, then STOP and request execution authorization. Apply only
+on an explicit go.
+
+Related: the existing "Single Supabase project" section of CLAUDE.md already
+warns that any local migration is a production migration. That warning covers
+the hazard; this finding adds the missing control.
+
+### F-3 · Ordering-contract gap — all non-break Freight write paths
+
+**Confirmed engineering defect. No operator-visible symptom on current
+evidence. Fix before release.**
+
+The freight-break write returns a committed revision, which is what lets the
+client prove the snapshot it applies is at least as new as its own write:
+
+```
+freight committed  t274440-g4h3 rev=19730
+freight committed  t389906-6o1x rev=19766
+```
+
+The customs write does not:
+
+```
+freight committed  t423062-jz2d rev=?      (first customs write)
+freight committed  t436232-c9rb rev=?      (Duty)
+freight committed  t553211-4znz rev=?      (Tariff)
+```
+
+Duty and Tariff both converged correctly during the five-action trace, so no
+stale snapshot was observed and neither path is classified as
+`stale reconciliation snapshot`. But they converged **by timing, not by
+contract**. Without a committed revision the client has no basis to reject an
+older snapshot, so under contention — two operators on one quote, or a slow
+read racing a fast second edit — this path has no defence against applying
+stale state.
+
+This is the same defect class the reconciliation-ordering work already closed
+for freight breaks. The fix is to extend that contract: have the customs
+action return `pg_snapshot_xmax(pg_current_snapshot())` the way
+`updateFreightDestinationBreakGroup` does, and have the client thread it
+through the same comparison.
+
+**BROADENED 2026-08-06 after the eight-action baseline.** The gap is not
+customs-specific. A source audit of `src/app/actions/freight-worksheet.ts`
+shows **10 of 11 freight mutation actions return no revision** — only
+`updateFreightDestinationBreakGroup` (line 282) carries
+`pg_snapshot_xmax(pg_current_snapshot())`:
+
+| Action | Returns revision |
+|---|---|
+| `updateFreightDestinationBreakGroup` | **yes** |
+| `createFreightSubcategory` (Record Shipment) | no |
+| `addFreightDestination` (Add Destination) | no |
+| `updateFreightCustomsBreak` (Duty / Tariff) | no |
+| `updateFreightCustomsEntry` | no |
+| `updateFreightSubcategory` | no |
+| `updateFreightDestination` | no |
+| `updateFreightDestinationBreak` | no |
+| `selectFreightDestination` | no |
+| `deleteFreightDestination` | no |
+| `updateFreightTracking` | no |
+
+Confirmed at runtime across 20 commits: every `breaks` commit logged a real
+revision (19692 … 19887); every `customsBreak`, `addDestination` and
+`createShipment` commit logged `rev=?`.
+
+Extend the committed-revision contract to all ten. Do not wait for an observed
+race — the guarantee either holds for the surface or it does not.
+
+Evidence: five-action freshness trace + eight-action baseline, 2026-08-06,
+quote `52bd0077`.
+
+### F-4 · PR #183 verdict — refresh amplification
+
+`PASS — refresh amplification resolved; insufficient by itself to satisfy
+responsiveness.`
+
+The eight-action baseline shows **exactly one reconciliation cycle per action**
+with a coalescing window stable at 400–403 ms in every case. Amplification is
+gone. But the shared bundle read remains 7.3–7.8 s regardless of write shape,
+so coalescing alone does not reach the responsiveness bar. Classify #183 as
+effective-but-insufficient, not ineffective.
+
+### F-5 · Shipment lifecycle gap — Record Shipment is create-only
+
+**Confirmed defect. Costs certification blocker. NOT a prerequisite for the
+regional latency experiment.**
+
+`createFreightSubcategory` creates a shipment. Nothing deletes one. There is no
+`deleteFreightSubcategory` in the action layer, no remove control in
+`freight-drilldown.tsx`, and no `delete(freightSubcategories)` anywhere in the
+tree. The only deletes in `freight-worksheet.ts` are on subcategory *items*
+(line 171), destinations (399) and tracking (466).
+
+An operator who records a shipment by mistake cannot undo it. Discovered while
+attempting governed cleanup of the audit fixture, which is why the inert
+`ZZ-AUDIT baseline shipment` remains in quote `52bd0077`.
+
+**Do not solve this with an unreviewed hard delete.** Decide first:
+
+1. **Delete vs archive/void.** A shipment that was real and is now cancelled is
+   not the same as one recorded in error. Commercial history may need the
+   former retained.
+2. **Non-empty behaviour.** What happens when destinations, breaks, customs
+   amounts or commercial values exist? Refuse, cascade, or require the operator
+   to empty it first.
+3. **Cascade boundaries.** `freight_destinations` → `freight_destination_breaks`
+   → tracking, and `freight_customs_entries` → `freight_customs_breaks`. Which
+   of these follow the shipment out, and which are blocked by their presence.
+4. **Recoverability.** Hard delete is unrecoverable in a shared prod database
+   with no dev/staging split (see "Single Supabase project"). Soft-delete with
+   a restore path may be the safer default.
+5. **Audit history.** Per the transition-not-mechanism convention, the action
+   name records the state change; `diff_json` carries the pre-delete snapshot
+   of the shipment plus every cascaded row, as `deleteSku` does for subtrees.
+6. **Operator confirmation.** Destructive and outward-facing enough to warrant
+   explicit confirmation naming what will be removed.
+7. **Frozen-quote restriction.** Must call `assertNotFrozen` (Pattern 52) — a
+   sent, accepted or complete quote's freight structure is part of what was
+   quoted. Only the sanctioned reopen paths may touch it.
+
+Reference: audit fixture cleanup, 2026-08-06, quote `52bd0077`.
+
+### Revised fixture baseline — quote `52bd0077` (pre-intervention)
+
+Captured 2026-08-06 WITH the inert `ZZ-AUDIT baseline shipment` present, per
+the disposition to re-baseline rather than implement deletion for cleanup. The
+audit record must remain unchanged and no further audit records may be added
+during the before/after comparison.
+
+| Entity | Count |
+|---|---|
+| freight_subcategories (shipments) | 2 |
+| freight_destinations | 4 |
+| freight_destination_breaks | 16 |
+| freight_customs_entries | 1 |
+| freight_customs_breaks | 4 |
+| quote_tiers | 4 |
+| assemblies | 1 |
+| assembly_leaves | 2 |
+| quote_leaves | 2 |
+
+Digests — must be identical in the post-intervention run:
+
+```
+freight_digest  0fed0bf6828550630803745e1c50fed0
+customs_digest  2015fb21d13b1b41c0ac9072bef1b1aa
+tier_digest     5d3f134870f5beff7dcf02af61c68586
+```
+
+`freight_digest` covers shipment label, destination, tier, amount, markup, mode
+and shipment note across all 16 breaks. `customs_digest` covers charge type,
+tier, amount and markup across all 4 customs breaks (all amounts NULL).
+`tier_digest` covers label, qty, sort order, per-tier adjustment and the
+recommended flag.
+
+The inert shipment adds one subcategory, one destination and four breaks to the
+bundle's row counts. That shifts absolute bundle size slightly but is constant
+across both runs, so the controlled comparison holds.
+
+---
+
+## 0.10 Regional co-location — controlled experiment, ACCEPTED 2026-08-06
+
+**Result: cross-region execution was the dominant cause of Costs latency.
+Shared bundle latency is no longer a release blocker.**
+
+### Change
+
+One file, four lines — `vercel.json` declaring `"regions": ["pdx1"]` (Vercel
+Portland = AWS us-west-2, the database's region). Commit `3d0a8c6`. No
+application logic, reconciliation, prepared-statement, batching, caching or
+bundle changes. The staged diff was verified as `1 file changed, 4 insertions`
+before commit.
+
+### Runtime verification gate
+
+Confirmed from a live request, not deployment metadata:
+
+```
+fnRegion=pdx1  dbRegion=us-west-2  port=5432  route=pooler:session
+preparedStatements=disabled  poolMax=3  idleTimeout=10s
+```
+
+### Measured outcome
+
+| Metric | Baseline (iad1) | Co-located (pdx1) | Improvement |
+|---|---|---|---|
+| Freight amount, operator-visible | 11,328 ms | 2,503 ms | 4.5× |
+| Duty, operator-visible | 9,876 ms | 2,172 ms | 4.5× |
+| Shared bundle read-back | 7,289–7,814 ms | 772–960 ms | ~8–9× |
+| Persistence | 2,122–3,697 ms | 745–1,329 ms | ~2.8× |
+| Coalescing | ~400 ms | ~400 ms | unchanged |
+| `getCostingBundle` server-side | 6,011–9,046 ms | 68–168 ms | ~50–90× |
+| Full RSC render | 15,197–17,579 ms | 291–950 ms | ~18–52× |
+
+Six write cycles measured across two paths (`breaks`, `customsBreak`).
+Function memory fell from 55–65 MB to 21–48 MB.
+
+**The architectural consequence: the shared read is no longer the dominant
+cost.** Persistence is now the largest remaining component of an operator
+action. Every optimisation scoped against a 7-second bundle — prepared
+statements, query batching, bundle decomposition, query-graph redesign — lost
+its justification with this change and is NOT scheduled. Reassess only if a
+future measurement identifies a new bottleneck.
+
+`prepare: false` remains historical under session mode but has no measured
+performance benefit. Cleanup, not a performance initiative.
+
+### Functional correctness preserved
+
+Revisions monotonic on the breaks path (20070 → 20073 → 20075 → 20079 → 20082
+→ 20091 → 20100). Values persisted and reverted correctly. No stale reads, no
+disappearing values, no context loss, no duplicate exposure. Fixture digests
+verified identical before and after every cycle.
+
+### New engineering observation — two reconciliation events
+
+The speedup separated what used to collapse into one cycle: one reconcile from
+realtime, one from refresh, consistently across all six cycles. No looping, no
+stale values, no context loss. This is NOT refresh amplification returning, and
+PR #183's "exactly one cycle per action" no longer holds literally. Recorded as
+an observation, not a regression. Reconciliation behaviour deliberately
+unchanged in this branch.
+
+### Unmeasured
+
+Four of nine actions were not re-run post-move: Packaging markup, Add
+Destination, Record Shipment, Component Attach. Freight markup and Tariff are
+covered by path-equivalence (they share `breaks` and `customsBreak`
+respectively, both measured over multiple cycles) but were not run under their
+own labels. Confirmation work, not discovery.
+
+### Certification state at close
+
+| | |
+|---|---|
+| Functional Certification | PASS |
+| Cross-region deployment mismatch | RESOLVED |
+| Shared bundle latency | RESOLVED — no longer a blocker |
+| Refresh amplification | PASS |
+| Canonical population / crash handling / optimistic rollback | PASS |
+| F-3 Freight causal revision contract | OPEN · release-blocking |
+| Destination duplicate/idempotency | OPEN · release-blocking |
+| F-5 Shipment lifecycle | OPEN · release-blocking |
+| Add Destination pending proof | OPEN · empirical |
+
+Remaining effort is workflow correctness, engineering contracts and lifecycle
+governance — not platform responsiveness.
+
+---
+
+## 0.11 F-3 Phase A complete · Phase B specified
+
+### Phase A — producer contract: PASS (`32b09a3`)
+
+All eleven Freight mutations return a committed revision via a shared
+`committedRevision()` helper. Five structural tests convert the contract from
+convention into an enforceable invariant — the important one being "no exported
+action that revalidates escapes the sweep", which fails when a NEW mutation
+lands without the contract. That is how the gap opened originally.
+
+### Phase B — consumer contract: OPEN
+
+**The question to answer, and only this one:** given two reconciliation
+candidates, which satisfies the causal contract established by the originating
+write?
+
+**Why monotonicity is not already the answer.** The store enforces
+`snap.revision <= lastAppliedRevision → drop`
+(`costing-store-provider.tsx`, `tryReconcile`). That guarantees reconciliation
+never goes backwards. It does NOT guarantee a snapshot contains the operator's
+own write.
+
+**The concrete failure it permits.** Let `lastApplied = 100` and the operator's
+write commit at revision `120`. A realtime snapshot arrives at revision `110`:
+newer than what is applied, so the monotonic gate passes it — but it predates
+the write, so it does not contain the operator's change. Applying it reverts the
+value on screen until the second reconcile at ≥120 restores it.
+
+This is exactly the window the post-co-location split exposed: realtime and
+refresh now resolve as two distinct events (0.10) instead of collapsing into
+one, so a candidate landing between `lastApplied` and the write's revision is
+now reachable in a way it was not at 7-second reads.
+
+**Shape of the fix:**
+
+1. Store gains `pendingWriteRevision: number | null`.
+2. On a successful mutation the client calls something like
+   `awaitCommitted(result.data.revision)` — the producer half already returns
+   it on every path.
+3. `tryReconcile` holds (does not drop) any snapshot with
+   `revision < pendingWriteRevision`, and clears the pending marker when a
+   snapshot at or beyond it applies.
+4. Hold, do not discard: the awaited snapshot may never arrive if the write was
+   the last event, so the existing quiet-period retry is the natural carrier.
+   A timeout fallback is needed so a lost revision cannot wedge reconciliation
+   permanently.
+
+**Do not fold in:** destination idempotency, F-5, the pending-state proof, or
+the deferred server-side `timed()` cleanup. Phase B alters runtime
+reconciliation on a functionally certified workspace and needs its own
+verification pass.
+
+**Verification should include** a test that a snapshot between `lastApplied`
+and `pendingWriteRevision` is not applied, and one that reconciliation still
+converges when no write is pending (the common case must be unaffected).
+
+### 0.12 F-3 Phase B implemented · Add Destination pending proof CLOSED
+
+**Phase B — causal reconciliation: implemented.** Store carries
+`awaitedRevision` / `awaitedSince`; `awaitCommitted()` keeps the highest
+outstanding threshold; the provider's `tryReconcile` holds sub-threshold
+candidates on the existing quiet-period retry and releases after
+`CAUSAL_TIMEOUT_MS = 5000` with a governed warning that does not claim causal
+confirmation. Freight writes feed their committed revision in on success.
+
+Decision order is monotonic-first, then causal — asserted structurally so the
+causal gate can never be reordered ahead of the staleness drop.
+
+**Add Destination pending proof — CLOSED.**
+`Code-verified; direct empirical capture unavailable because the browser-tool
+round trip exceeds the pending window.`
+
+The control carries `disabled={pending}` with an action-scoped key
+(`addDestination:${shipment.id}`), Pattern 47(f)-compliant. Three attempts to
+observe the ~2.5s pending label failed because a `find`/screenshot round trip
+is comparable to or longer than the window itself — a tooling limit, not
+evidence about the code. The material residual risk is the separate
+server-side duplicate defect, which is tracked independently and is where the
+real exposure lives.
+
+### 0.13 Migration 0057 applied · idempotency retention follow-up
+
+**Migration `0057_action_idempotency` applied 2026-08-06 under explicit
+execution authorization.** Pre-execution: 56 journal entries, 55 applied, table
+absent, sole executable statement `CREATE TABLE IF NOT EXISTS` with no ALTER,
+DROP, trigger or foreign key against any Freight table. Post-execution: table
+present with `key` as PRIMARY KEY; 56 applied; `0057` journalled exactly once;
+Freight counts unchanged at 11 destinations / 37 breaks / 4 shipments with
+digest `55b963af…` identical before and after; the four Texas alternatives
+unchanged at digest `99f35b32…`.
+
+### F-6 · Idempotency record retention — NON-BLOCKING
+
+`action_idempotency` grows by one row per protected submission and nothing
+prunes it. Not an operational concern at ~12 operators — a row is a key, an
+action name and a small JSON result, so growth is measured in kilobytes per
+year — and deliberately excluded from release hardening.
+
+Decide before it matters:
+
+- **Retention window.** A key only needs to outlive the retries of its own
+  submission. Hours would do; days is generous. The risk of pruning too
+  aggressively is that a late retry creates a duplicate, which is the defect
+  the table exists to prevent — so the window should exceed any plausible
+  client retry horizon, not merely the request timeout.
+- **Mechanism.** A periodic delete is simplest. Pruning inline on write would
+  put cleanup cost on the operator's path for no benefit.
+- **Scope.** Keys with a null `result` are failed attempts whose claim rolled
+  back; they should not accumulate, and their presence would indicate a leak
+  worth understanding rather than sweeping.
+
+Revisit if the table exceeds a size where it shows up in query plans or
+backups. Until then it is inert.
+
+### F-7 · Pattern 52 derived-output coverage — GOVERNANCE FINDING
+
+**Separate from F-5 implementation. Not release-blocking; affects future freeze
+certification.**
+
+`docs/pattern-52-freeze-list.md` enumerates 30 named columns across three
+checkpoints. Freight appears in none of them — a grep for "freight" returns
+nothing.
+
+That absence is not permission. Freight reaches the customer through **derived
+commercial output**: shipment amounts, markups and customs values feed the tier
+totals rendered on the sent PDF. Deleting a shipment from a sent quote would
+change what the customer was quoted while touching no column the freeze list
+watches. The column inventory would report full compliance.
+
+F-5 handles this correctly by calling `assertNotFrozen` regardless, on the
+reasoning that a derived-output input deserves the same protection as a
+snapshot column. But that was a judgement made at the call site, not something
+the governance model required — which means the next author of a
+freight-adjacent mutation could reason the opposite way and be equally
+consistent with the documented rules.
+
+**What future freeze certification must cover:** authoritative INPUTS to
+derived commercial outputs, not only named snapshot columns. The question to
+ask of a mutation is not "does this write a freeze-list column?" but "could
+this change what the customer was quoted?"
+
+Candidates to inventory when this is taken up: freight subcategories,
+destinations, destination breaks, customs entries and breaks; and by the same
+logic any packaging or production input that feeds a tier total.
+
+Reference: F-5 shipment lifecycle, 2026-08-06.

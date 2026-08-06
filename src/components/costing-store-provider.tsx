@@ -76,6 +76,12 @@ const StoreContext = createContext<CostingStore | null>(null);
 const QUIET_PERIOD_MS = 800;
 // Polling interval while waiting for user to pause typing. 200ms feels
 // responsive without being chatty.
+// F-3 Phase B — how long the causal gate may hold a monotonic snapshot while
+// waiting for one that contains the operator's own write. Generous relative to
+// a post-co-location round trip (~800ms end to end), so it releases only when
+// the awaited revision genuinely is not coming.
+const CAUSAL_TIMEOUT_MS = 5000;
+
 const RETRY_INTERVAL_MS = 200;
 // Realtime event coalesce window. Multiple postgres_changes events
 // within this window collapse into one re-fetch + reconcile attempt.
@@ -136,16 +142,68 @@ export function CostingStoreProvider({
   // useCallback with empty deps because the function only references refs
   // (storeRef, debounceRef) — both stable across renders. The captured
   // `snap` parameter is fresh per call.
+  // Two independent protections. They guard different failures and neither
+  // substitutes for the other:
+  //
+  //   ORDERING (authoritative, in the store) — `snapshot.revision` vs
+  //   `lastAppliedRevision`. Guarantees a server render that predates one
+  //   already applied can never overwrite it, no matter what order the
+  //   responses arrive in.
+  //
+  //   QUIET PERIOD (here) — defers while the operator is actively typing, so
+  //   even a genuinely newer snapshot does not interrupt mid-entry.
+  //
+  // Cancelling the timer is deliberately NOT relied on for freshness. It only
+  // avoids redundant work: clearTimeout discards a pending *callback*, but
+  // each scheduled call had already captured its own snapshot in closure, so
+  // whichever ran last won by arrival order. That is the defect this replaces
+  // — the guard now lives in the store, where it cannot be raced.
   const scheduleReconcile = useCallback((snap: HydrateSnapshot) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
+    // Counting arm / superseded / applied separately is what distinguishes
+    // "one action produced N reconciliation cycles" from "one action produced
+    // N re-renders that mostly did nothing".
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    } else {
+    }
     const tryReconcile = () => {
-      const lastEdit = storeRef.current?.getState().lastUserEditAt ?? 0;
-      const sinceEdit = Date.now() - lastEdit;
+      const state = storeRef.current?.getState();
+      if (!state) return;
+      // Drop a snapshot already superseded rather than holding a retry timer
+      // alive for it through the whole quiet period.
+      if (snap.revision <= state.lastAppliedRevision) {
+        return;
+      }
+      // F-3 Phase B — write causality. Monotonicity above proves this snapshot
+      // is newer than what is applied; it does NOT prove it contains the
+      // operator's own write. A candidate between lastApplied and the awaited
+      // revision would revert their value on screen until a later one restored
+      // it, so it is HELD rather than applied. The newest candidate wins
+      // automatically: each scheduleReconcile clears the prior timer, so a
+      // fresher snapshot replaces a held one instead of queueing behind it.
+      const awaited = state.awaitedRevision;
+      if (awaited !== null && snap.revision < awaited) {
+        if (Date.now() - state.awaitedSince < CAUSAL_TIMEOUT_MS) {
+          debounceRef.current = setTimeout(tryReconcile, RETRY_INTERVAL_MS);
+          return;
+        }
+        // Bounded release. A revision that never arrives — a dropped realtime
+        // event, a write whose snapshot is superseded before delivery — must
+        // not wedge reconciliation forever. Monotonicity still holds after
+        // this point; what is given up is only the causal guarantee, and the
+        // log says so rather than implying the write was confirmed.
+        console.warn(
+          `[causal-gate] released after ${CAUSAL_TIMEOUT_MS}ms without a snapshot at revision >= ${awaited}; continuing under monotonic ordering only`,
+        );
+        state.releaseAwaited();
+      }
+      const sinceEdit = Date.now() - state.lastUserEditAt;
       if (sinceEdit < QUIET_PERIOD_MS) {
         debounceRef.current = setTimeout(tryReconcile, RETRY_INTERVAL_MS);
         return;
       }
-      storeRef.current?.getState().reconcile(snap);
+      // The store re-checks the revision; this is not the enforcement point.
+      state.reconcile(snap);
     };
     debounceRef.current = setTimeout(tryReconcile, 100);
   }, []);
