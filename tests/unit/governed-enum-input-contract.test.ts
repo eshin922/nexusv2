@@ -68,7 +68,14 @@ test("the guard admits every enum value and rejects operator-shaped strings", ()
 test("Freight Type is a governed selector, not free text", async () => {
   const drilldown = await read("src/components/costs/freight-drilldown.tsx");
 
-  const control = drilldown.match(/<select[^>]*name=\{`mode:\$\{row\.tierId\}`\}[^>]*>/);
+  // SUPERSEDED 2026-08-06 by the tier-ordering correction. This originally
+  // matched `mode:${row.tierId}` — addressing the write from the BREAK ROW.
+  // Validation 2 proved the break array arrives in Postgres heap order, so
+  // that addressed a different tier than the operator was looking at. The
+  // control is now addressed by the COLUMN's tier. Tier-2 precedence: an
+  // operator-facing correctness correction outranks the earlier contract
+  // shape. See tests/unit/freight-tier-alignment.test.ts.
+  const control = drilldown.match(/<select[^>]*name=\{`mode:\$\{tier\.id\}`\}[^>]*>/);
   assert.ok(control, "Freight Type must render a <select> bound to mode:<tierId>");
 
   // Options come from the shared vocabulary, so the control cannot drift from
@@ -80,7 +87,7 @@ test("Freight Type is a governed selector, not free text", async () => {
 
   assert.doesNotMatch(
     drilldown,
-    /<input[^>]*name=\{`mode:\$\{row\.tierId\}`\}/,
+    /<input[^>]*name=\{`mode:\$\{tier\.id\}`\}/,
     "Freight Type must not be free text",
   );
 });
