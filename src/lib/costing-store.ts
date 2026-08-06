@@ -281,9 +281,27 @@ export type HydrateSnapshot = {
   /**
    * Freshness authority for reconciliation ordering.
    *
-   * Stamped SERVER-side at snapshot construction (`getCostingBundle`), so
-   * every snapshot for a quote is measured on the same clock domain and two
-   * snapshots are directly comparable. The client never mints one.
+   * A Postgres transaction marker — `pg_snapshot_xmax(pg_current_snapshot())`
+   * — captured on the FIRST read of `getCostingBundle`. It advances when a
+   * transaction commits, so it orders snapshots by **what they could see**,
+   * not by when they finished.
+   *
+   * A wall clock cannot do this job. Stamped at completion it orders render
+   * completion, which loses the earlier-start/later-finish race:
+   *
+   *     A begins (reads pre-mutation data)
+   *     mutation commits
+   *     B begins (reads post-mutation data)
+   *     B completes first
+   *     A completes LAST  ->  higher completion time, older data, A wins
+   *
+   * Taken at the start and sourced from the database counter, A's revision is
+   * strictly lower than B's and is rejected regardless of arrival order. It is
+   * also skew-free: one database clock rather than N function-instance clocks.
+   *
+   * Conservative by construction. A read beginning before a commit may still
+   * observe it, so its revision can understate freshness — that costs a
+   * discarded update, never a corrupted one.
    *
    * This exists because reconciliation previously had NO ordering guarantee:
    * the provider cancelled a pending *timer*, but each scheduled call had

@@ -148,15 +148,67 @@ test("every Costs slice is protected, not only Packaging", async () => {
   }
 });
 
+test("earlier-start / later-finish: A must not overwrite B", () => {
+  // The race that invalidated a completion-time revision:
+  //
+  //   A begins        (reads pre-mutation data)      revision = 100
+  //   mutation commits                               counter  -> 101
+  //   B begins        (reads post-mutation data)     revision = 101
+  //   B completes first                              applied
+  //   A completes LAST                               must be REJECTED
+  //
+  // A finishes later but read older data. A wall clock stamped at completion
+  // would give A the higher value and let stale data win. The revision is
+  // therefore a database transaction marker captured on the bundle's FIRST
+  // read, so it orders by what the snapshot could see, not by when it landed.
+  const store = makeCostingStore(snapshot(100, "pre-mutation"));
+
+  const A = snapshot(100, "pre-mutation"); // began before the commit
+  const B = snapshot(101, "post-mutation"); // began after the commit
+
+  store.getState().reconcile(B); // B completes first
+  assert.equal(cost(store), "post-mutation");
+
+  store.getState().reconcile(A); // A completes last
+  assert.equal(cost(store), "post-mutation", "the later-finishing but older snapshot must lose");
+  assert.equal(store.getState().lastAppliedRevision, 101);
+});
+
+test("revision is a database transaction marker taken at the start of the read", async () => {
+  const action = await readFile(
+    new URL("../../src/app/actions/costing.ts", import.meta.url),
+    "utf8",
+  );
+  // Causal, not chronological: pg_snapshot_xmax advances when a transaction
+  // commits, so a read beginning after a mutation always carries a strictly
+  // higher value than one beginning before it — independent of clock skew
+  // across function instances, and independent of completion order.
+  assert.match(action, /pg_snapshot_xmax\(pg_current_snapshot\(\)\)/);
+  assert.ok(
+    !/revision: Date\.now\(\)/.test(action),
+    "a wall clock orders completion, not data visibility",
+  );
+  // Must be captured on the FIRST read. Captured at the end, a snapshot that
+  // began before a mutation would still stamp a post-mutation value.
+  const bundle = action.slice(action.indexOf("export async function getCostingBundle"));
+  const revisionAt = bundle.indexOf("pg_snapshot_xmax");
+  const firstParallel = bundle.indexOf("await Promise.all");
+  assert.ok(
+    revisionAt >= 0 && revisionAt < firstParallel,
+    "the revision must be captured before the bundle's parallel reads",
+  );
+});
+
 test("freshness authority is server-stamped and lastReconcileAt is gone", async () => {
   const [action, store, provider] = await Promise.all([
     readFile(new URL("../../src/app/actions/costing.ts", import.meta.url), "utf8"),
     readFile(new URL("../../src/lib/costing-store.ts", import.meta.url), "utf8"),
     readFile(new URL("../../src/components/costing-store-provider.tsx", import.meta.url), "utf8"),
   ]);
-  // Stamped once, server-side, where every snapshot is built — so all
-  // snapshots a client can receive share one clock domain.
-  assert.match(action, /revision: Date\.now\(\)/);
+  // Sourced once, server-side, where every snapshot is built — so all
+  // snapshots a client can receive come from one database counter.
+  assert.match(action, /revision: bundleRevision/);
+  assert.match(action, /const bundleRevision = Number\(quoteRows\[0\]\.revision\)/);
   // The client never mints a revision.
   assert.ok(!/revision:\s*Date\.now\(\)/.test(provider), "the client must not stamp revisions");
   // Removed, not merely unused: a client-clock timestamp cannot order server

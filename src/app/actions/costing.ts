@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   // Slice 11.5 — NEW-model cost-data tables (Step 2 schema).
@@ -1635,14 +1635,23 @@ export async function getCostingBundle(
 ): Promise<ActionResult<HydrateSnapshot>> {
   return runAction(async () => {
     const bundleT0 = Date.now();
+    // Reconciliation freshness authority, captured on the FIRST read of the
+    // bundle. See the `revision` field on HydrateSnapshot for why this is a
+    // database transaction marker rather than a wall clock, and why it is
+    // taken at the start rather than the end.
     const quoteRows = await timed("quote_lookup", quoteId, db
-      .select()
+      .select({
+        quotes,
+        revision: sql<string>`pg_snapshot_xmax(pg_current_snapshot())::text`,
+      })
       .from(quotes)
       .where(eq(quotes.id, quoteId))
       .limit(1));
     if (quoteRows.length === 0)
       throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found");
-    const quote = quoteRows[0];
+    const quote = quoteRows[0].quotes;
+    // Causally-ordered reconciliation revision — see HydrateSnapshot.revision.
+    const bundleRevision = Number(quoteRows[0].revision);
 
     const commercial = commercialOverride ?? await timed(
       "commercial_settings",
@@ -1840,20 +1849,7 @@ export async function getCostingBundle(
     }));
 
     const snapshot: HydrateSnapshot = {
-      // Freshness authority for reconciliation ordering.
-      //
-      // Stamped here, at the single point where every snapshot for every
-      // Costs surface is constructed, so all snapshots a client can receive
-      // share one clock domain and compare directly. Taken at the END of the
-      // load so it reflects when the data was actually read, not when the
-      // request arrived.
-      //
-      // Monotonic in practice rather than by construction: Vercel function
-      // clocks are NTP-synced, and the reordering this guards against spans
-      // seconds (competing full-page renders), not milliseconds. If instance
-      // skew ever becomes material, the stronger form is a database clock
-      // (`select now()`) — one shared source, at the cost of a round trip.
-      revision: Date.now(),
+      revision: bundleRevision,
       quoteId: quote.id,
       projectId: quote.projectId,
       globalPriceAdjPct: num(quote.globalPriceAdjPct),
