@@ -193,20 +193,16 @@ test("edit forms label every field and report what is unrecorded", () => {
   }
 });
 
-test("write-to-render timing is instrumented end to end", () => {
-  // The measured span the fix will target. Client marks bracket the action
-  // and the refresh; the server mark isolates revalidation cost.
-  // Action-phase marks fire inline; reconciliation marks fire from the
-  // coalesce timer, so those are optional-chained through `since?.`.
-  for (const mark of ["submit", "action start", "action complete"]) {
-    assert.ok(drilldown.includes(`since("${mark}")`), `missing client mark: ${mark}`);
-  }
-  for (const mark of ["refresh start", "browser update", "refresh coalesced"]) {
-    assert.ok(drilldown.includes(`since?.("${mark}")`), `missing reconcile mark: ${mark}`);
-  }
-  assert.match(drilldown, /requestAnimationFrame\(\(\) => since\?\.\("browser update"\)\)/,
-    "the final mark must fire after paint, not after the promise resolves");
-});
+// REMOVED: "write-to-render timing is instrumented end to end".
+//
+// It guarded the [costs-timing] client marks, which existed to measure the
+// write-to-render span during Costs Operational Certification and were always
+// declared TEMPORARY in their own headers. The certification verdict is
+// recorded and the instrumentation was removed by authorized decision, so a
+// test asserting its presence now fails for the intended state.
+//
+// The measurement it protected is preserved in
+// docs/costs-certification-handover.md rather than in a live assertion.
 
 test("pending state is action-scoped, not surface-scoped (Pattern 47f)", () => {
   // The reported defect: one shared transition gated six controls, so editing

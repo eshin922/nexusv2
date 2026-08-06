@@ -153,7 +153,13 @@ test("draft Backfill remains outside the generic migration command", async () =>
     journal.entries.some((entry) => entry.tag === "0049_product_structure_slice1_backfill"),
     false,
   );
-  assert.equal(journal.entries.at(-1)?.tag, "0055_phase_2_worksheet_freight_snapshots");
+  // Deliberately NOT pinned to a specific tail tag. The invariant is that the
+  // controlled Backfill stays out of the generic command -- additive migrations
+  // after it are expected and must not fail this test.
+  assert.equal(
+    journal.entries.some((entry) => entry.tag === "0050_product_structure_slice1_contract"),
+    false,
+  );
 });
 
 test("Backfill rollback is manifest-selected and clears pointers first", async () => {
