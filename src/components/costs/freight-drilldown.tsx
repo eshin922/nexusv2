@@ -7,6 +7,7 @@ import {
   addFreightDestination,
   createFreightSubcategory,
   deleteFreightDestination,
+  deleteFreightSubcategory,
   selectFreightDestination,
   updateFreightCustomsBreak,
   updateFreightCustomsEntry,
@@ -262,6 +263,7 @@ function ShipmentLedger({ shipment, index, count, tiers, workbook, components, e
       <div className="fr-fields"><Fact label="carrier" value={shipment.carrierForwarder}/><Fact label="incoterm" value={shipment.incoterm}/><Fact label="journey" value={shipment.journeyLabel}/><Fact label="cargo ready" value={shipment.cargoReadyDate}/><Fact label="treatment" value={shipment.treatment === "pass_through" ? "pass-through" : "bundled · amortised across units"}/></div>
       {destinations.length > 1 && <DecisionSummary shipment={shipment} destinations={destinations} selected={selected} tiers={tiers} workbook={workbook}/>}
       {editable && <ShipmentEdit shipment={shipment} memberships={memberships} components={components} pending={busy(`editShipment:${shipment.id}`)} submit={submit(updateFreightSubcategory, `editShipment:${shipment.id}`)}/>}
+      {editable && <ShipmentDelete shipment={shipment} destinationCount={destinations.length} pending={busy(`deleteShipment:${shipment.id}`)} submit={submit(deleteFreightSubcategory, `deleteShipment:${shipment.id}`)}/>}
     </div>
 
     {destinations.map((destination: any) => <DestinationRow key={destination.id} destination={destination} shipment={shipment} destinations={destinations} selected={selected} tiers={tiers} workbook={workbook} editable={editable} busy={busy} open={openDestinations.includes(destination.id)} toggle={() => setOpenDestinations((rows: string[]) => rows.includes(destination.id) ? rows.filter((id) => id !== destination.id) : [...rows, destination.id])} submit={submit}/>)}
@@ -498,6 +500,40 @@ function ShipmentContentsPicker({
  * it. Only the shipment name is required, because it is what every later
  * surface refers to the shipment by.
  */
+/**
+ * Removing a shipment takes its whole subtree with it and cannot be undone, so
+ * the confirmation names the shipment and states the blast radius rather than
+ * asking a generic "are you sure". The operator needs to see WHAT is going and
+ * HOW MUCH before committing, not afterwards.
+ *
+ * The server refuses anything holding commercial or operational evidence, so
+ * this control is only ever the last step of a deliberate teardown — but the
+ * count is still the difference between removing an empty container and
+ * removing four destinations the operator forgot were there.
+ */
+function ShipmentDelete({ shipment, destinationCount, pending, submit }: any) {
+  const [confirming, setConfirming] = useState(false);
+  if (!confirming) {
+    return <div className="fr-shipdel">
+      <button type="button" className="fr-del" onClick={() => setConfirming(true)}>remove shipment</button>
+    </div>;
+  }
+  return <div className="fr-shipdel confirming" role="alertdialog" aria-label={`Remove shipment ${shipment.label}`}>
+    <p className="fr-shipdel-warn">
+      Remove <strong>{shipment.label}</strong>? This deletes {destinationCount}{" "}
+      {destinationCount === 1 ? "destination" : "destinations"} and everything priced under{" "}
+      {destinationCount === 1 ? "it" : "them"}. This cannot be undone.
+    </p>
+    <form action={submit}>
+      <input type="hidden" name="freightSubcategoryId" value={shipment.id}/>
+      <button className="btn primary" disabled={pending} title={pending ? "Removing this shipment…" : undefined}>
+        {pending ? "Removing…" : `Remove ${shipment.label}`}
+      </button>
+      <button className="btn ghost" type="button" onClick={() => setConfirming(false)}>Keep it</button>
+    </form>
+  </div>;
+}
+
 function ShipmentEdit({ shipment, memberships, components, pending, submit }: any) {
   const own = components.filter((item: Component) => item.assemblyId === shipment.assemblyId);
   const selectedCount = own.filter((item: Component) =>

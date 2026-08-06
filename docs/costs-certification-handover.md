@@ -897,3 +897,36 @@ Decide before it matters:
 
 Revisit if the table exceeds a size where it shows up in query plans or
 backups. Until then it is inert.
+
+### F-7 · Pattern 52 derived-output coverage — GOVERNANCE FINDING
+
+**Separate from F-5 implementation. Not release-blocking; affects future freeze
+certification.**
+
+`docs/pattern-52-freeze-list.md` enumerates 30 named columns across three
+checkpoints. Freight appears in none of them — a grep for "freight" returns
+nothing.
+
+That absence is not permission. Freight reaches the customer through **derived
+commercial output**: shipment amounts, markups and customs values feed the tier
+totals rendered on the sent PDF. Deleting a shipment from a sent quote would
+change what the customer was quoted while touching no column the freeze list
+watches. The column inventory would report full compliance.
+
+F-5 handles this correctly by calling `assertNotFrozen` regardless, on the
+reasoning that a derived-output input deserves the same protection as a
+snapshot column. But that was a judgement made at the call site, not something
+the governance model required — which means the next author of a
+freight-adjacent mutation could reason the opposite way and be equally
+consistent with the documented rules.
+
+**What future freeze certification must cover:** authoritative INPUTS to
+derived commercial outputs, not only named snapshot columns. The question to
+ask of a mutation is not "does this write a freeze-list column?" but "could
+this change what the customer was quoted?"
+
+Candidates to inventory when this is taken up: freight subcategories,
+destinations, destination breaks, customs entries and breaks; and by the same
+logic any packaging or production input that feeds a tier total.
+
+Reference: F-5 shipment lifecycle, 2026-08-06.

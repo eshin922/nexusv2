@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, eq, max, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, max, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblyLeaves,
@@ -16,7 +16,7 @@ import {
   quoteTiers,
   quotes,
 } from "@/db/schema";
-import { ActionGuardError, ERR, runAction, type ActionResult } from "@/lib/action-result";
+import { ActionGuardError, ERR, assertNotFrozen, runAction, type ActionResult } from "@/lib/action-result";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { resolveBreakFieldSources } from "@/lib/freight-break-write";
 import { quoteByIdDraft, quoteForAssembly } from "@/lib/quote-guards";
@@ -431,6 +431,158 @@ export async function deleteFreightDestination(fd: FormData): Promise<ActionResu
     const revision = await committedRevision();
     revalidateQuoteTree(row.quote.projectId, row.quote.id);
     return { revision, subcategoryId: row.subcategory.id, deletedDestination: row.destination.destination, selectionCleared: row.subcategory.selectedDestinationId === destinationId };
+  });
+}
+
+/**
+ * Delete a Freight shipment and its owned subtree.
+ *
+ * Hard delete, following the discipline `deleteFreightDestination` already
+ * established one level down: draft-only, refuse rather than cascade over
+ * anything load-bearing, snapshot before removing, all in one transaction.
+ * A shipment is quote-owned and single-parented with every child cascaded, so
+ * archive/void would add a lifecycle filter to every read while preserving
+ * nothing referenced from outside the quote.
+ *
+ * SAFETY COMES FROM REFUSAL, NOT FROM RESTORE. This runs against a shared
+ * production database with no staging split, so the delete is unrecoverable.
+ * The guard below is what makes that acceptable: an operator can only remove a
+ * shipment carrying no commercial or operational evidence. Clearing those
+ * values first is a deliberate act; a confirmed cascade that destroys priced
+ * freight is not, which is why one is not offered.
+ *
+ * Frozen quotes are refused even though no freight column appears in the
+ * Pattern 52 freeze list. Freight reaches the customer through derived totals
+ * rather than a snapshot column, so absence from that list is not permission.
+ * See the "Pattern 52 derived-output coverage" governance finding.
+ */
+export async function deleteFreightSubcategory(fd: FormData): Promise<ActionResult<{
+  quoteId: string; deletedLabel: string; destinationCount: number; revision: string | null;
+}>> {
+  return runAction(async () => {
+    const subcategoryId = str(fd, "freightSubcategoryId");
+    if (!subcategoryId) throw new ActionGuardError(ERR.VALIDATION, "Shipment is required");
+    const user = await ensureUser();
+
+    const [row] = await db
+      .select({ subcategory: freightSubcategories, quote: quotes })
+      .from(freightSubcategories)
+      .innerJoin(quotes, eq(quotes.id, freightSubcategories.quoteId))
+      .where(eq(freightSubcategories.id, subcategoryId))
+      .limit(1);
+    if (!row) throw new ActionGuardError(ERR.NOT_FOUND, "Shipment not found");
+
+    // Frozen check before any evaluation, let alone mutation.
+    assertNotFrozen(row.quote);
+    await quoteByIdDraft(row.quote.id);
+
+    const destinations = await db
+      .select({ id: freightDestinations.id, destination: freightDestinations.destination })
+      .from(freightDestinations)
+      .where(eq(freightDestinations.freightSubcategoryId, subcategoryId));
+    const destinationIds = destinations.map((d) => d.id);
+
+    const breaks = destinationIds.length
+      ? await db
+          .select({
+            id: freightDestinationBreaks.id,
+            amount: freightDestinationBreaks.freightAmount,
+            markup: freightDestinationBreaks.freightMarkupPct,
+          })
+          .from(freightDestinationBreaks)
+          .where(inArray(freightDestinationBreaks.freightDestinationId, destinationIds))
+      : [];
+    const tracking = destinationIds.length
+      ? await db
+          .select({ id: freightDestinationTracking.id })
+          .from(freightDestinationTracking)
+          .where(inArray(freightDestinationTracking.freightDestinationId, destinationIds))
+      : [];
+    const customsEntries = await db
+      .select({ id: freightCustomsEntries.id })
+      .from(freightCustomsEntries)
+      .where(eq(freightCustomsEntries.freightSubcategoryId, subcategoryId));
+    const customsBreaks = customsEntries.length
+      ? await db
+          .select({ id: freightCustomsBreaks.id, amount: freightCustomsBreaks.amount })
+          .from(freightCustomsBreaks)
+          .where(inArray(freightCustomsBreaks.freightCustomsEntryId, customsEntries.map((e) => e.id)))
+      : [];
+    const items = await db
+      .select({ id: freightSubcategoryItems.id })
+      .from(freightSubcategoryItems)
+      .where(eq(freightSubcategoryItems.freightSubcategoryId, subcategoryId));
+
+    // Commercial and operational evidence. Each is something an operator
+    // entered or a downstream system recorded; none should disappear as a side
+    // effect of removing a structural container.
+    //
+    // NOT guarded: selectedDestinationId. It is assigned automatically when the
+    // first destination is created -- every shipment in the database has one --
+    // so treating it as evidence would refuse every shipment including empty
+    // ones, contradicting the requirement that an empty shipment be deletable.
+    // `selectionReason` IS guarded: that text is operator-authored
+    // justification and exists only when someone wrote it.
+    const blockers: string[] = [];
+    const pricedBreaks = breaks.filter((b) => b.amount !== null).length;
+    const markedUpBreaks = breaks.filter((b) => b.markup !== null).length;
+    const pricedCustoms = customsBreaks.filter((c) => c.amount !== null).length;
+    if (pricedBreaks > 0) blockers.push(`${pricedBreaks} priced freight ${pricedBreaks === 1 ? "break" : "breaks"}`);
+    if (markedUpBreaks > 0) blockers.push(`${markedUpBreaks} freight ${markedUpBreaks === 1 ? "markup" : "markups"}`);
+    if (pricedCustoms > 0) blockers.push(`${pricedCustoms} customs ${pricedCustoms === 1 ? "amount" : "amounts"}`);
+    if (tracking.length > 0) blockers.push(`${tracking.length} tracking ${tracking.length === 1 ? "record" : "records"}`);
+    if (row.subcategory.selectionReason) blockers.push("a recorded selection reason");
+    if (blockers.length > 0) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `"${row.subcategory.label}" still holds ${blockers.join(", ")}. Clear those values first — removing the shipment would destroy them.`,
+      );
+    }
+
+    await db.transaction(async (tx) => {
+      // Snapshot inside the same transaction as the delete, so the audit row is
+      // the only surviving record of what existed and cannot commit without the
+      // deletion it describes.
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entityType: "freight_subcategory",
+        entityId: subcategoryId,
+        action: "freight_shipment_deleted",
+        diffJson: {
+          shipment: {
+            id: subcategoryId,
+            label: row.subcategory.label,
+            origin: row.subcategory.origin,
+            carrierForwarder: row.subcategory.carrierForwarder,
+            incoterm: row.subcategory.incoterm,
+            treatment: row.subcategory.treatment,
+            crossesInternationalBorder: row.subcategory.crossesInternationalBorder,
+            assemblyId: row.subcategory.assemblyId,
+            displayOrder: row.subcategory.displayOrder,
+          },
+          quoteId: row.quote.id,
+          projectId: row.quote.projectId,
+          hadSelectedDestination: row.subcategory.selectedDestinationId !== null,
+          destinations: destinations.map((d) => ({ id: d.id, destination: d.destination })),
+          cascadeCounts: {
+            destinations: destinations.length,
+            destinationBreaks: breaks.length,
+            destinationTracking: tracking.length,
+            customsEntries: customsEntries.length,
+            customsBreaks: customsBreaks.length,
+            subcategoryItems: items.length,
+          },
+        },
+      });
+      // Children fall to schema cascades: items, destinations (-> breaks,
+      // tracking) and customs entries (-> customs breaks). The boundary is the
+      // shipment subtree; nothing outside the owning quote references it.
+      await tx.delete(freightSubcategories).where(eq(freightSubcategories.id, subcategoryId));
+    });
+
+    const revision = await committedRevision();
+    revalidateQuoteTree(row.quote.projectId, row.quote.id);
+    return { revision, quoteId: row.quote.id, deletedLabel: row.subcategory.label, destinationCount: destinations.length };
   });
 }
 
