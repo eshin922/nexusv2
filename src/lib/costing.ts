@@ -1075,7 +1075,20 @@ function computeLeafPerTier(args: {
   freightComponentTierCosts: CostingFreightComponentTierCost[];
   freightShipmentBreaks: CostingFreightShipmentBreak[];
   freightMarkupPct: number;
-  globalAdj: number;
+  /**
+   * The EFFECTIVE price adjustment for this cell — `tier.tierPriceAdjPct ??
+   * quote.globalPriceAdjPct`, resolved by the caller (see the resolution in
+   * `computeQuoteCosting`). Named for what it IS rather than where it usually
+   * comes from: it was previously called `globalAdj`, which is wrong on every
+   * tier carrying its own adjustment.
+   *
+   * The distinction matters beyond tidiness. The two candidates REPLACE rather
+   * than stack, so a trace node built from this value and labelled "global
+   * adjustment" would state the wrong provenance for those tiers. The losing
+   * candidate is only in scope at the resolution site, so the `resolution`
+   * node belongs there — not here, where only the winner arrives.
+   */
+  effectiveAdj: number;
   markupDefaults: Record<string, number>;
   // Slice 9.3 — per-cell sell-price override. null = no override
   // (use computed sell). When non-null, this value is TERMINAL —
@@ -1102,7 +1115,7 @@ function computeLeafPerTier(args: {
     freightComponentTierCosts = [],
     freightShipmentBreaks = [],
     freightMarkupPct = 0.3,
-    globalAdj,
+    effectiveAdj,
     markupDefaults,
     cellOverride,
     effectiveTarget,
@@ -1336,7 +1349,7 @@ function computeLeafPerTier(args: {
 
   // Required sell stacks each component's pre-global-adj sell, then
   // multiplies by (1 + global_adj). Each component carries its own markup.
-  const sellWithoutGlobalAdj =
+  const sellBeforeAdjustment =
     packagingMarkupSum +
     productionMarkupSum +
     rawMarkupSum +
@@ -1344,7 +1357,7 @@ function computeLeafPerTier(args: {
     totalLandedWithMarkup;
   // Slice 9.3 — `computedSellPerUnit` is the pure markup-chain result.
   // Always exposed for UI ("was $X" tooltip on OVR badges).
-  const computedSellPerUnit = sellWithoutGlobalAdj * (1 + globalAdj);
+  const computedSellPerUnit = sellBeforeAdjustment * (1 + effectiveAdj);
   // Slice 9.3 — per-cell override is TERMINAL. When set, it replaces
   // computedSellPerUnit entirely; downstream margin/revenue use this
   // value. Action layer rejects override <= 0, so positive value
@@ -1673,7 +1686,7 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
           freightComponentTierCosts: input.freightComponentTierCosts ?? [],
           freightShipmentBreaks: input.freightShipmentBreaks ?? [],
           freightMarkupPct: input.quote.freightMarkupPct ?? 0.3,
-          globalAdj: effectiveAdj,
+          effectiveAdj,
           markupDefaults,
           cellOverride,
           effectiveTarget,
