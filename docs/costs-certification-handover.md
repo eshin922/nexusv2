@@ -863,3 +863,37 @@ is comparable to or longer than the window itself — a tooling limit, not
 evidence about the code. The material residual risk is the separate
 server-side duplicate defect, which is tracked independently and is where the
 real exposure lives.
+
+### 0.13 Migration 0057 applied · idempotency retention follow-up
+
+**Migration `0057_action_idempotency` applied 2026-08-06 under explicit
+execution authorization.** Pre-execution: 56 journal entries, 55 applied, table
+absent, sole executable statement `CREATE TABLE IF NOT EXISTS` with no ALTER,
+DROP, trigger or foreign key against any Freight table. Post-execution: table
+present with `key` as PRIMARY KEY; 56 applied; `0057` journalled exactly once;
+Freight counts unchanged at 11 destinations / 37 breaks / 4 shipments with
+digest `55b963af…` identical before and after; the four Texas alternatives
+unchanged at digest `99f35b32…`.
+
+### F-6 · Idempotency record retention — NON-BLOCKING
+
+`action_idempotency` grows by one row per protected submission and nothing
+prunes it. Not an operational concern at ~12 operators — a row is a key, an
+action name and a small JSON result, so growth is measured in kilobytes per
+year — and deliberately excluded from release hardening.
+
+Decide before it matters:
+
+- **Retention window.** A key only needs to outlive the retries of its own
+  submission. Hours would do; days is generous. The risk of pruning too
+  aggressively is that a late retry creates a duplicate, which is the defect
+  the table exists to prevent — so the window should exceed any plausible
+  client retry horizon, not merely the request timeout.
+- **Mechanism.** A periodic delete is simplest. Pruning inline on write would
+  put cleanup cost on the operator's path for no benefit.
+- **Scope.** Keys with a null `result` are failed attempts whose claim rolled
+  back; they should not accumulate, and their presence would indicate a leak
+  worth understanding rather than sweeping.
+
+Revisit if the table exceeds a size where it shows up in query plans or
+backups. Until then it is inert.
