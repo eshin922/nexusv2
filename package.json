@@ -11,6 +11,8 @@
     "verify:autosave-focus-stability": "node --experimental-strip-types scripts/verify/autosave-focus-stability.ts",
     "verify:complete-status-writer": "node --experimental-strip-types scripts/verify/complete-status-writer.ts",
     "verify:audit-single-writer": "node --experimental-strip-types scripts/verify/audit-single-writer.ts",
+    "gate1b:capture-baseline": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/capture-costing-baseline.ts",
+    "gate1b:verify-preserved": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/verify-costing-preserved.ts",
     "verify:ri-7-readiness": "node --env-file=.env.local --experimental-strip-types scripts/verify/ri-7-schema-readiness.ts",
     "verify:scenario-quote-invariant": "node --env-file=.env.local --experimental-strip-types scripts/verify/scenario-quote-status-invariant.ts",
     "verify:pricing-classifier-invariants": "node --experimental-strip-types scripts/verify/pricing-classifier-invariants.ts",

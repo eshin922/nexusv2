@@ -194,6 +194,32 @@ Two consequences worth stating plainly:
   data-source maps are unambiguous: exclusion is structural, a build-time
   assertion, *"not a runtime prop."*
 
+### 3.4b · Added after the sweep — a site the shapes missed
+
+| Site | Derives |
+|---|---|
+| `pricing/lines-requiring-review.tsx:80` | `needForFloor(cost) = cost / (1 − floorMarginPct)` — required sell to clear the floor |
+
+**Found by S-6, not by this sweep.** None of §1's six shapes matches it: no
+`* (1 +`, no `/ qty`, no `- cost) /`. It is a commercial derivation — the price a
+cell would need in order to comply — presented to an operator.
+
+Recorded prominently rather than quietly folded in, because it is this document's
+own §1 blind spot demonstrated on the first occasion anyone looked from a
+different angle. It is the strongest single argument for §5: **a grep-shaped
+verifier cannot enforce this rule.**
+
+**Classification:** canonical duplicate once the graph carries a required-sell-at-threshold
+node. Phase 3's `liftTo(threshold)` is parameterised over exactly this quantity,
+so the node is needed regardless.
+
+**Also from S-6:** `costs/cost-stack-header.tsx:130` re-implements the
+effective-target resolution locally — `quoteTargetMargin ?? firmSettings.targetMarginPct`.
+Correct today, and a second implementation of a resolution the engine already
+performs. CLAUDE.md's Slice 9.2 note records this as a two-directional foot-gun.
+Note the asymmetry is intentional: target is quote-overridable, floor is
+firm-level, so reading `firmSettings.floorMarginPct` directly is correct.
+
 ### 3.5 · Temporary compatibility paths
 
 **None found.** The sweep surfaced no arithmetic whose justification is a
@@ -217,7 +243,7 @@ evidence and an unexamined bucket is not.
 | Classification | Count |
 |---|---|
 | Design error | 1 |
-| Canonical duplicate to eliminate | 6 |
+| Canonical duplicate to eliminate | 8 — two added by S-6, see §3.4b |
 | Legitimate preview — mechanism must change | 2 |
 | Solver — keep, decouple from displayed outcome | 1 |
 | Boundary case — fix at the composition seam | 1 |

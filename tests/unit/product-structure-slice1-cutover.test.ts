@@ -44,6 +44,12 @@ const classifiedIdentityFiles = new Set([
   "scripts/validation/fixtures.ts",
   "scripts/verify/canonical-repair-digest.mjs",
   "src/lib/packaging-materialization.ts",
+  // CLASSIFIED — transitional, read-only. Gate 1B S-7 fixture selection
+  // joins assembly_leaf_inputs.assembly_leaf_id purely to COUNT which node
+  // kinds each quote's data can produce. It resolves no identity, writes
+  // nothing, and asserts no mapping — the join is a census, not authority.
+  // Retire with the S-7 baseline once the node graph lands.
+  "scripts/gate-1b/select-fixtures.ts",
   "scripts/smoke/mark-complete.ts", "scripts/verify/costing-adapter.ts",
   "scripts/verify/sample-order-margin.ts", "scripts/verify/slice-11-5-1-warnings-parity.ts",
   "tests/harness/fixtures/world.ts",
