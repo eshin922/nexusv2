@@ -198,9 +198,32 @@ export type CostingStoreState = {
   // time the second save's snapshot has arrived with 0.6.
   lastUserEditAt: number;
 
+  /**
+   * F-3 Phase B — write causality.
+   *
+   * `lastAppliedRevision` guarantees reconciliation never goes BACKWARDS. It
+   * does not guarantee a snapshot contains the operator's own write. With
+   * lastApplied=100 and a write committed at 120, a snapshot at 110 is newer
+   * than what is applied — so the monotonic gate passes it — yet predates the
+   * write, and applying it reverts the operator's value on screen until a
+   * later snapshot restores it.
+   *
+   * This holds the revision the most recent local write committed at. Until a
+   * snapshot at or beyond it is applied, sub-threshold candidates are held
+   * rather than applied. Null means no write is outstanding, which is the
+   * common case and must stay on the untouched fast path.
+   */
+  awaitedRevision: number | null;
+  /** ms epoch the current await began — bounds the gate so it cannot wedge. */
+  awaitedSince: number;
+
   // Actions
   hydrate: (snapshot: HydrateSnapshot) => void;
   reconcile: (snapshot: HydrateSnapshot) => void;
+  /** Record the revision a local write committed at. Highest outstanding wins. */
+  awaitCommitted: (revision: number) => void;
+  /** Abandon the causal requirement without claiming it was satisfied. */
+  releaseAwaited: () => void;
   updatePackagingCell: (rowId: string, fields: PackagingCellFields) => void;
   updatePackagingLineMeta: (
     lineGroupId: string,
@@ -539,7 +562,21 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     persistedWarnings: initial.persistedWarnings,
     hydrated: true,
     lastAppliedRevision: initial.revision,
+    awaitedRevision: null,
+    awaitedSince: 0,
     lastUserEditAt: 0,
+
+    // Highest outstanding revision governs: two rapid writes must not let the
+    // earlier one's lower threshold retire the later one's requirement.
+    awaitCommitted: (revision) =>
+      set((s) => {
+        if (!Number.isFinite(revision)) return {};
+        if (revision <= s.lastAppliedRevision) return {};
+        if (s.awaitedRevision !== null && revision <= s.awaitedRevision) return {};
+        return { awaitedRevision: revision, awaitedSince: Date.now() };
+      }),
+
+    releaseAwaited: () => set(() => ({ awaitedRevision: null, awaitedSince: 0 })),
 
     hydrate: (snapshot) =>
       set({
@@ -588,6 +625,13 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         // render that predates an operator's save from erasing it.
         if (snapshot.revision <= s.lastAppliedRevision) return {};
         return {
+        // Causal requirement is satisfied only by a snapshot that actually
+        // reaches the awaited revision. Anything lower is held by the
+        // provider and never arrives here.
+        awaitedRevision:
+          s.awaitedRevision !== null && snapshot.revision >= s.awaitedRevision
+            ? null
+            : s.awaitedRevision,
         quoteId: snapshot.quoteId,
         projectId: snapshot.projectId,
         globalPriceAdjPct: snapshot.globalPriceAdjPct,

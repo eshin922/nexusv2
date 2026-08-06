@@ -176,6 +176,13 @@ export function FreightDrilldown(props: {
       else {
         if (result.data?.selectionCleared) setMessage(`${result.data.deletedDestination} was removed. No destination is in the price; choose one explicitly.`);
         onSuccess?.(result);
+        // F-3 Phase B — hand the write's committed revision to the causal
+        // gate. Until reconciliation applies a snapshot at or beyond it, a
+        // merely-newer snapshot cannot revert what the operator just saved.
+        const committed = Number(
+          (result.data as { revision?: string | null } | undefined)?.revision,
+        );
+        if (Number.isFinite(committed)) storeApi.getState().awaitCommitted(committed);
         scheduleRefresh();
       }
       setPendingKey(null);

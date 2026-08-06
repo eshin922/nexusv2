@@ -76,6 +76,12 @@ const StoreContext = createContext<CostingStore | null>(null);
 const QUIET_PERIOD_MS = 800;
 // Polling interval while waiting for user to pause typing. 200ms feels
 // responsive without being chatty.
+// F-3 Phase B — how long the causal gate may hold a monotonic snapshot while
+// waiting for one that contains the operator's own write. Generous relative to
+// a post-co-location round trip (~800ms end to end), so it releases only when
+// the awaited revision genuinely is not coming.
+const CAUSAL_TIMEOUT_MS = 5000;
+
 const RETRY_INTERVAL_MS = 200;
 // Realtime event coalesce window. Multiple postgres_changes events
 // within this window collapse into one re-fetch + reconcile attempt.
@@ -167,6 +173,29 @@ export function CostingStoreProvider({
       // alive for it through the whole quiet period.
       if (snap.revision <= state.lastAppliedRevision) {
         return;
+      }
+      // F-3 Phase B — write causality. Monotonicity above proves this snapshot
+      // is newer than what is applied; it does NOT prove it contains the
+      // operator's own write. A candidate between lastApplied and the awaited
+      // revision would revert their value on screen until a later one restored
+      // it, so it is HELD rather than applied. The newest candidate wins
+      // automatically: each scheduleReconcile clears the prior timer, so a
+      // fresher snapshot replaces a held one instead of queueing behind it.
+      const awaited = state.awaitedRevision;
+      if (awaited !== null && snap.revision < awaited) {
+        if (Date.now() - state.awaitedSince < CAUSAL_TIMEOUT_MS) {
+          debounceRef.current = setTimeout(tryReconcile, RETRY_INTERVAL_MS);
+          return;
+        }
+        // Bounded release. A revision that never arrives — a dropped realtime
+        // event, a write whose snapshot is superseded before delivery — must
+        // not wedge reconciliation forever. Monotonicity still holds after
+        // this point; what is given up is only the causal guarantee, and the
+        // log says so rather than implying the write was confirmed.
+        console.warn(
+          `[causal-gate] released after ${CAUSAL_TIMEOUT_MS}ms without a snapshot at revision >= ${awaited}; continuing under monotonic ordering only`,
+        );
+        state.releaseAwaited();
       }
       const sinceEdit = Date.now() - state.lastUserEditAt;
       if (sinceEdit < QUIET_PERIOD_MS) {

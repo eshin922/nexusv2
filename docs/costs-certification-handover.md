@@ -839,3 +839,27 @@ verification pass.
 **Verification should include** a test that a snapshot between `lastApplied`
 and `pendingWriteRevision` is not applied, and one that reconciliation still
 converges when no write is pending (the common case must be unaffected).
+
+### 0.12 F-3 Phase B implemented · Add Destination pending proof CLOSED
+
+**Phase B — causal reconciliation: implemented.** Store carries
+`awaitedRevision` / `awaitedSince`; `awaitCommitted()` keeps the highest
+outstanding threshold; the provider's `tryReconcile` holds sub-threshold
+candidates on the existing quiet-period retry and releases after
+`CAUSAL_TIMEOUT_MS = 5000` with a governed warning that does not claim causal
+confirmation. Freight writes feed their committed revision in on success.
+
+Decision order is monotonic-first, then causal — asserted structurally so the
+causal gate can never be reordered ahead of the staleness drop.
+
+**Add Destination pending proof — CLOSED.**
+`Code-verified; direct empirical capture unavailable because the browser-tool
+round trip exceeds the pending window.`
+
+The control carries `disabled={pending}` with an action-scoped key
+(`addDestination:${shipment.id}`), Pattern 47(f)-compliant. Three attempts to
+observe the ~2.5s pending label failed because a `find`/screenshot round trip
+is comparable to or longer than the window itself — a tooling limit, not
+evidence about the code. The material residual risk is the separate
+server-side duplicate defect, which is tracked independently and is where the
+real exposure lives.
