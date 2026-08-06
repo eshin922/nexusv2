@@ -539,7 +539,7 @@ Related: the existing "Single Supabase project" section of CLAUDE.md already
 warns that any local migration is a production migration. That warning covers
 the hazard; this finding adds the missing control.
 
-### F-3 · Ordering-contract gap — customs write path
+### F-3 · Ordering-contract gap — all non-break Freight write paths
 
 **Confirmed engineering defect. No operator-visible symptom on current
 evidence. Fix before release.**
@@ -574,4 +574,43 @@ action return `pg_snapshot_xmax(pg_current_snapshot())` the way
 `updateFreightDestinationBreakGroup` does, and have the client thread it
 through the same comparison.
 
-Evidence: five-action freshness trace, 2026-08-06, quote `52bd0077`.
+**BROADENED 2026-08-06 after the eight-action baseline.** The gap is not
+customs-specific. A source audit of `src/app/actions/freight-worksheet.ts`
+shows **10 of 11 freight mutation actions return no revision** — only
+`updateFreightDestinationBreakGroup` (line 282) carries
+`pg_snapshot_xmax(pg_current_snapshot())`:
+
+| Action | Returns revision |
+|---|---|
+| `updateFreightDestinationBreakGroup` | **yes** |
+| `createFreightSubcategory` (Record Shipment) | no |
+| `addFreightDestination` (Add Destination) | no |
+| `updateFreightCustomsBreak` (Duty / Tariff) | no |
+| `updateFreightCustomsEntry` | no |
+| `updateFreightSubcategory` | no |
+| `updateFreightDestination` | no |
+| `updateFreightDestinationBreak` | no |
+| `selectFreightDestination` | no |
+| `deleteFreightDestination` | no |
+| `updateFreightTracking` | no |
+
+Confirmed at runtime across 20 commits: every `breaks` commit logged a real
+revision (19692 … 19887); every `customsBreak`, `addDestination` and
+`createShipment` commit logged `rev=?`.
+
+Extend the committed-revision contract to all ten. Do not wait for an observed
+race — the guarantee either holds for the surface or it does not.
+
+Evidence: five-action freshness trace + eight-action baseline, 2026-08-06,
+quote `52bd0077`.
+
+### F-4 · PR #183 verdict — refresh amplification
+
+`PASS — refresh amplification resolved; insufficient by itself to satisfy
+responsiveness.`
+
+The eight-action baseline shows **exactly one reconciliation cycle per action**
+with a coalescing window stable at 400–403 ms in every case. Amplification is
+gone. But the shared bundle read remains 7.3–7.8 s regardless of write shape,
+so coalescing alone does not reach the responsiveness bar. Classify #183 as
+effective-but-insufficient, not ineffective.

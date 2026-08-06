@@ -173,5 +173,58 @@ if (process.env.NODE_ENV !== "production") {
   globalForDb.__dbClientPid = process.pid;
 }
 
+/**
+ * Sanitized connection-mode diagnostic.
+ *
+ * TEMPORARY — Costs Operational Certification. The regional co-location
+ * experiment needs to know where the function runs and how it reaches the
+ * database, and the prepared-statement question cannot be settled without
+ * knowing the real pooler mode. Reading that from Vercel's env UI is not
+ * possible (values are encrypted) and exporting the secret to disk to find out
+ * a port number is not a reasonable trade.
+ *
+ * So this emits ONLY the classification, never the credential:
+ *   · runtime function region
+ *   · database region (parsed from the Supabase host prefix)
+ *   · port
+ *   · connection route + pooler mode
+ *   · prepared statements on/off
+ *
+ * Deliberately NOT emitted: full host, URL, database name, username, password,
+ * query parameters. Nothing here can be used to reach the database. The parse
+ * is wrapped so a malformed URL degrades to "unknown" rather than throwing on
+ * a code path every request depends on.
+ */
+function describeConnection(raw: string) {
+  try {
+    const u = new URL(raw);
+    const host = u.hostname;
+    const port = u.port || "5432";
+    const isPooler = host.includes("pooler.");
+    // Supabase pooler hosts look like `aws-1-us-west-2.pooler.supabase.com`;
+    // direct hosts like `db.<ref>.supabase.co` carry no region in the name.
+    const region = host.match(/[a-z]+-\d+-([a-z]{2}-[a-z]+-\d+)\./)?.[1] ?? "unknown";
+    const mode = !isPooler
+      ? "direct"
+      : port === "6543"
+        ? "pooler:transaction"
+        : port === "5432"
+          ? "pooler:session"
+          : "pooler:unknown-port";
+    return { dbRegion: region, port, route: mode };
+  } catch {
+    return { dbRegion: "unknown", port: "unknown", route: "unparseable" };
+  }
+}
+
+if (process.env.NEXT_PUBLIC_VERCEL_ENV !== "production") {
+  const c = describeConnection(url);
+  console.log(
+    `[db-diag] fnRegion=${process.env.VERCEL_REGION ?? "local"} ` +
+      `dbRegion=${c.dbRegion} port=${c.port} route=${c.route} ` +
+      `preparedStatements=disabled poolMax=3 idleTimeout=10s`,
+  );
+}
+
 export const db = drizzle(client, { schema });
 export type Db = typeof db;
