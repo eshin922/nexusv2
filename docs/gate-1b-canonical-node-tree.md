@@ -701,15 +701,15 @@ Ordered by what blocks the most.
 
 | # | Item | Owner | What settles it |
 |---|---|---|---|
-| **A-1** | Does Phase 3's *"`computeQuoteCosting` read-only"* permit an additive graph output? | Edward + CA | Ratify or amend the Phase 3 dependency line. **The whole gate rests on this** (F9) |
+| ~~**A-1**~~ | **ACCEPTED 2026-08-06.** Read-only governs business arithmetic; returning computation structure does not violate it | — | Recorded as `PHASE-3-PRICING-WORKSPACE.md` Amendment A-1. See §18 |
 | **A-2** | `origin` provenance: input type → audit row mapping | Nexus engineering, then Edward | A written query per input type, proven against production, with the cost measured. Inputs with no record are a finding (F5, §6.3) |
 | **A-3** | Reconciliation epsilon, and whether it equals the compliance epsilon | Nexus engineering | One stated tolerance used by both, or an explicit reason they differ (§7) |
 | **A-4** | Do node keys survive structural edits? | Nexus engineering | Determines whether staged deltas outlive a cost-structure change (§3.2) |
 | **A-5** | Publication: authority document | Edward + CA | Gate 4.5 needs a specification before §14 can be closed (F7) |
-| **A-6** | F3 inventory + duplicate-vs-preview classification | Nexus engineering | Precondition for enforcing §8.1 at all |
+| ~~**A-6**~~ | **COMPLETE 2026-08-06.** See [`gate-1b-derivation-inventory.md`](gate-1b-derivation-inventory.md) — 1 design error, 6 duplicates, 2 previews, 1 solver, 1 boundary case, 0 compatibility paths | — | Dispositions proposed; each needs confirming before code changes |
 | **A-7** | Bulk Raw representation | Business Validation | Carried from R10 §7.3 / R11 §10 (F8) |
 | **A-8** | Node vocabulary is **ten**, not nine | Edward + CA | Confirm F2 and correct the phase specification, or state why `flagged-out` is excluded |
-| **A-9** | Your Next Move changes, but Phase 3 §8 marks it *"preserved untouched"* | Edward + CA | Amend the Phase 3 page-boundary line, or the two documents disagree (§17.0) |
+| ~~**A-9**~~ | **RECORDED 2026-08-06.** Removed from the preserved list; promoted to the single workflow authority | — | `PHASE-3-PRICING-WORKSPACE.md` Amendment A-9. See §19 |
 | **A-10** | Specialise the shared nav banner for Pricing, or promote it for all surfaces? | Edward + CA | Other surfaces depend on its current three-state contract (§17.1.3) |
 
 ### Blocked on OD-012, not on analysis
@@ -858,3 +858,141 @@ That is not a coincidence, and it is the strongest argument for doing the graph
 first. Each of those patterns is a workaround for two surfaces stating the same
 thing from different sources — the same failure §0 describes at the value level,
 surfacing again at the interaction level.
+
+---
+
+# §18 · Preserve, don't rebuild — promoted
+
+**Disposition, Edward 2026-08-06:** *"The review establishes that
+`computeQuoteCosting` already computes the required structure and discards it.
+This materially changes implementation scope. Gate 1B should preserve and expose
+the existing computation graph rather than constructing a parallel
+representation."*
+
+This is now the scope position, not a finding. It changes three things.
+
+**1 · The work is retention, not construction.** F4 established that the
+operations and operands already exist as intermediate locals inside
+`computeLeafPerTier` and `rollUpAssemblyPerTier`. The engine stops discarding
+them. It does not learn to produce them.
+
+**2 · A parallel builder is prohibited, not merely discouraged.** A second
+traversal that reproduces the engine's values is the divergence in §0 with extra
+steps: correct on the day it is written, silently wrong after the first refactor
+of either side. There is no version of "build the graph separately and assert
+they match" that is safer than emitting once — the assertion catches drift after
+it has shipped, and only where a test looks.
+
+**3 · The scalars become projections** (§9, §11.2). This is what makes §7
+guarantee 6 hold by construction rather than by test. A test that says two
+independently-produced numbers agree is weaker than a structure in which there is
+only one number.
+
+**What this does not license.** Retention is not licence to reshape. No existing
+value changes; the assertion that every `QuoteCostingResult` scalar equals its
+node's value is the boundary between exposing structure and altering the engine
+(Amendment A-1).
+
+---
+
+# §19 · Workflow authority
+
+**Disposition, Edward 2026-08-06:** *"The problem is not the 'Your Next Move'
+component itself. The problem is multiple independent workflow surfaces. Gate 1B
+should establish one workflow authority that all presentation surfaces consume."*
+
+## 19.1 · The contract
+
+> **One workflow authority computes what the operator must do next. Every
+> presentation surface consumes it. No surface derives a next action
+> independently.**
+
+This is the same contract as §0, one layer up. §0 removes disagreement about
+*what a number is*; §19 removes disagreement about *what to do about it*. The
+failures rhyme because they are the same failure: two producers under one label.
+
+## 19.2 · What it replaces
+
+Three surfaces currently state the next action, held apart by hand:
+
+| Surface | States |
+|---|---|
+| `YourNextMoveBanner` via `pricing-page-head.tsx:180` | classifier's recommended-or-primary action |
+| `ActionCard` list (`psr-actions`) | ranked actions, **minus** `preview_pdf`, **minus** the recommended action in `suggestion_led` |
+| `SuggestionCard` | the recommended action, in `suggestion_led` only |
+
+The exclusions are the evidence. `preview_pdf` is filtered *everywhere* because
+the banner shows it; the recommended action is filtered in `suggestion_led`
+because `SuggestionCard` shows it — *"ONE ★ marker per render"*. Neither filter
+is a bug being worked around. Both are load-bearing corrections for a structure
+that produces the same statement three times.
+
+**Manual deduplication is the tell.** When code exists whose only job is to stop
+two surfaces saying the same thing, the surfaces are the defect.
+
+## 19.3 · Required properties
+
+1. **One producer.** The authority is computed once per evaluation and consumed.
+   A surface may filter or format; it may not decide.
+2. **It reads the same evaluation the page displays** (§12). An authority that
+   recommends an action contradicting what the operator can see is worse than
+   none — the operator now has to decide which of the two to believe, which is
+   the judgement the surface exists to remove.
+3. **It states its reason, and the reason is data.** R11 load-bearing 14: *"a
+   warning must carry a reason"*, `null` when there isn't one. R11 17: copy is
+   generated from the data, including closing agreement and n-item list joining —
+   `joinClauses()` is correct at every n, so the next lever cannot break it.
+4. **It states what it will not reach.** R11 §6 / load-bearing 12: an action whose
+   effect is partly invisible at the moment of taking it is the failure this
+   exists to remove. *"T3 is on its own 4% adjustment, set by Maya Okafor on Jul 2,
+   and is unaffected."*
+5. **It carries its own route** (Phase 3 §9). Not sendable names the tiers, and
+   the CTA scrolls to them. State on screen without the means to act on it is the
+   half-fix the house rule prohibits.
+6. **Ranking survives; the parallel list does not.** More than one action can be
+   available. One authority ranks them; one surface presents them.
+
+## 19.4 · Relationship to the node graph
+
+The authority is a **consumer** (§8.2), not a peer. It reads the graph through
+`evaluateCells()` and adds no arithmetic. Where it needs a value the graph does
+not carry, the answer is a node (§8.1) — the same rule that governs the stack and
+the trace.
+
+**Pattern 50 still applies and is not dissolved by this.** Per-cell and
+per-tier-blend remain different questions with different answers; a single graph
+removes the *value* disagreement, not the *basis* disagreement. The authority
+must name which basis it is speaking from, exactly as `suggestion_manual_only`
+had to be named rather than collapsed.
+
+## 19.5 · Open
+
+**A-10** — `your-next-move-banner.tsx` is a shared primitive serving every surface
+with three states (`default` · `gated` · `terminal`). Specialising it for Pricing
+or promoting the generic one is a decision, because the other surfaces depend on
+its current contract. Not a Gate 1B call to make alone.
+
+---
+
+# §20 · Implementation assumption register
+
+Per Edward's instruction that remaining assumptions be **explicitly classified**
+rather than discovered during implementation. Each is stated as a claim, with
+what it would cost to be wrong.
+
+| # | Assumption | Class | If wrong |
+|---|---|---|---|
+| **S-1** | The engine's intermediate locals are complete enough to emit every node without new arithmetic | **Verifiable now** — read `computeLeafPerTier` and `rollUpAssemblyPerTier` against §2's ten kinds | Some kinds need values the engine does not currently form. Changes A-1's boundary: forming a new value *is* changing the arithmetic |
+| **S-2** | Deterministic keys can be built from durable identifiers alone (§3.1) | **Verifiable now** — check every node site has `quote_leaf_id` / `tier_id` / `line_group_id` in scope | Keys fall back to positional data, which breaks staged-vs-committed diffing (§3.3) |
+| **S-3** | Emitting the graph does not materially change engine cost | **Requires measurement** | Pricing and Costs page loads regress. The engine already runs inside an 8-wide `Promise.all` with a pool of 3 (CLAUDE.md pooler discipline) |
+| **S-4** | Provenance can be resolved per input without a query per node | **Unknown — A-2** | An N-node graph becomes N queries. This is the most likely performance failure and is untested |
+| **S-5** | Per-`(shipment, tier)` and per-`(line, tier)` nodes are derivable from current engine inputs | **Verifiable now** — required by the inventory §3.2 | The drilldown duplicates cannot be eliminated without an adapter change |
+| **S-6** | One evaluation serves banner, grid, stack and trace without per-consumer thresholds | **Verifiable now** — check every current threshold read | `evaluateCells` grows parameters, and two callers with different parameters is Pattern 50 again |
+| **S-7** | Rollups can derive from nodes with no output change | **Requires a digest** — capture before, require identical after | Silent commercial drift across every surface. Highest blast radius in the gate |
+| **S-8** | The customer tree needs no graph access, only projected values | **Verifiable now** — inventory §3.4 | The boundary guard and the graph are in direct tension, and the guard wins |
+| **S-9** | Staged evaluation is a second full engine run, not an incremental update | **Stated by Phase 3 §3**, unverified at cost | If a full second run is too slow, the pressure is to compute deltas locally — which is the duplicate-wearing-a-disguise the inventory names |
+| **S-10** | Ten node kinds are sufficient for Phase 4 approval | **Unknown** — Phase 4 not yet specified against the graph | A kind is added later. Acceptable if it is a decision; a defect if it is discovered mid-build |
+
+**S-1, S-2, S-5, S-6, S-8 are answerable by reading code and should be settled
+before any implementation begins.** S-3, S-4, S-7, S-9 need measurement or a
+digest. S-10 is genuinely open and depends on Phase 4.
