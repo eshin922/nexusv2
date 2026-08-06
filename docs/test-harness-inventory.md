@@ -284,3 +284,90 @@ trade is Edward's:
 for, and it says plainly that the suite's growth to 297 is not by itself an
 increase in enforcement — because enforcement, today, is 8 checks at deploy time
 and nothing at merge time.
+
+---
+
+## §11 · UPDATE — 2026-08-06: the minimal gate is live
+
+§1's headline finding is resolved for code correctness. Recorded here rather
+than by editing §1, so the before/after stays legible.
+
+**`.github/workflows/verify.yml`** runs on every PR to `main` and every push to
+`main`:
+
+| Step | What |
+|---|---|
+| `npm run test:unit` | the **governed** command — 297 tests |
+| `npm run prebuild` | 8 structural verifiers |
+
+First run green on the commit that added it (`138adf6`), and the log confirms
+both suites executed rather than passing vacuously: `# tests 297 / # pass 297 /
+# fail 0`, then every verifier's OK line.
+
+**Branch protection on `main`:**
+
+```
+required_checks     ["verify"]
+enforce_admins      true
+force_pushes        false
+deletions           false
+required_reviews    false        (solo maintainer)
+strict_up_to_date   false        (avoids re-run churn on a single-author repo)
+```
+
+### `enforce_admins: true` is a deliberate choice, and it constrains Edward
+
+Set to `false` initially, then corrected. With `false`, an admin can merge past a
+failing or pending required check — and in this workflow the admin token **is**
+the one merging. A gate that does not bind the only actor using it does not
+implement *"cannot merge while that check is failing or pending"*; it recreates
+the advisory Vercel status this exercise exists to replace.
+
+Two consequences to know before they are discovered:
+
+- **Direct pushes to `main` are now blocked**, including Edward's. All changes
+  go through a PR. That has been the working pattern anyway.
+- **A broken CI blocks every merge**, including the fix for the broken CI. The
+  escape hatch is one call, and it should be used knowingly rather than
+  reflexively:
+
+  ```
+  gh api -X DELETE repos/eshin922/nexusv2/branches/main/protection/enforce_admins
+  ```
+
+  Re-enable with `-X POST` on the same path.
+
+### What this does and does not change in §9
+
+Enforced failure classes go from **3 of 12 to 8 of 12**: the three structural
+containment classes were already enforced at deploy time and are now enforced at
+merge time too, joined by wrong-value, untestable-by-data-edge-case,
+structural/design-authority drift, ordering/idempotency/causality, and
+single-writer.
+
+Still unenforced, deliberately:
+
+| Class | Why not |
+|---|---|
+| Value drift in a refactor (S-7) | needs the shared live database — a transient pool error would present as a code regression |
+| End-to-end operator workflow | needs the validation database and app running |
+| External integration | live sandboxes |
+| **Guards themselves regressing** | mutation testing is still manual; this remains the clearest structural gap |
+
+**S-7 stays a named mandatory checkpoint** before and after engine changes, and
+is revisited for CI only when it can run against deterministic isolated
+fixtures. That is a decision about what a red build should mean, not an
+oversight.
+
+### Governance boundary — restated because CI invites the wrong inference
+
+| Protects | Mechanism | Does NOT cover |
+|---|---|---|
+| `main` | this CI gate | anything about the database |
+| The shared database | F-2 migration authorization | whether the code is correct |
+| Migration generation | OD-012 | either of the above |
+
+A green CI run says nothing about whether a migration was authorized. An
+authorized migration says nothing about whether the code is correct. **None
+substitutes for the others**, and the shared dev/prod database means a migration
+reaches production before CI ever sees the code that reads it.
