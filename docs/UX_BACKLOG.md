@@ -4963,32 +4963,12 @@ names are illustrative; final names land at implementation time.
   genuinely unrecoverable — the actor is only knowable at write time —
   and are a different case from this one, which is still fixable now.
 
-- [Gate 1A, open — tooling landmine] `npm run db:generate` is UNSAFE in this
-  repo as it stands. Do not run it without reading the output in full.
+- [Gate 1A, PROMOTED — no longer backlog] `npm run db:generate` is unsafe: its
+  snapshot baseline stops at `0048` while migrations run to `0062`, so it
+  generates plausible destructive SQL against the production database.
 
-  Drizzle's meta snapshots stop at `0048_snapshot.json`, but migrations run to
-  `0062`. Roughly fourteen migrations since then were hand-written and applied
-  without regenerating a snapshot, so `db:generate` diffs `schema.ts` against a
-  picture of the database from long ago. Run during Gate 1A close, it emitted a
-  migration that would `CREATE TABLE` the entire freight subsystem, re-add
-  columns that already exist, `DROP INDEX` a live index, and
-  `ALTER TABLE freight_legs DROP COLUMN freight_markup_pct` — against the
-  database that also serves production.
-
-  It was discarded unapplied. Nothing was lost, because `db:migrate` reads the
-  journal and the `.sql` files rather than the snapshots, so every hand-written
-  migration applied correctly and the database is in the intended state. The
-  snapshots are a code-generation input only.
-
-  Two consequences worth holding:
-
-  · The generator cannot be trusted to author migrations here until the
-    snapshot lineage is repaired. Hand-write them, as `0056`-`0062` were.
-  · The failure is silent and confident. It does not warn that its baseline is
-    stale; it produces a clean-looking migration that would destroy data. The
-    only defence today is reading generated SQL before journalling it.
-
-  Repair means regenerating a snapshot that matches current production —
-  introspection (`drizzle-kit pull`) rather than a hand-edit, since the drift
-  spans too many migrations to reconstruct by inspection. Worth doing before
-  any slice that expects to author schema changes normally.
+  **Promoted out of this backlog to `docs/OPEN_DECISIONS.md` OD-012, blocking.**
+  Migration-tooling hazards do not belong in UX debt — a backlog entry is read
+  when someone goes looking, and this one has to be read before someone runs a
+  command. It blocks authoring any new schema migration; it does not block
+  Gate 1B analysis.

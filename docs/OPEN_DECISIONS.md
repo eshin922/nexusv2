@@ -114,6 +114,52 @@ rows. The rehearsal is cheap; the ambiguity is not.
 
 ---
 
+### OD-012 · Drizzle migration generation is unsafe until its baseline is repaired
+
+**Owner:** Nexus engineering · **Blocks:** authoring any new schema migration.
+Does **not** block Gate 1B analysis, and did not block Gate 1A close.
+
+`npm run db:generate` must not be used.
+
+Drizzle's meta snapshots stop at `0048_snapshot.json`; migrations run to `0062`.
+Roughly fourteen migrations in between were hand-written and applied without
+regenerating a snapshot, so the generator diffs `schema.ts` against a picture of
+the database from long ago. Run during Gate 1A close, it emitted a migration
+that would `CREATE TABLE` the entire freight subsystem, re-add existing columns,
+`DROP` a live index, and `ALTER TABLE freight_legs DROP COLUMN
+freight_markup_pct` — against the database that also serves production. It was
+read and discarded unapplied.
+
+Nothing is currently wrong with the database. `db:migrate` reads the journal and
+the `.sql` files, not the snapshots, so every hand-written migration applied
+correctly and the schema is in its intended state. The snapshots are a
+code-generation input only.
+
+**Why this is a blocker rather than debt.** The failure is silent and
+confident. It does not warn that its baseline is stale — it emits clean-looking
+SQL that would destroy data, and the only thing standing between that output and
+production is whether the person running it reads it closely. Migration
+governance on this project is otherwise disciplined: pre-flight gates,
+resolvability checks, additive-versus-restrictive ordering. A tool that
+manufactures a plausible destructive migration undoes all of it in one command,
+and does so at exactly the moment someone is moving fast.
+
+| Option | Consequence |
+|---|---|
+| **Repair via `drizzle-kit pull`** | Introspect production into a fresh snapshot. Generation becomes usable again. The drift spans too many migrations to reconstruct by hand |
+| **Guard** | Keep hand-writing migrations; make `db:generate` fail loudly, or remove the script, so it cannot be reached by habit |
+| **Leave as-is** | Depends on every future engineer reading generated SQL in full, forever. This is the state that produced the near-miss |
+
+**What settles it:** a `drizzle-kit pull` against production producing a
+snapshot that yields an EMPTY diff against current `schema.ts`. Empty is the
+only acceptable result — any non-empty diff means the snapshot still disagrees
+with reality and generation is still unsafe.
+
+Until then: migrations here are hand-written, as `0056`–`0062` were, and any
+generated SQL is read in full before it is journalled.
+
+---
+
 ## Open — needed before the relevant work starts
 
 ### OD-009 · Freight markup resolution when a break carries no markup
