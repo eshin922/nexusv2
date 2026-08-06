@@ -6,13 +6,20 @@
 //
 // THE RULE, per the authoritative worksheet (docs/design-authority/freight-1a):
 //
-//   "One value, all breaks" governs the freight AMOUNT only. It does not
-//   collapse the operational identity of the individual quantity breaks.
+//   "One value, all breaks" governs the COMMERCIAL TERMS — freight amount and
+//   markup. It does not collapse the OPERATIONAL IDENTITY of the individual
+//   quantity breaks: mode and description stay per-break.
 //
 // The same shipment family may legitimately be LTL at one break and FTL at
-// another while carrying one negotiated amount across all of them. That is
-// why the bundle places mode and description on the break row rather than on
-// the shipment, and why flat mode must not propagate them.
+// another while carrying one negotiated amount, at one markup, across all of
+// them. That is why the bundle places mode and description on the break row
+// rather than on the shipment, and why flat mode must not propagate them.
+//
+// Wording corrected 2026-08-06 (Validation 2). The prose previously said
+// "governs the freight AMOUNT only", which contradicted both the enumerated
+// consequence directly below and the implementation — markup has always
+// followed the flat rule alongside the amount, per the PR #183 contract and
+// its tests. Documentation correction only; no behaviour changed.
 //
 // Consequences encoded here:
 //   · amount + markup source from the flat tier when flat, own tier otherwise
