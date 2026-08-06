@@ -266,7 +266,7 @@ function ShipmentLedger({ shipment, index, count, tiers, workbook, components, e
 
     {destinations.map((destination: any) => <DestinationRow key={destination.id} destination={destination} shipment={shipment} destinations={destinations} selected={selected} tiers={tiers} workbook={workbook} editable={editable} busy={busy} open={openDestinations.includes(destination.id)} toggle={() => setOpenDestinations((rows: string[]) => rows.includes(destination.id) ? rows.filter((id) => id !== destination.id) : [...rows, destination.id])} submit={submit}/>)}
 
-    {editable && <InlineDestination shipmentId={shipment.id} pending={busy(`addDestination:${shipment.id}`)} submit={submit(addFreightDestination, `addDestination:${shipment.id}`)}/>}
+    {editable && <InlineDestination shipmentId={shipment.id} pending={busy(`addDestination:${shipment.id}`)} makeSubmit={(onSuccess: () => void) => submit(addFreightDestination, `addDestination:${shipment.id}`, onSuccess)}/>}
     {shipment.crossesInternationalBorder && <CustomsLedger shipment={shipment} tiers={tiers} entry={customsEntry} workbook={workbook} editable={editable} pending={busy(`customsBreak:${shipment.id}`) || busy(`customsEntry:${shipment.id}`)} submitBreak={submit(updateFreightCustomsBreak, `customsBreak:${shipment.id}`)} submitEntry={submit(updateFreightCustomsEntry, `customsEntry:${shipment.id}`)}/>}
     <div className="fr-fold"><button className={`fr-foldbtn${shownSupport ? " on" : ""}`} onClick={() => setSupportOpen(!shownSupport)} disabled={forcedSupport}><span className="cv">{shownSupport ? "▾" : "▸"}</span>{shownSupport ? "Hide supporting detail" : "Supporting detail"}</button><span className="fr-chips">{supportChips(shipment, destinations, tracking, staleTracking).map((chip) => <span className={`fr-fchip${chip.warn ? " warn" : ""}`} key={chip.t}>{chip.t}</span>)}</span>{forcedSupport && <span className="fr-forced">kept open — needs attention</span>}</div>
     {shownSupport && <><Comparison destinations={destinations} selected={selected} tiers={tiers} workbook={workbook}/>{destinations.length > 1 && <SelectionReason shipment={shipment} selected={selected} editable={editable} pending={busy(`selectDestination:${shipment.id}`)} submit={submit(selectFreightDestination, `selectDestination:${shipment.id}`)}/>}<TrackingStrip selected={selected} tracking={displayedTracking} stale={staleTracking} pending={busy(`tracking:${shipment.id}`)} submit={submit(updateFreightTracking, `tracking:${shipment.id}`)}/></>}
@@ -325,7 +325,20 @@ function DestinationRow({ destination, shipment, destinations, selected, tiers, 
 // hid which break still needs a type.
 const modeChip = (mode: string) => mode ? enumLabel(mode).replace(/^(Ocean|Air|Domestic) /, "") : "not set";
 
-function InlineDestination({ shipmentId, pending, submit }: any) { const [open, setOpen] = useState(false); return <div className="fr-add">{!open ? <button className="fr-addbtn" onClick={() => setOpen(true)}><span className="pl">+</span> Another destination</button> : <form action={submit} className="fr-dest-draft"><input type="hidden" name="freightSubcategoryId" value={shipmentId}/><input className="fr-din" autoFocus required name="destination" placeholder="destination — e.g. Aurora, OH"/><input className="fr-din" name="transitDays" placeholder="transit days"/><input className="fr-din" name="consignee" placeholder="consignee — optional"/><input className="fr-note" name="internalNotes" placeholder="note — optional"/><button className="btn primary" disabled={pending} title={pending ? "Adding this destination…" : undefined}>{pending ? "Adding…" : "Add destination"}</button><button className="btn ghost" type="button" onClick={() => setOpen(false)}>Cancel</button></form>}<span className="fr-addnote">A second destination makes this a choice: one goes in the price, the rest stay as the comparison that justified it.</span></div>; }
+function InlineDestination({ shipmentId, pending, makeSubmit }: any) {
+  const [open, setOpen] = useState(false);
+  // One key per SUBMISSION, not per keystroke and not per component. Retrying
+  // the same draft — the operator clicking Add again after an apparent
+  // failure — reuses it and collapses onto the original row. Opening the form
+  // for a deliberate second alternative mints a fresh one, so an identical
+  // destination and consignee may legitimately be added again.
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const openForm = () => { setIdempotencyKey(crypto.randomUUID()); setOpen(true); };
+  // The form stays open after a successful add so another alternative can be
+  // entered. Rolling the key here is what keeps that second add a NEW
+  // submission rather than a replay of the one just completed.
+  const submit = makeSubmit(() => setIdempotencyKey(crypto.randomUUID()));
+  return <div className="fr-add">{!open ? <button className="fr-addbtn" onClick={openForm}><span className="pl">+</span> Another destination</button> : <form action={submit} className="fr-dest-draft"><input type="hidden" name="freightSubcategoryId" value={shipmentId}/><input type="hidden" name="idempotencyKey" value={idempotencyKey}/><input className="fr-din" autoFocus required name="destination" placeholder="destination — e.g. Aurora, OH"/><input className="fr-din" name="transitDays" placeholder="transit days"/><input className="fr-din" name="consignee" placeholder="consignee — optional"/><input className="fr-note" name="internalNotes" placeholder="note — optional"/><button className="btn primary" disabled={pending} title={pending ? "Adding this destination…" : undefined}>{pending ? "Adding…" : "Add destination"}</button><button className="btn ghost" type="button" onClick={() => setOpen(false)}>Cancel</button></form>}<span className="fr-addnote">A second destination makes this a choice: one goes in the price, the rest stay as the comparison that justified it.</span></div>; }
 
 function CustomsLedger({ shipment, tiers, entry, workbook, editable, pending, submitBreak, submitEntry }: any) {
   const columns = `minmax(200px, 1.5fr) 152px repeat(${tiers.length}, minmax(112px, 1fr))`;

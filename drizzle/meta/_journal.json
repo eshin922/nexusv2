@@ -386,6 +386,13 @@
       "when": 1785999600000,
       "tag": "0056_canonical_attachment_repair",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1786039200000,
+      "tag": "0057_action_idempotency",
+      "breakpoints": true
     }
   ]
 }

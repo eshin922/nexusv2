@@ -1359,6 +1359,37 @@ export const hubspotDealsCache = pgTable(
 
 // ---------- audit ----------
 
+/**
+ * Request idempotency for operator actions.
+ *
+ * Duplicate-submission protection cannot come from business-field uniqueness
+ * on Freight destinations: two intentional commercial alternatives and one
+ * accidentally repeated submission are byte-identical at creation time, since
+ * a new destination carries no amounts yet. Uniqueness on
+ * (shipment, destination, consignee) would reject the comparison workflow the
+ * surface exists to support.
+ *
+ * Timing cannot separate them either — a rapid deliberate alternative is valid
+ * and a delayed retry is still a duplicate — so the discriminator has to be
+ * the REQUEST, not the data. The client mints one key per submission and
+ * reuses it for every retry of that submission; a deliberate second Add mints
+ * a new key and is free to create another option with the same destination.
+ *
+ * The key is claimed inside the same transaction that does the work, so a
+ * concurrent request holding the same key blocks on the insert, then reads a
+ * result that is already committed. Claiming separately would leave a window
+ * where the loser sees a claimed key with no result yet.
+ */
+export const actionIdempotency = pgTable("action_idempotency", {
+  /** Client-generated, unique per submission. */
+  key: text("key").primaryKey(),
+  /** Which action claimed it — replay of a key under a different action is a bug. */
+  action: text("action").notNull(),
+  /** The original success payload, replayed verbatim on a repeat. */
+  result: jsonb("result"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const auditLog = pgTable(
   "audit_log",
   {
