@@ -538,3 +538,40 @@ on an explicit go.
 Related: the existing "Single Supabase project" section of CLAUDE.md already
 warns that any local migration is a production migration. That warning covers
 the hazard; this finding adds the missing control.
+
+### F-3 · Ordering-contract gap — customs write path
+
+**Confirmed engineering defect. No operator-visible symptom on current
+evidence. Fix before release.**
+
+The freight-break write returns a committed revision, which is what lets the
+client prove the snapshot it applies is at least as new as its own write:
+
+```
+freight committed  t274440-g4h3 rev=19730
+freight committed  t389906-6o1x rev=19766
+```
+
+The customs write does not:
+
+```
+freight committed  t423062-jz2d rev=?      (first customs write)
+freight committed  t436232-c9rb rev=?      (Duty)
+freight committed  t553211-4znz rev=?      (Tariff)
+```
+
+Duty and Tariff both converged correctly during the five-action trace, so no
+stale snapshot was observed and neither path is classified as
+`stale reconciliation snapshot`. But they converged **by timing, not by
+contract**. Without a committed revision the client has no basis to reject an
+older snapshot, so under contention — two operators on one quote, or a slow
+read racing a fast second edit — this path has no defence against applying
+stale state.
+
+This is the same defect class the reconciliation-ordering work already closed
+for freight breaks. The fix is to extend that contract: have the customs
+action return `pg_snapshot_xmax(pg_current_snapshot())` the way
+`updateFreightDestinationBreakGroup` does, and have the client thread it
+through the same comparison.
+
+Evidence: five-action freshness trace, 2026-08-06, quote `52bd0077`.
