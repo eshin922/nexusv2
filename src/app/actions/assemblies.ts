@@ -18,6 +18,7 @@ import {
   assertDraft,
   type ActionResult,
 } from "@/lib/action-result";
+import { materializePackagingRows } from "@/lib/packaging-materialization";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
   attachGroupedMembership,
@@ -382,6 +383,15 @@ export async function attachAssemblyLeaf(
       }
       throw error;
     }
+
+    // Setup owns packaging structure, so attaching a component here is what
+    // brings its priced rows into existence. Before this, fan-out ran only on
+    // the tier axis, which made materialization depend on authoring ORDER:
+    // components-then-tiers worked, tiers-then-components silently produced an
+    // empty Packaging section. Same shared helper as addTier.
+    await db.transaction(async (tx) => {
+      await materializePackagingRows(tx, asm.quoteId);
+    });
 
     revalidateQuoteTree(quote.projectId, asm.quoteId);
 

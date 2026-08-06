@@ -43,6 +43,7 @@ const classifiedIdentityFiles = new Set([
   "scripts/validation/phase-1-identity-reachability.ts",
   "scripts/validation/fixtures.ts",
   "scripts/verify/canonical-repair-digest.mjs",
+  "src/lib/packaging-materialization.ts",
   "scripts/smoke/mark-complete.ts", "scripts/verify/costing-adapter.ts",
   "scripts/verify/sample-order-margin.ts", "scripts/verify/slice-11-5-1-warnings-parity.ts",
   "tests/harness/fixtures/world.ts",

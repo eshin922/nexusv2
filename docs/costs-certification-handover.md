@@ -930,3 +930,71 @@ destinations, destination breaks, customs entries and breaks; and by the same
 logic any packaging or production input that feeds a tier total.
 
 Reference: F-5 shipment lifecycle, 2026-08-06.
+
+---
+
+## 0.14 Packaging structure ownership regression (post-certification)
+
+**Root cause: structure→cost materialization was one-directional.**
+
+Packaging rows (`assembly_leaf_inputs`) are per `(leaf × tier)`. Fan-out existed
+only on the tier axis — `addTier`, `applyTierPreset`, `clearCustomerAcceptance`
+each cloned every line group across a new tier. `attachAssemblyLeaf` wrote
+nothing.
+
+That made materialization depend on authoring ORDER:
+
+| Quote | Order | Rows |
+|---|---|---|
+| `2f29af72` | components → tiers | 3×3 = 9 ✅ |
+| `f88c22e3` | components → tiers | 3×2 = 6 ✅ |
+| `52bd0077` | **tiers → components** | **0** ❌ |
+
+Every quote in the database except one had materialized correctly *by accident
+of authoring order*, which is why the defect read as intermittent.
+
+Same class as the tier→freight-break propagation defect fixed earlier on this
+branch: a propagation contract implemented on one axis only.
+
+**Secondary defect — "Add line · Add line".** Not a duplicated render.
+`AddLineRow` correctly rendered one button per leaf SKU; both leaves had
+`leaves.sku = NULL`, and `skuLabel` falls back to `""` (`costs/page.tsx:344`),
+so both buttons printed `"Add line · "` with a dangling separator. Resolved by
+removing the control entirely.
+
+### Fix
+
+`src/lib/packaging-materialization.ts` — one idempotent helper, routed from
+`addTier`, `applyTierPreset` and `attachAssemblyLeaf`. Inline fan-out deleted,
+not duplicated. Contract:
+
+- a newly attached leaf receives one default line group spanning every tier
+- a newly added tier receives a row for every existing line group
+- idempotent at `(leaf, tier, line_group)`
+- no existing row, value or line group modified or removed
+
+Manual Add Line workflow and `addAssemblyLeafInput` removed — Business
+Authority confirms Setup owns packaging structure. Empty state now directs the
+operator to Setup.
+
+### Frozen legacy exceptions — NOT repaired
+
+- **3 missing rows on 2 sent quotes** (`180e6410` ×2, `9de0a19d` ×1). Creating
+  authoritative cost inputs after send would change an input to derived
+  customer-facing output on already-issued terms. Requires separate commercial
+  disposition.
+- **3 multi-line-group leaves on `SMOKE-CB-STEP10`** (status `complete`, all
+  rows priced). Legacy shape from before Setup owned this structure. The
+  one-group rule governs what is CREATED, not what already exists; normalising
+  them would rewrite priced rows on a completed quote.
+
+### F-8 · Read-time projection — future architectural alternative
+
+Deliberately NOT implemented here. Costs could project `structure × tiers` at
+read time and persist a row only when a value is entered, making the empty
+state impossible by construction and removing the materialization contract
+entirely. That is the structurally correct end state under "Setup owns
+structure, Costs consumes it" — write-time materialization keeps a contract
+that a future third axis can forget, which is exactly how this defect arose.
+
+Out of scope for a release regression; recorded as the successor design.
