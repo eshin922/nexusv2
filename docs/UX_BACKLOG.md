@@ -4937,3 +4937,28 @@ names are illustrative; final names land at implementation time.
   sell-price overrides (Slice 8+), notes textareas, all settings forms.
   Do not introduce uncontrolled `<form action={fn}>` with onBlur
   auto-save in any future slice.
+
+- [Gate 1A, open — data quality, not code] One current user row has no
+  recorded `users.name`. Every audited action they take now writes
+  `actor_display_name = "Unnamed user (<first 8 of id>)"`.
+
+  This is deliberately NOT a defect in the writer, and deliberately not
+  folded into Gate 1A. Blocking the write would stop a real person from
+  performing any audited action, and inventing a name would be worse:
+  the Pricing trace grades its terminals, and a fabricated identity would
+  present as a SOURCED terminal — someone actually recorded this — when
+  what happened is that nobody ever did. `isFallbackActorIdentity()` in
+  `src/lib/audit.ts` keeps the two grades distinguishable so consumers
+  can render the absence honestly rather than silently upgrading thin
+  provenance to full.
+
+  The fix is to record the missing name, which is an operations task, not
+  a schema or code change. Worth doing before the backfill makes the
+  fallback permanent across that user's history — after the backfill,
+  rows already written keep the fallback string even if the name is
+  supplied later, because the snapshot is taken at write time by design.
+
+  Related: the same fallback will be applied by the Gate 1A backfill to
+  any historical row whose `user_id` no longer resolves. Those are
+  genuinely unrecoverable — the actor is only knowable at write time —
+  and are a different case from this one, which is still fixable now.
