@@ -691,3 +691,93 @@ recommended flag.
 The inert shipment adds one subcategory, one destination and four breaks to the
 bundle's row counts. That shifts absolute bundle size slightly but is constant
 across both runs, so the controlled comparison holds.
+
+---
+
+## 0.10 Regional co-location — controlled experiment, ACCEPTED 2026-08-06
+
+**Result: cross-region execution was the dominant cause of Costs latency.
+Shared bundle latency is no longer a release blocker.**
+
+### Change
+
+One file, four lines — `vercel.json` declaring `"regions": ["pdx1"]` (Vercel
+Portland = AWS us-west-2, the database's region). Commit `3d0a8c6`. No
+application logic, reconciliation, prepared-statement, batching, caching or
+bundle changes. The staged diff was verified as `1 file changed, 4 insertions`
+before commit.
+
+### Runtime verification gate
+
+Confirmed from a live request, not deployment metadata:
+
+```
+fnRegion=pdx1  dbRegion=us-west-2  port=5432  route=pooler:session
+preparedStatements=disabled  poolMax=3  idleTimeout=10s
+```
+
+### Measured outcome
+
+| Metric | Baseline (iad1) | Co-located (pdx1) | Improvement |
+|---|---|---|---|
+| Freight amount, operator-visible | 11,328 ms | 2,503 ms | 4.5× |
+| Duty, operator-visible | 9,876 ms | 2,172 ms | 4.5× |
+| Shared bundle read-back | 7,289–7,814 ms | 772–960 ms | ~8–9× |
+| Persistence | 2,122–3,697 ms | 745–1,329 ms | ~2.8× |
+| Coalescing | ~400 ms | ~400 ms | unchanged |
+| `getCostingBundle` server-side | 6,011–9,046 ms | 68–168 ms | ~50–90× |
+| Full RSC render | 15,197–17,579 ms | 291–950 ms | ~18–52× |
+
+Six write cycles measured across two paths (`breaks`, `customsBreak`).
+Function memory fell from 55–65 MB to 21–48 MB.
+
+**The architectural consequence: the shared read is no longer the dominant
+cost.** Persistence is now the largest remaining component of an operator
+action. Every optimisation scoped against a 7-second bundle — prepared
+statements, query batching, bundle decomposition, query-graph redesign — lost
+its justification with this change and is NOT scheduled. Reassess only if a
+future measurement identifies a new bottleneck.
+
+`prepare: false` remains historical under session mode but has no measured
+performance benefit. Cleanup, not a performance initiative.
+
+### Functional correctness preserved
+
+Revisions monotonic on the breaks path (20070 → 20073 → 20075 → 20079 → 20082
+→ 20091 → 20100). Values persisted and reverted correctly. No stale reads, no
+disappearing values, no context loss, no duplicate exposure. Fixture digests
+verified identical before and after every cycle.
+
+### New engineering observation — two reconciliation events
+
+The speedup separated what used to collapse into one cycle: one reconcile from
+realtime, one from refresh, consistently across all six cycles. No looping, no
+stale values, no context loss. This is NOT refresh amplification returning, and
+PR #183's "exactly one cycle per action" no longer holds literally. Recorded as
+an observation, not a regression. Reconciliation behaviour deliberately
+unchanged in this branch.
+
+### Unmeasured
+
+Four of nine actions were not re-run post-move: Packaging markup, Add
+Destination, Record Shipment, Component Attach. Freight markup and Tariff are
+covered by path-equivalence (they share `breaks` and `customsBreak`
+respectively, both measured over multiple cycles) but were not run under their
+own labels. Confirmation work, not discovery.
+
+### Certification state at close
+
+| | |
+|---|---|
+| Functional Certification | PASS |
+| Cross-region deployment mismatch | RESOLVED |
+| Shared bundle latency | RESOLVED — no longer a blocker |
+| Refresh amplification | PASS |
+| Canonical population / crash handling / optimistic rollback | PASS |
+| F-3 Freight causal revision contract | OPEN · release-blocking |
+| Destination duplicate/idempotency | OPEN · release-blocking |
+| F-5 Shipment lifecycle | OPEN · release-blocking |
+| Add Destination pending proof | OPEN · empirical |
+
+Remaining effort is workflow correctness, engineering contracts and lifecycle
+governance — not platform responsiveness.
