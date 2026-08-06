@@ -1,3 +1,5 @@
+import { nodeKey, type CostingNode } from "./costing-nodes";
+
 // Slice 8 — Pricing rollup. Pure TypeScript, no Drizzle imports,
 // no server-only. Takes plain data structures (caller assembles from DB),
 // returns plain data structures. Unit-testable via a fixture script.
@@ -590,6 +592,20 @@ export type QuoteCostingResult = {
   quoteRollup: QuotePerTierRollup[];
   // Slice 9.2 — quote-wide blended summary across all tiers.
   quoteSummary: QuoteSummary;
+  /**
+   * Gate 1B — the canonical computation node graph.
+   *
+   * Deliberately a NEW top-level key rather than a field on `skuRollups`: the
+   * S-7 preservation baseline digests six named keys, and this is not one of
+   * them, so building the graph out cannot perturb the "no commercial number
+   * moved" signal.
+   *
+   * Currently PARTIAL — packaging only. Being built incrementally with S-7
+   * green after each step, so any divergence is immediately attributable to
+   * one change rather than a batch. Consumers must not read it until the
+   * section they need is present.
+   */
+  graph: { nodes: CostingNode[]; complete: false };
 };
 
 // ---------- helpers ----------
@@ -624,15 +640,91 @@ function num(v: number | null | undefined, fallback = 0): number {
   return v == null ? fallback : v;
 }
 
+/**
+ * The markup resolution, reporting its PATH and not only its answer.
+ *
+ * Gate 1B S-1: a `resolution` node needs the losing candidates and why each
+ * lost — R10 §1 is explicit that collapsing to the resolved value "re-creates
+ * exactly the opacity the principle exists to remove". Showing "markup 32%"
+ * answers nothing; showing "no line override · no Shrink default exists · so
+ * the Other default, 32%" answers completely.
+ *
+ * Every input the ladder needs was already in scope at the call site. This
+ * retains the comparisons it was already making rather than discarding them —
+ * no new arithmetic, so it stays inside Amendment A-1.
+ */
+export type MarkupResolution = {
+  value: number;
+  candidates: MarkupCandidate[];
+};
+export type MarkupCandidate = {
+  label: string;
+  value: number | null;
+  chosen: boolean;
+  unavailableReason: string | null;
+};
+
+export function resolveMarkup(args: {
+  defaults: Record<string, number>;
+  category: string | null;
+  /** Non-null when the line carries its own markup. Note NULLITY, not
+   *  truthiness: a line markup of 0 is a decision and must beat the category
+   *  default. */
+  lineMarkupPct?: number | null;
+  fallbackCategory?: string;
+}): MarkupResolution {
+  const { defaults, category, lineMarkupPct = null } = args;
+  const fallbackCategory = args.fallbackCategory ?? "Other";
+  const candidates: MarkupCandidate[] = [];
+
+  const lineAvailable = lineMarkupPct !== null && lineMarkupPct !== undefined;
+  candidates.push({
+    label: "Line override",
+    value: lineAvailable ? lineMarkupPct : null,
+    chosen: false,
+    unavailableReason: lineAvailable ? null : "no line override set",
+  });
+
+  const categoryAvailable = Boolean(category) && defaults[category!] !== undefined;
+  candidates.push({
+    label: category ? `${category} default` : "Category default",
+    value: categoryAvailable ? defaults[category!] : null,
+    chosen: false,
+    unavailableReason: categoryAvailable
+      ? null
+      : category
+        ? `no ${category} default exists`
+        : "no category on this line",
+  });
+
+  const fallbackAvailable = defaults[fallbackCategory] !== undefined;
+  candidates.push({
+    label: `${fallbackCategory} default`,
+    value: fallbackAvailable ? defaults[fallbackCategory] : null,
+    chosen: false,
+    unavailableReason: fallbackAvailable ? null : `no ${fallbackCategory} default exists`,
+  });
+
+  candidates.push({
+    label: "Firm fallback",
+    value: FALLBACK_MARKUP,
+    chosen: false,
+    unavailableReason: null,
+  });
+
+  const winner = candidates.find((c) => c.unavailableReason === null)!;
+  winner.chosen = true;
+  return { value: winner.value as number, candidates };
+}
+
+/** Thin wrapper preserving the original signature. Every existing caller keeps
+ *  working and gets the identical number; only the reporting is new. */
 function lookupMarkup(
   defaults: Record<string, number>,
   category: string | null,
   fallbackCategory = "Other",
 ): number {
-  if (category && defaults[category] !== undefined) return defaults[category];
-  if (defaults[fallbackCategory] !== undefined)
-    return defaults[fallbackCategory];
-  return FALLBACK_MARKUP;
+  return resolveMarkup({ defaults, category, fallbackCategory }).value;
 }
 
 function computeStatus(
@@ -1104,6 +1196,18 @@ function computeLeafPerTier(args: {
   // set on this cell (NULL-as-empty-signal); competitiveStatus
   // resolves to null and the secondary indicator doesn't render.
   cellTarget: number | null;
+  /**
+   * Gate 1B — collector for the canonical node graph.
+   *
+   * Passed IN rather than returned so `SkuPerTierRollup` keeps its exact shape.
+   * That is not cosmetic: the S-7 preservation baseline digests
+   * `skuRollups` among five other named keys, so adding a field there would
+   * change the digest and make every subsequent step's drift check ambiguous.
+   * The graph lands on a new TOP-LEVEL key instead, which the digest does not
+   * select — so "no commercial number moved" stays a clean signal while the
+   * graph is built out.
+   */
+  graphSink?: CostingNode[];
 }): SkuPerTierRollup {
   const {
     sku,
@@ -1121,6 +1225,7 @@ function computeLeafPerTier(args: {
     effectiveTarget,
     floor,
     cellTarget,
+    graphSink,
   } = args;
   const tierQty = num(tier.qty);
 
@@ -1130,15 +1235,78 @@ function computeLeafPerTier(args: {
   // back to the line's category default, then to "Other", then to 0.30).
   let packagingCostSum = 0;
   let packagingMarkupSum = 0;
+  // Gate 1B — nodes are built HERE, while the arithmetic runs, not by a second
+  // traversal afterwards. A second traversal reproducing these values is
+  // correct the day it is written and silently wrong after the first refactor
+  // of either side.
+  const packagingLineNodes: CostingNode[] = [];
   for (const p of packaging) {
     const lineCost = num(p.unitCost) * num(p.qtyPerSellableUnit, 1);
     packagingCostSum += lineCost;
-    const markup =
-      p.markupPct !== null
-        ? p.markupPct
-        : lookupMarkup(markupDefaults, p.category);
-    packagingMarkupSum += lineCost * (1 + markup);
+    const resolution = resolveMarkup({
+      defaults: markupDefaults,
+      category: p.category,
+      lineMarkupPct: p.markupPct,
+    });
+    // Preserves the original expression exactly, including its NULLITY check:
+    // a line markup of 0 is a decision and must beat the category default.
+    const markup = p.markupPct !== null ? p.markupPct : resolution.value;
+    const lineSell = lineCost * (1 + markup);
+    packagingMarkupSum += lineSell;
+
+    const base = nodeKey(sku.id, tier.id, "pkg", p.lineGroupId);
+    packagingLineNodes.push({
+      key: base,
+      kind: "markup",
+      label: p.category ? `Packaging · ${p.category}` : "Packaging line",
+      value: lineSell,
+      unit: "usd",
+      op: `$${lineCost} cost × (1 + ${markup} markup)`,
+      operands: [
+        {
+          key: nodeKey(base, "cost"),
+          kind: "origin",
+          label: "Line unit cost",
+          value: lineCost,
+          unit: "usd",
+          // A-2 remains open: actor / timestamp / document per input type is
+          // not yet resolved, so provenance is declared THIN rather than
+          // invented. A thin terminal states an absence; it must never be
+          // rendered as sourced.
+          origin: { grade: "thin", actor: null, when: null, doc: null },
+        },
+        {
+          key: nodeKey(base, "markup"),
+          kind: "resolution",
+          label: "Line markup",
+          value: markup,
+          unit: "pct",
+          op: "line ?? category default ?? Other ?? firm fallback",
+          candidates: resolution.candidates.map((c) => ({
+            label: c.label,
+            value: c.value,
+            // The chosen rung is the one the ENGINE used, which is not always
+            // the resolver's winner: a line markup of 0 wins here while
+            // resolveMarkup, called without it, would pick the category
+            // default. Marking the resolver's winner would state the wrong
+            // provenance on exactly those lines.
+            chosen: p.markupPct !== null ? c.label === "Line override" : c.chosen,
+            unavailableReason: c.unavailableReason,
+          })),
+        },
+      ],
+    });
   }
+  const packagingNode: CostingNode = {
+    key: nodeKey(sku.id, tier.id, "pkg"),
+    kind: "sum",
+    label: "Packaging",
+    value: packagingMarkupSum,
+    unit: "usd",
+    op: `Σ ${packagingLineNodes.length} line${packagingLineNodes.length === 1 ? "" : "s"}`,
+    operands: packagingLineNodes,
+  };
+  graphSink?.push(packagingNode);
 
   // ---------- production ----------
   // Per-tier amortization: divide production lump amounts by
@@ -1581,6 +1749,9 @@ function rollUpAssemblyPerTier(
 
 export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResult {
   const { quote, firmSettings, markupDefaults, skus, tiers } = input;
+  // Gate 1B — one collector per evaluation. Filled while the engine computes;
+  // never re-traversed afterwards.
+  const graphNodes: CostingNode[] = [];
   const globalAdj = num(quote.globalPriceAdjPct);
   // Slice 9.2 — verdict bands use the per-quote target override when
   // set, otherwise firm-level target. Floor stays firm-level always
@@ -1687,6 +1858,7 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
           freightShipmentBreaks: input.freightShipmentBreaks ?? [],
           freightMarkupPct: input.quote.freightMarkupPct ?? 0.3,
           effectiveAdj,
+          graphSink: graphNodes,
           markupDefaults,
           cellOverride,
           effectiveTarget,
@@ -1983,5 +2155,6 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
     skuRollups: renderOrdered,
     quoteRollup,
     quoteSummary,
+    graph: { nodes: graphNodes, complete: false },
   };
 }
