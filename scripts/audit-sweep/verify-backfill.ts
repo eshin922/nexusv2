@@ -30,6 +30,24 @@ import { db } from "@/db";
 import { resolveActorDisplayName } from "@/lib/audit";
 
 // Pre-backfill facts, captured by capture-prebackfill.ts before the write.
+
+/**
+ * The boundary between the history this proof protects and rows written since.
+ *
+ * The baseline in docs/audit-sweep/ describes the 2,701 rows that existed when
+ * Gate 1A began. The invariant being tested is that HISTORY IS IMMUTABLE — not
+ * that the table never grows. The application keeps writing audit rows, as it
+ * should, so an unscoped digest would start reporting drift the moment a PM did
+ * anything, and a proof that cries drift on correct behaviour trains its reader
+ * to ignore it.
+ *
+ * So the digests are scoped below this cutoff, and rows above it are reported
+ * as new rather than counted as change. The last historical row was written at
+ * 2026-08-06 18:22:00Z; the first post-sweep row at 22:08:34Z.
+ */
+const HISTORY_CUTOFF = "2026-08-06T22:00:00Z";
+const HISTORY_ROWS = "2701";
+
 const PRE = {
   globalSemanticDigest: "fa0056de3b25c5758213cdf57a4bddb0",
   userIdDigest: "9465c838fbd6e95ec229e82ab19caa4d",
@@ -73,6 +91,7 @@ const cover = await one<{
                             and btrim(actor_display_name) <> '')::text           as named,
          count(*) filter (where user_id is null)::text                           as machine_rows
     from audit_log
+   where created_at < ${sql.raw(`'${HISTORY_CUTOFF}'`)}::timestamptz
 `);
 
 if (cover.rows === PRE.rows) pass(`${cover.rows} rows — count unchanged`);
@@ -124,6 +143,7 @@ const names = await all<{ user_id: string; actor_display_name: string; rows: str
   select distinct user_id::text as user_id, actor_display_name, count(*)::text as rows
     from audit_log
    where user_id is not null
+     and created_at < ${sql.raw(`'${HISTORY_CUTOFF}'`)}::timestamptz
    group by 1, 2
    order by 1
 `);
@@ -144,6 +164,7 @@ if (nameDrift === 0)
 const [uid] = await all<{ user_id_digest: string }>(sql`
   select md5(string_agg(concat_ws('|', id::text, coalesce(user_id::text,'')), E'\n' order by id)) as user_id_digest
     from audit_log
+   where created_at < ${sql.raw(`'${HISTORY_CUTOFF}'`)}::timestamptz
 `);
 if (uid.user_id_digest === PRE.userIdDigest) pass(`user_id values unchanged (${uid.user_id_digest})`);
 else fail(`user_id digest ${PRE.userIdDigest} -> ${uid.user_id_digest}`);
@@ -173,7 +194,9 @@ const vocabNow = await all<VocabRow>(sql`
          count(*) filter (where summary is not null)::text      as with_summary,
          count(*) filter (where entity_label is not null)::text as with_label,
          count(*) filter (where diff_json is not null)::text    as with_diff
-    from audit_log group by 1, 2 order by 1, 2
+    from audit_log
+   where created_at < ${sql.raw(`'${HISTORY_CUTOFF}'`)}::timestamptz
+   group by 1, 2 order by 1, 2
 `);
 const digestsNow = await all<DigestRow>(sql`
   select action, entity_type,
@@ -181,7 +204,9 @@ const digestsNow = await all<DigestRow>(sql`
              coalesce((select string_agg(k,',' order by k) from jsonb_object_keys(diff_json) k),'')),
              E'\n' order by id)) as shape_digest,
          count(*)::text as rows
-    from audit_log group by 1, 2 order by 1, 2
+    from audit_log
+   where created_at < ${sql.raw(`'${HISTORY_CUTOFF}'`)}::timestamptz
+   group by 1, 2 order by 1, 2
 `);
 // Deliberately EXCLUDES actor_user_id and actor_display_name. Including them
 // would guarantee a change and prove nothing.
@@ -190,6 +215,7 @@ const [globalRow] = await all<{ digest: string }>(sql`
            coalesce(summary,''), coalesce(entity_label,''), coalesce(diff_json::text,'')),
            E'\n' order by id)) as digest
     from audit_log
+   where created_at < ${sql.raw(`'${HISTORY_CUTOFF}'`)}::timestamptz
 `);
 
 const vocabBase = JSON.parse(readFileSync("docs/audit-sweep/baseline-vocabulary.json", "utf8")) as VocabRow[];
@@ -228,6 +254,16 @@ if (digestDrift === 0) pass(`${digestBase.length} structural digests identical`)
 if (globalRow.digest === PRE.globalSemanticDigest)
   pass(`global semantic digest ${globalRow.digest} — unchanged, excluding the two snapshot columns`);
 else fail(`global semantic digest ${PRE.globalSemanticDigest} -> ${globalRow.digest}`);
+
+const [since] = await all<{ rows: string }>(sql`
+  select count(*)::text as rows from audit_log
+   where created_at >= ${sql.raw(`'${HISTORY_CUTOFF}'`)}::timestamptz
+`);
+// The scoped checks above report 2,701 (the history the baseline describes);
+// the actor-model checks report the live total. The difference is growth.
+console.log(
+  `  --    ${since.rows} row(s) written since the sweep — expected growth, not drift`,
+);
 
 console.log(
   failed
