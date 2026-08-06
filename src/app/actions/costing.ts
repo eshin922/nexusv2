@@ -54,6 +54,7 @@ import type { CommercialSettingsResolution } from "@/lib/commercial-settings-con
 import { buildQuoteCostingInputFromNewModel } from "@/lib/costing-adapter";
 import type { FreightWorkbook } from "@/lib/freight-workbook";
 import type { HydrateSnapshot } from "@/lib/costing-store";
+import { traceCosts } from "@/lib/costs-trace";
 import {
   parseMarginPercent,
   parsePercentDisplay,
@@ -410,6 +411,17 @@ async function loadWorksheetFreightForQuote(
     const tariff = charge(row.subcategoryId, row.tierId, "tariff");
     const ownerSkuId = anchorByAssembly.get(row.assemblyId);
     if (!ownerSkuId) throw new ActionGuardError(ERR.VALIDATION, "Freight-owning commercial product has no costing item");
+    // Trace point 4 — the worksheet values the read model actually loaded.
+    // If these already differ from "action persisted", the read model is
+    // stale; if they match, staleness lies further downstream.
+    traceCosts({
+      point: "worksheet read", quoteId, tierId: row.tierId, authority: "worksheet",
+      values: {
+        subcategoryId: row.subcategoryId, tierUnits: row.tierUnits,
+        freightAmount: row.freightAmount, freightMarkupPct: row.freightMarkupPct,
+        dutyAmount: duty?.amount ?? null, tariffAmount: tariff?.amount ?? null,
+      },
+    });
     return {
       freightSubcategoryId: row.subcategoryId,
       ownerSkuId,
@@ -1819,6 +1831,60 @@ export async function getCostingBundle(
       freightProjection.customerArrangesMeta;
 
     const result = computeQuoteCosting(input);
+
+    // Trace points 5-7 — calculation inputs, calculation output, and what the
+    // bundle hands the client, all stamped with the revision that joins them
+    // back to "action persisted".
+    //
+    // `authority` is the shadowing verdict made explicit: worksheet rows
+    // suppress the legacy leg model, so a value sourced from the wrong model
+    // is visible here rather than inferred from behaviour.
+    const tracedAuthority =
+      (input.freightShipmentBreaks?.length ?? 0) > 0
+        ? "worksheet"
+        : freightLegList.length > 0
+          ? "legacy"
+          : "none";
+    for (const shipment of input.freightShipmentBreaks ?? []) {
+      traceCosts({
+        point: "calc input", quoteId, tierId: shipment.tierId,
+        serverRevision: bundleRevision, authority: tracedAuthority,
+        values: {
+          freightSubcategoryId: shipment.freightSubcategoryId,
+          tierUnits: shipment.tierUnits, treatment: shipment.treatment,
+          freightAmount: shipment.freightAmount,
+          freightMarkupPct: shipment.freightMarkupPct,
+          dutyAmount: shipment.dutyAmount, tariffAmount: shipment.tariffAmount,
+        },
+      });
+    }
+    // The Cost Stack reads these buckets, so tracing them is what makes a
+    // stale on-screen Freight/Duty figure attributable to the calculation
+    // rather than to the display.
+    for (const rollup of result.quoteRollup) {
+      traceCosts({
+        point: "calc output", quoteId, tierId: rollup.tierId,
+        serverRevision: bundleRevision, authority: tracedAuthority,
+        values: {
+          qty: rollup.qty,
+          freight: rollup.costBreakdown.freight,
+          packaging: rollup.costBreakdown.packaging,
+          production: rollup.costBreakdown.production,
+          serviceFees: rollup.costBreakdown.serviceFees,
+          totalCost: rollup.totalCost,
+          blendedMarginPct: rollup.blendedMarginPct,
+        },
+      });
+    }
+    traceCosts({
+      point: "bundle returned", quoteId, serverRevision: bundleRevision,
+      authority: tracedAuthority,
+      values: {
+        worksheetShipmentRows: input.freightShipmentBreaks?.length ?? 0,
+        legacyLegRows: freightLegList.length,
+        tierRollups: result.quoteRollup.length,
+      },
+    });
 
     // Slice 9.5 — load persisted warnings (active + accepted) into
     // the snapshot so the client store can attach DB ids onto

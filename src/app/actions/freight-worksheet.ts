@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, eq, max } from "drizzle-orm";
+import { and, asc, eq, max, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblyLeaves,
@@ -21,6 +21,7 @@ import { resolveBreakFieldSources } from "@/lib/freight-break-write";
 import { quoteByIdDraft, quoteForAssembly } from "@/lib/quote-guards";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import { FREIGHT_LEG_MODES, enumLabel, isFreightLegMode } from "@/lib/enum-labels";
+import { traceCosts } from "@/lib/costs-trace";
 
 type FieldSource = "manual" | "imported" | "corrected_after_import";
 const provenance = (fields: string[], source: FieldSource = "manual") =>
@@ -278,7 +279,7 @@ export async function updateFreightDestinationBreak(fd: FormData): Promise<Actio
   });
 }
 
-export async function updateFreightDestinationBreakGroup(fd: FormData): Promise<ActionResult<{ destinationId: string }>> {
+export async function updateFreightDestinationBreakGroup(fd: FormData): Promise<ActionResult<{ destinationId: string; revision: string | null }>> {
   return runAction(async () => {
     const destinationId = str(fd, "destinationId");
     const sourceTierId = str(fd, "sourceTierId");
@@ -289,6 +290,19 @@ export async function updateFreightDestinationBreakGroup(fd: FormData): Promise<
       .innerJoin(quotes, eq(quotes.id, freightSubcategories.quoteId)).where(eq(freightDestinations.id, destinationId)).limit(1);
     if (!owner) throw new ActionGuardError(ERR.NOT_FOUND, "Freight destination not found");
     await quoteByIdDraft(owner.quote.id);
+    // Trace point 2 — what the server actually received, before any coercion.
+    const traceId = str(fd, "traceId") || undefined;
+    const clientRevision = str(fd, "clientRevision") || null;
+    traceCosts({
+      point: "action received", traceId, quoteId: owner.quote.id,
+      action: "updateFreightDestinationBreakGroup", destinationId,
+      clientRevision, authority: "worksheet",
+      values: Object.fromEntries(
+        [...fd.entries()]
+          .filter(([k]) => /^(freightAmount|freightMarkupPct|mode|shipmentNote|breakMode):?/.test(k))
+          .map(([k, v]) => [k, String(v)]),
+      ),
+    });
     const rows = await db.select().from(freightDestinationBreaks).where(eq(freightDestinationBreaks.freightDestinationId, destinationId));
     if (!rows.length || !rows.some((row) => row.tierId === sourceTierId)) throw new ActionGuardError(ERR.VALIDATION, "Freight quantity breaks are incomplete");
     const fields = ["freightAmount", "freightMarkupPct", "mode", "shipmentNote"];
@@ -311,8 +325,23 @@ export async function updateFreightDestinationBreakGroup(fd: FormData): Promise<
         const { amountKey, modeKey, noteKey } = resolveBreakFieldSources({
           flat, sourceTierId, rowTierId: row.tierId, submittedKeys,
         });
+        // Trace point 2b — the normalized values about to be persisted, per
+        // break. Emitted per row so a flat-mode fan-out is visible as N rows
+        // rather than one aggregate.
+        const nextAmount = numberOrNull(fd, `freightAmount:${amountKey}`);
+        const nextMarkup = markupOrNull(fd, `freightMarkupPct:${amountKey}`);
+        traceCosts({
+          point: "action normalized", traceId, quoteId: owner.quote.id,
+          action: "updateFreightDestinationBreakGroup", destinationId,
+          breakId: row.id, tierId: row.tierId, authority: "worksheet",
+          values: {
+            amountSourceTier: amountKey, flat: String(flat),
+            freightAmount: nextAmount, freightMarkupPct: nextMarkup,
+            priorAmount: row.freightAmount, priorMarkup: row.freightMarkupPct,
+          },
+        });
         await tx.update(freightDestinationBreaks).set({
-          freightAmount: numberOrNull(fd, `freightAmount:${amountKey}`), freightMarkupPct: markupOrNull(fd, `freightMarkupPct:${amountKey}`),
+          freightAmount: nextAmount, freightMarkupPct: nextMarkup,
           mode: (modeKey ? modeOrNull(fd, `mode:${modeKey}`) : row.mode) as typeof row.mode,
           shipmentNote: noteKey ? nullable(fd, `shipmentNote:${noteKey}`) : row.shipmentNote,
           updatedAt: new Date(),
@@ -321,8 +350,36 @@ export async function updateFreightDestinationBreakGroup(fd: FormData): Promise<
       }
       await tx.insert(auditLog).values({ userId: user.id, entityType: "freight_destination", entityId: destinationId, action: "freight_breaks_updated", diffJson: { breakMode: flat ? "one_value_all_breaks" : "differs_by_break", tierIds: rows.map((row) => row.tierId) } });
     });
+    // Trace point 3 — what is actually committed, read back from the database
+    // AFTER the transaction, with the post-commit revision. This is the join
+    // key: every read-side event carries the revision it observed, so the
+    // chain closes on it without threading traceId through the RSC boundary.
+    const persisted = await db
+      .select({
+        id: freightDestinationBreaks.id,
+        tierId: freightDestinationBreaks.tierId,
+        freightAmount: freightDestinationBreaks.freightAmount,
+        freightMarkupPct: freightDestinationBreaks.freightMarkupPct,
+        mode: freightDestinationBreaks.mode,
+        revision: sql<string>`pg_snapshot_xmax(pg_current_snapshot())::text`,
+        committedAt: sql<string>`now()::text`,
+      })
+      .from(freightDestinationBreaks)
+      .where(eq(freightDestinationBreaks.freightDestinationId, destinationId));
+    for (const row of persisted) {
+      traceCosts({
+        point: "action persisted", traceId, quoteId: owner.quote.id,
+        action: "updateFreightDestinationBreakGroup", destinationId,
+        breakId: row.id, tierId: row.tierId, authority: "worksheet",
+        clientRevision, serverRevision: row.revision,
+        values: {
+          freightAmount: row.freightAmount, freightMarkupPct: row.freightMarkupPct,
+          mode: row.mode, committedAt: row.committedAt,
+        },
+      });
+    }
     revalidateQuoteTree(owner.quote.projectId, owner.quote.id);
-    return { destinationId };
+    return { destinationId, revision: persisted[0]?.revision ?? null };
   });
 }
 

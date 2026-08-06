@@ -19,6 +19,9 @@ import type { FreightWorkbook } from "@/lib/freight-workbook";
 import { FREIGHT_LEG_MODES, enumLabel } from "@/lib/enum-labels";
 import { alignBreaksToTiers } from "@/lib/freight-tier-cells";
 import { startCostsTiming, type CostsTimingMark } from "@/lib/costs-timing";
+import { markCostsEvent } from "@/lib/costs-timing";
+import { newTraceId } from "@/lib/costs-trace";
+import { useCostingStoreApi } from "@/components/costing-store-provider";
 
 type Tier = { id: string; label: string; qty: number | null; recommended?: boolean };
 type Product = { id: string; label: string };
@@ -165,6 +168,10 @@ export function FreightDrilldown(props: {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
   }, []);
 
+  // Read-only access to the reconciliation revision for the trace. Uses the
+  // store API rather than a subscription so tracing cannot itself cause a
+  // re-render and perturb what is being measured.
+  const storeApi = useCostingStoreApi();
   const submit = (action: (fd: FormData) => Promise<Result>, key: string, onSuccess?: (result: Result) => void) => (fd: FormData) => {
     setMessage(null);
     setPendingKey(key);
@@ -174,6 +181,15 @@ export function FreightDrilldown(props: {
     // the same stages in the same format. `key` carries the specific action,
     // so the nine audited actions stay distinguishable within the surface.
     const since = startCostsTiming("freight", key.split(":")[0]);
+    // Trace point 1 — the operator input, and the id every server-side event
+    // for this action carries. clientRevision records what the client believed
+    // it was working from, so a reconciliation that applies an OLDER snapshot
+    // is visible as a revision going backwards rather than inferred.
+    const traceId = newTraceId();
+    const clientRevision = storeApi.getState().lastAppliedRevision ?? null;
+    fd.set("traceId", traceId);
+    fd.set("clientRevision", String(clientRevision ?? ""));
+    markCostsEvent("freight", "submit", `${traceId} rev=${clientRevision}`);
     since("submit");
     startTransition(async () => {
       since("action start");
@@ -183,6 +199,9 @@ export function FreightDrilldown(props: {
       else {
         if (result.data?.selectionCleared) setMessage(`${result.data.deletedDestination} was removed. No destination is in the price; choose one explicitly.`);
         onSuccess?.(result);
+        // Links the client's traceId to the server's post-commit revision —
+        // the join key every read-side event carries.
+        markCostsEvent("freight", "committed", `${traceId} rev=${String((result.data as { revision?: string } | undefined)?.revision ?? "?")}`);
         scheduleRefresh(since);
       }
       setPendingKey(null);
