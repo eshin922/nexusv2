@@ -781,3 +781,61 @@ own labels. Confirmation work, not discovery.
 
 Remaining effort is workflow correctness, engineering contracts and lifecycle
 governance — not platform responsiveness.
+
+---
+
+## 0.11 F-3 Phase A complete · Phase B specified
+
+### Phase A — producer contract: PASS (`32b09a3`)
+
+All eleven Freight mutations return a committed revision via a shared
+`committedRevision()` helper. Five structural tests convert the contract from
+convention into an enforceable invariant — the important one being "no exported
+action that revalidates escapes the sweep", which fails when a NEW mutation
+lands without the contract. That is how the gap opened originally.
+
+### Phase B — consumer contract: OPEN
+
+**The question to answer, and only this one:** given two reconciliation
+candidates, which satisfies the causal contract established by the originating
+write?
+
+**Why monotonicity is not already the answer.** The store enforces
+`snap.revision <= lastAppliedRevision → drop`
+(`costing-store-provider.tsx`, `tryReconcile`). That guarantees reconciliation
+never goes backwards. It does NOT guarantee a snapshot contains the operator's
+own write.
+
+**The concrete failure it permits.** Let `lastApplied = 100` and the operator's
+write commit at revision `120`. A realtime snapshot arrives at revision `110`:
+newer than what is applied, so the monotonic gate passes it — but it predates
+the write, so it does not contain the operator's change. Applying it reverts the
+value on screen until the second reconcile at ≥120 restores it.
+
+This is exactly the window the post-co-location split exposed: realtime and
+refresh now resolve as two distinct events (0.10) instead of collapsing into
+one, so a candidate landing between `lastApplied` and the write's revision is
+now reachable in a way it was not at 7-second reads.
+
+**Shape of the fix:**
+
+1. Store gains `pendingWriteRevision: number | null`.
+2. On a successful mutation the client calls something like
+   `awaitCommitted(result.data.revision)` — the producer half already returns
+   it on every path.
+3. `tryReconcile` holds (does not drop) any snapshot with
+   `revision < pendingWriteRevision`, and clears the pending marker when a
+   snapshot at or beyond it applies.
+4. Hold, do not discard: the awaited snapshot may never arrive if the write was
+   the last event, so the existing quiet-period retry is the natural carrier.
+   A timeout fallback is needed so a lost revision cannot wedge reconciliation
+   permanently.
+
+**Do not fold in:** destination idempotency, F-5, the pending-state proof, or
+the deferred server-side `timed()` cleanup. Phase B alters runtime
+reconciliation on a functionally certified workspace and needs its own
+verification pass.
+
+**Verification should include** a test that a snapshot between `lastApplied`
+and `pendingWriteRevision` is not applied, and one that reconciliation still
+converges when no write is pending (the common case must be unaffected).
