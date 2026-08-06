@@ -473,3 +473,68 @@ verdict is recorded: `src/lib/costs-trace.ts`, `src/lib/costs-timing.ts`, and
 their call sites in `freight-drilldown.tsx`, `packaging-drilldown.tsx`,
 `production-drilldown.tsx`, `costing-store-provider.tsx`,
 `freight-worksheet.ts`, `costing.ts`.
+
+---
+
+## 0.9 Confirmed findings logged 2026-08-06
+
+### F-1 · Invariant-governance defect — six raw-SQL fixture writers
+
+**Confirmed defect. Release-blocking for `NOT NULL` enforcement, not for Costs
+certification.**
+
+Production code cannot create an unpointered `assembly_leaves` row:
+`src/lib/product-structure/grouped-membership-compatibility.ts` is the only
+writer in `src/`, it inserts the canonical `quote_leaves` row first and always
+sets `quoteLeafId`, and both callers (`actions/assemblies.ts` for create and
+attach, `actions/quotes.ts` for clone, copy and revision) route through it.
+
+Six writers under `scripts/` bypass it entirely with raw SQL:
+
+| File | Line |
+|---|---|
+| `scripts/seed-sample-order.mjs` | 365 |
+| `scripts/provision-cb-step10-fixture.ts` | 284 |
+| `scripts/provision-cb-step8b-fixture.ts` | 169 |
+| `scripts/provision-cb-step8c4-fixture.ts` | 221 |
+| `scripts/smoke/mark-complete.ts` | 254 |
+| `scripts/parity/so-field-parity.ts` | 395 |
+
+All six do `INSERT INTO assembly_leaves (assembly_id, leaf_id, quantity,
+position)` with no pointer. **These are the origin of the 129 orphans.** This
+is Pattern 53 at structural rather than commercial grain: fixtures that do not
+mirror what production writers do, which is how a structural invariant was
+violated 129 times without any surface reporting it.
+
+Sequence, in order, each as its own change:
+1. Route all six through the canonical creation path.
+2. Validate that fixture provisioning still produces pointered rows.
+3. Only then propose `assembly_leaves.quote_leaf_id NOT NULL` as a separate
+   governed change.
+
+Applying the constraint before step 1 would break every fixture provisioner
+and every CB smoke walk.
+
+### F-2 · Process finding — shared-database migration authorization
+
+**Standing process change, effective immediately.**
+
+Migration `0056` was authored, journalled and applied inside a single working
+session against the **shared dev/prod Supabase project**. It was transactional
+and fail-closed, and the disposition authorizing the repair was explicit — but
+authorization to *perform a repair* is not the same as authorization to
+*execute it against production at a particular moment*.
+
+**Future migrations against the shared database require explicit execution
+authorization before application, separately from approval of the change
+itself.** Transactional safety and a fail-closed postcondition reduce the blast
+radius of a bad migration; they do not substitute for the operator choosing
+when production is written to.
+
+The correct shape: author the migration, report the predicted classification
+and the digest plan, then STOP and request execution authorization. Apply only
+on an explicit go.
+
+Related: the existing "Single Supabase project" section of CLAUDE.md already
+warns that any local migration is a production migration. That warning covers
+the hazard; this finding adds the missing control.
