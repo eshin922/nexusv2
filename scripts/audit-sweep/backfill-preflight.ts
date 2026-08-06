@@ -98,9 +98,49 @@ if (blank.length > 0) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 0062 preconditions — what the RESTRICTIVE migration additionally requires.
+//
+// Between 0061 and the deploy, production keeps writing rows through the old
+// code with none of the three columns set. Those rows are backfillable (0062
+// re-runs the backfill), but a row with NO user_id would not be: after the
+// fact there is no way to tell an unattended act from a lost actor. None exist
+// today; if one appears it must be classified explicitly, not guessed.
+// ---------------------------------------------------------------------------
+
+const enforcement = await one<{
+  unclassified: string;
+  no_display: string;
+  shape_violations: string;
+  unclassifiable: string;
+}>(sql`
+  select count(*) filter (where actor_kind is null)::text                        as unclassified,
+         count(*) filter (where actor_display_name is null
+                             or btrim(actor_display_name) = '')::text            as no_display,
+         count(*) filter (where actor_kind is not null and not (
+                            (actor_kind = 'human'  and actor_user_id is not null) or
+                            (actor_kind = 'system' and actor_user_id is null)))::text as shape_violations,
+         count(*) filter (where user_id is null and actor_kind is null)::text    as unclassifiable
+    from audit_log
+`);
+
+console.log("\n  0062 (enforcement) preconditions:\n");
+console.log(`    rows with no actor_kind          ${enforcement.unclassified}  (0062 backfills these)`);
+console.log(`    rows with no display name        ${enforcement.no_display}  (0062 backfills these)`);
+console.log(`    rows violating the actor shape   ${enforcement.shape_violations}  (must be 0)`);
+console.log(`    UNCLASSIFIABLE (no user_id, no kind)  ${enforcement.unclassifiable}  (must be 0)`);
+
+const enforcementBlocked =
+  enforcement.shape_violations !== "0" || enforcement.unclassifiable !== "0";
+
 console.log(
   unresolved.length === 0
-    ? "PRECONDITION MET — every historical actor still resolves.\n"
-    : "PRECONDITION FAILED — do not run the backfill.\n",
+    ? "\nBACKFILL PRECONDITION MET — every historical actor still resolves."
+    : "\nBACKFILL PRECONDITION FAILED — do not run the backfill.",
 );
-process.exit(unresolved.length === 0 ? 0 : 1);
+console.log(
+  enforcementBlocked
+    ? "ENFORCEMENT PRECONDITION FAILED — 0062 would abort. Classify the rows explicitly.\n"
+    : "ENFORCEMENT PRECONDITION MET — 0062 can be applied once the code is deployed.\n",
+);
+process.exit(unresolved.length === 0 && !enforcementBlocked ? 0 : 1);
