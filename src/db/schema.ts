@@ -1430,7 +1430,7 @@ export const auditLog = pgTable(
      * possible while every current `user_id` still resolves.
      */
     actorUserId: uuid("actor_user_id"),
-    actorDisplayName: text("actor_display_name"),
+    actorDisplayName: text("actor_display_name").notNull(),
     /**
      * What KIND of actor this row terminates in — Gate 1A actor model.
      *
@@ -1451,7 +1451,7 @@ export const auditLog = pgTable(
      * actor_user_id NOT NULL, which would assert that every audit row
      * describes a person — the thing that is not true.
      */
-    actorKind: auditActorKind("actor_kind"),
+    actorKind: auditActorKind("actor_kind").notNull(),
     entityType: text("entity_type").notNull(),
     // text rather than uuid so non-UUID-PK entities (e.g.,
     // markup_defaults uses category text as PK) can audit cleanly.
