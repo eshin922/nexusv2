@@ -18,6 +18,7 @@ import {
 } from "../../src/lib/costing.ts";
 import {
   ARITHMETIC_KINDS,
+  GRAPH_VERSION,
   TERMINAL_KINDS,
   findGraphViolations,
   findNode,
@@ -292,4 +293,31 @@ test("an empty sum asserting a NON-zero value is still a violation", () => {
   const violations = findGraphViolations(rogue);
   assert.equal(violations.length, 1);
   assert.match(violations[0].problem, /empty sum asserts 4\.2/);
+});
+
+// ------------------------------------------------------- compatibility contract
+
+test("the emitted graph declares its version", () => {
+  const r = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  assert.equal(r.graph.version, GRAPH_VERSION);
+  assert.equal(typeof r.graph.version, "number");
+});
+
+test("version and completeness are different questions and must not be conflated", () => {
+  const r = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  // `version` says what SHAPE the graph is in; `complete` says how much of it
+  // is here. A consumer that checked only one would either read a section that
+  // does not exist yet, or trust a shape it was not written against.
+  assert.equal(r.graph.version, 1);
+  assert.equal(r.graph.complete, false);
+});
+
+test("adding a section must not require a version bump", () => {
+  // The version is a compatibility contract, not a build counter. Sections
+  // arriving is additive and is what `complete` tracks — bumping for it would
+  // train consumers to ignore the version, which is the failure mode a
+  // version field exists to prevent.
+  const empty = computeQuoteCosting(input({ packaging: [] }));
+  const filled = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  assert.equal(empty.graph.version, filled.graph.version);
 });
