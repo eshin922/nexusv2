@@ -5259,3 +5259,49 @@ timing was supplying for free.
   pipe whose behaviour changed shape under the new timings.
 - Pattern 50 (compliance-basis intersection state) — sibling discipline: two
   subsystems agreeing by coincidence rather than by construction.
+
+## Merge and certification evidence must use repository-governed test commands
+
+**Standing rule — banked 2026-08-06 from the Costs certification merge gate.**
+
+> Merge and certification evidence must use the repository-governed test
+> commands. Ad hoc runner invocations are diagnostic only unless proven
+> equivalent to the project command.
+
+`package.json` defines `test:unit` as:
+
+```
+node --experimental-strip-types \
+     --experimental-loader=./tests/support/server-contract-loader.mjs \
+     --test tests/unit/*.test.ts
+```
+
+Both flags are load-bearing. The loader supplies the server-contract shims the
+suite depends on, and native type-stripping preserves ESM semantics.
+
+**Reference moment.** Certification evidence was gathered with
+`npx tsx --test tests/unit/*.test.ts` instead. That invocation omits the loader
+and transpiles to CJS, so every test file using top-level await failed to
+*transform* — and the transform errors were counted as test failures. The
+result was a persistent, plausible-looking "12 pre-existing failures" that was
+reported across several turns and offered as a pre-merge acknowledgement.
+
+Under the governed command: `main` was 122/122 green, and the branch had five
+genuine regressions the wrong runner had buried among fabricated ones. The bad
+number was worse than no number, because it manufactured a category of
+"pre-existing failures" that made real regressions look like inherited noise.
+
+**Why the usual sanity check did not catch it.** Comparing two branches with
+the same broken command produced a self-consistent delta, so the comparison
+looked rigorous while both sides were wrong. Stashing and re-running only ever
+established "these failures predate my uncommitted edits" — never "these
+failures predate the branch."
+
+**The check that would have caught it:** run the governed command on `main`
+first. A clean baseline is the only thing that makes a delta meaningful; a
+branch comparison against an unverified baseline is not evidence.
+
+**Applies to:** merge readiness, certification verdicts, regression claims, and
+any statement of the form "these failures are pre-existing." Ad hoc runners
+remain fine for iterating on a single file — just never for a number that
+appears in a report.
