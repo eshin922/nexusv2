@@ -17,6 +17,15 @@ import {
   updateFreightTracking,
 } from "@/app/actions/freight-worksheet";
 import type { FreightWorkbook } from "@/lib/freight-workbook";
+// Gate 1B A-6 — the engine's own per-shipment contribution function. This file
+// previously carried five hand-written copies of this arithmetic; the display
+// layer now reads the same computation the price is built from.
+// `src/lib/costing.ts` is explicitly pure (no server-only, no Drizzle), so a
+// client component may import it — several already do.
+import {
+  computeShipmentContribution,
+  type ShipmentContribution,
+} from "@/lib/costing";
 import { FREIGHT_LEG_MODES, enumLabel } from "@/lib/enum-labels";
 import { alignBreaksToTiers } from "@/lib/freight-tier-cells";
 import { useCostingStoreApi } from "@/components/costing-store-provider";
@@ -307,7 +316,7 @@ function DestinationRow({ destination, shipment, destinations, selected, tiers, 
   return <div className={`fr-dest${isSelected && destinations.length > 1 ? " sel" : ""}`} ref={rowRef}>
     <div className="fr-grid">
       <div className="fr-dlab">{destinations.length > 1 && <button className={`fr-pick${isSelected ? " on" : ""}`} disabled={!editable || !priced || busy(`selectDestination:${shipment.id}`)} aria-label={`Select ${destination.destination}`} title={!priced ? "Enter a freight amount before selecting this destination" : busy(`selectDestination:${shipment.id}`) ? "Saving selection…" : undefined} onClick={() => submit(selectFreightDestination, `selectDestination:${shipment.id}`)(fields({ freightSubcategoryId: shipment.id, destinationId: destination.id, selectionReason: shipment.selectionReason }))}/>}<span className="fr-dname"><span className="n">{destinations.length > 1 ? "to " : ""}{destination.destination}{destination.consignee ? ` · ${destination.consignee}` : ""}</span><span className="m"><span>{destination.transitDays || "transit not set"} door to door</span><span className={varies ? "varies" : ""}>{varies ? modes.map(modeChip).join(" / ") : modeChip(modes[0] ?? "")}</span>{inherited && <span className="fr-inherit">type + markup inherited</span>}</span><input className="fr-note" defaultValue={destination.internalNotes ?? ""} placeholder="note — optional" disabled={!editable} onBlur={(event) => submit(updateFreightDestination, `editDestination:${destination.id}`)(fields({ destinationId: destination.id, destination: destination.destination, consignee: destination.consignee, transitDays: destination.transitDays, quoteReference: destination.quoteReference, internalNotes: event.currentTarget.value }))}/></span>{isSelected && destinations.length > 1 && <span className="fr-vs win">in the price</span>}{destinations.length > 1 && !isSelected && priced && delta !== null && <span className={`fr-vs ${delta > 0 ? "worse" : "better"}`}>{delta > 0 ? "+" : "−"}{money4(Math.abs(delta)).slice(1)}/unit</span>}{destinations.length > 1 && !priced && <span className="fr-vs">no total yet</span>}<button type="button" className="fr-tog" onClick={() => setFlat(!flat)}>{flat ? "differs by break" : "one value, all breaks"}</button><button className={`fr-edit${open ? " on" : ""}`} onClick={toggle}>{open ? "hide detail" : "type + description"}</button>{destinations.length > 1 && editable && <button className="fr-del" disabled={busy(`deleteDestination:${destination.id}`)} title={busy(`deleteDestination:${destination.id}`) ? "Removing…" : undefined} onClick={() => submit(deleteFreightDestination, `deleteDestination:${destination.id}`)(fields({ destinationId: destination.id }))}>remove</button>}</div>
-      {cells.map(({ tier, row, index: tierIndex }) => { const amount = Number(row?.freightAmount ?? 0); const markup = Number(row?.freightMarkupPct ?? 0); const customsEntry = workbook.customsEntries.find((item: any) => item.freightSubcategoryId === shipment.id); const customsSell = customsEntry && tier.qty ? workbook.customsBreaks.filter((item: any) => item.freightCustomsEntryId === customsEntry.id && item.tierId === tier.id).reduce((sum: number, item: any) => sum + Number(item.amount ?? 0) * (1 + Number(item.markupPct ?? 0)), 0) / tier.qty : 0; return <div className="fr-cell fr-entrycell" key={tier.id}>{row ? flat && tierIndex > 0 ? <span className="cbm">one value, all breaks</span> : <><input className="fr-in" data-break-field name={`freightAmount:${tier.id}`} type="number" min="0" step="0.01" defaultValue={row.freightAmount ?? ""} placeholder="total cost" disabled={!editable} onBlur={saveBreaks}/><span className="mrow"><span className="x">×</span><input className="fr-in pct" data-break-field name={`freightMarkupPct:${tier.id}`} type="number" min="0" max="999" step="1" placeholder="40" aria-label="Freight markup, whole percent" title="Enter whole percent — 40 means 40%" defaultValue={row.freightMarkupPct === null ? "" : markup * 100} disabled={!editable} onBlur={saveBreaks}/><span className="arr">→</span><span className="sell">{priced && tier.qty ? money4(amount * (1 + markup) / tier.qty) : "—"}</span></span>{shipment.crossesInternationalBorder && priced && <span className="cbm">incl. d/t {money4(customsSell).slice(1)}</span>}</> : "—"}</div>; })}
+      {cells.map(({ tier, row, index: tierIndex }) => { const markup = Number(row?.freightMarkupPct ?? 0); const contribution = computeShipmentContribution({ tierUnits: Number(tier.qty ?? 0), freightAmount: row ? Number(row.freightAmount ?? 0) : null, freightMarkupPct: markup, dutyAmount: null, dutyMarkupPct: 0, tariffAmount: null, tariffMarkupPct: 0 }); const shipmentContribution = shipmentContributionAt(shipment, tier, workbook); const customsSell = shipmentContribution.dutyBillablePerUnit + shipmentContribution.tariffBillablePerUnit; return <div className="fr-cell fr-entrycell" key={tier.id}>{row ? flat && tierIndex > 0 ? <span className="cbm">one value, all breaks</span> : <><input className="fr-in" data-break-field name={`freightAmount:${tier.id}`} type="number" min="0" step="0.01" defaultValue={row.freightAmount ?? ""} placeholder="total cost" disabled={!editable} onBlur={saveBreaks}/><span className="mrow"><span className="x">×</span><input className="fr-in pct" data-break-field name={`freightMarkupPct:${tier.id}`} type="number" min="0" max="999" step="1" placeholder="40" aria-label="Freight markup, whole percent" title="Enter whole percent — 40 means 40%" defaultValue={row.freightMarkupPct === null ? "" : markup * 100} disabled={!editable} onBlur={saveBreaks}/><span className="arr">→</span><span className="sell">{priced && tier.qty ? money4(contribution.freightBillablePerUnit) : "—"}</span></span>{shipment.crossesInternationalBorder && priced && <span className="cbm">incl. d/t {money4(customsSell).slice(1)}</span>}</> : "—"}</div>; })}
     </div>
     {/* Mode and description render for EVERY break regardless of flat state.
         "One value, all breaks" governs the commercial terms (amount + markup)
@@ -392,6 +401,13 @@ function CustomsLedger({ shipment, tiers, entry, workbook, editable, pending, su
           const markup = Number(current?.markupPct ?? 0);
           return <div className="n" key={tier.id}>
             <input className="fr-in" data-customs-amount={`${chargeType}:${tier.id}`} type="number" min="0" step="0.01" defaultValue={current?.amount ?? ""} disabled={!editable} onBlur={() => saveBreak(chargeType, tier.id)}/>
+            {/* DELIBERATELY NOT routed through computeShipmentContribution.
+                This is a marked-up TOTAL for one charge line, not a per-unit
+                contribution, and the engine function always divides by tier
+                units. Reconstructing the total as `billablePerUnit x units`
+                would render 0 whenever tier.qty is 0 or null, where this
+                correctly still shows the entered amount plus its markup.
+                Converting it would trade a duplicate for a defect. */}
             <span className="s">sell {money2(amount * (1 + markup))}</span>
           </div>;
         })}
@@ -403,8 +419,12 @@ function CustomsLedger({ shipment, tiers, entry, workbook, editable, pending, su
       {tiers.map((tier: Tier) => {
         const rows = entry ? workbook.customsBreaks.filter((row: any) => row.freightCustomsEntryId === entry.id && row.tierId === tier.id) : [];
         const amount = rows.reduce((sum: number, row: any) => sum + Number(row.amount ?? 0), 0);
-        const sell = rows.reduce((sum: number, row: any) => sum + Number(row.amount ?? 0) * (1 + Number(row.markupPct ?? 0)), 0);
-        return <div className="n" key={tier.id}><span className="v">{money2(amount)}</span><span className="s">{tier.qty ? money4(sell / tier.qty) : "—"}/unit sell</span></div>;
+        // Per-unit customs sell now comes from the engine: duty + tariff
+        // billable per unit. The cost total above is a plain sum of entered
+        // amounts and carries no markup, so it stays as it is.
+        const contribution = shipmentContributionAt(shipment, tier, workbook);
+        const sellPerUnitValue = contribution.dutyBillablePerUnit + contribution.tariffBillablePerUnit;
+        return <div className="n" key={tier.id}><span className="v">{money2(amount)}</span><span className="s">{tier.qty ? money4(sellPerUnitValue) : "—"}/unit sell</span></div>;
       })}
     </div>
   </div>;
@@ -650,10 +670,75 @@ function TrackingField({ label, name, value, formId }: { label: string; name: st
 }
 
 function Fact({ label, value }: { label: string; value: unknown }) { return <div className="f"><span className="k">{label}</span><span className="v">{String(value || "not set")}</span></div>; }
-function sellPerUnit(destination: any, tier: Tier, workbook: FreightWorkbook) {
-  const row = workbook.breaks.find((item: any) => item.freightDestinationId === destination?.id && item.tierId === tier.id);
-  return tier.qty ? Number(row?.freightAmount ?? 0) * (1 + Number(row?.freightMarkupPct ?? 0)) / tier.qty : 0;
+/**
+ * Per-unit freight contribution for one shipment at one tier, computed by the
+ * ENGINE's own function rather than re-derived here.
+ *
+ * Gate 1B A-6: this file previously carried five independent versions of this
+ * arithmetic. They agreed with `computeShipmentContribution` by inspection,
+ * which is the weakest kind of agreement — the engine could change its
+ * ordering or its null handling and these would silently keep the old answer.
+ *
+ * One ordering difference is worth naming, since the swap makes it real. The
+ * old code computed `(amount x (1 + markup)) / units`; the engine computes
+ * `(amount / units) x (1 + markup)`. Algebraically identical, not
+ * bit-identical in floating point — but the divergence is ~1e-16 relative and
+ * these cells render at 4dp, so no displayed digit moves. The point is that
+ * the UI now cannot drift from the engine at all, at any precision.
+ */
+function shipmentContributionAt(
+  shipment: any,
+  tier: Tier,
+  workbook: FreightWorkbook,
+): ShipmentContribution {
+  const destination = workbook.destinations.find(
+    (row: any) => row.id === shipment?.selectedDestinationId,
+  );
+  const freightBreak =
+    destination &&
+    workbook.breaks.find(
+      (item: any) => item.freightDestinationId === destination.id && item.tierId === tier.id,
+    );
+  const customsEntry = workbook.customsEntries.find(
+    (item: any) => item.freightSubcategoryId === shipment?.id,
+  );
+  const customsBreak = (chargeType: string) =>
+    customsEntry &&
+    workbook.customsBreaks.find(
+      (item: any) =>
+        item.freightCustomsEntryId === customsEntry.id &&
+        item.tierId === tier.id &&
+        item.chargeType === chargeType,
+    );
+  const duty = customsBreak("duty");
+  const tariff = customsBreak("tariff");
+  return computeShipmentContribution({
+    tierUnits: Number(tier.qty ?? 0),
+    freightAmount: freightBreak ? Number(freightBreak.freightAmount ?? 0) : null,
+    freightMarkupPct: freightBreak ? Number(freightBreak.freightMarkupPct ?? 0) : 0,
+    dutyAmount: duty ? Number(duty.amount ?? 0) : null,
+    dutyMarkupPct: duty ? Number(duty.markupPct ?? 0) : 0,
+    tariffAmount: tariff ? Number(tariff.amount ?? 0) : null,
+    tariffMarkupPct: tariff ? Number(tariff.markupPct ?? 0) : 0,
+  });
 }
+
+/** Per-unit contribution for one DESTINATION under comparison — freight only,
+ *  since customs is carried at shipment level and does not vary by
+ *  destination. Same engine function; a narrower input. */
+function destinationFreightPerUnit(destination: any, tier: Tier, workbook: FreightWorkbook) {
+  const row = workbook.breaks.find(
+    (item: any) => item.freightDestinationId === destination?.id && item.tierId === tier.id,
+  );
+  return computeShipmentContribution({
+    tierUnits: Number(tier.qty ?? 0),
+    freightAmount: row ? Number(row.freightAmount ?? 0) : null,
+    freightMarkupPct: row ? Number(row.freightMarkupPct ?? 0) : 0,
+    dutyAmount: null, dutyMarkupPct: 0, tariffAmount: null, tariffMarkupPct: 0,
+  }).freightBillablePerUnit;
+}
+
+const sellPerUnit = destinationFreightPerUnit;
 function Comparison({ destinations, selected, tiers, workbook }: any) {
   if (destinations.length < 2) return null;
   const tier: Tier | undefined = tiers.find((item: Tier) => item.recommended) ?? tiers[tiers.length - 1] ?? tiers[0];
@@ -663,7 +748,17 @@ function Comparison({ destinations, selected, tiers, workbook }: any) {
 function SelectionReason({ shipment, selected, editable, submit }: any) { const formId = `selection-reason-${shipment.id}`; return <form id={formId} className="fr-reason" action={submit}><input type="hidden" name="freightSubcategoryId" value={shipment.id}/><input type="hidden" name="destinationId" value={selected?.id ?? ""}/><span className="k">why · {shipment.selectionReason ? "Logistics" : "unrecorded"}</span><input className="t" name="selectionReason" defaultValue={shipment.selectionReason ?? ""} placeholder="the deltas above are the system's; the reason is yours — add what the numbers don't say" disabled={!editable || !selected} onBlur={autosave(formId)}/></form>; }
 function DecisionSummary({ selected, destinations, tiers, workbook }: any) { const tier: Tier | undefined = tiers.find((item: Tier) => item.recommended) ?? tiers[tiers.length - 1] ?? tiers[0]; const selectedValue = selected && tier ? sellPerUnit(selected, tier, workbook) : null; return <div className="fr-decision">{selected ? <><span className="chose">{selected.destination} chosen</span><span className="sep">·</span><span>{destinations.length - 1} comparison option{destinations.length === 2 ? "" : "s"} retained</span>{selectedValue !== null && <span className="sep">· {money4(selectedValue)}/unit at {tier?.label}</span>}</> : <span className="fr-vs worse">no destination selected</span>}</div>; }
 function TotalStrip({ tiers, workbook }: any) {
-  const totals = useMemo(() => tiers.map((tier: Tier) => workbook.subcategories.reduce((sum: number, shipment: any) => { const destination = workbook.destinations.find((row: any) => row.id === shipment.selectedDestinationId); const row = destination && workbook.breaks.find((item: any) => item.freightDestinationId === destination.id && item.tierId === tier.id); const customsEntry = workbook.customsEntries.find((item: any) => item.freightSubcategoryId === shipment.id); const customs = customsEntry ? workbook.customsBreaks.filter((item: any) => item.freightCustomsEntryId === customsEntry.id && item.tierId === tier.id).reduce((value: number, item: any) => value + Number(item.amount ?? 0) * (1 + Number(item.markupPct ?? 0)), 0) : 0; return sum + (tier.qty ? (Number(row?.freightAmount ?? 0) * (1 + Number(row?.freightMarkupPct ?? 0)) + customs) / tier.qty : 0); }, 0)), [tiers, workbook]);
+  const totals = useMemo(
+    () =>
+      tiers.map((tier: Tier) =>
+        workbook.subcategories.reduce(
+          (sum: number, shipment: any) =>
+            sum + shipmentContributionAt(shipment, tier, workbook).totalBillablePerUnit,
+          0,
+        ),
+      ),
+    [tiers, workbook],
+  );
   // Conditional meta line per the bundle's `TotalStrip`. An unselected
   // multi-destination shipment is the state that makes this total
   // provisional, so it is named rather than silently summed to zero.
