@@ -379,6 +379,13 @@
       "when": 1785880800000,
       "tag": "0055_phase_2_worksheet_freight_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1785999600000,
+      "tag": "0056_canonical_attachment_repair",
+      "breakpoints": true
     }
   ]
 }
