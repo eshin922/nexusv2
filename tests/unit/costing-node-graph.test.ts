@@ -1463,3 +1463,24 @@ test("the packaging drilldown's per-line key resolves, with its markup readable"
     assert.ok(Math.abs(node.value - node.operands![0].value * (1 + markup.value)) < 1e-9);
   }
 });
+
+
+test("an unpriced packaging line still gets a node, valued zero", () => {
+  // The fact that makes the drilldown's guard necessary, asserted so it cannot
+  // quietly stop being true. An uncosted line is not absent from the graph —
+  // the engine emits a well-formed node for it whose value is genuinely 0.
+  //
+  // So a consumer CANNOT distinguish "costs nothing" from "nobody has costed
+  // it" by reading the node. It has to look at whether an input exists. Reading
+  // the node unguarded is what put `$0.00` under empty inputs on 106 production
+  // cells, and no amount of fail-closed reading catches it, because nothing has
+  // failed: the node is there and its value is correct.
+  const out = computeQuoteCosting(
+    input({ packaging: [pkg({ lineGroupId: "unpriced", unitCost: null as unknown as number })] }),
+  );
+  const node = resolveNode(out.graph.nodes, nodeKey(LEAF, TIER, "pkg", "unpriced"));
+  assert.ok(node, "an unpriced line is still a line");
+  assert.equal(node.value, 0);
+  assert.notEqual(node.kind, "flagged-out");
+  assert.equal(readNodeValue(out.graph.nodes, node.key), 0);
+});

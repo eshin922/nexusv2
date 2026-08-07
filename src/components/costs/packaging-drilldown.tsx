@@ -1019,11 +1019,16 @@ function PackagingTierCell({
   const q = num(line.qtyPerSellableUnit) ?? 1;
   const isPreview = u !== num(storeUnitCost) || markupDirty;
   const m = num(markupPct) ?? read.markup ?? 0;
-  const landed = isPreview
-    ? u !== null
-      ? u * (1 + m) * q
-      : null
-    : read.value;
+  // AN UNPRICED CELL HAS NO LANDED VALUE — not a landed value of zero.
+  //
+  // The engine still emits a line node for it, correctly valued 0, and reading
+  // that node put `→ $0.00` under four empty inputs in production: a component
+  // nobody has costed asserting that it costs nothing. Caught by smoke, and the
+  // same error Pattern 57 names one level up — the fail-closed read handles
+  // "no node", and this handles "a node whose zero is the absence of an input
+  // rather than a fact about one".
+  const landed =
+    u === null ? null : isPreview ? u * (1 + m) * q : read.value;
 
   const isEmpty = u === null;
 
