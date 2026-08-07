@@ -15,7 +15,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { getCostingBundle } from "@/app/actions/costing";
-import { findNode } from "@/lib/costing-nodes";
+import { findNode, resolveNode, quoteScopeKey } from "@/lib/costing-nodes";
 
 const COMPONENTS = ["pkg", "prod", "raw", "frt", "dt"] as const;
 
@@ -30,6 +30,7 @@ const failures: string[] = [];
 let tiersChecked = 0;
 let blendsChecked = 0;
 let meanBelowSum = 0;
+let undefinedTiers = 0;
 
 for (const q of quotes) {
   const expected = (await db.execute(sql`
@@ -46,6 +47,24 @@ for (const q of quotes) {
 
   for (const tier of res.data.costing.tiers) {
     tiersChecked += 1;
+
+    // A tier whose total weight is zero has NO blend — the mean is undefined,
+    // and the graph states that as a flagged-out exclusion rather than
+    // publishing a zero. Its component keys are absent by design, so a
+    // missing node here is the contract working, not a failure.
+    const container = graph.nodes.find((n) => n.key === `quote/${tier.tierId}`);
+    if (container?.kind === "flagged-out") {
+      undefinedTiers += 1;
+      for (const comp of COMPONENTS) {
+        if (resolveNode(graph.nodes, quoteScopeKey(tier.tierId, comp))) {
+          failures.push(
+            `${q.quote_id} ${tier.label} ${comp}: readable blend exposed on an undefined tier`,
+          );
+        }
+      }
+      continue;
+    }
+
     for (const comp of COMPONENTS) {
       let node = null;
       for (const root of graph.nodes) {
@@ -99,6 +118,7 @@ for (const q of quotes) {
 console.log(`\n  quotes checked                  ${quotes.length}`);
 console.log(`  tiers checked                   ${tiersChecked}`);
 console.log(`  component blends checked        ${blendsChecked}`);
+console.log(`  tiers with undefined blend      ${undefinedTiers}  (zero total weight, flagged out)`);
 console.log(`  blends with >1 valued SKU       ${meanBelowSum}  (mean strictly below sum)`);
 
 if (failures.length > 0) {

@@ -21,6 +21,8 @@ import {
   ARITHMETIC_KINDS,
   GRAPH_VERSION,
   QUOTE_SCOPE_PREFIX,
+  quoteScopeKey,
+  resolveNode,
   REQUIRED_CELL_SECTIONS,
   TERMINAL_KINDS,
   graphIsComplete,
@@ -1001,18 +1003,86 @@ test("blend · the blended cost reproduces the engine's total cost", () => {
   assert.equal(cost.value * totalWeight, r.quoteRollup[0].totalCost);
 });
 
-test("blend · a zero-weight tier blends to zero with contributors still visible", () => {
-  const r = computeQuoteCosting(
-    twoProducts({ tiers: [{ id: TIER, label: "T1", qty: 0, sortOrder: 0, tierPriceAdjPct: null }] }),
+// ------------------------------- zero total weight: undefined, never zero
+//
+// A units-weighted mean over zero units is 0/0. This asserted a readable zero
+// instead, so the Pricing Cost Stack rendered $0.00 across a tier while the
+// compliance table showed a real margin percentage for it — two statements
+// that cannot both be true. Found by production smoke on 52bd0077 tier 4.
+//
+// The contract is that no consumer can read a commercial zero from an
+// undefined blend. It is enforced at the AUTHORITY: the readable keys are not
+// emitted at all, so every consumer reaches the fail-closed path it already
+// has. Teaching consumers to inspect weights and reinterpret the value would
+// put commercial semantics back into the presentation layer.
+
+const ZERO_QTY_TIER = { id: TIER, label: "T1", qty: 0, sortOrder: 0, tierPriceAdjPct: null };
+
+test("zero total weight · no readable blend is exposed at any component key", () => {
+  const r = computeQuoteCosting(twoProducts({ tiers: [ZERO_QTY_TIER] }));
+  // Every key the Cost Stack addresses must fail to resolve, so the consumer
+  // renders unavailable rather than a price of nothing.
+  for (const name of ["pkg", "prod", "raw", "frt", "dt", "sell-before", "sell", "cost"]) {
+    assert.equal(
+      resolveNode(r.graph.nodes, quoteScopeKey(TIER, name)),
+      null,
+      `${name} must not resolve when the blend is undefined`,
+    );
+  }
+});
+
+test("zero total weight · the contributors are real and are NOT lost", () => {
+  // The per-SKU values exist and are correct; only the blend over them is
+  // undefined. They remain reachable on their own cell-scope chains, which is
+  // what the per-SKU breakdown renders.
+  const r = computeQuoteCosting(twoProducts({ tiers: [ZERO_QTY_TIER] }));
+  const leaves = r.skuRollups.filter((x) => x.skuRole === "leaf");
+  assert.ok(leaves.length >= 2);
+  const valued = leaves.filter(
+    (l) => (l.perTier.find((t) => t.tierId === TIER)?.requiredSellPerUnit ?? 0) > 0,
   );
+  assert.ok(
+    valued.length >= 2,
+    "the fixture must carry non-zero contributor values or this proves nothing",
+  );
+  // And their cell roots are still in the graph.
+  for (const l of valued) {
+    assert.ok(
+      r.graph.nodes.some((n) => n.key.startsWith(l.skuId + "/" + TIER + "/")),
+      `${l.skuLabel} must keep its own chain`,
+    );
+  }
+});
+
+test("zero total weight · the exclusion is stated, not silent", () => {
+  const r = computeQuoteCosting(twoProducts({ tiers: [ZERO_QTY_TIER] }));
+  const node = resolveNode(r.graph.nodes, quoteScopeKey(TIER, ""))
+    ?? r.graph.nodes.find((n) => n.key === "quote/" + TIER);
+  assert.ok(node, "the tier must still appear, carrying the reason");
+  // `flagged-out` is the vocabulary's word for an excluded input: explicitly
+  // not a zero, and required to carry its reason.
+  assert.equal(node.kind, "flagged-out");
+  assert.equal(node.value, 0);
+  assert.match(node.reason!, /undefined/i);
+  assert.deepEqual(findGraphViolations(node), []);
+});
+
+test("zero total weight · completeness is unaffected", () => {
+  // Reported before changing anything: `graphIsComplete` inspects CELL roots
+  // only and excludes the quote scope by key prefix, so omitting quote-scope
+  // blends raises no completeness conflict.
+  const zero = computeQuoteCosting(twoProducts({ tiers: [ZERO_QTY_TIER] }));
+  const normal = computeQuoteCosting(twoProducts());
+  assert.equal(zero.graph.complete, normal.graph.complete);
+});
+
+test("a positive-weight tier still blends normally", () => {
+  // The guard must not have disabled the ordinary path.
+  const r = computeQuoteCosting(twoProducts());
   const sell = blendNode(r, "sell");
-  assert.equal(sell.value, 0);
-  assert.deepEqual(sell.weights, [0, 0]);
-  // Zero weight is a real state, not an error. The contributors remain — they
-  // are the answer to "why is this zero".
+  assert.equal(sell.kind, "blend");
+  assert.equal(sell.value, 15);
   assert.equal(sell.operands!.length, 2);
-  assert.match(sell.note!, /nothing to weight by/);
-  assert.deepEqual(findGraphViolations(sell), []);
 });
 
 test("blend · an ABSENT contributor is excluded, never treated as a zero", () => {

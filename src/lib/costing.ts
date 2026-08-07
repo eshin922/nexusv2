@@ -2829,10 +2829,6 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       absent.length > 0
         ? absent.length + " SKU(s) have no rollup at this tier and are not contributors"
         : undefined;
-    const zeroWeightNote =
-      totalWeight === 0
-        ? "Tier quantity is zero, so there is nothing to weight by; contributors are listed unblended."
-        : undefined;
 
     const blend = (
       name: string,
@@ -2852,10 +2848,9 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
         unit: "usd" as const,
         origin: { grade: "thin" as const, actor: null, when: null, doc: null },
       }));
+      // Reached only when totalWeight is positive — see the zero-weight branch.
       const value =
-        totalWeight > 0
-          ? operands.reduce((acc, o, i) => acc + o.value * weights[i], 0) / totalWeight
-          : 0;
+        operands.reduce((acc, o, i) => acc + o.value * weights[i], 0) / totalWeight;
       return {
         key: nodeKey(blendBase, name),
         kind: "blend",
@@ -2865,9 +2860,9 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
         op: "Sigma(value x units) / Sigma(units), across " + operands.length + " SKU(s)",
         weights,
         operands,
-        ...(absentNote || zeroWeightNote
+        ...(absentNote
           ? {
-              note: [zeroWeightNote, absentNote].filter(Boolean).join(" "),
+              note: absentNote,
               noteLevel: "info" as const,
             }
           : {}),
@@ -2894,6 +2889,45 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       blend("dt", "Blended duty & tariff sell per unit", (pt) => pt.freightDutyTariffMarkupSumPerUnit),
     ];
 
+    // ZERO TOTAL WEIGHT — the blend is UNDEFINED, and undefined is not zero.
+    //
+    // A units-weighted mean over zero units is 0/0. Emitting a readable
+    // zero-valued blend would have the graph assert that every component is
+    // free, which is a commercial claim nothing supports; the surface then
+    // renders $0.00 beside a real margin percentage, and the two statements
+    // cannot both be true. That combination shipped, and it is what this
+    // branch removes.
+    //
+    // The fix is in the AUTHORITY, not in the consumer. Teaching the Pricing
+    // shell to inspect weights and reinterpret a zero would put commercial
+    // semantics back in the presentation layer — the thing this whole gate
+    // exists to end. Instead the readable keys are simply not emitted, so
+    // every consumer reaches the fail-closed path it already has and renders
+    // an unavailable marker without knowing why.
+    //
+    // `flagged-out` is the vocabulary's own word for this: an input EXCLUDED,
+    // with the reason, explicitly NOT a zero. It is terminal and may not carry
+    // operands, which is correct here — the per-SKU contributors are real and
+    // are preserved where they already live, as their own cell-scope roots.
+    // Nothing is lost; only the figure that cannot be computed is absent.
+    //
+    // Completeness is unaffected: `graphIsComplete` inspects CELL roots only
+    // and excludes the quote scope by key prefix, so omitting these raises no
+    // contract conflict.
+    if (totalWeight <= 0) {
+      graphNodes.push({
+        key: blendBase,
+        kind: "flagged-out",
+        label: "Quote blend · " + tier.label,
+        value: 0,
+        unit: "usd",
+        reason:
+          "Tier quantity is zero, so a units-weighted blend is undefined. " +
+          "Per-SKU values remain available on each SKU's own chain.",
+      });
+      continue;
+    }
+
     // Blending is LINEAR, so the component blends sum to the blend of the
     // sums. That is what lets a stack of blended rows reconcile to a blended
     // total at all — without it the column would be a set of averages with no
@@ -2916,13 +2950,11 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       // sell and cost do not add to anything meaningful. Value is the sum of
       // its operands so the node reconciles honestly rather than asserting a
       // figure with no interpretation.
+      // No zero-weight guard here: the branch above returned already, so
+      // totalWeight is strictly positive by the time this runs.
       value:
-        (totalWeight > 0
-          ? contributors.reduce((a, c) => a + c.pt.requiredSellPerUnit * c.weight, 0) / totalWeight
-          : 0) +
-        (totalWeight > 0
-          ? contributors.reduce((a, c) => a + c.pt.contributionCostPerUnit * c.weight, 0) / totalWeight
-          : 0),
+        contributors.reduce((a, c) => a + c.pt.requiredSellPerUnit * c.weight, 0) / totalWeight +
+        contributors.reduce((a, c) => a + c.pt.contributionCostPerUnit * c.weight, 0) / totalWeight,
       unit: "usd",
       op: "blended sell + blended cost",
       operands: [
