@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   selectActiveTierId,
@@ -348,18 +348,23 @@ function TierColumn({
         {GOVERNED_ROWS.map((row) => {
           const found = perUnit?.rows.find((r) => r.row.node === row.node);
           return (
-            <CompRow
-              key={row.node}
-              row={row}
-              values={found ? found.values : null}
-              maxPerUnitCost={maxPerUnitCost}
-            />
+            <Fragment key={row.node}>
+              <CompRow
+                row={row}
+                values={found ? found.values : null}
+                maxPerUnitCost={maxPerUnitCost}
+              />
+              {/* RAW renders DIRECTLY BENEATH PROD, because the canonical CSS
+                  draws a parenting tick on `.r6-comp-row.raw .key::before` —
+                  "RAW gets an indent + a parenting tick to signal child of
+                  PROD" (r6-costs.css:885). The tick points at the row above it,
+                  so placing RAW anywhere else makes the glyph and the words
+                  name different parents. Shipping it after D+T did exactly
+                  that, and production smoke caught it. */}
+              {showRaw && row.node === "prod" && <RawIncludedInProdRow />}
+            </Fragment>
           );
         })}
-        {/* RAW sits between PROD and FRT in R6's order, but it has no
-            independently governed value to sit there WITH, so it renders after
-            the governed rows rather than interrupting them. */}
-        {showRaw && <RawIncludedInProdRow />}
       </div>
 
       <div className="r6-tier-col-foot">
@@ -436,6 +441,11 @@ function TierColumn({
  * It carries no numeric cell, so it takes no part in the tier's completeness
  * check — the column renders fully whether or not this row is shown, and will
  * keep doing so until raw has a governed value of its own.
+ *
+ * Placement is load-bearing rather than cosmetic: the canonical stylesheet
+ * indents this row and draws a parenting tick to mark it a child of PROD, so
+ * the row must follow PROD directly. CD's design had already said in CSS what
+ * this row now says in words.
  */
 function RawIncludedInProdRow() {
   return (
