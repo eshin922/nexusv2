@@ -135,9 +135,21 @@ type LineTierRead = {
    *  it chose, so the surface can tell an operator where a rate came from
    *  instead of leaving them to infer it. */
   markupSource: string | null;
+  /** What would apply IF THE LINE HAD NO OVERRIDE — the ladder's answer with
+   *  its top rung removed. This is what a placeholder must show: a placeholder
+   *  says "what you get if you leave this empty", so on a line that HAS an
+   *  override the resolved rate is the wrong number to offer. */
+  inheritedMarkup: number | null;
+  inheritedSource: string | null;
 };
 
-const NO_READ: LineTierRead = { value: null, markup: null, markupSource: null };
+const NO_READ: LineTierRead = {
+  value: null,
+  markup: null,
+  markupSource: null,
+  inheritedMarkup: null,
+  inheritedSource: null,
+};
 
 /** Map key. `\u0000` cannot occur in a UUID, so it cannot collide. */
 function readKey(lineGroupId: string, tierId: string): string {
@@ -220,11 +232,20 @@ export function PackagingDrilldown({
       // markup. Reading its value is how the preview below gets the ladder's
       // answer without re-walking the ladder.
       const markupOperand = node.operands?.[1];
-      const chosen = markupOperand?.candidates?.find((c) => c.chosen) ?? null;
+      const candidates = markupOperand?.candidates ?? [];
+      const chosen = candidates.find((c) => c.chosen) ?? null;
+      // The ladder minus its top rung: the first rung BELOW the line override
+      // that could supply a value. Read from the engine's own candidate list,
+      // so the fallback order stays the engine's rather than a copy of it.
+      const belowOverride = candidates.find(
+        (c) => c.label !== "Line override" && c.value !== null,
+      );
       out.set(mapKey, {
         value: node.value,
         markup: markupOperand ? markupOperand.value : null,
         markupSource: chosen ? chosen.label : null,
+        inheritedMarkup: belowOverride ? belowOverride.value : null,
+        inheritedSource: belowOverride ? belowOverride.label : null,
       });
     }
     return out;
@@ -482,9 +503,10 @@ function PackagingRow({
   // with itself across tiers.)
   const inherited = tiers
     .map((t) => reads.get(readKey(line.lineGroupId, t.id)))
-    .find((r) => r !== undefined && r.markup !== null);
-  const inheritedMarkup = inherited?.markup ?? null;
-  const inheritedSource = inherited?.markupSource ?? null;
+    .find((r) => r !== undefined && r.inheritedMarkup !== null);
+  const inheritedMarkup = inherited?.inheritedMarkup ?? null;
+  const inheritedSource = inherited?.inheritedSource ?? null;
+  const isInheriting = markupPct === "" && inheritedMarkup !== null;
   const metaDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef({
@@ -874,12 +896,26 @@ function PackagingRow({
           engine actually chose, read from the resolution node's own record of
           the decision rather than re-derived. */}
       <div className="num">
+        {/* Placeholder styling alone was measured at alpha 0.5 on the same
+            colour, at 10.5px — real, and too quiet to be the only signal that a
+            commercial rate is inherited rather than set. The dashed underline is
+            the register already used for synthetic-visible values elsewhere
+            (Pattern 45's `<Stub>`), so it reads as "this is not a value someone
+            entered" without inventing new vocabulary. */}
         <span
           className="markup"
+          style={
+            isInheriting
+              ? {
+                  fontStyle: "italic",
+                  borderBottom: "1px dashed var(--rule-2)",
+                }
+              : undefined
+          }
           title={
-            markupPct === "" && inheritedMarkup !== null
-              ? `No markup set on this line. ${(inheritedMarkup * 100).toFixed(0)}% applies` +
-                `${inheritedSource ? `, from ${inheritedSource.toLowerCase()}` : ""}. Type to override.`
+            isInheriting
+              ? `No markup set on this line. ${((inheritedMarkup ?? 0) * 100).toFixed(0)}% applies` +
+                `${inheritedSource ? `, from ${inheritedSource}` : ""}. Type to override.`
               : undefined
           }
         >
