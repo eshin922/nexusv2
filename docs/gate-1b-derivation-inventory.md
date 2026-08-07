@@ -154,19 +154,43 @@ derivation, never the answer. `scripts/gate-1b/verify-header-cutover.ts` fails i
 no multi-SKU tier exercises the divergence, so a change that collapsed them could
 not pass by looking correct.
 
-**RAW takes no part in the tier's completeness check.** Bulk raw is costed inside
-Production — `productionMarkupSum` already carries it — so there is no
-independently attributable raw figure and no node to read. The row states
-`included in PROD` rather than printing `$0.00` (which would assert raws cost
-nothing), a dash (which would imply a missing input to go and fill), or blanking
-the column (which would withhold four correct figures to punish a fifth). When raw
-gains a governed value of its own, it joins the required set; until then the
-column is complete without it.
+**The stack shows independently governed quantities and nothing else.** Bulk raw
+is costed inside Production — `productionMarkupSum` already carries it — so there
+is no independently attributable raw figure and no node to read. **It therefore
+gets no row.** The relationship is metadata about Production, so it lives on
+Production: a legend tail (`Production · incl. bulk raw`) and a tooltip on the row
+that carries the money. Scoped to `dps_sources`, since under `cm_sources` the
+contract manufacturer buys the raws inside their price and under
+`customer_supplies` there is no raw cost to fold.
+
+Two earlier passes are worth recording, because each was defensible and each was
+wrong in a way the next one exposed:
+
+1. **A row reading `included in PROD`, placed after D+T.** The canonical
+   stylesheet draws a parenting tick on `.r6-comp-row.raw` — *"RAW gets an indent
+   + a parenting tick to signal child of PROD"* — and the tick points at the row
+   above it. The glyph named D+T as the parent while the words named PROD.
+2. **The same row, reparented under PROD.** The tick and the text now agreed,
+   and the row was still a stack line carrying no value that an operator had to
+   read past to reach the figures. Accuracy is not the only bar; a line in a
+   table of commercial quantities asserts that it is one.
+
+Bulk raw takes no part in the tier's completeness check either way. When it gains
+a governed value of its own it becomes a row and joins the required set; until
+then the column is complete without it.
+
+**Recorded as UX refinement, not blocking:** none. The legend swatch that
+promised an unused colour went with the row.
 
 **Evidence.** 37 tiers render a full column with every value graph-read and
 unchanged; 3 tiers carry rows but no sell (priced at zero) and are verified on
 the rows they do render; 12 are blank before and after. S-7 unchanged at
 `150d9f5a…`.
+
+**Smoked in production 2026-08-07.** `52bd0077` — header subtotals $14.89 /
+$4.33 / $5.27 against Pricing blends $7.44 / $2.16 / $2.63, exactly 2x on a
+two-leaf quote, T4 unavailable on both surfaces. `a0b60e43` — Production carries
+the bulk-raw qualifier, no raw row, no numeric raw assertion. S-7 unchanged.
 
 **Still open at this site:** `:130`'s local effective-target resolution, below.
 
