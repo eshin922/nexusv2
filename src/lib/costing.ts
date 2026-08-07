@@ -1,4 +1,10 @@
-import { GRAPH_VERSION, nodeKey, type CostingGraph, type CostingNode } from "./costing-nodes";
+import {
+  GRAPH_VERSION,
+  nodeKey,
+  type CostingGraph,
+  type CostingNode,
+  type NodeCandidate,
+} from "./costing-nodes";
 
 // Slice 8 — Pricing rollup. Pure TypeScript, no Drizzle imports,
 // no server-only. Takes plain data structures (caller assembles from DB),
@@ -1197,6 +1203,20 @@ function computeLeafPerTier(args: {
   // resolves to null and the secondary indicator doesn't render.
   cellTarget: number | null;
   /**
+   * Gate 1B increment 4 — resolution CANDIDATES, decided upstream.
+   *
+   * A resolution node must be emitted where all competing candidates are
+   * simultaneously in scope. By the time execution reaches here only the
+   * winner has arrived, so building the ladder locally would mean inventing
+   * the rungs that lost — stating provenance that was never observed.
+   *
+   * So the candidates travel down as data and this function only applies the
+   * cell's key. The decision is made where it is visible; the addressing is
+   * done where the identity is.
+   */
+  adjustmentCandidates?: NodeCandidate[];
+  freightMarkupCandidates?: NodeCandidate[];
+  /**
    * Gate 1B — collector for the canonical node graph.
    *
    * Passed IN rather than returned so `SkuPerTierRollup` keeps its exact shape.
@@ -1220,6 +1240,8 @@ function computeLeafPerTier(args: {
     freightShipmentBreaks = [],
     freightMarkupPct = 0.3,
     effectiveAdj,
+    adjustmentCandidates,
+    freightMarkupCandidates,
     markupDefaults,
     cellOverride,
     effectiveTarget,
@@ -1306,7 +1328,7 @@ function computeLeafPerTier(args: {
     op: `Σ ${packagingLineNodes.length} line${packagingLineNodes.length === 1 ? "" : "s"}`,
     operands: packagingLineNodes,
   };
-  graphSink?.push(packagingNode);
+  const cellSections: CostingNode[] = [packagingNode];
 
   // ---------- production ----------
   // Per-tier amortization: divide production lump amounts by
@@ -1483,7 +1505,7 @@ function computeLeafPerTier(args: {
       defaults: markupDefaults,
       category: PRODUCTION_MARKUP_CATEGORY,
     });
-    graphSink?.push({
+    cellSections.push({
       key: prodBase,
       kind: "markup",
       label: "Production",
@@ -1525,7 +1547,7 @@ function computeLeafPerTier(args: {
       // NOT a zero. An input that exists was excluded by a decision. A
       // zero-valued markup node and this node carry different facts, and the
       // scalar alone cannot tell them apart — which is why this is a kind.
-      graphSink?.push({
+      cellSections.push({
         key: rawBase,
         kind: "flagged-out",
         label: "Bulk raw",
@@ -1538,7 +1560,7 @@ function computeLeafPerTier(args: {
         noteLevel: "warn",
       });
     } else {
-      graphSink?.push({
+      cellSections.push({
         key: rawBase,
         kind: "markup",
         label: "Bulk raw",
@@ -1758,7 +1780,21 @@ function computeLeafPerTier(args: {
         op: money(b.containerFreightPerUnit) + " cost x (1 + " + b.freightMarkupPct + " markup)",
         operands: [
           originUsd(nodeKey(legBase, "container", "cost"), "Container freight per unit", b.containerFreightPerUnit),
-          originPct(nodeKey(legBase, "container", "markup"), "Freight markup", b.freightMarkupPct),
+          // The quote-level freight markup, with the ladder decided upstream
+          // where the quote value and the firm default are both visible. The
+          // worksheet path below keeps an origin instead, because there the
+          // markup is entered per shipment and no ladder exists.
+          freightMarkupCandidates
+            ? {
+                key: nodeKey(legBase, "container", "markup"),
+                kind: "resolution" as const,
+                label: "Freight markup",
+                value: b.freightMarkupPct,
+                unit: "pct" as const,
+                op: "quote override ?? firm default",
+                candidates: freightMarkupCandidates,
+              }
+            : originPct(nodeKey(legBase, "container", "markup"), "Freight markup", b.freightMarkupPct),
         ],
       });
 
@@ -1881,7 +1917,7 @@ function computeLeafPerTier(args: {
       });
     }
 
-    graphSink?.push({
+    cellSections.push({
       key: frtBase,
       kind: "sum",
       label: "Freight",
@@ -1913,6 +1949,75 @@ function computeLeafPerTier(args: {
   // expected here. Defensive guard below handles the bypass case.
   const requiredSellPerUnit = cellOverride ?? computedSellPerUnit;
   const sellSource: SellSource = cellOverride !== null ? "cell_override" : "computed";
+
+  // ---------- sell nodes (Gate 1B increment 4) ----------
+  {
+    const cellBase = nodeKey(sku.id, tier.id);
+    // `separateServicesMarkupSum` is structurally zero today (the engine sets
+    // separateServiceFees to 0 unconditionally), so it contributes no operand.
+    // The sum still reconciles; adding a permanently-zero term would show
+    // operators a line that never means anything.
+    const sellBeforeNode: CostingNode = {
+      key: nodeKey(cellBase, "sell-before"),
+      kind: "sum",
+      label: "Sell before adjustment",
+      value: sellBeforeAdjustment,
+      unit: "usd",
+      op: "packaging + production + bulk raw + freight",
+      operands: cellSections,
+    };
+
+    const adjustmentNode: CostingNode = {
+      key: nodeKey(cellBase, "sell"),
+      kind: "adjustment",
+      label: "Computed sell",
+      value: computedSellPerUnit,
+      unit: "usd",
+      op: "$" + sellBeforeAdjustment + " x (1 + " + effectiveAdj + " adjustment)",
+      operands: [
+        sellBeforeNode,
+        adjustmentCandidates
+          ? {
+              key: nodeKey(cellBase, "adjustment"),
+              kind: "resolution",
+              label: "Price adjustment",
+              value: effectiveAdj,
+              unit: "pct",
+              // REPLACES, never stacks. Stating it as a ladder is what makes
+              // that visible: a global lift does not reach a tier carrying its
+              // own adjustment, and arithmetic alone could not say so.
+              op: "tier adjustment ?? global adjustment",
+              candidates: adjustmentCandidates,
+            }
+          : {
+              key: nodeKey(cellBase, "adjustment"),
+              kind: "origin",
+              label: "Price adjustment",
+              value: effectiveAdj,
+              unit: "pct",
+              origin: { grade: "thin", actor: null, when: null, doc: null },
+            },
+      ],
+    };
+
+    if (cellOverride !== null) {
+      // NOT an arithmetic node. This price was set by a person, and no
+      // operation sits above it. The computation it replaced is retained under
+      // `superseded` — visible because a PM needs to know what they overrode,
+      // demoted because it is not the reason the number is what it is.
+      graphSink?.push({
+        key: nodeKey(cellBase, "quoted"),
+        kind: "override",
+        label: "Quoted sell",
+        value: requiredSellPerUnit,
+        unit: "usd",
+        origin: { grade: "thin", actor: null, when: null, doc: null },
+        superseded: adjustmentNode,
+      });
+    } else {
+      graphSink?.push(adjustmentNode);
+    }
+  }
 
   // Slice 9.3 belt-and-suspenders: action layer rejects override <= 0,
   // but if a bypass write ever lands a negative `sell_price_override`
@@ -2228,6 +2333,48 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
         );
         const cellTarget =
           cellTargetValue !== undefined ? cellTargetValue : null;
+        // Both ladders are built HERE, and only here, because this is the
+        // one place where the losing candidate is still visible. Downstream
+        // only the winner arrives, and a ladder built there would have to
+        // invent the rung it replaced.
+        const tierAdjSet =
+          tier.tierPriceAdjPct !== null && tier.tierPriceAdjPct !== undefined;
+        const adjustmentCandidates: NodeCandidate[] = [
+          {
+            label: "Tier adjustment",
+            value: tierAdjSet ? num(tier.tierPriceAdjPct) : null,
+            chosen: tierAdjSet,
+            unavailableReason: tierAdjSet ? null : "no tier adjustment set",
+          },
+          {
+            label: "Global adjustment",
+            value: globalAdj,
+            chosen: !tierAdjSet,
+            // The rule the ladder exists to make visible: these REPLACE rather
+            // than stack, so a tier carrying its own adjustment is untouched by
+            // a change to the global one.
+            unavailableReason: tierAdjSet
+              ? "replaced by the tier adjustment, which does not stack"
+              : null,
+          },
+        ];
+        const quoteFreightMarkupSet =
+          input.quote.freightMarkupPct !== null &&
+          input.quote.freightMarkupPct !== undefined;
+        const freightMarkupCandidates: NodeCandidate[] = [
+          {
+            label: "Quote freight markup",
+            value: quoteFreightMarkupSet ? num(input.quote.freightMarkupPct) : null,
+            chosen: quoteFreightMarkupSet,
+            unavailableReason: quoteFreightMarkupSet ? null : "not set on this quote",
+          },
+          {
+            label: "Firm default",
+            value: 0.3,
+            chosen: !quoteFreightMarkupSet,
+            unavailableReason: null,
+          },
+        ];
         return computeLeafPerTier({
           sku,
           tier,
@@ -2239,6 +2386,8 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
           freightShipmentBreaks: input.freightShipmentBreaks ?? [],
           freightMarkupPct: input.quote.freightMarkupPct ?? 0.3,
           effectiveAdj,
+          adjustmentCandidates,
+          freightMarkupCandidates,
           graphSink: graphNodes,
           markupDefaults,
           cellOverride,

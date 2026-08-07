@@ -451,6 +451,12 @@ export function findGraphViolations(root: CostingNode): GraphViolation[] {
     }
 
     for (const o of operands) visit(o);
+    // The superseded chain is DEMOTED, not discarded. It is deliberately not
+    // an operand — it takes no part in the arithmetic, and counting it would
+    // double the sum — but it must still be validated and reachable, or an
+    // operator asking "what would this have been" gets a number with no chain
+    // behind it. Demoted must not mean unreachable.
+    if (n.superseded) visit(n.superseded);
     onPath.delete(n.key);
   };
 
@@ -464,6 +470,9 @@ export function walkGraph(root: CostingNode, fn: (n: CostingNode, depth: number)
   const go = (n: CostingNode, d: number) => {
     fn(n, d);
     for (const o of n.operands ?? []) go(o, d + 1);
+    // Reachable, so entry-at-node can open the chain an override replaced.
+    // See findGraphViolations for why it is not an operand.
+    if (n.superseded) go(n.superseded, d + 1);
   };
   go(root, 0);
 }
