@@ -122,7 +122,12 @@ test("every path terminates in a terminal kind, never in a derived number", () =
   for (const root of r.graph.nodes) {
     walkGraph(root, (n) => {
       const leaf = (n.operands ?? []).length === 0;
-      if (leaf && n.kind !== "resolution") {
+      // An empty section sum at zero is a legitimate leaf — a quote with no
+      // freight still needs a Freight row, and Sigma of nothing is 0. The
+      // invariant permits it only AT zero, so this exemption cannot hide a
+      // section asserting a value nothing accounts for.
+      const emptySectionAtZero = n.kind === "sum" && n.value === 0;
+      if (leaf && n.kind !== "resolution" && !emptySectionAtZero) {
         assert.ok(
           TERMINAL_KINDS.has(n.kind),
           `${n.key} ends the chain as "${n.kind}", which is not a terminal`,
@@ -510,4 +515,180 @@ test("increment 2 · keys stay deterministic with production present", () => {
     return ks;
   };
   assert.deepEqual(keysOf(), keysOf());
+});
+
+// ============================================================================
+// Increment 3 — Freight
+// ============================================================================
+
+const freightNode = (r: ReturnType<typeof computeQuoteCosting>) =>
+  graphNode(r, `${LEAF}/${TIER}/frt`);
+
+// ------------------------------------------------- worksheet model (current)
+
+const shipmentBreak = (over: Record<string, unknown> = {}) => ({
+  freightSubcategoryId: "ship-1",
+  ownerSkuId: LEAF,
+  tierId: TIER,
+  treatment: "bundled" as const,
+  tierUnits: 1000,
+  freightAmount: 4000,
+  freightMarkupPct: 0.4,
+  dutyAmount: 500,
+  dutyMarkupPct: 0.1,
+  tariffAmount: 250,
+  tariffMarkupPct: 0.2,
+  ...over,
+});
+
+test("freight · the section node equals the landed-with-markup scalar", () => {
+  const r = computeQuoteCosting(
+    input({ freightShipmentBreaks: [shipmentBreak()] } as never),
+  );
+  assert.equal(
+    freightNode(r).value,
+    r.skuRollups[0].perTier[0].totalLandedFreightWithMarkup,
+  );
+});
+
+test("freight · worksheet customs are ENTERED AMOUNTS, so no rate node is invented", () => {
+  const r = computeQuoteCosting(
+    input({ freightShipmentBreaks: [shipmentBreak()] } as never),
+  );
+  const kinds: string[] = [];
+  walkGraph(freightNode(r), (n) => kinds.push(n.kind));
+  // The worksheet model records duty as a dollar amount. Emitting a `rate`
+  // node here would assert a percentage nobody entered — a fabricated figure
+  // that would look authoritative in a trace.
+  assert.equal(kinds.includes("rate"), false);
+  assert.equal(kinds.includes("allocation"), true);
+});
+
+test("freight · worksheet charges allocate over tier units then take markup", () => {
+  const r = computeQuoteCosting(
+    input({ freightShipmentBreaks: [shipmentBreak()] } as never),
+  );
+  const ship = freightNode(r).operands![0];
+  const duty = ship.operands!.find((o) => o.label === "Duty")!;
+  const alloc = duty.operands!.find((o) => o.kind === "allocation")!;
+  assert.equal(alloc.value, 0.5); // 500 / 1000
+  assert.equal(alloc.divisor, 1000);
+  assert.equal(duty.value, 0.55); // 0.5 x 1.1
+});
+
+// ------------------------------------------------------ legacy leg model
+
+const leg = (over: Record<string, unknown> = {}) => ({
+  id: "leg-1",
+  legGroupId: "grp-1",
+  direction: "inbound" as const,
+  label: null, origin: null, destination: null,
+  crossesInternationalBorder: true,
+  treatment: "bundled" as const,
+  mode: "ocean" as never,
+  carrier: null,
+  incoterm: "DDP" as const,
+  cargoReadyDate: null, vesselEtd: null, vesselEta: null, actualDeliveryDate: null,
+  dutyMarkupPct: 0.1,
+  tariffMarkupPct: 0.2,
+  customs: { dutyPct: 0.05, tariffPct: 0.02 },
+  displayOrder: 0,
+  ...over,
+});
+
+const legacyInput = () =>
+  input({
+    packaging: [pkg({ unitCost: 10, markupPct: 0 })],
+    freightLegGroups: [{ id: "grp-1", label: "Journey", displayOrder: 0 }],
+    freightLegs: [leg()],
+    freightLegTiers: [
+      { freightLegId: "leg-1", tierId: TIER, totalFreight: 4000, unitsInShipment: null },
+    ],
+  } as never);
+
+test("freight · legacy duty is a RATE and states the basis it applies to", () => {
+  const r = computeQuoteCosting(legacyInput());
+  const legNode = freightNode(r).operands![0];
+  const duty = legNode.operands!.find((o) => o.label === "Duty")!;
+  const rate = duty.operands!.find((o) => o.kind === "rate")!;
+
+  const factory = r.skuRollups[0].perTier[0].factoryCostPerUnit;
+  // A correct dollar result with an ambiguous basis is insufficient
+  // provenance: $0.50 of duty could be 5% of factory cost or 2% of landed
+  // cost, and nothing in the number distinguishes them.
+  assert.ok(rate.basis, "a rate node must state its basis");
+  assert.equal(rate.basis!.value, factory);
+  assert.match(rate.basis!.label, /packaging \+ production \+ bulk raw/);
+  assert.equal(rate.value, factory * 0.05);
+});
+
+test("freight · duty and tariff carry SEPARATE markups on the dollars", () => {
+  const r = computeQuoteCosting(legacyInput());
+  const legNode = freightNode(r).operands![0];
+  const duty = legNode.operands!.find((o) => o.label === "Duty")!;
+  const tariff = legNode.operands!.find((o) => o.label === "Tariff")!;
+  const factory = r.skuRollups[0].perTier[0].factoryCostPerUnit;
+
+  // The markup applies to the DOLLARS, not to the percentage — a PM must be
+  // able to zero the tariff markup without losing margin on duty or freight,
+  // which only works while they are separate nodes.
+  assert.equal(duty.value, factory * 0.05 * 1.1);
+  assert.equal(tariff.value, factory * 0.02 * 1.2);
+});
+
+test("freight · the customs basis excludes freight itself", () => {
+  const r = computeQuoteCosting(legacyInput());
+  const cell = r.skuRollups[0].perTier[0];
+  const legNode = freightNode(r).operands![0];
+  const rate = legNode
+    .operands!.find((o) => o.label === "Duty")!
+    .operands!.find((o) => o.kind === "rate")!;
+  // Factory cost is packaging + production + raw. Freight is deliberately
+  // outside the customs base, and the basis value proves which was used.
+  assert.equal(rate.basis!.value, cell.factoryCostPerUnit);
+  assert.notEqual(rate.basis!.value, cell.contributionCostPerUnit);
+});
+
+test("freight · a non-DDP leg emits no customs nodes at all", () => {
+  const r = computeQuoteCosting(
+    input({
+      packaging: [pkg({ unitCost: 10, markupPct: 0 })],
+      freightLegGroups: [{ id: "grp-1", label: "Journey", displayOrder: 0 }],
+      freightLegs: [leg({ incoterm: "FOB" })],
+      freightLegTiers: [
+        { freightLegId: "leg-1", tierId: TIER, totalFreight: 4000, unitsInShipment: null },
+      ],
+    } as never),
+  );
+  const legNode = freightNode(r).operands![0];
+  // Not customs at zero — customs does not apply on this leg. A zero duty
+  // node would say duty was assessed and came to nothing.
+  assert.equal(legNode.operands!.length, 1);
+  assert.equal(legNode.operands![0].label, "Container freight");
+});
+
+// ------------------------------------------------------------ whole graph
+
+test("increment 3 · every freight shape satisfies the traversal guarantees", () => {
+  const cases = [
+    input({ freightShipmentBreaks: [shipmentBreak()] } as never),
+    input({ freightShipmentBreaks: [shipmentBreak({ dutyAmount: null, tariffAmount: null })] } as never),
+    input({ freightShipmentBreaks: [shipmentBreak({ tierUnits: 0 })] } as never),
+    legacyInput(),
+    input({ packaging: THREE_LINES, production: [prod()] }),
+  ];
+  for (const c of cases) {
+    const r = computeQuoteCosting(c);
+    for (const root of r.graph.nodes) {
+      assert.deepEqual(findGraphViolations(root), [], `violations under ${root.key}`);
+    }
+  }
+});
+
+test("increment 3 · a quote with no freight still emits a Freight section at zero", () => {
+  const r = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  const n = freightNode(r);
+  assert.equal(n.value, 0);
+  assert.deepEqual(n.operands, []);
+  assert.deepEqual(findGraphViolations(n), []);
 });
