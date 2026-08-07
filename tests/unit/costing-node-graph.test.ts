@@ -14,6 +14,7 @@ import test from "node:test";
 import {
   computeQuoteCosting,
   type CostingPackagingInput,
+  type CostingProductionInput,
   type QuoteCostingInput,
 } from "../../src/lib/costing.ts";
 import {
@@ -241,7 +242,11 @@ test("terminals declare a provenance grade, and it is thin rather than invented"
       if (n.kind === "origin") origins.push(n);
     });
   }
-  assert.equal(origins.length, 3);
+  // Scoped to packaging: every section contributes origins, so pinning a
+  // global count would make this test a change-detector for section arrival
+  // rather than an assertion about provenance.
+  assert.equal(origins.filter((o) => o.key.includes("/pkg/")).length, 3);
+  assert.ok(origins.length > 3, "other sections contribute terminals too");
   for (const o of origins) {
     // A-2 is still open: the input-type -> audit-row mapping is unwritten. Until
     // it exists the grade must be `thin`, which states the absence, rather than
@@ -320,4 +325,189 @@ test("adding a section must not require a version bump", () => {
   const empty = computeQuoteCosting(input({ packaging: [] }));
   const filled = computeQuoteCosting(input({ packaging: THREE_LINES }));
   assert.equal(empty.graph.version, filled.graph.version);
+});
+
+// ============================================================================
+// Increment 2 — production and bulk raw
+// ============================================================================
+
+const prod = (over: Partial<CostingProductionInput> = {}): CostingProductionInput => ({
+  quoteSkuId: LEAF,
+  tierId: TIER,
+  customerShipsRaws: false,
+  allocateServiceFeesToCost: true,
+  fillingBlendingCost: 1800,
+  cmAssemblyTotal: 1200,
+  setupFeeTotal: 800,
+  toolingArtworkTotal: 900,
+  rdTotal: 250,
+  otherServiceTotal: 50,
+  bulkRawCost: null,
+  actualUnitsProduced: null,
+  ...over,
+});
+
+const graphNode = (r: ReturnType<typeof computeQuoteCosting>, key: string) =>
+  r.graph.nodes.find((n) => n.key === key)!;
+const productionNode = (r: ReturnType<typeof computeQuoteCosting>) =>
+  graphNode(r, `${LEAF}/${TIER}/prod`);
+const rawNode = (r: ReturnType<typeof computeQuoteCosting>) =>
+  graphNode(r, `${LEAF}/${TIER}/raw`);
+
+test("production · the node value equals the production scalar", () => {
+  const r = computeQuoteCosting(input({ production: [prod()] }));
+  assert.equal(
+    productionNode(r).value,
+    r.skuRollups[0].perTier[0].productionMarkupSumPerUnit,
+  );
+});
+
+test("production · the cost operand equals the production cost scalar", () => {
+  const r = computeQuoteCosting(input({ production: [prod()] }));
+  const cost = productionNode(r).operands!.find((o) => o.kind === "sum")!;
+  assert.equal(cost.value, r.skuRollups[0].perTier[0].productionCostPerUnit);
+});
+
+test("production · COGS is an allocation over run TOTALS, not a sum of per-unit values", () => {
+  const r = computeQuoteCosting(input({ production: [prod()] }));
+  const cost = productionNode(r).operands!.find((o) => o.kind === "sum")!;
+  const cogs = cost.operands!.find((o) => o.key.endsWith("/cogs"))!;
+  assert.equal(cogs.kind, "allocation");
+  // 1800 + 1200 over 1000 units. The operands are the run totals; the
+  // division IS the operation, which is the thing an operator would
+  // otherwise assume wrongly.
+  assert.equal(cogs.value, 3);
+  assert.deepEqual(cogs.operands!.map((o) => o.value), [1800, 1200]);
+  assert.match(cogs.op!, /1000 units/);
+});
+
+test("production · one-time services sum before they are allocated", () => {
+  const r = computeQuoteCosting(input({ production: [prod()] }));
+  const cost = productionNode(r).operands!.find((o) => o.kind === "sum")!;
+  const services = cost.operands!.find((o) => o.key.endsWith("/services"))!;
+  const oneTime = services.operands![0];
+  assert.equal(oneTime.kind, "sum");
+  assert.equal(oneTime.value, 2000); // 800 + 900 + 250 + 50
+  assert.equal(services.value, 2); // 2000 / 1000
+});
+
+test("production · allocation OFF removes the operand rather than zeroing it", () => {
+  const on = computeQuoteCosting(input({ production: [prod({ allocateServiceFeesToCost: true })] }));
+  const off = computeQuoteCosting(input({ production: [prod({ allocateServiceFeesToCost: false })] }));
+
+  const costOf = (r: ReturnType<typeof computeQuoteCosting>) =>
+    productionNode(r).operands!.find((o) => o.kind === "sum")!;
+
+  assert.equal(costOf(on).operands!.length, 2);
+  // The SHAPE changes, not only the number. A zero operand would say the
+  // one-time fees are in the price at zero; they are not in the price at all,
+  // they bill separately. Those are different statements.
+  assert.equal(costOf(off).operands!.length, 1);
+  assert.equal(costOf(off).operands![0].key.endsWith("/cogs"), true);
+  assert.match(costOf(off).note!, /separate fixed charges/);
+});
+
+test("production · one aggregate markup, never a per-line one", () => {
+  const r = computeQuoteCosting(input({ production: [prod()] }));
+  const resolution = productionNode(r).operands!.find((o) => o.kind === "resolution")!;
+  assert.equal(resolution.label, "Manufacturing markup");
+  assert.equal(resolution.value, 0.32);
+  // Production has no per-line markup column. Reproducing packaging's
+  // per-line ladder here would be a fabrication.
+  assert.equal(productionNode(r).operands!.filter((o) => o.kind === "resolution").length, 1);
+});
+
+// ------------------------------------------------------------- bulk raw
+
+test("bulk raw · customer-shipped raws produce a flagged-out node, not a zero markup", () => {
+  const r = computeQuoteCosting(
+    input({ production: [prod({ customerShipsRaws: true, bulkRawCost: 5000 })] }),
+  );
+  const n = rawNode(r);
+  assert.equal(n.kind, "flagged-out");
+  assert.equal(n.value, 0);
+  assert.equal(n.operands, undefined);
+  // The reason names WHAT was excluded. A reason without the amount tells an
+  // operator something was left out but not what it would have cost them.
+  assert.match(n.reason!, /\$5000/);
+  assert.match(n.reason!, /Customer ships raws/);
+});
+
+test("bulk raw · an ABSENT cost and an EXCLUDED cost both read zero but differ in kind", () => {
+  const absent = computeQuoteCosting(input({ production: [prod({ bulkRawCost: null })] }));
+  const excluded = computeQuoteCosting(
+    input({ production: [prod({ customerShipsRaws: true, bulkRawCost: 5000 })] }),
+  );
+  assert.equal(rawNode(absent).value, 0);
+  assert.equal(rawNode(excluded).value, 0);
+  // Identical scalars, different facts. This is the entire argument for
+  // `flagged-out` being a kind rather than a value.
+  assert.equal(rawNode(absent).kind, "markup");
+  assert.equal(rawNode(excluded).kind, "flagged-out");
+});
+
+test("bulk raw · a present cost allocates over tier units and equals the scalar", () => {
+  const r = computeQuoteCosting(input({ production: [prod({ bulkRawCost: 4000 })] }));
+  const n = rawNode(r);
+  assert.equal(n.kind, "markup");
+  assert.equal(n.value, r.skuRollups[0].perTier[0].rawMarkupSumPerUnit);
+  const alloc = n.operands!.find((o) => o.kind === "allocation")!;
+  assert.equal(alloc.value, 4); // 4000 / 1000
+  assert.equal(alloc.value, r.skuRollups[0].perTier[0].rawCostPerUnit);
+});
+
+test("bulk raw · carries its provisional warning in both shapes", () => {
+  const priced = computeQuoteCosting(input({ production: [prod({ bulkRawCost: 4000 })] }));
+  const flagged = computeQuoteCosting(
+    input({ production: [prod({ customerShipsRaws: true, bulkRawCost: 4000 })] }),
+  );
+  // A-7 is open. The node states that it uses the pricing-active value and
+  // that quote-level ingredient rows are not its arithmetic source — in BOTH
+  // shapes, since the caveat does not stop applying when the input is excluded.
+  for (const n of [rawNode(priced), rawNode(flagged)]) {
+    assert.equal(n.noteLevel, "warn");
+    assert.match(n.note!, /unconnected representation/);
+  }
+});
+
+// --------------------------------------------------------- whole-graph checks
+
+test("increment 2 · the production and raw subtrees satisfy every traversal guarantee", () => {
+  for (const p of [
+    prod(),
+    prod({ allocateServiceFeesToCost: false }),
+    prod({ customerShipsRaws: true, bulkRawCost: 5000 }),
+    prod({ bulkRawCost: 4000 }),
+  ]) {
+    const r = computeQuoteCosting(input({ packaging: THREE_LINES, production: [p] }));
+    for (const root of r.graph.nodes) {
+      assert.deepEqual(findGraphViolations(root), [], `violations under ${root.key}`);
+    }
+  }
+});
+
+test("increment 2 · a tier with zero quantity still emits a well-formed graph", () => {
+  // Amortization is undefined at qty 0 and the engine treats it as no
+  // contribution. The graph must still be traversable rather than absent —
+  // an operator asking "why is this zero" needs the chain, most of all here.
+  const r = computeQuoteCosting(
+    input({
+      tiers: [{ id: TIER, label: "T1", qty: 0, sortOrder: 0, tierPriceAdjPct: null }],
+      production: [prod()],
+    }),
+  );
+  assert.equal(productionNode(r).value, 0);
+  for (const root of r.graph.nodes) {
+    assert.deepEqual(findGraphViolations(root), [], `violations under ${root.key}`);
+  }
+});
+
+test("increment 2 · keys stay deterministic with production present", () => {
+  const keysOf = () => {
+    const r = computeQuoteCosting(input({ packaging: THREE_LINES, production: [prod()] }));
+    const ks: string[] = [];
+    for (const root of r.graph.nodes) walkGraph(root, (n) => ks.push(n.key));
+    return ks;
+  };
+  assert.deepEqual(keysOf(), keysOf());
 });

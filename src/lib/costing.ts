@@ -1315,22 +1315,49 @@ function computeLeafPerTier(args: {
   let productionCostSum = 0;
   let separateServiceFees = 0;
   let rawCost = 0;
+  // Gate 1B increment 2 — hoisted so the node emitter can read the SAME values
+  // the arithmetic produced. Nothing is recomputed; these are the identical
+  // expressions, lifted out of the block scope.
+  let internalProductionCogsTotal = 0;
+  let oneTimeServiceFeeTotal = 0;
+  let internalProductionCogsPerUnit = 0;
+  let allocatedServiceFeesPerUnit = 0;
+  let bulkRawTotal = 0;
+  // `rawCost` is 0 in two DIFFERENT situations — nothing was entered, or a
+  // decision excluded what was entered. The scalar cannot tell them apart,
+  // which is exactly why `flagged-out` is a kind rather than a zero.
+  let rawExcludedByCustomerShipping = false;
+  // The run TOTALS are formed unconditionally, because they are facts about
+  // what was entered and do not depend on the tier having a quantity. Only the
+  // per-unit amortization is guarded — dividing by zero units is what is
+  // undefined, not the sum of the fees.
+  //
+  // This was a defect the graph invariants caught: with the totals computed
+  // only inside the guard, a zero-quantity tier emitted a one-time-services
+  // node valued 0 whose operands summed to 2000. The node contradicted its own
+  // operands, which is precisely the R6 failure the reconciliation assertion
+  // exists to prevent — and it is also the wrong ANSWER for an operator asking
+  // why production is zero. The fees really do total 2000; the allocation
+  // yields zero because there are no units to spread them over, and that is
+  // the explanation worth showing.
+  //
+  // No commercial value moves: these totals feed only the guarded per-unit
+  // divisions below.
+  internalProductionCogsTotal =
+    num(production?.fillingBlendingCost) + num(production?.cmAssemblyTotal);
+  oneTimeServiceFeeTotal =
+    num(production?.setupFeeTotal) +
+    num(production?.toolingArtworkTotal) +
+    num(production?.rdTotal) +
+    num(production?.otherServiceTotal);
   if (production && tierQty > 0) {
     // Customer quote pricing is always based on the quoted tier quantity.
     // Actual output belongs to operational reconciliation and must not mutate
     // the pricing that becomes a sent customer snapshot.
     const denom = tierQty;
-    const internalProductionCogsTotal =
-      num(production.fillingBlendingCost) +
-      num(production.cmAssemblyTotal);
-    const oneTimeServiceFeeTotal =
-      num(production.setupFeeTotal) +
-      num(production.toolingArtworkTotal) +
-      num(production.rdTotal) +
-      num(production.otherServiceTotal);
-    const internalProductionCogsPerUnit =
+    internalProductionCogsPerUnit =
       denom > 0 ? internalProductionCogsTotal / denom : 0;
-    const allocatedServiceFeesPerUnit =
+    allocatedServiceFeesPerUnit =
       production.allocateServiceFeesToCost && denom > 0
         ? oneTimeServiceFeeTotal / denom
         : 0;
@@ -1342,11 +1369,18 @@ function computeLeafPerTier(args: {
       internalProductionCogsPerUnit + allocatedServiceFeesPerUnit;
     separateServiceFees = 0;
 
+    rawExcludedByCustomerShipping = production.customerShipsRaws;
     if (!production.customerShipsRaws) {
       const bulk = num(production.bulkRawCost);
       rawCost = denom > 0 ? bulk / denom : 0;
     }
   }
+  // Same class of fact as the totals above, and retained for the same reason:
+  // the flagged-out node states WHAT was excluded, and a reason without the
+  // amount tells an operator that something was left out but not what it
+  // would have cost them.
+  bulkRawTotal = num(production?.bulkRawCost);
+  rawExcludedByCustomerShipping = Boolean(production?.customerShipsRaws);
 
   const productionMarkup = lookupMarkup(
     markupDefaults,
@@ -1361,6 +1395,179 @@ function computeLeafPerTier(args: {
   const productionMarkupSum = productionCostSum * (1 + productionMarkup);
   const rawMarkupSum = rawCost * (1 + rawMarkup);
   const separateServicesMarkupSum = separateServiceFees * (1 + productionMarkup);
+
+  // ---------- production + bulk raw nodes (Gate 1B increment 2) ----------
+  {
+    const prodBase = nodeKey(sku.id, tier.id, "prod");
+    const money = (v: number) => "$" + v;
+    const originNode = (key: string, label: string, value: number): CostingNode => ({
+      key,
+      kind: "origin",
+      label,
+      value,
+      unit: "usd",
+      // A-2 still open — provenance is stated as absent rather than invented.
+      origin: { grade: "thin", actor: null, when: null, doc: null },
+    });
+
+    // COGS per unit is an ALLOCATION, not a sum: its operands are run TOTALS
+    // and the operation is the division. R10's map is explicit that these
+    // inputs are run totals rather than per-unit, which is exactly the thing
+    // an operator would otherwise assume wrongly.
+    const cogsNode: CostingNode = {
+      key: nodeKey(prodBase, "cogs"),
+      kind: "allocation",
+      label: "COGS per unit",
+      value: internalProductionCogsPerUnit,
+      unit: "usd",
+      op:
+        "(" + money(num(production?.fillingBlendingCost)) + " filling + " +
+        money(num(production?.cmAssemblyTotal)) + " assembly) / " + tierQty + " units",
+      operands: [
+        originNode(nodeKey(prodBase, "cogs", "filling"), "Filling + blending", num(production?.fillingBlendingCost)),
+        originNode(nodeKey(prodBase, "cogs", "assembly"), "CM assembly", num(production?.cmAssemblyTotal)),
+      ],
+    };
+
+    const oneTimeNode: CostingNode = {
+      key: nodeKey(prodBase, "services", "total"),
+      kind: "sum",
+      label: "One-time services",
+      value: oneTimeServiceFeeTotal,
+      unit: "usd",
+      op: "setup + tooling + R&D + other",
+      operands: [
+        originNode(nodeKey(prodBase, "services", "setup"), "Setup", num(production?.setupFeeTotal)),
+        originNode(nodeKey(prodBase, "services", "tooling"), "Tooling + artwork", num(production?.toolingArtworkTotal)),
+        originNode(nodeKey(prodBase, "services", "rd"), "R&D", num(production?.rdTotal)),
+        originNode(nodeKey(prodBase, "services", "other"), "Other services", num(production?.otherServiceTotal)),
+      ],
+    };
+
+    const allocateOn = Boolean(production?.allocateServiceFeesToCost);
+    const allocatedNode: CostingNode = {
+      key: nodeKey(prodBase, "services"),
+      kind: "allocation",
+      label: "Allocated services per unit",
+      value: allocatedServiceFeesPerUnit,
+      unit: "usd",
+      op: money(oneTimeServiceFeeTotal) + " one-time / " + tierQty + " units",
+      operands: [oneTimeNode],
+    };
+
+    // THE SHAPE CHANGES, not only the numbers. With allocation off the
+    // allocated-services operand disappears from the chain entirely and
+    // production cost becomes COGS alone; one-time fees then bill as separate
+    // fixed charges rather than entering the per-unit price. Rendering a zero
+    // operand instead would say those fees ARE in the price, at zero — a
+    // different statement, and a false one.
+    const productionCostNode: CostingNode = {
+      key: nodeKey(prodBase, "cost"),
+      kind: "sum",
+      label: "Production cost per unit",
+      value: productionCostSum,
+      unit: "usd",
+      op: allocateOn ? "COGS/unit + allocated services/unit" : "COGS/unit",
+      operands: allocateOn ? [cogsNode, allocatedNode] : [cogsNode],
+      ...(allocateOn
+        ? {}
+        : {
+            note: "One-time fees bill as separate fixed charges and are not part of the per-unit price.",
+            noteLevel: "info" as const,
+          }),
+    };
+
+    const prodMarkupResolution = resolveMarkup({
+      defaults: markupDefaults,
+      category: PRODUCTION_MARKUP_CATEGORY,
+    });
+    graphSink?.push({
+      key: prodBase,
+      kind: "markup",
+      label: "Production",
+      value: productionMarkupSum,
+      unit: "usd",
+      // ONE aggregate markup over the whole section. Production has no
+      // per-line markup column, so none is shown — reproducing packaging's
+      // per-line shape here would be a fabrication.
+      op: money(productionCostSum) + " cost x (1 + " + productionMarkup + " markup)",
+      operands: [
+        productionCostNode,
+        {
+          key: nodeKey(prodBase, "markup"),
+          kind: "resolution",
+          label: "Manufacturing markup",
+          value: productionMarkup,
+          unit: "pct",
+          op: "category default ?? Other ?? firm fallback",
+          candidates: prodMarkupResolution.candidates,
+        },
+      ],
+    });
+
+    // ---------- bulk raw ----------
+    const rawBase = nodeKey(sku.id, tier.id, "raw");
+    const rawMarkupResolution = resolveMarkup({
+      defaults: markupDefaults,
+      category: RAW_MARKUP_CATEGORY,
+      fallbackCategory: "Other",
+    });
+    // A-7 / F8: two unconnected representations exist and the quote-level
+    // ingredient tree is never passed to this engine. The node carries the
+    // pricing-active value and says so, rather than implying the ingredient
+    // rows are the arithmetic source of a sell price.
+    const RAW_PROVISIONAL =
+      "Provisional — the pricing-active bulk raw value. Quote-level ingredient rows are a separate, unconnected representation and are not the arithmetic source of this price.";
+
+    if (rawExcludedByCustomerShipping) {
+      // NOT a zero. An input that exists was excluded by a decision. A
+      // zero-valued markup node and this node carry different facts, and the
+      // scalar alone cannot tell them apart — which is why this is a kind.
+      graphSink?.push({
+        key: rawBase,
+        kind: "flagged-out",
+        label: "Bulk raw",
+        value: 0,
+        unit: "usd",
+        reason:
+          "Customer ships raws — " + money(bulkRawTotal) +
+          " of bulk raw cost is excluded from the quoted price.",
+        note: RAW_PROVISIONAL,
+        noteLevel: "warn",
+      });
+    } else {
+      graphSink?.push({
+        key: rawBase,
+        kind: "markup",
+        label: "Bulk raw",
+        value: rawMarkupSum,
+        unit: "usd",
+        op: money(rawCost) + " cost x (1 + " + rawMarkup + " markup)",
+        note: RAW_PROVISIONAL,
+        noteLevel: "warn",
+        operands: [
+          {
+            key: nodeKey(rawBase, "cost"),
+            kind: "allocation",
+            label: "Bulk raw per unit",
+            value: rawCost,
+            unit: "usd",
+            op: money(bulkRawTotal) + " bulk raw / " + tierQty + " units",
+            operands: [originNode(nodeKey(rawBase, "cost", "total"), "Bulk raw cost", bulkRawTotal)],
+          },
+          {
+            key: nodeKey(rawBase, "markup"),
+            kind: "resolution",
+            label: "Raw markup",
+            value: rawMarkup,
+            unit: "pct",
+            op: "category default ?? Other ?? firm fallback",
+            candidates: rawMarkupResolution.candidates,
+          },
+        ],
+      });
+    }
+  }
 
   // ---------- factory cost ----------
   const factoryCostPerUnit = packagingCostSum + productionCostSum + rawCost;
