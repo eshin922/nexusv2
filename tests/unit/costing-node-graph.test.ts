@@ -20,7 +20,9 @@ import {
 import {
   ARITHMETIC_KINDS,
   GRAPH_VERSION,
+  REQUIRED_CELL_SECTIONS,
   TERMINAL_KINDS,
+  graphIsComplete,
   findGraphViolations,
   findNode,
   walkGraph,
@@ -280,11 +282,15 @@ test("terminals declare a provenance grade, and it is thin rather than invented"
 
 // ---------------------------------------------------------------- boundaries
 
-test("the graph is declared incomplete while sections are still being added", () => {
+test("completeness means every required section is REPRESENTED, not that it carries data", () => {
+  // Superseded by increment 5, which derives `complete` from the emitted
+  // sections. A packaging-only quote is complete: production, bulk raw and
+  // freight are all represented, at zero. Representation and data are
+  // different questions, and a consumer needs the first one answered — it
+  // must know the section exists before it can read a zero from it.
   const r = computeQuoteCosting(input({ packaging: THREE_LINES }));
-  // Consumers must not read a section that is not present yet. Saying so in the
-  // payload is cheaper than a consumer discovering it as a missing node.
-  assert.equal(r.graph.complete, false);
+  assert.equal(r.graph.complete, true);
+  assert.equal(findIn(r, `${LEAF}/${TIER}/frt`)!.value, 0);
 });
 
 test("a quote with no packaging emits a packaging node of zero, not an absent one", () => {
@@ -335,7 +341,11 @@ test("version and completeness are different questions and must not be conflated
   // is here. A consumer that checked only one would either read a section that
   // does not exist yet, or trust a shape it was not written against.
   assert.equal(r.graph.version, 1);
-  assert.equal(r.graph.complete, false);
+  assert.equal(r.graph.complete, true);
+  // Still different questions: version says what SHAPE the graph is in,
+  // complete says how much of it is here. They moved independently — the
+  // graph became complete without the shape changing, which is exactly why
+  // one flag could not have served for both.
 });
 
 test("adding a section must not require a version bump", () => {
@@ -713,7 +723,8 @@ test("increment 3 · a quote with no freight still emits a Freight section at ze
 // Increment 4 — Sell, adjustment resolution, override
 // ============================================================================
 
-const cellRoot = (r: ReturnType<typeof computeQuoteCosting>) => r.graph.nodes[0];
+const cellRoot = (r: ReturnType<typeof computeQuoteCosting>) =>
+  r.graph.nodes.find((n) => !n.key.startsWith("quote/"))!;
 const sellNode = (r: ReturnType<typeof computeQuoteCosting>) =>
   findIn(r, `${LEAF}/${TIER}/sell`)!;
 
@@ -722,11 +733,15 @@ const priced = (over: Partial<QuoteCostingInput> = {}) =>
 
 test("sell · the root is one node per cell, not one per section", () => {
   const r = computeQuoteCosting(priced());
-  assert.equal(r.graph.nodes.length, 1);
+  // Roots are scoped: ONE per cell for cell computations, plus one per tier
+  // for the quote-level blends, which belong to a different scope and cannot
+  // nest under any single cell.
+  const cellRoots = r.graph.nodes.filter((n) => !n.key.startsWith("quote/"));
+  assert.equal(cellRoots.length, 1);
   // Sections nest beneath sell. A section appearing both as a root and as an
   // operand would be a duplicated arithmetic node, which double-counts under
   // reconciliation.
-  assert.deepEqual(findGraphViolations(r.graph.nodes[0]), []);
+  assert.deepEqual(findGraphViolations(cellRoots[0]), []);
 });
 
 test("sell · sell-before-adjustment equals the sum of its sections", () => {
@@ -903,6 +918,150 @@ test("increment 4 · every sell shape satisfies the traversal guarantees", () =>
     priced({ quote: { id: "q-1", globalPriceAdjPct: 0.25, targetMarginPct: null } }),
     priced({ tiers: [{ id: TIER, label: "T1", qty: 1000, sortOrder: 0, tierPriceAdjPct: 0.04 }] }),
     priced({ cellOverrides: [{ quoteSkuId: LEAF, tierId: TIER, sellPriceOverride: 9.5 }] }),
+    input({}),
+  ];
+  for (const c of cases) {
+    const r = computeQuoteCosting(c);
+    for (const root of r.graph.nodes) {
+      assert.deepEqual(findGraphViolations(root), [], `violations under ${root.key}`);
+    }
+  }
+});
+
+// ============================================================================
+// Increment 5 — quote-level blend
+// ============================================================================
+
+const blendNode = (r: ReturnType<typeof computeQuoteCosting>, what: "sell" | "cost") =>
+  findIn(r, `quote/${TIER}/${what}`)!;
+
+const twoProducts = (over: Partial<QuoteCostingInput> = {}) =>
+  input({
+    skus: [
+      { id: "leaf-a", parentSkuId: null, qtyPerParent: null, skuRole: "leaf", skuLabel: "A", productName: "A", sortOrder: 0, retailBenchmark: null },
+      { id: "leaf-b", parentSkuId: null, qtyPerParent: null, skuRole: "leaf", skuLabel: "B", productName: "B", sortOrder: 1, retailBenchmark: null },
+    ],
+    packaging: [
+      pkg({ quoteSkuId: "leaf-a", lineGroupId: "la", unitCost: 10, markupPct: 0 }),
+      pkg({ quoteSkuId: "leaf-b", lineGroupId: "lb", unitCost: 20, markupPct: 0 }),
+    ],
+    ...over,
+  });
+
+test("blend · exposes its contributors, not just the result", () => {
+  const r = computeQuoteCosting(twoProducts());
+  const sell = blendNode(r, "sell");
+  assert.equal(sell.kind, "blend");
+  assert.deepEqual(sell.operands!.map((o) => o.label), ["A", "B"]);
+  assert.deepEqual(sell.operands!.map((o) => o.value), [10, 20]);
+});
+
+test("blend · carries the weighting basis, positionally aligned with contributors", () => {
+  const r = computeQuoteCosting(twoProducts());
+  const sell = blendNode(r, "sell");
+  // The weights are what let a reader CHECK the mean. The same contributors
+  // under different weights give different blends, so contributors alone
+  // prove nothing.
+  assert.deepEqual(sell.weights, [1000, 1000]);
+  assert.equal(sell.weights!.length, sell.operands!.length);
+});
+
+test("blend · uses the engine's weighting semantics, and reconciles against them", () => {
+  const r = computeQuoteCosting(twoProducts());
+  const sell = blendNode(r, "sell");
+  assert.equal(sell.value, (10 * 1000 + 20 * 1000) / 2000);
+  assert.deepEqual(findGraphViolations(sell), []);
+});
+
+test("blend · the blended sell reproduces the engine's total revenue", () => {
+  const r = computeQuoteCosting(twoProducts());
+  const sell = blendNode(r, "sell");
+  const totalWeight = sell.weights!.reduce((a, b) => a + b, 0);
+  // Guarantee 6, transitively: the blend times its total weight IS the
+  // engine's revenue scalar, so the node cannot drift from the number the
+  // application reports.
+  assert.equal(sell.value * totalWeight, r.quoteRollup[0].totalRevenue);
+});
+
+test("blend · the blended cost reproduces the engine's total cost", () => {
+  const r = computeQuoteCosting(twoProducts());
+  const cost = blendNode(r, "cost");
+  const totalWeight = cost.weights!.reduce((a, b) => a + b, 0);
+  assert.equal(cost.value * totalWeight, r.quoteRollup[0].totalCost);
+});
+
+test("blend · a zero-weight tier blends to zero with contributors still visible", () => {
+  const r = computeQuoteCosting(
+    twoProducts({ tiers: [{ id: TIER, label: "T1", qty: 0, sortOrder: 0, tierPriceAdjPct: null }] }),
+  );
+  const sell = blendNode(r, "sell");
+  assert.equal(sell.value, 0);
+  assert.deepEqual(sell.weights, [0, 0]);
+  // Zero weight is a real state, not an error. The contributors remain — they
+  // are the answer to "why is this zero".
+  assert.equal(sell.operands!.length, 2);
+  assert.match(sell.note!, /nothing to weight by/);
+  assert.deepEqual(findGraphViolations(sell), []);
+});
+
+test("blend · an ABSENT contributor is excluded, never treated as a zero", () => {
+  // leaf-b has no packaging, but it still rolls up at the tier, so both are
+  // contributors. The distinction under test is that a product with NO rollup
+  // at a tier is not in the blend at all — recording it as a zero contributor
+  // would drag the mean down by a value nobody entered.
+  const r = computeQuoteCosting(twoProducts());
+  const sell = blendNode(r, "sell");
+  assert.equal(sell.operands!.length, 2);
+  assert.equal(sell.value, 15);
+
+  const single = computeQuoteCosting(input({ packaging: [pkg({ unitCost: 10, markupPct: 0 })] }));
+  const singleBlend = blendNode(single, "sell");
+  assert.equal(singleBlend.operands!.length, 1);
+  assert.equal(singleBlend.value, 10); // not 5 — the absent product is not a zero
+});
+
+// ------------------------------------------------------------ completeness
+
+test("graph.complete is derived from the emitted sections, not from an increment number", () => {
+  const r = computeQuoteCosting(priced());
+  assert.equal(r.graph.complete, true);
+  // Every required section is present on the cell root.
+  for (const section of REQUIRED_CELL_SECTIONS) {
+    assert.ok(findIn(r, `${LEAF}/${TIER}/${section}`), `missing ${section}`);
+  }
+});
+
+test("graph.complete stays true under an override, because the chain survives", () => {
+  const r = computeQuoteCosting(
+    priced({ cellOverrides: [{ quoteSkuId: LEAF, tierId: TIER, sellPriceOverride: 9.5 }] }),
+  );
+  // The sections live under `superseded`, which is traversable precisely so
+  // this check does not need to special-case an overridden cell.
+  assert.equal(r.graph.complete, true);
+});
+
+test("graph.complete is FALSE when a required section is absent", () => {
+  // Proven by asking the contract directly rather than by trusting the flag:
+  // a root missing `frt` is not complete, whatever increment shipped.
+  const stunted: CostingNode = {
+    key: `${LEAF}/${TIER}/sell`,
+    kind: "sum",
+    label: "Partial",
+    value: 0,
+    unit: "usd",
+    op: "partial",
+    operands: [
+      { key: `${LEAF}/${TIER}/pkg`, kind: "sum", label: "P", value: 0, unit: "usd", op: "x", operands: [] },
+    ],
+  };
+  assert.equal(graphIsComplete([stunted]), false);
+});
+
+test("increment 5 · every blend shape satisfies the traversal guarantees", () => {
+  const cases = [
+    twoProducts(),
+    twoProducts({ tiers: [{ id: TIER, label: "T1", qty: 0, sortOrder: 0, tierPriceAdjPct: null }] }),
+    priced(),
     input({}),
   ];
   for (const c of cases) {

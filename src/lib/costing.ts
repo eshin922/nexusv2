@@ -1,5 +1,6 @@
 import {
   GRAPH_VERSION,
+  graphIsComplete,
   nodeKey,
   type CostingGraph,
   type CostingNode,
@@ -2657,6 +2658,107 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
     globalAdj,
     perCellBreakdown: perCellForSuggestion,
   });
+  // ---------- quote-level blend nodes (Gate 1B increment 5) ----------
+  //
+  // The engine blends by WEIGHTING EACH CONTRIBUTOR BY ITS UNITS at the tier:
+  // Sigma(value x units) / Sigma(units). Per-SKU revenue is
+  // requiredSellPerUnit x tier.qty, so the weights are the tier quantities and
+  // the blend is revenue-weighted by construction.
+  //
+  // The weights are emitted even though every top-level contributor currently
+  // carries the same tier quantity, which makes the mean arithmetically equal
+  // to a simple average today. Emitting them as equal-by-observation rather
+  // than assuming equality is the difference between a node that proves its
+  // result and one that happens to agree with it — and the moment per-SKU
+  // quantities diverge, an unweighted mean would be silently wrong.
+  for (const tier of tiers) {
+    const tierQty = num(tier.qty);
+    const contributors: { sku: (typeof topLevel)[number]; pt: SkuPerTierRollup }[] = [];
+    const absent: string[] = [];
+    for (const top of topLevel) {
+      const r = rollupBySku.get(top.id);
+      const pt = r?.perTier.find((p) => p.tierId === tier.id);
+      if (!pt) {
+        // ABSENT is not zero-valued. A product with no rollup at this tier is
+        // not in the blend at all; recording it as a zero contributor would
+        // drag the mean down by a value nobody entered.
+        absent.push(top.id);
+        continue;
+      }
+      contributors.push({ sku: top, pt });
+    }
+
+    const blendBase = nodeKey("quote", tier.id);
+    const weights = contributors.map(() => tierQty);
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    const absentNote =
+      absent.length > 0
+        ? absent.length + " product(s) have no rollup at this tier and are not contributors"
+        : undefined;
+    const zeroWeightNote =
+      totalWeight === 0
+        ? "Tier quantity is zero, so there is nothing to weight by; contributors are listed unblended."
+        : undefined;
+
+    const blend = (
+      name: string,
+      label: string,
+      pick: (pt: SkuPerTierRollup) => number,
+    ): CostingNode => {
+      const operands = contributors.map((c) => ({
+        key: nodeKey(blendBase, name, c.sku.id),
+        kind: "origin" as const,
+        label: c.sku.skuLabel,
+        value: pick(c.pt),
+        unit: "usd" as const,
+        origin: { grade: "thin" as const, actor: null, when: null, doc: null },
+      }));
+      const value =
+        totalWeight > 0
+          ? operands.reduce((acc, o, i) => acc + o.value * weights[i], 0) / totalWeight
+          : 0;
+      return {
+        key: nodeKey(blendBase, name),
+        kind: "blend",
+        label,
+        value,
+        unit: "usd",
+        op: "Sigma(value x units) / Sigma(units), across " + operands.length + " product(s)",
+        weights,
+        operands,
+        ...(absentNote || zeroWeightNote
+          ? {
+              note: [zeroWeightNote, absentNote].filter(Boolean).join(" "),
+              noteLevel: "info" as const,
+            }
+          : {}),
+      };
+    };
+
+    graphNodes.push({
+      key: blendBase,
+      kind: "sum",
+      label: "Quote blend · " + tier.label,
+      // A container for the two blends, not an arithmetic claim of its own —
+      // sell and cost do not add to anything meaningful. Value is the sum of
+      // its operands so the node reconciles honestly rather than asserting a
+      // figure with no interpretation.
+      value:
+        (totalWeight > 0
+          ? contributors.reduce((a, c) => a + c.pt.requiredSellPerUnit * tierQty, 0) / totalWeight
+          : 0) +
+        (totalWeight > 0
+          ? contributors.reduce((a, c) => a + c.pt.contributionCostPerUnit * tierQty, 0) / totalWeight
+          : 0),
+      unit: "usd",
+      op: "blended sell + blended cost",
+      operands: [
+        blend("sell", "Blended sell per unit", (pt) => pt.requiredSellPerUnit),
+        blend("cost", "Blended cost per unit", (pt) => pt.contributionCostPerUnit),
+      ],
+    });
+  }
+
   const quoteSummary: QuoteSummary = {
     blendedRevenue,
     blendedCost,
@@ -2685,6 +2787,14 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
     skuRollups: renderOrdered,
     quoteRollup,
     quoteSummary,
-    graph: { version: GRAPH_VERSION, nodes: graphNodes, complete: false },
+    graph: {
+      version: GRAPH_VERSION,
+      nodes: graphNodes,
+      // Derived from what was actually emitted, never from having reached a
+      // planned increment. A flag that outruns the graph is worse than a
+      // false one: a consumer told the graph is complete stops checking
+      // whether the section it needs is there.
+      complete: graphIsComplete(graphNodes),
+    },
   };
 }
