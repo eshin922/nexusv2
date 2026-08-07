@@ -2769,42 +2769,65 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
     globalAdj,
     perCellBreakdown: perCellForSuggestion,
   });
-  // ---------- quote-level blend nodes (Gate 1B increment 5) ----------
+  // ---------- quote-level blend nodes (Gate 1B increments 5 + 7) ----------
   //
-  // The engine blends by WEIGHTING EACH CONTRIBUTOR BY ITS UNITS at the tier:
-  // Sigma(value x units) / Sigma(units). Per-SKU revenue is
-  // requiredSellPerUnit x tier.qty, so the weights are the tier quantities and
-  // the blend is revenue-weighted by construction.
+  // CONTRIBUTORS ARE THE GOVERNED SKU POPULATION (OD-014): quote-scoped leaf
+  // attachments, identified by `canonicalQuoteLeafId`. Not top-level products.
   //
-  // The weights are emitted even though every top-level contributor currently
-  // carries the same tier quantity, which makes the mean arithmetically equal
-  // to a simple average today. Emitting them as equal-by-observation rather
-  // than assuming equality is the difference between a node that proves its
-  // result and one that happens to agree with it — and the moment per-SKU
-  // quantities diverge, an unweighted mean would be silently wrong.
+  // That distinction is the whole of the reverted increment 7. Blending over
+  // top-level products meant a quote with one assembly had ONE contributor, so
+  // the "blend" returned that assembly's rolled-up SUM — 5.0750 where the mean
+  // is 2.5375. Both figures are arithmetically correct; they answer different
+  // questions, and only one of them is what a blend means.
+  //
+  // Tree position cannot decide who participates. Whether a leaf sits under an
+  // assembly or attaches directly to the quote is an artefact of how the quote
+  // was authored, and ASY is expected to become optional — so a blend that
+  // reads the tree would change its answer when nothing commercial changed.
+  //
+  // WEIGHTS ARE UNITS AT THE TIER: the governed attachment quantity
+  // (`quote_leaves.quantity`, carried as qtyPerParent) times the tier
+  // quantity. The tier quantity is common to every contributor and cancels in
+  // the ratio; it is included so `weights` literally means units, which is
+  // what the op string claims and what the trace will show.
+  //
+  // Every one of the 137 live attachments currently carries quantity 1, so a
+  // weighted and an unweighted mean agree on every real quote today. Weighting
+  // correctly anyway is the difference between a node that proves its result
+  // and one that happens to agree with it — and it is exactly the coincidence
+  // that let the reverted fixture pass while its semantics were wrong.
+  const leafRollupsForBlend = skus.filter((s) => s.skuRole === "leaf");
   for (const tier of tiers) {
     const tierQty = num(tier.qty);
-    const contributors: { sku: (typeof topLevel)[number]; pt: SkuPerTierRollup }[] = [];
+    const contributors: {
+      sku: (typeof leafRollupsForBlend)[number];
+      pt: SkuPerTierRollup;
+      weight: number;
+    }[] = [];
     const absent: string[] = [];
-    for (const top of topLevel) {
-      const r = rollupBySku.get(top.id);
+    for (const leaf of leafRollupsForBlend) {
+      const r = rollupBySku.get(leaf.id);
       const pt = r?.perTier.find((p) => p.tierId === tier.id);
       if (!pt) {
-        // ABSENT is not zero-valued. A product with no rollup at this tier is
-        // not in the blend at all; recording it as a zero contributor would
-        // drag the mean down by a value nobody entered.
-        absent.push(top.id);
+        // ABSENT is not zero-valued. A SKU with no rollup at this tier is not
+        // in the blend at all; recording it as a zero contributor would drag
+        // the mean down by a value nobody entered.
+        absent.push(leaf.id);
         continue;
       }
-      contributors.push({ sku: top, pt });
+      contributors.push({
+        sku: leaf,
+        pt,
+        weight: tierQty * (leaf.qtyPerParent ?? 1),
+      });
     }
 
     const blendBase = nodeKey("quote", tier.id);
-    const weights = contributors.map(() => tierQty);
+    const weights = contributors.map((c) => c.weight);
     const totalWeight = weights.reduce((a, b) => a + b, 0);
     const absentNote =
       absent.length > 0
-        ? absent.length + " product(s) have no rollup at this tier and are not contributors"
+        ? absent.length + " SKU(s) have no rollup at this tier and are not contributors"
         : undefined;
     const zeroWeightNote =
       totalWeight === 0
@@ -2816,8 +2839,13 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       label: string,
       pick: (pt: SkuPerTierRollup) => number,
     ): CostingNode => {
+      // Keyed by CANONICAL COMMERCIAL IDENTITY, not by the legacy skuId. Two
+      // attachments of one library leaf are two commercial lines, and keying
+      // on anything the library shares would collapse them into one operand.
+      // Null identity is left visible rather than filled in from skuId — that
+      // substitution is the resolution Phase 3 forbids.
       const operands = contributors.map((c) => ({
-        key: nodeKey(blendBase, name, c.sku.id),
+        key: nodeKey(blendBase, name, c.sku.canonicalQuoteLeafId ?? c.sku.id),
         kind: "origin" as const,
         label: c.sku.skuLabel,
         value: pick(c.pt),
@@ -2834,7 +2862,7 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
         label,
         value,
         unit: "usd",
-        op: "Sigma(value x units) / Sigma(units), across " + operands.length + " product(s)",
+        op: "Sigma(value x units) / Sigma(units), across " + operands.length + " SKU(s)",
         weights,
         operands,
         ...(absentNote || zeroWeightNote
@@ -2846,6 +2874,40 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       };
     };
 
+    // ---------- per-component blends (Gate 1B increment 7) ----------
+    //
+    // NAMED FOR THE QUANTITY, NOT FOR THE COLUMN. Every one of these is a
+    // marked-up SELL figure per unit, blended across the governed SKU
+    // population. The surface that will consume them currently heads the same
+    // numbers "UNIT COST", which is why the vocabulary is set here rather than
+    // inherited: a correct value under a wrong label is still a wrong
+    // statement, and the graph is now where that statement is made.
+    //
+    // "Bulk raw" and "Duty & tariff" are spelled out for the same reason. PROD
+    // and D+T are column abbreviations; the graph is business vocabulary that
+    // trace, publication and diagnostics will read too.
+    const componentBlends: CostingNode[] = [
+      blend("pkg", "Blended packaging sell per unit", (pt) => pt.packagingMarkupSumPerUnit),
+      blend("prod", "Blended production sell per unit", (pt) => pt.productionMarkupSumPerUnit),
+      blend("raw", "Blended bulk raw sell per unit", (pt) => pt.rawMarkupSumPerUnit),
+      blend("frt", "Blended freight sell per unit", (pt) => pt.freightContainerMarkupSumPerUnit),
+      blend("dt", "Blended duty & tariff sell per unit", (pt) => pt.freightDutyTariffMarkupSumPerUnit),
+    ];
+
+    // Blending is LINEAR, so the component blends sum to the blend of the
+    // sums. That is what lets a stack of blended rows reconcile to a blended
+    // total at all — without it the column would be a set of averages with no
+    // arithmetic relationship to the figure beneath them.
+    graphNodes.push({
+      key: nodeKey(blendBase, "sell-before"),
+      kind: "sum",
+      label: "Blended sell before adjustment",
+      value: componentBlends.reduce((acc, n) => acc + n.value, 0),
+      unit: "usd",
+      op: "packaging + production + bulk raw + freight + duty & tariff",
+      operands: componentBlends,
+    });
+
     graphNodes.push({
       key: blendBase,
       kind: "sum",
@@ -2856,10 +2918,10 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       // figure with no interpretation.
       value:
         (totalWeight > 0
-          ? contributors.reduce((a, c) => a + c.pt.requiredSellPerUnit * tierQty, 0) / totalWeight
+          ? contributors.reduce((a, c) => a + c.pt.requiredSellPerUnit * c.weight, 0) / totalWeight
           : 0) +
         (totalWeight > 0
-          ? contributors.reduce((a, c) => a + c.pt.contributionCostPerUnit * tierQty, 0) / totalWeight
+          ? contributors.reduce((a, c) => a + c.pt.contributionCostPerUnit * c.weight, 0) / totalWeight
           : 0),
       unit: "usd",
       op: "blended sell + blended cost",

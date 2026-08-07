@@ -22,6 +22,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { computeQuoteCosting } from "../../src/lib/costing.ts";
 import {
+  findGraphViolations,
+  findNode,
+  type CostingNode,
+} from "../../src/lib/costing-nodes.ts";
+import {
   buildQuoteCostingInputFromNewModel,
   type BuildQuoteCostingInputFromNewModelArgs,
   type AdapterQuoteLeafAttachmentRow,
@@ -98,7 +103,7 @@ function args(
     quote: { id: QUOTE, globalPriceAdjPct: 0, targetMarginPct: null },
     firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
     markupDefaults: { Primary: 0.4 },
-    tiers: [{ tierId: TIER_A, label: "T1", qty: 1000 }],
+    tiers: [{ id: TIER_A, label: "T1", qty: 1000, sortOrder: 0, tierPriceAdjPct: null }],
     assemblies: [{ id: ASSEMBLY, sku: "ASY-1", name: "Assembly one", position: 0 }],
     quoteLeafAttachments: attachments(),
     assemblyLeafInputs: [],
@@ -276,5 +281,152 @@ test("identity is null, never the legacy id, when it cannot be resolved", () => 
   for (const r of result.skuRollups) {
     assert.equal(r.canonicalQuoteLeafId, null);
     assert.notEqual(r.canonicalQuoteLeafId, r.skuId);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Gate 1B increment 7 — the component blends, over the governed population.
+//
+// The reverted attempt blended over TOP-LEVEL PRODUCTS. With one assembly that
+// is a single contributor, so the "blend" returned the assembly's rolled-up
+// SUM. These tests assert the blend is a weighted MEAN over the governed
+// quote-leaf population, and they assert the CONTRIBUTORS and the WEIGHTS —
+// not only the resulting number, which is what let the old fixture pass.
+// ---------------------------------------------------------------------------
+
+/** Per-leaf packaging so the contributors carry genuinely different values. */
+function packagingInputs() {
+  const line = (assemblyLeafId: string, unitCost: string) => ({
+    assemblyLeafId,
+    tierId: TIER_A,
+    lineGroupId: `lg-${assemblyLeafId}`,
+    pricingVendorHubspotCompanyId: null,
+    pricingVendorNameSnapshot: null,
+    unitCost,
+    qtyPerSellableUnit: "1",
+    category: "Primary",
+    markupPct: null,
+  });
+  return [line("al-1", "10"), line("al-2", "20"), line("al-3", "30")];
+}
+
+const withCosts = () => args({ assemblyLeafInputs: packagingInputs() });
+
+function blendNode(key: string): CostingNode {
+  const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(withCosts()));
+  for (const root of r.graph.nodes) {
+    const hit = findNode(root, `quote/${TIER_A}/${key}`);
+    if (hit) return hit;
+  }
+  throw new Error(`node quote/${TIER_A}/${key} not found`);
+}
+
+test("the blend contributors are the governed quote-leaf population", () => {
+  const pkg = blendNode("pkg");
+  assert.equal(pkg.kind, "blend");
+  // Four canonical attachments, four contributors — not one per assembly.
+  assert.equal(pkg.operands?.length, 4);
+  assert.deepEqual(
+    (pkg.operands ?? []).map((o) => o.key.split("/").pop()).sort(),
+    ["ql-direct-1", "ql-grouped-1", "ql-grouped-2", "ql-grouped-3"],
+  );
+});
+
+test("operands are keyed by canonical identity, so a repeated leaf stays two", () => {
+  const pkg = blendNode("pkg");
+  const repeats = (pkg.operands ?? []).filter((o) => o.label === "LIB-R");
+  assert.equal(repeats.length, 2);
+  assert.notEqual(repeats[0].key, repeats[1].key);
+});
+
+test("weights are units at the tier: attachment quantity x tier quantity", () => {
+  const pkg = blendNode("pkg");
+  // Attachment quantities 2, 3, 5, 7 against a tier of 1000.
+  assert.deepEqual(pkg.weights, [2000, 3000, 5000, 7000]);
+});
+
+test("the blend is a weighted mean of its own operands", () => {
+  const pkg = blendNode("pkg");
+  const ops = pkg.operands ?? [];
+  const w = pkg.weights ?? [];
+  const expected =
+    ops.reduce((acc, o, i) => acc + o.value * w[i], 0) /
+    w.reduce((a, b) => a + b, 0);
+  assert.ok(Math.abs(pkg.value - expected) < 1e-9);
+});
+
+test("the blend is NOT the sum of its operands — the reverted defect", () => {
+  // The single assertion that would have caught the reverted increment. With
+  // one assembly the old blend returned the rolled-up sum, and a test that
+  // only checked "some number" could not tell the two apart.
+  const pkg = blendNode("pkg");
+  const sum = (pkg.operands ?? []).reduce((a, o) => a + o.value, 0);
+  assert.ok(sum > 0, "fixture must produce non-zero packaging or this proves nothing");
+  assert.ok(
+    Math.abs(pkg.value - sum) > 1e-6,
+    `blend ${pkg.value} must not equal the operand sum ${sum}`,
+  );
+  assert.ok(pkg.value < sum, "a mean over multiple contributors is below their sum");
+});
+
+test("unequal weights change the answer — weighting is load-bearing", () => {
+  // Recompute the same operands with the uniform weights production happens to
+  // have. If the two agree, the fixture cannot distinguish a weighted mean
+  // from an unweighted one and every other assertion here is weaker than it
+  // looks.
+  const pkg = blendNode("pkg");
+  const ops = pkg.operands ?? [];
+  const unweighted = ops.reduce((a, o) => a + o.value, 0) / ops.length;
+  assert.ok(
+    Math.abs(pkg.value - unweighted) > 1e-6,
+    `weighted ${pkg.value} and unweighted ${unweighted} must differ`,
+  );
+});
+
+test("sell-before is the sum of the component blends", () => {
+  const sellBefore = blendNode("sell-before");
+  assert.equal(sellBefore.kind, "sum");
+  assert.equal(sellBefore.operands?.length, 5);
+  const summed = (sellBefore.operands ?? []).reduce((a, o) => a + o.value, 0);
+  assert.ok(Math.abs(sellBefore.value - summed) < 1e-9);
+  assert.deepEqual(
+    (sellBefore.operands ?? []).map((o) => o.key.split("/").pop()),
+    ["pkg", "prod", "raw", "frt", "dt"],
+  );
+});
+
+test("component blend labels state a sell quantity, never a cost", () => {
+  // The consuming surface heads these numbers "UNIT COST". A correct value
+  // under a wrong label is still a wrong statement, and the graph is where the
+  // statement is made.
+  for (const key of ["pkg", "prod", "raw", "frt", "dt"]) {
+    const n = blendNode(key);
+    assert.ok(!/cost/i.test(n.label), `${key} label must not say "cost": ${n.label}`);
+    assert.match(n.label, /sell/i);
+  }
+});
+
+test("a SKU present but unpriced contributes at zero, and is not silently dropped", () => {
+  // The direct attachment cannot carry cost inputs — every cost-input table
+  // keys on assembly_leaf_id (OD-017). It is a governed SKU with a rollup of
+  // zeros, so it participates at zero rather than being excluded.
+  //
+  // Pinned rather than designed: whether an unpriceable SKU should instead be
+  // an absentee is an OD-017 question and is deliberately not settled here.
+  // Zero such rows exist in production, so this has no live effect today.
+  const pkg = blendNode("pkg");
+  const direct = (pkg.operands ?? []).find((o) => o.key.endsWith("ql-direct-1"));
+  assert.ok(direct, "the direct attachment must still be a contributor");
+  assert.equal(direct.value, 0);
+  assert.equal(pkg.weights?.[3], 7000);
+});
+
+test("the graph reconciles on the nested, unequal-quantity fixture", () => {
+  // Reconciliation is asserted against THIS fixture, not only the flat one.
+  // The blends are the newest arithmetic in the graph and they are the nodes
+  // whose operands and weights this fixture was built to stress.
+  const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(withCosts()));
+  for (const root of r.graph.nodes) {
+    assert.deepEqual(findGraphViolations(root), [], `violations under ${root.key}`);
   }
 });
