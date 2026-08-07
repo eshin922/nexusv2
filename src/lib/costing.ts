@@ -2713,7 +2713,7 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
         perUnitComponent("dt", "Duty & tariff", breakdown.dutyAndTariff, breakdown.dutyAndTariffMarkupSum),
       ];
 
-      graphNodes.push({
+      const subtotalPerUnit: CostingNode = {
         key: nodeKey("quote", tier.id, "per-unit"),
         kind: "sum",
         label: "Combined contribution per unit · " + tier.label,
@@ -2721,9 +2721,30 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
         unit: "usd",
         op: "packaging + production + freight + duty & tariff, each per unit",
         operands: perUnitComponents,
-      });
-      graphNodes.push(alloc("revenue", "Quoted revenue per unit", revenue));
+      };
+
+      const revenuePerUnit = alloc("revenue", "Quoted revenue per unit", revenue);
       graphNodes.push(alloc("cost-total", "Total cost per unit", cost));
+
+      // The gap the Costs header shows between Sell and the rows above it.
+      //
+      // NAMED FOR WHAT IT IS, not for its commonest cause. It is non-zero when
+      // a per-tier price adjustment applies, when a cell override is set, AND
+      // when there are cost components the stack does not render (passthrough
+      // services). Calling it "price adjustment" would be right about the
+      // first two and wrong about the third, and an operator reading a
+      // passthrough cost as a pricing decision would draw the wrong
+      // conclusion. The header keeps showing "Adjustment" or "Override" by
+      // sign, which is the operator's reading of the same fact.
+      graphNodes.push({
+        key: nodeKey("quote", tier.id, "per-unit", "departure"),
+        kind: "difference",
+        label: "Quoted price less component build-up, per unit",
+        value: revenuePerUnit.value - subtotalPerUnit.value,
+        unit: "usd",
+        op: "quoted revenue per unit - component build-up per unit",
+        operands: [revenuePerUnit, subtotalPerUnit],
+      });
     } else {
       // Same contract as the zero-weight blend: dividing by zero units leaves
       // the per-unit figure UNDEFINED, and undefined is not zero. No readable

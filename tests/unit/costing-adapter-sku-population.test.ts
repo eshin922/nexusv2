@@ -314,6 +314,13 @@ function packagingInputs() {
 
 const withCosts = () => args({ assemblyLeafInputs: packagingInputs() });
 
+/** A quote whose price departs from the build-up, via a global adjustment. */
+const withDeparture = () =>
+  args({
+    assemblyLeafInputs: packagingInputs(),
+    quote: { id: QUOTE, globalPriceAdjPct: 0.1, targetMarginPct: null, freightMarkupPct: 0 },
+  });
+
 function blendNode(key: string): CostingNode {
   const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(withCosts()));
   for (const root of r.graph.nodes) {
@@ -529,4 +536,48 @@ test("zero tier quantity · no readable per-unit allocation is exposed", () => {
   const container = resolveNode(r.graph.nodes, quoteScopeKey(TIER_A, "per-unit"))!;
   assert.equal(container.kind, "flagged-out");
   assert.match(container.reason!, /undefined/i);
+});
+
+// ---------------------------------------------------------------------------
+// `difference` — the Costs header's gap between quoted price and build-up.
+// ---------------------------------------------------------------------------
+
+test("the departure node is a difference of two identified operands", () => {
+  const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(withCosts()));
+  const d = resolveNode(r.graph.nodes, quoteScopeKey(TIER_A, "per-unit/departure"))!;
+  assert.equal(d.kind, "difference");
+  assert.equal(d.operands?.length, 2);
+  assert.match(d.operands![0].label, /revenue/i);
+  assert.match(d.operands![1].label, /contribution/i);
+  assert.ok(Math.abs(d.value - (d.operands![0].value - d.operands![1].value)) < 1e-9);
+  assert.deepEqual(findGraphViolations(d), []);
+});
+
+test("reversing a difference's operands FAILS reconciliation", () => {
+  // Order is the identification. A difference read the wrong way round is not
+  // a smaller error than a wrong number — it inverts the business meaning,
+  // turning a price above the build-up into one below it.
+  const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(withDeparture()));
+  const d = resolveNode(r.graph.nodes, quoteScopeKey(TIER_A, "per-unit/departure"))!;
+  assert.ok(Math.abs(d.value) > 1e-6, "fixture must have a non-zero gap or this proves nothing");
+  const reversed = { ...d, operands: [d.operands![1], d.operands![0]] };
+  const problems = findGraphViolations(reversed);
+  assert.ok(problems.length > 0, "operand reversal must be caught");
+});
+
+test("a difference with the wrong operand count is rejected", () => {
+  const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(withCosts()));
+  const d = resolveNode(r.graph.nodes, quoteScopeKey(TIER_A, "per-unit/departure"))!;
+  const truncated = { ...d, operands: [d.operands![0]] };
+  assert.ok(findGraphViolations(truncated).length > 0);
+});
+
+test("the departure label names the quantity, not its commonest cause", () => {
+  // It is non-zero for per-tier adjustments, cell overrides AND unrendered
+  // passthrough components. Calling it "price adjustment" would be right
+  // about two of those and wrong about the third.
+  const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(withCosts()));
+  const d = resolveNode(r.graph.nodes, quoteScopeKey(TIER_A, "per-unit/departure"))!;
+  assert.doesNotMatch(d.label, /^Adjustment|^Override/);
+  assert.match(d.label, /quoted price less/i);
 });
