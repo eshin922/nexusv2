@@ -7,7 +7,12 @@ import {
   updateAssemblyLeafInputLineMeta,
 } from "@/app/actions/assembly-leaf-inputs";
 import { useCostingStore } from "@/components/costing-store-provider";
-import { nodeKey, resolveNodes } from "@/lib/costing-nodes";
+import {
+  nodeKey,
+  quoteScopeKey,
+  readNodeValue,
+  resolveNodes,
+} from "@/lib/costing-nodes";
 import {
   selectActiveTierId,
   selectGraph,
@@ -125,9 +130,14 @@ type LineTierRead = {
   /** The engine's RESOLVED markup for this line — the ladder's outcome, read
    *  off the node's own resolution operand rather than recomputed. */
   markup: number | null;
+  /** WHICH RUNG of the ladder supplied that markup — "Line override",
+   *  "Category default", and so on. The resolution node records which candidate
+   *  it chose, so the surface can tell an operator where a rate came from
+   *  instead of leaving them to infer it. */
+  markupSource: string | null;
 };
 
-const NO_READ: LineTierRead = { value: null, markup: null };
+const NO_READ: LineTierRead = { value: null, markup: null, markupSource: null };
 
 /** Map key. `\u0000` cannot occur in a UUID, so it cannot collide. */
 function readKey(lineGroupId: string, tierId: string): string {
@@ -210,9 +220,11 @@ export function PackagingDrilldown({
       // markup. Reading its value is how the preview below gets the ladder's
       // answer without re-walking the ladder.
       const markupOperand = node.operands?.[1];
+      const chosen = markupOperand?.candidates?.find((c) => c.chosen) ?? null;
       out.set(mapKey, {
         value: node.value,
         markup: markupOperand ? markupOperand.value : null,
+        markupSource: chosen ? chosen.label : null,
       });
     }
     return out;
@@ -267,34 +279,37 @@ export function PackagingDrilldown({
       .filter((value): value is string => !!value),
   );
 
-  // Tier sums for foot.
+  // Tier sums for foot — READ, not summed here.
   //
-  // ── DELIBERATELY NOT MIGRATED · Gate 1B ───────────────────────────────────
-  // Its INPUTS are now governed — each addend is a value read from the graph —
-  // but the AGGREGATION is not, and cannot be until someone says what it means.
+  // ── OD-018, settled ───────────────────────────────────────────────────────
+  // The business meaning is: the simple sum of every governed SKU's packaging
+  // contribution at this tier, because the row exists to show what Packaging
+  // contributes to the Cost Stack. Not a mean, not weighted. The engine now
+  // owns it as `quote/{tier}/cost-stack/pkg-total`.
   //
-  // This sums every line in the QUOTE, not per SKU. On a multi-SKU quote that
-  // is a sum of per-unit packaging across different products: "one of each",
-  // which is not obviously what an operator reads a column total as. 14 of 23
-  // production quotes with packaging lines span more than one SKU, up to 15.
+  // That key is deliberately unlike `quote/{tier}/pkg`, which is the PRICING
+  // BLEND over the same population — a mean, differing from this by a factor of
+  // the SKU count. Reading the wrong one would put the Pricing number under the
+  // Costs column, which is the confusion OD-018 existed to end.
   //
-  // The Pricing blend, the Costs header subtotal and this row have now each
-  // turned out to be a different aggregation over a different population, and
-  // in all three cases the population was a BUSINESS question rather than an
-  // implementation detail. Emitting a node here before that question is settled
-  // would freeze a guess into the authority — which is exactly how increment 7
-  // shipped a blend over the wrong population. See OPEN_DECISIONS OD-018.
+  // TWO DIFFERENT QUESTIONS, ANSWERED SEPARATELY. Whether a total may be shown
+  // is a question about INPUTS: a drawer where nothing has been costed shows a
+  // dash, not zero — the same distinction that put `$0.00` under empty cells
+  // when it was collapsed into the value lookup. What the total IS, once it may
+  // be shown, is a question for the graph. So existence is decided from the
+  // cells and only the number is read.
   const tierSums = tiers.map((t) => {
-    let sum = 0;
-    let anyValue = false;
-    for (const l of lines) {
-      const v = reads.get(readKey(l.lineGroupId, t.id))?.value ?? null;
-      if (v !== null) {
-        sum += v;
-        anyValue = true;
-      }
-    }
-    return { tierId: t.id, value: anyValue ? sum : null };
+    const anyPriced = lines.some(
+      (l) => num(l.cells.get(t.id)?.unitCost ?? null) !== null,
+    );
+    if (!anyPriced) return { tierId: t.id, value: null };
+    return {
+      tierId: t.id,
+      value: readNodeValue(
+        graph.nodes,
+        quoteScopeKey(t.id, "cost-stack/pkg-total"),
+      ),
+    };
   });
 
   return (
@@ -460,6 +475,16 @@ function PackagingRow({
   const [searching, startSearchTransition] = useTransition();
   const [category, setCategory] = useState(storeCategory);
   const [markupPct, setMarkupPct] = useState(storeMarkupPct);
+
+  // The rate this line inherits when it has none of its own. Markup is
+  // per-line, so every tier's read carries the same answer — the first one that
+  // resolved is the answer. (Verified: no line group in production disagrees
+  // with itself across tiers.)
+  const inherited = tiers
+    .map((t) => reads.get(readKey(line.lineGroupId, t.id)))
+    .find((r) => r !== undefined && r.markup !== null);
+  const inheritedMarkup = inherited?.markup ?? null;
+  const inheritedSource = inherited?.markupSource ?? null;
   const metaDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef({
@@ -829,9 +854,35 @@ function PackagingRow({
         )}
       </div>
 
-      {/* Markup % chip — inline editable number */}
+      {/* Markup % chip — inline editable number.
+
+          AN EMPTY FIELD DOES NOT MEAN NO MARKUP. When a line carries no
+          explicit rate the engine resolves one — line override, then category
+          default, then Other, then a firm fallback — and prices the quote with
+          it. This column used to render `—` regardless, which was survivable
+          only while the landed value was ALSO computed at zero: the row was
+          consistently wrong, so nothing looked odd.
+
+          Correcting the landed value made the contradiction visible — cost
+          2.50, markup —, landed 3.25 — and the contradiction was the honest
+          signal. The rate applies either way; the column simply was not saying
+          so.
+
+          The inherited rate now shows as the PLACEHOLDER, which keeps the two
+          states distinguishable: a filled field is an override this line owns,
+          an empty one shows what it inherits. The tooltip names the rung the
+          engine actually chose, read from the resolution node's own record of
+          the decision rather than re-derived. */}
       <div className="num">
-        <span className="markup">
+        <span
+          className="markup"
+          title={
+            markupPct === "" && inheritedMarkup !== null
+              ? `No markup set on this line. ${(inheritedMarkup * 100).toFixed(0)}% applies` +
+                `${inheritedSource ? `, from ${inheritedSource.toLowerCase()}` : ""}. Type to override.`
+              : undefined
+          }
+        >
           <input
             type="number"
             step="0.01"
@@ -844,7 +895,9 @@ function PackagingRow({
               setMarkupPct(decimal);
               scheduleMetaSave({ markupPct: decimal });
             }}
-            placeholder="—"
+            placeholder={
+              inheritedMarkup !== null ? (inheritedMarkup * 100).toFixed(0) : "—"
+            }
             style={{
               background: "transparent",
               border: "none",

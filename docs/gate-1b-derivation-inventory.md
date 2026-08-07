@@ -135,8 +135,51 @@ acknowledged approximation while waiting for it.
 | `costs/freight-drilldown.tsx:395,405-407` | shipment sell and per-unit sell | same |
 | `costs/freight-drilldown.tsx:655` | `amount × (1+markup) ÷ qty` helper | same |
 | `costs/freight-drilldown.tsx:666` | per-tier total freight + customs per unit | `freightContainerMarkupSumPerUnit` + `freightDutyTariffMarkupSumPerUnit` |
-| `costs/packaging-drilldown.tsx:108,918` | `unit × (1+markup) × qty` per line | `packagingMarkupSumPerUnit` — **aggregate only** |
+| ~~`costs/packaging-drilldown.tsx:108,918`~~ | ~~`unit × (1+markup) × qty` per line~~ | **CLOSED** — see §3.2.2 |
 | ~~`costs/cost-stack-header.tsx:305`~~ | ~~subtotal by summing component values~~ | **CLOSED** — see §3.2.1 |
+
+#### 3.2.2 · Packaging drilldown — closed
+
+**The inventory's classification was stale.** It recorded this site as a
+duplicate at a granularity the engine did not expose. The engine has owned the
+per-line quantity since increment 1, as `{sku}/{tier}/pkg/{lineGroupId}` — the
+entry described the scalar API, not the graph.
+
+They did not agree. The engine resolves markup through a ladder; the display
+fell through to **zero**. 268 of 283 production line nodes agreed; the other 15
+were lines with no category and no explicit markup, where the engine applied the
+Other default of 30% and the drilldown applied none. Those cells were corrected
+upward, all 15, all explained.
+
+**Three things the correction exposed, each worse than the one before:**
+
+1. **An unpriced cell rendered `$0.00`.** The engine emits a correctly
+   zero-valued node for an uncosted line, so fail-closed reading cannot catch
+   this — nothing failed. Display eligibility is a question about INPUTS;
+   only the value is a question for the graph. 106 production cells exposed.
+2. **The Markup column read `—` while 30% was applied.** Survivable only while
+   the landed value was also computed at zero: the row was consistently wrong,
+   so nothing looked odd. Correcting the value made the contradiction visible,
+   which is the honest signal. The column now shows the inherited rate as a
+   placeholder and names the rung in its tooltip.
+3. **The TOTAL row's aggregation was unstated.** Settled as OD-018.
+
+**The TOTAL node.** `quote/{tier}/cost-stack/pkg-total`, a `sum` over per-SKU
+origin operands keyed by canonical identity.
+
+Deliberately **not** `quote/{tier}/pkg` — that is the Pricing blend, a
+units-weighted mean over the same population, differing by a factor of the SKU
+count. Deliberately **not** an alias of `quote/{tier}/per-unit/pkg` either,
+though the two agree on all 40 defined production tiers: that agreement is
+circumstantial, holding only while every attachment carries quantity 1, which
+all 137 currently do. Summing independently keeps the reconciliation a verified
+property rather than an assumed identity.
+
+**Evidence.** 52 tiers carry a total; 40 reconcile to the Cost Stack PKG row and
+12 sit on zero-quantity tiers where the header is undefined; 22 stay distinct
+from the Pricing blend and 18 coincide on single-SKU tiers where a sum and a mean
+must agree; 3 have no packaging cost at all and are zero on both bases, counted
+rather than asserted on. S-7 unchanged at `150d9f5a…`.
 
 #### 3.2.1 · Cost-stack header — closed
 
