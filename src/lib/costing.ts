@@ -1420,6 +1420,7 @@ function computeLeafPerTier(args: {
       label: "COGS per unit",
       value: internalProductionCogsPerUnit,
       unit: "usd",
+      divisor: tierQty,
       op:
         "(" + money(num(production?.fillingBlendingCost)) + " filling + " +
         money(num(production?.cmAssemblyTotal)) + " assembly) / " + tierQty + " units",
@@ -1451,6 +1452,7 @@ function computeLeafPerTier(args: {
       label: "Allocated services per unit",
       value: allocatedServiceFeesPerUnit,
       unit: "usd",
+      divisor: tierQty,
       op: money(oneTimeServiceFeeTotal) + " one-time / " + tierQty + " units",
       operands: [oneTimeNode],
     };
@@ -1552,6 +1554,7 @@ function computeLeafPerTier(args: {
             label: "Bulk raw per unit",
             value: rawCost,
             unit: "usd",
+            divisor: tierQty,
             op: money(bulkRawTotal) + " bulk raw / " + tierQty + " units",
             operands: [originNode(nodeKey(rawBase, "cost", "total"), "Bulk raw cost", bulkRawTotal)],
           },
