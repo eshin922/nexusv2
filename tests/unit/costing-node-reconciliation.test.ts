@@ -289,14 +289,41 @@ test("rate is NOT the markup shape — basis x rate, never basis x (1 + rate)", 
   assert.match(only(n), /10 x 0\.05 = 0\.5, node value is 10\.5/);
 });
 
-test("blend remains unchecked, and that is recorded rather than hidden", () => {
-  // A weighted mean averages to its value rather than summing to it, and the
-  // weights are not on the operands. Unchecked-and-said-so beats a check that
-  // quietly does nothing — this assertion exists so the gap cannot be
-  // mistaken for coverage.
-  const blend: CostingNode = {
-    key: "b", kind: "blend", label: "Blended", value: 999, unit: "usd", op: "weighted mean",
-    operands: [usd("x", 1), usd("y", 2)],
-  };
-  assert.deepEqual(findGraphViolations(blend), []);
+// ----------------------------------------------------------------- blend
+
+const blendOf = (value: number, weights: number[] | undefined, values: number[]): CostingNode => ({
+  key: "b", kind: "blend", label: "Blended", value, unit: "usd",
+  op: "Sigma(value x units) / Sigma(units)",
+  ...(weights ? { weights } : {}),
+  operands: values.map((v, i) => usd("c" + i, v)),
+});
+
+test("blend · reconciles a weighted mean", () => {
+  // 10 at 1000 units and 20 at 3000 units blends to 17.5, not to 15. The
+  // weights are the whole difference, which is why they must be data.
+  assert.deepEqual(findGraphViolations(blendOf(17.5, [1000, 3000], [10, 20])), []);
+});
+
+test("blend · FAILS when a contributor value is perturbed", () => {
+  assert.match(only(blendOf(17.5, [1000, 3000], [10, 21])), /weighted mean is 18\.25, node value is 17\.5/);
+});
+
+test("blend · FAILS when a weight is perturbed", () => {
+  assert.match(only(blendOf(17.5, [1000, 1000], [10, 20])), /weighted mean is 15, node value is 17\.5/);
+});
+
+test("blend · FAILS when a contributor is missing", () => {
+  // The weight list still describes three contributors; only two are present.
+  // A truncated blend would otherwise reconcile over a subset and report it
+  // as correct.
+  assert.match(only(blendOf(17.5, [1000, 3000, 1000], [10, 20])), /2 contributors and 3 weights/);
+});
+
+test("blend · FAILS when it carries no weights at all", () => {
+  assert.match(only(blendOf(15, undefined, [10, 20])), /carries no weights/);
+});
+
+test("blend · zero total weight blends to zero, contributors intact", () => {
+  assert.deepEqual(findGraphViolations(blendOf(0, [0, 0], [10, 20])), []);
+  assert.match(only(blendOf(15, [0, 0], [10, 20])), /weighted mean is 0, node value is 15/);
 });

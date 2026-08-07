@@ -128,6 +128,22 @@ export type CostingNode = {
   /** `resolution` only. Alternatives, not operands: they do not sum. */
   candidates?: NodeCandidate[];
   /**
+   * `blend` only — the weight of each contributor, positionally aligned with
+   * `operands`.
+   *
+   * A blend is a weighted mean, so the operands alone cannot prove it: the same
+   * contributor values produce different blends under different weights, and a
+   * reader shown only the contributors has no way to check the result. Carrying
+   * the weights is what turns the node from a display into evidence.
+   *
+   * Positional alignment is enforced — a length mismatch is a violation, not a
+   * shape to tolerate, because a silently truncated weight list would reconcile
+   * a blend over the wrong contributors.
+   *
+   * Additive optional field; no GRAPH_VERSION bump.
+   */
+  weights?: number[];
+  /**
    * `rate` only — the dollar amount the rate is applied TO.
    *
    * A rate node must identify both the percentage and the basis. A correct
@@ -237,6 +253,48 @@ export const RECONCILE_EPSILON = 1e-9;
  */
 export const GRAPH_VERSION = 1;
 
+/**
+ * The sections a cell's chain must contain before the graph can claim to be
+ * complete.
+ *
+ * Completeness is a property of the EMITTED graph, checked against this list —
+ * not a flag flipped on reaching a planned increment number. Those two can
+ * disagree, and when they do the flag is the thing that lies: a consumer told
+ * the graph is complete will stop checking whether the section it needs is
+ * present.
+ */
+export const REQUIRED_CELL_SECTIONS = ["pkg", "prod", "raw", "frt", "sell-before"] as const;
+
+/**
+ * Is every required section represented on every cell root?
+ *
+ * A cell whose root is an `override` still has to carry its chain — the
+ * superseded computation holds the sections, and it is traversable precisely so
+ * that this check does not have to special-case it.
+ */
+export const QUOTE_SCOPE_PREFIX = "quote";
+
+export function graphIsComplete(nodes: CostingNode[]): boolean {
+  // Roots are scoped: per-cell for cell computations, per-tier for quote-level
+  // blends. Only cell roots carry sections, so only they are checked.
+  //
+  // Scope is read from the key prefix rather than inferred from kind. The
+  // first version of this filtered on `kind !== "blend"` and was wrong: the
+  // blend CONTAINER is a sum, so a quote-scope root was checked for cell
+  // sections it could never have and completeness reported false forever.
+  // Inferring scope from kind was guessing; the key states it.
+  const cellRoots = nodes.filter((n) => !n.key.startsWith(QUOTE_SCOPE_PREFIX + "/"));
+  if (cellRoots.length === 0) return false;
+  return cellRoots.every((root) => {
+    const suffixes = new Set<string>();
+    walkGraph(root, (n) => {
+      const last = n.key.split("/").slice(2).join("/");
+      if (last) suffixes.add(last);
+    });
+    return REQUIRED_CELL_SECTIONS.every((s) => suffixes.has(s));
+  });
+}
+
 export type CostingGraph = {
   /** See GRAPH_VERSION. Consumers should assert the version they expect. */
   version: number;
@@ -273,9 +331,9 @@ function closeEnough(a: number, b: number): boolean {
  * checked against the operation it ADVERTISES — the point is not that the
  * number is plausible but that the explanation is true.
  *
- * `blend` remains unchecked: a weighted mean averages to its value rather than
- * summing to it, and the weights are not on the operands. Unchecked-and-said-so
- * beats a check that quietly does nothing.
+ * Every arithmetic kind is now checked. `resolution` asserts nothing by design:
+ * its children are alternatives, exactly one of which is chosen, and
+ * alternatives do not combine.
  */
 function reconcile(n: CostingNode, operands: CostingNode[]): string | null {
   switch (n.kind) {
@@ -330,12 +388,29 @@ function reconcile(n: CostingNode, operands: CostingNode[]): string | null {
         : `${bases[0].value} x (1 + ${rates[0].value}) = ${expected}, node value is ${n.value}`;
     }
 
-    case "blend":
-      // A weighted mean AVERAGES to its value rather than summing to it, and
-      // the weights are not on the operands. Asserted when the blend emitter
-      // lands and can supply them; unchecked-and-said-so beats a check that
-      // quietly does nothing.
-      return null;
+    case "blend": {
+      // A weighted mean AVERAGES to its value rather than summing to it:
+      // Sigma(value x weight) / Sigma(weight).
+      if (!n.weights) {
+        return "blend carries no weights, so the mean it advertises cannot be checked";
+      }
+      if (n.weights.length !== operands.length) {
+        // Not a tolerable shape. A truncated weight list would reconcile the
+        // blend over a subset of its contributors and report it as correct.
+        return `blend has ${operands.length} contributors and ${n.weights.length} weights`;
+      }
+      const totalWeight = n.weights.reduce((a, b) => a + b, 0);
+      // Zero total weight is a real state, not an error: a tier with no
+      // quantity has nothing to weight by. The contributors stay visible —
+      // they are the answer to "why is this zero".
+      const expected =
+        totalWeight > 0
+          ? operands.reduce((acc, o, i) => acc + o.value * n.weights![i], 0) / totalWeight
+          : 0;
+      return closeEnough(expected, n.value)
+        ? null
+        : `weighted mean is ${expected}, node value is ${n.value}`;
+    }
 
     case "rate": {
       // `basis x rate`. Note this is NOT the markup shape: a markup multiplies
