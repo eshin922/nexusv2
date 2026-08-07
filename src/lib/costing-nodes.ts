@@ -298,12 +298,13 @@ export function graphIsComplete(nodes: CostingNode[]): boolean {
   // blend CONTAINER is a sum, so a quote-scope root was checked for cell
   // sections it could never have and completeness reported false forever.
   // Inferring scope from kind was guessing; the key states it.
-  const cellRoots = nodes.filter((n) => !n.key.startsWith(QUOTE_SCOPE_PREFIX + "/"));
+  const cellRoots = nodes.filter((n) => isCellScoped(n.key));
   if (cellRoots.length === 0) return false;
   return cellRoots.every((root) => {
     const suffixes = new Set<string>();
     walkGraph(root, (n) => {
-      const last = n.key.split("/").slice(2).join("/");
+      const address = parseNodeKey(n.key);
+      const last = address ? address.path.join("/") : "";
       if (last) suffixes.add(last);
     });
     return REQUIRED_CELL_SECTIONS.every((s) => suffixes.has(s));
@@ -672,6 +673,120 @@ export function readNodeValue(
  * distinguishes "not asked for" from "asked for, unavailable" without having to
  * remember what it asked.
  */
+/**
+ * ── THE KEY GRAMMAR, PARSED IN ONE PLACE ──────────────────────────────────
+ *
+ * Keys come in exactly two scopes:
+ *
+ *   CELL    `{skuId}/{tierId}/…`   one SKU at one tier
+ *   QUOTE   `quote/{tierId}/…`     the whole quote at one tier
+ *
+ * They are distinguished ONLY by whether the first segment is the literal
+ * `quote`, and that is easy to get wrong in a way that type-checks, runs, and
+ * produces a plausible number.
+ *
+ * The concrete trap, hit twice while building Gate 1B's verifiers:
+ * `{sku}/{tier}/pkg` and `quote/{tier}/pkg` are BOTH three segments ending in
+ * `pkg`. The first is one SKU's packaging; the second is the Pricing blend
+ * across all of them. A selector written as
+ *
+ *     p.length === 3 && p[2] === "pkg" && p[1] === tierId
+ *
+ * matches both and silently adds a mean to the sum it is checking the mean
+ * against. It reported 37 of 40 production tiers diverging, and the graph was
+ * fine. Nothing failed; the answer was simply wrong, and only an implausible
+ * ratio — exactly 0.5000 — gave it away.
+ *
+ * So no caller parses keys by hand. Everything goes through `parseNodeKey`,
+ * and the scope is a discriminated union rather than a convention each script
+ * re-implements.
+ */
+export type NodeAddress =
+  | {
+      scope: "cell";
+      /** The math SKU id — see `mathSkuId` in the adapter. */
+      skuId: string;
+      tierId: string;
+      /** Everything below the cell: `["pkg"]`, `["pkg", lineGroupId]`, … */
+      path: readonly string[];
+    }
+  | {
+      scope: "quote";
+      tierId: string;
+      /** `["sell-before"]`, `["per-unit", "pkg", "cost"]`, … */
+      path: readonly string[];
+    };
+
+/**
+ * Read a key's address, or null when it is not a well-formed one.
+ *
+ * Returns null rather than guessing. A key that does not parse is a finding —
+ * either the grammar grew and this did not, or something is addressing a node
+ * that does not exist.
+ */
+export function parseNodeKey(key: string): NodeAddress | null {
+  const parts = key.split("/");
+  if (parts[0] === QUOTE_SCOPE_PREFIX) {
+    // `quote/{tier}` alone is a real key — the sell blend's own node.
+    if (parts.length < 2 || parts[1] === "") return null;
+    return { scope: "quote", tierId: parts[1], path: parts.slice(2) };
+  }
+  // A cell needs at least `{sku}/{tier}/{something}`; there is no bare
+  // `{sku}/{tier}` node, and treating one as an address would invent a scope.
+  if (parts.length < 3 || parts[0] === "" || parts[1] === "") return null;
+  return { scope: "cell", skuId: parts[0], tierId: parts[1], path: parts.slice(2) };
+}
+
+/** True for `{sku}/{tier}/…`, false for `quote/{tier}/…` and for junk. */
+export function isCellScoped(key: string): boolean {
+  return parseNodeKey(key)?.scope === "cell";
+}
+
+/** True for `quote/{tier}/…`, false for cell keys and for junk. */
+export function isQuoteScoped(key: string): boolean {
+  return parseNodeKey(key)?.scope === "quote";
+}
+
+/**
+ * A CELL-scope SECTION node: `{sku}/{tier}/{section}` and nothing deeper.
+ *
+ * Depth is part of the identity. `{sku}/{tier}/pkg/{lineGroupId}` is a LINE
+ * within the section, not the section, and summing the two together
+ * double-counts every line. `path.length === 1` is the whole distinction.
+ */
+export function isCellSectionNode(
+  key: string,
+  section: string,
+  within?: { tierId?: string; skuId?: string },
+): boolean {
+  const a = parseNodeKey(key);
+  if (!a || a.scope !== "cell") return false;
+  if (a.path.length !== 1 || a.path[0] !== section) return false;
+  if (within?.tierId !== undefined && a.tierId !== within.tierId) return false;
+  if (within?.skuId !== undefined && a.skuId !== within.skuId) return false;
+  return true;
+}
+
+/**
+ * Every cell-scope section node for a section, in one traversal.
+ *
+ * This is what a caller summing "packaging across all SKUs at this tier"
+ * actually wants, and writing it once means the quote scope cannot leak in.
+ */
+export function collectCellSectionNodes(
+  nodes: readonly CostingNode[],
+  section: string,
+  within?: { tierId?: string; skuId?: string },
+): CostingNode[] {
+  const found: CostingNode[] = [];
+  for (const root of nodes) {
+    walkGraph(root, (n) => {
+      if (isCellSectionNode(n.key, section, within)) found.push(n);
+    });
+  }
+  return found;
+}
+
 export function resolveNodes(
   nodes: readonly CostingNode[],
   keys: Iterable<string>,

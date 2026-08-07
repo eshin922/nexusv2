@@ -19,7 +19,12 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { getCostingBundle } from "@/app/actions/costing";
-import { readNodeValue, resolveNode, quoteScopeKey, walkGraph } from "@/lib/costing-nodes";
+import {
+  collectCellSectionNodes,
+  quoteScopeKey,
+  readNodeValue,
+  resolveNode,
+} from "@/lib/costing-nodes";
 
 const quotes = (await db.execute(sql`
   select q.id::text as id from quotes q
@@ -45,21 +50,16 @@ for (const q of quotes) {
     const key = quoteScopeKey(tier.tierId, "cost-stack/pkg-total");
     const node = resolveNode(c.graph.nodes, key);
 
-    // The per-SKU packaging nodes for this tier — `{sku}/{tier}/pkg`, which is
-    // length 3 and NOT prefixed `quote/`. The quote scope holds a same-shaped
-    // key for the blend; conflating them is a mistake this script has already
-    // made once, so the scope is excluded explicitly rather than by luck.
-    let localSum = 0;
-    let skuNodes = 0;
-    for (const root of c.graph.nodes) {
-      walkGraph(root, (n) => {
-        const p = n.key.split("/");
-        if (p.length === 3 && p[2] === "pkg" && p[1] === tier.tierId && p[0] !== "quote") {
-          localSum += n.value;
-          skuNodes += 1;
-        }
-      });
-    }
+    // The per-SKU packaging nodes for this tier. This selector used to be
+    // written out here, and got it wrong: `quote/{tier}/pkg` is also three
+    // segments ending in `pkg`, so the Pricing blend was being added to the sum
+    // this script checks the blend against. `collectCellSectionNodes` states
+    // the scope and the depth once, where it can be tested.
+    const sectionNodes = collectCellSectionNodes(c.graph.nodes, "pkg", {
+      tierId: tier.tierId,
+    });
+    const localSum = sectionNodes.reduce((a, n) => a + n.value, 0);
+    const skuNodes = sectionNodes.length;
     if (skuNodes === 0) continue;
 
     if (!node) { failures.push(`${where}: cost-stack/pkg-total missing`); continue; }
