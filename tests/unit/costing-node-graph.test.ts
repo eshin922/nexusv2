@@ -1071,3 +1071,124 @@ test("increment 5 · every blend shape satisfies the traversal guarantees", () =
     }
   }
 });
+
+// ============================================================================
+// Increment 6 — ownership: every commercial scalar reads the graph
+// ============================================================================
+//
+// Guarantee 6, applied family by family. These are not restatements of the
+// emission tests: those asked whether the node reports the right number, these
+// ask whether the number the APPLICATION reports comes from the node. Before
+// this increment both could be true independently — and staying true
+// independently is exactly how two correct-looking values drift apart.
+
+const ownershipCase = () =>
+  input({
+    packaging: THREE_LINES,
+    production: [prod({ bulkRawCost: 4000 })],
+    freightShipmentBreaks: [shipmentBreak()],
+    quote: { id: "q-1", globalPriceAdjPct: 0.15, targetMarginPct: null },
+  } as never);
+
+test("ownership · packaging scalars read the packaging nodes", () => {
+  const r = computeQuoteCosting(ownershipCase());
+  const cell = r.skuRollups[0].perTier[0];
+  const pkg = findIn(r, `${LEAF}/${TIER}/pkg`)!;
+  assert.equal(cell.packagingMarkupSumPerUnit, pkg.value);
+  assert.equal(
+    cell.packagingCostPerUnit,
+    pkg.operands!.reduce((a, l) => a + l.operands!.find((o) => o.kind === "origin")!.value, 0),
+  );
+});
+
+test("ownership · production and bulk raw scalars read their section nodes", () => {
+  const r = computeQuoteCosting(ownershipCase());
+  const cell = r.skuRollups[0].perTier[0];
+  assert.equal(cell.productionMarkupSumPerUnit, findIn(r, `${LEAF}/${TIER}/prod`)!.value);
+  assert.equal(cell.rawMarkupSumPerUnit, findIn(r, `${LEAF}/${TIER}/raw`)!.value);
+});
+
+test("ownership · the freight scalar that feeds sell reads the freight node", () => {
+  const r = computeQuoteCosting(ownershipCase());
+  const cell = r.skuRollups[0].perTier[0];
+  assert.equal(cell.totalLandedFreightWithMarkup, findIn(r, `${LEAF}/${TIER}/frt`)!.value);
+});
+
+test("ownership · pre-markup COST bases are deliberately NOT read from sell nodes", () => {
+  const r = computeQuoteCosting(ownershipCase());
+  const cell = r.skuRollups[0].perTier[0];
+  // Every node value on the freight branch is a post-markup SELL figure, while
+  // factory cost is a pre-markup COST base. Pointing the base at the node
+  // would inflate every duty and tariff on the quote — and would still
+  // reconcile, because each number would be individually correct.
+  assert.notEqual(cell.totalLandedFreightBeforeMarkup, cell.totalLandedFreightWithMarkup);
+  assert.equal(
+    cell.factoryCostPerUnit,
+    cell.packagingCostPerUnit + cell.productionCostPerUnit + cell.rawCostPerUnit,
+  );
+});
+
+test("ownership · sell-before-adjustment reads the sum of its section nodes", () => {
+  const r = computeQuoteCosting(ownershipCase());
+  const before = findIn(r, `${LEAF}/${TIER}/sell-before`)!;
+  assert.equal(before.value, before.operands!.reduce((a, o) => a + o.value, 0));
+  const cell = r.skuRollups[0].perTier[0];
+  assert.equal(
+    before.value,
+    cell.packagingMarkupSumPerUnit +
+      cell.productionMarkupSumPerUnit +
+      cell.rawMarkupSumPerUnit +
+      cell.totalLandedFreightWithMarkup,
+  );
+});
+
+test("ownership · computed sell reads the adjustment node", () => {
+  const r = computeQuoteCosting(ownershipCase());
+  assert.equal(
+    r.skuRollups[0].perTier[0].computedSellPerUnit,
+    findIn(r, `${LEAF}/${TIER}/sell`)!.value,
+  );
+});
+
+test("ownership · the active root decides the quoted price, computed or overridden", () => {
+  const plain = computeQuoteCosting(ownershipCase());
+  assert.equal(cellRoot(plain).kind, "adjustment");
+  assert.equal(plain.skuRollups[0].perTier[0].requiredSellPerUnit, cellRoot(plain).value);
+
+  const overridden = computeQuoteCosting(
+    input({
+      packaging: THREE_LINES,
+      cellOverrides: [{ quoteSkuId: LEAF, tierId: TIER, sellPriceOverride: 9.5 }],
+    }),
+  );
+  // The scalar and the graph agree on WHICH value the quote is using, not just
+  // on what each of them computed.
+  assert.equal(cellRoot(overridden).kind, "override");
+  assert.equal(
+    overridden.skuRollups[0].perTier[0].requiredSellPerUnit,
+    cellRoot(overridden).value,
+  );
+});
+
+test("ownership · quote totals read the total nodes, and the blend divides them", () => {
+  const r = computeQuoteCosting(ownershipCase());
+  const revenue = findIn(r, `quote/${TIER}/revenue`)!;
+  const cost = findIn(r, `quote/${TIER}/cost-total`)!;
+  assert.equal(r.quoteRollup[0].totalRevenue, revenue.value);
+  assert.equal(r.quoteRollup[0].totalCost, cost.value);
+
+  // The sum is the primitive; the blend divides it. Deriving the total back
+  // from the blend would re-multiply a value that was just divided, and the
+  // round trip is not bitwise identical.
+  const blendSell = findIn(r, `quote/${TIER}/sell`)!;
+  const totalWeight = blendSell.weights!.reduce((a, b) => a + b, 0);
+  assert.equal(blendSell.value, revenue.value / totalWeight);
+});
+
+test("ownership · the whole graph still reconciles after every transition", () => {
+  const r = computeQuoteCosting(ownershipCase());
+  for (const root of r.graph.nodes) {
+    assert.deepEqual(findGraphViolations(root), [], `violations under ${root.key}`);
+  }
+  assert.equal(r.graph.complete, true);
+});

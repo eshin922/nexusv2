@@ -160,6 +160,47 @@ generated SQL is read in full before it is journalled.
 
 ---
 
+### OD-013 · S-7 depends on a mutable shared production database
+
+**Owner:** Nexus engineering · **Blocks:** S-7 entering CI. Does not block
+Gate 1B.
+
+The S-7 preservation baseline is captured from 24 live production quotes, so
+**any legitimate operator edit invalidates it.** It cannot, on its own,
+distinguish "the engine changed" from "the inputs changed".
+
+This is not hypothetical. During Gate 1B increment 6 the check failed on one
+quote with a large, non-float-shaped movement
+(`blendedMarginPct 0.1847 -> 0.2275`). The cause was twelve
+`assembly_leaf_input_cell_updated` audit rows — an operator entering costs on
+the Costs surface while the increment was in flight.
+
+**The classification sequence is mandatory before any re-baseline.** A
+preservation check that gets re-baselined whenever it fails is not a
+preservation check:
+
+1. revert the candidate code
+2. re-run against identical `HEAD`
+3. distinguish input drift from engine drift
+4. only then re-baseline, and only if the evidence shows legitimate data change
+
+Two signals made the call quick and should be looked for again: a code
+regression moves MANY quotes while an operator edit moves ONE, and the audit
+trail names the actor and timestamp for every input change — which is Gate 1A's
+actor snapshots being used as forensics rather than as provenance.
+
+| Option | Consequence |
+|---|---|
+| **Deterministic isolated fixtures** | S-7 becomes reproducible and CI-eligible. The validation database already exists for e2e |
+| **Leave on production data** | Every operator action is a potential false positive, and each one costs a manual bisect |
+
+**What settles it:** an S-7 baseline captured against the isolated validation
+database, reproducing byte-identically across two runs with the application in
+use. Until then S-7 stays manual, per the standing decision that a transient
+database failure must not masquerade as a code regression.
+
+---
+
 ## Open — needed before the relevant work starts
 
 ### OD-009 · Freight markup resolution when a break carries no markup
