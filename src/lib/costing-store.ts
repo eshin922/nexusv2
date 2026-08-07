@@ -903,12 +903,6 @@ export function makeCostingStore(initial: HydrateSnapshot) {
 // components depend on which slices.
 
 // Quote-level
-/**
- * The canonical computation graph. Consumers read commercial values from here
- * rather than deriving them — see docs/gate-1b-canonical-node-tree.md.
- */
-export const selectGraph = (s: CostingStoreState) => s.costing.graph;
-
 export const selectQuoteRollup = (s: CostingStoreState) =>
   s.costing.quoteRollup;
 export const selectFirmSettings = (s: CostingStoreState) => s.firmSettings;
