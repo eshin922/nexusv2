@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo } from "react";
+import { useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   selectActiveTierId,
@@ -52,6 +52,11 @@ import { quoteScopeKey, readNodeValue } from "@/lib/costing-nodes";
 // data the two differ on 22 of 40 defined tiers, by factors of 2x, 3x and 9x.
 // Both are correct. They must not be collapsed into one another, and the
 // tooltips below name the basis so an operator is not left to assume.
+//
+// THE STACK SHOWS INDEPENDENTLY GOVERNED QUANTITIES AND NOTHING ELSE. Bulk raw
+// is costed inside Production and has no node of its own, so it gets no row —
+// it is explanatory metadata on the row that carries the money, not a line of
+// its own. See `PROD_INCLUDES_BULK_RAW`.
 
 const URL_PARAM = "tier";
 
@@ -59,7 +64,8 @@ const URL_PARAM = "tier";
  * The rows with an independently governed per-unit value, in render order.
  *
  * `node` addresses the canonical graph; `label` and `swatch` are presentation.
- * RAW is deliberately absent — see `RawIncludedInProdRow`.
+ * Bulk raw is deliberately absent — it has no independently governed value, so
+ * it is metadata on Production rather than a row. See `PROD_INCLUDES_BULK_RAW`.
  */
 const GOVERNED_ROWS = [
   { node: "pkg", label: "PKG", swatch: "pkg", mod: "" },
@@ -219,10 +225,14 @@ export function CostStackHeader({
         <h2>Cost stack</h2>
         <div className="legend">
           <LegendItem label="Packaging" variant="pkg" />
-          <LegendItem label="Production" variant="prod" />
-          {showRaw && (
-            <LegendItem label="Raws" tail="in Production" variant="raw" />
-          )}
+          {/* A legend swatch is a promise that a colour appears in the bars.
+              Bulk raw has no segment to colour, so it gets no entry of its own
+              — it qualifies the Production swatch instead. */}
+          <LegendItem
+            label="Production"
+            tail={showRaw ? "incl. bulk raw" : undefined}
+            variant="prod"
+          />
           <LegendItem label="Freight" variant="frt" />
           <LegendItem label="D+T" tail="internal" variant="dt" />
           {/* Passthrough legend slot — R6 commitment to stack grammar
@@ -278,7 +288,7 @@ function LegendItem({
 }: {
   label: string;
   tail?: string;
-  variant: "pkg" | "prod" | "frt" | "dt" | "pass" | "raw";
+  variant: "pkg" | "prod" | "frt" | "dt" | "pass";
 }) {
   return (
     <span>
@@ -348,21 +358,15 @@ function TierColumn({
         {GOVERNED_ROWS.map((row) => {
           const found = perUnit?.rows.find((r) => r.row.node === row.node);
           return (
-            <Fragment key={row.node}>
-              <CompRow
-                row={row}
-                values={found ? found.values : null}
-                maxPerUnitCost={maxPerUnitCost}
-              />
-              {/* RAW renders DIRECTLY BENEATH PROD, because the canonical CSS
-                  draws a parenting tick on `.r6-comp-row.raw .key::before` —
-                  "RAW gets an indent + a parenting tick to signal child of
-                  PROD" (r6-costs.css:885). The tick points at the row above it,
-                  so placing RAW anywhere else makes the glyph and the words
-                  name different parents. Shipping it after D+T did exactly
-                  that, and production smoke caught it. */}
-              {showRaw && row.node === "prod" && <RawIncludedInProdRow />}
-            </Fragment>
+            <CompRow
+              key={row.node}
+              row={row}
+              values={found ? found.values : null}
+              maxPerUnitCost={maxPerUnitCost}
+              hint={
+                showRaw && row.node === "prod" ? PROD_INCLUDES_BULK_RAW : null
+              }
+            />
           );
         })}
       </div>
@@ -425,48 +429,28 @@ function TierColumn({
 }
 
 /**
- * The RAW row, when the quote sources its own raws.
+ * Bulk raw, when the quote sources its own.
  *
- * Bulk raw IS costed — it is folded into Production, and `productionMarkupSum`
- * already carries it. What does not exist is an independently attributable raw
- * figure for this column, so there is no node to read and nothing honest to put
- * in the price cell.
+ * It IS costed — folded into Production, which `productionMarkupSum` already
+ * carries. What does not exist is an independently attributable raw figure, so
+ * there is no node to read.
  *
- * The three candidate treatments were all worse than saying so. `$0.00` asserts
- * that raws cost nothing. A dash implies a value that is merely missing, which
- * would send an operator looking for an input to fill. Blanking the whole tier
- * because one row has no node would withhold four correct figures to punish a
- * fifth. So the row states where the money went.
+ * IT THEREFORE GETS NO ROW. The stack shows independently governed commercial
+ * quantities and nothing else; a line that carries no value is not a member of
+ * that set, however carefully it explains itself. An earlier pass shipped it as
+ * a row reading "included in PROD" — accurate, and still a stack line an
+ * operator has to read past to find the figures. The relationship is metadata
+ * about Production, so it lives on Production: a tail on the legend entry and a
+ * tooltip on the row that actually carries the money.
  *
- * It carries no numeric cell, so it takes no part in the tier's completeness
- * check — the column renders fully whether or not this row is shown, and will
- * keep doing so until raw has a governed value of its own.
- *
- * Placement is load-bearing rather than cosmetic: the canonical stylesheet
- * indents this row and draws a parenting tick to mark it a child of PROD, so
- * the row must follow PROD directly. CD's design had already said in CSS what
- * this row now says in words.
+ * Scoped to `dps_sources` exactly as the row was. Under `cm_sources` the
+ * contract manufacturer buys the raws and they arrive inside their price; under
+ * `customer_supplies` there is no raw cost to fold. Only DPS-sourced raws land
+ * in this quote's Production figure.
  */
-function RawIncludedInProdRow() {
-  return (
-    <div
-      className="r6-comp-row raw"
-      title="Bulk raw material is costed inside Production and is not separately attributable in this stack."
-    >
-      <span className="key">RAW</span>
-      <span
-        style={{
-          color: "var(--ink-4)",
-          fontStyle: "italic",
-          letterSpacing: "0.01em",
-        }}
-      >
-        included in PROD
-      </span>
-      <span className="price" aria-hidden />
-    </div>
-  );
-}
+const PROD_INCLUDES_BULK_RAW =
+  "Includes DPS-sourced bulk raw material, which is costed inside Production " +
+  "and is not separately attributable in this stack.";
 
 // Canonical .r6-comp-row grammar:
 //   <div class="r6-comp-row {dt|raw|empty}">
@@ -483,10 +467,13 @@ function CompRow({
   row,
   values,
   maxPerUnitCost,
+  hint,
 }: {
   row: GovernedRow;
   values: RowValues | null;
   maxPerUnitCost: number;
+  /** Explanatory metadata about what this row's figure already contains. */
+  hint: string | null;
 }) {
   // No values at all (tier unavailable), or a governed zero. Both draw an empty
   // bar; only the first refuses to print a number.
@@ -504,7 +491,10 @@ function CompRow({
   const rowMods = [row.mod, isEmpty ? "empty" : ""].filter(Boolean).join(" ");
 
   return (
-    <div className={`r6-comp-row${rowMods ? ` ${rowMods}` : ""}`}>
+    <div
+      className={`r6-comp-row${rowMods ? ` ${rowMods}` : ""}`}
+      title={hint ?? undefined}
+    >
       <span className="key">{row.label}</span>
 
       {isEmpty ? (
