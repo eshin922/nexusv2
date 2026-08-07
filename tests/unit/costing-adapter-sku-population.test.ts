@@ -471,3 +471,62 @@ test("every key the Cost Stack addresses resolves exactly once", () => {
     );
   }
 });
+
+// ---------------------------------------------------------------------------
+// Costs cost-stack header — per-unit allocations.
+//
+// A DIFFERENT commercial quantity from the Pricing blend: the quote's tier
+// total spread over the tier quantity, versus a weighted mean across SKUs.
+// Both are correct; the defect was that the header derived its own.
+// ---------------------------------------------------------------------------
+
+test("per-unit allocation carries its divisor as data, not in a label", () => {
+  const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(withCosts()));
+  const rev = resolveNode(r.graph.nodes, quoteScopeKey(TIER_A, "per-unit/revenue"))!;
+  assert.equal(rev.kind, "allocation");
+  assert.equal(rev.divisor, 1000);
+  // The reconciler can only check the operation because the divisor is data.
+  assert.deepEqual(findGraphViolations(rev), []);
+});
+
+test("per-unit subtotal is the tier total over tier quantity", () => {
+  const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(withCosts()));
+  const node = resolveNode(r.graph.nodes, quoteScopeKey(TIER_A, "per-unit"))!;
+  const roll = r.quoteRollup.find((x) => x.tierId === TIER_A)!;
+  const b = roll.costBreakdown;
+  const expected =
+    (b.packagingMarkupSum + b.productionMarkupSum +
+     b.freightContainerMarkupSum + b.dutyAndTariffMarkupSum) / roll.qty;
+  assert.ok(Math.abs(node.value - expected) < 1e-9);
+});
+
+test("per-unit and the Pricing blend are DIFFERENT quantities", () => {
+  // The guard against collapsing one into the other. On this fixture four
+  // SKUs sit under one quote, so a sum across the quote and a mean across
+  // SKUs cannot agree — and if a future change makes them agree, that is a
+  // semantic regression even though every number would still reconcile.
+  const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(withCosts()));
+  const perUnit = resolveNode(r.graph.nodes, quoteScopeKey(TIER_A, "per-unit"))!;
+  const blend = resolveNode(r.graph.nodes, quoteScopeKey(TIER_A, "sell-before"))!;
+  assert.ok(perUnit.value > 0, "fixture must carry value or this proves nothing");
+  assert.ok(
+    Math.abs(perUnit.value - blend.value) > 1e-6,
+    `per-unit ${perUnit.value} must differ from blend ${blend.value}`,
+  );
+});
+
+test("zero tier quantity · no readable per-unit allocation is exposed", () => {
+  // Same contract as the zero-weight blend: dividing by zero units is
+  // undefined, and undefined is not zero.
+  const zero = args({
+    tiers: [{ id: TIER_A, label: "T1", qty: 0, sortOrder: 0, tierPriceAdjPct: null }],
+    assemblyLeafInputs: packagingInputs(),
+  });
+  const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(zero));
+  for (const k of ["per-unit/revenue", "per-unit/cost-total", "per-unit/pkg"]) {
+    assert.equal(resolveNode(r.graph.nodes, quoteScopeKey(TIER_A, k)), null, k);
+  }
+  const container = resolveNode(r.graph.nodes, quoteScopeKey(TIER_A, "per-unit"))!;
+  assert.equal(container.kind, "flagged-out");
+  assert.match(container.reason!, /undefined/i);
+});
