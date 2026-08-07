@@ -24,6 +24,19 @@
  */
 
 /**
+ * ELEVEN kinds. Ten were inherited; `difference` was added for the Costs
+ * cost-stack header, where the gap between the quoted price and the rendered
+ * component rows is a real governed quantity with no kind to express it.
+ *
+ * It was added rather than improvised because both improvisations available
+ * were worse: `adjustment` means `base x (1 + rate)` and would not reconcile,
+ * and a `sum` with a synthesised negative operand would invent a node nothing
+ * computed. Adding a kind is a design decision, and this is the second one
+ * the vocabulary has taken — see the restraint note below.
+ *
+ * Additive under the compatibility rule that consumers ignore unknown node
+ * kinds unless they explicitly require them, so GRAPH_VERSION does not bump.
+ *
  * TEN kinds, not the nine the prose counts.
  *
  * R10's notes say eight, R11 and Phase 3 say nine — but `app/r10/data.js:386`
@@ -56,6 +69,7 @@ export type NodeKind =
   | "rate"
   | "adjustment"
   | "blend"
+  | "difference"
   | "resolution"
   | "origin"
   | "override"
@@ -83,6 +97,7 @@ export const ARITHMETIC_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>([
   "rate",
   "adjustment",
   "blend",
+  "difference",
 ]);
 
 export type NodeUnit = "usd" | "pct" | "count";
@@ -374,6 +389,21 @@ function reconcile(n: CostingNode, operands: CostingNode[]): string | null {
       return closeEnough(expected, n.value)
         ? null
         : `${numerator} / ${n.divisor} = ${expected}, node value is ${n.value}`;
+    }
+
+    case "difference": {
+      // `left - right`, and ORDER IS THE IDENTIFICATION. A difference read the
+      // wrong way round is not a smaller error than a wrong number; it inverts
+      // the business meaning, turning a price above the build-up into one
+      // below it. So the reconciler checks the subtraction in the stated
+      // direction, and reversing the operands fails it.
+      if (operands.length !== 2) {
+        return `difference needs exactly two operands, found ${operands.length}`;
+      }
+      const expected = operands[0].value - operands[1].value;
+      return closeEnough(expected, n.value)
+        ? null
+        : `${operands[0].value} - ${operands[1].value} = ${expected}, node value is ${n.value}`;
     }
 
     case "adjustment": {
