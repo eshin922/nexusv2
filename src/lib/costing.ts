@@ -2632,6 +2632,115 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
     const revenue = revenueNode.value;
     const cost = costNode.value;
 
+    // ---------- per-unit allocations (Gate 1B · Costs cost-stack header) ----
+    //
+    // A DIFFERENT COMMERCIAL QUANTITY FROM THE PRICING BLEND, and deliberately
+    // so. Pricing blends across the governed SKU population and answers "what
+    // does an average SKU sell for". These allocate the quote's tier TOTAL over
+    // the tier quantity and answer "what does one unit of this tier contribute,
+    // all products combined". On production data the two differ on 22 of 40
+    // defined tiers, by factors of 2x, 3x and 9x — the leaf count per assembly.
+    //
+    // Both are correct. The defect these nodes remove is that the Costs header
+    // derived its answer independently, not that its answer was wrong.
+    //
+    // `allocation` is the vocabulary's kind for exactly this: total / Q, with Q
+    // carried as `divisor` DATA so the reconciler can check the operation
+    // instead of reading the denominator out of a label.
+    //
+    // RAW is absent on purpose. The header's raw row is an unbuilt stub
+    // returning 0 (UX_BACKLOG), and `productionMarkupSum` already folds bulk
+    // raw in — so emitting a raw node would double-count against production.
+    // The stub stays a stub; encoding it as canonical would make a UI gap look
+    // like a commercial fact.
+    const perUnitQty = num(tier.qty);
+    if (perUnitQty > 0) {
+      const originOf = (label: string, value: number): CostingNode => ({
+        key: nodeKey("quote", tier.id, "per-unit", label, "total"),
+        kind: "origin",
+        label,
+        value,
+        unit: "usd",
+        origin: { grade: "thin", actor: null, when: null, doc: null },
+      });
+      const alloc = (
+        name: string,
+        label: string,
+        total: number,
+      ): CostingNode => ({
+        key: nodeKey("quote", tier.id, "per-unit", name),
+        kind: "allocation",
+        label,
+        value: total / perUnitQty,
+        unit: "usd",
+        op: "tier total / tier quantity",
+        divisor: perUnitQty,
+        operands: [
+          {
+            ...originOf(label, total),
+            key: nodeKey("quote", tier.id, "per-unit", name, "total"),
+          },
+        ],
+      });
+
+      const perUnitComponent = (
+        name: string,
+        label: string,
+        costTotal: number,
+        markedUpTotal: number,
+      ): CostingNode => {
+        const costNodeU = alloc(name + "/cost", label + " cost per unit", costTotal);
+        const markupNodeU = alloc(
+          name + "/markup",
+          label + " markup per unit",
+          markedUpTotal - costTotal,
+        );
+        return {
+          key: nodeKey("quote", tier.id, "per-unit", name),
+          kind: "sum",
+          label: label + " per unit",
+          value: costNodeU.value + markupNodeU.value,
+          unit: "usd",
+          op: "cost per unit + markup per unit",
+          operands: [costNodeU, markupNodeU],
+        };
+      };
+
+      const perUnitComponents: CostingNode[] = [
+        perUnitComponent("pkg", "Packaging", breakdown.packaging, breakdown.packagingMarkupSum),
+        perUnitComponent("prod", "Production", breakdown.production, breakdown.productionMarkupSum),
+        perUnitComponent("frt", "Freight", breakdown.freightContainer, breakdown.freightContainerMarkupSum),
+        perUnitComponent("dt", "Duty & tariff", breakdown.dutyAndTariff, breakdown.dutyAndTariffMarkupSum),
+      ];
+
+      graphNodes.push({
+        key: nodeKey("quote", tier.id, "per-unit"),
+        kind: "sum",
+        label: "Combined contribution per unit · " + tier.label,
+        value: perUnitComponents.reduce((a, n) => a + n.value, 0),
+        unit: "usd",
+        op: "packaging + production + freight + duty & tariff, each per unit",
+        operands: perUnitComponents,
+      });
+      graphNodes.push(alloc("revenue", "Quoted revenue per unit", revenue));
+      graphNodes.push(alloc("cost-total", "Total cost per unit", cost));
+    } else {
+      // Same contract as the zero-weight blend: dividing by zero units leaves
+      // the per-unit figure UNDEFINED, and undefined is not zero. No readable
+      // node is exposed, so the header reaches its fail-closed path instead of
+      // asserting that a unit contributes nothing.
+      graphNodes.push({
+        key: nodeKey("quote", tier.id, "per-unit"),
+        kind: "flagged-out",
+        label: "Combined contribution per unit · " + tier.label,
+        value: 0,
+        unit: "usd",
+        reason:
+          "Tier quantity is zero, so a per-unit allocation is undefined. " +
+          "The tier totals remain available on the quote-scope revenue and cost nodes.",
+      });
+    }
+
     const marginPct = revenue > 0 ? (revenue - cost) / revenue : 0;
     const status = computeStatus(
       marginPct,
