@@ -560,3 +560,50 @@ export function findNode(root: CostingNode, key: string): CostingNode | null {
   });
   return found;
 }
+
+/**
+ * Resolve one node by EXACT key across a whole graph, failing closed.
+ *
+ * This is the API a consumer reads commercial values through. `findNode` takes
+ * a single root and stops at the first hit; a consumer needs to search every
+ * root, and needs the two failure modes to be distinguishable from a legitimate
+ * answer:
+ *
+ *   - MISSING   — the value is not in the graph. Rendering anything at all
+ *                 would be inventing it.
+ *   - DUPLICATE — the same key appears more than once. The graph does not have
+ *                 one answer, so no single answer can be read from it. Taking
+ *                 the first would be a coin toss the operator never sees.
+ *
+ * Both return null rather than a value, and callers must treat null as
+ * "cannot display" rather than as zero. A zero is a commercial claim; an
+ * absence is not.
+ *
+ * Reaching for `graph.nodes.find(...)` instead is the specific mistake that
+ * shipped a non-functional Cost Stack: the component blends are nested
+ * operands of `sell-before`, not roots, so a root-only search silently
+ * returned nothing for every tier. Nodes legitimately nest — a node cannot be
+ * both a root and an operand without double-counting under reconciliation — so
+ * traversal is not an optimisation here, it is the only correct read.
+ */
+export function resolveNode(
+  nodes: readonly CostingNode[],
+  key: string,
+): CostingNode | null {
+  const matches: CostingNode[] = [];
+  for (const root of nodes) {
+    walkGraph(root, (n) => {
+      if (n.key === key) matches.push(n);
+    });
+  }
+  return matches.length === 1 ? matches[0] : null;
+}
+
+/**
+ * The exact quote-scope key for a per-tier node. Built here rather than
+ * interpolated at each call site so consumers cannot drift from the emitter's
+ * key grammar — a mistyped key is indistinguishable from a missing node.
+ */
+export function quoteScopeKey(tierId: string, name: string): string {
+  return nodeKey(QUOTE_SCOPE_PREFIX, tierId, name);
+}

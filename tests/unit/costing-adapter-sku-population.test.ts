@@ -24,6 +24,8 @@ import { computeQuoteCosting } from "../../src/lib/costing.ts";
 import {
   findGraphViolations,
   findNode,
+  quoteScopeKey,
+  resolveNode,
   type CostingNode,
 } from "../../src/lib/costing-nodes.ts";
 import {
@@ -428,5 +430,44 @@ test("the graph reconciles on the nested, unequal-quantity fixture", () => {
   const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(withCosts()));
   for (const root of r.graph.nodes) {
     assert.deepEqual(findGraphViolations(root), [], `violations under ${root.key}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The traversal API the Pricing Cost Stack reads through.
+// ---------------------------------------------------------------------------
+
+test("resolveNode finds nodes that are nested, not only roots", () => {
+  // The component blends are operands of `sell-before`. A root-only lookup
+  // returns nothing for every one of them, which is what shipped a Cost Stack
+  // that rendered every tier incomplete.
+  const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(withCosts()));
+  const key = quoteScopeKey(TIER_A, "pkg");
+  assert.equal(r.graph.nodes.find((n) => n.key === key), undefined);
+  assert.ok(resolveNode(r.graph.nodes, key), "traversal must find it");
+});
+
+test("resolveNode fails closed on a missing key", () => {
+  const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(withCosts()));
+  assert.equal(resolveNode(r.graph.nodes, quoteScopeKey(TIER_A, "nope")), null);
+});
+
+test("resolveNode fails closed on a duplicate key", () => {
+  // Two matches means the graph does not have one answer, so no single answer
+  // can be read from it. Returning the first would be a coin toss the operator
+  // never sees.
+  const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(withCosts()));
+  const key = quoteScopeKey(TIER_A, "pkg");
+  const dupe = resolveNode(r.graph.nodes, key)!;
+  assert.equal(resolveNode([...r.graph.nodes, dupe], key), null);
+});
+
+test("every key the Cost Stack addresses resolves exactly once", () => {
+  const r = computeQuoteCosting(buildQuoteCostingInputFromNewModel(withCosts()));
+  for (const name of ["pkg", "prod", "raw", "frt", "dt", "sell-before", "sell"]) {
+    assert.ok(
+      resolveNode(r.graph.nodes, quoteScopeKey(TIER_A, name)),
+      `${name} must resolve exactly once`,
+    );
   }
 });

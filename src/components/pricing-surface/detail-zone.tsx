@@ -86,6 +86,7 @@ function writeSessionOpen(quoteId: string, open: boolean): void {
 
 export function DetailZone({
   state,
+  blendedByTier,
   quoteId,
   onPreviewGlobalAdjust,
   globalPreview,
@@ -97,6 +98,9 @@ export function DetailZone({
   pricingConfirmation,
 }: {
   state: QuoteState;
+  /** Blended per-unit values read from the canonical graph, keyed by the
+   *  classifier's numeric tier id. Resolved once at the composition point. */
+  blendedByTier: Map<number, BlendedTierComponents>;
   quoteId: string;
   // CB Patch round 3 BUG-B — composer forwards an onPreview
   // handler that calls updateQuoteGlobalPriceAdj. Optional so
@@ -156,7 +160,7 @@ export function DetailZone({
             confirmation={pricingConfirmation}
           />
           <DetailTierTable state={state} />
-          <DetailCostStack state={state} />
+          <DetailCostStack state={state} blendedByTier={blendedByTier} />
           <DetailPerSku state={state} />
           <DetailMetaTiles state={state} />
         </div>
@@ -409,12 +413,36 @@ const tierStatusToR6 = (
         : "incomplete";
 
 interface CostStackBucketDisplay {
-  key: "pkg" | "prod" | "frt" | "dt" | "pass";
+  key: "pkg" | "prod" | "raw" | "frt" | "dt" | "pass";
   label: string;
+  /**
+   * The blended SELL contribution per unit. Named `cost` for the column it
+   * fills, which is a leftover from when this table computed cost — the value
+   * has always been marked up. The heading now says so.
+   */
   cost: number | null;
   markup: number | null;
   internal?: boolean;
 }
+
+/**
+ * Blended per-unit values for one tier, read from the canonical graph.
+ *
+ * Arrives as a PROP rather than being fetched here. This file's discipline is
+ * that every read is a QuoteState-shaped prop, so the compiler can refuse
+ * component-side derivation; reaching for the graph with a hook would bypass
+ * the mechanism that enforces that for everything else in the file. Resolution
+ * happens once, at the composition point.
+ */
+export type BlendedTierComponents = {
+  pkg: number;
+  prod: number;
+  raw: number;
+  frt: number;
+  dt: number;
+  sellBefore: number;
+  sell: number;
+};
 
 interface TierCostStackDisplay {
   id: string;
@@ -428,11 +456,28 @@ interface TierCostStackDisplay {
   components: CostStackBucketDisplay[];
 }
 
-export function DetailCostStack({ state }: { state: QuoteState }) {
+export function DetailCostStack({
+  state,
+  blendedByTier,
+}: {
+  state: QuoteState;
+  blendedByTier: Map<number, BlendedTierComponents>;
+}) {
+  // Gate 1B increment 7 — this table READS THE CANONICAL GRAPH.
+  //
+  // What was here computed its own values: an unweighted mean across cells
+  // (`avg`) plus a proportional redistribution of markup (`mkShare`). Both are
+  // deleted rather than corrected. A second implementation that happens to be
+  // right is still a second implementation, and `mkShare` was the specific
+  // shortcut CLAUDE.md records causing a ~9% operator-visible mismatch between
+  // two surfaces that both said "packaging".
+  //
+  // A tier the graph cannot answer for is absent from the map and renders
+  // incomplete. It is never filled with zeroes: a zero is a commercial claim,
+  // and "we could not read this" is not the same statement as "this is free".
   const tiers: TierCostStackDisplay[] = state.tiers.map((t) => {
-    const tierCells = state.cells.filter((c) => c.tier_id === t.id);
-    const known = tierCells.filter((c) => !c.missing && c.cost_stack);
-    if (known.length === 0) {
+    const blend = blendedByTier.get(t.id);
+    if (!blend) {
       return {
         id: "T" + t.id,
         label: "T" + t.id,
@@ -445,38 +490,25 @@ export function DetailCostStack({ state }: { state: QuoteState }) {
         components: [],
       };
     }
-    // TODO(Q6): replace this inline rollup with costing-math-layer
-    // canonical roll-up shape once it lands. The math layer's
-    // surfacing of {pkg, prod, frt, dt} per-cell will make this
-    // averaging redundant.
-    const avg = (k: "pkg" | "prod" | "frt" | "dt"): number =>
-      known.reduce((s, c) => s + (c.cost_stack?.[k] ?? 0), 0) / known.length;
-    const pkg = avg("pkg");
-    const prod = avg("prod");
-    const frt = avg("frt");
-    const dt = avg("dt");
-    const costTotal = pkg + prod + frt + dt;
-    const sell =
-      known.reduce((s, c) => s + (c.sell_unit ?? 0), 0) / known.length;
-    const markupTotal = Math.max(0, sell - costTotal);
-    const customerCost = pkg + prod + frt;
-    const mkShare = (k: "pkg" | "prod" | "frt"): number =>
-      customerCost > 0 ? (avg(k) / customerCost) * markupTotal : 0;
     return {
       id: "T" + t.id,
       label: "T" + t.id,
       units: t.qty,
-      subtotal: costTotal,
+      subtotal: blend.sellBefore,
       adjustment: 0,
-      sell,
+      sell: blend.sell,
       margin_pct: t.min_margin_pct,
       margin_state: tierStatusToR6(t.status),
+      // No cost/markup split any more. The split that used to appear was
+      // `mkShare`, a proportional re-allocation invented at the display layer;
+      // showing a segment the graph cannot account for would reinstate the
+      // derivation under a different name.
       components: [
-        { key: "pkg", label: "PKG", cost: pkg, markup: mkShare("pkg") },
-        { key: "prod", label: "PROD", cost: prod, markup: mkShare("prod") },
-        { key: "frt", label: "FRT", cost: frt, markup: mkShare("frt") },
-        { key: "dt", label: "D+T", cost: dt, markup: 0, internal: true },
-        { key: "pass", label: "PASS", cost: null, markup: null },
+        { key: "pkg", label: "PKG", cost: blend.pkg, markup: null },
+        { key: "prod", label: "PROD", cost: blend.prod, markup: null },
+        { key: "raw", label: "RAW", cost: blend.raw, markup: null },
+        { key: "frt", label: "FRT", cost: blend.frt, markup: null },
+        { key: "dt", label: "D+T", cost: blend.dt, markup: null, internal: true },
       ],
     };
   });
@@ -485,7 +517,8 @@ export function DetailCostStack({ state }: { state: QuoteState }) {
       <div className="section-head">
         <h4>Cost stack</h4>
         <span className="meta">
-          Per-tier · averaged across SKUs · D+T is internal layer
+          Per-tier · sell-side contributions per unit, blended across SKUs ·
+          D+T is internal layer
         </span>
       </div>
       <table className="psr-tier-table">
@@ -494,10 +527,14 @@ export function DetailCostStack({ state }: { state: QuoteState }) {
             <th>Tier</th>
             <th>PKG</th>
             <th>PROD</th>
+            <th>RAW</th>
             <th>FRT</th>
             <th>D+T</th>
-            <th>Unit cost</th>
-            <th>Sell · unit</th>
+            {/* Was "Unit cost". These columns carry MARKED-UP component
+                values, so the figure is sell-side; describing it as cost made
+                the row read as impossible beside the sell column. */}
+            <th>Sell before adj</th>
+            <th>Quoted sell · unit</th>
             <th>Margin</th>
           </tr>
         </thead>
@@ -507,7 +544,7 @@ export function DetailCostStack({ state }: { state: QuoteState }) {
               <td>
                 <strong>{t.label}</strong>
               </td>
-              {(["pkg", "prod", "frt", "dt"] as const).map((bucket) => {
+              {(["pkg", "prod", "raw", "frt", "dt"] as const).map((bucket) => {
                 const comp = t.components.find((c) => c.key === bucket);
                 return (
                   <td className="num" key={bucket}>

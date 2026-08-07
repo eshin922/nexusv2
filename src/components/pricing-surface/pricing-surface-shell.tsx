@@ -30,7 +30,7 @@
 // from `idMap.numericToUuid.values()` rather than re-invoking the
 // engine. One classify, one engine call per render.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Mode } from "@/lib/pricing-classifier";
 import {
   applyGlobalAdj,
@@ -46,8 +46,11 @@ import {
   SuggestionCard,
 } from "./action-zone";
 import { StateCallout, StateCard, StateLine } from "./state-zone";
-import { DetailZone } from "./detail-zone";
+import { DetailZone, type BlendedTierComponents } from "./detail-zone";
 import { usePricingClassifier } from "./pricing-classifier-context";
+import { useCostingStore } from "@/components/costing-store-provider";
+import { selectGraph } from "@/lib/costing-store";
+import { resolveNode, quoteScopeKey } from "@/lib/costing-nodes";
 
 // 30s persistent "↻ just updated" hint after a mode transition. CD
 // §4.6 / §9.2 pushback 2. Restart on each subsequent transition.
@@ -65,6 +68,7 @@ export function PricingSurfaceShell({
   // Single source of truth — `state` is the classifier output,
   // identical to what `<PricingPageHead>` consumes.
   const { state, idMap } = usePricingClassifier();
+  const { uuidToNumeric } = idMap;
 
   // Mode-transition flash + 30s persistent hint ─────────────────
   const previousModeRef = useRef<Mode | null>(null);
@@ -238,6 +242,46 @@ export function PricingSurfaceShell({
 
   // Per-mode mount — single-responsibility zones; composer decides
   // what's visible per state.mode (CD §2.1).
+  // Gate 1B increment 7 — canonical blended values for the Cost Stack,
+  // resolved HERE and passed down as data.
+  //
+  // Resolution goes through the graph traversal API. The component blends are
+  // nested operands of `sell-before`, not roots — a node cannot be both
+  // without double-counting under reconciliation — so a root-only
+  // `graph.nodes.find(...)` returns nothing for every tier. That is not a
+  // hypothetical: it is what shipped a Cost Stack that rendered every tier
+  // incomplete.
+  //
+  // `resolveNode` fails closed on BOTH missing and duplicate matches, and a
+  // tier missing any one of its six values is omitted from the map entirely
+  // rather than partially filled. Half a stack read from the graph and half
+  // invented is the exact failure this increment exists to remove.
+  const graph = useCostingStore(selectGraph);
+  const blendedByTier = useMemo(() => {
+    const byNumeric = new Map<number, BlendedTierComponents>();
+    for (const [tierUuid, numeric] of uuidToNumeric) {
+      const read = (name: string): number | null => {
+        const node = resolveNode(graph.nodes, quoteScopeKey(tierUuid, name));
+        return node ? node.value : null;
+      };
+      const pkg = read("pkg");
+      const prod = read("prod");
+      const raw = read("raw");
+      const frt = read("frt");
+      const dt = read("dt");
+      const sellBefore = read("sell-before");
+      const sell = read("sell");
+      if (
+        pkg === null || prod === null || raw === null || frt === null ||
+        dt === null || sellBefore === null || sell === null
+      ) {
+        continue;
+      }
+      byNumeric.set(numeric, { pkg, prod, raw, frt, dt, sellBefore, sell });
+    }
+    return byNumeric;
+  }, [graph, uuidToNumeric]);
+
   return (
     <section className="psr-section">
       {applyError && (
@@ -311,6 +355,7 @@ export function PricingSurfaceShell({
           DetailGlobalAdjust (CB Patch round 3 BUG-B wire). */}
       <DetailZone
         state={state}
+        blendedByTier={blendedByTier}
         quoteId={quoteId}
         onPreviewGlobalAdjust={onPreviewGlobalAdjust}
         globalPreview={globalPreview}
