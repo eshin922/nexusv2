@@ -1256,8 +1256,10 @@ function computeLeafPerTier(args: {
   // Each packaging line contributes (unit_cost × qty_per_sellable_unit) to
   // the per-unit cost. Markup applies per-line (line.markup_pct, falling
   // back to the line's category default, then to "Other", then to 0.30).
-  let packagingCostSum = 0;
-  let packagingMarkupSum = 0;
+  // OWNERSHIP: the graph. See the derivation below the loop — these scalars
+  // are projections of the packaging nodes, not a second accumulation running
+  // beside them.
+  const packagingLineCosts: number[] = [];
   // Gate 1B — nodes are built HERE, while the arithmetic runs, not by a second
   // traversal afterwards. A second traversal reproducing these values is
   // correct the day it is written and silently wrong after the first refactor
@@ -1265,7 +1267,7 @@ function computeLeafPerTier(args: {
   const packagingLineNodes: CostingNode[] = [];
   for (const p of packaging) {
     const lineCost = num(p.unitCost) * num(p.qtyPerSellableUnit, 1);
-    packagingCostSum += lineCost;
+    packagingLineCosts.push(lineCost);
     const resolution = resolveMarkup({
       defaults: markupDefaults,
       category: p.category,
@@ -1275,7 +1277,6 @@ function computeLeafPerTier(args: {
     // a line markup of 0 is a decision and must beat the category default.
     const markup = p.markupPct !== null ? p.markupPct : resolution.value;
     const lineSell = lineCost * (1 + markup);
-    packagingMarkupSum += lineSell;
 
     const base = nodeKey(sku.id, tier.id, "pkg", p.lineGroupId);
     packagingLineNodes.push({
@@ -1324,12 +1325,24 @@ function computeLeafPerTier(args: {
     key: nodeKey(sku.id, tier.id, "pkg"),
     kind: "sum",
     label: "Packaging",
-    value: packagingMarkupSum,
+    // The node's value is its operands, which is what a `sum` means. Reading a
+    // separately-accumulated total here would let the node and the scalar
+    // drift while each looked individually correct — the exact failure this
+    // whole gate exists to remove.
+    value: packagingLineNodes.reduce((acc, n) => acc + n.value, 0),
     unit: "usd",
     op: `Σ ${packagingLineNodes.length} line${packagingLineNodes.length === 1 ? "" : "s"}`,
     operands: packagingLineNodes,
   };
   const cellSections: CostingNode[] = [packagingNode];
+
+  // ---------- OWNERSHIP TRANSITION 1 of 6 · Packaging ----------
+  // The rollup scalars now READ the graph. Summation order is unchanged —
+  // operands are reduced in the order they were pushed, which is the order the
+  // loop accumulated in — so the float result is identical, and S-7 says so
+  // rather than the comment claiming it.
+  const packagingMarkupSum = packagingNode.value;
+  const packagingCostSum = packagingLineCosts.reduce((acc, c) => acc + c, 0);
 
   // ---------- production ----------
   // Per-tier amortization: divide production lump amounts by
@@ -1415,11 +1428,17 @@ function computeLeafPerTier(args: {
     "Other",
   );
 
-  const productionMarkupSum = productionCostSum * (1 + productionMarkup);
-  const rawMarkupSum = rawCost * (1 + rawMarkup);
+  // Retained under a private name: these are the values the NODES are built
+  // from, and the exported scalars below are derived from the nodes rather
+  // than from here. Two names for the same arithmetic would be a second
+  // accumulation, which is the thing ownership is being moved away from.
+  const productionMarkupSumFromInputs = productionCostSum * (1 + productionMarkup);
+  const rawMarkupSumFromInputs = rawCost * (1 + rawMarkup);
   const separateServicesMarkupSum = separateServiceFees * (1 + productionMarkup);
 
   // ---------- production + bulk raw nodes (Gate 1B increment 2) ----------
+  let productionSectionNode: CostingNode | undefined;
+  let rawSectionNode: CostingNode | undefined;
   {
     const prodBase = nodeKey(sku.id, tier.id, "prod");
     const money = (v: number) => "$" + v;
@@ -1506,11 +1525,11 @@ function computeLeafPerTier(args: {
       defaults: markupDefaults,
       category: PRODUCTION_MARKUP_CATEGORY,
     });
-    cellSections.push({
+    productionSectionNode = {
       key: prodBase,
       kind: "markup",
       label: "Production",
-      value: productionMarkupSum,
+      value: productionMarkupSumFromInputs,
       unit: "usd",
       // ONE aggregate markup over the whole section. Production has no
       // per-line markup column, so none is shown — reproducing packaging's
@@ -1528,7 +1547,8 @@ function computeLeafPerTier(args: {
           candidates: prodMarkupResolution.candidates,
         },
       ],
-    });
+    };
+    cellSections.push(productionSectionNode);
 
     // ---------- bulk raw ----------
     const rawBase = nodeKey(sku.id, tier.id, "raw");
@@ -1548,7 +1568,7 @@ function computeLeafPerTier(args: {
       // NOT a zero. An input that exists was excluded by a decision. A
       // zero-valued markup node and this node carry different facts, and the
       // scalar alone cannot tell them apart — which is why this is a kind.
-      cellSections.push({
+      rawSectionNode = {
         key: rawBase,
         kind: "flagged-out",
         label: "Bulk raw",
@@ -1559,13 +1579,14 @@ function computeLeafPerTier(args: {
           " of bulk raw cost is excluded from the quoted price.",
         note: RAW_PROVISIONAL,
         noteLevel: "warn",
-      });
+      };
+      cellSections.push(rawSectionNode);
     } else {
-      cellSections.push({
+      rawSectionNode = {
         key: rawBase,
         kind: "markup",
         label: "Bulk raw",
-        value: rawMarkupSum,
+        value: rawMarkupSumFromInputs,
         unit: "usd",
         op: money(rawCost) + " cost x (1 + " + rawMarkup + " markup)",
         note: RAW_PROVISIONAL,
@@ -1591,9 +1612,19 @@ function computeLeafPerTier(args: {
             candidates: rawMarkupResolution.candidates,
           },
         ],
-      });
+      };
+      cellSections.push(rawSectionNode);
     }
   }
+
+  // ---------- OWNERSHIP TRANSITION 2 of 6 · Production + bulk raw ----------
+  // The exported scalars now READ the section nodes. Note what this does NOT
+  // change: `productionCostSum` still feeds factory cost below, because factory
+  // cost is a COST base and the production node is a SELL value — reading the
+  // node there would silently swap a pre-markup base for a post-markup one and
+  // inflate every duty and tariff on the quote.
+  const productionMarkupSum = productionSectionNode!.value;
+  const rawMarkupSum = rawSectionNode!.value;
 
   // ---------- factory cost ----------
   const factoryCostPerUnit = packagingCostSum + productionCostSum + rawCost;
@@ -1918,15 +1949,33 @@ function computeLeafPerTier(args: {
       });
     }
 
-    cellSections.push({
+    const freightSectionNode: CostingNode = {
       key: frtBase,
       kind: "sum",
       label: "Freight",
-      value: totalLandedWithMarkup,
+      // The node's value is its operands, as a `sum` means. The scalar below
+      // then reads the node — the reverse of the arrangement this replaces.
+      value: shipmentNodes.reduce((acc, n) => acc + n.value, 0),
       unit: "usd",
       op: shipmentNodes.length === 0 ? "no freight entered" : "sum of " + shipmentNodes.length + " shipment(s)",
       operands: shipmentNodes,
-    });
+    };
+    cellSections.push(freightSectionNode);
+
+    // ---------- OWNERSHIP TRANSITION 3 of 6 · Freight / customs ----------
+    // `totalLandedWithMarkup` is the freight scalar that feeds sell, and it now
+    // reads the node. Both freight models accumulate into `shipmentNodes` in
+    // the same order they accumulated into the scalar, so the float result is
+    // identical — S-7 is what says so.
+    //
+    // The pre-markup companions (totalLandedBefore, totalContainerBefore,
+    // totalDutyTariffBefore) deliberately keep accumulating. They are COST
+    // bases feeding contribution cost, while every node value on this branch is
+    // a post-markup SELL figure. Pointing a cost base at a sell node would
+    // inflate margin everywhere and still reconcile, because each number would
+    // be individually correct — the precise failure mode this gate exists to
+    // remove, arrived at from the other direction.
+    totalLandedWithMarkup = freightSectionNode.value;
   }
 
   // ---------- contribution + required sell ----------
@@ -1935,90 +1984,87 @@ function computeLeafPerTier(args: {
 
   // Required sell stacks each component's pre-global-adj sell, then
   // multiplies by (1 + global_adj). Each component carries its own markup.
-  const sellBeforeAdjustment =
-    packagingMarkupSum +
-    productionMarkupSum +
-    rawMarkupSum +
-    separateServicesMarkupSum +
-    totalLandedWithMarkup;
+  // ---------- OWNERSHIP TRANSITION 4 of 6 · Sell before adjustment ----------
+  // Built before the scalar rather than after it. The operands are the section
+  // nodes in the order the previous expression added them — packaging,
+  // production, bulk raw, freight — so the float result is identical.
+  //
+  // `separateServicesMarkupSum` contributed a hard zero to that expression and
+  // contributes no operand here. Adding zero cannot move a float, and a
+  // permanently-zero operand would put a line in front of operators that never
+  // means anything.
+  const sellBeforeNode: CostingNode = {
+    key: nodeKey(sku.id, tier.id, "sell-before"),
+    kind: "sum",
+    label: "Sell before adjustment",
+    value: cellSections.reduce((acc, n) => acc + n.value, 0),
+    unit: "usd",
+    op: "packaging + production + bulk raw + freight",
+    operands: cellSections,
+  };
+  const sellBeforeAdjustment = sellBeforeNode.value;
   // Slice 9.3 — `computedSellPerUnit` is the pure markup-chain result.
   // Always exposed for UI ("was $X" tooltip on OVR badges).
-  const computedSellPerUnit = sellBeforeAdjustment * (1 + effectiveAdj);
+  // ---------- OWNERSHIP TRANSITION 5 of 6 · Final sell / override ----------
+  // The adjustment node is built here, before the scalar, and the scalar reads
+  // it. Same expression, same operands, same order.
+  const adjustmentNode: CostingNode = {
+    key: nodeKey(sku.id, tier.id, "sell"),
+    kind: "adjustment",
+    label: "Computed sell",
+    value: sellBeforeNode.value * (1 + effectiveAdj),
+    unit: "usd",
+    op: "$" + sellBeforeNode.value + " x (1 + " + effectiveAdj + " adjustment)",
+    operands: [
+      sellBeforeNode,
+      adjustmentCandidates
+        ? {
+            key: nodeKey(sku.id, tier.id, "adjustment"),
+            kind: "resolution",
+            label: "Price adjustment",
+            value: effectiveAdj,
+            unit: "pct",
+            // REPLACES, never stacks. Stating it as a ladder is what makes
+            // that visible: a global lift does not reach a tier carrying its
+            // own adjustment, and arithmetic alone could not say so.
+            op: "tier adjustment ?? global adjustment",
+            candidates: adjustmentCandidates,
+          }
+        : {
+            key: nodeKey(sku.id, tier.id, "adjustment"),
+            kind: "origin",
+            label: "Price adjustment",
+            value: effectiveAdj,
+            unit: "pct",
+            origin: { grade: "thin", actor: null, when: null, doc: null },
+          },
+    ],
+  };
+  const computedSellPerUnit = adjustmentNode.value;
   // Slice 9.3 — per-cell override is TERMINAL. When set, it replaces
   // computedSellPerUnit entirely; downstream margin/revenue use this
   // value. Action layer rejects override <= 0, so positive value
   // expected here. Defensive guard below handles the bypass case.
-  const requiredSellPerUnit = cellOverride ?? computedSellPerUnit;
+  // The ACTIVE root for this cell. When a person set the price, that node IS
+  // the answer and the computed chain hangs beneath it as `superseded` —
+  // visible, traversable, and demoted. `requiredSellPerUnit` then reads
+  // whichever node is active, so the scalar and the graph cannot disagree
+  // about which value the quote is actually using.
+  const cellRootNode: CostingNode =
+    cellOverride !== null
+      ? {
+          key: nodeKey(sku.id, tier.id, "quoted"),
+          kind: "override",
+          label: "Quoted sell",
+          value: cellOverride,
+          unit: "usd",
+          origin: { grade: "thin", actor: null, when: null, doc: null },
+          superseded: adjustmentNode,
+        }
+      : adjustmentNode;
+  graphSink?.push(cellRootNode);
+  const requiredSellPerUnit = cellRootNode.value;
   const sellSource: SellSource = cellOverride !== null ? "cell_override" : "computed";
-
-  // ---------- sell nodes (Gate 1B increment 4) ----------
-  {
-    const cellBase = nodeKey(sku.id, tier.id);
-    // `separateServicesMarkupSum` is structurally zero today (the engine sets
-    // separateServiceFees to 0 unconditionally), so it contributes no operand.
-    // The sum still reconciles; adding a permanently-zero term would show
-    // operators a line that never means anything.
-    const sellBeforeNode: CostingNode = {
-      key: nodeKey(cellBase, "sell-before"),
-      kind: "sum",
-      label: "Sell before adjustment",
-      value: sellBeforeAdjustment,
-      unit: "usd",
-      op: "packaging + production + bulk raw + freight",
-      operands: cellSections,
-    };
-
-    const adjustmentNode: CostingNode = {
-      key: nodeKey(cellBase, "sell"),
-      kind: "adjustment",
-      label: "Computed sell",
-      value: computedSellPerUnit,
-      unit: "usd",
-      op: "$" + sellBeforeAdjustment + " x (1 + " + effectiveAdj + " adjustment)",
-      operands: [
-        sellBeforeNode,
-        adjustmentCandidates
-          ? {
-              key: nodeKey(cellBase, "adjustment"),
-              kind: "resolution",
-              label: "Price adjustment",
-              value: effectiveAdj,
-              unit: "pct",
-              // REPLACES, never stacks. Stating it as a ladder is what makes
-              // that visible: a global lift does not reach a tier carrying its
-              // own adjustment, and arithmetic alone could not say so.
-              op: "tier adjustment ?? global adjustment",
-              candidates: adjustmentCandidates,
-            }
-          : {
-              key: nodeKey(cellBase, "adjustment"),
-              kind: "origin",
-              label: "Price adjustment",
-              value: effectiveAdj,
-              unit: "pct",
-              origin: { grade: "thin", actor: null, when: null, doc: null },
-            },
-      ],
-    };
-
-    if (cellOverride !== null) {
-      // NOT an arithmetic node. This price was set by a person, and no
-      // operation sits above it. The computation it replaced is retained under
-      // `superseded` — visible because a PM needs to know what they overrode,
-      // demoted because it is not the reason the number is what it is.
-      graphSink?.push({
-        key: nodeKey(cellBase, "quoted"),
-        kind: "override",
-        label: "Quoted sell",
-        value: requiredSellPerUnit,
-        unit: "usd",
-        origin: { grade: "thin", actor: null, when: null, doc: null },
-        superseded: adjustmentNode,
-      });
-    } else {
-      graphSink?.push(adjustmentNode);
-    }
-  }
 
   // Slice 9.3 belt-and-suspenders: action layer rejects override <= 0,
   // but if a bypass write ever lands a negative `sell_price_override`
@@ -2465,8 +2511,16 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
   // Quote-level rollup: sum across top-level (parent IS NULL) SKUs only.
   const topLevel = childrenByParent.get(null) ?? [];
   const quoteRollup: QuotePerTierRollup[] = tiers.map((tier) => {
-    let revenue = 0;
-    let cost = 0;
+    // OWNERSHIP 6 of 6 — per-product contributions are collected as node
+    // operands and the totals are read from the resulting sum nodes.
+    //
+    // Deliberately NOT derived from the blend. Recovering a total as
+    // `blend x totalWeight` re-multiplies a value that was just divided, and
+    // the round trip is not bitwise identical — it would move revenue in the
+    // last places for no reason anyone could later explain. The sum is the
+    // primitive; the blend divides it.
+    const revenueOperands: CostingNode[] = [];
+    const costOperands: CostingNode[] = [];
     // Per-component breakdown: aggregate the rolled-up per-component
     // values × tier.qty across top-level SKUs. The assembly rollup
     // (rollUpAssemblyPerTier) bubbles per-component up the tree
@@ -2490,8 +2544,22 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       if (!r) continue;
       const pt = r.perTier.find((p) => p.tierId === tier.id);
       if (!pt) continue;
-      revenue += pt.revenue;
-      cost += pt.cost;
+      revenueOperands.push({
+        key: nodeKey("quote", tier.id, "revenue", top.id),
+        kind: "origin",
+        label: top.skuLabel,
+        value: pt.revenue,
+        unit: "usd",
+        origin: { grade: "thin", actor: null, when: null, doc: null },
+      });
+      costOperands.push({
+        key: nodeKey("quote", tier.id, "cost-total", top.id),
+        kind: "origin",
+        label: top.skuLabel,
+        value: pt.cost,
+        unit: "usd",
+        origin: { grade: "thin", actor: null, when: null, doc: null },
+      });
       const tQty = num(tier.qty);
       breakdown.packaging += pt.packagingCostPerUnit * tQty;
       // raw bulk cost folds into "production" for breakdown purposes
@@ -2521,6 +2589,28 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       breakdown.separateServicesMarkupSum +=
         pt.separateServicesMarkupSumPerUnit * tQty;
     }
+    const revenueNode: CostingNode = {
+      key: nodeKey("quote", tier.id, "revenue"),
+      kind: "sum",
+      label: "Total revenue",
+      value: revenueOperands.reduce((acc, n) => acc + n.value, 0),
+      unit: "usd",
+      op: "sum of " + revenueOperands.length + " product(s)",
+      operands: revenueOperands,
+    };
+    const costNode: CostingNode = {
+      key: nodeKey("quote", tier.id, "cost-total"),
+      kind: "sum",
+      label: "Total cost",
+      value: costOperands.reduce((acc, n) => acc + n.value, 0),
+      unit: "usd",
+      op: "sum of " + costOperands.length + " product(s)",
+      operands: costOperands,
+    };
+    graphNodes.push(revenueNode, costNode);
+    const revenue = revenueNode.value;
+    const cost = costNode.value;
+
     const marginPct = revenue > 0 ? (revenue - cost) / revenue : 0;
     const status = computeStatus(
       marginPct,
