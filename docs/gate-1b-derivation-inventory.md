@@ -187,10 +187,19 @@ unchanged; 3 tiers carry rows but no sell (priced at zero) and are verified on
 the rows they do render; 12 are blank before and after. S-7 unchanged at
 `150d9f5a…`.
 
-**Smoked in production 2026-08-07.** `52bd0077` — header subtotals $14.89 /
-$4.33 / $5.27 against Pricing blends $7.44 / $2.16 / $2.63, exactly 2x on a
-two-leaf quote, T4 unavailable on both surfaces. `a0b60e43` — Production carries
-the bulk-raw qualifier, no raw row, no numeric raw assertion. S-7 unchanged.
+**CLOSED 2026-08-07** on production smoke, read out of the DOM rather than off a
+screenshot:
+
+- `52bd0077` (cm_sources, two leaves) — PKG/PROD/FRT/D+T rows, Subtotals
+  **$14.89 / $4.33 / $5.27** against Pricing blends **$7.44 / $2.16 / $2.63**,
+  exactly 2x on every tier; T4 unavailable on both surfaces; margins 22.8% BELOW
+  FLOOR / 27.4% / 27.9%; zero `.r6-comp-row.raw` elements; Production legend
+  unqualified, correctly, since this quote does not source its own raws.
+- `a0b60e43` (dps_sources, five tiers) — 20 component rows across five columns,
+  keys `PKG PROD FRT D+T` only; zero `.raw` rows; legend `Packaging ·
+  Production incl. bulk raw · Freight · D+T internal · Passthrough`; the
+  bulk-raw tooltip present on every PROD row and on no other row.
+- S-7 unchanged at `150d9f5a…`.
 
 **Still open at this site:** `:130`'s local effective-target resolution, below.
 

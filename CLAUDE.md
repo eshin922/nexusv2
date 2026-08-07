@@ -5260,6 +5260,63 @@ timing was supplying for free.
 - Pattern 50 (compliance-basis intersection state) — sibling discipline: two
   subsystems agreeing by coincidence rather than by construction.
 
+## Pattern 57 — "A financial stack contains only independently governed quantities"
+
+**Standing design rule — Edward's directive, 2026-08-07.** Banked from the Costs
+cost-stack RAW row, but explicitly NOT specific to it.
+
+> A financial stack should contain only independently governed commercial
+> quantities.
+
+**Use it to decide whether a row BELONGS before optimising how it RENDERS.**
+That ordering is the whole point. A line in a table of commercial quantities
+asserts that it is one, and no amount of correct explanatory text inside the
+line undoes that assertion.
+
+**How to apply.** For any candidate row, ask: does this have an independently
+governed value — a canonical node of its own that some authority computes? If
+yes, it is a row. If no, whatever it has to say is **metadata about the row that
+does carry the money**, and belongs there: a legend qualifier, a tooltip, a
+sublabel. Not a line of its own.
+
+**Reference moment — three passes, two of them wrong, each defensible.** Bulk raw
+is costed inside Production; `productionMarkupSum` already carries it, and no raw
+node exists.
+
+1. **Shipped as a row reading `included in PROD`, placed after D+T.** Honest text.
+   But the canonical stylesheet draws a parenting tick on `.r6-comp-row.raw` —
+   *"RAW gets an indent + a parenting tick to signal child of PROD"* — and the
+   tick points at the row above it. The glyph named D+T as the parent while the
+   words named PROD. Production smoke caught it.
+2. **Reparented under PROD.** Tick and text now agreed. Still a stack line
+   carrying no value, which an operator has to read past to reach the figures.
+3. **Removed.** Production carries a legend tail (`incl. bulk raw`) and a
+   tooltip. The legend swatch that promised a colour appearing in no bar went
+   with the row.
+
+Passes 1 and 2 both optimised the row. Neither asked whether a row was the right
+object. The rule decides it immediately, and would have decided it before pass 1.
+
+**The failure mode this prevents** is subtler than a wrong number: it is a
+correct statement in a place that makes it read as a different kind of claim.
+Rendering `$0.00` for an unbuilt component asserts the component costs nothing —
+that one is obvious. Rendering a carefully-worded non-numeric row asserts that
+the thing is a member of the set the table enumerates, which is the same class of
+error one step quieter.
+
+**Scope.** Any surface that enumerates commercial quantities: the Costs cost
+stack, the Pricing Cost Stack, drilldown totals rows, customer-facing PDF tables.
+Packaging drilldown is the next surface where this decides row membership, since
+per-line granularity does not exist in the graph yet.
+
+**Cross-references.**
+- Pattern 45 (customer-facing render data-source verification) — the same
+  discipline at the customer boundary, where the fix shapes are `<Stub>` or
+  null-guarded omission. Pattern 57 is the internal-surface form and prefers
+  omission-plus-metadata to a visible stub.
+- Gate 1B §0 — the canonical node graph is what "independently governed" means
+  operationally: a row belongs if a node backs it.
+
 ## Merge and certification evidence must use repository-governed test commands
 
 **Standing rule — banked 2026-08-06 from the Costs certification merge gate.**
