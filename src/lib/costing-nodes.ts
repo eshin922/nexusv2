@@ -127,6 +127,18 @@ export type CostingNode = {
   operands?: CostingNode[];
   /** `resolution` only. Alternatives, not operands: they do not sum. */
   candidates?: NodeCandidate[];
+  /**
+   * `allocation` only — the denominator, as DATA.
+   *
+   * An allocation is `total / Q`, and Q is not one of the operands: the
+   * operands are the numerator's components. Before this field the divisor
+   * existed only inside the `op` string, which meant the reconciler could not
+   * check the operation the node was advertising. A node that shows an
+   * operation and asserts nothing is the R6 failure in miniature.
+   *
+   * Additive optional field, so it does not bump GRAPH_VERSION.
+   */
+  divisor?: number;
   /** `origin` / `override` only. */
   origin?: NodeOrigin;
   /** `override` only — what the chain would have produced. Retained and
@@ -225,6 +237,99 @@ export type CostingGraph = {
 export type GraphViolation = { key: string; kind: NodeKind; problem: string };
 
 /**
+ * Tolerance that scales with magnitude.
+ *
+ * A fixed absolute epsilon is wrong in both directions on multiplicative
+ * relations: too strict on large values, where float error grows with the
+ * operands, and too loose on tiny ones. Relative comparison keeps the check
+ * meaningful across a $0.0004 packaging line and a $250,000 tooling total.
+ */
+function closeEnough(a: number, b: number): boolean {
+  return Math.abs(a - b) <= RECONCILE_EPSILON * Math.max(1, Math.abs(a), Math.abs(b));
+}
+
+/**
+ * Does this node's stated operation actually produce its stated value?
+ *
+ * Returns a description of the discrepancy, or null. Each arithmetic kind is
+ * checked against the operation it ADVERTISES — the point is not that the
+ * number is plausible but that the explanation is true.
+ *
+ * `rate` is deliberately absent. Its operand semantics are defined by the
+ * Freight nodes that will emit it (duty and tariff compute on factory cost,
+ * with the markup applying to the dollars rather than the percentage), and
+ * writing a checker against a shape that does not exist yet would be guessing
+ * at the contract it is supposed to enforce. It lands with Freight.
+ */
+function reconcile(n: CostingNode, operands: CostingNode[]): string | null {
+  switch (n.kind) {
+    case "sum": {
+      const summed = operands.reduce((s, o) => s + o.value, 0);
+      return closeEnough(summed, n.value)
+        ? null
+        : `operands sum to ${summed}, node value is ${n.value}`;
+    }
+
+    case "markup": {
+      // `base x (1 + rate)`. The base and the rate are identified by UNIT, not
+      // by position — a positional convention would silently reconcile the
+      // wrong pair the first time an emitter ordered operands differently.
+      const bases = operands.filter((o) => o.unit === "usd");
+      const rates = operands.filter((o) => o.unit === "pct");
+      if (bases.length !== 1 || rates.length !== 1) {
+        return `markup needs exactly one usd operand and one pct operand, found ${bases.length} and ${rates.length}`;
+      }
+      const expected = bases[0].value * (1 + rates[0].value);
+      return closeEnough(expected, n.value)
+        ? null
+        : `${bases[0].value} x (1 + ${rates[0].value}) = ${expected}, node value is ${n.value}`;
+    }
+
+    case "allocation": {
+      // `numerator / divisor`, where the operands ARE the numerator's
+      // components and the divisor is carried as data.
+      if (n.divisor === undefined) {
+        return "allocation carries no divisor, so its operation cannot be checked";
+      }
+      const numerator = operands.reduce((s, o) => s + o.value, 0);
+      // Zero-quantity semantics, already established by the engine: there is
+      // nothing to spread the total over, so the allocation contributes
+      // nothing. The numerator is still a real fact and stays visible — that
+      // is the answer to "why is this zero".
+      const expected = n.divisor > 0 ? numerator / n.divisor : 0;
+      return closeEnough(expected, n.value)
+        ? null
+        : `${numerator} / ${n.divisor} = ${expected}, node value is ${n.value}`;
+    }
+
+    case "adjustment": {
+      const bases = operands.filter((o) => o.unit === "usd");
+      const rates = operands.filter((o) => o.unit === "pct");
+      if (bases.length !== 1 || rates.length !== 1) {
+        return `adjustment needs exactly one usd operand and one pct operand, found ${bases.length} and ${rates.length}`;
+      }
+      const expected = bases[0].value * (1 + rates[0].value);
+      return closeEnough(expected, n.value)
+        ? null
+        : `${bases[0].value} x (1 + ${rates[0].value}) = ${expected}, node value is ${n.value}`;
+    }
+
+    case "blend":
+      // A weighted mean AVERAGES to its value rather than summing to it, and
+      // the weights are not on the operands. Asserted when the blend emitter
+      // lands and can supply them; unchecked-and-said-so beats a check that
+      // quietly does nothing.
+      return null;
+
+    case "rate":
+      return null; // see the note above — lands with Freight
+
+    default:
+      return null;
+  }
+}
+
+/**
  * Assert the traversal guarantees. Returns violations rather than throwing, so
  * a caller can report them all rather than the first.
  *
@@ -297,20 +402,21 @@ export function findGraphViolations(root: CostingNode): GraphViolation[] {
       out.push({ key: n.key, kind: n.kind, problem: "flagged-out carries no reason" });
     }
 
+    if (n.kind === "flagged-out" && Math.abs(n.value) > RECONCILE_EPSILON) {
+      // Structural, not arithmetic. A flagged-out node asserts that an input
+      // was EXCLUDED, so it contributes nothing by definition. A non-zero one
+      // would be claiming both that the input is out of the chain and that it
+      // is in the price.
+      out.push({
+        key: n.key,
+        kind: n.kind,
+        problem: `flagged-out asserts ${n.value}; an excluded input contributes nothing`,
+      });
+    }
+
     if (ARITHMETIC_KINDS.has(n.kind) && operands.length > 0) {
-      const expected =
-        n.kind === "sum"
-          ? operands.reduce((s, o) => s + o.value, 0)
-          : n.kind === "blend"
-            ? null // weights are not on the operands; asserted by the emitter
-            : null;
-      if (expected !== null && Math.abs(expected - n.value) > RECONCILE_EPSILON) {
-        out.push({
-          key: n.key,
-          kind: n.kind,
-          problem: `operands sum to ${expected}, node value is ${n.value}`,
-        });
-      }
+      const problem = reconcile(n, operands);
+      if (problem) out.push({ key: n.key, kind: n.kind, problem });
     }
 
     for (const o of operands) visit(o);
