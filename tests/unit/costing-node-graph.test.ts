@@ -268,13 +268,7 @@ test("terminals declare a provenance grade, and it is thin rather than invented"
   // Scoped to packaging: every section contributes origins, so pinning a
   // global count would make this test a change-detector for section arrival
   // rather than an assertion about provenance.
-  // Scoped to the CELL packaging subtree. Increment 7 added quote-scope blend
-  // contributors whose keys also contain "/pkg/", so a substring match now
-  // spans two scopes — the filter has to name the one it means.
-  assert.equal(
-    origins.filter((o) => o.key.startsWith(`${LEAF}/${TIER}/pkg/`)).length,
-    3,
-  );
+  assert.equal(origins.filter((o) => o.key.includes("/pkg/")).length, 3);
   assert.ok(origins.length > 3, "other sections contribute terminals too");
   for (const o of origins) {
     // A-2 is still open: the input-type -> audit-row mapping is unwritten. Until
@@ -1197,104 +1191,4 @@ test("ownership · the whole graph still reconciles after every transition", () 
     assert.deepEqual(findGraphViolations(root), [], `violations under ${root.key}`);
   }
   assert.equal(r.graph.complete, true);
-});
-
-// ============================================================================
-// Increment 7 step 1 — per-component blends
-// ============================================================================
-
-const compBlend = (r: ReturnType<typeof computeQuoteCosting>, k: string) =>
-  findIn(r, `quote/${TIER}/${k}`)!;
-
-const twoPricedProducts = () =>
-  input({
-    skus: [
-      { id: "leaf-a", parentSkuId: null, qtyPerParent: null, skuRole: "leaf", skuLabel: "A", productName: "A", sortOrder: 0, retailBenchmark: null },
-      { id: "leaf-b", parentSkuId: null, qtyPerParent: null, skuRole: "leaf", skuLabel: "B", productName: "B", sortOrder: 1, retailBenchmark: null },
-    ],
-    packaging: [
-      pkg({ quoteSkuId: "leaf-a", lineGroupId: "la", unitCost: 10, markupPct: 0 }),
-      pkg({ quoteSkuId: "leaf-b", lineGroupId: "lb", unitCost: 20, markupPct: 0 }),
-    ],
-    production: [
-      prod({ quoteSkuId: "leaf-a", bulkRawCost: 4000 }),
-      prod({ quoteSkuId: "leaf-b", bulkRawCost: null }),
-    ],
-    freightShipmentBreaks: [shipmentBreak({ ownerSkuId: "leaf-a" })],
-  } as never);
-
-test("component blends · each equals the weighted mean of its per-cell values", () => {
-  const r = computeQuoteCosting(twoPricedProducts());
-  const cells = r.skuRollups.map((s) => s.perTier.find((p) => p.tierId === TIER)!);
-  const weight = 1000;
-  const expect = (pick: (c: (typeof cells)[number]) => number) =>
-    cells.reduce((a, c) => a + pick(c) * weight, 0) / (cells.length * weight);
-
-  assert.equal(compBlend(r, "pkg").value, expect((c) => c.packagingMarkupSumPerUnit));
-  assert.equal(compBlend(r, "prod").value, expect((c) => c.productionMarkupSumPerUnit));
-  assert.equal(compBlend(r, "raw").value, expect((c) => c.rawMarkupSumPerUnit));
-  assert.equal(compBlend(r, "frt").value, expect((c) => c.freightContainerMarkupSumPerUnit));
-  assert.equal(compBlend(r, "dt").value, expect((c) => c.freightDutyTariffMarkupSumPerUnit));
-});
-
-test("component blends · sum to blended sell before adjustment, because blending is linear", () => {
-  const r = computeQuoteCosting(twoPricedProducts());
-  const before = findIn(r, `quote/${TIER}/sell-before`)!;
-  const summed = before.operands!.reduce((a, o) => a + o.value, 0);
-  assert.equal(summed, before.value);
-  // Without linearity a stack of blended rows would be a set of averages with
-  // no arithmetic relationship to the total beneath them — the reconciliation
-  // assertion is what makes the column trustworthy at all.
-  assert.deepEqual(findGraphViolations(before), []);
-});
-
-test("component blends · carry weights and reconcile like every other blend", () => {
-  const r = computeQuoteCosting(twoPricedProducts());
-  for (const k of ["pkg", "prod", "raw", "frt", "dt"]) {
-    const n = compBlend(r, k);
-    assert.equal(n.kind, "blend");
-    assert.equal(n.weights!.length, n.operands!.length);
-    assert.deepEqual(findGraphViolations(n), [], `violations under ${n.key}`);
-  }
-});
-
-test("component blends · are named for the QUANTITY, not for the column heading", () => {
-  const r = computeQuoteCosting(twoPricedProducts());
-  // These are marked-up SELL figures. The surface that consumes them currently
-  // heads the same numbers "UNIT COST"; the graph is where the statement is
-  // made, so the label has to be the true one.
-  assert.match(compBlend(r, "pkg").label, /Blended packaging sell per unit/);
-  assert.match(compBlend(r, "prod").label, /Blended production sell per unit/);
-  // Spelled out rather than abbreviated: PROD and D+T are column shorthand,
-  // and other consumers — trace, publication, diagnostics — read these too.
-  assert.match(compBlend(r, "raw").label, /bulk raw/i);
-  assert.match(compBlend(r, "dt").label, /duty & tariff/i);
-  for (const k of ["pkg", "prod", "raw", "frt", "dt"]) {
-    assert.doesNotMatch(compBlend(r, k).label, /cost/i);
-  }
-});
-
-test("component blends · differ from a per-cell SUM, which is the quantity the other surface shows", () => {
-  const r = computeQuoteCosting(twoPricedProducts());
-  const cells = r.skuRollups.map((s) => s.perTier.find((p) => p.tierId === TIER)!);
-  const perCellSum = cells.reduce((a, c) => a + c.packagingMarkupSumPerUnit, 0);
-  // The Costs surface sums per-unit components across products; the Pricing
-  // stack blends them. Two different quantities under similar labels — which
-  // is the whole reason the blended one had to become a node rather than
-  // stay an average computed in a component.
-  assert.equal(compBlend(r, "pkg").value, perCellSum / cells.length);
-  assert.notEqual(compBlend(r, "pkg").value, perCellSum);
-});
-
-test("component blends · a zero-quantity tier blends every component to zero", () => {
-  const r = computeQuoteCosting(
-    input({
-      packaging: THREE_LINES,
-      tiers: [{ id: TIER, label: "T1", qty: 0, sortOrder: 0, tierPriceAdjPct: null }],
-    }),
-  );
-  for (const k of ["pkg", "prod", "raw", "frt", "dt"]) {
-    assert.equal(compBlend(r, k).value, 0);
-  }
-  assert.deepEqual(findGraphViolations(findIn(r, `quote/${TIER}/sell-before`)!), []);
 });
