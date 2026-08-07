@@ -26,6 +26,7 @@ import { writeFileSync } from "node:fs";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { getCostingBundle } from "@/app/actions/costing";
+import { canonical } from "./canonical-digest.ts";
 
 const quotes = (await db.execute(sql`
   select q.id::text as quote_id, q.status, q.scenario_label, p.deal_name
@@ -41,15 +42,6 @@ const quotes = (await db.execute(sql`
 
 console.log(`\nGate 1B S-7 — capturing baseline over ${quotes.length} quotes with structure\n`);
 
-/** Stable stringify: key order must not depend on object construction order. */
-function canonical(v: unknown): string {
-  if (v === null || v === undefined) return "null";
-  if (typeof v === "number") return Number.isFinite(v) ? v.toPrecision(17) : String(v);
-  if (typeof v !== "object") return JSON.stringify(v);
-  if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
-  const o = v as Record<string, unknown>;
-  return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(",")}}`;
-}
 
 type Entry = {
   quote_id: string;

@@ -124,16 +124,54 @@ main path.** Re-keying those tables to `quote_leaf_id` is the real blocker, and
 it is a schema change → [OD-012](OPEN_DECISIONS.md). Tracked as
 [OD-017](OPEN_DECISIONS.md).
 
-## Second finding — the canonical id is dropped from the engine's output
+## Second finding — the canonical id was dropped from the engine's output
 
-`canonicalQuoteLeafId` is carried on the engine's **input** (`CostingSku`) and is
-never copied onto its **output** (`SkuRollup`). Increment 7 needs it on the
-output, since that is where contributor identity is read.
+**RESOLVED 2026-08-07.** `canonicalQuoteLeafId` was carried on the engine's
+**input** (`CostingSku`) and never copied onto its **output** (`SkuRollup`), so
+no consumer could read commercial identity from a rollup. Increment 7 reads
+contributor identity from exactly there.
 
-Surfacing it is an additive change to the S-7 payload and **will legitimately
-move the digest.** Recording it here so that it is classified in advance rather
-than met as a surprise failure and re-baselined under pressure — which is the
-exact failure mode [OD-013](OPEN_DECISIONS.md) exists to prevent.
+It is now surfaced on `SkuRollup`, as an identity field only. It is `null` on
+assemblies, which are not commercial lines, and `null` — never the legacy
+`skuId` — when it cannot be resolved. Substituting `skuId` would pass off the
+legacy `assembly_leaf_id` as a commercial identity, which is the resolution
+Phase 3 forbids; consumers must fail closed instead.
+
+### The digest movement was classified before the re-baseline, not after
+
+Adding a field to the payload moves the S-7 digest, and a moved digest normally
+means a commercial regression. [OD-013](OPEN_DECISIONS.md) records why a check
+that gets re-baselined whenever it fails is not a check.
+
+`scripts/gate-1b/classify-identity-field-digest.ts` recomputes the digest with
+the new field **stripped**. A purely additive change reproduces the prior
+baseline exactly:
+
+```
+prior global digest          7e2c2f8330e4b54442bf49e4e85ef7dcf5d61f80e715b940d254e17b72777d76
+recomputed, field stripped   7e2c2f8330e4b54442bf49e4e85ef7dcf5d61f80e715b940d254e17b72777d76
+```
+
+Byte for byte, over all 24 quotes — and **137 of 137 leaf rollups carry the
+identity**, so the match is not vacuous. The prior digest is pinned as a literal
+rather than read back from the baseline file, so the proof cannot agree with
+itself, and the script stays re-runnable after the re-baseline it authorised.
+
+New baseline: **`150d9f5ab0e8261da2ea3d6b292dbe5c835265f55e8a076af5fb0a65110717e0`**.
+
+### One canonicaliser, not three
+
+The first attempt at that proof reported all 24 quotes as differing. The cause
+was a private copy of the digest canonicaliser that omitted its number branch —
+`toPrecision(17)`. Every value then hashed differently, which reads exactly like
+a total commercial regression and was nothing of the kind.
+
+That is the most expensive possible shape of bug for a preservation check: it
+manufactures the failure the check exists to detect. The function now lives once
+in `scripts/gate-1b/canonical-digest.ts` and is imported by the capture, the
+verify and the classification scripts, so the copies cannot drift again. A
+second implementation of a hash is a second implementation, which is the thing
+Gate 1B exists to argue against.
 
 ---
 
@@ -142,7 +180,7 @@ exact failure mode [OD-013](OPEN_DECISIONS.md) exists to prevent.
 | Requirement | How it is met |
 |---|---|
 | All 137 attachments represented | `scripts/gate-1b/verify-sku-population.ts` — 24 quotes, 137 attachments, compared **by identity**, not by count |
-| Commercial outputs byte-identical | S-7 digest `7e2c2f83…` unchanged |
+| Commercial outputs byte-identical | S-7 digest `7e2c2f83…` unchanged at the time of the C-2 change; now `150d9f5a…` after the classified, identity-only addition |
 | Repeated library leaf stays distinct | `tests/unit/costing-adapter-sku-population.test.ts` |
 | Direct canonical attachment | same file — including a quote with **no assemblies at all** |
 | Nested / unequal-quantity fixture | same file — quantities 2, 3, 5, 7, asserted distinct so weighting stays observable |
