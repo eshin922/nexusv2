@@ -178,6 +178,50 @@ export function node(n: CostingNode): CostingNode {
  */
 export const RECONCILE_EPSILON = 1e-9;
 
+/**
+ * The graph's compatibility version.
+ *
+ * A consumer reads nodes it did not build, so it needs to know whether the
+ * shape it was written against is the shape it received. This is that contract,
+ * declared before any consumer exists rather than retrofitted once one breaks.
+ *
+ * BUMP THIS when a change could break a consumer that reads the graph:
+ *
+ *   · a field is removed or renamed
+ *   · the key format changes (a consumer holding a stored key would resolve
+ *     nothing, or worse, resolve the wrong node)
+ *   · an existing field's MEANING changes — the dangerous case, because the
+ *     shape still typechecks and the consumer keeps rendering, wrongly
+ *   · a node kind is removed, or an existing kind's operand structure changes
+ *
+ * DO NOT BUMP for additive change:
+ *
+ *   · a new section's nodes appearing — that is what `complete` and the
+ *     presence of a section's nodes are for
+ *   · a new optional field
+ *   · a new node kind, provided consumers already handle unknown kinds by
+ *     ignoring them rather than throwing
+ *
+ * The distinction is whether existing consumer code keeps being CORRECT, not
+ * whether it keeps compiling.
+ */
+export const GRAPH_VERSION = 1;
+
+export type CostingGraph = {
+  /** See GRAPH_VERSION. Consumers should assert the version they expect. */
+  version: number;
+  nodes: CostingNode[];
+  /**
+   * False while sections are still being emitted. A consumer must not read a
+   * section that is not present yet, and stating that in the payload is
+   * cheaper than a consumer discovering it as a missing node.
+   *
+   * Note this is NOT the same question as `version`: `complete` says how much
+   * of the graph is here, `version` says what shape it is in.
+   */
+  complete: boolean;
+};
+
 export type GraphViolation = { key: string; kind: NodeKind; problem: string };
 
 /**

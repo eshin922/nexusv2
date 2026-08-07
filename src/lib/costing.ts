@@ -1,4 +1,4 @@
-import { nodeKey, type CostingNode } from "./costing-nodes";
+import { GRAPH_VERSION, nodeKey, type CostingGraph, type CostingNode } from "./costing-nodes";
 
 // Slice 8 — Pricing rollup. Pure TypeScript, no Drizzle imports,
 // no server-only. Takes plain data structures (caller assembles from DB),
@@ -605,7 +605,7 @@ export type QuoteCostingResult = {
    * one change rather than a batch. Consumers must not read it until the
    * section they need is present.
    */
-  graph: { nodes: CostingNode[]; complete: false };
+  graph: CostingGraph;
 };
 
 // ---------- helpers ----------
@@ -2155,6 +2155,6 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
     skuRollups: renderOrdered,
     quoteRollup,
     quoteSummary,
-    graph: { nodes: graphNodes, complete: false },
+    graph: { version: GRAPH_VERSION, nodes: graphNodes, complete: false },
   };
 }
