@@ -26,6 +26,11 @@ import {
   readNodeValue,
   resolveNodes,
   nodeKey,
+  parseNodeKey,
+  isCellScoped,
+  isQuoteScoped,
+  isCellSectionNode,
+  collectCellSectionNodes,
   REQUIRED_CELL_SECTIONS,
   TERMINAL_KINDS,
   graphIsComplete,
@@ -281,7 +286,7 @@ test("terminals declare a provenance grade, and it is thin rather than invented"
   // moment increment 7 landed.
   assert.equal(
     origins.filter(
-      (o) => o.key.includes("/pkg/") && !o.key.startsWith(QUOTE_SCOPE_PREFIX + "/"),
+      (o) => isCellScoped(o.key) && (parseNodeKey(o.key)?.path[0] ?? "") === "pkg",
     ).length,
     3,
   );
@@ -740,7 +745,7 @@ test("increment 3 · a quote with no freight still emits a Freight section at ze
 // ============================================================================
 
 const cellRoot = (r: ReturnType<typeof computeQuoteCosting>) =>
-  r.graph.nodes.find((n) => !n.key.startsWith("quote/"))!;
+  r.graph.nodes.find((n) => isCellScoped(n.key))!;
 const sellNode = (r: ReturnType<typeof computeQuoteCosting>) =>
   findIn(r, `${LEAF}/${TIER}/sell`)!;
 
@@ -752,7 +757,7 @@ test("sell · the root is one node per cell, not one per section", () => {
   // Roots are scoped: ONE per cell for cell computations, plus one per tier
   // for the quote-level blends, which belong to a different scope and cannot
   // nest under any single cell.
-  const cellRoots = r.graph.nodes.filter((n) => !n.key.startsWith("quote/"));
+  const cellRoots = r.graph.nodes.filter((n) => isCellScoped(n.key));
   assert.equal(cellRoots.length, 1);
   // Sections nest beneath sell. A section appearing both as a root and as an
   // operand would be a duplicated arithmetic node, which double-counts under
@@ -1483,4 +1488,108 @@ test("an unpriced packaging line still gets a node, valued zero", () => {
   assert.equal(node.value, 0);
   assert.notEqual(node.kind, "flagged-out");
   assert.equal(readNodeValue(out.graph.nodes, node.key), 0);
+});
+
+
+// ─── the key grammar ────────────────────────────────────────────────────────
+//
+// These exist because the same ambiguity produced two wrong production
+// measurements from hand-written selectors. The predicate has to distinguish
+// four things, and each gets an adversarial case rather than a happy one.
+
+const SKU_A = "11111111-1111-1111-1111-111111111111";
+const SKU_B = "22222222-2222-2222-2222-222222222222";
+const T_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const T_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+
+test("grammar · SCOPE — the collision that caused two wrong measurements", () => {
+  // `{sku}/{tier}/pkg` and `quote/{tier}/pkg` are both three segments ending in
+  // `pkg`. One is a single SKU's packaging; the other is the Pricing blend
+  // across all of them. Any selector that cannot tell them apart will add a
+  // mean to the sum it is checking the mean against.
+  const cell = nodeKey(SKU_A, T_A, "pkg");
+  const quote = quoteScopeKey(T_A, "pkg");
+  assert.equal(cell.split("/").length, quote.split("/").length, "same shape");
+
+  assert.equal(isCellScoped(cell), true);
+  assert.equal(isCellScoped(quote), false);
+  assert.equal(isQuoteScoped(quote), true);
+  assert.equal(isQuoteScoped(cell), false);
+
+  assert.equal(isCellSectionNode(cell, "pkg"), true);
+  assert.equal(isCellSectionNode(quote, "pkg"), false, "the blend is not a cell section");
+});
+
+test("grammar · SECTION — a sibling section is not a match", () => {
+  assert.equal(isCellSectionNode(nodeKey(SKU_A, T_A, "pkg"), "pkg"), true);
+  assert.equal(isCellSectionNode(nodeKey(SKU_A, T_A, "prod"), "pkg"), false);
+  assert.equal(isCellSectionNode(nodeKey(SKU_A, T_A, "pkg"), "prod"), false);
+});
+
+test("grammar · TIER — a section at another tier is not a match", () => {
+  const key = nodeKey(SKU_A, T_A, "pkg");
+  assert.equal(isCellSectionNode(key, "pkg", { tierId: T_A }), true);
+  assert.equal(isCellSectionNode(key, "pkg", { tierId: T_B }), false);
+  assert.equal(parseNodeKey(key)?.tierId, T_A);
+});
+
+test("grammar · SKU — a section on another SKU is not a match", () => {
+  const key = nodeKey(SKU_A, T_A, "pkg");
+  assert.equal(isCellSectionNode(key, "pkg", { skuId: SKU_A }), true);
+  assert.equal(isCellSectionNode(key, "pkg", { skuId: SKU_B }), false);
+  const a = parseNodeKey(key);
+  assert.equal(a?.scope === "cell" ? a.skuId : null, SKU_A);
+});
+
+test("grammar · DEPTH — a line inside a section is not the section", () => {
+  // The other half of the same double-counting failure: summing sections AND
+  // the lines beneath them counts every line twice.
+  const section = nodeKey(SKU_A, T_A, "pkg");
+  const line = nodeKey(SKU_A, T_A, "pkg", "line-1");
+  assert.equal(isCellSectionNode(section, "pkg"), true);
+  assert.equal(isCellSectionNode(line, "pkg"), false);
+  assert.deepEqual(parseNodeKey(line)?.path, ["pkg", "line-1"]);
+});
+
+test("grammar · quote-scope paths keep their depth", () => {
+  const a = parseNodeKey(quoteScopeKey(T_A, "per-unit/pkg/cost"));
+  assert.equal(a?.scope, "quote");
+  assert.equal(a?.scope === "quote" ? a.tierId : null, T_A);
+  assert.deepEqual(a?.path, ["per-unit", "pkg", "cost"]);
+  // `quote/{tier}` alone is a real node — the sell blend — and must parse.
+  const bare = parseNodeKey(quoteScopeKey(T_A, "").replace(/\/$/, ""));
+  assert.equal(bare?.scope, "quote");
+});
+
+test("grammar · malformed keys return null rather than a guess", () => {
+  assert.equal(parseNodeKey(""), null);
+  assert.equal(parseNodeKey("quote"), null, "a scope with no tier is not an address");
+  assert.equal(parseNodeKey(`${SKU_A}/${T_A}`), null, "there is no bare cell node");
+  assert.equal(parseNodeKey(`/${T_A}/pkg`), null);
+  assert.equal(isCellScoped("nonsense"), false);
+  assert.equal(isQuoteScoped("nonsense"), false);
+});
+
+test("grammar · collectCellSectionNodes finds the sections and nothing else", () => {
+  // Against a real graph: the count must equal the leaf count, not the leaf
+  // count plus the blend, and not the line count.
+  const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  const sections = collectCellSectionNodes(out.graph.nodes, "pkg", { tierId: TIER });
+  assert.equal(sections.length, 1, "one leaf, one packaging section");
+  assert.equal(sections[0].key, nodeKey(LEAF, TIER, "pkg"));
+
+  // The blend exists at the colliding key and must be excluded.
+  assert.notEqual(readNodeValue(out.graph.nodes, quoteScopeKey(TIER, "pkg")), null);
+  assert.ok(sections.every((n) => isCellScoped(n.key)));
+
+  // And the three lines beneath it must not be counted as sections.
+  assert.equal(sections[0].operands?.length, 3);
+  const summed = sections.reduce((a, n) => a + n.value, 0);
+  assert.equal(summed, sections[0].value, "no double counting");
+});
+
+test("grammar · collectCellSectionNodes scopes to the tier asked for", () => {
+  const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  assert.equal(collectCellSectionNodes(out.graph.nodes, "pkg", { tierId: T_B }).length, 0);
+  assert.equal(collectCellSectionNodes(out.graph.nodes, "nonexistent-section").length, 0);
 });

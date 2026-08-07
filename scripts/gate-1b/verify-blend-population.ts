@@ -15,7 +15,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { getCostingBundle } from "@/app/actions/costing";
-import { findNode, resolveNode, quoteScopeKey } from "@/lib/costing-nodes";
+import { findNode, parseNodeKey, quoteScopeKey, resolveNode } from "@/lib/costing-nodes";
 
 const COMPONENTS = ["pkg", "prod", "raw", "frt", "dt"] as const;
 
@@ -79,7 +79,13 @@ for (const q of quotes) {
 
       // 1 · contributors are exactly the governed population
       const contributors = (node.operands ?? [])
-        .map((o) => o.key.split("/").pop() as string)
+        // Contributor identity is the last segment of a quote-scope operand
+        // key. Routed through the shared parser so this file holds no
+        // opinion about the grammar of its own inputs.
+        .map((o) => {
+          const a = parseNodeKey(o.key);
+          return a ? a.path[a.path.length - 1] : "";
+        })
         .sort();
       if (contributors.length !== governed.length ||
           contributors.some((c, i) => c !== governed[i])) {
