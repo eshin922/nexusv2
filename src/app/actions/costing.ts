@@ -476,7 +476,14 @@ function projectSnapshotWorkbook(
 //     assembly_leaves → assemblies(quote_id)
 async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
   assemblyRows: Array<typeof assemblies.$inferSelect>;
-  assemblyLeafRows: Array<typeof assemblyLeaves.$inferSelect>;
+  /**
+   * The governed SKU population (OD-014): canonical `quote_leaves` rows, each
+   * carrying its legacy `assembly_leaf_id` where one exists. NULL legacy id
+   * means a direct canonical attachment.
+   */
+  quoteLeafAttachmentRows: Array<
+    typeof quoteLeaves.$inferSelect & { assemblyLeafId: string | null }
+  >;
   leafRows: Array<typeof leaves.$inferSelect>;
   assemblyLeafInputRows: Array<typeof assemblyLeafInputs.$inferSelect>;
   assemblyProductionInputRows: Array<
@@ -487,7 +494,7 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
 }> {
   const [
     assemblyRows,
-    assemblyLeafJoinRows,
+    quoteLeafAttachmentJoinRows,
     assemblyLeafInputJoinRows,
     assemblyProductionInputRows,
     assemblyLeafOverrideJoinRows,
@@ -498,15 +505,35 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
       .from(assemblies)
       .where(eq(assemblies.quoteId, quoteId))
       .orderBy(asc(assemblies.position), asc(assemblies.createdAt))),
-    timed("nm.assembly_leaves", quoteId, db
-      .select({ assembly_leaves: assemblyLeaves, leaves: leaves })
-      .from(assemblyLeaves)
-      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
-      .innerJoin(leaves, eq(leaves.id, assemblyLeaves.leafId))
-      .where(eq(assemblies.quoteId, quoteId))
+    // OD-014 / C-2 — the SKU population comes from the CANONICAL attachment
+    // table. This query previously started at `assembly_leaves` and reached
+    // the quote through `assemblies`, which structurally excluded any leaf
+    // attached directly to the quote (`quote_leaves.assembly_id IS NULL`) —
+    // a form the schema indexes for and the identity module validates, but
+    // that costing could never see.
+    //
+    // The legacy id is LEFT joined because it is compatibility data, not
+    // population: its absence must not remove a governed SKU from the quote.
+    //
+    // Ordering is unchanged in effect. It was (assembly_id, position) read
+    // off the legacy row; it is now the same pair read off the canonical row.
+    // Both were verified equal for every attachment, and the pair was verified
+    // unique within a quote, so the order is preserved and deterministic
+    // rather than incidentally stable. Direct attachments sort last under
+    // Postgres ASC NULLS LAST.
+    timed("nm.quote_leaf_attachments", quoteId, db
+      .select({
+        quote_leaves: quoteLeaves,
+        legacy_assembly_leaf_id: assemblyLeaves.id,
+        leaves: leaves,
+      })
+      .from(quoteLeaves)
+      .innerJoin(leaves, eq(leaves.id, quoteLeaves.leafId))
+      .leftJoin(assemblyLeaves, eq(assemblyLeaves.quoteLeafId, quoteLeaves.id))
+      .where(eq(quoteLeaves.quoteId, quoteId))
       .orderBy(
-        asc(assemblyLeaves.assemblyId),
-        asc(assemblyLeaves.position),
+        asc(quoteLeaves.assemblyId),
+        asc(quoteLeaves.position),
       )),
     timed("nm.assembly_leaf_inputs", quoteId, db
       .select({ assembly_leaf_inputs: assemblyLeafInputs })
@@ -554,12 +581,15 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
   // same library leaf multiple times if reused across assemblies in
   // the same quote).
   const leafMap = new Map<string, typeof leaves.$inferSelect>();
-  for (const r of assemblyLeafJoinRows) {
+  for (const r of quoteLeafAttachmentJoinRows) {
     leafMap.set(r.leaves.id, r.leaves);
   }
   return {
     assemblyRows,
-    assemblyLeafRows: assemblyLeafJoinRows.map((r) => r.assembly_leaves),
+    quoteLeafAttachmentRows: quoteLeafAttachmentJoinRows.map((r) => ({
+      ...r.quote_leaves,
+      assemblyLeafId: r.legacy_assembly_leaf_id,
+    })),
     leafRows: Array.from(leafMap.values()),
     assemblyLeafInputRows: assemblyLeafInputJoinRows.map(
       (r) => r.assembly_leaf_inputs,
@@ -652,13 +682,13 @@ export async function getQuoteCosting(
         name: a.name,
         position: a.position,
       })),
-      assemblyLeaves: newModelData.assemblyLeafRows.map((al) => {
+      quoteLeafAttachments: newModelData.quoteLeafAttachmentRows.map((al) => {
         const lib = leafById.get(al.leafId);
         return {
-          id: al.id,
+          quoteLeafId: al.id,
+          assemblyLeafId: al.assemblyLeafId,
           assemblyId: al.assemblyId,
           leafId: al.leafId,
-          quoteLeafId: al.quoteLeafId,
           quantity: al.quantity,
           position: al.position,
           leafName: lib?.name ?? "",
@@ -1413,13 +1443,13 @@ export async function applyClientTargetSolveTierAdj(
         name: a.name,
         position: a.position,
       })),
-      assemblyLeaves: newModelData.assemblyLeafRows.map((al) => {
+      quoteLeafAttachments: newModelData.quoteLeafAttachmentRows.map((al) => {
         const lib = leafById.get(al.leafId);
         return {
-          id: al.id,
+          quoteLeafId: al.id,
+          assemblyLeafId: al.assemblyLeafId,
           assemblyId: al.assemblyId,
           leafId: al.leafId,
-          quoteLeafId: al.quoteLeafId,
           quantity: al.quantity,
           position: al.position,
           leafName: lib?.name ?? "",
@@ -1728,13 +1758,13 @@ export async function getCostingBundle(
         name: a.name,
         position: a.position,
       })),
-      assemblyLeaves: newModelData.assemblyLeafRows.map((al) => {
+      quoteLeafAttachments: newModelData.quoteLeafAttachmentRows.map((al) => {
         const lib = leafById.get(al.leafId);
         return {
-          id: al.id,
+          quoteLeafId: al.id,
+          assemblyLeafId: al.assemblyLeafId,
           assemblyId: al.assemblyId,
           leafId: al.leafId,
-          quoteLeafId: al.quoteLeafId,
           quantity: al.quantity,
           position: al.position,
           leafName: lib?.name ?? "",
