@@ -30,7 +30,7 @@
 // from `idMap.numericToUuid.values()` rather than re-invoking the
 // engine. One classify, one engine call per render.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Mode } from "@/lib/pricing-classifier";
 import {
   applyGlobalAdj,
@@ -46,9 +46,7 @@ import {
   SuggestionCard,
 } from "./action-zone";
 import { StateCallout, StateCard, StateLine } from "./state-zone";
-import { DetailZone, type BlendedTierComponents } from "./detail-zone";
-import { useCostingStore } from "@/components/costing-store-provider";
-import { selectGraph } from "@/lib/costing-store";
+import { DetailZone } from "./detail-zone";
 import { usePricingClassifier } from "./pricing-classifier-context";
 
 // 30s persistent "↻ just updated" hint after a mode transition. CD
@@ -67,7 +65,6 @@ export function PricingSurfaceShell({
   // Single source of truth — `state` is the classifier output,
   // identical to what `<PricingPageHead>` consumes.
   const { state, idMap } = usePricingClassifier();
-  const { uuidToNumeric } = idMap;
 
   // Mode-transition flash + 30s persistent hint ─────────────────
   const previousModeRef = useRef<Mode | null>(null);
@@ -241,40 +238,6 @@ export function PricingSurfaceShell({
 
   // Per-mode mount — single-responsibility zones; composer decides
   // what's visible per state.mode (CD §2.1).
-  // Gate 1B increment 7 — canonical blended component values for the cost
-  // stack, resolved here at the composition point and passed down as data.
-  //
-  // The graph keys blends by the real tier UUID; the classifier surfaces tiers
-  // by a numeric id. The mapping between them already exists on the classifier
-  // context, so it is used rather than re-derived — a second mapping is the
-  // same class of defect as a second computation.
-  const graph = useCostingStore(selectGraph);
-  const blendedByTier = useMemo(() => {
-    const byNumeric = new Map<number, BlendedTierComponents>();
-    const value = (tierUuid: string, key: string): number | null => {
-      const n = graph.nodes.find((node) => node.key === `quote/${tierUuid}/${key}`);
-      return n ? n.value : null;
-    };
-    for (const [tierUuid, numeric] of uuidToNumeric) {
-      const pkg = value(tierUuid, "pkg");
-      const sellBefore = value(tierUuid, "sell-before");
-      // A tier the graph has no blend for is simply absent from the map; the
-      // consumer renders it incomplete rather than being handed zeroes that
-      // would read as "priced at nothing".
-      if (pkg === null || sellBefore === null) continue;
-      byNumeric.set(numeric, {
-        pkg,
-        prod: value(tierUuid, "prod") ?? 0,
-        raw: value(tierUuid, "raw") ?? 0,
-        frt: value(tierUuid, "frt") ?? 0,
-        dt: value(tierUuid, "dt") ?? 0,
-        sellBefore,
-        sell: value(tierUuid, "sell"),
-      });
-    }
-    return byNumeric;
-  }, [graph, uuidToNumeric]);
-
   return (
     <section className="psr-section">
       {applyError && (
@@ -348,7 +311,6 @@ export function PricingSurfaceShell({
           DetailGlobalAdjust (CB Patch round 3 BUG-B wire). */}
       <DetailZone
         state={state}
-        blendedByTier={blendedByTier}
         quoteId={quoteId}
         onPreviewGlobalAdjust={onPreviewGlobalAdjust}
         globalPreview={globalPreview}

@@ -201,6 +201,90 @@ database failure must not masquerade as a code regression.
 
 ---
 
+### OD-014 · What entity constitutes a commercial SKU for Pricing aggregation
+
+**Owner:** Edward · **Blocks:** Gate 1B increment 7. Blocks any per-component
+blend node entering the canonical graph.
+
+Pricing presents blended per-unit figures — packaging, production, bulk raw,
+freight, duty & tariff, sell before adjustment. Blending requires a population
+to blend over, and **that population has never been stated as a business fact.**
+
+The absence went unnoticed because two candidate populations coincide on the
+common case. They diverge as soon as a quote contains an assembly, and the
+divergence is not small: on quote `52bd0077` the two answers for blended
+packaging are `5.0750` and `2.5375`. Both are arithmetically correct. They are
+answers to different questions.
+
+Increment 7 emitted a blend without settling this, and was reverted for that
+reason — see `f1af346`.
+
+**This is not a question about tree depth.** Whether an entity happens to sit at
+the top of the assembly tree is an implementation artefact of how a quote was
+built, and cannot be what determines whether it is a thing the firm sells. The
+question is what Pricing means by "a SKU".
+
+**Determine the answer from, in combination:**
+
+| Source | What it should settle |
+|---|---|
+| Recovered Phase 3 authority | Whether the workspace was designed against a stated SKU identity |
+| Canonical `quote_leaf_id` / commercial-attachment semantics | Which entity carries commercial attachment |
+| Setup's SKU model | What an operator believes they are creating when they add a SKU |
+| Existing per-SKU Pricing behaviour | What the per-SKU rows already treat as a SKU today |
+| Customer-facing quote and publication semantics | What the customer is shown as a line they can buy |
+
+The last is the strongest evidence available: **the entity the customer is
+quoted a price for is the entity Pricing is aggregating.** If those two
+disagree, the disagreement is itself the finding.
+
+**Once the identity is established, the component blends must aggregate over
+that governed population regardless of assembly-tree shape.** An implementation
+that reads the tree to decide who participates has re-encoded the artefact.
+
+**What settles it:** a stated definition of the Pricing SKU population, recorded
+as tier-1 authority, with the coincidence case named explicitly so a future
+fixture cannot pass by accident.
+
+---
+
+### OD-015 · S-7 does not validate the semantics of graph-only nodes
+
+**Owner:** Nexus engineering · **Blocks:** reattempting Gate 1B increment 7.
+
+S-7 hashes `QuoteCostingResult` — the commercial scalars that existed before
+Gate 1B. It proves those are byte-identical. **It says nothing about nodes that
+exist only in the graph**, because a node consumed by nothing changes no scalar.
+
+Increment 7 passed S-7 byte-identically while emitting a node whose value was
+wrong for the quantity it named. That is S-7 behaving correctly and being
+misread as broader assurance than it offers. The gap is structural: a
+preservation baseline over old outputs cannot validate new ones, and the graph
+is now accumulating nodes faster than any consumer reads them.
+
+The unit fixture did not close the gap either. It asserted the resulting
+**number**, on a quote whose structure made the right and wrong populations
+identical, so the assertion held for a reason unrelated to correctness.
+
+**Before increment 7 is reattempted:**
+
+1. Add a fixture whose structure matches real nested production data — at
+   minimum one assembly with multiple leaves, and unequal per-entity
+   quantities so an unweighted mean cannot pass as a weighted one.
+2. Assert **contributor identity and population** explicitly — which entities
+   participated, and how many — not only the resulting value. A test that
+   checks only the number cannot distinguish the right answer from a
+   coincidence.
+3. Keep both assertions. The population assertion is what fails when the
+   business identity in OD-014 is later revised.
+
+**What settles it:** an increment-7 test suite in which deliberately corrupting
+the contributor population fails a test, per the standing rule that a
+reconciliation rule is not complete until a valid case passes and a corrupted
+case fails.
+
+---
+
 ## Open — needed before the relevant work starts
 
 ### OD-009 · Freight markup resolution when a break carries no markup
