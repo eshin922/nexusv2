@@ -26,9 +26,17 @@ import {
   computeShipmentContribution,
   type ShipmentContribution,
 } from "@/lib/costing";
+import {
+  parseNodeKey,
+  quoteScopeKey,
+  readNodeValue,
+  walkGraph,
+  type CostingNode,
+} from "@/lib/costing-nodes";
+import { selectGraph } from "@/lib/costing-store";
 import { FREIGHT_LEG_MODES, enumLabel } from "@/lib/enum-labels";
 import { alignBreaksToTiers } from "@/lib/freight-tier-cells";
-import { useCostingStoreApi } from "@/components/costing-store-provider";
+import { useCostingStore, useCostingStoreApi } from "@/components/costing-store-provider";
 
 type Tier = { id: string; label: string; qty: number | null; recommended?: boolean };
 type Product = { id: string; label: string };
@@ -95,6 +103,10 @@ export function FreightDrilldown(props: {
   products: Product[];
   components: Component[];
 }) {
+  // Gate 1B A-6: every governed freight value on this surface is read from
+  // the canonical graph, resolved once here and passed down as data.
+  const graph = useCostingStore(selectGraph);
+  const shipReads = useMemo(() => readShipmentNodes(graph.nodes), [graph]);
   const { quoteId, tiers, editable, workbook, products, components } = props;
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -235,7 +247,7 @@ export function FreightDrilldown(props: {
         />)}
       </div>;
     })}
-    {workbook.subcategories.length > 0 && <TotalStrip tiers={tiers} workbook={workbook}/>}
+    {workbook.subcategories.length > 0 && <TotalStrip graph={graph} tiers={tiers} workbook={workbook}/>}
     {createProductId && (() => {
       const modalComponents = components.filter((item) => item.assemblyId === createProductId);
       const modalShipments = workbook.subcategories.filter((item) => item.assemblyId === createProductId);
@@ -254,7 +266,7 @@ export function FreightDrilldown(props: {
   </div>;
 }
 
-function ShipmentLedger({ shipment, index, count, tiers, workbook, components, editable, busy, openDestinations, setOpenDestinations, supportOpen, setSupportOpen, submit }: any) {
+function ShipmentLedger({ shipment, index, count, tiers, workbook, components, editable, busy, openDestinations, setOpenDestinations, supportOpen, setSupportOpen, submit, shipReads }: any) {
   const destinations = workbook.destinations.filter((row: any) => row.freightSubcategoryId === shipment.id);
   const memberships = workbook.memberships.filter((row: any) => row.freightSubcategoryId === shipment.id);
   const selected = destinations.find((row: any) => row.id === shipment.selectedDestinationId);
@@ -275,16 +287,16 @@ function ShipmentLedger({ shipment, index, count, tiers, workbook, components, e
       {editable && <ShipmentDelete shipment={shipment} destinationCount={destinations.length} pending={busy(`deleteShipment:${shipment.id}`)} submit={submit(deleteFreightSubcategory, `deleteShipment:${shipment.id}`)}/>}
     </div>
 
-    {destinations.map((destination: any) => <DestinationRow key={destination.id} destination={destination} shipment={shipment} destinations={destinations} selected={selected} tiers={tiers} workbook={workbook} editable={editable} busy={busy} open={openDestinations.includes(destination.id)} toggle={() => setOpenDestinations((rows: string[]) => rows.includes(destination.id) ? rows.filter((id) => id !== destination.id) : [...rows, destination.id])} submit={submit}/>)}
+    {destinations.map((destination: any) => <DestinationRow shipReads={shipReads} key={destination.id} destination={destination} shipment={shipment} destinations={destinations} selected={selected} tiers={tiers} workbook={workbook} editable={editable} busy={busy} open={openDestinations.includes(destination.id)} toggle={() => setOpenDestinations((rows: string[]) => rows.includes(destination.id) ? rows.filter((id) => id !== destination.id) : [...rows, destination.id])} submit={submit}/>)}
 
     {editable && <InlineDestination shipmentId={shipment.id} pending={busy(`addDestination:${shipment.id}`)} makeSubmit={(onSuccess: () => void) => submit(addFreightDestination, `addDestination:${shipment.id}`, onSuccess)}/>}
-    {shipment.crossesInternationalBorder && <CustomsLedger shipment={shipment} tiers={tiers} entry={customsEntry} workbook={workbook} editable={editable} pending={busy(`customsBreak:${shipment.id}`) || busy(`customsEntry:${shipment.id}`)} submitBreak={submit(updateFreightCustomsBreak, `customsBreak:${shipment.id}`)} submitEntry={submit(updateFreightCustomsEntry, `customsEntry:${shipment.id}`)}/>}
+    {shipment.crossesInternationalBorder && <CustomsLedger shipReads={shipReads} shipment={shipment} tiers={tiers} entry={customsEntry} workbook={workbook} editable={editable} pending={busy(`customsBreak:${shipment.id}`) || busy(`customsEntry:${shipment.id}`)} submitBreak={submit(updateFreightCustomsBreak, `customsBreak:${shipment.id}`)} submitEntry={submit(updateFreightCustomsEntry, `customsEntry:${shipment.id}`)}/>}
     <div className="fr-fold"><button className={`fr-foldbtn${shownSupport ? " on" : ""}`} onClick={() => setSupportOpen(!shownSupport)} disabled={forcedSupport}><span className="cv">{shownSupport ? "▾" : "▸"}</span>{shownSupport ? "Hide supporting detail" : "Supporting detail"}</button><span className="fr-chips">{supportChips(shipment, destinations, tracking, staleTracking).map((chip) => <span className={`fr-fchip${chip.warn ? " warn" : ""}`} key={chip.t}>{chip.t}</span>)}</span>{forcedSupport && <span className="fr-forced">kept open — needs attention</span>}</div>
     {shownSupport && <><Comparison destinations={destinations} selected={selected} tiers={tiers} workbook={workbook}/>{destinations.length > 1 && <SelectionReason shipment={shipment} selected={selected} editable={editable} pending={busy(`selectDestination:${shipment.id}`)} submit={submit(selectFreightDestination, `selectDestination:${shipment.id}`)}/>}<TrackingStrip selected={selected} tracking={displayedTracking} stale={staleTracking} pending={busy(`tracking:${shipment.id}`)} submit={submit(updateFreightTracking, `tracking:${shipment.id}`)}/></>}
   </div>;
 }
 
-function DestinationRow({ destination, shipment, destinations, selected, tiers, workbook, editable, busy, open, toggle, submit }: any) {
+function DestinationRow({ destination, shipment, destinations, selected, tiers, workbook, editable, busy, open, toggle, submit, shipReads }: any) {
   const rows = workbook.breaks.filter((row: any) => row.freightDestinationId === destination.id);
   const [flat, setFlat] = useState(destination.sameValueAllBreaks);
   const isSelected = destination.id === shipment.selectedDestinationId;
@@ -316,7 +328,7 @@ function DestinationRow({ destination, shipment, destinations, selected, tiers, 
   return <div className={`fr-dest${isSelected && destinations.length > 1 ? " sel" : ""}`} ref={rowRef}>
     <div className="fr-grid">
       <div className="fr-dlab">{destinations.length > 1 && <button className={`fr-pick${isSelected ? " on" : ""}`} disabled={!editable || !priced || busy(`selectDestination:${shipment.id}`)} aria-label={`Select ${destination.destination}`} title={!priced ? "Enter a freight amount before selecting this destination" : busy(`selectDestination:${shipment.id}`) ? "Saving selection…" : undefined} onClick={() => submit(selectFreightDestination, `selectDestination:${shipment.id}`)(fields({ freightSubcategoryId: shipment.id, destinationId: destination.id, selectionReason: shipment.selectionReason }))}/>}<span className="fr-dname"><span className="n">{destinations.length > 1 ? "to " : ""}{destination.destination}{destination.consignee ? ` · ${destination.consignee}` : ""}</span><span className="m"><span>{destination.transitDays || "transit not set"} door to door</span><span className={varies ? "varies" : ""}>{varies ? modes.map(modeChip).join(" / ") : modeChip(modes[0] ?? "")}</span>{inherited && <span className="fr-inherit">type + markup inherited</span>}</span><input className="fr-note" defaultValue={destination.internalNotes ?? ""} placeholder="note — optional" disabled={!editable} onBlur={(event) => submit(updateFreightDestination, `editDestination:${destination.id}`)(fields({ destinationId: destination.id, destination: destination.destination, consignee: destination.consignee, transitDays: destination.transitDays, quoteReference: destination.quoteReference, internalNotes: event.currentTarget.value }))}/></span>{isSelected && destinations.length > 1 && <span className="fr-vs win">in the price</span>}{destinations.length > 1 && !isSelected && priced && delta !== null && <span className={`fr-vs ${delta > 0 ? "worse" : "better"}`}>{delta > 0 ? "+" : "−"}{money4(Math.abs(delta)).slice(1)}/unit</span>}{destinations.length > 1 && !priced && <span className="fr-vs">no total yet</span>}<button type="button" className="fr-tog" onClick={() => setFlat(!flat)}>{flat ? "differs by break" : "one value, all breaks"}</button><button className={`fr-edit${open ? " on" : ""}`} onClick={toggle}>{open ? "hide detail" : "type + description"}</button>{destinations.length > 1 && editable && <button className="fr-del" disabled={busy(`deleteDestination:${destination.id}`)} title={busy(`deleteDestination:${destination.id}`) ? "Removing…" : undefined} onClick={() => submit(deleteFreightDestination, `deleteDestination:${destination.id}`)(fields({ destinationId: destination.id }))}>remove</button>}</div>
-      {cells.map(({ tier, row, index: tierIndex }) => { const markup = Number(row?.freightMarkupPct ?? 0); const contribution = computeShipmentContribution({ tierUnits: Number(tier.qty ?? 0), freightAmount: row ? Number(row.freightAmount ?? 0) : null, freightMarkupPct: markup, dutyAmount: null, dutyMarkupPct: 0, tariffAmount: null, tariffMarkupPct: 0 }); const shipmentContribution = shipmentContributionAt(shipment, tier, workbook); const customsSell = shipmentContribution.dutyBillablePerUnit + shipmentContribution.tariffBillablePerUnit; return <div className="fr-cell fr-entrycell" key={tier.id}>{row ? flat && tierIndex > 0 ? <span className="cbm">one value, all breaks</span> : <><input className="fr-in" data-break-field name={`freightAmount:${tier.id}`} type="number" min="0" step="0.01" defaultValue={row.freightAmount ?? ""} placeholder="total cost" disabled={!editable} onBlur={saveBreaks}/><span className="mrow"><span className="x">×</span><input className="fr-in pct" data-break-field name={`freightMarkupPct:${tier.id}`} type="number" min="0" max="999" step="1" placeholder="40" aria-label="Freight markup, whole percent" title="Enter whole percent — 40 means 40%" defaultValue={row.freightMarkupPct === null ? "" : markup * 100} disabled={!editable} onBlur={saveBreaks}/><span className="arr">→</span><span className="sell">{priced && tier.qty ? money4(contribution.freightBillablePerUnit) : "—"}</span></span>{shipment.crossesInternationalBorder && priced && <span className="cbm">incl. d/t {money4(customsSell).slice(1)}</span>}</> : "—"}</div>; })}
+      {cells.map(({ tier, row, index: tierIndex }) => { const markup = Number(row?.freightMarkupPct ?? 0); const contribution = computeShipmentContribution({ tierUnits: Number(tier.qty ?? 0), freightAmount: row ? Number(row.freightAmount ?? 0) : null, freightMarkupPct: markup, dutyAmount: null, dutyMarkupPct: 0, tariffAmount: null, tariffMarkupPct: 0 }); const read = shipReads.get(shipKey(shipment.id, tier.id)) ?? NO_SHIPMENT_READ; const customsSell = read.dutyPerUnit + read.tariffPerUnit; const isSelectedDestination = destination.id === shipment.selectedDestinationId; const freightSell = isSelectedDestination ? read.freightPerUnit : contribution.freightBillablePerUnit; return <div className="fr-cell fr-entrycell" key={tier.id}>{row ? flat && tierIndex > 0 ? <span className="cbm">one value, all breaks</span> : <><input className="fr-in" data-break-field name={`freightAmount:${tier.id}`} type="number" min="0" step="0.01" defaultValue={row.freightAmount ?? ""} placeholder="total cost" disabled={!editable} onBlur={saveBreaks}/><span className="mrow"><span className="x">×</span><input className="fr-in pct" data-break-field name={`freightMarkupPct:${tier.id}`} type="number" min="0" max="999" step="1" placeholder="40" aria-label="Freight markup, whole percent" title="Enter whole percent — 40 means 40%" defaultValue={row.freightMarkupPct === null ? "" : markup * 100} disabled={!editable} onBlur={saveBreaks}/><span className="arr">→</span><span className="sell">{priced && tier.qty ? money4(freightSell) : "—"}</span></span>{shipment.crossesInternationalBorder && priced && <span className="cbm">incl. d/t {money4(customsSell).slice(1)}</span>}</> : "—"}</div>; })}
     </div>
     {/* Mode and description render for EVERY break regardless of flat state.
         "One value, all breaks" governs the commercial terms (amount + markup)
@@ -351,7 +363,7 @@ function InlineDestination({ shipmentId, pending, makeSubmit }: any) {
   const submit = makeSubmit(() => setIdempotencyKey(crypto.randomUUID()));
   return <div className="fr-add">{!open ? <button className="fr-addbtn" onClick={openForm}><span className="pl">+</span> Another destination</button> : <form action={submit} className="fr-dest-draft"><input type="hidden" name="freightSubcategoryId" value={shipmentId}/><input type="hidden" name="idempotencyKey" value={idempotencyKey}/><input className="fr-din" autoFocus required name="destination" placeholder="destination — e.g. Aurora, OH"/><input className="fr-din" name="transitDays" placeholder="transit days"/><input className="fr-din" name="consignee" placeholder="consignee — optional"/><input className="fr-note" name="internalNotes" placeholder="note — optional"/><button className="btn primary" disabled={pending} title={pending ? "Adding this destination…" : undefined}>{pending ? "Adding…" : "Add destination"}</button><button className="btn ghost" type="button" onClick={() => setOpen(false)}>Cancel</button></form>}<span className="fr-addnote">A second destination makes this a choice: one goes in the price, the rest stay as the comparison that justified it.</span></div>; }
 
-function CustomsLedger({ shipment, tiers, entry, workbook, editable, pending, submitBreak, submitEntry }: any) {
+function CustomsLedger({ shipment, tiers, entry, workbook, editable, pending, submitBreak, submitEntry, shipReads }: any) {
   const columns = `minmax(200px, 1.5fr) 152px repeat(${tiers.length}, minmax(112px, 1fr))`;
   const customsRef = useRef<HTMLDivElement>(null);
   const saveEntry = () => {
@@ -422,8 +434,8 @@ function CustomsLedger({ shipment, tiers, entry, workbook, editable, pending, su
         // Per-unit customs sell now comes from the engine: duty + tariff
         // billable per unit. The cost total above is a plain sum of entered
         // amounts and carries no markup, so it stays as it is.
-        const contribution = shipmentContributionAt(shipment, tier, workbook);
-        const sellPerUnitValue = contribution.dutyBillablePerUnit + contribution.tariffBillablePerUnit;
+        const read = shipReads.get(shipKey(shipment.id, tier.id)) ?? NO_SHIPMENT_READ;
+        const sellPerUnitValue = read.dutyPerUnit + read.tariffPerUnit;
         return <div className="n" key={tier.id}><span className="v">{money2(amount)}</span><span className="s">{tier.qty ? money4(sellPerUnitValue) : "—"}/unit sell</span></div>;
       })}
     </div>
@@ -671,56 +683,74 @@ function TrackingField({ label, name, value, formId }: { label: string; name: st
 
 function Fact({ label, value }: { label: string; value: unknown }) { return <div className="f"><span className="k">{label}</span><span className="v">{String(value || "not set")}</span></div>; }
 /**
- * Per-unit freight contribution for one shipment at one tier, computed by the
- * ENGINE's own function rather than re-derived here.
+ * Per-unit freight for one shipment at one tier, READ from the canonical graph.
  *
- * Gate 1B A-6: this file previously carried five independent versions of this
- * arithmetic. They agreed with `computeShipmentContribution` by inspection,
- * which is the weakest kind of agreement — the engine could change its
- * ordering or its null handling and these would silently keep the old answer.
+ * ── Gate 1B · A-6 ─────────────────────────────────────────────────────────
+ * This file once carried five private versions of this arithmetic. They were
+ * replaced by calls to the engine's own `computeShipmentContribution`, which
+ * removed the drift risk but is still not a graph read: it re-executes the
+ * computation client-side from inputs the consumer assembles itself.
  *
- * One ordering difference is worth naming, since the swap makes it real. The
- * old code computed `(amount x (1 + markup)) / units`; the engine computes
- * `(amount / units) x (1 + markup)`. Algebraically identical, not
- * bit-identical in floating point — but the divergence is ~1e-16 relative and
- * these cells render at 4dp, so no displayed digit moves. The point is that
- * the UI now cannot drift from the engine at all, at any precision.
+ * The engine already publishes the answer. Per shipment, per tier:
+ *
+ *   {sku}/{tier}/frt/shipment/{subId}            freight + duty + tariff
+ *     .../freight  .../duty  .../tariff          each billable per unit
+ *
+ * Resolved by SUBCATEGORY, not by SKU, because the drawer is quote-scoped and
+ * does not carry the owning SKU — and does not need to, since a subcategory
+ * belongs to exactly one. Two matches would mean that assumption has broken,
+ * so it fails closed rather than taking the first.
  */
-function shipmentContributionAt(
-  shipment: any,
-  tier: Tier,
-  workbook: FreightWorkbook,
-): ShipmentContribution {
-  const destination = workbook.destinations.find(
-    (row: any) => row.id === shipment?.selectedDestinationId,
-  );
-  const freightBreak =
-    destination &&
-    workbook.breaks.find(
-      (item: any) => item.freightDestinationId === destination.id && item.tierId === tier.id,
-    );
-  const customsEntry = workbook.customsEntries.find(
-    (item: any) => item.freightSubcategoryId === shipment?.id,
-  );
-  const customsBreak = (chargeType: string) =>
-    customsEntry &&
-    workbook.customsBreaks.find(
-      (item: any) =>
-        item.freightCustomsEntryId === customsEntry.id &&
-        item.tierId === tier.id &&
-        item.chargeType === chargeType,
-    );
-  const duty = customsBreak("duty");
-  const tariff = customsBreak("tariff");
-  return computeShipmentContribution({
-    tierUnits: Number(tier.qty ?? 0),
-    freightAmount: freightBreak ? Number(freightBreak.freightAmount ?? 0) : null,
-    freightMarkupPct: freightBreak ? Number(freightBreak.freightMarkupPct ?? 0) : 0,
-    dutyAmount: duty ? Number(duty.amount ?? 0) : null,
-    dutyMarkupPct: duty ? Number(duty.markupPct ?? 0) : 0,
-    tariffAmount: tariff ? Number(tariff.amount ?? 0) : null,
-    tariffMarkupPct: tariff ? Number(tariff.markupPct ?? 0) : 0,
-  });
+type ShipmentRead = {
+  freightPerUnit: number;
+  dutyPerUnit: number;
+  tariffPerUnit: number;
+  totalPerUnit: number;
+};
+
+const NO_SHIPMENT_READ: ShipmentRead = {
+  freightPerUnit: 0,
+  dutyPerUnit: 0,
+  tariffPerUnit: 0,
+  totalPerUnit: 0,
+};
+
+/** `${subcategoryId}\u0000${tierId}` — NUL cannot occur in a UUID. */
+function shipKey(subcategoryId: string, tierId: string): string {
+  return `${subcategoryId}\u0000${tierId}`;
+}
+
+function readShipmentNodes(nodes: readonly CostingNode[]): Map<string, ShipmentRead> {
+  const byKey = new Map<string, CostingNode>();
+  const duplicated = new Set<string>();
+  for (const root of nodes) {
+    walkGraph(root, (n) => {
+      const a = parseNodeKey(n.key);
+      if (!a || a.scope !== "cell") return;
+      if (a.path.length !== 3 || a.path[0] !== "frt" || a.path[1] !== "shipment") return;
+      const k = shipKey(a.path[2], a.tierId);
+      if (byKey.has(k)) duplicated.add(k);
+      byKey.set(k, n);
+    });
+  }
+  const out = new Map<string, ShipmentRead>();
+  for (const [k, node] of byKey) {
+    if (duplicated.has(k)) continue; // fail closed
+    const charge = (name: string) => {
+      const hit = (node.operands ?? []).find((o) => {
+        const a = parseNodeKey(o.key);
+        return a?.path.length === 4 && a.path[3] === name;
+      });
+      return hit ? hit.value : 0;
+    };
+    out.set(k, {
+      freightPerUnit: charge("freight"),
+      dutyPerUnit: charge("duty"),
+      tariffPerUnit: charge("tariff"),
+      totalPerUnit: node.value,
+    });
+  }
+  return out;
 }
 
 /** Per-unit contribution for one DESTINATION under comparison — freight only,
@@ -747,17 +777,21 @@ function Comparison({ destinations, selected, tiers, workbook }: any) {
 }
 function SelectionReason({ shipment, selected, editable, submit }: any) { const formId = `selection-reason-${shipment.id}`; return <form id={formId} className="fr-reason" action={submit}><input type="hidden" name="freightSubcategoryId" value={shipment.id}/><input type="hidden" name="destinationId" value={selected?.id ?? ""}/><span className="k">why · {shipment.selectionReason ? "Logistics" : "unrecorded"}</span><input className="t" name="selectionReason" defaultValue={shipment.selectionReason ?? ""} placeholder="the deltas above are the system's; the reason is yours — add what the numbers don't say" disabled={!editable || !selected} onBlur={autosave(formId)}/></form>; }
 function DecisionSummary({ selected, destinations, tiers, workbook }: any) { const tier: Tier | undefined = tiers.find((item: Tier) => item.recommended) ?? tiers[tiers.length - 1] ?? tiers[0]; const selectedValue = selected && tier ? sellPerUnit(selected, tier, workbook) : null; return <div className="fr-decision">{selected ? <><span className="chose">{selected.destination} chosen</span><span className="sep">·</span><span>{destinations.length - 1} comparison option{destinations.length === 2 ? "" : "s"} retained</span>{selectedValue !== null && <span className="sep">· {money4(selectedValue)}/unit at {tier?.label}</span>}</> : <span className="fr-vs worse">no destination selected</span>}</div>; }
-function TotalStrip({ tiers, workbook }: any) {
+function TotalStrip({ tiers, workbook, graph }: any) {
+  // The category's contribution to the Cost Stack, read rather than summed.
+  //
+  // `quote/{tier}/cost-stack/frt-total` is model-agnostic by construction: it
+  // sums the per-SKU freight SECTION, so it covers whichever of the two freight
+  // models is authoritative for the quote. Summing worksheet shipments here —
+  // which is what this did — reads zero on a legacy-leg quote while the Cost
+  // Stack shows real freight, and a total that contradicts the stack fails the
+  // contract it exists to state.
   const totals = useMemo(
     () =>
       tiers.map((tier: Tier) =>
-        workbook.subcategories.reduce(
-          (sum: number, shipment: any) =>
-            sum + shipmentContributionAt(shipment, tier, workbook).totalBillablePerUnit,
-          0,
-        ),
+        readNodeValue(graph.nodes, quoteScopeKey(tier.id, "cost-stack/frt-total")),
       ),
-    [tiers, workbook],
+    [tiers, graph],
   );
   // Conditional meta line per the bundle's `TotalStrip`. An unselected
   // multi-destination shipment is the state that makes this total
@@ -771,5 +805,5 @@ function TotalStrip({ tiers, workbook }: any) {
   const meta = undecided
     ? `${undecided} shipment${undecided > 1 ? "s have" : " has"} no selection`
     : `sum of the selected destination in each of ${count} shipment${count > 1 ? "s" : ""}`;
-  return <><div className="fr-grid fr-total"><div className="lab"><span className="n">Freight sell per unit</span><span className="m">{meta}</span></div>{totals.map((total: number, index: number) => <div className="fr-cell" key={tiers[index].id}><span className="v">{money4(total)}</span><span className="s">freight + duty/tariff</span></div>)}</div><div className="fr-assert"><span className="mk">✓</span><span>Candidate destinations are internal — they reach neither the quote nor the PDF. Freight, duty and tariff stay separate rows into Pricing&apos;s cost stack.</span></div></>;
+  return <><div className="fr-grid fr-total"><div className="lab"><span className="n">Freight sell per unit</span><span className="m">{meta}</span></div>{totals.map((total: number | null, index: number) => <div className="fr-cell" key={tiers[index].id}><span className="v">{total === null ? "—" : money4(total)}</span><span className="s">freight + duty/tariff</span></div>)}</div><div className="fr-assert"><span className="mk">✓</span><span>Candidate destinations are internal — they reach neither the quote nor the PDF. Freight, duty and tariff stay separate rows into Pricing&apos;s cost stack.</span></div></>;
 }
