@@ -20,6 +20,7 @@ import {
 import {
   ARITHMETIC_KINDS,
   GRAPH_VERSION,
+  QUOTE_SCOPE_PREFIX,
   REQUIRED_CELL_SECTIONS,
   TERMINAL_KINDS,
   graphIsComplete,
@@ -268,7 +269,17 @@ test("terminals declare a provenance grade, and it is thin rather than invented"
   // Scoped to packaging: every section contributes origins, so pinning a
   // global count would make this test a change-detector for section arrival
   // rather than an assertion about provenance.
-  assert.equal(origins.filter((o) => o.key.includes("/pkg/")).length, 3);
+  //
+  // The scope must be named. `/pkg/` alone spans two of them — cell-scope
+  // packaging inputs AND the quote-scope packaging blend's contributors, which
+  // are also origins. Matching on the substring silently counted both the
+  // moment increment 7 landed.
+  assert.equal(
+    origins.filter(
+      (o) => o.key.includes("/pkg/") && !o.key.startsWith(QUOTE_SCOPE_PREFIX + "/"),
+    ).length,
+    3,
+  );
   assert.ok(origins.length > 3, "other sections contribute terminals too");
   for (const o of origins) {
     // A-2 is still open: the input-type -> audit-row mapping is unwritten. Until
