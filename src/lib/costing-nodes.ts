@@ -660,6 +660,39 @@ export function readNodeValue(
 }
 
 /**
+ * Resolve MANY keys in one traversal, with `resolveNode`'s exact semantics.
+ *
+ * A table reads one node per cell. Calling `resolveNode` per cell walks the
+ * whole graph per cell — a fifteen-line, five-tier drilldown is seventy-five
+ * full traversals to render one drawer. This walks once.
+ *
+ * Duplicate detection is per key and behaves identically to `resolveNode`: a
+ * key seen twice maps to null, because a graph with two answers has none. The
+ * returned map contains an entry for EVERY requested key, so a caller
+ * distinguishes "not asked for" from "asked for, unavailable" without having to
+ * remember what it asked.
+ */
+export function resolveNodes(
+  nodes: readonly CostingNode[],
+  keys: Iterable<string>,
+): Map<string, CostingNode | null> {
+  const wanted = new Set(keys);
+  if (wanted.size === 0) return new Map();
+  const found = new Map<string, CostingNode | null>();
+  for (const root of nodes) {
+    walkGraph(root, (n) => {
+      if (!wanted.has(n.key)) return;
+      // Second sighting demotes the entry to null and stays there; a third
+      // must not resurrect it.
+      found.set(n.key, found.has(n.key) ? null : n);
+    });
+  }
+  const out = new Map<string, CostingNode | null>();
+  for (const key of wanted) out.set(key, found.get(key) ?? null);
+  return out;
+}
+
+/**
  * The exact quote-scope key for a per-tier node. Built here rather than
  * interpolated at each call site so consumers cannot drift from the emitter's
  * key grammar — a mistyped key is indistinguishable from a missing node.

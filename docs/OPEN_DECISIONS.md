@@ -510,6 +510,74 @@ Freight section only" is a complete answer and closes this.
 
 ---
 
+### OD-018 · What commercial quantity is the Packaging TOTAL row?
+
+**Owner:** Edward · **Blocks:** emitting any canonical node for the Packaging
+drilldown foot. Does **not** block the per-line cutover, which is shipped.
+
+The drilldown's foot sums `lineValueForTier` across **every line in the quote**,
+not per SKU. On a single-SKU quote that is unambiguous. On a multi-SKU quote it
+is a sum of per-unit packaging costs across *different products* — "one of
+each" — which is not obviously the quantity an operator reads a column total as.
+
+**Not theoretical.** 14 of 23 production quotes with packaging lines span more
+than one SKU, up to 15 SKUs in a single drawer.
+
+The row's inputs are now governed: each addend is read from the graph. The
+**aggregation** is not, and deliberately so — a node emitted before the meaning
+is settled would freeze a guess into the authority. That is precisely how
+increment 7 shipped a blend over the wrong population.
+
+**Candidate readings, none yet chosen:**
+
+| Reading | What the foot would mean |
+|---|---|
+| Sum across all lines (today) | packaging for one unit of each product in the quote |
+| Per-SKU subtotals, no quote-wide foot | the drawer stops claiming a single number |
+| Weighted by tier quantity | packaging cost of the whole tier, matching the Costs header's basis |
+| Per-unit-of-quote allocation | tier packaging total ÷ tier quantity — the header's PKG row exactly |
+
+The third and fourth are already computed elsewhere and would make this row a
+second view of an existing quantity rather than a new one. The first is what
+ships today and is the only one nobody has defended.
+
+**What settles it:** Edward stating which question the row answers. Then the
+node follows the meaning, not the other way round.
+
+**Prior art in this exact shape:** [OD-014](#od-014) settled the same class of
+question for Pricing. See also *aggregation identity is a business contract*,
+below.
+
+---
+
+### The aggregation-identity pattern
+
+**Not a decision — a recurring shape, recorded so it is recognised on sight.**
+
+Three surfaces have now each turned out to aggregate over a different
+population, and in every case the population was a **business contract**, not an
+implementation detail:
+
+| Surface | Aggregates | Settled by |
+|---|---|---|
+| Pricing Cost Stack | weighted mean across the governed SKU population | OD-014 |
+| Costs header subtotal | quote tier total allocated over tier quantity | header increment |
+| Packaging drilldown TOTAL | unweighted sum across every line in the quote | **OD-018, open** |
+
+All three are labelled in ways that invite the reader to expect agreement. Two of
+them differ by a factor equal to the leaf count. None of them is wrong.
+
+**The rule this yields:** when a surface aggregates, *which population* is a
+question for Edward before it is a question for the engine. Emitting a node
+first and asking afterwards inverts the dependency and produces an authority
+that is confidently wrong — increment 7's failure mode exactly.
+
+**Recognition heuristic:** any `reduce`, `Σ`, mean, or total over a collection
+of commercial values. If you cannot name the population in one sentence that an
+operator would recognise, it is an open business question, not a computation.
+
+---
+
 ## Closed
 
 *(Entries move here with the disposition and a pointer to where the decision

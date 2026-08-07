@@ -7,8 +7,10 @@ import {
   updateAssemblyLeafInputLineMeta,
 } from "@/app/actions/assembly-leaf-inputs";
 import { useCostingStore } from "@/components/costing-store-provider";
+import { nodeKey, resolveNodes } from "@/lib/costing-nodes";
 import {
   selectActiveTierId,
+  selectGraph,
   selectPackaging,
   selectUpdatePackagingCell,
   selectUpdatePackagingLineMeta,
@@ -97,15 +99,39 @@ function fmtCurr2(n: number): string {
   });
 }
 
-// Compute per-line per-tier landed packaging value:
-//   unit_cost × (1 + markup) × qty_per_sellable_unit
-function lineValueForTier(line: LineForUI, tierId: string): number | null {
-  const cell = line.cells.get(tierId);
-  const unit = num(cell?.unitCost ?? null);
-  const markup = num(line.markupPct) ?? 0;
-  const qty = num(line.qtyPerSellableUnit) ?? 1;
-  if (unit === null) return null;
-  return unit * (1 + markup) * qty;
+/**
+ * What one packaging line contributes at one tier, and where it comes from.
+ *
+ * ── Gate 1B · A-6 ─────────────────────────────────────────────────────────
+ * This used to be computed here as `unit x (1 + line.markupPct ?? 0) x qty`.
+ * The engine has owned the same quantity since increment 1, as a `markup` node
+ * at `{sku}/{tier}/pkg/{lineGroupId}`, and the two DID NOT AGREE.
+ *
+ * The engine resolves markup through a ladder — line override, then category
+ * default, then Other, then a firm fallback. The display fell through to ZERO.
+ * On production that split 283 line nodes into 268 agreeing and 15 disagreeing,
+ * every one of the fifteen a line with no category and no explicit markup,
+ * where the engine applied the Other default of 30% and this file applied none.
+ * Operators were reading a landed value 30% below what the quote prices at.
+ *
+ * The fallback was never the bug on its own — reimplementing a resolution the
+ * engine already performs was, and a wrong fallback is what that always
+ * eventually looks like. So the value is read, and `markup` is read too, rather
+ * than the ladder being copied here correctly this time.
+ */
+type LineTierRead = {
+  /** The governed landed value. Null when the graph has no single answer. */
+  value: number | null;
+  /** The engine's RESOLVED markup for this line — the ladder's outcome, read
+   *  off the node's own resolution operand rather than recomputed. */
+  markup: number | null;
+};
+
+const NO_READ: LineTierRead = { value: null, markup: null };
+
+/** Map key. `\u0000` cannot occur in a UUID, so it cannot collide. */
+function readKey(lineGroupId: string, tierId: string): string {
+  return `${lineGroupId}\u0000${tierId}`;
 }
 
 export function PackagingDrilldown({
@@ -152,6 +178,45 @@ export function PackagingDrilldown({
   const lines = Array.from(linesById.values()).sort(
     (a, b) => a.sortOrder - b.sortOrder,
   );
+
+  // One traversal for the whole drawer. `resolveNodes` fails closed per key on
+  // both missing and duplicate, so a cell with no single answer renders a dash
+  // rather than a number nobody computed.
+  //
+  // `line.quoteSkuId` is the assembly_leaf id, which IS the id the engine keys
+  // its SKU rollups on for a grouped attachment — the same `mathSkuId` the
+  // adapter emits. Cost inputs are keyed on assembly_leaf_id today (OD-017), so
+  // every line that has cost data has one.
+  const graph = useCostingStore(selectGraph);
+  const reads = (() => {
+    const keys: string[] = [];
+    const keyOf = new Map<string, string>();
+    for (const line of lines) {
+      for (const t of tiers) {
+        const k = nodeKey(line.quoteSkuId, t.id, "pkg", line.lineGroupId);
+        keys.push(k);
+        keyOf.set(readKey(line.lineGroupId, t.id), k);
+      }
+    }
+    const resolved = resolveNodes(graph.nodes, keys);
+    const out = new Map<string, LineTierRead>();
+    for (const [mapKey, nodeK] of keyOf) {
+      const node = resolved.get(nodeK) ?? null;
+      if (!node || node.kind === "flagged-out") {
+        out.set(mapKey, NO_READ);
+        continue;
+      }
+      // Operand 1 is the `resolution` node the engine built for this line's
+      // markup. Reading its value is how the preview below gets the ladder's
+      // answer without re-walking the ladder.
+      const markupOperand = node.operands?.[1];
+      out.set(mapKey, {
+        value: node.value,
+        markup: markupOperand ? markupOperand.value : null,
+      });
+    }
+    return out;
+  })();
 
   if (tiers.length === 0) {
     return (
@@ -202,12 +267,28 @@ export function PackagingDrilldown({
       .filter((value): value is string => !!value),
   );
 
-  // Tier sums for foot
+  // Tier sums for foot.
+  //
+  // ── DELIBERATELY NOT MIGRATED · Gate 1B ───────────────────────────────────
+  // Its INPUTS are now governed — each addend is a value read from the graph —
+  // but the AGGREGATION is not, and cannot be until someone says what it means.
+  //
+  // This sums every line in the QUOTE, not per SKU. On a multi-SKU quote that
+  // is a sum of per-unit packaging across different products: "one of each",
+  // which is not obviously what an operator reads a column total as. 14 of 23
+  // production quotes with packaging lines span more than one SKU, up to 15.
+  //
+  // The Pricing blend, the Costs header subtotal and this row have now each
+  // turned out to be a different aggregation over a different population, and
+  // in all three cases the population was a BUSINESS question rather than an
+  // implementation detail. Emitting a node here before that question is settled
+  // would freeze a guess into the authority — which is exactly how increment 7
+  // shipped a blend over the wrong population. See OPEN_DECISIONS OD-018.
   const tierSums = tiers.map((t) => {
     let sum = 0;
     let anyValue = false;
     for (const l of lines) {
-      const v = lineValueForTier(l, t.id);
+      const v = reads.get(readKey(l.lineGroupId, t.id))?.value ?? null;
       if (v !== null) {
         sum += v;
         anyValue = true;
@@ -285,6 +366,7 @@ export function PackagingDrilldown({
             tiers={tiers}
             sku={skuMap.get(line.quoteSkuId)}
             categories={categories}
+            reads={reads}
             disabled={!editable}
           />
         ))}
@@ -333,12 +415,15 @@ function PackagingRow({
   tiers,
   sku,
   categories,
+  reads,
   disabled,
 }: {
   line: LineForUI;
   tiers: Array<{ id: string; label: string; qty: number | null }>;
   sku: QuoteSku | undefined;
   categories: Array<{ category: string; defaultMarkupPct: string }>;
+  /** Governed per-(line, tier) values, resolved once for the whole drawer. */
+  reads: Map<string, LineTierRead>;
   disabled: boolean;
 }) {
   const [pending, startTransition] = useTransition();
@@ -781,6 +866,8 @@ function PackagingRow({
           tierId={t.id}
           line={line}
           markupPct={markupPct}
+          markupDirty={markupPct !== storeMarkupPct}
+          read={reads.get(readKey(line.lineGroupId, t.id)) ?? NO_READ}
           isActive={activeTierId === t.id}
           disabled={disabled}
         />
@@ -794,12 +881,18 @@ function PackagingTierCell({
   tierId,
   line,
   markupPct,
+  markupDirty,
+  read,
   isActive,
   disabled,
 }: {
   tierId: string;
   line: LineForUI;
   markupPct: string;
+  /** True while the row's markup input holds an uncommitted edit. */
+  markupDirty: boolean;
+  /** This (line, tier)'s governed value and resolved markup. */
+  read: LineTierRead;
   isActive: boolean;
   disabled: boolean;
 }) {
@@ -911,11 +1004,26 @@ function PackagingTierCell({
     debounce.current = setTimeout(fireSave, DEBOUNCE_MS);
   }
 
-  // Computed per-tier landed value displayed alongside the unit_cost input
+  // The landed value beside the input.
+  //
+  // AT REST this is READ, not computed: the governed node for this (line, tier).
+  // While the operator is mid-edit there is no committed value to read, because
+  // the state being priced does not exist yet — that is a legitimate preview
+  // rather than a duplicated derivation, and it is the one case in this file
+  // where arithmetic is still correct to do.
+  //
+  // Even the preview does not reimplement markup resolution. It prefers the
+  // operator's uncommitted markup, then the ENGINE'S RESOLVED markup read off
+  // the node. The old `?? 0` fallback is what put 15 production cells 30% low.
   const u = num(unitCost);
-  const m = num(markupPct) ?? 0;
   const q = num(line.qtyPerSellableUnit) ?? 1;
-  const landed = u !== null ? u * (1 + m) * q : null;
+  const isPreview = u !== num(storeUnitCost) || markupDirty;
+  const m = num(markupPct) ?? read.markup ?? 0;
+  const landed = isPreview
+    ? u !== null
+      ? u * (1 + m) * q
+      : null
+    : read.value;
 
   const isEmpty = u === null;
 
@@ -945,7 +1053,11 @@ function PackagingTierCell({
       {landed !== null && (
         <span
           className="raw"
-          title={`Landed: cost × (1+${(m * 100).toFixed(0)}%) × ${q}/unit`}
+          title={
+            isPreview
+              ? `Preview of an unsaved edit: cost × (1+${(m * 100).toFixed(0)}%) × ${q}/unit`
+              : `Landed cost × (1+${((read.markup ?? 0) * 100).toFixed(0)}%) × ${q}/unit`
+          }
         >
           → {fmtCurr2(landed)}
         </span>

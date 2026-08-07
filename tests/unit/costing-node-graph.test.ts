@@ -24,6 +24,8 @@ import {
   quoteScopeKey,
   resolveNode,
   readNodeValue,
+  resolveNodes,
+  nodeKey,
   REQUIRED_CELL_SECTIONS,
   TERMINAL_KINDS,
   graphIsComplete,
@@ -1388,4 +1390,76 @@ test("the Costs header's required node set resolves, and RAW is not in it", () =
   // carries bulk raw, so a raw node would double-count. The header states
   // "included in PROD" rather than reading one.
   assert.equal(readNodeValue(out.graph.nodes, k("raw")), null);
+});
+
+
+// ─── resolveNodes · many keys, one traversal ────────────────────────────────
+
+const originOf = (key: string, value: number): CostingNode => ({
+  key, kind: "origin", label: key, value, unit: "usd",
+  origin: { grade: "thin", actor: null, when: null, doc: null },
+});
+
+test("resolveNodes · finds nested keys and reports every key asked for", () => {
+  const nodes: CostingNode[] = [
+    {
+      key: "root", kind: "sum", label: "root", value: 3, unit: "usd", op: "a + b",
+      operands: [originOf("a", 1), originOf("b", 2)],
+    },
+  ];
+  const got = resolveNodes(nodes, ["a", "b", "root", "absent"]);
+  // Every requested key has an entry, so a caller can tell "unavailable" from
+  // "I forgot to ask" without keeping its own list.
+  assert.deepEqual([...got.keys()].sort(), ["a", "absent", "b", "root"]);
+  assert.equal(got.get("a")?.value, 1);
+  assert.equal(got.get("b")?.value, 2);
+  assert.equal(got.get("root")?.value, 3);
+  assert.equal(got.get("absent"), null);
+});
+
+test("resolveNodes · a duplicated key resolves to null, and a third sighting does not revive it", () => {
+  // Matches resolveNode exactly: a graph with two answers has none. The third
+  // occurrence is the interesting case — a naive `has ? null : node` written
+  // inside the walk would set null on the second and then overwrite it on the
+  // third, silently restoring a value the duplicate check had rejected.
+  const nodes: CostingNode[] = [originOf("dup", 1), originOf("dup", 2), originOf("dup", 3)];
+  assert.equal(resolveNodes(nodes, ["dup"]).get("dup"), null);
+  assert.equal(resolveNode(nodes, "dup"), null);
+});
+
+test("resolveNodes · agrees with resolveNode across a real graph", () => {
+  // The batch path exists only for speed. If it can disagree with the single
+  // path, it is a second implementation of the read — the exact shape this gate
+  // removes from consumers.
+  const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  const keys: string[] = [];
+  for (const root of out.graph.nodes) walkGraph(root, (x) => keys.push(x.key));
+  const batch = resolveNodes(out.graph.nodes, keys);
+  for (const k of keys) {
+    assert.equal(batch.get(k) ?? null, resolveNode(out.graph.nodes, k), k);
+  }
+  assert.ok(keys.length > 10);
+});
+
+test("resolveNodes · asking for nothing walks nothing", () => {
+  assert.equal(resolveNodes([originOf("x", 1)], []).size, 0);
+});
+
+test("the packaging drilldown's per-line key resolves, with its markup readable", () => {
+  // What the drilldown addresses per cell, and what it reads off the node so it
+  // never reimplements the markup ladder: operand 0 is the line cost, operand 1
+  // is the resolution whose value is the markup the engine actually applied.
+  const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  for (const line of THREE_LINES) {
+    const node = resolveNode(out.graph.nodes, nodeKey(LEAF, TIER, "pkg", line.lineGroupId));
+    assert.ok(node, `line ${line.lineGroupId} must resolve`);
+    assert.equal(node.kind, "markup");
+    const markup = node.operands?.[1];
+    assert.ok(markup, "the resolution operand must be present");
+    assert.equal(markup.kind, "resolution");
+    assert.equal(typeof markup.value, "number");
+    // The node value is the line cost carrying that markup — which is the
+    // quantity the drilldown used to compute for itself.
+    assert.ok(Math.abs(node.value - node.operands![0].value * (1 + markup.value)) < 1e-9);
+  }
 });
