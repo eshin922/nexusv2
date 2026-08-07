@@ -128,6 +128,24 @@ export type CostingNode = {
   /** `resolution` only. Alternatives, not operands: they do not sum. */
   candidates?: NodeCandidate[];
   /**
+   * `rate` only — the dollar amount the rate is applied TO.
+   *
+   * A rate node must identify both the percentage and the basis. A correct
+   * dollar result with an ambiguous basis is insufficient provenance: duty of
+   * $0.16 could be 4% of factory cost or 2% of landed cost, and an operator
+   * cannot tell which without being told, nor check whether the right base was
+   * used. "The number is right" is not the same claim as "the number is right
+   * for the right reason", and only the second is what a trace is for.
+   *
+   * Carried as data rather than as an operand because the basis is computed
+   * elsewhere in the chain — embedding its subtree here would duplicate
+   * arithmetic nodes, and duplicated arithmetic nodes double-count under
+   * reconciliation.
+   *
+   * Additive optional field; no GRAPH_VERSION bump.
+   */
+  basis?: { label: string; value: number };
+  /**
    * `allocation` only — the denominator, as DATA.
    *
    * An allocation is `total / Q`, and Q is not one of the operands: the
@@ -255,11 +273,9 @@ function closeEnough(a: number, b: number): boolean {
  * checked against the operation it ADVERTISES — the point is not that the
  * number is plausible but that the explanation is true.
  *
- * `rate` is deliberately absent. Its operand semantics are defined by the
- * Freight nodes that will emit it (duty and tariff compute on factory cost,
- * with the markup applying to the dollars rather than the percentage), and
- * writing a checker against a shape that does not exist yet would be guessing
- * at the contract it is supposed to enforce. It lands with Freight.
+ * `blend` remains unchecked: a weighted mean averages to its value rather than
+ * summing to it, and the weights are not on the operands. Unchecked-and-said-so
+ * beats a check that quietly does nothing.
  */
 function reconcile(n: CostingNode, operands: CostingNode[]): string | null {
   switch (n.kind) {
@@ -321,8 +337,23 @@ function reconcile(n: CostingNode, operands: CostingNode[]): string | null {
       // quietly does nothing.
       return null;
 
-    case "rate":
-      return null; // see the note above — lands with Freight
+    case "rate": {
+      // `basis x rate`. Note this is NOT the markup shape: a markup multiplies
+      // by (1 + rate) because it adds to a cost, while a rate multiplies by
+      // the rate itself because it IS the charge. Collapsing the two would
+      // reconcile duty at 104% of factory cost and report it as correct.
+      if (!n.basis) {
+        return "rate carries no basis, so the dollar amount it applies to is ambiguous";
+      }
+      const rates = operands.filter((o) => o.unit === "pct");
+      if (rates.length !== 1) {
+        return `rate needs exactly one pct operand, found ${rates.length}`;
+      }
+      const expected = n.basis.value * rates[0].value;
+      return closeEnough(expected, n.value)
+        ? null
+        : `${n.basis.value} x ${rates[0].value} = ${expected}, node value is ${n.value}`;
+    }
 
     default:
       return null;

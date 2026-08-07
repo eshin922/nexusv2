@@ -1721,6 +1721,177 @@ function computeLeafPerTier(args: {
     totalDutyTariffWithMarkup += contribution.dutyBillablePerUnit + contribution.tariffBillablePerUnit;
   }
 
+  // ---------- freight nodes (Gate 1B increment 3) ----------
+  // Two models are resident during the staged retirement and they have
+  // genuinely different SHAPES, not just different numbers:
+  //
+  //   legacy legs  duty is a PERCENTAGE of factory cost      -> rate nodes
+  //   worksheet    duty is an entered AMOUNT in dollars      -> allocation
+  //
+  // Emitting rate nodes for the worksheet would assert a percentage nobody
+  // entered. The graph follows whichever model the engine actually used.
+  {
+    const frtBase = nodeKey(sku.id, tier.id, "frt");
+    const money = (v: number) => "$" + v;
+    const originUsd = (key: string, label: string, value: number): CostingNode => ({
+      key, kind: "origin", label, value, unit: "usd",
+      origin: { grade: "thin", actor: null, when: null, doc: null },
+    });
+    const originPct = (key: string, label: string, value: number): CostingNode => ({
+      key, kind: "origin", label, value, unit: "pct",
+      origin: { grade: "thin", actor: null, when: null, doc: null },
+    });
+    const FACTORY_BASIS_LABEL = "Factory cost per unit (packaging + production + bulk raw)";
+
+    const shipmentNodes: CostingNode[] = [];
+
+    for (const b of freightLegBreakdowns) {
+      const legBase = nodeKey(frtBase, "leg", b.legId);
+      const parts: CostingNode[] = [];
+
+      parts.push({
+        key: nodeKey(legBase, "container"),
+        kind: "markup",
+        label: "Container freight",
+        value: b.containerFreightWithMarkupPerUnit,
+        unit: "usd",
+        op: money(b.containerFreightPerUnit) + " cost x (1 + " + b.freightMarkupPct + " markup)",
+        operands: [
+          originUsd(nodeKey(legBase, "container", "cost"), "Container freight per unit", b.containerFreightPerUnit),
+          originPct(nodeKey(legBase, "container", "markup"), "Freight markup", b.freightMarkupPct),
+        ],
+      });
+
+      if (b.customsEligible) {
+        // Duty and tariff compute on FACTORY cost, not on landed cost —
+        // freight is deliberately outside the customs base. The basis is
+        // stated on the node because an operator cannot otherwise tell
+        // whether the right base was used.
+        const dutyPct = factoryCostPerUnit !== 0 ? b.dutyPerUnit / factoryCostPerUnit : 0;
+        const tariffPct = factoryCostPerUnit !== 0 ? b.tariffPerUnit / factoryCostPerUnit : 0;
+
+        parts.push({
+          key: nodeKey(legBase, "duty"),
+          kind: "markup",
+          label: "Duty",
+          value: b.dutyWithMarkupPerUnit,
+          unit: "usd",
+          // The markup applies to the DOLLARS, not to the percentage. A PM
+          // must be able to zero the tariff markup without losing margin on
+          // duty or freight, which only works if they are separate nodes.
+          op: money(b.dutyPerUnit) + " duty x (1 + " + b.dutyMarkupPct + " markup)",
+          operands: [
+            {
+              key: nodeKey(legBase, "duty", "rate"),
+              kind: "rate",
+              label: "Duty on factory cost",
+              value: b.dutyPerUnit,
+              unit: "usd",
+              op: money(factoryCostPerUnit) + " factory cost x " + dutyPct,
+              basis: { label: FACTORY_BASIS_LABEL, value: factoryCostPerUnit },
+              operands: [originPct(nodeKey(legBase, "duty", "pct"), "Duty rate", dutyPct)],
+            },
+            originPct(nodeKey(legBase, "duty", "markup"), "Duty markup", b.dutyMarkupPct),
+          ],
+        });
+
+        parts.push({
+          key: nodeKey(legBase, "tariff"),
+          kind: "markup",
+          label: "Tariff",
+          value: b.tariffWithMarkupPerUnit,
+          unit: "usd",
+          op: money(b.tariffPerUnit) + " tariff x (1 + " + b.tariffMarkupPct + " markup)",
+          operands: [
+            {
+              key: nodeKey(legBase, "tariff", "rate"),
+              kind: "rate",
+              label: "Tariff on factory cost",
+              value: b.tariffPerUnit,
+              unit: "usd",
+              op: money(factoryCostPerUnit) + " factory cost x " + tariffPct,
+              basis: { label: FACTORY_BASIS_LABEL, value: factoryCostPerUnit },
+              operands: [originPct(nodeKey(legBase, "tariff", "pct"), "Tariff rate", tariffPct)],
+            },
+            originPct(nodeKey(legBase, "tariff", "markup"), "Tariff markup", b.tariffMarkupPct),
+          ],
+        });
+      }
+
+      shipmentNodes.push({
+        key: legBase,
+        kind: "sum",
+        label: "Freight leg",
+        value: b.landedFreightWithMarkup,
+        unit: "usd",
+        op: b.customsEligible ? "container + duty + tariff" : "container",
+        operands: parts,
+      });
+    }
+
+    for (const shipment of freightShipmentBreaks) {
+      if (shipment.ownerSkuId !== sku.id || shipment.tierId !== tier.id) continue;
+      const c = computeShipmentContribution(shipment);
+      const shipBase = nodeKey(frtBase, "shipment", shipment.freightSubcategoryId);
+      const units = num(shipment.tierUnits);
+
+      // Worksheet customs are ENTERED AMOUNTS, so they allocate over units
+      // like any other total. No rate node: asserting a percentage here would
+      // invent a figure nobody supplied.
+      const charge = (
+        name: string,
+        amount: number | null,
+        markupPct: number,
+        costPerUnit: number,
+        billablePerUnit: number,
+      ): CostingNode => ({
+        key: nodeKey(shipBase, name),
+        kind: "markup",
+        label: name === "freight" ? "Freight" : name === "duty" ? "Duty" : "Tariff",
+        value: billablePerUnit,
+        unit: "usd",
+        op: money(costPerUnit) + " cost x (1 + " + markupPct + " markup)",
+        operands: [
+          {
+            key: nodeKey(shipBase, name, "cost"),
+            kind: "allocation",
+            label: "Per unit",
+            value: costPerUnit,
+            unit: "usd",
+            divisor: units,
+            op: money(num(amount)) + " / " + units + " units",
+            operands: [originUsd(nodeKey(shipBase, name, "total"), "Entered amount", num(amount))],
+          },
+          originPct(nodeKey(shipBase, name, "markup"), "Markup", markupPct),
+        ],
+      });
+
+      shipmentNodes.push({
+        key: shipBase,
+        kind: "sum",
+        label: "Shipment",
+        value: c.totalBillablePerUnit,
+        unit: "usd",
+        op: "freight + duty + tariff",
+        operands: [
+          charge("freight", shipment.freightAmount, shipment.freightMarkupPct, c.freightCostPerUnit, c.freightBillablePerUnit),
+          charge("duty", shipment.dutyAmount, shipment.dutyMarkupPct, c.dutyCostPerUnit, c.dutyBillablePerUnit),
+          charge("tariff", shipment.tariffAmount, shipment.tariffMarkupPct, c.tariffCostPerUnit, c.tariffBillablePerUnit),
+        ],
+      });
+    }
+
+    graphSink?.push({
+      key: frtBase,
+      kind: "sum",
+      label: "Freight",
+      value: totalLandedWithMarkup,
+      unit: "usd",
+      op: shipmentNodes.length === 0 ? "no freight entered" : "sum of " + shipmentNodes.length + " shipment(s)",
+      operands: shipmentNodes,
+    });
+  }
+
   // ---------- contribution + required sell ----------
   const contributionCostPerUnit =
     factoryCostPerUnit + totalLandedBefore + separateServiceFees;

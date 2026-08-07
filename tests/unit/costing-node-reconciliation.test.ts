@@ -238,19 +238,62 @@ test("tolerance scales with magnitude rather than being a fixed absolute", () =>
 
 // ------------------------------------------------- deliberately unchecked
 
-test("rate and blend are unchecked, and that is recorded rather than hidden", () => {
-  // `rate` operand semantics are defined by the Freight nodes that will emit
-  // it; a checker written against a shape that does not exist yet would be
-  // guessing at the contract it is meant to enforce. `blend` needs weights the
-  // operands do not carry. Unchecked-and-said-so beats a check that quietly
-  // does nothing — these assertions exist so the gap cannot be mistaken for
-  // coverage.
-  const rate: CostingNode = {
-    key: "r", kind: "rate", label: "Duty", value: 999, unit: "usd", op: "base x pct",
-    operands: [usd("base", 10), pct("pct", 0.05)],
-  };
-  assert.deepEqual(findGraphViolations(rate), []);
+// ------------------------------------------------------------------ rate
 
+test("rate · reconciles basis x rate", () => {
+  const n: CostingNode = {
+    key: "r", kind: "rate", label: "Duty", value: 0.5, unit: "usd",
+    op: "10 x 0.05", basis: { label: "Factory cost per unit", value: 10 },
+    operands: [pct("pct", 0.05)],
+  };
+  assert.deepEqual(findGraphViolations(n), []);
+});
+
+test("rate · FAILS when the percentage is perturbed", () => {
+  const n: CostingNode = {
+    key: "r", kind: "rate", label: "Duty", value: 0.5, unit: "usd",
+    op: "10 x 0.05", basis: { label: "Factory cost per unit", value: 10 },
+    operands: [pct("pct", 0.06)],
+  };
+  assert.match(only(n), /10 x 0\.06 = 0\.6, node value is 0\.5/);
+});
+
+test("rate · FAILS when the BASIS is perturbed even though the rate is right", () => {
+  // The case the basis requirement exists for. $0.50 of duty could be 5% of
+  // factory cost or 2% of landed cost; without the basis stated, both look
+  // correct and an operator cannot tell whether the right base was used.
+  const n: CostingNode = {
+    key: "r", kind: "rate", label: "Duty", value: 0.5, unit: "usd",
+    op: "10 x 0.05", basis: { label: "Landed cost per unit", value: 25 },
+    operands: [pct("pct", 0.05)],
+  };
+  assert.match(only(n), /25 x 0\.05 = 1\.25, node value is 0\.5/);
+});
+
+test("rate · FAILS when it states no basis at all", () => {
+  const n: CostingNode = {
+    key: "r", kind: "rate", label: "Duty", value: 0.5, unit: "usd", op: "? x 0.05",
+    operands: [pct("pct", 0.05)],
+  };
+  assert.match(only(n), /carries no basis, so the dollar amount it applies to is ambiguous/);
+});
+
+test("rate is NOT the markup shape — basis x rate, never basis x (1 + rate)", () => {
+  // Collapsing the two would reconcile duty at 104% of factory cost and
+  // report it as correct: a markup ADDS to a cost, a rate IS the charge.
+  const n: CostingNode = {
+    key: "r", kind: "rate", label: "Duty", value: 10 * 1.05, unit: "usd",
+    op: "wrong shape", basis: { label: "Factory cost per unit", value: 10 },
+    operands: [pct("pct", 0.05)],
+  };
+  assert.match(only(n), /10 x 0\.05 = 0\.5, node value is 10\.5/);
+});
+
+test("blend remains unchecked, and that is recorded rather than hidden", () => {
+  // A weighted mean averages to its value rather than summing to it, and the
+  // weights are not on the operands. Unchecked-and-said-so beats a check that
+  // quietly does nothing — this assertion exists so the gap cannot be
+  // mistaken for coverage.
   const blend: CostingNode = {
     key: "b", kind: "blend", label: "Blended", value: 999, unit: "usd", op: "weighted mean",
     operands: [usd("x", 1), usd("y", 2)],
