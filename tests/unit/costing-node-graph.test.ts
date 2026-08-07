@@ -78,8 +78,24 @@ const THREE_LINES = [
   pkg({ lineGroupId: "line-c", unitCost: 2, category: "Primary", markupPct: 0.1 }),
 ];
 
+/**
+ * Increment 4 restructured the graph to ONE ROOT PER CELL, with the sections
+ * nested beneath sell rather than sitting alongside it as separate roots. A
+ * section cannot appear both as a root and as an operand — duplicated
+ * arithmetic nodes double-count under reconciliation.
+ *
+ * So lookups search the roots rather than indexing them.
+ */
+const findIn = (r: ReturnType<typeof computeQuoteCosting>, key: string) => {
+  for (const root of r.graph.nodes) {
+    const hit = findNode(root, key);
+    if (hit) return hit;
+  }
+  return null;
+};
+
 const packagingNode = (r: ReturnType<typeof computeQuoteCosting>) =>
-  r.graph.nodes.find((n) => n.key === `${LEAF}/${TIER}/pkg`)!;
+  findIn(r, `${LEAF}/${TIER}/pkg`)!;
 
 // ------------------------------------------- guarantee 6 · nodes match scalars
 
@@ -353,7 +369,7 @@ const prod = (over: Partial<CostingProductionInput> = {}): CostingProductionInpu
 });
 
 const graphNode = (r: ReturnType<typeof computeQuoteCosting>, key: string) =>
-  r.graph.nodes.find((n) => n.key === key)!;
+  findIn(r, key)!;
 const productionNode = (r: ReturnType<typeof computeQuoteCosting>) =>
   graphNode(r, `${LEAF}/${TIER}/prod`);
 const rawNode = (r: ReturnType<typeof computeQuoteCosting>) =>
@@ -691,4 +707,208 @@ test("increment 3 · a quote with no freight still emits a Freight section at ze
   assert.equal(n.value, 0);
   assert.deepEqual(n.operands, []);
   assert.deepEqual(findGraphViolations(n), []);
+});
+
+// ============================================================================
+// Increment 4 — Sell, adjustment resolution, override
+// ============================================================================
+
+const cellRoot = (r: ReturnType<typeof computeQuoteCosting>) => r.graph.nodes[0];
+const sellNode = (r: ReturnType<typeof computeQuoteCosting>) =>
+  findIn(r, `${LEAF}/${TIER}/sell`)!;
+
+const priced = (over: Partial<QuoteCostingInput> = {}) =>
+  input({ packaging: THREE_LINES, production: [prod()], ...over });
+
+test("sell · the root is one node per cell, not one per section", () => {
+  const r = computeQuoteCosting(priced());
+  assert.equal(r.graph.nodes.length, 1);
+  // Sections nest beneath sell. A section appearing both as a root and as an
+  // operand would be a duplicated arithmetic node, which double-counts under
+  // reconciliation.
+  assert.deepEqual(findGraphViolations(r.graph.nodes[0]), []);
+});
+
+test("sell · sell-before-adjustment equals the sum of its sections", () => {
+  const r = computeQuoteCosting(priced());
+  const before = findIn(r, `${LEAF}/${TIER}/sell-before`)!;
+  const sections = before.operands!.map((o) => o.value);
+  assert.equal(sections.reduce((a, b) => a + b, 0), before.value);
+  assert.deepEqual(
+    before.operands!.map((o) => o.label),
+    ["Packaging", "Production", "Bulk raw", "Freight"],
+  );
+});
+
+test("sell · the computed sell node equals the engine's computed sell", () => {
+  const r = computeQuoteCosting(priced());
+  assert.equal(sellNode(r).value, r.skuRollups[0].perTier[0].computedSellPerUnit);
+});
+
+test("sell · the adjustment applies to sell-before, and reconciles", () => {
+  const r = computeQuoteCosting(
+    priced({ quote: { id: "q-1", globalPriceAdjPct: 0.25, targetMarginPct: null } }),
+  );
+  const sell = sellNode(r);
+  const before = sell.operands!.find((o) => o.kind === "sum")!;
+  assert.equal(sell.kind, "adjustment");
+  assert.equal(sell.value, before.value * 1.25);
+  assert.deepEqual(findGraphViolations(cellRoot(r)), []);
+});
+
+// ------------------------------------------------- tier vs global resolution
+
+const adjustmentLadder = (r: ReturnType<typeof computeQuoteCosting>) =>
+  findIn(r, `${LEAF}/${TIER}/adjustment`)!;
+
+test("adjustment · the global wins when the tier carries none", () => {
+  const r = computeQuoteCosting(
+    priced({ quote: { id: "q-1", globalPriceAdjPct: 0.1, targetMarginPct: null } }),
+  );
+  const ladder = adjustmentLadder(r);
+  assert.equal(ladder.kind, "resolution");
+  const chosen = ladder.candidates!.filter((c) => c.chosen);
+  assert.equal(chosen.length, 1);
+  assert.equal(chosen[0].label, "Global adjustment");
+  assert.equal(ladder.value, 0.1);
+});
+
+test("adjustment · a tier adjustment REPLACES the global, and the ladder says so", () => {
+  const r = computeQuoteCosting(
+    priced({
+      quote: { id: "q-1", globalPriceAdjPct: 0.1, targetMarginPct: null },
+      tiers: [{ id: TIER, label: "T1", qty: 1000, sortOrder: 0, tierPriceAdjPct: 0.04 }],
+    }),
+  );
+  const ladder = adjustmentLadder(r);
+  assert.equal(ladder.value, 0.04);
+  assert.equal(ladder.candidates!.find((c) => c.chosen)!.label, "Tier adjustment");
+
+  // The finding the ladder exists to surface: a global lift does not reach a
+  // tier carrying its own adjustment. Arithmetic alone could never say this —
+  // the losing rung is where the fact lives.
+  const global = ladder.candidates!.find((c) => c.label === "Global adjustment")!;
+  assert.equal(global.value, 0.1);
+  assert.match(global.unavailableReason!, /does not stack/);
+});
+
+test("adjustment · the ladder is built upstream, so the losing rung survives", () => {
+  // The rule this increment carries: a resolution must be emitted where all
+  // competing candidates are simultaneously in scope. Downstream, only the
+  // winner arrives — a ladder built there would have to invent the rung it
+  // replaced, and would state provenance nobody observed.
+  const r = computeQuoteCosting(
+    priced({
+      quote: { id: "q-1", globalPriceAdjPct: 0.1, targetMarginPct: null },
+      tiers: [{ id: TIER, label: "T1", qty: 1000, sortOrder: 0, tierPriceAdjPct: 0.04 }],
+    }),
+  );
+  const values = adjustmentLadder(r).candidates!.map((c) => c.value);
+  assert.deepEqual(values, [0.04, 0.1]);
+});
+
+// ------------------------------------------------ freight markup resolution
+
+test("freight markup · resolves quote override against the firm default", () => {
+  const legacy = (freightMarkupPct?: number) =>
+    computeQuoteCosting(
+      input({
+        quote: { id: "q-1", globalPriceAdjPct: 0, targetMarginPct: null, freightMarkupPct },
+        packaging: [pkg({ unitCost: 10, markupPct: 0 })],
+        freightLegGroups: [{ id: "grp-1", label: "Journey", displayOrder: 0 }],
+        freightLegs: [leg({ incoterm: "FOB" })],
+        freightLegTiers: [
+          { freightLegId: "leg-1", tierId: TIER, totalFreight: 4000, unitsInShipment: null },
+        ],
+      } as never),
+    );
+
+  const dflt = legacy();
+  const ladderDefault = findIn(dflt, `${LEAF}/${TIER}/frt/leg/leg-1/container/markup`)!;
+  assert.equal(ladderDefault.kind, "resolution");
+  assert.equal(ladderDefault.candidates!.find((c) => c.chosen)!.label, "Firm default");
+  assert.equal(ladderDefault.value, 0.3);
+
+  const overridden = legacy(0.45);
+  const ladderQuote = findIn(overridden, `${LEAF}/${TIER}/frt/leg/leg-1/container/markup`)!;
+  assert.equal(ladderQuote.candidates!.find((c) => c.chosen)!.label, "Quote freight markup");
+  assert.equal(ladderQuote.value, 0.45);
+  // The default is still visible as the rung that lost — the deferred
+  // resolution from increment 3, closed where both candidates are in scope.
+  assert.equal(ladderQuote.candidates!.find((c) => c.label === "Firm default")!.value, 0.3);
+});
+
+test("freight markup · the worksheet path keeps an origin, not a fabricated ladder", () => {
+  const r = computeQuoteCosting(
+    input({ freightShipmentBreaks: [shipmentBreak()] } as never),
+  );
+  const mk = findIn(r, `${LEAF}/${TIER}/frt/shipment/ship-1/freight/markup`)!;
+  // Worksheet markups are entered per shipment. There is no quote-vs-firm
+  // ladder to show, and inventing one would assert candidates that never
+  // competed.
+  assert.equal(mk.kind, "origin");
+  assert.equal(mk.value, 0.4);
+});
+
+// -------------------------------------------------------------- override
+
+test("override · replaces the chain as a terminal, with no operation above it", () => {
+  const r = computeQuoteCosting(
+    priced({ cellOverrides: [{ quoteSkuId: LEAF, tierId: TIER, sellPriceOverride: 9.5 }] }),
+  );
+  const root = cellRoot(r);
+  assert.equal(root.kind, "override");
+  assert.equal(root.value, 9.5);
+  assert.equal(root.value, r.skuRollups[0].perTier[0].requiredSellPerUnit);
+  // A person set this price. No arithmetic sits above it, so it carries no
+  // operation and no operands.
+  assert.equal(root.op, undefined);
+  assert.equal(root.operands, undefined);
+});
+
+test("override · preserves the superseded chain, demoted rather than deleted", () => {
+  const r = computeQuoteCosting(
+    priced({ cellOverrides: [{ quoteSkuId: LEAF, tierId: TIER, sellPriceOverride: 9.5 }] }),
+  );
+  const superseded = cellRoot(r).superseded!;
+  assert.ok(superseded, "the computation the override replaced must survive");
+  assert.equal(superseded.kind, "adjustment");
+  // Visible because a PM needs to know what they overrode; demoted because it
+  // is not the reason the number is what it is. It is NOT an operand.
+  assert.equal(superseded.value, r.skuRollups[0].perTier[0].computedSellPerUnit);
+  assert.notEqual(superseded.value, cellRoot(r).value);
+});
+
+test("override · the superseded chain is still fully traversable", () => {
+  const r = computeQuoteCosting(
+    priced({ cellOverrides: [{ quoteSkuId: LEAF, tierId: TIER, sellPriceOverride: 9.5 }] }),
+  );
+  // Demoted is not discarded: an operator asking "what would this have been"
+  // gets the whole chain, reconciled, not just the number.
+  assert.deepEqual(findGraphViolations(cellRoot(r).superseded!), []);
+  assert.ok(findIn(r, `${LEAF}/${TIER}/pkg`), "sections remain reachable under the override");
+});
+
+test("override · of ZERO is still an override, not an absent one", () => {
+  const r = computeQuoteCosting(
+    priced({ cellOverrides: [{ quoteSkuId: LEAF, tierId: TIER, sellPriceOverride: 0 }] }),
+  );
+  assert.equal(cellRoot(r).kind, "override");
+  assert.equal(cellRoot(r).value, 0);
+});
+
+test("increment 4 · every sell shape satisfies the traversal guarantees", () => {
+  const cases = [
+    priced(),
+    priced({ quote: { id: "q-1", globalPriceAdjPct: 0.25, targetMarginPct: null } }),
+    priced({ tiers: [{ id: TIER, label: "T1", qty: 1000, sortOrder: 0, tierPriceAdjPct: 0.04 }] }),
+    priced({ cellOverrides: [{ quoteSkuId: LEAF, tierId: TIER, sellPriceOverride: 9.5 }] }),
+    input({}),
+  ];
+  for (const c of cases) {
+    const r = computeQuoteCosting(c);
+    for (const root of r.graph.nodes) {
+      assert.deepEqual(findGraphViolations(root), [], `violations under ${root.key}`);
+    }
+  }
 });
