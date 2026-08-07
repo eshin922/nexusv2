@@ -21,6 +21,13 @@ const classifiedIdentityFiles = new Set([
   "src/app/projects/[id]/quotes/[quoteId]/page.tsx", "src/components/add-product/add-product-modal.tsx",
   "src/components/assembly-tree/asy-row.tsx", "src/components/assembly-tree/leaf-context-menu.tsx",
   "src/components/costing-store-provider.tsx", "src/components/costs/freight-drilldown.tsx", "src/components/costs/production-drilldown.tsx",
+  // CLASSIFIED — enduring. The packaging drilldown addresses graph nodes by
+  // `line.quoteSkuId`, which IS the assembly_leaf id and IS the id the engine
+  // keys its SKU rollups on for a grouped attachment. Naming the identity is
+  // what makes the read addressable; it is the node-key contract, not a legacy
+  // reference. Becomes a canonical quoteLeafId read when OD-017 is settled and
+  // cost inputs stop being keyed on assembly_leaf_id.
+  "src/components/costs/packaging-drilldown.tsx",
   "src/components/library/library-browse-modal.tsx", "src/components/spec-entry/change-type-modal.tsx",
   "src/components/spec-entry/spec-entry-surface.tsx", "src/components/spec-entry/spec-panel.tsx",
   "src/components/spec-entry/type-picker.tsx", "src/db/schema.ts", "src/lib/addendum-loader.ts",
@@ -41,6 +48,10 @@ const classifiedIdentityFiles = new Set([
   "src/lib/product-structure/grouped-membership-compatibility.ts", "src/lib/quote-guards.ts",
   "src/lib/quote-cost-completeness-contract.ts", "src/lib/quote-cost-completeness.ts",
   "src/lib/scenario-copy-loader.ts", "src/lib/workspace-queries.ts",
+  // CLASSIFIED — verification only. Rebuilds the drilldown's grid from
+  // assembly_leaf_inputs to prove the per-line cutover moved exactly the
+  // cells the pre-flight predicted and blanked none.
+  "scripts/gate-1b/verify-packaging-cutover.ts",
   "scripts/parity/so-field-parity.ts", "scripts/product-structure/slice1-compatibility-rehearsal.ts",
   "scripts/product-structure/slice1-contract-rehearsal.ts",
   "scripts/product-structure/slice1-cutover-rehearsal.ts", "scripts/product-structure/slice1-preflight.ts",
