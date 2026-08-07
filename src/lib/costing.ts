@@ -2953,6 +2953,60 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
     }
 
     const blendBase = nodeKey("quote", tier.id);
+
+    // ---------- Cost Stack section total · Packaging (OD-018) ----------
+    //
+    // THE PACKAGING DRILLDOWN'S FOOT. Its business meaning was settled as: the
+    // simple sum of every governed SKU's packaging contribution at this tier,
+    // because the row exists to show what Packaging contributes to the Cost
+    // Stack. So it sums; it does not average and it does not weight.
+    //
+    // DELIBERATELY NOT `quote/{tier}/pkg`, which is the PRICING BLEND — a
+    // units-weighted MEAN over the same population. Two nodes, same component,
+    // same tier, and a factor of the SKU count between them. A key that merely
+    // resembled the blend's would recreate the confusion OD-018 was opened to
+    // resolve, so the scope segment names the surface the quantity belongs to.
+    //
+    // It also is NOT `quote/{tier}/per-unit/pkg`, the Cost Stack header's row,
+    // even though the two AGREE ON ALL 40 DEFINED PRODUCTION TIERS. That
+    // agreement is circumstantial, not structural: the header allocates a tier
+    // total over tier quantity, this sums per-unit values across SKUs, and the
+    // two coincide only while every attachment carries quantity 1 — which all
+    // 137 live attachments currently do. Aliasing one to the other would hold
+    // until the first quantity-2 attachment and then diverge silently. Summing
+    // independently keeps the reconciliation a VERIFIED PROPERTY rather than an
+    // assumed identity, which is the difference between a node that proves its
+    // result and one that happens to agree with it.
+    //
+    // Emitted OUTSIDE the zero-weight guard below, unlike the blends: a sum of
+    // per-unit values is defined at any tier quantity, including zero. Only the
+    // mean is undefined there.
+    const pkgTotalBase = nodeKey(blendBase, "cost-stack", "pkg-total");
+    {
+      // Operands are fresh origin nodes, NOT the per-SKU `{sku}/{tier}/pkg`
+      // nodes themselves — those already live under each cell's sell chain, and
+      // a node appearing twice makes every read of it fail closed. Same
+      // canonical-identity keying as the blends: two attachments of one library
+      // leaf are two commercial lines.
+      const operands: CostingNode[] = contributors.map((c) => ({
+        key: nodeKey(pkgTotalBase, c.sku.canonicalQuoteLeafId ?? c.sku.id),
+        kind: "origin" as const,
+        label: c.sku.skuLabel,
+        value: c.pt.packagingMarkupSumPerUnit,
+        unit: "usd" as const,
+        origin: { grade: "thin" as const, actor: null, when: null, doc: null },
+      }));
+      graphNodes.push({
+        key: pkgTotalBase,
+        kind: "sum",
+        label: "Packaging · all SKUs · " + tier.label,
+        value: operands.reduce((acc, o) => acc + o.value, 0),
+        unit: "usd",
+        op: "Sigma packaging per unit, across " + operands.length + " SKU(s)",
+        operands,
+      });
+    }
+
     const weights = contributors.map((c) => c.weight);
     const totalWeight = weights.reduce((a, b) => a + b, 0);
     const absentNote =
