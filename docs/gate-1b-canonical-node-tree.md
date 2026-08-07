@@ -711,6 +711,8 @@ Ordered by what blocks the most.
 | **A-8** | Node vocabulary is **ten**, not nine | Edward + CA | Confirm F2 and correct the phase specification, or state why `flagged-out` is excluded |
 | ~~**A-9**~~ | **RECORDED 2026-08-06.** Removed from the preserved list; promoted to the single workflow authority | — | `PHASE-3-PRICING-WORKSPACE.md` Amendment A-9. See §19 |
 | **A-10** | Specialise the shared nav banner for Pricing, or promote it for all surfaces? | Edward + CA | Other surfaces depend on its current three-state contract (§17.1.3) |
+| **A-11** | **What entity constitutes a commercial SKU for Pricing aggregation** | Edward | A stated SKU population, as tier-1 authority. **Blocks increment 7.** See [OD-014](OPEN_DECISIONS.md) |
+| **A-12** | Increment 7 needs a fixture matching real nested structure, asserting contributor **population**, not only the resulting number | Nexus engineering | A corrupted-population case that fails. See [OD-015](OPEN_DECISIONS.md) |
 
 ### Blocked on OD-012, not on analysis
 

@@ -83,6 +83,23 @@ structural difference over asserting false uniformity.
 |---|---|
 | `pricing-surface/detail-zone.tsx:452-464` | **unweighted** mean across cells, plus proportional markup re-allocation |
 
+> **STATUS 2026-08-06 — still open. A fix was attempted and reverted.**
+>
+> Gate 1B increment 7 emitted per-component blend nodes (PR #201) and cut this
+> consumer over to them (PR #202). Both were reverted — `f1af346`, `f09eb2c`.
+> The site below is live and still deriving.
+>
+> The cutover failed on reachability: the blends were emitted as nested
+> operands and the consumer resolved them with a root-only lookup, so the
+> table rendered every tier incomplete in production.
+>
+> The emission failed on meaning, which is the blocking half. The blend
+> aggregated over a different population than this site does, and **which
+> population is correct is an unanswered business question** — [OD-014](OPEN_DECISIONS.md).
+> Until it is answered the graph cannot express the quantity this table is
+> meant to show, and migrating the consumer would move the defect rather
+> than remove it.
+
 **This is the most serious finding in the sweep**, for three reasons.
 
 **It is the wrong kind of average.** `avg(k) = Σ value ÷ known.length` is an
