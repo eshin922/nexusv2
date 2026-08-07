@@ -1,14 +1,17 @@
 "use client";
 
+import { useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   selectActiveTierId,
   selectFirmSettings,
+  selectGraph,
   selectQuoteRollup,
   selectSetActiveTier,
   selectTargetMargin,
 } from "@/lib/costing-store";
 import { useCostingStore } from "@/components/costing-store-provider";
+import { quoteScopeKey, readNodeValue } from "@/lib/costing-nodes";
 
 // Slice RI.4 — Cost stack header per R6 actual source (extracted from
 // docs/design-prototypes/dist/source/round-6/index.html lines
@@ -32,19 +35,53 @@ import { useCostingStore } from "@/components/costing-store-provider";
 // the active-tier store (mirrors active-tier-selector.tsx pattern).
 // No separate <ActiveTierSelector> mounted on Costs — the tier
 // columns ARE the selector.
+//
+// ── Gate 1B · A-6 consumer cutover ────────────────────────────────────────
+//
+// Every commercial number below is READ from the canonical graph. This surface
+// used to derive them: it summed component totals, divided each by tier
+// quantity, summed the results into a subtotal, and subtracted that subtotal
+// from revenue. Four separate derivations of quantities the engine had already
+// computed — which is how two surfaces labelled the same thing came to disagree
+// by 9% and neither was wrong.
+//
+// WHAT THIS SURFACE ASSERTS, and why it is not the Pricing blend. These are the
+// quote's tier TOTALS allocated over the tier quantity: "what does one unit of
+// this tier contribute, all products combined". Pricing blends across the
+// governed SKU population: "what does an average SKU sell for". On production
+// data the two differ on 22 of 40 defined tiers, by factors of 2x, 3x and 9x.
+// Both are correct. They must not be collapsed into one another, and the
+// tooltips below name the basis so an operator is not left to assume.
 
 const URL_PARAM = "tier";
 
-const COMPONENT_TOKENS = {
-  packaging: { key: "pkg", label: "PKG" },
-  production: { key: "prod", label: "PROD" },
-  raw: { key: "raw", label: "RAW" },
-  freight: { key: "frt", label: "FRT" },
-  internal: { key: "dt", label: "D+T" },
-  passthrough: { key: "pass", label: "PASS" },
-} as const;
+/**
+ * The rows with an independently governed per-unit value, in render order.
+ *
+ * `node` addresses the canonical graph; `label` and `swatch` are presentation.
+ * RAW is deliberately absent — see `RawIncludedInProdRow`.
+ */
+const GOVERNED_ROWS = [
+  { node: "pkg", label: "PKG", swatch: "pkg", mod: "" },
+  { node: "prod", label: "PROD", swatch: "prod", mod: "" },
+  { node: "frt", label: "FRT", swatch: "frt", mod: "" },
+  { node: "dt", label: "D+T", swatch: "dt", mod: "dt" },
+] as const;
 
-type ComponentKey = keyof typeof COMPONENT_TOKENS;
+type GovernedRow = (typeof GOVERNED_ROWS)[number];
+
+type RowValues = { total: number; cost: number; markup: number };
+
+/** Every per-unit value one tier column displays. Present only when ALL of them
+ *  resolved — a stack half-read from the graph and half-invented is the exact
+ *  failure this cutover removes. */
+type TierPerUnit = {
+  rows: Array<{ row: GovernedRow; values: RowValues }>;
+  subtotal: number;
+  departure: number;
+  revenue: number;
+  costTotal: number;
+};
 
 // R6 cost stack values are PER-UNIT at 2 decimals (cost-build-data.jsx
 // comment: "Numbers below are per-unit dollars at that tier"). Sell at
@@ -63,52 +100,6 @@ function fmtPct(n: number): string {
   return `${(n * 100).toFixed(1)}%`;
 }
 
-// Slice RI.8 Option 2 — return BOTH cost AND markup per component
-// (raw totals, NOT per-unit). Caller divides by tier.qty for display.
-// Sourced from per-component marked-up primitives on the math layer
-// (no more proportional-share approximation). Reconciles with section
-// mini-stack + drilldown TOTAL — all three read the same source.
-type CostMarkup = { cost: number; markup: number };
-function tierTotalFor(
-  key: ComponentKey,
-  rollup: ReturnType<typeof selectQuoteRollup>[number],
-): CostMarkup {
-  const b = rollup.costBreakdown;
-  switch (key) {
-    case "packaging":
-      // packagingMarkupSum is the MARKED-UP value (cost × (1+markup));
-      // markup contribution = markedUp − cost.
-      return {
-        cost: b.packaging,
-        markup: b.packagingMarkupSum - b.packaging,
-      };
-    case "production":
-      return {
-        cost: b.production,
-        markup: b.productionMarkupSum - b.production,
-      };
-    case "freight":
-      // FRT row reads container-only. Markup = container_marked_up − container.
-      return {
-        cost: b.freightContainer,
-        markup: b.freightContainerMarkupSum - b.freightContainer,
-      };
-    case "internal":
-      // D+T row reads dutyAndTariff with its share of the freight
-      // line's markup_pct applied (math layer applies freight markup
-      // uniformly to container + D+T per line).
-      return {
-        cost: b.dutyAndTariff,
-        markup: b.dutyAndTariffMarkupSum - b.dutyAndTariff,
-      };
-    case "raw":
-    case "passthrough":
-      // Not yet rendered (UX_BACKLOG: RAW for dps_sources mode,
-      // PASS for separateServiceFees > 0).
-      return { cost: 0, markup: 0 };
-  }
-}
-
 export function CostStackHeader({
   tiers,
   rawsMode,
@@ -123,11 +114,62 @@ export function CostStackHeader({
   const setActiveTier = useCostingStore(selectSetActiveTier);
   const firmSettings = useCostingStore(selectFirmSettings);
   const quoteTargetMargin = useCostingStore(selectTargetMargin);
+  const graph = useCostingStore(selectGraph);
   // Effective target — quote override or firm default. Used in
   // margin row's "BELOW {N}" inline tag (R6 hardcodes "BELOW 35"
   // because their fixture target is 35%; CC reads the actual value).
   const effectiveTargetPct =
     (quoteTargetMargin ?? firmSettings.targetMarginPct) * 100;
+
+  // Resolved HERE, once, and passed down as data — the same discipline the
+  // Pricing Cost Stack cutover established. The columns render what they are
+  // given and have no access to the graph, so there is one place where a
+  // commercial value can enter this surface.
+  //
+  // `readNodeValue` fails closed on missing, duplicate AND flagged-out. The
+  // third matters here specifically: a zero-quantity tier emits a flagged-out
+  // node at `per-unit`, so reading `.value` off it would render $0.00 for a
+  // figure that is undefined rather than zero.
+  const perUnitByTier = useMemo(() => {
+    const out = new Map<string, TierPerUnit>();
+    for (const tier of tiers) {
+      const read = (name: string): number | null =>
+        readNodeValue(graph.nodes, quoteScopeKey(tier.id, `per-unit/${name}`));
+
+      const rows: Array<{ row: GovernedRow; values: RowValues }> = [];
+      let complete = true;
+      for (const row of GOVERNED_ROWS) {
+        const total = read(row.node);
+        const cost = read(`${row.node}/cost`);
+        const markup = read(`${row.node}/markup`);
+        if (total === null || cost === null || markup === null) {
+          complete = false;
+          break;
+        }
+        rows.push({ row, values: { total, cost, markup } });
+      }
+      if (!complete) continue;
+
+      const subtotal = readNodeValue(
+        graph.nodes,
+        quoteScopeKey(tier.id, "per-unit"),
+      );
+      const departure = read("departure");
+      const revenue = read("revenue");
+      const costTotal = read("cost-total");
+      if (
+        subtotal === null ||
+        departure === null ||
+        revenue === null ||
+        costTotal === null
+      ) {
+        continue;
+      }
+
+      out.set(tier.id, { rows, subtotal, departure, revenue, costTotal });
+    }
+    return out;
+  }, [graph, tiers]);
 
   const selectTier = (tierId: string) => {
     setActiveTier(tierId);
@@ -153,25 +195,13 @@ export function CostStackHeader({
   }
 
   const showRaw = rawsMode === "dps_sources";
-  // Slice RI.8 Option B+ — D+T row restored with real numbers
-  // sourced from breakdown.dutyAndTariff. PASS still hardcoded
-  // to zero and dropped pending companion restoration work
-  // (UX_BACKLOG entry referenced from RI.9 cost-stack work).
-  const components: ComponentKey[] = showRaw
-    ? ["packaging", "production", "raw", "freight", "internal"]
-    : ["packaging", "production", "freight", "internal"];
 
-  // R6 normalizes bar segment widths to max per-unit SUBTOTAL (cost,
-  // NOT revenue) across tiers per cost-stack-header.jsx lines 14-19:
-  //   reduce((m, t) => Math.max(m, t.subtotal != null ? t.subtotal : 0), 1)
-  // Bars represent cost+markup contribution; normalizing to max-cost
-  // makes the segments span 30-40% of cell width (R6 visual register)
-  // rather than 15-20% (which is what max-revenue normalization gives).
+  // Bar geometry, NOT a commercial value: segment widths are a percentage of
+  // the widest tier's per-unit cost, so the bars are comparable across columns.
+  // This arithmetic is about pixels and stays local by design — the dollars it
+  // scales were all read from the graph.
   const maxPerUnitCost = Math.max(
-    ...quoteRollup.map((t) => {
-      const q = tiers.find((tt) => tt.id === t.tierId)?.qty ?? 0;
-      return q > 0 ? t.totalCost / q : 0;
-    }),
+    ...[...perUnitByTier.values()].map((t) => t.costTotal),
     0.01,
   );
 
@@ -191,7 +221,7 @@ export function CostStackHeader({
           <LegendItem label="Packaging" variant="pkg" />
           <LegendItem label="Production" variant="prod" />
           {showRaw && (
-            <LegendItem label="Raws" tail="(DPS-sourced)" variant="raw" />
+            <LegendItem label="Raws" tail="in Production" variant="raw" />
           )}
           <LegendItem label="Freight" variant="frt" />
           <LegendItem label="D+T" tail="internal" variant="dt" />
@@ -220,8 +250,10 @@ export function CostStackHeader({
             <TierColumn
               key={tier.id}
               tier={tier}
-              rollup={rollup}
-              components={components}
+              perUnit={perUnitByTier.get(tier.id)}
+              showRaw={showRaw}
+              marginPct={rollup?.blendedMarginPct ?? null}
+              marginStatus={rollup?.blendedMarginStatus ?? "GOOD"}
               maxPerUnitCost={maxPerUnitCost}
               isActive={isActive}
               effectiveTargetPct={effectiveTargetPct}
@@ -259,54 +291,30 @@ function LegendItem({
 
 function TierColumn({
   tier,
-  rollup,
-  components,
+  perUnit,
+  showRaw,
+  marginPct,
+  marginStatus,
   maxPerUnitCost,
   isActive,
   effectiveTargetPct,
   onSelect,
 }: {
   tier: { id: string; label: string; qty: number | null };
-  rollup: ReturnType<typeof selectQuoteRollup>[number] | undefined;
-  components: ComponentKey[];
+  perUnit: TierPerUnit | undefined;
+  showRaw: boolean;
+  marginPct: number | null;
+  marginStatus: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
   maxPerUnitCost: number;
   isActive: boolean;
   effectiveTargetPct: number;
   onSelect: () => void;
 }) {
-  const tierQty = tier.qty ?? 0;
-  const totalCostTier = rollup?.totalCost ?? 0;
-  const totalRevenueTier = rollup?.totalRevenue ?? 0;
-  // Per-unit values per R6 (cost-build-data.jsx fixture comment).
-  const totalCostPerUnit = tierQty > 0 ? totalCostTier / tierQty : 0;
-  const totalRevenuePerUnit = tierQty > 0 ? totalRevenueTier / tierQty : 0;
-  // totalCostPerUnit retained for the MarginRow + bar normalization;
-  // proportional markup distribution no longer used post-Option 2.
-  const marginPct = rollup?.blendedMarginPct ?? null;
-  const marginStatus = rollup?.blendedMarginStatus ?? "GOOD";
-  const isEmpty = totalRevenueTier <= 0;
-
-  // Slice RI.8 Option 2 — each component reads its cost AND its real
-  // per-line markup directly from the math layer
-  // (rollup.costBreakdown.*MarkupSum). No more proportional-share
-  // approximation. Subtotal = sum of (cost + markup) = sellWithoutGlobalAdj
-  // when no cell-overrides; the Adjustment row surfaces the gap to
-  // Sell when adjustments / overrides apply.
-  const componentValues = components.map((key) => {
-    const cm = rollup
-      ? tierTotalFor(key, rollup)
-      : { cost: 0, markup: 0 };
-    return {
-      key,
-      cost: tierQty > 0 ? cm.cost / tierQty : 0,
-      markup: tierQty > 0 ? cm.markup / tierQty : 0,
-    };
-  });
-  const subtotalPerUnit = componentValues.reduce(
-    (sum, c) => sum + c.cost + c.markup,
-    0,
-  );
-  const adjustmentPerUnit = totalRevenuePerUnit - subtotalPerUnit;
+  // Unavailable, not empty. Either the graph does not carry per-unit values for
+  // this tier (zero quantity — the allocation is undefined, and undefined is
+  // not zero), or the tier has not been priced yet. Both render the same
+  // honest dash rather than a figure.
+  const unavailable = perUnit === undefined || perUnit.revenue <= 0;
 
   // Canonical .r6-tier-col rules (6styles.css L155-166) provide paper
   // bg, flex column, cursor, hover bg-shift, and .active inset-bottom
@@ -337,50 +345,55 @@ function TierColumn({
       </div>
 
       <div className="r6-tier-col-bars">
-        {componentValues.map((c) => (
-          <CompRow
-            key={c.key}
-            componentKey={c.key}
-            cost={c.cost}
-            markup={c.markup}
-            maxPerUnitCost={maxPerUnitCost}
-          />
-        ))}
+        {GOVERNED_ROWS.map((row) => {
+          const found = perUnit?.rows.find((r) => r.row.node === row.node);
+          return (
+            <CompRow
+              key={row.node}
+              row={row}
+              values={found ? found.values : null}
+              maxPerUnitCost={maxPerUnitCost}
+            />
+          );
+        })}
+        {/* RAW sits between PROD and FRT in R6's order, but it has no
+            independently governed value to sit there WITH, so it renders after
+            the governed rows rather than interrupting them. */}
+        {showRaw && <RawIncludedInProdRow />}
       </div>
 
       <div className="r6-tier-col-foot">
-        {!isEmpty ? (
+        {perUnit && !unavailable ? (
           <>
             <div
               className="row sub"
-              title="Sum of (cost + markup) across component rows above"
+              title="All products in this tier, per unit: component cost plus markup, allocated over the tier quantity. A whole-quote figure — not the per-SKU blended average shown on Pricing."
             >
               <span>Subtotal</span>
-              <span className="v">
-                {subtotalPerUnit > 0 ? fmtCurr2(subtotalPerUnit) : "—"}
-              </span>
+              <span className="v">{fmtCurr2(perUnit.subtotal)}</span>
             </div>
-            {Math.abs(adjustmentPerUnit) >= 0.005 && (
+            {Math.abs(perUnit.departure) >= 0.005 && (
               <div
                 className="row sub"
-                title="Difference between Sell and the sum of component rows. Non-zero when a cell override is set, when a per-tier price adjustment applies, or when there are hidden cost components (passthrough services) not rendered above."
+                title="Quoted price less the component build-up above, per unit. Non-zero when a cell override is set, when a per-tier price adjustment applies, or when there are cost components not rendered above (passthrough services)."
               >
-                <span>{adjustmentPerUnit < 0 ? "Override" : "Adjustment"}</span>
+                <span>
+                  {perUnit.departure < 0 ? "Override" : "Adjustment"}
+                </span>
                 <span
                   className="v"
                   style={{
-                    color:
-                      adjustmentPerUnit < 0 ? "var(--bad)" : undefined,
+                    color: perUnit.departure < 0 ? "var(--bad)" : undefined,
                   }}
                 >
-                  {adjustmentPerUnit >= 0 ? "+" : "−"}
-                  {fmtCurr2(Math.abs(adjustmentPerUnit))}
+                  {perUnit.departure >= 0 ? "+" : "−"}
+                  {fmtCurr2(Math.abs(perUnit.departure))}
                 </span>
               </div>
             )}
             <div className="row sell">
               <span className="lab">Sell</span>
-              <span className="v">{fmtCurr2(totalRevenuePerUnit)}</span>
+              <span className="v">{fmtCurr2(perUnit.revenue)}</span>
             </div>
             <MarginRow
               status={marginStatus}
@@ -406,6 +419,45 @@ function TierColumn({
   );
 }
 
+/**
+ * The RAW row, when the quote sources its own raws.
+ *
+ * Bulk raw IS costed — it is folded into Production, and `productionMarkupSum`
+ * already carries it. What does not exist is an independently attributable raw
+ * figure for this column, so there is no node to read and nothing honest to put
+ * in the price cell.
+ *
+ * The three candidate treatments were all worse than saying so. `$0.00` asserts
+ * that raws cost nothing. A dash implies a value that is merely missing, which
+ * would send an operator looking for an input to fill. Blanking the whole tier
+ * because one row has no node would withhold four correct figures to punish a
+ * fifth. So the row states where the money went.
+ *
+ * It carries no numeric cell, so it takes no part in the tier's completeness
+ * check — the column renders fully whether or not this row is shown, and will
+ * keep doing so until raw has a governed value of its own.
+ */
+function RawIncludedInProdRow() {
+  return (
+    <div
+      className="r6-comp-row raw"
+      title="Bulk raw material is costed inside Production and is not separately attributable in this stack."
+    >
+      <span className="key">RAW</span>
+      <span
+        style={{
+          color: "var(--ink-4)",
+          fontStyle: "italic",
+          letterSpacing: "0.01em",
+        }}
+      >
+        included in PROD
+      </span>
+      <span className="price" aria-hidden />
+    </div>
+  );
+}
+
 // Canonical .r6-comp-row grammar:
 //   <div class="r6-comp-row {dt|raw|empty}">
 //     <span class="key">PKG</span>
@@ -418,44 +470,39 @@ function TierColumn({
 // CSS provides grid columns, font-mono register, key/price colors per
 // modifier, and bar/seg sizing. JSX only sets dynamic segment widths.
 function CompRow({
-  componentKey,
-  cost,
-  markup,
+  row,
+  values,
   maxPerUnitCost,
 }: {
-  componentKey: ComponentKey;
-  cost: number;
-  markup: number;
+  row: GovernedRow;
+  values: RowValues | null;
   maxPerUnitCost: number;
 }) {
-  const meta = COMPONENT_TOKENS[componentKey];
-  const isPassthrough = componentKey === "passthrough";
-  const totalValue = cost + markup;
-  const isEmpty = totalValue <= 0;
+  // No values at all (tier unavailable), or a governed zero. Both draw an empty
+  // bar; only the first refuses to print a number.
+  const isEmpty = values === null || values.total <= 0;
 
   // R6 bar: segments scale via width:% of the cell's max per-unit
-  // subtotal. Passthrough never has markup per R6 source.
-  const costPct = Math.max(0.5, (cost / maxPerUnitCost) * 100);
-  const markupPct = isPassthrough ? 0 : Math.max(0, (markup / maxPerUnitCost) * 100);
+  // subtotal. Pixel geometry, not commercial arithmetic.
+  const costPct = values
+    ? Math.max(0.5, (values.cost / maxPerUnitCost) * 100)
+    : 0;
+  const markupPct = values
+    ? Math.max(0, (values.markup / maxPerUnitCost) * 100)
+    : 0;
 
-  const rowMods = [
-    componentKey === "internal" ? "dt" : "",
-    componentKey === "raw" ? "raw" : "",
-    isEmpty ? "empty" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const rowMods = [row.mod, isEmpty ? "empty" : ""].filter(Boolean).join(" ");
 
   return (
     <div className={`r6-comp-row${rowMods ? ` ${rowMods}` : ""}`}>
-      <span className="key">{meta.label}</span>
+      <span className="key">{row.label}</span>
 
       {isEmpty ? (
         <span className="r6-bar empty" />
       ) : (
         <span className="r6-bar">
           <span
-            className={`seg cost ${meta.key}`}
+            className={`seg cost ${row.swatch}`}
             style={{
               width: `${costPct}%`,
               transition: "width 200ms ease-out",
@@ -474,7 +521,7 @@ function CompRow({
       )}
 
       <span className="price">
-        {isEmpty ? "—" : fmtCurr2(totalValue)}
+        {values === null || isEmpty ? "—" : fmtCurr2(values.total)}
       </span>
     </div>
   );

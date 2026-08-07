@@ -630,6 +630,36 @@ export function resolveNode(
 }
 
 /**
+ * Read a commercial NUMBER out of the graph, or nothing at all.
+ *
+ * `resolveNode` answers "which node is at this key". This answers the question
+ * a display actually asks — "what number may I show here" — and it fails closed
+ * on THREE things, not two:
+ *
+ *   - MISSING    — nothing at that key.
+ *   - DUPLICATE  — more than one, so the graph has no single answer.
+ *   - FLAGGED-OUT — a node IS there, and it exists precisely to say that no
+ *                  number belongs here. Its `value` is 0 by invariant, so a
+ *                  caller that reads `.value` off it reads a commercial zero
+ *                  out of a node whose entire purpose was to deny one.
+ *
+ * That third case is why this helper exists rather than each consumer writing
+ * `node ? node.value : null`. A zero-quantity tier emits `flagged-out` AT THE
+ * KEY THE HEADER ADDRESSES, so the naive read does not fail — it succeeds, and
+ * renders $0.00 where the honest answer is a dash. Encoding the check once, at
+ * the authority, means a consumer cannot get it wrong by omission.
+ */
+export function readNodeValue(
+  nodes: readonly CostingNode[],
+  key: string,
+): number | null {
+  const node = resolveNode(nodes, key);
+  if (!node) return null;
+  if (node.kind === "flagged-out") return null;
+  return node.value;
+}
+
+/**
  * The exact quote-scope key for a per-tier node. Built here rather than
  * interpolated at each call site so consumers cannot drift from the emitter's
  * key grammar — a mistyped key is indistinguishable from a missing node.

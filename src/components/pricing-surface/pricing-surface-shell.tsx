@@ -50,7 +50,7 @@ import { DetailZone, type BlendedTierComponents } from "./detail-zone";
 import { usePricingClassifier } from "./pricing-classifier-context";
 import { useCostingStore } from "@/components/costing-store-provider";
 import { selectGraph } from "@/lib/costing-store";
-import { resolveNode, quoteScopeKey } from "@/lib/costing-nodes";
+import { readNodeValue, quoteScopeKey } from "@/lib/costing-nodes";
 
 // 30s persistent "↻ just updated" hint after a mode transition. CD
 // §4.6 / §9.2 pushback 2. Restart on each subsequent transition.
@@ -260,10 +260,12 @@ export function PricingSurfaceShell({
   const blendedByTier = useMemo(() => {
     const byNumeric = new Map<number, BlendedTierComponents>();
     for (const [tierUuid, numeric] of uuidToNumeric) {
-      const read = (name: string): number | null => {
-        const node = resolveNode(graph.nodes, quoteScopeKey(tierUuid, name));
-        return node ? node.value : null;
-      };
+      // `readNodeValue` also fails closed on a flagged-out node, which
+      // `node ? node.value : null` did not. No blend key carries one today, so
+      // this changes no rendered value — it removes the trap where adding one
+      // later would surface a commercial zero here instead of a dash.
+      const read = (name: string): number | null =>
+        readNodeValue(graph.nodes, quoteScopeKey(tierUuid, name));
       const pkg = read("pkg");
       const prod = read("prod");
       const raw = read("raw");

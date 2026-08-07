@@ -23,6 +23,7 @@ import {
   QUOTE_SCOPE_PREFIX,
   quoteScopeKey,
   resolveNode,
+  readNodeValue,
   REQUIRED_CELL_SECTIONS,
   TERMINAL_KINDS,
   graphIsComplete,
@@ -1272,4 +1273,119 @@ test("ownership · the whole graph still reconciles after every transition", () 
     assert.deepEqual(findGraphViolations(root), [], `violations under ${root.key}`);
   }
   assert.equal(r.graph.complete, true);
+});
+
+
+// ─── readNodeValue · the read a DISPLAY makes ───────────────────────────────
+//
+// `resolveNode` answers "which node is here". A surface asks a narrower
+// question — "what number may I print" — and the gap between those two is
+// where a commercial zero gets rendered for a figure that has none.
+
+test("readNodeValue · reads a value through nesting, not just off roots", () => {
+  const nodes: CostingNode[] = [
+    {
+      key: "top",
+      kind: "sum",
+      label: "top",
+      value: 3,
+      unit: "usd",
+      op: "a + b",
+      operands: [
+        { key: "a", kind: "origin", label: "a", value: 1, unit: "usd",
+          origin: { grade: "thin", actor: null, when: null, doc: null } },
+        { key: "b", kind: "origin", label: "b", value: 2, unit: "usd",
+          origin: { grade: "thin", actor: null, when: null, doc: null } },
+      ],
+    },
+  ];
+  assert.equal(readNodeValue(nodes, "b"), 2);
+  assert.equal(readNodeValue(nodes, "top"), 3);
+});
+
+test("readNodeValue · missing and duplicate both read as nothing", () => {
+  const origin = (key: string): CostingNode => ({
+    key, kind: "origin", label: key, value: 5, unit: "usd",
+    origin: { grade: "thin", actor: null, when: null, doc: null },
+  });
+  assert.equal(readNodeValue([origin("x")], "nope"), null);
+  // Two nodes, one key: the graph does not have one answer, so no answer is
+  // readable. Taking the first would be a coin toss the operator never sees.
+  assert.equal(readNodeValue([origin("x"), origin("x")], "x"), null);
+});
+
+test("readNodeValue · a flagged-out node reads as nothing, NOT as its zero", () => {
+  // This is the whole reason the helper exists. `flagged-out` carries value 0
+  // by invariant, so the obvious read — `node ? node.value : null` — succeeds
+  // and hands the display a commercial zero out of a node whose entire purpose
+  // was to deny one. A zero-quantity tier emits exactly this, at exactly the
+  // key the Costs header addresses.
+  const nodes: CostingNode[] = [
+    {
+      key: "quote/t1/per-unit",
+      kind: "flagged-out",
+      label: "Combined contribution per unit",
+      value: 0,
+      unit: "usd",
+      reason: "Tier quantity is zero, so a per-unit allocation is undefined.",
+    },
+  ];
+  assert.equal(resolveNode(nodes, "quote/t1/per-unit")?.value, 0);
+  assert.equal(readNodeValue(nodes, "quote/t1/per-unit"), null);
+});
+
+test("readNodeValue · a genuine zero still reads as zero", () => {
+  // The converse guard: fail-closed must not swallow real zeros. A component
+  // that genuinely costs nothing is a commercial fact and must print as one.
+  const nodes: CostingNode[] = [
+    {
+      key: "quote/t1/per-unit/dt",
+      kind: "sum",
+      label: "Duty & tariff per unit",
+      value: 0,
+      unit: "usd",
+      op: "cost per unit + markup per unit",
+      operands: [
+        { key: "quote/t1/per-unit/dt/cost", kind: "origin", label: "c", value: 0,
+          unit: "usd", origin: { grade: "thin", actor: null, when: null, doc: null } },
+        { key: "quote/t1/per-unit/dt/markup", kind: "origin", label: "m", value: 0,
+          unit: "usd", origin: { grade: "thin", actor: null, when: null, doc: null } },
+      ],
+    },
+  ];
+  assert.equal(readNodeValue(nodes, "quote/t1/per-unit/dt"), 0);
+});
+
+test("the Costs header's required node set resolves, and RAW is not in it", () => {
+  // The cutover's contract: the header reads sixteen values per tier and
+  // renders nothing unless all sixteen are there. This asserts the engine
+  // supplies exactly that set — and that RAW is absent from it, so a quote
+  // sourcing its own raws still renders a complete column.
+  const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  const tierId = TIER;
+  const k = (name: string) => quoteScopeKey(tierId, `per-unit/${name}`);
+
+  for (const comp of ["pkg", "prod", "frt", "dt"]) {
+    for (const suffix of ["", "/cost", "/markup"]) {
+      const key = k(comp + suffix);
+      assert.notEqual(
+        readNodeValue(out.graph.nodes, key),
+        null,
+        `header requires ${key}`,
+      );
+    }
+  }
+  for (const name of ["departure", "revenue", "cost-total"]) {
+    assert.notEqual(readNodeValue(out.graph.nodes, k(name)), null, name);
+  }
+  assert.notEqual(
+    readNodeValue(out.graph.nodes, quoteScopeKey(tierId, "per-unit")),
+    null,
+    "subtotal",
+  );
+
+  // RAW has no independently governed per-unit value — production already
+  // carries bulk raw, so a raw node would double-count. The header states
+  // "included in PROD" rather than reading one.
+  assert.equal(readNodeValue(out.graph.nodes, k("raw")), null);
 });
