@@ -509,6 +509,25 @@ export type SkuPerTierRollup = {
 
 export type SkuRollup = {
   skuId: string;
+  /**
+   * The governed commercial identity of this SKU (OD-014): the quote-scoped
+   * leaf attachment, `quote_leaves.id`.
+   *
+   * NULL on assemblies, which are not commercial lines — Pricing excludes them
+   * and the customer is never quoted a price for one.
+   *
+   * It may also be null on a leaf during the compatibility window, since
+   * `CostingSku.canonicalQuoteLeafId` is optional. Consumers that need
+   * commercial identity must treat null as "not resolvable" and fail closed
+   * rather than falling back to `skuId` — `skuId` is the LEGACY
+   * `assembly_leaf_id`, and silently substituting it is precisely the
+   * resolution Phase 3 forbids.
+   *
+   * Carried through from the engine's input, which already had it. It was
+   * previously dropped at the output boundary, so no consumer could read
+   * commercial identity from a rollup.
+   */
+  canonicalQuoteLeafId: string | null;
   skuRole: SkuRoleValue;
   parentSkuId: string | null;
   indentDepth: number;
@@ -2445,6 +2464,7 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       });
       const rollup: SkuRollup = {
         skuId: sku.id,
+        canonicalQuoteLeafId: sku.canonicalQuoteLeafId ?? null,
         skuRole: sku.skuRole,
         parentSkuId: sku.parentSkuId,
         indentDepth: depth,
@@ -2481,6 +2501,7 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
     });
     const rollup: SkuRollup = {
       skuId: sku.id,
+      canonicalQuoteLeafId: sku.canonicalQuoteLeafId ?? null,
       skuRole: sku.skuRole,
       parentSkuId: sku.parentSkuId,
       indentDepth: depth,

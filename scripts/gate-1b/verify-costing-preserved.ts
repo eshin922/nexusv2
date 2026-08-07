@@ -32,6 +32,7 @@ import { readFileSync } from "node:fs";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { getCostingBundle } from "@/app/actions/costing";
+import { canonical } from "./canonical-digest.ts";
 
 type Entry = { quote_id: string; status: string; label: string; digest: string };
 const baseline = JSON.parse(
@@ -41,14 +42,6 @@ const baselineDetail = JSON.parse(
   '{"_":' + readFileSync("docs/gate-1b/costing-baseline-detail.json", "utf8").trim() + "}",
 )._ as Record<string, unknown>;
 
-function canonical(v: unknown): string {
-  if (v === null || v === undefined) return "null";
-  if (typeof v === "number") return Number.isFinite(v) ? v.toPrecision(17) : String(v);
-  if (typeof v !== "object") return JSON.stringify(v);
-  if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
-  const o = v as Record<string, unknown>;
-  return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(",")}}`;
-}
 
 /** Report WHERE a value moved, not merely that the digest changed. */
 function firstDifference(a: unknown, b: unknown, path = ""): string | null {

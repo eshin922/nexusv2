@@ -20,6 +20,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { computeQuoteCosting } from "../../src/lib/costing.ts";
 import {
   buildQuoteCostingInputFromNewModel,
   type BuildQuoteCostingInputFromNewModelArgs,
@@ -104,7 +105,10 @@ function args(
     assemblyProductionInputs: [],
     assemblyLeafOverrides: [],
     assemblyLeafTargets: [],
-    freight: undefined,
+    freightLegGroups: [],
+    freightLegs: [],
+    freightLegTiers: [],
+    freightComponentTierCosts: [],
     ...over,
   } as BuildQuoteCostingInputFromNewModelArgs;
 }
@@ -220,4 +224,57 @@ test("production data anchors to the lowest-position leaf, by canonical order", 
   );
   assert.equal(built.production.length, 1);
   assert.equal(built.production[0].quoteSkuId, "al-1"); // position 0
+});
+
+// ---------------------------------------------------------------------------
+// Commercial identity survives to the engine's OUTPUT.
+//
+// `canonicalQuoteLeafId` was carried on the input and dropped at the output
+// boundary, so no consumer could read commercial identity from a rollup.
+// Increment 7 reads contributor identity from exactly there.
+// ---------------------------------------------------------------------------
+
+test("every leaf rollup carries its canonical commercial identity", () => {
+  const result = computeQuoteCosting(buildQuoteCostingInputFromNewModel(args()));
+  const leaves = result.skuRollups.filter((r) => r.skuRole === "leaf");
+  assert.equal(leaves.length, 4);
+  assert.deepEqual(
+    leaves.map((r) => r.canonicalQuoteLeafId).sort(),
+    ["ql-direct-1", "ql-grouped-1", "ql-grouped-2", "ql-grouped-3"],
+  );
+});
+
+test("assemblies carry no commercial identity", () => {
+  // An assembly is not a commercial line: Pricing excludes it and the customer
+  // is never quoted a price for one. Null is the correct answer, not an
+  // oversight, and a consumer must not read one here.
+  const result = computeQuoteCosting(buildQuoteCostingInputFromNewModel(args()));
+  const asy = result.skuRollups.filter((r) => r.skuRole === "assembly");
+  assert.equal(asy.length, 1);
+  assert.equal(asy[0].canonicalQuoteLeafId, null);
+});
+
+test("identity is distinct per rollup where the legacy key would collide", () => {
+  // The two attachments of one library leaf must remain separable BY
+  // COMMERCIAL IDENTITY at the output, not merely by the legacy id.
+  const result = computeQuoteCosting(buildQuoteCostingInputFromNewModel(args()));
+  const repeats = result.skuRollups.filter((r) => r.skuLabel === "LIB-R");
+  assert.equal(repeats.length, 2);
+  assert.notEqual(repeats[0].canonicalQuoteLeafId, repeats[1].canonicalQuoteLeafId);
+});
+
+test("identity is null, never the legacy id, when it cannot be resolved", () => {
+  // Falling back to skuId would substitute the legacy `assembly_leaf_id` for a
+  // commercial identity — the resolution Phase 3 forbids. Unresolvable must
+  // stay visibly unresolvable so a consumer fails closed.
+  const built = buildQuoteCostingInputFromNewModel(args());
+  const withoutIdentity = {
+    ...built,
+    skus: built.skus.map((s) => ({ ...s, canonicalQuoteLeafId: null })),
+  };
+  const result = computeQuoteCosting(withoutIdentity);
+  for (const r of result.skuRollups) {
+    assert.equal(r.canonicalQuoteLeafId, null);
+    assert.notEqual(r.canonicalQuoteLeafId, r.skuId);
+  }
 });
