@@ -2825,6 +2825,42 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       };
     };
 
+    // ---------- per-component blends (Gate 1B increment 7) ----------
+    //
+    // NAMED FOR THE QUANTITY, NOT FOR THE COLUMN. Every one of these is a
+    // marked-up SELL figure per unit, blended across products. The surface
+    // that consumes them currently heads the same numbers "UNIT COST", which
+    // is why the vocabulary is set here rather than inherited: a correct value
+    // under a wrong label is still a wrong statement, and the graph is now the
+    // place that statement is made.
+    //
+    // "Bulk raw" and "Duty & tariff" are spelled out for the same reason. PROD
+    // and D+T are column abbreviations; the graph is business vocabulary that
+    // other consumers — trace, publication, diagnostics — will read too.
+    const componentBlends: CostingNode[] = [
+      blend("pkg", "Blended packaging sell per unit", (pt) => pt.packagingMarkupSumPerUnit),
+      blend("prod", "Blended production sell per unit", (pt) => pt.productionMarkupSumPerUnit),
+      blend("raw", "Blended bulk raw sell per unit", (pt) => pt.rawMarkupSumPerUnit),
+      blend("frt", "Blended freight sell per unit", (pt) => pt.freightContainerMarkupSumPerUnit),
+      blend("dt", "Blended duty & tariff sell per unit", (pt) => pt.freightDutyTariffMarkupSumPerUnit),
+    ];
+
+    // Blending is LINEAR, so the component blends sum to the blend of the
+    // sums. That is what lets a stack of blended rows reconcile to a blended
+    // total at all — without it the column would be a set of averages with no
+    // arithmetic relationship to the figure beneath them.
+    const blendedSellBefore: CostingNode = {
+      key: nodeKey(blendBase, "sell-before"),
+      kind: "sum",
+      label: "Blended sell before adjustment",
+      value: componentBlends.reduce((acc, n) => acc + n.value, 0),
+      unit: "usd",
+      op: "packaging + production + bulk raw + freight + duty & tariff",
+      operands: componentBlends,
+    };
+
+    graphNodes.push(blendedSellBefore);
+
     graphNodes.push({
       key: blendBase,
       kind: "sum",

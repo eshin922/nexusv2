@@ -56,6 +56,10 @@ const classifiedIdentityFiles = new Set([
   // nothing, and asserts no mapping — the join is a census, not authority.
   // Retire with the S-7 baseline once the node graph lands.
   "scripts/gate-1b/select-fixtures.ts",
+  // CLASSIFIED — transitional, read-only. The Gate 1B live-smoke expectation
+  // printer joins assembly_leaf_overrides to report how many overrides exist.
+  // It resolves no identity and writes nothing; the join is a count.
+  "scripts/gate-1b/smoke-expected.ts",
   "scripts/smoke/mark-complete.ts", "scripts/verify/costing-adapter.ts",
   "scripts/verify/sample-order-margin.ts", "scripts/verify/slice-11-5-1-warnings-parity.ts",
   "tests/harness/fixtures/world.ts",
