@@ -136,7 +136,39 @@ acknowledged approximation while waiting for it.
 | `costs/freight-drilldown.tsx:655` | `amount × (1+markup) ÷ qty` helper | same |
 | `costs/freight-drilldown.tsx:666` | per-tier total freight + customs per unit | `freightContainerMarkupSumPerUnit` + `freightDutyTariffMarkupSumPerUnit` |
 | `costs/packaging-drilldown.tsx:108,918` | `unit × (1+markup) × qty` per line | `packagingMarkupSumPerUnit` — **aggregate only** |
-| `costs/cost-stack-header.tsx:305` | subtotal by summing component values | the `sum` node |
+| ~~`costs/cost-stack-header.tsx:305`~~ | ~~subtotal by summing component values~~ | **CLOSED** — see §3.2.1 |
+
+#### 3.2.1 · Cost-stack header — closed
+
+The header derived four things, not the one this table recorded: it summed
+component totals, divided each by tier quantity, summed those into a subtotal,
+and subtracted the subtotal from revenue. It now reads sixteen values per tier
+out of the graph and renders nothing unless all sixteen resolve.
+
+**The quantity is not the Pricing blend, and the two must not be merged.** These
+are quote tier TOTALS allocated over tier quantity — "what does one unit of this
+tier contribute, all products combined". Pricing blends across the governed SKU
+population — "what does an average SKU sell for". They differ on 22 of 40 defined
+production tiers, by factors of 2x, 3x and 9x. The defect was independent
+derivation, never the answer. `scripts/gate-1b/verify-header-cutover.ts` fails if
+no multi-SKU tier exercises the divergence, so a change that collapsed them could
+not pass by looking correct.
+
+**RAW takes no part in the tier's completeness check.** Bulk raw is costed inside
+Production — `productionMarkupSum` already carries it — so there is no
+independently attributable raw figure and no node to read. The row states
+`included in PROD` rather than printing `$0.00` (which would assert raws cost
+nothing), a dash (which would imply a missing input to go and fill), or blanking
+the column (which would withhold four correct figures to punish a fifth). When raw
+gains a governed value of its own, it joins the required set; until then the
+column is complete without it.
+
+**Evidence.** 37 tiers render a full column with every value graph-read and
+unchanged; 3 tiers carry rows but no sell (priced at zero) and are verified on
+the rows they do render; 12 are blank before and after. S-7 unchanged at
+`150d9f5a…`.
+
+**Still open at this site:** `:130`'s local effective-target resolution, below.
 
 **An important qualification that changes the remediation.** Most of these are
 not duplicates of a value the engine currently exposes — they are duplicates at a
