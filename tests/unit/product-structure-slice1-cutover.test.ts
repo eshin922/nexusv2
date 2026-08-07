@@ -56,6 +56,19 @@ const classifiedIdentityFiles = new Set([
   // nothing, and asserts no mapping — the join is a census, not authority.
   // Retire with the S-7 baseline once the node graph lands.
   "scripts/gate-1b/select-fixtures.ts",
+  // CLASSIFIED — evidence, read-only. Both count and compare identity columns
+  // to settle OD-014 and to prove the C-2 population swap could not reorder or
+  // revalue anything. They resolve no identity and write nothing. The ordering
+  // check is retained rather than deleted because it is the precondition any
+  // future change of population source must re-prove.
+  "scripts/gate-1b/od-014-ordering-check.ts",
+  "scripts/gate-1b/od-014-population-evidence.ts",
+  // CLASSIFIED — verification, read-only. Asserts that the engine's leaf
+  // population equals the canonical attachment set by identity. It resolves
+  // the canonical-to-legacy mapping only to predict the id the engine emits,
+  // and writes nothing. Retire when cost inputs key on quote_leaf_id and the
+  // coalesce it mirrors disappears.
+  "scripts/gate-1b/verify-sku-population.ts",
   "scripts/smoke/mark-complete.ts", "scripts/verify/costing-adapter.ts",
   "scripts/verify/sample-order-margin.ts", "scripts/verify/slice-11-5-1-warnings-parity.ts",
   "tests/harness/fixtures/world.ts",

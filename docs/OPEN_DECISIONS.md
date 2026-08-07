@@ -203,48 +203,21 @@ database failure must not masquerade as a code regression.
 
 ### OD-014 · What entity constitutes a commercial SKU for Pricing aggregation
 
-**Owner:** Edward · **Blocks:** Gate 1B increment 7. Blocks any per-component
-blend node entering the canonical graph.
+**SETTLED 2026-08-07 by Edward.** Recorded in
+[`gate-1b-od-014-sku-identity.md`](gate-1b-od-014-sku-identity.md).
 
-Pricing presents blended per-unit figures — packaging, production, bulk raw,
-freight, duty & tariff, sell before adjustment. Blending requires a population
-to blend over, and **that population has never been stated as a business fact.**
+> A commercial SKU for Pricing aggregation is the quote-scoped leaf attachment,
+> **`quote_leaves.id`**. Aggregations over SKUs use that population regardless
+> of assembly-tree shape.
 
-The absence went unnoticed because two candidate populations coincide on the
-common case. They diverge as soon as a quote contains an assembly, and the
-divergence is not small: on quote `52bd0077` the two answers for blended
-packaging are `5.0750` and `2.5375`. Both are arithmetically correct. They are
-answers to different questions.
+Four of the five recorded sources agreed — Phase 3 authority, canonical
+attachment semantics, existing per-SKU Pricing behaviour, and customer-facing
+quote behaviour. Production data closed `leaf_id` independently: the same
+library leaf attaches up to three times within one quote, so it does not
+distinguish commercial lines. The fifth source is dispositioned as **OD-016**.
 
-Increment 7 emitted a blend without settling this, and was reverted for that
-reason — see `f1af346`.
-
-**This is not a question about tree depth.** Whether an entity happens to sit at
-the top of the assembly tree is an implementation artefact of how a quote was
-built, and cannot be what determines whether it is a thing the firm sells. The
-question is what Pricing means by "a SKU".
-
-**Determine the answer from, in combination:**
-
-| Source | What it should settle |
-|---|---|
-| Recovered Phase 3 authority | Whether the workspace was designed against a stated SKU identity |
-| Canonical `quote_leaf_id` / commercial-attachment semantics | Which entity carries commercial attachment |
-| Setup's SKU model | What an operator believes they are creating when they add a SKU |
-| Existing per-SKU Pricing behaviour | What the per-SKU rows already treat as a SKU today |
-| Customer-facing quote and publication semantics | What the customer is shown as a line they can buy |
-
-The last is the strongest evidence available: **the entity the customer is
-quoted a price for is the entity Pricing is aggregating.** If those two
-disagree, the disagreement is itself the finding.
-
-**Once the identity is established, the component blends must aggregate over
-that governed population regardless of assembly-tree shape.** An implementation
-that reads the tree to decide who participates has re-encoded the artefact.
-
-**What settles it:** a stated definition of the Pricing SKU population, recorded
-as tier-1 authority, with the coincidence case named explicitly so a future
-fixture cannot pass by accident.
+The population boundary this exposed (**C-2**) is corrected; the two findings it
+left open are **OD-016** and **OD-017**.
 
 ---
 
@@ -284,6 +257,62 @@ reconciliation rule is not complete until a valid case passes and a corrupted
 case fails.
 
 ---
+
+### OD-016 · Setup authors commercial values that nothing consumes
+
+**Owner:** Edward · **Blocks:** nothing today. Will block ASY-optional quote
+authoring if unanswered.
+
+`assemblies` carries `unit_price`, `unit_cost`, `margin_pct` and `markup_pct`.
+The Add Product modal presents ASY mode as *"commercial fields"* and LEAF mode
+as *"identity fields"*. Those four columns are written by `createAssembly` and
+**read by nothing** — zero readers anywhere in `src/`.
+
+Operators can therefore author commercial values that no downstream authority
+consumes, in a surface that presents them as commercial. Nothing warns them.
+
+Dispositioned during OD-014 as a **Setup-authoring defect**, explicitly *not*
+evidence that assemblies are priced SKUs — Pricing identity does not move around
+these fields. The long-term direction sharpens it: once ASY is optional at quote
+level, a quote may contain no assembly at all.
+
+| Option | Consequence |
+|---|---|
+| **Remove the fields from ASY authoring** | Setup stops teaching a commercial model the system does not implement |
+| **Wire them to something** | Requires stating what an assembly-level price *means* when the customer is quoted per leaf |
+| **Relabel as non-commercial** | Cheapest, if the values are wanted as internal reference only |
+
+**What settles it:** a statement of what an assembly-level price is for, or a
+decision to drop it.
+
+---
+
+### OD-017 · Cost inputs key on `assembly_leaf_id`, blocking ASY-optional authoring
+
+**Owner:** Nexus engineering + Edward · **Blocks:** ASY-optional quote authoring.
+Does not block Increment 7.
+
+Every cost-input table — `assembly_leaf_inputs`, `assembly_leaf_overrides`,
+`assembly_leaf_targets` — keys on `assembly_leaf_id`. A direct canonical
+attachment (`quote_leaves.assembly_id IS NULL`) has no such row, so **no cost can
+be authored against it.**
+
+Since the OD-014 / C-2 correction such an attachment *is* a governed SKU and
+appears in Pricing and the customer quote — with unpriced cells, via the existing
+missing-cell semantics. Nothing invents a price. But it cannot be costed.
+
+Zero direct attachments exist today, so this is latent. **Under ASY-optional
+authoring it becomes the main path**, at which point the tables must key on
+`quote_leaf_id`.
+
+That is a schema change → **OD-012** governs how it is authored. It is recorded
+now, while it is cheap, rather than discovered when the first ASY-less quote
+cannot be priced.
+
+**What settles it:** a migration re-keying the cost-input tables to
+`quote_leaf_id`, sequenced after OD-012 is resolved — or an explicit decision
+that ASY remains mandatory.
+
 
 ## Open — needed before the relevant work starts
 
@@ -484,8 +513,8 @@ Freight section only" is a complete answer and closes this.
 ## Closed
 
 *(Entries move here with the disposition and a pointer to where the decision
-now lives. Nothing has closed since this register was created on 2026-08-04.)*
+now lives.)*
 
 | ID | Decision | Closed | Recorded in |
 |---|---|---|---|
-| — | — | — | — |
+| OD-014 | A commercial SKU for Pricing aggregation is the quote-scoped leaf attachment, `quote_leaves.id` | 2026-08-07 | [`gate-1b-od-014-sku-identity.md`](gate-1b-od-014-sku-identity.md) |

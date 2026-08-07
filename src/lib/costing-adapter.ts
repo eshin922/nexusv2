@@ -26,12 +26,24 @@
 //
 // Three semantic-mapping decisions worth calling out:
 //
-// 1. **Assemblies become math-assemblies; assembly_leaves become
-//    math-leaves.** The NEW-model tree (assembly → leaves library
-//    via assembly_leaves junction) maps to the math layer's two-
-//    level SKU tree (parent assembly with leaf children). Each
-//    assembly_leaf gets its own math-leaf entry keyed by
-//    `assembly_leaf.id` (the cost-bearing junction PK).
+// 1. **The SKU population is the canonical attachment set.** Per
+//    OD-014 the governed commercial SKU for Pricing aggregation is
+//    `quote_leaves.id`, so the adapter enumerates canonical
+//    attachments; assemblies become math-assemblies and each
+//    attachment becomes a math-leaf.
+//
+//    This previously enumerated `assembly_leaves`, which made the
+//    presence of an assembly a precondition for being a SKU at all
+//    and silently excluded a leaf attached directly to the quote
+//    (`quote_leaves.assembly_id IS NULL`). That form is indexed for
+//    in the schema and validated by the identity module, and it is
+//    the shape ASY-optional quote authoring produces.
+//
+//    The math-leaf is still KEYED by `assembly_leaf.id` wherever one
+//    exists, because the cost-input tables are. Population and
+//    keying are separate questions: OD-014 settles the first, the
+//    compatibility window governs the second, and the canonical id
+//    rides along on every SKU as `canonicalQuoteLeafId`.
 //
 // 2. **Packaging is per-cell (assembly_leaf × tier).** Direct
 //    passthrough — `assembly_leaf_inputs` rows map to
@@ -86,13 +98,25 @@ export type AdapterAssemblyRow = {
   position: number;
 };
 
-// Minimum columns from `assembly_leaves` joined with `leaves` lib.
-// The library leaf's name + sku flow into the math-leaf's
+// One canonical commercial attachment — a `quote_leaves` row joined to the
+// library `leaves` row it points at, plus its legacy compatibility row where
+// one exists. The library leaf's name + sku flow into the math-leaf's
 // productName + skuLabel.
-export type AdapterAssemblyLeafRow = {
-  id: string;
+//
+// `assemblyLeafId` is the LEGACY identity, retained only because the cost-input
+// tables still key on it. Its nullability is load-bearing rather than
+// defensive: `quote_leaves.assembly_id` is nullable, so a leaf may attach
+// directly to the quote with no assembly and therefore no legacy row.
+//
+// `leafId` is deliberately NOT an identity. The same library leaf attaches up
+// to three times within a single quote in production, so it does not
+// distinguish commercial lines. Phase 3 forbids resolving through it.
+export type AdapterQuoteLeafAttachmentRow = {
   quoteLeafId: string;
-  assemblyId: string;
+  /** Legacy grouped-membership id. NULL for a direct canonical attachment. */
+  assemblyLeafId: string | null;
+  /** NULL when the leaf attaches directly to the quote. */
+  assemblyId: string | null;
   leafId: string;
   quantity: string | number; // numeric column — Drizzle returns string
   position: number;
@@ -100,6 +124,20 @@ export type AdapterAssemblyLeafRow = {
   leafName: string;
   leafSku: string;
 };
+
+/**
+ * The id the math layer keys a leaf by: the legacy `assembly_leaf_id` wherever
+ * one exists. Using it here is what lets the population move to the canonical
+ * source without moving a single commercial number.
+ *
+ * A direct canonical attachment has no legacy row, so it falls back to its own
+ * `quote_leaf_id`. It also has no cost inputs, because every cost-input table
+ * keys on `assembly_leaf_id` — so it is representable but not yet priceable.
+ * That is a recorded plumbing finding, not a behaviour to invent around.
+ */
+function mathSkuId(row: AdapterQuoteLeafAttachmentRow): string {
+  return row.assemblyLeafId ?? row.quoteLeafId;
+}
 
 // Minimum columns from `assembly_leaf_inputs`. Direct passthrough
 // to CostingPackagingInput.
@@ -164,7 +202,13 @@ export type BuildQuoteCostingInputFromNewModelArgs = {
   markupDefaults: Record<string, number>;
   tiers: CostingTier[];
   assemblies: AdapterAssemblyRow[];
-  assemblyLeaves: AdapterAssemblyLeafRow[];
+  /**
+   * The governed SKU population (OD-014): canonical `quote_leaves` attachments,
+   * NOT `assembly_leaves`. Discovering the population from the legacy table
+   * made assembly presence a precondition for being a SKU — see C-2 in
+   * `docs/gate-1b-od-014-sku-identity.md`.
+   */
+  quoteLeafAttachments: AdapterQuoteLeafAttachmentRow[];
   assemblyLeafInputs: AdapterAssemblyLeafInputRow[];
   assemblyProductionInputs: AdapterAssemblyProductionInputRow[];
   assemblyLeafOverrides: AdapterAssemblyLeafOverrideRow[];
@@ -222,9 +266,9 @@ export function buildQuoteCostingInputFromNewModel(
       retailBenchmark: null,
     });
   }
-  for (const al of args.assemblyLeaves) {
+  for (const al of args.quoteLeafAttachments) {
     skus.push({
-      id: al.id,
+      id: mathSkuId(al),
       canonicalQuoteLeafId: al.quoteLeafId,
       parentSkuId: al.assemblyId,
       qtyPerParent: num(al.quantity),
@@ -269,8 +313,10 @@ export function buildQuoteCostingInputFromNewModel(
   // Iterate in (assemblyId, position) order so we deterministically
   // pick the lowest-position leaf as the anchor. The input array
   // order isn't guaranteed, so build the index ourselves.
-  const leavesByAssembly = new Map<string, AdapterAssemblyLeafRow[]>();
-  for (const al of args.assemblyLeaves) {
+  const leavesByAssembly = new Map<string, AdapterQuoteLeafAttachmentRow[]>();
+  for (const al of args.quoteLeafAttachments) {
+    // A direct attachment has no assembly, so it anchors nothing.
+    if (al.assemblyId === null) continue;
     const arr = leavesByAssembly.get(al.assemblyId) ?? [];
     arr.push(al);
     leavesByAssembly.set(al.assemblyId, arr);
@@ -278,7 +324,7 @@ export function buildQuoteCostingInputFromNewModel(
   for (const [assemblyId, leaves] of leavesByAssembly) {
     const sorted = [...leaves].sort((a, b) => a.position - b.position);
     if (sorted.length > 0) {
-      anchorLeafByAssembly.set(assemblyId, sorted[0].id);
+      anchorLeafByAssembly.set(assemblyId, mathSkuId(sorted[0]));
     }
   }
 
