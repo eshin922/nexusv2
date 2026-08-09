@@ -314,6 +314,175 @@ cannot be priced.
 that ASY remains mandatory.
 
 
+### OD-019 · How a margin is represented in the canonical graph
+
+**Owner:** Edward + CA · **Blocks:** the margin-in-points transient delta,
+which Phase 3 §3 requires. **In Phase 3 scope** — Phase 3 does not close
+without it. Blocks nothing else; the staging bar and page mounting proceed in
+parallel.
+
+**Classification:** design decision, not an implementation one. §2 of the node
+specification is explicit that adding a node kind is the former, so this stops
+here rather than choosing.
+
+---
+
+#### Why there is a question at all
+
+Phase 3 §3 requires that while anything is staged, the cost stack shows the
+movement against last-applied **on every component row, on quoted sell, and on
+margin in points.** The first two are joins on canonical node keys and work
+today (PR #238). The third has nothing to join: **no node in the graph carries
+a margin.** Every `pct` node in the graph is a rate or a resolution — a markup,
+an adjustment, the effective target. None is a computed ratio.
+
+`marginPointsDelta` is written, unit-tested, and needs only a key to read.
+
+**Do not fold margin into an existing kind to avoid new vocabulary.** Each of
+the eleven advertises an operation, and reconciliation checks the node against
+the operation it advertises. A margin filed as `allocation` or `rate` would be
+checked against arithmetic it does not perform, and the check would have to be
+weakened to accommodate it — which quietly weakens it for the nodes that
+legitimately use those kinds.
+
+---
+
+#### Recommendation: a `ratio` kind, with the denominator as `basis`
+
+Stated as a recommendation rather than a decision. Engineering analysis is
+complete; the choice is Edward + CA's.
+
+```
+{sku}/{tier}/margin      kind: "ratio"    unit: "pct"
+  op:       "(revenue − cost) ÷ revenue"
+  operands: [ {sku}/{tier}/margin/gross   kind: "difference" ]
+  basis:    { label: "Revenue", value: <revenue> }
+```
+
+**Generic, not domain-named.** `ratio` means `operand ÷ basis` and nothing more.
+A `margin` kind would name one business quantity in a vocabulary whose other ten
+members name operations, and the next ratio the graph needs would have to either
+reuse a misleading name or add a twelfth.
+
+**It composes with `difference`, which already exists** — added for the Costs
+header's departure node. `revenue − cost` is a difference; a margin is that
+difference over revenue. Reusing it is the argument that `ratio` is the right
+granularity: if margin needed a bespoke kind, the composition would not fall out
+this cleanly.
+
+---
+
+#### 1 · Operands and reconciliation
+
+**The denominator is `basis`, not a second operand**, and the existing field's
+own documentation gives the reason:
+
+> *Carried as data rather than as an operand because the basis is computed
+> elsewhere in the chain — embedding its subtree here would duplicate arithmetic
+> nodes, and duplicated arithmetic nodes double-count under reconciliation.*
+
+That is exactly the situation. Revenue already appears inside the `difference`;
+making it also a direct operand of the ratio would put one arithmetic node under
+two parents, which §4 rule 5 forbids. `rate` solved the same problem the same way
+— duty carries its percentage as an operand and factory cost as a basis.
+
+Reconciliation is then a single line, and true for every `ratio` rather than for
+margins specifically:
+
+```ts
+case "ratio": {
+  const [numerator] = operands;
+  const denominator = n.basis?.value;
+  return closeEnough(numerator.value / denominator, n.value) ? null : …;
+}
+```
+
+**A ratio must reconcile like everything else.** No exemption: `resolution` is
+the only kind that asserts nothing, because its children are alternatives.
+
+---
+
+#### 2 · Zero-revenue semantics — the crux
+
+`CostingNode.value` is `number`, not `number | null`. **An undefined margin
+therefore cannot be a `ratio` node**, and must not be one valued zero — that is
+precisely the fabrication three corrections have just removed from the scalars
+(quote-wide, per-tier, per-cell).
+
+The graph already has the right shape for it: **`flagged-out`**, valued zero,
+carrying `reason`. It exists for an input that is excluded with a stated cause,
+and it is already used for a rejected surgical lift.
+
+```
+revenue > 0   →  ratio node
+revenue = 0   →  flagged-out, reason = "no revenue — margin is undefined"
+                 or "cost with no revenue against it — margin is undefined"
+```
+
+Two consequences worth naming, both good:
+
+- `readNodeValue` **fails closed on `flagged-out`**, so a margin delta on a
+  zero-revenue cell reports nothing rather than a movement. Correct: there is no
+  margin, so nothing moved.
+- The two reasons preserve the `UNAVAILABLE` / `COST_WITHOUT_REVENUE`
+  distinction inside the graph, which currently lives only on the scalars.
+
+**The alternative — making `value` nullable — is rejected.** It would touch every
+consumer of every node to serve one kind, and it would make "no value" expressible
+in places where it is meaningless. A sum has no undefined case.
+
+---
+
+#### 3 · Reuse across the three scopes
+
+One contract, three scopes, no special-casing — which is the test of whether the
+kind is drawn at the right level:
+
+| Key | Basis |
+|---|---|
+| `{sku}/{tier}/margin` | cell revenue |
+| `quote/{tier}/margin` | tier revenue |
+| `quote-wide/margin` | blended revenue |
+
+The key grammar already supports all three (`cell`, `quote`, `quote-wide`), and
+the zero-revenue rule is the same at each. **All three scalars are already
+nullable with a governed status**, so emitting the nodes changes no number — it
+exposes structure the engine already computes, exactly as Amendment A-1 permits.
+
+Expected S-7 movement: **none.** The graph is not in the S-7 payload.
+
+---
+
+#### 4 · Graph-version compatibility
+
+**No bump.** The rule banked with the `evaluation` field is that a version moves
+when an existing consumer stops being CORRECT, not when it stops compiling.
+
+A new kind does not make any consumer wrong about a node it already understood.
+In-repo consumers that switch exhaustively — the trace's `KIND_LABEL`, the
+compliance grid's `STATUS_CLASS` — fail to COMPILE, which is the outcome those
+Records exist to produce. A serialized v2 graph read by a v2 consumer is
+unaffected, because it contains no ratio nodes.
+
+Contrast with `evaluation`, which did bump: there, a v1 consumer handed a preview
+graph stayed perfectly type-correct and silently became semantically wrong.
+
+**Precedent:** `blend` and `difference` were both added without a bump. This is
+the third instance of the same shape, and consistency is itself the argument.
+
+---
+
+#### What settles it
+
+Edward + CA confirm or reject the `ratio` contract above. If confirmed,
+implementation is bounded and additive: one kind, one reconciliation branch, one
+emission site per scope, and the delta call site that is already written.
+
+If rejected, the alternative must still answer §2 — margin cannot be filed under
+a kind whose advertised operation it does not perform.
+
+---
+
 ## Open — needed before the relevant work starts
 
 ### OD-009 · Freight markup resolution when a break carries no markup
