@@ -130,6 +130,13 @@ for (const [quoteId, qRows] of byQuote) {
     if (newValue > oldValue) changedUpward += 1;
 
     // 2 · every change is explained by the absent-markup fallback.
+    //
+    // `node` is non-null here — `newValue` is derived from it and a null
+    // newValue already continued above — but the compiler cannot see that
+    // through the intermediate. Narrowed explicitly rather than asserted,
+    // because a `!` here would be the one place this script stops checking
+    // itself.
+    if (!node) continue;
     const engineMarkup = node.operands?.[1]?.value ?? null;
     if (rawMarkup !== null) {
       failures.push(
