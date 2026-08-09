@@ -52,6 +52,15 @@ const classifiedIdentityFiles = new Set([
   // carries the address; it writes nothing and resolves nothing.
   "src/lib/pricing-staging.ts",
   "src/components/pricing-surface/pricing-staging-context.tsx",
+  // CLASSIFIED — carries, does not resolve. The staging bar renders one chip
+  // per pending change and hands each change's composite cell key to a
+  // labeller supplied by the caller. It never parses the key and never
+  // resolves an identity: a component that resolved one is a component that
+  // can resolve it wrongly, and the caller already holds the SKU and tier
+  // names. Named here because the key it passes through encodes the canonical
+  // attachment, and a file touching that identity should say so even when its
+  // only role is transport.
+  "src/components/pricing-surface/staging-bar.tsx",
   "src/lib/freight-workbook.ts", "src/lib/leaf-spec-loader.ts",
   "src/lib/commercial-settings.ts",
   "src/lib/library-browse-loader.ts", "src/lib/nav/home-queries.ts", "src/lib/netsuite/item-resolver.ts",
