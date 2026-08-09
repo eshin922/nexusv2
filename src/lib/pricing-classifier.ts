@@ -38,6 +38,7 @@
 // either direction. tsconfig `allowImportingTsExtensions: true`
 // keeps tsc happy.
 import { isBelowTarget, isBelowFloor } from "./pricing-predicates.ts";
+import { liftToClear } from "./pricing-suggestions.ts";
 
 // ──────────────────────────────────────────────────────────────────
 // Input shapes (caller supplies; classifier consumes read-only)
@@ -61,6 +62,8 @@ export interface QuoteCellInput {
   cost_unit?: number | null;
   cost_stack?: CostStackBuckets | null;
   override_applied?: boolean;
+  /** A surgical lift staged or applied on this cell. */
+  lift_applied_pct?: number | null;
   missing?: boolean;
 }
 
@@ -191,6 +194,30 @@ export interface Cell {
   missing: boolean;
   status: CellStatus;
   override_applied: boolean;
+  /**
+   * The minimum lift that would clear the floor, or null when none is needed
+   * or none is possible. Solver output — see `liftToClear`.
+   */
+  lift_offer_pct: number | null;
+  /** A lift already staged or applied on this cell. */
+  lift_applied_pct: number | null;
+  /**
+   * A lift cannot be applied here because someone set this price directly.
+   * Phase 3 §1: reject, do not overrule.
+   */
+  lift_blocked: boolean;
+  /**
+   * Below floor with nothing done about it yet.
+   *
+   * NOT the same as `status === "below_floor"`, and the difference is the
+   * point: a cell that breaches the floor and already carries a lift has been
+   * addressed. Counting it as outstanding would keep the banner red after the
+   * operator fixed it — the R12 grid's `outstanding` versus `below_target`
+   * split exists for exactly this.
+   */
+  outstanding: boolean;
+  /** Anything the operator could do here: lift needed, lift blocked, or one applied. */
+  actionable: boolean;
 }
 
 export interface Action {
@@ -263,6 +290,18 @@ export interface QuoteState {
   skus: SkuRollup[];
   cells: Cell[];
   below_floor: Cell[];
+  /**
+   * Below floor and NOT yet addressed by a lift.
+   *
+   * The banner's verdict counts these, not `below_floor` — a cell that
+   * breaches the floor and already carries a lift has been dealt with, and
+   * counting it would keep the page red after the operator fixed it.
+   *
+   * Both partitions come from the same `cells` array, computed once. That is
+   * what makes H2 structural: the banner and the grid cannot disagree because
+   * there is nothing for them to disagree between.
+   */
+  outstanding: Cell[];
   below_target: Cell[];
   over_client_target: Cell[];
   actions: Action[];
@@ -297,6 +336,17 @@ export function classify(
             ? "below_target"
             : "above_target";
       const sellUnit = cellRaw.sell_unit ?? null;
+      const costUnit = cellRaw.cost_unit ?? null;
+      // The offer is computed for any below-floor cell, whether or not one is
+      // already applied — the grid shows what WOULD clear it, and hiding that
+      // once a lift exists removes the only way to see the applied one is
+      // enough.
+      const overrideApplied = cellRaw.override_applied === true;
+      const liftApplied = cellRaw.lift_applied_pct ?? null;
+      const liftOffer =
+        status === "below_floor"
+          ? liftToClear(sellUnit, costUnit, policy.floor_margin_pct)
+          : null;
       const clientTarget = sku.client_target_unit ?? null;
       const clientTargetDelta =
         clientTarget != null && sellUnit != null
@@ -317,7 +367,13 @@ export function classify(
           clientTarget != null && sellUnit != null && sellUnit > clientTarget,
         missing,
         status,
-        override_applied: cellRaw.override_applied === true,
+        override_applied: overrideApplied,
+        lift_offer_pct: liftOffer,
+        lift_applied_pct: liftApplied,
+        lift_blocked: liftOffer !== null && overrideApplied,
+        outstanding: status === "below_floor" && liftApplied === null,
+        actionable:
+          liftOffer !== null || liftApplied !== null || (overrideApplied && status === "below_floor"),
       });
     }
   }
@@ -326,6 +382,11 @@ export function classify(
   const unknown = cells.filter((c) => c.missing);
   const belowFloor = known.filter((c) => c.status === "below_floor");
   const belowTarget = known.filter((c) => c.status === "below_target");
+  // Same array, one more partition. Every consumer of "what is wrong here"
+  // reads one of these three, and all three are slices of `cells` — which is
+  // what makes the single-evaluation guarantee structural rather than a
+  // convention two surfaces are asked to honour.
+  const outstanding = known.filter((c) => c.outstanding);
 
   // ── 2. Mode — worst-case classifier ────────────────────────────
   const mode: Mode =
@@ -678,6 +739,7 @@ export function classify(
     skus: skuRoll,
     cells,
     below_floor: belowFloor,
+    outstanding,
     below_target: belowTarget,
     over_client_target: overClientTarget,
     actions,
