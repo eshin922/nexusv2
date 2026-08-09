@@ -51,8 +51,10 @@ import {
 } from "@/lib/pricing-classifier";
 import { rankPricingSuggestions } from "@/lib/pricing-suggestions";
 import { isBelowTarget } from "@/lib/pricing-predicates";
+import { readEffectiveTargetMargin } from "@/lib/costing-nodes";
 import {
   selectFirmSettings,
+  selectGraph,
   selectGlobalAdj,
   selectQuoteRollup,
   selectSkuRollups,
@@ -125,6 +127,7 @@ export function PricingClassifierProvider({
   // changes. Recompute pipeline upstream (CostingStoreProvider's
   // wait-for-quiet) handles debounce; subscribers fire on commit.
   const firmSettings = useCostingStore(selectFirmSettings);
+  const graph = useCostingStore(selectGraph);
   const globalAdj = useCostingStore(selectGlobalAdj);
   const quoteRollup = useCostingStore(selectQuoteRollup);
   const skuRollups = useCostingStore(selectSkuRollups);
@@ -134,6 +137,22 @@ export function PricingClassifierProvider({
   // inside the adapter (cellTargets selector is curried per-cell;
   // adapter iterates over all cells).
   const storeApi = useCostingStoreApi();
+
+  // The effective target, read from the one resolution the engine publishes.
+  //
+  // THERE IS NO FALLBACK, deliberately. An earlier revision kept
+  // `?? firmSettings.targetMarginPct` as a broken-graph guard, which is still a
+  // second authority path: it would let this surface answer a commercial
+  // question the graph declined to answer, and answer it plausibly enough that
+  // nobody would notice. The node is emitted unconditionally on every compute,
+  // so a null here is a graph-integrity failure, not a missing option.
+  //
+  // Classification cannot proceed without it — every verdict is a comparison
+  // against this number — so the provider stops and the surface renders an
+  // explicit unavailable state below. Rendering nothing at all would read as a
+  // loading state; manufacturing a target would read as an answer. Neither is
+  // what has happened.
+  const targetRead = readEffectiveTargetMargin(graph.nodes);
 
   // Build QuoteInput + QuotePolicyInput (memoised).
   const { quoteInput, policyInput, idMap } = useMemo(
@@ -145,13 +164,14 @@ export function PricingClassifierProvider({
         quoteRollup,
         skuRollups,
         globalAdj,
-        effectiveTarget:
-          quoteSummary?.effectiveTargetMarginPct ??
-          firmSettings.targetMarginPct,
+        // Never reached when null — the guard below returns first. Zero is a
+        // placeholder for the type, not a default.
+        effectiveTarget: targetRead?.value ?? 0,
         cellTargetLookup: (skuId, tierId) =>
           selectCellTarget(skuId, tierId)(storeApi.getState()),
       }),
     [
+      targetRead,
       tiersForReframe,
       firmSettings,
       policy,
@@ -174,6 +194,33 @@ export function PricingClassifierProvider({
     () => ({ state, idMap }),
     [state, idMap],
   );
+
+  if (targetRead === null) {
+    // Explicit, and named as an integrity failure rather than a data gap: no
+    // operator action fixes this, so the copy must not invite one.
+    return (
+      <div
+        role="alert"
+        style={{
+          margin: "16px 0",
+          padding: "14px 16px",
+          border: "1px solid var(--rule)",
+          borderRadius: "8px",
+          background: "var(--paper-2)",
+          fontSize: "13px",
+          color: "var(--ink-2)",
+        }}
+      >
+        <strong style={{ display: "block", marginBottom: 4 }}>
+          Pricing verdicts are unavailable.
+        </strong>
+        The quote&rsquo;s effective target margin could not be read from the
+        computation graph, and every margin verdict is a comparison against it.
+        Nothing here is wrong — it is withheld. This is an integrity fault
+        rather than missing input, so re-entering data will not clear it.
+      </div>
+    );
+  }
 
   return (
     <PricingClassifierContext.Provider value={value}>

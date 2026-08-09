@@ -5,10 +5,12 @@ import { updateQuoteTargetMargin } from "@/app/actions/costing";
 import { useCostingStore } from "@/components/costing-store-provider";
 import {
   selectFirmSettings,
+  selectGraph,
   selectQuoteId,
   selectTargetMargin,
   selectUpdateTargetMargin,
 } from "@/lib/costing-store";
+import { readEffectiveTargetMargin } from "@/lib/costing-nodes";
 import { validatePercentDecimal } from "@/lib/percent-validation";
 
 // Slice 9.2 — per-quote target-margin override (Plan B placement).
@@ -70,6 +72,7 @@ export function QuoteTargetMarginPopover({
 }) {
   const quoteId = useCostingStore(selectQuoteId);
   const firmSettings = useCostingStore(selectFirmSettings);
+  const graph = useCostingStore(selectGraph);
   const overrideValue = useCostingStore(selectTargetMargin);
   const updateLocal = useCostingStore(selectUpdateTargetMargin);
 
@@ -200,10 +203,22 @@ export function QuoteTargetMarginPopover({
   const trimmedDraft = draft.trim();
   const draftDecimal =
     trimmedDraft === "" ? null : Number(trimmedDraft) / 100;
+  // The draft branch is a genuine PREVIEW of an uncommitted edit and stays
+  // local. The other branch is not a preview at all — it is "what applies if
+  // you clear this", which is the resolution ladder minus its top rung, and the
+  // engine already publishes it. Reading `firmSettings` here was a sixth
+  // private copy of that ladder, correct only for as long as the ladder has
+  // exactly two rungs.
+  const targetRead = readEffectiveTargetMargin(graph.nodes);
   const effectivePreview =
     draftDecimal !== null && Number.isFinite(draftDecimal)
       ? { value: draftDecimal, source: "this quote" as const }
-      : { value: firmSettings.targetMarginPct, source: "firm default" as const };
+      : {
+          value: targetRead?.withoutOverride ?? null,
+          source: (targetRead && !targetRead.isOverride
+            ? targetRead.source.toLowerCase()
+            : "firm default") as string,
+        };
 
   const overrideIsActive = overrideValue !== null;
 
@@ -286,7 +301,7 @@ export function QuoteTargetMarginPopover({
           <div className="mb-3 flex items-baseline justify-between rounded bg-gray-50 px-2 py-1 text-xs">
             <span className="text-gray-600">Currently effective</span>
             <span className="tabular-nums text-gray-900">
-              {fmtPct(effectivePreview.value)}{" "}
+              {effectivePreview.value === null ? "—" : fmtPct(effectivePreview.value)}{" "}
               <span className="text-[10px] text-gray-500">
                 ({effectivePreview.source})
               </span>

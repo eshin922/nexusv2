@@ -28,6 +28,8 @@ import {
   nodeKey,
   parseNodeKey,
   isCellScoped,
+  quoteWideKey,
+  readEffectiveTargetMargin,
   isQuoteScoped,
   isCellSectionNode,
   collectCellSectionNodes,
@@ -1530,7 +1532,8 @@ test("grammar · TIER — a section at another tier is not a match", () => {
   const key = nodeKey(SKU_A, T_A, "pkg");
   assert.equal(isCellSectionNode(key, "pkg", { tierId: T_A }), true);
   assert.equal(isCellSectionNode(key, "pkg", { tierId: T_B }), false);
-  assert.equal(parseNodeKey(key)?.tierId, T_A);
+  const parsed = parseNodeKey(key);
+  assert.equal(parsed?.scope === "cell" ? parsed.tierId : null, T_A);
 });
 
 test("grammar · SKU — a section on another SKU is not a match", () => {
@@ -1592,4 +1595,88 @@ test("grammar · collectCellSectionNodes scopes to the tier asked for", () => {
   const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
   assert.equal(collectCellSectionNodes(out.graph.nodes, "pkg", { tierId: T_B }).length, 0);
   assert.equal(collectCellSectionNodes(out.graph.nodes, "nonexistent-section").length, 0);
+});
+
+// ─── effective target margin · one resolution, five readers ─────────────────
+
+test("effective target · no override resolves to the firm default, and says so", () => {
+  const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  const read = readEffectiveTargetMargin(out.graph.nodes);
+  assert.ok(read);
+  assert.equal(read.value, 0.35);
+  assert.equal(read.source, "Firm default");
+  assert.equal(read.isOverride, false);
+  // What would apply if an override were cleared — here, the same rung.
+  assert.equal(read.withoutOverride, 0.35);
+});
+
+test("effective target · an override wins and is ATTRIBUTED to the quote", () => {
+  // The whole point of a resolution rather than an origin: 0.42 and 0.42 print
+  // identically, and "because this quote says so" is a different fact from
+  // "because the firm does".
+  const out = computeQuoteCosting(
+    input({
+      quote: { id: "q-1", globalPriceAdjPct: 0, targetMarginPct: 0.42 },
+      packaging: THREE_LINES,
+    }),
+  );
+  const read = readEffectiveTargetMargin(out.graph.nodes);
+  assert.ok(read);
+  assert.equal(read.value, 0.42);
+  assert.equal(read.source, "Quote override");
+  assert.equal(read.isOverride, true);
+  // The losing rung is retained, which is what lets the popover say what
+  // clearing the override would give you.
+  assert.equal(read.withoutOverride, 0.35);
+});
+
+test("effective target · the ladder keeps both rungs, exactly one chosen", () => {
+  const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  const node = resolveNode(out.graph.nodes, quoteWideKey("target-margin"));
+  assert.ok(node);
+  assert.equal(node.kind, "resolution");
+  assert.equal(node.unit, "pct");
+  const labels = (node.candidates ?? []).map((c) => c.label);
+  assert.deepEqual(labels, ["Quote override", "Firm default"]);
+  assert.equal((node.candidates ?? []).filter((c) => c.chosen).length, 1);
+  // An unavailable rung must say why rather than presenting as a null value.
+  const override = (node.candidates ?? [])[0];
+  assert.equal(override.value, null);
+  assert.ok(override.unavailableReason);
+});
+
+test("effective target · the VERDICT moves with the node, not with firm settings", () => {
+  // Proves the engine path feeding computeStatus reads the same resolution the
+  // surfaces do. A quote whose blended margin sits between the firm target and
+  // a higher override must band differently under each.
+  const base = input({ packaging: THREE_LINES });
+  const atFirm = computeQuoteCosting(base);
+  const atOverride = computeQuoteCosting({
+    ...base,
+    quote: { ...base.quote, targetMarginPct: 0.99 },
+  });
+  assert.equal(readEffectiveTargetMargin(atFirm.graph.nodes)?.value, 0.35);
+  assert.equal(readEffectiveTargetMargin(atOverride.graph.nodes)?.value, 0.99);
+  // An unreachable target must drag every tier below it.
+  assert.ok(atOverride.quoteRollup.every((r) => r.blendedMarginStatus !== "GOOD"));
+});
+
+test("quote-wide scope is not cell scope, and completeness ignores it", () => {
+  // graphIsComplete inspects CELL roots for required sections. A quote-wide
+  // root carries none and must not be mistaken for one, or completeness would
+  // report false forever the moment this node landed.
+  const key = quoteWideKey("target-margin");
+  assert.equal(isCellScoped(key), false);
+  assert.equal(isQuoteScoped(key), false, "quote-wide is its own scope");
+  const a = parseNodeKey(key);
+  assert.equal(a?.scope, "quote-wide");
+  assert.deepEqual(a?.path, ["target-margin"]);
+  const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  assert.equal(graphIsComplete(out.graph.nodes), true);
+});
+
+test("readEffectiveTargetMargin fails closed rather than assuming the firm default", () => {
+  // A consumer that silently fell back would reinstate the private ladder this
+  // node replaces, so absence must be distinguishable from a resolved value.
+  assert.equal(readEffectiveTargetMargin([]), null);
 });

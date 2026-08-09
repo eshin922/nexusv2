@@ -11,7 +11,11 @@ import {
   selectTargetMargin,
 } from "@/lib/costing-store";
 import { useCostingStore } from "@/components/costing-store-provider";
-import { quoteScopeKey, readNodeValue } from "@/lib/costing-nodes";
+import {
+  quoteScopeKey,
+  readEffectiveTargetMargin,
+  readNodeValue,
+} from "@/lib/costing-nodes";
 
 // Slice RI.4 — Cost stack header per R6 actual source (extracted from
 // docs/design-prototypes/dist/source/round-6/index.html lines
@@ -121,11 +125,15 @@ export function CostStackHeader({
   const firmSettings = useCostingStore(selectFirmSettings);
   const quoteTargetMargin = useCostingStore(selectTargetMargin);
   const graph = useCostingStore(selectGraph);
-  // Effective target — quote override or firm default. Used in
-  // margin row's "BELOW {N}" inline tag (R6 hardcodes "BELOW 35"
-  // because their fixture target is 35%; CC reads the actual value).
+  // Effective target, READ — value and provenance together.
+  //
+  // This was a private `quoteTargetMargin ?? firmSettings.targetMarginPct`, one
+  // of five. The number was right; what it could not say is WHY. "BELOW 35"
+  // reads identically whether 35 is firm policy or this quote's own decision,
+  // and 12 of 62 quotes override — so the tag now names its source.
+  const effectiveTarget = readEffectiveTargetMargin(graph.nodes);
   const effectiveTargetPct =
-    (quoteTargetMargin ?? firmSettings.targetMarginPct) * 100;
+    effectiveTarget !== null ? effectiveTarget.value * 100 : null;
 
   // Resolved HERE, once, and passed down as data — the same discipline the
   // Pricing Cost Stack cutover established. The columns render what they are
@@ -267,6 +275,7 @@ export function CostStackHeader({
               maxPerUnitCost={maxPerUnitCost}
               isActive={isActive}
               effectiveTargetPct={effectiveTargetPct}
+              targetSource={effectiveTarget?.source ?? null}
               onSelect={() => selectTier(tier.id)}
             />
           );
@@ -308,6 +317,7 @@ function TierColumn({
   maxPerUnitCost,
   isActive,
   effectiveTargetPct,
+  targetSource,
   onSelect,
 }: {
   tier: { id: string; label: string; qty: number | null };
@@ -317,7 +327,8 @@ function TierColumn({
   marginStatus: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
   maxPerUnitCost: number;
   isActive: boolean;
-  effectiveTargetPct: number;
+  effectiveTargetPct: number | null;
+  targetSource: string | null;
   onSelect: () => void;
 }) {
   // Unavailable, not empty. Either the graph does not carry per-unit values for
@@ -408,6 +419,7 @@ function TierColumn({
               status={marginStatus}
               pct={marginPct}
               targetPct={effectiveTargetPct}
+              targetSource={targetSource}
             />
           </>
         ) : (
@@ -420,6 +432,7 @@ function TierColumn({
               status="incomplete"
               pct={null}
               targetPct={effectiveTargetPct}
+              targetSource={targetSource}
             />
           </>
         )}
@@ -539,10 +552,14 @@ function MarginRow({
   status,
   pct,
   targetPct,
+  targetSource,
 }: {
   status: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR" | "incomplete";
   pct: number | null;
-  targetPct: number;
+  /** Null when the graph cannot state one — the tag is then withheld rather
+   *  than printed against a number nobody resolved. */
+  targetPct: number | null;
+  targetSource: string | null;
 }) {
   const statusClass =
     status === "GOOD"
@@ -560,8 +577,15 @@ function MarginRow({
         : pct != null
           ? `${fmtPct(pct)} margin`
           : "—"}
-      {status === "BELOW_TARGET" && (
-        <span style={{ marginLeft: "auto", fontSize: "9.5px", letterSpacing: "0.06em" }}>
+      {status === "BELOW_TARGET" && targetPct !== null && (
+        <span
+          style={{ marginLeft: "auto", fontSize: "9.5px", letterSpacing: "0.06em" }}
+          title={
+            targetSource
+              ? `Target ${Math.round(targetPct)}% — ${targetSource.toLowerCase()}.`
+              : undefined
+          }
+        >
           BELOW {Math.round(targetPct)}
         </span>
       )}

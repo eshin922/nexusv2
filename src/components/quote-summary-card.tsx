@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   selectFirmSettings,
   selectGlobalAdj,
+  selectGraph,
   selectProjectId,
   selectQuoteId,
   selectQuoteRollup,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/costing-store";
 import type { QuoteCostBreakdown } from "@/lib/costing";
 import { useCostingStore } from "./costing-store-provider";
+import { readEffectiveTargetMargin } from "@/lib/costing-nodes";
 import { MarginVerdictPill } from "./pricing/margin-verdict-pill";
 import { GlobalPriceAdjInput } from "./global-price-adj-input";
 import { QuoteTargetMarginPopover } from "./quote-target-margin-popover";
@@ -71,10 +73,13 @@ export function QuoteSummaryCard({
   const suggestedAdj = useCostingStore(selectSuggestedAdj);
   // Slice 9.2 — per-quote target-margin override drives the displayed
   // effective target. NULL = inherit firm; value = override.
-  const targetMarginOverride = useCostingStore(selectTargetMargin);
-  const effectiveTarget =
-    targetMarginOverride ?? firmSettings.targetMarginPct;
-  const targetIsOverridden = targetMarginOverride !== null;
+  // Effective target and its provenance, READ. This card already showed the
+  // source correctly; what it did not do was get it from the same place as
+  // everyone else.
+  const graph = useCostingStore(selectGraph);
+  const targetRead = readEffectiveTargetMargin(graph.nodes);
+  const effectiveTarget = targetRead?.value ?? null;
+  const targetIsOverridden = targetRead?.isOverride ?? false;
 
   return (
     <div className="rounded-md border border-gray-200 bg-white p-5">
@@ -90,7 +95,10 @@ export function QuoteSummaryCard({
         </h2>
         <div className="flex items-center gap-3 text-xs text-gray-500">
           <span className="flex items-center">
-            Target {fmtPct(effectiveTarget)}
+            {/* Withheld rather than guessed when the graph cannot state a
+                target — a printed percentage nobody resolved is worse than an
+                absent one on a policy figure. */}
+            Target {effectiveTarget === null ? "—" : fmtPct(effectiveTarget)}
             {targetIsOverridden && (
               <span className="ml-1 rounded bg-indigo-100 px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-indigo-800">
                 Overridden

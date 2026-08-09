@@ -2,6 +2,7 @@ import {
   GRAPH_VERSION,
   graphIsComplete,
   nodeKey,
+  quoteWideKey,
   type CostingGraph,
   type CostingNode,
   type NodeCandidate,
@@ -2309,10 +2310,52 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
   // set, otherwise firm-level target. Floor stays firm-level always
   // (admin only). See top-of-file comment for the effective-value
   // pattern.
-  const effectiveTarget =
+  //
+  // ── Gate 1B · one resolution, five readers ────────────────────────────────
+  // This ladder was resolved in FIVE places: here, and once each in the Costs
+  // header, the quote summary card, the target-margin popover and the pricing
+  // classifier. All five agreed, which is the weakest kind of agreement — each
+  // was a private `?? firmSettings.targetMarginPct`, and changing the ladder
+  // meant finding all five.
+  //
+  // Two of the five also carried PROVENANCE (this quote vs firm default) and
+  // three did not, so the same number was sourced on one surface and anonymous
+  // on another. 12 of 62 quotes override, so that gap is live rather than
+  // theoretical.
+  //
+  // It is a `resolution` node rather than an origin because the losing rung is
+  // what makes the winner legible: "35% because this quote says so" and "35%
+  // because the firm does" are different facts that happen to print the same.
+  const targetOverride =
     quote.targetMarginPct !== null && quote.targetMarginPct !== undefined
       ? num(quote.targetMarginPct)
-      : firmSettings.targetMarginPct;
+      : null;
+  const effectiveTargetNode: CostingNode = {
+    key: quoteWideKey("target-margin"),
+    kind: "resolution",
+    label: "Effective target margin",
+    value: targetOverride !== null ? targetOverride : firmSettings.targetMarginPct,
+    unit: "pct",
+    op: "quote override ?? firm default",
+    candidates: [
+      {
+        label: "Quote override",
+        value: targetOverride,
+        chosen: targetOverride !== null,
+        unavailableReason:
+          targetOverride !== null ? null : "no target override set on this quote",
+      },
+      {
+        label: "Firm default",
+        value: firmSettings.targetMarginPct,
+        chosen: targetOverride === null,
+        unavailableReason: null,
+      },
+    ],
+  };
+  graphNodes.push(effectiveTargetNode);
+  // Every downstream verdict reads the node, not the expression above it.
+  const effectiveTarget = effectiveTargetNode.value;
 
   // Build child-by-parent map for tree walking.
   const skusById = new Map(skus.map((s) => [s.id, s]));
