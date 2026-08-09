@@ -1,0 +1,49 @@
+/* Nexus overrides for the R12 pricing workspace.
+ *
+ * Pattern 30: the canonical files (r10/r11/r12-pricing-workspace.css) are
+ * verbatim copies and are never edited, so a bundle refresh stays a drop-in.
+ * Anything Nexus needs that the bundle does not provide lives here, with the
+ * reason it exists.
+ */
+
+/* ── The two no-margin states ─────────────────────────────────────────────
+ *
+ * Not a deviation from the design — an extension the design had no occasion
+ * to specify. The prototype's fixture data prices every cell, so it never
+ * renders a cell without a margin. Production does: 143 of 381 cells at last
+ * measurement.
+ *
+ * `.cgnote` is the muted register for "nothing entered here". `.cgnote.bad`
+ * is for cost with no revenue against it, which is a certain loss and must
+ * not read as an empty cell. Both sit beneath an em-dash rather than a
+ * percentage, because in both cases there is no percentage.
+ */
+.r11-bcell .cgnote {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-top: 1px;
+}
+.r11-bcell .cgnote.bad {
+  color: var(--bad);
+}
+
+/* `unknown` is in the classifier's CellStatus but has no colour in the
+ * canonical stylesheet, for the same reason: the prototype never produces it.
+ * Muted, deliberately — an unassessed cell is not a failing one, and the
+ * default inherited colour would have been the body ink, which reads as a
+ * stated value. */
+.r11-bcell .cgm.unknown {
+  color: var(--ink-4);
+}
+
+/* A cell with nothing to act on is not a button in behaviour, so it should not
+ * invite a press. The bundle styles `.act`; `.inert` is ours. */
+.r11-bcell.inert {
+  cursor: default;
+}
+.r11-bcell.inert:hover {
+  background: transparent;
+}

@@ -10,6 +10,14 @@
 @import "../styles/r-a1v2-overrides.css";
 @import "../styles/r-library-modal.css";
 @import "../styles/r-psr-pricing.css";
+/* Phase 3 · R12 pricing workspace. Load order is load-bearing and specified by
+   the bundle: r10 -> r11 -> r12, with r12 as an addendum that overrides
+   nothing. Copied verbatim per Pattern 30; all selectors are prefix-clean. */
+@import "../styles/r10-pricing-workspace.css";
+@import "../styles/r11-pricing-workspace.css";
+@import "../styles/r12-pricing-workspace.css";
+/* Nexus extensions, last so they win. Never edited into the canonical files. */
+@import "../styles/r12-pricing-workspace-overrides.css";
 @import "../styles/r3-shared.css";
 @import "../styles/r4-home.css";
 @import "../styles/r5-admin.css";

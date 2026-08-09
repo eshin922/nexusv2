@@ -1,0 +1,219 @@
+/* CANONICAL — copied verbatim from the registered design bundle.
+ *   docs/design-authority/r12-pricing-workspace/app/r12/styles.css
+ *
+ * Pattern 30: do not edit. A wrong value is fixed upstream and re-copied,
+ * so a future bundle refresh stays a drop-in rather than a merge.
+ * Nexus-specific rules belong in a separate overrides file.
+ *
+ * Load order is load-bearing and specified by the bundle:
+ *   r10 -> r11 -> r12. R12 is an addendum; it overrides nothing.
+ *
+ * Selectors are prefix-clean (.r12-*), so this is Path-B-default —
+ * adopted at file root, no namespace wrap needed. All 20 tokens it
+ * references were verified present in design-tokens.css before copying.
+ */
+/* Nexus Round 12 — the Pricing page as a working surface
+   ═══════════════════════════════════════════════════════════════════════════
+   ⚠ ADDENDUM over r10 + r11. Load order:
+       styles.css → app/r10/styles.css → app/r11/styles.css → app/r12/styles.css
+
+   Everything R11 established holds. What this file adds is the vocabulary of a
+   page where changes are STAGED rather than committed on contact:
+     · a staging bar that lists every pending change and can discard each one
+     · transient deltas in the cost stack, so a lift is visible WHERE IT LANDS
+     · a direct-price control, and the copy that distinguishes its undo
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Staging bar ─────────────────────────────────────────
+   Sits above the page, not inside it: it describes the page's state, not any
+   one surface. Present only when something is pending.        ← LOAD-BEARING */
+.r12-staging {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 18px;
+  padding: 12px 24px; flex-wrap: wrap;
+  background: var(--accent-soft);
+  border-bottom: 1px solid oklch(from var(--accent) l c h / 0.4);
+}
+.r12-staging .left { flex: 1; min-width: 240px; }
+.r12-staging .k {
+  display: block;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--accent-ink); margin-bottom: 3px;
+}
+.r12-staging .v { display: block; font-size: 12.5px; color: var(--ink-2); line-height: 1.5; max-width: 82ch; }
+.r12-staging .acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.r12-staging .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+
+/* Applied state — calm, and it carries the reversibility guarantee in words. */
+.r12-staging.applied {
+  background: var(--paper-3);
+  border-bottom-color: var(--rule);
+}
+.r12-staging.applied .k { color: var(--ink-4); }
+
+/* One staged change, individually discardable. */
+.r12-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 5px 4px 10px; border-radius: 5px;
+  background: var(--paper); border: 1px solid oklch(from var(--accent) l c h / 0.35);
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.02em; color: var(--ink-2);
+}
+.r12-chip button {
+  background: none; border: none; cursor: pointer; padding: 1px 4px; border-radius: 3px;
+  font-family: var(--mono); font-size: 11px; color: var(--ink-4); line-height: 1;
+}
+.r12-chip button:hover { color: var(--bad); background: var(--bad-soft); }
+
+/* ─── Transient delta ─────────────────────────────────────
+   A lift taken in the compliance grid has to be visible where it LANDS. The
+   delta is the difference between two pure computations — the staged input set
+   and the last applied one — so it cannot disagree with either.
+                                                                ← LOAD-BEARING */
+.r12-delta {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums; padding: 1px 5px; border-radius: 3px;
+}
+.r12-delta.up { color: var(--good); background: oklch(from var(--good) l c h / 0.14); }
+.r12-delta.down { color: var(--warn); background: oklch(from var(--warn) l c h / 0.14); }
+
+/* ─── Direct price ────────────────────────────────────────
+   The playground lever. Closed by default: setting a price outright replaces
+   the computed chain, which is a bigger act than lifting over it. */
+.r12-direct {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 10px; padding: 10px 12px; border-radius: 6px;
+  background: var(--paper-3); border: 1px dashed var(--rule-2);
+}
+.r12-direct .lbl {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.10em;
+  text-transform: uppercase; color: var(--ink-4);
+}
+.r12-direct input {
+  font-family: var(--mono); font-size: 14px; width: 96px;
+  padding: 6px 9px; border: 1px solid var(--rule-2); border-radius: 5px;
+  background: var(--paper); color: var(--ink);
+}
+.r12-direct .warn {
+  flex-basis: 100%; font-size: 11px; font-style: italic; color: var(--ink-3);
+}
+
+/* The two undos are not the same undo, and the copy says so at the point of
+   removal rather than in a help doc.                          ← LOAD-BEARING */
+.r11-cellaction .body p.undo-note {
+  padding: 9px 11px; border-radius: 5px; margin-bottom: 10px;
+  background: var(--warn-soft); border: 1px solid oklch(from var(--warn) l c h / 0.3);
+  font-size: 12px;
+}
+
+@media (max-width: 1080px) {
+  .r12-staging { padding: 11px 16px; }
+  .r12-staging .acts { flex: 1 1 100%; }
+  .r12-staging .acts .btn { flex: 1; }
+}
+
+
+/* ═══ Summary banner — preserved from production ══════════
+   The page tells the PM what is true; this tells them what to do. Its verdict
+   is derived from the same compliance evaluation the grid renders, so the two
+   cannot diverge.                                              ← LOAD-BEARING */
+.r12-banner { margin-bottom: 22px; }
+.r12-banner .scen {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-3); margin-bottom: 10px;
+}
+.r12-banner .tune {
+  font-family: var(--display); font-size: 38px; font-weight: 400;
+  letter-spacing: -0.025em; color: var(--ink); margin: 0 0 10px;
+}
+.r12-banner .tune em { font-style: italic; color: var(--ink-3); }
+.r12-banner .state {
+  font-size: 14px; color: var(--ink-2); margin: 0 0 18px;
+  padding-bottom: 18px; border-bottom: 1px solid var(--rule);
+}
+
+/* Your next move — directional, and the CTA changes with the verdict. */
+.r12-next {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  flex-wrap: wrap; padding: 15px 20px; border-radius: 8px; margin-bottom: 14px;
+  background: var(--paper-3); border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+}
+.r12-next.blocked { border-left-color: var(--bad); background: var(--bad-soft); }
+.r12-next .k {
+  display: block; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.13em;
+  text-transform: uppercase; color: var(--ink-3); margin-bottom: 4px;
+}
+.r12-next .v {
+  font-family: var(--display); font-size: 19px; font-weight: 400; color: var(--ink); letter-spacing: -0.012em;
+}
+
+/* Verdict row */
+.r12-verdict {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 13px 20px; border-radius: 8px; margin-bottom: 14px;
+  background: var(--paper-2); border: 1px solid var(--rule);
+}
+.r12-verdict.blocked { border-color: oklch(from var(--bad) l c h / 0.4); }
+.r12-verdict .badge {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.11em; text-transform: uppercase;
+  padding: 4px 10px; border-radius: 20px;
+  background: var(--good-soft); color: var(--good);
+}
+.r12-verdict .badge.no { background: var(--bad-soft); color: var(--bad); }
+.r12-verdict .txt {
+  font-family: var(--display); font-size: 17px; font-style: italic; color: var(--ink); letter-spacing: -0.01em;
+}
+
+/* What you're sending */
+.r12-sending { border: 1px solid var(--rule); border-radius: 8px; background: var(--paper-2); }
+.r12-sending > .k {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.13em; text-transform: uppercase;
+  color: var(--ink-3); padding: 12px 20px 0;
+}
+.r12-sending .cols {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 8px 0 14px;
+}
+.r12-sending .c { padding: 6px 20px; }
+.r12-sending .lbl {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.11em; text-transform: uppercase;
+  color: var(--ink-4); margin-bottom: 5px;
+}
+.r12-sending .big {
+  font-family: var(--display); font-size: 26px; font-weight: 500; letter-spacing: -0.02em; color: var(--ink);
+}
+.r12-sending .big.good { color: var(--good); }
+.r12-sending .big.below_target { color: var(--warn); }
+.r12-sending .big.below_floor { color: var(--bad); }
+.r12-sending .big .u { font-family: var(--mono); font-size: 12px; color: var(--ink-3); letter-spacing: 0.03em; }
+.r12-sending .sub {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.03em; color: var(--ink-4); margin-top: 3px;
+}
+
+.r12-gridtop { scroll-margin-top: 12px; }
+
+@media (max-width: 1080px) {
+  .r12-banner .tune { font-size: 30px; }
+  .r12-sending .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 10px; }
+}
+
+
+/* ═══ Client target — the third threshold ═════════════════
+   Stated once per SKU row (it does not vary by tier); compared per cell (each
+   tier prices differently). Deliberately OUTSIDE the margin colour ramp:
+   "above the client's benchmark" is a commercial risk, not a policy breach, and
+   giving it colour would put a third meaning in a channel that already carries
+   the operative margin threshold.                             ← LOAD-BEARING */
+.r12-benchmark {
+  display: inline-block; margin-top: 4px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em;
+  color: var(--ink-3); background: var(--paper-3);
+  border: 1px solid var(--rule); border-radius: 3px; padding: 1px 6px;
+}
+
+/* Per-cell comparison. Muted and directional — never the semantic ramp. */
+.r12-head {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.04em;
+  color: var(--ink-4); white-space: nowrap;
+}
+.r12-head.under { color: oklch(0.52 0.05 200); }   /* room to the benchmark */
+.r12-head.over  { color: oklch(0.52 0.06 40); }    /* above it — harder to win */
+.r12-head.level { color: var(--ink-3); font-style: italic; }

@@ -64,6 +64,16 @@ export interface QuoteCellInput {
   override_applied?: boolean;
   /** A surgical lift staged or applied on this cell. */
   lift_applied_pct?: number | null;
+  /**
+   * WHY there is no margin, when there is none. Supplied by the adapter from
+   * the engine's verdict; never inferred here.
+   *
+   * `CellStatus` deliberately does not carry this. Its four members partition
+   * margins into bands, and neither no-margin state is a band — folding them
+   * in would make `unknown` mean two different things and put a certain loss
+   * one comparison away from being read as an empty cell.
+   */
+  no_margin_reason?: NoMarginReason | null;
   missing?: boolean;
 }
 
@@ -179,6 +189,18 @@ export interface CostStackBuckets {
   dt: number;
 }
 
+/**
+ * Why a cell has no margin.
+ *
+ * `unpriced` — nothing entered. No commercial judgement.
+ * `cost_without_revenue` — cost incurred with nothing priced against it. The
+ *   percentage is still undefined, but the economics are not: it is a loss.
+ *
+ * Carried alongside `status` rather than inside it, because a band is a
+ * region of the number line and neither of these is a number.
+ */
+export type NoMarginReason = "unpriced" | "cost_without_revenue";
+
 export interface Cell {
   sku_id: string;
   sku_name: string;
@@ -193,6 +215,8 @@ export interface Cell {
   over_client_target: boolean;
   missing: boolean;
   status: CellStatus;
+  /** Set exactly when `margin_pct` is null. Null otherwise. */
+  no_margin_reason: NoMarginReason | null;
   override_applied: boolean;
   /**
    * The minimum lift that would clear the floor, or null when none is needed
@@ -367,6 +391,7 @@ export function classify(
           clientTarget != null && sellUnit != null && sellUnit > clientTarget,
         missing,
         status,
+        no_margin_reason: margin === null ? (cellRaw.no_margin_reason ?? "unpriced") : null,
         override_applied: overrideApplied,
         lift_offer_pct: liftOffer,
         lift_applied_pct: liftApplied,

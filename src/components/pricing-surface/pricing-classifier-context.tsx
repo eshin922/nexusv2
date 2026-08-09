@@ -405,6 +405,7 @@ function buildClassifierInputs({
         sell_unit: number | null;
         cost_unit: number | null;
         override_applied: boolean;
+        no_margin_reason: "unpriced" | "cost_without_revenue" | null;
         cost_stack: {
           pkg: number;
           prod: number;
@@ -432,6 +433,16 @@ function buildClassifierInputs({
         const isMissing = pt.marginPct === null;
         cells[numericTierId] = {
           margin_pct: pt.marginPct,
+          // The engine distinguishes the two no-margin states; the adapter
+          // forwards that rather than re-deciding it. Mapped, not inferred —
+          // the mapping is a rename between two vocabularies, and the compiler
+          // holds it exhaustive.
+          no_margin_reason:
+            pt.marginStatus === "COST_WITHOUT_REVENUE"
+              ? "cost_without_revenue"
+              : pt.marginStatus === "UNAVAILABLE"
+                ? "unpriced"
+                : null,
           sell_unit: isMissing ? null : pt.requiredSellPerUnit,
           cost_unit: isMissing ? null : pt.contributionCostPerUnit,
           override_applied: pt.sellSource === "cell_override",
