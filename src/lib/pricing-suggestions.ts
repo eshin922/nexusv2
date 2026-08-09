@@ -33,11 +33,12 @@
 // N derived rows via `caused_by_audit_id`, `diff_json.source =
 // 'pricing_suggestion_global'`). See brief §4.4.
 
-import type { QuotePerTierRollup } from "@/lib/costing";
-import {
-  isBelowFloor,
-  isBelowTarget,
-} from "@/lib/pricing-predicates";
+// Relative, not `@/` — these are siblings in `src/lib`, and `pricing-classifier`
+// (which now imports this module) is reached by the prebuild verifier through
+// plain type-stripping with no alias resolution. The alias worked only while
+// nothing outside a bundler-compiled path imported this file.
+import type { QuotePerTierRollup } from "./costing.ts";
+import { isBelowFloor, isBelowTarget } from "./pricing-predicates.ts";
 
 export type SuggestionOption = {
   id: "surgical" | "global" | "accept_risk";
@@ -176,6 +177,45 @@ function liftToTarget(
   if (target <= 0 || target >= 1) return null;
   const requiredRevenue = cost / (1 - target);
   return requiredRevenue / revenue - 1;
+}
+
+/**
+ * The minimum multiplicative lift that brings ONE CELL to a threshold.
+ *
+ * **Parameterised, not fixed to the floor** (Phase 3 §1): Phase 4's approver
+ * target reuses this without a new mechanism, and a function that hard-coded
+ * the floor would have to be duplicated to serve it — which is how two
+ * implementations of one algebra begin.
+ *
+ * **This is solver output, not a derivation.** The distinction is the one
+ * §3.3 of the derivation inventory draws: the engine states what a number IS;
+ * a solver searches for an action that would change it. Inverting the margin
+ * equation to ask *"what lift would clear this?"* is a search over a state
+ * that does not exist, so the no-independent-derivation rule does not reach
+ * it. What the rule DOES reach is the outcome — once a lift is proposed, the
+ * margin it produces must come from an engine run at that lift, never from
+ * this file. A solver may propose an action; only the engine states its
+ * outcome.
+ *
+ * Null on every degenerate input rather than a number that cannot be acted on:
+ * nothing to lift (no sell), no cost to clear, or a threshold at or beyond 100%
+ * which would need infinite revenue.
+ */
+export function liftToClear(
+  sellUnit: number | null,
+  costUnit: number | null,
+  threshold: number,
+): number | null {
+  if (sellUnit === null || costUnit === null) return null;
+  if (sellUnit <= 0) return null;
+  if (threshold <= 0 || threshold >= 1) return null;
+  const requiredSell = costUnit / (1 - threshold);
+  const lift = requiredSell / sellUnit - 1;
+  // A cell already clear of the threshold needs no lift. Returning the
+  // negative number the algebra produces would be arithmetically honest and
+  // operationally wrong — it reads as an instruction to cut the price.
+  if (lift <= 0) return null;
+  return lift;
 }
 
 // Apply a multiplicative revenue lift to a tier and return the new

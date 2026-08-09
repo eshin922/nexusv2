@@ -785,6 +785,79 @@ runScenario(
 );
 
 // ──────────────────────────────────────────────────────────────────
+// Invariant 8 · one evaluation authority
+// ──────────────────────────────────────────────────────────────────
+//
+// Phase 3 §9 and harness invariant H2: the banner and the grid must not be
+// able to disagree. The specification asks for `evaluateCells()`; this
+// repository already had the thing under another name — `classify()`, lifted
+// to a provider during the redesign for exactly this reason. Building a second
+// function alongside it would have created the duplication the requirement
+// exists to prevent.
+//
+// So the invariant is asserted against what exists: every partition a surface
+// consumes is a SLICE of one `cells` array, computed once. Not "both call the
+// same function" — a convention — but "there is nothing for them to disagree
+// between", which is a property.
+{
+  const st = classify(
+    quote({ margins: [[0.10, 0.40, 0.45], [0.31, 0.42, 0.46], [0.50, 0.51, 0.52]] }),
+    POLICY,
+  );
+  const label = "Invariant 8 · one evaluation authority";
+
+  // Every partition is drawn from `cells`, by identity — not by value, which
+  // a parallel computation producing equal objects would also satisfy.
+  for (const [name, part] of [
+    ["below_floor", st.below_floor],
+    ["below_target", st.below_target],
+    ["outstanding", st.outstanding],
+    ["over_client_target", st.over_client_target],
+  ] as const) {
+    for (const c of part) {
+      if (!st.cells.includes(c)) {
+        failures.push(
+          `${label}: ${name} carries a cell that is not in \`cells\` — ` +
+            `${c.sku_id}/${c.tier_id}. A partition built by recomputation ` +
+            `rather than by filtering is a second evaluation.`,
+        );
+      }
+    }
+  }
+
+  // The verdict the banner shows must follow the same evaluation. A quote with
+  // an outstanding below-floor cell cannot be sendable.
+  if (st.outstanding.length > 0 && st.mode === "sendable") {
+    failures.push(
+      `${label}: ${st.outstanding.length} outstanding cell(s) and mode is ` +
+        `sendable. The banner and the grid have disagreed.`,
+    );
+  }
+
+  // `outstanding` is a strict subset of `below_floor` — a cell cannot be
+  // outstanding without breaching the floor.
+  for (const c of st.outstanding) {
+    if (!st.below_floor.includes(c)) {
+      failures.push(
+        `${label}: ${c.sku_id}/${c.tier_id} is outstanding but not below floor.`,
+      );
+    }
+  }
+
+  // And the difference between them is exactly "a lift is already applied".
+  const addressed = st.below_floor.filter((c) => !st.outstanding.includes(c));
+  for (const c of addressed) {
+    if (c.lift_applied_pct === null) {
+      failures.push(
+        `${label}: ${c.sku_id}/${c.tier_id} is below floor and not outstanding, ` +
+          `but carries no applied lift. The two partitions have drifted apart ` +
+          `for a reason nothing records.`,
+      );
+    }
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────
 // Report
 // ──────────────────────────────────────────────────────────────────
 
@@ -794,5 +867,7 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log(
-  "✓ pricing-classifier invariants verified across 21 scenarios (s01-s14 + 7 extras)",
+  "✓ pricing-classifier invariants verified across 21 scenarios " +
+    "(s01-s14 + 7 extras), plus invariant 8 · one evaluation " +
+    "authority (H2, structural)",
 );
