@@ -41,6 +41,17 @@ const classifiedIdentityFiles = new Set([
   // for staged-vs-committed deltas. Naming the identity here is the contract,
   // not a legacy reference — positional keys would break that join.
   "src/lib/costing-nodes.ts",
+  // CLASSIFIED — canonical, session-scoped. The staging model addresses a
+  // staged lift or direct price by `quote_leaf_id x tier_id`, which is the
+  // canonical commercial attachment Phase 3 §1a requires lifts to persist
+  // against. Naming it here is the contract rather than a legacy reference:
+  // keying staging on the legacy grouped-membership id would stage a change
+  // against an identity the lift itself may not resolve to.
+  //
+  // Resolution happens in the engine, once, and fails closed. This layer only
+  // carries the address; it writes nothing and resolves nothing.
+  "src/lib/pricing-staging.ts",
+  "src/components/pricing-surface/pricing-staging-context.tsx",
   "src/lib/freight-workbook.ts", "src/lib/leaf-spec-loader.ts",
   "src/lib/commercial-settings.ts",
   "src/lib/library-browse-loader.ts", "src/lib/nav/home-queries.ts", "src/lib/netsuite/item-resolver.ts",
