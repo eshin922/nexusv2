@@ -789,7 +789,7 @@ function TotalStrip({ tiers, workbook, graph }: any) {
   const totals = useMemo(
     () =>
       tiers.map((tier: Tier) =>
-        readNodeValue(graph.nodes, quoteScopeKey(tier.id, "cost-stack/frt-total")),
+        readNodeValue(graph, quoteScopeKey(tier.id, "cost-stack/frt-total")),
       ),
     [tiers, graph],
   );

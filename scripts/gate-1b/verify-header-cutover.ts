@@ -63,7 +63,7 @@ for (const q of quotes) {
     const where = `${q.id} ${tier.label}`;
 
     const read = (name: string) =>
-      readNodeValue(c.graph.nodes, quoteScopeKey(tier.tierId, `per-unit/${name}`));
+      readNodeValue(c.graph, quoteScopeKey(tier.tierId, `per-unit/${name}`));
 
     // ---- what the header requires, exactly as the component asks for it ----
     const values: Record<string, number | null> = {};
@@ -72,8 +72,7 @@ for (const q of quotes) {
       values[`${comp.node}/cost`] = read(`${comp.node}/cost`);
       values[`${comp.node}/markup`] = read(`${comp.node}/markup`);
     }
-    values["subtotal"] = readNodeValue(
-      c.graph.nodes,
+    values["subtotal"] = readNodeValue(c.graph,
       quoteScopeKey(tier.tierId, "per-unit"),
     );
     values["departure"] = read("departure");
@@ -155,7 +154,7 @@ for (const q of quotes) {
     }
 
     // 4 · still a different quantity from the Pricing blend.
-    const blend = readNodeValue(c.graph.nodes, quoteScopeKey(tier.tierId, "sell-before"));
+    const blend = readNodeValue(c.graph, quoteScopeKey(tier.tierId, "sell-before"));
     const leaves = c.skuRollups.filter((x) => x.skuRole === "leaf").length;
     if (blend !== null && leaves > 1) {
       if ((values["subtotal"] as number) === 0 && blend === 0) emptyTiers += 1;

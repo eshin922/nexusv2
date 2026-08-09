@@ -40,6 +40,8 @@ import {
   findNode,
   walkGraph,
   type CostingNode,
+  type CostingGraph,
+  type GraphEvaluation,
 } from "../../src/lib/costing-nodes.ts";
 
 const TIER = "tier-1";
@@ -363,8 +365,12 @@ test("version and completeness are different questions and must not be conflated
   // `version` says what SHAPE the graph is in; `complete` says how much of it
   // is here. A consumer that checked only one would either read a section that
   // does not exist yet, or trust a shape it was not written against.
-  assert.equal(r.graph.version, 1);
+  // v2: the graph gained a required `evaluation`. A shape change rather than an
+  // additive one, because a v1 consumer handed a preview graph stays
+  // type-correct and silently becomes semantically wrong.
+  assert.equal(r.graph.version, 2);
   assert.equal(r.graph.complete, true);
+  assert.equal(r.graph.evaluation, "committed");
   // Still different questions: version says what SHAPE the graph is in,
   // complete says how much of it is here. They moved independently — the
   // graph became complete without the shape changing, which is exactly why
@@ -1308,8 +1314,8 @@ test("readNodeValue · reads a value through nesting, not just off roots", () =>
       ],
     },
   ];
-  assert.equal(readNodeValue(nodes, "b"), 2);
-  assert.equal(readNodeValue(nodes, "top"), 3);
+  assert.equal(readNodeValue(g(nodes), "b"), 2);
+  assert.equal(readNodeValue(g(nodes), "top"), 3);
 });
 
 test("readNodeValue · missing and duplicate both read as nothing", () => {
@@ -1317,10 +1323,10 @@ test("readNodeValue · missing and duplicate both read as nothing", () => {
     key, kind: "origin", label: key, value: 5, unit: "usd",
     origin: { grade: "thin", actor: null, when: null, doc: null },
   });
-  assert.equal(readNodeValue([origin("x")], "nope"), null);
+  assert.equal(readNodeValue(g([origin("x")]), "nope"), null);
   // Two nodes, one key: the graph does not have one answer, so no answer is
   // readable. Taking the first would be a coin toss the operator never sees.
-  assert.equal(readNodeValue([origin("x"), origin("x")], "x"), null);
+  assert.equal(readNodeValue(g([origin("x"), origin("x")]), "x"), null);
 });
 
 test("readNodeValue · a flagged-out node reads as nothing, NOT as its zero", () => {
@@ -1340,7 +1346,7 @@ test("readNodeValue · a flagged-out node reads as nothing, NOT as its zero", ()
     },
   ];
   assert.equal(resolveNode(nodes, "quote/t1/per-unit")?.value, 0);
-  assert.equal(readNodeValue(nodes, "quote/t1/per-unit"), null);
+  assert.equal(readNodeValue(g(nodes), "quote/t1/per-unit"), null);
 });
 
 test("readNodeValue · a genuine zero still reads as zero", () => {
@@ -1362,7 +1368,7 @@ test("readNodeValue · a genuine zero still reads as zero", () => {
       ],
     },
   ];
-  assert.equal(readNodeValue(nodes, "quote/t1/per-unit/dt"), 0);
+  assert.equal(readNodeValue(g(nodes), "quote/t1/per-unit/dt"), 0);
 });
 
 test("the Costs header's required node set resolves, and RAW is not in it", () => {
@@ -1378,17 +1384,17 @@ test("the Costs header's required node set resolves, and RAW is not in it", () =
     for (const suffix of ["", "/cost", "/markup"]) {
       const key = k(comp + suffix);
       assert.notEqual(
-        readNodeValue(out.graph.nodes, key),
+        readNodeValue(out.graph, key),
         null,
         `header requires ${key}`,
       );
     }
   }
   for (const name of ["departure", "revenue", "cost-total"]) {
-    assert.notEqual(readNodeValue(out.graph.nodes, k(name)), null, name);
+    assert.notEqual(readNodeValue(out.graph, k(name)), null, name);
   }
   assert.notEqual(
-    readNodeValue(out.graph.nodes, quoteScopeKey(tierId, "per-unit")),
+    readNodeValue(out.graph, quoteScopeKey(tierId, "per-unit")),
     null,
     "subtotal",
   );
@@ -1396,7 +1402,7 @@ test("the Costs header's required node set resolves, and RAW is not in it", () =
   // RAW has no independently governed per-unit value — production already
   // carries bulk raw, so a raw node would double-count. The header states
   // "included in PROD" rather than reading one.
-  assert.equal(readNodeValue(out.graph.nodes, k("raw")), null);
+  assert.equal(readNodeValue(out.graph, k("raw")), null);
 });
 
 
@@ -1414,7 +1420,7 @@ test("resolveNodes · finds nested keys and reports every key asked for", () => 
       operands: [originOf("a", 1), originOf("b", 2)],
     },
   ];
-  const got = resolveNodes(nodes, ["a", "b", "root", "absent"]);
+  const got = resolveNodes(g(nodes), ["a", "b", "root", "absent"]);
   // Every requested key has an entry, so a caller can tell "unavailable" from
   // "I forgot to ask" without keeping its own list.
   assert.deepEqual([...got.keys()].sort(), ["a", "absent", "b", "root"]);
@@ -1430,7 +1436,7 @@ test("resolveNodes · a duplicated key resolves to null, and a third sighting do
   // inside the walk would set null on the second and then overwrite it on the
   // third, silently restoring a value the duplicate check had rejected.
   const nodes: CostingNode[] = [originOf("dup", 1), originOf("dup", 2), originOf("dup", 3)];
-  assert.equal(resolveNodes(nodes, ["dup"]).get("dup"), null);
+  assert.equal(resolveNodes(g(nodes), ["dup"]).get("dup"), null);
   assert.equal(resolveNode(nodes, "dup"), null);
 });
 
@@ -1441,7 +1447,7 @@ test("resolveNodes · agrees with resolveNode across a real graph", () => {
   const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
   const keys: string[] = [];
   for (const root of out.graph.nodes) walkGraph(root, (x) => keys.push(x.key));
-  const batch = resolveNodes(out.graph.nodes, keys);
+  const batch = resolveNodes(out.graph, keys);
   for (const k of keys) {
     assert.equal(batch.get(k) ?? null, resolveNode(out.graph.nodes, k), k);
   }
@@ -1449,7 +1455,7 @@ test("resolveNodes · agrees with resolveNode across a real graph", () => {
 });
 
 test("resolveNodes · asking for nothing walks nothing", () => {
-  assert.equal(resolveNodes([originOf("x", 1)], []).size, 0);
+  assert.equal(resolveNodes(g([originOf("x", 1)]), []).size, 0);
 });
 
 test("the packaging drilldown's per-line key resolves, with its markup readable", () => {
@@ -1489,7 +1495,7 @@ test("an unpriced packaging line still gets a node, valued zero", () => {
   assert.ok(node, "an unpriced line is still a line");
   assert.equal(node.value, 0);
   assert.notEqual(node.kind, "flagged-out");
-  assert.equal(readNodeValue(out.graph.nodes, node.key), 0);
+  assert.equal(readNodeValue(out.graph, node.key), 0);
 });
 
 
@@ -1498,6 +1504,16 @@ test("an unpriced packaging line still gets a node, valued zero", () => {
 // These exist because the same ambiguity produced two wrong production
 // measurements from hand-written selectors. The predicate has to distinguish
 // four things, and each gets an adversarial case rather than a happy one.
+
+
+/** Wrap hand-built node arrays as a committed graph, so reader tests exercise
+ *  the same entry point production does. */
+const g = (nodes: CostingNode[], evaluation: GraphEvaluation = "committed"): CostingGraph => ({
+  version: GRAPH_VERSION,
+  evaluation,
+  nodes,
+  complete: true,
+});
 
 const SKU_A = "11111111-1111-1111-1111-111111111111";
 const SKU_B = "22222222-2222-2222-2222-222222222222";
@@ -1577,12 +1593,12 @@ test("grammar · collectCellSectionNodes finds the sections and nothing else", (
   // Against a real graph: the count must equal the leaf count, not the leaf
   // count plus the blend, and not the line count.
   const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
-  const sections = collectCellSectionNodes(out.graph.nodes, "pkg", { tierId: TIER });
+  const sections = collectCellSectionNodes(out.graph, "pkg", { tierId: TIER });
   assert.equal(sections.length, 1, "one leaf, one packaging section");
   assert.equal(sections[0].key, nodeKey(LEAF, TIER, "pkg"));
 
   // The blend exists at the colliding key and must be excluded.
-  assert.notEqual(readNodeValue(out.graph.nodes, quoteScopeKey(TIER, "pkg")), null);
+  assert.notEqual(readNodeValue(out.graph, quoteScopeKey(TIER, "pkg")), null);
   assert.ok(sections.every((n) => isCellScoped(n.key)));
 
   // And the three lines beneath it must not be counted as sections.
@@ -1593,15 +1609,15 @@ test("grammar · collectCellSectionNodes finds the sections and nothing else", (
 
 test("grammar · collectCellSectionNodes scopes to the tier asked for", () => {
   const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
-  assert.equal(collectCellSectionNodes(out.graph.nodes, "pkg", { tierId: T_B }).length, 0);
-  assert.equal(collectCellSectionNodes(out.graph.nodes, "nonexistent-section").length, 0);
+  assert.equal(collectCellSectionNodes(out.graph, "pkg", { tierId: T_B }).length, 0);
+  assert.equal(collectCellSectionNodes(out.graph, "nonexistent-section").length, 0);
 });
 
 // ─── effective target margin · one resolution, five readers ─────────────────
 
 test("effective target · no override resolves to the firm default, and says so", () => {
   const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
-  const read = readEffectiveTargetMargin(out.graph.nodes);
+  const read = readEffectiveTargetMargin(out.graph);
   assert.ok(read);
   assert.equal(read.value, 0.35);
   assert.equal(read.source, "Firm default");
@@ -1620,7 +1636,7 @@ test("effective target · an override wins and is ATTRIBUTED to the quote", () =
       packaging: THREE_LINES,
     }),
   );
-  const read = readEffectiveTargetMargin(out.graph.nodes);
+  const read = readEffectiveTargetMargin(out.graph);
   assert.ok(read);
   assert.equal(read.value, 0.42);
   assert.equal(read.source, "Quote override");
@@ -1655,8 +1671,8 @@ test("effective target · the VERDICT moves with the node, not with firm setting
     ...base,
     quote: { ...base.quote, targetMarginPct: 0.99 },
   });
-  assert.equal(readEffectiveTargetMargin(atFirm.graph.nodes)?.value, 0.35);
-  assert.equal(readEffectiveTargetMargin(atOverride.graph.nodes)?.value, 0.99);
+  assert.equal(readEffectiveTargetMargin(atFirm.graph)?.value, 0.35);
+  assert.equal(readEffectiveTargetMargin(atOverride.graph)?.value, 0.99);
   // An unreachable target must drag every tier below it.
   assert.ok(atOverride.quoteRollup.every((r) => r.blendedMarginStatus !== "GOOD"));
 });
@@ -1678,5 +1694,58 @@ test("quote-wide scope is not cell scope, and completeness ignores it", () => {
 test("readEffectiveTargetMargin fails closed rather than assuming the firm default", () => {
   // A consumer that silently fell back would reinstate the private ladder this
   // node replaces, so absence must be distinguishable from a resolved value.
-  assert.equal(readEffectiveTargetMargin([]), null);
+  assert.equal(readEffectiveTargetMargin(g([])), null);
+});
+
+// ─── evaluation identity · a preview graph is not authority ─────────────────
+
+test("evaluation · a preview graph answers NOTHING through the committed readers", () => {
+  // The hazard this exists for: committed and preview share the key space, so
+  // a preview graph is not malformed, not empty, and not distinguishable by
+  // anything a reader can see in a node. Every Gate 1B reader must refuse it.
+  const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  const preview = g(out.graph.nodes, "preview");
+  const committed = g(out.graph.nodes, "committed");
+
+  // Same nodes, same keys, same values — only the evaluation differs.
+  const key = nodeKey(LEAF, TIER, "pkg");
+  assert.notEqual(readNodeValue(committed, key), null, "committed answers");
+  assert.equal(readNodeValue(preview, key), null, "preview must not");
+
+  assert.notEqual(readEffectiveTargetMargin(committed), null);
+  assert.equal(readEffectiveTargetMargin(preview), null);
+
+  assert.ok(collectCellSectionNodes(committed, "pkg").length > 0);
+  assert.equal(collectCellSectionNodes(preview, "pkg").length, 0);
+
+  // resolveNodes reports every requested key as unavailable rather than
+  // returning a short map a caller might mistake for "not asked for".
+  const batch = resolveNodes(preview, [key]);
+  assert.equal(batch.size, 1);
+  assert.equal(batch.get(key), null);
+});
+
+test("evaluation · preview authority must be asked for by name", () => {
+  const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  const preview = g(out.graph.nodes, "preview");
+  const key = nodeKey(LEAF, TIER, "pkg");
+
+  // Opting in deliberately is the only way to read it...
+  assert.notEqual(readNodeValue(preview, key, "preview"), null);
+  assert.notEqual(readEffectiveTargetMargin(preview, "preview"), null);
+  assert.ok(collectCellSectionNodes(preview, "pkg", undefined, "preview").length > 0);
+
+  // ...and the opt-in is not a bypass: it refuses the other direction too, so
+  // a preview reader cannot silently consume committed authority either.
+  const committed = g(out.graph.nodes, "committed");
+  assert.equal(readNodeValue(committed, key, "preview"), null);
+  assert.equal(readEffectiveTargetMargin(committed, "preview"), null);
+});
+
+test("evaluation · the default is committed, so an unthinking reader is safe", () => {
+  // A consumer that has never considered evaluation gets authority-or-nothing,
+  // never a preview. That is the direction the default has to fail in.
+  const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  assert.equal(out.graph.evaluation, "committed");
+  assert.notEqual(readNodeValue(out.graph, nodeKey(LEAF, TIER, "pkg")), null);
 });

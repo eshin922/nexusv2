@@ -152,7 +152,7 @@ export function PricingClassifierProvider({
   // explicit unavailable state below. Rendering nothing at all would read as a
   // loading state; manufacturing a target would read as an answer. Neither is
   // what has happened.
-  const targetRead = readEffectiveTargetMargin(graph.nodes);
+  const targetRead = readEffectiveTargetMargin(graph);
 
   // Build QuoteInput + QuotePolicyInput (memoised).
   const { quoteInput, policyInput, idMap } = useMemo(

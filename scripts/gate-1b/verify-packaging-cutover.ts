@@ -79,7 +79,7 @@ for (const [quoteId, qRows] of byQuote) {
   const graph = res.data.costing.graph;
 
   const keys = qRows.map((r) => nodeKey(r.sku, r.tier, "pkg", r.group));
-  const resolved = resolveNodes(graph.nodes, keys);
+  const resolved = resolveNodes(graph, keys);
 
   for (const r of qRows) {
     const where = `${r.quote.slice(0, 8)} ${r.group.slice(0, 8)} tier ${r.tier.slice(0, 8)}`;

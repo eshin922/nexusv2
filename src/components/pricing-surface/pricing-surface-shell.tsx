@@ -265,7 +265,7 @@ export function PricingSurfaceShell({
       // this changes no rendered value — it removes the trap where adding one
       // later would surface a commercial zero here instead of a dash.
       const read = (name: string): number | null =>
-        readNodeValue(graph.nodes, quoteScopeKey(tierUuid, name));
+        readNodeValue(graph, quoteScopeKey(tierUuid, name));
       const pkg = read("pkg");
       const prod = read("prod");
       const raw = read("raw");

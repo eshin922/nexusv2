@@ -3262,6 +3262,11 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
     quoteSummary,
     graph: {
       version: GRAPH_VERSION,
+      // Only committed evaluations exist today. The preview entry point lands
+      // with the classifier cutover, and must pass this EXPLICITLY rather than
+      // relying on a default — a preview mislabelled committed is the whole
+      // hazard this field exists for.
+      evaluation: "committed",
       nodes: graphNodes,
       // Derived from what was actually emitted, never from having reached a
       // planned increment. A flag that outruns the graph is worse than a
