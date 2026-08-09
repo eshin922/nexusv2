@@ -120,6 +120,12 @@ test("RECORDED GAP: there is no margin node, so margin deltas are not yet a join
   // `marginPointsDelta` is written and correct; it needs a key to read. The
   // moment a margin node exists this becomes a one-line call site, and this
   // test fails — which is the point. Whoever adds the node updates the record.
+  //
+  // The decision is open as OD-019, IN PHASE 3 SCOPE: Phase 3 does not close
+  // until the margin-points delta has a canonical node to join. Recommendation
+  // there is a generic `ratio` kind with the denominator carried as `basis`,
+  // and `flagged-out` at zero revenue — where the ratio is undefined and a
+  // node valued zero would be the fabrication three corrections just removed.
   const found: string[] = [];
   for (const root of COMMITTED.graph.nodes) {
     walkGraph(root, (n) => {
