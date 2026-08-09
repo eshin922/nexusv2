@@ -406,6 +406,7 @@ function buildClassifierInputs({
         cost_unit: number | null;
         override_applied: boolean;
         no_margin_reason: "unpriced" | "cost_without_revenue" | null;
+        competitive_status: "COMPETITIVE" | "OVER_CLIENT_TARGET" | null;
         cost_stack: {
           pkg: number;
           prod: number;
@@ -446,6 +447,8 @@ function buildClassifierInputs({
           sell_unit: isMissing ? null : pt.requiredSellPerUnit,
           cost_unit: isMissing ? null : pt.contributionCostPerUnit,
           override_applied: pt.sellSource === "cell_override",
+          // The engine's competitive verdict, forwarded rather than re-derived.
+          competitive_status: pt.competitiveStatus,
           // P0 A1 fix (2026-06-25) — populate cost_stack from the
           // math layer's per-unit marked-up sums. DetailCostStack
           // filters cells where cost_stack is truthy; without
