@@ -145,19 +145,24 @@ export default async function MarkAcceptedPage({
   // Build TierCardData per tier — qty + per-tier blended unit price + total.
   const tierData: TierCardData[] = bundle.data.costing.quoteRollup.map((qr) => {
     const unitPrice = qr.qty > 0 ? qr.totalRevenue / qr.qty : 0;
+    // UNAVAILABLE takes the neutral class rather than the `bad` else-branch —
+    // a tier with no revenue has not failed the floor, it has not been priced.
     const cls: TierCardData["status"] =
       qr.blendedMarginStatus === "GOOD"
         ? "good"
         : qr.blendedMarginStatus === "BELOW_TARGET"
           ? "warn"
-          : "bad";
+          : qr.blendedMarginStatus === "UNAVAILABLE"
+            ? "none"
+            : "bad";
     return {
       id: qr.tierId,
       label: qr.label,
       qty: qr.qty,
       unitPrice,
       total: qr.totalRevenue,
-      marginPct: qr.blendedMarginPct * 100,
+      marginPct:
+        qr.blendedMarginPct === null ? null : qr.blendedMarginPct * 100,
       status: cls,
     };
   });

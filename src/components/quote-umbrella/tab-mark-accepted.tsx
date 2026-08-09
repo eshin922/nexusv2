@@ -65,6 +65,8 @@ function marginStatusClass(status: QuotePerTierRollup["blendedMarginStatus"]): s
     case "GOOD": return "good";
     case "BELOW_TARGET": return "warn";
     case "BELOW_FLOOR": return "bad";
+    // UNAVAILABLE lands here and takes the neutral token — deliberately, not
+    // by falling off the end. A tier with no margin is not a failing tier.
     default: return "";
   }
 }
@@ -507,7 +509,9 @@ export function TabMarkAccepted({
                       </span>
                       <span className="q">{t.qty.toLocaleString()} units</span>
                       <span className={"m " + marginStatusClass(t.blendedMarginStatus)}>
-                        {(t.blendedMarginPct * 100).toFixed(1)}% margin
+                        {t.blendedMarginPct === null
+                          ? "margin not assessed"
+                          : `${(t.blendedMarginPct * 100).toFixed(1)}% margin`}
                       </span>
                     </button>
                   );

@@ -960,6 +960,11 @@ export const selectSuggestedAdj = (s: CostingStoreState) => {
   const lead = rollup.reduce((a, b) =>
     b.totalRevenue > a.totalRevenue ? b : a,
   );
+  // UNAVAILABLE is excluded explicitly. `suggestedGlobalAdjPct` is already null
+  // for such a tier — `suggestedAdj` guards `revenue <= 0` — so the behaviour
+  // is unchanged either way, but "not GOOD, therefore suggest something" is
+  // the wrong reason to arrive at it.
+  if (lead.blendedMarginStatus === "UNAVAILABLE") return null;
   return lead.blendedMarginStatus !== "GOOD"
     ? lead.suggestedGlobalAdjPct
     : null;

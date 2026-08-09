@@ -92,11 +92,16 @@ no local `1 − cost / revenue` returns to the classifier. The structural
 assertions exist because the value-level ones can all pass while a placeholder
 is quietly reintroduced; that is the exact shape of the original defect.
 
-## Known, deliberately out of scope
+## The per-tier twin — carved, then corrected separately
 
-`QuotePerTierRollup.blendedMarginPct` (`costing.ts:2819`) carries the identical
-`revenue > 0 ? … : 0` shape, so a zero-revenue **tier** reports 0% and bands
-BELOW_FLOOR. Not folded in because two such tiers sit inside **revenue-bearing**
-quotes — `52bd0077` "Tier 4" and `93a5d4bb` "Tier 2" — so correcting it would
-move quotes the proof above asserts do not move, and the two corrections would
-become inseparable in the digest. Real defect; own item.
+`QuotePerTierRollup.blendedMarginPct` carried the identical
+`revenue > 0 ? … : 0` shape: **15 tiers across 10 quotes** reporting 0% and
+banding BELOW_FLOOR. It was kept out of this package because two of those tiers
+sit inside **revenue-bearing** quotes — `52bd0077` "Tier 4" and `93a5d4bb`
+"Tier 2" — so correcting it here would have moved quotes this proof asserts do
+not move, leaving neither transition independently attributable.
+
+It was then corrected in its own package: `c85e555c…` → `a7e887ba…`, classified
+by `scripts/gate-1b/classify-per-tier-margin-movement.ts`, which additionally
+proves **no `quoteSummary` field moved** — so the quote-wide correction above
+stands on its own record. See `gate-1b-derivation-inventory.md` §3.2.5.

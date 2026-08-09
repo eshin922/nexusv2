@@ -599,14 +599,25 @@ export type QuotePerTierRollup = {
   totalRevenue: number;
   totalCost: number;
   costBreakdown: QuoteCostBreakdown;
-  // KNOWN, out of scope for the quote-wide correction below: this carries the
-  // same `revenue > 0 ? … : 0` shape, so a zero-revenue TIER reports 0% and
-  // bands as BELOW_FLOOR. Two such tiers exist in revenue-bearing quotes
-  // (52bd0077 "Tier 4", 93a5d4bb "Tier 2"), which is precisely why it was not
-  // folded in: correcting it moves quotes the quote-wide proof asserts do not
-  // move. Recorded in the derivation inventory as its own item.
-  blendedMarginPct: number;
-  blendedMarginStatus: MarginBand;
+  /**
+   * `(totalRevenue − totalCost) / totalRevenue` for this tier, or NULL.
+   *
+   * Null at zero tier revenue, for the same reason as the quote-wide margin
+   * below: the ratio is undefined, and the previous `: 0` asserted a margin of
+   * exactly zero percent which then banded as BELOW_FLOOR. Fifteen tiers across
+   * ten quotes carried that fabricated verdict, including two inside quotes
+   * that are otherwise fully priced.
+   *
+   * NOT YET SEEN IN PRODUCTION, and defined anyway: zero revenue with a
+   * POSITIVE cost is a certain loss rather than an unpriced tier, and
+   * UNAVAILABLE would suppress that signal. All fifteen current instances have
+   * zero cost too, so the case is unexercised. If one appears, the right answer
+   * is probably a distinct loss signal rather than a margin percentage — the
+   * ratio is still undefined, but the loss is real and should be visible.
+   */
+  blendedMarginPct: number | null;
+  /** `UNAVAILABLE` when the margin is null. `computeStatus` is not called. */
+  blendedMarginStatus: QuoteMarginStatus;
   suggestedGlobalAdjPct: number | null;
 };
 
@@ -2873,12 +2884,17 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       });
     }
 
-    const marginPct = revenue > 0 ? (revenue - cost) / revenue : 0;
-    const status = computeStatus(
-      marginPct,
-      effectiveTarget,
-      firmSettings.floorMarginPct,
-    );
+    // Same contract as the quote-wide margin: undefined at zero revenue, and
+    // the status says so rather than being computed from a stand-in. Twelve of
+    // the fifteen zero-revenue tiers in production also carry zero QUANTITY —
+    // tiers the Costs header already renders as unavailable — so this is
+    // largely the engine agreeing with what the surface already believed.
+    const marginPct: number | null =
+      revenue > 0 ? (revenue - cost) / revenue : null;
+    const status: QuoteMarginStatus =
+      marginPct === null
+        ? "UNAVAILABLE"
+        : computeStatus(marginPct, effectiveTarget, firmSettings.floorMarginPct);
     // Slice 9.3 — per-tier suggested-adj suppresses when the tier has
     // no GPA-influencable cells. Tier is fully GPA-fixed when:
     //   (a) tier-level price-adj override is set, OR

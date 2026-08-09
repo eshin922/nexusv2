@@ -16,6 +16,7 @@ import {
   readEffectiveTargetMargin,
   readNodeValue,
 } from "@/lib/costing-nodes";
+import type { QuoteMarginStatus } from "@/lib/costing";
 
 // Slice RI.4 — Cost stack header per R6 actual source (extracted from
 // docs/design-prototypes/dist/source/round-6/index.html lines
@@ -270,7 +271,10 @@ export function CostStackHeader({
               perUnit={perUnitByTier.get(tier.id)}
               showRaw={showRaw}
               marginPct={rollup?.blendedMarginPct ?? null}
-              marginStatus={rollup?.blendedMarginStatus ?? "GOOD"}
+              // A missing rollup used to fall back to GOOD, which asserts a
+              // verdict for a tier the engine said nothing about. It joins
+              // UNAVAILABLE on the honest branch.
+              marginStatus={rollup?.blendedMarginStatus ?? "UNAVAILABLE"}
               maxPerUnitCost={maxPerUnitCost}
               isActive={isActive}
               effectiveTargetPct={effectiveTargetPct}
@@ -323,7 +327,7 @@ function TierColumn({
   perUnit: TierPerUnit | undefined;
   showRaw: boolean;
   marginPct: number | null;
-  marginStatus: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
+  marginStatus: QuoteMarginStatus;
   maxPerUnitCost: number;
   isActive: boolean;
   effectiveTargetPct: number | null;
@@ -415,7 +419,13 @@ function TierColumn({
               <span className="v">{fmtCurr2(perUnit.revenue)}</span>
             </div>
             <MarginRow
-              status={marginStatus}
+              // UNAVAILABLE renders through the row's existing `incomplete`
+              // register — italic, "awaiting inputs", no pip colour. The row
+              // already knew how to say "no verdict here"; the engine can now
+              // say it too. On zero-qty tiers the column is blank anyway, so
+              // this shows on the three tiers that have quantity but no
+              // revenue.
+              status={marginStatus === "UNAVAILABLE" ? "incomplete" : marginStatus}
               pct={marginPct}
               targetPct={effectiveTargetPct}
               targetSource={targetSource}

@@ -130,7 +130,10 @@ export function AcceptConfirmModal({
             </div>
           </div>
           <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
-            Margin {tier.marginPct.toFixed(1)}% · against {sentVersion}
+            {tier.marginPct === null
+              ? "Margin not assessed — no revenue on this tier"
+              : `Margin ${tier.marginPct.toFixed(1)}%`}{" "}
+            · against {sentVersion}
           </div>
         </div>
 
