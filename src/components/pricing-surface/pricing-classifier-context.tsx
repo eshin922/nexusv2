@@ -51,8 +51,10 @@ import {
 } from "@/lib/pricing-classifier";
 import { rankPricingSuggestions } from "@/lib/pricing-suggestions";
 import { isBelowTarget } from "@/lib/pricing-predicates";
+import { readEffectiveTargetMargin } from "@/lib/costing-nodes";
 import {
   selectFirmSettings,
+  selectGraph,
   selectGlobalAdj,
   selectQuoteRollup,
   selectSkuRollups,
@@ -125,6 +127,7 @@ export function PricingClassifierProvider({
   // changes. Recompute pipeline upstream (CostingStoreProvider's
   // wait-for-quiet) handles debounce; subscribers fire on commit.
   const firmSettings = useCostingStore(selectFirmSettings);
+  const graph = useCostingStore(selectGraph);
   const globalAdj = useCostingStore(selectGlobalAdj);
   const quoteRollup = useCostingStore(selectQuoteRollup);
   const skuRollups = useCostingStore(selectSkuRollups);
@@ -145,8 +148,14 @@ export function PricingClassifierProvider({
         quoteRollup,
         skuRollups,
         globalAdj,
+        // Read from the one resolution the engine publishes, not re-derived
+        // from a summary field and a firm-settings fallback. The trailing
+        // `?? firmSettings.targetMarginPct` is a BROKEN-GRAPH guard, not a rung
+        // of the ladder: the node is emitted unconditionally on every compute,
+        // so reaching it means the graph is malformed, and blanking the whole
+        // Pricing surface would be a worse answer than the firm policy.
         effectiveTarget:
-          quoteSummary?.effectiveTargetMarginPct ??
+          readEffectiveTargetMargin(graph.nodes)?.value ??
           firmSettings.targetMarginPct,
         cellTargetLookup: (skuId, tierId) =>
           selectCellTarget(skuId, tierId)(storeApi.getState()),

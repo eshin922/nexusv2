@@ -289,6 +289,24 @@ export const REQUIRED_CELL_SECTIONS = ["pkg", "prod", "raw", "frt", "sell-before
  */
 export const QUOTE_SCOPE_PREFIX = "quote";
 
+/**
+ * Quote-WIDE scope: facts that belong to the quote and are not scoped to a
+ * tier at all.
+ *
+ * The effective target margin is the reference case. It is one decision per
+ * quote, consumed by every tier's verdict and displayed by surfaces that show
+ * no tier. Emitting it per tier would publish N copies of one fact and force a
+ * quote-level reader to pick a tier arbitrarily to learn something no tier
+ * owns — which is how a surface ends up reading tier 1's copy and calling it
+ * the quote's policy.
+ *
+ * A distinct prefix rather than a reserved tier id, so the scope is decidable
+ * from the key alone. `quote/{tierId}` and `quote-wide/{name}` cannot be
+ * confused: no tier id is the literal `quote-wide`, and the parser branches
+ * before it ever looks at a second segment.
+ */
+export const QUOTE_WIDE_PREFIX = "quote-wide";
+
 export function graphIsComplete(nodes: CostingNode[]): boolean {
   // Roots are scoped: per-cell for cell computations, per-tier for quote-level
   // blends. Only cell roots carry sections, so only they are checked.
@@ -703,6 +721,11 @@ export function readNodeValue(
  */
 export type NodeAddress =
   | {
+      /** A fact about the whole quote, owned by no tier. */
+      scope: "quote-wide";
+      path: readonly string[];
+    }
+  | {
       scope: "cell";
       /** The math SKU id — see `mathSkuId` in the adapter. */
       skuId: string;
@@ -726,6 +749,10 @@ export type NodeAddress =
  */
 export function parseNodeKey(key: string): NodeAddress | null {
   const parts = key.split("/");
+  if (parts[0] === QUOTE_WIDE_PREFIX) {
+    if (parts.length < 2 || parts[1] === "") return null;
+    return { scope: "quote-wide", path: parts.slice(1) };
+  }
   if (parts[0] === QUOTE_SCOPE_PREFIX) {
     // `quote/{tier}` alone is a real key — the sell blend's own node.
     if (parts.length < 2 || parts[1] === "") return null;
@@ -787,6 +814,47 @@ export function collectCellSectionNodes(
   return found;
 }
 
+/**
+ * The effective target margin, and WHERE IT CAME FROM.
+ *
+ * One call, so a consumer cannot read the value correctly and then describe its
+ * provenance wrongly — which is the state the surfaces were in: two of five
+ * carried a source, three showed the number anonymously, and 12 of 62 quotes
+ * override, so the same `35%` meant different things on different screens.
+ *
+ * Returns null when the node is absent or ambiguous. Callers must treat that as
+ * "cannot display", never as the firm default — silently falling back would
+ * reinstate the fifth private ladder this replaces.
+ */
+export type EffectiveTargetRead = {
+  value: number;
+  /** The rung the engine chose: "Quote override" or "Firm default". */
+  source: string;
+  isOverride: boolean;
+  /** What would apply with no quote override — the ladder minus its top rung.
+   *  The popover's "if you clear this" preview needs it, and deriving it from
+   *  `firmSettings` there would be the sixth private copy of the ladder. */
+  withoutOverride: number | null;
+};
+
+export function readEffectiveTargetMargin(
+  nodes: readonly CostingNode[],
+): EffectiveTargetRead | null {
+  const node = resolveNode(nodes, quoteWideKey("target-margin"));
+  if (!node || node.kind !== "resolution") return null;
+  const chosen = (node.candidates ?? []).find((c) => c.chosen);
+  if (!chosen) return null;
+  const below = (node.candidates ?? []).find(
+    (c) => c.label !== "Quote override" && c.value !== null,
+  );
+  return {
+    value: node.value,
+    source: chosen.label,
+    isOverride: chosen.label === "Quote override",
+    withoutOverride: below ? below.value : null,
+  };
+}
+
 export function resolveNodes(
   nodes: readonly CostingNode[],
   keys: Iterable<string>,
@@ -812,6 +880,11 @@ export function resolveNodes(
  * interpolated at each call site so consumers cannot drift from the emitter's
  * key grammar — a mistyped key is indistinguishable from a missing node.
  */
+/** Address a quote-wide fact: `quote-wide/{name}`. */
+export function quoteWideKey(name: string): string {
+  return nodeKey(QUOTE_WIDE_PREFIX, name);
+}
+
 export function quoteScopeKey(tierId: string, name: string): string {
   return nodeKey(QUOTE_SCOPE_PREFIX, tierId, name);
 }
