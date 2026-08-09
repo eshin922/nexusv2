@@ -70,6 +70,11 @@ function quote(
       },
     ],
     tiers: cells.map((_, i) => ({ id: i + 1, qty: 1000 * (i + 1) })),
+    // Both required, and both irrelevant to what this file asserts — the
+    // partitions are drawn from cells regardless. Supplied explicitly rather
+    // than cast away, because a cast here would have hidden the same omission.
+    blended_margin_pct: null,
+    recommended_tier_id: null,
     suggestions: {},
   };
 }
