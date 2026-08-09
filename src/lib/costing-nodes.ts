@@ -399,8 +399,19 @@ function closeEnough(a: number, b: number): boolean {
  * Every arithmetic kind is now checked. `resolution` asserts nothing by design:
  * its children are alternatives, exactly one of which is chosen, and
  * alternatives do not combine.
+ *
+ * EXPORTED so the trace can display reconciliation rather than compute it. The
+ * design prototype re-sums operands in its own render layer, because its data
+ * source has no assertion facility to call. Ours does, and a trace that
+ * re-derived the check would be asserting agreement between itself and itself
+ * — which is the one arrangement that can never fail informatively.
+ *
+ * Returns null when the node reconciles, or a description of the discrepancy.
  */
-function reconcile(n: CostingNode, operands: CostingNode[]): string | null {
+export function reconcile(
+  n: CostingNode,
+  operands: CostingNode[],
+): string | null {
   switch (n.kind) {
     case "sum": {
       const summed = operands.reduce((s, o) => s + o.value, 0);

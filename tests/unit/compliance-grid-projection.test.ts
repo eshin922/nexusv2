@@ -196,10 +196,19 @@ test("the canonical stylesheets are verbatim and load in the specified order", (
     );
     // Everything after the provenance header must match the bundle byte for
     // byte. Pattern 30's whole value is that this diff stays empty.
-    const body = copied.slice(copied.indexOf(" */\n") + 4);
+    //
+    // Normalise line endings BEFORE slicing, not after. Git's autocrlf gives
+    // the working copy CRLF, so the header terminator carries a carriage
+    // return and a search for the LF form misses it entirely. The first
+    // version of this test found that out by reporting drift where there was
+    // none — and a check that cries wolf gets disbelieved at exactly the
+    // moment it is right.
+    const lf = (t: string) => t.split("\r\n").join("\n");
+    const normalised = lf(copied);
+    const body = normalised.slice(normalised.indexOf(" */\n") + 4);
     assert.equal(
-      body.replace(/\r\n/g, "\n"),
-      source.replace(/\r\n/g, "\n"),
+      body,
+      lf(source),
       `${r} has drifted from the registered bundle`,
     );
   }
