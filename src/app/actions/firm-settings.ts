@@ -275,7 +275,13 @@ export type PortfolioQuoteRow = {
   scenarioLabel: string;
   versionNumber: number;
   status: string;
-  blendedMarginPct: number; // 0.0..1.0
+  /**
+   * 0.0..1.0, or NULL when the quote has no revenue and therefore no margin.
+   *
+   * Null is NOT a zero-margin quote. It is a quote that has not been assessed,
+   * and it is excluded from every band below rather than defaulted into one.
+   */
+  blendedMarginPct: number | null;
 };
 
 export type PortfolioBands = {
@@ -283,6 +289,15 @@ export type PortfolioBands = {
   good: number; // >= target
   belowTarget: number; // floor <= m < target
   belowFloor: number; // < floor
+  /**
+   * No margin to band — zero revenue.
+   *
+   * Reported rather than absorbed, so that
+   * `good + belowTarget + belowFloor + unassessed === totalQuotes` holds. The
+   * alternative — shrinking `totalQuotes` to the assessed population — would
+   * make the portfolio silently smaller than the portfolio.
+   */
+  unassessed: number;
   quotes: PortfolioQuoteRow[];
 };
 
@@ -331,16 +346,22 @@ function bucketQuotes(
   quotesIn: PortfolioQuoteRow[],
   target: number,
   floor: number,
-): { good: number; belowTarget: number; belowFloor: number } {
+): { good: number; belowTarget: number; belowFloor: number; unassessed: number } {
   let good = 0;
   let belowTarget = 0;
   let belowFloor = 0;
+  let unassessed = 0;
   for (const q of quotesIn) {
-    if (q.blendedMarginPct >= target) good++;
+    // A quote with no margin is not a quote with a bad margin. Counting these
+    // as belowFloor — which is what `null >= floor` being false used to do —
+    // reported the firm as breaching its own policy on quotes nobody had
+    // priced yet.
+    if (q.blendedMarginPct === null) unassessed++;
+    else if (q.blendedMarginPct >= target) good++;
     else if (q.blendedMarginPct >= floor) belowTarget++;
     else belowFloor++;
   }
-  return { good, belowTarget, belowFloor };
+  return { good, belowTarget, belowFloor, unassessed };
 }
 
 export async function getFirmPortfolioBands(): Promise<
@@ -363,7 +384,7 @@ export async function getFirmPortfolioBands(): Promise<
     const quotesList = await getPortfolioQuotes();
     const target = Number(fs.targetMarginPct);
     const floor = Number(fs.floorMarginPct);
-    const { good, belowTarget, belowFloor } = bucketQuotes(
+    const { good, belowTarget, belowFloor, unassessed } = bucketQuotes(
       quotesList,
       target,
       floor,
@@ -373,6 +394,7 @@ export async function getFirmPortfolioBands(): Promise<
       good,
       belowTarget,
       belowFloor,
+      unassessed,
       quotes: quotesList,
     };
   });
@@ -392,18 +414,34 @@ export type RebandPreview = {
   changingBandCount: number;
   newlyBelowTargetCount: number;
   newlyBelowFloorCount: number;
-  // Sample affected quotes (cap 5) with their transition
+  // Sample affected quotes (cap 5) with their transition.
+  //
+  // `blendedMarginPct: number` is narrowed from the row's `number | null`
+  // deliberately: only a quote that HAS a margin can transition between bands,
+  // so an unassessed quote can never appear in these lists. Saying that in the
+  // type means the view renders the number without a null check, rather than
+  // inventing a display value for a case that cannot occur.
   newlyBelowTarget: Array<
-    PortfolioQuoteRow & { fromBand: "good"; toBand: "belowTarget" }
+    PortfolioQuoteRow & {
+      blendedMarginPct: number;
+      fromBand: "good";
+      toBand: "belowTarget";
+    }
   >;
   newlyBelowFloor: Array<
     PortfolioQuoteRow & {
+      blendedMarginPct: number;
       fromBand: "good" | "belowTarget";
       toBand: "belowFloor";
     }
   >;
 };
 
+/**
+ * Bands a margin. Takes a `number`, not `number | null`, on purpose: banding is
+ * defined over the real line, and a quote without a margin is not this
+ * function's problem to absorb. Callers exclude those before asking.
+ */
 function bandOf(
   m: number,
   target: number,
@@ -455,12 +493,23 @@ export async function previewFirmSettingsReband(
     const newlyBelowFloor: RebandPreview["newlyBelowFloor"] = [];
 
     for (const q of quotesList) {
-      const from = bandOf(q.blendedMarginPct, curTarget, curFloor);
-      const to = bandOf(q.blendedMarginPct, newTarget, newFloor);
+      const m = q.blendedMarginPct;
+      // No margin, no band, and therefore no transition. A change to the
+      // firm's target or floor cannot move a quote that has not been
+      // assessed against either.
+      if (m === null) continue;
+
+      const from = bandOf(m, curTarget, curFloor);
+      const to = bandOf(m, newTarget, newFloor);
       if (from !== to) changingBandCount++;
 
       if (from === "good" && to === "belowTarget" && newlyBelowTarget.length < 5) {
-        newlyBelowTarget.push({ ...q, fromBand: "good", toBand: "belowTarget" });
+        newlyBelowTarget.push({
+          ...q,
+          blendedMarginPct: m,
+          fromBand: "good",
+          toBand: "belowTarget",
+        });
       }
       if (
         to === "belowFloor" &&
@@ -469,6 +518,7 @@ export async function previewFirmSettingsReband(
       ) {
         newlyBelowFloor.push({
           ...q,
+          blendedMarginPct: m,
           fromBand: from,
           toBand: "belowFloor",
         });

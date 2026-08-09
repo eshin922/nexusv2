@@ -8,7 +8,7 @@ export function MarkAcceptedPending({
   floorPct,
   customerName,
 }: {
-  blendedMarginPct: number;
+  blendedMarginPct: number | null;
   targetPct: number;
   floorPct: number;
   customerName: string;

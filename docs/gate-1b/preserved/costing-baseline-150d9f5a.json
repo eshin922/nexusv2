@@ -1,7 +1,7 @@
 {
   "capturedOver": 24,
   "failed": 0,
-  "globalDigest": "c85e555c1352c02928eaf30ec05686614294d8b3bc826dfa4e6e41e0b1eebfcb",
+  "globalDigest": "150d9f5ab0e8261da2ea3d6b292dbe5c835265f55e8a076af5fb0a65110717e0",
   "entries": [
     {
       "quote_id": "071486be-e1a6-4475-8df6-2a2b78a21b58",
@@ -23,7 +23,7 @@
       "quote_id": "180e6410-8999-4d38-95bc-8d18567431b9",
       "status": "sent",
       "label": "MISTR - Sachet Rollstock Test Roll / smoke-addendum-0727",
-      "digest": "51c0f879942a4739fa1451a223f4dc22",
+      "digest": "0078ad9942b82cdef77ca3a1218fcd74",
       "skus": 4,
       "tiers": 1
     },
@@ -39,7 +39,7 @@
       "quote_id": "2de1dd81-e0cc-40b6-b3a0-df189d3a7865",
       "status": "draft",
       "label": "Epicuren - Pro Mask Boosters / Alt 4",
-      "digest": "5bd60553144143c2bb4e6d4d4c4b87c7",
+      "digest": "ce6db000f5eb517d0e3585a3834d9824",
       "skus": 21,
       "tiers": 1
     },
@@ -71,7 +71,7 @@
       "quote_id": "600dd15c-e304-40d4-883b-5a13dd3ba214",
       "status": "draft",
       "label": "Epicuren - Pro Mask Boosters / Alt 5",
-      "digest": "6f44c00f2e0486ebe3ebf2bad6ee4494",
+      "digest": "1354a95ab2d5ca5d2ab432c1b48fb69f",
       "skus": 21,
       "tiers": 1
     },
@@ -95,7 +95,7 @@
       "quote_id": "9de0a19d-8a2c-4911-8c32-ebbff908e5d4",
       "status": "sent",
       "label": "MISTR - Sachet Rollstock Test Roll / smoke-snapshot3-0727",
-      "digest": "f4ee8d218314f565310611bdd896fe0c",
+      "digest": "307c4c4ef16ce56e4002d2f034db634b",
       "skus": 2,
       "tiers": 1
     },
@@ -119,7 +119,7 @@
       "quote_id": "bfc6eebe-4b9b-4268-b8bd-0e1797dd34ea",
       "status": "draft",
       "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / SAMPLE TEST 2 - ED",
-      "digest": "319cf66e946c18ce318d0ff220f8efad",
+      "digest": "02433e2f0c33ba27ad0d231aef86ad98",
       "skus": 11,
       "tiers": 3
     },
@@ -151,7 +151,7 @@
       "quote_id": "e33d0f54-008a-437a-820c-4b2f3b5ac002",
       "status": "draft",
       "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / Alt 1",
-      "digest": "de7d1ac0a50000c54eee19763b0ccd50",
+      "digest": "0fcef2ce5f7b2c49bd0f5259eab34204",
       "skus": 11,
       "tiers": 3
     },
@@ -167,7 +167,7 @@
       "quote_id": "f84334bd-afa1-4016-9511-71f7d5600e35",
       "status": "draft",
       "label": "Epicuren - Pro Mask Boosters / Alt 1",
-      "digest": "a8a65d6fc01d96453482e5b3bd5cfd01",
+      "digest": "546b60611170499bb6dc1c1d2e0a5e72",
       "skus": 21,
       "tiers": 2
     },
@@ -183,7 +183,7 @@
       "quote_id": "f9c23c2f-765a-4404-9ecb-081a24ad73dc",
       "status": "draft",
       "label": "Nemah - 30ml Nipple and Lip Balm Jar / Alt 1",
-      "digest": "9fb34aefbf579f09f31e68aeb75bc948",
+      "digest": "e9362064d3a96201d7437d775c535bf6",
       "skus": 21,
       "tiers": 1
     },

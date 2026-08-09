@@ -11,17 +11,37 @@
 // do NOT extract a shared "compact variant" primitive. Two distinct
 // surfaces reading the same selectors is the right shape.
 
+import type { QuoteMarginStatus } from "@/lib/costing";
+
 export function MarginVerdict({
   blendedMarginPct,
   status,
   targetPct,
   floorPct,
 }: {
-  blendedMarginPct: number;
-  status: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
+  /** Already in percent units (0..100), or null when there is no margin. */
+  blendedMarginPct: number | null;
+  status: QuoteMarginStatus;
   targetPct: number;
   floorPct: number;
 }) {
+  // No margin: render its absence. The engine used to hand this surface a
+  // fabricated 0.0% carrying a BELOW FLOOR verdict, which read as "this quote
+  // breaches the floor" for a quote that has simply not been priced.
+  if (status === "UNAVAILABLE" || blendedMarginPct === null) {
+    return (
+      <div className="macc-verdict">
+        <div className="margin-num" style={{ opacity: 0.55 }}>
+          —
+        </div>
+        <div className="margin-meta">
+          <div className="lbl">Blended margin · UNAVAILABLE</div>
+          <div className="sub">No revenue on this quote yet — no margin to assess.</div>
+        </div>
+      </div>
+    );
+  }
+
   const cls =
     status === "GOOD" ? "good" : status === "BELOW_TARGET" ? "warn" : "bad";
   const verdictLabel =

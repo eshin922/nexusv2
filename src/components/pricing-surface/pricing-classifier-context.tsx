@@ -172,6 +172,7 @@ export function PricingClassifierProvider({
         firmSettings,
         policy,
         quoteRollup,
+        quoteSummary,
         skuRollups,
         globalAdj,
         // Never reached when null — the guard below returns first. Zero is a
@@ -332,9 +333,13 @@ function previewBlendedMargin(
     },
   };
   const result = computeQuoteCosting(preview, "preview");
-  const revenue = result.quoteRollup.reduce((a, r) => a + r.totalRevenue, 0);
-  const cost = result.quoteRollup.reduce((a, r) => a + r.totalCost, 0);
-  return revenue > 0 ? 1 - cost / revenue : null;
+  // The engine's own quote-wide scalar, taken off the PREVIEW result. This
+  // used to re-sum the rollup and divide here, which agreed with the engine
+  // only for as long as both sides kept computing the same thing — and did
+  // not: at zero revenue the local form returned null while the engine
+  // returned a fabricated 0. Null now means undefined on both sides because
+  // there is only one side.
+  return result.quoteSummary.blendedMarginPct;
 }
 
 interface AdapterInputs {
@@ -346,6 +351,8 @@ interface AdapterInputs {
   firmSettings: { targetMarginPct: number; floorMarginPct: number };
   policy: { allow_override: boolean; allow_accept_risk: boolean };
   quoteRollup: ReturnType<typeof selectQuoteRollup>;
+  /** The engine's quote-wide summary. Source of the blended margin below. */
+  quoteSummary: ReturnType<typeof selectQuoteSummary>;
   skuRollups: ReturnType<typeof selectSkuRollups>;
   globalAdj: number;
   effectiveTarget: number;
@@ -367,6 +374,7 @@ function buildClassifierInputs({
   firmSettings,
   policy,
   quoteRollup,
+  quoteSummary,
   skuRollups,
   globalAdj,
   effectiveTarget,
@@ -455,17 +463,20 @@ function buildClassifierInputs({
       };
     });
 
-  // Blended margin across all tiers — sum-revenue / sum-cost when
-  // available; falls back to null. Avoids quoteSummary subscription
-  // for this derivation (adapter stays in-bounds).
-  let totalRevenue = 0;
-  let totalCost = 0;
-  for (const r of quoteRollup) {
-    totalRevenue += r.totalRevenue;
-    totalCost += r.totalCost;
-  }
-  const blendedMarginPct =
-    totalRevenue > 0 ? (totalRevenue - totalCost) / totalRevenue : null;
+  // Quote-wide blended margin, read from the engine.
+  //
+  // This was a local re-sum of the rollup followed by `1 − cost / revenue`.
+  // The population and the formula were both right, which is precisely why it
+  // survived: it agreed with the engine on every revenue-bearing quote to
+  // within 1e-12, so nothing ever pointed at it. A second implementation of a
+  // commercial quantity does not announce itself while it agrees.
+  //
+  // Where the two DID differ was the case neither surface displayed loudly:
+  // at zero revenue this returned null while the engine returned a fabricated
+  // 0. The consumer was more correct than its authority — which is not a
+  // reason to keep the consumer, it is a reason to fix the authority. Now
+  // corrected, there is one answer and this reads it.
+  const blendedMarginPct = quoteSummary.blendedMarginPct;
 
   // Suggestions via rankPricingSuggestions (Slice 9.4b helper).
   // CB Step 9 re-walk BUG-1 — track `suggestion_infeasible` when

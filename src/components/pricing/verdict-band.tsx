@@ -43,8 +43,12 @@ export function VerdictBand({ editable }: { editable: boolean }) {
   const quoteId = useCostingStore(selectQuoteId);
   const skuRollups = useCostingStore(selectSkuRollups);
 
-  const blendedPct = summary.blendedMarginPct * 100;
-  const status = summary.blendedMarginStatus; // "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR"
+  // Null when the quote has no revenue. Kept null rather than multiplied,
+  // since `null * 100` is 0 and would put a fabricated number back on the
+  // largest type on the surface.
+  const blendedPct =
+    summary.blendedMarginPct === null ? null : summary.blendedMarginPct * 100;
+  const status = summary.blendedMarginStatus; // GOOD | BELOW_TARGET | BELOW_FLOOR | UNAVAILABLE
   const effectiveTargetPct = summary.effectiveTargetMarginPct * 100;
   const floorPct = firmSettings.floorMarginPct * 100;
   const hasQuoteOverride = targetMargin !== null;
@@ -58,9 +62,20 @@ export function VerdictBand({ editable }: { editable: boolean }) {
     }
   }
 
-  // Status -> token color for border + status text
+  // Status -> token color for border + status text.
+  //
+  // UNAVAILABLE takes a NEUTRAL token, not the `bad` default the old
+  // else-branch would have handed it. A muted band says "not assessed"; a red
+  // one would say "assessed and failing", which is the claim this whole
+  // correction exists to stop making.
   const statusToken =
-    status === "GOOD" ? "good" : status === "BELOW_TARGET" ? "warn" : "bad";
+    status === "GOOD"
+      ? "good"
+      : status === "BELOW_TARGET"
+        ? "warn"
+        : status === "UNAVAILABLE"
+          ? "ink-3"
+          : "bad";
 
   // Wrapper styling — bad = full red border + bad-soft bg; good/warn =
   // calm card with border-left accent in their semantic color.
@@ -96,13 +111,19 @@ export function VerdictBand({ editable }: { editable: boolean }) {
         };
 
   const numberColor =
-    status === "BELOW_FLOOR" ? "var(--bad)" : "var(--ink)";
+    status === "BELOW_FLOOR"
+      ? "var(--bad)"
+      : status === "UNAVAILABLE"
+        ? "var(--ink-3)"
+        : "var(--ink)";
   const statusText =
     status === "GOOD"
       ? "● above target — sendable"
       : status === "BELOW_TARGET"
         ? "● below target — soft warning"
-        : "● below floor — send blocked";
+        : status === "UNAVAILABLE"
+          ? "● no revenue — margin not assessed"
+          : "● below floor — send blocked";
 
   return (
     <>
@@ -134,17 +155,19 @@ export function VerdictBand({ editable }: { editable: boolean }) {
               transition: "color 200ms ease-out",
             }}
           >
-            {blendedPct.toFixed(1)}
-            <span
-              style={{
-                fontSize: 44,
-                color: "var(--ink-3)",
-                fontStyle: "italic",
-                marginLeft: 4,
-              }}
-            >
-              %
-            </span>
+            {blendedPct === null ? "—" : blendedPct.toFixed(1)}
+            {blendedPct !== null && (
+              <span
+                style={{
+                  fontSize: 44,
+                  color: "var(--ink-3)",
+                  fontStyle: "italic",
+                  marginLeft: 4,
+                }}
+              >
+                %
+              </span>
+            )}
           </div>
           <div
             className="r2-mono"

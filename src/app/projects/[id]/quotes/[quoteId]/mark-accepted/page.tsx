@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { projects, quoteTiers, quotes } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
+import type { QuoteMarginStatus } from "@/lib/costing";
 import { MarkAcceptedHost, type MarkAcceptedSubState } from "@/components/mark-accepted/mark-accepted-host";
 import { Eyebrow } from "@/components/nav/eyebrow";
 import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
@@ -29,11 +30,16 @@ const VALID_SUBSTATES: ReadonlyArray<MarkAcceptedSubState> = [
 ];
 
 function statusToSubState(
-  s: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR",
+  s: QuoteMarginStatus,
   isAccepted: boolean,
   hasCustomerAcceptance: boolean,
 ): MarkAcceptedSubState {
   if (isAccepted) return "locked";
+  // UNAVAILABLE deliberately does NOT open the below-floor gate. A quote with
+  // no revenue has not breached the floor; it has not been measured against
+  // it. The verdict strip renders the absence, and the workflow proceeds
+  // through the ordinary path rather than demanding an override for a
+  // violation that was never established.
   if (s === "BELOW_FLOOR") return "bothGates";
   // Slice RI.7 — customer signal recorded but no override gate to clear
   // → awaitingMark (PM finalizes with affirmation chip). Below-target
@@ -179,7 +185,10 @@ export default async function MarkAcceptedPage({
     tierData[recIdx] = { ...tierData[recIdx], recommended: true };
   }
 
-  const blendedPct = summary.blendedMarginPct * 100;
+  // Null stays null through the unit conversion. `null * 100` is 0 in
+  // JavaScript, which is exactly the fabrication this correction removes.
+  const blendedPct =
+    summary.blendedMarginPct === null ? null : summary.blendedMarginPct * 100;
   const isAccepted = quote.scenarioStatus === "accepted";
 
   // Slice RI.7 — customer-acceptance context (CR-SM DEC-1 + DEC-6).

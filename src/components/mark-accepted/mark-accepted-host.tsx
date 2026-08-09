@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { QuoteMarginStatus } from "@/lib/costing";
 import { MarkAcceptedGood } from "./mark-accepted-good";
 import {
   MarkAcceptedBothGates,
@@ -43,8 +44,9 @@ export function MarkAcceptedHost({
   showStateSwitcher,
 }: {
   initialSubState: MarkAcceptedSubState;
-  blendedMarginPct: number;
-  status: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
+  /** Percent units (0..100), or null when the quote has no margin. */
+  blendedMarginPct: number | null;
+  status: QuoteMarginStatus;
   targetPct: number;
   floorPct: number;
   tiers: TierCardData[];
@@ -186,16 +188,30 @@ export function MarkAcceptedHost({
           }
         />
       )}
-      {subState === "bothGates" && (
-        <MarkAcceptedBothGates
-          blendedMarginPct={blendedMarginPct}
-          targetPct={targetPct}
-          floorPct={floorPct}
-          flaggedLines={flaggedLines}
-          customerName={customerName}
-          quoteNumber={quoteNumber}
-        />
-      )}
+      {/*
+        The below-floor override gate requires a margin to be below the floor,
+        so it keeps a non-null `number`. Derivation never sends an unassessed
+        quote here — `statusToSubState` cannot return `bothGates` for
+        UNAVAILABLE — but the dev state switcher can force the sub-state
+        directly, and that combination gets said out loud rather than rendering
+        a gate about a margin that does not exist.
+      */}
+      {subState === "bothGates" &&
+        (blendedMarginPct !== null ? (
+          <MarkAcceptedBothGates
+            blendedMarginPct={blendedMarginPct}
+            targetPct={targetPct}
+            floorPct={floorPct}
+            flaggedLines={flaggedLines}
+            customerName={customerName}
+            quoteNumber={quoteNumber}
+          />
+        ) : (
+          <div className="macc-note">
+            This quote has no revenue, so it has no blended margin. The
+            below-floor override gate does not apply.
+          </div>
+        ))}
       {subState === "pending" && (
         <MarkAcceptedPending
           blendedMarginPct={blendedMarginPct}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { QuoteMarginStatus } from "@/lib/costing";
 import { MarginVerdict } from "./margin-verdict";
 import { TierCard, type TierCardData } from "./tier-card";
 import { VersionWarning } from "./version-warning";
@@ -29,8 +30,8 @@ export function MarkAcceptedGood({
   activeSiblings,
   customerAcceptance,
 }: {
-  blendedMarginPct: number;
-  status: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
+  blendedMarginPct: number | null;
+  status: QuoteMarginStatus;
   targetPct: number;
   floorPct: number;
   tiers: TierCardData[];
