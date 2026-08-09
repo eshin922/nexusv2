@@ -220,7 +220,7 @@ export function PackagingDrilldown({
         keyOf.set(readKey(line.lineGroupId, t.id), k);
       }
     }
-    const resolved = resolveNodes(graph.nodes, keys);
+    const resolved = resolveNodes(graph, keys);
     const out = new Map<string, LineTierRead>();
     for (const [mapKey, nodeK] of keyOf) {
       const node = resolved.get(nodeK) ?? null;
@@ -326,8 +326,7 @@ export function PackagingDrilldown({
     if (!anyPriced) return { tierId: t.id, value: null };
     return {
       tierId: t.id,
-      value: readNodeValue(
-        graph.nodes,
+      value: readNodeValue(graph,
         quoteScopeKey(t.id, "cost-stack/pkg-total"),
       ),
     };

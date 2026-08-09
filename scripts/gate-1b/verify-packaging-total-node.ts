@@ -55,7 +55,7 @@ for (const q of quotes) {
     // segments ending in `pkg`, so the Pricing blend was being added to the sum
     // this script checks the blend against. `collectCellSectionNodes` states
     // the scope and the depth once, where it can be tested.
-    const sectionNodes = collectCellSectionNodes(c.graph.nodes, "pkg", {
+    const sectionNodes = collectCellSectionNodes(c.graph, "pkg", {
       tierId: tier.tierId,
     });
     const localSum = sectionNodes.reduce((a, n) => a + n.value, 0);
@@ -81,7 +81,7 @@ for (const q of quotes) {
     }
 
     // 2 · reconciles with the Cost Stack's Packaging row.
-    const header = readNodeValue(c.graph.nodes, quoteScopeKey(tier.tierId, "per-unit/pkg"));
+    const header = readNodeValue(c.graph, quoteScopeKey(tier.tierId, "per-unit/pkg"));
     if (header === null) headerUndefined += 1;
     else if (Math.abs(header - node.value) > 1e-9) {
       failures.push(
@@ -91,7 +91,7 @@ for (const q of quotes) {
     } else reconciledToHeader += 1;
 
     // 3 · distinct from the Pricing blend wherever the quote has >1 SKU.
-    const blend = readNodeValue(c.graph.nodes, quoteScopeKey(tier.tierId, "pkg"));
+    const blend = readNodeValue(c.graph, quoteScopeKey(tier.tierId, "pkg"));
     if (blend !== null) {
       if (Math.abs(blend - node.value) <= 1e-9) coincidesWithBlend += 1;
       else distinctFromBlend += 1;

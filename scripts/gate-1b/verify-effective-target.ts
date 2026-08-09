@@ -40,16 +40,16 @@ let inheriting = 0;
 for (const r of rows) {
   const res = await getCostingBundle(r.id);
   if (!res.ok) { failures.push(`${r.id}: ${res.error.code}`); continue; }
-  const nodes = res.data.costing.graph.nodes;
+  const graph = res.data.costing.graph;
   const where = r.id.slice(0, 8);
 
-  const node = resolveNode(nodes, quoteWideKey("target-margin"));
+  const node = resolveNode(graph.nodes, quoteWideKey("target-margin"));
   if (!node) { failures.push(`${where}: target-margin node missing`); continue; }
   if (node.kind !== "resolution") failures.push(`${where}: kind is ${node.kind}`);
   const chosenCount = (node.candidates ?? []).filter((c) => c.chosen).length;
   if (chosenCount !== 1) failures.push(`${where}: ${chosenCount} chosen rungs, expected 1`);
 
-  const read = readEffectiveTargetMargin(nodes);
+  const read = readEffectiveTargetMargin(graph);
   if (!read) { failures.push(`${where}: unreadable`); continue; }
   checked += 1;
 

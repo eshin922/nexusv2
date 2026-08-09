@@ -50,7 +50,7 @@ for (const q of quotes) {
 
   for (const tier of c.tiers) {
     const where = `${q.id.slice(0, 8)} ${tier.label}`;
-    const sections = collectCellSectionNodes(c.graph.nodes, "frt", { tierId: tier.tierId });
+    const sections = collectCellSectionNodes(c.graph, "frt", { tierId: tier.tierId });
     if (sections.length === 0) continue;
 
     // Shipment nodes, and the uniqueness the consumer depends on.
@@ -111,8 +111,8 @@ for (const q of quotes) {
       failures.push(`${where}: operands sum to ${operandSum}, node says ${total.value}`);
     }
 
-    const frt = readNodeValue(c.graph.nodes, quoteScopeKey(tier.tierId, "per-unit/frt"));
-    const dt = readNodeValue(c.graph.nodes, quoteScopeKey(tier.tierId, "per-unit/dt"));
+    const frt = readNodeValue(c.graph, quoteScopeKey(tier.tierId, "per-unit/frt"));
+    const dt = readNodeValue(c.graph, quoteScopeKey(tier.tierId, "per-unit/dt"));
     if (frt === null || dt === null) continue;   // zero-qty tier
     if (Math.abs(total.value - (frt + dt)) > 1e-9) {
       failures.push(

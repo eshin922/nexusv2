@@ -77,7 +77,7 @@ export function QuoteSummaryCard({
   // source correctly; what it did not do was get it from the same place as
   // everyone else.
   const graph = useCostingStore(selectGraph);
-  const targetRead = readEffectiveTargetMargin(graph.nodes);
+  const targetRead = readEffectiveTargetMargin(graph);
   const effectiveTarget = targetRead?.value ?? null;
   const targetIsOverridden = targetRead?.isOverride ?? false;
 

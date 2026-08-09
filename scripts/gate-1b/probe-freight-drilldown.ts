@@ -75,8 +75,8 @@ for (const q of quotes) {
     // are freight + duty + tariff; the header splits those across FRT and D+T,
     // so the comparison is against their sum.
     const stripTotal = ships.reduce((a, n) => a + n.value, 0);
-    const frt = readNodeValue(c.graph.nodes, quoteScopeKey(tier.tierId, "per-unit/frt"));
-    const dt = readNodeValue(c.graph.nodes, quoteScopeKey(tier.tierId, "per-unit/dt"));
+    const frt = readNodeValue(c.graph, quoteScopeKey(tier.tierId, "per-unit/frt"));
+    const dt = readNodeValue(c.graph, quoteScopeKey(tier.tierId, "per-unit/dt"));
     if (frt === null || dt === null) continue;
     const stack = frt + dt;
 

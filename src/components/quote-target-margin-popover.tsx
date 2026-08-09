@@ -209,7 +209,7 @@ export function QuoteTargetMarginPopover({
   // engine already publishes it. Reading `firmSettings` here was a sixth
   // private copy of that ladder, correct only for as long as the ladder has
   // exactly two rungs.
-  const targetRead = readEffectiveTargetMargin(graph.nodes);
+  const targetRead = readEffectiveTargetMargin(graph);
   const effectivePreview =
     draftDecimal !== null && Number.isFinite(draftDecimal)
       ? { value: draftDecimal, source: "this quote" as const }

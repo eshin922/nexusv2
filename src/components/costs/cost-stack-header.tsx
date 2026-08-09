@@ -131,7 +131,7 @@ export function CostStackHeader({
   // of five. The number was right; what it could not say is WHY. "BELOW 35"
   // reads identically whether 35 is firm policy or this quote's own decision,
   // and 12 of 62 quotes override — so the tag now names its source.
-  const effectiveTarget = readEffectiveTargetMargin(graph.nodes);
+  const effectiveTarget = readEffectiveTargetMargin(graph);
   const effectiveTargetPct =
     effectiveTarget !== null ? effectiveTarget.value * 100 : null;
 
@@ -148,7 +148,7 @@ export function CostStackHeader({
     const out = new Map<string, TierPerUnit>();
     for (const tier of tiers) {
       const read = (name: string): number | null =>
-        readNodeValue(graph.nodes, quoteScopeKey(tier.id, `per-unit/${name}`));
+        readNodeValue(graph, quoteScopeKey(tier.id, `per-unit/${name}`));
 
       const rows: Array<{ row: GovernedRow; values: RowValues }> = [];
       let complete = true;
@@ -164,8 +164,7 @@ export function CostStackHeader({
       }
       if (!complete) continue;
 
-      const subtotal = readNodeValue(
-        graph.nodes,
+      const subtotal = readNodeValue(graph,
         quoteScopeKey(tier.id, "per-unit"),
       );
       const departure = read("departure");

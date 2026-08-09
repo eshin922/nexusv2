@@ -266,7 +266,32 @@ export const RECONCILE_EPSILON = 1e-9;
  * The distinction is whether existing consumer code keeps being CORRECT, not
  * whether it keeps compiling.
  */
-export const GRAPH_VERSION = 1;
+export const GRAPH_VERSION = 2;
+
+/**
+ * Which evaluation produced a graph.
+ *
+ * NOT a flag on the side: it is required on every `CostingGraph`, because the
+ * hazard is a graph that says nothing about itself. Committed and preview
+ * graphs share the key space by construction (§3.3) — `{sku}/{tier}/pkg` means
+ * the same position in both — so a preview graph handed to a consumer expecting
+ * authority answers every question exactly as confidently, and correctly for a
+ * quote nobody has agreed to.
+ *
+ * §3.3 answers a different question well: staged-ness as
+ * `committed[key] !== staged[key]` works when a caller holds BOTH and compares
+ * them. It says nothing about a single graph in isolation, which is how one
+ * would actually leak.
+ *
+ * WHY THIS BUMPS GRAPH_VERSION, when new kinds and new optional fields do not.
+ * The rule in the block above is whether existing consumer code keeps being
+ * CORRECT, not whether it keeps compiling — and this is the case that
+ * distinguishes them. A v1 consumer handed a preview graph stays perfectly
+ * type-correct and silently becomes semantically wrong: it cannot ask the
+ * question, so it cannot get the answer wrong loudly. That is precisely the
+ * failure the version exists to prevent.
+ */
+export type GraphEvaluation = "committed" | "preview";
 
 /**
  * The sections a cell's chain must contain before the graph can claim to be
@@ -332,6 +357,12 @@ export function graphIsComplete(nodes: CostingNode[]): boolean {
 export type CostingGraph = {
   /** See GRAPH_VERSION. Consumers should assert the version they expect. */
   version: number;
+  /**
+   * REQUIRED, and deliberately not optional-defaulting-to-committed. An absent
+   * evaluation must never read as authority — a graph that cannot say what it
+   * is should be unusable, not assumed.
+   */
+  evaluation: GraphEvaluation;
   nodes: CostingNode[];
   /**
    * False while sections are still being emitted. A consumer must not read a
@@ -651,6 +682,10 @@ export function resolveNode(
 /**
  * Read a commercial NUMBER out of the graph, or nothing at all.
  *
+ * `expect` defaults to `committed`, so reading preview authority is an explicit
+ * act. A consumer that has not thought about evaluation gets the safe answer,
+ * and a preview reader has to say so.
+ *
  * `resolveNode` answers "which node is at this key". This answers the question
  * a display actually asks — "what number may I show here" — and it fails closed
  * on THREE things, not two:
@@ -669,10 +704,12 @@ export function resolveNode(
  * the authority, means a consumer cannot get it wrong by omission.
  */
 export function readNodeValue(
-  nodes: readonly CostingNode[],
+  graph: CostingGraph,
   key: string,
+  expect: GraphEvaluation = "committed",
 ): number | null {
-  const node = resolveNode(nodes, key);
+  if (graph.evaluation !== expect) return null;
+  const node = resolveNode(graph.nodes, key);
   if (!node) return null;
   if (node.kind === "flagged-out") return null;
   return node.value;
@@ -801,12 +838,14 @@ export function isCellSectionNode(
  * actually wants, and writing it once means the quote scope cannot leak in.
  */
 export function collectCellSectionNodes(
-  nodes: readonly CostingNode[],
+  graph: CostingGraph,
   section: string,
   within?: { tierId?: string; skuId?: string },
+  expect: GraphEvaluation = "committed",
 ): CostingNode[] {
   const found: CostingNode[] = [];
-  for (const root of nodes) {
+  if (graph.evaluation !== expect) return found;
+  for (const root of graph.nodes) {
     walkGraph(root, (n) => {
       if (isCellSectionNode(n.key, section, within)) found.push(n);
     });
@@ -838,9 +877,11 @@ export type EffectiveTargetRead = {
 };
 
 export function readEffectiveTargetMargin(
-  nodes: readonly CostingNode[],
+  graph: CostingGraph,
+  expect: GraphEvaluation = "committed",
 ): EffectiveTargetRead | null {
-  const node = resolveNode(nodes, quoteWideKey("target-margin"));
+  if (graph.evaluation !== expect) return null;
+  const node = resolveNode(graph.nodes, quoteWideKey("target-margin"));
   if (!node || node.kind !== "resolution") return null;
   const chosen = (node.candidates ?? []).find((c) => c.chosen);
   if (!chosen) return null;
@@ -856,10 +897,17 @@ export function readEffectiveTargetMargin(
 }
 
 export function resolveNodes(
-  nodes: readonly CostingNode[],
+  graph: CostingGraph,
   keys: Iterable<string>,
+  expect: GraphEvaluation = "committed",
 ): Map<string, CostingNode | null> {
   const wanted = new Set(keys);
+  if (graph.evaluation !== expect) {
+    const out = new Map<string, CostingNode | null>();
+    for (const key of wanted) out.set(key, null);
+    return out;
+  }
+  const nodes = graph.nodes;
   if (wanted.size === 0) return new Map();
   const found = new Map<string, CostingNode | null>();
   for (const root of nodes) {
