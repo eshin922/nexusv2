@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "cross-env NODE_OPTIONS=--max-old-space-size=8192 next dev",
     "cure": "node scripts/cure.mjs",
+    "verify:types": "tsc -p tsconfig.json --noEmit",
     "verify:gate-1b-types": "tsc -p tsconfig.gate-1b-scripts.json --noEmit",
     "verify:boundaries": "node --experimental-strip-types scripts/verify/customer-view-boundary.ts",
     "verify:react-pdf-containment": "node --experimental-strip-types scripts/verify/react-pdf-containment.ts",
@@ -36,7 +37,7 @@
     "smoke:netsuite-item-groups": "cross-env NODE_OPTIONS=--require=./scripts/smoke/shim-server-only.cjs npx tsx --env-file=.env.local ./scripts/smoke/netsuite-item-groups.ts",
     "smoke:hubspot-deal-property-expansion": "cross-env NODE_OPTIONS=--require=./scripts/smoke/shim-server-only.cjs npx tsx --env-file=.env.local ./scripts/smoke/hubspot-deal-property-expansion.ts",
     "smoke:mark-complete": "cross-env NODE_OPTIONS=--require=./scripts/smoke/shim-server-only.cjs npx tsx --env-file=.env.local ./scripts/smoke/mark-complete.ts",
-    "prebuild": "npm run verify:gate-1b-types && npm run verify:boundaries && npm run verify:react-pdf-containment && npm run verify:font-register-coverage && npm run verify:autosave-focus-stability && npm run verify:complete-status-writer && npm run verify:audit-single-writer && npm run verify:pricing-classifier-invariants && npm run test:netsuite-adapter",
+    "prebuild": "npm run verify:types && npm run verify:gate-1b-types && npm run verify:boundaries && npm run verify:react-pdf-containment && npm run verify:font-register-coverage && npm run verify:autosave-focus-stability && npm run verify:complete-status-writer && npm run verify:audit-single-writer && npm run verify:pricing-classifier-invariants && npm run test:netsuite-adapter",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
