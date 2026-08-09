@@ -22,7 +22,7 @@ export function MarkAcceptedLocked({
   acceptedByName,
   sentVersion,
 }: {
-  blendedMarginPct: number;
+  blendedMarginPct: number | null;
   targetPct: number;
   floorPct: number;
   acceptedTier: TierCardData;

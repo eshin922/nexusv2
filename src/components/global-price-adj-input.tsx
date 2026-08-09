@@ -207,7 +207,8 @@ export function GlobalPriceAdjInput({
           overridden, out-of-bounds). When suggestedAdj is null the
           microcopy may still be present — render the explanation but
           not the apply button. */}
-      {(bannerSuggested !== null || bannerMicrocopy !== "") && (
+      {blendedStatus !== "UNAVAILABLE" &&
+        (bannerSuggested !== null || bannerMicrocopy !== "") && (
         <div
           role="status"
           className={`flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs ${bannerStyle.wrapper}`}
@@ -233,9 +234,9 @@ export function GlobalPriceAdjInput({
             >
               Apply {decimalToPercentDisplay(bannerSuggested)}%
             </button>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
     </div>
   );
 }

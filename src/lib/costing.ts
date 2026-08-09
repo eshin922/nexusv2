@@ -571,6 +571,27 @@ export type QuoteCostBreakdown = {
   separateServicesMarkupSum: number;
 };
 
+/**
+ * The three bands a DEFINED margin can occupy.
+ *
+ * Named separately from `QuoteMarginStatus` because these three are a complete
+ * partition of the real line: any number is in exactly one of them. Adding a
+ * fourth member here would be a category error — "unavailable" is not a region
+ * of the number line, it is the absence of a number.
+ */
+export type MarginBand = "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
+
+/**
+ * A margin verdict that may not exist.
+ *
+ * `UNAVAILABLE` means the margin is UNDEFINED, not zero and not bad. It is
+ * reached only when there is no revenue to take a ratio against, and it carries
+ * no commercial judgement: a quote in this state has not been assessed, so it
+ * must not be counted into any band. Consumers that tally quotes by band are
+ * required to exclude it rather than default it — see `QuoteSummary`.
+ */
+export type QuoteMarginStatus = MarginBand | "UNAVAILABLE";
+
 export type QuotePerTierRollup = {
   tierId: string;
   label: string;
@@ -578,8 +599,14 @@ export type QuotePerTierRollup = {
   totalRevenue: number;
   totalCost: number;
   costBreakdown: QuoteCostBreakdown;
+  // KNOWN, out of scope for the quote-wide correction below: this carries the
+  // same `revenue > 0 ? … : 0` shape, so a zero-revenue TIER reports 0% and
+  // bands as BELOW_FLOOR. Two such tiers exist in revenue-bearing quotes
+  // (52bd0077 "Tier 4", 93a5d4bb "Tier 2"), which is precisely why it was not
+  // folded in: correcting it moves quotes the quote-wide proof asserts do not
+  // move. Recorded in the derivation inventory as its own item.
   blendedMarginPct: number;
-  blendedMarginStatus: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
+  blendedMarginStatus: MarginBand;
   suggestedGlobalAdjPct: number | null;
 };
 
@@ -597,8 +624,31 @@ export type QuotePerTierRollup = {
 export type QuoteSummary = {
   blendedRevenue: number;
   blendedCost: number;
-  blendedMarginPct: number;
-  blendedMarginStatus: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
+  /**
+   * `(blendedRevenue − blendedCost) / blendedRevenue`, or NULL.
+   *
+   * Null when blended revenue is zero. The ratio is undefined there, and the
+   * previous `: 0` fallback did not represent that — it asserted a margin of
+   * exactly zero percent, which then flowed into `computeStatus` and came back
+   * as BELOW_FLOOR. Eight quotes were reported to breach the firm's margin
+   * floor because nobody had entered revenue on them yet, and firm-policy
+   * impact analysis counted them as such.
+   *
+   * A quantity that does not exist cannot be permitted to carry a verdict. Null
+   * is the representation that makes every consumer decide what to do about it
+   * instead of silently inheriting a number the engine invented.
+   */
+  blendedMarginPct: number | null;
+  /**
+   * The verdict, or `UNAVAILABLE` when the margin is null.
+   *
+   * `computeStatus` is NOT called for an undefined margin — this is not a
+   * fourth band computed from the number, it is the statement that no band
+   * applies. Callers tallying quotes into GOOD / BELOW_TARGET / BELOW_FLOOR
+   * must EXCLUDE these; that exclusion is part of the business contract and is
+   * asserted in `tests/unit/quote-margin-undefined.test.ts`.
+   */
+  blendedMarginStatus: QuoteMarginStatus;
   effectiveTargetMarginPct: number; // quote override or firm default
   // System-suggested GPA. null in degenerate cases (already at goal,
   // overridden tiers exceed goal, all tiers overridden, out of
@@ -1027,7 +1077,7 @@ const SUGGESTION_MAX_PCT = 1.0;
 function computeQuoteSuggestion(args: {
   blendedRevenue: number;
   blendedCost: number;
-  blendedStatus: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
+  blendedStatus: QuoteMarginStatus;
   effectiveTarget: number;
   floor: number;
   globalAdj: number;
@@ -1062,6 +1112,13 @@ function computeQuoteSuggestion(args: {
 
   // GOOD state — no suggestion needed.
   if (blendedStatus === "GOOD") {
+    return { suggestedAdj: null, suggestionGoal: null, suggestionMicrocopy: "" };
+  }
+
+  // UNAVAILABLE — there is no margin, so there is no gap to close. Returning
+  // early states that; the `blendedRevenue <= 0` guard below would reach the
+  // same output, but only after picking a goal for a quote that has none.
+  if (blendedStatus === "UNAVAILABLE") {
     return { suggestedAdj: null, suggestionGoal: null, suggestionMicrocopy: "" };
   }
 
@@ -2933,13 +2990,19 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       });
     }
   }
-  const blendedMarginPct =
-    blendedRevenue > 0 ? (blendedRevenue - blendedCost) / blendedRevenue : 0;
-  const blendedStatus = computeStatus(
-    blendedMarginPct,
-    effectiveTarget,
-    firmSettings.floorMarginPct,
-  );
+  // Undefined at zero revenue, and the status says so rather than being
+  // computed from a stand-in. `computeStatus` is deliberately not reached in
+  // that branch: it takes a `number` and would happily band a fabricated one.
+  const blendedMarginPct: number | null =
+    blendedRevenue > 0 ? (blendedRevenue - blendedCost) / blendedRevenue : null;
+  const blendedStatus: QuoteMarginStatus =
+    blendedMarginPct === null
+      ? "UNAVAILABLE"
+      : computeStatus(
+          blendedMarginPct,
+          effectiveTarget,
+          firmSettings.floorMarginPct,
+        );
   const {
     suggestedAdj: quoteSuggestedAdj,
     suggestionGoal,

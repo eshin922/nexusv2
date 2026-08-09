@@ -138,6 +138,56 @@ acknowledged approximation while waiting for it.
 | ~~`costs/freight-drilldown.tsx` (4 sites)~~ | ~~per-shipment and per-tier freight/customs~~ | **CLOSED** — see §3.2.3 |
 | ~~`costs/packaging-drilldown.tsx:108,918`~~ | ~~`unit × (1+markup) × qty` per line~~ | **CLOSED** — see §3.2.2 |
 | ~~`costs/cost-stack-header.tsx:305`~~ | ~~subtotal by summing component values~~ | **CLOSED** — see §3.2.1 |
+| ~~`pricing-classifier-context.tsx:465`~~ | ~~committed blended margin, `1 − cost / revenue`~~ | **CLOSED** — see §3.2.4 |
+
+#### 3.2.4 · Quote-wide blended margin — closed, by correcting the authority
+
+**Not on the original inventory.** It was found by closing the preview twin in
+§3.3: the committed read sitting beside it computed the same quantity the same
+way, and had done since before the gate. It is recorded here because A-6 closes
+on the governing rule, not on the list — and the list was incomplete.
+
+**Closing it required fixing the engine first.** The authority was wrong in the
+one case the duplicate got right:
+
+```
+blendedMarginPct = blendedRevenue > 0
+  ? (blendedRevenue − blendedCost) / blendedRevenue
+  : 0                                  // ← undefined, asserted as zero percent
+```
+
+That synthetic `0` went into `computeStatus`, which correctly reported that zero
+is below a 25% floor. So eight quotes stood accused of breaching the firm's
+margin policy because nobody had entered revenue on them — and
+`getFirmPortfolioBands` / `previewFirmSettingsReband` counted them, so policy
+changes were evaluated partly against quotes that had never been priced.
+
+Every step after the first was correct. That is what made it durable: nothing
+was broken except the premise.
+
+**The contract now.** Quote-wide blended margin is
+`(blendedRevenue − blendedCost) / blendedRevenue`; at zero revenue it is
+**undefined**. `blendedMarginPct` is `number | null`, `blendedMarginStatus`
+gains `UNAVAILABLE`, and `computeStatus` is not reached for an undefined margin
+— nullability alone would only have moved the fabrication one field over.
+Unassessed quotes are **excluded** from GOOD / BELOW_TARGET / BELOW_FLOOR, and
+the excluded count is reported so the portfolio arithmetic still closes.
+
+**S-7 moved, and the movement was classified before re-baselining.**
+`scripts/gate-1b/classify-margin-undefined-movement.ts` proves four things: the
+sixteen revenue-bearing quotes are byte-identical; exactly the eight authorised
+quotes move; only `blendedMarginPct` and `blendedMarginStatus` differ on them;
+and undoing precisely this correction reproduces the prior global digest
+`150d9f5a…` exactly. The prior baseline is preserved independently at
+`docs/gate-1b/preserved/`. New baseline: `c85e555c…`.
+
+**Known and deliberately out of scope — the per-TIER twin.**
+`QuotePerTierRollup.blendedMarginPct` (`costing.ts:2819`) carries the identical
+shape, so a zero-revenue tier reports 0% and bands BELOW_FLOOR. It was not
+folded in because two such tiers sit inside **revenue-bearing** quotes
+(`52bd0077` "Tier 4", `93a5d4bb` "Tier 2") — correcting it would move quotes the
+proof above asserts do not move, and the two changes would become inseparable in
+the digest. It is a real defect and its own item.
 
 #### 3.2.3 · Freight drilldown — closed (worksheet model)
 
@@ -319,9 +369,29 @@ not be told apart by inspection.
 
 | Site | Derives | Note |
 |---|---|---|
-| `pricing-surface/pricing-classifier-context.tsx:465-470` | margin after a proposed surgical lift | intent legitimate, **mechanism wrong** |
-| `pricing-surface/pricing-classifier-context.tsx:479-484` | blended margin after a proposed global lift | same |
+| `pricing-surface/pricing-classifier-context.tsx:465-470` | margin after a proposed surgical lift | ~~intent legitimate, **mechanism wrong**~~ · **CLOSED** |
+| `pricing-surface/pricing-classifier-context.tsx:479-484` | blended margin after a proposed global lift | ~~same~~ · **CLOSED** |
 | `lib/pricing-suggestions.ts:157,167,169` | the adjustment that would achieve a target margin | **solver**, see below |
+
+**CLOSED — both preview sites now run the engine.** `previewTierMargin` and
+`previewBlendedMargin` clone the committed input, change one field
+(`tierPriceAdjPct` or `globalPriceAdjPct`, composed via
+`composePricingAdjustment`), and call `computeQuoteCosting(preview, "preview")`.
+The result is labelled with its evaluation, so it can only be read by naming
+preview authority. A permanent assertion proves neither the committed input nor
+the committed graph is mutated by generating a preview.
+
+**CLOSED (second pass) — the committed blended margin too.** Closing the preview
+left a twin nobody had listed: the *committed* read at the same site computed
+`1 − totalCost / totalRevenue` over a locally re-summed rollup. It agreed with
+the engine to within 1e-12 on all sixteen revenue-bearing quotes, which is why
+it had never surfaced — a second implementation does not announce itself while
+it agrees.
+
+Where the two differed was the case neither surface displayed loudly: at zero
+revenue the classifier returned `null` while the engine returned a fabricated
+`0`. **The consumer was more correct than its authority.** That is not a reason
+to keep the consumer; it is a reason to fix the authority — see §3.2.4.
 
 **The first two are legitimate in intent and wrong in mechanism.** The state
 genuinely does not exist yet, so the engine has not computed it — but Phase 3 §3
@@ -418,13 +488,21 @@ evidence and an unexamined bucket is not.
 | Classification | Count |
 |---|---|
 | Design error | 1 |
-| Canonical duplicate to eliminate | 8 — two added by S-6, see §3.4b |
-| Legitimate preview — mechanism must change | 2 |
+| Canonical duplicate to eliminate | 9 — two added by S-6 (§3.4b), one found while closing §3.3 (§3.2.4) |
+| Legitimate preview — mechanism must change | 2 — both closed |
 | Solver — keep, decouple from displayed outcome | 1 |
 | Boundary case — fix at the composition seam | 1 |
 | Temporary compatibility path | 0 |
 | Input composition — out of scope | 2 |
 | Not commercial derivations | 5 |
+
+**A third finding, from working the list rather than compiling it.** The count
+above went UP during remediation, twice — §3.4b added two sites, and §3.2.4 was
+found only because closing its preview twin put the committed read next to it in
+the same file. An inventory assembled by inspection finds what inspection
+finds; the duplicates that survive are the ones that agree with the authority
+they duplicate. **A-6 therefore closes on the governing rule, not on this
+table.**
 
 **Two findings that change implementation sizing:**
 
