@@ -9,8 +9,25 @@ outside `src/lib/costing.ts`, so the rule
 can be enforced rather than intended. Per Edward's instruction: *"Do not rely on
 inspection during implementation."*
 
-**Status:** complete for the sweep described in §1. Classification is proposed;
-each row's disposition needs confirming before the code changes.
+**Status: CLOSED** (2026-08-09), on the governing rule above — not on this
+table. Every classified duplicate is either eliminated or has a recorded,
+justified disposition; §4 records why closing on the rule rather than the list
+is the correct standard.
+
+The distinction is not pedantic. The inventory grew twice during remediation:
+§3.4b added two sites, and §3.2.4 was found only because closing its preview
+twin in §3.3 put the committed read beside it in the same file. A sweep finds
+what its shapes find, and the duplicates that survive one are precisely the ones
+that *agree* with the authority they duplicate — they produce no wrong number to
+notice. Declaring the list complete would have declared the rule satisfied on
+the strength of a method §1 already says is incomplete.
+
+**One known violation remains open by decision, not by oversight:**
+`QuotePerTierRollup.blendedMarginPct` manufactures 0% and a BELOW_FLOOR verdict
+for a zero-revenue tier (§3.2.4, "the per-TIER twin"). It is carved to its own
+governed semantic correction so it stays independently attributable from the
+quote-wide baseline move; folding it in would have made the two inseparable in
+the S-7 digest.
 
 ---
 
