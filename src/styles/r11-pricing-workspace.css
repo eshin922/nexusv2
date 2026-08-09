@@ -1,0 +1,422 @@
+/* CANONICAL — copied verbatim from the registered design bundle.
+ *   docs/design-authority/r12-pricing-workspace/app/r11/styles.css
+ *
+ * Pattern 30: do not edit. A wrong value is fixed upstream and re-copied,
+ * so a future bundle refresh stays a drop-in rather than a merge.
+ * Nexus-specific rules belong in a separate overrides file.
+ *
+ * Load order is load-bearing and specified by the bundle:
+ *   r10 -> r11 -> r12. R12 is an addendum; it overrides nothing.
+ *
+ * Selectors are prefix-clean (.r11-*), so this is Path-B-default —
+ * adopted at file root, no namespace wrap needed. All 20 tokens it
+ * references were verified present in design-tokens.css before copying.
+ */
+/* Nexus Round 11 — the composed Pricing page
+   ═══════════════════════════════════════════════════════════════════════════
+   ⚠ ADDENDUM TO app/r10/styles.css — NOT A REPLACEMENT. Load order:
+       <link href="styles.css">            ← root tokens
+       <link href="app/r10/styles.css">    ← trace, unchanged
+       <link href="app/r11/styles.css">    ← this file, the page around it
+
+   Everything here is new (.r11-*) except three documented overrides at the
+   bottom. The trace's own vocabulary (.r10-*) is untouched.
+
+   WHAT THIS STYLESHEET ENCODES
+   ────────────────────────────
+   The page answers the HORIZONTAL question — are all my tiers above target,
+   and if not, what do I lift? — with zero expansion. The trace answers the
+   VERTICAL one on demand. So the cost stack gets the visual weight of a
+   primary surface, and the trace is styled as what it is: the expansion of
+   whichever cell you pressed.                                ← LOAD-BEARING
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.r11-page { max-width: 1240px; }
+
+.r11-assume {
+  display: flex; align-items: flex-start; gap: 11px;
+  padding: 11px 15px; border-radius: 6px; margin-bottom: 18px;
+  background: var(--paper-3); border: 1px dashed var(--rule-2);
+  font-size: 12px; color: var(--ink-3); line-height: 1.55; max-width: 92ch;
+}
+.r11-assume strong { color: var(--ink-2); }
+.r11-assume .g { flex: 0 0 14px; color: var(--ink-4); font-family: var(--mono); }
+
+.r11-cols {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  gap: 16px; align-items: start; margin-bottom: 16px;
+}
+.r11-panel {
+  background: var(--paper-2); border: 1px solid var(--rule);
+  border-radius: 10px; overflow: hidden;
+}
+.r11-phead {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 11px 16px; border-bottom: 1px solid var(--rule); background: var(--paper-3);
+  flex-wrap: wrap;
+}
+.r11-phead .t {
+  font-family: var(--display); font-size: 15px; font-weight: 500;
+  color: var(--ink); letter-spacing: -0.008em;
+}
+.r11-phead .s {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.10em;
+  text-transform: uppercase; color: var(--ink-4);
+}
+.r11-pbody { padding: 14px 16px; }
+
+/* ─── Global price adjustment ─────────────────────────────
+   An ACTION, sitting next to the evidence for taking it. */
+.r11-adjrow { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.r11-field { display: flex; flex-direction: column; gap: 5px; }
+.r11-field .lbl {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.11em;
+  text-transform: uppercase; color: var(--ink-4);
+}
+.r11-field input {
+  font-family: var(--mono); font-size: 15px; width: 92px;
+  padding: 7px 10px; border: 1px solid var(--rule-2); border-radius: 6px;
+  background: var(--paper); color: var(--ink);
+}
+.r11-cur {
+  font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+  letter-spacing: 0.03em; padding-bottom: 9px;
+}
+.r11-cur strong { color: var(--ink); }
+
+/* Preview — the finding, built. */
+.r11-preview { margin-top: 14px; border-top: 1px solid var(--rule); padding-top: 12px; }
+.r11-prow {
+  display: grid; grid-template-columns: 46px 1fr auto;
+  gap: 10px; align-items: baseline; padding: 8px 0;
+  border-top: 1px solid var(--rule);
+}
+.r11-prow:first-of-type { border-top: none; }
+.r11-prow .tl { font-family: var(--mono); font-size: 12px; color: var(--ink); letter-spacing: 0.04em; }
+.r11-prow .mv { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+.r11-prow .mv .up { color: var(--good); }
+.r11-prow .mv .flat { color: var(--ink-4); }
+.r11-prow .desc { font-size: 12px; color: var(--ink-2); line-height: 1.45; }
+
+/* ─── Surgical lift — the corrective lever ────────────────
+   Surfaces AT the breach inside the compliance cell, never as a standing lever
+   on the page. If every tier clears the floor there is nothing to correct, so
+   the control does not exist.                                  ← LOAD-BEARING */
+.r11-lifts { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
+.r11-lift {
+  padding: 9px 11px; border-radius: 6px;
+  background: var(--bad-soft); border: 1px solid oklch(from var(--bad) l c h / 0.35);
+}
+.r11-lift .t {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--bad); margin-bottom: 4px;
+}
+.r11-lift .s { font-size: 11.5px; color: var(--ink-2); line-height: 1.5; margin-bottom: 8px; }
+.r11-lift .s strong { color: var(--ink); }
+.r11-lift.on { background: var(--good-soft); border-color: oklch(from var(--good) l c h / 0.35); }
+.r11-lift.on .t { color: var(--good); }
+/* Blocked by an override: state the person and the date, and give the route to
+   act on it. State on screen without a route is half a fix.   ← LOAD-BEARING */
+.r11-lift.blocked { background: var(--warn-soft); border-color: oklch(from var(--warn) l c h / 0.38); }
+.r11-lift.blocked .t { color: var(--warn); }
+
+.r11-more {
+  background: none; border: 1px dashed var(--rule-2); border-radius: 5px;
+  padding: 6px 9px; cursor: pointer; width: 100%;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em;
+  color: var(--ink-3); text-align: left;
+}
+.r11-more:hover { color: var(--ink); border-color: var(--ink-4); }
+
+/* No-op state — the PM pressed Preview without changing the figure. Calm, one
+   line, no warn styling. A reasonless warning trains people to dismiss the
+   surface, and this panel only works if it is believed.        ← LOAD-BEARING */
+.r11-noop {
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 10px 12px; border-radius: 5px;
+  background: var(--paper-3); border: 1px solid var(--rule);
+}
+.r11-noop .g { flex: 0 0 13px; font-family: var(--mono); font-size: 12px; color: var(--ink-4); }
+.r11-noop span:last-child { font-size: 12px; color: var(--ink-3); line-height: 1.5; }
+.r11-noop strong { color: var(--ink-2); }
+
+/* The unaffected explanation — actor, date, reason, all already in the node.
+   This is the whole point of the panel.                       ← LOAD-BEARING */
+.r11-held {
+  display: flex; align-items: flex-start; gap: 9px;
+  margin-top: 5px; padding: 9px 11px; border-radius: 5px;
+  background: var(--warn-soft); border: 1px solid oklch(from var(--warn) l c h / 0.35);
+}
+.r11-held .g { flex: 0 0 13px; font-family: var(--mono); font-size: 11px; color: var(--warn); }
+.r11-held .txt { font-size: 11.5px; color: var(--ink-2); line-height: 1.5; }
+.r11-held .txt strong { color: var(--ink); }
+.r11-held .who {
+  display: block; font-family: var(--mono); font-size: 9.5px;
+  letter-spacing: 0.04em; color: var(--ink-4); margin-top: 3px;
+}
+
+/* ─── Per-tier compliance ─────────────────────────────────
+   Worst / blended / status. Answers half the routine question with no clicks. */
+.r11-comp { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.r11-ccell { padding: 12px 14px; border-left: 1px solid var(--rule); }
+.r11-ccell:first-child { border-left: none; }
+.r11-ccell .tl {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em;
+  color: var(--ink-2); display: flex; align-items: center; gap: 5px;
+}
+.r11-ccell .tl .rec { color: oklch(0.56 0.13 72); }
+.r11-ccell .big {
+  font-family: var(--display); font-size: 21px; font-weight: 500;
+  letter-spacing: -0.015em; margin-top: 5px;
+}
+.r11-ccell .big.good { color: var(--good); }
+.r11-ccell .big.below_target { color: var(--warn); }
+.r11-ccell .big.below_floor { color: var(--bad); }
+.r11-ccell .k {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.10em;
+  text-transform: uppercase; color: var(--ink-4); margin-top: 1px;
+}
+.r11-ccell .worst {
+  font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+  margin-top: 7px; letter-spacing: 0.02em; line-height: 1.5;
+}
+.r11-ccell .worst .v.below_target { color: var(--warn); }
+.r11-ccell .worst .v.below_floor { color: var(--bad); }
+.r11-ccell .worst .v.good { color: var(--good); }
+.r11-status {
+  display: inline-block; margin-top: 8px;
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.08em;
+  text-transform: uppercase; padding: 2px 6px; border-radius: 3px;
+}
+.r11-status.good { background: var(--good-soft); color: var(--good); }
+.r11-status.below_target { background: var(--warn-soft); color: var(--warn); }
+.r11-status.below_floor { background: var(--bad-soft); color: var(--bad); }
+
+/* ═══ THE COST STACK ══════════════════════════════════════
+   Trace level 1, transposed: components as rows, every tier at once.
+   Each cell IS a node — clicking it opens the trace positioned there.
+                                                              ← LOAD-BEARING */
+.r11-stack { background: var(--paper-2); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+.r11-srow {
+  display: grid; grid-template-columns: minmax(170px, 1.25fr) repeat(4, minmax(120px, 1fr));
+  border-top: 1px solid var(--rule);
+}
+.r11-srow:first-child { border-top: none; }
+.r11-srow.head { background: var(--paper-3); }
+.r11-srow.rule { border-top: 1.5px solid var(--ink-3); }
+.r11-srow.total { background: var(--paper-3); }
+.r11-slab { padding: 10px 16px; display: flex; flex-direction: column; justify-content: center; }
+.r11-slab .n { font-size: 13px; color: var(--ink-2); line-height: 1.3; }
+.r11-srow.total .r11-slab .n { color: var(--ink); font-weight: 600; font-size: 13.5px; }
+.r11-slab .s {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em;
+  color: var(--ink-4); margin-top: 2px;
+}
+.r11-slab .colhead {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-4);
+}
+
+.r11-scell {
+  display: flex; flex-direction: column; align-items: flex-end; justify-content: center;
+  gap: 2px; padding: 10px 16px; border-left: 1px solid var(--rule);
+  background: none; border-top: none; border-right: none; border-bottom: none;
+  font-family: inherit; text-align: right; cursor: pointer; position: relative;
+}
+.r11-scell.flat { cursor: default; }
+.r11-scell:not(.flat):hover { background: var(--paper-3); }
+.r11-scell.open { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.r11-scell .sell {
+  font-family: var(--mono); font-size: 12.5px; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.r11-srow.total .r11-scell .sell { font-size: 16px; font-weight: 600; }
+.r11-scell.open .sell { color: var(--accent-ink); font-weight: 600; }
+/* Cost shown beneath sell — the markup delta is legible without a mode switch. */
+.r11-scell .cost {
+  font-family: var(--mono); font-size: 9.5px; color: var(--ink-4);
+  font-variant-numeric: tabular-nums;
+}
+.r11-scell .delta { font-family: var(--mono); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.r11-scell .delta.pos { color: var(--good); }
+.r11-scell .delta.neg { color: var(--warn); }
+.r11-scell .mg { font-family: var(--mono); font-size: 11.5px; }
+.r11-scell .mg.good { color: var(--good); }
+.r11-scell .mg.below_target { color: var(--warn); }
+.r11-scell .mg.below_floor { color: var(--bad); }
+.r11-scell .why {
+  font-family: var(--mono); font-size: 8px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ink-4); opacity: 0; transition: opacity 0.12s;
+}
+.r11-scell:not(.flat):hover .why, .r11-scell.open .why { opacity: 1; }
+.r11-scell.open .why { color: var(--accent-ink); }
+
+/* Stack reconciliation strip */
+.r11-recon {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 16px; border-top: 1px solid var(--rule); background: var(--good-soft);
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.03em; color: var(--good);
+}
+
+/* ─── Per-SKU breakdown ───────────────────────────────────── */
+.r11-brow {
+  display: grid; grid-template-columns: minmax(170px, 1.25fr) repeat(4, minmax(120px, 1fr));
+  border-top: 1px solid var(--rule);
+}
+.r11-brow:first-child { border-top: none; }
+.r11-bsku { padding: 11px 16px; display: flex; align-items: center; gap: 9px; }
+.r11-bsku .chev { font-family: var(--mono); font-size: 10px; color: var(--ink-4); }
+.r11-bsku .n { display: block; font-size: 13px; color: var(--ink); font-weight: 500; line-height: 1.25; }
+.r11-bsku .m { display: block; font-family: var(--mono); font-size: 9.5px; color: var(--ink-4); margin-top: 2px; }
+.r11-bcell {
+  display: flex; flex-direction: column; align-items: flex-end; justify-content: center;
+  gap: 2px; padding: 10px 16px; border-left: 1px solid var(--rule);
+  background: none; border-top: none; border-right: none; border-bottom: none;
+  font-family: inherit; text-align: right; cursor: pointer;
+}
+.r11-bcell:hover { background: var(--paper-3); }
+.r11-bcell .p { font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.r11-bcell .chip {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.07em; text-transform: uppercase;
+  padding: 1px 5px; border-radius: 3px;
+}
+.r11-bcell .chip.good { background: var(--good-soft); color: var(--good); }
+.r11-bcell .chip.below_target { background: var(--warn-soft); color: var(--warn); }
+.r11-bcell .chip.below_floor { background: var(--bad-soft); color: var(--bad); }
+.r11-bcell .ov {
+  font-family: var(--mono); font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--warn);
+}
+.r11-sub { background: var(--paper); }
+
+/* ─── Reference ───────────────────────────────────────────── */
+.r11-ref { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.r11-refcell { padding: 12px 14px; border-left: 1px solid var(--rule); }
+.r11-refcell:first-child { border-left: none; }
+.r11-refcell.best { background: var(--good-soft); }
+.r11-refcell .tl { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em; color: var(--ink-2); }
+.r11-refcell .hv {
+  font-family: var(--display); font-size: 19px; font-weight: 500;
+  letter-spacing: -0.015em; margin-top: 4px; color: var(--ink);
+}
+.r11-refcell .hv.neg { color: var(--bad); }
+.r11-refcell .k {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.10em;
+  text-transform: uppercase; color: var(--ink-4); margin-top: 1px;
+}
+.r11-refcell .bm { font-family: var(--mono); font-size: 10px; color: var(--ink-3); margin-top: 6px; line-height: 1.5; }
+.r11-refcell .tag {
+  display: inline-block; margin-top: 7px;
+  font-family: var(--mono); font-size: 8px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--good); background: oklch(from var(--good) l c h / 0.16); padding: 2px 6px; border-radius: 3px;
+}
+
+/* ─── Trace breadcrumb (entry-at-node) ────────────────────
+   The levels ABOVE the node you pressed: available, collapsed, never in
+   your way. Clicking one re-roots the trace there.            ← LOAD-BEARING */
+.r11-crumb {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 9px 20px; border-bottom: 1px solid var(--rule); background: var(--paper-2);
+}
+.r11-crumb .cap {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.10em;
+  text-transform: uppercase; color: var(--ink-4); margin-right: 3px;
+}
+.r11-crumb button {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 5px;
+  padding: 4px 9px; cursor: pointer; font-family: inherit;
+  font-size: 11.5px; color: var(--ink-3);
+}
+.r11-crumb button:hover { color: var(--ink); border-color: var(--rule-2); }
+.r11-crumb button .v { font-family: var(--mono); font-size: 10.5px; color: var(--ink-4); }
+.r11-crumb .sep { font-family: var(--mono); font-size: 10px; color: var(--ink-4); }
+.r11-crumb .here {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em;
+  color: var(--accent-ink); background: var(--accent-soft);
+  border: 1px solid oklch(from var(--accent) l c h / 0.35);
+  border-radius: 5px; padding: 4px 9px;
+}
+
+.r11-tracewrap { border-top: 1px solid var(--accent); background: var(--paper); }
+
+/* ═══ OVERRIDES OF app/r10/styles.css ═════════════════════
+   Three, each deliberate. */
+
+/* 1 · The trace is no longer a page's only content — it is an expansion
+   inside a section, so it loses its own outer border and inherits the
+   section's. */
+.r11-tracewrap .r10-trace { border-top: none; }
+
+/* 2 · Entry-at-node means depth 0 is whatever the operator pressed, not the
+   quoted price. The badge must say so rather than claiming "the number". */
+.r11-tracewrap .r10-level .r10-lhead .depth::after { content: ""; }
+
+/* 3 · The R10 anchor bar sticks to the viewport top; inside a section it
+   sticks to the section instead, so it can't float over unrelated rows. */
+.r11-tracewrap .r10-anchor { position: relative; top: auto; }
+
+/* ─── Narrow ──────────────────────────────────────────────── */
+@media (max-width: 1080px) {
+  .r11-cols { grid-template-columns: minmax(0, 1fr); }
+  .r11-comp, .r11-ref { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .r11-ccell:nth-child(3), .r11-refcell:nth-child(3) { border-left: none; }
+  .r11-ccell:nth-child(n+3), .r11-refcell:nth-child(n+3) { border-top: 1px solid var(--rule); }
+  .r11-srow, .r11-brow { grid-template-columns: minmax(120px, 1fr) repeat(4, minmax(84px, 1fr)); }
+  .r11-scell, .r11-bcell { padding: 9px 9px; }
+  .r11-slab, .r11-bsku { padding: 9px 10px; }
+  .r11-scell .sell, .r11-bcell .p { font-size: 11.5px; }
+}
+
+
+/* ═══ Compliance grid — the routine read, at full width ═══
+   Per-cell, because the action is per-cell. The tier-level number survives as a
+   rollup row, not a panel standing in for the cells it cannot act on.
+                                                                ← LOAD-BEARING */
+.r11-bcell.r11-cg { gap: 1px; }
+.r11-bcell.r11-cg.inert { cursor: default; }
+.r11-bcell.r11-cg.inert:hover { background: none; }
+.r11-bcell.r11-cg.act { cursor: pointer; }
+.r11-bcell.r11-cg.sel { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.r11-cg .cgm {
+  font-family: var(--mono); font-size: 14px; font-variant-numeric: tabular-nums;
+}
+.r11-cg .cgm.good { color: var(--good); }
+.r11-cg .cgm.below_target { color: var(--warn); }
+.r11-cg .cgm.below_floor { color: var(--bad); }
+.r11-cg .needs {
+  font-family: var(--mono); font-size: 8px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--bad); background: var(--bad-soft); border-radius: 3px; padding: 1px 5px;
+}
+.r11-cg .lifted {
+  font-family: var(--mono); font-size: 8px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--good); background: var(--good-soft); border-radius: 3px; padding: 1px 5px;
+}
+.r11-brow.rule { border-top: 1.5px solid var(--ink-3); background: var(--paper-3); }
+.r11-brow.rule .r11-slab .n { font-weight: 600; color: var(--ink); }
+
+/* Cell action — names its target explicitly, never by adjacency. */
+.r11-cellaction {
+  grid-column: 1 / -1; border-top: 1px solid var(--accent); background: var(--paper);
+}
+.r11-cellaction .head {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  padding: 10px 16px; background: var(--accent-soft);
+  border-bottom: 1px solid oklch(from var(--accent) l c h / 0.3);
+}
+.r11-cellaction .head .who {
+  font-family: var(--display); font-size: 16px; font-weight: 500; color: var(--ink); letter-spacing: -0.01em;
+}
+.r11-cellaction .head .meta {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; color: var(--ink-3);
+}
+.r11-cellaction .head button { margin-left: auto; }
+.r11-cellaction .body { padding: 13px 16px; }
+.r11-cellaction .body p { margin: 0 0 10px; font-size: 12.5px; color: var(--ink-2); line-height: 1.55; max-width: 78ch; }
+.r11-cellaction .body p strong { color: var(--ink); }
+.r11-cellaction .body.blocked { background: var(--warn-soft); }
+.r11-cellaction .body.ok { background: var(--good-soft); }
+
+/* The adjustment is a small control. It gets a bar, not half the page. */
+.r11-adjbar { margin-top: 16px; }
+.r11-adjbar .r11-pbody { padding: 12px 16px; }
