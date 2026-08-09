@@ -558,12 +558,28 @@ export type SkuPerTierRollup = {
   computedSellPerUnit: number;
   requiredSellPerUnit: number;
   sellSource: SellSource;
-  marginPct: number;
+  /**
+   * `(sell - cost) / sell` for this cell, or NULL when there is no sell price.
+   *
+   * Third and last scope to take this correction — quote-wide, per-tier, and
+   * now per-cell. The ratio is undefined with nothing in the denominator, and
+   * `: 0` asserted a margin of exactly zero percent that then banded
+   * BELOW_FLOOR. 143 of 381 production cells carried that fabricated verdict.
+   *
+   * `-1` remains a distinct sentinel and is NOT this. It guards a bypass write
+   * landing a NEGATIVE override, where the formula would report positive
+   * margin from two negatives. That is a computed margin that is wrong; this
+   * is the absence of one.
+   */
+  marginPct: number | null;
   // Slice 9.4a — per-(SKU, tier) verdict band, classified against the
   // SAME thresholds as the quote-level blended verdict (effectiveTarget,
   // firmSettings.floorMarginPct). Surfaces on the per-SKU summary row.
   // For assemblies this reflects the rolled-up margin (mix of children).
-  marginStatus: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
+  //
+  // UNAVAILABLE / COST_WITHOUT_REVENUE when the margin is null, by the same
+  // governed classification the other two scopes use.
+  marginStatus: QuoteMarginStatus;
   // Slice 9.4b — per-(SKU, tier) competitive verdict against PM-entered
   // client target benchmark. NULL when no `client_target_price_per_unit`
   // is set on this cell (NULL-as-empty-signal). When set, classifies
@@ -2358,12 +2374,12 @@ function computeLeafPerTier(args: {
   // pill rather than a misleading verdict. Sentinel value chosen
   // because it's outside the legitimate margin range [0, 1) and
   // distinguishes from the existing 0-on-zero-revenue branch.
-  const marginPct =
+  const marginPct: number | null =
     requiredSellPerUnit > 0
       ? (requiredSellPerUnit - contributionCostPerUnit) / requiredSellPerUnit
       : requiredSellPerUnit < 0
         ? -1
-        : 0;
+        : null;
   const revenue = requiredSellPerUnit * tierQty;
   const cost = contributionCostPerUnit * tierQty;
 
@@ -2395,7 +2411,10 @@ function computeLeafPerTier(args: {
     // Slice 9.4a — verdict band against effective target (per-quote
     // override or firm) and firm floor. Uses the same computeStatus
     // helper as quote-level blended classification for consistency.
-    marginStatus: computeStatus(marginPct, effectiveTarget, floor),
+    marginStatus:
+      marginPct === null
+        ? zeroRevenueStatus(contributionCostPerUnit)
+        : computeStatus(marginPct, effectiveTarget, floor),
     // Slice 9.4b — competitive verdict against PM-entered client target
     // benchmark. Reads from EFFECTIVE sell (respects per-cell override
     // when set). NULL when no benchmark exists on this cell.
@@ -2430,12 +2449,18 @@ function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
     computedSellPerUnit: 0,
     requiredSellPerUnit: 0,
     sellSource: "computed",
-    marginPct: 0,
-    // Empty assembly with no children: 0% margin, classified per
-    // standard thresholds. computeStatus(0, target, floor) = BELOW_FLOOR
-    // when floor > 0 (the typical case). Acceptable; this row state is
-    // visible for ~16ms before children fold in.
-    marginStatus: "BELOW_FLOOR",
+    marginPct: null,
+    // Empty assembly with no children. This used to hardcode BELOW_FLOOR,
+    // with a comment conceding the point — "computeStatus(0, target, floor) =
+    // BELOW_FLOOR when floor > 0 … acceptable; this row state is visible for
+    // ~16ms before children fold in."
+    //
+    // Brief is not the same as harmless. An assembly with no children has no
+    // sell price, so it has no margin, and 16ms of a red row asserting a floor
+    // breach is 16ms of the page saying something untrue. It costs nothing to
+    // say the true thing instead, and the true thing is that there is nothing
+    // here yet.
+    marginStatus: "UNAVAILABLE",
     // Slice 9.4b — assembly cells never carry a competitive verdict
     // (leaf-only invariant; see rollUpAssemblyPerTier).
     competitiveStatus: null,
@@ -2506,8 +2531,8 @@ function rollUpAssemblyPerTier(
     servicesMarkup +=
       c.rollup.separateServicesMarkupSumPerUnit * c.qtyPerParent;
   }
-  const marginPct =
-    requiredSell > 0 ? (requiredSell - contribution) / requiredSell : 0;
+  const marginPct: number | null =
+    requiredSell > 0 ? (requiredSell - contribution) / requiredSell : null;
   return {
     tierId: tier.id,
     packagingCostPerUnit: packaging,
@@ -2549,7 +2574,10 @@ function rollUpAssemblyPerTier(
     // Slice 9.4a — verdict band on assembly cells classifies the
     // rolled-up margin against the same thresholds as leaf cells.
     // Reflects the blended mix of children (overridden + computed).
-    marginStatus: computeStatus(marginPct, effectiveTarget, floor),
+    marginStatus:
+      marginPct === null
+        ? zeroRevenueStatus(contribution)
+        : computeStatus(marginPct, effectiveTarget, floor),
     // Slice 9.4b — assembly cells never carry a competitive verdict.
     // Client targets are leaf-only (matches Slice 9.3 sell-price-
     // override invariant); the math layer doesn't compute against

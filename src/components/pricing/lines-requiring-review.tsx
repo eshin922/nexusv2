@@ -58,7 +58,13 @@ export function LinesRequiringReview() {
   for (const sku of skuRollups) {
     if (sku.skuRole !== "leaf") continue;
     for (const t of sku.perTier) {
+      // UNAVAILABLE and COST_WITHOUT_REVENUE are excluded here by the same
+      // strict comparison, which is correct: this block lists cells whose
+      // margin breaches the floor, and a cell with no margin has not breached
+      // anything. A quote that is merely unpriced must not appear as a quote
+      // in trouble.
       if (t.marginStatus !== "BELOW_FLOOR") continue;
+      if (t.marginPct === null) continue;
       flagged.push({
         skuId: sku.skuId,
         skuLabel: sku.skuLabel,

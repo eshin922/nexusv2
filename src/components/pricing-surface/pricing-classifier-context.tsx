@@ -416,19 +416,22 @@ function buildClassifierInputs({
       for (const pt of sr.perTier) {
         const numericTierId = uuidToNumeric.get(pt.tierId);
         if (numericTierId == null) continue;
-        // CB Patch round 3 BUG-E disposition (2026-06-16): treat
-        // cells with zero revenue AND zero contribution cost as
-        // **missing** rather than computed-zero (which would
-        // classify as below_floor). The store's math layer always
-        // returns a number (0 when no inputs); the classifier needs
-        // explicit null margin to surface the provisional state.
-        // The disambiguation: a legitimately zero-margin cell
-        // (cost == revenue) has nonzero cost; only "no data entered
-        // yet" produces both = 0.
-        const isMissing =
-          pt.requiredSellPerUnit === 0 && pt.contributionCostPerUnit === 0;
+        // The engine's verdict, read — not reconstructed.
+        //
+        // This used to carry a local heuristic: `requiredSellPerUnit === 0 &&
+        // contributionCostPerUnit === 0`, with a comment explaining the
+        // disambiguation ("only 'no data entered yet' produces both = 0").
+        // The reasoning was right and the heuristic agreed with the engine on
+        // all 143 zero-revenue cells in production. It was still a second
+        // authority deciding what "no data" means, in a file whose entire
+        // purpose is that there is only one.
+        //
+        // The engine now says it directly, and says MORE than the heuristic
+        // could: zero cost is UNAVAILABLE, cost without revenue is a loss.
+        // A heuristic keyed on both being zero cannot express the second.
+        const isMissing = pt.marginPct === null;
         cells[numericTierId] = {
-          margin_pct: isMissing ? null : pt.marginPct,
+          margin_pct: pt.marginPct,
           sell_unit: isMissing ? null : pt.requiredSellPerUnit,
           cost_unit: isMissing ? null : pt.contributionCostPerUnit,
           override_applied: pt.sellSource === "cell_override",
