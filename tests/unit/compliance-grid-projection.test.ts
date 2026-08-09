@@ -145,20 +145,74 @@ test("the loss state does not share the muted register with absence", () => {
 // ------------------------------------------------- client target stays apart
 
 test("client target is per SKU row and never touches the verdict", () => {
-  // It does not vary by tier, so a column would assert something untrue; and
-  // a price above what the customer asked for is a commercial risk, not a
-  // policy breach. Its own channel, never a cell colour.
-  assert.ok(
-    /client_target_unit/.test(CODE),
-    "the benchmark must be rendered",
-  );
+  // The benchmark does not vary by tier, so a column would assert something
+  // untrue. The HEADROOM is per cell, because the price is.
+  assert.ok(/client_target_unit/.test(CODE), "the benchmark must be rendered");
+  assert.ok(/client_target_delta/.test(CODE), "the headroom must be rendered");
   assert.ok(
     !/client_target[\s\S]{0,200}STATUS_CLASS|STATUS_CLASS[\s\S]{0,200}client_target/.test(CODE),
-    "the client target must not reach the status colour",
+    "the client target must not reach the compliance colour",
+  );
+});
+
+test("the headroom verdict is the engine's, not the component's", () => {
+  // Nothing here may compare a price to a benchmark. That question is settled
+  // by `computeCompetitiveStatus` in the engine, and was — until this
+  // increment — ALSO settled by `sellUnit > clientTarget` in the classifier.
+  // Both were right. Two places deciding one commercial question is the
+  // condition, not the disagreement.
+  assert.ok(
+    /competitive_status === "OVER_CLIENT_TARGET"/.test(CODE),
+    "direction must come from the engine's verdict",
   );
   assert.ok(
-    !/over_client_target/.test(CODE),
-    "the over-target flag belongs to its own indicator, not the compliance grid",
+    !/sell_unit\s*[<>]\s*|[<>]\s*client_target_unit|client_target_unit\s*[<>]/.test(CODE),
+    "a price-versus-benchmark comparison has appeared in the component",
+  );
+  // Magnitude only. The sign is carried by the status, so no comparison is
+  // needed to recover direction.
+  assert.ok(/Math\.abs\(cell\.client_target_delta\)/.test(CODE));
+});
+
+test("the client-target channel does not borrow the policy palette", () => {
+  // `.r12-head` has its own oklch values in the canonical stylesheet, given
+  // deliberately rather than reusing --good/--bad. Making a commercial risk
+  // look like a floor breach would collapse two different questions into one
+  // colour, and the operator would have no way to tell which they were
+  // looking at.
+  assert.ok(/r12-head/.test(CODE), "headroom uses its own class");
+  const css = readFileSync(
+    new URL("../../src/styles/r12-pricing-workspace.css", import.meta.url),
+    "utf8",
+  );
+  const block = css.slice(css.indexOf(".r12-head"), css.indexOf(".r12-head") + 400);
+  assert.ok(
+    !/var\(--good\)|var\(--bad\)|var\(--warn\)/.test(block),
+    "the client-target channel must not use the firm-policy tokens",
+  );
+});
+
+test("one authority decides the competitive verdict", () => {
+  const classifierSrc = readFileSync(
+    new URL("../../src/lib/pricing-classifier.ts", import.meta.url),
+    "utf8",
+  );
+  // Comments EXPLAIN the removal by naming the expression that was removed, so
+  // they must be stripped before searching for it — the same treatment `CODE`
+  // gets above. A test that cannot tell code from prose about code would make
+  // the explanation the thing that fails.
+  const classifier = classifierSrc
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(
+    !/sellUnit > clientTarget/.test(classifier),
+    "the classifier is deciding the competitive question a second time",
+  );
+  assert.ok(
+    /over_client_target: cellRaw\.competitive_status === "OVER_CLIENT_TARGET"/.test(
+      classifier,
+    ),
+    "it must read the engine's verdict instead",
   );
 });
 

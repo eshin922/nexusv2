@@ -101,6 +101,38 @@ function marginDisplay(cell: Cell): {
   return { value: "—", note: "not priced", noteClass: "cgnote" };
 }
 
+/**
+ * Headroom against the customer's stated benchmark — its own channel.
+ *
+ * Phase 3 §7: the benchmark is stated ONCE per SKU row, because it does not
+ * vary by tier and a column would assert something untrue. The HEADROOM is
+ * per cell, because the price is.
+ *
+ * Three separations hold here, and each is load-bearing:
+ *
+ *   1. The verdict comes from `competitive_status`, which the ENGINE decided.
+ *      Nothing here compares a price to a benchmark.
+ *   2. The magnitude comes from `client_target_delta`, which the classifier
+ *      already computed. `Math.abs` is formatting — the sign is carried by the
+ *      status, so no comparison happens to recover direction.
+ *   3. The colours are `.r12-head`'s own, not the policy palette. The
+ *      canonical stylesheet gives them distinct oklch values rather than
+ *      reusing `--good` / `--bad` for exactly this reason: a price above what
+ *      the customer asked for is a commercial risk, not a floor breach, and
+ *      making them look alike would collapse two different questions into one
+ *      colour.
+ */
+function Headroom({ cell }: { cell: Cell }) {
+  if (cell.competitive_status === null || cell.client_target_delta === null) {
+    return null;
+  }
+  const magnitude = fmtUsd(Math.abs(cell.client_target_delta));
+  if (cell.competitive_status === "OVER_CLIENT_TARGET") {
+    return <span className="r12-head over">▲ {magnitude} vs client</span>;
+  }
+  return <span className="r12-head under">▼ {magnitude} vs client</span>;
+}
+
 // ── the grid ──────────────────────────────────────────────────────────────
 
 export interface ComplianceGridProps {
@@ -214,6 +246,7 @@ export function ComplianceGrid({
                 {display.note && (
                   <span className={display.noteClass}>{display.note}</span>
                 )}
+                <Headroom cell={cell} />
 
                 {/*
                   Every badge below reads a decided fact. None is inferred

@@ -74,6 +74,16 @@ export interface QuoteCellInput {
    * one comparison away from being read as an empty cell.
    */
   no_margin_reason?: NoMarginReason | null;
+  /**
+   * The engine's competitive verdict for this cell, forwarded by the adapter.
+   *
+   * `computeCompetitiveStatus(sell, clientTarget)` already owns this question.
+   * The classifier used to answer it again with `sellUnit > clientTarget` —
+   * correct, and a second authority on a commercial classification. Same shape
+   * as the `isMissing` heuristic that preceded it, and removed for the same
+   * reason.
+   */
+  competitive_status?: CompetitiveStatus | null;
   missing?: boolean;
 }
 
@@ -201,6 +211,19 @@ export interface CostStackBuckets {
  */
 export type NoMarginReason = "unpriced" | "cost_without_revenue";
 
+/**
+ * Where a cell's price sits against what the customer said they wanted.
+ *
+ * A SEPARATE AXIS from margin status, and deliberately so. The firm's floor
+ * and target are policy — breaching the floor blocks a send. A client target
+ * is a benchmark someone stated in a negotiation: a price above it is a
+ * commercial risk, not a policy breach, and it must never colour a compliance
+ * cell or reach the sendable verdict.
+ *
+ * `null` when no benchmark is set, which is most cells.
+ */
+export type CompetitiveStatus = "COMPETITIVE" | "OVER_CLIENT_TARGET";
+
 export interface Cell {
   sku_id: string;
   sku_name: string;
@@ -212,6 +235,8 @@ export interface Cell {
   cost_stack: CostStackBuckets | null;
   client_target_unit: number | null;
   client_target_delta: number | null;
+  /** The engine's verdict, forwarded. Null when no benchmark is set. */
+  competitive_status: CompetitiveStatus | null;
   over_client_target: boolean;
   missing: boolean;
   status: CellStatus;
@@ -387,8 +412,12 @@ export function classify(
         cost_stack: cellRaw.cost_stack ?? null,
         client_target_unit: clientTarget,
         client_target_delta: clientTargetDelta,
-        over_client_target:
-          clientTarget != null && sellUnit != null && sellUnit > clientTarget,
+        competitive_status: cellRaw.competitive_status ?? null,
+        // Read from the engine's verdict, not recomputed from the numbers.
+        // `sellUnit > clientTarget` gave the same answer; it was still a
+        // second place the question got decided, and the two would have
+        // diverged the moment either grew a tolerance.
+        over_client_target: cellRaw.competitive_status === "OVER_CLIENT_TARGET",
         missing,
         status,
         no_margin_reason: margin === null ? (cellRaw.no_margin_reason ?? "unpriced") : null,
