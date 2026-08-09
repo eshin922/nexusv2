@@ -473,7 +473,24 @@ function recompute(
       : K]: CostingStoreState[K];
   },
 ): { costing: QuoteCostingResult; warnings: WarningSpec[] } {
-  const input: QuoteCostingInput = {
+  const input = buildCostingInput(s);
+  const costing = computeQuoteCosting(input);
+  const warnings = validateQuote(input, costing);
+  return { costing, warnings };
+}
+
+/**
+ * The committed costing input, assembled from store state.
+ *
+ * Extracted from `recompute` so a PREVIEW can start from exactly what the
+ * committed run starts from. Building a second, similar-looking input for
+ * previews would be a parallel derivation of the engine's own input — the same
+ * failure this gate removes, one layer earlier.
+ */
+export function buildCostingInput(
+  s: Parameters<typeof recompute>[0],
+): QuoteCostingInput {
+  return {
     quote: {
       id: s.quoteId,
       globalPriceAdjPct: s.globalPriceAdjPct,
@@ -491,9 +508,6 @@ function recompute(
     cellOverrides: s.cellOverrides,
     cellTargets: s.cellTargets,
   };
-  const costing = computeQuoteCosting(input);
-  const warnings = validateQuote(input, costing);
-  return { costing, warnings };
 }
 
 // Slice 9.5 — compute warnings from a hydrate/reconcile snapshot.

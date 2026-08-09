@@ -3,6 +3,7 @@ import {
   graphIsComplete,
   nodeKey,
   quoteWideKey,
+  type GraphEvaluation,
   type CostingGraph,
   type CostingNode,
   type NodeCandidate,
@@ -2300,7 +2301,17 @@ function rollUpAssemblyPerTier(
 
 // ---------- entry ----------
 
-export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResult {
+export function computeQuoteCosting(input: QuoteCostingInput,
+  /**
+   * Which evaluation this run IS.
+   *
+   * Defaults to `committed` so existing callers keep their meaning; a PREVIEW
+   * caller must say so. That asymmetry is deliberate — a preview mislabelled
+   * committed is authority nobody granted, while a committed run mislabelled
+   * preview merely stops answering.
+   */
+  evaluation: GraphEvaluation = "committed",
+): QuoteCostingResult {
   const { quote, firmSettings, markupDefaults, skus, tiers } = input;
   // Gate 1B — one collector per evaluation. Filled while the engine computes;
   // never re-traversed afterwards.
@@ -3266,7 +3277,7 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       // with the classifier cutover, and must pass this EXPLICITLY rather than
       // relying on a default — a preview mislabelled committed is the whole
       // hazard this field exists for.
-      evaluation: "committed",
+      evaluation,
       nodes: graphNodes,
       // Derived from what was actually emitted, never from having reached a
       // planned increment. A flag that outruns the graph is worse than a
