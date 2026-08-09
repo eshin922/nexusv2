@@ -16,7 +16,7 @@ import {
   readEffectiveTargetMargin,
   readNodeValue,
 } from "@/lib/costing-nodes";
-import type { QuoteMarginStatus } from "@/lib/costing";
+import type { MarginBand, QuoteMarginStatus } from "@/lib/costing";
 
 // Slice RI.4 — Cost stack header per R6 actual source (extracted from
 // docs/design-prototypes/dist/source/round-6/index.html lines
@@ -425,7 +425,13 @@ function TierColumn({
               // say it too. On zero-qty tiers the column is blank anyway, so
               // this shows on the three tiers that have quantity but no
               // revenue.
-              status={marginStatus === "UNAVAILABLE" ? "incomplete" : marginStatus}
+              status={
+                marginStatus === "UNAVAILABLE"
+                  ? "incomplete"
+                  : marginStatus === "COST_WITHOUT_REVENUE"
+                    ? "cost_no_revenue"
+                    : marginStatus
+              }
               pct={marginPct}
               targetPct={effectiveTargetPct}
               targetSource={targetSource}
@@ -563,7 +569,7 @@ function MarginRow({
   targetPct,
   targetSource,
 }: {
-  status: "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR" | "incomplete";
+  status: MarginBand | "incomplete" | "cost_no_revenue";
   pct: number | null;
   /** Null when the graph cannot state one — the tag is then withheld rather
    *  than printed against a number nobody resolved. */
@@ -575,7 +581,7 @@ function MarginRow({
       ? "good"
       : status === "BELOW_TARGET"
         ? "below_target"
-        : status === "BELOW_FLOOR"
+        : status === "BELOW_FLOOR" || status === "cost_no_revenue"
           ? "bad"
           : "incomplete";
   return (
@@ -583,9 +589,11 @@ function MarginRow({
       <span className="pip" aria-hidden />
       {status === "incomplete"
         ? "awaiting inputs"
-        : pct != null
-          ? `${fmtPct(pct)} margin`
-          : "—"}
+        : status === "cost_no_revenue"
+          ? "cost, no revenue"
+          : pct != null
+            ? `${fmtPct(pct)} margin`
+            : "—"}
       {status === "BELOW_TARGET" && targetPct !== null && (
         <span
           style={{ marginLeft: "auto", fontSize: "9.5px", letterSpacing: "0.06em" }}

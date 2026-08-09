@@ -117,8 +117,15 @@ test("computeStatus is not called for an undefined tier margin", () => {
     "utf8",
   );
   assert.ok(
-    /marginPct === null\s*\n?\s*\?\s*"UNAVAILABLE"/.test(src),
-    "the per-tier UNAVAILABLE branch must short-circuit before computeStatus",
+    /marginPct === null\s*\n?\s*\?\s*zeroRevenueStatus\(cost\)/.test(src),
+    "the per-tier zero-revenue branch must short-circuit before computeStatus",
+  );
+  assert.ok(
+    /function zeroRevenueStatus\(cost: number\): QuoteMarginStatus \{\s*\n\s*return cost > 0 \? "COST_WITHOUT_REVENUE" : "UNAVAILABLE";/.test(
+      src,
+    ),
+    "one helper must decide the zero-revenue verdict for both scopes, so they " +
+      "cannot disagree about what zero revenue means",
   );
   assert.ok(
     !/const marginPct = revenue > 0 \? \(revenue - cost\) \/ revenue : 0;/.test(src),
@@ -138,7 +145,8 @@ test("an unpriced tier is not the worst below-target tier", () => {
     floor: 0.25,
     recommendedTierId: null,
   });
-  for (const option of ranked.options) {
+  assert.notEqual(ranked, null, "expected suggestions to inspect");
+  for (const option of ranked!.options) {
     assert.ok(
       !option.applyTo.includes(EMPTY) || option.applyTo.length > 1,
       `suggestion "${option.id}" targets the unpriced tier alone`,
@@ -157,7 +165,8 @@ test("a tier with no margin previews as no margin, and as not having moved", () 
     floor: 0.25,
     recommendedTierId: null,
   });
-  const withPreview = ranked.options.filter((o) => o.preview !== null);
+  assert.notEqual(ranked, null, "expected suggestions to inspect");
+  const withPreview = ranked!.options.filter((o) => o.preview !== null);
   assert.ok(withPreview.length > 0, "no option produced a preview to check");
   for (const option of withPreview) {
     const row = option.preview!.find((p) => p.tierId === EMPTY)!;
@@ -240,7 +249,7 @@ test("UNAVAILABLE never takes the failing register", () => {
   const checks: Array<[string, RegExp, string]> = [
     [
       "src/components/costs/cost-stack-header.tsx",
-      /marginStatus === "UNAVAILABLE" \? "incomplete" : marginStatus/,
+      /marginStatus === "UNAVAILABLE"\s*\n?\s*\?\s*"incomplete"/,
       "the Costs header must route UNAVAILABLE to the incomplete register",
     ],
     [
@@ -257,6 +266,265 @@ test("UNAVAILABLE never takes the failing register", () => {
       "src/components/pricing/margin-verdict-pill.tsx",
       /UNAVAILABLE: ""/,
       "the verdict pill must use the neutral chip, not the bad tone",
+    ],
+  ];
+  for (const [file, pattern, message] of checks) {
+    const src = readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
+    assert.ok(pattern.test(src), message);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The SECOND zero-revenue state: cost incurred, nothing priced against it
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Zero revenue has two meanings, and only one of them is "nothing entered".
+//
+//   revenue = 0, cost = 0  →  UNAVAILABLE           · no commercial judgement
+//   revenue = 0, cost > 0  →  COST_WITHOUT_REVENUE  · a certain loss
+//
+// The margin PERCENTAGE is undefined in both — no arithmetic recovers a ratio
+// with zero in the denominator. What differs is what that says commercially,
+// and the reason this is a distinct status rather than a flavour of the first
+// is that the difference has to survive every consumer.
+//
+// Collapsing it into UNAVAILABLE files a loss under "nothing entered yet".
+// Collapsing it into BELOW_FLOOR is wrong in the other direction: that label
+// asserts a computed margin was compared against the floor and lost, and no
+// such comparison happened. Both mislead; neither is available.
+
+/**
+ * Cost with no revenue: real quantity, real cost, sell price overridden to 0.
+ *
+ * Zero QUANTITY cannot produce this state — revenue and cost are both per-unit
+ * figures times tier quantity, so qty = 0 zeroes them together. The state
+ * needs quantity present and the price driven to nothing, which is exactly
+ * what a per-cell override of 0 does: an override is terminal and bypasses
+ * cost-plus-markup entirely.
+ *
+ * So this is not "an empty tier that happens to carry a fee". It is a tier
+ * somebody has priced at zero while it still costs money to make.
+ */
+const LOSS = computeQuoteCosting(
+  input({
+    tiers: [
+      { id: PRICED, label: "Priced", qty: 1000, sortOrder: 0, tierPriceAdjPct: null },
+      { id: EMPTY, label: "Empty", qty: 1000, sortOrder: 1, tierPriceAdjPct: null },
+    ],
+    packaging: [pkg(), pkg({ tierId: EMPTY })],
+    cellOverrides: [
+      { quoteSkuId: LEAF, tierId: EMPTY, sellPriceOverride: 0 },
+    ],
+  }),
+);
+
+const lossTier = () => LOSS.quoteRollup.find((t) => t.tierId === EMPTY)!;
+
+test("the fixture actually produces cost without revenue", () => {
+  // Guarding the guard. If the fixture stopped generating cost on the empty
+  // tier, every assertion below would pass against the UNAVAILABLE path and
+  // report success for a state it never reached.
+  const t = lossTier();
+  assert.equal(t.totalRevenue, 0);
+  assert.ok(t.totalCost > 0, `expected cost on the empty tier, got ${t.totalCost}`);
+});
+
+test("cost without revenue is its own status, and the margin is still undefined", () => {
+  const t = lossTier();
+  assert.equal(t.blendedMarginPct, null, "no ratio exists with zero revenue");
+  assert.equal(t.blendedMarginStatus, "COST_WITHOUT_REVENUE");
+  assert.notEqual(t.blendedMarginStatus, "UNAVAILABLE");
+  assert.notEqual(t.blendedMarginStatus, "BELOW_FLOOR");
+});
+
+test("the two zero-revenue states are distinguished by cost alone", () => {
+  // Identical on every observable the margin is built from — zero revenue, an
+  // undefined margin — and different in verdict. Cost is the only thing
+  // separating them, which is the discrimination the contract rests on.
+  const empty = tier(EMPTY);
+  const loss = lossTier();
+  assert.equal(empty.totalRevenue, 0);
+  assert.equal(loss.totalRevenue, 0);
+  assert.equal(empty.blendedMarginPct, null);
+  assert.equal(loss.blendedMarginPct, null);
+  assert.equal(empty.totalCost, 0);
+  assert.ok(loss.totalCost > 0);
+  assert.equal(empty.blendedMarginStatus, "UNAVAILABLE");
+  assert.equal(loss.blendedMarginStatus, "COST_WITHOUT_REVENUE");
+});
+
+// ------------------------------------------------------------------ solver
+
+test("a loss tier gets no suggestion — no multiple of zero is anything else", () => {
+  const ranked = rankPricingSuggestions({
+    rollup: LOSS.quoteRollup,
+    target: 0.35,
+    floor: 0.25,
+    recommendedTierId: null,
+  });
+  if (ranked) {
+    for (const option of ranked.options) {
+      assert.ok(
+        !option.applyTo.includes(EMPTY) || option.applyTo.length > 1,
+        `suggestion "${option.id}" targets the loss tier alone`,
+      );
+    }
+  }
+});
+
+// ------------------------------------------------------------------ gating
+
+test("a loss tier blocks accept-risk outright", () => {
+  // The check must sit BEFORE the "nothing below target" early return.
+  // Otherwise a quote whose only problem is an unpriced cost reports itself
+  // clean — the gate's most dangerous possible answer.
+  const ranked = rankPricingSuggestions({
+    rollup: LOSS.quoteRollup,
+    target: 0.01, // priced tier comfortably above target
+    floor: 0.001,
+    recommendedTierId: null,
+  });
+  assert.notEqual(ranked, null, "a loss tier must not produce a clean quote");
+  assert.equal(ranked!.acceptRiskGating.available, false);
+  assert.match(String(ranked!.acceptRiskGating.reason), /cost with no revenue/i);
+});
+
+test("the reason names the offending tier", () => {
+  const ranked = rankPricingSuggestions({
+    rollup: LOSS.quoteRollup,
+    target: 0.35,
+    floor: 0.25,
+    recommendedTierId: null,
+  });
+  assert.match(String(ranked!.acceptRiskGating.reason), /Empty/);
+});
+
+test("a recommended tier in loss blocks accept-risk with its own reason", () => {
+  const ranked = rankPricingSuggestions({
+    rollup: LOSS.quoteRollup,
+    target: 0.35,
+    floor: 0.25,
+    recommendedTierId: EMPTY,
+  });
+  assert.equal(ranked!.acceptRiskGating.available, false);
+  assert.match(String(ranked!.acceptRiskGating.reason), /cost with no revenue/i);
+});
+
+// ------------------------------------------------------------------- guards
+
+test("acceptance and completion block a loss tier on loss grounds", () => {
+  const accepted = readFileSync(
+    new URL("../../src/app/actions/quotes.ts", import.meta.url),
+    "utf8",
+  );
+  assert.ok(
+    /blendedMarginStatus === "COST_WITHOUT_REVENUE"[\s\S]{0,500}certain loss/.test(
+      accepted,
+    ),
+    "markAccepted must reject a loss tier and say why",
+  );
+  const complete = readFileSync(
+    new URL("../../src/lib/netsuite/mark-complete.ts", import.meta.url),
+    "utf8",
+  );
+  assert.ok(
+    /blendedMarginStatus === "COST_WITHOUT_REVENUE"[\s\S]{0,500}certain loss/.test(
+      complete,
+    ),
+    "markComplete must reject a loss tier and say why",
+  );
+});
+
+// ------------------------------------------------------------------ banding
+
+/** The portfolio contract, mirrored — see the sibling in the quote-wide test. */
+function bucket(
+  rows: Array<{ blendedMarginPct: number | null; marginStatus: string }>,
+  target: number,
+  floor: number,
+) {
+  let good = 0, belowTarget = 0, belowFloor = 0, unassessed = 0, costWithoutRevenue = 0;
+  for (const q of rows) {
+    if (q.marginStatus === "COST_WITHOUT_REVENUE") costWithoutRevenue++;
+    else if (q.blendedMarginPct === null) unassessed++;
+    else if (q.blendedMarginPct >= target) good++;
+    else if (q.blendedMarginPct >= floor) belowTarget++;
+    else belowFloor++;
+  }
+  return { good, belowTarget, belowFloor, unassessed, costWithoutRevenue };
+}
+
+test("the two no-margin states are counted apart, and the portfolio still closes", () => {
+  const rows = [
+    { blendedMarginPct: 0.4, marginStatus: "GOOD" },
+    { blendedMarginPct: 0.1, marginStatus: "BELOW_FLOOR" },
+    { blendedMarginPct: null, marginStatus: "UNAVAILABLE" },
+    { blendedMarginPct: null, marginStatus: "COST_WITHOUT_REVENUE" },
+    { blendedMarginPct: null, marginStatus: "COST_WITHOUT_REVENUE" },
+  ];
+  const b = bucket(rows, 0.35, 0.25);
+  assert.deepEqual(b, {
+    good: 1,
+    belowTarget: 0,
+    belowFloor: 1,
+    unassessed: 1,
+    costWithoutRevenue: 2,
+  });
+  assert.equal(
+    b.good + b.belowTarget + b.belowFloor + b.unassessed + b.costWithoutRevenue,
+    rows.length,
+  );
+  // The specific mistake this prevents: two losing quotes filed under
+  // "nothing entered yet" on the page the firm sets its margin policy from.
+  assert.notEqual(b.unassessed, 3);
+});
+
+test("the production banding tells the two states apart", () => {
+  const src = readFileSync(
+    new URL("../../src/app/actions/firm-settings.ts", import.meta.url),
+    "utf8",
+  );
+  assert.ok(
+    /if \(q\.marginStatus === "COST_WITHOUT_REVENUE"\) costWithoutRevenue\+\+;/.test(src),
+    "bucketQuotes must count the loss state separately, before the null check",
+  );
+  assert.ok(
+    /costWithoutRevenue: number;/.test(src),
+    "the loss count must be reported",
+  );
+});
+
+// ------------------------------------------------------------------ display
+
+test("no surface labels a loss as BELOW FLOOR or as merely unassessed", () => {
+  // The label is the load-bearing part. `bad` tone is correct — it IS bad news
+  // — but "below floor" asserts a comparison that never happened, and "not
+  // assessed" understates a certain loss.
+  const checks: Array<[string, RegExp, string]> = [
+    [
+      "src/components/pricing/margin-verdict-pill.tsx",
+      /COST_WITHOUT_REVENUE: "COST, NO REVENUE"/,
+      "the verdict pill must not reuse a band label",
+    ],
+    [
+      "src/components/pricing/verdict-band.tsx",
+      /cost with no revenue — every dollar is a loss/,
+      "the Pricing verdict band must state the loss, not the floor",
+    ],
+    [
+      "src/components/mark-accepted/margin-verdict.tsx",
+      /COST, NO REVENUE/,
+      "Mark-Accepted must distinguish the loss from UNAVAILABLE",
+    ],
+    [
+      "src/components/costs/cost-stack-header.tsx",
+      /cost_no_revenue/,
+      "the Costs header must not route the loss to the incomplete register",
+    ],
+    [
+      "src/components/quote-umbrella/tab-mark-accepted.tsx",
+      /case "COST_WITHOUT_REVENUE": return "bad";/,
+      "the umbrella chip must not give the loss a neutral token",
     ],
   ];
   for (const [file, pattern, message] of checks) {

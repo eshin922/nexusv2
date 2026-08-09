@@ -154,7 +154,7 @@ export default async function MarkAcceptedPage({
           ? "warn"
           : qr.blendedMarginStatus === "UNAVAILABLE"
             ? "none"
-            : "bad";
+            : "bad"; // BELOW_FLOOR and COST_WITHOUT_REVENUE
     return {
       id: qr.tierId,
       label: qr.label,

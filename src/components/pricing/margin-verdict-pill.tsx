@@ -42,12 +42,19 @@ const STATUS_TONE: Record<QuoteMarginStatus, string> = {
   // `.muted` variant would mean editing canonical CSS to express something it
   // already expresses.
   UNAVAILABLE: "",
+  // `bad` tone, because a cost with no revenue against it is bad news. The
+  // LABEL is what must not lie — see below.
+  COST_WITHOUT_REVENUE: "bad",
 };
 const STATUS_LABEL: Record<QuoteMarginStatus, string> = {
   GOOD: "GOOD",
   BELOW_TARGET: "BELOW TARGET",
   BELOW_FLOOR: "BELOW FLOOR",
   UNAVAILABLE: "NOT ASSESSED",
+  // Never "BELOW FLOOR". That label asserts a margin was computed and compared
+  // against the floor; here no margin exists to compare. This says what is
+  // actually true, which is arguably worse news and certainly clearer.
+  COST_WITHOUT_REVENUE: "COST, NO REVENUE",
 };
 
 export function MarginVerdictPill({

@@ -2353,6 +2353,12 @@ export async function markAccepted(
     // tier with no price. Distinct message, because an operator told "below
     // the margin floor" about an unpriced tier would go looking for a pricing
     // problem that does not exist.
+    if (tierRollup.blendedMarginStatus === "COST_WITHOUT_REVENUE") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Cannot record acceptance at ${tierRollup.label} — the tier carries cost with no revenue against it, so accepting it books a certain loss of ${tierRollup.totalCost.toFixed(2)}. Price the tier first.`,
+      );
+    }
     if (tierRollup.blendedMarginStatus === "UNAVAILABLE") {
       throw new ActionGuardError(
         ERR.VALIDATION,

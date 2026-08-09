@@ -104,4 +104,10 @@ not move, leaving neither transition independently attributable.
 It was then corrected in its own package: `c85e555c…` → `a7e887ba…`, classified
 by `scripts/gate-1b/classify-per-tier-margin-movement.ts`, which additionally
 proves **no `quoteSummary` field moved** — so the quote-wide correction above
-stands on its own record. See `gate-1b-derivation-inventory.md` §3.2.5.
+stands on its own record.
+
+That package also split zero revenue into its two real meanings —
+`UNAVAILABLE` (no cost either; nothing entered) and `COST_WITHOUT_REVENUE`
+(cost incurred; a certain loss that blocks clearance) — across both scopes,
+including the quote-wide margin defined here. The percentage stays undefined
+in both. See `gate-1b-derivation-inventory.md` §3.2.5.

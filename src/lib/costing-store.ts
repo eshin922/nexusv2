@@ -964,7 +964,12 @@ export const selectSuggestedAdj = (s: CostingStoreState) => {
   // for such a tier — `suggestedAdj` guards `revenue <= 0` — so the behaviour
   // is unchanged either way, but "not GOOD, therefore suggest something" is
   // the wrong reason to arrive at it.
-  if (lead.blendedMarginStatus === "UNAVAILABLE") return null;
+  if (
+    lead.blendedMarginStatus === "UNAVAILABLE" ||
+    lead.blendedMarginStatus === "COST_WITHOUT_REVENUE"
+  ) {
+    return null;
+  }
   return lead.blendedMarginStatus !== "GOOD"
     ? lead.suggestedGlobalAdjPct
     : null;

@@ -347,6 +347,23 @@ function computeAcceptRiskGating(
   const { rollup, recommendedTierId, target, floor } = input;
   // Unassessed tiers take part in neither count. They are not below target and
   // not below floor; they have no margin to be below anything.
+  // A tier carrying cost with no revenue blocks clearance outright. It is not
+  // a margin comparison — no margin exists — so it cannot be expressed through
+  // belowTarget/belowFloor, and it must be checked BEFORE the
+  // "nothing below target, nothing to accept" early return, which would
+  // otherwise report a clean quote.
+  const lossTiers = rollup.filter(
+    (t) => t.blendedMarginStatus === "COST_WITHOUT_REVENUE",
+  );
+  if (lossTiers.length > 0) {
+    return {
+      available: false,
+      reason: `Cannot accept risk — ${lossTiers
+        .map((t) => t.label)
+        .join(", ")} ${lossTiers.length === 1 ? "carries" : "carry"} cost with no revenue. Price ${lossTiers.length === 1 ? "it" : "them"} before sending.`,
+    };
+  }
+
   const assessable = rollup.filter(assessed);
   const belowTarget = assessable.filter((t) => isBelowTarget(t.blendedMarginPct, target));
   const belowFloor = assessable.filter((t) => isBelowFloor(t.blendedMarginPct, floor));
@@ -368,6 +385,12 @@ function computeAcceptRiskGating(
   if (!recommended) {
     // Recommended flag points at a tier not in rollup. Treat as unset.
     return { available: true, reason: null };
+  }
+  if (recommended.blendedMarginStatus === "COST_WITHOUT_REVENUE") {
+    return {
+      available: false,
+      reason: `Recommended tier (${recommended.label}) carries cost with no revenue against it — accept-risk requires the recommended tier above target`,
+    };
   }
   if (!assessed(recommended)) {
     // Not below target — but not above it either. This gate requires an
@@ -402,6 +425,20 @@ export function rankPricingSuggestions(
   const belowFloor = assessable.filter((t) => isBelowFloor(t.blendedMarginPct, floor));
 
   if (belowTarget.length === 0 && belowFloor.length === 0) {
+    // Null means "nothing is wrong" to every caller — no banner, no gating
+    // consulted. A tier carrying cost with no revenue is very much something
+    // wrong, and it cannot appear in either count above because it has no
+    // margin to compare. Returning null here would make the one state that
+    // must BLOCK clearance the one state that renders as a clean quote.
+    //
+    // So the result exists, with no options and a blocking gate. There is
+    // genuinely nothing to suggest — a lift multiplies revenue, and no
+    // multiple of zero is anything else — but "no suggestion" and "no
+    // problem" are different answers and this returns the first.
+    const blocked = computeAcceptRiskGating(input);
+    if (!blocked.available && rollup.some((t) => t.blendedMarginStatus === "COST_WITHOUT_REVENUE")) {
+      return { options: [], ranking: "surgical_first", acceptRiskGating: blocked };
+    }
     return null;
   }
 

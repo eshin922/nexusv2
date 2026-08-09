@@ -704,12 +704,15 @@ export function TabSalesOrder({
                               ? "var(--warn)"
                               : t.blendedMarginStatus === "UNAVAILABLE"
                                 ? "var(--ink-3)"
-                                : "var(--bad)",
+                                : // BELOW_FLOOR and COST_WITHOUT_REVENUE
+                                  "var(--bad)",
                       }}
                     >
-                      {t.blendedMarginPct === null
-                        ? "—"
-                        : `${(t.blendedMarginPct * 100).toFixed(1)}%`}
+                      {t.blendedMarginStatus === "COST_WITHOUT_REVENUE"
+                        ? "cost, no rev"
+                        : t.blendedMarginPct === null
+                          ? "—"
+                          : `${(t.blendedMarginPct * 100).toFixed(1)}%`}
                     </span>
                   </span>
                 </div>

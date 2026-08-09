@@ -582,15 +582,44 @@ export type QuoteCostBreakdown = {
 export type MarginBand = "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
 
 /**
- * A margin verdict that may not exist.
+ * A margin verdict that may not exist — and, when it does not, two reasons.
  *
- * `UNAVAILABLE` means the margin is UNDEFINED, not zero and not bad. It is
- * reached only when there is no revenue to take a ratio against, and it carries
- * no commercial judgement: a quote in this state has not been assessed, so it
- * must not be counted into any band. Consumers that tally quotes by band are
- * required to exclude it rather than default it — see `QuoteSummary`.
+ * Both non-band members mean the margin PERCENTAGE is undefined: there is no
+ * revenue to take a ratio against, and no arithmetic will produce one. They
+ * differ in what that says commercially, and the difference is the whole point
+ * of having two:
+ *
+ * - **`UNAVAILABLE`** — no revenue AND no cost. Nothing has been entered.
+ *   Carries no commercial judgement whatsoever; the quote has not been
+ *   assessed and must not be counted into any band.
+ *
+ * - **`COST_WITHOUT_REVENUE`** — no revenue, but cost HAS been incurred. The
+ *   percentage is still undefined, but the economics are not ambiguous: every
+ *   dollar of that cost is a loss. This must BLOCK commercial clearance.
+ *
+ * Collapsing the second into the first would hide a certain loss behind
+ *   "not assessed yet". Collapsing it into BELOW_FLOOR would be worse in the
+ * other direction — that label asserts a computed margin was compared against
+ * the floor and lost, and no such comparison happened. Neither existing member
+ * can carry it, which is why it is its own.
+ *
+ * Consumers tallying by band must exclude BOTH, and must not treat them as
+ * interchangeable when deciding whether to permit an action.
  */
-export type QuoteMarginStatus = MarginBand | "UNAVAILABLE";
+export type QuoteMarginStatus =
+  | MarginBand
+  | "UNAVAILABLE"
+  | "COST_WITHOUT_REVENUE";
+
+/**
+ * The verdict for a zero-revenue position. Never called with revenue > 0.
+ *
+ * One place decides this, because the quote-wide and per-tier scopes must not
+ * be able to disagree about what a zero-revenue position means.
+ */
+function zeroRevenueStatus(cost: number): QuoteMarginStatus {
+  return cost > 0 ? "COST_WITHOUT_REVENUE" : "UNAVAILABLE";
+}
 
 export type QuotePerTierRollup = {
   tierId: string;
@@ -1126,10 +1155,17 @@ function computeQuoteSuggestion(args: {
     return { suggestedAdj: null, suggestionGoal: null, suggestionMicrocopy: "" };
   }
 
-  // UNAVAILABLE — there is no margin, so there is no gap to close. Returning
-  // early states that; the `blendedRevenue <= 0` guard below would reach the
-  // same output, but only after picking a goal for a quote that has none.
-  if (blendedStatus === "UNAVAILABLE") {
+  // No margin, either flavour — there is no gap to close, so there is nothing
+  // to propose. The `blendedRevenue <= 0` guard below would reach the same
+  // output, but only after picking a goal for a quote that has none.
+  //
+  // COST_WITHOUT_REVENUE gets no suggestion for a second reason worth stating:
+  // the solve is a multiplicative lift on revenue, and no multiple of zero is
+  // anything but zero. A suggestion here could not work even in principle.
+  if (
+    blendedStatus === "UNAVAILABLE" ||
+    blendedStatus === "COST_WITHOUT_REVENUE"
+  ) {
     return { suggestedAdj: null, suggestionGoal: null, suggestionMicrocopy: "" };
   }
 
@@ -2893,7 +2929,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       revenue > 0 ? (revenue - cost) / revenue : null;
     const status: QuoteMarginStatus =
       marginPct === null
-        ? "UNAVAILABLE"
+        ? zeroRevenueStatus(cost)
         : computeStatus(marginPct, effectiveTarget, firmSettings.floorMarginPct);
     // Slice 9.3 — per-tier suggested-adj suppresses when the tier has
     // no GPA-influencable cells. Tier is fully GPA-fixed when:
@@ -3013,7 +3049,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
     blendedRevenue > 0 ? (blendedRevenue - blendedCost) / blendedRevenue : null;
   const blendedStatus: QuoteMarginStatus =
     blendedMarginPct === null
-      ? "UNAVAILABLE"
+      ? zeroRevenueStatus(blendedCost)
       : computeStatus(
           blendedMarginPct,
           effectiveTarget,

@@ -28,6 +28,20 @@ export function MarginVerdict({
   // No margin: render its absence. The engine used to hand this surface a
   // fabricated 0.0% carrying a BELOW FLOOR verdict, which read as "this quote
   // breaches the floor" for a quote that has simply not been priced.
+  if (status === "COST_WITHOUT_REVENUE") {
+    return (
+      <div className="macc-verdict">
+        <div className="margin-num bad">—</div>
+        <div className="margin-meta">
+          <div className="lbl">Blended margin · COST, NO REVENUE</div>
+          <div className="sub">
+            Cost has been incurred with nothing priced against it. There is no
+            margin percentage to state; the whole of that cost is a loss.
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (status === "UNAVAILABLE" || blendedMarginPct === null) {
     return (
       <div className="macc-verdict">

@@ -13,6 +13,7 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import { getQuoteCosting } from "./costing";
+import type { QuoteMarginStatus } from "@/lib/costing";
 
 // Firm-level policy admin actions. The /admin layout already gates
 // access via requireAdmin, but each action calls it again — defense in
@@ -282,6 +283,12 @@ export type PortfolioQuoteRow = {
    * and it is excluded from every band below rather than defaulted into one.
    */
   blendedMarginPct: number | null;
+  /**
+   * Why the margin is null, when it is. Carried alongside rather than inferred
+   * from the margin, because "no margin" has two meanings and the banding
+   * below has to tell them apart.
+   */
+  marginStatus: QuoteMarginStatus;
 };
 
 export type PortfolioBands = {
@@ -290,14 +297,23 @@ export type PortfolioBands = {
   belowTarget: number; // floor <= m < target
   belowFloor: number; // < floor
   /**
-   * No margin to band — zero revenue.
+   * No revenue and no cost — nothing entered. Carries no commercial judgement.
    *
    * Reported rather than absorbed, so that
-   * `good + belowTarget + belowFloor + unassessed === totalQuotes` holds. The
-   * alternative — shrinking `totalQuotes` to the assessed population — would
-   * make the portfolio silently smaller than the portfolio.
+   * `good + belowTarget + belowFloor + unassessed + costWithoutRevenue ===
+   * totalQuotes` holds. The alternative — shrinking `totalQuotes` to the
+   * assessed population — would make the portfolio silently smaller than the
+   * portfolio.
    */
   unassessed: number;
+  /**
+   * No revenue, but cost incurred. A certain loss.
+   *
+   * Counted separately from `unassessed` because folding it in would file a
+   * quote that is losing money under "nothing entered yet" — the single most
+   * misleading place to put it on a page about margin policy.
+   */
+  costWithoutRevenue: number;
   quotes: PortfolioQuoteRow[];
 };
 
@@ -337,6 +353,7 @@ async function getPortfolioQuotes(): Promise<PortfolioQuoteRow[]> {
       versionNumber: r.versionNumber,
       status: r.status,
       blendedMarginPct: result.data.quoteSummary.blendedMarginPct,
+      marginStatus: result.data.quoteSummary.blendedMarginStatus,
     });
   }
   return out;
@@ -346,22 +363,35 @@ function bucketQuotes(
   quotesIn: PortfolioQuoteRow[],
   target: number,
   floor: number,
-): { good: number; belowTarget: number; belowFloor: number; unassessed: number } {
+): {
+  good: number;
+  belowTarget: number;
+  belowFloor: number;
+  unassessed: number;
+  costWithoutRevenue: number;
+} {
   let good = 0;
   let belowTarget = 0;
   let belowFloor = 0;
   let unassessed = 0;
+  let costWithoutRevenue = 0;
   for (const q of quotesIn) {
     // A quote with no margin is not a quote with a bad margin. Counting these
     // as belowFloor — which is what `null >= floor` being false used to do —
     // reported the firm as breaching its own policy on quotes nobody had
     // priced yet.
-    if (q.blendedMarginPct === null) unassessed++;
+    //
+    // The two no-margin states are counted apart. Both are excluded from the
+    // bands, because neither has a margin to band; but one is an empty quote
+    // and the other is a loss, and a page about margin policy is the last
+    // place to let those look alike.
+    if (q.marginStatus === "COST_WITHOUT_REVENUE") costWithoutRevenue++;
+    else if (q.blendedMarginPct === null) unassessed++;
     else if (q.blendedMarginPct >= target) good++;
     else if (q.blendedMarginPct >= floor) belowTarget++;
     else belowFloor++;
   }
-  return { good, belowTarget, belowFloor, unassessed };
+  return { good, belowTarget, belowFloor, unassessed, costWithoutRevenue };
 }
 
 export async function getFirmPortfolioBands(): Promise<
@@ -384,17 +414,15 @@ export async function getFirmPortfolioBands(): Promise<
     const quotesList = await getPortfolioQuotes();
     const target = Number(fs.targetMarginPct);
     const floor = Number(fs.floorMarginPct);
-    const { good, belowTarget, belowFloor, unassessed } = bucketQuotes(
-      quotesList,
-      target,
-      floor,
-    );
+    const { good, belowTarget, belowFloor, unassessed, costWithoutRevenue } =
+      bucketQuotes(quotesList, target, floor);
     return {
       totalQuotes: quotesList.length,
       good,
       belowTarget,
       belowFloor,
       unassessed,
+      costWithoutRevenue,
       quotes: quotesList,
     };
   });

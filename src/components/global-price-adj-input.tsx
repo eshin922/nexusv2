@@ -207,7 +207,12 @@ export function GlobalPriceAdjInput({
           overridden, out-of-bounds). When suggestedAdj is null the
           microcopy may still be present — render the explanation but
           not the apply button. */}
+      {/* Neither no-margin state gets a coaching banner. The engine already
+          returns no suggestion and empty microcopy for both, so this is belt
+          and braces — but the badge below picks between "Below floor" and
+          "Below target" with no third option, and would mislabel either. */}
       {blendedStatus !== "UNAVAILABLE" &&
+        blendedStatus !== "COST_WITHOUT_REVENUE" &&
         (bannerSuggested !== null || bannerMicrocopy !== "") && (
         <div
           role="status"

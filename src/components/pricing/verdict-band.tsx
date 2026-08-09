@@ -75,7 +75,7 @@ export function VerdictBand({ editable }: { editable: boolean }) {
         ? "warn"
         : status === "UNAVAILABLE"
           ? "ink-3"
-          : "bad";
+          : "bad"; // BELOW_FLOOR and COST_WITHOUT_REVENUE both read as bad
 
   // Wrapper styling — bad = full red border + bad-soft bg; good/warn =
   // calm card with border-left accent in their semantic color.
@@ -115,7 +115,9 @@ export function VerdictBand({ editable }: { editable: boolean }) {
       ? "var(--bad)"
       : status === "UNAVAILABLE"
         ? "var(--ink-3)"
-        : "var(--ink)";
+        : status === "COST_WITHOUT_REVENUE"
+          ? "var(--bad)"
+          : "var(--ink)";
   const statusText =
     status === "GOOD"
       ? "● above target — sendable"
@@ -123,7 +125,11 @@ export function VerdictBand({ editable }: { editable: boolean }) {
         ? "● below target — soft warning"
         : status === "UNAVAILABLE"
           ? "● no revenue — margin not assessed"
-          : "● below floor — send blocked";
+          : status === "COST_WITHOUT_REVENUE"
+            ? // NOT "below floor". No margin was computed, so nothing was
+              // compared to the floor. The cost is a loss on its own terms.
+              "● cost with no revenue — every dollar is a loss"
+            : "● below floor — send blocked";
 
   return (
     <>

@@ -195,6 +195,11 @@ export async function runMarkComplete(
   // Same reasoning as markAccepted's companion guard: an unpriced tier was
   // previously caught by the floor check via a fabricated 0% margin. It stays
   // blocked on its own grounds rather than being released by a correctness fix.
+  if (tierRollup.blendedMarginStatus === "COST_WITHOUT_REVENUE") {
+    throw new Error(
+      `Blocked — the accepted tier (${tierRollup.label}) carries cost with no revenue against it. Completing books a certain loss. Cannot advance to complete.`,
+    );
+  }
   if (tierRollup.blendedMarginStatus === "UNAVAILABLE") {
     throw new Error(
       `Blocked — the accepted tier (${tierRollup.label}) has no revenue, so its margin cannot be assessed. Cannot advance to complete.`,
