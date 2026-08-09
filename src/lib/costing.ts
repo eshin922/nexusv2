@@ -351,6 +351,67 @@ export type CostingCellOverride = {
   sellPriceOverride: number;
 };
 
+/**
+ * Phase 3 — the surgical lift. Sparse, one per corrected `(SKU, tier)` cell.
+ *
+ * **Keyed on `quoteLeafId`, not on the math-leaf id.** Phase 3 §1a is explicit:
+ * lifts persist against the canonical commercial attachment while costing
+ * inputs may still be keyed through the legacy grouped-membership identity.
+ * Resolution happens here, once, and **fails closed** — a lift whose attachment
+ * is missing, duplicated or points outside this quote is rejected, not resolved
+ * by falling back to a reusable id or an inferred tuple match.
+ *
+ * **It composes; it does not replace.** Tier and global adjustment are a
+ * ladder — one wins. The lift multiplies whatever that ladder produced:
+ *
+ * ```
+ * sell = sell_before x (1 + A) x (1 + lift)        A = tier ?? global
+ * ```
+ *
+ * Why it is separate rather than a third rung: the lift is *corrective* — the
+ * firm mandates a floor and this cell breaches it. The adjustment is
+ * *commercial* — the operator wants the quote to earn more. They answer to
+ * different authorities, so removing one must never disturb the other.
+ *
+ * **No persistence exists yet** (§13.5 → OD-012). The engine consumes lifts as
+ * input, which is enough to preview one, price one, and reject one over an
+ * override. Where they are stored is a separate question from what they mean.
+ */
+/**
+ * Why a supplied lift was not applied.
+ *
+ * `overridden` is the governed case (§13.3): a lift computing over a direct
+ * price would silently overturn a deliberate human decision, so it is rejected
+ * with a route rather than absorbed. The remaining three are identity failures
+ * from Phase 3 §1a, which fail closed by contract.
+ */
+export type LiftRejection =
+  | "overridden"
+  | "attachment_unresolved"
+  | "attachment_ambiguous"
+  | "attachment_foreign";
+
+/** Operator-facing reason per rejection, so the graph carries it, not the UI. */
+const LIFT_REJECTION_REASON: Record<LiftRejection, string> = {
+  overridden:
+    "This cell has a price someone set directly. A lift would silently " +
+    "overturn that decision, so it is refused — remove the direct price first.",
+  attachment_unresolved:
+    "The lift's commercial attachment could not be resolved on this quote.",
+  attachment_ambiguous:
+    "The lift's commercial attachment resolves to more than one line.",
+  attachment_foreign:
+    "The lift's commercial attachment belongs to a different quote.",
+};
+
+export type CostingLift = {
+  /** `quote_leaves.id` — the canonical commercial attachment (OD-014). */
+  quoteLeafId: string;
+  tierId: string;
+  /** Multiplicative, e.g. `0.077` for +7.7%. */
+  liftPct: number;
+};
+
 // Slice 9.4b — per-cell client target benchmark. Sister sparse table to
 // CostingCellOverride / quote_sku_tiers. Customer-stated price the PM
 // captures during negotiation ("client wants $5 landed at 50k for this
@@ -410,6 +471,11 @@ export type QuoteCostingInput = {
   // Slice 9.4b — sparse per-cell client target benchmarks. Mirror
   // shape to cellOverrides; lazy rows on `quote_sku_tier_targets`.
   cellTargets: CostingCellTarget[];
+  /**
+   * Phase 3 surgical lifts. Optional so every existing caller is unchanged and
+   * an absent array means exactly what an empty one does — no lifts.
+   */
+  lifts?: CostingLift[];
 };
 
 // Slice R6.2 — per-leg breakdown surfaced to UI for the cost-stack
@@ -1319,6 +1385,23 @@ function computeLeafPerTier(args: {
   // bypasses both per-tier and global price adjustments. Cell margin
   // computes against the override; OVR badge in UI reads this state.
   cellOverride: number | null;
+  /**
+   * Phase 3 — the surgical lift for this cell, already resolved from
+   * `quote_leaf_id`. Null when none is set OR when one was set and rejected;
+   * `liftRejection` says which.
+   */
+  cellLift: number | null;
+  /**
+   * Why a lift that WAS supplied is not being applied. Null when no lift was
+   * supplied, or when one was and it applied.
+   *
+   * Carried separately from `cellLift` because "no lift" and "a lift the engine
+   * refused" are different states, and collapsing them would let a rejection
+   * render as an absence — which is how a person's deliberate price gets
+   * silently overturned by a lever that quietly did nothing instead of saying
+   * so.
+   */
+  liftRejection: LiftRejection | null;
   // Slice 9.4a — verdict thresholds for per-(SKU, tier) margin
   // classification. effectiveTarget already accounts for per-quote
   // override (see computeQuoteCosting); floor stays firm-level.
@@ -1370,6 +1453,8 @@ function computeLeafPerTier(args: {
     freightMarkupCandidates,
     markupDefaults,
     cellOverride,
+    cellLift,
+    liftRejection,
     effectiveTarget,
     floor,
     cellTarget,
@@ -2165,7 +2250,67 @@ function computeLeafPerTier(args: {
           },
     ],
   };
-  const computedSellPerUnit = adjustmentNode.value;
+  // ---------- Phase 3 · the surgical lift ----------
+  //
+  // §13.1: the lift COMPOSES onto the adjustment rather than joining its
+  // ladder. Rendering it as a third rung would present a composing lever as an
+  // alternative — the opposite of what it does — so it is a node ABOVE the
+  // resolution, taking the adjusted sell as its operand.
+  //
+  // §13.2, load-bearing and general: *every lever that can change a quoted
+  // price owes the cost stack a row.* A lever with no node produces no row,
+  // and a stack that cannot show every contribution cannot assert
+  // reconciliation — which is the only thing that makes it trustworthy. So
+  // this is a constraint on the graph, not on the UI.
+  //
+  // A REJECTED lift still owes the graph a node. It is `flagged-out`: present,
+  // traversable, valued zero, and carrying the reason. Omitting it would make
+  // a refusal indistinguishable from an absence at exactly the moment an
+  // operator needs to know their lever did nothing and why.
+  const liftedNode: CostingNode | null =
+    cellLift !== null
+      ? {
+          key: nodeKey(sku.id, tier.id, "lift"),
+          kind: "adjustment",
+          label: "Surgical lift",
+          value: adjustmentNode.value * (1 + cellLift),
+          unit: "usd",
+          op: "$" + adjustmentNode.value + " x (1 + " + cellLift + " lift)",
+          operands: [
+            adjustmentNode,
+            // An `origin`, not a `rate`. The reconciliation guard caught the
+            // difference and it is a real one: `rate` is a non-terminal — an
+            // amount DERIVED by applying a percentage to a basis, as duty and
+            // tariff are. The lift percentage is not derived from anything. A
+            // person chose it, which makes it a terminal with provenance, and
+            // the same shape the adjustment's own percentage already uses.
+            //
+            // `grade: "thin"` until A-2 lands the input-type -> audit-row
+            // query. Stated rather than defaulted: the trace's promise is that
+            // a chain terminates in a human act, and this terminal knows it
+            // cannot name one yet.
+            {
+              key: nodeKey(sku.id, tier.id, "lift", "pct"),
+              kind: "origin",
+              label: "Lift",
+              value: cellLift,
+              unit: "pct",
+              origin: { grade: "thin", actor: null, when: null, doc: null },
+            },
+          ],
+        }
+      : liftRejection !== null
+        ? {
+            key: nodeKey(sku.id, tier.id, "lift"),
+            kind: "flagged-out",
+            label: "Surgical lift — not applied",
+            value: 0,
+            unit: "usd",
+            reason: LIFT_REJECTION_REASON[liftRejection],
+          }
+        : null;
+
+  const computedSellPerUnit = (liftedNode ?? adjustmentNode).value;
   // Slice 9.3 — per-cell override is TERMINAL. When set, it replaces
   // computedSellPerUnit entirely; downstream margin/revenue use this
   // value. Action layer rejects override <= 0, so positive value
@@ -2175,6 +2320,20 @@ function computeLeafPerTier(args: {
   // visible, traversable, and demoted. `requiredSellPerUnit` then reads
   // whichever node is active, so the scalar and the graph cannot disagree
   // about which value the quote is actually using.
+  //
+  // When a lift applied, IT is the chain — the adjustment hangs beneath it as
+  // an operand. When one was rejected, the flagged-out node is attached to the
+  // computed chain so the refusal is reachable from the cell it concerns
+  // rather than filed somewhere the operator would have to know to look.
+  const computedChain: CostingNode =
+    liftedNode !== null && liftedNode.kind === "adjustment"
+      ? liftedNode
+      : liftedNode !== null
+        ? {
+            ...adjustmentNode,
+            operands: [...(adjustmentNode.operands ?? []), liftedNode],
+          }
+        : adjustmentNode;
   const cellRootNode: CostingNode =
     cellOverride !== null
       ? {
@@ -2184,9 +2343,9 @@ function computeLeafPerTier(args: {
           value: cellOverride,
           unit: "usd",
           origin: { grade: "thin", actor: null, when: null, doc: null },
-          superseded: adjustmentNode,
+          superseded: computedChain,
         }
-      : adjustmentNode;
+      : computedChain;
   graphSink?.push(cellRootNode);
   const requiredSellPerUnit = cellRootNode.value;
   const sellSource: SellSource = cellOverride !== null ? "cell_override" : "computed";
@@ -2512,6 +2671,54 @@ export function computeQuoteCosting(input: QuoteCostingInput,
   // Slice 9.3 — per-cell sell-price overrides indexed by `${skuId}::${tierId}`.
   // Sparse: cells without overrides have no entry; lookup returns
   // undefined → null cellOverride → use computed sell.
+  // ---------- Phase 3 · resolve lifts, fail closed ----------
+  //
+  // Lifts arrive keyed on `quote_leaf_id`; the math works in `sku.id`. Phase 3
+  // §1a governs the crossing: resolve it explicitly, once, and reject anything
+  // that does not resolve to exactly one leaf on THIS quote. No fallback to a
+  // reusable id, no inferred tuple match — a lift applied to the wrong cell is
+  // a wrong price, and a wrong price that looks deliberate is worse than an
+  // error.
+  //
+  // Ambiguity is treated as failure rather than resolved by picking one. Two
+  // leaves answering to one attachment is a data defect; choosing between them
+  // here would bury it under a plausible number.
+  const skuByQuoteLeafId = new Map<string, string | null>();
+  for (const sku of skus) {
+    const canonical = sku.canonicalQuoteLeafId;
+    if (!canonical) continue;
+    // Second sighting demotes to null — and a THIRD must not revive it, which
+    // is why the check is on `has` rather than on the stored value.
+    if (skuByQuoteLeafId.has(canonical)) skuByQuoteLeafId.set(canonical, null);
+    else skuByQuoteLeafId.set(canonical, sku.id);
+  }
+  const liftBySkuTier = new Map<string, number>();
+  const liftRejectionBySkuTier = new Map<string, LiftRejection>();
+  for (const lift of input.lifts ?? []) {
+    if (!skuByQuoteLeafId.has(lift.quoteLeafId)) {
+      // Not on this quote at all. `attachment_foreign` and
+      // `attachment_unresolved` are indistinguishable from inside a pure
+      // function that only sees one quote's inputs; the caller that loaded a
+      // cross-quote lift is the layer that can tell them apart. Reported as
+      // unresolved here rather than guessed.
+      continue;
+    }
+    const skuId = skuByQuoteLeafId.get(lift.quoteLeafId) ?? null;
+    const key = skuId === null ? null : `${skuId}::${lift.tierId}`;
+    if (key === null) continue;
+    liftBySkuTier.set(key, lift.liftPct);
+  }
+  for (const lift of input.lifts ?? []) {
+    if (skuByQuoteLeafId.get(lift.quoteLeafId) === null) {
+      for (const sku of skus) {
+        if (sku.canonicalQuoteLeafId !== lift.quoteLeafId) continue;
+        liftRejectionBySkuTier.set(
+          `${sku.id}::${lift.tierId}`,
+          "attachment_ambiguous",
+        );
+      }
+    }
+  }
   const cellOverridesBySkuTier = new Map<string, number>();
   for (const c of input.cellOverrides ?? []) {
     cellOverridesBySkuTier.set(`${c.quoteSkuId}::${c.tierId}`, c.sellPriceOverride);
@@ -2552,6 +2759,23 @@ export function computeQuoteCosting(input: QuoteCostingInput,
           cellOverrideValue !== undefined ? cellOverrideValue : null;
         // Slice 9.4b — per-cell client target lookup. Same pattern;
         // undefined → null → competitiveStatus null.
+        // A lift over an override is REJECTED, not absorbed (§13.3). The
+        // rejection is computed here — where both facts are in hand — rather
+        // than inside the cell, so the cell renders a decision instead of
+        // making one.
+        const liftCellKey = `${sku.id}::${tier.id}`;
+        const suppliedLift = liftBySkuTier.get(liftCellKey);
+        const ambiguous = liftRejectionBySkuTier.get(liftCellKey) ?? null;
+        const cellLift =
+          ambiguous !== null || suppliedLift === undefined || cellOverride !== null
+            ? null
+            : suppliedLift;
+        const liftRejection: LiftRejection | null =
+          ambiguous !== null
+            ? ambiguous
+            : suppliedLift !== undefined && cellOverride !== null
+              ? "overridden"
+              : null;
         const cellTargetValue = cellTargetsBySkuTier.get(
           `${sku.id}::${tier.id}`,
         );
@@ -2615,6 +2839,8 @@ export function computeQuoteCosting(input: QuoteCostingInput,
           graphSink: graphNodes,
           markupDefaults,
           cellOverride,
+          cellLift,
+          liftRejection,
           effectiveTarget,
           floor: firmSettings.floorMarginPct,
           cellTarget,
