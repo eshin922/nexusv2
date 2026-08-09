@@ -288,12 +288,17 @@ function HealthyInsightCards() {
         benchmarkedCount++;
         if (t.competitiveStatus === "OVER_CLIENT_TARGET") overCount++;
       }
-      if (headroom === null || t.marginPct > headroom.marginPct) {
+      // "The cell with the most headroom" is a comparison between margins, so
+      // a cell without one does not compete. Before the correction it entered
+      // as 0% and could win on a quote where every real margin was negative —
+      // naming an unpriced cell as the one with room to give.
+      const m = t.marginPct;
+      if (m !== null && (headroom === null || m > headroom.marginPct)) {
         headroom = {
           skuLabel: sku.skuLabel,
           productName: sku.productName,
           tierLabel: tierLabelById.get(t.tierId) ?? t.tierId,
-          marginPct: t.marginPct,
+          marginPct: m,
         };
       }
     }

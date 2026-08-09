@@ -1,7 +1,7 @@
 {
   "capturedOver": 24,
   "failed": 0,
-  "globalDigest": "541a75a041dd1a2912d077b555fbab575750329930e3b743089ec493bae44fb2",
+  "globalDigest": "a7e887ba62a3d06d157c24655d4473d0716ac9a8b2d55d33d097f2b96081e644",
   "entries": [
     {
       "quote_id": "071486be-e1a6-4475-8df6-2a2b78a21b58",
@@ -23,7 +23,7 @@
       "quote_id": "180e6410-8999-4d38-95bc-8d18567431b9",
       "status": "sent",
       "label": "MISTR - Sachet Rollstock Test Roll / smoke-addendum-0727",
-      "digest": "424949b478edfb60ed024d24e4b35611",
+      "digest": "ed9fbb84acee02c4f898b56c1287f89b",
       "skus": 4,
       "tiers": 1
     },
@@ -39,7 +39,7 @@
       "quote_id": "2de1dd81-e0cc-40b6-b3a0-df189d3a7865",
       "status": "draft",
       "label": "Epicuren - Pro Mask Boosters / Alt 4",
-      "digest": "c51e5e7b9e81ed431c8483847def479b",
+      "digest": "6395d0d40431b22ec2bb90fe049589fe",
       "skus": 21,
       "tiers": 1
     },
@@ -71,7 +71,7 @@
       "quote_id": "600dd15c-e304-40d4-883b-5a13dd3ba214",
       "status": "draft",
       "label": "Epicuren - Pro Mask Boosters / Alt 5",
-      "digest": "055cbaedf1b4dc76e7ccc06030f07127",
+      "digest": "79c9725738c4d5478c8957806fae3c74",
       "skus": 21,
       "tiers": 1
     },
@@ -79,7 +79,7 @@
       "quote_id": "93a5d4bb-7006-4bc4-9215-216af4d39747",
       "status": "sent",
       "label": "MISTR - Sachet Rollstock Test Roll / smoke-matrix-charges-0727",
-      "digest": "0efb92b98f574afd4aaca81cdc24b972",
+      "digest": "a421125b9971c6e4a1fe42aab230a4e2",
       "skus": 2,
       "tiers": 2
     },
@@ -95,7 +95,7 @@
       "quote_id": "9de0a19d-8a2c-4911-8c32-ebbff908e5d4",
       "status": "sent",
       "label": "MISTR - Sachet Rollstock Test Roll / smoke-snapshot3-0727",
-      "digest": "9e16e9ff1e2f3dadb5519cf0e568f2ae",
+      "digest": "64b8733834034ff3be2c2740392c916c",
       "skus": 2,
       "tiers": 1
     },
@@ -119,7 +119,7 @@
       "quote_id": "bfc6eebe-4b9b-4268-b8bd-0e1797dd34ea",
       "status": "draft",
       "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / SAMPLE TEST 2 - ED",
-      "digest": "def815f5b2b5f6e9389e4ba88719e5b8",
+      "digest": "63a384216f450be6d05be18dc70df399",
       "skus": 11,
       "tiers": 3
     },
@@ -151,7 +151,7 @@
       "quote_id": "e33d0f54-008a-437a-820c-4b2f3b5ac002",
       "status": "draft",
       "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / Alt 1",
-      "digest": "a5b2773fea8eb5e125f66abedf1be6c5",
+      "digest": "d7e81b0ee66f75947595d9e689fa2792",
       "skus": 11,
       "tiers": 3
     },
@@ -167,7 +167,7 @@
       "quote_id": "f84334bd-afa1-4016-9511-71f7d5600e35",
       "status": "draft",
       "label": "Epicuren - Pro Mask Boosters / Alt 1",
-      "digest": "7474d54686256ecd154fe5a6cc3a5ae8",
+      "digest": "91d1b31ebd9640bd9c4514f1872e653a",
       "skus": 21,
       "tiers": 2
     },
@@ -183,7 +183,7 @@
       "quote_id": "f9c23c2f-765a-4404-9ecb-081a24ad73dc",
       "status": "draft",
       "label": "Nemah - 30ml Nipple and Lip Balm Jar / Alt 1",
-      "digest": "070082308c72279bacb87bf14caa4703",
+      "digest": "269849ce59a15c5d2cdaf64d258a5b74",
       "skus": 21,
       "tiers": 1
     },

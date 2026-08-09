@@ -135,7 +135,10 @@ export default async function MarkAcceptedPage({
         flaggedLines.push({
           sku: sku.skuLabel,
           tier: tier?.label ?? "—",
-          marginPct: pt.marginPct * 100,
+          // Non-null by the BELOW_FLOOR branch above — a band is only assigned
+          // to a margin that exists — written so the compiler agrees rather
+          // than being told.
+          marginPct: (pt.marginPct ?? 0) * 100,
           rule: "MARGIN_BELOW_FLOOR",
         });
       }
