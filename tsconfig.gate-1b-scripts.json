@@ -1,0 +1,26 @@
+{
+  // The Gate 1B verifier scripts are the EVIDENCE LAYER for the canonical node
+  // tree, and they sat outside TypeScript.
+  //
+  // That is not a tidiness point. When `CostingGraph` gained a required
+  // `evaluation`, `verify-effective-target.ts` kept passing a node array where a
+  // graph was now required — it compiled because nothing compiled it, and
+  // failed at runtime on all 24 quotes. It failed loudly that time. A signature
+  // change that made a verifier VACUOUSLY PASS is the same gap with no symptom,
+  // and every "production verifier green" claim rests on these files.
+  //
+  // Narrow by construction: `scripts/gate-1b` only. The rest of `scripts/`
+  // stays excluded from the root config and is not this change's business.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // The root config sets `jsx: preserve` and pulls in `.next/types`, neither
+    // of which applies to node scripts. Everything else — strict, paths — is
+    // inherited so the scripts are checked against the same rules as `src`.
+    "jsx": "react-jsx",
+    "types": ["node"],
+    "noEmit": true,
+    "incremental": false
+  },
+  "include": ["scripts/gate-1b/**/*.ts", "src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules"]
+}
