@@ -1749,3 +1749,79 @@ test("evaluation · the default is committed, so an unthinking reader is safe", 
   assert.equal(out.graph.evaluation, "committed");
   assert.notEqual(readNodeValue(out.graph, nodeKey(LEAF, TIER, "pkg")), null);
 });
+
+// ─── preview evaluations must not touch committed state ─────────────────────
+
+test("preview · a preview run mutates neither the committed input nor its graph", () => {
+  // The permanent assertion. A preview is one field different from the
+  // committed input, which makes accidental sharing easy and its consequence
+  // severe: a mutated committed input would move real quoted prices, and
+  // nothing about the symptom would point back to a preview.
+  const committed = input({ packaging: THREE_LINES });
+  const before = JSON.stringify(committed);
+  const committedResult = computeQuoteCosting(committed);
+  const graphBefore = JSON.stringify(committedResult.graph);
+
+  // Deep-freeze the committed input so a write is a THROW rather than a
+  // difference we might or might not have thought to compare.
+  const freeze = (v: unknown): void => {
+    if (v && typeof v === "object" && !Object.isFrozen(v)) {
+      Object.freeze(v);
+      for (const x of Object.values(v as Record<string, unknown>)) freeze(x);
+    }
+  };
+  freeze(committed);
+  freeze(committedResult.graph);
+
+  // Both preview shapes, exactly as the classifier builds them.
+  const globalPreview = computeQuoteCosting(
+    { ...committed, quote: { ...committed.quote, globalPriceAdjPct: 0.25 } },
+    "preview",
+  );
+  const tierPreview = computeQuoteCosting(
+    {
+      ...committed,
+      tiers: committed.tiers.map((t) =>
+        t.id === TIER ? { ...t, tierPriceAdjPct: 0.25 } : t,
+      ),
+    },
+    "preview",
+  );
+
+  assert.equal(JSON.stringify(committed), before, "committed input unchanged");
+  assert.equal(
+    JSON.stringify(committedResult.graph),
+    graphBefore,
+    "committed graph unchanged",
+  );
+  assert.equal(globalPreview.graph.evaluation, "preview");
+  assert.equal(tierPreview.graph.evaluation, "preview");
+  assert.equal(committedResult.graph.evaluation, "committed");
+});
+
+test("preview · a lift actually moves the number, and only through the engine", () => {
+  // A preview that returned the committed answer would pass every structural
+  // check and be useless, so assert the lift is visible.
+  const committed = input({ packaging: THREE_LINES });
+  const base = computeQuoteCosting(committed);
+  const lifted = computeQuoteCosting(
+    { ...committed, quote: { ...committed.quote, globalPriceAdjPct: 0.25 } },
+    "preview",
+  );
+  const rev = (r: typeof base) =>
+    r.quoteRollup.reduce((a, x) => a + x.totalRevenue, 0);
+  assert.ok(rev(lifted) > rev(base), "a 25% lift must raise revenue");
+  // Cost is untouched by a price adjustment — proof the clone changed one field.
+  const cost = (r: typeof base) =>
+    r.quoteRollup.reduce((a, x) => a + x.totalCost, 0);
+  assert.equal(cost(lifted), cost(base));
+});
+
+test("preview · the default evaluation is still committed", () => {
+  // Preview is opt-in at the ENGINE too, not only at the reader. An existing
+  // caller that has never heard of evaluations keeps producing authority.
+  assert.equal(
+    computeQuoteCosting(input({ packaging: THREE_LINES })).graph.evaluation,
+    "committed",
+  );
+});

@@ -51,7 +51,17 @@ import {
 } from "@/lib/pricing-classifier";
 import { rankPricingSuggestions } from "@/lib/pricing-suggestions";
 import { isBelowTarget } from "@/lib/pricing-predicates";
-import { readEffectiveTargetMargin } from "@/lib/costing-nodes";
+import {
+  quoteScopeKey,
+  readEffectiveTargetMargin,
+  readNodeValue,
+} from "@/lib/costing-nodes";
+import { buildCostingInput } from "@/lib/costing-store";
+import { composePricingAdjustment } from "@/lib/pricing-adjustment";
+import {
+  computeQuoteCosting,
+  type QuoteCostingInput,
+} from "@/lib/costing";
 import {
   selectFirmSettings,
   selectGraph,
@@ -169,6 +179,10 @@ export function PricingClassifierProvider({
         effectiveTarget: targetRead?.value ?? 0,
         cellTargetLookup: (skuId, tierId) =>
           selectCellTarget(skuId, tierId)(storeApi.getState()),
+        previewTierMarginAt: (tierId, applyDelta) =>
+          previewTierMargin(storeApi.getState(), tierId, applyDelta),
+        previewBlendedAt: (applyDelta) =>
+          previewBlendedMargin(storeApi.getState(), applyDelta),
       }),
     [
       targetRead,
@@ -252,6 +266,77 @@ export function PricingClassifierProvider({
 // math layer surfaces the rolled-up shape; DetailCostStack handles
 // the null case with an inline rollup fallback.
 
+
+// ──────────────────────────────────────────────────────────────────
+// Preview evaluations
+// ──────────────────────────────────────────────────────────────────
+//
+// One field changes. Everything else — costs, structure, tiers, overrides —
+// is the committed input, because a preview that differed in any other respect
+// would answer a question nobody asked.
+
+type StoreState = Parameters<typeof buildCostingInput>[0];
+
+/** Margin for ONE tier after a surgical lift, as the engine computes it. */
+function previewTierMargin(
+  state: StoreState,
+  tierId: string,
+  applyDelta: number,
+): number | null {
+  const committed = buildCostingInput(state);
+  const preview: QuoteCostingInput = {
+    ...committed,
+    // A new array with a new object for the one tier touched. The committed
+    // input's own objects are never written to.
+    tiers: committed.tiers.map((t) =>
+      t.id === tierId
+        ? {
+            ...t,
+            tierPriceAdjPct: composePricingAdjustment(
+              t.tierPriceAdjPct ?? committed.quote.globalPriceAdjPct,
+              applyDelta,
+            ),
+          }
+        : t,
+    ),
+  };
+  const result = computeQuoteCosting(preview, "preview");
+  const value = readNodeValue(
+    result.graph,
+    quoteScopeKey(tierId, "margin"),
+    "preview",
+  );
+  if (value !== null) return value;
+  // The margin is not yet a node. Until it is, take the engine's own scalar
+  // from the PREVIEW result — still the engine's arithmetic, still not this
+  // file's. Reading the committed rollup here instead would silently answer
+  // the wrong question.
+  const row = result.quoteRollup.find((q) => q.tierId === tierId);
+  return row ? row.blendedMarginPct : null;
+}
+
+/** Blended margin across the quote after a global lift. */
+function previewBlendedMargin(
+  state: StoreState,
+  applyDelta: number,
+): number | null {
+  const committed = buildCostingInput(state);
+  const preview: QuoteCostingInput = {
+    ...committed,
+    quote: {
+      ...committed.quote,
+      globalPriceAdjPct: composePricingAdjustment(
+        committed.quote.globalPriceAdjPct,
+        applyDelta,
+      ),
+    },
+  };
+  const result = computeQuoteCosting(preview, "preview");
+  const revenue = result.quoteRollup.reduce((a, r) => a + r.totalRevenue, 0);
+  const cost = result.quoteRollup.reduce((a, r) => a + r.totalCost, 0);
+  return revenue > 0 ? 1 - cost / revenue : null;
+}
+
 interface AdapterInputs {
   tiersForReframe: ReadonlyArray<{
     id: string;
@@ -265,6 +350,10 @@ interface AdapterInputs {
   globalAdj: number;
   effectiveTarget: number;
   cellTargetLookup: (skuId: string, tierId: string) => number | null;
+  /** Preview outcomes, supplied by the provider so the adapter stays free of
+   *  store access — same shape as `cellTargetLookup`. */
+  previewTierMarginAt: (tierId: string, applyDelta: number) => number | null;
+  previewBlendedAt: (applyDelta: number) => number | null;
 }
 
 interface AdapterResult {
@@ -282,6 +371,8 @@ function buildClassifierInputs({
   globalAdj,
   effectiveTarget,
   cellTargetLookup,
+  previewTierMarginAt,
+  previewBlendedAt,
 }: AdapterInputs): AdapterResult {
   // Numeric tier ids: 1..N in the same order as tiersForReframe
   // (page.tsx already ordered by sort_order + created_at). Stable
@@ -502,35 +593,49 @@ function buildClassifierInputs({
       anyCellBelowTarget &&
       anyTierBelowTarget);
 
+  // ── Preview outcomes come from the engine, not from here ─────────────────
+  //
+  // These two numbers answer "what will my margin be if I apply this?", and
+  // they used to be computed on the spot as
+  // `1 - cost / (revenue x (1 + delta))`. The state genuinely does not exist
+  // yet, so the intent was always legitimate — the MECHANISM was not. A
+  // second, simpler formula standing in for the engine will agree with it
+  // right up until the engine's own arithmetic gains anything the formula does
+  // not model, and then it will disagree quietly.
+  //
+  // The division of labour is now explicit:
+  //
+  //     the solver proposes an action  -> applyDelta
+  //     the engine states its outcome  -> a preview run at that adjustment
+  //
+  // A preview clones the committed input, changes ONE field, and runs the same
+  // pure `computeQuoteCosting`. Nothing is persisted and nothing is mutated:
+  // the clone replaces only the objects on the path being changed, and a
+  // permanent test asserts the committed input and graph are untouched.
+  //
+  // The result is labelled `evaluation: "preview"`, so its values can only be
+  // read by naming preview authority — the committed readers refuse it.
+  //
+  // `applyDelta` COMPOSES with the adjustment already in force rather than
+  // replacing it: the old formula lifted revenue that already carried the
+  // current adjustment. `composePricingAdjustment` is the sanctioned composer
+  // for exactly this, classified as input composition rather than derivation.
   const suggestions: QuoteInput["suggestions"] = {};
   if (usableSurgical && surgical && surgical.applyTo[0]) {
-    const tierNumeric = uuidToNumeric.get(surgical.applyTo[0]);
+    const tierId = surgical.applyTo[0];
+    const tierNumeric = uuidToNumeric.get(tierId);
     if (tierNumeric != null) {
-      const tierRow = quoteRollup.find(
-        (q) => q.tierId === surgical.applyTo[0],
-      );
-      const newMargin =
-        tierRow && tierRow.totalRevenue > 0
-          ? 1 -
-            tierRow.totalCost /
-              (tierRow.totalRevenue * (1 + surgical.applyDelta))
-          : null;
       suggestions.surgical = {
         tier_id: tierNumeric,
         lift_pct: surgical.applyDelta,
-        new_margin: newMargin,
+        new_margin: previewTierMarginAt(tierId, surgical.applyDelta),
       };
     }
   }
   if (usableGlobal && global_) {
-    const newBlended =
-      totalRevenue > 0
-        ? 1 -
-          totalCost / (totalRevenue * (1 + global_.applyDelta))
-        : null;
     suggestions.global = {
       lift_pct: global_.applyDelta,
-      new_blended: newBlended,
+      new_blended: previewBlendedAt(global_.applyDelta),
     };
   }
 
