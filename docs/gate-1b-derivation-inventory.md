@@ -22,12 +22,10 @@ that *agree* with the authority they duplicate — they produce no wrong number 
 notice. Declaring the list complete would have declared the rule satisfied on
 the strength of a method §1 already says is incomplete.
 
-**One known violation remains open by decision, not by oversight:**
-`QuotePerTierRollup.blendedMarginPct` manufactures 0% and a BELOW_FLOOR verdict
-for a zero-revenue tier (§3.2.4, "the per-TIER twin"). It is carved to its own
-governed semantic correction so it stays independently attributable from the
-quote-wide baseline move; folding it in would have made the two inseparable in
-the S-7 digest.
+**No classified violation remains open.** The last one — the per-tier margin
+twin, carved out of §3.2.4 so its S-7 movement stayed independently
+attributable from the quote-wide one — landed as its own governed semantic
+correction. See §3.2.5.
 
 ---
 
@@ -198,13 +196,96 @@ and undoing precisely this correction reproduces the prior global digest
 `150d9f5a…` exactly. The prior baseline is preserved independently at
 `docs/gate-1b/preserved/`. New baseline: `c85e555c…`.
 
-**Known and deliberately out of scope — the per-TIER twin.**
-`QuotePerTierRollup.blendedMarginPct` (`costing.ts:2819`) carries the identical
-shape, so a zero-revenue tier reports 0% and bands BELOW_FLOOR. It was not
-folded in because two such tiers sit inside **revenue-bearing** quotes
-(`52bd0077` "Tier 4", `93a5d4bb` "Tier 2") — correcting it would move quotes the
-proof above asserts do not move, and the two changes would become inseparable in
-the digest. It is a real defect and its own item.
+#### 3.2.5 · Per-tier blended margin — closed as a separate correction
+
+Carved from §3.2.4 rather than folded into it. `QuotePerTierRollup` carried the
+identical `revenue > 0 ? … : 0` shape, so **15 tiers across 10 quotes** reported
+0% and banded BELOW_FLOOR. Two of those tiers sit inside quotes that are
+otherwise fully priced — `52bd0077` "Tier 4" and `93a5d4bb` "Tier 2" — so
+correcting it in the same package would have moved quotes the quote-wide proof
+asserts do not move, leaving neither transition independently attributable.
+
+**What the per-tier case exposed that the quote-wide one did not.**
+
+- **The solver was taking advice from the fabrication.** An unpriced tier
+  arrived at `worstBelowTarget` as 0%, making it the worst below-target tier on
+  any quote containing one. The lift was then sized to rescue a tier with no
+  revenue — and revenue times any multiplicative lift is still zero, so the
+  suggestion could not have worked. On a quote whose real tiers all clear
+  target, the engine now correctly returns **null**: no banner, no options.
+- **Two guards were blocking for the wrong reason.** `markAccepted` and
+  `markComplete` rejected these tiers via the margin-floor check, on the
+  fabricated verdict. Correcting the verdict would have *released* them —
+  a correctness fix silently loosening a guard. Each gained an explicit
+  UNAVAILABLE clause, so the tier stays blocked on its own grounds ("no
+  revenue, nothing to accept") with a message that does not send an operator
+  hunting for a pricing problem that does not exist.
+- **Four display sites had an else-branch that landed on `bad`.** A new member
+  in a union flows into every one, and the result is legible, plausible, and
+  says the opposite of the truth. Each now routes UNAVAILABLE to a neutral
+  register; a test pins all four.
+
+**Populations, measured before implementing.** Of the 15 tiers, 12 also carry
+zero QUANTITY — tiers the Costs header already renders as unavailable, so there
+the engine is now agreeing with what the surface already believed. Three have
+quantity but no revenue.
+
+**Zero revenue turned out to mean two things, and they are now two statuses.**
+
+|                            | margin % | status                 | commercially |
+|---|---|---|---|
+| revenue 0, cost 0          | undefined | `UNAVAILABLE`          | nothing entered; no judgement |
+| revenue 0, cost > 0        | undefined | `COST_WITHOUT_REVENUE` | a certain loss; **blocks clearance** |
+
+The percentage is undefined in both — no arithmetic recovers a ratio over
+zero. What differs is what that says, and neither existing member could carry
+it. Folding the second into `UNAVAILABLE` files a loss under "nothing entered
+yet". Folding it into `BELOW_FLOOR` is wrong the other way: that label asserts
+a computed margin was compared against the floor and lost, and no comparison
+happened.
+
+One helper, `zeroRevenueStatus(cost)`, decides it for both the quote-wide and
+per-tier scopes, so the two cannot disagree about what zero revenue means.
+
+**What "blocks clearance" required.** The loss state cannot be expressed
+through `belowTarget` / `belowFloor` — it has no margin to compare — so every
+gate that reasons in those terms had to name it directly:
+
+- `markAccepted` and `markComplete` reject it, with the cost quoted in the
+  message rather than a margin.
+- Accept-risk gating declines outright, naming the offending tiers.
+- `rankPricingSuggestions` no longer returns `null` for a quote whose only
+  problem is a loss tier. Null means *nothing is wrong* to every caller — no
+  banner, gating never consulted — which would have made the one state that
+  must block the one state that renders as clean. It now returns a result with
+  no options and a blocking gate: there is genuinely nothing to suggest, since
+  a lift multiplies revenue and no multiple of zero is anything else, but "no
+  suggestion" and "no problem" are different answers.
+- The firm portfolio counts it apart from `unassessed`, and the admin page
+  renders both when non-zero, so the bands still reconcile to `totalQuotes`.
+
+**Reaching it needed a corrected fixture, and the correction is the finding.**
+Zero *quantity* cannot produce this state: revenue and cost are both per-unit
+figures times tier quantity, so `qty = 0` zeroes them together. It requires
+quantity present and the sell price driven to zero — a per-cell override of 0,
+which is terminal and bypasses cost-plus-markup. So this is not "an empty tier
+carrying a fee"; it is a tier somebody has priced at nothing that still costs
+money to make. The first fixture asserted a fee onto a zero-qty tier and
+produced zero cost, which would have passed every downstream assertion against
+the `UNAVAILABLE` path while reporting success for a state it never reached.
+A guard test now pins the fixture itself.
+
+**No production instance today** — all 15 zero-revenue tiers carry zero cost —
+so the state adds no S-7 movement. It is defined, covered, and blocking
+regardless, because the case that has not happened yet is the one nobody will
+be watching for.
+
+**S-7:** `c85e555c…` → `a7e887ba…`, classified by
+`scripts/gate-1b/classify-per-tier-margin-movement.ts` before re-baselining. 14
+quotes byte-identical; exactly the 10 authorised moved; only per-tier
+`blendedMarginPct` and `blendedMarginStatus` differ; **no `quoteSummary` field
+moved**, so §3.2.4 stands independently; undoing the correction reproduces
+`c85e555c…` exactly.
 
 #### 3.2.3 · Freight drilldown — closed (worksheet model)
 

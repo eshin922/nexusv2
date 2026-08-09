@@ -591,6 +591,24 @@ export function FirmSettingsForm({
                     {portfolio.belowFloor} &lt;
                     {fmtPctAt0Decimal(current.floorMarginPct)}%
                   </span>
+                  {/* Both no-margin counts render only when non-zero, so the
+                      ordinary page is unchanged. They are shown at all because
+                      the three bands are presented against `totalQuotes`: if
+                      quotes are excluded from every band and never named, the
+                      numbers stop adding up and the reader has no way to see
+                      why. */}
+                  {portfolio.costWithoutRevenue > 0 && (
+                    <span className="bad">
+                      <span className="pip" />
+                      {portfolio.costWithoutRevenue} cost, no revenue
+                    </span>
+                  )}
+                  {portfolio.unassessed > 0 && (
+                    <span>
+                      <span className="pip" />
+                      {portfolio.unassessed} not assessed
+                    </span>
+                  )}
                 </div>
               </div>
             )}

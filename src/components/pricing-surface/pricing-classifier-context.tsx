@@ -528,8 +528,14 @@ function buildClassifierInputs({
     }
     if (anyCellBelowTarget) break;
   }
-  const anyTierBelowTarget = quoteRollup.some((r) =>
-    isBelowTarget(r.blendedMarginPct, effectiveTarget),
+  // A tier with no margin is not below target. This feeds the Pattern 50
+  // intersection gate (`suggestion_manual_only`), where a wrong answer would
+  // route the surface to the wrong explanation — so the exclusion is explicit
+  // rather than left to a predicate absorbing null.
+  const anyTierBelowTarget = quoteRollup.some(
+    (r) =>
+      r.blendedMarginPct !== null &&
+      isBelowTarget(r.blendedMarginPct, effectiveTarget),
   );
 
   // Asymmetry-corner details: worst below-target cell across all

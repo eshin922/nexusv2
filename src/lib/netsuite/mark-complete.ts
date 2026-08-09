@@ -192,6 +192,19 @@ export async function runMarkComplete(
       `Blocked — the accepted tier (${tierRollup.label}) is below the firm's margin floor. Cannot advance to complete.`,
     );
   }
+  // Same reasoning as markAccepted's companion guard: an unpriced tier was
+  // previously caught by the floor check via a fabricated 0% margin. It stays
+  // blocked on its own grounds rather than being released by a correctness fix.
+  if (tierRollup.blendedMarginStatus === "COST_WITHOUT_REVENUE") {
+    throw new Error(
+      `Blocked — the accepted tier (${tierRollup.label}) carries cost with no revenue against it. Completing books a certain loss. Cannot advance to complete.`,
+    );
+  }
+  if (tierRollup.blendedMarginStatus === "UNAVAILABLE") {
+    throw new Error(
+      `Blocked — the accepted tier (${tierRollup.label}) has no revenue, so its margin cannot be assessed. Cannot advance to complete.`,
+    );
+  }
 
   // Slice 12 Step 9 CB round-1 finding — round at the boundary.
   // tierRollup.totalRevenue carries IEEE 754 residue in the general

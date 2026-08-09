@@ -2344,6 +2344,27 @@ export async function markAccepted(
         `Cannot record acceptance at ${tierRollup.label} — the tier is below the firm's margin floor. Admin override required (not yet wired; block until it lands).`,
       );
     }
+    // A tier with no revenue used to arrive here as BELOW_FLOOR and be
+    // rejected — for the wrong reason, but rejected. Now that the engine
+    // reports UNAVAILABLE, the floor guard no longer catches it, and letting
+    // it through would LOOSEN a guard as a side effect of a correctness fix.
+    //
+    // It stays rejected, on its own grounds: there is nothing to accept at a
+    // tier with no price. Distinct message, because an operator told "below
+    // the margin floor" about an unpriced tier would go looking for a pricing
+    // problem that does not exist.
+    if (tierRollup.blendedMarginStatus === "COST_WITHOUT_REVENUE") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Cannot record acceptance at ${tierRollup.label} — the tier carries cost with no revenue against it, so accepting it books a certain loss of ${tierRollup.totalCost.toFixed(2)}. Price the tier first.`,
+      );
+    }
+    if (tierRollup.blendedMarginStatus === "UNAVAILABLE") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Cannot record acceptance at ${tierRollup.label} — the tier has no revenue, so there is nothing to accept. Price the tier first.`,
+      );
+    }
     // Slice 12 Step 9 CB round-1 finding — round at the boundary.
     // tierRollup.totalRevenue can carry IEEE 754 residue (e.g.
     // 300.00000000000006 for 3 × 500 × 0.20 = 300); pushing raw to

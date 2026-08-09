@@ -41,7 +41,10 @@ export function MarkAcceptedLocked({
           </div>
           <div className="meta">
             by {acceptedByName} · {fmtUSD(acceptedTier.total, 0)} total ·{" "}
-            {acceptedTier.marginPct.toFixed(1)}% margin · {sentVersion}
+            {acceptedTier.marginPct === null
+              ? "margin not assessed"
+              : `${acceptedTier.marginPct.toFixed(1)}% margin`}{" "}
+            · {sentVersion}
           </div>
         </div>
         <div className="right">

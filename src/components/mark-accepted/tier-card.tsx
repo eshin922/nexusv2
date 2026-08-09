@@ -16,8 +16,13 @@ export type TierCardData = {
   qty: number;
   unitPrice: number;
   total: number;
-  marginPct: number;
-  status: "good" | "warn" | "bad";
+  /** Percent units (0..100), or null when the tier has no revenue. */
+  marginPct: number | null;
+  /**
+   * `none` when the tier has no margin — the neutral register, distinct from
+   * `bad`. Measured-and-failing and never-measured must not look the same.
+   */
+  status: "good" | "warn" | "bad" | "none";
   recommended?: boolean;
 };
 
@@ -61,7 +66,7 @@ export function TierCard({
       </div>
       <div>
         <div className={"tmargin " + tier.status}>
-          {tier.marginPct.toFixed(1)}%
+          {tier.marginPct === null ? "—" : `${tier.marginPct.toFixed(1)}%`}
         </div>
         <div className="tqty" style={{ textAlign: "right" }}>
           margin

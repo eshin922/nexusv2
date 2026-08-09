@@ -278,7 +278,13 @@ export function TabSalesOrder({
   // Below-floor: the accepted tier's blended margin is under the
   // firm's margin floor. UI must NOT imply a process that doesn't
   // exist — admin override is v1.1+, so this is a plain block.
-  if (carriedTier?.blendedMarginStatus === "BELOW_FLOOR") {
+  // BELOW_FLOOR implies a margin exists — the engine cannot band what it did
+  // not compute — but the check is written so the compiler knows it too,
+  // rather than asserting it.
+  if (
+    carriedTier?.blendedMarginStatus === "BELOW_FLOOR" &&
+    carriedTier.blendedMarginPct !== null
+  ) {
     realFlags.push({
       level: "bad",
       label: "Blocked — tier is below the margin floor",
@@ -690,15 +696,23 @@ export function TabSalesOrder({
                     </span>
                     <span
                       style={{
+                        // UNAVAILABLE must not inherit the `bad` else-branch.
                         color:
                           t.blendedMarginStatus === "GOOD"
                             ? "var(--good)"
                             : t.blendedMarginStatus === "BELOW_TARGET"
                               ? "var(--warn)"
-                              : "var(--bad)",
+                              : t.blendedMarginStatus === "UNAVAILABLE"
+                                ? "var(--ink-3)"
+                                : // BELOW_FLOOR and COST_WITHOUT_REVENUE
+                                  "var(--bad)",
                       }}
                     >
-                      {(t.blendedMarginPct * 100).toFixed(1)}%
+                      {t.blendedMarginStatus === "COST_WITHOUT_REVENUE"
+                        ? "cost, no rev"
+                        : t.blendedMarginPct === null
+                          ? "—"
+                          : `${(t.blendedMarginPct * 100).toFixed(1)}%`}
                     </span>
                   </span>
                 </div>

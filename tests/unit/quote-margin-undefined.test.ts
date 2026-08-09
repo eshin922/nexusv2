@@ -126,8 +126,12 @@ test("computeStatus is not called for an undefined margin", () => {
     new URL("../../src/lib/costing.ts", import.meta.url),
     "utf8",
   );
+  // The branch was later refined: the zero-revenue verdict is decided by
+  // `zeroRevenueStatus`, which distinguishes an empty quote (UNAVAILABLE) from
+  // one carrying cost with no revenue (COST_WITHOUT_REVENUE). What this test
+  // pins is unchanged — computeStatus must not be reached with a placeholder.
   const guard =
-    /blendedMarginPct === null\s*\?\s*"UNAVAILABLE"\s*:\s*computeStatus\(/;
+    /blendedMarginPct === null\s*\?\s*zeroRevenueStatus\(blendedCost\)\s*:\s*computeStatus\(/;
   assert.ok(
     guard.test(src),
     "the UNAVAILABLE branch must short-circuit before computeStatus, " +

@@ -169,7 +169,9 @@ export function QuoteSummaryCard({
                         {fmtCurr(t.totalCost)}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        {fmtPct(t.blendedMarginPct)}
+                        {t.blendedMarginPct === null
+                          ? "—"
+                          : fmtPct(t.blendedMarginPct)}
                       </td>
                       <td className="px-3 py-2 text-right">
                         <MarginVerdictPill status={t.blendedMarginStatus} size="md" />
