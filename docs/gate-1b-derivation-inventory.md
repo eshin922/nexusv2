@@ -131,12 +131,62 @@ acknowledged approximation while waiting for it.
 
 | Site | Derives | Engine equivalent |
 |---|---|---|
-| `costs/freight-drilldown.tsx:310` | per-break sell/unit + customs sell | `FreightLegBreakdown.*WithMarkupPerUnit` — **different granularity**, see below |
-| `costs/freight-drilldown.tsx:395,405-407` | shipment sell and per-unit sell | same |
-| `costs/freight-drilldown.tsx:655` | `amount × (1+markup) ÷ qty` helper | same |
-| `costs/freight-drilldown.tsx:666` | per-tier total freight + customs per unit | `freightContainerMarkupSumPerUnit` + `freightDutyTariffMarkupSumPerUnit` |
+
+
+
+
+| ~~`costs/freight-drilldown.tsx` (4 sites)~~ | ~~per-shipment and per-tier freight/customs~~ | **CLOSED** — see §3.2.3 |
 | ~~`costs/packaging-drilldown.tsx:108,918`~~ | ~~`unit × (1+markup) × qty` per line~~ | **CLOSED** — see §3.2.2 |
 | ~~`costs/cost-stack-header.tsx:305`~~ | ~~subtotal by summing component values~~ | **CLOSED** — see §3.2.1 |
+
+#### 3.2.3 · Freight drilldown — closed (worksheet model)
+
+**Stale in both halves.** The entry claimed the engine computes per `(leaf, leg)`
+while the drilldown displays per `(shipment, tier)`, and called that a
+granularity the graph does not expose. Per-`(shipment, tier)` authority has
+existed since the freight increment — `{sku}/{tier}/frt/shipment/{subId}`, with
+freight, duty and tariff beneath, each carrying its allocation and markup. And
+the sites no longer hand-derived: they had already been routed through
+`computeShipmentContribution`, the engine's own function. Better than five
+private reimplementations, and still not a graph read.
+
+**Cut over:** the shipment reader, the freight entry cell (selected destination
+only), the customs per-unit cell, and `TotalStrip`.
+
+**Deliberately preserved as local computation, both counterfactual:**
+
+- **Unselected destination previews.** `Comparison` and `DecisionSummary` price
+  destinations the quote did *not* select. The engine computes the selected one;
+  the rest are states that price nothing. A node would require the engine to
+  compute paths with no commercial standing.
+- **The customs charge-line marked-up total.** `amount × (1 + markup)` as a
+  TOTAL, not per unit. Reconstructing it from per-unit authority would render 0
+  at zero tier quantity, where it correctly shows the entered amount plus markup.
+
+**The TOTAL node.** `quote/{tier}/cost-stack/frt-total`, same standing contract
+as `pkg-total`, and **model-agnostic by construction**. Two freight models are
+resident during the staged retirement and `worksheetIsAuthoritative` picks
+exactly one per quote. A worksheet-scoped total reads zero on a legacy quote
+whose Cost Stack shows real freight — failing the contract it exists to state.
+Summing the per-SKU freight *section* covers whichever model is live.
+
+**Visible consequence, asserted rather than permitted:** 15 legacy-model tiers
+whose strip rendered `0.0000` now show the real figure. The strip's rows remain
+worksheet-only; only the total stopped contradicting the stack.
+
+**Legacy-leg freight is transitional, not the intended model.** Determined from
+the code rather than from fixture counts: `costing.ts` describes a *"staged
+retirement"*, states the legacy tables are *"scheduled for drop after V1"*, and
+points at `AUTHORITY_TIMELINE.md` Era 6. No drawer functionality is built around
+it. Current fixtures skew legacy (8 of 10 freight-carrying quotes), but that is
+disposable dev data and carries no compatibility requirement.
+
+**Evidence.** 52 tiers carry a total; 40 reconcile to Cost Stack FRT + D+T and
+12 sit on zero-quantity tiers where the header is undefined; 7 worksheet tiers
+and 22 legacy tiers, with no tier carrying both; 10 shipment nodes, each
+resolving uniquely by `(subcategory, tier)` — the assumption the quote-scoped
+drawer's resolution rests on — and each with charge nodes summing to it. S-7
+unchanged at `150d9f5a…`.
 
 #### 3.2.2 · Packaging drilldown — closed
 

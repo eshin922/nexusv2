@@ -444,6 +444,29 @@ a node, **the answer is a new node, not a local calculation.** That is the same
 discipline as CLAUDE.md's *"identify the primitive; don't re-derive it in the
 display"*, which was banked after this exact failure.
 
+### 8.1a · Section totals state a contribution, not an implementation
+
+> A drilldown's TOTAL node is **model-agnostic**: it represents that category's
+> contribution to the Cost Stack, not the output of a particular implementation
+> of that category.
+
+`quote/{tier}/cost-stack/frt-total` is the reference case. Two freight models are
+resident during the staged retirement of the legacy legs, and exactly one is
+authoritative per quote. A total scoped to the newer model reads zero on a quote
+priced by the older one — while the Cost Stack shows real freight. The number
+would be defensible as "the worksheet contributed nothing" and useless as a
+total, because a total that can contradict the stack it belongs to is not
+stating a contribution at all.
+
+So the node sums the per-SKU freight *section*, whichever model produced it. The
+same reasoning fixes the shape of any future section total: name the
+contribution, and let the implementation be whatever is live.
+
+Consumer surfaces stay free to remain implementation-specific — the freight
+drawer's ROWS are worksheet-only and should be. It is the total that must not be.
+
+---
+
 ### 8.2 · The projections
 
 | Consumer | Projection |

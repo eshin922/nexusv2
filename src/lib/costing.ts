@@ -3007,6 +3007,47 @@ export function computeQuoteCosting(input: QuoteCostingInput): QuoteCostingResul
       });
     }
 
+    // ---------- Cost Stack section total · Freight ----------
+    //
+    // Same standing contract as `pkg-total`: the category's contribution to the
+    // Cost Stack, summed across every governed SKU at this tier. Freight and
+    // customs together, because that is what the drilldown's strip reports and
+    // what the Cost Stack splits across its FRT and D+T rows.
+    //
+    // MODEL-AGNOSTIC BY CONSTRUCTION, and that is forced rather than chosen.
+    // Two freight models are resident during the staged retirement — worksheet
+    // shipments and legacy legs — and `worksheetIsAuthoritative` picks exactly
+    // one per quote, never both. A total scoped to worksheet shipments would
+    // read zero on a legacy quote while the Cost Stack showed real freight,
+    // which fails the contract this node exists to state. Summing the per-SKU
+    // freight SECTION covers whichever model is live: verified reconciling to
+    // FRT + D+T on all 21 production tiers carrying freight, across both.
+    const frtTotalBase = nodeKey(blendBase, "cost-stack", "frt-total");
+    {
+      const operands: CostingNode[] = contributors.map((c) => ({
+        key: nodeKey(frtTotalBase, c.sku.canonicalQuoteLeafId ?? c.sku.id),
+        kind: "origin" as const,
+        label: c.sku.skuLabel,
+        value:
+          c.pt.freightContainerMarkupSumPerUnit +
+          c.pt.freightDutyTariffMarkupSumPerUnit,
+        unit: "usd" as const,
+        origin: { grade: "thin" as const, actor: null, when: null, doc: null },
+      }));
+      graphNodes.push({
+        key: frtTotalBase,
+        kind: "sum",
+        label: "Freight & customs · all SKUs · " + tier.label,
+        value: operands.reduce((acc, o) => acc + o.value, 0),
+        unit: "usd",
+        op:
+          "Sigma freight + duty & tariff per unit, across " +
+          operands.length +
+          " SKU(s)",
+        operands,
+      });
+    }
+
     const weights = contributors.map((c) => c.weight);
     const totalWeight = weights.reduce((a, b) => a + b, 0);
     const absentNote =
