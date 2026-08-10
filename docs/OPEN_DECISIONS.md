@@ -948,6 +948,73 @@ operator would recognise, it is an open business question, not a computation.
 
 ---
 
+### OD-020 · The client rebuilds a costing input the server already built
+
+**Owner:** Edward + CA · **Blocks:** nothing today. Recorded while the reasoning
+is fresh, not because work is waiting on it.
+
+**Classification:** architectural. The question is whether parity between two
+constructions should keep being *guaranteed*, or stop being *needed*.
+
+---
+
+#### What happens now
+
+`getCostingBundle` assembles a complete `QuoteCostingInput`, computes with it,
+and returns a snapshot. The client then assembles a **second** input from that
+snapshot — `buildCostingInput` — for every optimistic recompute and every
+preview. Two constructions of the same object, from the same data, that must
+agree.
+
+#### Why it is recorded
+
+They did not agree. `buildCostingInput` omitted `freightComponentTierCosts` and
+`freightShipmentBreaks`; both were optional on the external type and had no home
+in the store, so the omission compiled cleanly. Because
+`freightShipmentBreaks.length > 0` is what makes the worksheet freight model
+authoritative, every client computation on a worksheet quote dropped **all**
+freight and duty/tariff and reported an improved margin — in previews for their
+full displayed lifetime, and in committed optimistic recompute until the next
+server reconcile. Fixed in PR #249.
+
+**The fix guards the class; it does not remove it.** `Required<QuoteCostingInput>`
+makes an omission a compile error, and two invariants pin parity at runtime. A
+third construction path, or a field added somewhere the builder cannot see,
+would still be a new opportunity for the same shape of divergence.
+
+#### The alternative
+
+Carry the server-originated `QuoteCostingInput` on the snapshot and have the
+client spread it, changing only what is staged. One construction, used twice.
+Drift becomes structurally impossible rather than caught.
+
+#### What has to be weighed
+
+- **Payload.** The input is larger than the snapshot's projections and overlaps
+  them substantially. Whether the snapshot carries both, or the projections are
+  derived from the input client-side, is the real design question.
+- **Mutability.** The store mutates its projections on optimistic edit
+  (`updatePackagingCell` and thirteen siblings). A carried input would need the
+  same edits applied to it, which is a mapping — and a mapping is the thing this
+  is trying to remove. It may only pay off if the store's authoring rows and the
+  engine's input rows converge on one shape.
+- **`Stored*` vs `Costing*` row types.** They differ by authoring-side fields
+  the engine ignores (`rowId`, vendor snapshot fields). That difference is real
+  and may be the reason two shapes exist at all.
+
+#### What settles it
+
+A design pass that answers whether the store can hold the engine's input shape
+directly, or whether the authoring and computation shapes are legitimately
+different — in which case parity-by-invariant is the correct permanent answer
+and this entry closes as "considered, rejected, here is why."
+
+**Not urgent.** The invariants hold, the compiler enforces completeness, and the
+defect that motivated it is closed. This exists so the question is asked
+deliberately rather than rediscovered by the next omission.
+
+---
+
 ## Closed
 
 *(Entries move here with the disposition and a pointer to where the decision
