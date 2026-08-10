@@ -207,7 +207,7 @@ release is how fast unknowns become classified and then closed.
 |---|---|---|
 | **Closed** | **1** | VAL-104 — passes end to end |
 | **Classified, not closed** | **2** | VAL-101 harness contamination · VAL-103 harness race |
-| **Boundary established, cause open** | **2** | phase-2-component-freight — residual: Add-line count, snapshot geometry |
+| **Boundary established, cause open** | **0** | — |
 | **Unclassified** | **5** | VAL-208 · costs-reconciliation-ordering · product-library ×2 · pvs-020 ×2 |
 
 **Eleven scenarios were failing or unmeasured when classification began. Five
@@ -645,6 +645,59 @@ classified, neither repaired:
 | worksheet break saves actual freight | **passes** (15.2s) |
 | 1/6/10 SKU scales | `spec:63` — inside the Packaging `article`, `getByRole("button", {name: /^Add line/})` resolves to **0**, expected 1 (`oneSku`). 14 × re-resolved |
 | nested comparison surface | snapshot 840×**1722** expected vs 840×**1814** received, 5% of pixels differ. Baseline committed `051a7d5` **2026-08-05** — it **predates `85d8d1f`**, so it is not evidence of the crashed state, and the 92px growth may be intended by the Gate 1B TOTAL change. **Do not refresh the baseline before that is settled** |
+
+#### Residual 1 — `1/6/10 SKU scales` · `spec:63` · **stale test expectation**
+
+The Add-line control does not resolve differently. **It does not exist.** The
+only occurrence of the string in `src/` is its own removal notice:
+
+> `src/app/actions/assembly-leaf-inputs.ts:142` — *REMOVED: addAssemblyLeafInput
+> (manual "Add line" in Packaging). Setup owns packaging structure; Costs
+> consumes and prices it. Multiple cartons, labels or inserts are separate Setup
+> components, not PM-authored cost rows. Packaging rows now materialize from
+> Setup structure through `src/lib/packaging-materialization.ts` on both axes —
+> leaf attach and tier creation — so there is no state this action was needed to
+> reach.* **Business Authority confirmation, 2026-08-06.**
+
+Removed in `a32d41a`, 2026-08-06 — **three days before the crash landed**. The
+scenario was therefore already failing here between 08-06 and 08-09; `85d8d1f`
+then masked it by failing earlier. Same class as VAL-104's *Other SKUs*
+disclosure: a governed removal the scenario never absorbed.
+
+The spec counted one Add-line button per SKU as a **proxy** for "the Packaging
+drawer rendered one row per SKU." The proxy is gone; the capability intent is
+still valid and still worth asserting. **Not repaired** — the replacement anchor
+should be chosen deliberately, not reverse-engineered from whatever currently
+counts to N.
+
+#### Residual 2 — `nested comparison surface` · **stale baseline, and the 92px is explained**
+
+The baseline is `051a7d5`, 2026-08-05. **Eighteen commits have touched
+`freight-drilldown.tsx` since it was captured**, among them:
+
+| commit | change |
+|---|---|
+| `ffcbed7` | coverage-aware shipment defaults **and a coverage strip** |
+| `8b1f27d` | governed selector for Freight Type |
+| `6379450` | action-scoped pending + **explained disabled states** (Pattern 47f) |
+| `4196ded` | shipment reversal with refusal-based safety (F-5) |
+| `eb3bfa3` | Add Destination protected by request idempotency |
+| `85d8d1f`, `f1dc5af` | Gate 1B — freight reads the graph; graph declares its evaluation |
+
+The diff image agrees with that reading: it is a **cumulative downward shift**,
+not scattered content substitution. Rows match in kind and drift progressively
+further out of register down the page — the signature of height added near the
+top and inherited by everything below, rather than of a redesign.
+
+So the 92px is not one change and not a consequence of the crash. It is five
+days of separately-governed surface evolution that the baseline predates.
+
+**The baseline is deliberately NOT refreshed.** A refresh is defensible only as
+an explicit decision that each contributing change is intended — which is a
+Design Authority call, not a byproduct of the crash being fixed. Until then the
+snapshot stands as evidence.
+
+
 
 
 
