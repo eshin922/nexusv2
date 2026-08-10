@@ -3,7 +3,12 @@ import postgres from "postgres";
 import { assertRuntimeSafety } from "../../../src/lib/config/runtime-config.ts";
 
 export type FixtureState = "draft" | "sent" | "accepted" | "failed" | "complete";
-export type OperatorFixtureName = "oneSku" | "sixSku" | "tenSku" | "r3Volume";
+export type OperatorFixtureName =
+  | "oneSku"
+  | "sixSku"
+  | "tenSku"
+  | "r3Volume"
+  | "r12Visual";
 
 type QuoteFixture = {
   projectId: string;
@@ -33,9 +38,25 @@ function uuid(runId: string, name: string): string {
   ].join("-");
 }
 
+/**
+ * The operator fixtures, in one place.
+ *
+ * It was a literal repeated in three, and the reset's copy went stale the
+ * moment a fifth fixture landed: the new project was never deleted, so the
+ * next reseed died deleting shared leaves it still referenced. A list that
+ * has to be updated in three files is a list that will be updated in two.
+ */
+export const OPERATOR_FIXTURE_NAMES: readonly OperatorFixtureName[] = [
+  "oneSku",
+  "sixSku",
+  "tenSku",
+  "r3Volume",
+  "r12Visual",
+];
+
 export function fixtureRecordIds(runId: string) {
   const states: FixtureState[] = ["draft", "sent", "accepted", "failed", "complete"];
-  const operatorNames: OperatorFixtureName[] = ["oneSku", "sixSku", "tenSku", "r3Volume"];
+  const operatorNames = OPERATOR_FIXTURE_NAMES;
   return {
     projectIds: [
       ...states.map((state) => uuid(runId, `project-${state}`)),
@@ -395,6 +416,29 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
         markupByIndex?: (index: number) => number;
         /** A cell carrying a persisted direct price, so replacement is testable. */
         overrideAt?: { skuIndex: number; tierIndex: number; price: number };
+        /**
+         * Client targets, PER SKU — the benchmark does not vary by tier (R12
+         * §13), so this is a per-row fact and the comparison happens per cell.
+         *
+         * Deliberately partial: a SKU without one must render NO chip and NO
+         * markers, and "absence costs nothing because there is nothing to leave
+         * blank" is only verifiable against a fixture where some rows lack it.
+         */
+        clientTargetAt?: Array<{ skuIndex: number; price: number }>;
+        /** A persisted applied lift, so the LIFTED badge and its attribution render. */
+        liftAt?: { skuIndex: number; tierIndex: number; pct: number };
+        /** A quote-wide adjustment already in effect, for the APPLIED bar. */
+        globalAdjPct?: number;
+        /**
+         * Write audit rows for the seeded adjustments.
+         *
+         * Provenance is READ from the audit trail, never synthesised, so a
+         * fixture that seeds a lift without its audit row renders an
+         * unattributed one — correct behaviour, but it makes the sourced
+         * treatment unverifiable. Pattern 53: the fixture writes what the real
+         * action writes.
+         */
+        seedProvenance?: boolean;
       }> = [
         { name: "oneSku", skuCount: 1, includeAirLeg: false, includeDomesticLeg: false },
         { name: "sixSku", skuCount: 6, includeAirLeg: true, includeDomesticLeg: false },
@@ -414,6 +458,46 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
           // On a different SKU from the below-floor one, so the replacement
           // case and the lift case never contend for the same cell.
           overrideAt: { skuIndex: 2, tierIndex: 1, price: 12.5 },
+        },
+        {
+          /**
+           * R12 · the visual acceptance fixture.
+           *
+           * ONE quote that carries every presentation state at once, because
+           * the states interact: a client-target marker sits beside a `needs
+           * N%` chip on one cell and beside a `LIFTED` badge on another, and
+           * the question the sweep asks is whether they read together — which
+           * a fixture exercising them one at a time cannot answer.
+           *
+           * PERMANENT. Not a walk-scoped scratch quote: the density and
+           * spacing it was accepted at are the density and spacing a future
+           * change has to be compared against.
+           *
+           *   6 SKUs x 4 tiers   the production shape
+           *   below-floor cells  SKU 0 at 0.2 markup, breaching on every tier
+           *   applied lift       SKU 1 T1, persisted, with its audit row
+           *   direct price       SKU 2 T2, persisted
+           *   client targets     SKUs 0 and 3 only — 4 of 6 rows carry none
+           *   quote-wide adj     already in effect, so the APPLIED bar renders
+           *   worksheet freight  inherited from the shared seeding below
+           */
+          name: "r12Visual",
+          skuCount: 6,
+          tierCount: 4,
+          includeAirLeg: true,
+          includeDomesticLeg: true,
+          markupByIndex: (index) => (index === 0 ? 0.2 : index === 1 ? 0.28 : 0.9),
+          overrideAt: { skuIndex: 2, tierIndex: 1, price: 12.5 },
+          // One target BELOW the computed price and one ABOVE it, so both
+          // directions of the marker render on one screen. The values are
+          // chosen relative to the seeded costs, not to a desired output.
+          clientTargetAt: [
+            { skuIndex: 0, price: 12.0 },
+            { skuIndex: 3, price: 4.5 },
+          ],
+          liftAt: { skuIndex: 1, tierIndex: 0, pct: 0.06 },
+          globalAdjPct: 0.02,
+          seedProvenance: true,
         },
       ];
       for (const spec of operatorSpecs) {
@@ -529,6 +613,89 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
               insert into assembly_leaf_overrides (
                 assembly_leaf_id, tier_id, sell_price_override
               ) values (${target}, ${targetTier}, ${spec.overrideAt.price})
+            `;
+          }
+        }
+
+        // Client targets — per (leaf, tier) in storage, per SKU in meaning.
+        // Written across EVERY tier because the table is keyed per cell while
+        // the benchmark is a row fact; the grid states it once and compares it
+        // per cell, which is exactly the dimensional split §13 describes.
+        for (const t of spec.clientTargetAt ?? []) {
+          const leaf = operatorJunctionIds[t.skuIndex];
+          if (!leaf) continue;
+          for (const tierId of tierIdList) {
+            await tx`
+              insert into assembly_leaf_targets (
+                assembly_leaf_id, tier_id, client_target_price_per_unit
+              ) values (${leaf}, ${tierId}, ${t.price})
+            `;
+          }
+        }
+
+        // A persisted applied lift, keyed CANONICALLY — the table is
+        // `quote_leaf_lifts`, so this is a quote_leaf id, not the junction one
+        // the two rows above use.
+        if (spec.liftAt) {
+          const canonical = operatorQuoteLeafIds[spec.liftAt.skuIndex];
+          const tierId = tierIdList[spec.liftAt.tierIndex];
+          if (canonical && tierId) {
+            await tx`
+              insert into quote_leaf_lifts (quote_leaf_id, tier_id, lift_pct)
+              values (${canonical}, ${tierId}, ${spec.liftAt.pct})
+            `;
+          }
+        }
+
+        if (spec.globalAdjPct !== undefined) {
+          await tx`
+            update quotes set global_price_adj_pct = ${spec.globalAdjPct}
+            where id = ${quoteId}
+          `;
+        }
+
+        // Audit rows for what was just seeded.
+        //
+        // Provenance is read from the audit trail and never synthesised, so a
+        // seeded adjustment without its row renders unattributed — correct, but
+        // it leaves the SOURCED treatment unverifiable. These are the rows the
+        // real actions write, with the same action names and entity ids.
+        if (spec.seedProvenance) {
+          const rows: Array<[string, string, string]> = [];
+          if (spec.liftAt) {
+            const canonical = operatorQuoteLeafIds[spec.liftAt.skuIndex];
+            const tierId = tierIdList[spec.liftAt.tierIndex];
+            if (canonical && tierId) {
+              rows.push([
+                "quote_leaf_lift",
+                `${canonical}:${tierId}`,
+                "pricing_lift_applied",
+              ]);
+            }
+          }
+          if (spec.overrideAt) {
+            const leaf = operatorJunctionIds[spec.overrideAt.skuIndex];
+            const tierId = tierIdList[spec.overrideAt.tierIndex];
+            if (leaf && tierId) {
+              rows.push([
+                "assembly_leaf_override",
+                `${leaf}:${tierId}`,
+                "assembly_leaf_sell_override_updated",
+              ]);
+            }
+          }
+          if (spec.globalAdjPct !== undefined) {
+            rows.push(["quote", quoteId, "global_price_adj_updated"]);
+          }
+          for (const [entityType, entityId, action] of rows) {
+            await tx`
+              insert into audit_log (
+                user_id, actor_user_id, actor_display_name, actor_kind,
+                entity_type, entity_id, action, diff_json
+              ) values (
+                ${pmId}, ${pmId}, 'Validation PM', 'human',
+                ${entityType}, ${entityId}, ${action}, '{}'::jsonb
+              )
             `;
           }
         }
@@ -746,7 +913,7 @@ export async function resetFixtureWorld(runId: string): Promise<void> {
           where deal_id in (${dealId}, ${legacyDealId})
         `;
       }
-      for (const name of ["oneSku", "sixSku", "tenSku", "r3Volume"] as const) {
+      for (const name of OPERATOR_FIXTURE_NAMES) {
         const dealId = fakeHubSpotObjectId(runId, `deal-operator-${name}`);
         await tx`delete from projects where id = ${uuid(runId, `project-operator-${name}`)}`;
         await tx`delete from hubspot_deals_cache where deal_id = ${dealId}`;

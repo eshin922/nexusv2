@@ -25,11 +25,23 @@ test("fixture harness validates worksheet cardinality and selected-only tracking
   // differs between fixtures, so any formula covering all of them would be
   // fitted rather than derived. It is asserted as a bare presence for that
   // reason, and the validator says why in place.
+  // The r12Visual fixture moved three of them again, and instructively: the
+  // rates that held were fitted to a leg mix three of four fixtures happened
+  // to share. Shipments follow the SPEC FLAGS (`1 + air + domestic`), and
+  // destinations and breaks follow the shipments — so those are derivations
+  // now in the honest sense rather than averages that survived one more
+  // fixture by luck.
+  //
+  // Two stay literals on purpose, and the validator says why in place:
+  // membership follows SKU count AND shipment mix, and customs follows each
+  // fixture's destination mix. A formula covering five fixtures would be a
+  // curve through five points — worse than a number that is honestly a number.
   for (const key of [
-    /freight_subcategories: OPERATORS\.length \* 2/,
-    /freight_destinations: OPERATORS\.length \* 4/,
-    /freight_breaks: OPERATOR_TIER_TOTAL \* 4/,
-    /freight_memberships: OPERATORS\.length \* 8/,
+    /const SUBCATS = OPERATORS\.reduce/,
+    /freight_subcategories: SUBCATS/,
+    /freight_destinations: SUBCATS \* 2/,
+    /freight_breaks: OPERATORS\.reduce/,
+    /freight_memberships: \d+/,
     /freight_customs_breaks: \d+/,
     /invalid_tracking_destinations: 0/,
   ]) {
