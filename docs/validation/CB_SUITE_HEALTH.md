@@ -7,6 +7,20 @@ schedule.
 **BASELINE-02 attempted and NOT established** — the suite grew to 23 scenarios
 and two clean runs disagreed on one. See below.
 
+## What BASELINE-01 is, and is not
+
+**Amended 2026-08-10 — the interpretation only. BASELINE-01 itself is unchanged
+and will not be edited.**
+
+> **BASELINE-01 is a stable reference measurement.**
+> **It is not evidence that the harness is fully deterministic.**
+
+Both halves are load-bearing. It remains the reference every run is compared
+against, and every delta measured against it so far has been meaningful. What it
+does not establish is that a scenario's result is a property of the code —
+two of its twenty-two are now known to be races, and its own admission criterion
+sampled twice and happened to agree.
+
 ## Admission criterion
 
 > **A trusted baseline exists only when two consecutive executions from
@@ -25,7 +39,7 @@ Strictly ordered. Each step is meaningless before the one above it holds.
 | 1 | **Deterministic environment** | ✅ Established |
 | 2 | **Deterministic harness** | ✅ Established |
 | 3 | **Trusted baseline** | ✅ **BASELINE-01** — criterion met |
-| 4 | **Scenario classification** | ⏳ Unlocked for the **ten stable** failures. VAL-101 next |
+| 4 | **Scenario classification** | ⏳ **Started.** 3 classified, 7 remaining |
 
 > **No failure below is classified, and none is discussed as anything.**
 > Classification is step 4. Naming a cause before the harness is deterministic
@@ -44,7 +58,7 @@ Strictly ordered. Each step is meaningless before the one above it holds.
 | **Clean environment** | ✅ **Reproducible** | `db:reset` → migrate → seed yields absolute counts **equal to** fixture counts |
 | **Harness determinism** | ⚠️ **One known flake** | `lifecycle-surface-consistency` — agreed across BASELINE-01's two runs, then failed A′ and passed B′ |
 | **Trusted baseline** | ✅ **BASELINE-01** | Two consecutive clean runs, identical outcomes |
-| **Classified failures** | **0** | Step 4 not started |
+| **Classified failures** | **3** | VAL-101 harness · VAL-104 test issue (fixed) · VAL-103 harness |
 | **Unclassified failures** | **10** | Identical set in runs A and B |
 | **Unmeasured (did not run)** | **3** | All in `basic-quote-persistence.spec.ts`, after VAL-101 |
 
@@ -182,6 +196,112 @@ by rebuilding rather than by fixture reset.
 **Non-determinism (runs 2 ↔ 3).** `lifecycle-surface-consistency` **passed in
 run 2 and failed in run 3**, on identical inputs. **Resolved** — see
 BASELINE-01 above. The other ten failed in both.
+
+## Classification — first three, with evidence (2026-08-10)
+
+Step 4 has started. Each classification names **implementation defect ·
+specification drift · harness issue · test issue · missing evidence**, and each
+one below is a classification of a *scenario*, not of the product.
+
+**None of these is an implementation defect.** That is a finding in itself: the
+three failures examined so far are all properties of how the suite is built or
+run.
+
+### VAL-101 — **harness issue** · cross-project fixture contamination
+
+**It passes.** Run `basic-quote-persistence.spec.ts` on a freshly seeded
+database and VAL-101 passes in 33s. It fails only in a full-suite run.
+
+The cause is fixture sharing across projects. Four `lifecycle-serial` specs use
+`manifest.quotes.draft` — the same quote VAL-101 depends on — and one of them,
+`primary-send-lifecycle`, **sends it**. `lifecycle-serial` runs before
+`costing-serial`, so by the time VAL-101 opens the Costs surface the quote it
+needs in `draft` is in `sent`, and the surface is read-only.
+
+Corroborated independently: a database dump taken after a full suite run shows
+`Validation draft` at status **`sent`**. After an isolated run it is still
+`draft`.
+
+**Consequence for the record.** VAL-101 was the head of the file, so its failure
+is what left VAL-103, VAL-104 and PHASE2 Packaging unmeasured in BASELINE-01 —
+**three unmeasured scenarios attributable to a fixture-sharing decision, not to
+the product.** The `frame.join is not a function` runtime error captured in the
+older artifact is a dev-mode React error-*deserializer* crash, and a plain
+navigation to the same URL now renders cleanly; it is a symptom seen while the
+page was in the contaminated state, not the defect.
+
+**Fix shape, not yet applied.** Either give the lifecycle project its own quote
+fixtures, or make `costing-serial` reseed rather than inherit. Both change the
+fixture world and therefore the baseline, so neither is done silently.
+
+### VAL-104 — **test issue** · a hardcoded run-id literal · **FIXED**
+
+Measured for the first time, because VAL-101 no longer blocks it in isolation.
+
+```
+Expected substring: "VAL-SLICE12-1"
+Received string:    "VAL-LOCAL-EXAMPLE-1 · 1/unit"
+```
+
+The fixture derives the component code from the runId (`VAL-{RUNID}-1`). The
+spec asserted the literal `VAL-SLICE12-1`, which is only correct when
+`NEXUS_VALIDATION_RUN_ID` happens to be `slice12`. Under any other runId — and
+`.env.validation.local` sets `local-example` — **the scenario failed on the
+spec's own hardcoding rather than on anything the product did.**
+
+Fixed by deriving the expected value from `runId`, the same source the fixture
+read. Pattern 53 applied to the assertion side: a test that writes down a value
+the fixture computes is a second copy of a rule.
+
+**This matters beyond one assertion.** VAL-104 is **REG-1's browser-level
+evidence**, and REG-1 is the register gate claiming V1 COMPLETE. It has never
+produced a verdict about the product — it has been failing on a string.
+
+### VAL-103 — **harness issue** · non-deterministic, and a CDP race
+
+Passed in one isolated run of the file and failed in the next, from an identical
+clean seed. The signature is not a product assertion:
+
+```
+Error: response.text: Protocol error (Network.getResponseBody):
+       No data found for resource with given identifier
+```
+
+The spec reads a response body that Chrome has already discarded — the shape
+that happens when an RSC fetch is superseded and aborted mid-flight, which is
+exactly what the surface under test does by design. The scenario is racing the
+browser's own resource lifetime.
+
+**Second non-deterministic scenario**, alongside `lifecycle-surface-consistency`.
+Tracked with it, and it does not block classification of the stable failures.
+
+### Where that leaves the ten
+
+| scenario | classification |
+|---|---|
+| VAL-101 | **harness** — cross-project fixture contamination |
+| VAL-104 *(was unmeasured)* | **test issue** — hardcoded runId literal · fixed |
+| VAL-103 *(was unmeasured)* | **harness** — non-deterministic CDP race |
+| VAL-208 bulk pricing lift | not yet classified |
+| costs-reconciliation-ordering | not yet classified |
+| phase-2-component-freight × 3 | not yet classified — one file, one surface, plausibly one cause |
+| product-library-create-component × 2 | not yet classified |
+| pvs-020-refresh-performance × 2 | not yet classified |
+
+**No pass count has been improved.** Two scenarios that were unmeasured are now
+measured, and one of those was fixed because it was asserting the wrong string.
+
+## Known non-deterministic scenarios — tracked independently
+
+Neither blocks classification of the stable failures.
+
+| scenario | signature | first seen |
+|---|---|---|
+| `lifecycle-surface-consistency` | `getByText("Order placed")` not visible within 5s after *Send order to NetSuite* → confirm (`spec:76`) | BASELINE-02 attempt, run A′ |
+| `VAL-103` | `Network.getResponseBody` — no data for resource identifier | isolated re-run, 2026-08-10 |
+
+Both are races between an assertion and an asynchronous operation the spec does
+not wait for. Neither is diagnosed by adding waits until it passes.
 
 ## Failure inventory — recorded, not classified
 

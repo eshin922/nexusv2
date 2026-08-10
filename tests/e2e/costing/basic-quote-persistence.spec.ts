@@ -450,7 +450,13 @@ test("VAL-104 governed Pricing Vendor persists without exposing dormant Pricing 
     "Validation Leaf 1",
   );
   await expect(firstPackagingRow.locator(".name .sub")).toContainText(
-    "VAL-SLICE12-1",
+    // Derived, not written down. The fixture builds this code from the runId
+    // (`VAL-{RUNID}-1`), so the literal `VAL-SLICE12-1` asserted a value that
+    // only exists when NEXUS_VALIDATION_RUN_ID happens to be `slice12` — and
+    // every run under any other runId failed here on the spec's own hardcoding
+    // rather than on anything the product did. Pattern 53 for the assertion
+    // side: read from the same source the fixture read.
+    `VAL-${runId.toUpperCase()}-1`,
   );
   await expect(firstPackagingRow.locator(".name .lab")).not.toHaveText(
     "Validation Packaging Vendor",
