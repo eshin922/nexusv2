@@ -167,9 +167,84 @@ Restore R11 §4 as accepted; do not invent a layout.
 5. **Preserve what already works** — R12 staged deltas on component rows,
    `Quoted sell` and `Margin` (in points); entry-at-node tracing on every cell.
 
-**Data availability is unverified.** Before implementation, confirm the math
-layer exposes per-tier `adjDelta`, `liftDelta` and `overrideDelta` as
-first-class values. CLAUDE.md's *"Two computations for similar-labeled displays
+## Pre-implementation gate — **STOPPED 2026-08-10**
+
+> Verify that adjustment, lift and override deltas already exist as governed
+> values. If any must be recomputed in the presentation layer, stop and classify
+> that as a reconciliation-authority defect rather than implementing around it.
+
+**They do not. Implementation stops here.**
+
+### What the blend publishes
+
+`BlendedTierComponents` carries seven governed values per tier, each read
+through `readNodeValue` from a canonical node key:
+
+```
+pkg · prod · raw · frt · dt · sellBefore · sell   (+ margin, nullable)
+```
+
+Those are **the two endpoints and the components beneath the first one.**
+Between `sellBefore` and `sell` sit three levers, and the blend publishes no
+level between them.
+
+### Why that cannot be worked around in the display layer
+
+The three deltas are differences between successive levels:
+
+```
+adjDelta       = sellAfterAdjustment − sellBefore
+liftDelta      = sellAfterLift       − sellAfterAdjustment
+overrideDelta  = sell                − sellAfterLift
+```
+
+**Neither intermediate level is published at tier scope**, so none of the three
+is recoverable. And they are not recoverable *in principle* from what is
+published: `sell − sellBefore` is the sum of all three, and one gap cannot be
+split into three addends. A display layer could only re-derive them by
+re-running the per-cell arithmetic and re-blending it — a second computation of
+values the graph already owns, which is the defect this stack exists to prevent.
+
+`Unit cost` blended is absent for the same reason: all seven published values
+are sell-side.
+
+### The defect, stated precisely
+
+**The per-cell graph is correct.** `adjustmentNode`, `liftedNode` and the
+override node all exist, and `costing.ts` cites R11 §13.2 by name while building
+them — *"every lever that can change a quoted price owes the cost stack a row…
+So this is a constraint on the graph, not on the UI."* The rule was honoured
+where the nodes are built.
+
+**The blend does not carry it forward.** Blending to tier scope publishes the
+first level and the last, and drops the levers in between. So at the scope the
+stack actually renders, the reconciliation the graph can express becomes
+unstateable — not because the UI is wrong, but because the governed values it
+would read do not exist at that scope.
+
+**This is a reconciliation-authority defect, not a layout task.** It sits
+upstream of P3-017's restoration and gates it: restoring the rows first would
+force exactly the presentation-layer recomputation the rule forbids, and the
+first row rendered from a re-derived number would be the next divergence
+(CLAUDE.md, *"Two computations for similar-labeled displays will diverge"*).
+
+### What has to happen first
+
+The blend must publish `sellAfterAdjustment`, `sellAfterLift` and blended
+`unitCost` as governed values with canonical node keys, exactly as it publishes
+`sellBefore` and `sell` today. Then every stack row reads a node, the deltas are
+differences between published levels, and the reconciliation strip asserts an
+identity over values the graph owns.
+
+**Not started.** It is a math-layer extension — a new input/output slot on the
+blended projection — and per CLAUDE.md's load-bearing-surface rule that is a
+deliberate scope decision, not something to fold into a presentation fix.
+
+---
+
+*Superseded pre-check (retained for the reader): before implementation, confirm
+the math layer exposes per-tier `adjDelta`, `liftDelta` and `overrideDelta` as
+first-class values.* CLAUDE.md's *"Two computations for similar-labeled displays
 will diverge"* applies directly: if any of the three has to be derived in the
 display layer rather than read from a node, that derivation becomes the next
 reconciliation defect. **A row that cannot be sourced from a node is a Pattern
