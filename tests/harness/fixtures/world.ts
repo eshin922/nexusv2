@@ -3,6 +3,27 @@ import postgres from "postgres";
 import { assertRuntimeSafety } from "../../../src/lib/config/runtime-config.ts";
 
 export type FixtureState = "draft" | "sent" | "accepted" | "failed" | "complete";
+
+/**
+ * Fixture isolation rule (2026-08-10, VAL-208).
+ *
+ * A scenario that destructively advances lifecycle state must not share that
+ * mutable entity with scenarios that require its PRIOR lifecycle state.
+ *
+ * `sendable` is a second draft quote, seeded identically to `draft`, owned by
+ * primary-send-lifecycle -- which sends it. `draft` therefore stays draft for
+ * everyone else. The name is the fixture identity; the lifecycle it is seeded
+ * at is a separate axis, which is why the two are different types.
+ *
+ * Scheduling is NOT the fix. `workers: 1` serialises within a Playwright
+ * project and never between them, so costing-serial and lifecycle-serial run
+ * concurrently against one database. Serialising them would hide the sharing
+ * rather than remove it.
+ */
+export type FixtureQuoteName = FixtureState | "sendable";
+const QUOTE_FIXTURE_NAMES: FixtureQuoteName[] = ["draft", "sent", "accepted", "failed", "complete", "sendable"];
+const quoteLifecycle = (name: FixtureQuoteName): FixtureState =>
+  name === "sendable" ? "draft" : name;
 export type OperatorFixtureName =
   | "oneSku"
   | "sixSku"
@@ -23,7 +44,7 @@ type QuoteFixture = {
 export type FixtureManifest = {
   runId: string;
   users: { pm: string; admin: string };
-  quotes: Record<FixtureState, QuoteFixture>;
+  quotes: Record<FixtureQuoteName, QuoteFixture>;
   operatorQuotes: Record<OperatorFixtureName, QuoteFixture>;
 };
 
@@ -55,7 +76,7 @@ export const OPERATOR_FIXTURE_NAMES: readonly OperatorFixtureName[] = [
 ];
 
 export function fixtureRecordIds(runId: string) {
-  const states: FixtureState[] = ["draft", "sent", "accepted", "failed", "complete"];
+  const states = QUOTE_FIXTURE_NAMES;
   const operatorNames = OPERATOR_FIXTURE_NAMES;
   return {
     projectIds: [
@@ -103,7 +124,7 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
   const adminId = uuid("nexus-validation-global", "user-admin");
   const firmSettingsId = uuid("nexus-validation-global", "firm");
   const companyId = `validation_hs_company_${runId}`;
-  const states: FixtureState[] = ["draft", "sent", "accepted", "failed", "complete"];
+  const states = QUOTE_FIXTURE_NAMES;
   const manifest = {
     runId,
     users: { pm: pmId, admin: adminId },
@@ -180,12 +201,13 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
         `;
       }
 
-      for (const state of states) {
-        const dealId = fakeHubSpotObjectId(runId, `deal-${state}`);
-        const projectId = uuid(runId, `project-${state}`);
-        const quoteId = uuid(runId, `quote-${state}`);
-        const tier1 = uuid(runId, `tier-${state}-1`);
-        const tier2 = uuid(runId, `tier-${state}-2`);
+      for (const name of states) {
+        const state = quoteLifecycle(name);
+        const dealId = fakeHubSpotObjectId(runId, `deal-${name}`);
+        const projectId = uuid(runId, `project-${name}`);
+        const quoteId = uuid(runId, `quote-${name}`);
+        const tier1 = uuid(runId, `tier-${name}-1`);
+        const tier2 = uuid(runId, `tier-${name}-2`);
         const sent = state !== "draft";
         const accepted = state === "accepted" || state === "failed" || state === "complete";
         const complete = state === "complete";
@@ -197,7 +219,7 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
             sales_rep_email, pm_id, pm_name, pm_email, sourcing_location,
             business_segment_id, business_segment_label, last_synced_at
           ) values (
-            ${dealId}, ${`Validation ${state} deal`}, 'validation_stage_sent',
+            ${dealId}, ${`Validation ${name} deal`}, 'validation_stage_sent',
             ${companyId}, 'Validation Customer', 'validation_hs_owner_pm',
             'Validation Owner', 'owner@nexus-validation.invalid',
             'validation_hs_owner_pm', 'Validation PM',
@@ -212,7 +234,7 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
             deal_stage, imported_by_user_id, imported_at
           ) values (
             ${projectId}, ${dealId}, 'validation_hs_owner_pm',
-            ${`Validation ${state} deal`}, 'Validation Customer',
+            ${`Validation ${name} deal`}, 'Validation Customer',
             ${state === "draft" ? null : pmId}, ${pmId},
             'turnkey', 'active', 'validation_stage_sent',
             ${pmId}, now()
@@ -229,11 +251,11 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
             include_spec_addendum, netsuite_so_id, netsuite_so_tranid,
             netsuite_so_push_status, created_by_user_id
           ) values (
-            ${quoteId}, ${projectId}, ${`Validation ${state}`}, 1, ${complete ? "complete" : state === "failed" ? "accepted" : state},
+            ${quoteId}, ${projectId}, ${`Validation ${name}`}, 1, ${complete ? "complete" : state === "failed" ? "accepted" : state},
             ${sent ? "2026-01-15T12:00:00Z" : null},
             ${accepted ? "2026-01-15T13:00:00Z" : null},
             ${accepted ? pmId : null}, ${accepted ? "manual_button" : null},
-            ${accepted ? "email" : null}, ${sent ? `VAL-${runId}-${state}` : null},
+            ${accepted ? "email" : null}, ${sent ? `VAL-${runId}-${name}` : null},
             ${sent ? "2026-02-14" : null}, ${sent ? "Validation Net 30" : null},
             ${sent ? "Validation 4 weeks" : null}, ${sent ? "Validation FOB" : null},
             ${sent ? 30 : null}, ${sent ? "Validation Owner" : null},
@@ -263,17 +285,17 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
           `;
         }
 
-        const assemblyId = uuid(runId, `assembly-${state}`);
+        const assemblyId = uuid(runId, `assembly-${name}`);
         await tx`
           insert into assemblies (id, quote_id, sku, name, owner_id, position)
           values (
-            ${assemblyId}, ${quoteId}, ${`VAL-ASY-${runId}-${state}`},
-            ${`Validation ${state} assembly`}, ${pmId}, 0
+            ${assemblyId}, ${quoteId}, ${`VAL-ASY-${runId}-${name}`},
+            ${`Validation ${name} assembly`}, ${pmId}, 0
           )
         `;
         for (const [index, leafId] of leafIds.entries()) {
-          const junctionId = uuid(runId, `junction-${state}-${index}`);
-          const quoteLeafId = uuid(runId, `quote-leaf-${state}-${index}`);
+          const junctionId = uuid(runId, `junction-${name}-${index}`);
+          const quoteLeafId = uuid(runId, `quote-leaf-${name}-${index}`);
           await tx`
             insert into quote_leaves (
               id, quote_id, assembly_id, leaf_id, quantity, position
@@ -297,9 +319,9 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
                 qty_per_sellable_unit, category, markup_pct,
                 markup_pct_source, unit_cost, purchase_qty
               ) values (
-                ${uuid(runId, `input-${state}-${index}-${tierIndex}`)},
+                ${uuid(runId, `input-${name}-${index}-${tierIndex}`)},
                 ${junctionId}, ${tierId},
-                ${uuid(runId, `line-${state}-${index}`)},
+                ${uuid(runId, `line-${name}-${index}`)},
                 ${index === 0 ? "900000000000001" : null},
                 ${index === 0 ? "Validation Packaging Vendor" : null},
                 ${index === 0 ? "2026-01-10" : null},
@@ -318,9 +340,9 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
               days_valid, prepared_by_name, prepared_by_email, pdf_layout,
               detail_level, include_spec_addendum, created_by_user_id
             ) values (
-              ${uuid(runId, `snapshot-${state}`)}, ${quoteId}, 1,
+              ${uuid(runId, `snapshot-${name}`)}, ${quoteId}, 1,
               '2026-01-15T12:00:00Z', '2026-01-15T12:00:00Z',
-              '2026-02-14', ${`VAL-${runId}-${state}`}, 'Validation Net 30',
+              '2026-02-14', ${`VAL-${runId}-${name}`}, 'Validation Net 30',
               'Validation 4 weeks', 'Validation FOB', 30, 'Validation Owner',
               'owner@nexus-validation.invalid', 'tier_table', 'itemized',
               false, ${pmId}
@@ -330,7 +352,7 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
             insert into quote_review_events (
               id, quote_id, version_number, event_type, note, system
             ) values (
-              ${uuid(runId, `review-${state}`)}, ${quoteId}, 1, 'sent',
+              ${uuid(runId, `review-${name}`)}, ${quoteId}, 1, 'sent',
               'Sent by deterministic validation fixture.', true
             )
           `;
@@ -339,8 +361,8 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
               id, user_id, entity_type, entity_id, action, diff_json,
               actor_user_id, actor_display_name, actor_kind
             ) values (
-              ${uuid(runId, `audit-${state}`)}, ${pmId}, 'quote', ${quoteId},
-              'quote_sent', ${tx.json({ fixtureRunId: runId, state })},
+              ${uuid(runId, `audit-${name}`)}, ${pmId}, 'quote', ${quoteId},
+              'quote_sent', ${tx.json({ fixtureRunId: runId, state: name })},
               ${pmId}, 'Validation PM', 'human'
             )
           `;
@@ -353,11 +375,11 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
               error_class, error_detail, payload_snapshot,
               started_by_user_id, completed_at
             ) values (
-              ${uuid(runId, `push-${state}`)}, ${quoteId}, ${tier2},
+              ${uuid(runId, `push-${name}`)}, ${quoteId}, ${tier2},
               ${complete ? "succeeded" : "failed"},
               ${complete ? `validation_ns_so_${runId}` : null},
               ${complete ? `VSO-${runId}` : null}, 1000,
-              ${`validation_idempotency_${runId}_${state}`},
+              ${`validation_idempotency_${runId}_${name}`},
               ${complete ? null : "validation_failure"},
               ${complete ? null : "Injected validation failure"},
               ${tx.json({ fixtureRunId: runId })}, ${pmId},
@@ -366,7 +388,7 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
           `;
         }
 
-        manifest.quotes[state] = {
+        manifest.quotes[name] = {
           projectId,
           quoteId,
           tierIds: [tier1, tier2],
@@ -900,7 +922,7 @@ export async function resetFixtureWorld(runId: string): Promise<void> {
         delete from quote_commercial_settings_pins
         where quote_id in ${tx(quoteIds)}
       `;
-      for (const state of ["draft", "sent", "accepted", "failed", "complete"]) {
+      for (const state of QUOTE_FIXTURE_NAMES) {
         await tx`delete from audit_log where id = ${uuid(runId, `audit-${state}`)}`;
         const dealId = fakeHubSpotObjectId(runId, `deal-${state}`);
         const legacyDealId = `validation_hs_deal_${runId}_${state}`;

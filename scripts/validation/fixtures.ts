@@ -91,7 +91,14 @@ async function validate(manifest?: FixtureManifest) {
     //   5 lifecycle states, one project + one quote + two tiers each
     //   4 operator fixtures, one project + one quote each
     //   tiers and attachments vary per operator fixture, so both are summed
-    const LIFECYCLE_STATES = 5;
+    // Governed quote fixtures, which is NOT the same as the number of
+    // lifecycle states. VAL-208 (2026-08-10) added `sendable` -- a SECOND
+    // draft, seeded identically -- so the destructive send lifecycle stops
+    // sharing `draft` with scenarios that need it to stay editable. Five
+    // states, six fixtures; every count below follows the fixture count
+    // because each fixture seeds its own project, quote, tiers and
+    // attachments regardless of the lifecycle it lands in.
+    const LIFECYCLE_STATES = 6;
     const OPERATORS: Array<{
       skuCount: number;
       tierCount: number;
