@@ -23,6 +23,7 @@ import {
   freightSubcategories,
   leaves,
   quotes,
+  quoteLeafLifts,
   quoteLeaves,
   quoteSnapshotFreightInputs,
   quoteSnapshotFreightWorkbooks,
@@ -491,6 +492,7 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
   >;
   assemblyLeafOverrideRows: Array<typeof assemblyLeafOverrides.$inferSelect>;
   assemblyLeafTargetRows: Array<typeof assemblyLeafTargets.$inferSelect>;
+  quoteLeafLiftRows: Array<typeof quoteLeafLifts.$inferSelect>;
 }> {
   const [
     assemblyRows,
@@ -499,6 +501,7 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
     assemblyProductionInputRows,
     assemblyLeafOverrideJoinRows,
     assemblyLeafTargetJoinRows,
+    quoteLeafLiftRows,
   ] = await Promise.all([
     timed("nm.assemblies", quoteId, db
       .select()
@@ -576,6 +579,16 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
       )
       .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
       .where(eq(assemblies.quoteId, quoteId))),
+    // Phase 3 · Package 1 — applied surgical lifts, scoped through the
+    // CANONICAL attachment. Its five siblings above reach the quote via
+    // `assemblies`, which structurally excludes a direct attachment (OD-017 /
+    // C-2). Lifts key canonically, so this one does not have to.
+    timed("nm.quote_leaf_lifts", quoteId, db
+      .select({ quote_leaf_lifts: quoteLeafLifts })
+      .from(quoteLeafLifts)
+      .innerJoin(quoteLeaves, eq(quoteLeaves.id, quoteLeafLifts.quoteLeafId))
+      .where(eq(quoteLeaves.quoteId, quoteId))
+      .then((rows) => rows.map((r) => r.quote_leaf_lifts))),
   ]);
   // Dedupe library leaves (assembly_leaves join may surface the
   // same library leaf multiple times if reused across assemblies in
@@ -601,6 +614,7 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
     assemblyLeafTargetRows: assemblyLeafTargetJoinRows.map(
       (r) => r.assembly_leaf_targets,
     ),
+    quoteLeafLiftRows,
   };
 }
 
@@ -731,6 +745,11 @@ export async function getQuoteCosting(
         assemblyLeafId: r.assemblyLeafId,
         tierId: r.tierId,
         clientTargetPricePerUnit: r.clientTargetPricePerUnit,
+      })),
+      lifts: newModelData.quoteLeafLiftRows.map((r) => ({
+        quoteLeafId: r.quoteLeafId,
+        tierId: r.tierId,
+        liftPct: r.liftPct,
       })),
       freightLegGroups: freightProjection.freightLegGroups,
       freightLegs: freightProjection.freightLegs,
@@ -1493,6 +1512,11 @@ export async function applyClientTargetSolveTierAdj(
         tierId: r.tierId,
         clientTargetPricePerUnit: r.clientTargetPricePerUnit,
       })),
+      lifts: newModelData.quoteLeafLiftRows.map((r) => ({
+        quoteLeafId: r.quoteLeafId,
+        tierId: r.tierId,
+        liftPct: r.liftPct,
+      })),
       freightLegGroups: freightProjection.freightLegGroups,
       freightLegs: freightProjection.freightLegs,
       freightLegTiers: freightProjection.freightLegTiers,
@@ -1808,6 +1832,11 @@ export async function getCostingBundle(
         tierId: r.tierId,
         clientTargetPricePerUnit: r.clientTargetPricePerUnit,
       })),
+      lifts: newModelData.quoteLeafLiftRows.map((r) => ({
+        quoteLeafId: r.quoteLeafId,
+        tierId: r.tierId,
+        liftPct: r.liftPct,
+      })),
       freightLegGroups: freightProjection.freightLegGroups,
       freightLegs: freightProjection.freightLegs,
       freightLegTiers: freightProjection.freightLegTiers,
@@ -1902,6 +1931,11 @@ export async function getCostingBundle(
       freightShipmentBreaks: input.freightShipmentBreaks ?? [],
       cellOverrides: cellOverrideList,
       cellTargets: cellTargetList,
+      // Straight from the input the server just computed with, for the same
+      // reason the freight worksheet fields are: anything the client
+      // reconstructs differently is a divergence, and the reconstruction IS
+      // where the divergence happened last time.
+      lifts: input.lifts ?? [],
       costing: result,
       persistedWarnings,
     };

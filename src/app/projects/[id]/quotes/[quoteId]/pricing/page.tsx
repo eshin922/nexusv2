@@ -196,7 +196,9 @@ export default async function CostingPage({
             classifier depends on staging, so the reverse nesting would also
             work — and would imply a dependency that does not exist. */}
         <PricingStagingProvider
+          quoteId={quoteId}
           initialGlobalAdj={Number(quote.globalPriceAdjPct)}
+          committable={editable}
         >
         <main className="r2-pricing r2-page">
           <PricingPageHead

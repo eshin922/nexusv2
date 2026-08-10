@@ -87,11 +87,49 @@ function chipKey(change: StagedChange): string {
   return change.kind === "adj" ? "adj" : `${change.kind}:${change.key}`;
 }
 
+/**
+ * Why a control is unavailable, in words, or null when it is available.
+ *
+ * Pattern 47(f): every disabled operator control must say why. A greyed button
+ * with no explanation is the failure that rule exists to stop — an operator
+ * finding Apply dead after filling in a form, with nothing on screen accounting
+ * for it.
+ */
+function unavailableBecause(
+  committable: boolean,
+  pending: boolean,
+  verb: string,
+): string | null {
+  if (!committable) return "This quote is no longer a draft, so pricing cannot be changed.";
+  if (pending) return `${verb}…`;
+  return null;
+}
+
 export function StagingBar({ label }: { label: CellLabeller }) {
-  const { changes, isStaged, appliedCount, unstage, reset, apply, toBaseline } =
-    usePricingStaging();
+  const {
+    changes,
+    isStaged,
+    appliedCount,
+    unstage,
+    reset,
+    apply,
+    toBaseline,
+    applyPending,
+    baselinePending,
+    commitError,
+    committable,
+  } = usePricingStaging();
+
+  // Rendered by both bars. A refusal has to be visible wherever the act that
+  // was refused was offered.
+  const error = commitError ? (
+    <span className="v" role="alert" style={{ color: "var(--bad)" }}>
+      {commitError}
+    </span>
+  ) : null;
 
   if (isStaged) {
+    const applyBlocked = unavailableBecause(committable, applyPending, "Applying");
     return (
       <div className="r12-staging">
         <div className="left">
@@ -99,6 +137,7 @@ export function StagingBar({ label }: { label: CellLabeller }) {
           <span className="v">
             Nothing is written until you apply. Leaving the page discards these.
           </span>
+          {error}
           <div className="chips">
             {changes.map((change) => (
               <span className="r12-chip" key={chipKey(change)}>
@@ -116,11 +155,24 @@ export function StagingBar({ label }: { label: CellLabeller }) {
           </div>
         </div>
         <div className="acts">
+          {/*
+            Reset is local and discards nothing that was written, so it stays
+            available while an Apply is in flight — its own pending state is the
+            only thing entitled to disable it, and it has none.
+          */}
           <button className="btn ghost sm" type="button" onClick={reset}>
             Reset all
           </button>
-          <button className="btn primary" type="button" onClick={apply}>
-            Apply {changes.length} change{changes.length === 1 ? "" : "s"}
+          <button
+            className="btn primary"
+            type="button"
+            onClick={apply}
+            disabled={applyBlocked !== null}
+            title={applyBlocked ?? undefined}
+          >
+            {applyPending
+              ? "Applying…"
+              : `Apply ${changes.length} change${changes.length === 1 ? "" : "s"}`}
           </button>
         </div>
       </div>
@@ -128,16 +180,18 @@ export function StagingBar({ label }: { label: CellLabeller }) {
   }
 
   if (appliedCount > 0) {
+    const baselineBlocked = unavailableBecause(committable, baselinePending, "Removing");
     return (
       <div className="r12-staging applied">
         <div className="left">
           <span className="k">Applied</span>
           <span className="v">
             {appliedCount} pricing adjustment
-            {appliedCount === 1 ? "" : "s"} in effect. Each is an additive layer
-            over a computed base that has not moved — remove them and the quote
-            returns exactly to where it started.
+            {appliedCount === 1 ? "" : "s"} in effect on this quote. Each is an
+            additive layer over a computed base that has not moved — remove them
+            and the quote returns exactly to where it started.
           </span>
+          {error}
         </div>
         <div className="acts">
           {/*
@@ -145,9 +199,29 @@ export function StagingBar({ label }: { label: CellLabeller }) {
             close, the same float — and it can be, because removing a layer is
             not an operation on the base.
           */}
-          <button className="btn ghost sm" type="button" onClick={toBaseline}>
-            Return to computed baseline
+          <button
+            className="btn ghost sm"
+            type="button"
+            onClick={toBaseline}
+            disabled={baselineBlocked !== null}
+            title={baselineBlocked ?? undefined}
+          >
+            {baselinePending ? "Removing…" : "Return to computed baseline"}
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // A refusal must outlive the bar that produced it. Returning to baseline
+  // empties the applied set, so a failure there would otherwise vanish with the
+  // bar and read as success.
+  if (commitError) {
+    return (
+      <div className="r12-staging">
+        <div className="left">
+          <span className="k">Not applied</span>
+          {error}
         </div>
       </div>
     );

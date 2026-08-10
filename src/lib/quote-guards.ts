@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblies,
@@ -373,4 +373,58 @@ export async function quoteForLeg(
   const { quote, group, leg } = rows[0];
   requireDraft(quote);
   return { quote, group, leg };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 · Package 1 — resolve a quote from CANONICAL attachment identity
+// ---------------------------------------------------------------------------
+//
+// Every guard above this one reaches the quote through the legacy junction:
+// assembly_leaf → assembly → quote. A persisted lift keys on `quote_leaves.id`
+// and must not, for the reason OD-017 records — a direct attachment
+// (`quote_leaves.assembly_id IS NULL`) has no junction row, so a junction-based
+// guard would refuse to resolve a quote that plainly owns the leaf.
+//
+// One join, and it is the FK the canonical row already carries. There is no
+// crossing here and deliberately none: `quote_leaves.quote_id` IS the answer.
+//
+// Batch-shaped because Apply commits a SET. Resolving one cell at a time would
+// be N round trips and — worse — would let a set whose cells span two quotes
+// pass every individual check while being incoherent as a whole. Every id must
+// resolve, and every resolution must name the same quote; anything else is
+// refused before a single row is written.
+export async function quoteForQuoteLeaves(
+  quoteLeafIds: readonly string[],
+): Promise<{ quote: Quote; quoteLeafIds: readonly string[] }> {
+  const unique = Array.from(new Set(quoteLeafIds));
+  if (unique.length === 0) {
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      "No commercial attachment was named.",
+    );
+  }
+  const rows = await db
+    .select({ quote: quotes, quoteLeafId: quoteLeaves.id })
+    .from(quoteLeaves)
+    .innerJoin(quotes, eq(quotes.id, quoteLeaves.quoteId))
+    .where(inArray(quoteLeaves.id, unique));
+
+  if (rows.length !== unique.length) {
+    // Named an attachment that does not exist. Reported without naming which,
+    // because a set arriving with an unresolvable id is a client-side contract
+    // break rather than something the operator mistyped.
+    throw new ActionGuardError(
+      ERR.NOT_FOUND,
+      "A commercial attachment this adjustment names does not exist.",
+    );
+  }
+  const quote = rows[0].quote;
+  if (rows.some((r) => r.quote.id !== quote.id)) {
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      "These adjustments do not all belong to one quote.",
+    );
+  }
+  requireDraft(quote);
+  return { quote, quoteLeafIds: unique };
 }

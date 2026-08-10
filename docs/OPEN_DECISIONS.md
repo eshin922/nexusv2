@@ -92,7 +92,31 @@ before it starts, independent of these five answers.
 
 ---
 
-### OD-003 · Phase 3 rollback after first Apply
+### OD-003 · Phase 3 rollback after first Apply — **SETTLED 2026-08-10**
+
+**Outcome: `ignores`.** Measured, not argued, by
+[R1](rehearsals/R1-rollback-after-first-apply.md): the pre-Phase-3 runtime
+(`bcd6469`, run in a worktree) and the Phase 3 runtime were pointed at the same
+database, one carrying a single applied lift.
+
+The old runtime does not error and does not consume the rows. It computes a
+different price from the one displayed before rollback — $15.93 → $15.13 on the
+lifted cell, 25.0% → 21.0%, and $797.61 off that tier's NetSuite amount. The
+other 23 of 24 cells were identical, so the effect is bounded to cells carrying
+a lift row.
+
+**Consequence for the runbook:** a runtime rollback is structurally safe — the
+table is additive, nothing crashes, and re-deploying restores every price
+exactly — but it must be preceded by `DELETE FROM quote_leaf_lifts;`, because
+the failure is otherwise silent: quoted prices drop below what the operator
+approved and nothing says so.
+
+Phase 3 reversibility can now be stated in full: **clean before first Apply;
+after it, reversible with a known, bounded and documented consequence.**
+
+The original framing is preserved below.
+
+---
 
 **Owner:** Nexus engineering · **Blocks:** Phase 3 release, not Phase 3 start
 

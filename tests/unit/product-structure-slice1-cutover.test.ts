@@ -14,6 +14,18 @@ const classifiedIdentityFiles = new Set([
   // covered by phase-2-freight-lifecycle. Transitional compatibility
   // infrastructure retained until F3 Stage 4, not enduring V1 authority.
   "src/app/actions/freight.ts",
+  // CLASSIFIED — canonical, and the first write path that is. `quote_leaf_lifts`
+  // keys on `quote_leaves.id`, so a lift is addressed the same way from the
+  // staging key through `CostingLift` to the stored row, and the persisted row
+  // reconstructs the in-effect lift with nothing to translate.
+  //
+  // It names the LEGACY id too, in exactly one place and for one reason: a
+  // direct price still lives on `assembly_leaf_overrides` (OD-017), so Apply
+  // must cross canonical → junction to write one. That crossing is a single
+  // query scoped through `quote_leaves`, it fails closed on both absent and
+  // duplicate, and it refuses the whole Apply rather than dropping one chip.
+  // Retire the crossing when the cost-input tables re-key on quote_leaf_id.
+  "src/app/actions/pricing-lifts.ts",
   "src/app/actions/leaf-specs.ts", "src/app/actions/leaves.ts",
   "src/app/actions/markup-defaults.ts", "src/app/actions/quotes.ts",
   "src/app/projects/[id]/quotes/[quoteId]/costs/page.tsx",
@@ -51,6 +63,17 @@ const classifiedIdentityFiles = new Set([
   // Resolution happens in the engine, once, and fails closed. This layer only
   // carries the address; it writes nothing and resolves nothing.
   "src/lib/pricing-staging.ts",
+  // CLASSIFIED — canonical, and resolves nothing. The Apply plan decides WHICH
+  // rows change by comparing two maps of composite cell ids. It names the
+  // canonical identity because that is what a lift's address is made of, and it
+  // never touches the legacy one: the single canonical → junction crossing an
+  // Apply needs lives in the action, where the database is.
+  //
+  // The one thing it is careful about is that its address is NOT the staging
+  // key. `:` here, `::` there — a durable entity id and a browser-session
+  // address are not interchangeable, and a shared separator invites one to be
+  // parsed as the other.
+  "src/lib/pricing-apply-plan.ts",
   "src/components/pricing-surface/pricing-staging-context.tsx",
   // CLASSIFIED — carries, does not resolve. The staging bar renders one chip
   // per pending change and hands each change's composite cell key to a

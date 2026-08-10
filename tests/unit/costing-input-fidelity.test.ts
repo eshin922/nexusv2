@@ -153,6 +153,10 @@ function snapshot(): HydrateSnapshot {
     freightShipmentBreaks: [SHIPMENT_BREAK],
     cellOverrides: [],
     cellTargets: [],
+    // No lift on this quote. Explicit rather than absent: the fidelity
+    // property here is that the client reconstruction equals the server input
+    // KEY FOR KEY, and a key nobody states is a key nobody compares.
+    lifts: [],
     costing: computeQuoteCosting(input),
     persistedWarnings: [],
   };
@@ -179,6 +183,7 @@ function storeState(snap: HydrateSnapshot) {
     freightShipmentBreaks: snap.freightShipmentBreaks,
     cellOverrides: snap.cellOverrides,
     cellTargets: snap.cellTargets,
+    lifts: snap.lifts,
   } as Parameters<typeof buildCostingInput>[0];
 }
 

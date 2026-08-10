@@ -428,6 +428,13 @@
       "when": 1786060800000,
       "tag": "0062_audit_actor_enforcement",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1786320000000,
+      "tag": "0063_pricing_lift_persistence",
+      "breakpoints": true
     }
   ]
 }

@@ -76,6 +76,7 @@
 import type {
   CostingCellOverride,
   CostingCellTarget,
+  CostingLift,
   CostingFreightLeg,
   CostingFreightLegGroup,
   CostingFreightLegTier,
@@ -185,6 +186,18 @@ export type AdapterAssemblyLeafTargetRow = {
   clientTargetPricePerUnit: string;
 };
 
+// Minimum columns from `quote_leaf_lifts` (Phase 3 · Package 1).
+//
+// The one sparse cost-side table keyed CANONICALLY rather than on the legacy
+// junction, so this is the only adapter row type that maps to its engine
+// counterpart without a translation step — `CostingLift.quoteLeafId` is the
+// same identity `quote_leaf_lifts.quote_leaf_id` stores.
+export type AdapterQuoteLeafLiftRow = {
+  quoteLeafId: string;
+  tierId: string;
+  liftPct: string;
+};
+
 // Slice 11.5 adapter input — all NEW-model rows + freight (already
 // model-agnostic per scoping inventory §1) + firm settings +
 // markup defaults bundled together.
@@ -213,6 +226,16 @@ export type BuildQuoteCostingInputFromNewModelArgs = {
   assemblyProductionInputs: AdapterAssemblyProductionInputRow[];
   assemblyLeafOverrides: AdapterAssemblyLeafOverrideRow[];
   assemblyLeafTargets: AdapterAssemblyLeafTargetRow[];
+  /**
+   * Applied surgical lifts already in effect on the quote.
+   *
+   * REQUIRED rather than optional, and every caller with no lift concept passes
+   * `[]` explicitly. Optionality is what made the freight-worksheet fields
+   * disappear from a client-side reconstruction without a single type error —
+   * an absent optional field and a deliberately empty one are indistinguishable
+   * to the compiler and produce different prices. Here the compiler asks.
+   */
+  lifts: AdapterQuoteLeafLiftRow[];
   freightLegGroups: CostingFreightLegGroup[];
   freightLegs: CostingFreightLeg[];
   freightLegTiers: CostingFreightLegTier[];
@@ -372,6 +395,18 @@ export function buildQuoteCostingInputFromNewModel(
     }),
   );
 
+  // ---- lifts[] : quote_leaf_lifts direct passthrough ----
+  //
+  // No id translation, uniquely among the sparse tables. The stored row and
+  // `CostingLift` name the same identity, which is why this table was keyed
+  // canonically: the persisted row IS the in-effect engine lift, reconstructible
+  // without consulting the staging layer or anything else the UI holds.
+  const lifts: CostingLift[] = args.lifts.map((l) => ({
+    quoteLeafId: l.quoteLeafId,
+    tierId: l.tierId,
+    liftPct: num(l.liftPct),
+  }));
+
   return {
     quote: args.quote,
     firmSettings: args.firmSettings,
@@ -387,5 +422,6 @@ export function buildQuoteCostingInputFromNewModel(
     freightShipmentBreaks: args.freightShipmentBreaks ?? [],
     cellOverrides,
     cellTargets,
+    lifts,
   };
 }
