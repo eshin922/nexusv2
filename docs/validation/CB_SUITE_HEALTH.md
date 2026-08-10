@@ -208,7 +208,7 @@ release is how fast unknowns become classified and then closed.
 | **Closed** | **1** | VAL-104 — passes end to end |
 | **Classified, not closed** | **2** | VAL-101 harness contamination · VAL-103 harness race |
 | **Boundary established, cause open** | **0** | — |
-| **Unclassified** | **4** | costs-reconciliation-ordering · product-library ×2 · pvs-020 ×2 |
+| **Unclassified** | **3** | product-library ×1 (PVS-018) · VAL-209 · VAL-101 |
 
 **Eleven scenarios were failing or unmeasured when classification began. Five
 remain unclassified.** No pass count was pursued, and one scenario moved to
@@ -574,6 +574,62 @@ product, and nothing yet argues for it either.
 What changed is that the failure is now visible and specific instead of hidden
 behind an unmeasured row. REG-1 is the register gate claiming V1 COMPLETE, and
 its browser evidence has still never passed.
+
+### `costs-reconciliation-ordering` — **PRODUCT DEFECT · stop condition reached**
+
+Reproduces in isolation from a clean seed, deterministically, same cell, same
+value. Not a race, not contamination, not slowness.
+
+**First failing boundary** — `spec:74`, cell 3 after reconciliation settled:
+`Expected "4.44" · Received "20"`.
+
+**The selector sweeps two kinds of field, and that is what exposed this.** The
+scenario's comment says "Packaging cost cells", but
+`.r6-dt.pkg input[inputmode], .r6-dt.pkg input[type='number']` matches, per
+line: one **markup percent** input (`parentCls markup`, `step 0.01`) then two
+**unit cost** cells (`parentCls cell-num`, `step 0.0001`) — 18 inputs over six
+lines on `sixSku`. Indices 0 and 3 are markup on two DIFFERENT lines.
+
+Narrowing the selector to cost cells only would make this pass and would hide
+the defect. It is not done.
+
+**The edit is discarded, not delayed.** Probed at a 25s settle window plus the
+5s assertion timeout — 30s total — and cell 3 still reads `20`. The database
+agrees: after the run, line 1 carries `markup_pct 0.0111` (cell 0, saved) and
+**no line carries `0.0444`**. Cell 3's edit never reached the server at all.
+
+**Mechanism.** `packaging-drilldown.tsx` commits line-meta — markup, category,
+vendor — through `scheduleMetaSave`, which is **change-debounced only**:
+
+```
+if (metaDebounce.current) clearTimeout(metaDebounce.current);
+metaDebounce.current = setTimeout(() => fireMetaSave(overrides), DEBOUNCE_MS);
+```
+
+There is **no `onBlur` commit anywhere in the file**. The edit therefore lives
+only inside a pending `setTimeout` until the debounce elapses. A reconcile
+triggered by an EARLIER row's save re-renders the row and resets `markupPct`
+from `storeMarkupPct` before that timer fires — so a sibling row's successful
+save silently destroys this row's uncommitted edit.
+
+Cell 0 survives because nothing interrupted its debounce. Cell 3 is the last of
+four rapid edits and is interrupted by the reconciles the first three caused.
+
+**Operator-visible symptom:** type a markup, tab away, watch it revert to the
+old value with no error and nothing saved. That is the exact reported behaviour
+this scenario was written to catch — the scenario is doing its job.
+
+**Classification: product defect.** Not harness, not fixture, not expectation
+drift. Pattern 47 already names the correct shape for fields where per-keystroke
+save is wrong — the blur/Enter commit sub-pattern, implemented for freight as
+`LegDateInput`. Packaging line-meta never adopted it.
+
+**Not repaired — this is a stop condition.** The fix is a real implementation
+decision with more than one defensible answer: flush the pending debounce on
+blur; flush on unmount; adopt the Pattern 47 blur/Enter commit for line-meta
+outright; or make reconcile defer to rows holding uncommitted meta edits the way
+`markupDirty` already tracks. These differ in blast radius across markup,
+category and vendor, all three of which share `scheduleMetaSave`.
 
 ### VAL-208 — **harness issue: two concurrent projects share one mutable quote**
 
