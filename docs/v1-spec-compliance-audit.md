@@ -1,6 +1,7 @@
 # V1 · SPEC compliance audit — charter and source inventory
 
-**Status:** SCOPED, NOT RUN.
+**Status:** BASELINE FROZEN. Enumeration not started.
+**Baseline:** `main` @ **`024d2316f5881601a7a408ed8f2e79c9a3d1cf82`**, 2026-08-10.
 **Nature:** release-risk **discovery**. Not an implementation exercise, and no
 finding in it proposes an implementation.
 
@@ -17,6 +18,68 @@ across several turns.
 
 So this is the charter and the source inventory. The matrix is the next
 session's deliverable, and it starts from here.
+
+## Frozen baseline
+
+Every finding in this audit is evaluated against **this reference set and no
+other**. A source that changes after this point does not retroactively alter a
+finding; it invalidates the row, and the row is re-run.
+
+**Repository:** `main` @ `024d2316f5881601a7a408ed8f2e79c9a3d1cf82`
+(2026-08-10, PR #259 merged).
+
+### Specifications in scope
+
+| document | blob | lines | last changed |
+|---|---|---|---|
+| `docs/SPEC.md` | `875cd0e` | 647 | 2026-07-29 |
+| `PHASE-1-QUOTE-COMMERCIAL-INTEGRITY.md` | `e67398c` | 726 | 2026-08-06 |
+| `PHASE-2-COSTS-WORKSPACE-MULTI-SKU.md` | `20fb29c` | 688 | 2026-08-06 |
+| `PHASE-3-PRICING-WORKSPACE.md` | `e47eae8` | 658 | 2026-08-06 |
+| `PHASE-4-MARGIN-APPROVAL.md` | `65c980f` | 698 | 2026-08-06 |
+| `CROSS-PHASE-AUTHORITY-DEPENDENCY-MAP.md` | `5fa5ac4` | 360 | 2026-08-10 |
+| `docs/AUTHORITY_MAP.md` | `7088f57` | 188 | 2026-08-05 |
+| `docs/OPEN_DECISIONS.md` | `ef2f1b8` | 1050 | 2026-08-09 |
+
+### Production Readiness Register
+
+| document | blob | lines | last changed |
+|---|---|---|---|
+| `PRODUCTION_READINESS_REGISTER.md` | `cec6ac4` | 81 | 2026-07-31 |
+
+### Business Validation contracts
+
+| document | blob | lines | last changed |
+|---|---|---|---|
+| `BV-001-pricing-vendor-identity.md` | `155be97` | 139 | 2026-07-31 |
+| `BV-003-master-data-ownership.md` | `77bb483` | 63 | 2026-07-30 |
+| `BV-004-business-decision-matrix.md` | `3c7ec13` | 63 | 2026-07-30 |
+| `BV-005-below-floor-margin-approval.md` | `2a349f1` | 159 | 2026-07-30 |
+| `BV-006-product-structure-contract.md` | `2987740` | 380 | 2026-07-31 |
+| `BV-007-product-setup-workflow.md` | `446ca38` | 499 | 2026-07-31 |
+| `BV-008-commercial-product-transition.md` | `88dc6d4` | 382 | 2026-07-31 |
+| `BV-009-freight-treatment.md` | `1a66b07` | 209 | 2026-08-05 |
+| `BV-010-blended-margin-definition.md` | `c11735a` | 123 | 2026-08-09 |
+
+**Nine BV documents. BV-002 does not exist** -- the sequence runs 001, 003-010.
+
+### Two observations from freezing, carried as candidate rows
+
+Neither is a finding. Freezing is not auditing. Both are cheap to settle and
+are recorded now so they are not rediscovered as surprises mid-matrix.
+
+**B-1 . `docs/spec.md` and `docs/SPEC.md` are ONE file.** Git tracks exactly one
+path, `docs/SPEC.md`; the lowercase form is the same file surfaced by a
+case-insensitive filesystem. On a case-sensitive checkout -- CI, or a Linux
+contributor -- a second file could be created at the other path and neither
+would shadow the other. Whether that matters is a matrix question.
+
+**B-2 . OD-001 is titled "BV-009 does not exist", and BV-009 exists**
+(`1a66b07`, 209 lines, freight treatment, last changed 2026-08-05). Either the
+OD is stale and should close, or it cites something specific that resolves to
+nothing while the document itself is present. That is the specification-drift
+versus implementation-defect distinction in its purest form, on the very first
+row -- and it is drift if the OD is simply out of date.
 
 ## Sources — the registered specifications
 
