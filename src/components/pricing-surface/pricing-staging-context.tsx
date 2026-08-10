@@ -57,6 +57,9 @@ import {
   ADJ_EPSILON,
   cellKey,
   diffSets,
+  engineCellKey,
+  parseCellKey,
+  resolveEngineCell,
   type CellRef,
   type PricingSet,
   type StagedChange,
@@ -222,23 +225,65 @@ export function PricingStagingProvider({
   const previewResult = useMemo<QuoteCostingResult | null>(() => {
     if (changes.length === 0) return null;
     const base = buildCostingInput(storeApi.getState());
+    // Lifts stay on CANONICAL identity — `CostingLift.quoteLeafId` is keyed
+    // that way by design, so the staging key needs no translation. Parsed
+    // through the named helper so no site hand-splits and renames a half.
     const lifts: CostingLift[] = Object.entries(working.lifts).map(([key, pct]) => {
-      const [quoteLeafId, tierId] = key.split("::");
+      const { quoteLeafId, tierId } = parseCellKey(key);
       return { quoteLeafId, tierId, liftPct: pct };
     });
+
+    /**
+     * Overrides cross the identity boundary, and must.
+     * `CostingCellOverride.quoteSkuId` is the ENGINE's SKU id, not the
+     * canonical quote-leaf id the staging key carries. Emitting the canonical
+     * one produced a row the engine matched against nothing and dropped in
+     * silence — the chip appeared, the price staged, and the preview did not
+     * move by a cent.
+     *
+     * Unresolvable staged overrides are DROPPED rather than emitted, because an
+     * override row the engine cannot consume is indistinguishable from no
+     * override while looking like one in the staging bar. Dropping is also
+     * observable: `unresolvedOverrides` is surfaced so a caller can say so.
+     */
+    const stagedOverrides: QuoteCostingInput["cellOverrides"] = [];
+    const replacedEngineKeys = new Set<string>();
+    let unresolvedOverrides = 0;
+    for (const [key, value] of Object.entries(working.overrides)) {
+      const engine = resolveEngineCell(parseCellKey(key), base.skus);
+      if (engine === null) {
+        unresolvedOverrides++;
+        continue;
+      }
+      replacedEngineKeys.add(engineCellKey(engine));
+      stagedOverrides.push({ ...engine, sellPriceOverride: value });
+    }
+    if (unresolvedOverrides > 0) {
+      // Loud rather than silent. Reaching this means the staging key named a
+      // canonical attachment the engine's SKU set does not carry, which is a
+      // contract break upstream of here.
+      console.error(
+        `[staging] ${unresolvedOverrides} staged override(s) did not resolve to an engine cell and were not applied to the preview.`,
+      );
+    }
     const preview: QuoteCostingInput = {
       ...base,
       quote: { ...base.quote, globalPriceAdjPct: working.globalAdj },
       // A new array with new objects for the touched cells only; the committed
       // input's own objects are never written to. A permanent test asserts it.
+      //
+      // The filter compares ENGINE key to ENGINE key. It used to build a
+      // staging-shaped key out of a committed row's engine id and look it up
+      // in the canonical-keyed working set — which never matched, so a
+      // committed override was never removed. Fixing only the emission would
+      // have left both rows present and made replacement depend on the engine's
+      // map insertion order: correct by accident, which is the thing this
+      // surface keeps being rebuilt to stop relying on.
       cellOverrides: [
         ...base.cellOverrides.filter(
-          (o) => working.overrides[`${o.quoteSkuId}::${o.tierId}`] === undefined,
+          (o) => !replacedEngineKeys.has(engineCellKey(o)),
         ),
-        ...Object.entries(working.overrides).map(([key, value]) => {
-          const [quoteSkuId, tierId] = key.split("::");
-          return { quoteSkuId, tierId, sellPriceOverride: value };
-        }),
+        ...stagedOverrides,
       ],
       lifts,
     };

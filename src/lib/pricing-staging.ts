@@ -24,6 +24,60 @@ export function cellKey(ref: CellRef): string {
 }
 
 /**
+ * The inverse. The ONLY place a staging key is taken apart.
+ *
+ * Hand-splitting was how the halves got misnamed: one site wrote
+ * `const [quoteSkuId, tierId] = key.split("::")` and thereby asserted, in a
+ * variable name, that the canonical half was an engine SKU id. It is not, and
+ * nothing objected — both are strings, both are UUIDs, and the engine simply
+ * ignored a row it could not match. Staged direct prices did nothing at all.
+ *
+ * A named parse returns a `CellRef`, so the halves keep the names they were
+ * given and a caller that needs the engine's identity has to go and resolve it.
+ */
+export function parseCellKey(key: string): CellRef {
+  const [quoteLeafId, tierId] = key.split("::");
+  return { quoteLeafId, tierId };
+}
+
+/** A cell as the ENGINE addresses it. Deliberately not `CellRef`. */
+export type EngineCellRef = { quoteSkuId: string; tierId: string };
+
+/** The engine's own key for an override row, so comparisons happen in one space. */
+export function engineCellKey(ref: EngineCellRef): string {
+  return `${ref.quoteSkuId}::${ref.tierId}`;
+}
+
+/**
+ * Canonical quote-leaf identity → the engine's SKU identity. The governed
+ * boundary between the two, and the only sanctioned crossing.
+ *
+ * `CostingLift` is keyed on canonical identity by design, so lifts never come
+ * through here. `CostingCellOverride.quoteSkuId` is the engine's, so overrides
+ * always must.
+ *
+ * FAILS CLOSED on both missing and ambiguous — the same posture `resolveNode`
+ * takes, and for the same reason. A second match is not a near-miss to resolve
+ * by taking the first: "the first" is an ordering accident, and the two are
+ * different commercial lines. Returning null means the caller emits nothing,
+ * which loses a staged change visibly rather than moving the wrong cell's
+ * price.
+ */
+export function resolveEngineCell(
+  ref: CellRef,
+  skus: ReadonlyArray<{ id: string; canonicalQuoteLeafId?: string | null }>,
+): EngineCellRef | null {
+  let found: string | null = null;
+  for (const sku of skus) {
+    if (!sku.canonicalQuoteLeafId) continue;
+    if (sku.canonicalQuoteLeafId !== ref.quoteLeafId) continue;
+    if (found !== null) return null; // ambiguous
+    found = sku.id;
+  }
+  return found === null ? null : { quoteSkuId: found, tierId: ref.tierId };
+}
+
+/**
  * Everything an operator can have pending.
  *
  * One object, compared wholesale. The alternative — a flag per lever — is what

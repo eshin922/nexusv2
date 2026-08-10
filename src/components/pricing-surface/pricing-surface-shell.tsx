@@ -57,6 +57,7 @@ import { PricingTrace } from "./pricing-trace";
 import { StagingBar } from "./staging-bar";
 import { StagedDelta, StagedMarginDelta } from "./staged-delta";
 import { usePricingStaging } from "./pricing-staging-context";
+import { parseCellKey } from "@/lib/pricing-staging";
 import { useCostingStore } from "@/components/costing-store-provider";
 import { selectGraph, selectSkuRollups } from "@/lib/costing-store";
 import { readNodeValue, quoteScopeKey } from "@/lib/costing-nodes";
@@ -362,7 +363,7 @@ export function PricingSurfaceShell({
     for (const t of tiers) labelByTierUuid.set(t.id, t.label);
 
     return (cellKey: string): string => {
-      const [quoteLeafId, tierId] = cellKey.split("::");
+      const { quoteLeafId, tierId } = parseCellKey(cellKey);
       const name = nameByQuoteLeafId.get(quoteLeafId);
       const tierLabel = labelByTierUuid.get(tierId);
       // FAIL CLOSED. Either half unresolved and the operator sees the raw key.
