@@ -48,6 +48,7 @@
 
 import { Fragment, useCallback, useState } from "react";
 import { usePricingStaging } from "./pricing-staging-context";
+import { useQuoteAdjustmentOrigin } from "./pricing-provenance-context";
 import type {
   NoMarginReason,
   QuoteState,
@@ -253,6 +254,11 @@ export function DetailGlobalAdjust({
   // boundary between the two vocabularies — the same discipline the action
   // layer uses for every other percentage column.
   const { stageGlobalAdj, working, committable } = usePricingStaging();
+  // The quote-wide adjustment's own authority. `quote/global-adjustment` is not
+  // a graph node — the graph carries the adjustment per CELL — so this asks the
+  // overlay directly for the quote-scoped lever, which the classifier maps to
+  // `global_price_adj_updated` on the quote.
+  const adjustmentOrigin = useQuoteAdjustmentOrigin();
   const draftDecimal = Number(draft) / 100;
   const stageable =
     committable &&
@@ -269,6 +275,31 @@ export function DetailGlobalAdjust({
         <span className="meta">Tuning lever · applies across all tiers</span>
       </div>
       <div className="psr-global-adjust">
+        {/*
+          R12 — "currently 2.5% · set by Maya Okafor, 2026-06-30".
+
+          Read through the SAME A-2 overlay the trace and CellAction use, by
+          node key, with no second lookup. The overlay is already mounted and
+          already fetched for this page, so this costs a map read — it does NOT
+          move the ~350ms attribution query onto the render path.
+
+          Renders nothing when nothing is recorded. An adjustment nobody can be
+          named for says "currently X%" and stops, rather than inventing an
+          author to complete the sentence.
+        */}
+        {adjustmentOrigin && (
+          <div className="lab" style={{ gridColumn: "1 / -1" }}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11 }}>
+              currently {initial}%
+            </span>
+            <span className="hint">
+              set by {adjustmentOrigin.actor}
+              {adjustmentOrigin.when
+                ? ` · ${new Date(adjustmentOrigin.when).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}`
+                : ""}
+            </span>
+          </div>
+        )}
         <div className="lab">
           Lift all tiers proportionally to recover margin without distorting
           the volume curve.

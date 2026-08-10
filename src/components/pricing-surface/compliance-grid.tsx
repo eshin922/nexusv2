@@ -33,6 +33,7 @@
 import { Fragment, useState } from "react";
 import { usePricingClassifier } from "./pricing-classifier-context";
 import { CellAction } from "./cell-action";
+import { usePricingStaging } from "./pricing-staging-context";
 import type { Cell } from "@/lib/pricing-classifier";
 import type { CellRef } from "@/lib/pricing-staging";
 
@@ -166,6 +167,7 @@ export function ComplianceGrid({
   resolveCell,
 }: ComplianceGridProps) {
   const { state } = usePricingClassifier();
+  const { stageLift } = usePricingStaging();
   const [selected, setSelected] = useState<string | null>(null);
 
   // One lookup over the one evaluation. Not a second pass, not a re-partition
@@ -207,6 +209,14 @@ export function ComplianceGrid({
           <div className="r11-bsku">
             <span>
               <span className="n">{sku.name}</span>
+              {/*
+                The canonical sub-label is `{code} · {pack}`. `pack` does not
+                exist on the model — Slice 11 deferral — so only the code
+                renders, and it renders NULL-SAFELY: the moment pack lands the
+                sub-label completes with no rework here, and until then nothing
+                shows a placeholder for a field nobody has filled.
+              */}
+              {sku.code != null && <span className="m">{sku.code}</span>}
               {/*
                 Client target is stated ONCE per SKU row, not per cell — it
                 does not vary by tier, so a column would assert something
@@ -321,6 +331,102 @@ export function ComplianceGrid({
           })()}
         </Fragment>
       ))}
+
+      {/*
+        THE TIER-LEVEL READ — the one fact that is genuinely per-tier, kept as a
+        rollup row rather than a panel standing in for the cells.
+
+        This is where the removed per-tier compliance table's content belongs.
+        Same numbers, one surface: a table below the grid restated what the grid
+        already showed, and two statements of one fact are two things that can
+        disagree.
+
+        `blended_margin_pct` is the GOVERNED blend — revenue-weighted, from the
+        engine — not a mean of the cells above it. BV-010 settled that those are
+        different quantities, and this row is the one that is the blend.
+      */}
+      <div className="r11-brow rule">
+        <div className="r11-slab">
+          <span className="n">Blended margin</span>
+          <span className="s">the tier-level read</span>
+        </div>
+        {state.tiers.map((t) => {
+          const below = state.cells.filter(
+            (c) => c.tier_id === t.id && c.outstanding,
+          ).length;
+          return (
+            <div className="r11-scell flat" key={t.id}>
+              <span
+                className={"mg " + STATUS_CLASS[t.blended_status]}
+                style={{ fontSize: 15, fontWeight: 600 }}
+              >
+                {t.blended_margin_pct === null
+                  ? "—"
+                  : `${fmtPct(t.blended_margin_pct)}`}
+              </span>
+              <span className="cost">
+                {below
+                  ? `${below} cell${below === 1 ? "" : "s"} below floor`
+                  : "all cells clear the floor"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/*
+        CORRECT THE TIER — present only while something is outstanding.
+
+        It introduces no arithmetic. Each cell's lift is `lift_offer_pct`, which
+        the SOLVER decided; this stages the offers that already exist, one per
+        breaching cell, through the same `stageLift` every other path uses. The
+        button is a bulk of existing acts, not a new one.
+
+        Nothing is written. These land in the working set with everything else
+        and wait for the one Apply that governs the page.
+      */}
+      {state.cells.some((c) => c.outstanding && c.lift_offer_pct !== null) && (
+        <div className="r11-brow">
+          <div className="r11-slab">
+            <span className="n" style={{ fontSize: 12, color: "var(--ink-3)" }}>
+              Correct the tier
+            </span>
+          </div>
+          {state.tiers.map((t) => {
+            // Only cells the solver actually offered a lift for. An outstanding
+            // cell with no offer is one the solver declined — bulk-staging a
+            // number it refused to name would be inventing the correction.
+            const need = state.cells.filter(
+              (c) =>
+                c.tier_id === t.id &&
+                c.outstanding &&
+                c.lift_offer_pct !== null &&
+                resolveCell?.(c.sku_id, c.tier_id) != null,
+            );
+            return (
+              <div className="r11-scell flat" key={t.id}>
+                {need.length > 0 ? (
+                  <button
+                    type="button"
+                    className="btn sm"
+                    style={{ width: "100%" }}
+                    onClick={() => {
+                      for (const c of need) {
+                        const ref = resolveCell?.(c.sku_id, c.tier_id);
+                        if (ref) stageLift(ref, c.lift_offer_pct as number);
+                      }
+                    }}
+                  >
+                    Lift all {need.length} to floor
+                  </button>
+                ) : (
+                  <span className="cost">—</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

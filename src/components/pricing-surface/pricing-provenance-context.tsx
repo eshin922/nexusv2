@@ -34,6 +34,7 @@ import {
 } from "react";
 import type { CostingNode } from "@/lib/costing-nodes";
 import {
+  PROVENANCE_INPUTS,
   emptyIdentityIndex,
   hydrateIdentityIndex,
   indexRecords,
@@ -134,6 +135,29 @@ export function useOriginFor(nodeKey: string | null) {
     // is noise where the trace's own thin treatment is a considered absence.
     return o.grade === "sourced" ? o : null;
   }, [loaded, nodeKey]);
+}
+
+/**
+ * Who last moved the QUOTE-WIDE adjustment, and when.
+ *
+ * The graph carries the adjustment per cell, so there is no single node key for
+ * the lever itself. Rather than synthesise one — a key nothing emits is a key
+ * that resolves by accident or not at all — this asks the overlay for the
+ * quote-scoped record directly, through the same spec table and the same
+ * records every other read uses.
+ *
+ * Null while the overlay loads, and null when nothing recorded an author.
+ */
+export function useQuoteAdjustmentOrigin() {
+  const loaded = useContext(Ctx);
+  return useMemo(() => {
+    if (!loaded) return null;
+    const spec = PROVENANCE_INPUTS.global_price_adj;
+    const rec = indexRecords(loaded.raw.records).get(
+      `${spec.entityType}::${loaded.index.quoteId}`,
+    );
+    return rec?.actor ? { actor: rec.actor, when: rec.when } : null;
+  }, [loaded]);
 }
 
 /** For a surface that wants to say the overlay has not arrived yet. */
