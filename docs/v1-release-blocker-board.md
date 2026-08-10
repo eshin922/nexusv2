@@ -290,19 +290,24 @@ new row against the interaction contract, not a reopening of any completed one.
 | Track | Blockers | Status |
 |---|---|---|
 | **A · Below-floor approval** | REG-2 · OD-002 | **Awaiting business disposition.** Engineering not started, by instruction |
-| **C · R12 staging contract** | P3-016 | **Repaired 2026-08-10, pending merge.** Observation taken, both callers classified, surgical+global repaired together, 714/714 unit + prebuild green, S-7 unmoved by the repair |
+| **C · R12 staging contract** | P3-016 | **CLOSED 2026-08-10** on the recorded browser evidence. Observation taken, both callers classified, surgical+global repaired together, 714/714 unit + prebuild green, S-7 unmoved by the repair |
 | **B · Accounting handoff** | REG-4 · OD-004 · OD-005 · P1-014 *(+REG-3)* | **Open — the primary release engineering blocker once the harness baseline exists.** OD-004 first; the walk requires a NetSuite administrator |
 
-**Seven distinct blockers. One repaired and pending merge; none yet closed.**
+**Seven distinct blockers. One closed — P3-016, Track C.**
 
-**Separately — S-7 fails, and not because of any branch work.**
-`gate1b:verify-preserved` returns the same digest on `main`, on this branch, and
-with the P3-016 repair applied. One quote carries the whole delta, and its name
-says what it is: `ZZ-VALIDATION-tier-propagation`, a hand-made validation
-scenario living in production because dev and prod share one Supabase project,
-sitting inside the 24-quote basket. Recorded as **AM-005** — a release
-recommendation, and a direct instance of AM-004's finding that the audit
-baseline is narrower than the governing set.
+**Separately — S-7 fails, and the investigation is done.** Not a Pricing
+regression. The delta originates **solely** from one quote: covered set
+unchanged at 24, exactly one digest differs, and the global digest excluding
+that quote is byte-identical on both sides. The quote is
+`ZZ-VALIDATION-tier-propagation`, and its audit trail names the cause — two
+`pricing_suggestion_surgical` writes 727ms apart, `null` → `0.1884` → `0.4123`.
+**That is P3-016 in production**: a silent write invited a second click, and the
+composition rule compounded onto its own output.
+
+So S-7 measures software and mutable production data together and cannot
+distinguish them. Recorded as **AM-005**, awaiting disposition — a release
+recommendation, and a direct instance of AM-004. See
+[AM-005](validation/AM-005-s7-scope.md).
 
 | Workstream | Status |
 |---|---|

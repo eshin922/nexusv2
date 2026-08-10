@@ -1,8 +1,22 @@
 # P3-016 · Recommendation CTAs bypass the R12 staging contract
 
-**Status: REPAIRED 2026-08-10, pending merge.** Runtime observation taken ·
-both callers classified · repair shipped · six of eight browser proofs
-observed, two pinned by test with the gap recorded.
+**Status: CLOSED 2026-08-10** on the recorded browser evidence. Runtime
+observation taken · both callers classified · repair shipped · six of eight
+browser proofs observed, two pinned by test with the gap recorded.
+
+**Production evidence arrived after the repair, via [AM-005](AM-005-s7-scope.md).**
+The defect fired on a live quote on 2026-08-10: two `pricing_suggestion_surgical`
+writes **727ms apart**, `null` → `0.1884` → `0.4123`, which is `1.1884² − 1`.
+An operator pressed the CTA twice because the first press looked like it had
+done nothing — the exact reading this record predicted, confirmed by the audit
+trail rather than by inference.
+
+That evidence also exposed a defect in the repair itself: it first composed the
+recommendation onto the **working** set, so a repeat press compounded the same
+way — visibly and discardably, but still wrongly. Corrected to compose from
+**committed**, the basis the classifier computes the recommendation on, which
+makes a repeat press idempotent. Verified in the browser (two presses, one chip,
+unchanged at `15.4%`) and pinned by test.
 
 **Discovered:** 2026-08-10, after the compliance audit closed. New row, not a
 reopened one — IDs are append-only, so this takes the next free number in the

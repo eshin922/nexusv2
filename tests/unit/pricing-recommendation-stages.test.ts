@@ -71,6 +71,29 @@ test("bulk lift keeps its own committed-write contract", () => {
   assert.match(bulk, /applyGlobalAdj\(fd\)/);
 });
 
+test("a repeat press composes from COMMITTED, so it cannot compound", () => {
+  // The production evidence for this is AM-005. Two presses of the surgical CTA
+  // 727ms apart wrote null → 0.1884 → 0.4123 on a live quote: 1.1884² − 1,
+  // the composition rule applied to its own output. The operator pressed twice
+  // because the first press looked like it had done nothing.
+  //
+  // The classifier computes the recommendation from COMMITTED state — after
+  // staging, the compliance grid, the blocked count and the suggestion all
+  // still describe the quote as persisted. So `lift_pct` is measured from
+  // committed, and composing it onto a working value that already contains it
+  // applies it twice. Reading committed makes a repeat press idempotent.
+  assert.match(
+    onApply,
+    /committed\.tierAdj\[tierUuid\] \?\? committed\.globalAdj/,
+    "the recommendation must compose from the basis it was computed on",
+  );
+  assert.doesNotMatch(
+    onApply,
+    /working\.tierAdj/,
+    "composing from the working set re-applies a lift the working set already carries",
+  );
+});
+
 test("no arithmetic is invented for a recommendation", () => {
   // A recommendation is a solver output. Composing it onto what a tier already
   // carries uses the surface's one composition rule, which the bulk-lift

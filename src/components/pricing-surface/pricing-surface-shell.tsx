@@ -133,7 +133,7 @@ export function PricingSurfaceShell({
   // Read here rather than further down because the recommendation handlers
   // below stage into this set. They are the surface's operator pricing levers,
   // and every one of them now goes through the same door.
-  const { stageTierAdj, working, previewResult } = usePricingStaging();
+  const { stageTierAdj, committed, previewResult } = usePricingStaging();
   const [applyError, setApplyError] = useState<string | null>(null);
   const [globalPreview, setGlobalPreview] =
     useState<GlobalPricingPreview | null>(null);
@@ -161,9 +161,28 @@ export function PricingSurfaceShell({
     setApplyError(null);
     const sugg = state.quote.suggestions ?? {};
 
-    /** What the tier carries RIGHT NOW in the working set, own value or the quote-wide fallback. */
+    /**
+     * What the tier carries on the COMMITTED set — its own value, or the
+     * quote-wide fallback.
+     *
+     * Committed, not working, and the distinction is load-bearing. The
+     * classifier computes this recommendation from committed state: after
+     * staging, the compliance grid, the blocked count and the suggestion all
+     * still describe the quote as it is persisted. So `lift_pct` is a lift
+     * measured from committed — and composing it onto a working value that
+     * already contains it applies it twice.
+     *
+     * That is not hypothetical. It is what put `0.4123` on a production quote:
+     * two presses 727ms apart, each composing onto the result of the last,
+     * `1.1884² − 1`. Reading committed makes a repeat press IDEMPOTENT — the
+     * second stages the same value as the first, so the chip does not move and
+     * nothing compounds.
+     *
+     * Pattern 50: two subsystems answering the same question from different
+     * bases. The fix is to use the basis the recommendation was computed from.
+     */
     const effectiveAdj = (tierUuid: string) =>
-      working.tierAdj[tierUuid] ?? working.globalAdj;
+      committed.tierAdj[tierUuid] ?? committed.globalAdj;
 
     if (kind === "apply_surgical") {
       // FAIL LOUDLY. A rendered surgical CTA with no surgical suggestion used
