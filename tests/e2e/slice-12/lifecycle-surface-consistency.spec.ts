@@ -79,12 +79,20 @@ test("PB-001/PB-005 completion updates canonical status and activity surfaces", 
   // Client-side navigation is intentional: PB-005 protects against requiring
   // a hard browser reload to observe lifecycle status and activity.
   await page.locator('a[href="/"]').first().click();
+  // Wait for the client-side transition to COMMIT before asserting on the
+  // destination. Without this the assertion races the RSC render and its
+  // 5s expect timeout decides the outcome -- the same inputs then pass or
+  // fail run to run. PB-005 is about not needing a HARD RELOAD; it is not a
+  // claim about how fast the soft navigation streams, so waiting for the URL
+  // asserts the same behaviour deterministically.
+  await page.waitForURL((url) => url.pathname === "/");
   const dealRow = page
     .getByRole("row")
     .filter({ hasText: "Validation accepted deal" });
   await expect(dealRow).toContainText("COMPLETE · LOCKED");
   await expect(dealRow).not.toContainText("DRAFT");
   await dealRow.getByRole("link").click();
+  await page.waitForURL(/\/projects\/[^/]+$/);
   await expect(page.getByText("COMPLETE", { exact: true })).toBeVisible();
   await expect(page.getByText(/quote completed/i).first()).toBeVisible();
 

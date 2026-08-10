@@ -3,13 +3,32 @@
 **The operational view while Track B is completed.** Updated per run, not on a
 schedule.
 
-**Last run:** 2026-08-10 · **Baseline:** **NOT ESTABLISHED**
+**Last run:** 2026-08-10 · **Baseline:** **BASELINE-01 — ESTABLISHED**
 
-> **No failure below is classified.** Classification into regression /
-> implementation defect / specification issue is deferred until a trusted
-> baseline exists. Naming a cause before the harness is trustworthy is how a
-> fabricated failure category gets into a report — this project has paid for
-> that once already.
+## Admission criterion
+
+> **A trusted baseline exists only when two consecutive executions from
+> identical clean environments produce identical outcomes.**
+
+One criterion, stated once, and nothing else counts as a baseline. Not "mostly
+agrees," not "agrees on the failures that matter." **Identical outcomes** —
+same passes, same failures, same unmeasured set.
+
+## Sequence
+
+Strictly ordered. Each step is meaningless before the one above it holds.
+
+| | step | status |
+|---|---|---|
+| 1 | **Deterministic environment** | ✅ Established |
+| 2 | **Deterministic harness** | ✅ Established |
+| 3 | **Trusted baseline** | ✅ **BASELINE-01** — criterion met |
+| 4 | **Scenario classification** | ⏳ **Now unlocked.** Not started |
+
+> **No failure below is classified, and none is discussed as anything.**
+> Classification is step 4. Naming a cause before the harness is deterministic
+> is how a fabricated failure category gets into a report — this project has
+> paid for that once already.
 
 ---
 
@@ -21,14 +40,54 @@ schedule.
 | **Seed** | ✅ **Deterministic** | Two reset→seed cycles, byte-identical counts |
 | **Reset** | ⚠️ **Namespace-scoped, not absolute** | Clears its own `runId` world only; foreign-runId rows survive |
 | **Clean environment** | ✅ **Reproducible** | `db:reset` → migrate → seed yields absolute counts **equal to** fixture counts |
-| **Green baseline** | ❌ **Not established** | Two identical clean runs **disagree** |
-| **Classified failures** | **0** — by instruction | — |
-| **Unclassified failures** | **10 stable · 1 non-deterministic** | Both clean runs |
-| **Blocked / did not run** | **3** | Serial-project abort after failures |
+| **Harness determinism** | ✅ **Established** | Runs A and B agree exactly |
+| **Trusted baseline** | ✅ **BASELINE-01** | Two consecutive clean runs, identical outcomes |
+| **Classified failures** | **0** | Step 4 not started |
+| **Unclassified failures** | **10** | Identical set in runs A and B |
+| **Unmeasured (did not run)** | **3** | All in `basic-quote-persistence.spec.ts`, after VAL-101 |
 
 ---
 
-## The blocking finding: two identical clean runs disagree
+## BASELINE-01 — the criterion is met
+
+| run | environment | pass | fail | unmeasured | agrees? |
+|---|---|---|---|---|---|
+| **A** | clean | **9** | **10** | **3** | — |
+| **B** | clean, identical procedure | **9** | **10** | **3** | ✅ **identical** |
+
+Same passes, same failures, same unmeasured set. **BASELINE-01 is the trusted
+baseline**, and a delta against it is now a measurement.
+
+**It is a baseline, not a clean bill of health.** Ten scenarios fail in it and
+three are unmeasured. What changed is that those numbers now mean something.
+
+### What made the harness deterministic
+
+One assertion was racing a client-side navigation. `lifecycle-surface-consistency`
+clicked through to a destination route and asserted on its content immediately;
+whether the RSC render beat the 5s expect timeout decided the outcome, so
+identical inputs produced different results.
+
+Fixed by waiting for the navigation to **commit** before asserting — at both
+client-side transitions the spec deliberately exercises. **The assertion itself
+is unchanged.** PB-005 is a claim about not needing a hard reload, not a claim
+about how fast a soft navigation streams, so waiting for the URL asserts the
+same behaviour deterministically rather than weakening it.
+
+### The three unmeasured scenarios are precisely located
+
+All three live in `basic-quote-persistence.spec.ts` **after** VAL-101, which
+fails: **VAL-103** (concurrent debounced cost edits), **VAL-104** (governed
+Pricing Vendor without dormant Pricing Date), and **PHASE2 Packaging targets
+each SKU**. Serial execution stops the file at its first failure.
+
+They are not passing and not failing. **They are unmeasured** — and VAL-104
+carries more weight than the other two: it is REG-1's browser-level evidence,
+and REG-1 is the one register gate claiming V1 COMPLETE.
+
+---
+
+## Superseded — why the criterion was not met before
 
 | run | environment | passed | failed | did not run |
 |---|---|---|---|---|
@@ -48,8 +107,8 @@ Residual state from a previous `runId` was reaching them. This is now controlled
 by rebuilding rather than by fixture reset.
 
 **Non-determinism (runs 2 ↔ 3).** `lifecycle-surface-consistency` **passed in
-run 2 and failed in run 3**, on identical inputs. That is the one that blocks the
-baseline. The other ten failed in both.
+run 2 and failed in run 3**, on identical inputs. **Resolved** — see
+BASELINE-01 above. The other ten failed in both.
 
 ## Failure inventory — recorded, not classified
 
@@ -71,10 +130,10 @@ baseline. The other ten failed in both.
 **Stable ≠ real.** A stable failure can still be a stale spec. That
 determination is classification and has not been made.
 
-### Non-deterministic — 1
+### Non-deterministic — 0
 
-`lifecycle-serial › lifecycle-surface-consistency` — PB-001/PB-005 completion
-updates canonical status and activity surfaces. **Passed run 2, failed run 3.**
+`lifecycle-surface-consistency` was the only one. It now passes in both
+consecutive clean runs.
 
 ### Did not run — 3
 
@@ -114,15 +173,20 @@ named because the next investigator should read it before starting.
 
 ## Next step
 
-**One thing, in order:**
+**Step 4 — scenario classification — is now unlocked.** Steps 1 to 3 hold.
 
-1. **Make `lifecycle-surface-consistency` deterministic.** It is the single
-   scenario preventing a baseline. Everything else can be counted once it is
-   settled.
-2. Re-run twice from `db:reset` and require the two runs to agree **exactly** —
-   same passes, same failures, same unmeasured set.
-3. **Only then** classify. Until step 2 agrees, classification would be applied
-   to a number that moves.
+Classification has **not** started, and nothing in this document names a cause
+for any of the ten. When it starts, the order that costs least is:
+
+1. **VAL-101 first.** It is the only failure that also hides three unmeasured
+   scenarios behind it, so settling it converts four rows rather than one — and
+   one of those three is REG-1's browser evidence.
+2. The three `phase-2-component-freight` failures next: one file, one surface,
+   plausibly one cause.
+3. The remainder individually.
+
+Every classification re-runs against BASELINE-01 and amends only the rows it
+touches.
 
 ## Procedure that produces a comparable run
 
@@ -143,4 +207,6 @@ database, and a run started from it is not comparable to one started from
 |---|---|---|---|---|---|---|
 | 1 | 2026-08-10 | dirty | 7 | 12 | 3 | Governed seed repaired to make this possible at all |
 | 2 | 2026-08-10 | clean | 9 | 10 | 3 | Environment sensitivity resolved |
-| 3 | 2026-08-10 | clean | 8 | 11 | 3 | **Disagrees with run 2** — baseline blocked |
+| 3 | 2026-08-10 | clean | 8 | 11 | 3 | **Disagrees with run 2** — criterion not met |
+| A | 2026-08-10 | clean | **9** | **10** | 3 | After the navigation-commit fix |
+| B | 2026-08-10 | clean | **9** | **10** | 3 | **Identical to A — BASELINE-01 established** |

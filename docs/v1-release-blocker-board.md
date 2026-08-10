@@ -214,15 +214,16 @@ it.
 
 Operational view: [`validation/CB_SUITE_HEALTH.md`](validation/CB_SUITE_HEALTH.md).
 
-**Baseline NOT established.** Two identical clean runs disagree, so no number
-the suite produces is yet evidence. Established so far: seed is deterministic,
-the clean environment is reproducible, and fixture reset is namespace-scoped
-rather than absolute — `validation:db:reset` is the clean-environment
-primitive, `validation:fixtures:reset` is not.
+**Admission criterion:** *a trusted baseline exists only when two consecutive
+executions from identical clean environments produce identical outcomes.*
 
-**No failure is classified**, by instruction. One scenario
-(`lifecycle-surface-consistency`) is non-deterministic and is the single item
-blocking the baseline.
+**BASELINE-01 established 2026-08-10** — runs A and B agree exactly: 9 pass,
+10 fail, 3 unmeasured. A delta against it is now a measurement.
+
+It is a baseline, not a clean bill of health. **No failure is classified** —
+classification is step 4 and has not started. The three unmeasured scenarios
+sit behind VAL-101 in one serial file, and one of them is **VAL-104, REG-1's
+browser-level evidence**.
 
 ## Microsoft OAuth — operational readiness, not engineering
 
@@ -255,7 +256,7 @@ validation, or validation will fail in a way that looks like a Clerk problem.
 
 | Workstream | Status |
 |---|---|
-| **CB suite** | **Primary engineering activity.** Baseline not established — two identical clean runs disagree |
+| **CB suite** | **Primary engineering activity.** BASELINE-01 established; classification unlocked, not started |
 | **Microsoft OAuth** | Operational readiness. Awaiting Clerk configuration and Entra admin consent |
 | **Pre-launch cleanup** | Active. First item shipped: the governed seed command could not reach its own database |
 | **Specification maintenance** | **Complete.** Not reopened unless future work invalidates it |
