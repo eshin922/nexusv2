@@ -1895,6 +1895,11 @@ export async function getCostingBundle(
       freightLegs: freightLegList,
       freightLegTiers: freightLegTierList,
       freightCustomerArrangesMeta: freightCustomerArrangesMetaList,
+      // Straight from the input the server just computed with — not re-derived
+      // from the tables. Anything the client reconstructs differently is a
+      // divergence, and reconstructing these was the divergence.
+      freightComponentTierCosts: input.freightComponentTierCosts ?? [],
+      freightShipmentBreaks: input.freightShipmentBreaks ?? [],
       cellOverrides: cellOverrideList,
       cellTargets: cellTargetList,
       costing: result,
