@@ -590,6 +590,43 @@ this session. These specs use the operator fixtures (1 / 6 / 10 SKU), so the
 next step is narrow: confirm whether the trigger is present-and-hidden on those
 quotes specifically, and if so what state hides it.
 
+#### The visibility condition — located, and it is not where it looked
+
+**There is no visibility condition on the trigger.** Source inspection, before
+touching any spec:
+
+- `section-with-drilldown.tsx:140-154` renders the toggle **unconditionally**
+  inside `<article className="r6-section">`. No guard, no conditional, no
+  `hidden` attribute. `aria-controls={`section-${id}-drawer`}` is always
+  emitted.
+- `costs/page.tsx:588` renders the Packaging `<SectionWithDrilldown>`
+  **unconditionally** inside `<CostBuildAccordion>`. It is not gated on
+  `pkgRows.length` — the row count only feeds the sublabel and status chip.
+
+So on any Costs page that renders, the trigger exists. **Which moves the
+question up a level:** the failure is not the drawer refusing to show, it is
+that the surface the drawer lives on did not render for these fixtures.
+
+That reading fits all three signatures better than a hidden control does. Two
+scenarios time out because the locator never resolves — consistent with an
+absent page, not a hidden button — and Playwright reports a zero-match
+`toBeVisible()` as *hidden*, which is what made the middle one look like a
+visibility problem.
+
+**Next check, and it is one request:** fetch the Costs deep link for an operator
+fixture (1 / 6 / 10 SKU) and establish whether the page renders at all. If it
+does not, the classification question becomes why — and the three candidate
+classes stay exactly as posed, just one level up:
+
+- the page renders and the trigger is genuinely hidden → product defect;
+- the page does not render for these fixtures → fixture or product, depending on
+  whether the fixture is expected to produce a renderable quote;
+- the page renders under a different route or shape than these specs open →
+  stale test expectation, and the seventh of that kind.
+
+**No spec was modified, no selector changed, no visibility forced.** The three
+scenarios remain one workstream.
+
 ### Where that leaves the ten
 
 | scenario | classification |
