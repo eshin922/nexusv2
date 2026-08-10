@@ -74,6 +74,12 @@ const classifiedIdentityFiles = new Set([
   // address are not interchangeable, and a shared separator invites one to be
   // parsed as the other.
   "src/lib/pricing-apply-plan.ts",
+  // CLASSIFIED — canonical, and it never resolves. The cost-base fingerprint
+  // names `quoteLeafId` only as part of a freight component row's composite
+  // identity, so that two rows for different commercial lines cannot digest to
+  // the same string. It reads the id, writes nothing, and asserts no mapping
+  // between the canonical and legacy identities.
+  "src/lib/pricing-cost-base.ts",
   // CLASSIFIED — the compatibility window made legible, and the one place both
   // identities appear ON PURPOSE. A-2 asks who set a governed input; the graph
   // addresses that input canonically while four of the thirteen writers record
