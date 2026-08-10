@@ -208,7 +208,7 @@ release is how fast unknowns become classified and then closed.
 | **Closed** | **1** | VAL-104 — passes end to end |
 | **Classified, not closed** | **2** | VAL-101 harness contamination · VAL-103 harness race |
 | **Boundary established, cause open** | **0** | — |
-| **Unclassified** | **5** | VAL-208 · costs-reconciliation-ordering · product-library ×2 · pvs-020 ×2 |
+| **Unclassified** | **4** | costs-reconciliation-ordering · product-library ×2 · pvs-020 ×2 |
 
 **Eleven scenarios were failing or unmeasured when classification began. Five
 remain unclassified.** No pass count was pursued, and one scenario moved to
@@ -575,6 +575,70 @@ What changed is that the failure is now visible and specific instead of hidden
 behind an unmeasured row. REG-1 is the register gate claiming V1 COMPLETE, and
 its browser evidence has still never passed.
 
+### VAL-208 — **harness issue: two concurrent projects share one mutable quote**
+
+Classified from zero evidence, in the recorded sequence.
+
+**Reproduction is configuration-dependent, and that is the finding.**
+
+| configuration | result |
+|---|---|
+| VAL-208 alone, clean seed | **passes** (7.2s) |
+| `costing` project, clean seed | **passes** |
+| full suite, clean seed | **fails** |
+
+So the scenario is sound and the product is sound. Something outside the
+`costing` project is the differentiator.
+
+**First failing boundary** — `getByRole("status")`, *element(s) not found*,
+waiting for `"Pricing updated."` after Apply. The page snapshot at that moment
+names the cause outright:
+
+> `alert: This quote is in 'sent' status. Editing is disabled. To make changes,
+> create a new draft version from the project page.`
+
+**Mechanism, verified rather than inferred:**
+
+- VAL-208 targets `manifest.quotes.draft` and assumes it is editable.
+- `tests/e2e/slice-12/primary-send-lifecycle.spec.ts:31` targets the **same**
+  `manifest.quotes.draft`, sends it (`:93`), and asserts `status === "sent"`
+  (`:128`).
+- `playwright.config.ts`: `lifecycle-serial` (`workers: 1`) and `costing-serial`
+  (`workers: 1`) are **separate projects**, and top-level `workers` is
+  `undefined` off CI. Each project is internally serial; **the two projects run
+  concurrently against one shared database.**
+
+So the two race for one mutable fixture row. When the send lands first, VAL-208's
+Apply meets a sent quote and is correctly refused. `workers: 1` reads as
+protection and is not — it serialises *within* a project, never *between* them.
+
+**Classification: harness issue** — cross-project fixture isolation.
+
+Explicitly **not** the alternatives, each ruled out on evidence:
+
+- **Not a product defect.** The refusal is Pattern 52 draft-lock behaving as
+  designed, with correct copy. The product's only role here is to be right.
+- **Not a fixture/test expectation defect.** VAL-208's expectation matches the
+  fixture contract *as seeded*; nothing in the contract says the draft quote
+  survives a concurrent sender.
+- **Not specification drift.** No governed behaviour changed.
+
+**Not repaired — the repair is a fixture-world decision, not a mechanical one.**
+Two candidates, with different costs:
+
+| candidate | effect | cost |
+|---|---|---|
+| **A · give the send lifecycle its own quote** | `quotes.draft` stops being shared with a destructive actor | changes the seeded fixture world; suite totals not comparable to BASELINE-01 |
+| **B · serialise the two projects** | removes the race wholesale | slower full-suite wall clock; masks rather than removes the sharing |
+
+A treats the cause, B treats the symptom. Both change the instrument, so the
+choice is yours rather than mine — the same disposition shape as the governed
+vendor fixture.
+
+**Scope discipline:** this race is a plausible contributor to other intermittent
+scenarios, and that is deliberately **not** asserted here. Each remaining
+scenario is still classified from zero evidence.
+
 ### `phase-2-component-freight` — closed as a workstream
 
 **The crash is fixed on `main`.** Extracted from this branch to a narrow hotfix
@@ -909,7 +973,7 @@ failure.
 | VAL-101 | **harness** — cross-project fixture contamination |
 | VAL-104 *(was unmeasured)* | **PASSES.** Six migration artifacts found and fixed; no product defect at any boundary |
 | VAL-103 *(was unmeasured)* | **harness** — non-deterministic CDP race |
-| VAL-208 bulk pricing lift | not yet classified |
+| VAL-208 bulk pricing lift | **harness issue** — `quotes.draft` shared with `primary-send-lifecycle` across two concurrently-running projects |
 | costs-reconciliation-ordering | not yet classified |
 | phase-2-component-freight × 3 | **RESOLVED — product defect.** Dropped `shipReads` prop at `freight-drilldown.tsx:241` (`85d8d1f`, PR #221, **on `main`**) crashed the whole Costs page; the trigger was orphaned SSR content inside React's `div#S:0`. Repaired. 1 of 3 now passes; 2 sit at new unclassified boundaries |
 | product-library-create-component × 2 | not yet classified |
