@@ -30,7 +30,7 @@
     "validation:db:reset": "npm run validation:db -- reset",
     "validation:db:teardown": "npm run validation:db -- teardown",
     "validation:prove-isolation": "npm run validation:db -- prove-isolation",
-    "validation:fixtures": "node --experimental-strip-types scripts/validation/fixtures.ts",
+    "validation:fixtures": "node --env-file=.env.validation.local --experimental-strip-types scripts/validation/fixtures.ts",
     "validation:seed": "npm run validation:fixtures -- seed",
     "validation:fixtures:validate": "npm run validation:fixtures -- validate",
     "validation:fixtures:reset": "npm run validation:fixtures -- reset",
