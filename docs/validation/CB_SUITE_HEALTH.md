@@ -302,11 +302,42 @@ not replaced between discovery and click — absent. Every later condition is mo
 until that is explained, and no timeout increase or force-click could have
 reached it.
 
-**What that leaves open**, and deliberately unclassified: whether the disclosure
-is absent because the fixture's scenario does not have other SKUs to disclose —
-the literal expects `(2)` — or because the surface does not render it at all.
-Those are a fixture question and a product question respectively, and the
-evidence to date does not separate them.
+**Resolved 2026-08-10 — fixture expectation defect, not a product rendering
+defect.**
+
+Two facts settle it.
+
+**The count is right.** The scenario has **three** leaves — `Validation Leaf 1`,
+`2` and `3` — so a disclosure reading *"Other SKUs in this scenario (2)"* would
+be arithmetically correct. The fixture is not short of SKUs.
+
+**The control was deliberately removed**, and the rationale is recorded at the
+removal site. `scenario-context-strip.tsx:6`, from the §6.b path-B Costs
+migration:
+
+> *"The redundant Other SKUs control is intentionally absent because the unified
+> Costs page already renders every SKU."*
+
+So the spec asserts a control the product intentionally no longer has. **The
+capability it was probing is still satisfied** — more directly than before,
+because the unified page renders every SKU rather than hiding the others behind
+a disclosure.
+
+**Classification: test issue.** The same class as VAL-104's first defect, and
+the second time this one scenario has failed on its own expectations rather than
+on the product. Both were invisible while the row was unmeasured.
+
+**Remediation shape** (not applied): drop the disclosure click and assert
+`Validation Leaf 2` visible directly, which is what the surface now renders. The
+assertion's intent — other SKUs in the scenario are reachable from here — is
+preserved and stops depending on a control that was removed three migrations
+ago.
+
+**Consequence for REG-1.** Its browser evidence has now failed three times for
+three reasons, none of them the product: fixture contamination, a hardcoded
+literal, and an expectation of a removed control. It stays **Insufficient
+evidence** — with the qualification that nothing found so far argues against the
+product, and nothing yet argues for it either.
 
 **Status of REG-1's evidence, stated plainly:**
 
@@ -325,7 +356,7 @@ its browser evidence has still never passed.
 | scenario | classification |
 |---|---|
 | VAL-101 | **harness** — cross-project fixture contamination |
-| VAL-104 *(was unmeasured)* | **test issue** — hardcoded runId literal · fixed. Now fails later, at the *Other SKUs* disclosure · **unclassified** |
+| VAL-104 *(was unmeasured)* | **test issue**, twice — hardcoded runId literal (fixed), then an expectation of the *Other SKUs* control that §6.b intentionally removed |
 | VAL-103 *(was unmeasured)* | **harness** — non-deterministic CDP race |
 | VAL-208 bulk pricing lift | not yet classified |
 | costs-reconciliation-ordering | not yet classified |
