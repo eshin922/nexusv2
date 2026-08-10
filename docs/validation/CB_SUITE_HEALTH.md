@@ -558,6 +558,38 @@ What changed is that the failure is now visible and specific instead of hidden
 behind an unmeasured row. REG-1 is the register gate claiming V1 COMPLETE, and
 its browser evidence has still never passed.
 
+### `phase-2-component-freight` ×3 — one cause, not three
+
+Run in isolation from a clean seed, all three fail on the **same root**: the
+section-drawer trigger.
+
+| scenario | signature |
+|---|---|
+| worksheet break saves actual freight | `spec:13` — `trigger.getAttribute("aria-expanded")` times out; the locator never resolves |
+| renders at 1, 6 and 10 SKU scales | `button[aria-controls="section-packaging-drawer"]` — **expected visible, received hidden** |
+| worksheet matches nested comparison | `spec:13` — same timeout as the first |
+
+The middle one is the informative one: **the element exists and is hidden**, so
+this is not a renamed control. All three open a section drawer before doing
+anything else, and none of them gets past it.
+
+**Three rows, one cause.** That is worth stating on its own — the failure count
+overstates the problem, and a fix here converts three rows at once.
+
+**Not yet classified.** Two candidates, and the evidence does not separate them:
+
+- the Costs surface restructured its drawers and these specs open them the old
+  way — a stale-expectation question, which would make it the seventh of that
+  kind in this suite;
+- the drawers are genuinely hidden in the state these fixtures produce — a
+  fixture or product question.
+
+The draft quote's Costs surface **does** render `Packaging` / `Production` /
+`Freight` disclosures carrying `aria-expanded`, observed directly earlier in
+this session. These specs use the operator fixtures (1 / 6 / 10 SKU), so the
+next step is narrow: confirm whether the trigger is present-and-hidden on those
+quotes specifically, and if so what state hides it.
+
 ### Where that leaves the ten
 
 | scenario | classification |
@@ -567,7 +599,7 @@ its browser evidence has still never passed.
 | VAL-103 *(was unmeasured)* | **harness** — non-deterministic CDP race |
 | VAL-208 bulk pricing lift | not yet classified |
 | costs-reconciliation-ordering | not yet classified |
-| phase-2-component-freight × 3 | not yet classified — one file, one surface, plausibly one cause |
+| phase-2-component-freight × 3 | **one cause confirmed** — the section-drawer trigger is hidden / unresolvable; cause not yet classified |
 | product-library-create-component × 2 | not yet classified |
 | pvs-020-refresh-performance × 2 | not yet classified |
 
