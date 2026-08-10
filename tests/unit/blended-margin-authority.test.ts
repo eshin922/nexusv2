@@ -57,22 +57,31 @@ const MARKUPS = {
 };
 
 /**
- * A 50 ml serum. One expensive glass bottle carrying most of the revenue, and
- * five cheap secondary components — the ordinary shape of a cosmetics bill of
- * materials, and the reason the three quantities can diverge.
+ * One expensive primary component carrying most of the revenue, and five cheap
+ * secondary ones — the ordinary shape of a cosmetics bill of materials, and the
+ * reason the three quantities can diverge. The costs are plausible; the names
+ * are deliberately not.
+ *
+ * NAMED SO THEY CANNOT BE MISTAKEN FOR REAL ROWS. An earlier revision borrowed
+ * the sample quote's product names ("Glass bottle · 50ml amber" and friends),
+ * which are real `leaves` rows seeded by `scripts/seed-sample-order.mjs` and
+ * rendered by the live compliance grid. Seeing the same strings in a fixture
+ * and on screen invites exactly one question — is the page reading fixture
+ * data? — and the answer being "no" is not worth the cost of asking. Nothing
+ * here touches the database; the input is constructed in memory.
  */
 const LEAVES = [
-  { id: "bottle", name: "Glass bottle · 50ml amber", cost: 3.9, category: "Primary" },
-  { id: "dropper", name: "Glass dropper · 50ml", cost: 0.15, category: "Primary" },
-  { id: "label", name: "Wraparound label · 50ml", cost: 0.1, category: "Secondary" },
-  { id: "carton", name: "Folding carton · 50ml", cost: 0.3, category: "Secondary" },
-  { id: "insert", name: "Insert card", cost: 0.1, category: "Secondary" },
-  { id: "band", name: "Shrink band", cost: 0.2, category: "Secondary" },
+  { id: "fx-a", name: "FIXTURE A · primary, high revenue", cost: 3.9, category: "Primary" },
+  { id: "fx-b", name: "FIXTURE B · primary, low revenue", cost: 0.15, category: "Primary" },
+  { id: "fx-c", name: "FIXTURE C · secondary", cost: 0.1, category: "Secondary" },
+  { id: "fx-d", name: "FIXTURE D · secondary", cost: 0.3, category: "Secondary" },
+  { id: "fx-e", name: "FIXTURE E · secondary", cost: 0.1, category: "Secondary" },
+  { id: "fx-f", name: "FIXTURE F · secondary", cost: 0.2, category: "Secondary" },
 ];
 
 /**
  * @param negotiatedBottleSell a per-cell sell override — the PM affordance, used
- *   the way a PM uses it. $5.10 on a $3.90 bottle is a 30.8% markup where the
+ *   the way a PM uses it. $5.10 on a $3.90 hero component is a 30.8% markup where
  *   schedule says 45%: the concession someone makes on a hero component.
  */
 function input(negotiatedBottleSell: number | null, gpa: number): QuoteCostingInput {
@@ -115,7 +124,7 @@ function input(negotiatedBottleSell: number | null, gpa: number): QuoteCostingIn
         ? []
         : [
             {
-              quoteSkuId: "bottle",
+              quoteSkuId: "fx-a",
               tierId: TIER,
               sellPriceOverride: negotiatedBottleSell,
             },

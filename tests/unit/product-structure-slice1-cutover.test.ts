@@ -115,6 +115,17 @@ const classifiedIdentityFiles = new Set([
   // and writes nothing. Retire when cost inputs key on quote_leaf_id and the
   // coalesce it mirrors disappears.
   "scripts/gate-1b/verify-sku-population.ts",
+  // CLASSIFIED — rehearsal, read-only, and the one place naming both identities
+  // is the whole point. R2 exists to prove the canonical row and the legacy
+  // membership denote the same attachment during the Slice 1 compatibility
+  // window, so it must hold both ids side by side to compare them.
+  //
+  // It resolves nothing itself: the verdict is `lookupCanonicalAttachment` and
+  // its reverse — the production resolvers a lift would call. The row columns
+  // it reads directly serve only the failure-category breakdown, printed to say
+  // why a resolver that has already refused did so. Retire with the
+  // compatibility window.
+  "scripts/rehearsal/r2-identity-parity.ts",
   "scripts/smoke/mark-complete.ts", "scripts/verify/costing-adapter.ts",
   "scripts/verify/sample-order-margin.ts", "scripts/verify/slice-11-5-1-warnings-parity.ts",
   "tests/harness/fixtures/world.ts",

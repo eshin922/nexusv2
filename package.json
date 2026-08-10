@@ -17,6 +17,7 @@
     "gate1b:verify-preserved": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/verify-costing-preserved.ts",
     "verify:ri-7-readiness": "node --env-file=.env.local --experimental-strip-types scripts/verify/ri-7-schema-readiness.ts",
     "verify:scenario-quote-invariant": "node --env-file=.env.local --experimental-strip-types scripts/verify/scenario-quote-status-invariant.ts",
+    "rehearsal:r2": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/rehearsal/r2-identity-parity.ts",
     "verify:pricing-classifier-invariants": "node --experimental-strip-types scripts/verify/pricing-classifier-invariants.ts",
     "verify:product-structure-slice1": "node --env-file=.env.validation.local --experimental-strip-types scripts/product-structure/slice1-preflight.ts",
     "test:netsuite-adapter": "node --experimental-strip-types scripts/test-netsuite-adapter.ts",
