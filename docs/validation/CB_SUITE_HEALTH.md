@@ -714,6 +714,44 @@ says absent.
 
 **Still one workstream.** Nothing observed separates the three.
 
+#### Ancestor walk — the collapse is not local to the accordion
+
+Walking up from the trigger, `oneSku`:
+
+| # | element | display | rect |
+|---|---|---|---|
+| 0 | `button.r6-section-row` — `aria-expanded="true"` | `grid` | **0 × 0** |
+| 1 | `article.r6-section open` — **carries `open`** | `block` | **0 × 0** |
+| 2 | `div.r6-sections flex flex-col` | `flex` | **0 × 0** |
+| … | … | | **0 × 0** |
+| **7** | first ancestor **with** a layout box | | non-zero |
+
+**Chain length 8; the first laid-out ancestor is index 7** — the last element
+before `<html>`. So **nothing between the trigger and the document body has a
+layout box.** Seven levels, all zero.
+
+**That eliminates the collapsed-accordion reading.** The section `<article>`
+carries the `open` class and the trigger reports `aria-expanded="true"`, so the
+accordion state is open, not collapsed — and the suppression continues far above
+anything the accordion controls. No `display: none`, no `hidden`, no
+`max-height: 0` was found on the levels captured; each reports an ordinary
+`display` while occupying no space.
+
+**Ownership still not classified, and none of the three candidate readings fits
+yet.** The parent is logically open, which points at *"layout remains
+suppressed"* — but the suppression is page-wide rather than section-local, so
+calling it a drawer defect would be wrong at the same moment it looked right.
+
+**The next step is narrow and is the last one in this chain:** name levels 3–6
+and the index-7 element, and identify which one is the outermost with zero
+height. A container whose whole content column has no height on this fixture is
+a different defect from a drawer that will not open, and the two are told apart
+by which element first has a box.
+
+**Instrument note:** the walk reports non-zero geometry at index 7, so the probe
+measures layout correctly; zero rects below it are the observation, not a probe
+failure.
+
 ### Where that leaves the ten
 
 | scenario | classification |
