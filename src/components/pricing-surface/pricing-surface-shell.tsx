@@ -55,7 +55,7 @@ import { usePricingClassifier } from "./pricing-classifier-context";
 import { ComplianceGrid } from "./compliance-grid";
 import { PricingTrace } from "./pricing-trace";
 import { StagingBar } from "./staging-bar";
-import { StagedDelta } from "./staged-delta";
+import { StagedDelta, StagedMarginDelta } from "./staged-delta";
 import { usePricingStaging } from "./pricing-staging-context";
 import { useCostingStore } from "@/components/costing-store-provider";
 import { selectGraph, selectSkuRollups } from "@/lib/costing-store";
@@ -300,8 +300,13 @@ export function PricingSurfaceShell({
       ) {
         continue;
       }
+      // OPTIONAL, unlike the six above: the ratio is undefined at zero blended
+      // sell, the engine flags that node out rather than publishing 0%, and
+      // `readNodeValue` refuses it. Requiring it would blank a complete cost
+      // stack to withhold a seventh value that does not exist.
+      const margin = readNodeValue(graph, quoteScopeKey(tierUuid, "margin"));
       byNumeric.set(numeric, {
-        pkg, prod, raw, frt, dt, sellBefore, sell,
+        pkg, prod, raw, frt, dt, sellBefore, sell, margin,
         // The same keys the values were just read from, carried down so the
         // trace opens at the node the operator pressed rather than at one
         // reconstructed from a numeric id the graph has never heard of.
@@ -313,6 +318,7 @@ export function PricingSurfaceShell({
           dt: quoteScopeKey(tierUuid, "dt"),
           sellBefore: quoteScopeKey(tierUuid, "sell-before"),
           sell: quoteScopeKey(tierUuid, "sell"),
+          margin: quoteScopeKey(tierUuid, "margin"),
         },
       });
     }
@@ -379,6 +385,19 @@ export function PricingSurfaceShell({
   const renderStackDelta = useCallback(
     (nodeKey: string) => (
       <StagedDelta
+        committedGraph={graph}
+        previewGraph={previewGraph}
+        nodeKey={nodeKey}
+      />
+    ),
+    [graph, previewGraph],
+  );
+
+  // The same join in points, for the margin row. Both graph roles are stated
+  // once, here, for the same reason as above.
+  const renderStackMarginDelta = useCallback(
+    (nodeKey: string) => (
+      <StagedMarginDelta
         committedGraph={graph}
         previewGraph={previewGraph}
         nodeKey={nodeKey}
@@ -549,6 +568,7 @@ export function PricingSurfaceShell({
         tracedStackCell={traced}
         renderStackTrace={renderStackTrace}
         renderStackDelta={renderStackDelta}
+        renderStackMarginDelta={renderStackMarginDelta}
       />
     </section>
   );
