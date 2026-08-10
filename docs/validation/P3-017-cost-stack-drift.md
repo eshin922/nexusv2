@@ -228,6 +228,55 @@ force exactly the presentation-layer recomputation the rule forbids, and the
 first row rendered from a re-derived number would be the next divergence
 (CLAUDE.md, *"Two computations for similar-labeled displays will diverge"*).
 
+### Which quantities become published authority — the determination
+
+Edward's three candidates are necessary. **They are not sufficient**, and the
+reason matters more than the list.
+
+**Necessary — the missing intermediate levels.**
+
+| published node | why |
+|---|---|
+| `sellAfterAdjustment` | the level between `sellBefore` and the lift. Without it the adjustment row has no upper bound to sit against |
+| `sellAfterLift` | the level between adjustment and override. It also bounds the override row from below |
+| `unitCost` (blended) | the `Unit cost` row. Every value published today is sell-side; this is the only cost-side quantity the stack shows, and it is what retires the `Sell before adj` rename |
+
+With those three, all four levels of the ladder exist at tier scope:
+`sellBefore → afterAdjustment → afterLift → sell`.
+
+**Not sufficient — and this is the part that decides whether the strip means
+anything.**
+
+If each row's delta is computed in the presentation layer as the difference of
+two published levels, the reconciliation strip asserts
+
+```
+sellBefore + (a − sellBefore) + (l − a) + (sell − l)  ===  sell
+```
+
+which telescopes. **It is true for any four numbers, so it can never fail.** A
+strip that cannot fail is not an assertion; it is decoration — and the whole
+argument for the stack is that the assertion is what makes it trustworthy.
+
+So the **deltas themselves must be published**, not just the levels:
+
+| published node | |
+|---|---|
+| `adjDelta` | the adjustment's contribution in dollars |
+| `liftDelta` | the lifts' contribution |
+| `overrideDelta` | the overrides' contribution |
+
+Then the strip asserts that **independently published levels and independently
+published contributions agree** — an identity over six governed values that can
+genuinely fail if the blend is wrong, which is exactly what it is for.
+
+This is also Pattern 57 read strictly: a stack row asserts it is an
+independently governed commercial quantity. A row whose value is a subtraction
+the display performed is not one.
+
+**Six published quantities, then, not three.** The three levels make the ladder
+expressible; the three deltas make the assertion falsifiable.
+
 ### What has to happen first
 
 The blend must publish `sellAfterAdjustment`, `sellAfterLift` and blended

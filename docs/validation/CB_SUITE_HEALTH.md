@@ -275,12 +275,42 @@ browser's own resource lifetime.
 **Second non-deterministic scenario**, alongside `lifecycle-surface-consistency`.
 Tracked with it, and it does not block classification of the stable failures.
 
+### REG-1 browser evidence — reconsidered on the corrected harness
+
+VAL-104 is REG-1's browser-level evidence, and the runId fix let it be measured
+rather than blocked. Re-run on a fresh seed, alone:
+
+**It gets further, and still does not produce a verdict.** The identity
+assertions the hardcoded literal used to fail on now pass — `.name .lab` reads
+`Validation Leaf 1` and `.name .sub` reads the derived
+`VAL-LOCAL-EXAMPLE-1`, which is PB-006/PB-007 satisfied. It then times out at
+`spec:466`, clicking the *"Other SKUs in this scenario (2)"* disclosure.
+
+**The element is on the page.** It appears in the failure snapshot with exactly
+that text, so this is not a wrong count and not a missing feature — the click
+never becomes actionable. That is a different class again from the string
+defect, and it is **not yet classified**: an element present in the
+accessibility tree that never satisfies visible-enabled-stable is usually a
+harness or interaction-timing question, but "usually" is not a classification.
+
+**Status of REG-1's evidence, stated plainly:**
+
+| | |
+|---|---|
+| Before | unmeasured — VAL-101 contamination blocked the file |
+| After the VAL-104 fix | **measured, and failing at a later point** |
+| Verdict about the product | **still none** |
+
+What changed is that the failure is now visible and specific instead of hidden
+behind an unmeasured row. REG-1 is the register gate claiming V1 COMPLETE, and
+its browser evidence has still never passed.
+
 ### Where that leaves the ten
 
 | scenario | classification |
 |---|---|
 | VAL-101 | **harness** — cross-project fixture contamination |
-| VAL-104 *(was unmeasured)* | **test issue** — hardcoded runId literal · fixed |
+| VAL-104 *(was unmeasured)* | **test issue** — hardcoded runId literal · fixed. Now fails later, at the *Other SKUs* disclosure · **unclassified** |
 | VAL-103 *(was unmeasured)* | **harness** — non-deterministic CDP race |
 | VAL-208 bulk pricing lift | not yet classified |
 | costs-reconciliation-ordering | not yet classified |
