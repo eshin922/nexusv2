@@ -675,6 +675,45 @@ spec looking before hydration attaches the control — remediate differently. Th
 is the next question, and it is now a narrow one asked against a known-good
 page.
 
+#### Where the trigger disappears — it does not. It never gets a layout box.
+
+Client DOM, `oneSku`, after load:
+
+| | |
+|---|---|
+| present in client DOM | **yes** — it survives hydration and reconciliation |
+| `aria-expanded` | **`"true"`** — already expanded |
+| bounding rect | **0 × 0** |
+| `offsetParent` | **`null`** |
+| own `display` / `visibility` / `opacity` | `grid` / `visible` / `1` |
+| `.r6-section` count | 2 |
+
+**None of the five candidate moments applies.** The trigger is not removed after
+hydration, after reconciliation, after data load, or after navigation. It is
+present the whole time.
+
+**The signature is specific.** An element reporting its own `display: grid` and
+`visibility: visible` while having a zero rect and a null `offsetParent` is
+**not laid out** — the shape produced when an **ancestor** is `display: none`.
+Computed style is read from the element itself, so its own properties keep
+reporting normal values while it occupies no space.
+
+**That is the boundary.** Not routing, not rendering, not hydration timing: the
+control is in the tree and outside layout, so a driver waiting for something
+actionable waits forever, and `toBeVisible()` reports *hidden* — the word that
+sent this investigation toward a visibility bug two steps ago.
+
+**Ownership not yet classified**, and the next question is exactly one level up
+from here: **which ancestor is collapsed, and why, on this fixture.** Candidates
+remain open and are not ranked — an accordion whose collapsed state hides the
+whole section rather than only its drawer; a container that lays out only after
+a measurement these fixtures never trigger; a CSS rule that applies to this
+fixture's section count. `aria-expanded="true"` on a control inside a collapsed
+subtree is itself worth explaining, since the state says open while the layout
+says absent.
+
+**Still one workstream.** Nothing observed separates the three.
+
 ### Where that leaves the ten
 
 | scenario | classification |
@@ -684,7 +723,7 @@ page.
 | VAL-103 *(was unmeasured)* | **harness** — non-deterministic CDP race |
 | VAL-208 bulk pricing lift | not yet classified |
 | costs-reconciliation-ordering | not yet classified |
-| phase-2-component-freight × 3 | **one cause · page-level boundary cleared** — surface renders 200, trigger present in served HTML. Timing/driver boundary; cause not yet closed |
+| phase-2-component-freight × 3 | **one cause · boundary now exact** — trigger present in client DOM, zero rect, `offsetParent` null: an ancestor is not laid out. Which ancestor, and why, is open |
 | product-library-create-component × 2 | not yet classified |
 | pvs-020-refresh-performance × 2 | not yet classified |
 
