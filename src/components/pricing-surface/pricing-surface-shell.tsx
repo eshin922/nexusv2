@@ -576,7 +576,18 @@ export function PricingSurfaceShell({
         forwarded for the header caption. The grid never compares against
         them; it renders bands the classifier already decided.
       */}
+      {/*
+        R12 §8a — the sub-line that replaced `Show pricing detail`.
+        Copy verbatim from `app/r12/pricing-page.jsx`. It states the two things
+        the removed control used to imply and no longer can: that the detail is
+        always open, and that any number can be asked why.
+      */}
       <div className="r12-gridtop" style={{ marginTop: 16 }}>
+        <p className="r10-sub" style={{ marginBottom: 10 }}>
+          Pricing detail — compliance and composition across every tier, always
+          open. Any number can say why it is what it is, and the trace opens
+          where you pressed.
+        </p>
         <ComplianceGrid
           targetPct={state.policy.target_margin_pct}
           floorPct={state.policy.floor_margin_pct}
@@ -591,7 +602,6 @@ export function PricingSurfaceShell({
       <DetailZone
         state={state}
         blendedByTier={blendedByTier}
-        quoteId={quoteId}
         onPreviewGlobalAdjust={onPreviewGlobalAdjust}
         globalPreview={globalPreview}
         onCancelGlobalPreview={() => setGlobalPreview(null)}

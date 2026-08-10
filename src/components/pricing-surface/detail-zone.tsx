@@ -16,7 +16,16 @@
 //     quote.global_price_adj_pct (real production field name per
 //     Catch #7 — NOT the prototype's "global_lift_pct"). onPreview
 //     handler is page-composer-supplied (Step 7).
-//   - DetailTierTable: per-tier compliance table from state.tiers[]
+//   R12 §13 removed three surfaces from this zone, and the removals are the
+//   substance of the change rather than tidying:
+//     - DetailTierTable   the banner and the stack already state the verdict
+//     - DetailPerSku      superseded by entry-at-node in the trace
+//     - DetailMetaTiles   the client benchmark FOLDED into the grid, where it
+//                         sits beside the decision it informs
+//   Each had zero other consumers; leaving them on disk is the orphan the
+//   consolidation checklist exists to prevent.
+//
+//   - (removed) DetailTierTable: per-tier compliance table from state.tiers[]
 //     rollup; status badges + OVR chip read classifier-owned fields.
 //   - DetailCostStack: per-tier × per-component rollup driving the
 //     R6 cost-stack component. Q6 disposition: rollup formula lives
@@ -37,7 +46,8 @@
 // Canonical CSS register: `.psr-*` (Path B-default; r-psr-pricing.css
 // from Step 4). JSX class names mirror CD prototype 1:1.
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useState } from "react";
+import { usePricingStaging } from "./pricing-staging-context";
 import type {
   NoMarginReason,
   QuoteState,
@@ -91,7 +101,6 @@ function writeSessionOpen(quoteId: string, open: boolean): void {
 export function DetailZone({
   state,
   blendedByTier,
-  quoteId,
   onPreviewGlobalAdjust,
   globalPreview,
   onCancelGlobalPreview,
@@ -110,7 +119,14 @@ export function DetailZone({
   /** Blended per-unit values read from the canonical graph, keyed by the
    *  classifier's numeric tier id. Resolved once at the composition point. */
   blendedByTier: Map<number, BlendedTierComponents>;
-  quoteId: string;
+  /**
+   * Retained on the contract, unused by the zone.
+   *
+   * It keyed the session-persisted collapse that R12 removed. The prop stays
+   * because callers pass it and a future per-quote detail preference would key
+   * on it again; nothing here reads it today.
+   */
+  quoteId?: string;
   // CB Patch round 3 BUG-B — composer forwards an onPreview
   // handler that calls updateQuoteGlobalPriceAdj. Optional so
   // standalone consumers (storybook, test fixtures) can omit.
@@ -132,80 +148,59 @@ export function DetailZone({
   renderStackDelta?: (nodeKey: string) => React.ReactNode;
   renderStackMarginDelta?: (nodeKey: string) => React.ReactNode;
 }) {
-  // Hydration safety: default OPEN on both SSR and initial client
-  // render (matches readSessionOpen's "no preference → open"
-  // default). useEffect then reads session and only flips to
-  // closed if the PM has explicitly set "0".
-  const [open, setOpen] = useState(true);
-  useEffect(() => {
-    setOpen(readSessionOpen(quoteId));
-  }, [quoteId]);
-  const toggle = useCallback(() => {
-    setOpen((prev) => {
-      const next = !prev;
-      writeSessionOpen(quoteId, next);
-      return next;
-    });
-  }, [quoteId]);
+  // R12 §8a — **`Show pricing detail` is gone as a control.** Not re-ordered,
+  // removed: "The detail is the page", per Edward's standing directive that it
+  // stay open. The session-persisted collapse went with it, along with the
+  // hydration dance that defaulted OPEN on the server and then re-read
+  // sessionStorage to find out whether the operator had closed it.
+  //
+  // ORDER IS THE CANONICAL ORDER (`app/r12/pricing-page.jsx`):
+  //   ComplianceGrid → AdjustmentPanel → CostStack → trace
+  //
+  // The adjustment panel sits between the grid and the stack because it is the
+  // lever you reach for after reading compliance and before reading where the
+  // money lands. It used to sit first, above the thing it responds to.
+  //
+  // Three surfaces are NOT here any more, and their absence is the point —
+  // R12 §13: "the page loses another surface."
+  //
+  //   · Per-tier compliance table — the banner states the verdict and the
+  //     stack's margin column carries the number. A third statement of the
+  //     same fact is a third thing that can disagree.
+  //   · Per-SKU breakdown — superseded by entry-at-node. Pressing any number
+  //     opens the trace AT that node, which is the same data in the role R11
+  //     §12 said it belonged in.
+  //   · Reference / client benchmark — FOLDED, not duplicated (§13). The
+  //     benchmark is stated on the SKU row and compared on the cells, in the
+  //     grid, next to the decision it informs. A tile at the foot counting how
+  //     many SKUs carry one is the comparison sitting furthest from its use.
   return (
-    <div className="psr-detail">
-      <button
-        type="button"
-        className={"psr-detail-toggle " + (open ? "open" : "")}
-        onClick={toggle}
-        aria-expanded={open}
-      >
-        <span>
-          <span className="twirl">▸</span>Show pricing detail
-        </span>
-        <span className="lab"></span>
-        <span className="meta">
-          {state.quote.skus.length} SKUs · {state.quote.tiers.length} tiers ·
-          cost stack · per-SKU breakdown
-        </span>
-      </button>
-      {open && (
-        <div className="psr-detail-body">
-          <DetailGlobalAdjust
-            state={state}
-            onPreview={onPreviewGlobalAdjust}
-            preview={globalPreview}
-            onCancel={onCancelGlobalPreview}
-            onApply={onApplyGlobalPreview}
-            onUndo={onUndoGlobalAdjust}
-            canUndo={canUndoGlobalAdjust}
-            pending={pricingMutationPending}
-            confirmation={pricingConfirmation}
-          />
-          <DetailTierTable state={state} />
-          <DetailCostStack
-            state={state}
-            blendedByTier={blendedByTier}
-            onTrace={onTraceStackCell}
-            traced={tracedStackCell}
-            renderTrace={renderStackTrace}
-            renderDelta={renderStackDelta}
-            renderMarginDelta={renderStackMarginDelta}
-          />
-          <DetailPerSku state={state} />
-          <DetailMetaTiles state={state} />
-        </div>
-      )}
+    <div className="psr-detail open">
+      <div className="psr-detail-body">
+        <DetailGlobalAdjust
+          state={state}
+          onPreview={onPreviewGlobalAdjust}
+          preview={globalPreview}
+          onCancel={onCancelGlobalPreview}
+          onApply={onApplyGlobalPreview}
+          onUndo={onUndoGlobalAdjust}
+          canUndo={canUndoGlobalAdjust}
+          pending={pricingMutationPending}
+          confirmation={pricingConfirmation}
+        />
+        <DetailCostStack
+          state={state}
+          blendedByTier={blendedByTier}
+          onTrace={onTraceStackCell}
+          traced={tracedStackCell}
+          renderTrace={renderStackTrace}
+          renderDelta={renderStackDelta}
+          renderMarginDelta={renderStackMarginDelta}
+        />
+      </div>
     </div>
   );
 }
-
-// ──────────────────────────────────────────────────────────────────
-// DetailGlobalAdjust — writable input bound to global_price_adj_pct.
-// ──────────────────────────────────────────────────────────────────
-//
-// Catch #7 production field name: `quote.global_price_adj_pct`
-// (numeric(5,4) decimal; UI shows the % integer). The prototype's
-// "global_lift_pct" was design-side notation. Input value is the
-// PM-edited integer percentage; onPreview receives the percentage
-// number (caller converts to the decimal for canonical preview/apply).
-//
-// onPreview is page-composer-supplied and performs no persistence.
 
 export function DetailGlobalAdjust({
   state,
@@ -250,6 +245,23 @@ export function DetailGlobalAdjust({
     const v = Number(draft);
     if (Number.isFinite(v)) onPreview?.(v);
   }, [draft, onPreview]);
+
+  // The quote-wide lever, staged rather than committed on contact.
+  //
+  // `stageGlobalAdj` takes a DECIMAL; the input is a percentage, because that
+  // is what an operator types. The conversion happens here, once, at the
+  // boundary between the two vocabularies — the same discipline the action
+  // layer uses for every other percentage column.
+  const { stageGlobalAdj, working, committable } = usePricingStaging();
+  const draftDecimal = Number(draft) / 100;
+  const stageable =
+    committable &&
+    Number.isFinite(Number(draft)) &&
+    Math.abs(draftDecimal - working.globalAdj) > 1e-9;
+  const handleStage = useCallback(() => {
+    const v = Number(draft);
+    if (Number.isFinite(v)) stageGlobalAdj(v / 100);
+  }, [draft, stageGlobalAdj]);
   return (
     <div className="psr-detail-section">
       <div className="section-head">
@@ -276,23 +288,38 @@ export function DetailGlobalAdjust({
             aria-label="Global lift percentage"
           />
           <span className="unit">% sell-price lift</span>
+          {/*
+            R12 §2 — the missing half.
+
+            "Preview without commit is staging with the second half absent —
+            the concept was half-built, which is exactly what R12 exists to
+            finish." `Preview changes` previews only; `Stage this adjustment`
+            puts the quote-wide lever in the working set with every other
+            staged change, so ONE Apply governs the page (load-bearing 18).
+
+            Ghost first, primary second: previewing is the cheaper act and the
+            one an operator reaches for while deciding.
+          */}
           <button
             type="button"
-            className="cta"
-            style={{
-              padding: "6px 12px",
-              borderRadius: 6,
-              background: "var(--ink)",
-              color: "var(--paper)",
-              border: "1px solid var(--ink)",
-              fontSize: 12,
-              fontWeight: 500,
-              cursor: "pointer",
-            }}
+            className="btn ghost sm"
             onClick={handlePreview}
             disabled={pending}
           >
-            Preview Changes
+            Preview changes
+          </button>
+          <button
+            type="button"
+            className="btn primary sm"
+            onClick={handleStage}
+            disabled={pending || !stageable}
+            title={
+              stageable
+                ? undefined
+                : "Enter a percentage different from the one in effect."
+            }
+          >
+            Stage this adjustment
           </button>
         </div>
       </div>
@@ -331,78 +358,6 @@ export function DetailGlobalAdjust({
           {canUndo && <> <button type="button" onClick={onUndo} disabled={pending}>Undo</button></>}
         </div>
       )}
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────────
-// DetailTierTable — per-tier compliance from state.tiers[].
-// ──────────────────────────────────────────────────────────────────
-//
-// Status badge + OVR chip read directly from TierRollup (classifier-
-// owned). Underscore→space in status label is a presentation
-// transform, not derivation.
-
-export function DetailTierTable({ state }: { state: QuoteState }) {
-  const target = state.policy.target_margin_pct;
-  const floor = state.policy.floor_margin_pct;
-  return (
-    <div className="psr-detail-section">
-      <div className="section-head">
-        <h4>Per-tier compliance</h4>
-        <span className="meta">
-          Worst margin across SKUs · {state.quote.tiers.length} tiers
-        </span>
-      </div>
-      <table className="psr-tier-table">
-        <thead>
-          <tr>
-            <th>Tier</th>
-            <th>Qty</th>
-            <th>Worst margin</th>
-            <th>Blended</th>
-            <th>Status</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {state.tiers.map((t) => (
-            <tr key={t.id}>
-              <td>
-                <strong>T{t.id}</strong>
-              </td>
-              <td className="num">{fmtQty(t.qty)}</td>
-              <td className="num">
-                {t.min_margin_pct == null
-                  ? "—"
-                  : fmtPct(t.min_margin_pct) + "%"}
-              </td>
-              <td className="num">
-                {t.blended_margin_pct == null
-                  ? "—"
-                  : fmtPct(t.blended_margin_pct) + "%"}
-              </td>
-              <td>
-                <span className={"row-pill " + t.status}>
-                  <span className="dot" />
-                  {t.status.replace(/_/g, " ")}
-                </span>
-                {t.has_override && <span className="ovr-chip">OVR</span>}
-              </td>
-              <td
-                style={{
-                  textAlign: "right",
-                  color: "var(--ink-4)",
-                  fontFamily: "var(--mono)",
-                  fontSize: 10,
-                }}
-              >
-                tgt {fmtPct0(target)}% · flr {fmtPct0(floor)}%
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }
@@ -810,263 +765,6 @@ export function DetailCostStack({
           })}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────────
-// DetailPerSku — per-SKU card grid; SkuBreakdown on expand.
-// ──────────────────────────────────────────────────────────────────
-//
-// Open state keyed by sku.id (component-local). Mini bars consume
-// at.status directly from classifier (Round-2 fix #1) — no
-// in-component status derivation.
-
-export function DetailPerSku({ state }: { state: QuoteState }) {
-  const [open, setOpen] = useState<Record<string, boolean>>({});
-  const toggle = (id: string) =>
-    setOpen((o) => ({ ...o, [id]: !o[id] }));
-  return (
-    <div className="psr-detail-section">
-      <div className="section-head">
-        <h4>Per-SKU breakdown</h4>
-        <span className="meta">
-          {state.skus.length} SKUs · expand to see per-tier numbers
-        </span>
-      </div>
-      <div className="psr-sku-grid">
-        {state.skus.map((sku, i) => {
-          const isOpen = !!open[sku.id];
-          return (
-            <div
-              key={sku.id}
-              className={"psr-sku-card " + (isOpen ? "expanded" : "")}
-            >
-              <button
-                type="button"
-                className="psr-sku-summary"
-                onClick={() => toggle(sku.id)}
-                aria-expanded={isOpen}
-              >
-                <span className="idx">{String(i + 1).padStart(2, "0")}</span>
-                <span className="name-cell">
-                  <span className="name">{sku.name}</span>
-                  <span className="meta">
-                    <span>{sku.id}</span>
-                    <span className="sep">·</span>
-                    <span>worst tier: {fmtPct(sku.min_margin_pct)}%</span>
-                    {sku.client_target_unit != null && (
-                      <>
-                        <span className="sep">·</span>
-                        <span>
-                          client target ${sku.client_target_unit.toFixed(2)}
-                          /unit
-                        </span>
-                      </>
-                    )}
-                    {sku.over_client_target && (
-                      <>
-                        <span className="sep">·</span>
-                        <span className="over-target">
-                          over client target
-                        </span>
-                      </>
-                    )}
-                  </span>
-                </span>
-                <span className="psr-tier-strip">
-                  {sku.all_tiers.map((at) => {
-                    // Round-2 fix #1: consume classifier-assigned status;
-                    // no re-derivation.
-                    const status = at.status ?? "unknown";
-                    const h =
-                      at.margin_pct == null
-                        ? 4
-                        : Math.max(4, at.margin_pct * 40);
-                    return (
-                      <span
-                        key={at.tier_id}
-                        className={"bar " + status}
-                        style={{ height: h + "px" }}
-                        title={
-                          "T" +
-                          at.tier_id +
-                          " · " +
-                          fmtPct(at.margin_pct) +
-                          "%"
-                        }
-                      >
-                        <span className="lab">T{at.tier_id}</span>
-                      </span>
-                    );
-                  })}
-                </span>
-                <span className={"status-pill " + sku.status}>
-                  <span className="dot" />
-                  {sku.status.replace(/_/g, " ")}
-                </span>
-                <span className="psr-show-breakdown">
-                  <span className="twirl">▸</span>
-                  {isOpen ? "Hide breakdown" : "Show breakdown"}
-                </span>
-              </button>
-
-              {isOpen && <SkuBreakdown sku={sku} state={state} />}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────────
-// SkuBreakdown — per-tier rows for one SKU.
-// ──────────────────────────────────────────────────────────────────
-//
-// cell.status + cell.client_target_delta + cell.override_applied
-// all classifier-owned per Round-2 fix #1. Component reads via
-// state.cells.find for the (sku.id, tier.id) pair; never re-derives.
-//
-// Catch #5 hint: shared primitives (MarginVerdictPill /
-// MarginSparkline / TwoAxisVerdictPair / ReverseSolveDialog) stay
-// shipped. PSR v1 doesn't import them here per Pattern 28 (CD
-// prototype uses bd-row structure); if PM workflow surfaces a need
-// for them later (e.g., reverse-solve from SKU row), the primitives
-// are imported into the existing composition without re-shipping
-// the underlying components.
-
-export function SkuBreakdown({
-  sku,
-  state,
-}: {
-  sku: QuoteState["skus"][number];
-  state: QuoteState;
-}) {
-  const rows = state.quote.tiers.map((t) => {
-    const cell = state.cells.find(
-      (c) => c.sku_id === sku.id && c.tier_id === t.id,
-    );
-    return { tier: t, cell };
-  });
-  return (
-    <div className="psr-sku-breakdown">
-      <div className="bd-head">
-        <span>Tier</span>
-        <span className="num">Qty</span>
-        <span className="num">Unit cost</span>
-        <span className="num">Sell · unit</span>
-        <span className="num">Margin</span>
-        <span className="num">vs client target</span>
-        <span>Status</span>
-      </div>
-      {rows.map(({ tier, cell }) => {
-        if (!cell || cell.missing) {
-          return (
-            <div key={tier.id} className="bd-row unknown">
-              <span className="tier-cell">
-                <strong>T{tier.id}</strong>
-              </span>
-              <span className="num">{fmtQty(tier.qty)}</span>
-              <span className="num">—</span>
-              <span className="num">—</span>
-              <span className="num">—</span>
-              <span className="num">—</span>
-              <span>
-                <span className="row-pill unknown">
-                  <span className="dot" />
-                  awaiting raws
-                </span>
-              </span>
-            </div>
-          );
-        }
-        const delta = cell.client_target_delta;
-        const deltaCls =
-          delta == null ? "" : delta > 0 ? "over" : delta < 0 ? "under" : "";
-        return (
-          <div key={tier.id} className={"bd-row " + cell.status}>
-            <span className="tier-cell">
-              <strong>T{tier.id}</strong>
-              {cell.override_applied && (
-                <span className="ovr-chip">OVR</span>
-              )}
-            </span>
-            <span className="num">{fmtQty(tier.qty)}</span>
-            <span className="num">{fmtUsd2(cell.cost_unit)}</span>
-            <span className="num">{fmtUsd2(cell.sell_unit)}</span>
-            <span className="num strong">{fmtPct(cell.margin_pct)}%</span>
-            <span className={"num " + deltaCls}>
-              {delta == null
-                ? "—"
-                : (delta > 0 ? "+" : "") + "$" + delta.toFixed(2)}
-            </span>
-            <span>
-              <span className={"row-pill " + cell.status}>
-                <span className="dot" />
-                {cell.status.replace(/_/g, " ")}
-              </span>
-            </span>
-          </div>
-        );
-      })}
-      {sku.client_target_unit == null && (
-        <div className="bd-note">
-          No client target on file for this SKU — vs-target column shows —.
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────────
-// DetailMetaTiles — reference tiles. Folded into DETAIL per CD §4.3.
-// ──────────────────────────────────────────────────────────────────
-//
-// most_headroom_tier = tier with highest min_margin_pct across SKUs.
-// client_benchmark_count = count of SKUs with non-null
-// client_target_unit. Both selections from classifier-owned rollups
-// (state.tiers + state.skus); no in-component status derivation.
-
-export function DetailMetaTiles({ state }: { state: QuoteState }) {
-  const headroom = state.tiers
-    .filter((t) => t.min_margin_pct != null)
-    .reduce<TierRollup | null>(
-      (a, b) =>
-        a == null ||
-        (b.min_margin_pct != null &&
-          (a.min_margin_pct == null || b.min_margin_pct > a.min_margin_pct))
-          ? b
-          : a,
-      null,
-    );
-  const benchmarked = state.skus.filter(
-    (s) => s.client_target_unit != null,
-  ).length;
-  return (
-    <div className="psr-detail-section">
-      <div className="section-head">
-        <h4>Reference</h4>
-        <span className="meta">Diagnostic context · not action-adjacent</span>
-      </div>
-      <div className="psr-meta-tiles">
-        <div className="psr-meta-tile">
-          <div className="lab">Most headroom</div>
-          <div className="val">
-            {headroom
-              ? `Tier ${headroom.id} · ${fmtPct(headroom.min_margin_pct)}%`
-              : "—"}
-          </div>
-          <div className="sub">Highest worst-case margin across tiers</div>
-        </div>
-        <div className="psr-meta-tile">
-          <div className="lab">Client benchmark</div>
-          <div className="val">
-            {benchmarked} of {state.skus.length} SKUs priced against target
-          </div>
-          <div className="sub">Stated unit-price ceilings from client RFP</div>
-        </div>
-      </div>
     </div>
   );
 }
