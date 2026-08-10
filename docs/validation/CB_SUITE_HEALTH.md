@@ -575,6 +575,32 @@ What changed is that the failure is now visible and specific instead of hidden
 behind an unmeasured row. REG-1 is the register gate claiming V1 COMPLETE, and
 its browser evidence has still never passed.
 
+### `phase-2-component-freight` — closed as a workstream
+
+**The crash is fixed on `main`.** Extracted from this branch to a narrow hotfix
+and merged independently as **`954163d`** (PR #261): the `shipReads` thread into
+`ShipmentLedger`, plus `costs-renders-with-freight-shipment.spec.ts` — which
+asserts the blast radius (no error surface · Packaging trigger with real
+geometry) rather than the arithmetic, and asserts the ≥1-destination
+precondition so a fixture that lost its destinations cannot pass while proving
+nothing. Confirmed to fail without the one-line fix.
+
+PR #260 rebased onto the merged `main`. Exactly one `shipReads={shipReads}` at
+the call site; `verify:types` clean. The branch's own `221fd26` now carries only
+its record — the code hunk was correctly absorbed by `main`, so its subject line
+describes a finding whose repair now lives in #261.
+
+**Final scenario ledger — no product defect remains:**
+
+| scenario | verdict |
+|---|---|
+| worksheet break saves actual freight | **passes** |
+| Costs renders a shipment with ≥1 destination | **passes** — new regression, guards the crash |
+| 1/6/10 SKU scales | **stale expectation** — Add-line intentionally removed `a32d41a`, Business Authority 2026-08-06 |
+| nested comparison surface | **evidence drift** — 18 commits since the `051a7d5` baseline. Requires explicit Design Authority disposition. **Baseline not refreshed** |
+
+The visual baseline was **not** updated as a side effect of the hotfix.
+
 ### `phase-2-component-freight` ×3 — one cause, not three
 
 **RESOLVED to a product defect. The cause is a client render crash, not layout.**
