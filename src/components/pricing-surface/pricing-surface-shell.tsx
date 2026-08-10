@@ -54,6 +54,7 @@ import {
 import { usePricingClassifier } from "./pricing-classifier-context";
 import { ComplianceGrid } from "./compliance-grid";
 import { PricingTrace } from "./pricing-trace";
+import { useProvenantNodes } from "./pricing-provenance-context";
 import { StagingBar } from "./staging-bar";
 import { StagedDelta, StagedMarginDelta } from "./staged-delta";
 import { usePricingStaging } from "./pricing-staging-context";
@@ -465,6 +466,15 @@ export function PricingSurfaceShell({
     }
   }, [blendedByTier, tracedTierId]);
 
+  // A-2 · the trace reads the graph with attribution merged in. The merge is
+  // per-node and returns the same object where nothing resolved, so an
+  // unattributed graph is not copied and nothing re-renders for nothing.
+  const provenantNodes = useProvenantNodes(graph?.nodes ?? []);
+  const provenantGraph = useMemo(
+    () => (graph ? { ...graph, nodes: provenantNodes } : graph),
+    [graph, provenantNodes],
+  );
+
   const renderStackTrace = useCallback(() => {
     if (!traced) return null;
     // `.r11-tracewrap` is the canonical vocabulary for "the trace as an
@@ -476,14 +486,14 @@ export function PricingSurfaceShell({
     return (
       <div className="r11-tracewrap">
         <PricingTrace
-          graph={graph}
+          graph={provenantGraph}
           nodeKey={traced.nodeKey}
           title={traced.title}
           onClose={() => setTraced(null)}
         />
       </div>
     );
-  }, [graph, traced]);
+  }, [provenantGraph, traced]);
 
   return (
     <section className="psr-section">

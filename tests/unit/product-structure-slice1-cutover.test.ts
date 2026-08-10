@@ -74,6 +74,24 @@ const classifiedIdentityFiles = new Set([
   // address are not interchangeable, and a shared separator invites one to be
   // parsed as the other.
   "src/lib/pricing-apply-plan.ts",
+  // CLASSIFIED — the compatibility window made legible, and the one place both
+  // identities appear ON PURPOSE. A-2 asks who set a governed input; the graph
+  // addresses that input canonically while four of the thirteen writers record
+  // it against the legacy junction, so the lookup cannot be written without
+  // holding both and stating which is which.
+  //
+  // It is a BRIDGE, not a mapping it invents: every crossing is looked up in an
+  // index the loader built from real rows, and a miss resolves to `thin` rather
+  // than to a guess. An inferred id here would attribute one commercial line's
+  // price to another and read as an answer. Shrinks to nothing when the cost
+  // inputs re-key on quote_leaf_id (OD-017).
+  "src/lib/pricing-provenance.ts",
+  // CLASSIFIED — read-only, and the place the bridge is BUILT. Reads
+  // `quote_leaves` left-joined to `assembly_leaves` to learn, per SKU, both the
+  // canonical id and the legacy one the audit rows use. It resolves nothing on
+  // its own and writes nothing; it hands the pairs to the classifier, which is
+  // the only thing entitled to cross between them.
+  "src/app/actions/pricing-provenance.ts",
   "src/components/pricing-surface/pricing-staging-context.tsx",
   // CLASSIFIED — carries, does not resolve. The staging bar renders one chip
   // per pending change and hands each change's composite cell key to a

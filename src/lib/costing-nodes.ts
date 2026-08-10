@@ -131,6 +131,32 @@ export type NodeCandidate = {
   chosen: boolean;
   /** Why this rung was unavailable. Null when it was available. */
   unavailableReason: string | null;
+  /**
+   * A-2 · the address of the AUTHORITY that set this rung, in the key grammar.
+   *
+   * The engine knows which authority each rung came from — it is what makes a
+   * ladder a ladder — so naming it costs nothing and is not a lookup. The
+   * provenance layer classifies this address exactly as it classifies any
+   * terminal's key, which is what keeps the resolver from having to match on
+   * `label` and quietly break the day someone improves the wording.
+   *
+   * Absent on rungs whose authority has no record to point at.
+   */
+  provenanceKey?: string;
+  /**
+   * A-2 · who set this rung's value, and when.
+   *
+   * **Filled by the provenance overlay, never by the engine.** The engine is
+   * pure and cannot read the audit trail; a field it populated would be a
+   * guess. Absent means the overlay has not run or found nothing, and absent
+   * must render as unattributed rather than as blank-but-sourced.
+   *
+   * This closes the model gap A-2 recorded: a resolution ends a chain
+   * legitimately, but the value it resolves TO was still set by somebody, and
+   * `NodeCandidate` had nowhere to say so. R10's `Resolution` renders
+   * `node.chosen.origin`; this is that field.
+   */
+  origin?: NodeOrigin;
 };
 
 /** Event-time provenance for a terminal. Read from the audit trail, never
@@ -1030,8 +1056,18 @@ export function resolveNodes(
  * key grammar — a mistyped key is indistinguishable from a missing node.
  */
 /** Address a quote-wide fact: `quote-wide/{name}`. */
-export function quoteWideKey(name: string): string {
-  return nodeKey(QUOTE_WIDE_PREFIX, name);
+/**
+ * `quote-wide/{name}` — and, for a resolution's rungs, `.../{authority}`.
+ *
+ * The extra segment addresses WHICH AUTHORITY set a candidate's value, not a
+ * new node. A-2 needs it because a resolution node has no author (nobody sets
+ * a choice) while its winning rung does, and the two must be addressable
+ * separately or provenance attaches to the wrong thing.
+ */
+export function quoteWideKey(name: string, authority?: string): string {
+  return authority === undefined
+    ? nodeKey(QUOTE_WIDE_PREFIX, name)
+    : nodeKey(QUOTE_WIDE_PREFIX, name, authority);
 }
 
 export function quoteScopeKey(tierId: string, name: string): string {

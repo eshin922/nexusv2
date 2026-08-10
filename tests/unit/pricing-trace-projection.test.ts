@@ -229,13 +229,17 @@ test("origin terminals carry a grade, and thin is a complete answer", () => {
   assert.ok(origins > 0, "the fixture must exercise at least one terminal");
 });
 
-test("the trace states the A-2 gap rather than inventing an actor", () => {
+test("an unattributed terminal says so rather than inventing an actor", () => {
+  // A-2 landed the lookup, so the copy changed — but the property did not.
+  // Thin still has to READ as thin. The two causes it can have (set before the
+  // audit trail existed, or nothing writes one at all) are both "no recorded
+  // author", and neither is a blank to fill.
   assert.ok(
     /not yet attributed/.test(SRC),
     "an unattributed terminal must say so",
   );
   assert.ok(
-    /provenance for this input type is not yet queryable/.test(SRC),
+    /no recorded author for this input/.test(SRC),
     "and must name why, so a thin terminal does not read as a broken one",
   );
   assert.ok(
@@ -265,41 +269,41 @@ test("an override shows the chain it replaced, demoted but reachable", () => {
 
 // ───────────────────────────────────────────────────────── a recorded gap
 
-test("KNOWN GAP: a resolution's chosen rung carries no provenance node", () => {
-  // Surfaced by writing the "every path ends in a human act" test above and
-  // watching it fail on `quote-wide/target-margin`.
+test("a resolution's chosen rung can now carry provenance — the gap is closed", () => {
+  // This test used to assert the OPPOSITE, and its note said: "when the gap
+  // closes this test fails, and whoever closes it updates the note rather than
+  // leaving a stale known-limitation behind." A-2 closed it; this is that
+  // update.
   //
-  // A resolution ends a path legitimately (§4 rule 6) — but the value it
-  // resolves TO was still set by somebody. The firm's target margin lives in
-  // `firm_settings`, entered by a person, and the chain cannot say so, because
-  // `NodeCandidate` has no provenance slot: `{ label, value, chosen,
-  // unavailableReason }`.
+  // The gap was never a missing query. It was a missing FIELD: `NodeCandidate`
+  // was `{ label, value, chosen, unavailableReason }`, so even with the lookup
+  // written a rung had nowhere to hold the answer. R10's `Resolution` renders
+  // `node.chosen.origin` and ours had no such thing.
   //
-  // The R10 prototype expects otherwise — its `Resolution` renders
-  // `node.chosen.origin` and stops with "a firm setting is a human decision".
-  // Ours has nowhere to put that.
+  // Two fields close it, and the second is the one that makes it safe:
   //
-  // A-2-ADJACENT, BUT NOT A-2. A-2 is a missing QUERY: the audit rows exist and
-  // nobody has written the lookup. This is a missing FIELD — even with the
-  // query written, a candidate could not hold the answer. Closing it means
-  // either a provenance slot on `NodeCandidate` or an `origin` operand beneath
-  // the chosen rung.
+  //   origin          where the answer goes
+  //   provenanceKey   WHICH AUTHORITY set this rung, in the key grammar
   //
-  // Asserted as it stands so the record cannot rot: when the gap closes this
-  // test fails, and whoever closes it updates the note rather than leaving a
-  // stale "known limitation" behind.
+  // Without the address the resolver would have to match on `label`, and the
+  // day someone improved the wording of "Firm default" the firm's target margin
+  // would silently stop being attributable.
   const target = resolveNode(R.graph.nodes, "quote-wide/target-margin")!;
   assert.equal(target.kind, "resolution");
-  const chosen = (target.candidates ?? []).filter((c) => c.chosen);
+  const candidates = target.candidates ?? [];
+  const chosen = candidates.filter((c) => c.chosen);
   assert.equal(chosen.length, 1);
-  assert.ok(
-    !("origin" in chosen[0]),
-    "a candidate now carries provenance — render it in the trace's Resolution " +
-      "and rewrite this test",
+
+  // Every rung names its authority, not only the winner — a losing rung is what
+  // makes the winner legible, and an operator comparing them wants both.
+  assert.deepEqual(
+    candidates.map((c) => c.provenanceKey),
+    ["quote-wide/target-margin/quote-override", "quote-wide/target-margin/firm-default"],
   );
-  assert.equal(
-    target.operands,
-    undefined,
-    "no origin operand beneath the resolution either",
-  );
+
+  // The ENGINE still leaves `origin` empty, and must. It is pure and cannot
+  // read the audit trail; a value it filled would be a guess. The overlay fills
+  // it, which is why provenance survives the client rebuilding the graph on
+  // every optimistic edit.
+  assert.equal(chosen[0].origin, undefined, "the engine must not fabricate provenance");
 });

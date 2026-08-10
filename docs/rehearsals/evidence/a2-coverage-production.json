@@ -1,0 +1,193 @@
+{
+ "quoteId": "2f29af72-805b-446c-866c-73e9b0991b1a",
+ "cost": {
+  "ms": 357,
+  "auditRows": 16,
+  "entityIds": 41
+ },
+ "terminalsWalked": 203,
+ "unclassifiedTerminals": 117,
+ "unclassifiedShapes": [
+  {
+   "shape": "quote/{tier}/per-unit",
+   "count": 30
+  },
+  {
+   "shape": "quote/{tier}/cost-stack",
+   "count": 18
+  },
+  {
+   "shape": "quote/{tier}/pkg",
+   "count": 9
+  },
+  {
+   "shape": "quote/{tier}/prod",
+   "count": 9
+  },
+  {
+   "shape": "quote/{tier}/raw",
+   "count": 9
+  },
+  {
+   "shape": "quote/{tier}/frt",
+   "count": 9
+  },
+  {
+   "shape": "quote/{tier}/dt",
+   "count": 9
+  },
+  {
+   "shape": "quote/{tier}/sell",
+   "count": 9
+  },
+  {
+   "shape": "quote/{tier}/cost",
+   "count": 9
+  },
+  {
+   "shape": "quote/{tier}/revenue",
+   "count": 3
+  },
+  {
+   "shape": "quote/{tier}/cost-total",
+   "count": 3
+  }
+ ],
+ "coverage": [
+  {
+   "inputType": "packaging_line_cost",
+   "entityType": "assembly_leaf_input",
+   "terminals": 9,
+   "sourced": 9,
+   "thin": 0,
+   "sampleActor": "Ed Shin",
+   "noAuditRowsAtAll": false
+  },
+  {
+   "inputType": "packaging_line_markup",
+   "entityType": "assembly_leaf_input_line",
+   "terminals": 0,
+   "sourced": 0,
+   "thin": 0,
+   "sampleActor": null,
+   "noAuditRowsAtAll": false
+  },
+  {
+   "inputType": "production_service_fee",
+   "entityType": "assembly_production_input",
+   "terminals": 39,
+   "sourced": 26,
+   "thin": 13,
+   "sampleActor": "Ed Shin",
+   "noAuditRowsAtAll": false
+  },
+  {
+   "inputType": "production_policy",
+   "entityType": "assembly",
+   "terminals": 0,
+   "sourced": 0,
+   "thin": 0,
+   "sampleActor": null,
+   "noAuditRowsAtAll": true
+  },
+  {
+   "inputType": "freight_component_cost",
+   "entityType": "freight_component_input",
+   "terminals": 0,
+   "sourced": 0,
+   "thin": 0,
+   "sampleActor": null,
+   "noAuditRowsAtAll": true
+  },
+  {
+   "inputType": "worksheet_freight_amount",
+   "entityType": "freight_destination",
+   "terminals": 18,
+   "sourced": 9,
+   "thin": 9,
+   "sampleActor": "Ed Shin",
+   "noAuditRowsAtAll": false
+  },
+  {
+   "inputType": "freight_markup",
+   "entityType": "quote",
+   "terminals": 18,
+   "sourced": 0,
+   "thin": 18,
+   "sampleActor": null,
+   "noAuditRowsAtAll": true
+  },
+  {
+   "inputType": "customs_rate",
+   "entityType": "freight_leg",
+   "terminals": 0,
+   "sourced": 0,
+   "thin": 0,
+   "sampleActor": null,
+   "noAuditRowsAtAll": true
+  },
+  {
+   "inputType": "sell_price_override",
+   "entityType": "assembly_leaf_override",
+   "terminals": 0,
+   "sourced": 0,
+   "thin": 0,
+   "sampleActor": null,
+   "noAuditRowsAtAll": true
+  },
+  {
+   "inputType": "client_target",
+   "entityType": "assembly_leaf_target",
+   "terminals": 0,
+   "sourced": 0,
+   "thin": 0,
+   "sampleActor": null,
+   "noAuditRowsAtAll": true
+  },
+  {
+   "inputType": "applied_lift",
+   "entityType": "quote_leaf_lift",
+   "terminals": 0,
+   "sourced": 0,
+   "thin": 0,
+   "sampleActor": null,
+   "noAuditRowsAtAll": true
+  },
+  {
+   "inputType": "tier_price_adj",
+   "entityType": "quote_tier",
+   "terminals": 0,
+   "sourced": 0,
+   "thin": 0,
+   "sampleActor": null,
+   "noAuditRowsAtAll": true
+  },
+  {
+   "inputType": "global_price_adj",
+   "entityType": "quote",
+   "terminals": 0,
+   "sourced": 0,
+   "thin": 0,
+   "sampleActor": null,
+   "noAuditRowsAtAll": true
+  },
+  {
+   "inputType": "quote_target_margin",
+   "entityType": "quote",
+   "terminals": 1,
+   "sourced": 0,
+   "thin": 1,
+   "sampleActor": null,
+   "noAuditRowsAtAll": true
+  },
+  {
+   "inputType": "firm_margin_policy",
+   "entityType": "firm_settings",
+   "terminals": 1,
+   "sourced": 1,
+   "thin": 0,
+   "sampleActor": "Ed Shin",
+   "noAuditRowsAtAll": false
+  }
+ ]
+}
