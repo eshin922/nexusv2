@@ -10,6 +10,12 @@ convention, two-axis model and ID scheme are frozen there and are not restated.
 
 **Nature:** release-risk discovery. **No row proposes an implementation.**
 
+**Status: accepted 2026-08-10. This matrix is the governing release artifact.**
+Release work runs from the **six distinct blockers** on the
+[V1 Release Blocker Board](v1-release-blocker-board.md), not from the finding
+count. **Completed rows are not reopened.** Closing a blocker amends only the
+affected rows — the matrix is never re-run, and an amended row keeps its ID.
+
 ---
 
 ## Result
