@@ -372,6 +372,44 @@ rather than to the context region, and keep the negative assertion — that
 `Validation draft assembly` does not appear — scoped to the region, since that
 one *is* about the strip's contents.
 
+**Repair completed, rerun, and it now reaches the vendor-save boundary.**
+
+The first repair pass removed the disclosure click but left the leaf assertions
+scoped to the context region — half the instruction, and the failure that
+produced was avoidable. Completed: the two leaf assertions read the **page**,
+which is the container that renders every SKU. The negative assertion stayed on
+the region, because that one genuinely is about the strip's contents — the
+anchor context names a leaf, never the assembly above it, and widening it would
+assert the assembly is absent from a surface entitled to render it.
+
+**VAL-104 now clears everything it has ever failed on** and runs deep into the
+governed Pricing Vendor flow — identity block, scenario context, vendor search
+including the empty-state copy *"No eligible HubSpot Vendors match…"*, and a
+successful search round-trip for `Contract`. It stops at `spec:537`, waiting for
+the save response after selecting `Validation Contract Manufacturer`:
+
+```
+Error: page.waitForResponse: Test timeout of 90000ms exceeded.
+```
+
+**Newly observed boundary — and it is the first that is plausibly about the
+product.** Every earlier one was a stale expectation. This one is a save that
+does not arrive.
+
+**Not classified.** The evidence does not yet separate two candidates, and they
+have different owners:
+
+- the option never became selectable, so the click is what is pending — a
+  harness or rendering question;
+- the click fired and **no save POST followed** — a product defect in the
+  governed vendor-save path.
+
+`waitForResponse` is reported at the line where the promise was created, not
+where execution is parked, so the artifact alone cannot tell them apart. The
+next step is narrow and follows the same discipline as the disclosure
+investigation: establish whether the option exists and is actionable **before**
+reasoning about the save.
+
 **Consequence for REG-1.** Its browser evidence has now failed three times for
 three reasons, none of them the product: fixture contamination, a hardcoded
 literal, and an expectation of a removed control. It stays **Insufficient
@@ -395,7 +433,7 @@ its browser evidence has still never passed.
 | scenario | classification |
 |---|---|
 | VAL-101 | **harness** — cross-project fixture contamination |
-| VAL-104 *(was unmeasured)* | **test issue ×3** — hardcoded runId literal (fixed) · expectation of the removed *Other SKUs* control (fixed) · leaf assertions scoped to the anchor-SKU strip rather than the page |
+| VAL-104 *(was unmeasured)* | **test issue ×3, all fixed** — runId literal · removed *Other SKUs* control · leaf assertions mis-scoped. Now reaches the **vendor-save boundary** at `spec:537`, **unclassified** and the first candidate product defect |
 | VAL-103 *(was unmeasured)* | **harness** — non-deterministic CDP race |
 | VAL-208 bulk pricing lift | not yet classified |
 | costs-reconciliation-ordering | not yet classified |

@@ -473,8 +473,21 @@ test("VAL-104 governed Pricing Vendor persists without exposing dormant Pricing 
   const scenarioContext = page.getByRole("region", {
     name: "SKU + scenario context",
   });
-  await expect(scenarioContext.getByText("Validation Leaf 2")).toBeVisible();
-  await expect(scenarioContext.getByText("Validation Leaf 3")).toBeVisible();
+  // Scoped to the PAGE, not to the context strip. The strip is an anchor-SKU
+  // context — `VAL-…-1 — anchor SKU · Validation Leaf 1 · 2 tiers` plus a
+  // Switch scenario link — and was never a roster. The region scope was
+  // inherited from when the removed disclosure expanded inside it; with the
+  // control gone, the container that renders every SKU is the page, which is
+  // what the §6.b rationale said it would be.
+  //
+  // The capability is unchanged: the other SKUs in this scenario are visible
+  // from here.
+  await expect(page.getByText("Validation Leaf 2").first()).toBeVisible();
+  await expect(page.getByText("Validation Leaf 3").first()).toBeVisible();
+  // Stays on the REGION. This one genuinely is about the strip's contents —
+  // the anchor context names a leaf, never the assembly above it — and
+  // widening it to the page would assert the assembly is absent from a surface
+  // that has every right to render it.
   await expect(
     scenarioContext.getByText("Validation draft assembly"),
   ).toHaveCount(0);
