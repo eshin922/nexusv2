@@ -452,6 +452,46 @@ that may implicate the product" has not been reached.
 **The probe is an instrument, not coverage.** It is marked for removal once the
 cause is settled, and it does change the suite count while present.
 
+**Eligibility boundary resolved 2026-08-10 — fixture/test expectation defect.**
+
+**The eligible set.** `searchPricingVendors` delegates to
+`hubspot.searchVendors`, and under `NEXUS_HUBSPOT_PROVIDER=isolated` that is
+`tests/harness/providers/fake-hubspot.ts`, which filters a seeded `vendors`
+array by case-insensitive substring. **The eligible set is the fixture's vendor
+list**, not a database query.
+
+**Is `Validation Contract Manufacturer` in it? No.** The seeded vendors include
+`Validation Packaging Vendor` — the one VAL-104 correctly asserts as the
+pre-existing selection — and the string `Validation Contract Manufacturer`
+appears **nowhere in `src/`, `tests/harness/` or `scripts/`.** It exists only in
+two spec files: VAL-104 itself, and the probe written to chase it.
+
+**Governing reason for exclusion:** none. It is not excluded by an eligibility
+rule — it was never created. A substring search for `Contract` over a vendor
+list containing no vendor with `Contract` in its name correctly returns zero.
+
+**Classification: fixture/test expectation defect.** The projection is behaving
+correctly; the scenario selects a vendor the fixture world does not provide, and
+then asserts `pricing_vendor_name_snapshot: "Validation Contract Manufacturer"`
+in the database afterwards. The fixture **is** meant to satisfy the eligibility
+contract here — it supplies the first vendor and not the second.
+
+**Not a product defect in the eligibility-to-combobox projection**, which was
+the alternative branch. And **save wiring remains unexamined**: the vendor has
+still not been proven renderable, so nothing downstream of it can be
+investigated yet.
+
+**Fifth stale assumption in this one path**, after the runId literal, the removed
+disclosure control, the mis-scoped leaf assertions, and the full-name search
+term.
+
+**Remediation shape — a fixture-world change, so not made unilaterally.** Either
+add `Validation Contract Manufacturer` to the fake provider's vendor set, which
+preserves the scenario's intent (switch from one governed vendor to another), or
+retarget the scenario at a vendor that exists. The first is truer to what
+VAL-104 is testing; both alter the fixture world and therefore the baseline, and
+that is a decision to take deliberately rather than fold into a repair.
+
 **Consequence for REG-1.** Its browser evidence has now failed three times for
 three reasons, none of them the product: fixture contamination, a hardcoded
 literal, and an expectation of a removed control. It stays **Insufficient
