@@ -3590,25 +3590,82 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       operands: componentBlends,
     });
 
+    // ---------- OD-019 (d\u2032) \u00b7 the tier margin ----------
+    //
+    // The container used to be a `sum` of blended sell and blended cost, with a
+    // comment conceding the problem: "sell and cost do not add to anything
+    // meaningful. Value is the sum of its operands so the node reconciles
+    // honestly rather than asserting a figure with no interpretation."
+    //
+    // It reconciled and it meant nothing. Pattern 57 one layer below where that
+    // rule was written \u2014 a node asserting a value nobody governs is the same
+    // error as a stack row doing it, and "it reconciles" is not the test.
+    //
+    // The two blends it held are exactly what a margin needs, so the container
+    // now holds the margin and they move beneath it. Each has ONE parent chain:
+    // sharing them with another root would make `resolveNode` return null for
+    // both, and the Cost Stack reads `quote/{tier}/sell`.
+    //
+    //   quote/{tier}                    container \u2014 the tier's governed subtree
+    //   \u2514\u2500 quote/{tier}/margin           ratio        \u2190 the consumer-facing key
+    //      \u2514\u2500 quote/{tier}/margin/gross  difference
+    //         \u251c\u2500 quote/{tier}/sell       blended sell per unit
+    //         \u2514\u2500 quote/{tier}/cost       blended cost per unit
+    //
+    // No zero-weight guard here: that branch returned above, so totalWeight is
+    // strictly positive. Blended SELL can still be zero \u2014 a tier of unpriced
+    // cells has weight but no price \u2014 and a ratio over it is undefined, so that
+    // case is flagged-out rather than published as 0%.
+    const sellBlend = blend("sell", "Blended sell per unit", (pt) => pt.requiredSellPerUnit);
+    const costBlend = blend("cost", "Blended cost per unit", (pt) => pt.contributionCostPerUnit);
+
+    const marginNode: CostingNode =
+      sellBlend.value > 0
+        ? {
+            key: nodeKey(blendBase, "margin"),
+            kind: "ratio",
+            label: "Blended margin \u00b7 " + tier.label,
+            value: (sellBlend.value - costBlend.value) / sellBlend.value,
+            unit: "pct",
+            op: "(blended sell \u2212 blended cost) \u00f7 blended sell",
+            // The denominator is DATA, not a second operand. Making it one
+            // would put `sell` under two parents and resolve it to nothing.
+            basis: { label: "Blended sell per unit", value: sellBlend.value },
+            operands: [
+              {
+                key: nodeKey(blendBase, "margin", "gross"),
+                kind: "difference",
+                label: "Gross margin per unit",
+                value: sellBlend.value - costBlend.value,
+                unit: "usd",
+                op: "blended sell \u2212 blended cost",
+                operands: [sellBlend, costBlend],
+              },
+            ],
+          }
+        : {
+            key: nodeKey(blendBase, "margin"),
+            kind: "flagged-out",
+            label: "Blended margin \u00b7 " + tier.label,
+            value: 0,
+            unit: "pct",
+            reason:
+              "Blended sell is zero, so a margin is undefined. A ratio valued " +
+              "zero would assert a margin of nothing rather than the absence " +
+              "of one.",
+          };
+
     graphNodes.push({
       key: blendBase,
       kind: "sum",
-      label: "Quote blend · " + tier.label,
-      // A container for the two blends, not an arithmetic claim of its own —
-      // sell and cost do not add to anything meaningful. Value is the sum of
-      // its operands so the node reconciles honestly rather than asserting a
-      // figure with no interpretation.
-      // No zero-weight guard here: the branch above returned already, so
-      // totalWeight is strictly positive by the time this runs.
-      value:
-        contributors.reduce((a, c) => a + c.pt.requiredSellPerUnit * c.weight, 0) / totalWeight +
-        contributors.reduce((a, c) => a + c.pt.contributionCostPerUnit * c.weight, 0) / totalWeight,
-      unit: "usd",
-      op: "blended sell + blended cost",
-      operands: [
-        blend("sell", "Blended sell per unit", (pt) => pt.requiredSellPerUnit),
-        blend("cost", "Blended cost per unit", (pt) => pt.contributionCostPerUnit),
-      ],
+      label: "Quote blend \u00b7 " + tier.label,
+      // A container, and now one that carries a quantity somebody governs. The
+      // sum of a single operand is that operand \u2014 arithmetically trivial and
+      // honestly reconciled, where the previous value was neither.
+      value: marginNode.value,
+      unit: marginNode.unit,
+      op: "tier margin",
+      operands: [marginNode],
     });
   }
 

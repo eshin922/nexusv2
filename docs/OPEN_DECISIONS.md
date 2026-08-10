@@ -472,6 +472,247 @@ the third instance of the same shape, and consistency is itself the argument.
 
 ---
 
+#### Refinement raised at implementation time (2026-08-09)
+
+**Accepted 2026-08-09**, and one detail the analysis above did not reach.
+Surfaced by starting the emission, not by re-reading the spec.
+
+**The numerator's operands would be shared nodes.** At tier scope the two
+values a margin needs already exist as ROOTS of the graph:
+
+```
+quote/{tier}/revenue        sum, root
+quote/{tier}/cost-total     sum, root
+```
+
+Building `difference(revenue, cost-total)` beneath the margin means those two
+node objects are reachable from two roots — their own, and the margin's. The
+recommendation above rejected making revenue a direct operand of the ratio on
+exactly this ground, citing §4 rule 5: *"arithmetic nodes may not be shared, or
+reconciliation double-counts."* Using `basis` avoided one sharing. It did not
+avoid the other, and the analysis did not notice.
+
+**What the rule actually protects against, and whether it bites here.**
+
+Rule 5's stated rationale is double-counting under reconciliation. That happens
+when one node is an operand of a summing parent twice — the sum counts it
+twice and the assertion still passes, because both the sum and the operands
+agree. Here nothing sums across the two positions: revenue is a root in its own
+right and a numerator input in the other, and no node has both as operands.
+
+`findGraphViolations` would also not flag it. It is called per root with a
+fresh `seenKeys`, so cross-root sharing is invisible to it. **That is not
+evidence the sharing is fine** — it means the existing check was written for
+within-chain duplication and has nothing to say about this case.
+
+**Three ways to resolve it, and the choice is not obvious:**
+
+| | Consequence |
+|---|---|
+| **(a) Permit cross-root sharing**, and narrow rule 5 to within-chain | Honest if the rationale really is double-counting. Requires amending a stated rule on the strength of its rationale, which is exactly the kind of reasoning that should be explicit rather than assumed |
+| **(b) Emit margin-local copies** of revenue and cost under the margin subtree | No sharing, no rule change — but two nodes carrying the same value under different keys, which is duplicated arithmetic wearing a different name. Trades a rule violation for the thing the rule exists to prevent |
+| **(c) Ratio takes the numerator as `basis` too** — margin as a terminal-ish node with both inputs as data | Simplest, and consistent with `rate`. Cost: the numerator stops being traversable, so the trace cannot expand "why is the gross margin what it is" — which is a real loss on the one surface built to answer that |
+
+#### Boundary check (2026-08-09) — (a) is not a rule amendment, it is a break
+
+Requested before rule 5 changes. The answer is unambiguous and it withdraws
+the recommendation above.
+
+**`resolveNode` walks every root and returns null unless EXACTLY ONE node
+matches.**
+
+```ts
+for (const root of nodes) walkGraph(root, (n) => { if (n.key === key) matches.push(n); });
+return matches.length === 1 ? matches[0] : null;
+```
+
+A node reachable from two roots is therefore seen twice and resolves to
+**nothing**. Its own doc already states the architecture in terms that settle
+the question: *"a node cannot be both a root and an operand without
+double-counting under reconciliation."*
+
+| Surface | Effect of cross-root sharing |
+|---|---|
+| `resolveNode` | Two matches → **null** |
+| `readNodeValue` | Delegates → **null**. Every existing read of `quote/{tier}/revenue` and `cost-total` **blanks** |
+| `findGraphViolations` | Runs per root with a fresh `seenKeys` → **reports nothing** |
+| Trace traversal | `resolveNode` → null → renders *"This number cannot be traced"* |
+| Entry-at-node | Pressing a cell whose key is shared opens the fail-closed panel |
+
+**The two mechanisms would disagree**, which is worse than either being wrong:
+the validator would pronounce the graph healthy while every reader treated
+those keys as unresolvable. Nothing would throw. Values would simply stop
+appearing.
+
+So the question the boundary check was meant to answer is answered: **multi-parent
+graph nodes are not an intended architectural property.** The reader already
+treats a second sighting as a graph-integrity failure — deliberately, and that
+fail-closed behaviour is load-bearing for duplicate keys generally. Relaxing it
+to accommodate one kind would remove the protection everywhere to buy a margin
+node.
+
+**(a) is withdrawn.** Not because rule 5 is sacred, but because the rule is not
+the binding constraint — the readers are, and they are right.
+
+---
+
+#### Option (d) — the container already exists, and is currently meaningless
+
+Raised by the second half of the check: can `quote/{tier}` own revenue, cost and
+margin in one subtree?
+
+It can, and inspecting it turns up something separate and worth fixing anyway.
+**`quote/{tier}` today is a `sum` of sell and cost:**
+
+```
+quote/{tier}   sum   value 25.4   operands = [ quote/{tier}/sell (15.4),
+                                               quote/{tier}/cost (10.0) ]
+```
+
+Per-unit sell plus per-unit cost is **not a commercial quantity.** Nobody
+governs 25.4; it is the sum of two numbers that answer different questions. It
+reconciles, so no check objects, and **no consumer reads it** — `quoteScopeKey`
+requires a name argument, so a bare container key cannot even be constructed
+through the helper.
+
+This is Pattern 57 one layer down from where that rule was written: *a financial
+stack contains only independently governed commercial quantities*. The rule was
+banked about ROWS; the same test applies to a node that asserts a value.
+
+> **SUPERSEDED by the structural sweep below.** Two claims in this section are
+> wrong: the bare key IS read (by `verify-blend-population` and a unit test,
+> both via raw-string lookup), and it roots the entire blend subtree. The
+> corrected proposal is (d′).
+
+**The proposal (as first written): `quote/{tier}` becomes the margin.**
+
+```
+quote/{tier}/margin              ratio        basis { "Revenue per unit", 15.4 }
+  └─ quote/{tier}/margin/gross   difference
+       ├─ quote/{tier}/sell      (moves here — sole parent)
+       └─ quote/{tier}/cost      (moves here — sole parent)
+```
+
+- **No sharing.** `sell` and `cost` have exactly one parent chain. They move
+  from the meaningless sum into the difference that actually uses them.
+- **No rule change.** Rule 5 stands as written.
+- **Fully traversable.** The numerator expands, so the trace answers *"why is
+  the gross margin what it is"* — the loss that ruled out carrying it as
+  `basis`.
+- **It removes a node asserting a quantity nobody governs**, rather than adding
+  one beside it.
+
+The denominator stays `basis` — data, not a node — so revenue appears once as a
+value and never twice as a node. That is the same resolution `rate` uses, and
+the reason is unchanged.
+
+**Cell and quote-wide scope follow the same shape**, each with its own basis.
+Whether a comparable meaningless container exists at those scopes has not been
+inspected; if not, the margin is simply a new root there and nothing is
+displaced.
+
+**What (d) costs.** Removing `quote/{tier}`'s current sum is a graph-shape
+change. No consumer reads the key, but tests may assert the node exists, and
+that has not been swept. The graph is not in the S-7 payload, so **no commercial
+scalar moves.**
+
+---
+
+#### Structural sweep (2026-08-09) — the bare key IS used, and my claim was wrong
+
+Required before changing graph shape. It found two readers, and both invalidate
+the sentence *"no consumer reads it"* in the section above.
+
+**I searched for reads through `quoteScopeKey`, which cannot express a bare key,
+and concluded there were none.** Both real readers use a raw-string lookup:
+
+| Reader | What it reads |
+|---|---|
+| `scripts/gate-1b/verify-blend-population.ts:55` | `graph.nodes.find(n => n.key === \`quote/${tier.tierId}\`)`, then `.kind === "flagged-out"` |
+| `tests/unit/costing-node-graph.test.ts:1076` | the same key, asserting kind, value and reason on a zero-quantity tier |
+
+The helper-shaped grep proved only that nothing reads it THROUGH THE HELPER.
+That is a narrower statement than the one I made, and the difference is exactly
+the kind of gap a sweep exists to catch.
+
+**The key carries two shapes, and only one is meaningless.**
+
+```
+tier quantity > 0   →  sum, value 25.4        sell + cost. Not a commercial quantity.
+tier quantity = 0   →  flagged-out, value 0   "a units-weighted blend is undefined"
+```
+
+The second is load-bearing and correct — it is how the graph states that twelve
+production tiers have no blend, and `verify-blend-population` uses it to assert
+that no readable blend is exposed on an undefined tier.
+
+**It is also the root of the whole blend subtree**, which the earlier inspection
+missed:
+
+```
+quote/{tier}                      sum   (sell + cost)   ← the meaningless value
+├─ quote/{tier}/sell              sum
+│    └─ quote/{tier}/sell/{leaf}  …and the per-component blends beneath
+└─ quote/{tier}/cost              sum
+```
+
+`quote/{tier}/sell` is read by the Cost Stack (`read("sell")` in
+`pricing-surface-shell`). Removing the container outright would orphan that
+subtree and break the undefined-tier contract. **"Remove it" was the wrong
+proposal**, and the sweep is what turned it up rather than a smoke test after
+the fact.
+
+---
+
+#### Revised (d) — retire the VALUE, keep the container, add the explicit key
+
+The container stays, because two things depend on it. What is retired is the
+`sell + cost` sum — the number nobody governs.
+
+```
+quote/{tier}                        container, one operand
+└─ quote/{tier}/margin              ratio        basis { "Revenue per unit", 15.4 }
+   └─ quote/{tier}/margin/gross     difference
+      ├─ quote/{tier}/sell          sole parent — moved, subtree intact
+      └─ quote/{tier}/cost          sole parent — moved
+```
+
+- **`quote/{tier}/margin` is an explicit canonical key**, as directed — not the
+  bare key repurposed.
+- **No sharing.** `sell` and `cost` each have exactly one parent chain. They
+  move from the meaningless sum into the difference that uses them.
+- **Nothing is orphaned.** The blend subtree hangs beneath `sell` as it does
+  today, one level deeper. `resolveNode` still finds each key exactly once, so
+  the Cost Stack's reads are unaffected.
+- **No key becomes ambiguous.** Every key in the subtree is unchanged; only its
+  depth moves.
+- **The zero-weight contract is untouched.** On a zero-quantity tier the
+  container is still `flagged-out` with its reason, so `verify-blend-population`
+  and the unit test keep passing unchanged.
+- **The container's value becomes the margin's** rather than sell + cost.
+  Nothing reads that value: both readers inspect `kind`, and the unit test
+  asserts a value only on the flagged-out branch.
+
+**What still needs checking at implementation time**, listed rather than
+assumed: whether any verifier walks the container expecting exactly two
+operands, and whether `graphIsComplete` or the required-section list treats the
+quote scope in a way this depth change disturbs. Both are cheap to check and
+neither is known to be a problem.
+
+---
+
+#### Viable representations, restated
+
+| | Verdict |
+|---|---|
+| (a) Permit cross-root sharing | **Rejected.** Breaks `resolveNode`, `readNodeValue`, trace and entry-at-node; blanks two live keys; would require removing a fail-closed protection that exists for good reason |
+| (b) Margin-local copies | Available, poor — duplicated arithmetic under a synonym |
+| (c) Numerator as `basis` | Available — costs traversability on the surface built for traversal |
+| ~~(d) `quote/{tier}` becomes the margin~~ | **Superseded by the sweep.** The bare key has two readers and roots the blend subtree |
+| **(d′) Container retained, its VALUE retired, `quote/{tier}/margin` added beneath it** | **Recommended.** No sharing, no rule change, fully traversable, nothing orphaned, zero-weight contract intact — and the meaningless sum still goes |
+
+---
+
 #### What settles it
 
 Edward + CA confirm or reject the `ratio` contract above. If confirmed,

@@ -107,38 +107,20 @@ test("a percentage node converts to points, and stays a subtraction", () => {
   assert.ok(Math.abs(d.delta - (d.preview - d.committed)) < 1e-9);
 });
 
-test("RECORDED GAP: there is no margin node, so margin deltas are not yet a join", () => {
-  // §3 asks for the delta on "margin in points" alongside the component rows
-  // and quoted sell. The first two are joins on canonical keys and work today.
-  // The third has nothing to join: no node in the graph carries a margin.
+test("the margin delta is a join, now that a margin node exists", () => {
+  // Was a RECORDED GAP: no node carried a margin, so §3's margin-in-points
+  // delta had nothing to join. Closed by OD-019 (d′) — a generic `ratio`
+  // kind with the denominator as `basis`, emitted at `quote/{tier}/margin`.
   //
-  // Adding one is not an implementation detail. A margin is
-  // `(revenue − cost) / revenue` — a RATIO, and none of the eleven kinds is
-  // one. §2 is explicit that "adding a kind is a design decision, not an
-  // implementation one", so this stops here rather than inventing a twelfth.
-  //
-  // `marginPointsDelta` is written and correct; it needs a key to read. The
-  // moment a margin node exists this becomes a one-line call site, and this
-  // test fails — which is the point. Whoever adds the node updates the record.
-  //
-  // The decision is open as OD-019, IN PHASE 3 SCOPE: Phase 3 does not close
-  // until the margin-points delta has a canonical node to join. Recommendation
-  // there is a generic `ratio` kind with the denominator carried as `basis`,
-  // and `flagged-out` at zero revenue — where the ratio is undefined and a
-  // node valued zero would be the fabrication three corrections just removed.
-  const found: string[] = [];
-  for (const root of COMMITTED.graph.nodes) {
-    walkGraph(root, (n) => {
-      if (/margin/.test(n.key) && n.key !== "quote-wide/target-margin") {
-        found.push(n.key);
-      }
-    });
-  }
-  assert.deepEqual(
-    found,
-    [],
-    "a margin node now exists — wire the margin delta and rewrite this test",
-  );
+  // The gap test asserted the absence so that closing it would fail loudly and
+  // force this rewrite. It did.
+  const d = marginPointsDelta(COMMITTED.graph, PREVIEW.graph, quoteScopeKey(TIER, "margin"))!;
+  assert.notEqual(d, null, "quote/{tier}/margin must be joinable");
+  assert.ok(Math.abs(d.delta - (d.preview - d.committed)) < 1e-9);
+  // Raising the global adjustment raises sell, and cost does not move, so the
+  // margin improves. Asserted as a direction rather than a figure: the figure
+  // is the engine’s, and restating it here would be the second authority.
+  assert.ok(d.delta > 0);
 });
 
 // ────────────────────────────────────────────────────────────── it refuses
