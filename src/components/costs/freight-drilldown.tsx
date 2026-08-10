@@ -241,6 +241,7 @@ export function FreightDrilldown(props: {
         {shipments.map((shipment, index) => <ShipmentLedger
           key={shipment.id} shipment={shipment} index={index} count={shipments.length}
           tiers={tiers} workbook={workbook} components={components} editable={editable} busy={busy}
+          shipReads={shipReads}
           openDestinations={openDestinations} setOpenDestinations={setOpenDestinations}
           supportOpen={openSupport.includes(shipment.id)} setSupportOpen={(open: boolean) => setOpenSupport((rows) => open ? [...new Set([...rows, shipment.id])] : rows.filter((id) => id !== shipment.id))}
           submit={submit}
