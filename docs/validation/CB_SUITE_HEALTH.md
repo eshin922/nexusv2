@@ -197,6 +197,23 @@ by rebuilding rather than by fixture reset.
 run 2 and failed in run 3**, on identical inputs. **Resolved** — see
 BASELINE-01 above. The other ten failed in both.
 
+## Release signal — classified failures REMAINING
+
+Reported as remaining unknowns, not as a cumulative count of everything ever
+found. The cumulative number only grows and rewards discovery; what matters for
+release is how fast unknowns become classified and then closed.
+
+| | count | |
+|---|---|---|
+| **Closed** | **1** | VAL-104 — passes end to end |
+| **Classified, not closed** | **2** | VAL-101 harness contamination · VAL-103 harness race |
+| **Boundary established, cause open** | **3** | phase-2-component-freight — one cause, timing/driver |
+| **Unclassified** | **5** | VAL-208 · costs-reconciliation-ordering · product-library ×2 · pvs-020 ×2 |
+
+**Eleven scenarios were failing or unmeasured when classification began. Five
+remain unclassified.** No pass count was pursued, and one scenario moved to
+passing only because six migration artifacts were removed from it.
+
 ## Classification — first three, with evidence (2026-08-10)
 
 Step 4 has started. Each classification names **implementation defect ·
@@ -627,6 +644,37 @@ classes stay exactly as posed, just one level up:
 **No spec was modified, no selector changed, no visibility forced.** The three
 scenarios remain one workstream.
 
+#### Page-level boundary — established 2026-08-10
+
+One request, the `oneSku` operator fixture, the exact deep link the failing spec
+opens:
+
+| | |
+|---|---|
+| status | **200** |
+| final URL | **unchanged** — no redirect, no different route |
+| `aria-controls="section-packaging-drawer"` | **present in the served HTML** |
+
+**The Costs surface renders and the trigger exists.** Both of the alternative
+classifications are eliminated: this is not a fixture that cannot reach the
+surface, and not a stale expectation pointing at a route that moved.
+
+**Classification: the failure is at the spec's timing/driver boundary.** The
+element is in the server-rendered markup, so whatever the specs are waiting for
+is a property of how they reach it — not of whether it is there.
+
+**Still one workstream.** Nothing separates the three, and the shared root now
+has a shared shape: all three open a section drawer as their first act, and all
+three fail against a page that demonstrably serves the control they are looking
+for.
+
+**What this does not yet say.** Why the driver cannot resolve an element the
+server sends is not established, and the two candidate readings — the client
+tree differing from the served HTML at the moment the spec looks, versus the
+spec looking before hydration attaches the control — remediate differently. That
+is the next question, and it is now a narrow one asked against a known-good
+page.
+
 ### Where that leaves the ten
 
 | scenario | classification |
@@ -636,7 +684,7 @@ scenarios remain one workstream.
 | VAL-103 *(was unmeasured)* | **harness** — non-deterministic CDP race |
 | VAL-208 bulk pricing lift | not yet classified |
 | costs-reconciliation-ordering | not yet classified |
-| phase-2-component-freight × 3 | **one cause confirmed** — the section-drawer trigger is hidden / unresolvable; cause not yet classified |
+| phase-2-component-freight × 3 | **one cause · page-level boundary cleared** — surface renders 200, trigger present in served HTML. Timing/driver boundary; cause not yet closed |
 | product-library-create-component × 2 | not yet classified |
 | pvs-020-refresh-performance × 2 | not yet classified |
 
