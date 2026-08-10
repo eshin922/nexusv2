@@ -245,14 +245,37 @@ records that a single-tenant app **blocked user sign-in silently** until the
 tenant-level admin consent grant landed. Sequence the consent grant before
 validation, or validation will fail in a way that looks like a Clerk problem.
 
+## Track C · R12 staging contract — **P3-016**
+
+| | |
+|---|---|
+| **Blocker** | **P3-016** |
+| **Owner** | Nexus engineering |
+| **Governing evidence** | R12 interaction contract (accepted) · [`design-authority/r12-pricing-workspace/`](design-authority/r12-pricing-workspace/BUNDLE.md) · [P3-016 record](validation/P3-016-surgical-staging-bypass.md) |
+| **Completion evidence** | Eight browser proofs, listed in the record |
+
+**Why this is a third track rather than an item in Track B.** It is neither a
+business disposition nor an accounting-handoff proof. It is an **operator
+workflow that does not obey its own accepted contract**, and it is the only
+blocker on this board that reopens shipped Phase 3 code.
+
+**Not repaired.** One runtime observation outstanding — exactly one click,
+nothing further until the first mutation is recorded. The static determination
+is already sufficient to establish the violation; the observation classifies the
+failure mode, and the two branches remediate differently.
+
+**Phase 3's closure holds elsewhere.** P3-001…P3-015 are unaffected; this is a
+new row against the interaction contract, not a reopening of any completed one.
+
 ## Board status
 
 | Track | Blockers | Status |
 |---|---|---|
 | **A · Below-floor approval** | REG-2 · OD-002 | **Awaiting business disposition.** Engineering not started, by instruction |
+| **C · R12 staging contract** | P3-016 | **Open — release blocking.** One runtime observation, then a surgical+global package |
 | **B · Accounting handoff** | REG-4 · OD-004 · OD-005 · P1-014 *(+REG-3)* | **Open — the primary release engineering blocker once the harness baseline exists.** OD-004 first; the walk requires a NetSuite administrator |
 
-**Six distinct blockers. Zero closed.**
+**Seven distinct blockers. Zero closed.**
 
 | Workstream | Status |
 |---|---|

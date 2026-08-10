@@ -11,7 +11,7 @@ convention, two-axis model and ID scheme are frozen there and are not restated.
 **Nature:** release-risk discovery. **No row proposes an implementation.**
 
 **Status: accepted 2026-08-10. This matrix is the governing release artifact.**
-Release work runs from the **six distinct blockers** on the
+Release work runs from the **seven distinct blockers** on the
 [V1 Release Blocker Board](v1-release-blocker-board.md), not from the finding
 count. **Completed rows are not reopened.** Closing a blocker amends only the
 affected rows — the matrix is never re-run, and an amended row keeps its ID.
@@ -20,31 +20,33 @@ affected rows — the matrix is never re-run, and an amended row keeps its ID.
 
 ## Result
 
-**136 rows.**
+**137 rows.** 136 from the audit, plus **P3-016** added 2026-08-10 after it
+closed — a new row under append-only numbering, not a reopened one.
 
 | verdict | rows |
 |---|---|
 | **Satisfied** | 81 |
-| **Unsatisfied** | 9 |
+| **Unsatisfied** | 10 |
 | **Insufficient evidence** | 18 |
 | **Specification drift** | 8 |
 | **Out of scope** | 20 |
 
-**Findings: 35** — every row whose verdict is not *Satisfied* or *Out of scope*.
+**Findings: 36** — every row whose verdict is not *Satisfied* or *Out of scope*.
 Per the frozen convention, only findings carry a disposition:
 
 | disposition | findings |
 |---|---|
-| **Release blocker** | **9 rows — 6 distinct blockers** |
+| **Release blocker** | **10 rows — 7 distinct blockers** |
 | Release recommendation | 16 |
 | Post-V1 | 10 |
 
 Nine rows carry a blocker disposition, but three of them
 (**BV003-002**, **BV005-001**, **SPEC-018**) are the same gap recorded in
 different governing documents and roll up to **REG-2**. Counting them
-separately would triple one risk. **Six distinct blockers remain.**
+separately would triple one risk. **Six distinct blockers remained at audit
+close; P3-016 makes seven.**
 
-### The six release blockers, by ID
+### The seven release blockers, by ID
 
 | ID | |
 |---|---|
@@ -54,6 +56,7 @@ separately would triple one risk. **Six distinct blockers remain.**
 | **OD-004** | The Item Group applicability datum — REG-4's missing input |
 | **OD-005** | HubSpot Product `price` → NetSuite Base Price propagation is untested, and a `$0.00` catalogue placeholder must never become a commercial price |
 | **P1-014** | An unresolved cost cannot reach NetSuite — asserted in unit tests, **never walked against a real NetSuite** |
+| **P3-016** | Recommendation CTAs bypass the R12 staging contract. **A contract conflict, not a wiring defect** — the bypass is commented and unit-tested as load-bearing |
 
 **Five of the six are the same shape:** the accounting handoff at the end of the
 quote lifecycle has been specified thoroughly, implemented partially, and
@@ -171,6 +174,7 @@ fidelity open.**
 | **P3-012** | H12 · The trace is unreachable from Customer View — build-time assertion, not a prop | **Satisfied** | — | `scripts/verify/customer-view-boundary.ts` in `prebuild`; Pattern 51 records why the composition seam is excluded by design |
 | **P3-013** | H13 · Identity resolution fails closed | **Satisfied** | — | XP-004; R2 137/137 |
 | **P3-014** | H14 · The lift is rejected at sent and accepted via the existing draft-only guard | **Satisfied** | — | `assertDraft` in `applyPricingAdjustments`; no fifth guard vocabulary added |
+| **P3-016** | The R12 interaction contract — a recommendation **stages first**; page-level Apply persists the working set | **Unsatisfied** | **Release blocker** | **Added 2026-08-10, after the audit closed — a new row, not a reopened one.** The `Apply Surgical →` CTA calls `applySurgicalAdj`, writing `quote_tiers.tier_price_adj_pct` directly; no path from it stages anything. **A contract conflict, not a wiring defect** — `pricing-lifts.ts:94`, `pricing-apply-plan.ts:50-51` and `pricing-apply-plan.test.ts:133` all encode the bypass as intentional, the last calling it *"the load-bearing case."* One runtime observation outstanding. See [P3-016](validation/P3-016-surgical-staging-bypass.md) |
 | **P3-015** | Operator validation — *can a real user understand and complete the workflow?* Per §6, explicitly **not** folded into rehearsals | **Satisfied** | — | `phase-3-release-readiness.md` §3 walks the journey on r12Visual; `v1-customer-view-content-check.md` PASS |
 
 ---
