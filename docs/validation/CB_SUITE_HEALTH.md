@@ -410,34 +410,47 @@ next step is narrow and follows the same discipline as the disclosure
 investigation: establish whether the option exists and is actionable **before**
 reasoning about the save.
 
-**Vendor-selection boundary — probe attempted 2026-08-10, INCONCLUSIVE.**
+**Vendor-selection boundary — Playwright probe, first failing boundary
+established 2026-08-10.**
 
-The first inspection step is whether `Validation Contract Manufacturer` exists
-in the rendered option set. A raw-JS browser probe was used and **it did not
-reproduce the spec's state**, so it establishes nothing about the product.
+`vendor-selection-probe.spec.ts` walks the four candidate boundaries in order
+using the same driver VAL-104 uses. No force-clicks, no native setters, no
+synthetic events, no selector workarounds, no timeout inflation.
 
-What went wrong, recorded so the next attempt does not repeat it: the Pricing
-Vendor searchbox is a controlled React input, and driving it with the native
-value setter plus a synthetic `input` event **did not stick** — re-reading the
-element afterwards showed `value: ""`. An earlier probe click had also
-navigated the page (`?tier=…`), so the two `fetch` calls observed were that
-navigation, not vendor searches.
+| boundary | result |
+|---|---|
+| 0 · `Clear Pricing Vendor` control, searchbox present | ✅ |
+| **1 · the input retains what was typed** | ✅ |
+| **2 · a matching vendor option exists** | ❌ **`toHaveCount(1)` → received 0** |
+| 3 · visible · enabled · geometry | not reached |
+| 4 · click emits a save request | not reached |
+| 5 · save responds ok | not reached |
+| 6 · selection reflected in UI | not reached |
 
-**Zero `role="option"` elements were found, and that observation is worthless**
-— the search was never actually performed. Reporting it as an empty option set
-would have been a product conclusion drawn from a broken instrument, which is
-the same error as reading a call-log echo as rendered DOM.
+**Boundary 1 passing settles the earlier mess.** The controlled input accepts
+`.fill()` and holds the value. The raw-JS probe was the broken instrument, not
+the product, and nothing it reported stands.
 
-**No classification is made.** The four candidate boundaries — option not
-actionable, click without save request, failing save, save without UI update —
-all remain open.
+**First failing boundary: the option does not exist.** One step earlier than
+*"not actionable"* — there is nothing to be actionable. Run twice, once with
+the full vendor name and once with `Contract`, **VAL-104's own search term**, so
+the result is not an artifact of asking a different question than the scenario
+asks. Zero options both times.
 
-**Right instrument for the next attempt:** drive it with Playwright, the same
-driver the spec uses, so `.fill()` produces the events the component listens
-for. Attach a `page.on("request")` / `page.on("response")` recorder before the
-option click, then inspect the option's existence, geometry, enabled state and
-hit-test in that same session. A `page.pause()` or a purpose-built spec is the
-cheap way to hold the state open.
+**Classification: the boundary is established; the cause is not.** Two
+candidates remain, and they are cheap to separate:
+
+- the vendor is **not in the eligible set** for this quote — a fixture or
+  eligibility-rule question;
+- the option renders with a **different accessible name** than the literal — a
+  test-expectation question, and the fourth of that kind on this scenario.
+
+Both are one query away and neither is a save-path defect, so the vendor-save
+wiring remains **unexamined** — the boundary that was reported as "the first
+that may implicate the product" has not been reached.
+
+**The probe is an instrument, not coverage.** It is marked for removal once the
+cause is settled, and it does change the suite count while present.
 
 **Consequence for REG-1.** Its browser evidence has now failed three times for
 three reasons, none of them the product: fixture contamination, a hardcoded
