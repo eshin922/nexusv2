@@ -63,6 +63,35 @@ export function engineCellKey(ref: EngineCellRef): string {
  * which loses a staged change visibly rather than moving the wrong cell's
  * price.
  */
+/**
+ * The inverse: engine SKU identity → canonical quote-leaf identity.
+ *
+ * Needed to SEED the committed set. Persisted overrides arrive keyed the
+ * engine's way (`CostingCellOverride.quoteSkuId`), and the staging model
+ * addresses cells canonically, so an override already in effect has to be
+ * translated before it can be represented as something the operator can stage
+ * a change against.
+ *
+ * Fails closed, symmetrically with `resolveEngineCell`. A persisted override
+ * whose SKU carries no canonical attachment cannot be expressed as a staging
+ * key at all — the caller keeps it in the costing input unchanged rather than
+ * dropping it, because it is real and in effect even though it is not
+ * stageable.
+ */
+export function resolveCanonicalCell(
+  ref: EngineCellRef,
+  skus: ReadonlyArray<{ id: string; canonicalQuoteLeafId?: string | null }>,
+): CellRef | null {
+  let found: string | null = null;
+  for (const sku of skus) {
+    if (sku.id !== ref.quoteSkuId) continue;
+    if (!sku.canonicalQuoteLeafId) return null;
+    if (found !== null) return null; // ambiguous
+    found = sku.canonicalQuoteLeafId;
+  }
+  return found === null ? null : { quoteLeafId: found, tierId: ref.tierId };
+}
+
 export function resolveEngineCell(
   ref: CellRef,
   skus: ReadonlyArray<{ id: string; canonicalQuoteLeafId?: string | null }>,

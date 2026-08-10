@@ -246,6 +246,29 @@ export function CellAction({
             >
               Remove direct price on {label}
             </button>
+            {/*
+              PATTERN 39 · a narrow Nexus extension over R12.
+
+              The canonical `c.direct` branch offers removal only, and that is
+              coherent for the prototype: its overrides are always staged, so
+              changing one means re-staging it. Ours can be PERSISTED, and a
+              persisted one had no way to be changed at all — an operator could
+              remove a direct price but not amend it, which would have taken two
+              Apply cycles to do what is plainly one act.
+
+              No new authority and no second editing path: the same
+              `DirectPrice` control the sibling states already use, seeded from
+              the classifier's price, staged through the same `stageOverride`,
+              and evaluated by the engine. It produces ONE replacement change
+              rather than a removal followed by an addition, because
+              `working.overrides` is a set and writing a key that already holds
+              a value replaces it.
+            */}
+            <DirectPrice
+              label={label}
+              cell={cell}
+              onSet={(v) => stageOverride(cellRef, v)}
+            />
           </div>
         );
 

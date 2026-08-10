@@ -57,8 +57,8 @@ import {
   ADJ_EPSILON,
   cellKey,
   diffSets,
-  engineCellKey,
   parseCellKey,
+  resolveCanonicalCell,
   resolveEngineCell,
   type CellRef,
   type PricingSet,
@@ -148,10 +148,45 @@ export function PricingStagingProvider({
     [],
   );
 
-  const initial: PricingSet = useMemo(
-    () => ({ lifts: {}, overrides: {}, globalAdj: initialGlobalAdj }),
-    [initialGlobalAdj],
-  );
+  /**
+   * COMMITTED IS WHAT IS IN EFFECT ON THE QUOTE, not what this session has
+   * applied.
+   *
+   * `globalAdj` was already seeded from `quotes.global_price_adj_pct`;
+   * `overrides` was not, and the inconsistency was the defect. With an empty
+   * override set, "Remove direct price" on a persisted override deleted a key
+   * that had never been there — no diff, no chip, no preview change, and
+   * `appliedCount` under-reported what the quote actually carried.
+   *
+   * Persisted overrides arrive keyed the ENGINE's way and the staging model
+   * addresses cells canonically, so each is translated on the way in. One that
+   * cannot be translated is NOT dropped: it stays in the costing input
+   * untouched (see the preview run) and is simply not stageable, because there
+   * is no key with which to stage against it.
+   *
+   * Seeded ONCE, at mount. A reconcile that changes persisted overrides
+   * mid-session does not re-seed — staging is session state, and silently
+   * moving the baseline under an operator mid-edit would be worse than a
+   * baseline that is one navigation stale.
+   *
+   * `lifts` stays empty. No persisted lift authority exists yet; that is
+   * OD-012, and inventing one here would pre-empt it.
+   */
+  const initial: PricingSet = useMemo(() => {
+    const state = storeApi.getState();
+    const overrides: Record<string, number> = {};
+    for (const o of state.cellOverrides) {
+      const canonical = resolveCanonicalCell(
+        { quoteSkuId: o.quoteSkuId, tierId: o.tierId },
+        state.skus,
+      );
+      if (canonical === null) continue;
+      overrides[cellKey(canonical)] = o.sellPriceOverride;
+    }
+    return { lifts: {}, overrides, globalAdj: initialGlobalAdj };
+    // Mount-time only, deliberately — see above. `storeApi` is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialGlobalAdj, storeApi]);
 
   const [committed, setCommitted] = useState<PricingSet>(initial);
   const [working, setWorking] = useState<PricingSet>(initial);
@@ -247,7 +282,6 @@ export function PricingStagingProvider({
      * observable: `unresolvedOverrides` is surfaced so a caller can say so.
      */
     const stagedOverrides: QuoteCostingInput["cellOverrides"] = [];
-    const replacedEngineKeys = new Set<string>();
     let unresolvedOverrides = 0;
     for (const [key, value] of Object.entries(working.overrides)) {
       const engine = resolveEngineCell(parseCellKey(key), base.skus);
@@ -255,7 +289,6 @@ export function PricingStagingProvider({
         unresolvedOverrides++;
         continue;
       }
-      replacedEngineKeys.add(engineCellKey(engine));
       stagedOverrides.push({ ...engine, sellPriceOverride: value });
     }
     if (unresolvedOverrides > 0) {
@@ -279,9 +312,23 @@ export function PricingStagingProvider({
       // have left both rows present and made replacement depend on the engine's
       // map insertion order: correct by accident, which is the thing this
       // surface keeps being rebuilt to stop relying on.
+      // `working.overrides` is now the COMPLETE intended set, seeded from what
+      // is persisted, so the preview's overrides are exactly its resolution —
+      // not the committed rows with staged ones layered over them. That is
+      // what makes a staged REMOVAL work: an override absent from `working`
+      // has been removed by the operator, and rebuilding from the committed
+      // rows would keep resurrecting it.
+      //
+      // Untranslatable persisted rows pass through unchanged. They are real
+      // and in effect; they are simply not addressable as staging keys, so
+      // nothing the operator does can be about them.
       cellOverrides: [
         ...base.cellOverrides.filter(
-          (o) => !replacedEngineKeys.has(engineCellKey(o)),
+          (o) =>
+            resolveCanonicalCell(
+              { quoteSkuId: o.quoteSkuId, tierId: o.tierId },
+              base.skus,
+            ) === null,
         ),
         ...stagedOverrides,
       ],

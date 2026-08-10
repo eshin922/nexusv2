@@ -83,18 +83,69 @@ async function validate(manifest?: FixtureManifest) {
           where id in ${sql(projectIds)}
             and hubspot_deal_id !~ '^[0-9]+$') as invalid_external_ids
     `;
+    // DERIVED from the fixture definitions, not pinned to literals. The
+    // literals were 8 / 8 / 16 / 32 and went wrong the moment a fourth
+    // operator fixture landed — the seed was correct and the check was stale,
+    // which is the least useful way for an assertion to fail.
+    //
+    //   5 lifecycle states, one project + one quote + two tiers each
+    //   4 operator fixtures, one project + one quote each
+    //   tiers and attachments vary per operator fixture, so both are summed
+    const LIFECYCLE_STATES = 5;
+    const OPERATORS: Array<{
+      skuCount: number;
+      tierCount: number;
+      /** Carries a border-crossing leg, so it produces customs entries. */
+      bordered: boolean;
+    }> = [
+      { skuCount: 1, tierCount: 2, bordered: false },
+      { skuCount: 6, tierCount: 2, bordered: true },
+      { skuCount: 10, tierCount: 2, bordered: true },
+      { skuCount: 6, tierCount: 4, bordered: true }, // r3Volume
+    ];
+    const OPERATOR_TIER_TOTAL = OPERATORS.reduce((sum, o) => sum + o.tierCount, 0);
     const expected = {
-      projects: 8,
-      quotes: 8,
-      tiers: 16,
+      projects: LIFECYCLE_STATES + OPERATORS.length,
+      quotes: LIFECYCLE_STATES + OPERATORS.length,
+      tiers: LIFECYCLE_STATES * 2 + OPERATOR_TIER_TOTAL,
       pushes: 2,
-      canonical_attachments: 32,
+      canonical_attachments:
+        LIFECYCLE_STATES * 3 + OPERATORS.reduce((sum, o) => sum + o.skuCount, 0),
       invalid_identity_mappings: 0,
-      freight_subcategories: 6,
-      freight_destinations: 12,
-      freight_breaks: 24,
-      freight_memberships: 24,
-      freight_customs_breaks: 20,
+      // Freight scales per OPERATOR fixture, not per lifecycle state. The old
+      // literals encoded three operators; a fourth made every one of them
+      // wrong at once. Per-operator rates recovered from those literals
+      // (6/12/24/24 over three operators) and re-multiplied, so adding a fifth
+      // fixture needs no edit here.
+      freight_subcategories: OPERATORS.length * 2,
+      freight_destinations: OPERATORS.length * 4,
+      // Breaks and memberships are per DESTINATION per TIER — four
+      // destinations each — so they follow the tier total, not the fixture
+      // count. The old literal 24 read as "8 per operator" only because every
+      // operator had two tiers; the four-tier fixture is what separated the
+      // two readings.
+      // Breaks are per DESTINATION per TIER — four destinations each — so they
+      // follow the tier total. The old literal 24 read as "8 per operator"
+      // only because every operator had two tiers; the four-tier fixture is
+      // what separated the two readings.
+      freight_breaks: OPERATOR_TIER_TOTAL * 4,
+      // Memberships are per SHIPMENT MEMBER and do not vary with tiers — eight
+      // per operator fixture, which the four-tier addition confirmed by adding
+      // exactly eight rather than sixteen.
+      freight_memberships: OPERATORS.length * 8,
+      // MEASURED, not derived — and deliberately so. The other five counts
+      // above have a rate that holds across fixtures; this one does not. The
+      // two original bordered fixtures produce five entries per tier and the
+      // new one produces four, because the entries follow each fixture's
+      // destination mix rather than its tier count. Any formula fitting all
+      // three would be a curve fitted to three points, which is worse than a
+      // number that is honestly a number.
+      //
+      // It will go stale when a fixture is added. That is the trade accepted
+      // here: a stale literal fails loudly and is corrected in one line,
+      // whereas an invented rate fails quietly by agreeing with the wrong
+      // total.
+      freight_customs_breaks: 36,
       invalid_tracking_destinations: 0,
     };
     for (const [key, value] of Object.entries(expected)) {
@@ -105,10 +156,10 @@ async function validate(manifest?: FixtureManifest) {
     if (counts.invalid_external_ids !== 0) {
       throw new Error("[fixtures] found a non-validation external identifier");
     }
-    if (manifest && Object.keys(manifest.quotes).length !== 5) {
+    if (manifest && Object.keys(manifest.quotes).length !== LIFECYCLE_STATES) {
       throw new Error("[fixtures] manifest does not contain every lifecycle state");
     }
-    if (manifest && Object.keys(manifest.operatorQuotes).length !== 3) {
+    if (manifest && Object.keys(manifest.operatorQuotes).length !== OPERATORS.length) {
       throw new Error("[fixtures] manifest does not contain every operator scale fixture");
     }
     return counts;

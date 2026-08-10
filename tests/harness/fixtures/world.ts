@@ -3,12 +3,15 @@ import postgres from "postgres";
 import { assertRuntimeSafety } from "../../../src/lib/config/runtime-config.ts";
 
 export type FixtureState = "draft" | "sent" | "accepted" | "failed" | "complete";
-export type OperatorFixtureName = "oneSku" | "sixSku" | "tenSku";
+export type OperatorFixtureName = "oneSku" | "sixSku" | "tenSku" | "r3Volume";
 
 type QuoteFixture = {
   projectId: string;
   quoteId: string;
+  /** The first two tiers. Kept a 2-tuple so existing specs are undisturbed. */
   tierIds: [string, string];
+  /** Every tier, in sort order. `r3Volume` has four; the others have two. */
+  allTierIds: string[];
   deepLinks: Record<string, string>;
 };
 
@@ -32,7 +35,7 @@ function uuid(runId: string, name: string): string {
 
 export function fixtureRecordIds(runId: string) {
   const states: FixtureState[] = ["draft", "sent", "accepted", "failed", "complete"];
-  const operatorNames: OperatorFixtureName[] = ["oneSku", "sixSku", "tenSku"];
+  const operatorNames: OperatorFixtureName[] = ["oneSku", "sixSku", "tenSku", "r3Volume"];
   return {
     projectIds: [
       ...states.map((state) => uuid(runId, `project-${state}`)),
@@ -312,10 +315,12 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
           `;
           await tx`
             insert into audit_log (
-              id, user_id, entity_type, entity_id, action, diff_json
+              id, user_id, entity_type, entity_id, action, diff_json,
+              actor_user_id, actor_display_name, actor_kind
             ) values (
               ${uuid(runId, `audit-${state}`)}, ${pmId}, 'quote', ${quoteId},
-              'quote_sent', ${tx.json({ fixtureRunId: runId, state })}
+              'quote_sent', ${tx.json({ fixtureRunId: runId, state })},
+              ${pmId}, 'Validation PM', 'human'
             )
           `;
         }
@@ -344,6 +349,7 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
           projectId,
           quoteId,
           tierIds: [tier1, tier2],
+          allTierIds: [tier1, tier2],
           deepLinks: {
             quote: `/projects/${projectId}/quotes/${quoteId}/quote`,
             setup: `/projects/${projectId}/quotes/${quoteId}/setup`,
@@ -373,19 +379,54 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
       const operatorSpecs: Array<{
         name: OperatorFixtureName;
         skuCount: number;
+        /** Defaults to 2. R3's rehearsal contract requires four. */
+        tierCount?: number;
         includeAirLeg: boolean;
         includeDomesticLeg: boolean;
+        /**
+         * Per-SKU packaging markup. Absent means the historical flat 0.20.
+         *
+         * `r3Volume` varies it so the quote carries BOTH compliant and
+         * below-floor cells: R3 needs a genuine lift case, and the
+         * selectable-vs-actionable split needs a compliant cell that is
+         * pressable while offering no remediation. A quote where every cell
+         * breaches proves neither.
+         */
+        markupByIndex?: (index: number) => number;
+        /** A cell carrying a persisted direct price, so replacement is testable. */
+        overrideAt?: { skuIndex: number; tierIndex: number; price: number };
       }> = [
         { name: "oneSku", skuCount: 1, includeAirLeg: false, includeDomesticLeg: false },
         { name: "sixSku", skuCount: 6, includeAirLeg: true, includeDomesticLeg: false },
         { name: "tenSku", skuCount: 10, includeAirLeg: true, includeDomesticLeg: true },
+        {
+          // R3 · staged-versus-committed at production shape.
+          // 6 SKUs x 4 tiers = 24 cells, inside the specification's 5-7 x 4.
+          name: "r3Volume",
+          skuCount: 6,
+          tierCount: 4,
+          includeAirLeg: true,
+          includeDomesticLeg: false,
+          // Index 0 lands well below the 25% floor; the rest clear the 35%
+          // target. Chosen as INPUTS — the engine decides the margins, and the
+          // rehearsal asserts what it produces rather than what was intended.
+          markupByIndex: (index) => (index === 0 ? 0.2 : 0.9),
+          // On a different SKU from the below-floor one, so the replacement
+          // case and the lift case never contend for the same cell.
+          overrideAt: { skuIndex: 2, tierIndex: 1, price: 12.5 },
+        },
       ];
       for (const spec of operatorSpecs) {
         const dealId = fakeHubSpotObjectId(runId, `deal-operator-${spec.name}`);
         const projectId = uuid(runId, `project-operator-${spec.name}`);
         const quoteId = uuid(runId, `quote-operator-${spec.name}`);
-        const tier1 = uuid(runId, `tier-operator-${spec.name}-1`);
-        const tier2 = uuid(runId, `tier-operator-${spec.name}-2`);
+        const tierCount = spec.tierCount ?? 2;
+        const tierIdList = Array.from({ length: tierCount }, (_, i) =>
+          uuid(runId, `tier-operator-${spec.name}-${i + 1}`),
+        );
+        const [tier1, tier2] = tierIdList;
+        // Quantities climb per tier so the blend genuinely differs across them.
+        const tierQtys = [1000, 10_000, 25_000, 50_000];
         const assemblyId = uuid(runId, `assembly-operator-${spec.name}`);
         const groupId = uuid(runId, `freight-group-operator-${spec.name}`);
         const oceanLegId = uuid(runId, `freight-ocean-operator-${spec.name}`);
@@ -423,12 +464,17 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
             'draft', 0, 0.3000, ${pmId}
           )
         `;
-        await tx`
-          insert into quote_tiers (id, quote_id, label, qty, sort_order, recommended)
-          values
-            (${tier1}, ${quoteId}, 'MOQ · 1,000 units', 1000, 0, false),
-            (${tier2}, ${quoteId}, 'Quantity · 10,000 units', 10000, 1, true)
-        `;
+        for (const [tierIndex, tierId] of tierIdList.entries()) {
+          const qty = tierQtys[tierIndex] ?? (tierIndex + 1) * 10_000;
+          await tx`
+            insert into quote_tiers (id, quote_id, label, qty, sort_order, recommended)
+            values (
+              ${tierId}, ${quoteId},
+              ${tierIndex === 0 ? "MOQ · 1,000 units" : `Quantity · ${qty.toLocaleString("en-US")} units`},
+              ${qty}, ${tierIndex}, ${tierIndex === 1}
+            )
+          `;
+        }
         await tx`
           insert into assemblies (id, quote_id, sku, name, owner_id, position)
           values (
@@ -453,7 +499,8 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
               id, assembly_id, leaf_id, quote_leaf_id, quantity, position
             ) values (${junctionId}, ${assemblyId}, ${leafId}, ${quoteLeafId}, 1, ${index})
           `;
-          for (const [tierIndex, tierId] of [tier1, tier2].entries()) {
+          const markupPct = spec.markupByIndex?.(index) ?? 0.2;
+          for (const [tierIndex, tierId] of tierIdList.entries()) {
             await tx`
               insert into assembly_leaf_inputs (
                 id, assembly_leaf_id, tier_id, line_group_id, supplier,
@@ -463,10 +510,25 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
                 ${uuid(runId, `input-operator-${spec.name}-${index}-${tierIndex}`)},
                 ${junctionId}, ${tierId},
                 ${uuid(runId, `line-operator-${spec.name}-${index}`)},
-                'Pacific Components', 1, 'primary_packaging', 0.20,
+                'Pacific Components', 1, 'primary_packaging', ${markupPct},
                 'manual_override', ${(index + 1) / 10},
-                ${tierIndex === 0 ? 1000 : 10000}
+                ${tierQtys[tierIndex] ?? 10_000}
               )
+            `;
+          }
+        }
+
+        // A PERSISTED direct price, so staged-override REPLACEMENT can be
+        // exercised through the real path. No production quote carries one, so
+        // browser-verifying replacement was impossible without this row.
+        if (spec.overrideAt) {
+          const target = operatorJunctionIds[spec.overrideAt.skuIndex];
+          const targetTier = tierIdList[spec.overrideAt.tierIndex];
+          if (target && targetTier) {
+            await tx`
+              insert into assembly_leaf_overrides (
+                assembly_leaf_id, tier_id, sell_price_override
+              ) values (${target}, ${targetTier}, ${spec.overrideAt.price})
             `;
           }
         }
@@ -524,7 +586,7 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
           `;
         }
         for (const [leafIndex, quoteLeafId] of operatorQuoteLeafIds.entries()) {
-          for (const [tierIndex, tierId] of [tier1, tier2].entries()) {
+          for (const [tierIndex, tierId] of tierIdList.entries()) {
             await tx`
               insert into freight_leg_component_tier_costs (
                 freight_leg_id, quote_leaf_id, tier_id, actual_freight_cost
@@ -536,7 +598,7 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
           }
         }
         if (spec.includeAirLeg) {
-          for (const [tierIndex, tierId] of [tier1, tier2].entries()) {
+          for (const [tierIndex, tierId] of tierIdList.entries()) {
             await tx`
               insert into freight_leg_component_tier_costs (
                 freight_leg_id, quote_leaf_id, tier_id, actual_freight_cost
@@ -549,7 +611,7 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
         }
         if (spec.includeDomesticLeg) {
           for (const [leafIndex, quoteLeafId] of operatorQuoteLeafIds.slice(0, 3).entries()) {
-            for (const [tierIndex, tierId] of [tier1, tier2].entries()) {
+            for (const [tierIndex, tierId] of tierIdList.entries()) {
               await tx`
                 insert into freight_leg_component_tier_costs (
                   freight_leg_id, quote_leaf_id, tier_id, actual_freight_cost
@@ -599,7 +661,7 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
               (${comparisonDestinationId}, ${subcategoryId}, ${shipment.comparison}, 'Alternate DC', '30–36 days', 'SF-COMPARE-002', 'Retained as forwarder comparison evidence.', 1, false, 'manual', ${tx.json({ fixture: "comparison option" })})
           `;
           await tx`update freight_subcategories set selected_destination_id = ${selectedDestinationId}, selection_reason = 'Best confirmed schedule and commercial result.' where id = ${subcategoryId}`;
-          for (const [tierIndex, tierId] of [tier1, tier2].entries()) {
+          for (const [tierIndex, tierId] of tierIdList.entries()) {
             const selectedAmount = 4200 + shipmentIndex * 1500 + tierIndex * 900;
             await tx`
               insert into freight_destination_breaks (
@@ -618,7 +680,7 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
                 entry_description, source, field_provenance
               ) values (${customsEntryId}, ${subcategoryId}, 'invoice', 'CI-2026-001', 'Customs entry supplied by Logistics.', 'manual', ${tx.json({ fixture: "customs entry" })})
             `;
-            for (const [tierIndex, tierId] of [tier1, tier2].entries()) await tx`
+            for (const [tierIndex, tierId] of tierIdList.entries()) await tx`
               insert into freight_customs_breaks (
                 freight_customs_entry_id, tier_id, charge_type, amount,
                 markup_pct, detail, source, field_provenance
@@ -638,6 +700,7 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
           projectId,
           quoteId,
           tierIds: [tier1, tier2],
+          allTierIds: tierIdList,
           deepLinks: {
             quote: `/projects/${projectId}/quotes/${quoteId}/quote`,
             setup: `/projects/${projectId}/quotes/${quoteId}/setup`,
@@ -683,7 +746,7 @@ export async function resetFixtureWorld(runId: string): Promise<void> {
           where deal_id in (${dealId}, ${legacyDealId})
         `;
       }
-      for (const name of ["oneSku", "sixSku", "tenSku"] as const) {
+      for (const name of ["oneSku", "sixSku", "tenSku", "r3Volume"] as const) {
         const dealId = fakeHubSpotObjectId(runId, `deal-operator-${name}`);
         await tx`delete from projects where id = ${uuid(runId, `project-operator-${name}`)}`;
         await tx`delete from hubspot_deals_cache where deal_id = ${dealId}`;

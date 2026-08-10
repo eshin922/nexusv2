@@ -15,5 +15,24 @@ test("operator fixtures cover 1, 6, and 10 SKU worksheet scenarios", async () =>
 
 test("fixture harness validates worksheet cardinality and selected-only tracking", async () => {
   const validator = await readFile(new URL("../../scripts/validation/fixtures.ts", import.meta.url), "utf8");
-  for (const key of ["freight_subcategories: 6", "freight_destinations: 12", "freight_breaks: 24", "freight_memberships: 24", "freight_customs_breaks: 20", "invalid_tracking_destinations: 0"]) assert.match(validator, new RegExp(key));
+  // Four of these were literals — 6 / 12 / 24 / 24 — and a fourth operator
+  // fixture invalidated every one of them simultaneously while the seed was
+  // correct. They are derivations now, so what this asserts is that each count
+  // is still CHECKED and still derived from the fixture definitions, not what
+  // it happens to evaluate to today.
+  //
+  // `freight_customs_breaks` stays a literal on purpose: its per-tier rate
+  // differs between fixtures, so any formula covering all of them would be
+  // fitted rather than derived. It is asserted as a bare presence for that
+  // reason, and the validator says why in place.
+  for (const key of [
+    /freight_subcategories: OPERATORS\.length \* 2/,
+    /freight_destinations: OPERATORS\.length \* 4/,
+    /freight_breaks: OPERATOR_TIER_TOTAL \* 4/,
+    /freight_memberships: OPERATORS\.length \* 8/,
+    /freight_customs_breaks: \d+/,
+    /invalid_tracking_destinations: 0/,
+  ]) {
+    assert.match(validator, key);
+  }
 });
