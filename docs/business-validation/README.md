@@ -32,6 +32,7 @@ the business contract.
 - [BV-004 — Business Decision Matrix](BV-004-business-decision-matrix.md)
 - [BV-005 — Below-Floor Margin Approval](BV-005-below-floor-margin-approval.md)
 - [BV-009 — Freight Treatment](BV-009-freight-treatment.md) — ⚠️ **RECONSTRUCTION, NOT RATIFIED**
+- [BV-010 — Blended Margin Definition](BV-010-blended-margin-definition.md)
 - [Production Readiness Register](PRODUCTION_READINESS_REGISTER.md)
 
 BV-006 is the [Product Structure Contract](BV-006-product-structure-contract.md).
