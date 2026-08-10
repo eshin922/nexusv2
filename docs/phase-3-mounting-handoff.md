@@ -71,12 +71,30 @@ wrongly.
 `StagingBar` takes `label: (cellKey: string) => string`. Keys are
 `{quote_leaf_id}::{tier_id}` — two UUIDs.
 
-The resolver needs `state.skus` (id → name) and the tier labels above. Note the
-key's SKU half is the **canonical quote-leaf id**, and `state.skus[].id` is the
-classifier's SKU id; confirm they are the same value before assuming it. If
-they are not, the labeller needs the same mapping the lift resolution uses, and
-**must fail closed to the raw key** rather than mislabelling a cell the
-operator is about to commit a price change to.
+**VERIFIED 2026-08-09 — they are NOT the same value, and assuming so would have
+mislabelled every chip.**
+
+`pricing-classifier-context.tsx:476` sets the classifier's SKU id from
+`sr.skuId`, which is the engine's SKU id. `canonicalQuoteLeafId` is a
+**separate field** on the same `SkuRollup` (`costing.ts:614`). The staging key's
+SKU half is the canonical one, so a labeller keyed on `state.skus[].id` matches
+nothing and every chip falls back to the raw key — two UUIDs, in the one place
+the operator looks to see what they are about to commit.
+
+**Build the labeller from `skuRollups`, keyed on the canonical id:**
+
+```ts
+const nameByQuoteLeafId = new Map<string, string>();
+for (const sr of skuRollups) {
+  if (sr.canonicalQuoteLeafId) nameByQuoteLeafId.set(sr.canonicalQuoteLeafId, sr.productName);
+}
+```
+
+Both fields are already on the store's `selectSkuRollups`, so this needs no new
+data — only the correct key.
+
+**Fail closed to the raw key** when either half does not resolve. An ugly chip
+is recoverable; a chip naming the wrong SKU beside a price change is not.
 
 ---
 
