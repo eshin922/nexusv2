@@ -123,6 +123,49 @@ export interface PricingSet {
 }
 
 /**
+ * What the quote CARRIES, expressed as a staging set.
+ *
+ * Extracted from the provider for the same reason `diffSets` was: it is logic,
+ * not presentation, and the provider previously held a copy that a test held a
+ * second copy of. Two copies of a seeding rule is two seeding rules.
+ *
+ * The asymmetry between the two levers is the whole content of this function:
+ *
+ *   - LIFTS need no translation. `quote_leaf_lifts` keys on the canonical
+ *     attachment, which is the identity a staging key already carries.
+ *   - OVERRIDES do. `assembly_leaf_overrides` keys on the legacy junction
+ *     (OD-017), so each is crossed on the way in and one that cannot be
+ *     crossed is OMITTED rather than dropped — it stays real and in effect in
+ *     the costing input, it is simply not addressable as a staging key, so
+ *     nothing the operator does can be about it.
+ */
+export function seedCommittedSet(source: {
+  lifts: ReadonlyArray<{ quoteLeafId: string; tierId: string; liftPct: number }>;
+  cellOverrides: ReadonlyArray<{
+    quoteSkuId: string;
+    tierId: string;
+    sellPriceOverride: number;
+  }>;
+  skus: ReadonlyArray<{ id: string; canonicalQuoteLeafId?: string | null }>;
+  globalAdj: number;
+}): PricingSet {
+  const lifts: Record<string, number> = {};
+  for (const l of source.lifts) {
+    lifts[cellKey({ quoteLeafId: l.quoteLeafId, tierId: l.tierId })] = l.liftPct;
+  }
+  const overrides: Record<string, number> = {};
+  for (const o of source.cellOverrides) {
+    const canonical = resolveCanonicalCell(
+      { quoteSkuId: o.quoteSkuId, tierId: o.tierId },
+      source.skus,
+    );
+    if (canonical === null) continue;
+    overrides[cellKey(canonical)] = o.sellPriceOverride;
+  }
+  return { lifts, overrides, globalAdj: source.globalAdj };
+}
+
+/**
  * One pending difference, named for the operator.
  *
  * Removals are changes too, and are their own kinds. "Remove the lift on

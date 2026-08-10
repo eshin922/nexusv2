@@ -365,6 +365,7 @@ async function main() {
     assemblyProductionInputs: [],
     assemblyLeafOverrides: [],
     assemblyLeafTargets: [],
+    lifts: [],
     freightLegGroups: [],
     freightLegs: [],
     freightLegTiers: [],

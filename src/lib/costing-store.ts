@@ -9,6 +9,7 @@ import {
   type CostingFreightLegGroup,
   type CostingFreightLegTier,
   type CostingLegCustoms,
+  type CostingLift,
   type CostingPackagingInput,
   type CostingProductionInput,
   type CostingSku,
@@ -162,6 +163,16 @@ export type CostingStoreState = {
   // Slice 9.4b — sparse per-cell client target benchmarks. Mirror
   // shape to cellOverrides; mutated by updateCellTarget action below.
   cellTargets: CostingCellTarget[];
+  /**
+   * Phase 3 · Package 1 — applied surgical lifts in effect on this quote.
+   *
+   * Not client-mutable by a store action: Apply is a server round-trip, and
+   * what comes back through hydrate/reconcile is the answer. Optimistically
+   * mutating them here would put a lift on screen that the write may still
+   * refuse — and the refusal an operator most needs to see is the one where a
+   * lift lands on the wrong commercial line.
+   */
+  lifts: CostingLift[];
 
   // Slice 9.4a — VIEW STATE (not a costing input). The currently-active
   // tier on the Pricing. Determines which tier's per-SKU summary
@@ -377,6 +388,14 @@ export type HydrateSnapshot = {
   // Slice 9.4b — sparse per-cell client target benchmarks (rows that
   // exist in DB at hydration time).
   cellTargets: CostingCellTarget[];
+  /**
+   * Phase 3 · Package 1 — applied surgical lifts in effect on this quote.
+   *
+   * Carried from the server's own costing input rather than rebuilt, same as
+   * the freight worksheet fields above and for the same reason. Keyed on the
+   * canonical attachment; the staging layer seeds its committed set from these.
+   */
+  lifts: CostingLift[];
   costing: QuoteCostingResult; // pre-computed on the server side
   // Slice 9.5 — persisted warnings on this quote (active + accepted).
   // Used to attach DB ids onto client-computed engine specs by
@@ -530,11 +549,15 @@ export function buildCostingInput(
     freightShipmentBreaks: s.freightShipmentBreaks,
     cellOverrides: s.cellOverrides,
     cellTargets: s.cellTargets,
-    // Committed means no lifts. Stated rather than omitted, because the
-    // return type forbids omitting it — and because it is what makes "the
-    // preview differs only at the staged field" a comparison rather than a
-    // claim: both sides have the key.
-    lifts: [],
+    // The lifts APPLIED to this quote — no longer empty by definition.
+    //
+    // This read said `[]` for as long as no lift could be persisted, and the
+    // comment said "committed means no lifts", which was true then and is a
+    // silent wrong price now. A quote carrying an applied lift computes with
+    // it, here as on the server: the preview run clones this input and changes
+    // only what is staged, so an omission here would make every preview differ
+    // from committed by the applied lifts as well as the staged change.
+    lifts: s.lifts,
   };
 }
 
@@ -563,6 +586,7 @@ function warningsFromSnapshot(snapshot: HydrateSnapshot): WarningSpec[] {
     freightShipmentBreaks: snapshot.freightShipmentBreaks,
     cellOverrides: snapshot.cellOverrides,
     cellTargets: snapshot.cellTargets,
+    lifts: snapshot.lifts,
   };
   return validateQuote(input, snapshot.costing);
 }
@@ -597,6 +621,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     freightCustomerArrangesMeta: initial.freightCustomerArrangesMeta,
     cellOverrides: initial.cellOverrides,
     cellTargets: initial.cellTargets,
+    lifts: initial.lifts,
     // Slice 9.4a — view-state. Defaults to null on store creation;
     // <ActiveTierUrlSync> sets it on mount from URL `?tier=` (or
     // first tier in sort_order if URL absent/invalid). Hydrate /
@@ -644,6 +669,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         freightCustomerArrangesMeta: snapshot.freightCustomerArrangesMeta,
         cellOverrides: snapshot.cellOverrides,
         cellTargets: snapshot.cellTargets,
+        lifts: snapshot.lifts,
         costing: snapshot.costing,
         warnings: warningsFromSnapshot(snapshot),
         persistedWarnings: snapshot.persistedWarnings,
@@ -698,6 +724,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         freightCustomerArrangesMeta: snapshot.freightCustomerArrangesMeta,
         cellOverrides: snapshot.cellOverrides,
         cellTargets: snapshot.cellTargets,
+        lifts: snapshot.lifts,
         costing: snapshot.costing,
         warnings: warningsFromSnapshot(snapshot),
         persistedWarnings: snapshot.persistedWarnings,

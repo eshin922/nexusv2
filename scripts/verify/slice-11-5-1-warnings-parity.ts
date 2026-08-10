@@ -278,6 +278,11 @@ async function loadCostingInputForQuote(quoteId: string) {
       tierId: r.tier_id,
       clientTargetPricePerUnit: r.client_target_price_per_unit,
     })),
+    // No lifts. This harness predates lift persistence and runs against
+    // quotes carrying none. Explicit because the adapter requires it: an
+    // omitted array and a deliberately empty one compute different prices,
+    // and the compiler cannot tell them apart when the field is optional.
+    lifts: [],
     freightLegGroups,
     freightLegs,
     freightLegTiers,
@@ -538,6 +543,7 @@ async function main() {
         assemblyLeafId: r.assembly_leaf_id, tierId: r.tier_id,
         clientTargetPricePerUnit: r.client_target_price_per_unit,
       })),
+      lifts: [],
       freightLegGroups, freightLegs, freightLegTiers,
     });
 

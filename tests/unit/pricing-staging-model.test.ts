@@ -154,9 +154,48 @@ test("staging performs no commercial arithmetic", () => {
   assert.ok(!/floor|target/i.test(CODE.replace(/globalAdj/g, "")), "a policy threshold");
 });
 
-test("no persistence, and none implied", () => {
-  // OD-012 blocks persisting an APPLIED lift. Staging is session state and is
-  // not blocked by it — but nothing here may quietly reach for a server
-  // either, or the boundary stops being where it is documented to be.
-  assert.ok(!/fetch\(|useTransition|action/i.test(CODE), "a write path in staging");
+/**
+ * This assertion used to be "no persistence, and none implied", and it was
+ * right for as long as an applied adjustment had nowhere to live. Package 1
+ * gives it one, so the property has to change — but only in the one way the
+ * accepted contract changes it.
+ *
+ * What is no longer true: that staging never writes. Apply writes.
+ *
+ * What is still true, and is what these now assert: there is exactly ONE way
+ * it writes, it is a governed server action, and the committed set does not
+ * move unless that write succeeded.
+ */
+test("staging writes through exactly one governed action", () => {
+  assert.ok(
+    /import \{ applyPricingAdjustments \} from "@\/app\/actions\/pricing-lifts"/.test(CODE),
+    "the one sanctioned write path is absent",
+  );
+  // Nothing may reach for a server any other way, or the boundary stops being
+  // where it is documented to be.
+  assert.ok(!/fetch\(|XMLHttpRequest|axios/.test(CODE), "an ad-hoc write path");
+  const callSites = CODE.match(/applyPricingAdjustments\(/g) ?? [];
+  assert.equal(
+    callSites.length,
+    1,
+    "Apply and Return to baseline share one commit; a second call site is a second path",
+  );
+});
+
+test("committed moves only after the write succeeded", () => {
+  // The ordering IS the property. Moving `committed` first clears the chips and
+  // leaves an APPLIED bar describing adjustments the quote does not carry —
+  // the precise failure the bar exists to prevent.
+  const guard = CODE.indexOf("if (!result.ok)");
+  const move = CODE.indexOf("setCommitted(next)");
+  assert.ok(guard > -1, "no failure branch on the write result");
+  assert.ok(move > -1, "committed is never advanced");
+  assert.ok(guard < move, "committed advances before the result is checked");
+});
+
+test("pending state is scoped to the act that owns it", () => {
+  // Pattern 47(f). One shared transition would let an in-flight Apply disable
+  // Return to baseline, a workflow the operator has every right to reach.
+  const transitions = CODE.match(/useTransition\(\)/g) ?? [];
+  assert.equal(transitions.length, 2, "Apply and baseline must own their own");
 });

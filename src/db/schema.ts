@@ -2765,6 +2765,53 @@ export const assemblyLeafTargets = pgTable(
   ],
 );
 
+// ---------- quote_leaf_lifts (Phase 3 · Package 1) ----------
+//
+// Sparse applied surgical lifts per (canonical quote leaf, tier).
+//
+// Keyed on `quote_leaves.id`, NOT on `assembly_leaves.id`. Its two sparse
+// siblings above key on the legacy junction, which is the condition OD-017
+// records: a direct attachment (`quote_leaves.assembly_id IS NULL`) has no
+// junction row and therefore cannot be authored against. `CostingLift` is
+// already canonical, so a row here loads into one with no translation — no
+// crossing, and so no crossing to get wrong.
+//
+// `lift_pct` NOT NULL and > 0 (CHECK in migration 0063): row existence IS the
+// fact that a lift is in effect, exactly as with `assembly_leaf_overrides`.
+// Multiplicative, matching `CostingLift.liftPct` — 0.0770 is +7.7%.
+//
+// A same-Quote trigger accompanies the table. Both FKs can be independently
+// valid while naming different Quotes, which would price a cell that does not
+// exist.
+//
+// Lifts are DRAFT-ONLY AUTHORING DATA, not a Pattern 52 freeze-list field.
+// The freeze list holds values captured at a lifecycle transition; a lift is
+// authored before one, and its EFFECT is frozen by the snapshot columns that
+// are on the list. Writes are guarded by `requireDraft` at the action layer,
+// consistent with every other authoring surface.
+export const quoteLeafLifts = pgTable(
+  "quote_leaf_lifts",
+  {
+    quoteLeafId: uuid("quote_leaf_id")
+      .notNull()
+      .references(() => quoteLeaves.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+    liftPct: numeric("lift_pct", { precision: 6, scale: 4 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.quoteLeafId, t.tierId] }),
+    index("quote_leaf_lifts_tier_id_idx").on(t.tierId),
+  ],
+);
+
 // ---------- netsuite_item_groups (Slice 12 Step 8c-1) ----------
 
 // Nexus's authoritative local cache of composition → NetSuite Item

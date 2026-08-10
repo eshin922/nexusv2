@@ -176,6 +176,11 @@ const fixture = {
       clientTargetPricePerUnit: "0.30",
     },
   ],
+  // No lifts. This harness predates lift persistence and runs against
+  // quotes carrying none. Explicit because the adapter requires it: an
+  // omitted array and a deliberately empty one compute different prices,
+  // and the compiler cannot tell them apart when the field is optional.
+  lifts: [],
   freightLegGroups: [],
   freightLegs: [],
   freightLegTiers: [],

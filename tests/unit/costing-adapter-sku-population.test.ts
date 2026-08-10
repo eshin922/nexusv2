@@ -112,6 +112,15 @@ function args(
     assemblyProductionInputs: [],
     assemblyLeafOverrides: [],
     assemblyLeafTargets: [],
+    // No lift on this fixture — the population question is about which
+    // attachments become SKUs, not what is priced onto them.
+    //
+    // Stated because `as BuildQuoteCostingInputFromNewModelArgs` below is an
+    // assertion, not a check: it told the compiler this object was complete
+    // while the field was absent, and the adapter mapped over `undefined` at
+    // run time. The cast is why the type gate stayed silent and the governed
+    // test command did not.
+    lifts: [],
     freightLegGroups: [],
     freightLegs: [],
     freightLegTiers: [],

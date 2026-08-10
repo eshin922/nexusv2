@@ -5,18 +5,25 @@
 // Canonical source: `app/r12/pricing-page.jsx` — `committed` / `working`, the
 // `changes` diff, `unstage`, `reset`, `apply`.
 //
-// ── WHAT STAGING IS, AND WHY IT IS NOT PERSISTENCE ────────────────────────
+// ── WHAT STAGING IS, AND WHERE PERSISTENCE BEGINS ─────────────────────────
 //
 // Phase 3 §2: session-scoped working state; one Apply commits the whole set;
 // Reset discards. *"Nothing persists across navigation. There is no third
 // state."*
 //
-// That sentence is the reason this file needs no schema and is not blocked on
-// OD-012. What OD-012 blocks is persisting an APPLIED lift — the committed set
-// surviving a page load. The staging layer above it is session state, and
-// session state is legitimately the presentation's to own: "what has the
-// operator asked for and not yet committed" is not a commercial fact about the
-// quote, it is a fact about this browser tab.
+// That is still true of the WORKING set, and it is why this layer owns it:
+// "what has the operator asked for and not yet committed" is a fact about
+// this browser tab, not a commercial fact about the quote.
+//
+// It is no longer true of the COMMITTED set. Package 1 gives an applied
+// adjustment a home in the database, so `committed` is now seeded from what is
+// persisted and Apply is a server round-trip. Two consequences follow, and both
+// are the point of the package:
+//
+//   - `appliedCount` describes the QUOTE, not the session. A reload no longer
+//     resets it to zero while the prices it produced stay on screen.
+//   - Removing an adjustment survives navigation, because a removal is written
+//     rather than forgotten.
 //
 // The OUTCOMES of a staged set are a different matter entirely, and they are
 // not owned here. They come from the engine, run over an input carrying the
@@ -44,8 +51,10 @@ import {
   useContext,
   useMemo,
   useState,
+  useTransition,
   type ReactNode,
 } from "react";
+import { applyPricingAdjustments } from "@/app/actions/pricing-lifts";
 import {
   computeQuoteCosting,
   type CostingLift,
@@ -60,6 +69,7 @@ import {
   parseCellKey,
   resolveCanonicalCell,
   resolveEngineCell,
+  seedCommittedSet,
   type CellRef,
   type PricingSet,
   type StagedChange,
@@ -93,15 +103,30 @@ export interface PricingStagingValue {
   /** Discard everything pending. */
   reset: () => void;
   /**
-   * Commit the working set.
+   * Commit the working set. Writes, then moves `committed` — in that order.
    *
-   * In-memory only. Persisting an applied lift is OD-012 and is not reached
-   * from here; when it lands, this is the seam it lands at — `committed` gains
-   * a server round-trip and nothing else in this file changes.
+   * `committed` moves only on a successful write. Moving it first would clear
+   * the chips and leave the operator looking at an APPLIED bar for adjustments
+   * the quote does not carry, which is the exact failure the bar exists to
+   * prevent.
    */
   apply: () => void;
   /** Return to the computed baseline: no lifts, no overrides, no adjustment. */
   toBaseline: () => void;
+
+  /** True while Apply's own write is in flight. Scoped to Apply (Pattern 47f). */
+  applyPending: boolean;
+  /** True while Return-to-baseline's own write is in flight. Its own scope. */
+  baselinePending: boolean;
+  /**
+   * Why the last commit did not happen, in the operator's words.
+   *
+   * Surfaced rather than logged. A failed Apply that says nothing leaves chips
+   * on screen that look pending when they are in fact refused.
+   */
+  commitError: string | null;
+  /** False when the quote is not a draft: nothing here may be committed. */
+  committable: boolean;
 
   /**
    * The engine's result for the WORKING set, labelled `preview`.
@@ -127,13 +152,25 @@ export function usePricingStaging(): PricingStagingValue {
 // ── provider ──────────────────────────────────────────────────────────────
 
 export function PricingStagingProvider({
+  quoteId,
   initialGlobalAdj,
+  committable = true,
   children,
 }: {
+  quoteId: string;
   initialGlobalAdj: number;
+  /** Draft-only. The action refuses a sent quote too; this stops the offer. */
+  committable?: boolean;
   children: ReactNode;
 }) {
   const storeApi = useCostingStoreApi();
+  // Two transitions, not one. Pattern 47(f): a control may be disabled only by
+  // the pending state of the action IT initiates. Sharing one flag would make
+  // Return to baseline dead while an Apply is in flight, and the operator would
+  // have nothing on screen explaining why.
+  const [applyPending, startApply] = useTransition();
+  const [baselinePending, startBaseline] = useTransition();
+  const [commitError, setCommitError] = useState<string | null>(null);
 
   /**
    * The computed baseline: every lever at rest.
@@ -169,21 +206,19 @@ export function PricingStagingProvider({
    * moving the baseline under an operator mid-edit would be worse than a
    * baseline that is one navigation stale.
    *
-   * `lifts` stays empty. No persisted lift authority exists yet; that is
-   * OD-012, and inventing one here would pre-empt it.
+   * Lifts need no translation on the way in. `quote_leaf_lifts` keys on the
+   * canonical attachment, which is the identity a staging key already carries —
+   * the one sparse table for which the persisted row and the staging address
+   * are the same thing. Overrides key on the legacy junction and so must cross.
    */
   const initial: PricingSet = useMemo(() => {
     const state = storeApi.getState();
-    const overrides: Record<string, number> = {};
-    for (const o of state.cellOverrides) {
-      const canonical = resolveCanonicalCell(
-        { quoteSkuId: o.quoteSkuId, tierId: o.tierId },
-        state.skus,
-      );
-      if (canonical === null) continue;
-      overrides[cellKey(canonical)] = o.sellPriceOverride;
-    }
-    return { lifts: {}, overrides, globalAdj: initialGlobalAdj };
+    return seedCommittedSet({
+      lifts: state.lifts,
+      cellOverrides: state.cellOverrides,
+      skus: state.skus,
+      globalAdj: initialGlobalAdj,
+    });
     // Mount-time only, deliberately — see above. `storeApi` is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialGlobalAdj, storeApi]);
@@ -239,12 +274,62 @@ export function PricingStagingProvider({
     [committed],
   );
 
-  const reset = useCallback(() => setWorking(committed), [committed]);
-  const apply = useCallback(() => setCommitted(working), [working]);
-  const toBaseline = useCallback(() => {
-    setWorking(baseline);
-    setCommitted(baseline);
-  }, [baseline]);
+  const reset = useCallback(() => {
+    setWorking(committed);
+    setCommitted((c) => c);
+    setCommitError(null);
+  }, [committed]);
+
+  /**
+   * Write a whole intended set, and move `committed` only if the write took.
+   *
+   * The set is sent COMPLETE rather than as a delta: an absent cell is a
+   * removal, and a delta-shaped call has no way to say that a thing is gone.
+   * Removal is the change an operator most needs to survive a reload, so it is
+   * the one the wire shape has to be able to express.
+   */
+  const commit = useCallback(
+    (next: PricingSet, intent: "apply" | "baseline", start: typeof startApply) => {
+      if (!committable) {
+        setCommitError("This quote is no longer a draft, so pricing cannot be changed.");
+        return;
+      }
+      setCommitError(null);
+      start(async () => {
+        const result = await applyPricingAdjustments({
+          quoteId,
+          lifts: Object.entries(next.lifts).map(([key, liftPct]) => ({
+            ...parseCellKey(key),
+            liftPct,
+          })),
+          overrides: Object.entries(next.overrides).map(([key, sellPrice]) => ({
+            ...parseCellKey(key),
+            sellPrice,
+          })),
+          globalAdjPct: next.globalAdj,
+          intent,
+        });
+        if (!result.ok) {
+          // Committed does not move. The chips stay, the operator can read what
+          // went wrong, and nothing on screen claims a state the quote is not in.
+          setCommitError(result.error.message);
+          return;
+        }
+        setCommitted(next);
+        setWorking(next);
+      });
+    },
+    [committable, quoteId],
+  );
+
+  const apply = useCallback(
+    () => commit(working, "apply", startApply),
+    [commit, working],
+  );
+  const toBaseline = useCallback(
+    () => commit(baseline, "baseline", startBaseline),
+    [baseline, commit],
+  );
 
   /**
    * The preview run.
@@ -355,6 +440,10 @@ export function PricingStagingProvider({
     reset,
     apply,
     toBaseline,
+    applyPending,
+    baselinePending,
+    commitError,
+    committable,
     previewResult,
   };
 
