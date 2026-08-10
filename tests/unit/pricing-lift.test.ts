@@ -38,9 +38,21 @@ test("pricing Preview and Apply are separate server actions", async () => {
     "utf8",
   );
   for (const label of [
-    "Preview Changes", "Current adjustment", "Current price", "Delta",
+    // R12 §2 lower-cased it and, more importantly, gave it a sibling: preview
+    // without a commit path was "staging with the second half absent". The
+    // property this test defends is unchanged and now has one more instance —
+    // previewing, staging and applying are three separate acts.
+    "Preview changes", "Stage this adjustment",
+    "Current adjustment", "Current price", "Delta",
     "Resulting adjustment", "Resulting price", "Apply", "Undo",
   ]) {
     assert.match(uiSource, new RegExp(label));
   }
+  // Staging is in-memory until Apply. The panel must reach the staging model,
+  // never a write path of its own.
+  assert.match(uiSource, /stageGlobalAdj/);
+  assert.doesNotMatch(
+    uiSource.slice(uiSource.indexOf("function DetailGlobalAdjust")),
+    /applyPricingAdjustments/,
+  );
 });
