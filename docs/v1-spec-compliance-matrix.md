@@ -20,7 +20,7 @@ affected rows — the matrix is never re-run, and an amended row keeps its ID.
 
 ## Result
 
-**137 rows.** 136 from the audit, plus **P3-016** added 2026-08-10 after it
+**138 rows.** 136 from the audit, plus **P3-016** and **AM-005** added 2026-08-10 after it
 closed — a new row under append-only numbering, not a reopened one.
 
 | verdict | rows |
@@ -36,7 +36,7 @@ Per the frozen convention, only findings carry a disposition:
 
 | disposition | findings |
 |---|---|
-| **Release blocker** | **10 rows — 7 distinct blockers** |
+| **Release blocker** | **10 rows — 7 distinct blockers.** P3-016 repaired 2026-08-10, pending merge |
 | Release recommendation | 16 |
 | Post-V1 | 10 |
 
@@ -174,7 +174,8 @@ fidelity open.**
 | **P3-012** | H12 · The trace is unreachable from Customer View — build-time assertion, not a prop | **Satisfied** | — | `scripts/verify/customer-view-boundary.ts` in `prebuild`; Pattern 51 records why the composition seam is excluded by design |
 | **P3-013** | H13 · Identity resolution fails closed | **Satisfied** | — | XP-004; R2 137/137 |
 | **P3-014** | H14 · The lift is rejected at sent and accepted via the existing draft-only guard | **Satisfied** | — | `assertDraft` in `applyPricingAdjustments`; no fifth guard vocabulary added |
-| **P3-016** | The R12 interaction contract — a recommendation **stages first**; page-level Apply persists the working set | **Unsatisfied** | **Release blocker** | **Added 2026-08-10, after the audit closed — a new row, not a reopened one.** The `Apply Surgical →` CTA calls `applySurgicalAdj`, writing `quote_tiers.tier_price_adj_pct` directly; no path from it stages anything. **A contract conflict, not a wiring defect** — `pricing-lifts.ts:94`, `pricing-apply-plan.ts:50-51` and `pricing-apply-plan.test.ts:133` all encode the bypass as intentional, the last calling it *"the load-bearing case."* One runtime observation outstanding. See [P3-016](validation/P3-016-surgical-staging-bypass.md) |
+| **P3-016** | The R12 interaction contract — a recommendation **stages first**; page-level Apply persists the working set | **Satisfied** | **Release blocker — REPAIRED 2026-08-10, pending merge** | **Added 2026-08-10, after the audit closed — a new row, not a reopened one.** Both recommendation CTAs wrote `quote_tiers.tier_price_adj_pct` at click time. Runtime observation confirmed it: one click moved the database, wrote an audit row, and produced no chip, no preview and no Discard. **A contract conflict, not a wiring defect** — three comments and a unit test called the bypass load-bearing. Repaired by making the per-tier adjustment a member of the staging set; `applySurgicalAdj` removed; bulk lift keeps its own governed committed-write contract. Six of eight browser proofs observed, two pinned by a new source-level guard. **Two open consequences recorded, not absorbed:** recommendation telemetry has no writer, and no test presses a recommendation CTA. See [P3-016](validation/P3-016-surgical-staging-bypass.md) |
+| **AM-005** | S-7 preservation — the governing proof that no commercial number moved. **A direct instance of AM-004:** `docs/gate-1b-assumption-findings.md`, which defines S-7, is outside the audit baseline | **Unsatisfied** | **Release recommendation** | **Added 2026-08-10.** `gate1b:verify-preserved` fails against production with global digest `c0951e51…` — identically on `main` (`024d231`), on this branch, and with the P3-016 repair applied, so **no branch work caused it**. One quote accounts for the whole delta: `52bd0077…` / `ZZ-VALIDATION-tier-propagation`, `blendedMarginPct` 0.2275 → 0.4530. Its label announces it as a hand-made validation scratch scenario, living in production because dev and prod share one Supabase project, sitting inside the 24-quote S-7 basket. A digest over production data cannot separate "code changed a number" from "someone edited a test quote". Disposition — exclude `ZZ-VALIDATION-*`, re-baseline, or investigate — is Edward's |
 | **P3-015** | Operator validation — *can a real user understand and complete the workflow?* Per §6, explicitly **not** folded into rehearsals | **Satisfied** | — | `phase-3-release-readiness.md` §3 walks the journey on r12Visual; `v1-customer-view-content-check.md` PASS |
 
 ---

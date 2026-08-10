@@ -44,6 +44,12 @@ import type { StagedChange } from "@/lib/pricing-staging";
  */
 export type CellLabeller = (cellKey: string) => string;
 
+/**
+ * Names a tier for a per-tier adjustment chip. Same fail-closed contract as
+ * `CellLabeller`: an unresolved tier shows its raw id rather than a blank.
+ */
+export type TierLabeller = (tierId: string) => string;
+
 function fmtPct(v: number): string {
   return `${(v * 100).toFixed(1)}%`;
 }
@@ -65,7 +71,11 @@ function fmtUsd(v: number): string {
  * back before committing — see the staging model, where a removal is its own
  * change kind for exactly this reason.
  */
-export function describeChange(change: StagedChange, label: CellLabeller): string {
+export function describeChange(
+  change: StagedChange,
+  label: CellLabeller,
+  tierLabel: TierLabeller,
+): string {
   switch (change.kind) {
     case "lift":
       return `Lift ${label(change.key)} by ${fmtPct(change.pct)}`;
@@ -75,6 +85,17 @@ export function describeChange(change: StagedChange, label: CellLabeller): strin
       return `Set ${label(change.key)} to ${fmtUsd(change.value)}`;
     case "override-removed":
       return `Remove direct price on ${label(change.key)}`;
+    case "tier-adj":
+      // Named for the tier, because that is the scope of what it moves: every
+      // price on that tier and no price on any other. `from: null` is a tier
+      // that had no adjustment of its own and was following the quote-wide
+      // one, which is a different starting point from "was at 0%" and reads
+      // differently to the operator about to commit it.
+      return change.from === null
+        ? `Adjust ${tierLabel(change.key)} to ${fmtPct(change.to)}`
+        : `Adjust ${tierLabel(change.key)} ${fmtPct(change.from)} → ${fmtPct(change.to)}`;
+    case "tier-adj-removed":
+      return `Remove ${tierLabel(change.key)} adjustment (${fmtPct(change.from)})`;
     case "adj":
       // Both endpoints. "Global adjustment 12%" does not say whether that is a
       // rise or a cut, and the operator is about to commit it.
@@ -105,7 +126,13 @@ function unavailableBecause(
   return null;
 }
 
-export function StagingBar({ label }: { label: CellLabeller }) {
+export function StagingBar({
+  label,
+  tierLabel,
+}: {
+  label: CellLabeller;
+  tierLabel: TierLabeller;
+}) {
   const {
     changes,
     isStaged,
@@ -141,12 +168,12 @@ export function StagingBar({ label }: { label: CellLabeller }) {
           <div className="chips">
             {changes.map((change) => (
               <span className="r12-chip" key={chipKey(change)}>
-                {describeChange(change, label)}
+                {describeChange(change, label, tierLabel)}
                 <button
                   type="button"
                   onClick={() => unstage(change)}
                   title="Discard this change"
-                  aria-label={`Discard: ${describeChange(change, label)}`}
+                  aria-label={`Discard: ${describeChange(change, label, tierLabel)}`}
                 >
                   ✕
                 </button>

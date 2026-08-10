@@ -27,7 +27,7 @@ import {
   type StagedChange,
 } from "../../src/lib/pricing-staging.ts";
 
-const EMPTY: PricingSet = { lifts: {}, overrides: {}, globalAdj: 0 };
+const EMPTY: PricingSet = { lifts: {}, overrides: {}, tierAdj: {}, globalAdj: 0 };
 const set = (over: Partial<PricingSet> = {}): PricingSet => ({ ...EMPTY, ...over });
 
 const A = cellKey({ quoteLeafId: "leaf-a", tierId: "t1" });

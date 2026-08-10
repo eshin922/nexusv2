@@ -127,12 +127,19 @@ test("return to baseline removes every lever at once", () => {
   assert.equal(plan.changeCount, 5);
 });
 
-// ── the fourth lever, which nothing here stages ───────────────────────────
+// ── the fourth lever, staged like the other three ───────────────────────────
 
 test("an ordinary Apply passes tier adjustments back and changes nothing", () => {
-  // The load-bearing case. `applySurgicalAdj` writes these outside the staging
-  // layer; if Apply sent an empty set it would silently revert an adjustment
-  // the operator made a moment earlier.
+  // Idempotence. A tier adjustment the operator did not touch arrives in the
+  // intended set exactly as it is persisted, so Apply plans nothing for it:
+  // no row, no audit entry, and no report of a change to someone who made
+  // none.
+  //
+  // This assertion used to be annotated as the load-bearing case for
+  // `applySurgicalAdj` writing outside the staging layer. That is no longer
+  // what makes it true. The staging set carries per-tier adjustments now
+  // (P3-016), so an untouched one is unchanged because the SET says so,
+  // rather than because a write path went around the set.
   const plan = planApply({
     ...NOTHING,
     intendedTierAdj: new Map([["tier-1", "0.1334"]]),

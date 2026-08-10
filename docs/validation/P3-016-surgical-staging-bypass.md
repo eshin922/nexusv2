@@ -1,7 +1,8 @@
 # P3-016 · Recommendation CTAs bypass the R12 staging contract
 
-**Status: OPEN — release blocker. Not repaired. Runtime observation TAKEN
-2026-08-10; both callers classified.**
+**Status: REPAIRED 2026-08-10, pending merge.** Runtime observation taken ·
+both callers classified · repair shipped · six of eight browser proofs
+observed, two pinned by test with the gap recorded.
 
 **Discovered:** 2026-08-10, after the compliance audit closed. New row, not a
 reopened one — IDs are append-only, so this takes the next free number in the
@@ -187,21 +188,158 @@ If the global path is also an old immediate-write contract, both are repaired in
   `onApply` currently has two guarded branches and no else, so that state
   returns silently today.
 
-## Browser proof required to close
+## The repair — shipped 2026-08-10
 
-1. Recommendation click creates **staged state**.
-2. Preview / deltas appear.
-3. **Database does not change** before page-level Apply.
-4. Discard restores the committed state.
-5. Page-level Apply persists **exactly once**.
-6. Reload reflects the persisted state.
-7. **Surgical and global obey the same interaction contract.**
-8. Thrown / rejected paths surface visibly rather than failing silently.
+**The fourth lever joined the set.** Everything downstream of staging already
+handled per-tier adjustments symmetrically with lifts and overrides —
+`planApply` diffs `intendedTierAdj` against `persistedTierAdj`, and
+`applyPricingAdjustments` writes both directions with audit rows. The gap was
+entirely upstream: `PricingSet` did not carry the lever, so nothing could stage
+one, so the CTAs wrote directly.
+
+| | |
+|---|---|
+| `pricing-staging.ts` | `PricingSet.tierAdj` added; seeded from persisted values; diffed into two new change kinds (`tier-adj`, `tier-adj-removed`) |
+| `pricing-staging-context.tsx` | `stageTierAdj`; baseline carries none; `unstage` restores committed; preview resolves working `tierAdj` onto the costing input's tiers; `commit` sends the SET |
+| `pricing-surface-shell.tsx` | both recommendation CTAs stage; fail loudly when a rendered CTA has no suggestion |
+| `staging-bar.tsx` | chips for both new kinds, named for the tier via a `TierLabeller` |
+| `pricing-classifier.ts` | CTA copy — staging language, and the surgical label names the tier it lifts |
+| `pricing-apply.ts` | `applySurgicalAdj` **removed** — no callers, and left in place it is one import from being re-wired |
+
+**Three things it deliberately did not do.** No new arithmetic — a
+recommendation composes through `composePricingAdjustment`, the same rule the
+bulk-lift preview uses. No change to what any commercial value IS — the same
+tier still receives the same `0.1334`. And no change to the bulk-lift path.
+
+**Two reads that were only ever workarounds are gone.** `commit` read tier
+adjustments live from the store, and `appliedCount` subscribed to the store for
+its per-tier component — both because a CTA wrote behind the layer's back. The
+set is authoritative now, so both read from it, and a count assembled from two
+sources can no longer disagree with itself.
+
+### Removed comments and tests that encoded the bypass
+
+- `pricing-apply-plan.ts:50` — *"the one that is authored elsewhere… nothing
+  here stages one"*
+- `pricing-lifts.ts:94` — *"Nothing STAGES one of these… that stays true"*
+- `pricing-staging-context.tsx:351, 495` — both live-read workarounds, deleted
+  rather than re-commented
+- `pricing-apply-plan.test.ts:133` — **the load-bearing assertion.** The test
+  survives; its reason changed. An untouched tier adjustment still plans no
+  change, but now because the SET says so rather than because a write path went
+  around the set.
+- `pricing-classifier.ts:736` — *"re-renders quote in place"*, copy that
+  described the mechanism being removed
+
+### New guard
+
+`tests/unit/pricing-recommendation-stages.test.ts` — 8 assertions pinning the
+contract at source level: both kinds stage, neither calls a writer, the removed
+action stays removed, bulk lift keeps `expectedPreview`, no arithmetic is
+invented, both fail-loud branches exist and reach a person, and the copy says
+staging.
+
+**Source-level, deliberately.** The classifier offers surgical or global, never
+both, so a rendered click can only ever exercise half the contract — and a
+guard that can only check half is the guard that let this ship.
+
+## Browser proofs
+
+Isolated validation environment, reseeded to BASELINE-01's fixture counts
+first.
+
+| # | proof | result |
+|---|---|---|
+| 1 | Recommendation click creates staged state | ✅ **observed** — one chip, *"Adjust MOQ · 1,000 units to 13.3%"*, with Reset all + Apply 1 change |
+| 2 | Preview / deltas appear | ✅ **observed** — `+$0.4210` and `+8.7pp` |
+| 3 | Database does not change before Apply | ✅ **observed** — all four tiers still `null`, zero audit rows |
+| 4 | Discard restores the committed state | ✅ **observed** — chip and deltas gone, APPLIED bar back, CTA returned |
+| 5 | Page-level Apply persists exactly once | ✅ **observed** — one `pricing_adjustments_applied` (`change_count: 1`) + one derived `tier_price_adj_updated`, `source: "pricing_apply"` |
+| 6 | Reload reflects the persisted state | ✅ **observed** — APPLIED 1 → 2, blocked 4 → 3 tiers, recommendation moves to `suggestion_manual_only` |
+| 7 | Surgical and global obey the same contract | ⚠️ **pinned, not clicked** — see below |
+| 8 | Thrown / rejected paths surface visibly | ⚠️ **pinned, not triggered** — see below |
+
+The staged value is `13.3%` and the committed value is `0.1334` — the same
+figure the click-time write produced in the observation above. **Where it
+persists changed. What it persists did not.**
+
+### Why 7 and 8 are pinned rather than clicked
+
+**No fixture in the world renders a global recommendation.** All six draft
+quotes were checked; none reaches `suggestion_led` with more than one tier
+below target, which is the only state that offers the global CTA. And no
+fixture reaches a refusal state through a recommendation path — the sent quote
+is compliant, so it renders no CTA at all.
+
+Both are covered by `pricing-recommendation-stages.test.ts` at source level.
+That is a stronger guard than a single click, and it is **not a substitute for
+the missing coverage**, which is recorded below.
+
+## Open consequences — for disposition, not silently absorbed
+
+**1 · Recommendation telemetry has no writer.** `applySurgicalAdj` emitted
+`surgical_apply` plus `recommended_accepted` / `recommended_overridden`
+`pricing_events`. Removing it removes the only writer of `surgical_apply`, and
+`recommended_*` now comes only from the bulk-lift path — which passes
+`optionRecommended: "false"`, so what survives is a stream of
+`recommended_overridden` with no accepted counterpart. **That is a distortion,
+and worse than absence.**
+
+Staging is the wrong moment to emit acceptance — the operator has not committed
+anything yet — and the Apply plan carries no provenance saying an adjustment
+came from a recommendation. Restoring the signal is a design question, not a
+line of code, so it is stated here rather than guessed at.
+
+**2 · No test presses a recommendation CTA.** Not in the unit suite before this
+repair, and not in any e2e scenario: `bulk-pricing-lift.spec.ts` walks VAL-208
+and the governed bulk path, and nothing walks the recommendation path at all.
+**That gap is what let P3-016 ship** — the contract was asserted in prose and in
+a comment, and nothing exercised it. The new source-level guard closes the
+structural half; a scenario that renders a global recommendation and one that
+reaches a refusal would close the rest, and both need fixture-world additions,
+which change the seed and so must not be made silently against BASELINE-01.
 
 ## Standing constraints
 
-- **BASELINE-01 is immutable.** This work does not touch it.
-- **S-7 must not move.** The repair changes where a lever is persisted, not what
-  any commercial value is.
+- **BASELINE-01 is immutable.** This work does not touch it. The validation
+  database was reset and reseeded to its exact fixture counts before the
+  proofs, so the environment is comparable again.
+- **S-7 did not move for this repair.** Verified by baseline rather than by
+  assertion — see below.
+
+### S-7 — a separate finding, not this repair
+
+`gate1b:verify-preserved` **fails** against production. It fails identically in
+three places:
+
+| where | global digest |
+|---|---|
+| this branch with the repair applied | `c0951e51…` |
+| this branch with the repair stashed (`bc43c0a`) | `c0951e51…` |
+| **`main`** (`024d231`) | `c0951e51…` |
+
+Identical in all three, so **the repair moves nothing.** The delta is only
+meaningful because the baseline was taken; comparing the repair against the
+branch alone would have been self-consistent and wrong, which is the failure the
+governed-test-command rule was banked for.
+
+One quote accounts for the whole delta:
+
+```
+FAIL  52bd0077-20af-4345-8856-45003bfca8b3
+      Smart Pressed Juice - Juice Cleanse Reorder 2026 / ZZ-VALIDATION-tier-propagation
+      quoteRollup[0].blendedMarginPct: 0.22753988245172124 -> 0.45304813598507493
+```
+
+Its scenario label announces what it is: a hand-made validation scratch
+scenario, living in production because dev and prod share one Supabase project,
+inside the 24-quote S-7 basket. A digest over production data cannot separate
+"code changed a number" from "someone edited a test quote", and here it is
+reporting the second as the first.
+
+**Not dispositioned here.** It is Edward's call whether the answer is excluding
+`ZZ-VALIDATION-*` from the basket, re-baselining, or investigating the quote —
+and it is a finding about the release's governing evidence, so it should not
+ride in on a pricing repair.
 - VAL-101 classification resumes from the `frame.join` runtime failure **after**
   this blocker closes.

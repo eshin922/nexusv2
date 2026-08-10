@@ -118,6 +118,19 @@ export interface PricingSet {
   lifts: Readonly<Record<string, number>>;
   /** Direct prices by cell key. Terminal; blocks a lift on the same cell. */
   overrides: Readonly<Record<string, number>>;
+  /**
+   * Per-tier adjustments, by tier id. The fourth lever.
+   *
+   * It used to be authored outside this set, by actions that wrote
+   * `quote_tiers.tier_price_adj_pct` at click time. P3-016 is the record of
+   * what that cost: a recommendation CTA committed an audited pricing change
+   * with no chip, no preview and no Discard, and read to the operator as a
+   * button that did nothing.
+   *
+   * It is a set member now, so a recommendation stages like every other lever
+   * and the working set is the whole of what the operator has asked for.
+   */
+  tierAdj: Readonly<Record<string, number>>;
   /** Quote-wide adjustment. */
   globalAdj: number;
 }
@@ -138,6 +151,8 @@ export interface PricingSet {
  *     crossed is OMITTED rather than dropped — it stays real and in effect in
  *     the costing input, it is simply not addressable as a staging key, so
  *     nothing the operator does can be about it.
+ *   - PER-TIER ADJUSTMENTS need no translation either. They key on the tier,
+ *     which is one identity throughout.
  */
 export function seedCommittedSet(source: {
   lifts: ReadonlyArray<{ quoteLeafId: string; tierId: string; liftPct: number }>;
@@ -147,6 +162,7 @@ export function seedCommittedSet(source: {
     sellPriceOverride: number;
   }>;
   skus: ReadonlyArray<{ id: string; canonicalQuoteLeafId?: string | null }>;
+  tierAdj: ReadonlyArray<{ tierId: string; adjPct: number | null }>;
   globalAdj: number;
 }): PricingSet {
   const lifts: Record<string, number> = {};
@@ -162,7 +178,16 @@ export function seedCommittedSet(source: {
     if (canonical === null) continue;
     overrides[cellKey(canonical)] = o.sellPriceOverride;
   }
-  return { lifts, overrides, globalAdj: source.globalAdj };
+  const tierAdj: Record<string, number> = {};
+  for (const t of source.tierAdj) {
+    // NULL is "this tier has no adjustment of its own", not "zero". A tier
+    // with an explicit 0 is holding the quote-wide adjustment off, which is a
+    // lever in effect; seeding NULL as 0 would make every unadjusted tier look
+    // like one and Apply would write a row per tier for a change nobody made.
+    if (t.adjPct === null) continue;
+    tierAdj[t.tierId] = t.adjPct;
+  }
+  return { lifts, overrides, tierAdj, globalAdj: source.globalAdj };
 }
 
 /**
@@ -178,6 +203,8 @@ export type StagedChange =
   | { kind: "lift-removed"; key: string }
   | { kind: "override"; key: string; value: number }
   | { kind: "override-removed"; key: string }
+  | { kind: "tier-adj"; key: string; from: number | null; to: number }
+  | { kind: "tier-adj-removed"; key: string; from: number }
   | { kind: "adj"; from: number; to: number };
 
 /**
@@ -209,6 +236,22 @@ export function diffSets(committed: PricingSet, working: PricingSet): StagedChan
   for (const key of Object.keys(committed.overrides)) {
     if (working.overrides[key] === undefined) {
       out.push({ kind: "override-removed", key });
+    }
+  }
+
+  // Per-tier adjustments compare with the same epsilon the quote-wide one
+  // uses, and for the same reason: this asks whether the operator moved the
+  // control, not whether the number is commercially different.
+  for (const [key, pct] of Object.entries(working.tierAdj)) {
+    const from = committed.tierAdj[key];
+    if (from === undefined) out.push({ kind: "tier-adj", key, from: null, to: pct });
+    else if (Math.abs(from - pct) > ADJ_EPSILON) {
+      out.push({ kind: "tier-adj", key, from, to: pct });
+    }
+  }
+  for (const [key, from] of Object.entries(committed.tierAdj)) {
+    if (working.tierAdj[key] === undefined) {
+      out.push({ kind: "tier-adj-removed", key, from });
     }
   }
 

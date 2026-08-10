@@ -731,9 +731,14 @@ export function classify(
     if (sugg.surgical) {
       actions.push({
         kind: "apply_surgical",
-        label: `Apply Surgical · lift ${labelTiers(tiersBelowFloor)} above floor`,
+        // Named for the tier the SUGGESTION targets, not for every tier below
+        // floor. It used to list all of them — "lift T1, T2, T3, T4 above
+        // floor" — while the action moved one, which P3-016's runtime
+        // observation caught: four tiers named, one adjusted, blocked count
+        // 4 → 3. A surgical lift is surgical, and the CTA has to say so.
+        label: `Apply Surgical · lift ${labelTiers(new Set([sugg.surgical.tier_id]))} above floor`,
         sublabel:
-          "Recommended adjustment per SKU · re-renders quote in place",
+          "Stages a per-tier adjustment · review and apply below",
         recommended: true,
         primary: true,
         projected_blended_after_apply: projectBlended("apply_surgical"),
@@ -785,8 +790,9 @@ export function classify(
     if (surgicalWins && sugg.surgical) {
       actions.push({
         kind: "apply_surgical",
-        label: `Apply Surgical · lift ${labelTiers(tiersBelowTarget)} to target`,
-        sublabel: "Adjusts the offending tier only · other tiers unchanged",
+        label: `Apply Surgical · lift ${labelTiers(new Set([sugg.surgical.tier_id]))} to target`,
+        sublabel:
+          "Stages an adjustment on that tier only · other tiers unchanged",
         recommended: true,
         primary: true,
         projected_blended_after_apply: projectBlended("apply_surgical"),
@@ -795,7 +801,7 @@ export function classify(
       actions.push({
         kind: "apply_global",
         label: "Apply Global · lift all tiers proportionally",
-        sublabel: `${tiersBelowTarget.size} tiers below target · surgical would compound`,
+        sublabel: `Stages an adjustment on every tier · ${tiersBelowTarget.size} below target, surgical would compound`,
         recommended: true,
         primary: true,
         projected_blended_after_apply: projectBlended("apply_global"),

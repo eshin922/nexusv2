@@ -252,17 +252,35 @@ validation, or validation will fail in a way that looks like a Clerk problem.
 | **Blocker** | **P3-016** |
 | **Owner** | Nexus engineering |
 | **Governing evidence** | R12 interaction contract (accepted) · [`design-authority/r12-pricing-workspace/`](design-authority/r12-pricing-workspace/BUNDLE.md) · [P3-016 record](validation/P3-016-surgical-staging-bypass.md) |
-| **Completion evidence** | Eight browser proofs, listed in the record |
+| **Completion evidence** | Eight browser proofs, listed in the record. **Six observed, two pinned by a source-level guard** — no fixture renders a global recommendation, and none reaches a refusal through a recommendation path |
 
 **Why this is a third track rather than an item in Track B.** It is neither a
 business disposition nor an accounting-handoff proof. It is an **operator
 workflow that does not obey its own accepted contract**, and it is the only
 blocker on this board that reopens shipped Phase 3 code.
 
-**Not repaired.** One runtime observation outstanding — exactly one click,
-nothing further until the first mutation is recorded. The static determination
-is already sufficient to establish the violation; the observation classifies the
-failure mode, and the two branches remediate differently.
+**REPAIRED 2026-08-10, pending merge.**
+
+The runtime observation settled the branch immediately: one click moved
+`quote_tiers.tier_price_adj_pct` from `null` to `0.1334`, wrote its audit row,
+and left staging untouched — a **silent immediate-write**, not an inert button.
+What made it read as inert is that the below-floor headline did not clear, the
+CTA removed itself, and the only confirmation anywhere was a counter
+incrementing in a bar the operator was not looking at.
+
+The second caller was classified before any code moved, and it changed the shape
+of the repair: `shell:238` is the **bulk-lift** workflow — preview, apply with
+`expectedPreview`, receipt-based exact undo, walked end to end by VAL-208. That
+is the separately-governed workflow the repair conditions already carve out, so
+the boundary is the **caller**, not the action. Both recommendation CTAs moved
+onto the staging model; `applySurgicalAdj` was removed for having no other
+caller; bulk lift was left exactly as it was.
+
+**Two open consequences, recorded rather than absorbed.** Recommendation
+telemetry now has no writer, and what survives is `recommended_overridden` with
+no accepted counterpart — a distortion worse than absence, and a design question
+rather than a line of code. And **no test presses a recommendation CTA**, in any
+suite, which is what let this ship at all.
 
 **Phase 3's closure holds elsewhere.** P3-001…P3-015 are unaffected; this is a
 new row against the interaction contract, not a reopening of any completed one.
@@ -272,10 +290,19 @@ new row against the interaction contract, not a reopening of any completed one.
 | Track | Blockers | Status |
 |---|---|---|
 | **A · Below-floor approval** | REG-2 · OD-002 | **Awaiting business disposition.** Engineering not started, by instruction |
-| **C · R12 staging contract** | P3-016 | **Open — release blocking.** One runtime observation, then a surgical+global package |
+| **C · R12 staging contract** | P3-016 | **Repaired 2026-08-10, pending merge.** Observation taken, both callers classified, surgical+global repaired together, 714/714 unit + prebuild green, S-7 unmoved by the repair |
 | **B · Accounting handoff** | REG-4 · OD-004 · OD-005 · P1-014 *(+REG-3)* | **Open — the primary release engineering blocker once the harness baseline exists.** OD-004 first; the walk requires a NetSuite administrator |
 
-**Seven distinct blockers. Zero closed.**
+**Seven distinct blockers. One repaired and pending merge; none yet closed.**
+
+**Separately — S-7 fails, and not because of any branch work.**
+`gate1b:verify-preserved` returns the same digest on `main`, on this branch, and
+with the P3-016 repair applied. One quote carries the whole delta, and its name
+says what it is: `ZZ-VALIDATION-tier-propagation`, a hand-made validation
+scenario living in production because dev and prod share one Supabase project,
+sitting inside the 24-quote basket. Recorded as **AM-005** — a release
+recommendation, and a direct instance of AM-004's finding that the audit
+baseline is narrower than the governing set.
 
 | Workstream | Status |
 |---|---|

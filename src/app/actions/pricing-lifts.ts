@@ -91,14 +91,20 @@ export type ApplyPricingAdjustmentsInput = {
   /**
    * The COMPLETE intended set of per-tier adjustments.
    *
-   * Nothing STAGES one of these — `applySurgicalAdj` and `applyGlobalAdj` write
-   * `quote_tiers.tier_price_adj_pct` immediately, with their own audit rows, and
-   * that stays true. They are carried here because they are adjustments in
-   * effect, and a Return to baseline that left them standing would tell the
-   * operator the levers were removed while one of them still moved every price
-   * on its tier.
+   * These ARE staged. A recommendation CTA puts a composed per-tier
+   * adjustment into the working set, and this is where the set arrives — by
+   * the same path as lifts and overrides. That is the whole of the P3-016
+   * repair: until it, nothing staged one, `applySurgicalAdj` wrote
+   * `quote_tiers.tier_price_adj_pct` at click time, and an operator got a
+   * committed pricing change with nothing on screen to preview or discard.
    *
-   * An ordinary Apply passes them back unchanged, so it plans no change.
+   * Bulk lift is the one exception, and a governed one: `applyGlobalAdj`
+   * still writes per-tier adjustments directly, under its own preview /
+   * apply / undo contract.
+   *
+   * An untouched adjustment is passed back unchanged, so it plans no change.
+   * One absent from the set is a REMOVAL — which is both how an operator
+   * clears a single tier and how Return to baseline clears them all.
    */
   tierAdjustments: AppliedTierAdjInput[];
   globalAdjPct: number;
