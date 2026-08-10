@@ -579,7 +579,12 @@ This is Pattern 57 one layer down from where that rule was written: *a financial
 stack contains only independently governed commercial quantities*. The rule was
 banked about ROWS; the same test applies to a node that asserts a value.
 
-**The proposal: `quote/{tier}` becomes the margin.**
+> **SUPERSEDED by the structural sweep below.** Two claims in this section are
+> wrong: the bare key IS read (by `verify-blend-population` and a unit test,
+> both via raw-string lookup), and it roots the entire blend subtree. The
+> corrected proposal is (d′).
+
+**The proposal (as first written): `quote/{tier}` becomes the margin.**
 
 ```
 quote/{tier}/margin              ratio        basis { "Revenue per unit", 15.4 }
@@ -613,14 +618,98 @@ scalar moves.**
 
 ---
 
+#### Structural sweep (2026-08-09) — the bare key IS used, and my claim was wrong
+
+Required before changing graph shape. It found two readers, and both invalidate
+the sentence *"no consumer reads it"* in the section above.
+
+**I searched for reads through `quoteScopeKey`, which cannot express a bare key,
+and concluded there were none.** Both real readers use a raw-string lookup:
+
+| Reader | What it reads |
+|---|---|
+| `scripts/gate-1b/verify-blend-population.ts:55` | `graph.nodes.find(n => n.key === \`quote/${tier.tierId}\`)`, then `.kind === "flagged-out"` |
+| `tests/unit/costing-node-graph.test.ts:1076` | the same key, asserting kind, value and reason on a zero-quantity tier |
+
+The helper-shaped grep proved only that nothing reads it THROUGH THE HELPER.
+That is a narrower statement than the one I made, and the difference is exactly
+the kind of gap a sweep exists to catch.
+
+**The key carries two shapes, and only one is meaningless.**
+
+```
+tier quantity > 0   →  sum, value 25.4        sell + cost. Not a commercial quantity.
+tier quantity = 0   →  flagged-out, value 0   "a units-weighted blend is undefined"
+```
+
+The second is load-bearing and correct — it is how the graph states that twelve
+production tiers have no blend, and `verify-blend-population` uses it to assert
+that no readable blend is exposed on an undefined tier.
+
+**It is also the root of the whole blend subtree**, which the earlier inspection
+missed:
+
+```
+quote/{tier}                      sum   (sell + cost)   ← the meaningless value
+├─ quote/{tier}/sell              sum
+│    └─ quote/{tier}/sell/{leaf}  …and the per-component blends beneath
+└─ quote/{tier}/cost              sum
+```
+
+`quote/{tier}/sell` is read by the Cost Stack (`read("sell")` in
+`pricing-surface-shell`). Removing the container outright would orphan that
+subtree and break the undefined-tier contract. **"Remove it" was the wrong
+proposal**, and the sweep is what turned it up rather than a smoke test after
+the fact.
+
+---
+
+#### Revised (d) — retire the VALUE, keep the container, add the explicit key
+
+The container stays, because two things depend on it. What is retired is the
+`sell + cost` sum — the number nobody governs.
+
+```
+quote/{tier}                        container, one operand
+└─ quote/{tier}/margin              ratio        basis { "Revenue per unit", 15.4 }
+   └─ quote/{tier}/margin/gross     difference
+      ├─ quote/{tier}/sell          sole parent — moved, subtree intact
+      └─ quote/{tier}/cost          sole parent — moved
+```
+
+- **`quote/{tier}/margin` is an explicit canonical key**, as directed — not the
+  bare key repurposed.
+- **No sharing.** `sell` and `cost` each have exactly one parent chain. They
+  move from the meaningless sum into the difference that uses them.
+- **Nothing is orphaned.** The blend subtree hangs beneath `sell` as it does
+  today, one level deeper. `resolveNode` still finds each key exactly once, so
+  the Cost Stack's reads are unaffected.
+- **No key becomes ambiguous.** Every key in the subtree is unchanged; only its
+  depth moves.
+- **The zero-weight contract is untouched.** On a zero-quantity tier the
+  container is still `flagged-out` with its reason, so `verify-blend-population`
+  and the unit test keep passing unchanged.
+- **The container's value becomes the margin's** rather than sell + cost.
+  Nothing reads that value: both readers inspect `kind`, and the unit test
+  asserts a value only on the flagged-out branch.
+
+**What still needs checking at implementation time**, listed rather than
+assumed: whether any verifier walks the container expecting exactly two
+operands, and whether `graphIsComplete` or the required-section list treats the
+quote scope in a way this depth change disturbs. Both are cheap to check and
+neither is known to be a problem.
+
+---
+
 #### Viable representations, restated
 
 | | Verdict |
 |---|---|
-| (a) Permit cross-root sharing | **Withdrawn.** Breaks `resolveNode`, `readNodeValue`, trace and entry-at-node; blanks two live keys; requires removing a fail-closed protection that exists for good reason |
-| (b) Margin-local copies | Still available, still poor: duplicated arithmetic under a synonym |
-| (c) Numerator as `basis` | Still available, still costs traversability on the surface built for traversal |
-| **(d) `quote/{tier}` becomes the margin** | **Recommended.** No sharing, no rule change, fully traversable, and it deletes a node asserting a quantity nobody governs |
+| (a) Permit cross-root sharing | **Rejected.** Breaks `resolveNode`, `readNodeValue`, trace and entry-at-node; blanks two live keys; would require removing a fail-closed protection that exists for good reason |
+| (b) Margin-local copies | Available, poor — duplicated arithmetic under a synonym |
+| (c) Numerator as `basis` | Available — costs traversability on the surface built for traversal |
+| ~~(d) `quote/{tier}` becomes the margin~~ | **Superseded by the sweep.** The bare key has two readers and roots the blend subtree |
+| **(d′) Container retained, its VALUE retired, `quote/{tier}/margin` added beneath it** | **Recommended.** No sharing, no rule change, fully traversable, nothing orphaned, zero-weight contract intact — and the meaningless sum still goes |
 
 ---
 
