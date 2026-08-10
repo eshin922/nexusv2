@@ -1,14 +1,23 @@
 # Handoff · page-boundary mounting and entry-at-node wiring
 
-**Status: specified, not implemented.** The integration points below are read
-off the current code, not inferred. Everything they connect is merged and
-green.
+**Status: IMPLEMENTED — PR #244 (`04ab55d`), 2026-08-10.** Retained as the
+record of what was wired and why, and because §3 and §4 document two
+decisions the code cannot state for itself: which identity the staging
+labeller keys on, and why the sticky trace needs `overflow: clip`.
 
-**Why this is a handoff and not a commit.** Mounting is the last Phase 3 item
-and touches five landed pieces at once. I reached the end of a working session
-with enough context to establish the wiring accurately but not enough to
-implement and verify it to the standard the rest of the phase was held to. A
-half-mounted page is the one outcome the sequencing was chosen to avoid.
+The mount reported three findings. All three are now dispositioned:
+
+| Finding | Outcome |
+|---|---|
+| Nothing can stage a lift — `CellAction` was never built | Implementation work, still open |
+| The APPLIED bar offers a control it cannot honour | Folded into OD-012 |
+| Cost Stack Margin rendered the worst SKU, not the blend | **Closed** — [BV-010](business-validation/BV-010-blended-margin-definition.md), PR #246 |
+
+**Why this was a handoff before it was a commit.** Mounting touched five landed
+pieces at once, and I reached the end of a session with enough context to
+establish the wiring accurately but not enough to verify it to the standard the
+rest of the phase was held to. A half-mounted page was the one outcome the
+sequencing was chosen to avoid.
 
 ---
 
@@ -150,12 +159,21 @@ Nothing else is needed: a delta is a join, and both sides are stated.
 
 ---
 
-## What remains after mounting
+## What remains in Phase 3
 
-| Item | Blocked on |
+Cost Stack margin came off this list with PR #246.
+
+**Implementation**
+
+| Item | Note |
 |---|---|
-| Applied-lift persistence | **OD-012** |
-| Trace terminals naming a person | **A-2** — including the `NodeCandidate` model gap folded into its scope |
-| Operator validation checklist | mounting |
-| R1 rollback rehearsal | persistence |
-| R2 identity parity · R3 staging at production shape | mounting |
+| `CellAction` staging affordance | The R12 bundle exports it; it was never built. Until it exists nothing can stage a lift, so the staging bar, the chips and both transient deltas are correct and unreachable. Not an OD-012 dependency — staging is session state. |
+| Written R2 / R3 procedures | Named in this document's earlier revision and specified nowhere. An identifier is not a document — the BV-009 lesson. |
+
+**Infrastructure**
+
+| Item | Note |
+|---|---|
+| OD-012 persistence | Includes the APPLIED-bar contract: the bar offers "return to computed baseline" and can only clear the in-memory record that an adjustment exists. The persisted adjustment stays in effect and no number moves. |
+| A-2 provenance terminals | Including the `NodeCandidate` model gap folded into its scope — a schema gap in the in-memory graph contract, not merely a missing query. |
+| R1 rollback rehearsal | Depends on persistence. |
