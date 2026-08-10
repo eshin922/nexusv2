@@ -286,12 +286,27 @@ assertions the hardcoded literal used to fail on now pass — `.name .lab` reads
 `VAL-LOCAL-EXAMPLE-1`, which is PB-006/PB-007 satisfied. It then times out at
 `spec:466`, clicking the *"Other SKUs in this scenario (2)"* disclosure.
 
-**The element is on the page.** It appears in the failure snapshot with exactly
-that text, so this is not a wrong count and not a missing feature — the click
-never becomes actionable. That is a different class again from the string
-defect, and it is **not yet classified**: an element present in the
-accessibility tree that never satisfies visible-enabled-stable is usually a
-harness or interaction-timing question, but "usually" is not a classification.
+**Correction — the element is NOT on the page.** An earlier note in this file
+said it was, on the basis of two occurrences of the string in the failure
+artifact. Both were echoes: one the Playwright call log
+(`waiting for getByText(...)`), one the test-source listing. **The rendered page
+snapshot does not contain it.**
+
+Confirmed independently in the browser against the same fixture: zero DOM nodes
+whose text matches, on a fresh load of the Costs surface, and still zero after
+selecting a packaging row (which only appends `?tier=…`).
+
+**So the first failing condition is the first one on the list: the element does
+not exist.** Not zero-size, not covered, not mid-animation, not unhydrated,
+not replaced between discovery and click — absent. Every later condition is moot
+until that is explained, and no timeout increase or force-click could have
+reached it.
+
+**What that leaves open**, and deliberately unclassified: whether the disclosure
+is absent because the fixture's scenario does not have other SKUs to disclose —
+the literal expects `(2)` — or because the surface does not render it at all.
+Those are a fixture question and a product question respectively, and the
+evidence to date does not separate them.
 
 **Status of REG-1's evidence, stated plainly:**
 

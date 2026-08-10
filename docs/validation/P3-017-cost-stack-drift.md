@@ -277,6 +277,37 @@ the display performed is not one.
 **Six published quantities, then, not three.** The three levels make the ladder
 expressible; the three deltas make the assertion falsifiable.
 
+### Published tier-scope authority — the accepted set (2026-08-10)
+
+Eight quantities, published at tier scope:
+
+```
+sellBeforeAdjustment · adjDelta      · sellAfterAdjustment
+                     · liftDelta     · sellAfterLift
+                     · overrideDelta · quotedSell
+blended unitCost
+```
+
+**The constraint that makes them worth publishing:**
+
+> **Do not obtain the deltas by subtracting the published levels.**
+
+Each contribution node aggregates from the governed **per-cell** adjustment /
+lift / override authorities. Each post-lever level aggregates independently from
+the corresponding governed cell states. The two aggregations never consult each
+other.
+
+That independence is what makes the strip falsifiable.
+`sellBefore + adjDelta + liftDelta + overrideDelta == quotedSell` is then an
+assertion that **two independent aggregations of the same underlying graph
+agree** — it fails if the blend is wrong. Obtained by subtraction it telescopes
+and holds for any four numbers. The intermediate levels are verified separately,
+under the same independence.
+
+**Gate for the layout work:** do not start the R11 restoration until this
+tier-scope authority exists **and reconciles independently**. P3-017 stays on
+its own track and is not folded into presentation work.
+
 ### What has to happen first
 
 The blend must publish `sellAfterAdjustment`, `sellAfterLift` and blended
