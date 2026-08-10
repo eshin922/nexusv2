@@ -31,23 +31,30 @@
 //
 // ── TWO THINGS DELIBERATELY ABSENT ────────────────────────────────────────
 //
-// **Who set the override, and when.** The canonical rejects a blocked lift by
-// naming a person and a date. `assembly_leaf_overrides` carries
-// `assembly_leaf_id · tier_id · sell_price_override · created_at · updated_at`
-// — no actor — and `created_at` is not the same claim as "Maya set this". That
-// is A-2. Rejecting is in scope because `lift_blocked` is authoritative;
-// naming who is not, and inventing an actor to fill the sentence would be
-// worse than the sentence being shorter.
+// **Actor / when / note on a STAGED change.** The prototype attaches them to
+// the change itself. They belong to the audit row, and a staged change has no
+// audit row — nothing has happened yet. A `StagedChange` here is
+// `{kind, key, pct}`: session state, and enriching it would put authorship
+// somewhere no audit log will ever read.
 //
-// **Actor / when / note on the staged lift.** The prototype attaches them to
-// the change itself. They belong to the audit row written at Apply, which is
-// OD-012. A `StagedChange` here is `{kind, key, pct}` — session state, and
-// enriching it would put authorship somewhere no audit log will ever read.
+// ── WHAT A-2 ADDED, AND WHAT IT DID NOT ───────────────────────────────────
+//
+// Who set a PERSISTED direct price, and who applied a persisted lift, are now
+// named — read from the same provenance overlay the trace reads, through the
+// same resolver. Not a second lookup: this component asks a shared map for one
+// key and renders the sentence.
+//
+// It still names nobody when nothing recorded one. `assembly_leaf_overrides`
+// carries no actor column, so attribution comes from the audit row, and a cell
+// priced before that row existed has none. The sentence gets shorter rather
+// than getting a plausible name — which was the rule before A-2 and is the
+// same rule after it.
 
 import { useState } from "react";
 import type { Cell } from "@/lib/pricing-classifier";
 import type { CellRef } from "@/lib/pricing-staging";
 import { usePricingStaging } from "./pricing-staging-context";
+import { useOriginFor } from "./pricing-provenance-context";
 
 function fmtPct(v: number): string {
   return `${(v * 100).toFixed(1)}%`;
@@ -157,6 +164,36 @@ export interface CellActionProps {
   onClose: () => void;
 }
 
+/**
+ * Who did this, and when — one sentence, one component.
+ *
+ * Both branches that can show attribution render THIS, so a direct price and an
+ * applied lift cannot end up phrased differently for no reason. Renders nothing
+ * when there is nothing recorded: the absence of a name is not a blank to fill.
+ */
+function Attribution({
+  origin,
+  verb,
+}: {
+  origin: { actor: string | null; when: string | null } | null;
+  verb: string;
+}) {
+  if (!origin?.actor) return null;
+  const when = origin.when
+    ? new Date(origin.when).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      })
+    : null;
+  return (
+    <p className="attribution">
+      {verb} by <strong>{origin.actor}</strong>
+      {when ? ` on ${when}` : ""}.
+    </p>
+  );
+}
+
 export function CellAction({
   cell,
   cellRef,
@@ -168,6 +205,30 @@ export function CellAction({
 
   const key = cellRef ? `${cellRef.quoteLeafId}::${cellRef.tierId}` : null;
   const staged = key !== null && changes.some((c) => c.kind !== "adj" && c.key === key);
+
+  // A-2 · attribution for the two PERSISTED acts this panel can be looking at.
+  //
+  // Addressed by NODE key, which is `{engineSkuId}/{tierUuid}/...` — and both
+  // halves come from somewhere specific for a reason:
+  //
+  //   · `cell.sku_id` IS the engine's SKU id (the classifier builds it from
+  //     `skuRollups[].skuId`), which is what the graph keys on. The staging
+  //     key's canonical half is a DIFFERENT identity; asking with it would
+  //     resolve nothing while looking like it had.
+  //   · `cell.tier_id` is the classifier's NUMERIC tier index, not the UUID the
+  //     graph uses, so the tier comes from the resolved `cellRef`.
+  //
+  // Null while the overlay loads, and null renders nothing rather than a
+  // placeholder that a name would later replace.
+  const cellNodeBase = cellRef ? `${cell.sku_id}/${cellRef.tierId}` : null;
+  const overrideOrigin = useOriginFor(
+    cellNodeBase && cell.override_applied ? `${cellNodeBase}/quoted` : null,
+  );
+  const liftOrigin = useOriginFor(
+    cellNodeBase && cell.lift_applied_pct !== null
+      ? `${cellNodeBase}/lift/pct`
+      : null,
+  );
 
   function body() {
     if (cellRef === null) {
@@ -232,6 +293,7 @@ export function CellAction({
               {staged ? " (staged)" : ""} — this replaces the computed chain
               rather than layering over it.
             </p>
+            <Attribution origin={overrideOrigin} verb="Set" />
             <p className="undo-note">
               Removing it is <strong>not</strong> the same undo as removing a
               lift. A lift peels off and the cell returns to its computed price.
@@ -286,6 +348,7 @@ export function CellAction({
               Removing it leaves that untouched, and the cell returns to its
               computed price.
             </p>
+            <Attribution origin={liftOrigin} verb="Applied" />
             {/*
               The offer survives alongside an applied lift when the cell is
               still short. Shown because hiding it removes the only way to see

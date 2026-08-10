@@ -2646,12 +2646,18 @@ export function computeQuoteCosting(input: QuoteCostingInput,
         chosen: targetOverride !== null,
         unavailableReason:
           targetOverride !== null ? null : "no target override set on this quote",
+        // A-2 · the two rungs are set by two different people in two different
+        // places, and that is the whole reason this is a resolution. Naming the
+        // authority is something the engine knows; resolving who exercised it
+        // is the overlay's job.
+        provenanceKey: quoteWideKey("target-margin", "quote-override"),
       },
       {
         label: "Firm default",
         value: firmSettings.targetMarginPct,
         chosen: targetOverride === null,
         unavailableReason: null,
+        provenanceKey: quoteWideKey("target-margin", "firm-default"),
       },
     ],
   };

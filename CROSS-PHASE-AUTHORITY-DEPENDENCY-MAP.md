@@ -204,21 +204,47 @@ rounds of Pricing.
 |---|---|---|
 | **1** | **None** | ✅ Writes no external data. Pin rows are inert if unread. |
 | **2** | **None** | ✅ Rendering only. No schema, no data, no arithmetic, no external system. |
-| **3** | **First Apply** | ⚠️ **Unresolved until the rollback rehearsal completes.** |
+| **3** | **First Apply** | ⚠️ **Reversible, with a required step.** R1 measured the outcome as `ignores`. A runtime rollback MUST be preceded by `DELETE FROM quote_leaf_lifts;` |
 | **4** | **First request sent to Slack** | ❌ **Not cleanly reversible. Requires a runbook.** |
 
-### Phase 3 — unresolved, not unreversible
+### Phase 3 — settled 2026-08-10. The outcome is `ignores`
 
-**The question is not whether the current runtime renders lifts** — it does not,
-because they do not exist. **It is what a runtime without lift support does when
-it meets a database containing them.**
+**The question was not whether the current runtime renders lifts** — it does
+not, because they did not exist. **It was what a runtime without lift support
+does when it meets a database containing them.**
 
-Three outcomes, three consequences: **absorbs** *(consumes rows it cannot
-explain)* · **ignores** *(computes a different price from the one displayed
-before rollback)* · **rejects** *(fails on the state)*.
+[R1](docs/rehearsals/R1-rollback-after-first-apply.md) answered it by
+measurement, not argument: the pre-Phase-3 runtime was RUN, from a worktree at
+`bcd6469`, against the same database carrying one applied lift.
 
-**Phase 3 is: cleanly reversible before first Apply; rollback after first Apply
-unresolved until R1 completes.**
+It does not error and does not consume the rows. It **computes a different
+price from the one displayed before rollback** — $15.93 → $15.13 on the lifted
+cell, 25.0% → 21.0%, and $797.61 off that tier's NetSuite amount. The other 23
+of 24 cells were identical, so the effect is bounded exactly to cells carrying
+a lift row.
+
+> ## The operational requirement
+>
+> **Before running a pre-Phase-3 runtime against a database that has received
+> applied lifts, delete the rows:**
+>
+> ```sql
+> DELETE FROM quote_leaf_lifts;
+> ```
+>
+> **Otherwise the old runtime silently prices below the operator-approved
+> amount.** It does not warn, and it cannot: it has no concept of the rows, so
+> every number it produces is internally consistent and wrong only by reference
+> to what was displayed before the rollback.
+
+The table is additive, so a rollback that skips the DELETE is safe in the
+structural sense — nothing crashes, nothing is lost, and re-deploying Phase 3
+restores every price exactly. What it opens is a window in which quoted prices
+sit below what an operator approved. That is a commercial exposure, not a
+technical one, which is why it belongs in the procedure rather than in a note.
+
+**Phase 3 is: cleanly reversible before first Apply; after it, reversible with a
+known, bounded and documented consequence — provided the DELETE runs first.**
 
 ### Phase 4 — the first phase where "undo the deploy" is insufficient
 

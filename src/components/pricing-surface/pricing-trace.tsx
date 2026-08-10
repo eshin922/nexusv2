@@ -94,6 +94,20 @@ const KIND_LABEL: Record<CostingNode["kind"], string> = {
   "flagged-out": "not in chain",
 };
 
+/**
+ * A timestamp as a person reads it.
+ *
+ * Date only. Provenance answers "who set this and when", and a wall-clock time
+ * implies a precision the question does not have — nobody disputes a price on
+ * the strength of the minute it was entered.
+ */
+function fmtWhen(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
 /** Somewhere further to go: operands, candidates, or a superseded chain. */
 function expandable(n: CostingNode): boolean {
   return (
@@ -106,12 +120,17 @@ function expandable(n: CostingNode): boolean {
 // ── terminals ─────────────────────────────────────────────────────────────
 
 /**
- * A human act, at whatever grade the engine could establish.
+ * A human act, at whatever grade the overlay could establish.
  *
  * Two grades, and the thin one is not a deficiency. "Who set this and when" is
  * a complete answer to the stopping rule; a source document exists only where
- * one was recorded. Until A-2 lands, most terminals cannot even name the
- * person — and saying so is still the end of the chain, honestly reported.
+ * one was recorded.
+ *
+ * A-2 landed the lookup, so a terminal whose input type has an audit row now
+ * names the person and the date. Thin remains for two reasons that are worth
+ * telling apart when reading one: the input was set before its audit trail
+ * existed, or nothing writes an audit row for that input type at all. Neither
+ * is filled with a guess.
  */
 function Origin({ node, stop }: { node: CostingNode; stop?: string }) {
   const o = node.origin;
@@ -123,14 +142,15 @@ function Origin({ node, stop }: { node: CostingNode; stop?: string }) {
       ? "end of chain · entered from a supplier source"
       : o.actor !== null
         ? "end of chain · a person set this figure; no source document is recorded"
-        : // The honest statement of the A-2 gap, at the point it is felt.
-          "end of chain · provenance for this input type is not yet queryable");
+        : // Thin. The honest statement, at the point it is felt: the lookup
+          // ran and found nothing to attribute this to.
+          "end of chain · no recorded author for this input");
   return (
     <div className={"r10-origin" + (sourced ? " sourced" : "")}>
       <span className="seal">✎</span>
       <div className="body">
         <div className="who">{o.actor ?? "not yet attributed"}</div>
-        {o.when && <div className="when">{o.when}</div>}
+        {o.when && <div className="when">{fmtWhen(o.when)}</div>}
         {o.doc && <span className="doc">{o.doc}</span>}
         <span className="stop">{line}</span>
       </div>
@@ -161,6 +181,25 @@ function Resolution({ node }: { node: CostingNode }) {
             {c.value === null ? "not set" : fmtPct(c.value)}
           </span>
           {c.unavailableReason && <span className="why">{c.unavailableReason}</span>}
+          {/*
+            A-2 · who set this rung.
+            
+            A resolution ends a chain legitimately, but the value it resolves TO
+            was still set by somebody — the firm's target margin is a person's
+            decision, entered in Admin. `NodeCandidate` had nowhere to say so;
+            that was the model gap, and this is the field it left room for.
+
+            Rendered on EVERY rung that has one, not only the winner. A losing
+            rung is what makes the winner legible — "35% because this quote says
+            so" against "35% because the firm does" — and an operator comparing
+            them wants to know who set each.
+          */}
+          {c.origin?.grade === "sourced" && (
+            <span className="who">
+              {c.origin.actor}
+              {c.origin.when ? ` · ${fmtWhen(c.origin.when)}` : ""}
+            </span>
+          )}
         </div>
       ))}
     </div>

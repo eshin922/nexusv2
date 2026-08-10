@@ -56,6 +56,7 @@ import {
   quoteScopeKey,
   readEffectiveTargetMargin,
   readNodeValue,
+  type CostingNode,
 } from "@/lib/costing-nodes";
 import { buildCostingInput } from "@/lib/costing-store";
 import { composePricingAdjustment } from "@/lib/pricing-adjustment";
@@ -166,6 +167,7 @@ export function PricingClassifierProvider({
   // what has happened.
   const targetRead = readEffectiveTargetMargin(graph);
 
+
   // Build QuoteInput + QuotePolicyInput (memoised).
   const { quoteInput, policyInput, idMap } = useMemo(
     () =>
@@ -186,6 +188,8 @@ export function PricingClassifierProvider({
           previewTierMargin(storeApi.getState(), tierId, applyDelta),
         previewBlendedAt: (applyDelta) =>
           previewBlendedMargin(storeApi.getState(), applyDelta),
+        // Read, not recomputed. The applied lift is already a node.
+        graphNodes: graph?.nodes ?? [],
       }),
     [
       targetRead,
@@ -197,6 +201,11 @@ export function PricingClassifierProvider({
       globalAdj,
       quoteSummary,
       storeApi,
+      // The lift map is derived from it, so a lift applied mid-session has to
+      // re-enter the classifier. Omitting it would leave CellAction describing
+      // a cell that needs no correction while one is in effect on it — which is
+      // precisely the defect this read was added to fix.
+      graph,
     ],
   );
 
@@ -345,6 +354,14 @@ function previewBlendedMargin(
 }
 
 interface AdapterInputs {
+  /**
+   * The computation graph's roots.
+   *
+   * Passed so the adapter can READ the applied lift rather than have a scalar
+   * invented for it on `SkuPerTierRollup`. Gate 1B §0: every commercial value a
+   * surface displays is a node in the graph, read — never recomputed.
+   */
+  graphNodes: readonly CostingNode[];
   tiersForReframe: ReadonlyArray<{
     id: string;
     label: string;
@@ -371,6 +388,33 @@ interface AdapterResult {
   idMap: PricingClassifierValue["idMap"];
 }
 
+/**
+ * Applied lifts, by `{skuId}/{tierId}`, gathered in ONE walk of the graph.
+ *
+ * A `resolveNode` per cell would be a full traversal per cell — 24 on the R3
+ * fixture and many more on a real quote — to answer a question one traversal
+ * answers for all of them.
+ *
+ * Only `origin` nodes count. A REJECTED lift emits `flagged-out` at
+ * `{sku}/{tier}/lift` with its reason; counting that as applied would tell the
+ * operator a correction is in effect that the engine refused.
+ */
+function appliedLiftsByCell(
+  roots: readonly CostingNode[],
+): ReadonlyMap<string, number> {
+  const out = new Map<string, number>();
+  const visit = (n: CostingNode) => {
+    if (n.kind === "origin" && n.key.endsWith("/lift/pct")) {
+      const parts = n.key.split("/");
+      out.set(`${parts[0]}/${parts[1]}`, n.value);
+    }
+    for (const c of n.operands ?? []) visit(c);
+    if (n.superseded) visit(n.superseded);
+  };
+  for (const root of roots) visit(root);
+  return out;
+}
+
 function buildClassifierInputs({
   tiersForReframe,
   firmSettings,
@@ -383,7 +427,10 @@ function buildClassifierInputs({
   cellTargetLookup,
   previewTierMarginAt,
   previewBlendedAt,
+  graphNodes,
 }: AdapterInputs): AdapterResult {
+  // Read once, used per cell below.
+  const appliedLiftByCell = appliedLiftsByCell(graphNodes);
   // Numeric tier ids: 1..N in the same order as tiersForReframe
   // (page.tsx already ordered by sort_order + created_at). Stable
   // across renders so React keys stay valid.
@@ -452,6 +499,7 @@ function buildClassifierInputs({
         margin_pct: number | null;
         sell_unit: number | null;
         cost_unit: number | null;
+        lift_applied_pct: number | null;
         override_applied: boolean;
         no_margin_reason: "unpriced" | "cost_without_revenue" | null;
         competitive_status: "COMPETITIVE" | "OVER_CLIENT_TARGET" | null;
@@ -495,6 +543,21 @@ function buildClassifierInputs({
           sell_unit: isMissing ? null : pt.requiredSellPerUnit,
           cost_unit: isMissing ? null : pt.contributionCostPerUnit,
           override_applied: pt.sellSource === "cell_override",
+          // The APPLIED lift, read from the graph.
+          //
+          // Package 1 made a lift persist; nothing forwarded it here, so
+          // `lift_applied_pct` was null on every cell and CellAction's
+          // `lift_applied` branch was unreachable even on a cell that plainly
+          // carried one. The price was right — the engine applies the lift —
+          // but the panel described a cell needing no correction while a
+          // correction was in effect on it.
+          //
+          // Read from the NODE rather than added to `SkuPerTierRollup`, which
+          // is the Gate 1B contract working as intended: "every commercial
+          // value any surface displays is a node in that graph, read — never
+          // recomputed." A new scalar would be a second place the same fact
+          // lives, and the graph already holds it.
+          lift_applied_pct: appliedLiftByCell.get(`${sr.skuId}/${pt.tierId}`) ?? null,
           // The engine's competitive verdict, forwarded rather than re-derived.
           competitive_status: pt.competitiveStatus,
           // P0 A1 fix (2026-06-25) — populate cost_stack from the

@@ -16,6 +16,7 @@ import { NavShell } from "@/components/nav/nav-shell";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { PricingClassifierProvider } from "@/components/pricing-surface/pricing-classifier-context";
 import { PricingStagingProvider } from "@/components/pricing-surface/pricing-staging-context";
+import { PricingProvenanceProvider } from "@/components/pricing-surface/pricing-provenance-context";
 import { PricingSurfaceShell } from "@/components/pricing-surface/pricing-surface-shell";
 
 // slice-pricing-surface-redesign Step 8 — Pricing surface is now
@@ -195,6 +196,12 @@ export default async function CostingPage({
             observe the same store the classifier reads. Nothing in the
             classifier depends on staging, so the reverse nesting would also
             work — and would imply a dependency that does not exist. */}
+        {/* A-2 · attribution is an OVERLAY, so it nests inside the store it
+            reads node keys from and outside the surfaces that render them. It
+            loads after first paint: measured at 326-357ms against production,
+            which is real money on a path this page already pays for the
+            costing bundle. */}
+        <PricingProvenanceProvider quoteId={quoteId}>
         <PricingStagingProvider
           quoteId={quoteId}
           initialGlobalAdj={Number(quote.globalPriceAdjPct)}
@@ -240,6 +247,7 @@ export default async function CostingPage({
           />
         </main>
         </PricingStagingProvider>
+        </PricingProvenanceProvider>
       </PricingClassifierProvider>
     </CostingStoreProvider>
     </NavShell>
