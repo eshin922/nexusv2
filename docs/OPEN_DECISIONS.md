@@ -472,6 +472,60 @@ the third instance of the same shape, and consistency is itself the argument.
 
 ---
 
+#### Refinement raised at implementation time (2026-08-09)
+
+**Accepted 2026-08-09**, and one detail the analysis above did not reach.
+Surfaced by starting the emission, not by re-reading the spec.
+
+**The numerator's operands would be shared nodes.** At tier scope the two
+values a margin needs already exist as ROOTS of the graph:
+
+```
+quote/{tier}/revenue        sum, root
+quote/{tier}/cost-total     sum, root
+```
+
+Building `difference(revenue, cost-total)` beneath the margin means those two
+node objects are reachable from two roots — their own, and the margin's. The
+recommendation above rejected making revenue a direct operand of the ratio on
+exactly this ground, citing §4 rule 5: *"arithmetic nodes may not be shared, or
+reconciliation double-counts."* Using `basis` avoided one sharing. It did not
+avoid the other, and the analysis did not notice.
+
+**What the rule actually protects against, and whether it bites here.**
+
+Rule 5's stated rationale is double-counting under reconciliation. That happens
+when one node is an operand of a summing parent twice — the sum counts it
+twice and the assertion still passes, because both the sum and the operands
+agree. Here nothing sums across the two positions: revenue is a root in its own
+right and a numerator input in the other, and no node has both as operands.
+
+`findGraphViolations` would also not flag it. It is called per root with a
+fresh `seenKeys`, so cross-root sharing is invisible to it. **That is not
+evidence the sharing is fine** — it means the existing check was written for
+within-chain duplication and has nothing to say about this case.
+
+**Three ways to resolve it, and the choice is not obvious:**
+
+| | Consequence |
+|---|---|
+| **(a) Permit cross-root sharing**, and narrow rule 5 to within-chain | Honest if the rationale really is double-counting. Requires amending a stated rule on the strength of its rationale, which is exactly the kind of reasoning that should be explicit rather than assumed |
+| **(b) Emit margin-local copies** of revenue and cost under the margin subtree | No sharing, no rule change — but two nodes carrying the same value under different keys, which is duplicated arithmetic wearing a different name. Trades a rule violation for the thing the rule exists to prevent |
+| **(c) Ratio takes the numerator as `basis` too** — margin as a terminal-ish node with both inputs as data | Simplest, and consistent with `rate`. Cost: the numerator stops being traversable, so the trace cannot expand "why is the gross margin what it is" — which is a real loss on the one surface built to answer that |
+
+**Recommendation: (a), narrowed explicitly.** Rule 5 should read *"an arithmetic
+node may not appear more than once within a single reconciling chain"*, with the
+cross-root case named as permitted and the reason stated. (b) reintroduces
+duplication under a synonym; (c) sacrifices traversability on the surface whose
+entire purpose is traversal.
+
+**This is a rule amendment, not an implementation detail**, which is why it is
+recorded here rather than decided in code. It also affects nothing already
+shipped: no current node is shared across roots, so narrowing the rule
+legalises a case that does not yet occur.
+
+---
+
 #### What settles it
 
 Edward + CA confirm or reject the `ratio` contract above. If confirmed,
