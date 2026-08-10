@@ -120,6 +120,14 @@ export interface QuoteCellInput {
 export interface QuoteSkuInput {
   id: string;
   name: string;
+  /**
+   * The SKU code, for the grid's sub-label — display only.
+   *
+   * Optional because it is display identity, not commercial identity: a rollup
+   * without one renders no sub-label rather than a blank line, and nothing that
+   * decides a price reads it.
+   */
+  code?: string | null;
   client_target_unit?: number | null;
   cells: Record<number, QuoteCellInput>;
 }
@@ -912,10 +920,23 @@ export function classify(
     };
   }
 
-  // ── 8. Summary card (sendable only — composition, not status) ──
+  // ── 8. Summary card — composition, not status, and therefore not gated ──
+  //
+  // R12 §8a: everything above and including *Your next move* is preserved in
+  // EVERY state, "What you're sending" among it. The prototype shows the tiles
+  // beside a NOT SENDABLE verdict, which is exactly when a PM most wants to
+  // know what they are looking at — scope, recommended tier, order value.
+  //
+  // It used to be gated on `mode === "sendable"`, and the gate said something
+  // the card does not: these four numbers describe the quote's COMPOSITION and
+  // are true whatever the verdict. Withholding them while blocked answered
+  // "may I send this" twice and "what is this" not at all.
+  //
+  // Null only when there is genuinely nothing to describe.
   const summaryCard: SummaryCard | null =
-    mode === "sendable"
-      ? {
+    quote.skus.length === 0 || quote.tiers.length === 0
+      ? null
+      : {
           sku_count: quote.skus.length,
           tier_count: quote.tiers.length,
           recommended_tier: quote.recommended_tier_id,
@@ -925,8 +946,7 @@ export function classify(
             cells,
           ),
           blended_margin_pct: quote.blended_margin_pct,
-        }
-      : null;
+        };
 
   return {
     mode,

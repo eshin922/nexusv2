@@ -526,7 +526,14 @@ export function PricingSurfaceShell({
 
       {state.mode === "suggestion_led" && <StateCallout state={state} />}
       {state.mode === "blocked" && <StateCard state={state} />}
-      {state.mode === "sendable" && <SendableSummary state={state} />}
+      {/*
+        R12 §8a — "What you're sending" is preserved in EVERY state, not only
+        the sendable one. The tiles describe the quote's composition; a PM
+        looking at a blocked verdict is exactly who needs to know its scope,
+        recommended tier and order value. It renders after the verdict and
+        before the corrective actions, as the prototype does.
+      */}
+      <SendableSummary state={state} />
 
       {/* ACTION — ranked actions per mode.
           CB Patch round 3 BUG-C disposition: in suggestion_led mode

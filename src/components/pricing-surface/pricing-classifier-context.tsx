@@ -586,6 +586,10 @@ function buildClassifierInputs({
       return {
         id: sr.skuId,
         name: sr.productName,
+        // R12 grid sub-label. `skuLabel` IS the code; `pack` has no home on
+        // the model yet (Slice 11 deferral), so the sub-label renders the code
+        // alone and completes itself the day pack lands.
+        code: sr.skuLabel,
         client_target_unit: clientTargetUnit,
         cells,
       };
