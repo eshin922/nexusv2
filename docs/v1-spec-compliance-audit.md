@@ -1,6 +1,8 @@
 # V1 · SPEC compliance audit — charter and source inventory
 
-**Status:** BASELINE FROZEN. Enumeration not started.
+**Status:** BASELINE FROZEN. Convention set. **Enumeration not started** — it
+begins in a fresh session and completes in one uninterrupted pass. No partially
+populated matrix is published or reviewed.
 **Baseline:** `main` @ **`024d2316f5881601a7a408ed8f2e79c9a3d1cf82`**, 2026-08-10.
 **Nature:** release-risk **discovery**. Not an implementation exercise, and no
 finding in it proposes an implementation.
@@ -65,8 +67,13 @@ finding; it invalidates the row, and the row is re-run.
 
 ### Two observations from freezing, carried as candidate rows
 
-Neither is a finding. Freezing is not auditing. Both are cheap to settle and
-are recorded now so they are not rediscovered as surprises mid-matrix.
+Neither is a finding, and **neither is resolved here.** Freezing is not
+auditing. They are recorded now so they are not rediscovered as surprises
+mid-matrix, and they **enter the matrix as rows like any other** — the completed
+audit assigns each a verdict and, if it is a finding, a classification of
+implementation defect, specification drift, or **repository governance** (a
+third category these two raise: a condition of the repository itself rather than
+of the code or of a specification's content).
 
 **B-1 . `docs/spec.md` and `docs/SPEC.md` are ONE file.** Git tracks exactly one
 path, `docs/SPEC.md`; the lowercase form is the same file surfaced by a
@@ -85,15 +92,15 @@ row -- and it is drift if the OD is simply out of date.
 
 | document | lines | role |
 |---|---|---|
-| `docs/SPEC.md` · `docs/spec.md` | 647 each | the product specification |
+| `docs/SPEC.md` | 647 | the product specification — one tracked path; see **B-1** |
 | `PHASE-1-QUOTE-COMMERCIAL-INTEGRITY.md` | 726 | phase contract |
 | `PHASE-2-COSTS-WORKSPACE-MULTI-SKU.md` | 688 | phase contract |
 | `PHASE-3-PRICING-WORKSPACE.md` | 658 | phase contract — **closed, evidence complete** |
-| `PHASE-4-MARGIN-APPROVAL.md` | — | phase contract — blocked on OD-002 |
+| `PHASE-4-MARGIN-APPROVAL.md` | 698 | phase contract — blocked on OD-002 |
 | `CROSS-PHASE-AUTHORITY-DEPENDENCY-MAP.md` | 360 | sequencing, dependencies, reversibility |
 | `docs/AUTHORITY_MAP.md` | 188 | which document governs what |
 | `docs/OPEN_DECISIONS.md` | 1050 | what is undecided |
-| `docs/business-validation/BV-001 … BV-010` | 10 docs | business contracts |
+| `docs/business-validation/BV-001 … BV-010` | **9 docs** — BV-002 absent | business contracts |
 | `docs/business-validation/PRODUCTION_READINESS_REGISTER.md` | 81 | **the V1 gate register** |
 
 ## The spine — and the first thing the audit must not do
@@ -114,6 +121,46 @@ or against it. Three of the four are already self-reported as open, which makes
 gate 1 — the one claiming completion — the highest-value single row in the
 matrix.
 
+## Audit convention — every row ends in exactly one verdict
+
+Fixed before enumeration begins, so the vocabulary is not invented row by row
+while the matrix is being written.
+
+| verdict | means |
+|---|---|
+| **Satisfied** | implementation evidence supports the requirement |
+| **Unsatisfied** | implementation **contradicts** the requirement |
+| **Insufficient evidence** | no acceptable implementation evidence was found |
+| **Specification drift** | the specification set is internally inconsistent or stale |
+| **Out of scope** | explicitly excluded from V1 |
+
+Exactly one. Not two, not a hedge, not a blank.
+
+**"Insufficient evidence" is never collapsed into "Unsatisfied."** They are
+different claims about the world and they carry different remediation.
+*Unsatisfied* asserts the code was examined and does the wrong thing — it names a
+defect. *Insufficient evidence* asserts only that the audit could not find proof
+either way; the requirement may well be met. Collapsing the second into the first
+manufactures defects, and collapsing it the other way — into *Satisfied* — is the
+failure this whole exercise exists to avoid. The honest verdict is its own value
+precisely because it is the one that is uncomfortable to record.
+
+A row may be **Satisfied** and still carry a note. A note is not a verdict.
+
+### The second axis — disposition, and only for findings
+
+The verdict says what the audit found. The **disposition** says what release
+should do about it, and applies only to rows whose verdict is *Unsatisfied*,
+*Insufficient evidence* or *Specification drift*:
+
+- **release blocker** — V1 cannot ship correct or usable without it
+- **release recommendation** — ships without it; carries known risk
+- **post-V1** — real work, not a V1 obligation
+
+*Satisfied* and *Out of scope* rows take no disposition. Keeping the two axes
+separate is what stops "we have no evidence" from silently becoming "it is fine"
+on its way through the table.
+
 ## Method
 
 1. **Enumerate** every governed requirement from the sources above, one row
@@ -121,10 +168,7 @@ matrix.
 2. **Evidence** each row against implementation: a test, a verifier, a rehearsal
    record, or a code citation. **A row with no evidence is a finding**, not an
    assumed pass.
-3. **Classify** each finding:
-   - **release blocker** — V1 cannot ship correct or usable without it
-   - **release recommendation** — ships without it; carries known risk
-   - **post-V1** — real work, not a V1 obligation
+3. **Verdict, then disposition**, per the convention above.
 4. **Distinguish drift from defect.** Specification drift is the spec no longer
    describing what was deliberately decided; an implementation defect is the
    code not doing what the spec still says. They read alike in a matrix and are
