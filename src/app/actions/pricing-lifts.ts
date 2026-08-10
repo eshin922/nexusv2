@@ -79,12 +79,28 @@ export type AppliedOverrideInput = {
   sellPrice: number;
 };
 
+/** A per-tier adjustment. Authored elsewhere; carried here so it can be cleared. */
+export type AppliedTierAdjInput = { tierId: string; adjPct: number };
+
 export type ApplyPricingAdjustmentsInput = {
   quoteId: string;
   /** The COMPLETE intended lift set. Absent cells are removals. */
   lifts: AppliedLiftInput[];
   /** The COMPLETE intended set of canonically-addressable direct prices. */
   overrides: AppliedOverrideInput[];
+  /**
+   * The COMPLETE intended set of per-tier adjustments.
+   *
+   * Nothing STAGES one of these — `applySurgicalAdj` and `applyGlobalAdj` write
+   * `quote_tiers.tier_price_adj_pct` immediately, with their own audit rows, and
+   * that stays true. They are carried here because they are adjustments in
+   * effect, and a Return to baseline that left them standing would tell the
+   * operator the levers were removed while one of them still moved every price
+   * on its tier.
+   *
+   * An ordinary Apply passes them back unchanged, so it plans no change.
+   */
+  tierAdjustments: AppliedTierAdjInput[];
   globalAdjPct: number;
   /**
    * Which operator act this is.
@@ -103,6 +119,7 @@ export type ApplyPricingAdjustmentsResult = {
   quoteId: string;
   lifts: AppliedLiftInput[];
   overrides: AppliedOverrideInput[];
+  tierAdjustments: AppliedTierAdjInput[];
   globalAdjPct: number;
   /** How many rows the commit actually moved. Zero is a legitimate answer. */
   changeCount: number;
@@ -148,6 +165,11 @@ function normalizeSellPrice(value: number): string {
     throw new ActionGuardError(ERR.VALIDATION, "That price is out of range.");
   }
   return rounded.toFixed(4);
+}
+
+/** Same column semantics as the quote-wide adjustment, so the same range. */
+function normalizeTierAdj(value: number): string {
+  return normalizeGlobalAdj(value);
 }
 
 function normalizeGlobalAdj(value: number): string {
@@ -209,6 +231,7 @@ export async function applyPricingAdjustments(
       new Set([
         ...input.lifts.map((l) => l.tierId),
         ...input.overrides.map((o) => o.tierId),
+        ...input.tierAdjustments.map((t) => t.tierId),
       ]),
     );
     if (namedTiers.length > 0) {
@@ -274,6 +297,16 @@ export async function applyPricingAdjustments(
         );
       }
       intendedOverrides.set(key, { row: o, stored: normalizeSellPrice(o.sellPrice) });
+    }
+    const intendedTierAdj = new Map<string, string>();
+    for (const t of input.tierAdjustments) {
+      if (intendedTierAdj.has(t.tierId)) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "The same tier was adjusted twice in one apply.",
+        );
+      }
+      intendedTierAdj.set(t.tierId, normalizeTierAdj(t.adjPct));
     }
     const storedGlobalAdj = normalizeGlobalAdj(input.globalAdjPct);
 
@@ -347,6 +380,15 @@ export async function applyPricingAdjustments(
       .innerJoin(quoteTiers, eq(quoteTiers.id, assemblyLeafOverrides.tierId))
       .where(eq(quoteTiers.quoteId, quote.id));
 
+    const persistedTierAdjRows = await db
+      .select({ id: quoteTiers.id, adj: quoteTiers.tierPriceAdjPct })
+      .from(quoteTiers)
+      .where(eq(quoteTiers.quoteId, quote.id));
+    const persistedTierAdj = new Map<string, string>();
+    for (const t of persistedTierAdjRows) {
+      if (t.adj !== null) persistedTierAdj.set(t.id, t.adj);
+    }
+
     const persistedLifts = new Map(
       persistedLiftRows.map((r) => [applyCellId(r.quoteLeafId, r.tierId), r.liftPct]),
     );
@@ -380,6 +422,8 @@ export async function applyPricingAdjustments(
       persistedOverrides: new Map(
         Array.from(persistedOverrides, ([k, v]) => [k, v.stored] as const),
       ),
+      intendedTierAdj,
+      persistedTierAdj,
       globalAdjFrom,
       globalAdjTo: storedGlobalAdj,
     });
@@ -388,6 +432,8 @@ export async function applyPricingAdjustments(
       liftsRemoved,
       overridesSet,
       overridesRemoved,
+      tierAdjSet,
+      tierAdjRemoved,
       changeCount,
     } = plan;
     const globalAdjMoved = plan.globalAdj !== null;
@@ -399,6 +445,7 @@ export async function applyPricingAdjustments(
         quoteId: quote.id,
         lifts: input.lifts,
         overrides: input.overrides,
+        tierAdjustments: input.tierAdjustments,
         globalAdjPct: Number(storedGlobalAdj),
         changeCount: 0,
       };
@@ -458,6 +505,19 @@ export async function applyPricingAdjustments(
           });
       }
 
+      for (const { key } of tierAdjRemoved) {
+        await tx
+          .update(quoteTiers)
+          .set({ tierPriceAdjPct: null, updatedAt: new Date() })
+          .where(eq(quoteTiers.id, key));
+      }
+      for (const { key, to } of tierAdjSet) {
+        await tx
+          .update(quoteTiers)
+          .set({ tierPriceAdjPct: to, updatedAt: new Date() })
+          .where(eq(quoteTiers.id, key));
+      }
+
       if (globalAdjMoved) {
         await tx
           .update(quotes)
@@ -493,6 +553,8 @@ export async function applyPricingAdjustments(
             lifts_removed: liftsRemoved,
             overrides_set: overridesSet,
             overrides_removed: overridesRemoved,
+            tier_adjustments_set: tierAdjSet,
+            tier_adjustments_removed: tierAdjRemoved,
             ...(globalAdjMoved
               ? {
                   global_price_adj_pct: {
@@ -554,6 +616,34 @@ export async function applyPricingAdjustments(
           },
           causedByAuditId: rootId,
         })),
+        // Per-tier adjustments keep the action name their own write path uses,
+        // so one column's history reads as one timeline; the origin goes in
+        // `diff_json.source` per the Slice 9.2 convention.
+        ...tierAdjSet.map((c) => ({
+          userId: user.id,
+          entityType: "quote_tier",
+          entityId: c.key,
+          action: "tier_price_adj_updated",
+          diffJson: {
+            tier_price_adj_pct: {
+              from: c.from === null ? null : Number(c.from),
+              to: Number(c.to),
+            },
+            source: "pricing_apply",
+          },
+          causedByAuditId: rootId,
+        })),
+        ...tierAdjRemoved.map((c) => ({
+          userId: user.id,
+          entityType: "quote_tier",
+          entityId: c.key,
+          action: "tier_price_adj_updated",
+          diffJson: {
+            tier_price_adj_pct: { from: Number(c.from), to: null },
+            source: "pricing_apply",
+          },
+          causedByAuditId: rootId,
+        })),
         ...(globalAdjMoved
           ? [
               {
@@ -582,6 +672,7 @@ export async function applyPricingAdjustments(
       quoteId: quote.id,
       lifts: input.lifts,
       overrides: input.overrides,
+      tierAdjustments: input.tierAdjustments,
       globalAdjPct: Number(storedGlobalAdj),
       changeCount,
     };

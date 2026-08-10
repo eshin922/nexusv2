@@ -1,0 +1,156 @@
+{
+ "quoteId": "a5672a11-aae8-4e8d-8b47-40acc20685c1",
+ "liftsInInput": "field-absent",
+ "cells": {
+  "9db4743d-4182-4a63-8c76-2328307df1f9::142a4513-661b-42b8-8c7b-31c082f1991b": {
+   "sell": 15.135,
+   "sellSource": "computed",
+   "marginPct": 0.210439
+  },
+  "9db4743d-4182-4a63-8c76-2328307df1f9::2b1660dd-68a1-449d-8947-15b408e3cc3a": {
+   "sell": 1.8995,
+   "sellSource": "computed",
+   "marginPct": 0.207686
+  },
+  "9db4743d-4182-4a63-8c76-2328307df1f9::13cc189d-3f09-4cbd-8140-c3f9b194523e": {
+   "sell": 0.943,
+   "sellSource": "computed",
+   "marginPct": 0.204666
+  },
+  "9db4743d-4182-4a63-8c76-2328307df1f9::e7ae91b0-385e-46cb-8fbf-efa6c4d2fec4": {
+   "sell": 0.5871,
+   "sellSource": "computed",
+   "marginPct": 0.201158
+  },
+  "ff76c4c1-61d3-40e1-8bf1-8236d6a34994::142a4513-661b-42b8-8c7b-31c082f1991b": {
+   "sell": 0.38,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "ff76c4c1-61d3-40e1-8bf1-8236d6a34994::2b1660dd-68a1-449d-8947-15b408e3cc3a": {
+   "sell": 0.38,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "ff76c4c1-61d3-40e1-8bf1-8236d6a34994::13cc189d-3f09-4cbd-8140-c3f9b194523e": {
+   "sell": 0.38,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "ff76c4c1-61d3-40e1-8bf1-8236d6a34994::e7ae91b0-385e-46cb-8fbf-efa6c4d2fec4": {
+   "sell": 0.38,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "0f0556cc-29dc-49b5-8128-356893f88679::142a4513-661b-42b8-8c7b-31c082f1991b": {
+   "sell": 0.57,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "0f0556cc-29dc-49b5-8128-356893f88679::2b1660dd-68a1-449d-8947-15b408e3cc3a": {
+   "sell": 0.57,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "0f0556cc-29dc-49b5-8128-356893f88679::13cc189d-3f09-4cbd-8140-c3f9b194523e": {
+   "sell": 0.57,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "0f0556cc-29dc-49b5-8128-356893f88679::e7ae91b0-385e-46cb-8fbf-efa6c4d2fec4": {
+   "sell": 0.57,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "cee1aa10-ff56-43fc-84cb-4c9560855dce::142a4513-661b-42b8-8c7b-31c082f1991b": {
+   "sell": 0.76,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "cee1aa10-ff56-43fc-84cb-4c9560855dce::2b1660dd-68a1-449d-8947-15b408e3cc3a": {
+   "sell": 0.76,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "cee1aa10-ff56-43fc-84cb-4c9560855dce::13cc189d-3f09-4cbd-8140-c3f9b194523e": {
+   "sell": 0.76,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "cee1aa10-ff56-43fc-84cb-4c9560855dce::e7ae91b0-385e-46cb-8fbf-efa6c4d2fec4": {
+   "sell": 0.76,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "ef1daf2c-2134-43f3-8920-6e2b330b82eb::142a4513-661b-42b8-8c7b-31c082f1991b": {
+   "sell": 0.95,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "ef1daf2c-2134-43f3-8920-6e2b330b82eb::2b1660dd-68a1-449d-8947-15b408e3cc3a": {
+   "sell": 0.95,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "ef1daf2c-2134-43f3-8920-6e2b330b82eb::13cc189d-3f09-4cbd-8140-c3f9b194523e": {
+   "sell": 0.95,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "ef1daf2c-2134-43f3-8920-6e2b330b82eb::e7ae91b0-385e-46cb-8fbf-efa6c4d2fec4": {
+   "sell": 0.95,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "ec48b7c0-38e7-42c3-8b93-c5b3e29c5c22::142a4513-661b-42b8-8c7b-31c082f1991b": {
+   "sell": 1.14,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "ec48b7c0-38e7-42c3-8b93-c5b3e29c5c22::2b1660dd-68a1-449d-8947-15b408e3cc3a": {
+   "sell": 1.14,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "ec48b7c0-38e7-42c3-8b93-c5b3e29c5c22::13cc189d-3f09-4cbd-8140-c3f9b194523e": {
+   "sell": 1.14,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  },
+  "ec48b7c0-38e7-42c3-8b93-c5b3e29c5c22::e7ae91b0-385e-46cb-8fbf-efa6c4d2fec4": {
+   "sell": 1.14,
+   "sellSource": "computed",
+   "marginPct": 0.473684
+  }
+ },
+ "tiers": [
+  {
+   "tierId": "142a4513-661b-42b8-8c7b-31c082f1991b",
+   "label": "MOQ · 1,000 units",
+   "netsuiteAmount": 18935,
+   "blendedMarginPct": 0.263269,
+   "status": "BELOW_TARGET"
+  },
+  {
+   "tierId": "2b1660dd-68a1-449d-8947-15b408e3cc3a",
+   "label": "Quantity · 10,000 units",
+   "netsuiteAmount": 56995,
+   "blendedMarginPct": 0.385034,
+   "status": "GOOD"
+  },
+  {
+   "tierId": "13cc189d-3f09-4cbd-8140-c3f9b194523e",
+   "label": "Quantity · 25,000 units",
+   "netsuiteAmount": 118575,
+   "blendedMarginPct": 0.420198,
+   "status": "GOOD"
+  },
+  {
+   "tierId": "e7ae91b0-385e-46cb-8fbf-efa6c4d2fec4",
+   "label": "Quantity · 50,000 units",
+   "netsuiteAmount": 219355,
+   "blendedMarginPct": 0.437214,
+   "status": "GOOD"
+  }
+ ]
+}

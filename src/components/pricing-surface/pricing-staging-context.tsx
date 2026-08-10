@@ -74,7 +74,10 @@ import {
   type PricingSet,
   type StagedChange,
 } from "@/lib/pricing-staging";
-import { useCostingStoreApi } from "@/components/costing-store-provider";
+import {
+  useCostingStore,
+  useCostingStoreApi,
+} from "@/components/costing-store-provider";
 
 export {
   cellKey,
@@ -295,6 +298,20 @@ export function PricingStagingProvider({
         return;
       }
       setCommitError(null);
+      // Per-tier adjustments are read LIVE from the store rather than from the
+      // mount-time seed, because they are written by an action outside this
+      // layer (`applySurgicalAdj`) that revalidates without remounting. Seeded
+      // once, an Apply would silently revert an adjustment the operator made
+      // thirty seconds earlier by sending back a set that no longer described
+      // the quote. This is Pattern 41 for a value the store owns and the seed
+      // does not.
+      //
+      // Baseline clears them; an ordinary Apply passes them back unchanged and
+      // therefore plans no change to them.
+      const liveTierAdj = storeApi
+        .getState()
+        .tiers.filter((t) => t.tierPriceAdjPct !== null)
+        .map((t) => ({ tierId: t.id, adjPct: t.tierPriceAdjPct as number }));
       start(async () => {
         const result = await applyPricingAdjustments({
           quoteId,
@@ -306,6 +323,7 @@ export function PricingStagingProvider({
             ...parseCellKey(key),
             sellPrice,
           })),
+          tierAdjustments: intent === "baseline" ? [] : liveTierAdj,
           globalAdjPct: next.globalAdj,
           intent,
         });
@@ -319,7 +337,7 @@ export function PricingStagingProvider({
         setWorking(next);
       });
     },
-    [committable, quoteId],
+    [committable, quoteId, storeApi],
   );
 
   const apply = useCallback(
@@ -422,9 +440,22 @@ export function PricingStagingProvider({
     return computeQuoteCosting(preview, "preview");
   }, [changes.length, storeApi, working]);
 
+  /**
+   * How many adjustments the QUOTE carries — all four levers.
+   *
+   * The per-tier component is subscribed rather than seeded. It is written by
+   * `applySurgicalAdj`, outside this layer, and a mount-time seed would leave
+   * the bar reading "1 adjustment" immediately after the operator applied a
+   * second one — stale at exactly the moment they are looking for confirmation.
+   */
+  const tierAdjCount = useCostingStore(
+    (s) => s.tiers.filter((t) => t.tierPriceAdjPct !== null).length,
+  );
+
   const appliedCount =
     Object.keys(committed.lifts).length +
     Object.keys(committed.overrides).length +
+    tierAdjCount +
     (Math.abs(committed.globalAdj - baseline.globalAdj) > ADJ_EPSILON ? 1 : 0);
 
   const value: PricingStagingValue = {

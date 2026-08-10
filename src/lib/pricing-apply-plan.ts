@@ -44,6 +44,19 @@ export type ApplyPlan = {
   liftsRemoved: PlannedRemoval[];
   overridesSet: PlannedChange[];
   overridesRemoved: PlannedRemoval[];
+  /**
+   * Per-tier adjustments, keyed by tier id.
+   *
+   * The fourth lever, and the one that is authored elsewhere. `applySurgicalAdj`
+   * and `applyGlobalAdj` write `quote_tiers.tier_price_adj_pct` immediately,
+   * with their own audit; nothing here stages one. It is in the plan because it
+   * is an adjustment IN EFFECT, and Return to baseline that left it standing
+   * would not return the quote to its computed base — the operator would be
+   * told the levers were removed while one of them still moved every price on
+   * that tier.
+   */
+  tierAdjSet: PlannedChange[];
+  tierAdjRemoved: PlannedRemoval[];
   /** Null when the quote-wide adjustment did not move. */
   globalAdj: { from: string; to: string } | null;
   changeCount: number;
@@ -101,11 +114,14 @@ export function planApply(input: {
    */
   persistedLifts: ReadonlyMap<string, string>;
   persistedOverrides: ReadonlyMap<string, string>;
+  intendedTierAdj: ReadonlyMap<string, string>;
+  persistedTierAdj: ReadonlyMap<string, string>;
   globalAdjFrom: string;
   globalAdjTo: string;
 }): ApplyPlan {
   const lifts = diffOne(input.intendedLifts, input.persistedLifts);
   const overrides = diffOne(input.intendedOverrides, input.persistedOverrides);
+  const tierAdj = diffOne(input.intendedTierAdj, input.persistedTierAdj);
   const globalAdj = sameStoredNumber(input.globalAdjFrom, input.globalAdjTo)
     ? null
     : { from: input.globalAdjFrom, to: input.globalAdjTo };
@@ -115,12 +131,16 @@ export function planApply(input: {
     liftsRemoved: lifts.removed,
     overridesSet: overrides.set,
     overridesRemoved: overrides.removed,
+    tierAdjSet: tierAdj.set,
+    tierAdjRemoved: tierAdj.removed,
     globalAdj,
     changeCount:
       lifts.set.length +
       lifts.removed.length +
       overrides.set.length +
       overrides.removed.length +
+      tierAdj.set.length +
+      tierAdj.removed.length +
       (globalAdj === null ? 0 : 1),
   };
 }

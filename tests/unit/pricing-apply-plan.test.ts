@@ -30,6 +30,8 @@ const NOTHING = {
   intendedOverrides: new Map<string, string>(),
   persistedLifts: new Map<string, string>(),
   persistedOverrides: new Map<string, string>(),
+  intendedTierAdj: new Map<string, string>(),
+  persistedTierAdj: new Map<string, string>(),
   globalAdjFrom: "0.0000",
   globalAdjTo: "0.0000",
 };
@@ -114,13 +116,49 @@ test("return to baseline removes every lever at once", () => {
       [B, "0.0500"],
     ]),
     persistedOverrides: new Map([[A, "12.5000"]]),
+    persistedTierAdj: new Map([["tier-1", "0.1334"]]),
     globalAdjFrom: "0.1000",
     globalAdjTo: "0.0000",
   });
   assert.equal(plan.liftsRemoved.length, 2);
   assert.equal(plan.overridesRemoved.length, 1);
+  assert.deepEqual(plan.tierAdjRemoved, [{ key: "tier-1", from: "0.1334" }]);
   assert.deepEqual(plan.globalAdj, { from: "0.1000", to: "0.0000" });
-  assert.equal(plan.changeCount, 4);
+  assert.equal(plan.changeCount, 5);
+});
+
+// ── the fourth lever, which nothing here stages ───────────────────────────
+
+test("an ordinary Apply passes tier adjustments back and changes nothing", () => {
+  // The load-bearing case. `applySurgicalAdj` writes these outside the staging
+  // layer; if Apply sent an empty set it would silently revert an adjustment
+  // the operator made a moment earlier.
+  const plan = planApply({
+    ...NOTHING,
+    intendedTierAdj: new Map([["tier-1", "0.1334"]]),
+    persistedTierAdj: new Map([["tier-1", "0.1334"]]),
+  });
+  assert.equal(plan.changeCount, 0);
+});
+
+test("a tier adjustment absent from the intended set is cleared", () => {
+  const plan = planApply({ ...NOTHING, persistedTierAdj: new Map([["tier-1", "0.1334"]]) });
+  assert.deepEqual(plan.tierAdjRemoved, [{ key: "tier-1", from: "0.1334" }]);
+  assert.equal(plan.changeCount, 1);
+});
+
+test("clearing one tier's adjustment leaves another tier's standing", () => {
+  const plan = planApply({
+    ...NOTHING,
+    intendedTierAdj: new Map([["tier-2", "0.0800"]]),
+    persistedTierAdj: new Map([
+      ["tier-1", "0.1334"],
+      ["tier-2", "0.0800"],
+    ]),
+  });
+  assert.deepEqual(plan.tierAdjRemoved, [{ key: "tier-1", from: "0.1334" }]);
+  assert.deepEqual(plan.tierAdjSet, []);
+  assert.equal(plan.changeCount, 1);
 });
 
 // ── the two levers do not contaminate each other ──────────────────────────
