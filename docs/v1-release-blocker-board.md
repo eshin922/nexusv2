@@ -151,6 +151,30 @@ them are load-bearing for anyone reading the repository cold:
 Arithmetic: 9 blocker-disposition rows + REG-3 folded + 8 + 9 + 8 = 35. Every
 finding has a home.
 
+### Specification maintenance — status
+
+Corrected 2026-08-10, independently of both tracks. Documents only; no code,
+no Pricing, no Phase 3.
+
+| row | action | status |
+|---|---|---|
+| **AM-002** | AUTHORITY_MAP: Phase 3 → *Closed for implementation 2026-08-10*; Phase 4 no longer blocked on Phase 3; reconcile date advanced | **Closed** |
+| **AM-003** | README: same two rows | **Closed** |
+| **OD-019** | Marked **SETTLED 2026-08-07**, body retained in place (it is why the graph has a `ratio` kind and not a `margin` one), Closed-table row added | **Closed** |
+| **BV004-002** | Pricing Vendor row closed; below-floor and Item Group rows now cite REG-2/REG-4 and their gating ODs; *gross margin* now cites BV-010 | **Closed** |
+| **SPEC-021** | SPEC §12 marked **HISTORICAL** in place, pointing at OPEN_DECISIONS as the live register | **Closed** |
+| **AM-004** | Recorded in the charter: the next audit's baseline starts from AUTHORITY_MAP's governing set, not a hand-assembled list. **The freeze was not widened** | **Closed as recorded** |
+| **OD-001 / BV009-001** | **Not closable by document edit.** BV-009 needs *ratification* — a business act, Edward's. Production code ships on an unratified rule, and Phase 1 and Phase 3 both cite it to place costing arithmetic out of scope | **Open — awaiting ratification** |
+
+**Five closed, one recorded, one escalated.** OD-001 is deliberately not
+"fixed": writing a ratification into the file would manufacture the authority
+the row exists to report as missing.
+
+One correction landed while doing this, and it is worth naming because it is a
+real sequencing fact rather than a typo: **Phase 3 shipped ahead of Phase 2
+operator acceptance, not after it.** The old AUTHORITY_MAP row recorded that
+dependency; the new one records that it was not met.
+
 ---
 
 ## Amendment protocol

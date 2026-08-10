@@ -67,6 +67,26 @@ finding; it invalidates the row, and the row is re-run.
 
 **Nine BV documents. BV-002 does not exist** -- the sequence runs 001, 003-010.
 
+### The baseline is narrower than the governing set — recorded, not repaired
+
+**AM-004.** Discovered during enumeration and deliberately **not** used to widen
+the freeze. These documents govern and were not frozen:
+
+`NEXUS_IMPLEMENTATION_STANDARD.md` (**tier 1** — outranks every per-phase
+authority row) · `validation/merge-gate.md` · `validation/operational-runbook.md`
+· `validation/VALIDATION_PRINCIPLES.md` + ADRs 004–012 ·
+`slice-13/GO_LIVE_READINESS_CHECKLIST.md` ·
+`production-bugs/PRODUCTION_BUG_REGISTER.md` ·
+`architecture/DATA_TRACEABILITY_AND_FIELD_GOVERNANCE.md` ·
+`pattern-52-freeze-list.md` · `phase-2-freight-dom-parity-audit.md` (tier 2) ·
+`design-authority/` bundles.
+
+A baseline that moves during an audit is not a baseline, so this was evaluated
+as a finding against the audit's own scope rather than closed by expanding the
+freeze. **The next audit's baseline should start from the AUTHORITY_MAP's
+governing set rather than from a hand-assembled document list** — the map
+already enumerates it, which is what made the gap visible.
+
 ### Two observations from freezing, carried as candidate rows
 
 Neither is a finding, and **neither is resolved here.** Freezing is not

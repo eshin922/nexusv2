@@ -338,12 +338,27 @@ cannot be priced.
 that ASY remains mandatory.
 
 
-### OD-019 · How a margin is represented in the canonical graph
+### OD-019 · How a margin is represented in the canonical graph — **SETTLED 2026-08-07**
 
-**Owner:** Edward + CA · **Blocks:** the margin-in-points transient delta,
-which Phase 3 §3 requires. **In Phase 3 scope** — Phase 3 does not close
-without it. Blocks nothing else; the staging bar and page mounting proceed in
-parallel.
+> **Settled.** A `ratio` node kind was added — `operand ÷ basis`, deliberately
+> generic, with `costing-nodes.ts:74` recording *"a margin is the instance that
+> motivated it (OD-019)"*. A `margin` kind was rejected because it would name
+> one business quantity in a vocabulary of eleven structural kinds.
+> [BV-010](business-validation/BV-010-blended-margin-definition.md) then defined
+> the quantity itself, and `quote/{tier}/margin` carries it.
+>
+> **Retained in place** rather than deleted: the reasoning below is why the
+> graph has a `ratio` kind and not a `margin` one, which is the kind of question
+> that gets re-asked.
+>
+> *Kept under Blocking until 2026-08-10, after Phase 3 had already closed. The
+> decision was made; the register was not updated. Corrected as
+> **AM/OD specification maintenance** following the V1 compliance audit
+> (row OD-019).*
+
+**Owner:** Edward + CA · **Blocked:** the margin-in-points transient delta,
+which Phase 3 §3 requires. **Was in Phase 3 scope.** Blocked nothing else; the
+staging bar and page mounting proceeded in parallel.
 
 **Classification:** design decision, not an implementation one. §2 of the node
 specification is explicit that adding a node kind is the former, so this stops
@@ -1048,3 +1063,5 @@ now lives.)*
 |---|---|---|---|
 | OD-014 | A commercial SKU for Pricing aggregation is the quote-scoped leaf attachment, `quote_leaves.id` | 2026-08-07 | [`gate-1b-od-014-sku-identity.md`](gate-1b-od-014-sku-identity.md) |
 | OD-018 | The Packaging TOTAL is the simple sum of every governed SKU's packaging contribution at the tier — it shows Packaging's contribution to the Cost Stack, so it sums rather than averaging or weighting | 2026-08-07 | `quote/{tier}/cost-stack/pkg-total`; [`gate-1b-derivation-inventory.md`](gate-1b-derivation-inventory.md) §3.2.2 |
+| OD-019 | A margin is a `ratio` node — `operand ÷ basis`, generic by design. No `margin` kind: it would name one business quantity in a vocabulary of structural kinds | 2026-08-07 | `costing-nodes.ts:74`; `quote/{tier}/margin`; [BV-010](business-validation/BV-010-blended-margin-definition.md) |
+| OD-003 | Phase 3 rollback after first Apply — the pre-Phase-3 runtime **ignores** applied lifts. Rollback requires `DELETE FROM quote_leaf_lifts` first, or quoted prices sit below the operator-approved amount | 2026-08-10 | [R1 rehearsal](rehearsals/R1-rollback-after-first-apply.md); [cross-phase map §5](../CROSS-PHASE-AUTHORITY-DEPENDENCY-MAP.md) |

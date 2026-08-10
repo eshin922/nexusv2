@@ -30,9 +30,9 @@
 
 | Decision | Current state |
 | --- | --- |
-| Governed Pricing Vendor identity | Only free-text supplier provenance is stored |
-| Below-floor commercial approval | Detection and blocking exist; authoritative approval workflow does not |
-| Item Group applicability | Accounting currently supplies the decision manually; no canonical Nexus datum is approved |
+| Governed Pricing Vendor identity | **Closed 2026-07-31.** Stable HubSpot Company ID + immutable name snapshot persist; see [BV-001](BV-001-pricing-vendor-identity.md). Register gate 1 is V1 COMPLETE |
+| Below-floor commercial approval | Detection and blocking exist; authoritative approval workflow does not. **V1 release blocker REG-2**, gated on [OD-002](../OPEN_DECISIONS.md) |
+| Item Group applicability | Accounting currently supplies the decision manually; no canonical Nexus datum is approved. **V1 release blocker REG-4**, gated on [OD-004](../OPEN_DECISIONS.md) |
 | PM accepted-tier override | Data model anticipates it; V1 affordance is deferred |
 | Awarded vendor and Purchase Order authorization | Intentionally outside V1 and Nexus |
 
@@ -41,7 +41,10 @@
 Nexus deterministically derives:
 
 - effective unit cost and sell price;
-- gross profit and gross margin;
+- gross profit and gross margin — **blended margin is defined by
+  [BV-010](BV-010-blended-margin-definition.md)** as *(Σ revenue − Σ cost) ÷
+  Σ revenue*. This row named the quantity without defining it, and three
+  derivations shipped under the name as a result;
 - target/floor classification;
 - effective accepted tier under the current V1 fallback;
 - NetSuite customer and item resolution;
