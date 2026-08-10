@@ -210,11 +210,52 @@ it.
 
 ---
 
+## CB suite — primary engineering activity until it has a trusted baseline
+
+Operational view: [`validation/CB_SUITE_HEALTH.md`](validation/CB_SUITE_HEALTH.md).
+
+**Baseline NOT established.** Two identical clean runs disagree, so no number
+the suite produces is yet evidence. Established so far: seed is deterministic,
+the clean environment is reproducible, and fixture reset is namespace-scoped
+rather than absolute — `validation:db:reset` is the clean-environment
+primitive, `validation:fixtures:reset` is not.
+
+**No failure is classified**, by instruction. One scenario
+(`lifecycle-surface-consistency`) is non-deterministic and is the single item
+blocking the baseline.
+
+## Microsoft OAuth — operational readiness, not engineering
+
+| step | owner | status |
+|---|---|---|
+| Clerk configuration — enable Microsoft as an SSO connection | **Edward** (Clerk dashboard) | Not started |
+| Entra admin consent — single-tenant app, tenant-level grant | **Edward** (Entra tenant admin) | Not started |
+| Validation — sign-in against the configured tenant | Edward + Nexus | Blocked on the two above |
+| Rollout | Edward | Blocked |
+
+**No engineering implementation is created unless evidence shows dashboard
+configuration cannot satisfy the requirement.** The repository state supports
+that position: `@clerk/nextjs` is the auth provider, and the only OAuth code in
+`src/` is NetSuite's — Nexus has never hand-rolled an identity provider
+integration, and Clerk's Microsoft connection is dashboard-configured.
+
+The one recorded hazard is on the Entra side, not the Nexus side: §0.5 catch #75
+records that a single-tenant app **blocked user sign-in silently** until the
+tenant-level admin consent grant landed. Sequence the consent grant before
+validation, or validation will fail in a way that looks like a Clerk problem.
+
 ## Board status
 
 | Track | Blockers | Status |
 |---|---|---|
 | **A · Below-floor approval** | REG-2 · OD-002 | **Awaiting business disposition.** Engineering not started, by instruction |
-| **B · Accounting handoff** | REG-4 · OD-004 · OD-005 · P1-014 *(+REG-3)* | **Open.** OD-004 first; the walk requires a NetSuite administrator |
+| **B · Accounting handoff** | REG-4 · OD-004 · OD-005 · P1-014 *(+REG-3)* | **Open — the primary release engineering blocker once the harness baseline exists.** OD-004 first; the walk requires a NetSuite administrator |
 
 **Six distinct blockers. Zero closed.**
+
+| Workstream | Status |
+|---|---|
+| **CB suite** | **Primary engineering activity.** Baseline not established — two identical clean runs disagree |
+| **Microsoft OAuth** | Operational readiness. Awaiting Clerk configuration and Entra admin consent |
+| **Pre-launch cleanup** | Active. First item shipped: the governed seed command could not reach its own database |
+| **Specification maintenance** | **Complete.** Not reopened unless future work invalidates it |
