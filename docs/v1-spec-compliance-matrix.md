@@ -20,7 +20,7 @@ affected rows — the matrix is never re-run, and an amended row keeps its ID.
 
 ## Result
 
-**138 rows.** 136 from the audit, plus **P3-016** and **AM-005** added 2026-08-10 after it
+**139 rows.** 136 from the audit, plus **P3-016**, **AM-005** and **P3-017** added 2026-08-10 after it
 closed — a new row under append-only numbering, not a reopened one.
 
 | verdict | rows |
@@ -57,6 +57,7 @@ close; P3-016 makes seven.**
 | **OD-005** | HubSpot Product `price` → NetSuite Base Price propagation is untested, and a `$0.00` catalogue placeholder must never become a commercial price |
 | **P1-014** | An unresolved cost cannot reach NetSuite — asserted in unit tests, **never walked against a real NetSuite** |
 | **P3-016** | Recommendation CTAs bypass the R12 staging contract. **A contract conflict, not a wiring defect** — the bypass is commented and unit-tested as load-bearing |
+| **P3-017** | The R11/R12 Cost Stack — trace level 1 **transposed**, reconciling sections + adjustment + lifts + overrides to `Quoted sell` | **Unsatisfied** | **Implementation item** | **Added 2026-08-10; verified the same day as an incomplete implementation, not an intentional simplification.** Production renders the **R6** stack (tiers as rows; `PKG · PROD · RAW · FRT · D+T`), carried forward as a black-box dependency by the pricing-surface redesign brief — a decision that predates R11 and was never revisited when R11 superseded it. Missing: `Price adjustment`, `Surgical lifts`, `PM overrides`, `Unit cost` as its own row, and the reconciliation strip. Three of the four reconciliation terms have no row, so the assertion is **unstateable**. Conclusive evidence: `.r11-recon` is defined in `src/styles/r11-pricing-workspace.css` with **zero JSX callers**, and that stylesheet's own header states the contract the implementation contradicts. **Presentation/IA drift, not arithmetic** — the numbers shown are correct. Restore the Design Authority; do not invent a layout. See [P3-017](validation/P3-017-cost-stack-drift.md) |
 
 **Five of the six are the same shape:** the accounting handoff at the end of the
 quote lifecycle has been specified thoroughly, implemented partially, and

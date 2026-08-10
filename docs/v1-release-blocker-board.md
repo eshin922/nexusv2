@@ -295,6 +295,18 @@ new row against the interaction contract, not a reopening of any completed one.
 
 **Seven distinct blockers. One closed — P3-016, Track C.**
 
+**P3-017 · Cost Stack drift — a new implementation item, not a blocker.**
+Verified 2026-08-10 as an **incomplete implementation**, not an intentional
+simplification: production renders the R6 stack, carried forward as a black-box
+dependency by a brief that predates R11 and was never revisited when R11
+superseded it. `Price adjustment`, `Surgical lifts`, `PM overrides`, `Unit cost`
+and the reconciliation strip are absent, so the assertion the stack exists to
+make is unstateable. Conclusive: `.r11-recon` has canonical CSS in the repo and
+**zero JSX callers**. Presentation and information architecture — business
+semantics are settled and every number shown is correct. **Restore the Design
+Authority; do not invent a layout.** See
+[P3-017](validation/P3-017-cost-stack-drift.md).
+
 **Separately — S-7 fails, and the investigation is done.** Not a Pricing
 regression. The delta originates **solely** from one quote: covered set
 unchanged at 24, exactly one digest differs, and the global digest excluding
