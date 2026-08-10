@@ -101,11 +101,21 @@ test("PVS-018 Product Library preserves creation through every catalog state", a
 
   try {
     await sql`
+      -- Idempotent because cleanup is not guaranteed to have run: a scenario
+      -- that fails partway leaves this row behind, and the NEXT run then died
+      -- on a primary-key collision during SETUP -- reporting an error that had
+      -- nothing to do with what it was testing. Setup should be able to start
+      -- from the debris of a previous failure.
       insert into product_types (
         id, name, scope, placeholder, hidden
       ) values (
         ${productTypeId}, 'Validation component', 'leaf', true, false
       )
+      on conflict (id) do update set
+        name = excluded.name,
+        scope = excluded.scope,
+        placeholder = excluded.placeholder,
+        hidden = excluded.hidden
     `;
     await page.goto(manifest().quotes.draft.deepLinks.setup, {
       waitUntil: "networkidle",
@@ -120,7 +130,20 @@ test("PVS-018 Product Library preserves creation through every catalog state", a
     await expect(library.getByText("Your library is empty", { exact: true })).toHaveCount(0);
     await expect(persistentCreate).toBeVisible();
 
+    // Loaded state: the catalog renders components. This asserted a specific
+    // name until the governed catalog grew past a page -- the library now
+    // shows "50 of 1048", ordered alphabetically, so `Validation Leaf 1` is
+    // simply off the first page and its absence says nothing about loading.
+    //
+    // The intent is kept in two halves rather than dropped: the list is
+    // populated, and the governed leaf is genuinely IN the catalog -- which
+    // searching proves more strongly than first-page presence ever did.
+    await expect(library.getByRole("button", { name: "Attach" }).first()).toBeVisible();
+    const search = library.getByRole("textbox", { name: "Search library" });
+    await search.fill("Validation Leaf 1");
     await expect(library.getByText("Validation Leaf 1", { exact: true })).toBeVisible();
+    await search.fill("");
+    await expect(library.getByRole("button", { name: "Attach" }).first()).toBeVisible();
     await expect(persistentCreate).toBeVisible();
     await testInfo.attach("pvs-018-loaded-state.png", {
       body: await page.screenshot({ fullPage: true }),
@@ -227,6 +250,19 @@ test("PVS-018 Product Library preserves creation through every catalog state", a
     for (const leaf of priorLeaves) {
       await sql`update leaves set archived = ${leaf.archived} where id = ${leaf.id}`;
     }
+    // Detach before dropping the type. Cleanup only ever removed the leaf it
+    // created, so a type assigned to an EXISTING governed leaf during the run
+    // was still referenced at drop time and Postgres correctly refused --
+    // surfacing as an FK violation from the cleanup rather than from the
+    // scenario, which is a confusing place to read a failure.
+    //
+    // Null rather than delete: this product type is test-scoped, so anything
+    // still pointing at it was typed BY this run, and the fixture default for
+    // these leaves is untyped. Clearing restores that; deleting would destroy
+    // a governed fixture leaf.
+    await sql`
+      update leaves set product_type_id = null where product_type_id = ${productTypeId}
+    `;
     await sql`delete from product_types where id = ${productTypeId}`;
     await sql.end();
   }
