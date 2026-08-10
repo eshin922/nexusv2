@@ -87,6 +87,7 @@ const KIND_LABEL: Record<CostingNode["kind"], string> = {
   adjustment: "adjustment",
   blend: "weighted mean",
   difference: "difference",
+  ratio: "÷",
   resolution: "resolution",
   origin: "origin",
   override: "human act",

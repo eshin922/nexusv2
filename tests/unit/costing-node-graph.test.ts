@@ -36,6 +36,7 @@ import {
   REQUIRED_CELL_SECTIONS,
   TERMINAL_KINDS,
   graphIsComplete,
+  findDuplicateKeys,
   findGraphViolations,
   findNode,
   walkGraph,
@@ -1824,4 +1825,74 @@ test("preview · the default evaluation is still committed", () => {
     computeQuoteCosting(input({ packaging: THREE_LINES })).graph.evaluation,
     "committed",
   );
+});
+
+// ─────────────────────────────────────── OD-019 · the ratio kind and margin
+
+test("the tier container no longer asserts a quantity nobody governs", () => {
+  // It was a `sum` of blended sell and blended cost, with a comment conceding
+  // that "sell and cost do not add to anything meaningful". It reconciled and
+  // meant nothing — Pattern 57 one layer below where that rule was written.
+  const r = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  const container = r.graph.nodes.find((n) => n.key === `quote/${TIER}`)!;
+  assert.ok(container, "the container root must survive — it owns two states");
+  assert.equal(container.operands?.length, 1, "one operand: the margin");
+  assert.equal(container.operands?.[0].key, `quote/${TIER}/margin`);
+  assert.equal(container.unit, "pct");
+});
+
+test("the margin is a ratio over a difference, with the denominator as basis", () => {
+  const r = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  const margin = resolveNode(r.graph.nodes, `quote/${TIER}/margin`)!;
+  assert.equal(margin.kind, "ratio");
+  assert.equal(margin.unit, "pct");
+  assert.equal(margin.operands?.length, 1, "one operand — the numerator");
+
+  const gross = margin.operands![0];
+  assert.equal(gross.kind, "difference");
+  assert.equal(gross.key, `quote/${TIER}/margin/gross`);
+
+  // The denominator is DATA. As an operand it would put `sell` under two
+  // parents, and resolveNode would then return null for a key the Cost Stack
+  // reads.
+  assert.ok(margin.basis, "a ratio without a basis cannot perform its operation");
+  assert.equal(margin.basis!.value, gross.operands![0].value);
+});
+
+test("sell and cost each have exactly one parent, and stay resolvable", () => {
+  const r = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  assert.deepEqual(findDuplicateKeys(r.graph.nodes), []);
+  for (const key of [`quote/${TIER}/sell`, `quote/${TIER}/cost`]) {
+    assert.notEqual(resolveNode(r.graph.nodes, key), null, `${key} unresolvable`);
+  }
+});
+
+test("the ratio reconciles against the operation it advertises", () => {
+  const r = computeQuoteCosting(input({ packaging: THREE_LINES }));
+  for (const root of r.graph.nodes) {
+    assert.deepEqual(findGraphViolations(root), [], `violations under ${root.key}`);
+  }
+});
+
+test("a zero-sell tier flags the margin out rather than publishing 0%", () => {
+  // A ratio valued zero would assert a margin of nothing rather than the
+  // absence of one — the fabrication three scalar corrections removed.
+  const r = computeQuoteCosting(input());
+  const margin = resolveNode(r.graph.nodes, `quote/${TIER}/margin`);
+  if (margin) {
+    assert.equal(margin.kind, "flagged-out");
+    assert.equal(margin.value, 0);
+    assert.match(margin.reason!, /undefined/i);
+    // And it is therefore unreadable, so no delta reports a movement on it.
+    assert.equal(readNodeValue(r.graph, `quote/${TIER}/margin`), null);
+  }
+});
+
+test("every canonical key is reachable exactly once, across all roots", () => {
+  // The validator gap this investigation exposed: findGraphViolations walks one
+  // root with a fresh seenKeys, so cross-root duplication was invisible to it
+  // while resolveNode already returned null for it. The two now agree.
+  for (const fixture of [input(), input({ packaging: THREE_LINES })]) {
+    assert.deepEqual(findDuplicateKeys(computeQuoteCosting(fixture).graph.nodes), []);
+  }
 });

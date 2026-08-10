@@ -70,6 +70,25 @@ export type NodeKind =
   | "adjustment"
   | "blend"
   | "difference"
+  /**
+   * `operand ÷ basis`. A margin is the instance that motivated it (OD-019).
+   *
+   * GENERIC ON PURPOSE. A `margin` kind would name one business quantity in a
+   * vocabulary whose other members name operations, and the next ratio would
+   * have to reuse a misleading name or add a twelfth kind.
+   *
+   * The DENOMINATOR is `basis`, not a second operand, for the reason `rate`
+   * already gives: the value is computed elsewhere in the chain, and making it
+   * an operand here would put one arithmetic node under two parents. §4 rule 5
+   * forbids that, and `resolveNode` enforces it — a key reachable twice
+   * resolves to nothing.
+   *
+   * An UNDEFINED ratio is not this kind. Zero denominator means the quantity
+   * does not exist, and a node valued 0 would assert a commercial zero where
+   * there is none — the fabrication three scalar corrections removed. Emit
+   * `flagged-out` with the reason instead.
+   */
+  | "ratio"
   | "resolution"
   | "origin"
   | "override"
@@ -98,6 +117,7 @@ export const ARITHMETIC_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>([
   "adjustment",
   "blend",
   "difference",
+  "ratio",
 ]);
 
 export type NodeUnit = "usd" | "pct" | "count";
@@ -452,6 +472,27 @@ export function reconcile(
         : `${numerator} / ${n.divisor} = ${expected}, node value is ${n.value}`;
     }
 
+    case "ratio": {
+      // One operand over the basis. Both must be present: a ratio without a
+      // denominator is not a ratio that happens to be missing something, it is
+      // a node whose advertised operation cannot be performed.
+      if (operands.length !== 1) {
+        return `ratio has ${operands.length} operands, expected exactly 1`;
+      }
+      const denominator = n.basis?.value;
+      if (denominator === undefined) return "ratio carries no basis to divide by";
+      if (denominator === 0) {
+        // Unreachable by construction — the emitter uses `flagged-out` for the
+        // zero-denominator case — but a ratio that DID reach here would report
+        // Infinity or NaN, and a reconciler that returned "fine" for NaN would
+        // be worse than one that never ran.
+        return "ratio divides by zero; an undefined quantity must be flagged-out";
+      }
+      const computed = operands[0].value / denominator;
+      return closeEnough(computed, n.value)
+        ? null
+        : `${operands[0].value} / ${denominator} = ${computed}, node value is ${n.value}`;
+    }
     case "difference": {
       // `left - right`, and ORDER IS THE IDENTIFICATION. A difference read the
       // wrong way round is not a smaller error than a wrong number; it inverts
@@ -627,6 +668,55 @@ export function findGraphViolations(root: CostingNode): GraphViolation[] {
   };
 
   visit(root);
+  return out;
+}
+
+/**
+ * Graph-level duplicate detection — every canonical key reachable exactly once.
+ *
+ * `findGraphViolations` walks ONE root with a fresh `seenKeys`, so a node
+ * reachable from two different roots is invisible to it. `resolveNode` sees the
+ * same graph and returns null, because it walks every root and requires exactly
+ * one match.
+ *
+ * That disagreement is the gap this closes, and it is worse than either
+ * behaviour alone: the validator would pronounce a graph healthy while every
+ * reader treated the duplicated keys as unresolvable. Nothing throws. Values
+ * simply stop appearing, on a surface nobody changed.
+ *
+ * Surfaced while evaluating whether the margin ratio could share `revenue` and
+ * `cost-total` with their existing roots (OD-019). The answer was no — and the
+ * reason the answer was hard to see is that only one of the two mechanisms
+ * could express it.
+ *
+ * SCOPE: this checks reachability across the WHOLE graph, so it is a sibling of
+ * `findGraphViolations` rather than part of it. Terminals are included
+ * deliberately. §4 rule 5 permits sharing them — "one firm setting used by many
+ * nodes" — but `resolveNode` does not distinguish, and a shared terminal is
+ * therefore just as unreadable as a shared sum. Where the rule and the reader
+ * disagree, the reader is what consumers actually experience.
+ */
+export function findDuplicateKeys(nodes: readonly CostingNode[]): GraphViolation[] {
+  const seen = new Map<string, { kind: NodeKind; count: number }>();
+  for (const root of nodes) {
+    walkGraph(root, (n) => {
+      const prior = seen.get(n.key);
+      if (prior) prior.count += 1;
+      else seen.set(n.key, { kind: n.kind, count: 1 });
+    });
+  }
+  const out: GraphViolation[] = [];
+  for (const [key, { kind, count }] of seen) {
+    if (count > 1) {
+      out.push({
+        key,
+        kind,
+        problem:
+          `reachable ${count} times across the graph; resolveNode returns null ` +
+          `for it, so every consumer of this key reads nothing`,
+      });
+    }
+  }
   return out;
 }
 
