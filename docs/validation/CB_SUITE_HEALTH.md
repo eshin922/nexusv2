@@ -207,7 +207,7 @@ release is how fast unknowns become classified and then closed.
 |---|---|---|
 | **Closed** | **1** | VAL-104 — passes end to end |
 | **Classified, not closed** | **2** | VAL-101 harness contamination · VAL-103 harness race |
-| **Boundary established, cause open** | **3** | phase-2-component-freight — one cause, timing/driver |
+| **Boundary established, cause open** | **2** | phase-2-component-freight — residual: Add-line count, snapshot geometry |
 | **Unclassified** | **5** | VAL-208 · costs-reconciliation-ordering · product-library ×2 · pvs-020 ×2 |
 
 **Eleven scenarios were failing or unmeasured when classification began. Five
@@ -577,6 +577,77 @@ its browser evidence has still never passed.
 
 ### `phase-2-component-freight` ×3 — one cause, not three
 
+**RESOLVED to a product defect. The cause is a client render crash, not layout.**
+
+The ancestor map was run on `oneSku` and terminated the layout line of inquiry
+outright. Level 6 is `div#S:0`, `hidden=""`, `display:none` — React's streaming-SSR
+holding pen. Everything measured in the previous two sessions was **orphaned SSR
+content that was never inserted into the live tree.**
+
+```
+i  element                     display   rect
+0  button.r6-section-row       grid      0 × 0     aria-expanded="true"
+1  article.r6-section open     block     0 × 0     overflow:hidden
+2  div.r6-sections.flex-col    flex      0 × 0
+3  main.r6-page                block     0 × 0     max-width 1480px
+4  div.pl-64                   block     0 × 0
+5  div.min-h-screen            block     0 × 0     min-height 1445.6px
+6  div#S:0  hidden             none      0 × 0     ← THE BOUNDARY
+7  body                        block     1556 × 1445.6
+```
+
+No wrapper collapse, no suppressed content column, no accordion state — levels
+0–5 report normal `display`, `visibility:visible`, `opacity:1`, no `contain`, no
+`content-visibility`, and no dimensional clamp. They are zero because their
+container is `display:none`, and that container is React's, not ours.
+
+**None of the three offered classifications fit; the true one is a fourth.**
+The live tree is not a collapsed Costs page — it is the **error boundary**:
+
+```
+Cannot read properties of undefined (reading 'get')
+  at freight-drilldown.tsx … Array.map … at DestinationRow
+```
+
+The client render threw, the error surface replaced the tree, and the completed
+SSR chunk was consequently never revealed — which is exactly why the trigger was
+present, hydrated, `aria-expanded="true"`, and unlaid-out all the way to `body`.
+
+**The defect is one dropped prop.** `shipReads` is resolved at
+`freight-drilldown.tsx:109` and consumed by `DestinationRow` (`:331`) and
+`CustomsLedger` (`:437`). `ShipmentLedger` declares it (`:269`) and forwards it
+(`:290`, `:293`) — but the `<ShipmentLedger>` call site at `:241` never passes it,
+so it arrives `undefined` and `shipReads.get(…)` throws.
+
+`git blame`: the threading landed **2026-08-09 in `85d8d1f`** (Gate 1B — worksheet
+freight reads the graph, PR #221), which added `:109`, `:269` and `:290` but left
+the `:241` call site untouched since 2026-08-05.
+
+| | |
+|---|---|
+| **Classification** | **Product defect** — render crash, freight |
+| **Ownership** | Ours |
+| **Introduced** | `85d8d1f`, 2026-08-09, PR #221 |
+| **On `origin/main`** | **Yes** |
+| **Trigger condition** | any Costs page rendering a shipment with ≥1 destination |
+| **Blast radius** | the **entire Costs page**, not just Freight |
+
+**Repair applied on this branch** — `shipReads={shipReads}` added at `:241`.
+Verified in-browser on `oneSku`: no error surface, no orphaned `S:0`, trigger
+`1145.6 × 78.5` at top 755 with `offsetParent = body`.
+
+**Single cause confirmed, and the workstream now separates.** 3 failed → 1 passed,
+2 failed — both at **new** boundaries downstream of the crash, neither yet
+classified, neither repaired:
+
+| scenario | new boundary |
+|---|---|
+| worksheet break saves actual freight | **passes** (15.2s) |
+| 1/6/10 SKU scales | `spec:63` — inside the Packaging `article`, `getByRole("button", {name: /^Add line/})` resolves to **0**, expected 1 (`oneSku`). 14 × re-resolved |
+| nested comparison surface | snapshot 840×**1722** expected vs 840×**1814** received, 5% of pixels differ. Baseline committed `051a7d5` **2026-08-05** — it **predates `85d8d1f`**, so it is not evidence of the crashed state, and the 92px growth may be intended by the Gate 1B TOTAL change. **Do not refresh the baseline before that is settled** |
+
+
+
 Run in isolation from a clean seed, all three fail on the **same root**: the
 section-drawer trigger.
 
@@ -761,7 +832,7 @@ failure.
 | VAL-103 *(was unmeasured)* | **harness** — non-deterministic CDP race |
 | VAL-208 bulk pricing lift | not yet classified |
 | costs-reconciliation-ordering | not yet classified |
-| phase-2-component-freight × 3 | **one cause · boundary now exact** — trigger present in client DOM, zero rect, `offsetParent` null: an ancestor is not laid out. Which ancestor, and why, is open |
+| phase-2-component-freight × 3 | **RESOLVED — product defect.** Dropped `shipReads` prop at `freight-drilldown.tsx:241` (`85d8d1f`, PR #221, **on `main`**) crashed the whole Costs page; the trigger was orphaned SSR content inside React's `div#S:0`. Repaired. 1 of 3 now passes; 2 sit at new unclassified boundaries |
 | product-library-create-component × 2 | not yet classified |
 | pvs-020-refresh-performance × 2 | not yet classified |
 
