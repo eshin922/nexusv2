@@ -3,6 +3,8 @@ import {
   computeQuoteCosting,
   type CostingCellOverride,
   type CostingCellTarget,
+  type CostingFreightComponentTierCost,
+  type CostingFreightShipmentBreak,
   type CostingFreightLeg,
   type CostingFreightLegGroup,
   type CostingFreightLegTier,
@@ -137,6 +139,22 @@ export type CostingStoreState = {
   freightLegs: StoredFreightLeg[];
   freightLegTiers: StoredFreightLegTier[];
   freightCustomerArrangesMeta: StoredFreightCustomerArrangesMeta[];
+  /**
+   * The WORKSHEET freight model, and the component costs derived from it.
+   *
+   * Held here for one reason: `buildCostingInput` must be able to reconstruct
+   * the input the server used, and it cannot reconstruct what the store does
+   * not carry. Their absence was the root cause of the preview/committed
+   * fidelity defect — `freightShipmentBreaks.length > 0` is what makes the
+   * worksheet authoritative (`costing.ts`), so on a worksheet quote every
+   * client-side recompute silently dropped all freight and duty/tariff.
+   *
+   * Not client-mutable. No store action writes them; they arrive from the
+   * server on hydrate and reconcile and are passed straight through. That is
+   * why they are plain inputs rather than `Stored*` row types.
+   */
+  freightComponentTierCosts: CostingFreightComponentTierCost[];
+  freightShipmentBreaks: CostingFreightShipmentBreak[];
   // Slice 9.3 — sparse per-cell sell-price overrides. Empty array =
   // no overrides. Mutated by `updateCellOverride(skuId, tierId, value)`
   // (upsert / clear pattern; see action below).
@@ -350,6 +368,9 @@ export type HydrateSnapshot = {
   freightLegs: StoredFreightLeg[];
   freightLegTiers: StoredFreightLegTier[];
   freightCustomerArrangesMeta: StoredFreightCustomerArrangesMeta[];
+  /** See `CostingStoreState`. Carried from the server's own costing input. */
+  freightComponentTierCosts: CostingFreightComponentTierCost[];
+  freightShipmentBreaks: CostingFreightShipmentBreak[];
   // Slice 9.3 — sparse per-cell sell-price overrides (rows that exist
   // in DB at hydration time). Empty array if no overrides on this quote.
   cellOverrides: CostingCellOverride[];
@@ -489,7 +510,7 @@ function recompute(
  */
 export function buildCostingInput(
   s: Parameters<typeof recompute>[0],
-): QuoteCostingInput {
+): Required<QuoteCostingInput> {
   return {
     quote: {
       id: s.quoteId,
@@ -505,8 +526,15 @@ export function buildCostingInput(
     freightLegGroups: s.freightLegGroups,
     freightLegs: s.freightLegs,
     freightLegTiers: s.freightLegTiers,
+    freightComponentTierCosts: s.freightComponentTierCosts,
+    freightShipmentBreaks: s.freightShipmentBreaks,
     cellOverrides: s.cellOverrides,
     cellTargets: s.cellTargets,
+    // Committed means no lifts. Stated rather than omitted, because the
+    // return type forbids omitting it — and because it is what makes "the
+    // preview differs only at the staged field" a comparison rather than a
+    // claim: both sides have the key.
+    lifts: [],
   };
 }
 
@@ -531,6 +559,8 @@ function warningsFromSnapshot(snapshot: HydrateSnapshot): WarningSpec[] {
     freightLegGroups: snapshot.freightLegGroups,
     freightLegs: snapshot.freightLegs,
     freightLegTiers: snapshot.freightLegTiers,
+    freightComponentTierCosts: snapshot.freightComponentTierCosts,
+    freightShipmentBreaks: snapshot.freightShipmentBreaks,
     cellOverrides: snapshot.cellOverrides,
     cellTargets: snapshot.cellTargets,
   };
@@ -562,6 +592,8 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     freightLegGroups: initial.freightLegGroups,
     freightLegs: initial.freightLegs,
     freightLegTiers: initial.freightLegTiers,
+    freightComponentTierCosts: initial.freightComponentTierCosts,
+    freightShipmentBreaks: initial.freightShipmentBreaks,
     freightCustomerArrangesMeta: initial.freightCustomerArrangesMeta,
     cellOverrides: initial.cellOverrides,
     cellTargets: initial.cellTargets,
@@ -607,6 +639,8 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         freightLegGroups: snapshot.freightLegGroups,
         freightLegs: snapshot.freightLegs,
         freightLegTiers: snapshot.freightLegTiers,
+        freightComponentTierCosts: snapshot.freightComponentTierCosts,
+        freightShipmentBreaks: snapshot.freightShipmentBreaks,
         freightCustomerArrangesMeta: snapshot.freightCustomerArrangesMeta,
         cellOverrides: snapshot.cellOverrides,
         cellTargets: snapshot.cellTargets,
@@ -659,6 +693,8 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         freightLegGroups: snapshot.freightLegGroups,
         freightLegs: snapshot.freightLegs,
         freightLegTiers: snapshot.freightLegTiers,
+        freightComponentTierCosts: snapshot.freightComponentTierCosts,
+        freightShipmentBreaks: snapshot.freightShipmentBreaks,
         freightCustomerArrangesMeta: snapshot.freightCustomerArrangesMeta,
         cellOverrides: snapshot.cellOverrides,
         cellTargets: snapshot.cellTargets,
