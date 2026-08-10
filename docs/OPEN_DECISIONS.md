@@ -513,16 +513,114 @@ within-chain duplication and has nothing to say about this case.
 | **(b) Emit margin-local copies** of revenue and cost under the margin subtree | No sharing, no rule change — but two nodes carrying the same value under different keys, which is duplicated arithmetic wearing a different name. Trades a rule violation for the thing the rule exists to prevent |
 | **(c) Ratio takes the numerator as `basis` too** — margin as a terminal-ish node with both inputs as data | Simplest, and consistent with `rate`. Cost: the numerator stops being traversable, so the trace cannot expand "why is the gross margin what it is" — which is a real loss on the one surface built to answer that |
 
-**Recommendation: (a), narrowed explicitly.** Rule 5 should read *"an arithmetic
-node may not appear more than once within a single reconciling chain"*, with the
-cross-root case named as permitted and the reason stated. (b) reintroduces
-duplication under a synonym; (c) sacrifices traversability on the surface whose
-entire purpose is traversal.
+#### Boundary check (2026-08-09) — (a) is not a rule amendment, it is a break
 
-**This is a rule amendment, not an implementation detail**, which is why it is
-recorded here rather than decided in code. It also affects nothing already
-shipped: no current node is shared across roots, so narrowing the rule
-legalises a case that does not yet occur.
+Requested before rule 5 changes. The answer is unambiguous and it withdraws
+the recommendation above.
+
+**`resolveNode` walks every root and returns null unless EXACTLY ONE node
+matches.**
+
+```ts
+for (const root of nodes) walkGraph(root, (n) => { if (n.key === key) matches.push(n); });
+return matches.length === 1 ? matches[0] : null;
+```
+
+A node reachable from two roots is therefore seen twice and resolves to
+**nothing**. Its own doc already states the architecture in terms that settle
+the question: *"a node cannot be both a root and an operand without
+double-counting under reconciliation."*
+
+| Surface | Effect of cross-root sharing |
+|---|---|
+| `resolveNode` | Two matches → **null** |
+| `readNodeValue` | Delegates → **null**. Every existing read of `quote/{tier}/revenue` and `cost-total` **blanks** |
+| `findGraphViolations` | Runs per root with a fresh `seenKeys` → **reports nothing** |
+| Trace traversal | `resolveNode` → null → renders *"This number cannot be traced"* |
+| Entry-at-node | Pressing a cell whose key is shared opens the fail-closed panel |
+
+**The two mechanisms would disagree**, which is worse than either being wrong:
+the validator would pronounce the graph healthy while every reader treated
+those keys as unresolvable. Nothing would throw. Values would simply stop
+appearing.
+
+So the question the boundary check was meant to answer is answered: **multi-parent
+graph nodes are not an intended architectural property.** The reader already
+treats a second sighting as a graph-integrity failure — deliberately, and that
+fail-closed behaviour is load-bearing for duplicate keys generally. Relaxing it
+to accommodate one kind would remove the protection everywhere to buy a margin
+node.
+
+**(a) is withdrawn.** Not because rule 5 is sacred, but because the rule is not
+the binding constraint — the readers are, and they are right.
+
+---
+
+#### Option (d) — the container already exists, and is currently meaningless
+
+Raised by the second half of the check: can `quote/{tier}` own revenue, cost and
+margin in one subtree?
+
+It can, and inspecting it turns up something separate and worth fixing anyway.
+**`quote/{tier}` today is a `sum` of sell and cost:**
+
+```
+quote/{tier}   sum   value 25.4   operands = [ quote/{tier}/sell (15.4),
+                                               quote/{tier}/cost (10.0) ]
+```
+
+Per-unit sell plus per-unit cost is **not a commercial quantity.** Nobody
+governs 25.4; it is the sum of two numbers that answer different questions. It
+reconciles, so no check objects, and **no consumer reads it** — `quoteScopeKey`
+requires a name argument, so a bare container key cannot even be constructed
+through the helper.
+
+This is Pattern 57 one layer down from where that rule was written: *a financial
+stack contains only independently governed commercial quantities*. The rule was
+banked about ROWS; the same test applies to a node that asserts a value.
+
+**The proposal: `quote/{tier}` becomes the margin.**
+
+```
+quote/{tier}/margin              ratio        basis { "Revenue per unit", 15.4 }
+  └─ quote/{tier}/margin/gross   difference
+       ├─ quote/{tier}/sell      (moves here — sole parent)
+       └─ quote/{tier}/cost      (moves here — sole parent)
+```
+
+- **No sharing.** `sell` and `cost` have exactly one parent chain. They move
+  from the meaningless sum into the difference that actually uses them.
+- **No rule change.** Rule 5 stands as written.
+- **Fully traversable.** The numerator expands, so the trace answers *"why is
+  the gross margin what it is"* — the loss that ruled out carrying it as
+  `basis`.
+- **It removes a node asserting a quantity nobody governs**, rather than adding
+  one beside it.
+
+The denominator stays `basis` — data, not a node — so revenue appears once as a
+value and never twice as a node. That is the same resolution `rate` uses, and
+the reason is unchanged.
+
+**Cell and quote-wide scope follow the same shape**, each with its own basis.
+Whether a comparable meaningless container exists at those scopes has not been
+inspected; if not, the margin is simply a new root there and nothing is
+displaced.
+
+**What (d) costs.** Removing `quote/{tier}`'s current sum is a graph-shape
+change. No consumer reads the key, but tests may assert the node exists, and
+that has not been swept. The graph is not in the S-7 payload, so **no commercial
+scalar moves.**
+
+---
+
+#### Viable representations, restated
+
+| | Verdict |
+|---|---|
+| (a) Permit cross-root sharing | **Withdrawn.** Breaks `resolveNode`, `readNodeValue`, trace and entry-at-node; blanks two live keys; requires removing a fail-closed protection that exists for good reason |
+| (b) Margin-local copies | Still available, still poor: duplicated arithmetic under a synonym |
+| (c) Numerator as `basis` | Still available, still costs traversability on the surface built for traversal |
+| **(d) `quote/{tier}` becomes the margin** | **Recommended.** No sharing, no rule change, fully traversable, and it deletes a node asserting a quantity nobody governs |
 
 ---
 
