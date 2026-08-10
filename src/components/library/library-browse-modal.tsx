@@ -235,19 +235,26 @@ export function LibraryBrowseModal({
     return () => clearTimeout(t);
   }, [toast]);
 
-  // slice-library-first-creation-flow Step 3 — re-fetch library
-  // after a successful "+ Create new" submit. Reused by both empty-
-  // state Create-new paths + the post-AddProductModal success
-  // callback. Clears search/type/scope filters so the new leaf
-  // surfaces at the top of the list immediately. Pattern mirrors
-  // the attach refresh below.
-  function refreshLibrary() {
-    setSearch("");
+  // Re-fetch the library after a successful "+ Create new" submit, or after
+  // a pull.
+  //
+  // This cleared all filters "so the new leaf surfaces at the top of the
+  // list immediately", which was true of a small library and is not true of
+  // this one. The list is alphabetical and paged at 50 of 1000+, so an
+  // unfiltered refresh puts a new component wherever its name sorts —
+  // usually nowhere the operator can see. Creation appeared to do nothing.
+  //
+  // A created component does not need to be on page 1, but it does need to
+  // be immediately CONFIRMABLE. So a create focuses the list on the name it
+  // just created; a pull, which has no single subject, still clears.
+  function refreshLibrary(focusName?: string) {
+    const search = focusName ?? "";
+    setSearch(search);
     setTypeFilter("");
     setScopeFilter("all");
     startTransition(async () => {
       const refreshed = await fetchLibraryBrowse({
-        search: "",
+        search,
         typeFilter: undefined,
         scopeFilter: "all",
         targetQuoteId: quoteId,
@@ -357,7 +364,9 @@ export function LibraryBrowseModal({
   // blocks the modal close affordance just like an in-flight attach.
   const pull = usePullFromHubSpot({
     projectId,
-    onComplete: refreshLibrary,
+    // Wrapped: a pull reports its own progress and has no single subject to
+    // focus, so it must not receive one positionally.
+    onComplete: () => refreshLibrary(),
   });
   const pullBlocking = pull.isPulling;
 
@@ -1066,7 +1075,7 @@ export function LibraryBrowseModal({
         onClose={() => setCreateOpen(false)}
         onSuccess={(r) => {
           if (r.kind === "leaf") {
-            refreshLibrary();
+            refreshLibrary(r.name);
           }
         }}
         stacked

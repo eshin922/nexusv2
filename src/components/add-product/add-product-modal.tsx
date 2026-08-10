@@ -52,7 +52,10 @@ export function AddProductModal({
   // only on successful create. Absent → preserves stable API for
   // any future direct consumer that doesn't need to discriminate
   // submit vs cancel.
-  onSuccess?: (result: { kind: "asy" | "leaf"; id: string }) => void;
+  // `name` lets the caller CONFIRM the creation. An id alone cannot be
+  // shown to an operator or searched for; the library searches by name or
+  // SKU, so the name is what makes the new record locatable.
+  onSuccess?: (result: { kind: "asy" | "leaf"; id: string; name: string }) => void;
   // slice-library-first-creation-flow Step 4 — when mounted as a
   // sub-flow on top of another modal (LibraryBrowseModal's
   // "+ Create new product"), pass stacked={true}. Applies the
@@ -162,7 +165,7 @@ export function AddProductModal({
         setError(result.error.message);
         return;
       }
-      onSuccess?.({ kind: "asy", id: result.data.assemblyId });
+      onSuccess?.({ kind: "asy", id: result.data.assemblyId, name: asyName.trim() });
       onClose();
       setToast(`Added "${asyName.trim()}" to this quote.`);
       router.refresh();
@@ -192,7 +195,7 @@ export function AddProductModal({
         setError(result.error.message);
         return;
       }
-      onSuccess?.({ kind: "leaf", id: result.data.leafId });
+      onSuccess?.({ kind: "leaf", id: result.data.leafId, name: leafName.trim() });
       onClose();
       if (option === "continue") {
         router.push(
