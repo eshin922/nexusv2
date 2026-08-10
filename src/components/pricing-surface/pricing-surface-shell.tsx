@@ -30,7 +30,7 @@
 // from `idMap.numericToUuid.values()` rather than re-invoking the
 // engine. One classify, one engine call per render.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Mode } from "@/lib/pricing-classifier";
 import {
   applyGlobalAdj,
@@ -46,10 +46,19 @@ import {
   SuggestionCard,
 } from "./action-zone";
 import { StateCallout, StateCard, StateLine } from "./state-zone";
-import { DetailZone, type BlendedTierComponents } from "./detail-zone";
+import {
+  DetailZone,
+  type BlendedTierComponents,
+  type TracedStackCell,
+} from "./detail-zone";
 import { usePricingClassifier } from "./pricing-classifier-context";
+import { ComplianceGrid } from "./compliance-grid";
+import { PricingTrace } from "./pricing-trace";
+import { StagingBar } from "./staging-bar";
+import { StagedDelta } from "./staged-delta";
+import { usePricingStaging } from "./pricing-staging-context";
 import { useCostingStore } from "@/components/costing-store-provider";
-import { selectGraph } from "@/lib/costing-store";
+import { selectGraph, selectSkuRollups } from "@/lib/costing-store";
 import { readNodeValue, quoteScopeKey } from "@/lib/costing-nodes";
 
 // 30s persistent "↻ just updated" hint after a mode transition. CD
@@ -59,11 +68,23 @@ const JUST_UPDATED_MS = 30_000;
 export interface PricingSurfaceShellProps {
   projectId: string;
   quoteId: string;
+  /**
+   * Tier display metadata, resolved at the page boundary and keyed by the tier
+   * UUID — the real identity, not the classifier's numeric id.
+   *
+   * The page cannot key it numerically: the numeric ids are the classifier's
+   * own, minted inside the provider, and reconstructing them server-side would
+   * be an identity derivation with no authority behind it. So the page supplies
+   * label + ★ against the UUID, and the join to numeric happens here, through
+   * `idMap` — the map that already owns that correspondence.
+   */
+  tiers: ReadonlyArray<{ id: string; label: string; recommended: boolean }>;
 }
 
 export function PricingSurfaceShell({
   projectId: _projectId,
   quoteId,
+  tiers,
 }: PricingSurfaceShellProps) {
   // Single source of truth — `state` is the classifier output,
   // identical to what `<PricingPageHead>` consumes.
@@ -279,10 +300,146 @@ export function PricingSurfaceShell({
       ) {
         continue;
       }
-      byNumeric.set(numeric, { pkg, prod, raw, frt, dt, sellBefore, sell });
+      byNumeric.set(numeric, {
+        pkg, prod, raw, frt, dt, sellBefore, sell,
+        // The same keys the values were just read from, carried down so the
+        // trace opens at the node the operator pressed rather than at one
+        // reconstructed from a numeric id the graph has never heard of.
+        keys: {
+          pkg: quoteScopeKey(tierUuid, "pkg"),
+          prod: quoteScopeKey(tierUuid, "prod"),
+          raw: quoteScopeKey(tierUuid, "raw"),
+          frt: quoteScopeKey(tierUuid, "frt"),
+          dt: quoteScopeKey(tierUuid, "dt"),
+          sellBefore: quoteScopeKey(tierUuid, "sell-before"),
+          sell: quoteScopeKey(tierUuid, "sell"),
+        },
+      });
     }
     return byNumeric;
   }, [graph, uuidToNumeric]);
+
+  // ── display metadata ────────────────────────────────────────────
+  //
+  // Both maps below are JOINS on identity that something else already owns:
+  // `idMap` owns tier UUID ↔ numeric, and `skuRollups` owns the canonical
+  // quote-leaf id alongside the product name. Neither invents a
+  // correspondence, and neither guesses when one is absent.
+
+  const tierMeta = useMemo(() => {
+    const byNumeric = new Map<number, { label: string; recommended: boolean }>();
+    for (const t of tiers) {
+      const numeric = uuidToNumeric.get(t.id);
+      // A tier the classifier does not carry is skipped, not defaulted. The
+      // grid renders `T{id}` for a missing entry, which is at least honestly
+      // unhelpful; a label attached to the wrong tier is not.
+      if (numeric === undefined) continue;
+      byNumeric.set(numeric, { label: t.label, recommended: t.recommended });
+    }
+    return byNumeric;
+  }, [tiers, uuidToNumeric]);
+
+  // VERIFIED at mount time, and it is not the obvious field: the staging key's
+  // SKU half is `canonicalQuoteLeafId`, which is a SEPARATE field from the
+  // engine's `skuId` that the classifier's `state.skus[].id` carries. Keying
+  // this on the classifier id matches nothing, and every chip would fall back
+  // to two raw UUIDs in the one place the operator looks before committing.
+  const skuRollups = useCostingStore(selectSkuRollups);
+  const cellLabel = useMemo(() => {
+    const nameByQuoteLeafId = new Map<string, string>();
+    for (const sr of skuRollups) {
+      if (sr.canonicalQuoteLeafId) {
+        nameByQuoteLeafId.set(sr.canonicalQuoteLeafId, sr.productName);
+      }
+    }
+    const labelByTierUuid = new Map<string, string>();
+    for (const t of tiers) labelByTierUuid.set(t.id, t.label);
+
+    return (cellKey: string): string => {
+      const [quoteLeafId, tierId] = cellKey.split("::");
+      const name = nameByQuoteLeafId.get(quoteLeafId);
+      const tierLabel = labelByTierUuid.get(tierId);
+      // FAIL CLOSED. Either half unresolved and the operator sees the raw key.
+      // Ugly, and recoverable. A chip naming the wrong SKU beside a price
+      // change is neither.
+      if (name === undefined || tierLabel === undefined) return cellKey;
+      return `${name} · ${tierLabel}`;
+    };
+  }, [skuRollups, tiers]);
+
+  // ── staged state ────────────────────────────────────────────────
+  //
+  // The preview graph, and the roles are explicit at this one call site. The
+  // readers refuse the wrong authority by construction — `readNodeValue`
+  // returns null when a graph's own `evaluation` is not what the caller named
+  // — so inverting these yields no deltas rather than plausible ones.
+  const { previewResult } = usePricingStaging();
+  const previewGraph = previewResult?.graph ?? null;
+
+  const renderStackDelta = useCallback(
+    (nodeKey: string) => (
+      <StagedDelta
+        committedGraph={graph}
+        previewGraph={previewGraph}
+        nodeKey={nodeKey}
+      />
+    ),
+    [graph, previewGraph],
+  );
+
+  // ── entry-at-node ───────────────────────────────────────────────
+  const [traced, setTraced] = useState<
+    (TracedStackCell & { title: string }) | null
+  >(null);
+
+  const tracedTierId = traced?.tierId ?? null;
+  const onTraceStackCell = useCallback(
+    (nodeKey: string, title: string) => {
+      // Which row the panel belongs beneath comes from the classifier's tier
+      // list, matched on the key the cell was built from — not parsed out of
+      // the key string.
+      let tierId: number | null = null;
+      for (const [numeric, blend] of blendedByTier) {
+        if (Object.values(blend.keys).includes(nodeKey)) {
+          tierId = numeric;
+          break;
+        }
+      }
+      if (tierId === null) return;
+      setTraced((prev) =>
+        prev?.nodeKey === nodeKey ? null : { tierId, nodeKey, title },
+      );
+    },
+    [blendedByTier],
+  );
+
+  // A traced node whose tier has dropped out of the graph closes itself rather
+  // than leaving a panel pinned beneath a row that no longer renders.
+  useEffect(() => {
+    if (tracedTierId !== null && !blendedByTier.has(tracedTierId)) {
+      setTraced(null);
+    }
+  }, [blendedByTier, tracedTierId]);
+
+  const renderStackTrace = useCallback(() => {
+    if (!traced) return null;
+    // `.r11-tracewrap` is the canonical vocabulary for "the trace as an
+    // expansion inside a section", and carries the three R11 overrides of the
+    // standalone R10 panel — no outer border, the depth badge dropped because
+    // depth 0 is whatever was pressed, and the anchor bar released from
+    // `position: sticky`. That last one is why the PRESSED ROW can pin: two
+    // elements both sticking to top: 0 would overlay each other.
+    return (
+      <div className="r11-tracewrap">
+        <PricingTrace
+          graph={graph}
+          nodeKey={traced.nodeKey}
+          title={traced.title}
+          onClose={() => setTraced(null)}
+        />
+      </div>
+    );
+  }, [graph, traced]);
 
   return (
     <section className="psr-section">
@@ -302,6 +459,13 @@ export function PricingSurfaceShell({
           {applyError}
         </div>
       )}
+
+      {/*
+        STAGING — at the top, where the canonical page puts it, and absent when
+        there is nothing to say. Its own component decides which of the two
+        bars renders; neither is a state this file computes.
+      */}
+      <StagingBar label={cellLabel} />
 
       {/* STATE — always visible. justUpdated chrome on mode transition. */}
       <StateLine state={state} justUpdated={justUpdated} />
@@ -352,6 +516,20 @@ export function PricingSurfaceShell({
 
       {state.flags.accept_risk_unavailable && <AcceptRiskBanner />}
 
+      {/*
+        COMPLIANCE — margin by cell, across every tier, always open.
+        `targetPct` / `floorPct` are the classifier's own policy inputs,
+        forwarded for the header caption. The grid never compares against
+        them; it renders bands the classifier already decided.
+      */}
+      <div className="r12-gridtop" style={{ marginTop: 16 }}>
+        <ComplianceGrid
+          targetPct={state.policy.target_margin_pct}
+          floorPct={state.policy.floor_margin_pct}
+          tierMeta={tierMeta}
+        />
+      </div>
+
       {/* DETAIL — always available; session-persisted open state.
           onPreviewGlobalAdjust forwards via DetailZone →
           DetailGlobalAdjust (CB Patch round 3 BUG-B wire). */}
@@ -367,6 +545,10 @@ export function PricingSurfaceShell({
         canUndoGlobalAdjust={bulkAuditId !== null}
         pricingMutationPending={bulkPending}
         pricingConfirmation={pricingConfirmation}
+        onTraceStackCell={onTraceStackCell}
+        tracedStackCell={traced}
+        renderStackTrace={renderStackTrace}
+        renderStackDelta={renderStackDelta}
       />
     </section>
   );

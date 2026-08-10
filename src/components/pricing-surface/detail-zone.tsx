@@ -37,7 +37,7 @@
 // Canonical CSS register: `.psr-*` (Path B-default; r-psr-pricing.css
 // from Step 4). JSX class names mirror CD prototype 1:1.
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import type { QuoteState, TierRollup } from "@/lib/pricing-classifier";
 import type { GlobalPricingPreview } from "@/lib/pricing-lift";
 import { fmtPct, fmtPct0, fmtQty, fmtUsd2 } from "./format";
@@ -96,6 +96,10 @@ export function DetailZone({
   canUndoGlobalAdjust,
   pricingMutationPending,
   pricingConfirmation,
+  onTraceStackCell,
+  tracedStackCell,
+  renderStackTrace,
+  renderStackDelta,
 }: {
   state: QuoteState;
   /** Blended per-unit values read from the canonical graph, keyed by the
@@ -113,6 +117,14 @@ export function DetailZone({
   canUndoGlobalAdjust?: boolean;
   pricingMutationPending?: boolean;
   pricingConfirmation?: string | null;
+  // Phase 3 mount — cost-stack trace + staged deltas. All four are supplied by
+  // the composition point, which is the only place that holds the graphs and
+  // the tier identity these need. Optional so standalone consumers (tests,
+  // fixtures) mount the zone without them.
+  onTraceStackCell?: (nodeKey: string, title: string) => void;
+  tracedStackCell?: TracedStackCell | null;
+  renderStackTrace?: () => React.ReactNode;
+  renderStackDelta?: (nodeKey: string) => React.ReactNode;
 }) {
   // Hydration safety: default OPEN on both SSR and initial client
   // render (matches readSessionOpen's "no preference → open"
@@ -160,7 +172,14 @@ export function DetailZone({
             confirmation={pricingConfirmation}
           />
           <DetailTierTable state={state} />
-          <DetailCostStack state={state} blendedByTier={blendedByTier} />
+          <DetailCostStack
+            state={state}
+            blendedByTier={blendedByTier}
+            onTrace={onTraceStackCell}
+            traced={tracedStackCell}
+            renderTrace={renderStackTrace}
+            renderDelta={renderStackDelta}
+          />
           <DetailPerSku state={state} />
           <DetailMetaTiles state={state} />
         </div>
@@ -442,10 +461,30 @@ export type BlendedTierComponents = {
   dt: number;
   sellBefore: number;
   sell: number;
+  /**
+   * The canonical node key each of those seven values was read from.
+   *
+   * Carried alongside the value rather than rebuilt here, for the same reason
+   * the value is: `quoteScopeKey` needs the tier UUID, and this file only has
+   * the classifier's numeric id. A component that reconstructed the key would
+   * be resolving identity, and would be one renaming away from opening a trace
+   * on a different number than the one pressed.
+   */
+  keys: {
+    pkg: string;
+    prod: string;
+    raw: string;
+    frt: string;
+    dt: string;
+    sellBefore: string;
+    sell: string;
+  };
 };
 
 interface TierCostStackDisplay {
   id: string;
+  /** The classifier's numeric tier id — which row a trace belongs beneath. */
+  numericId: number;
   label: string;
   units: number | null;
   subtotal: number | null;
@@ -454,14 +493,107 @@ interface TierCostStackDisplay {
   margin_pct: number | null;
   margin_state: "good" | "below_target" | "bad" | "incomplete";
   components: CostStackBucketDisplay[];
+  keys: BlendedTierComponents["keys"] | null;
+}
+
+/**
+ * Which cell the trace is currently open at, and beneath which row it belongs.
+ *
+ * The tier id is carried explicitly rather than parsed back out of the node
+ * key. Reading a UUID out of a string to decide where a panel renders is
+ * identity derivation in the layout layer, and it would break silently the
+ * first time the key grammar gained a segment.
+ */
+export interface TracedStackCell {
+  tierId: number;
+  nodeKey: string;
+}
+
+/** What each traceable column is called when it titles a trace panel. */
+const COLUMN_TITLE = {
+  pkg: "Packaging · blended per unit",
+  prod: "Production · blended per unit",
+  raw: "Raw materials · blended per unit",
+  frt: "Freight · blended per unit",
+  dt: "Duty + tariff · blended per unit",
+  sellBefore: "Sell before adjustment · blended per unit",
+  sell: "Quoted sell · blended per unit",
+} as const;
+
+/**
+ * One numeric cell, pressable when the graph has a node behind it.
+ *
+ * A cell with no key is rendered as plain text rather than as a disabled
+ * button. "Nothing to press" and "a control that refuses you" say different
+ * things, and only the first is true: the value is there, the chain behind it
+ * is not readable, and a dead affordance would suggest otherwise.
+ */
+function StackNumCell({
+  text,
+  nodeKey,
+  title,
+  traced,
+  onTrace,
+  renderDelta,
+}: {
+  text: string;
+  nodeKey: string | null;
+  title: string;
+  traced?: TracedStackCell | null;
+  onTrace?: (nodeKey: string, title: string) => void;
+  renderDelta?: (nodeKey: string) => React.ReactNode;
+}) {
+  const delta = nodeKey && renderDelta ? renderDelta(nodeKey) : null;
+  if (!nodeKey || !onTrace) {
+    return (
+      <td className="num">
+        {text}
+        {delta}
+      </td>
+    );
+  }
+  const isOpen = traced?.nodeKey === nodeKey;
+  return (
+    <td className="num">
+      <button
+        type="button"
+        className={"psr-stack-cell" + (isOpen ? " open" : "")}
+        onClick={() => onTrace(nodeKey, title)}
+        aria-expanded={isOpen}
+        title={isOpen ? "Close the trace" : `Why is this ${text}?`}
+      >
+        <span className="v">{text}</span>
+        {delta}
+        <span className="why">{isOpen ? "tracing ▾" : "why? ▸"}</span>
+      </button>
+    </td>
+  );
 }
 
 export function DetailCostStack({
   state,
   blendedByTier,
+  onTrace,
+  traced,
+  renderTrace,
+  renderDelta,
 }: {
   state: QuoteState;
   blendedByTier: Map<number, BlendedTierComponents>;
+  /** Press a cell → open the trace at that cell's canonical node. */
+  onTrace?: (nodeKey: string, title: string) => void;
+  traced?: TracedStackCell | null;
+  /** The panel itself, supplied by the composition point that holds the graph. */
+  renderTrace?: () => React.ReactNode;
+  /**
+   * The staged movement on one node, supplied as a render prop.
+   *
+   * Deliberately NOT "pass both graphs in and let this file mount the chip".
+   * A delta is committed-minus-preview, and which graph is which is exactly
+   * the pairing a call site can invert without anything failing. Stated once,
+   * where both graphs are held, it cannot be inverted here at all.
+   */
+  renderDelta?: (nodeKey: string) => React.ReactNode;
 }) {
   // Gate 1B increment 7 — this table READS THE CANONICAL GRAPH.
   //
@@ -480,6 +612,7 @@ export function DetailCostStack({
     if (!blend) {
       return {
         id: "T" + t.id,
+        numericId: t.id,
         label: "T" + t.id,
         units: t.qty,
         subtotal: null,
@@ -488,11 +621,14 @@ export function DetailCostStack({
         margin_pct: null,
         margin_state: "incomplete",
         components: [],
+        keys: null,
       };
     }
     return {
       id: "T" + t.id,
+      numericId: t.id,
       label: "T" + t.id,
+      keys: blend.keys,
       units: t.qty,
       subtotal: blend.sellBefore,
       adjustment: 0,
@@ -539,30 +675,69 @@ export function DetailCostStack({
           </tr>
         </thead>
         <tbody>
-          {tiers.map((t) => (
-            <tr key={t.id}>
-              <td>
-                <strong>{t.label}</strong>
-              </td>
-              {(["pkg", "prod", "raw", "frt", "dt"] as const).map((bucket) => {
-                const comp = t.components.find((c) => c.key === bucket);
-                return (
-                  <td className="num" key={bucket}>
-                    {comp == null || comp.cost == null
-                      ? "—"
-                      : fmtUsd2(comp.cost)}
+          {tiers.map((t) => {
+            const rowTraced = traced != null && traced.tierId === t.numericId;
+            return (
+              <Fragment key={t.id}>
+                <tr className={rowTraced ? "psr-stack-row pinned" : "psr-stack-row"}>
+                  <td>
+                    <strong>{t.label}</strong>
                   </td>
-                );
-              })}
-              <td className="num">
-                {t.subtotal == null ? "—" : fmtUsd2(t.subtotal)}
-              </td>
-              <td className="num">{t.sell == null ? "—" : fmtUsd2(t.sell)}</td>
-              <td className={"num " + t.margin_state}>
-                {t.margin_pct == null ? "—" : fmtPct(t.margin_pct) + "%"}
-              </td>
-            </tr>
-          ))}
+                  {(["pkg", "prod", "raw", "frt", "dt"] as const).map((bucket) => {
+                    const comp = t.components.find((c) => c.key === bucket);
+                    return (
+                      <StackNumCell
+                        key={bucket}
+                        text={
+                          comp == null || comp.cost == null
+                            ? "—"
+                            : fmtUsd2(comp.cost)
+                        }
+                        nodeKey={t.keys ? t.keys[bucket] : null}
+                        title={`${t.label} · ${COLUMN_TITLE[bucket]}`}
+                        traced={traced}
+                        onTrace={onTrace}
+                        renderDelta={renderDelta}
+                      />
+                    );
+                  })}
+                  <StackNumCell
+                    text={t.subtotal == null ? "—" : fmtUsd2(t.subtotal)}
+                    nodeKey={t.keys ? t.keys.sellBefore : null}
+                    title={`${t.label} · ${COLUMN_TITLE.sellBefore}`}
+                    traced={traced}
+                    onTrace={onTrace}
+                    renderDelta={renderDelta}
+                  />
+                  <StackNumCell
+                    text={t.sell == null ? "—" : fmtUsd2(t.sell)}
+                    nodeKey={t.keys ? t.keys.sell : null}
+                    title={`${t.label} · ${COLUMN_TITLE.sell}`}
+                    traced={traced}
+                    onTrace={onTrace}
+                    renderDelta={renderDelta}
+                  />
+                  {/*
+                    NOT traceable, and not carrying a delta — deliberately.
+                    This column renders `min_margin_pct`, the worst SKU's
+                    margin in the tier. The graph's `quote/{tier}/margin` is
+                    the BLENDED tier margin. They are different numbers, so
+                    wiring either the trace or the staged movement here would
+                    explain a figure the operator did not press. See the
+                    Phase 3 mount finding on cost-stack margin semantics.
+                  */}
+                  <td className={"num " + t.margin_state}>
+                    {t.margin_pct == null ? "—" : fmtPct(t.margin_pct) + "%"}
+                  </td>
+                </tr>
+                {rowTraced && renderTrace && (
+                  <tr className="psr-stack-tracerow">
+                    <td colSpan={9}>{renderTrace()}</td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>

@@ -47,3 +47,93 @@
 .r11-bcell.inert:hover {
   background: transparent;
 }
+
+/* ── Cost-stack inline trace ───────────────────────────────────────────────
+ *
+ * The Phase 3 mount opens the trace immediately beneath the pressed row, with
+ * that row pinned while it is open. Three rules make that work, and the first
+ * is the one that is easy to get wrong.
+ *
+ * 1 · `.psr-detail` is canonical (`r-psr-pricing.css`, Pattern 30 verbatim) and
+ *     sets `overflow: hidden`. That establishes a scroll container, and a
+ *     `position: sticky` descendant inside one sticks to a box exactly its own
+ *     size — which is to say, it does not stick at all. The surface still LOOKS
+ *     correct, so the failure is silent.
+ *
+ *     `clip` clips identically — same box, border-radius still respected — but
+ *     creates no scrollport, so the pinned row sticks to the page as intended.
+ *     Overriding here rather than editing the canonical file keeps a bundle
+ *     refresh a drop-in.
+ */
+.psr-detail {
+  overflow: clip;
+}
+
+/* 2 · The pressed row, pinned. Opaque, because a transparent sticky row shows
+ *     the trace scrolling through it. */
+.psr-tier-table tr.psr-stack-row.pinned > td {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--paper-3);
+}
+
+/* 3 · The trace occupies a full-width row and supplies its own padding. */
+.psr-tier-table tr.psr-stack-tracerow > td {
+  padding: 0;
+  background: var(--paper);
+}
+
+/* ── A traceable stack cell ────────────────────────────────────────────────
+ *
+ * `.r11-scell`'s affordance grammar — value, hover-revealed "why?", accent when
+ * open — rendered inside the `.psr-tier-table` this surface actually uses. The
+ * classes are ours because the element is: the canonical bundle's stack is a
+ * grid of divs, and this is a table cell.
+ */
+.psr-tier-table td .psr-stack-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: right;
+}
+.psr-tier-table td .psr-stack-cell .v {
+  font-variant-numeric: tabular-nums;
+}
+.psr-tier-table td .psr-stack-cell .why {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--ink-4);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.psr-tier-table td .psr-stack-cell:hover .why,
+.psr-tier-table td .psr-stack-cell.open .why {
+  opacity: 1;
+}
+.psr-tier-table td .psr-stack-cell.open {
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.psr-tier-table td .psr-stack-cell.open .why {
+  color: var(--accent-ink);
+}
+
+/* The staged movement chip, in the register the canonical stack gives it:
+ * direction, not compliance. `--good` for a rise, `--warn` for a fall. */
+.psr-tier-table td .psr-stack-cell .delta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.psr-tier-table td .psr-stack-cell .delta.pos { color: var(--good); }
+.psr-tier-table td .psr-stack-cell .delta.neg { color: var(--warn); }
