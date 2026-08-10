@@ -461,9 +461,15 @@ test("VAL-104 governed Pricing Vendor persists without exposing dormant Pricing 
   await expect(firstPackagingRow.locator(".name .lab")).not.toHaveText(
     "Validation Packaging Vendor",
   );
-  await page
-    .getByText("Other SKUs in this scenario (2)", { exact: false })
-    .click();
+  // No disclosure to open. The `Other SKUs in this scenario (N)` control was
+  // removed by the §6.b path-B Costs migration, which recorded why at the
+  // removal site: *"The redundant Other SKUs control is intentionally absent
+  // because the unified Costs page already renders every SKU."*
+  //
+  // The capability this asserts is unchanged — the other SKUs in the scenario
+  // are reachable from here — and it is now satisfied more directly, so the
+  // assertions below read the context region as rendered rather than opening
+  // something first. The control is NOT recreated for the test's benefit.
   const scenarioContext = page.getByRole("region", {
     name: "SKU + scenario context",
   });

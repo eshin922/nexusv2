@@ -333,6 +333,45 @@ assertion's intent — other SKUs in the scenario are reachable from here — is
 preserved and stops depending on a control that was removed three migrations
 ago.
 
+**Repaired, rerun, and it fails at a later boundary — classified below, and
+only that one.**
+
+The disclosure click was removed and the region assertions left in place. From a
+clean seed, VAL-104 now clears the identity block and stops at `spec:476`:
+
+```
+Locator: getByRole('region', { name: 'SKU + scenario context' })
+           .getByText('Validation Leaf 2')
+Error:   element(s) not found
+```
+
+**The newly observed boundary: the assertion scopes to the wrong container.**
+The region exists and renders — the failure snapshot shows its full contents:
+
+```
+region "SKU + scenario context":
+  VAL-LOCAL-EXAMPLE-1 — anchor SKU · Validation Leaf 1 · 2 tiers · 600 units
+  link "⌥ Switch scenario"
+```
+
+It is an **anchor-SKU context strip**, not a roster of the scenario's SKUs. It
+names which SKU you are anchored on and offers a way out. Leaves 2 and 3 are
+rendered by the unified Costs page — three packaging drilldown rows were
+observed directly — but **outside this region**.
+
+So the scope was inherited from the era when the removed disclosure expanded
+*within* that strip. With the control gone, the container that renders every SKU
+is the page, which is exactly what the §6.b rationale said: *"the unified Costs
+page already renders every SKU."*
+
+**Classification: test issue.** Third on this scenario, third not a product
+defect. Not repaired — classified only, per instruction.
+
+**Remediation shape** (not applied): scope the two leaf assertions to the page
+rather than to the context region, and keep the negative assertion — that
+`Validation draft assembly` does not appear — scoped to the region, since that
+one *is* about the strip's contents.
+
 **Consequence for REG-1.** Its browser evidence has now failed three times for
 three reasons, none of them the product: fixture contamination, a hardcoded
 literal, and an expectation of a removed control. It stays **Insufficient
@@ -356,7 +395,7 @@ its browser evidence has still never passed.
 | scenario | classification |
 |---|---|
 | VAL-101 | **harness** — cross-project fixture contamination |
-| VAL-104 *(was unmeasured)* | **test issue**, twice — hardcoded runId literal (fixed), then an expectation of the *Other SKUs* control that §6.b intentionally removed |
+| VAL-104 *(was unmeasured)* | **test issue ×3** — hardcoded runId literal (fixed) · expectation of the removed *Other SKUs* control (fixed) · leaf assertions scoped to the anchor-SKU strip rather than the page |
 | VAL-103 *(was unmeasured)* | **harness** — non-deterministic CDP race |
 | VAL-208 bulk pricing lift | not yet classified |
 | costs-reconciliation-ordering | not yet classified |
