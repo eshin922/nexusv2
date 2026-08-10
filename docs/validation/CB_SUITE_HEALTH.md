@@ -3,7 +3,9 @@
 **The operational view while Track B is completed.** Updated per run, not on a
 schedule.
 
-**Last run:** 2026-08-10 · **Baseline:** **BASELINE-01 — ESTABLISHED**
+**Last run:** 2026-08-10 · **Baseline:** **BASELINE-01 — ESTABLISHED.**
+**BASELINE-02 attempted and NOT established** — the suite grew to 23 scenarios
+and two clean runs disagreed on one. See below.
 
 ## Admission criterion
 
@@ -23,7 +25,7 @@ Strictly ordered. Each step is meaningless before the one above it holds.
 | 1 | **Deterministic environment** | ✅ Established |
 | 2 | **Deterministic harness** | ✅ Established |
 | 3 | **Trusted baseline** | ✅ **BASELINE-01** — criterion met |
-| 4 | **Scenario classification** | ⏳ **Now unlocked.** Not started |
+| 4 | **Scenario classification** | ⏳ Unlocked for the **ten stable** failures. VAL-101 next |
 
 > **No failure below is classified, and none is discussed as anything.**
 > Classification is step 4. Naming a cause before the harness is deterministic
@@ -40,7 +42,7 @@ Strictly ordered. Each step is meaningless before the one above it holds.
 | **Seed** | ✅ **Deterministic** | Two reset→seed cycles, byte-identical counts |
 | **Reset** | ⚠️ **Namespace-scoped, not absolute** | Clears its own `runId` world only; foreign-runId rows survive |
 | **Clean environment** | ✅ **Reproducible** | `db:reset` → migrate → seed yields absolute counts **equal to** fixture counts |
-| **Harness determinism** | ✅ **Established** | Runs A and B agree exactly |
+| **Harness determinism** | ⚠️ **One known flake** | `lifecycle-surface-consistency` — agreed across BASELINE-01's two runs, then failed A′ and passed B′ |
 | **Trusted baseline** | ✅ **BASELINE-01** | Two consecutive clean runs, identical outcomes |
 | **Classified failures** | **0** | Step 4 not started |
 | **Unclassified failures** | **10** | Identical set in runs A and B |
@@ -86,6 +88,77 @@ carries more weight than the other two: it is REG-1's browser-level evidence,
 and REG-1 is the one register gate claiming V1 COMPLETE.
 
 ---
+
+## BASELINE-02 attempt — NOT ESTABLISHED (2026-08-10)
+
+The suite intentionally changed: **VAL-209** was added
+(`pricing-recommendation-staging.spec.ts`), walking the recommendation CTA whose
+absence let P3-016 ship. A suite change is exactly when BASELINE-01's own rules
+call for a **successor** baseline, so two clean runs were attempted.
+
+| run | environment | pass | fail | unmeasured | total |
+|---|---|---|---|---|---|
+| A | clean, full procedure | **9** | **11** | 3 | 23 |
+| B | clean, identical procedure | **10** | **10** | 3 | 23 |
+
+**They disagree. The admission criterion is not met, so there is no
+BASELINE-02.** BASELINE-01 remains the only established reference, and remains
+untouched.
+
+### What disagrees, and what does not
+
+**VAL-209 passed in both.** The new coverage is itself deterministic, and run B
+is exactly *BASELINE-01 plus VAL-209 passing* — same nine passes, same ten
+failures, same three unmeasured.
+
+The single disagreement is `lifecycle-serial › lifecycle-surface-consistency`
+— **failed in A, passed in B.**
+
+### The finding this produces
+
+That is the same scenario that was non-deterministic before BASELINE-01
+(passed run 2, failed run 3), and which a navigation-commit fix was expected to
+settle. **It has another race, at a different assertion.** In run A it failed at
+`spec:76` — `getByText("Order placed")` not visible within 5s after *Send order
+to NetSuite* → confirm. That is nowhere near the client-side transitions the
+earlier fix addressed.
+
+So the honest reading of BASELINE-01 has to change, and it is worth stating
+plainly:
+
+> **Two consecutive agreeing runs can be satisfied by chance.** BASELINE-01's
+> runs A and B agreed on this scenario. Three subsequent executions have now
+> produced: fail (A), pass (B). The criterion did not detect the flake — it
+> sampled twice and the samples happened to match.
+
+**BASELINE-01 is not wrong and is not edited.** It remains an accurate record of
+what two clean runs produced on 2026-08-10, and every delta measured against it
+so far has been meaningful. What is now qualified is the *inference* from it:
+its expected outcome contains at least one scenario whose result is not a
+property of the code.
+
+### What this does not license
+
+- **Not re-running until two agree.** That converts the criterion into a search
+  for a matching pair, which is how a flake gets certified as a baseline.
+- **Not editing BASELINE-01** to mark the scenario unstable. A baseline that
+  absorbs explanation stops being a measurement, which is the rule it opens
+  with.
+- **Not classifying the other ten.** They failed identically in A, B and
+  BASELINE-01, and that stability is what makes them classifiable.
+
+### What would settle it
+
+`lifecycle-surface-consistency` needs its second race diagnosed the way the
+first was — from the failure signature, not by adding waits until it passes.
+Two candidates, in order: the NetSuite send confirmation may complete
+asynchronously without the assertion waiting for the state it produces; or the
+5s expect timeout may simply be racing a legitimate multi-second operation. The
+distinction matters, because one is a test defect and the other is a contract
+the spec never stated.
+
+Until then the suite has **one known non-deterministic scenario**, and a
+successor baseline cannot honestly be established.
 
 ## Superseded — why the criterion was not met before
 
@@ -210,3 +283,5 @@ database, and a run started from it is not comparable to one started from
 | 3 | 2026-08-10 | clean | 8 | 11 | 3 | **Disagrees with run 2** — criterion not met |
 | A | 2026-08-10 | clean | **9** | **10** | 3 | After the navigation-commit fix |
 | B | 2026-08-10 | clean | **9** | **10** | 3 | **Identical to A — BASELINE-01 established** |
+| A′ | 2026-08-10 | clean | 9 | 11 | 3 | BASELINE-02 attempt · suite now 23 (VAL-209 added) |
+| B′ | 2026-08-10 | clean | **10** | **10** | 3 | **Disagrees with A′** — `lifecycle-surface-consistency`. No BASELINE-02 |
