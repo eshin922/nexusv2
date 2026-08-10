@@ -121,6 +121,35 @@ or against it. Three of the four are already self-reported as open, which makes
 gate 1 — the one claiming completion — the highest-value single row in the
 matrix.
 
+## Audit IDs — assigned before evaluation, never reused
+
+Every requirement row carries a stable ID, assigned at enumeration and fixed
+before any verdict is reached. **Findings, discussions and later corrections
+cite the ID, never the row position**, so inserting a requirement later cannot
+renumber a finding that has already been discussed.
+
+| block | source |
+|---|---|
+| `REG-1 … REG-4` | the four Production Readiness Register gates |
+| `SPEC-nnn` | `docs/SPEC.md` |
+| `P1-nnn` `P2-nnn` `P3-nnn` `P4-nnn` | the four phase contracts |
+| `XP-nnn` | `CROSS-PHASE-AUTHORITY-DEPENDENCY-MAP.md` |
+| `AM-nnn` | `docs/AUTHORITY_MAP.md` |
+| `BV001-nnn … BV010-nnn` | the business validation contracts |
+| `OD-nnn` | `docs/OPEN_DECISIONS.md` — **the document's own numbering** |
+| `B-n` | observations raised by freezing the baseline |
+
+Two rules make the IDs stable rather than merely present:
+
+1. **Where a source already carries its own identifier, the audit ID embeds it**
+   rather than inventing a parallel number. OD-012 is `OD-012` in this matrix,
+   not `AUD-047`. A second identifier for the same object is a second thing to
+   keep in sync.
+2. **Numbering is append-only within a block.** A requirement discovered later
+   takes the next free number in its block; it is never inserted into the middle
+   of the sequence, and no ID is ever reused, even if a row is withdrawn. Order
+   in the table may change. An ID may not.
+
 ## Audit convention — every row ends in exactly one verdict
 
 Fixed before enumeration begins, so the vocabulary is not invented row by row
