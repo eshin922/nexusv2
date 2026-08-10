@@ -43,6 +43,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import {
   classify,
+  type CellStatus,
   type QuoteInput,
   type QuotePolicyInput,
   type QuoteSkuInput,
@@ -61,6 +62,7 @@ import { composePricingAdjustment } from "@/lib/pricing-adjustment";
 import {
   computeQuoteCosting,
   type QuoteCostingInput,
+  type QuoteMarginStatus,
 } from "@/lib/costing";
 import {
   selectFirmSettings,
@@ -387,12 +389,58 @@ function buildClassifierInputs({
   // across renders so React keys stay valid.
   const numericToUuid = new Map<number, string>();
   const uuidToNumeric = new Map<string, number>();
+  /**
+   * The engine's margin vocabulary, in the classifier's.
+   *
+   * Exhaustive over `QuoteMarginStatus` with no `default`, so a future member
+   * fails to compile here rather than inheriting whatever the last branch was
+   * — the same discipline `STATUS_CLASS` uses in the compliance grid, and for
+   * the same reason: `UNAVAILABLE` once landed silently in a `bad` branch.
+   */
+  function toCellStatus(
+    s: QuoteMarginStatus | undefined,
+  ): CellStatus {
+    switch (s) {
+      case "GOOD":
+        return "above_target";
+      case "BELOW_TARGET":
+        return "below_target";
+      case "BELOW_FLOOR":
+        return "below_floor";
+      // Neither no-margin state is a band. Both resolve to `unknown`, and the
+      // distinction between them is carried in `blended_no_margin_reason`.
+      case "UNAVAILABLE":
+      case "COST_WITHOUT_REVENUE":
+      case undefined:
+        return "unknown";
+    }
+  }
   const tiers: QuoteTierInput[] = tiersForReframe.map((t, idx) => {
     const numeric = idx + 1;
     numericToUuid.set(numeric, t.id);
     uuidToNumeric.set(t.id, numeric);
     const rollup = quoteRollup.find((q) => q.tierId === t.id);
-    return { id: numeric, qty: rollup?.qty ?? 0 };
+    // BV-010 — the blended margin and its verdict are the ENGINE's, forwarded
+    // rather than re-derived. Same move as `isMissing`, `competitive_status`
+    // and the quote-level blend before it: the classifier used to compute a
+    // second answer here, it was individually plausible, and it disagreed.
+    //
+    // The status mapping is a rename between two vocabularies and the compiler
+    // holds it exhaustive. Both no-margin states map to `unknown` because
+    // neither is a band; which one it is travels separately, exactly as it
+    // does per cell.
+    return {
+      id: numeric,
+      qty: rollup?.qty ?? 0,
+      blended_margin_pct: rollup?.blendedMarginPct ?? null,
+      blended_status: toCellStatus(rollup?.blendedMarginStatus),
+      blended_no_margin_reason:
+        rollup?.blendedMarginStatus === "COST_WITHOUT_REVENUE"
+          ? "cost_without_revenue"
+          : rollup?.blendedMarginStatus === "UNAVAILABLE"
+            ? "unpriced"
+            : null,
+    };
   });
 
   // Leaf-only SKUs feed the classifier (Slice 9.3 leaf-only invariant

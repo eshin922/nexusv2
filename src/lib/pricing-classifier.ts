@@ -54,6 +54,36 @@ export interface QuotePolicyInput {
 export interface QuoteTierInput {
   id: number;
   qty: number;
+  /**
+   * The governed blended margin for this tier — `(Σ revenue − Σ cost) / Σ
+   * revenue` — forwarded from the engine, never computed here.
+   *
+   * BV-010 settles what "blended margin" names, and this is it. The classifier
+   * used to derive its own: an unweighted arithmetic mean of the per-cell
+   * margin PERCENTAGES. A mean of ratios is not a ratio of sums — it weighted a
+   * $0.20 label the same as a $4.90 bottle — and it disagreed with the governed
+   * quantity on 18 of 37 measurable tiers by up to 2.29pp while rendering under
+   * the label "BLENDED".
+   *
+   * Optional so a caller that has no engine rollup for a tier passes nothing
+   * rather than a stand-in. Absent means unknown, and unknown renders as such.
+   */
+  blended_margin_pct?: number | null;
+  /**
+   * The verdict on THAT margin, also the engine's.
+   *
+   * Distinct from `TierRollup.status`, which bands the WORST cell and is the
+   * Per-tier table's compliance signal. Both are wanted, and they are not
+   * interchangeable: the Cost Stack states a blended quantity and must carry
+   * the blended verdict, or it tints a blend with a single cell's judgement.
+   */
+  blended_status?: CellStatus;
+  /**
+   * Why there is no blended margin, when there is none. Mirrors the per-cell
+   * field exactly — a band is a region of the number line, and neither
+   * no-margin state is a number.
+   */
+  blended_no_margin_reason?: NoMarginReason | null;
 }
 
 export interface QuoteCellInput {
@@ -308,8 +338,19 @@ export interface QuoteStateFlags {
 
 export interface TierRollup extends QuoteTierInput {
   min_margin_pct: number | null;
+  /** The engine's, carried through. See `QuoteTierInput.blended_margin_pct`. */
   blended_margin_pct: number | null;
+  /**
+   * The WORST cell's band, which is the Per-tier table's compliance verdict.
+   *
+   * Kept worst-based deliberately. That section owns worst-SKU compliance —
+   * it says so in its own subtitle and carries a labelled WORST MARGIN column
+   * — so its status pill verdicts the worst cell. The blended verdict is
+   * `blended_status`, and the Cost Stack uses that one.
+   */
   status: CellStatus;
+  /** The band of `blended_margin_pct`. `unknown` when there is no margin. */
+  blended_status: CellStatus;
   has_override: boolean;
   has_missing: boolean;
 }
@@ -461,9 +502,13 @@ export function classify(
     const minMargin = knownMargins.length
       ? Math.min(...knownMargins)
       : null;
-    const blendedMargin = knownMargins.length
-      ? knownMargins.reduce((s, m) => s + m, 0) / knownMargins.length
-      : null;
+    // The mean of these margins used to be computed here and called "blended".
+    // It is gone rather than renamed: BV-010 settles that the blended margin is
+    // (Σ revenue − Σ cost) / Σ revenue, the engine owns it, and a second
+    // quantity kept under a different label would be a future consumer's
+    // mistake waiting to be made. If a mean of cell margins ever has a business
+    // purpose, it needs its own contract — not a survival slot here.
+    const blendedMargin = t.blended_margin_pct ?? null;
     const status: CellStatus =
       minMargin == null
         ? "unknown"
@@ -477,6 +522,12 @@ export function classify(
       min_margin_pct: minMargin,
       blended_margin_pct: blendedMargin,
       status,
+      // Forwarded, and `unknown` when the caller supplied none — the same
+      // posture the per-cell path takes. A blend with no margin is not a band,
+      // and defaulting it to one would put a verdict on a quantity that does
+      // not exist. Which of the two no-margin states it is travels in
+      // `blended_no_margin_reason`.
+      blended_status: t.blended_status ?? "unknown",
       has_override: tierCells.some((c) => c.override_applied),
       has_missing: tierCells.some((c) => c.missing),
     };

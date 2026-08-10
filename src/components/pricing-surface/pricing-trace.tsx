@@ -87,7 +87,7 @@ const KIND_LABEL: Record<CostingNode["kind"], string> = {
   adjustment: "adjustment",
   blend: "weighted mean",
   difference: "difference",
-  ratio: "÷",
+  ratio: "ratio",
   resolution: "resolution",
   origin: "origin",
   override: "human act",
@@ -185,7 +185,12 @@ function Recon({ node }: { node: CostingNode }) {
       <div className="r10-recon">
         <span>✓</span>
         <span>
-          {operands.length} operand{operands.length === 1 ? "" : "s"} reconcile
+          {/*
+            The verb agrees too. `ratio` is the first arithmetic kind with a
+            single operand, so "1 operand reconcile exactly" only became
+            reachable when the margin node mounted.
+          */}
+          {operands.length} operand{operands.length === 1 ? " reconciles" : "s reconcile"}{" "}
           exactly
         </span>
       </div>

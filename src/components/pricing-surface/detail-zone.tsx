@@ -38,7 +38,11 @@
 // from Step 4). JSX class names mirror CD prototype 1:1.
 
 import { Fragment, useCallback, useEffect, useState } from "react";
-import type { QuoteState, TierRollup } from "@/lib/pricing-classifier";
+import type {
+  NoMarginReason,
+  QuoteState,
+  TierRollup,
+} from "@/lib/pricing-classifier";
 import type { GlobalPricingPreview } from "@/lib/pricing-lift";
 import { fmtPct, fmtPct0, fmtQty, fmtUsd2 } from "./format";
 
@@ -100,6 +104,7 @@ export function DetailZone({
   tracedStackCell,
   renderStackTrace,
   renderStackDelta,
+  renderStackMarginDelta,
 }: {
   state: QuoteState;
   /** Blended per-unit values read from the canonical graph, keyed by the
@@ -125,6 +130,7 @@ export function DetailZone({
   tracedStackCell?: TracedStackCell | null;
   renderStackTrace?: () => React.ReactNode;
   renderStackDelta?: (nodeKey: string) => React.ReactNode;
+  renderStackMarginDelta?: (nodeKey: string) => React.ReactNode;
 }) {
   // Hydration safety: default OPEN on both SSR and initial client
   // render (matches readSessionOpen's "no preference → open"
@@ -179,6 +185,7 @@ export function DetailZone({
             traced={tracedStackCell}
             renderTrace={renderStackTrace}
             renderDelta={renderStackDelta}
+            renderMarginDelta={renderStackMarginDelta}
           />
           <DetailPerSku state={state} />
           <DetailMetaTiles state={state} />
@@ -462,6 +469,16 @@ export type BlendedTierComponents = {
   sellBefore: number;
   sell: number;
   /**
+   * The governed blended margin for this tier, from `quote/{tier}/margin`.
+   *
+   * NULLABLE where the other six are not, and the row still renders. Blended
+   * sell of zero makes the ratio undefined, the engine flags the node out
+   * rather than publishing 0%, and `readNodeValue` refuses it — so a tier can
+   * have a complete cost stack and no margin. Requiring it would blank six
+   * real numbers to withhold a seventh that does not exist.
+   */
+  margin: number | null;
+  /**
    * The canonical node key each of those seven values was read from.
    *
    * Carried alongside the value rather than rebuilt here, for the same reason
@@ -478,6 +495,7 @@ export type BlendedTierComponents = {
     dt: string;
     sellBefore: string;
     sell: string;
+    margin: string;
   };
 };
 
@@ -492,6 +510,7 @@ interface TierCostStackDisplay {
   sell: number | null;
   margin_pct: number | null;
   margin_state: "good" | "below_target" | "bad" | "incomplete";
+  blended_no_margin_reason: NoMarginReason | null;
   components: CostStackBucketDisplay[];
   keys: BlendedTierComponents["keys"] | null;
 }
@@ -518,6 +537,7 @@ const COLUMN_TITLE = {
   dt: "Duty + tariff · blended per unit",
   sellBefore: "Sell before adjustment · blended per unit",
   sell: "Quoted sell · blended per unit",
+  margin: "Blended margin · this tier",
 } as const;
 
 /**
@@ -535,6 +555,8 @@ function StackNumCell({
   traced,
   onTrace,
   renderDelta,
+  cellClass = "num",
+  note = null,
 }: {
   text: string;
   nodeKey: string | null;
@@ -542,19 +564,25 @@ function StackNumCell({
   traced?: TracedStackCell | null;
   onTrace?: (nodeKey: string, title: string) => void;
   renderDelta?: (nodeKey: string) => React.ReactNode;
+  /** The margin column carries its verdict tone here. */
+  cellClass?: string;
+  /** Why there is no number, when there is none. */
+  note?: string | null;
 }) {
   const delta = nodeKey && renderDelta ? renderDelta(nodeKey) : null;
+  const noteEl = note ? <span className="psr-num-note">{note}</span> : null;
   if (!nodeKey || !onTrace) {
     return (
-      <td className="num">
+      <td className={cellClass}>
         {text}
         {delta}
+        {noteEl}
       </td>
     );
   }
   const isOpen = traced?.nodeKey === nodeKey;
   return (
-    <td className="num">
+    <td className={cellClass}>
       <button
         type="button"
         className={"psr-stack-cell" + (isOpen ? " open" : "")}
@@ -564,6 +592,7 @@ function StackNumCell({
       >
         <span className="v">{text}</span>
         {delta}
+        {noteEl}
         <span className="why">{isOpen ? "tracing ▾" : "why? ▸"}</span>
       </button>
     </td>
@@ -577,6 +606,7 @@ export function DetailCostStack({
   traced,
   renderTrace,
   renderDelta,
+  renderMarginDelta,
 }: {
   state: QuoteState;
   blendedByTier: Map<number, BlendedTierComponents>;
@@ -594,6 +624,12 @@ export function DetailCostStack({
    * where both graphs are held, it cannot be inverted here at all.
    */
   renderDelta?: (nodeKey: string) => React.ReactNode;
+  /**
+   * The same join, in POINTS. Separate from `renderDelta` rather than a flag,
+   * because dollars move by an amount and a margin moves by points — and a
+   * flag at a call site is where the wrong one gets passed.
+   */
+  renderMarginDelta?: (nodeKey: string) => React.ReactNode;
 }) {
   // Gate 1B increment 7 — this table READS THE CANONICAL GRAPH.
   //
@@ -620,6 +656,7 @@ export function DetailCostStack({
         sell: null,
         margin_pct: null,
         margin_state: "incomplete",
+        blended_no_margin_reason: t.blended_no_margin_reason ?? null,
         components: [],
         keys: null,
       };
@@ -633,8 +670,21 @@ export function DetailCostStack({
       subtotal: blend.sellBefore,
       adjustment: 0,
       sell: blend.sell,
-      margin_pct: t.min_margin_pct,
-      margin_state: tierStatusToR6(t.status),
+      // BV-010 — the GOVERNED blended margin, and the verdict on THAT
+      // margin. This column used to render `min_margin_pct`, the worst SKU's
+      // margin in the tier, unlabelled, in a row whose every other cell is a
+      // blended-across-SKUs figure — and it disagreed with the blend on 18 of
+      // 52 tiers by up to 2.1pp.
+      //
+      // The value comes from the graph, like its six row-mates, so the trace
+      // opens on the number that is displayed. The verdict comes from the
+      // engine rollup. Those are two expressions of one governed quantity
+      // (measured identical on every readable tier, and pinned by
+      // `tests/unit/blended-margin-authority.test.ts`) — not two authorities.
+      margin_pct: blend.margin,
+      margin_state:
+        blend.margin === null ? "incomplete" : tierStatusToR6(t.blended_status),
+      blended_no_margin_reason: t.blended_no_margin_reason ?? null,
       // No cost/markup split any more. The split that used to appear was
       // `mkShare`, a proportional re-allocation invented at the display layer;
       // showing a segment the graph cannot account for would reinstate the
@@ -718,17 +768,37 @@ export function DetailCostStack({
                     renderDelta={renderDelta}
                   />
                   {/*
-                    NOT traceable, and not carrying a delta — deliberately.
-                    This column renders `min_margin_pct`, the worst SKU's
-                    margin in the tier. The graph's `quote/{tier}/margin` is
-                    the BLENDED tier margin. They are different numbers, so
-                    wiring either the trace or the staged movement here would
-                    explain a figure the operator did not press. See the
-                    Phase 3 mount finding on cost-stack margin semantics.
+                    Traceable now, and carrying the staged movement in POINTS
+                    — both of which became honest the moment the column
+                    started rendering the quantity the node holds. While it
+                    showed the worst SKU's margin, either would have explained
+                    a figure the operator did not press.
                   */}
-                  <td className={"num " + t.margin_state}>
-                    {t.margin_pct == null ? "—" : fmtPct(t.margin_pct) + "%"}
-                  </td>
+                  <StackNumCell
+                    text={
+                      t.margin_pct == null ? "—" : fmtPct(t.margin_pct) + "%"
+                    }
+                    nodeKey={
+                      // No node to open when the ratio is undefined. The cell
+                      // renders an em-dash and does not invite a press.
+                      t.margin_pct == null || !t.keys ? null : t.keys.margin
+                    }
+                    title={`${t.label} · ${COLUMN_TITLE.margin}`}
+                    traced={traced}
+                    onTrace={onTrace}
+                    renderDelta={renderMarginDelta}
+                    cellClass={"num " + t.margin_state}
+                    note={
+                      // The two no-margin states are named apart here for the
+                      // same reason the grid names them apart: one has nothing
+                      // priced and carries no judgement, the other has cost
+                      // with nothing against it and is a certain loss.
+                      t.blended_no_margin_reason === "cost_without_revenue"
+                        ? "cost, no revenue"
+                        : null
+                    }
+                  />
+
                 </tr>
                 {rowTraced && renderTrace && (
                   <tr className="psr-stack-tracerow">

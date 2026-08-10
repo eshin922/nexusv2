@@ -137,3 +137,18 @@
 }
 .psr-tier-table td .psr-stack-cell .delta.pos { color: var(--good); }
 .psr-tier-table td .psr-stack-cell .delta.neg { color: var(--warn); }
+
+/* A caption beneath a number that is absent — the cost-stack margin's
+ * "cost, no revenue". Same register and same reason as `.cgnote` in the
+ * compliance grid: the two no-margin states are named apart because one
+ * carries no judgement and the other is a certain loss. Separate class
+ * because this is a `.psr-tier-table` cell, not an `.r11-bcell`. */
+.psr-tier-table td .psr-num-note {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--bad);
+  margin-top: 1px;
+}
