@@ -495,6 +495,22 @@ function PackagingRow({
   const [searching, startSearchTransition] = useTransition();
   const [category, setCategory] = useState(storeCategory);
   const [markupPct, setMarkupPct] = useState(storeMarkupPct);
+  // Pattern 47 authoring contract for line markup.
+  //
+  // Markup is the only line-meta field an operator TYPES; category and vendor
+  // are chosen, and commit on change. A typed value needs a dirty flag,
+  // because between the first keystroke and the commit there is a local value
+  // that is more current than the store, and the store must not win.
+  //
+  // A ref shadows the state because the sync effect below reads dirtiness at
+  // store-change time, and a state read there would be the value from the
+  // render that scheduled the effect.
+  const [markupDirty, setMarkupDirtyState] = useState(false);
+  const markupDirtyRef = useRef(false);
+  const setMarkupDirty = (next: boolean) => {
+    markupDirtyRef.current = next;
+    setMarkupDirtyState(next);
+  };
 
   // The rate this line inherits when it has none of its own. Markup is
   // per-line, so every tier's read carries the same answer — the first one that
@@ -506,7 +522,6 @@ function PackagingRow({
   const inheritedMarkup = inherited?.inheritedMarkup ?? null;
   const inheritedSource = inherited?.inheritedSource ?? null;
   const isInheriting = markupPct === "" && inheritedMarkup !== null;
-  const metaDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef({
     vendorId,
@@ -523,8 +538,17 @@ function PackagingRow({
   const canonicalRef = useRef(stateRef.current);
 
   // Sync local input state on either line identity or canonical value change.
-  // Wait-for-quiet at the provider level (QUIET_PERIOD_MS=800ms)
-  // prevents mid-typing clobber.
+  //
+  // Wait-for-quiet at the provider level does NOT protect this. It defers
+  // reconciliation while the operator is typing, and the case that broke was
+  // an operator who had already stopped: they typed a markup, tabbed away, and
+  // a reconcile caused by a DIFFERENT row's save reset this row from the store
+  // before the pending edit had been persisted. The edit vanished with no
+  // error and never reached the database (costs-reconciliation-ordering).
+  //
+  // Dirty state is what protects it now: while the operator holds an
+  // uncommitted markup, the store does not get to overwrite it. Identity
+  // change still resets, because that is a different line.
   useEffect(() => {
     setVendorId(storeVendorId);
     setVendorName(storeVendorName);
@@ -532,13 +556,16 @@ function PackagingRow({
     setVendorEditing(false);
     setVendorSearchComplete(false);
     setCategory(storeCategory);
-    setMarkupPct(storeMarkupPct);
+    // canonicalRef always tracks server truth -- it is the rollback target --
+    // but the VISIBLE value stays the operator's while their edit is pending.
+    if (!markupDirtyRef.current) setMarkupPct(storeMarkupPct);
     canonicalRef.current = {
       vendorId: storeVendorId,
       vendorName: storeVendorName,
       category: storeCategory,
       markupPct: storeMarkupPct,
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     line.lineGroupId,
     storeVendorId,
@@ -549,7 +576,6 @@ function PackagingRow({
 
   useEffect(
     () => () => {
-      if (metaDebounce.current) clearTimeout(metaDebounce.current);
       if (searchDebounce.current) clearTimeout(searchDebounce.current);
     },
     [],
@@ -582,6 +608,7 @@ function PackagingRow({
         setVendorEditing(false);
         setCategory(previous.category);
         setMarkupPct(previous.markupPct);
+        setMarkupDirty(false);
         updateLineMeta(line.lineGroupId, {
           pricingVendorHubspotCompanyId: previous.vendorId,
           pricingVendorNameSnapshot: previous.vendorName,
@@ -610,6 +637,9 @@ function PackagingRow({
         rollback(result.error.message);
         return;
       }
+      // Persisted. The operator's value is now the store's value, so
+      // synchronisation resumes.
+      setMarkupDirty(false);
       setVendorId(result.data.pricingVendorHubspotCompanyId);
       setVendorName(result.data.pricingVendorNameSnapshot);
       setVendorQuery(result.data.pricingVendorNameSnapshot ?? "");
@@ -632,14 +662,22 @@ function PackagingRow({
     });
   }
 
-  function scheduleMetaSave(overrides: Partial<{
-    vendorId: string | null;
-    vendorName: string | null;
-    category: string;
-    markupPct: string;
-  }>) {
-    if (metaDebounce.current) clearTimeout(metaDebounce.current);
-    metaDebounce.current = setTimeout(() => fireMetaSave(overrides), DEBOUNCE_MS);
+  /**
+   * Commit a typed markup on blur or Enter.
+   *
+   * Replaces a change-debounced save. A debounce is a rendering convenience
+   * and was never a persistence guarantee: the edit lived only inside a
+   * pending timer, so anything that re-rendered the row first destroyed it.
+   * Category and vendor keep their immediate-on-change semantics -- they are
+   * chosen, not typed, and there is no partial value to protect.
+   */
+  function commitMarkup() {
+    if (!markupDirtyRef.current) return;
+    if (markupPct === canonicalRef.current.markupPct) {
+      setMarkupDirty(false);
+      return;
+    }
+    fireMetaSave({ markupPct });
   }
 
   function scheduleVendorSearch(query: string) {
@@ -703,9 +741,12 @@ function PackagingRow({
             const cat = categories.find((c) => c.category === v);
             if (cat) {
               setMarkupPct(cat.defaultMarkupPct);
-              scheduleMetaSave({ category: v, markupPct: cat.defaultMarkupPct });
+              // Chosen, not typed, and written in the same call -- so the
+              // auto-filled markup is committed, not dirty.
+              setMarkupDirty(false);
+              fireMetaSave({ category: v, markupPct: cat.defaultMarkupPct });
             } else {
-              scheduleMetaSave({ category: v });
+              fireMetaSave({ category: v });
             }
           }}
           style={{
@@ -761,7 +802,7 @@ function PackagingRow({
                     setVendorQuery("");
                     setVendorResults([]);
                     setVendorSearchComplete(false);
-                    scheduleMetaSave({ vendorId: null, vendorName: null });
+                    fireMetaSave({ vendorId: null, vendorName: null });
                   }}
                 >
                   Clear
@@ -834,7 +875,9 @@ function PackagingRow({
                   setVendorEditing(false);
                   setVendorResults([]);
                   setVendorSearchComplete(false);
-                  scheduleMetaSave({
+                  // Vendor selection is a choice, so it commits on the click
+                  // that makes it -- immediate, not debounced.
+                  fireMetaSave({
                     vendorId: vendor.id,
                     vendorName: vendor.name,
                   });
@@ -922,13 +965,29 @@ function PackagingRow({
             type="number"
             step="0.01"
             min={0}
-            value={markupPct === "" ? "" : (Number(markupPct) * 100).toString()}
+            // Stored as a decimal, entered as a percent -- and `0.07 * 100`
+            // is 7.000000000000001, which is what the operator would read in
+            // the box. markup_pct is numeric(5,4), so the percent it can
+            // represent has at most two decimals; rounding there is exact
+            // rather than cosmetic.
+            value={
+              markupPct === ""
+                ? ""
+                : String(Math.round(Number(markupPct) * 10000) / 100)
+            }
             disabled={disabled}
             onChange={(e) => {
               const v = e.target.value;
               const decimal = v === "" ? "" : (Number(v) / 100).toString();
               setMarkupPct(decimal);
-              scheduleMetaSave({ markupPct: decimal });
+              setMarkupDirty(true);
+            }}
+            onBlur={commitMarkup}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.currentTarget.blur();
+              }
             }}
             placeholder={
               inheritedMarkup !== null ? (inheritedMarkup * 100).toFixed(0) : "—"
@@ -954,7 +1013,7 @@ function PackagingRow({
           tierId={t.id}
           line={line}
           markupPct={markupPct}
-          markupDirty={markupPct !== storeMarkupPct}
+          markupDirty={markupDirty}
           read={reads.get(readKey(line.lineGroupId, t.id)) ?? NO_READ}
           isActive={activeTierId === t.id}
           disabled={disabled}

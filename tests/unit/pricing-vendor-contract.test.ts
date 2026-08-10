@@ -17,7 +17,10 @@ test("fake HubSpot boundary filters Vendor search and resolves exact stable IDs"
   ]);
   assert.deepEqual(await fakeHubSpot.resolveVendor("900000000000002"), {
     id: "900000000000002",
-    name: "Acme Contract Manufacturing",
+    // Restored to the name VAL-104 has always asserted alongside this id.
+    // The two had drifted apart when the vendor was renamed without the
+    // scenario being updated; this contract follows the id.
+    name: "Validation Contract Manufacturer",
   });
   assert.equal(await fakeHubSpot.resolveVendor("900000000009999"), null);
   assert.deepEqual(
