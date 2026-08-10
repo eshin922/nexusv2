@@ -240,12 +240,15 @@ export function ComplianceGrid({
                 type="button"
                 key={t.id}
                 className={
+                  // Pressability follows `selectable`, remediation follows
+                  // `actionable`. They were one flag, and a compliant quote
+                  // rendered 27 cells nobody could open.
                   "r11-bcell r11-cg" +
-                  (cell.actionable ? " act" : " inert") +
+                  (cell.selectable ? " act" : " inert") +
                   (isSel ? " sel" : "")
                 }
                 onClick={
-                  cell.actionable
+                  cell.selectable
                     ? () => setSelected(isSel ? null : key)
                     : undefined
                 }

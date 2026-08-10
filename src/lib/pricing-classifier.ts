@@ -333,6 +333,26 @@ export interface Cell {
    * split exists for exactly this.
    */
   outstanding: boolean;
+  /**
+   * Whether the cell can be OPENED. Not whether it needs anything.
+   *
+   * Distinct from `actionable`, deliberately and permanently. `actionable` is
+   * the commercial remediation signal — a lift is offered, applied, or blocked
+   * — and it must keep meaning exactly that. It was doing a second job as the
+   * click gate, and the consequence was that on a fully compliant quote every
+   * one of 27 cells was inert: no trace, and no way to set a negotiated price
+   * on a healthy cell, which is an ordinary commercial act.
+   *
+   * Widening `actionable` to fix that would have made "this cell needs
+   * attention" mean "this cell exists", and the banner and grid both read it.
+   * So selection got its own field instead.
+   *
+   * A cell with no price is not selectable: there is nothing to trace and
+   * nothing to replace. Whether an UNPRICED cell should be openable in order to
+   * set its first price is a real workflow question and an open one — it is not
+   * assumed here.
+   */
+  selectable: boolean;
   /** The single state a cell-scoped affordance switches on. See `CellActionState`. */
   action_state: CellActionState;
   /** Names the contradiction when `action_state` is `conflict`; null otherwise. */
@@ -555,6 +575,9 @@ export function classify(
         lift_applied_pct: liftApplied,
         lift_blocked: liftOffer !== null && overrideApplied,
         outstanding: status === "below_floor" && liftApplied === null,
+        // A priced cell. `sell_unit` is null exactly when the margin is, so
+        // this is "the engine produced a price for this cell" and nothing more.
+        selectable: sellUnit !== null,
         ...cellActionState(overrideApplied, liftApplied, liftOffer),
         actionable:
           liftOffer !== null || liftApplied !== null || (overrideApplied && status === "below_floor"),
