@@ -1,8 +1,10 @@
 # V1 · SPEC compliance audit — charter and source inventory
 
-**Status:** BASELINE FROZEN. Convention set. **Enumeration not started** — it
-begins in a fresh session and completes in one uninterrupted pass. No partially
-populated matrix is published or reviewed.
+**Status:** **COMPLETE.** Baseline frozen · convention set · ID scheme frozen ·
+enumeration executed in one pass. **The matrix is
+[`v1-spec-compliance-matrix.md`](v1-spec-compliance-matrix.md)** — 136 rows,
+35 findings, 6 distinct release blockers. This document remains the charter and
+the immutable reference set; it is not restated there.
 **Baseline:** `main` @ **`024d2316f5881601a7a408ed8f2e79c9a3d1cf82`**, 2026-08-10.
 **Nature:** release-risk **discovery**. Not an implementation exercise, and no
 finding in it proposes an implementation.
