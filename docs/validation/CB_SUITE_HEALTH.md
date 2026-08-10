@@ -410,6 +410,35 @@ next step is narrow and follows the same discipline as the disclosure
 investigation: establish whether the option exists and is actionable **before**
 reasoning about the save.
 
+**Vendor-selection boundary — probe attempted 2026-08-10, INCONCLUSIVE.**
+
+The first inspection step is whether `Validation Contract Manufacturer` exists
+in the rendered option set. A raw-JS browser probe was used and **it did not
+reproduce the spec's state**, so it establishes nothing about the product.
+
+What went wrong, recorded so the next attempt does not repeat it: the Pricing
+Vendor searchbox is a controlled React input, and driving it with the native
+value setter plus a synthetic `input` event **did not stick** — re-reading the
+element afterwards showed `value: ""`. An earlier probe click had also
+navigated the page (`?tier=…`), so the two `fetch` calls observed were that
+navigation, not vendor searches.
+
+**Zero `role="option"` elements were found, and that observation is worthless**
+— the search was never actually performed. Reporting it as an empty option set
+would have been a product conclusion drawn from a broken instrument, which is
+the same error as reading a call-log echo as rendered DOM.
+
+**No classification is made.** The four candidate boundaries — option not
+actionable, click without save request, failing save, save without UI update —
+all remain open.
+
+**Right instrument for the next attempt:** drive it with Playwright, the same
+driver the spec uses, so `.fill()` produces the events the component listens
+for. Attach a `page.on("request")` / `page.on("response")` recorder before the
+option click, then inspect the option's existence, geometry, enabled state and
+hit-test in that same session. A `page.pause()` or a purpose-built spec is the
+cheap way to hold the state open.
+
 **Consequence for REG-1.** Its browser evidence has now failed three times for
 three reasons, none of them the product: fixture contamination, a hardcoded
 literal, and an expectation of a removed control. It stays **Insufficient
