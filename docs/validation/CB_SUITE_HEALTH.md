@@ -492,6 +492,54 @@ retarget the scenario at a vendor that exists. The first is truer to what
 VAL-104 is testing; both alter the fixture world and therefore the baseline, and
 that is a decision to take deliberately rather than fold into a repair.
 
+**VAL-104 PASSES END TO END — 22.1s from a clean seed, 2026-08-10.**
+
+**Correction to the previous entry.** I wrote that no seeded vendor contained
+`Contract`. That was wrong — `Acme Contract Manufacturing` (`…002`) does, and
+the substring search returned it. The scenario found no option because it looks
+for a vendor by a name nothing carried, not because the search matched nothing.
+
+**What the id/name pair revealed.** VAL-104's persisted-snapshot assertion is
+`{ id: "900000000000002", name: "Validation Contract Manufacturer" }` — **both
+halves of one row.** So `…002` *was* this vendor, and was renamed to `Acme
+Contract Manufacturing` without the scenario being updated. The spec kept both
+halves of the old pair, and they stopped belonging to the same row.
+
+**Adding a third vendor under that name looked right and was not.** The save
+then persisted `…003` while the scenario asserted `…002`, and the run failed one
+boundary later on the snapshot comparison — which is how the rename surfaced.
+**Restoring the name to `…002`** makes both halves true at once, and keeps the
+intent: switching between two *governed* vendors, not retargeting the scenario
+at whatever happens to exist.
+
+**Fixture revision recorded.**
+
+| | |
+|---|---|
+| file | `tests/harness/providers/fake-hubspot.ts` |
+| blob | **`b2b20d0` → `3426ebd`** (213 lines) |
+| change | vendor `900000000000002` renamed `Acme Contract Manufacturing` → `Validation Contract Manufacturer` |
+| probe | `vendor-selection-probe.spec.ts` **removed** — an instrument, not coverage |
+
+**The suite is a different measurement system now.** The fixture world changed,
+so **post-change totals are not comparable to BASELINE-01** and must not be
+reported as though they were. BASELINE-01 is unedited and remains the historical
+reference. A successor is established only when the revised suite is again
+eligible for one — which it is not, while two scenarios are known to be
+non-deterministic.
+
+**What VAL-104 now proves, in full:** one Pricing Vendor already selected ·
+another eligible vendor found by search · the operator switches to it · the new
+vendor persists into the governed Pricing Vendor snapshot · the dormant Pricing
+Date stays absent.
+
+**Six stale assumptions, all in this one scenario:** the runId literal, the
+removed disclosure control, the mis-scoped leaf assertions, my own full-name
+search term, the missing vendor, and the renamed vendor identity. Every one a
+migration artifact; none a product defect. That is what an unmeasured row
+conceals, and it is the strongest argument in this document for why unmeasured
+is worse than failing.
+
 **Consequence for REG-1.** Its browser evidence has now failed three times for
 three reasons, none of them the product: fixture contamination, a hardcoded
 literal, and an expectation of a removed control. It stays **Insufficient
@@ -515,7 +563,7 @@ its browser evidence has still never passed.
 | scenario | classification |
 |---|---|
 | VAL-101 | **harness** — cross-project fixture contamination |
-| VAL-104 *(was unmeasured)* | **test issue ×3, all fixed** — runId literal · removed *Other SKUs* control · leaf assertions mis-scoped. Now reaches the **vendor-save boundary** at `spec:537`, **unclassified** and the first candidate product defect |
+| VAL-104 *(was unmeasured)* | **PASSES.** Six migration artifacts found and fixed; no product defect at any boundary |
 | VAL-103 *(was unmeasured)* | **harness** — non-deterministic CDP race |
 | VAL-208 bulk pricing lift | not yet classified |
 | costs-reconciliation-ordering | not yet classified |

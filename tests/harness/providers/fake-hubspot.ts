@@ -18,7 +18,19 @@ const dealStages = new Map<string, HubSpotStage>();
 const dealAmounts = new Map<string, number>();
 const vendors = [
   { id: "900000000000001", name: "Validation Packaging Vendor" },
-  { id: "900000000000002", name: "Acme Contract Manufacturing" },
+  // RESTORED, not added. VAL-104 asserts this vendor's persisted snapshot as
+  // `{ id: "900000000000002", name: "Validation Contract Manufacturer" }` — the
+  // id and the name together. So `…002` WAS this vendor, and was renamed to
+  // `Acme Contract Manufacturing` at some point without the scenario being
+  // updated. The spec kept both halves of the old pair, which is why the id it
+  // expects and the name it expects stopped belonging to the same row.
+  //
+  // Adding a third vendor under this name looked right and was not: the save
+  // then persisted the new id while the scenario asserted `…002`. Restoring the
+  // name to the id the scenario has always asserted is what makes both halves
+  // true at once, and it keeps the intent — switching between two GOVERNED
+  // vendors — rather than retargeting the scenario at whatever exists.
+  { id: "900000000000002", name: "Validation Contract Manufacturer" },
 ] as const;
 let productSequence = 0;
 
