@@ -34,7 +34,7 @@
     "validation:seed": "npm run validation:fixtures -- seed",
     "validation:fixtures:validate": "npm run validation:fixtures -- validate",
     "validation:fixtures:reset": "npm run validation:fixtures -- reset",
-    "validation:app": "node --env-file=.env.validation.local node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port 3100",
+    "validation:app": "cross-env NODE_OPTIONS=--max-old-space-size=8192 node --env-file=.env.validation.local node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port 3100",
     "smoke:netsuite-item-groups": "cross-env NODE_OPTIONS=--require=./scripts/smoke/shim-server-only.cjs npx tsx --env-file=.env.local ./scripts/smoke/netsuite-item-groups.ts",
     "smoke:hubspot-deal-property-expansion": "cross-env NODE_OPTIONS=--require=./scripts/smoke/shim-server-only.cjs npx tsx --env-file=.env.local ./scripts/smoke/hubspot-deal-property-expansion.ts",
     "smoke:mark-complete": "cross-env NODE_OPTIONS=--require=./scripts/smoke/shim-server-only.cjs npx tsx --env-file=.env.local ./scripts/smoke/mark-complete.ts",

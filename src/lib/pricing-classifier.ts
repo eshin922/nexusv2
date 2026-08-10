@@ -254,6 +254,44 @@ export type NoMarginReason = "unpriced" | "cost_without_revenue";
  */
 export type CompetitiveStatus = "COMPETITIVE" | "OVER_CLIENT_TARGET";
 
+/**
+ * What a cell offers an operator, as ONE value.
+ *
+ * The R12 prototype selects its four panel bodies with a chain of truthiness
+ * checks, and the order of that chain is load-bearing without saying so. Two of
+ * its conditions co-occur routinely — a cell can carry an applied lift and
+ * still be below floor, so an offer exists alongside it — and one combination
+ * is a contradiction the chain silently absorbs.
+ *
+ * So the states below are **exclusive by construction**, not by ordering. Every
+ * member excludes the others on a predicate, and a component switching on this
+ * cannot pick a different answer by reading the flags in a different sequence.
+ *
+ * This is a PARTITION of decisions already made, not a new one. Eligibility is
+ * `lift_offer_pct` (the solver's), blocking is `lift_blocked`, an override's
+ * existence is `override_applied`. Nothing here decides any of them.
+ */
+export type CellActionState =
+  /** An override exists and a lift is offered: the lift is refused, not applied. */
+  | "blocked_by_override"
+  /** An override exists and no lift is offered. */
+  | "direct_price_set"
+  /** A lift is in effect. An offer may also exist — the cell can still be short. */
+  | "lift_applied"
+  /** A lift is offered and nothing stands in its way. */
+  | "lift_available"
+  /** Nothing to act on. */
+  | "none"
+  /**
+   * The data contradicts itself. Rendered loudly rather than resolved.
+   *
+   * Reachable when a cell carries BOTH an override and an applied lift. The
+   * engine's override supersedes the computed chain entirely, so the lift is
+   * inert — it exists, it is not refused, and it changes nothing. Choosing
+   * either state would hide that; `conflict` says it out loud.
+   */
+  | "conflict";
+
 export interface Cell {
   sku_id: string;
   sku_name: string;
@@ -295,6 +333,30 @@ export interface Cell {
    * split exists for exactly this.
    */
   outstanding: boolean;
+  /**
+   * Whether the cell can be OPENED. Not whether it needs anything.
+   *
+   * Distinct from `actionable`, deliberately and permanently. `actionable` is
+   * the commercial remediation signal — a lift is offered, applied, or blocked
+   * — and it must keep meaning exactly that. It was doing a second job as the
+   * click gate, and the consequence was that on a fully compliant quote every
+   * one of 27 cells was inert: no trace, and no way to set a negotiated price
+   * on a healthy cell, which is an ordinary commercial act.
+   *
+   * Widening `actionable` to fix that would have made "this cell needs
+   * attention" mean "this cell exists", and the banner and grid both read it.
+   * So selection got its own field instead.
+   *
+   * A cell with no price is not selectable: there is nothing to trace and
+   * nothing to replace. Whether an UNPRICED cell should be openable in order to
+   * set its first price is a real workflow question and an open one — it is not
+   * assumed here.
+   */
+  selectable: boolean;
+  /** The single state a cell-scoped affordance switches on. See `CellActionState`. */
+  action_state: CellActionState;
+  /** Names the contradiction when `action_state` is `conflict`; null otherwise. */
+  action_conflict: string | null;
   /** Anything the operator could do here: lift needed, lift blocked, or one applied. */
   actionable: boolean;
 }
@@ -403,6 +465,52 @@ export interface QuoteState {
 // classify() — pure function, the contract
 // ──────────────────────────────────────────────────────────────────
 
+/**
+ * The exclusive partition. Four real states, one empty, one contradiction.
+ *
+ * Read the predicates as a set rather than a sequence: every branch below
+ * disagrees with every other on at least one term, so reordering them cannot
+ * change the answer. That is the property the prototype's truthiness chain did
+ * not have.
+ */
+function cellActionState(
+  overrideApplied: boolean,
+  liftApplied: number | null,
+  liftOffer: number | null,
+): { action_state: CellActionState; action_conflict: string | null } {
+  // An override supersedes the computed chain, so a lift underneath it is
+  // inert: not refused, not applied to anything, silently doing nothing. It
+  // should have been rejected at write time. Surface it instead of picking a
+  // state that hides one of the two facts.
+  if (overrideApplied && liftApplied !== null) {
+    return {
+      action_state: "conflict",
+      action_conflict:
+        "This cell carries both a direct price and an applied lift. The direct " +
+        "price replaces the computed chain, so the lift changes nothing — it is " +
+        "neither in effect nor refused. Resolve the data before acting on it.",
+    };
+  }
+  if (overrideApplied) {
+    return {
+      // `lift_blocked` is exactly `liftOffer !== null && overrideApplied`, so
+      // the two branches here split on the offer and cannot both hold.
+      action_state: liftOffer !== null ? "blocked_by_override" : "direct_price_set",
+      action_conflict: null,
+    };
+  }
+  if (liftApplied !== null) {
+    // An offer may coexist — a lifted cell can still be below floor, and the
+    // grid shows what would clear it. Applied is the state; the offer is
+    // supplementary, which is why this is a term and not a precedence rule.
+    return { action_state: "lift_applied", action_conflict: null };
+  }
+  if (liftOffer !== null) {
+    return { action_state: "lift_available", action_conflict: null };
+  }
+  return { action_state: "none", action_conflict: null };
+}
+
 export function classify(
   quote: QuoteInput,
   policy: QuotePolicyInput,
@@ -467,6 +575,10 @@ export function classify(
         lift_applied_pct: liftApplied,
         lift_blocked: liftOffer !== null && overrideApplied,
         outstanding: status === "below_floor" && liftApplied === null,
+        // A priced cell. `sell_unit` is null exactly when the margin is, so
+        // this is "the engine produced a price for this cell" and nothing more.
+        selectable: sellUnit !== null,
+        ...cellActionState(overrideApplied, liftApplied, liftOffer),
         actionable:
           liftOffer !== null || liftApplied !== null || (overrideApplied && status === "below_floor"),
       });

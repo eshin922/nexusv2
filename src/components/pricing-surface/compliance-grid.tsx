@@ -30,9 +30,11 @@
 // What the component DOES own: layout, ordering, formatting, and which words
 // name a state. Those are presentation, and the design bundle governs them.
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { usePricingClassifier } from "./pricing-classifier-context";
+import { CellAction } from "./cell-action";
 import type { Cell } from "@/lib/pricing-classifier";
+import type { CellRef } from "@/lib/pricing-staging";
 
 // ── formatting ────────────────────────────────────────────────────────────
 //
@@ -141,12 +143,27 @@ export interface ComplianceGridProps {
   floorPct: number;
   /** Tier labels and the ★ recommendation, by classifier tier id. */
   tierMeta: ReadonlyMap<number, { label: string; recommended: boolean }>;
+  /**
+   * Classifier ids → the canonical staging address, resolved by the caller.
+   *
+   * The grid does not do this itself, and the reason is specific rather than
+   * stylistic: `sku.id` here is the ENGINE's SKU id, while a staged change is
+   * keyed on `canonicalQuoteLeafId` — a separate field on the same rollup. A
+   * component resolving that mapping is a component that can resolve it
+   * wrongly, and the cost of being wrong is a price change landing on a
+   * different commercial line.
+   *
+   * Returns null when either half is unresolved; `CellAction` then refuses to
+   * stage rather than addressing a guess.
+   */
+  resolveCell?: (skuId: string, tierId: number) => CellRef | null;
 }
 
 export function ComplianceGrid({
   targetPct,
   floorPct,
   tierMeta,
+  resolveCell,
 }: ComplianceGridProps) {
   const { state } = usePricingClassifier();
   const [selected, setSelected] = useState<string | null>(null);
@@ -185,7 +202,8 @@ export function ComplianceGrid({
       </div>
 
       {state.skus.map((sku) => (
-        <div className="r11-brow" key={sku.id}>
+        <Fragment key={sku.id}>
+        <div className="r11-brow">
           <div className="r11-bsku">
             <span>
               <span className="n">{sku.name}</span>
@@ -222,12 +240,15 @@ export function ComplianceGrid({
                 type="button"
                 key={t.id}
                 className={
+                  // Pressability follows `selectable`, remediation follows
+                  // `actionable`. They were one flag, and a compliant quote
+                  // rendered 27 cells nobody could open.
                   "r11-bcell r11-cg" +
-                  (cell.actionable ? " act" : " inert") +
+                  (cell.selectable ? " act" : " inert") +
                   (isSel ? " sel" : "")
                 }
                 onClick={
-                  cell.actionable
+                  cell.selectable
                     ? () => setSelected(isSel ? null : key)
                     : undefined
                 }
@@ -273,6 +294,32 @@ export function ComplianceGrid({
             );
           })}
         </div>
+
+        {/*
+          The panel opens beneath the SKU row whose cell was pressed — the same
+          shape as the cost stack's inline trace, and for the same reason: an
+          action names a cell, and the cell should still be visible while it is
+          being acted on.
+        */}
+        {selected?.startsWith(`${sku.id}:`) &&
+          (() => {
+            const cell = byCell.get(selected);
+            if (!cell) return null;
+            const meta = tierMeta.get(cell.tier_id);
+            return (
+              <CellAction
+                cell={cell}
+                cellRef={resolveCell?.(cell.sku_id, cell.tier_id) ?? null}
+                floorPct={floorPct}
+                // Display identity, built here from what the caller supplied.
+                // Falls back to the numeric tier id rather than inventing a
+                // label — an ugly heading beats a wrong one.
+                label={`${cell.sku_name} · ${meta?.label ?? `T${cell.tier_id}`}`}
+                onClose={() => setSelected(null)}
+              />
+            );
+          })()}
+        </Fragment>
       ))}
     </div>
   );

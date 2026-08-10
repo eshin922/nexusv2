@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -46,6 +46,13 @@ function runCapture(command: string, args: string[]): string {
     );
   }
   return result.stdout.trim();
+}
+
+function journalEntryCount(): number {
+  const journal = JSON.parse(
+    readFileSync(path.resolve(process.cwd(), "drizzle", "meta", "_journal.json"), "utf8"),
+  ) as { entries: unknown[] };
+  return journal.entries.length;
 }
 
 function assertDestructiveTarget(): void {
@@ -123,9 +130,15 @@ function schemaVersion(): void {
     ].join(" "),
   ]);
   const lines = output.split(/\r?\n/).filter(Boolean);
-  if (lines[0] !== "54" || lines[1] !== "schema-ready") {
+  // Pinned to the JOURNAL length rather than a literal, so it cannot go stale
+  // again — it sat at 54 while the tree reached 61. Read from
+  // `_journal.json`, not from a glob of `drizzle/*.sql`: the directory carries
+  // two files the journal does not, so a glob would demand 63 and refuse a
+  // fully-migrated database.
+  const EXPECTED_MIGRATIONS = String(journalEntryCount());
+  if (lines[0] !== EXPECTED_MIGRATIONS || lines[1] !== "schema-ready") {
     throw new Error(
-      `[validation] schema assertion failed: expected 54 + schema-ready, got ${JSON.stringify(lines)}`,
+      `[validation] schema assertion failed: expected ${EXPECTED_MIGRATIONS} + schema-ready, got ${JSON.stringify(lines)}`,
     );
   }
   console.log(`[validation] schema assertion passed: ${lines.join(", ")}`);
