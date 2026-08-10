@@ -207,7 +207,22 @@ export default async function CostingPage({
           initialGlobalAdj={Number(quote.globalPriceAdjPct)}
           committable={editable}
         >
-        <main className="r2-pricing r2-page">
+        {/*
+          R12 completion — the page container is the CANONICAL one.
+
+          `r2-page` styled nothing: it had no rule anywhere in `r2-pricing.css`,
+          so the page carried no padding, no max-width and no rhythm of its own
+          while every child inside it rendered r10/r11/r12 vocabulary. That gap
+          is most of why the surface still read as the old Pricing page —
+          composition was right, the canvas it sat on was not.
+
+          `r10-body` supplies the canonical padding (22px 24px 64px) and
+          `r11-page` the 1240px measure. `r2-pricing` stays because the R2
+          canonical CSS is adopted under it as a namespace scope (Path-B) and
+          `.card` still resolves through it; dropping it would unstyle surfaces
+          that have not been migrated. It scopes, it does not lay out.
+        */}
+        <main className="r2-pricing r10-body r11-page">
           <PricingPageHead
             projectId={projectId}
             quoteId={quoteId}

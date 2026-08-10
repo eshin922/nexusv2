@@ -50,11 +50,13 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
   useTransition,
   type ReactNode,
 } from "react";
 import { applyPricingAdjustments } from "@/app/actions/pricing-lifts";
+import { costBaseFingerprint } from "@/lib/pricing-cost-base";
 import {
   computeQuoteCosting,
   type CostingLift,
@@ -130,6 +132,15 @@ export interface PricingStagingValue {
   commitError: string | null;
   /** False when the quote is not a draft: nothing here may be committed. */
   committable: boolean;
+  /**
+   * The cost base the current staged set was evaluated against, or null when
+   * nothing is staged.
+   *
+   * Exposed so a surface can say WHICH decision is at risk rather than only
+   * that one is. Nothing reads it today; the guard that uses it does not need
+   * a consumer to be correct.
+   */
+  stagedAgainstCostBase: string | null;
 
   /**
    * The engine's result for the WORKING set, labelled `preview`.
@@ -231,6 +242,28 @@ export function PricingStagingProvider({
 
   const changes = useMemo(() => diffSets(committed, working), [committed, working]);
 
+  /**
+   * R12 load-bearing 22 — the cost base the staged decision was evaluated
+   * against.
+   *
+   * Captured when staging BEGINS and held until the working set is empty
+   * again. §7: the levers on this page belong to the PM; the cost base under
+   * them does not. A PM stages three lifts, Logistics updates a freight leg,
+   * the PM applies — against which costs? The staged figures came from a
+   * snapshot, and committing against a different one commits a decision
+   * nobody made.
+   *
+   * A ref, not state: reading it must not re-render, and writing it must not
+   * schedule one. It is a note about when, not a thing on screen.
+   */
+  const stagedAgainst = useRef<string | null>(null);
+  if (changes.length === 0) stagedAgainst.current = null;
+  else if (stagedAgainst.current === null) {
+    stagedAgainst.current = costBaseFingerprint(
+      buildCostingInput(storeApi.getState()),
+    );
+  }
+
   const stageLift = useCallback((ref: CellRef, pct: number | null) => {
     const key = cellKey(ref);
     setWorking((w) => {
@@ -296,6 +329,21 @@ export function PricingStagingProvider({
       if (!committable) {
         setCommitError("This quote is no longer a draft, so pricing cannot be changed.");
         return;
+      }
+      // The guard, at the moment of acting. `intent === "baseline"` removes
+      // every lever and is therefore safe against any base — there is no
+      // staged figure to be committed against the wrong numbers, and refusing
+      // it would strand an operator with adjustments they had decided to drop.
+      if (intent === "apply" && stagedAgainst.current !== null) {
+        const now = costBaseFingerprint(buildCostingInput(storeApi.getState()));
+        if (now !== stagedAgainst.current) {
+          setCommitError(
+            "Costs changed while these adjustments were staged, so the figures " +
+              "you reviewed are no longer the ones that would be committed. " +
+              "Reset and re-stage against the current costs.",
+          );
+          return;
+        }
       }
       setCommitError(null);
       // Per-tier adjustments are read LIVE from the store rather than from the
@@ -475,6 +523,7 @@ export function PricingStagingProvider({
     baselinePending,
     commitError,
     committable,
+    stagedAgainstCostBase: stagedAgainst.current,
     previewResult,
   };
 
