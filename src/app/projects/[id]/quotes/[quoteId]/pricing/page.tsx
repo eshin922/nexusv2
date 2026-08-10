@@ -15,6 +15,7 @@ import { PricingPageHead } from "@/components/pricing/pricing-page-head";
 import { NavShell } from "@/components/nav/nav-shell";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { PricingClassifierProvider } from "@/components/pricing-surface/pricing-classifier-context";
+import { PricingStagingProvider } from "@/components/pricing-surface/pricing-staging-context";
 import { PricingSurfaceShell } from "@/components/pricing-surface/pricing-surface-shell";
 
 // slice-pricing-surface-redesign Step 8 — Pricing surface is now
@@ -189,6 +190,14 @@ export default async function CostingPage({
           allow_accept_risk: firmRow[0]?.allowAcceptRisk ?? true,
         }}
       >
+        {/* Phase 3 mount — the staging provider nests INSIDE the classifier.
+            Its preview run calls `useCostingStoreApi`, and that run must
+            observe the same store the classifier reads. Nothing in the
+            classifier depends on staging, so the reverse nesting would also
+            work — and would imply a dependency that does not exist. */}
+        <PricingStagingProvider
+          initialGlobalAdj={Number(quote.globalPriceAdjPct)}
+        >
         <main className="r2-pricing r2-page">
           <PricingPageHead
             projectId={projectId}
@@ -222,8 +231,13 @@ export default async function CostingPage({
             </div>
           )}
 
-          <PricingSurfaceShell projectId={projectId} quoteId={quoteId} />
+          <PricingSurfaceShell
+            projectId={projectId}
+            quoteId={quoteId}
+            tiers={tiersForReframe}
+          />
         </main>
+        </PricingStagingProvider>
       </PricingClassifierProvider>
     </CostingStoreProvider>
     </NavShell>

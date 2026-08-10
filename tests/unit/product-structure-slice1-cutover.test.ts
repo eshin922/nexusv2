@@ -61,6 +61,21 @@ const classifiedIdentityFiles = new Set([
   // attachment, and a file touching that identity should say so even when its
   // only role is transport.
   "src/components/pricing-surface/staging-bar.tsx",
+  // CLASSIFIED — display only, fails closed. The Phase 3 mount builds the
+  // labeller the staging bar transports keys to, and that is the one place the
+  // composite cell key is taken apart. It resolves canonical quote_leaf_id →
+  // product name from `skuRollups`, which carries both, and nothing else: no
+  // write, no commercial read, no mapping asserted between canonical and
+  // legacy identity.
+  //
+  // Named here because the resolution is easy to get subtly wrong and was:
+  // the classifier's `state.skus[].id` is the engine's SKU id, a SEPARATE
+  // field from `canonicalQuoteLeafId` on the same rollup. Keyed on the former
+  // this matches nothing and every chip degrades to two raw UUIDs. It fails
+  // closed to exactly that raw key when either half is unresolved — an ugly
+  // chip is recoverable, a chip naming the wrong SKU beside a price change is
+  // not.
+  "src/components/pricing-surface/pricing-surface-shell.tsx",
   "src/lib/freight-workbook.ts", "src/lib/leaf-spec-loader.ts",
   "src/lib/commercial-settings.ts",
   "src/lib/library-browse-loader.ts", "src/lib/nav/home-queries.ts", "src/lib/netsuite/item-resolver.ts",
