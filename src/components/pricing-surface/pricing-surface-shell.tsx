@@ -57,7 +57,7 @@ import { PricingTrace } from "./pricing-trace";
 import { StagingBar } from "./staging-bar";
 import { StagedDelta, StagedMarginDelta } from "./staged-delta";
 import { usePricingStaging } from "./pricing-staging-context";
-import { parseCellKey } from "@/lib/pricing-staging";
+import { parseCellKey, type CellRef } from "@/lib/pricing-staging";
 import { useCostingStore } from "@/components/costing-store-provider";
 import { selectGraph, selectSkuRollups } from "@/lib/costing-store";
 import { readNodeValue, quoteScopeKey } from "@/lib/costing-nodes";
@@ -374,6 +374,30 @@ export function PricingSurfaceShell({
     };
   }, [skuRollups, tiers]);
 
+  /**
+   * Classifier ids → the canonical staging address.
+   *
+   * The same two-sided join the labeller does, in the same place and for the
+   * same reason. `sr.skuId` is what the classifier carries as `sku.id`;
+   * `sr.canonicalQuoteLeafId` is what a staged change is keyed on. They are
+   * different fields on the same rollup, and only the second one addresses a
+   * commercial attachment.
+   *
+   * Fails closed on either half. A null return makes `CellAction` refuse to
+   * stage; the alternative is a price change on whichever line the wrong id
+   * happens to hit.
+   */
+  const resolveCell = useCallback(
+    (skuId: string, tierId: number): CellRef | null => {
+      const sr = skuRollups.find((r) => r.skuId === skuId);
+      const quoteLeafId = sr?.canonicalQuoteLeafId ?? null;
+      const tierUuid = idMap.numericToUuid.get(tierId) ?? null;
+      if (quoteLeafId === null || tierUuid === null) return null;
+      return { quoteLeafId, tierId: tierUuid };
+    },
+    [skuRollups, idMap],
+  );
+
   // ── staged state ────────────────────────────────────────────────
   //
   // The preview graph, and the roles are explicit at this one call site. The
@@ -547,6 +571,7 @@ export function PricingSurfaceShell({
           targetPct={state.policy.target_margin_pct}
           floorPct={state.policy.floor_margin_pct}
           tierMeta={tierMeta}
+          resolveCell={resolveCell}
         />
       </div>
 

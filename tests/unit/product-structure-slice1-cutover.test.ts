@@ -61,6 +61,17 @@ const classifiedIdentityFiles = new Set([
   // attachment, and a file touching that identity should say so even when its
   // only role is transport.
   "src/components/pricing-surface/staging-bar.tsx",
+  // CLASSIFIED — carries, does not resolve. CellAction stages a lift or a
+  // direct price against a `CellRef` its CALLER resolved; it never derives one.
+  // The identity appears here only in the type it receives and in the composite
+  // key it builds to ask the staging model whether this cell is already staged.
+  //
+  // Named because the cost of getting it wrong is the highest on the surface: a
+  // price change landing on a different commercial line. The resolution lives
+  // at the composition point, where `canonicalQuoteLeafId` and the tier UUID
+  // both exist, and fails closed to null — at which point this component
+  // refuses to stage rather than addressing a guess.
+  "src/components/pricing-surface/cell-action.tsx",
   // CLASSIFIED — display only, fails closed. The Phase 3 mount builds the
   // labeller the staging bar transports keys to, and that is the one place the
   // composite cell key is taken apart. It resolves canonical quote_leaf_id →

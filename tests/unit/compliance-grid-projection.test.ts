@@ -41,16 +41,24 @@ test("the grid never compares a margin against the floor or the target", () => {
   // one for as long as nobody changed either.
   for (const token of ["floorPct", "targetPct"]) {
     const uses = CODE.match(new RegExp(token, "g")) ?? [];
-    // Destructure, prop type, and the two caption calls. Anything more is a
-    // use this test has not seen.
+    // Destructure, prop type, and the caption. `floorPct` has one more: it is
+    // handed to `CellAction`, which needs the floor for its copy and likewise
+    // never compares against it. A pass-through is not a use — but the ceiling
+    // stays, because the point is that any NEW appearance has to be justified
+    // here before it can land.
     assert.ok(
-      uses.length <= 4,
+      uses.length <= (token === "floorPct" ? 5 : 4),
       `${token} appears ${uses.length} times — more than the caption needs`,
     );
   }
   assert.ok(
     !/[<>]=?\s*(floorPct|targetPct)|(floorPct|targetPct)\s*[<>]=?/.test(CODE),
     "a threshold comparison has appeared in the component",
+  );
+  // The fifth `floorPct`, named rather than merely tolerated by the ceiling.
+  assert.ok(
+    /floorPct=\{floorPct\}/.test(CODE),
+    "floorPct's extra use should be the CellAction pass-through",
   );
 });
 
