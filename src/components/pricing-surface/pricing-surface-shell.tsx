@@ -133,7 +133,7 @@ export function PricingSurfaceShell({
   // Read here rather than further down because the recommendation handlers
   // below stage into this set. They are the surface's operator pricing levers,
   // and every one of them now goes through the same door.
-  const { stageTierAdj, committed, previewResult } = usePricingStaging();
+  const { stageTierAdj, committed, working, previewResult } = usePricingStaging();
   const [applyError, setApplyError] = useState<string | null>(null);
   const [globalPreview, setGlobalPreview] =
     useState<GlobalPricingPreview | null>(null);
@@ -472,6 +472,76 @@ export function PricingSurfaceShell({
    * stage; the alternative is a price change on whichever line the wrong id
    * happens to hit.
    */
+  /**
+   * WHICH TIERS CARRY A LEVER — from the governed WORKING set.
+   *
+   * B-2. This used to be derived inside the Cost Stack from
+   * `state.cells[].lift_applied_pct`, which is the CLASSIFIER, which describes
+   * COMMITTED state. The Design Authority keys the same rows on `rollups`,
+   * computed from the WORKING set — so canonically the `Surgical lifts` row
+   * appears the moment a lift is STAGED, and in the shipped build it appeared
+   * only once one was applied. On a quote with no committed lifts it never
+   * appeared at all, and a staged lift moved `Quoted sell` with no row
+   * accounting for it. R11 §4 marks that contract load-bearing: every lever
+   * that can change a quoted price owes the cost stack a row.
+   *
+   * UNION, not replacement. `working` is the complete intended set and is the
+   * right basis, but the staging model documents one case it cannot carry:
+   * persisted overrides whose identity does not translate to a staging key
+   * "pass through unchanged — they are real and in effect". Keying purely on
+   * `working` would drop the row for those. Existence is monotone, so a lever
+   * shown when either source knows about it is correct in both directions; a
+   * union cannot lose a row, which is the whole property under repair.
+   *
+   * CONTRIBUTION IS NOT SOURCED HERE. Only existence. What each lever moved is
+   * read from its governed node in `blendedByTier`, so a refused lift still
+   * gets its row and renders the zero the graph actually holds — the
+   * existence-over-delta rule, preserved rather than reasoned about twice.
+   */
+  const leversByTier = useMemo(() => {
+    const byNumeric = new Map<number, { lifts: string[]; overrides: string[] }>();
+    const nameByQuoteLeafId = new Map<string, string>();
+    for (const sr of skuRollups) {
+      if (sr.canonicalQuoteLeafId) {
+        nameByQuoteLeafId.set(sr.canonicalQuoteLeafId, sr.productName);
+      }
+    }
+    const slot = (numeric: number) => {
+      let e = byNumeric.get(numeric);
+      if (!e) {
+        e = { lifts: [], overrides: [] };
+        byNumeric.set(numeric, e);
+      }
+      return e;
+    };
+    const addStaged = (kind: "lifts" | "overrides", cellKey: string) => {
+      const { quoteLeafId, tierId } = parseCellKey(cellKey);
+      const numeric = uuidToNumeric.get(tierId);
+      // Fail closed. A tier the classifier does not carry has no column to put
+      // this in, and attaching it to the wrong one is worse than omitting it.
+      if (numeric === undefined) return;
+      const name = nameByQuoteLeafId.get(quoteLeafId) ?? quoteLeafId;
+      const list = slot(numeric)[kind];
+      if (!list.includes(name)) list.push(name);
+    };
+    for (const key of Object.keys(working.lifts)) addStaged("lifts", key);
+    for (const key of Object.keys(working.overrides)) addStaged("overrides", key);
+    // The committed half of the union — reaches persisted rows the staging keys
+    // cannot name.
+    for (const c of state.cells) {
+      const name = c.sku_name;
+      if (c.lift_applied_pct !== null) {
+        const l = slot(c.tier_id).lifts;
+        if (!l.includes(name)) l.push(name);
+      }
+      if (c.override_applied) {
+        const o = slot(c.tier_id).overrides;
+        if (!o.includes(name)) o.push(name);
+      }
+    }
+    return byNumeric;
+  }, [working, skuRollups, uuidToNumeric, state.cells]);
+
   const resolveCell = useCallback(
     (skuId: string, tierId: number): CellRef | null => {
       const sr = skuRollups.find((r) => r.skuId === skuId);
@@ -693,6 +763,7 @@ export function PricingSurfaceShell({
         state={state}
         blendedByTier={blendedByTier}
         tierMeta={tierMeta}
+        leversByTier={leversByTier}
         onPreviewGlobalAdjust={onPreviewGlobalAdjust}
         globalPreview={globalPreview}
         onCancelGlobalPreview={() => setGlobalPreview(null)}

@@ -104,6 +104,7 @@ export function DetailZone({
   state,
   blendedByTier,
   tierMeta,
+  leversByTier,
   onPreviewGlobalAdjust,
   globalPreview,
   onCancelGlobalPreview,
@@ -124,6 +125,8 @@ export function DetailZone({
   blendedByTier: Map<number, BlendedTierComponents>;
   /** Tier label + ★ by numeric id, forwarded to the stack's header row. */
   tierMeta?: Map<number, { label: string; recommended: boolean }>;
+  /** Which tiers carry a lever, from the governed working set. See B-2. */
+  leversByTier: Map<number, { lifts: string[]; overrides: string[] }>;
   /**
    * Retained on the contract, unused by the zone.
    *
@@ -197,6 +200,7 @@ export function DetailZone({
           state={state}
           blendedByTier={blendedByTier}
           tierMeta={tierMeta}
+          leversByTier={leversByTier}
           onTrace={onTraceStackCell}
           traced={tracedStackCell}
           renderTrace={renderStackTrace}
@@ -683,6 +687,7 @@ export function DetailCostStack({
   state,
   blendedByTier,
   tierMeta,
+  leversByTier,
   onTrace,
   traced,
   renderTrace,
@@ -699,6 +704,18 @@ export function DetailCostStack({
    * real identity is the tier UUID, and this file only holds the numeric id.
    */
   tierMeta?: Map<number, { label: string; recommended: boolean }>;
+  /**
+   * Which tiers carry a lift and an override, by numeric tier id.
+   *
+   * REQUIRED, and arrives as a prop rather than being derived here. B-2: this
+   * was computed in-component from `state.cells[].lift_applied_pct` — the
+   * classifier, which describes COMMITTED state — while the Design Authority
+   * keys the same rows on the WORKING set. A staged lift therefore moved
+   * `Quoted sell` with no row accounting for it, which is the one thing R11 §4
+   * marks load-bearing. Resolved at the composition point, where the staging
+   * working set and the tier identity both live.
+   */
+  leversByTier: Map<number, { lifts: string[]; overrides: string[] }>;
   /** Press a cell → open the trace at that cell's canonical node. */
   onTrace?: (nodeKey: string, title: string) => void;
   traced?: TracedStackCell | null;
@@ -741,21 +758,6 @@ export function DetailCostStack({
   // The R6 shape this replaces put tiers on the rows and could only show the
   // ladder's two ENDS, because those were the only levels published at tier
   // scope. It is not evolved into the canonical shape; it is replaced by it.
-
-  // Which SKUs carry a lever at each tier — by existence, per `liftSkus`.
-  const skuCodeById = new Map<string, string>();
-  for (const s of state.skus) skuCodeById.set(s.id, s.code ?? s.name);
-  const leversByTier = new Map<number, { lifts: string[]; overrides: string[] }>();
-  for (const c of state.cells) {
-    let e = leversByTier.get(c.tier_id);
-    if (!e) {
-      e = { lifts: [], overrides: [] };
-      leversByTier.set(c.tier_id, e);
-    }
-    const name = skuCodeById.get(c.sku_id) ?? c.sku_name;
-    if (c.lift_applied_pct !== null) e.lifts.push(name);
-    if (c.override_applied) e.overrides.push(name);
-  }
 
   const columns: TierStackColumn[] = state.tiers.map((t) => {
     const blend = blendedByTier.get(t.id) ?? null;

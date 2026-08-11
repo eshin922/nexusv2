@@ -22,7 +22,7 @@ test run and deliberately not cleared.
 
 ## V1 blocker
 
-### B-2 · A staged lift moves the quoted price with no row accounting for it
+### B-2 · A staged lift moved the quoted price with no row — **FIXED 2026-08-10**
 
 **Observed by Edward, step 1:** *"when i click global price adjustment i see the
 staged changes in the cost stack. lift all 1 to floor does not do that."*
@@ -68,10 +68,99 @@ column whose *visible* rows no longer add up. Exactly the failure mode the
 4-decimal note in `format.ts` was written about — a correct assertion sitting
 under numbers that appear to contradict it — arriving by a different route.
 
-**Not repaired.** Disposition owed from Edward. The fix is small — source
-`liftSkus`/`overrideSkus` from the staged working set rather than the classifier
-— but it is a basis change on a surface where basis errors are the recurring
-defect, and it needs its own evidence rather than being folded into B-1's.
+### Disposition — Edward, 2026-08-10: **narrow basis correction.** SHIPPED.
+
+#### The exact basis change
+
+Lever-row EXISTENCE moved off the classifier and onto the governed working set.
+
+| | before | after |
+|---|---|---|
+| source | `state.cells[].lift_applied_pct` / `.override_applied` | `working.lifts` / `working.overrides`, **unioned** with the classifier |
+| basis | COMMITTED | WORKING (intended state), plus committed |
+| resolved in | `detail-zone.tsx`, in-component | `pricing-surface-shell.tsx`, at the composition point |
+
+Nothing else moved. No lever semantics, no redesign, no change to what a row
+*contains* — contribution values are still read from their governed nodes in
+`blendedByTier`, so a refused lift renders the zero the graph actually holds.
+
+**Why a union rather than a swap.** `working` is the right basis and is the
+complete intended set, but the staging model documents one case it cannot carry:
+persisted overrides whose identity does not translate to a staging key "pass
+through unchanged — they are real and in effect". Keying purely on `working`
+would have dropped the row for those. Existence is monotone, so showing a lever
+when either source knows of it is correct in both directions, and a union cannot
+*lose* a row — which is the whole property under repair.
+
+#### Evidence — `tests/e2e/costing/cost-stack-lever-rows.spec.ts`, 4 tests
+
+**Staged** — from a quote with no committed lift: `Surgical lifts` and `Sell
+after lifts` both appear immediately, in canonical order (after `Sell after
+adjustment`, adjacent to each other, before `Quoted sell`), and the displayed
+contribution accounts for the displayed movement in `Quoted sell`.
+
+**Applied** — both rows survive the transition to committed state, with a
+non-zero contribution. Polled rather than read once: Apply persists and *then*
+the store reconciles, so the committed graph carrying the lift arrives after the
+staging bar clears.
+
+**Removed** — discard releases both rows. Existence follows the governing set in
+both directions, not just on the way in.
+
+**Override / refusal — existence-over-delta preserved.** A lift is staged, then
+a direct price is set on the same cell. §13.3: the override supersedes the
+computed chain, so the lift moves the price by nothing. `Surgical lifts` **stays
+rendered at zero** alongside `PM overrides`. A refusal the operator can see is
+the point; a zero contribution must not erase evidence that the lever exists.
+
+#### The detection gap
+
+The strip reconciles governed node VALUES, so it prints ✓ whether or not any of
+its four terms was ever rendered. The new detector asserts a property of the
+rendered DOM instead, in movement:
+
+```
+Δ(Quoted sell) === Δ(Sell before adjustment) + Δ(Price adjustment)
+                   + Δ(Surgical lifts) + Δ(PM overrides)
+```
+
+every term read from the staged-delta chips the page actually painted, and **a
+row that does not exist contributes nothing — which is exactly how it fails.**
+It consults neither the row-generation logic it checks nor the governed values
+the strip already reconciles, so it is not circular. It is deliberately written
+to name no row, so it also catches a future lever that has no name yet.
+
+**Proven to detect `81de6bb`.** With the repair reverted and the tests kept:
+
+```
+column 0 — Quoted sell moved 0.1331 but the visible contribution rows
+account for 0.0000. A lever moved the price with no row on screen.
+Rows present: Packaging, Production, Bulk raw, Freight, Duty + tariff,
+Sell before adjustment, Price adjustment, Sell after adjustment,
+PM overrides, Quoted sell, Unit cost, Margin
+```
+
+**The detector was vacuous on its first draft, and the falsification run is what
+caught it.** It keyed the staged chip on `.delta` — which is also the class a
+CONTRIBUTION row uses for its own value, since a contribution is signed. So it
+matched the value on those rows and nothing at all on level rows, summed zero
+against zero, and **passed against the unrepaired build.** Re-keyed on
+`title="was X · staged Y"`, which belongs to the staged chip alone. Had I only
+run it against the fixed code it would have shipped green and guarded nothing.
+
+#### One regression this introduced, and its repair
+
+The spec applies a lift, which writes a `pricing_adjustments_applied` audit row.
+VAL-209 counts those rows on the *same fixture quote* and asserts exactly one —
+so it failed `Expected: 1, Received: 2` in the full suite while passing in
+isolation. VAL-209's own teardown is bounded to rows created after IT started
+and so can never clear a row left earlier. Fixed in this spec's teardown, bounded
+the same way: committed lifts cleared, and audit rows for the quote, its tiers
+and its leaves deleted for the window this file was running.
+
+Gates: `test:unit` 744/744, `prebuild` PASS, `tsc` clean, `test:e2e` **34 passed
+/ 3 failed** — two the classified freight findings, the third (VAL-101) passing
+in isolation and in a combined run, the known cross-project concurrency variance.
 
 ### B-1 · Staged changes gave no feedback where the operator was looking — **FIXED 2026-08-10**
 
