@@ -466,6 +466,76 @@ fixture would confirm rendering, not routing.
 and customs, rendered in both modes, to confirm the Charges block behaves as
 this matrix says and that nothing else appears.
 
+## §2c · Rendered-coverage fixture — design and execution plan
+
+**Scenario created 2026-08-11:** `f5f5ac14-4d6b-4a48-98da-e6285a2cd9be`,
+"Rendered coverage fixture (do not quote)", on Nemah project `628dfce0`. From
+**Scratch**, not recommended, Primary not dropped.
+**Currently empty — no inputs entered. It is not evidence of anything yet.**
+
+Distinct from `DPS-1045` (`f544128a`), which stays sent and unaccepted. Creating
+a scenario consumes no HubSpot deal and no NetSuite transaction.
+
+### Value design — every contribution independently recognizable
+
+Distinct primes at distinct magnitudes, so no two contributions can be confused
+for one another in the rendered arithmetic and no equality is coincidental.
+**Tier: 1,000 units** — single tier, since tier propagation is not what this
+fixture tests.
+
+| contribution | assembly | input | per-unit at 1,000 |
+|---|---|---|---|
+| Packaging | A | leaf unit cost **$3.00** | 3.00 |
+| Packaging | B | leaf unit cost **$5.00** | 5.00 |
+| Production (filling / blending) | A | **$7,000** | 7.00 |
+| Bulk Raw | A | `bulkRawCost` **$13,000** | 13.00 |
+| One-time fee, allocation **ON** | A | setup **$11,000**, `allocateServiceFeesToCost = true` | 11.00, amortised into unit sell |
+| One-time fee, allocation **OFF** | B | tooling **$17,000**, `allocateServiceFeesToCost = false` | **excluded** from unit sell; separate charge |
+| Freight | shipment over A | leg total **$19,000** | 19.00 |
+| Duty | customs on that shipment | **$23,000** | 23.00 |
+| Tariff | customs on that shipment | **$29,000** | 29.00 |
+
+`allocateServiceFeesToCost` is a **per-assembly policy**, which is why two
+assemblies are required: A carries allocation ON, B carries allocation OFF.
+That is a structural requirement of the fixture, not a preference.
+
+**Markup limitation, stated.** `markup_defaults` is empty in this environment,
+so Production and Raw resolve through the same fallback rate. Their *rates*
+cannot be told apart here — but their *contributions* can, because 7.00 and
+13.00 differ at every markup. Recognizability is carried by cost magnitude, not
+by rate. Item 8 is unaffected: it asserts an absence, not a value.
+
+### Proof obligations — both `itemized` and `turnkey_only`
+
+1. quoted total reconciles to the governed commercial contributions;
+2. Production bundled per its accepted contract;
+3. **Bulk Raw contributes exactly once and is bundled, not exposed** — **CP-001**;
+4. Duty and Tariff follow their accepted bundling contracts;
+5. Freight per the **current OD-001 authority only** — if OD-001 prevents a
+   final classification, **record that rather than inventing one**;
+6. allocation-ON fee reaches the customer through unit pricing and is **not**
+   separately duplicated;
+7. allocation-OFF fee excluded from unit sell and appears **exactly once**
+   through the separate-charge projection;
+8. no internal markup percentage and no internal Cost Stack category leaks into
+   customer presentation unless explicitly governed.
+
+**Customer View vs PDF differences are defects** unless an accepted contract
+explicitly permits them.
+
+### Standing rule for executing this
+
+> This is rendered **confirmation** evidence. If rendering contradicts the
+> already-established resolver/contract trace, **stop and classify the first
+> failing boundary** rather than changing the governing classification to fit
+> the output.
+
+The §2b classifications are settled by authority (Edward, 2026-08-11):
+Production, Duty, Tariff — intentional governed bundling; one-time fees ON/OFF —
+parity; Bulk Raw — CP-001. **They are not reopened by rendered evidence
+remaining outstanding.** The fixture confirms the governed projection; it does
+not redefine it.
+
 ## §3 · Required coverage
 
 Trace must run against **at least one `itemized` quote and one `turnkey_only`
