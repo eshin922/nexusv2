@@ -183,3 +183,51 @@
  * with its 10px gap is gone: that gap had no authority behind it and was what
  * made a correctly-placed panel read as an unrelated block.
  */
+
+/* ── B-1 · the staging bar stays visible while anything is pending ─────────
+ *
+ * Operator acceptance, 2026-08-10. Every staging affordance on this surface —
+ * per-cell lift, direct price, per-tier adjustment, the recommendation CTAs,
+ * and the grid's bulk "Lift all N to floor" — reports into ONE bar at the top
+ * of the page. Operated from below the fold, all of them were silent: measured
+ * at 1196px between the bulk control and its own confirmation, and the product
+ * owner read a working control as broken across three rounds of evidence.
+ *
+ * WHY THIS IS THE WHOLE REPAIR. The bar already owns pending state and already
+ * says everything needed — "STAGED · NOT YET APPLIED", a chip per change, Reset
+ * all, Apply N changes. Nothing was missing except the operator's ability to
+ * see it. So no new pending-state representation is introduced, and in
+ * particular none is added to the compliance grid: that grid describes
+ * COMMITTED state by construction, and that is the property (H2) which makes it
+ * and the banner unable to disagree.
+ *
+ * `:not(.applied)` IS the pending test, not a new flag. The component already
+ * renders exactly two mutually exclusive bars — `.r12-staging` when changes are
+ * staged, `.r12-staging.applied` when nothing is pending but levers are in
+ * effect — so the distinction the disposition asks for is already in the DOM.
+ * Selecting on it means this repair adds no TypeScript at all, and the bar
+ * releases on its own the moment `isStaged` goes false, because the element
+ * that was sticky is simply no longer rendered.
+ *
+ * STACKING, verified rather than assumed:
+ *   · `.r10-anchor` is the only other `position: sticky; top: 0` in the trace,
+ *     and R11 already releases it inside `.r11-tracewrap`
+ *     (`r11-pricing-workspace.css:357`) — precisely because two elements pinned
+ *     at `top: 0` overlay each other. The inline trace shipped under R-1 keeps
+ *     that release, so there is no competitor on this page.
+ *   · z-index 30 clears the anchor's 3 and sits well below the modal scrims
+ *     (99/100). Both live in the same stacking context: `.psr-section` is
+ *     `display: flex` with no opacity, transform or filter, so it establishes
+ *     none of its own.
+ *   · No ancestor scrolls. `.psr-section`, `.r11-page`, `.r10-body` and
+ *     `.r2-pricing` carry no `overflow`, which is the usual silent killer —
+ *     a `position: sticky` inside a scroll container sticks to a box its own
+ *     size, which is to say not at all, and the surface still looks right.
+ *   · `--accent-soft` is opaque in both themes, so content scrolls under the
+ *     bar rather than through it.
+ */
+.r12-staging:not(.applied) {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}

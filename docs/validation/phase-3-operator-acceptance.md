@@ -22,7 +22,7 @@ test run and deliberately not cleared.
 
 ## V1 blocker
 
-### B-1 · A staged bulk lift gives no feedback where the operator is looking
+### B-1 · Staged changes gave no feedback where the operator was looking — **FIXED 2026-08-10**
 
 **Observed (step 1, reported early):** *"none of the 'Lift all 1 to floor'
 buttons work."*
@@ -55,10 +55,98 @@ Staging is idempotent so repeat presses are harmless *here* — but the surface 
 still teaching the operator that habit, and AM-005 records the same quote being
 double-pressed again on 2026-08-10 at 20:57.
 
-**Not repaired.** The fix is a design decision, not a correction — feedback at
-the point of action, scroll-to-staging-bar, a per-tier staged marker on the grid
-row, or some combination. Each says something different about where the
-operator's attention belongs. **Disposition owed from Edward.**
+**Confirmed by the operator, 2026-08-10:** *"ok i see it now — this is a problem
+the operator would have the same issue as me."* The product owner, who
+commissioned the feature and knows the staging model exists, read a working
+control as broken and stayed convinced across three rounds of evidence. That is
+the finding; no stronger signal is available for this class.
+
+**Reproduced three times, two browsers:** headless at 720px (chip 1196px above
+the button), the operator's own Chrome at ~1970px (button y=1508, chip y=332),
+and in the operator's own session — where a scroll of a few hundred pixels to
+reach the grid is enough to push the only confirmation off the top.
+
+**The failure generalises beyond this control.** Every staging affordance on the
+surface — per-cell lift, direct price, per-tier adjustment, the recommendation
+CTAs — reports into the same single bar at the top of the page. Any of them
+operated from below the fold has the same silence. Fixing this button would
+leave the shape intact.
+
+**Not repaired.** The fix is a design decision, not a correction:
+
+| option | what it costs |
+|---|---|
+| **Sticky staging bar** — `position: sticky` once anything is staged | Smallest change, no new state, and it fixes *every* affordance at once rather than this one. **Hazard:** R11 already released the trace anchor from `position: sticky` because two elements pinned at `top: 0` overlay each other (CLAUDE.md, R11 §load-bearing). Needs to compose with the inline trace shipped under R-1 |
+| **Feedback at the point of action** — the row acknowledges the press | Closest to where the eye is. **Contract risk:** the grid describes COMMITTED state by construction, and that is the structural property (H2) making the banner and the grid unable to disagree. A *staged marker* says "you asked for this", not "this is the state" — defensible, but it is the same blur P3-016 punished |
+| **Scroll the bar into view on first stage** | Cheapest. Hostile — takes the operator's place in the grid away, and grates on every subsequent stage |
+
+### Disposition — Edward, 2026-08-10: **sticky staging bar.** SHIPPED.
+
+**The repair is four lines of CSS and no TypeScript.**
+
+```css
+.r12-staging:not(.applied) { position: sticky; top: 0; z-index: 30; }
+```
+
+`:not(.applied)` **is** the pending test rather than a new flag. The component
+already renders exactly two mutually exclusive bars — `.r12-staging` when
+changes are staged, `.r12-staging.applied` when nothing is pending but levers
+are in effect — so the distinction was already in the DOM. Two consequences: no
+new state to get wrong, and the bar releases on its own, because the element
+that was sticky simply stops being rendered when `isStaged` goes false.
+
+Nothing was added to the compliance grid. It continues to describe COMMITTED
+state, which is the property (H2) making it and the banner unable to disagree.
+
+### Evidence — `tests/e2e/costing/staging-bar-sticky.spec.ts`, 7 tests
+
+Each path scrolls the control below the fold, acts, and asserts four things. The
+fourth is what makes the other three mean anything: at the same instant the
+bar's `position` is forced back to `static` and re-measured, so the test proves
+the REPAIR put the bar on screen rather than the page happening to be short.
+
+| staging path | bar top after | where it would sit unstuck |
+|---|---|---|
+| bulk `Lift all N to floor` | **0** | −907px |
+| per-cell lift | **0** | −478px |
+| direct price | **0** | −478px |
+| recommendation CTA | **0** | −171px |
+| quote-wide adjustment | **0** | −1082px |
+
+**Paths 3 and 4 of the disposition are one mechanism in this build.**
+`stageTierAdj` has exactly one caller — the shell's `onApply`, reached from the
+recommendation CTA — so there is no separate per-tier adjustment control to
+walk. Recorded rather than presented as two proofs. The quote-wide lever
+(`Stage this adjustment`) is covered as a fifth distinct path.
+
+**Apply, removal and release, all from the pinned state:** two changes staged
+from below the fold; one chip discarded and the bar stays pinned with the
+remainder; Apply pressed from the pinned bar and the staged bar releases; the
+`.applied` bar replacing it is asserted `position: static`, because nothing is
+pending. A full `Reset all` releases it too.
+
+**The hazard named in the disposition, tested:** with the bar pinned AND an
+inline cost-stack trace open — `bar z=30`, trace anchor `position=relative z=3`,
+`overlap=false`. R11 releases `.r10-anchor` from `position: sticky` inside
+`.r11-tracewrap` precisely because two elements pinned at `top: 0` overlay each
+other; the inline trace shipped under R-1 keeps that release, and the test
+asserts it rather than trusting it.
+
+**One instrument corrected mid-repair.** The first version asserted `scrollY`
+was unchanged. That is the wrong measurement, and it failed: Chrome's scroll
+anchoring RAISES `scrollY` when content is inserted above the fold, precisely to
+hold the view still — so an unchanged `scrollY` would have meant the content
+slid. Re-expressed as the compliance grid's position in viewport coordinates,
+which is the property the disposition actually names. Measured movement: **≤4px
+on every path.**
+
+Gates: `test:unit` 744/744, `prebuild` PASS, `tsc` clean, `test:e2e` 33 passed /
+3 failed — two the classified freight findings, the third passing in isolation
+(known cross-project concurrency variance).
+
+**Sufficiency is not claimed.** Whether one shared surface is enough — or
+whether the per-cell paths also want acknowledgement where the hand is — is an
+operator question, and the remaining walkthrough is what answers it.
 
 **Scope note:** this is the bulk control in the compliance grid
 (`compliance-grid.tsx:407`). Whether the per-cell *"Lift {label} to floor"*
