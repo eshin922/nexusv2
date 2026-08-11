@@ -352,7 +352,7 @@ the rows below record its consequences per input.
 | **Production** (filling/blending, CM assembly, allocated fees) | `cellSections[prod]`, `PRODUCTION_MARKUP_CATEGORY` | none — inside `requiredSellPerUnit` | per-unit price only | in each row's unit price → extended → total | in the turnkey unit price | **bundled into the commercial unit** | `costing.ts:1653-1655` — filling/blending and CM assembly "always remain internal COGS" | yes — unit price is all-in | **intentional governed bundling** |
 | **Production one-time fees**, allocation **ON** | amortised into `productionCostSum` (`:1656`) | none | per-unit price only | bundled | bundled | bundled into the commercial unit | same | yes | **parity** |
 | **Production one-time fees**, allocation **OFF** | excluded from unit sell — `separateServiceFees = 0` | `serviceFees[]`, once per (assembly, fee) | Charges block | separate charge lines | separate lines; `foldFees` adds them to the turnkey total | **separately charged** | `costing.ts:1653-1655` — "projected exactly once by the customer-view resolver, outside unit cost and unit sell" | yes | **parity** |
-| **Bulk Raw** | own `cellSections` entry, own `RAW_MARKUP_CATEGORY` | none — inside `requiredSellPerUnit` | per-unit price only | bundled | bundled | **bundled into the commercial unit** | none located | yes | **business disposition required** |
+| **Bulk Raw** | own `cellSections` entry, own `RAW_MARKUP_CATEGORY` | none — inside `requiredSellPerUnit` | per-unit price only | bundled | bundled | **bundled into the commercial unit** | **CP-001** (below) | yes | **intentional governed bundling** |
 | **Freight** | `cellSections[freight]`, per-leg markup | `freightLines` **hardcoded `[]`** | absent | absent | absent | **suppressed** | **BV-009 — does not exist** | yes, but the operator's choice is inert | **business disposition required (OD-001)** |
 | **Duty** | operand inside `freightSectionNode`, own markup | none | absent | absent | absent | bundled into unit price | `CLAUDE.md` customs section — never customer-facing | yes | **intentional governed bundling** |
 | **Tariff** | operand inside `freightSectionNode`, own markup | none | absent | absent | absent | bundled into unit price | same | yes | **intentional governed bundling** |
@@ -375,11 +375,38 @@ folded aggregates that caused T-4. It consumes `requiredSellPerUnit`, where
 production and raw were always distinct `cellSections` entries. The prior error
 was confined to the internal stack.
 
-**Bulk Raw's bundling has no located contract.** Bundling it is very likely
-right — customers do not buy raws separately — but §1 says an uncited bundle is
-*business disposition required*, not *intentional aggregation*, and T-4 is
-exactly why that rule exists. Recorded as needing a one-line disposition, not
-as a defect.
+**Bulk Raw's bundling now has a contract — CP-001.** It previously had none,
+which is why it was classified *business disposition required* rather than
+*intentional aggregation*: §1 holds that an uncited bundle is not justified by
+the fact that it is what the code does. That gap is now closed by authority
+rather than by observation.
+
+> ### CP-001 · Bulk Raw customer presentation
+>
+> **Authority:** Edward, 2026-08-11. Business disposition, recorded as the
+> missing customer-presentation contract.
+>
+> **Bulk Raw is bundled into the customer-facing commercial product price.**
+>
+> For V1 customer presentation, Bulk Raw contributes **exactly once** to the
+> applicable commercial product / turnkey price. It does **not** appear as a
+> separate `Bulk Raw` charge.
+>
+> **Internal independence does not imply customer-facing separation.** Bulk Raw
+> remains independently governed internally — its own canonical costing node,
+> its own markup authority (`RAW_MARKUP_CATEGORY`), and its own Cost Stack
+> section per T-4. None of that entitles it to a customer-facing line. The two
+> questions are decided by different authorities: the Cost Stack answers to
+> Pattern 57 (does a governed node back this row?), customer presentation
+> answers to the accepted quote/presentation contract.
+>
+> **This is the authority. The implementation is not.** Current resolver
+> behaviour happens to conform, but conformance is the thing to be verified
+> against CP-001 — not the thing that established it.
+>
+> **Verification obligation:** confirm the contribution is present exactly once.
+> Change arithmetic only if the trace shows it **omitted** or **duplicated**.
+> Bundling itself is not a defect to be repaired.
 
 **Freight — the governed operator choice is inert.** `treatment` is a
 **required** operator control offered as `Bundled · amortised across units` vs
