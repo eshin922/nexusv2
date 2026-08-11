@@ -4,8 +4,9 @@
 quote.** Separate from `so-field-parity-matrix.md` (Nexus → NetSuite Sales
 Order). Both carry into final V1 certification.
 
-**Status: OPEN. T-1 confirmed as a HIGH V1 blocker and REPAIRED (2026-08-11).
-Production/Freight trace incomplete.**
+**Status: OPEN. T-1 (HIGH) and T-4 (Design Authority) both REPAIRED 2026-08-11.
+Presentation matrix complete (2b), one coverage limitation stated. Two business
+dispositions outstanding: Bulk Raw bundling, and freight (OD-001).**
 
 ---
 
@@ -319,37 +320,124 @@ direction, because **aggregation looks like absence**.
 **No inference drawn about customer-facing Bulk Raw presentation.** This repair
 is internal-surface only; customer presentation remains open below.
 
-### Production inputs — **PARTIALLY TRACED** (sell side done in T-3; presentation outstanding)
+## §2b · Customer-facing presentation matrix
 
-Owed: production cost · Manufacturing markup · **Bulk Raw cost and its markup
-separately** · filling / assembly / co-pack · quantity/tier behavior ·
-production fees and per-unit conversions · production-side adjustments
-affecting quoted sell.
+Built from **customer-facing artifacts and their governing resolver/contracts**
+— `customer-view-resolver.ts`, the `CustomerView` it emits, and the react-pdf
+tree that renders it. Not inferred from the costing graph.
 
-Bulk Raw carries a known adjacency: Pattern 57 removed the RAW row from the
-cost stack on the grounds that no independently governed raw node exists and
-`productionMarkupSum` already carries it. **That is an internal-surface
-disposition and does not settle the customer-facing question.** The trace must
-establish whether Bulk Raw and its markup reach the quoted sell once, twice,
-or not at all — the double-counting and silent-omission tests both apply.
+**The internal Cost Stack rule does not apply here.** Customer presentation may
+bundle contributions where an accepted contract says so. What it may not do is
+bundle on implementation behaviour alone.
 
-### Freight inputs — **NOT YET TRACED**
+### The single projection fact everything below turns on
 
-Owed: selected destination · freight type/mode · freight amount · freight
-markup · duty · tariff · customs/brokerage · freight tier/break propagation ·
-incoterm-dependent treatment.
+`resolveCustomerView` emits exactly three commercial channels:
 
-Adjacencies already on record:
-- Duty and tariff are **internal-only** (`CLAUDE.md` customs/landed-cost
-  section) and the customer-facing rule is stated there: a single "Freight: $X"
-  line when `pass_through`, invisible when `bundled`. That is a citable
-  presentation contract — the trace must confirm the code honors it.
-- The D+T cost-stack row was hardcoded 0 at one point (banked in `CLAUDE.md`).
-  The customer-facing consequence was never separately traced.
-- C.2 (ship-to) is open in the SO matrix and touches destination selection
-  from the same `freight_destinations` model.
+| channel | populated from | reaches |
+|---|---|---|
+| `skus[].tierPrices[]` | `rollup.perTier[].requiredSellPerUnit` | the per-unit price, both modes |
+| `serviceFees[]` | production one-time fees, **only** where `allocateServiceFeesToCost === false` (`resolver:348-366`) | the Charges block |
+| `freightLines[]` | **hardcoded `[]`** (`resolver:368-370`) | nothing — the PDF block is gated on `length > 0` |
 
----
+There is **no** production channel, **no** raw channel, **no** duty channel and
+**no** tariff channel. Everything except allocation-off one-time fees reaches
+the customer through the unit price and only through it. That is the finding;
+the rows below record its consequences per input.
+
+### Matrix
+
+| input | governed sell contribution | resolver path | Customer View | PDF `itemized` | PDF `turnkey_only` | representation | governing authority | explainable? | class |
+|---|---|---|---|---|---|---|---|---|---|
+| **Production** (filling/blending, CM assembly, allocated fees) | `cellSections[prod]`, `PRODUCTION_MARKUP_CATEGORY` | none — inside `requiredSellPerUnit` | per-unit price only | in each row's unit price → extended → total | in the turnkey unit price | **bundled into the commercial unit** | `costing.ts:1653-1655` — filling/blending and CM assembly "always remain internal COGS" | yes — unit price is all-in | **intentional governed bundling** |
+| **Production one-time fees**, allocation **ON** | amortised into `productionCostSum` (`:1656`) | none | per-unit price only | bundled | bundled | bundled into the commercial unit | same | yes | **parity** |
+| **Production one-time fees**, allocation **OFF** | excluded from unit sell — `separateServiceFees = 0` | `serviceFees[]`, once per (assembly, fee) | Charges block | separate charge lines | separate lines; `foldFees` adds them to the turnkey total | **separately charged** | `costing.ts:1653-1655` — "projected exactly once by the customer-view resolver, outside unit cost and unit sell" | yes | **parity** |
+| **Bulk Raw** | own `cellSections` entry, own `RAW_MARKUP_CATEGORY` | none — inside `requiredSellPerUnit` | per-unit price only | bundled | bundled | **bundled into the commercial unit** | none located | yes | **business disposition required** |
+| **Freight** | `cellSections[freight]`, per-leg markup | `freightLines` **hardcoded `[]`** | absent | absent | absent | **suppressed** | **BV-009 — does not exist** | yes, but the operator's choice is inert | **business disposition required (OD-001)** |
+| **Duty** | operand inside `freightSectionNode`, own markup | none | absent | absent | absent | bundled into unit price | `CLAUDE.md` customs section — never customer-facing | yes | **intentional governed bundling** |
+| **Tariff** | operand inside `freightSectionNode`, own markup | none | absent | absent | absent | bundled into unit price | same | yes | **intentional governed bundling** |
+
+### Per-input findings
+
+**Production — bundled, and the two modes do not differ in substance.** Both
+carry production inside the per-unit price; the modes differ only in whether
+that price is shown per SKU row or as one turnkey figure. Neither exposes
+production separately, and neither claims to.
+
+**Bulk Raw reaches the customer exactly once** — inside `requiredSellPerUnit`,
+via its own `cellSections` entry, at its own markup. It is not double-fed:
+there is no raw channel in the resolver, so the T-4 restoration cannot leak
+into the customer view.
+
+**No customer-facing surface repeats the Pattern 57 error.** The customer tree
+never consumes `breakdown.production` or `breakdown.productionMarkupSum` — the
+folded aggregates that caused T-4. It consumes `requiredSellPerUnit`, where
+production and raw were always distinct `cellSections` entries. The prior error
+was confined to the internal stack.
+
+**Bulk Raw's bundling has no located contract.** Bundling it is very likely
+right — customers do not buy raws separately — but §1 says an uncited bundle is
+*business disposition required*, not *intentional aggregation*, and T-4 is
+exactly why that rule exists. Recorded as needing a one-line disposition, not
+as a defect.
+
+**Freight — the governed operator choice is inert.** `treatment` is a
+**required** operator control offered as `Bundled · amortised across units` vs
+`Pass-through`, on both Create Shipment (`freight-drilldown.tsx:451`) and
+shipment edit (`:592`), persisted to `freight_subcategories.treatment` /
+`freight_legs.treatment`. The resolver never reads it: `freightLines` is
+hardcoded `[]` and the PDF Charges block is gated on `freightLines.length > 0`
+(`customer-pdf-charges-block.tsx:68`). **Selecting Pass-through changes nothing
+the customer sees.**
+
+The banked contract (`CLAUDE.md` customs/landed-cost section) states the intent
+explicitly — *"show only 'Freight: $X' per tier ... when
+`freight_treatment = pass_through`; invisible when `bundled`"* — so the
+suppression is correct for `bundled` and unimplemented for `pass_through`.
+
+The authority cited in code for the suppression is **BV-009**, which **has
+never existed in any branch at any point in history** (`OD-001`, `GLOSSARY.md`).
+OD-001 already names `customer-view-resolver.ts:368` as blocked on it. This
+matrix does not reopen OD-001; it adds one fact to it: *the unratified
+suppression does not merely lack documentation, it silently discards a required
+operator input.* Whether that is a defect or intended scope depends on the
+answer OD-001 is waiting for — which is why this is a disposition, not a defect
+classification.
+
+**Duty and Tariff reach the customer exactly once, combined, inside the unit
+price.** Each carries its own markup inside `freightSectionNode`; neither is
+separately projected. The governing rule predates this work and is unambiguous:
+duty and tariff percentages are internal and never customer-facing. The
+customer sees one landed number; the combination is the intent, not an accident.
+Riding inside freight, they inherit the freight presentation question — but not
+its uncertainty: suppression is what their own contract requires regardless of
+how OD-001 resolves.
+
+### Direct T-1 observation — both modes, post-repair
+
+Completes T-1's customer-facing evidence. Nemah `DPS-1045` (`f544128a`),
+1,000 units, 3 priced rows, observed live in the PDF preview:
+
+| mode | rendered | per-unit | check |
+|---|---|---|---|
+| `itemized` | rows $4.00 / $6.00 / $2.00 → extended $4,000 / $6,000 / $2,000; **Turnkey total $12,000** | **$12.00 /unit** | 4+6+2 = 12 · 12,000/1,000 = 12.00 |
+| `turnkey_only` | **Tier 1 · 1k units · $12,000** | **$12.00 /unit** | 12,000/1,000 = 12.00 |
+
+Both directly observed, not inferred. Row prices and totals identical across
+modes — the repair moved only the per-unit basis.
+
+### Coverage limitation — stated, not glossed
+
+The Nemah fixture is **packaging-only**: no production, no bulk raw, no freight,
+no duty, no tariff. The matrix rows for those five are established from the
+**resolver and PDF code paths** — the governing artifacts — but *rendered*
+evidence for them is not yet captured. The three projection channels are
+unconditional, so no fixture can change which channel a contribution uses; a
+fixture would confirm rendering, not routing.
+
+**Owed before certification:** one quote carrying production, bulk raw, freight
+and customs, rendered in both modes, to confirm the Charges block behaves as
+this matrix says and that nothing else appears.
 
 ## §3 · Required coverage
 

@@ -5356,6 +5356,59 @@ per-line granularity does not exist in the graph yet.
 - Gate 1B §0 — the canonical node graph is what "independently governed" means
   operationally: a row belongs if a node backs it.
 
+## Exact reconciliation is necessary but not sufficient
+
+**Standing validation rule — Edward's directive, 2026-08-11.** Banked from the
+T-4 Bulk Raw finding.
+
+> Exact reconciliation is necessary but not sufficient. A presentation can
+> reconcile perfectly while attributing value to the wrong governing authority.
+
+**Why reconciliation feels like proof, and is not.** A stack that sums to its
+subtotal has demonstrated that no money was lost. It has demonstrated nothing
+about *whose* money each line is. Aggregate two contributions priced by two
+different authorities into one row and the total is still exact — the row now
+just reports a blended rate belonging to neither of them.
+
+**Reference moment — T-4.** The Costs cost stack folded bulk raw into
+Production. It reconciled. It always had. The falsification made the second
+question explicit and both halves failed:
+
+- with PROD net of raw and no RAW row, the stack **under-reports by exactly
+  the raw contribution** — visible as a gap;
+- with PROD folded, the stack **reconciles** and reports a markup rate matching
+  **neither** `PRODUCTION_MARKUP_CATEGORY` nor `RAW_MARKUP_CATEGORY` — invisible,
+  and the reason the defect survived.
+
+Only the first shape is caught by summing. The second is caught by asking, per
+line, *which authority priced this, and does the displayed rate match it?*
+
+**Apply it as a second question, always.** After "does it reconcile?", ask
+"is each figure attributed to the authority that governs it?" Reconciliation
+is the floor, not the ceiling. Two checks, not one:
+
+1. **Completeness** — Σ parts = whole. Catches omission and double-count.
+2. **Attribution** — each part traces to the authority that priced it, and the
+   rate it displays is that authority's rate. Catches misattribution, which
+   completeness structurally cannot.
+
+**Where this applies:** any surface that decomposes a governed total — cost
+stacks, drilldown totals, customer PDF line tables, SO line projections,
+margin breakdowns. Wherever a display aggregates contributions from more than
+one markup, rate, or policy authority.
+
+**Corollary for bundling.** Bundling is not disproved by reconciliation, but it
+is not *justified* by it either. A bundled presentation needs an accepted
+contract saying the bundle is intended. Implementation behaviour that happens
+to reconcile is not that contract.
+
+**Cross-references.**
+- Pattern 57 — the rule whose worked example this corrects.
+- Pattern 56 (latency margins hide missing ordering contracts) — same family:
+  a property that holds by coincidence reads as one that holds by construction.
+- Pattern 50 (compliance-basis intersection state) — two subsystems agreeing by
+  coincidence rather than construction.
+
 ## Merge and certification evidence must use repository-governed test commands
 
 **Standing rule — banked 2026-08-06 from the Costs certification merge gate.**
