@@ -158,6 +158,16 @@ One group per `groups[]` entry:
 
 ## Recording
 
+### Evidence scope — read before writing the record
+
+> This two-assembly fixture proves the ASY-backed turnkey projection only. It is
+> not evidence that Nexus generally requires ASYs. Two assemblies are required
+> here so the validation can detect composition/membership errors that preserve
+> the accepted commercial total. Direct Components remain governed by BV-006 §5
+> and project as flat NetSuite Item lines when that capability becomes reachable.
+
+*Evidence-scope documentation. Not an OD-004 architecture change.*
+
 Name the environment, both quotes, the datum read from each snapshot, the SO ids,
 `amount_pushed`, **the SuiteQL projection that worked (B3)**, the groups created,
 the read-back figures, and any divergence. One artifact, in the shape of R1: run,
