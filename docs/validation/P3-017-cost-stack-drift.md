@@ -1,8 +1,14 @@
 # P3-017 · The Pricing Cost Stack is not the accepted R11/R12 stack
 
-**Status: VERIFIED 2026-08-10 — incomplete implementation, not intentional
-simplification.** Not repaired. The Design Authority is to be restored, not
-replaced with a new layout.
+**Status: FULLY CLOSED 2026-08-10.** Both halves shipped — the price ladder
+published at tier scope (`94f8c63`), then the R11/R12 layout restored from the
+Design Authority (`b4ebbd5`) — and the S-7 preservation check dispositioned by
+cause and returned to green as a governed `prebuild` step (`168f76d` + this
+commit). Nothing was restored to make a digest green; nothing was re-baselined.
+
+*Original finding, retained below.* **VERIFIED 2026-08-10 — incomplete
+implementation, not intentional simplification.** The Design Authority was to be
+restored, not replaced with a new layout.
 
 **Presentation and information architecture. Not arithmetic.** Business
 semantics are settled and unchanged; every number the production stack shows is
@@ -406,7 +412,19 @@ waits on the "Pricing updated." confirmation. Repaired by removing the addition,
 not by narrowing VAL-208's locator: an unrelated test that starts failing is
 reporting something true.
 
-## S-7 preservation — measured, and NOT re-baselined
+## S-7 preservation — CLOSED 2026-08-10
+
+**Dispositioned by cause, not by re-baseline.** The 23 additive fields are
+accepted under A-1; the single `blendedMarginPct` movement is
+[AM-005](AM-005-s7-scope.md), resolved by excluding the `ZZ-VALIDATION-*`
+namespace from the preservation basket. `verify:s7-preserved` is a governed
+`prebuild` step and **passes**: 23 quotes, every captured commercial scalar
+identical, global digest `e9943ad8…` — the same remainder AM-005 recorded.
+Nothing was restored and nothing was re-baselined. Full detail in AM-005.
+
+The measurement that produced that disposition is retained below.
+
+### The measurement
 
 `gate1b:verify-preserved` currently FAILS. Three measurements separate what
 caused what:

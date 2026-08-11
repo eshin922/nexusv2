@@ -454,12 +454,14 @@ input moved and the arithmetic did not change; cause is operator clicks on the
 deployed Pricing surface, which still serves the unfixed P3-016 path because
 `b6de377` is not on `main`.
 
-**`verify:s7-preserved` is now the ninth step of `prebuild`** — a change to
+**`verify:s7-preserved` is a governed `prebuild` step** — a change to
 `SkuPerTierRollup` can no longer pass the build without executing the verifier
-that governs it. **`prebuild` therefore fails today**, on the AM-005 movement.
-S-7's basket is a query over live production quotes, so builds are now bound to
-production data; that coupling is AM-005's finding arriving where it costs
-something, and the basket-scope decision AM-005 has been awaiting resolves both.
+that governs it — **and it passes.** The AM-005 basket-scope question is
+dispositioned: the `ZZ-VALIDATION-*` namespace is excluded at basket selection,
+because a preservation invariant cannot take a deliberately mutable instrument
+as a stable reference. 23 quotes retained, global digest `e9943ad8…` — the same
+remainder AM-005 recorded. The quote was not restored, its value was not adopted,
+and only additive A-1 fields are set aside, each named in the report.
 
 *Original finding, retained:* verified 2026-08-10 as an **incomplete
 implementation**, not an intentional

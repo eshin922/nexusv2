@@ -15,6 +15,7 @@
     "verify:audit-single-writer": "node --experimental-strip-types scripts/verify/audit-single-writer.ts",
     "gate1b:capture-baseline": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/capture-costing-baseline.ts",
     "gate1b:verify-preserved": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/verify-costing-preserved.ts",
+    "gate1b:basket-membership": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/basket-membership-check.ts",
     "verify:s7-preserved": "node --env-file-if-exists=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/verify-costing-preserved.ts",
     "verify:ri-7-readiness": "node --env-file=.env.local --experimental-strip-types scripts/verify/ri-7-schema-readiness.ts",
     "verify:scenario-quote-invariant": "node --env-file=.env.local --experimental-strip-types scripts/verify/scenario-quote-status-invariant.ts",

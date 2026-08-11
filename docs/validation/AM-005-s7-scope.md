@@ -1,13 +1,78 @@
 # AM-005 · S-7 measures software and mutable production data together
 
-**Status: INVESTIGATED 2026-08-10. Awaiting disposition — and now BLOCKING.**
-Not a Pricing regression. Not repaired, and deliberately not — changing the hash
-scope is the decision this record exists to inform.
+**Status: DISPOSITIONED 2026-08-10 — the `ZZ-VALIDATION-*` namespace is excluded
+from the S-7 preservation basket.** Not a Pricing regression, and never was.
 
-> **Escalated 2026-08-10 (second instance + prebuild wiring).** The same quote
-> moved again, and `verify:s7-preserved` is now part of `prebuild`, so this
-> record no longer describes a red check on a side path — it describes a red
-> check that **fails every build**. See *Second instance* below.
+> **The two incidents below are the evidence for that decision and are retained
+> verbatim.** They are not superseded by it: one instance could be argued as
+> mishandling, two — three hours apart, the second while the first was still
+> being written up — are the mechanism. Neither has been deleted, rewritten, or
+> reduced to a summary.
+
+## Disposition
+
+**Excluded the governed validation namespace at basket selection.**
+
+*Rationale, as dispositioned:* S-7 is a **preservation invariant**. Validation
+quotes are intentionally mutable instruments and therefore cannot simultaneously
+serve as stable preservation references.
+
+Four things were explicitly **not** done:
+
+| not done | why it would have been wrong |
+|---|---|
+| restore the quote to make the digest green | treats the instance, leaves the mechanism — it had already re-broken once |
+| re-baseline the `0.5072` margin | accepts a mutation as a reference, and destroys the remainder digest that proves the other 23 are preserved |
+| exclude only the quote **id** | the next validation quote joins the basket the moment it is created |
+| weaken comparison of the remaining population | the retained 23 are compared exactly as before, at full float precision |
+
+### Implementation
+
+`scripts/gate-1b/basket.ts` — one definition, imported by **both** the capture
+script and the verifier. Extracted rather than copied for the reason
+`canonical-digest.ts` was: two copies of a selection rule drift into a
+difference that reads exactly like a commercial regression and is not one.
+
+The exclusion is **symmetric**. Dropping the namespace from the live selection
+alone would leave the captured entry unmatched and the verifier would report
+*"in baseline, absent now — coverage silently shrank"*: the same red under a
+different heading.
+
+The reference for the global digest is now the **remainder digest** — the same
+recorded per-quote digests, re-aggregated over the retained subset. Baseline
+values only; no current value enters it. AM-005's one-off isolation script,
+promoted into the standing check.
+
+### A-1 additions, separated from movements
+
+The raw digest could not see the line A-1 draws: a key the baseline never held
+has no captured scalar to be identical to, but it moves the hash exactly as a
+changed value would — because `canonical(undefined)` and `canonical(null)` are
+the same string. P3-017's five new per-tier quantities therefore read as 23
+failures.
+
+`scripts/gate-1b/projection.ts` compares against the baseline's **own key set**.
+Additions are set aside and **named in the report**, never silently dropped; a
+key the baseline held — *including one it held at `null`* — survives projection
+and fails if it moved. Pinned by `tests/unit/s7-basket-and-projection.test.ts`,
+which is written mostly against what must NOT be tolerated, since both the
+basket rule and the projection can only ever fail by making the check weaker
+without making it red.
+
+### Verified
+
+| check | result |
+|---|---|
+| no `ZZ-VALIDATION-*` quote enters the basket | `gate1b:basket-membership` — 24 structural, 1 instrument, **23 in basket**; the two sets partition the estate exactly |
+| retained population byte-identical to its preserved state | global digest **`e9943ad8c0fb6092e4e97e27239c1e56cea7cc45c4bfe087dcb41475699d9894`** — the same remainder digest recorded in *The investigation* below, reached independently by the standing check |
+| additions are the approved A-1 set and nothing else | 2214 instances, exactly six shapes: `sellBeforeAdjustmentPerUnit`, `adjDeltaPerUnit`, `sellAfterAdjustmentPerUnit`, `liftDeltaPerUnit`, `sellAfterLiftPerUnit`, `overrideDeltaPerUnit` |
+| `verify:s7-preserved` passes | **yes** — 23 quotes, every captured commercial scalar identical |
+| `prebuild` passes with the verifier retained as a governed step | **yes** |
+| `test:unit` | 744/744 |
+
+The quote itself is left exactly as it stands, at `0.5072`. It was never
+restored and its value was never adopted as a reference — it is simply no longer
+asked to be one.
 
 ---
 
@@ -143,7 +208,7 @@ propagation."* Pricing adjustments are not what it exists to hold. But an
 artifact that announces its own disposability and still sits in the release's
 governing evidence is the basket question, not a data-hygiene question.
 
-### The wiring makes this urgent
+### The wiring made this urgent — and is now satisfied
 
 `verify:s7-preserved` is now the ninth step of `prebuild`, so a change to
 `SkuPerTierRollup` can no longer pass the build without executing the verifier
@@ -152,9 +217,10 @@ now fails whenever any of the 24 basket quotes is edited by anyone** — builds
 are bound to production data.
 
 That coupling is precisely this record's finding, arriving at a place where it
-costs something. The two are one decision: whichever basket scope restores the
-invariant's meaning also decouples the build. Until it is taken, `npm run build`
-fails.
+costs something. The two were one decision, and taking it resolved both: the
+basket now holds only preservation references, so `prebuild` measures the
+software rather than the estate. `verify:s7-preserved` is retained as a governed
+prebuild step and passes.
 
 ## What the finding actually is
 
@@ -189,10 +255,10 @@ basket anyway.
 | **Restore the quote** | Available and exactly reversible — all four adjustments were `null` at capture, recoverable from the audit trail. Returns the digest; leaves the mechanism. Already re-broken once between the first investigation and the second |
 | **Freeze the basket as an explicit ID list** | Broadest. Makes coverage a decision rather than a side effect of a query, at the cost of new quotes not joining automatically |
 
-**Not chosen here.** The first is the smallest change that restores the
-invariant's meaning, but which is right depends on whether S-7 is meant to
-measure *the production estate* or *a fixed reference set*, and that is a
-question about the evidence's purpose.
+**Chosen 2026-08-10: the first.** S-7 measures a preservation reference set, not
+the production estate — a mutable instrument cannot be a stable reference, and
+that is the whole of the reasoning. See *Disposition* at the head of this
+record.
 
 ## What must not be concluded
 
