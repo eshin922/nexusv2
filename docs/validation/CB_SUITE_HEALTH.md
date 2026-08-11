@@ -209,6 +209,7 @@ release is how fast unknowns become classified and then closed.
 | **Classified, not closed** | **2** | VAL-101 harness contamination · VAL-103 harness race |
 | **Boundary established, cause open** | **0** | — |
 | **Unclassified** | **0** | — |
+| **Active classified product defects** | **1** | VAL-104 — repaired, regression green |
 
 **Eleven scenarios were failing or unmeasured when classification began. Five
 remain unclassified.** No pass count was pursued, and one scenario moved to
@@ -631,51 +632,84 @@ outright; or make reconcile defer to rows holding uncommitted meta edits the way
 `markupDirty` already tracks. These differ in blast radius across markup,
 category and vendor, all three of which share `scheduleMetaSave`.
 
-### VAL-104 full-suite boundary — **product decision required; not repaired**
+### VAL-104 — **product interaction defect: REPAIRED**
 
-VAL-104 is recorded above as closed, and it passes when its file runs alone. In
-the **full-suite configuration** it fails, and the two ways it can fail are the
-same finding seen from opposite sides.
+**Governing behavior.** A stale asynchronous completion must not overwrite a
+newer operator search query.
 
-**As committed** — `await (await clearReceipt).finished()` at `:537` hangs for
-the full 90s. `.finished()` waits for the Server Action response *body*, which
-is exactly what React abandons when a following refresh supersedes the receipt.
+**Ownership boundary — what was actually wrong.** The Pricing Vendor control
+holds two kinds of state under one owner:
 
-**With that wait removed** — the scenario reaches the vendor search, and the
-rendered status reads:
+| state | owner |
+|---|---|
+| `vendorId`, `vendorName` | **server** — async completions and store reconciles |
+| `vendorQuery`, `vendorEditing`, `vendorResults`, `vendorSearchComplete` | **operator** — gestures only |
 
-> `No eligible HubSpot Vendors match “”.`
+Three places reset search state from server state: the save's success path
+(`:645`), its rollback path (`:607`), and the store-sync effect (`:555`). All
+three are asynchronous completions, and all three were **redundant** — every
+gesture that changes a vendor already sets the query at the moment it is made.
+Clear empties it once; select fills it with the chosen name. Repeating it on
+completion added nothing except the chance to arrive late.
 
-The searchbox is **empty**. `fill("No Matching Vendor")` landed and was then
-wiped by a refresh belonging to the *previous* action (Clear Pricing Vendor).
+**Repair — the preferred separation, which was structurally possible.**
 
-**Why this is not a test-sequencing defect.** The clear's operator-visible
-effects are asserted *before* the fill, and they pass — the vendor input reads
-empty, `Historical supplier` and `Validation Supplier` are both restored. A
-refresh still arrives after all of that and resets the control.
+- Clear sets the query to empty **once**, in the gesture.
+- Completions update vendor **data** and nothing else.
+- The store-sync effect was split: a line-identity effect resets the search
+  interaction (a different line is a different control); the store-value effect
+  updates vendor data, category and markup, and never touches search state.
+- All five gesture sites route through one `setVendorSearchState(query, editing)`
+  helper, so the boundary is stated once rather than repeated.
 
-So there is **no operator-observable moment after which typing is safe.** The
-test could only ever serialise on the network receipt, which is why it did.
+**Generation guard — for what separation cannot cover.** Two searches can be in
+flight at once: the 250ms debounce cancels pending *timers*, not requests. Each
+search interaction takes the next generation, and a completion carrying an older
+one drops. Leaving a search bumps it too, so an abandoned search cannot
+repopulate results.
 
-**Same family as costs-reconciliation-ordering** (already classified as a V1
-product defect): an operator's uncommitted local value discarded by a reconcile
-belonging to a different action. Pattern 47 governs that contract, and Pattern
-55 governs the refresh volume that makes the window wide.
+**Explicitly not done**, per the disposition: no Pattern 47 blur/Enter contract
+on a search box, no global refresh delay, no typing disabled pending a receipt,
+no raised timeouts.
 
-**Why it stops here rather than being repaired.** The Pattern 47 dirty-flag
-contract was written for autosaved *persisted* fields. The Pricing Vendor
-control is a **search box** — its value is a query, not a stored value, and
-"commit on blur/Enter" is not obviously the right shape for search-as-you-type.
-Whether it takes the dirty contract, whether the clear action should refresh at
-all, or whether the refresh should be scoped away from operator-focused inputs,
-is a product/design decision rather than a mechanical repair.
+**Regression** — `tests/e2e/costing/vendor-search-query-ownership.spec.ts`,
+which exercises the race deliberately: clear → reach the operator-visible
+cleared state → type → let the clear's completion land underneath → query
+intact → results correspond. It types with `pressSequentially` rather than
+`fill`, because `fill` sets the value in one shot and can complete before the
+save is even dispatched — the one interleaving that cannot reproduce this.
 
-The experimental removal of the receipt waits was reverted; the file is at its
-committed state, so VAL-104 remains exactly as recorded — passing in isolation,
-failing in the full suite.
+**Proven in both directions.** With the repair reverted it fails, and the
+received values are the diagnosis: `"ing Vendor"` on one run, `"ching Vendor"`
+on another — the box emptied *mid-typing*, keeping only the keystrokes that
+landed after the reset, at a different point each time. With the repair, green.
 
-**Not attributed elsewhere.** Whether this same window explains any other
-intermittent scenario is not asserted.
+It also proves the half a careless fix breaks: **clear still clears** when
+nothing follows it, checked after the save has landed rather than only at first
+paint.
+
+**VAL-104's own scenario** could then drop the receipt waits it had accumulated.
+They were load-bearing for a reason that no longer exists — the completion used
+to reset the box, so the scenario had to let it land before typing. `.finished()`
+waits for the response *body*, exactly what React abandons when a refresh
+supersedes a receipt, which is why it hung for the full 90s in the full suite.
+The third `requestfailed` filter, held strict until now, was extended once the
+scenario carried a DB poll proving persistence.
+
+**Full suite: 24 passed, 2 failed** — both remaining failures the
+previously-classified freight items.
+
+**Observed, not repaired, and deliberately not folded in.** After a
+select-then-clear sequence without a reload, the rendered vendor can fall back
+to the value the page was loaded with — neither the selection nor the cleared
+state, and disagreeing with the row. It reproduces with the ownership repair
+reverted, so it is not caused by it. Store-snapshot staleness (Pattern 41
+family); the regression reloads to step around it rather than asserting through
+it.
+
+**Suite variance worth recording:** VAL-101 failed once across five full-suite
+runs (`cm_assembly_total` null at the second of six autosaved fields) and passed
+on the next run. One occurrence, not investigated, not attributed.
 
 ### VAL-209 — **harness: a destructive scenario with no teardown; now passes**
 

@@ -523,6 +523,32 @@ function PackagingRow({
   const inheritedSource = inherited?.inheritedSource ?? null;
   const isInheriting = markupPct === "" && inheritedMarkup !== null;
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ownership boundary for the Pricing Vendor control (VAL-104).
+  //
+  // The control holds two kinds of state, and they have different owners:
+  //
+  //   vendor DATA      -- vendorId, vendorName. Server-owned. Async
+  //                       completions and store reconciles set these.
+  //   SEARCH state     -- vendorQuery, vendorEditing, vendorResults,
+  //                       vendorSearchComplete. OPERATOR-owned. Only an
+  //                       operator gesture (type, Change, Clear, Cancel,
+  //                       select) or a change of line identity may set them.
+  //
+  // They used to share one owner, and a Clear's own completion then wiped a
+  // query the operator had typed while it was in flight: the box emptied and
+  // the surface reported `No eligible HubSpot Vendors match ""`. Nothing
+  // failed, and there was no moment after which typing was safe -- the clear's
+  // visible effects had already landed when the reset arrived.
+  //
+  // This is transient search-as-you-type state, not an autosaved value, so it
+  // takes no Pattern 47 blur/Enter contract. Separation is the whole fix.
+  //
+  // The generation counter covers what separation cannot: two searches can be
+  // in flight at once (the debounce cancels pending timers, not requests), so
+  // an older response could still land over a newer query's results. Each
+  // search interaction takes the next number, and a completion carrying an
+  // older one is stale by definition and drops.
+  const searchGeneration = useRef(0);
   const stateRef = useRef({
     vendorId,
     vendorName,
@@ -549,12 +575,16 @@ function PackagingRow({
   // Dirty state is what protects it now: while the operator holds an
   // uncommitted markup, the store does not get to overwrite it. Identity
   // change still resets, because that is a different line.
+  // A different line is a different control, so its search interaction resets.
+  // This is the ONLY non-gesture path allowed to touch search state.
+  useEffect(() => {
+    setVendorSearchState(storeVendorName ?? "", false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [line.lineGroupId]);
+
   useEffect(() => {
     setVendorId(storeVendorId);
     setVendorName(storeVendorName);
-    setVendorQuery(storeVendorName ?? "");
-    setVendorEditing(false);
-    setVendorSearchComplete(false);
     setCategory(storeCategory);
     // canonicalRef always tracks server truth -- it is the rollback target --
     // but the VISIBLE value stays the operator's while their edit is pending.
@@ -604,8 +634,9 @@ function PackagingRow({
         const previous = canonicalRef.current;
         setVendorId(previous.vendorId);
         setVendorName(previous.vendorName);
-        setVendorQuery(previous.vendorName ?? "");
-        setVendorEditing(false);
+        // Same boundary as the success path: a rollback restores the vendor
+        // DATA. It is still an asynchronous completion, so it does not get to
+        // reach into a search the operator has since started.
         setCategory(previous.category);
         setMarkupPct(previous.markupPct);
         setMarkupDirty(false);
@@ -642,8 +673,11 @@ function PackagingRow({
       setMarkupDirty(false);
       setVendorId(result.data.pricingVendorHubspotCompanyId);
       setVendorName(result.data.pricingVendorNameSnapshot);
-      setVendorQuery(result.data.pricingVendorNameSnapshot ?? "");
-      setVendorEditing(false);
+      // Deliberately does NOT set the query or leave edit mode. Every gesture
+      // that changes the vendor already set both, at the moment it was made --
+      // Clear empties the query once, select fills it with the chosen name.
+      // Repeating it here adds nothing except the chance to arrive late and
+      // overwrite whatever the operator has typed since.
       canonicalRef.current = {
         vendorId: result.data.pricingVendorHubspotCompanyId,
         vendorName: result.data.pricingVendorNameSnapshot,
@@ -680,8 +714,28 @@ function PackagingRow({
     fireMetaSave({ markupPct });
   }
 
+  /**
+   * Set the search interaction. The ONLY way search state changes, other than
+   * a keystroke.
+   *
+   * Bumping the generation is what makes leaving a search final: an in-flight
+   * request would otherwise return and repopulate the results of a search the
+   * operator has already abandoned.
+   */
+  function setVendorSearchState(nextQuery: string, editing: boolean) {
+    searchGeneration.current += 1;
+    setVendorQuery(nextQuery);
+    setVendorEditing(editing);
+    setVendorResults([]);
+    setVendorSearchComplete(false);
+  }
+
   function scheduleVendorSearch(query: string) {
     if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    // Every keystroke supersedes whatever was in flight, so it takes the next
+    // generation. Results carrying an older one belong to a query the operator
+    // has already moved past.
+    const generation = ++searchGeneration.current;
     if (query.trim().length < 2) {
       setVendorResults([]);
       setVendorSearchComplete(false);
@@ -691,10 +745,13 @@ function PackagingRow({
     searchDebounce.current = setTimeout(() => {
       startSearchTransition(async () => {
         try {
-          setVendorResults(await searchPricingVendors(query));
+          const results = await searchPricingVendors(query);
+          if (generation !== searchGeneration.current) return;
+          setVendorResults(results);
           setVendorSearchComplete(true);
           setVendorError(null);
         } catch {
+          if (generation !== searchGeneration.current) return;
           setVendorResults([]);
           setVendorSearchComplete(false);
           setVendorError("Pricing Vendors could not be loaded.");
@@ -779,12 +836,7 @@ function PackagingRow({
               <span className="pricing-source-actions">
                 <button
                   type="button"
-                  onClick={() => {
-                    setVendorEditing(true);
-                    setVendorQuery("");
-                    setVendorResults([]);
-                    setVendorSearchComplete(false);
-                  }}
+                  onClick={() => setVendorSearchState("", true)}
                 >
                   Change
                 </button>
@@ -799,9 +851,9 @@ function PackagingRow({
                     };
                     setVendorId(null);
                     setVendorName(null);
-                    setVendorQuery("");
-                    setVendorResults([]);
-                    setVendorSearchComplete(false);
+                    // The query is emptied here, once, by the gesture that
+                    // means it. The save's completion no longer repeats it.
+                    setVendorSearchState("", false);
                     fireMetaSave({ vendorId: null, vendorName: null });
                   }}
                 >
@@ -828,12 +880,7 @@ function PackagingRow({
             {vendorId && !disabled && (
               <button
                 type="button"
-                onClick={() => {
-                  setVendorEditing(false);
-                  setVendorQuery(vendorName ?? "");
-                  setVendorResults([]);
-                  setVendorSearchComplete(false);
-                }}
+                onClick={() => setVendorSearchState(vendorName ?? "", false)}
               >
                 Cancel
               </button>
@@ -871,10 +918,7 @@ function PackagingRow({
                   };
                   setVendorId(vendor.id);
                   setVendorName(vendor.name);
-                  setVendorQuery(vendor.name);
-                  setVendorEditing(false);
-                  setVendorResults([]);
-                  setVendorSearchComplete(false);
+                  setVendorSearchState(vendor.name, false);
                   // Vendor selection is a choice, so it commits on the click
                   // that makes it -- immediate, not debounced.
                   fireMetaSave({

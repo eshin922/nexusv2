@@ -463,7 +463,18 @@ test("VAL-104 governed Pricing Vendor persists without exposing dormant Pricing 
       /^\/projects\/[^/]+\/quotes\/[^/]+\/costs$/.test(url.pathname) &&
       url.searchParams.has("_rsc") &&
       failure === "net::ERR_ABORTED";
-    if (!expectedSupersededRsc) {
+    // Same allowance as VAL-101's, and now with the same evidence behind it:
+    // this scenario polls the row until the vendor snapshot is what was
+    // chosen, so the write is proven independently of the receipt. It was
+    // held strict until the receipt waits were removed, because until then
+    // there was nothing here that verified persistence.
+    const expectedSupersededActionReceipt =
+      request.method() === "POST" &&
+      request.resourceType() === "fetch" &&
+      /^\/projects\/[^/]+\/quotes\/[^/]+\/costs$/.test(url.pathname) &&
+      request.headers()["next-action"] !== undefined &&
+      failure === "net::ERR_ABORTED";
+    if (!expectedSupersededRsc && !expectedSupersededActionReceipt) {
       requestFailures.push(`${request.method()} ${request.url()} ${failure}`);
     }
   });
@@ -527,14 +538,17 @@ test("VAL-104 governed Pricing Vendor persists without exposing dormant Pricing 
   await expect(firstPackagingRow.getByText("Historical supplier")).toHaveCount(0);
   await expect(page.getByLabel("Pricing Date")).toHaveCount(0);
 
-  const clearReceipt = page.waitForResponse(
-    (candidate) =>
-      candidate.request().method() === "POST" &&
-      candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
-      candidate.ok(),
-  );
+  // These steps used to wait on Server Action receipts, and `.finished()`
+  // waits for the response BODY -- exactly the part React abandons when a
+  // later refresh supersedes the receipt. In the full-suite configuration that
+  // hung for the whole 90s timeout.
+  //
+  // The waits were load-bearing for a reason that no longer exists: the clear's
+  // completion used to reset the search box, so the scenario had to let it land
+  // before typing. That was VAL-104's product defect, and it is repaired -- see
+  // vendor-search-query-ownership.spec.ts. Search state is now operator-owned,
+  // so there is nothing to serialise against, and the assertions below poll.
   await page.getByRole("button", { name: "Clear Pricing Vendor" }).first().click();
-  await (await clearReceipt).finished();
   const vendorInput = page
     .getByRole("searchbox", { name: "Pricing Vendor" })
     .first();
@@ -544,39 +558,32 @@ test("VAL-104 governed Pricing Vendor persists without exposing dormant Pricing 
   ).toBeVisible();
   await expect(firstPackagingRow.getByText("Validation Supplier")).toBeVisible();
 
-  const emptySearchReceipt = page.waitForResponse(
-    (candidate) =>
-      candidate.request().method() === "POST" &&
-      candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
-      candidate.ok(),
-  );
   await vendorInput.fill("No Matching Vendor");
-  await (await emptySearchReceipt).finished();
   await expect(
     page.getByText('No eligible HubSpot Vendors match “No Matching Vendor”.'),
   ).toBeVisible();
 
-  const searchReceipt = page.waitForResponse(
-    (candidate) =>
-      candidate.request().method() === "POST" &&
-      candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
-      candidate.ok(),
-  );
   await vendorInput.fill("Contract");
-  await (await searchReceipt).finished();
-  const saveVendorReceipt = page.waitForResponse(
-    (candidate) =>
-      candidate.request().method() === "POST" &&
-      candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
-      candidate.ok(),
-  );
   await page
     .getByRole("option", { name: "Validation Contract Manufacturer" })
     .click();
-  await (await saveVendorReceipt).finished();
 
   const sql = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
   try {
+    // Polled rather than read once: the save is proven by the row, not by a
+    // receipt that may be superseded before its body arrives.
+    await expect
+      .poll(async () => {
+        const [row] = await sql<{ snapshot: string | null }[]>`
+          select pricing_vendor_name_snapshot as snapshot
+          from assembly_leaf_inputs
+          where line_group_id = ${lineGroupId}
+          order by tier_id limit 1
+        `;
+        return row?.snapshot ?? null;
+      })
+      .toBe("Validation Contract Manufacturer");
+
     const rows = await sql<{
       line_group_id: string;
       pricing_vendor_hubspot_company_id: string;
