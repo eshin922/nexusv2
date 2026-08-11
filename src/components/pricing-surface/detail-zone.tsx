@@ -798,19 +798,63 @@ export function DetailCostStack({
   const anyLifts = columns.some((c) => c.liftSkus.length > 0);
   const anyOverrides = columns.some((c) => c.overrideSkus.length > 0);
 
-  /** A row of cells, one per tier, plus the trace panel if it is open here. */
+  /**
+   * WHICH ROW the open trace belongs to, resolved by matching the traced node
+   * key against the keys each row rendered.
+   *
+   * Matched rather than parsed. The key grammar is `quote/{tierUuid}/{name}`
+   * and reading the row out of that string would be identity derivation in the
+   * layout layer — it would break silently the first time the grammar gained a
+   * segment. These are the same key objects the cells were built from.
+   */
+  let tracedField: string | null = null;
+  if (traced) {
+    outer: for (const c of columns) {
+      if (!c.blend) continue;
+      for (const [field, key] of Object.entries(c.blend.keys)) {
+        if (key === traced.nodeKey) {
+          tracedField = field;
+          break outer;
+        }
+      }
+    }
+  }
+
+  /**
+   * A row of cells, one per tier — and the trace INLINE beneath it when the
+   * open node is one of that row's own cells.
+   *
+   * The Design Authority renders the stack trace after the whole stack
+   * (`pricing-page.jsx:978`), and the restoration followed it. Edward's
+   * operator-acceptance review dispositioned inline instead: transposed, the
+   * stack is thirteen rows tall, so a panel at its foot can sit ~1200px from
+   * the cell that opened it and reads as an unrelated block rather than as that
+   * row expanding.
+   *
+   * **Accepted Nexus extension (Pattern 39), not a fidelity gap.** Documented
+   * here and in `phase-3-operator-acceptance.md` R-1 so a later audit finds the
+   * reason rather than re-raising the divergence. The panel keeps the canonical
+   * `.r11-tracewrap` register — an accent top-rule butted flush against what it
+   * expands — which is the vocabulary that makes an inline expansion legible,
+   * and which the prototype already uses inline for the per-SKU breakdown
+   * (`SkuTrace`).
+   */
   const row = (
     key: string,
     className: string,
     slab: React.ReactNode,
     cell: (c: TierStackColumn) => React.ReactNode,
+    field?: string,
   ) => (
-    <div className={className} key={key}>
-      <div className="r11-slab">{slab}</div>
-      {columns.map((c) => (
-        <Fragment key={c.numericId}>{cell(c)}</Fragment>
-      ))}
-    </div>
+    <Fragment key={key}>
+      <div className={className}>
+        <div className="r11-slab">{slab}</div>
+        {columns.map((c) => (
+          <Fragment key={c.numericId}>{cell(c)}</Fragment>
+        ))}
+      </div>
+      {field != null && field === tracedField && renderTrace && renderTrace()}
+    </Fragment>
   );
 
   /** A LEVEL — a price at a point on the ladder. */
@@ -856,10 +900,6 @@ export function DetailCostStack({
     );
   };
 
-  const tracedColumn = columns.find(
-    (c) => traced != null && traced.tierId === c.numericId,
-  );
-
   return (
     <div className="psr-detail-section psr-detail-section--cost-stack">
       <div className="section-head">
@@ -902,6 +942,7 @@ export function DetailCostStack({
               <span className="s">sell per unit</span>
             </>,
             (c) => level(c, s.key),
+            s.key,
           ),
         )}
 
@@ -910,6 +951,7 @@ export function DetailCostStack({
           "r11-srow rule",
           <span className="n">Sell before adjustment</span>,
           (c) => level(c, "sellBefore"),
+          "sellBefore",
         )}
 
         {row(
@@ -920,6 +962,7 @@ export function DetailCostStack({
             <span className="s">tier ?? global — replaces</span>
           </>,
           (c) => contribution(c, "adjDelta", null),
+          "adjDelta",
         )}
 
         {/*
@@ -935,6 +978,7 @@ export function DetailCostStack({
             <span className="s">running</span>
           </>,
           (c) => level(c, "sellAfterAdj"),
+          "sellAfterAdj",
         )}
 
         {anyLifts &&
@@ -953,6 +997,7 @@ export function DetailCostStack({
                     <span className="cost">—</span>
                   </div>
                 ),
+            "liftDelta",
           )}
 
         {anyLifts &&
@@ -964,6 +1009,7 @@ export function DetailCostStack({
               <span className="s">running</span>
             </>,
             (c) => level(c, "sellAfterLift"),
+            "sellAfterLift",
           )}
 
         {anyOverrides &&
@@ -982,6 +1028,7 @@ export function DetailCostStack({
                     <span className="cost">—</span>
                   </div>
                 ),
+            "overrideDelta",
           )}
 
         {row(
@@ -992,6 +1039,7 @@ export function DetailCostStack({
             <span className="s">per unit, blended</span>
           </>,
           (c) => level(c, "sell"),
+          "sell",
         )}
 
         {row(
@@ -999,6 +1047,7 @@ export function DetailCostStack({
           "r11-srow",
           <span className="n">Unit cost</span>,
           (c) => level(c, "cost"),
+          "cost",
         )}
 
         {row(
@@ -1035,19 +1084,12 @@ export function DetailCostStack({
               }
             />
           ),
+          "margin",
         )}
 
         <ReconStrip columns={columns} />
       </div>
 
-      {/*
-        The trace opens BENEATH the stack rather than inside it. The grid is one
-        row per quantity now, so there is no per-tier row to pin it under — and
-        the panel already names the tier it was opened at.
-      */}
-      {tracedColumn && renderTrace && (
-        <div className="psr-stack-tracewrap">{renderTrace()}</div>
-      )}
     </div>
   );
 }

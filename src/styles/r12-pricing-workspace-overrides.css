@@ -169,13 +169,17 @@
   color: var(--bad);
 }
 
-/* ── The trace, opened beneath the transposed stack ───────────────────────
+/* ── The trace, opened INLINE beneath the row it explains ──────────────
  *
- * The R6 shape put one row per tier, so a trace could pin under the row it was
- * opened from. Transposed, a tier is a COLUMN and there is no row to pin
- * beneath — so the panel sits under the whole stack, and names the tier it was
- * opened at in its own title.
+ * Accepted Nexus extension (Pattern 39). The Design Authority renders the stack
+ * trace after the whole stack; Edward's operator-acceptance review
+ * dispositioned inline instead, because transposed the stack is thirteen rows
+ * tall and a panel at its foot sits ~1200px from the cell that opened it.
+ *
+ * No rule needed here: the panel keeps the canonical `.r11-tracewrap` register
+ * — an accent top-rule butted flush against what it expands — which is exactly
+ * the vocabulary an inline expansion wants, and which the prototype already
+ * uses inline for the per-SKU breakdown. The earlier `.psr-stack-tracewrap`
+ * with its 10px gap is gone: that gap had no authority behind it and was what
+ * made a correctly-placed panel read as an unrelated block.
  */
-.psr-stack-tracewrap {
-  margin-top: 10px;
-}

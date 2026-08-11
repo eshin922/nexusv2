@@ -200,7 +200,9 @@ test("P3-017 the Cost Stack ladder renders and every column reconciles", async (
     .first();
   await expect(firstSellCell).toBeVisible();
   await firstSellCell.click();
-  await expect(page.locator(".psr-stack-tracewrap")).toBeVisible({ timeout: 15_000 });
+  // Inline beneath its own row per R-1; adjacency is pinned by
+  // `cost-stack-inline-trace.spec.ts`, so this only asserts it opened.
+  await expect(stack.locator(".r11-tracewrap")).toBeVisible({ timeout: 15_000 });
 
   expect(pageFailures, "the pricing surface threw").toEqual([]);
 });
