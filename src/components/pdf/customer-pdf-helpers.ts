@@ -97,7 +97,35 @@ export function tierGrand(
     }
   });
   const total = priced + (foldFees ? serviceFeesTotal(serviceFees) : 0);
-  const units = pricedCount * tiers[ti].quantity;
-  const perUnit = units > 0 ? total / units : null;
+
+  // T-1 repair (2026-08-11). Was `pricedCount * tiers[ti].quantity`.
+  //
+  // `pricedCount` is a ROW CARDINALITY, not a quantity — it counts priced
+  // SKU rows. Multiplying shipped quantity by it produced a denominator
+  // with no commercial meaning, and the printed per-unit came out at 1/N
+  // of the true value (N = priced row count). It read correctly only at
+  // N = 1, which is why it survived.
+  //
+  // Every row's price is per finished unit of the order: `lineTotal` (and
+  // `priced` above) multiplies EVERY row by the same `tiers[ti].quantity`.
+  // So `total` is already Σ(per-unit prices) × quantity, and the governed
+  // shipped quantity is the only correct divisor. Component-level
+  // multiplicity (`assembly_leaves.quantity`) is folded into each row's
+  // per-unit price upstream in the math layer, never into tier quantity.
+  //
+  // Invariant this restores — and the docstring's, and the one the PDF
+  // prints for the customer in `customer-pdf-grand-total-row.tsx`
+  // ("the turnkey total divided by units shipped"):
+  //
+  //     perUnit × tiers[ti].quantity === total
+  //
+  // `pricedCount > 0` is retained deliberately: it is the "no rows priced"
+  // signal. `customer-pdf-grand-total-row.tsx:82` reads `perUnit == null`
+  // to render "total on request" rather than a governed $0.00 (OD-005).
+  // Dropping that guard would print "from $0.00 /unit" on a fully
+  // unpriced tier carrying folded fees.
+  const shippedQty = tiers[ti].quantity;
+  const perUnit =
+    pricedCount > 0 && shippedQty > 0 ? total / shippedQty : null;
   return { total, hasUnpriced, perUnit };
 }

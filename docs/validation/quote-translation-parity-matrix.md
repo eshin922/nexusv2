@@ -4,7 +4,8 @@
 quote.** Separate from `so-field-parity-matrix.md` (Nexus → NetSuite Sales
 Order). Both carry into final V1 certification.
 
-**Status: OPEN. One V1 defect already confirmed (T-1). Trace incomplete.**
+**Status: OPEN. T-1 confirmed as a HIGH V1 blocker and REPAIRED (2026-08-11).
+Production/Freight trace incomplete.**
 
 ---
 
@@ -118,17 +119,93 @@ unit*.
 **Not a rounding or display issue.** The number is produced by a defined
 calculation; the calculation answers a different question than the label.
 
-**Disposition: NOT FIXED.** Recorded for Edward. A fix touches a
-customer-facing commercial figure on every quote and belongs in its own
-change with its own evidence, not folded into fixture preparation.
+**Disposition: REPAIRED 2026-08-11**, independently of Case B fixture
+preparation, per Edward.
 
-**Regression coverage owed on fix** — the shape that would have caught it:
-- `N > 1`: `perUnit × quantity === total` must hold. This is the invariant the
-  printed definition asserts, and it is the whole test.
-- `N = 1`: must remain correct (guards against an over-correction).
-- unpriced rows present (`hasUnpriced`): basis must be stated, since `total`
-  covers only priced rows while `quantity` covers the whole tier — see T-2.
-- both `itemized` and `turnkey_only`, since all three surfaces share the helper.
+**Authoritative quantity basis — established before the repair.** The chain is
+single-valued per tier for every reachable V1 quote structure:
+
+```
+quote_tiers.qty
+  → bundle.data.costing.tiers[].qty        (math layer — governed authority)
+  → CustomerViewTier.quantity              (customer-view-resolver.ts:199)
+  → CpdfTier.quantity                      (customer-view-to-cpdf.ts:109)
+  → tiers[ti].quantity
+```
+
+Two properties make `tiers[ti].quantity` the only correct divisor:
+
+1. **Every row is priced per finished unit of the order.** `lineTotal`
+   (`helpers.ts:69`) and the `priced` accumulator multiply *every* row by the
+   *same* `tiers[ti].quantity`. So `total` is already Σ(per-unit prices) ×
+   quantity.
+2. **Component multiplicity never reaches tier quantity.**
+   `assembly_leaves.quantity` is folded into each row's per-unit price upstream
+   in the math layer. `skuSet` is leaf-level and flattens leaves across
+   assemblies, so assembly count cannot enter the denominator either.
+
+**The repair** — `customer-pdf-helpers.ts:127`, one expression:
+
+```ts
+const shippedQty = tiers[ti].quantity;
+const perUnit = pricedCount > 0 && shippedQty > 0 ? total / shippedQty : null;
+```
+
+`pricedCount > 0` is retained deliberately — it is the "no rows priced" signal
+that `customer-pdf-grand-total-row.tsx:82` reads to render "total on request".
+Dropping it would print `from $0.00 /unit` on a fully unpriced tier carrying
+folded fees, violating OD-005.
+
+**Unchanged, as required:** quoted total · row sell prices · costing · margin ·
+tier calculations · itemized/turnkey applicability. The change is confined to
+one divisor in one pure function.
+
+**All consumers proven to receive the corrected basis.** `tierGrand` is the
+single derivation point — no customer-facing surface computes per-unit
+independently:
+
+| consumer | file:line | presentation |
+|---|---|---|
+| itemized grand-total row | `customer-pdf-grand-total-row.tsx:53` | `itemized` |
+| turnkey hero | `customer-pdf-turnkey-summary.tsx:114` | `turnkey_only` |
+| turnkey tier cards | `customer-pdf-turnkey-summary.tsx:175` | `turnkey_only` |
+
+(`customer-pdf-charges-block.tsx:82` also renders a `/unit` string, but it is a
+per-unit **freight rate**, not a tier per-unit — out of T-1 scope, in scope for
+the Freight trace below.)
+
+**Regression coverage** — `tests/unit/customer-pdf-per-unit-basis.test.ts`,
+11 cases, all asserting through the invariant `perUnit × quantity === total`
+rather than golden numbers:
+
+| # | case |
+|---|---|
+| 1 | `N = 1` — previously-correct case preserved |
+| 2 | `N > 1` — the cardinality defect (the Nemah instance exactly) |
+| 3 | unequal component prices — a mean-of-rows implementation fails here |
+| 4 | multiple assemblies — leaves flatten, quantity stays shared |
+| 5 | `itemized` — per-tier basis, multi-tier |
+| 6 | `turnkey_only` — fees folded into the all-in unit |
+| 7 | non-integer currency result — rounding is display-only, basis exact |
+| 8 | **falsification** against the `pricedCount × quantity` denominator |
+| 9 | no rows priced — stays `null`, never a governed $0.00 |
+| 10 | partially priced — "from $X" as a lower bound |
+| 11 | zero shipped quantity — no division |
+
+**Falsification executed, not merely written.** With the pre-repair denominator
+restored, **8 of 11 fail** (2,3,4,5,6,7,8,10). Cases 1, 9 and 11 still pass —
+correct, as those are the behavior-preservation cases the repair must not
+change. Governed suite `npm run test:unit`: **798/798**, up from 787.
+
+**Live proof on Nemah `f544128a`** (1,000 units, 3 priced rows), both
+presentations, before Send:
+
+| presentation | rows | total | per-unit |
+|---|---|---|---|
+| `itemized` | $4.00 / $6.00 / $2.00 → $4,000 / $6,000 / $2,000 | **$12,000** | **$12.00** |
+| `turnkey_only` | (folded) | **$12,000** | **$12.00** |
+
+$12,000 ÷ 1,000 = $12.00. ✓
 
 ### T-2 · `hasUnpriced` basis is unresolved · **BUSINESS DISPOSITION REQUIRED**
 
