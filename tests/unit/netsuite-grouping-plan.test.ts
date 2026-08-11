@@ -208,7 +208,8 @@ test("turnkey_only requires grouping and plans one group per assembly", () => {
   assert.equal(plan.applicability, "turnkey_only");
   assert.equal(plan.groupingRequired, true);
   assert.equal(plan.groups.length, 2);
-  assert.ok(plan.groups.every((g) => g.externalId.startsWith("nxs-grp-")));
+  assert.ok(plan.derivable);
+  assert.ok(plan.groups.every((g) => g.externalId?.startsWith("nxs-grp-")));
 });
 
 // ── 5 · amount reconciliation is unchanged ─────────────────────────────────
@@ -282,4 +283,46 @@ test("a replayed frozen snapshot still strips before transmission", () => {
   // Simulates `payload = durableAttempt.payloadSnapshot` — a jsonb round-trip.
   const replayed = JSON.parse(JSON.stringify(attachGroupingPlan(raw, plan)));
   assert.equal(JSON.stringify(stripGroupingPlan(replayed)), JSON.stringify(raw));
+});
+
+// ── the defect the real-data dry run found ─────────────────────────────────
+
+test("a non-positive member quantity degrades the plan instead of throwing", () => {
+  // computeCompositionHash refuses quantity 0, which a zero-qty tier produces.
+  // Throwing here would put plan-building in the path of whether a Sales Order
+  // pushes at all — a provider-behaviour change §4 is not permitted to make.
+  const plan = buildGroupingPlan({
+    detailLevel: "turnkey_only", customerNetsuiteId: CUSTOMER, tierQty: 0,
+    lines: [line({ assemblyId: "A", sku: "BOTTLE", quantity: 0 })],
+  });
+
+  assert.equal(plan.derivable, false, "the plan must declare itself underivable");
+  assert.equal(plan.groups[0].compositionHash, null);
+  assert.equal(plan.groups[0].externalId, null);
+  assert.match(plan.groups[0].notDerivableReason ?? "", /positive integer/);
+  // The group is still RECORDED — visible and unusable beats absent.
+  assert.equal(plan.groups[0].members.length, 1);
+});
+
+test("one underivable group makes the whole plan underivable", () => {
+  // The walk checks a single field before touching NetSuite; a plan that is
+  // 90% derivable is still not a comparison target.
+  const plan = buildGroupingPlan({
+    detailLevel: "turnkey_only", customerNetsuiteId: CUSTOMER, tierQty: 1000,
+    lines: [
+      line({ assemblyId: "A", sku: "BOTTLE" }),
+      line({ assemblyId: "B", sku: "JAR", quantity: 0 }),
+    ],
+  });
+  assert.equal(plan.derivable, false);
+  assert.ok(plan.groups[0].compositionHash, "the healthy group keeps its identity");
+  assert.equal(plan.groups[1].compositionHash, null);
+});
+
+test("a healthy plan reports itself derivable", () => {
+  const plan = buildGroupingPlan({
+    detailLevel: "turnkey_only", customerNetsuiteId: CUSTOMER, tierQty: 1000,
+    lines: [line({ assemblyId: "A", sku: "BOTTLE" })],
+  });
+  assert.equal(plan.derivable, true);
 });

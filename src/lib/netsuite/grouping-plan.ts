@@ -62,10 +62,28 @@ export interface PlannedGroup {
   assemblyId: string;
   assemblySku: string;
   assemblyName: string;
-  /** Same hash `findOrCreateItemGroup` would compute for this composition. */
-  compositionHash: string;
-  /** `nxs-grp-<hash>` — the deterministic group identity. */
-  externalId: string;
+  /**
+   * Same hash `findOrCreateItemGroup` would compute for this composition.
+   * NULL when the composition is not hashable — see `notDerivableReason`.
+   */
+  compositionHash: string | null;
+  /** `nxs-grp-<hash>` — the deterministic group identity. NULL with the hash. */
+  externalId: string | null;
+  /**
+   * Why no deterministic identity could be derived, if none could.
+   *
+   * THE PLAN IS EVIDENCE, NOT A GATE. `computeCompositionHash` refuses a
+   * non-positive member quantity, which a zero-quantity tier produces. Letting
+   * that throw would put plan-building in the path of whether a Sales Order
+   * pushes at all — changing provider behaviour, which §4 is explicitly not
+   * permitted to do. So the group is recorded WITHOUT an identity and says so,
+   * which is also more useful to the walk than a crash: an undeliverable group
+   * is visible rather than absent.
+   *
+   * Caught by dry-running the plan against real production data; every unit
+   * fixture used positive quantities and none of them reached it.
+   */
+  notDerivableReason?: string;
   /** Sorted by `netsuiteItemId`, matching the hash's canonical member order. */
   members: PlannedMember[];
   /**
@@ -85,6 +103,12 @@ export interface PlannedGroup {
 }
 
 export interface GroupingPlan {
+  /**
+   * False when any planned group lacks a deterministic identity. The walk
+   * checks THIS before touching NetSuite — a non-derivable plan cannot serve
+   * as a comparison target, and grouping to it would be guesswork.
+   */
+  derivable: boolean;
   /** Read from the accepted quote's SEND-TIME snapshot. NULL → `itemized`,
    *  matching the customer-PDF adapter's documented default. */
   applicability: GroupingApplicability;
@@ -127,7 +151,7 @@ export function buildGroupingPlan(input: {
   }));
 
   if (!groupingRequired) {
-    return { applicability, groupingRequired, tierQty: input.tierQty, groups: [], lineAttribution };
+    return { derivable: true, applicability, groupingRequired, tierQty: input.tierQty, groups: [], lineAttribution };
   }
 
   // Group by assembly, preserving first-seen order so the plan reads in the
@@ -161,11 +185,17 @@ export function buildGroupingPlan(input: {
       netsuiteItemId: m.netsuiteItemId,
       quantity: m.quantity,
     }));
-    const compositionHash = computeCompositionHash({
-      customerNetsuiteId: input.customerNetsuiteId,
-      baseSku: head.assemblySku,
-      members: hashMembers,
-    });
+    let compositionHash: string | null = null;
+    let notDerivableReason: string | undefined;
+    try {
+      compositionHash = computeCompositionHash({
+        customerNetsuiteId: input.customerNetsuiteId,
+        baseSku: head.assemblySku,
+        members: hashMembers,
+      });
+    } catch (e) {
+      notDerivableReason = e instanceof Error ? e.message : String(e);
+    }
 
     const expectedAmount = round4(members.reduce((sum, m) => sum + m.amount, 0));
     const turnkeyUnitPrice =
@@ -176,14 +206,22 @@ export function buildGroupingPlan(input: {
       assemblySku: head.assemblySku,
       assemblyName: head.assemblyName,
       compositionHash,
-      externalId: externalIdForHash(compositionHash),
+      externalId: compositionHash ? externalIdForHash(compositionHash) : null,
+      ...(notDerivableReason ? { notDerivableReason } : {}),
       members,
       expectedAmount,
       turnkeyUnitPrice,
     });
   }
 
-  return { applicability, groupingRequired, tierQty: input.tierQty, groups, lineAttribution };
+  return {
+    derivable: groups.every((g) => g.compositionHash !== null),
+    applicability,
+    groupingRequired,
+    tierQty: input.tierQty,
+    groups,
+    lineAttribution,
+  };
 }
 
 /** Attach the plan to the payload that gets FROZEN. Never call this on the
