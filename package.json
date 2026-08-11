@@ -16,6 +16,7 @@
     "gate1b:capture-baseline": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/capture-costing-baseline.ts",
     "gate1b:verify-preserved": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/verify-costing-preserved.ts",
     "gate1b:basket-membership": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/basket-membership-check.ts",
+    "verify:below-floor-record": "node --env-file=.env.validation.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/verify/below-floor-authorization-record.ts",
     "verify:s7-preserved": "node --env-file-if-exists=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/verify-costing-preserved.ts",
     "verify:ri-7-readiness": "node --env-file=.env.local --experimental-strip-types scripts/verify/ri-7-schema-readiness.ts",
     "verify:scenario-quote-invariant": "node --env-file=.env.local --experimental-strip-types scripts/verify/scenario-quote-status-invariant.ts",
