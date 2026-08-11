@@ -1,9 +1,17 @@
 # `0064_below_floor_authorization` — migration preflight
 
-**Not applied to the shared database. Awaiting Edward's explicit authorization.**
+**APPLIED to the shared database 2026-08-11**, on Edward's explicit
+authorization, via the governed `npm run db:migrate` (which targets `DIRECT_URL`
+— port `:5432`, session mode). Applied count 62 → 63; **0064 was the only
+pending migration**, verified before application, so nothing else rode along.
 
-Applied and verified on the **isolated validation database only**
-(`127.0.0.1:55432`, Docker), where it is the 63rd journalled migration.
+Post-application verification is recorded in §6. Two descriptive corrections and
+one **material rollback defect** were found while verifying; both are marked
+inline where they occur, and the rollback correction in §5 should be read before
+any rollback is attempted.
+
+Previously applied and verified on the isolated validation database
+(`127.0.0.1:55432`, Docker), where it is also the 63rd journalled migration.
 
 > **Standing rule in force:** code depending on `0064` does not merge before the
 > migration is applied and verified. `298a8a5` already reads
@@ -45,8 +53,14 @@ Plus a `COMMENT ON COLUMN` recording that authority is independent of role.
 `below_floor_auth_live_idx` on `(quote_id, quote_version_number, tier_id)` —
 the lookup both gates perform.
 
-**Constraints:** 3 foreign keys, 1 primary key, 8 `NOT NULL`. No unique
+**Constraints:** 3 foreign keys, 1 primary key, 11 `NOT NULL`. No unique
 constraints, no check constraints, no triggers, no enum changes.
+
+> **Corrected post-application (2026-08-11).** This section originally said
+> "8 `NOT NULL`" and described `below_floor_auth_live_idx` without its predicate.
+> Verified against the applied schema: **11** NOT NULL columns, and the index is
+> **partial** — `WHERE (invalidated_at IS NULL)`. Neither changes the risk
+> assessment; both are corrected so the document is usable as a reference.
 
 All statements are `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`, so the
 migration is **idempotent** and re-running it is safe.
@@ -101,8 +115,33 @@ Fully reversible, because nothing is destroyed:
 ```sql
 DROP TABLE IF EXISTS below_floor_authorizations;
 ALTER TABLE users DROP COLUMN IF EXISTS commercial_approver;
-DELETE FROM drizzle.__drizzle_migrations WHERE hash LIKE '%0064_below_floor%';
+-- Identify the journal row by created_at, NOT by filename. See the correction below.
+DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1786320001000;
 ```
+
+> ### ⚠ Correction — the original rollback step would have matched nothing
+>
+> This section previously read
+> `DELETE FROM drizzle.__drizzle_migrations WHERE hash LIKE '%0064_below_floor%'`.
+> **`hash` holds a content SHA of the migration file, not its name** — verified
+> post-application, where the 0064 row is
+> `id=66, created_at=1786320001000, hash=00d99293c617929ba5a69fa8…`.
+>
+> The predicate matches zero rows, so a rollback following it would have dropped
+> the table and column while **leaving the journal row in place**. Drizzle would
+> then consider 0064 applied against a database where its objects no longer
+> exist, and the next `db:migrate` would skip it — the schema silently one
+> migration behind what the journal claims, which is worse than a failed
+> rollback because nothing reports it.
+>
+> Surfaced by a verification query that searched on the same wrong assumption and
+> returned `journal rows matching 0064 : 0` while the migration was plainly
+> applied. The disagreement between two of my own checks is what exposed it.
+>
+> **Correct identification:** `created_at = 1786320001000` (or the row with the
+> maximum `created_at`, which is 0064 until a later migration lands). Confirm
+> before deleting:
+> `SELECT id, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at DESC LIMIT 1;`
 
 **Ordering matters on the way back:** the code at `298a8a5` reads both objects,
 so a rollback must be preceded by rolling the deploy back — otherwise every
@@ -151,6 +190,24 @@ no disposition authorised.
 **Observed on the validation database after application:**
 `boolean | NO | false` · 13 columns · both indexes present ·
 `false | 2` (its two seeded users) · 0 authorizations.
+
+### Observed on the SHARED database after application, 2026-08-11
+
+| # | check | result |
+|---|---|---|
+| 1 | journal state | applied 62 → **63**; journal file has 63 entries; new row `id=66, created_at=1786320001000` |
+| 2 | column | `commercial_approver` · `boolean` · `NO` · default `false` |
+| 2 | table | `below_floor_authorizations` · **13** columns |
+| 2 | indexes | `below_floor_authorizations_pkey`; `below_floor_auth_live_idx` on `(quote_id, quote_version_number, tier_id) WHERE invalidated_at IS NULL` |
+| 2 | constraints | 3 FKs — `quote_id`→`quotes` CASCADE, `tier_id`→`quote_tiers` CASCADE, `approved_by_user_id`→`users` (no cascade) — plus PK; 11 NOT NULL |
+| 3 | **population** | **`false \| 3`. No `true` row.** |
+| 4 | estate | 0 authorizations · 0 `below_floor_authorized` audit rows |
+| 5 | paths load | action + `mark-complete` + `quotes` modules import against real schema; gate lookup executes; permission column readable (0 approvers of 3 users); gate returns `ok=false code=NO_AUTHORIZATION` on the live estate |
+| 6 | gates | `test:unit` 761/761 · `tsc` clean · `prebuild` PASS |
+
+Verification 5 was **read-only**: no action was invoked and nothing was written
+to production. Pre-application state was captured first and confirmed the column
+absent, the table absent, 3 users, and 0 audit rows.
 
 ## 7 · Confirmation
 
