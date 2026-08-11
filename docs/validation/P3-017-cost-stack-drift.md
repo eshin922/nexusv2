@@ -149,7 +149,7 @@ appearing in the staging model. Here, a lever moves a price without appearing in
 the reconciliation. Both are levers acting outside the structure that is
 supposed to account for them.
 
-## Restoration scope — not started
+## Restoration scope — not started (authority now published; see the gate below)
 
 Restore R11 §4 as accepted; do not invent a layout.
 
@@ -316,9 +316,39 @@ The blend must publish `sellAfterAdjustment`, `sellAfterLift` and blended
 differences between published levels, and the reconciliation strip asserts an
 identity over values the graph owns.
 
-**Not started.** It is a math-layer extension — a new input/output slot on the
-blended projection — and per CLAUDE.md's load-bearing-surface rule that is a
-deliberate scope decision, not something to fold into a presentation fix.
+**SHIPPED 2026-08-11 — the gate is open.** The math layer now publishes all
+eight quantities at tier scope. `sell-before`, `sell` and `cost` already
+existed; `adj-delta`, `sell-after-adj`, `lift-delta`, `sell-after-lift` and
+`override-delta` are new, each aggregating independently through the same
+weighted `blend` the other tier nodes use.
+
+**The deltas come from the levers' own rates, not from differences between the
+levels.** That is the part that makes the strip mean anything, and it is easy to
+get wrong in a way that still reconciles. Blending is linear over a shared
+weight vector, so `blend(a − b)` is exactly `blend(a) − blend(b)` — deriving the
+deltas by subtraction would telescope *through* the aggregation and leave an
+identity true for any four numbers. So `adjDelta = sellBefore × adjustmentRate`
+and `liftDelta = adjustedSell × liftRate`, per cell, before blending.
+
+`overrideDelta` is the one honest exception: an override is terminal — a
+person's number replacing a computed one — so its contribution *is*
+definitionally the difference it makes. There is no rate to multiply by, and
+inventing one would be worse than naming the difference.
+
+Assembly rollups fold the ladder the same way every other per-unit quantity
+folds (child × `qtyPerParent`), so the identity holds for assemblies built from
+reconciling children.
+
+Proven in `tests/unit/p3-017-tier-ladder-authority.test.ts`: the eight nodes
+exist and are distinct; the identity reconciles with a lift and an override
+live; the intermediate levels sit where the ladder says; a lift moves
+`lift-delta` without touching `adj-delta`; a rejected lift contributes zero
+while staying reachable as a node; and each tier's `adj-delta` scales with the
+rate *that tier* resolved — 10% global on T1, its own 20% on T2, which is what
+pins the deltas to the authorities rather than to the levels beside them.
+
+**Still not started: the R11/R12 layout restoration.** The gate this section
+describes has been satisfied, not skipped.
 
 ---
 

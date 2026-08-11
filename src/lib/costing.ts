@@ -558,6 +558,32 @@ export type SkuPerTierRollup = {
   computedSellPerUnit: number;
   requiredSellPerUnit: number;
   sellSource: SellSource;
+  // ---------- P3-017 · the ladder, at cell scope ----------
+  //
+  // The four levels a quoted price passes through, and the three contributions
+  // that move it between them. The blend publishes each of these at TIER scope,
+  // where the Cost Stack renders, so that every stack row reads a governed node
+  // instead of a number the display worked out.
+  //
+  // THE DELTAS ARE NOT DIFFERENCES OF THE LEVELS, and that is the whole point.
+  // Blending is linear over a shared weight vector, so blending differences
+  // would give `blend(a - b) === blend(a) - blend(b)` and the reconciliation
+  // identity would telescope — true for any four numbers, incapable of failing,
+  // decoration rather than an assertion. Each delta is instead computed from
+  // the lever's OWN governed authority: the adjustment rate, the lift rate.
+  // The identity then holds only if two independent aggregations of the same
+  // graph agree, which is a statement that can be false.
+  //
+  // `overrideDeltaPerUnit` is the exception, and honestly so: an override is
+  // terminal — a person's number replacing a computed one — so its
+  // contribution IS definitionally the difference it makes. There is no rate to
+  // multiply by, and inventing one would be worse than naming the difference.
+  sellBeforeAdjustmentPerUnit: number;
+  adjDeltaPerUnit: number;
+  sellAfterAdjustmentPerUnit: number;
+  liftDeltaPerUnit: number;
+  sellAfterLiftPerUnit: number;
+  overrideDeltaPerUnit: number;
   /**
    * `(sell - cost) / sell` for this cell, or NULL when there is no sell price.
    *
@@ -2407,6 +2433,19 @@ function computeLeafPerTier(args: {
     computedSellPerUnit,
     requiredSellPerUnit,
     sellSource,
+    // P3-017 — see the type for why the deltas are products of the levers'
+    // own rates rather than differences between the levels beside them.
+    sellBeforeAdjustmentPerUnit: sellBeforeAdjustment,
+    adjDeltaPerUnit: sellBeforeAdjustment * effectiveAdj,
+    sellAfterAdjustmentPerUnit: adjustmentNode.value,
+    // A rejected lift contributes zero, and the flagged-out node carries the
+    // reason. Absent and refused are different states everywhere else in this
+    // graph; they are the same number here only because a refusal genuinely
+    // moves the price by nothing.
+    liftDeltaPerUnit: cellLift !== null ? adjustmentNode.value * cellLift : 0,
+    sellAfterLiftPerUnit: computedChain.value,
+    overrideDeltaPerUnit:
+      cellOverride !== null ? cellOverride - computedChain.value : 0,
     marginPct,
     // Slice 9.4a — verdict band against effective target (per-quote
     // override or firm) and firm floor. Uses the same computeStatus
@@ -2427,6 +2466,15 @@ function computeLeafPerTier(args: {
 // Empty per-tier rollup for assemblies before children fold in.
 function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
   return {
+    // P3-017 ladder — an assembly with no children has passed through no
+    // levers, so every level and every contribution is zero. The identity
+    // holds trivially, which is correct rather than merely convenient.
+    sellBeforeAdjustmentPerUnit: 0,
+    adjDeltaPerUnit: 0,
+    sellAfterAdjustmentPerUnit: 0,
+    liftDeltaPerUnit: 0,
+    sellAfterLiftPerUnit: 0,
+    overrideDeltaPerUnit: 0,
     tierId: tier.id,
     packagingCostPerUnit: 0,
     productionCostPerUnit: 0,
@@ -2485,6 +2533,15 @@ function rollUpAssemblyPerTier(
   // (override-where-present, computed-elsewhere) — that's the "real"
   // assembly price the customer would pay.
   let computedSell = 0;
+  // P3-017 ladder — folds exactly as every other per-unit quantity here does:
+  // child value x qtyPerParent. The fold is linear, so the reconciliation
+  // identity that holds at each child holds for the assembly built from them.
+  let sellBeforeAdj = 0;
+  let adjDelta = 0;
+  let sellAfterAdj = 0;
+  let liftDelta = 0;
+  let sellAfterLift = 0;
+  let overrideDelta = 0;
   // Per-component bubble-up so a top-level assembly's per-component
   // values reflect the qty_per_parent chain to every leaf below it.
   // Used by the quote-level cost breakdown in QuoteSummaryCard. Earlier
@@ -2510,6 +2567,12 @@ function rollUpAssemblyPerTier(
     contribution += c.rollup.contributionCostPerUnit * c.qtyPerParent;
     requiredSell += c.rollup.requiredSellPerUnit * c.qtyPerParent;
     computedSell += c.rollup.computedSellPerUnit * c.qtyPerParent;
+    sellBeforeAdj += c.rollup.sellBeforeAdjustmentPerUnit * c.qtyPerParent;
+    adjDelta += c.rollup.adjDeltaPerUnit * c.qtyPerParent;
+    sellAfterAdj += c.rollup.sellAfterAdjustmentPerUnit * c.qtyPerParent;
+    liftDelta += c.rollup.liftDeltaPerUnit * c.qtyPerParent;
+    sellAfterLift += c.rollup.sellAfterLiftPerUnit * c.qtyPerParent;
+    overrideDelta += c.rollup.overrideDeltaPerUnit * c.qtyPerParent;
     packaging += c.rollup.packagingCostPerUnit * c.qtyPerParent;
     production += c.rollup.productionCostPerUnit * c.qtyPerParent;
     raw += c.rollup.rawCostPerUnit * c.qtyPerParent;
@@ -2534,6 +2597,12 @@ function rollUpAssemblyPerTier(
   const marginPct: number | null =
     requiredSell > 0 ? (requiredSell - contribution) / requiredSell : null;
   return {
+    sellBeforeAdjustmentPerUnit: sellBeforeAdj,
+    adjDeltaPerUnit: adjDelta,
+    sellAfterAdjustmentPerUnit: sellAfterAdj,
+    liftDeltaPerUnit: liftDelta,
+    sellAfterLiftPerUnit: sellAfterLift,
+    overrideDeltaPerUnit: overrideDelta,
     tierId: tier.id,
     packagingCostPerUnit: packaging,
     productionCostPerUnit: production,
@@ -3622,6 +3691,40 @@ export function computeQuoteCosting(input: QuoteCostingInput,
     // strictly positive. Blended SELL can still be zero \u2014 a tier of unpriced
     // cells has weight but no price \u2014 and a ratio over it is undefined, so that
     // case is flagged-out rather than published as 0%.
+    // ---------- P3-017 · the ladder, published at tier scope ----------
+    //
+    // The blend published the FIRST level and the LAST and dropped the levers
+    // between them, so at the scope the Cost Stack actually renders, the
+    // reconciliation the per-cell graph can express was unstateable. Not
+    // because the UI was wrong — because the governed values it would read did
+    // not exist here.
+    //
+    // Eight quantities make the ladder expressible AND the assertion
+    // falsifiable. Three already existed: `sell-before`, `sell`, `cost`. These
+    // five are the rest.
+    //
+    // Every one aggregates INDEPENDENTLY, straight from its own per-cell
+    // authority. No node here consults another, and no delta is a subtraction
+    // of the levels beside it. That independence is the entire value:
+    //
+    //   sellBefore + adjDelta + liftDelta + overrideDelta === quotedSell
+    //
+    // is then an assertion that two separate aggregations of the same graph
+    // agree, and it fails if the blend is wrong. Obtained by subtraction it
+    // would telescope and hold for any four numbers.
+    //
+    // Float note: the identity is exact in real arithmetic but not in binary —
+    // `a + a*r` and `a*(1+r)` can differ by an ulp, and blending accumulates
+    // more. Consumers assert it to a tolerance, which is a property of floats
+    // and not a weakening of the claim.
+    graphNodes.push(
+      blend("adj-delta", "Blended price adjustment contribution", (pt) => pt.adjDeltaPerUnit),
+      blend("sell-after-adj", "Blended sell after adjustment", (pt) => pt.sellAfterAdjustmentPerUnit),
+      blend("lift-delta", "Blended surgical lift contribution", (pt) => pt.liftDeltaPerUnit),
+      blend("sell-after-lift", "Blended sell after lift", (pt) => pt.sellAfterLiftPerUnit),
+      blend("override-delta", "Blended override contribution", (pt) => pt.overrideDeltaPerUnit),
+    );
+
     const sellBlend = blend("sell", "Blended sell per unit", (pt) => pt.requiredSellPerUnit);
     const costBlend = blend("cost", "Blended cost per unit", (pt) => pt.contributionCostPerUnit);
 
