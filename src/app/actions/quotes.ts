@@ -17,6 +17,10 @@ import {
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { materializePackagingRows } from "@/lib/packaging-materialization";
 import {
+  resolveGovernedPaymentTerms,
+  unresolvedTermsMessage,
+} from "@/lib/netsuite/customer-terms";
+import {
   assemblies,
   assemblyLeafInputs,
   assemblyLeafOverrides,
@@ -1659,6 +1663,29 @@ export async function sendQuote(
     // includeSpecAddendum; we pass them as searchParams to the
     // resolver so the render uses PM's live values; AND write the
     // same values to the snapshot columns for post-send reproduction.
+    // C.1 — Send FAILS CLOSED on unverifiable customer payment terms.
+    //
+    // The term printed on a sent quote is a commercial commitment, and Send is
+    // the moment it becomes one. `firm_settings.payment_terms_default` has no
+    // customer dimension: measured against the 9 customers with verified
+    // NetSuite lineage it disagreed with all 9, and materially with 5 (governed
+    // "Net 30" against a printed 50%-deposit commitment). It may stand in on a
+    // draft, clearly marked; it may not be frozen as a promise.
+    //
+    // Placed BEFORE the render so a quote that cannot be sent does not first
+    // produce a PDF asserting terms nobody authorised.
+    const governedTerms = await resolveGovernedPaymentTerms(
+      project.hubspotDealId,
+    );
+    if (governedTerms.status !== "governed") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        unresolvedTermsMessage(governedTerms) ??
+          "Customer payment terms could not be verified.",
+      );
+    }
+    const governedPaymentTerms = governedTerms.value;
+
     const sendPdfLayout = String(formData.get("pdfLayout") ?? "").trim();
     const sendDetailLevel = String(formData.get("detailLevel") ?? "").trim();
     const sendAddendumRaw = String(formData.get("includeSpecAddendum") ?? "").trim();
@@ -1785,7 +1812,7 @@ export async function sendQuote(
         validUntil: validUntilIso,
         quoteNumber,
         tcs: firm.tcsDefault ?? null,
-        paymentTerms: firm.paymentTermsDefault ?? null,
+        paymentTerms: governedPaymentTerms,
         leadTime: firm.leadTimeDefault ?? null,
         incoterms: firm.incotermsDefault ?? null,
         daysValid,
@@ -1849,7 +1876,7 @@ export async function sendQuote(
           validUntil: validUntilIso,
           // DEC-7: commercial snapshots
           tcsSnapshot: firm.tcsDefault ?? null,
-          paymentTermsSnapshot: firm.paymentTermsDefault ?? null,
+          paymentTermsSnapshot: governedPaymentTerms,
           leadTimeSnapshot: firm.leadTimeDefault ?? null,
           incotermsSnapshot: firm.incotermsDefault ?? null,
           daysValidSnapshot: daysValid,
@@ -1891,7 +1918,7 @@ export async function sendQuote(
           validUntil: updated.validUntil,
           snapshots: {
             tcs: firm.tcsDefault ?? null,
-            paymentTerms: firm.paymentTermsDefault ?? null,
+            paymentTerms: governedPaymentTerms,
             leadTime: firm.leadTimeDefault ?? null,
             incoterms: firm.incotermsDefault ?? null,
             daysValid,

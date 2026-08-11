@@ -89,6 +89,12 @@ export type CustomerViewQuote = {
    * Null in either case → PdfTerms renders `.pdf-stub` placeholder.
    */
   paymentTerms: string | null;
+  /** C.1 — how much authority the rendered term carries.
+   *  `frozen` = the promise made at Send (sent quotes).
+   *  `governed` = the customer's NetSuite Terms record (drafts).
+   *  `provisional` = firm-wide default; NOT authority for a commitment, and
+   *  `sendQuote` refuses to freeze it. */
+  paymentTermsSource?: "frozen" | "governed" | "provisional";
   leadTime: string | null;
   customerFacingNotes: string | null;
   incoterms: string | null;

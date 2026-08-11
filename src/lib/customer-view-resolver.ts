@@ -32,6 +32,7 @@ import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { loadQuoteAddendum } from "@/lib/addendum-loader";
 import { toLocalIsoDate } from "@/lib/local-date";
 import { VENDOR_FIXTURE } from "@/lib/quote-fixtures";
+import { resolveGovernedPaymentTerms } from "@/lib/netsuite/customer-terms";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import type {
   CustomerView,
@@ -144,9 +145,31 @@ export async function resolveCustomerView(args: {
 
   const isSent = quote.status !== "draft";
   const quoteNumber = isSent ? quote.quoteNumber : null;
+  // C.1 — payment terms are a COMMERCIAL COMMITMENT and need an authority.
+  //
+  // Sent quotes render their frozen snapshot, unchanged, forever: the term that
+  // was actually promised. Only drafts resolve live, and they resolve against
+  // the customer's governed NetSuite Terms record — not the firm-wide default,
+  // which has no customer dimension and disagreed with all 9 verified customers
+  // (5 of them materially).
+  //
+  // When the governed value cannot be resolved the draft still renders, marked
+  // `provisional`, because a PM needs to see the quote taking shape. Send is
+  // where that becomes intolerable, and `sendQuote` fails closed there.
+  const governedTerms = isSent
+    ? null
+    : await resolveGovernedPaymentTerms(project.hubspotDealId);
   const paymentTerms = isSent
     ? quote.paymentTermsSnapshot
-    : (firm?.paymentTermsDefault ?? null);
+    : governedTerms?.status === "governed"
+      ? governedTerms.value
+      : (firm?.paymentTermsDefault ?? null);
+  /** How much weight the rendered term can carry. Sent = frozen promise. */
+  const paymentTermsSource: "frozen" | "governed" | "provisional" = isSent
+    ? "frozen"
+    : governedTerms?.status === "governed"
+      ? "governed"
+      : "provisional";
   const leadTime = isSent
     ? quote.leadTimeSnapshot
     : (firm?.leadTimeDefault ?? null);
@@ -388,6 +411,7 @@ export async function resolveCustomerView(args: {
       sentDate: quote.sentAt ? toLocalIsoDate(quote.sentAt) : null,
       validUntil: quote.validUntil,
       paymentTerms,
+      paymentTermsSource,
       leadTime,
       customerFacingNotes: quote.customerFacingNotes,
       incoterms,
