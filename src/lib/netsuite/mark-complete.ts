@@ -30,6 +30,12 @@ import {
   computeIdempotencyKey,
   type SalesOrderLine,
 } from "./sales-orders";
+import {
+  attachGroupingPlan,
+  buildGroupingPlan,
+  stripGroupingPlan,
+  type PlanLineInput,
+} from "./grouping-plan";
 import { NetsuiteError } from "./errors";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { requireResolvedQuoteCosts } from "@/lib/quote-cost-completeness";
@@ -151,7 +157,10 @@ export async function runMarkComplete(
   }
 
   const acceptedSnapshotRows = await db
-    .select({ id: quoteSnapshots.id })
+    // Track B §4 — detail_level comes from the ACCEPTED SNAPSHOT, not the live
+    // quotes column: the applicability datum must be the value that was true
+    // when the customer agreed, per the OD-004 disposition.
+    .select({ id: quoteSnapshots.id, detailLevel: quoteSnapshots.detailLevel })
     .from(quoteSnapshots)
     .where(
       and(
@@ -166,6 +175,7 @@ export async function runMarkComplete(
     );
   }
   const acceptedSnapshotId = acceptedSnapshotRows[0].id;
+  const acceptedDetailLevel = acceptedSnapshotRows[0].detailLevel;
 
   // Phase 1 defense in depth. Governed customer send already rejects an
   // unresolved cost, so accepted Quotes cannot normally reach this state.
@@ -529,6 +539,10 @@ export async function runMarkComplete(
       (r) => r.skuRole === "leaf",
     );
     const lines: SalesOrderLine[] = [];
+    // Track B §4 — assembly attribution, captured HERE rather than re-derived
+    // later. Constraint 3: the plan is built from the same governed state as
+    // the outgoing handoff, so the two cannot disagree.
+    const planLines: PlanLineInput[] = [];
     for (const leafRollup of leafRollups) {
       // Locate the leaf's tree entry to get its SKU + name.
       const treeLeaf = tree.assemblies
@@ -546,6 +560,7 @@ export async function runMarkComplete(
       const qtyPerParent = Math.max(1, Math.round(leafRollup.qtyPerParent ?? 1));
       const effectiveQty = (tierRow.qty ?? 0) * qtyPerParent;
 
+      const lineRate = Number(perTierRollup.requiredSellPerUnit);
       lines.push({
         netsuiteItemId: nsId,
         sku: treeLeaf.child.sku,
@@ -553,11 +568,20 @@ export async function runMarkComplete(
           treeLeaf.child.name ||
           `${treeLeaf.assembly.name} — ${treeLeaf.child.sku}`,
         quantity: effectiveQty,
-        rate: Number(perTierRollup.requiredSellPerUnit),
+        rate: lineRate,
         unitCost:
           perTierRollup.contributionCostPerUnit != null
             ? Number(perTierRollup.contributionCostPerUnit)
             : null,
+      });
+      planLines.push({
+        assemblyId: treeLeaf.assembly.id,
+        assemblySku: treeLeaf.assembly.sku,
+        assemblyName: treeLeaf.assembly.name,
+        sku: treeLeaf.child.sku,
+        netsuiteItemId: nsId,
+        quantity: effectiveQty,
+        rate: lineRate,
       });
     }
 
@@ -589,6 +613,18 @@ export async function runMarkComplete(
       lines,
     });
 
+    // Track B §4 — freeze the grouping plan ALONGSIDE the payload, under a
+    // reserved key stripped before transmission. It is the comparison target
+    // the turnkey_only read-back needs; without it a wrong-member grouping with
+    // a correct total is undetectable.
+    const groupingPlan = buildGroupingPlan({
+      detailLevel: acceptedDetailLevel,
+      customerNetsuiteId: customer.netsuiteCustomerId,
+      tierQty: tierRow.qty ?? null,
+      lines: planLines,
+    });
+    const builtPayloadWithPlan = attachGroupingPlan(builtPayload, groupingPlan);
+
     let [durableAttempt] = await db
       .select({
         id: netsuiteSoPushes.id,
@@ -604,7 +640,7 @@ export async function runMarkComplete(
       )
       .orderBy(asc(netsuiteSoPushes.createdAt))
       .limit(1);
-    let payload = (durableAttempt?.payloadSnapshot ?? builtPayload) as Record<string, unknown>;
+    let payload = (durableAttempt?.payloadSnapshot ?? builtPayloadWithPlan) as Record<string, unknown>;
     const idempotencyKey = computeIdempotencyKey(quoteId, acceptedSnapshotId);
 
     // The snapshot-keyed attempt and first payload must be durable before
@@ -659,7 +695,13 @@ export async function runMarkComplete(
 
     let created;
     try {
-      created = await netsuite.createSalesOrder(payload, { idempotencyKey });
+      // Track B §4 — the envelope never reaches NetSuite. Unconditional and
+      // safe on payloads that never carried one, which is what makes it
+      // correct on the durable-replay path too (a replayed snapshot carries
+      // the envelope). The transmitted body is byte-identical to pre-§4.
+      created = await netsuite.createSalesOrder(stripGroupingPlan(payload), {
+        idempotencyKey,
+      });
     } catch (e) {
       // NS create failed. Update the pending row (if we managed to
       // write it) to failed status with error detail. Then throw.

@@ -215,9 +215,16 @@ test("completion structurally resolves exact SKUs, computes quantities, and chec
     source.slice(convergenceBranch, createCall),
     /retryOutcome = "converged_from_prior_success"/,
   );
+  // Track B §4 amended this from `createSalesOrder(payload, ...)`. What the
+  // assertion guards is unchanged: the transmitted body derives from the
+  // DURABLE payload rather than a rebuild, and carries the idempotency key.
+  // The only permitted wrapper is `stripGroupingPlan`, which removes the
+  // reserved plan envelope so the frozen snapshot can carry the grouping plan
+  // without transmitting it. Naming the wrapper explicitly — rather than
+  // relaxing to `.*` — keeps a future rebuild-at-send-time from slipping past.
   assert.match(
-    source.slice(createCall, createCall + 160),
-    /await netsuite\.createSalesOrder\(\s*payload,\s*\{ idempotencyKey \}/,
+    source.slice(createCall, createCall + 200),
+    /await netsuite\.createSalesOrder\(\s*stripGroupingPlan\(payload\),\s*\{\s*idempotencyKey,?\s*\}/,
   );
   assert.match(
     schema,
@@ -225,7 +232,7 @@ test("completion structurally resolves exact SKUs, computes quantities, and chec
   );
   assert.match(source, /acceptedSnapshotRows\.length !== 1/);
   assert.match(source, /computeIdempotencyKey\(quoteId, acceptedSnapshotId\)/);
-  assert.match(source, /durableAttempt\?\.payloadSnapshot \?\? builtPayload/);
+  assert.match(source, /durableAttempt\?\.payloadSnapshot \?\? builtPayloadWithPlan/);
   assert.match(source, /Could not establish the durable Sales Order send identity before NetSuite execution/);
   assert.match(schema, /quoteSnapshotId: uuid\("quote_snapshot_id"\)/);
   assert.match(
