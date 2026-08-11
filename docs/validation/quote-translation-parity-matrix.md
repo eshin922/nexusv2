@@ -215,7 +215,58 @@ shipped covers the whole tier. Once T-1 is fixed to divide by `quantity`, the
 units* — which may or may not be the intended commercial claim. Raised now
 because the T-1 fix forces the question; it is not answerable from the code.
 
-### Production inputs — **NOT YET TRACED**
+### T-3 · Sell-side composition — each component enters exactly once · **PARITY (sell side only)**
+
+Establishes the "exactly once" half of the question. Customer *presentation*
+is still outstanding below.
+
+`computeLeafPerTier` builds `cellSections` and sums it into `sellBefore`
+(`costing.ts:2250-2256`, `op: "packaging + production + bulk raw + freight"`):
+
+| section | pushed at | markup applied |
+|---|---|---|
+| packaging | `costing.ts:1589` (seed) | per-line `markup_pct` |
+| production | `:1803` | `PRODUCTION_MARKUP_CATEGORY` |
+| bulk raw | `:1835` **or** `:1868` (if/else — exactly one fires) | `RAW_MARKUP_CATEGORY` |
+| freight | `:2215` | per-leg; duty + tariff nested inside |
+
+Each pushed exactly once; `sellBefore` is then `× (1 + effectiveAdj)`, then
+lifts, then a terminal per-cell override. **Duty and tariff are operands inside
+`freightSectionNode`** (`:2090-2130`), each with its own markup — not
+separately re-added to `cellSections`. No component enters quoted sell twice.
+
+One-time service fees with allocation OFF are explicitly **not** in unit sell —
+`separateServiceFees = 0` and the comment at `costing.ts:1653-1655` states they
+are "projected exactly once by the customer-view resolver, outside unit cost and
+unit sell." That is the citable contract for their separate-line presentation.
+
+### T-4 · Pattern 57's stated rationale for removing the RAW row is false against current code · **BUSINESS DISPOSITION REQUIRED**
+
+Not a defect in the math — the math is correct. A defect in the **premise a
+governance decision was taken on**, which matters because Pattern 57 is now a
+standing design rule applied to future row-membership questions.
+
+`CLAUDE.md` Pattern 57 records the RAW cost-stack row as removed because
+"`productionMarkupSum` already carries it, and no raw node exists." Both claims
+are contradicted by the code:
+
+| claim | reality |
+|---|---|
+| "no raw node exists" | `rawSectionNode` is a canonical node, `nodeKey(sku.id, tier.id, "raw")`, built at `costing.ts:1806-1868` |
+| "`productionMarkupSum` already carries it" | `productionMarkupSum` reads `productionSectionNode.value` (`:1878`), built from `productionCostSum` — which is `internalProductionCogsPerUnit + allocatedServiceFeesPerUnit` (`:1656`) and **excludes** bulk raw entirely |
+| — | bulk raw carries its **own** markup category (`RAW_MARKUP_CATEGORY`, `:1673`), distinct from `PRODUCTION_MARKUP_CATEGORY` |
+
+Pattern 57's own test is *"does this have an independently governed value — a
+canonical node of its own?"* For bulk raw the answer is **yes**: own node, own
+markup category, own `cellSections` entry. By the rule's own criterion the row
+qualified.
+
+**Not reverting anything.** Edward removed the row and that disposition stands
+until he revisits it. Recorded because the rule will be applied again and the
+worked example under it is wrong. Requires Edward's disposition: re-examine
+row membership, or amend the recorded rationale to the real one.
+
+### Production inputs — **PARTIALLY TRACED** (sell side done in T-3; presentation outstanding)
 
 Owed: production cost · Manufacturing markup · **Bulk Raw cost and its markup
 separately** · filling / assembly / co-pack · quantity/tier behavior ·
