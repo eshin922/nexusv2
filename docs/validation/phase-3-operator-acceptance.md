@@ -22,7 +22,7 @@ test run and deliberately not cleared.
 
 ## V1 blocker
 
-### D-1 · Two different quantities render under one `Blended margin` label — **OPEN**
+### D-1 · Two different quantities under one `Blended margin` label — **FIXED 2026-08-10**
 
 **Observed at step 1.** The header tile reads `BLENDED MARGIN 54.8%`; the grid
 row, also labelled `Blended margin`, reads `26.3% / 80.1% / 42.0% / 43.7%`.
@@ -105,10 +105,56 @@ ambiguity: it would make the number look deliberate.
 larger than (a) — one prop, no new arithmetic — and (a) alone would formalise
 the wrong quantity.
 
-**Held for disposition.** Edward's instruction scoped the repair to terminology
-*"assuming the numbers are correct"*. Each number is arithmetically correct; the
-premise that survives is narrower than that, so the choice is his rather than
-mine to assume.
+### Disposition — Edward, 2026-08-10: **option (b).** SHIPPED.
+
+Reclassified by Edward as a **Design Authority fidelity defect**, not merely
+ambiguous labelling.
+
+`summary_card.blended_margin_pct` now reads the recommended tier's governed
+`blended_margin_pct` from `TierRollup`, via a `recommendedTierMargin` helper
+beside the existing `computeRecommendedTierValue`. **No new arithmetic** — the
+per-tier blend is the engine's, already carried and already rendered by the
+grid. No compliance logic, tier calculation or grid change.
+
+**No fallback, deliberately.** With no recommended tier the tile shows nothing;
+substituting the cross-tier aggregate there would reintroduce the defect in the
+one state nobody inspects.
+
+**Scope in the label.** The tile reads `Blended margin · T{n}`, following the
+card's own convention — its sibling already reads `Order value · T{n}` — rather
+than inventing vocabulary.
+
+#### Evidence
+
+`tests/unit/d1-summary-card-margin-basis.test.ts`, with a fixture built so the
+candidates are far apart and the aggregate equals **neither** tier: T1 at 10%,
+T2 (recommended) at 80%, aggregate supplied as 55%. A walk on a quote where the
+two happened to be close would not have discriminated.
+
+Falsified against the pre-repair build — repair reverted, tests kept: **three
+fail** (card reads the recommended tier; moving only the aggregate does not move
+the card; no recommended tier means no figure) and **two pass**, which are
+exactly the non-regression assertions — per-tier grid values and compliance
+verdicts.
+
+`tests/e2e/costing/summary-card-margin-scope.spec.ts` proves it on the rendered
+surface: the tile label matches `Blended margin · T\d+` and is not the bare label
+the grid uses, and the tile value equals the grid value for the star-marked
+recommended tier — two independently rendered elements reading two different
+paths.
+
+**The cross-tier aggregate is not retained or renamed anywhere.**
+
+Gates: `test:unit` 749/749, `prebuild` PASS, `tsc` clean, `test:e2e` 37 passed /
+3 failed — two classified freight, the third the known rotating item.
+
+#### Adjacent, NOT repaired — flagged for disposition
+
+The same aggregate (`state.blended_margin_pct`) still renders in `StateCard`
+(the blocked card's right-rail BLENDED MARGIN), `StateCallout`, and `Blended
+after apply`. On the walkthrough quote the blocked card therefore still reads
+**54.8%** while the tile now reads **80.1%**. Outside the instruction's scope;
+raised because the two now sit on one screen.
 
 ### B-2 · A staged lift moved the quoted price with no row — **FIXED 2026-08-10**
 

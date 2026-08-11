@@ -951,7 +951,32 @@ export function classify(
             tierRoll,
             cells,
           ),
-          blended_margin_pct: quote.blended_margin_pct,
+          /**
+           * D-1 · THE RECOMMENDED TIER'S margin, not the cross-tier aggregate.
+           *
+           * This read `quote.blended_margin_pct`, which the engine computes by
+           * summing revenue and cost across EVERY tier and dividing
+           * (`costing.ts:3339`). Arithmetically valid, and not a quantity that
+           * describes anything: tiers are mutually exclusive quantity breaks,
+           * a customer buys at one, so the sum prices a transaction that
+           * cannot occur. On the walkthrough quote it read 54.8% — inflated by
+           * a PM override on a tier the customer may never choose — against a
+           * recommended tier of 80.1%.
+           *
+           * The Design Authority defines no cross-tier margin anywhere. Its
+           * tile is `pctS(rec.margin)` where `rec = rollups[ri]` and `ri` is
+           * the recommended tier (`pricing-page.jsx:266-267, 309`), and every
+           * sibling tile in this card is already recommended-tier-scoped:
+           * Recommended tier, Order value · T{n}, across all SKUs. The card is
+           * "What you're sending", and what is sent is the quote at one tier.
+           *
+           * No new arithmetic: the per-tier blend is the engine's, already
+           * carried on `TierRollup` and already rendered by the grid.
+           */
+          blended_margin_pct: recommendedTierMargin(
+            quote.recommended_tier_id,
+            tierRoll,
+          ),
         };
 
   return {
@@ -995,6 +1020,22 @@ function labelTiers(tierSet: Set<number>): string {
   if (tierSet.size === 0) return "—";
   if (tierSet.size === 1) return `Tier ${[...tierSet][0]}`;
   return [...tierSet].map((t) => `T${t}`).join(", ");
+}
+
+/**
+ * The recommended tier's governed blended margin. D-1.
+ *
+ * Null when no tier is recommended, or when the recommended tier has no margin
+ * — the same fail-closed posture as `computeRecommendedTierValue` beside it.
+ * Substituting the cross-tier aggregate as a fallback is exactly the defect
+ * this replaces, so there is deliberately no fallback.
+ */
+function recommendedTierMargin(
+  recommendedTierId: number | null,
+  tierRoll: TierRollup[],
+): number | null {
+  if (recommendedTierId == null) return null;
+  return tierRoll.find((t) => t.id === recommendedTierId)?.blended_margin_pct ?? null;
 }
 
 function computeRecommendedTierValue(
