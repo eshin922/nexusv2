@@ -65,6 +65,8 @@ test("VAL-209 a pricing recommendation stages, does not write, and applies once"
   page.on("pageerror", (error) => pageFailures.push(error.message));
 
   const sql = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
+  // Bounds the teardown's audit deletion to rows this run produced.
+  const startedAt = new Date();
   const tierAdjustments = async () => {
     const rows = await sql<{ id: string; adj: string | null }[]>`
       select id, tier_price_adj_pct as adj from quote_tiers
@@ -85,7 +87,10 @@ test("VAL-209 a pricing recommendation stages, does not write, and applies once"
     // written" proves nothing. Pattern 53: assert the precondition rather than
     // assume the seed.
     expect(await tierAdjustments()).toEqual([null, null, null, null]);
-    expect(await adjustmentAudits()).toBe(0);
+    expect(
+      await adjustmentAudits(),
+      "a previous VAL-209 run left its applied adjustment behind; teardown should have restored it",
+    ).toBe(0);
 
     const response = await page.goto(pricingUrl, { waitUntil: "networkidle" });
     expect(response?.status()).toBe(200);
@@ -158,6 +163,33 @@ test("VAL-209 a pricing recommendation stages, does not write, and applies once"
 
     expect(pageFailures, "no uncaught page errors").toEqual([]);
   } finally {
+    // Step 6 persists on purpose -- that is the assertion. So this scenario
+    // ends by having mutated a governed fixture quote, and it had no teardown
+    // at all, which made it a scenario that could pass exactly once.
+    //
+    // The column was recoverable: a reseed resets tier_price_adj_pct. The
+    // audit row was not. audit_log is append-only and survives reseeding, so
+    // the `no adjustment audits` precondition could never be met again -- and
+    // it failed as a precondition, before the browser opened, reading as
+    // though the fixture were wrong rather than as this scenario's own
+    // residue. One row from a prior session was enough.
+    //
+    // Restore both. Deleting audit rows is teardown of data this run created,
+    // scoped by time and by this quote's tiers -- the same shape PVS-018's
+    // cleanup already uses for the leaf it creates.
+    await sql`
+      update quote_tiers set tier_price_adj_pct = null
+      where quote_id = ${fixture.quoteId}
+    `;
+    await sql`
+      delete from audit_log
+      where created_at >= ${startedAt}
+        and (
+          (action = 'tier_price_adj_updated' and entity_id in (
+            select id::text from quote_tiers where quote_id = ${fixture.quoteId}))
+          or (action = 'pricing_adjustments_applied' and entity_id = ${fixture.quoteId})
+        )
+    `;
     await sql.end();
   }
 });

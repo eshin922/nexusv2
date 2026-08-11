@@ -51,7 +51,22 @@ test("VAL-101 creates and persists basic production pricing inputs", async ({
       /^\/projects\/[^/]+\/quotes\/[^/]+\/costs$/.test(url.pathname) &&
       url.searchParams.has("_rsc") &&
       failure === "net::ERR_ABORTED";
-    if (!expectedSupersededRsc) {
+    // The Server Action's own receipt can be superseded the same way its RSC
+    // receipt is: a following action or reload aborts the fetch carrying the
+    // result back, after the action has already committed.
+    //
+    // Only the receipt is abandoned, and this scenario proves the write is
+    // not -- it waits for an ok() POST, polls the row to the expected value,
+    // and reads the value back after a reload. `next-action` is what
+    // separates a superseded Server Action receipt from an ordinary failed
+    // POST; without it this allowance would excuse any aborted POST.
+    const expectedSupersededActionReceipt =
+      request.method() === "POST" &&
+      request.resourceType() === "fetch" &&
+      /^\/projects\/[^/]+\/quotes\/[^/]+\/costs$/.test(url.pathname) &&
+      request.headers()["next-action"] !== undefined &&
+      failure === "net::ERR_ABORTED";
+    if (!expectedSupersededRsc && !expectedSupersededActionReceipt) {
       requestFailures.push(`${request.method()} ${request.url()} ${failure}`);
     }
   });
@@ -243,7 +258,22 @@ test("VAL-103 concurrent debounced cost edits persist without save loss", async 
       url.pathname === costPath &&
       url.searchParams.has("_rsc") &&
       failure === "net::ERR_ABORTED";
-    if (!expectedSupersededRsc) {
+    // The Server Action's own receipt can be superseded the same way its RSC
+    // receipt is: a following action or reload aborts the fetch carrying the
+    // result back, after the action has already committed.
+    //
+    // Only the receipt is abandoned, and this scenario proves the write is
+    // not -- it waits for an ok() POST, polls the row to the expected value,
+    // and reads the value back after a reload. `next-action` is what
+    // separates a superseded Server Action receipt from an ordinary failed
+    // POST; without it this allowance would excuse any aborted POST.
+    const expectedSupersededActionReceipt =
+      request.method() === "POST" &&
+      request.resourceType() === "fetch" &&
+      url.pathname === costPath &&
+      request.headers()["next-action"] !== undefined &&
+      failure === "net::ERR_ABORTED";
+    if (!expectedSupersededRsc && !expectedSupersededActionReceipt) {
       requestFailures.push(`${request.method()} ${request.url()} ${failure}`);
     }
   });
@@ -654,50 +684,59 @@ test("PHASE2 Packaging targets each SKU and omits the Bulk Raw surface", async (
   });
   expect(response?.status()).toBe(200);
 
-  await expect(page.getByRole("button", { name: /^Add line · VAL-/ })).toHaveCount(3);
   await expect(page.getByText("Bulk Raw", { exact: true })).toHaveCount(0);
   await expect(
     page.locator('button[aria-controls="section-freight-drawer"]'),
   ).toHaveCount(1);
 
-  const targetSku = `VAL-${runId.toUpperCase()}-3`;
+  // "Add line · <SKU>" used to be the proof that packaging targets each SKU:
+  // one authoring affordance per SKU, clicked on one of them. It was removed
+  // by Business Authority on 2026-08-06 -- Setup owns packaging structure and
+  // Costs consumes and prices it, so rows now materialize from Setup on both
+  // axes (leaf attach, tier creation). The removal notice is at
+  // src/app/actions/assembly-leaf-inputs.ts.
+  //
+  // The claim outlives the affordance; only its mechanism changed. Assert it
+  // against the materialized structure instead, across all three SKUs rather
+  // than the single one the old version happened to click.
+  await expect(page.getByRole("button", { name: /^Add line · VAL-/ })).toHaveCount(0);
+
+  const skus = [1, 2, 3].map((n) => `VAL-${runId.toUpperCase()}-${n}`);
+  for (const sku of skus) {
+    await expect(
+      page.locator(".r6-dt.pkg .r6-dt-row .name .sub", { hasText: sku }),
+    ).toHaveCount(1);
+  }
+
   const sql = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
   try {
-    const [{ count: before }] = await sql<{ count: number }[]>`
-      select count(distinct ali.line_group_id)::int as count
+    // Rendering one row per SKU is necessary but not sufficient: a single
+    // line group spanning every SKU would render identically while meaning
+    // the opposite of "targets each SKU". So check the grouping itself.
+    const perSku = await sql<{ sku: string; groups: number }[]>`
+      select l.sku, count(distinct ali.line_group_id)::int as groups
       from assembly_leaf_inputs ali
       join assembly_leaves al on al.id = ali.assembly_leaf_id
       join assemblies a on a.id = al.assembly_id
       join leaves l on l.id = al.leaf_id
-      where a.quote_id = ${draft.quoteId} and l.sku = ${targetSku}
+      where a.quote_id = ${draft.quoteId} and l.sku in ${sql(skus)}
+      group by l.sku order by l.sku
     `;
+    expect(perSku.map((row) => row.sku)).toEqual(skus);
+    expect(perSku.every((row) => row.groups >= 1)).toBe(true);
 
-    const actionResponse = page.waitForResponse(
-      (candidate) =>
-        candidate.request().method() === "POST" &&
-        candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
-        candidate.ok(),
-    );
-    await page.getByRole("button", { name: `Add line · ${targetSku}` }).click();
-    await actionResponse;
-
-    await expect.poll(async () => {
-      const [{ count }] = await sql<{ count: number }[]>`
-        select count(distinct ali.line_group_id)::int as count
-        from assembly_leaf_inputs ali
-        join assembly_leaves al on al.id = ali.assembly_leaf_id
-        join assemblies a on a.id = al.assembly_id
-        join leaves l on l.id = al.leaf_id
-        where a.quote_id = ${draft.quoteId} and l.sku = ${targetSku}
-      `;
-      return count;
-    }).toBe(before + 1);
+    const shared = await sql<{ line_group_id: string }[]>`
+      select ali.line_group_id
+      from assembly_leaf_inputs ali
+      join assembly_leaves al on al.id = ali.assembly_leaf_id
+      join assemblies a on a.id = al.assembly_id
+      join leaves l on l.id = al.leaf_id
+      where a.quote_id = ${draft.quoteId}
+      group by ali.line_group_id
+      having count(distinct l.sku) > 1
+    `;
+    expect(shared, "no packaging line group may span more than one SKU").toEqual([]);
   } finally {
     await sql.end();
   }
-
-  await page.reload({ waitUntil: "networkidle" });
-  await expect(
-    page.locator(".r6-dt.pkg .r6-dt-row .name .sub", { hasText: targetSku }),
-  ).toHaveCount(2);
 });

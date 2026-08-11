@@ -208,7 +208,7 @@ release is how fast unknowns become classified and then closed.
 | **Closed** | **1** | VAL-104 — passes end to end |
 | **Classified, not closed** | **2** | VAL-101 harness contamination · VAL-103 harness race |
 | **Boundary established, cause open** | **0** | — |
-| **Unclassified** | **2** | VAL-209 · VAL-101 |
+| **Unclassified** | **0** | — |
 
 **Eleven scenarios were failing or unmeasured when classification began. Five
 remain unclassified.** No pass count was pursued, and one scenario moved to
@@ -630,6 +630,81 @@ blur; flush on unmount; adopt the Pattern 47 blur/Enter commit for line-meta
 outright; or make reconcile defer to rows holding uncommitted meta edits the way
 `markupDirty` already tracks. These differ in blast radius across markup,
 category and vendor, all three of which share `scheduleMetaSave`.
+
+### VAL-209 — **harness: a destructive scenario with no teardown; now passes**
+
+The scenario asserts that a recommendation stages without writing, and then that
+page-level Apply **persists exactly once**. That last step is a real write, on a
+governed fixture quote — and the scenario had no teardown at all
+(`finally { await sql.end(); }`).
+
+So it could pass exactly once.
+
+**First failing boundary** — `expect(await adjustmentAudits()).toBe(0)` at `:88`.
+A *precondition*, before the browser opened, which is why it read as a bad
+fixture rather than as the scenario's own residue.
+
+The evidence names its owner outright:
+
+| field | value |
+|---|---|
+| `action` | `tier_price_adj_updated` |
+| `diff_json.source` | `pricing_apply` ← VAL-209's own step 6 |
+| `created_at` | 2026-08-10T22:06Z, a prior session |
+| tier | r3Volume `sort_order` 0 |
+| `tier_price_adj_pct` | `null` |
+
+The column was `null` because reseeding resets it. The audit row was not,
+because `audit_log` is append-only and survives reseeding. One row from a
+previous session was enough to make the precondition permanently unreachable.
+
+**Classification: harness** — no product defect at any boundary. Every staging
+and idempotency assertion the scenario exists for passed once it could run.
+
+**Repair.** Teardown restores `tier_price_adj_pct` and deletes the two audit
+actions this run produced, bounded by a `startedAt` captured at entry and scoped
+to this quote's tiers — the same shape PVS-018 cleanup already uses. The
+precondition now carries a message naming the cause, so a future recurrence
+fails at the harness boundary rather than as a mystery.
+
+**Verified:** two consecutive runs, both passing. It could not pass twice before.
+
+### VAL-101 — **harness: superseded Server Action receipt; now passes** (+ one stale expectation)
+
+**First failing boundary** — `expect(requestFailures).toEqual([])` at `:192`,
+the final assertion, with one entry: an aborted `POST` to the Costs page
+carrying a `next-action` header (`net::ERR_ABORTED`).
+
+The filter allowed the superseded **GET `_rsc`** receipt but not the superseded
+**POST Server Action** receipt. VAL-208 and PVS-018 already recognise both.
+
+**The write was not lost, and the scenario itself proves it.** For each of six
+fields it waits for an `ok()` POST, polls the row until the column equals the
+value, asserts the whole row, then reloads and reads all six back from the UI.
+Every one of those passed. Only the receipt was abandoned.
+
+The allowance requires the `next-action` header — that is what distinguishes a
+superseded Server Action receipt from an ordinary failed POST. Without it the
+filter would excuse any aborted POST to the page.
+
+Applied to two of the three filters in the file. **The third was left strict on
+purpose:** that scenario asserts rendered state and does not verify persistence,
+so an allowance there would have no evidence behind it. If it ever exhibits the
+abort, it gets classified on its own.
+
+**Also in this file — `PHASE2 Packaging targets each SKU`: stale expectation.**
+It asserted three `Add line` buttons, one per SKU, and clicked one. That
+affordance was removed by Business Authority on 2026-08-06: Setup owns packaging
+structure, Costs consumes and prices it, and rows materialize from Setup on both
+axes. Same removal already classified for the freight scale scenario.
+
+The claim outlived its mechanism, so it is asserted against the materialized
+structure instead — and across all three SKUs rather than the one the old version
+clicked. Rendering one row per SKU is necessary but not sufficient, since a single
+line group spanning every SKU would render identically while meaning the opposite,
+so the grouping is checked directly: no `line_group_id` may span more than one SKU.
+
+**Verified:** all 4 scenarios in the file pass.
 
 ### PVS-018 — **product defect (small) + three test defects; now passes**
 
@@ -1088,7 +1163,7 @@ failure.
 | VAL-104 *(was unmeasured)* | **PASSES.** Six migration artifacts found and fixed; no product defect at any boundary |
 | VAL-103 *(was unmeasured)* | **harness** — non-deterministic CDP race |
 | VAL-208 bulk pricing lift | **harness issue** — `quotes.draft` shared with `primary-send-lifecycle` across two concurrently-running projects |
-| costs-reconciliation-ordering | not yet classified |
+| costs-reconciliation-ordering | **RESOLVED — product defect.** Pattern 47 authoring contract |
 | phase-2-component-freight × 3 | **RESOLVED — product defect.** Dropped `shipReads` prop at `freight-drilldown.tsx:241` (`85d8d1f`, PR #221, **on `main`**) crashed the whole Costs page; the trigger was orphaned SSR content inside React's `div#S:0`. Repaired. 1 of 3 now passes; 2 sit at new unclassified boundaries |
 | product-library-create-component × 2 | **PASSES.** One small product defect (confirmation carried no name) plus three test defects; no defect in creation itself |
 | pvs-020-refresh-performance × 2 | not yet classified |
