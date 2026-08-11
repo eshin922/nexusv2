@@ -13,15 +13,25 @@
  * repeatable; it is NOT suite-integrated, and that is stated rather than
  * glossed.
  *
- * STATUS: BLOCKED, and not yet proof of anything.
+ * WHAT THE ROW HAS TO CARRY, and why each element:
  *
- * The action calls `ensureUser()`, which resolves the isolated auth provider --
- * a .tsx file. Neither this loader nor Playwright can load it
- * (ERR_UNKNOWN_FILE_EXTENSION), so the script does not currently run. Two ways
- * forward, neither attempted here: teach the harness loader .tsx, or split the
- * action so the actor is injected at the boundary and the logic is callable
- * without the auth provider. The second is small and probably right; it is a
- * design change and is not being made unilaterally.
+ *   approver + timestamp   who decided and when -- the decision-time authority
+ *                          attribution BV-005 asks for
+ *   reason                 mandatory; an approval without a why satisfies an
+ *                          auditor and helps nobody read the deal a year later
+ *   version + tier         the scope the approval binds to, so a revision or a
+ *                          different tier cannot inherit it
+ *   margin + floor         what was true when it was taken, so a later floor
+ *                          change cannot rewrite the history of a decision that
+ *                          was correct at the time
+ *   fingerprint            what makes "material change invalidates" checkable
+ *                          rather than asserted
+ *
+ * THE FIXTURE IS NOT MANUFACTURED. `89d2a2de` carries two genuinely below-floor
+ * tiers (margins 0.184 and 0.204 against a 0.25 floor) in the validation
+ * estate. Raising the firm floor to force the condition would have proved the
+ * record works for a state no operator produces; per Pattern 53 the fixture
+ * reads from what is there.
  *
  * Controlled test identity. NOT the post-SSO exercise with two real staff.
  */
@@ -31,7 +41,7 @@ import { db } from "@/db";
 import { auditLog, belowFloorAuthorizations, quoteTiers, users } from "@/db/schema";
 import { authorizeBelowFloor } from "@/app/actions/below-floor-authorization";
 
-const QUOTE = process.env.PROOF6_QUOTE_ID ?? "a5672a11-aae8-4e8d-8b47-40acc20685c1";
+const QUOTE = process.env.PROOF6_QUOTE_ID ?? "89d2a2de-faac-4b8f-82a7-7078d691db22";
 const REASON = "Strategic account — approved by Commercial for launch volume.";
 
 let failures = 0;

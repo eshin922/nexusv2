@@ -299,6 +299,7 @@ export function QuoteUmbrella({
               quoteVersionNumber={quoteVersionNumber}
               reviewFeedCount={reviewFeedCount}
               isHubspotLinked={isHubspotLinked}
+              quoteRollup={quoteRollup}
               onGo={onGo}
             />
           )}
