@@ -868,16 +868,38 @@ isolated would be the wrong reading.
 
 ---
 
-### OD-004 · Item Group applicability datum
+### OD-004 · Item Group applicability datum — **DISPOSITIONED 2026-08-11**
 
 **Owner:** Accounting / Operations · **Blocks:** Slice 13 Item Group gate
 
-- What existing business datum determines detailed items vs Item Group vs
-  finished-good Assembly?
-- What controlled sandbox result approves the member-rate pricing procedure?
+> **Disposition (Edward, 2026-08-11): NetSuite grouping follows the quote's
+> agreed customer presentation.**
+>
+> | `quotes.detail_level` | grouping |
+> |---|---|
+> | `itemized` | **not required** — preserve the itemized presentation |
+> | `turnkey_only` | **required** |
+>
+> - **Which lines group:** the **assembly** is the deterministic boundary.
+> - **Group identity:** `composition_hash`, unchanged.
+> - **Integration boundary: A2.** Nexus does not create the Item Group via an
+>   API operation REST/SOAP cannot perform. It produces the deterministic
+>   grouping plan when grouping is required, preserves the accepted commercial
+>   content, and supports evidence that the NetSuite result matches it.
+>
+> **Explicitly NOT required for V1:** `cost_category` · leaf classification ·
+> the 1,000-row backfill · any new fulfilment taxonomy.
+>
+> Analysis: [`validation/od-004-decision-set.md`](validation/od-004-decision-set.md).
+> Evidence boundary: [`validation/od-004-evidence-boundary.md`](validation/od-004-evidence-boundary.md).
 
-Accounting currently supplies this decision manually. No canonical Nexus datum
-is approved.
+**Superseded authority.** `src/lib/netsuite/mark-complete.ts` STEP 5 previously
+asserted the wrap was *"MANDATORY for anything invoiced."* That is **overbroad
+and no longer governing** — it is annotated as superseded at the source. Two live
+rules is the failure this supersession prevents.
+
+**Still open (second original question):** what controlled sandbox result
+approves the **member-rate pricing procedure**. Unchanged by this disposition.
 
 **Standing constraint, independent of the answer:** a `$0.00` upstream catalog
 price can satisfy NetSuite validation but **must never become the commercial

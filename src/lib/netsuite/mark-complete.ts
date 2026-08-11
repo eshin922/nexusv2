@@ -378,11 +378,34 @@ export async function runMarkComplete(
   //   customs, and setup components separately. INV2978 (Aisha's
   //   canonical example): two grouped lines at $2.218 and $2.419
   //   with freight/customs invisible — the group doing its job.
-  //   Flat lines from Nexus would expose those components on any
-  //   customer-facing document.
-  //   → Aisha's wrap step remains MANDATORY for anything invoiced.
-  //     Nexus emits correct prices; Aisha wraps in the NS UI post-
-  //     push before invoice generation.
+  //
+  //   ┌─ SUPERSEDED 2026-08-11 (Edward, OD-004 business disposition) ─┐
+  //   │ This block previously read: "Aisha's wrap step remains         │
+  //   │ MANDATORY for anything invoiced."                              │
+  //   │                                                                │
+  //   │ That is OVERBROAD and is no longer governing authority.        │
+  //   │ Grouping FOLLOWS THE QUOTE'S AGREED CUSTOMER PRESENTATION:     │
+  //   │                                                                │
+  //   │   detail_level = 'itemized'      → do NOT group. The itemized  │
+  //   │                                    presentation is what the    │
+  //   │                                    customer agreed to; wrapping│
+  //   │                                    it would show them an       │
+  //   │                                    invoice shaped unlike their │
+  //   │                                    quote.                      │
+  //   │   detail_level = 'turnkey_only'  → grouping IS required.       │
+  //   │                                                                │
+  //   │ The axis is `quotes.detail_level`, read from the SEND-TIME     │
+  //   │ SNAPSHOT (`detail_level_snapshot`) — the value that was true   │
+  //   │ when the customer agreed, not the live column.                 │
+  //   │                                                                │
+  //   │ Governing record: docs/validation/od-004-decision-set.md.      │
+  //   │ Do not restore the universal rule; two live rules is exactly   │
+  //   │ what this supersession exists to prevent.                      │
+  //   └────────────────────────────────────────────────────────────────┘
+  //
+  //   Where grouping IS required, Aisha wraps in the NS UI post-push
+  //   before invoice generation; Nexus emits correct prices and (once
+  //   the grouping plan lands) the deterministic plan she executes.
   //
   // The `findOrCreateItemGroup` code + composition_hash + Nexus's
   // `netsuite_item_groups` table stay live in the codebase. 8c-1's

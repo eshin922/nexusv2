@@ -96,9 +96,9 @@ Everything below is a property of that walk. It is one procedure, not five.
 
 | ID | What is missing | What the walk must show |
 |---|---|---|
-| **OD-004** | The **applicability datum** — which business value determines detailed items vs Item Group vs finished-good Assembly | The datum named and read from a real record. **This is an input, not an output** — the walk cannot compute applicability until it exists |
+| **OD-004** | ~~The applicability datum~~ — **DISPOSITIONED 2026-08-11** | Grouping follows the quote's agreed presentation: `detail_level = turnkey_only` → group; `itemized` → do not. Assembly is the boundary; `composition_hash` the identity. The walk **reads the datum from the send-time snapshot**; it no longer waits on one |
 | **OD-005** | HubSpot Product `price` → NetSuite Base Price propagation, untested across the node boundary | A controlled create/read-back proving a **`$0.00` catalogue placeholder never becomes the commercial price** at either node |
-| **REG-4** | Item Group creation, reuse and member-rate pricing | Applicable completion creates **or reuses one deterministic group**, uses it once, and **preserves the accepted commercial total** |
+| **REG-4** (revised 2026-08-11) | Grouping applicability, plan determinism, and member-rate pricing | Completion pushes lines summing **exactly to the accepted commercial total**, and — when the send-time `detail_level` is `turnkey_only` — emits a **deterministic grouping plan** (group `externalId` from `composition_hash`, member lines, member rates, turnkey unit price) sufficient for NetSuite Ops to group **without re-deriving any commercial figure**. The walk records the plan emitted, the grouping performed, and a read-back proving the invoiced total equals the accepted total. Where `detail_level` is `itemized`, it proves the itemized presentation was **preserved and not grouped**. **Item Group creation by Nexus is out of V1 scope** — an external-platform limitation (REST and SOAP both refuse at CREATE), carried v1.1+ via RESTlet or Assembly migration |
 | **P1-014** | That no unresolved cost reaches a real NetSuite | Completion rejects unresolved cost **before any external write**. The send-side half is already proven (P1-004); the ERP boundary is not |
 
 ### Also closed by the same walk
