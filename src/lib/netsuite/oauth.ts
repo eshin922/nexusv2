@@ -34,17 +34,39 @@ function pctEncode(str: string): string {
 }
 
 /**
+ * RFC 5849 §3.4.1.3.2 parameter normalisation: sort by encoded name, then by
+ * encoded value for repeated names. Exported for regression coverage.
+ */
+export function normalizeParams(pairs: Array<[string, string]>): string {
+  return pairs
+    .map(([k, v]) => [pctEncode(k), pctEncode(v)] as const)
+    .sort((a, b) => (a[0] === b[0] ? (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0) : a[0] < b[0] ? -1 : 1))
+    .map(([k, v]) => `${k}=${v}`)
+    .join("&");
+}
+
+/**
  * Build the OAuth 1.0a HMAC-SHA256 Authorization header for a NetSuite
- * REST request. `url` MUST NOT include a query string — pass path-only
- * URLs. Query params (if any) contribute to the base string via `extra`
- * but the standard SuiteTalk pattern is POST-with-JSON-body so this is
- * rare.
+ * REST request.
+ *
+ * QUERY PARAMETERS ARE PART OF THE SIGNATURE (RFC 5849 §3.4.1.3.1). They are
+ * parsed off `url` and merged with the oauth_* params into the base string,
+ * while the base URL contributes without its query. Omitting them produces a
+ * signature NetSuite rejects as `401 INVALID_LOGIN` — which is what happened
+ * before this was fixed: `buildAuthHeader` stripped the query and relied on an
+ * `extra` argument that no caller ever passed, so `?limit=`, `?offset=` and
+ * `?expandSubResources=true` were all unauthenticable.
+ *
+ * Signing from the transmitted URL (rather than a caller-supplied duplicate of
+ * its parameters) is what keeps signature and request from drifting apart. No
+ * endpoint is special-cased.
  */
 export function buildAuthHeader(args: {
   method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
   url: string;
   creds: OAuthCredentials;
-  /** Extra query params to include in the signature base string. */
+  /** Additional params to fold into the base string. Rarely needed — query
+   *  parameters present on `url` are included automatically. */
   extra?: Record<string, string>;
 }): string {
   const { method, url, creds, extra } = args;
@@ -58,13 +80,21 @@ export function buildAuthHeader(args: {
     oauth_version: "1.0",
   };
 
-  const allParams = { ...oauthParams, ...(extra ?? {}) };
-  const paramString = Object.keys(allParams)
-    .sort()
-    .map((k) => `${pctEncode(k)}=${pctEncode(allParams[k])}`)
-    .join("&");
+  // Parse the query exactly as transmitted. URLSearchParams decodes percent
+  // escapes, and pctEncode re-encodes canonically — so a value arrives at the
+  // base string in RFC form regardless of how the caller wrote it.
+  const qIndex = url.indexOf("?");
+  const baseUrl = qIndex === -1 ? url : url.slice(0, qIndex);
+  const queryPairs: Array<[string, string]> =
+    qIndex === -1 ? [] : [...new URLSearchParams(url.slice(qIndex + 1))];
 
-  const baseUrl = url.split("?")[0];
+  const pairs: Array<[string, string]> = [
+    ...Object.entries(oauthParams),
+    ...Object.entries(extra ?? {}),
+    ...queryPairs,
+  ];
+  const paramString = normalizeParams(pairs);
+
   const baseString = [method, pctEncode(baseUrl), pctEncode(paramString)].join(
     "&",
   );
