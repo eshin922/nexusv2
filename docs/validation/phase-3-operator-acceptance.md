@@ -22,6 +22,57 @@ test run and deliberately not cleared.
 
 ## V1 blocker
 
+### B-2 · A staged lift moves the quoted price with no row accounting for it
+
+**Observed by Edward, step 1:** *"when i click global price adjustment i see the
+staged changes in the cost stack. lift all 1 to floor does not do that."*
+
+**Reproduced.** The Cost Stack's row list is IDENTICAL before staging, after
+staging a lift, and after staging a quote-wide adjustment:
+
+```
+Packaging · Production · Bulk raw · Freight · Duty + tariff
+Sell before adjustment · Price adjustment · Sell after adjustment
+PM overrides · Quoted sell · Unit cost · Margin
+```
+
+`Surgical lifts` and `Sell after lifts` **never render**. With a lift staged the
+stack shows `Quoted sell +$0.1331` and `Margin +3.0pp` — and no row that
+accounts for either. The global adjustment appears to behave correctly only
+because `Price adjustment` is an unconditional row.
+
+**This violates an accepted contract, and a load-bearing one.** R11 §4:
+
+> **Every lever that can change a quoted price owes the cost stack a row.** If
+> it cannot be shown as a row, the stack cannot assert reconciliation, and the
+> assertion is the thing that makes the stack trustworthy. **← LOAD-BEARING**
+
+**Root cause — mine, from the P3-017 restoration.** The conditional rows key on
+`state.cells[].lift_applied_pct`, and `state` is the CLASSIFIER, which describes
+COMMITTED state. The Design Authority keys the same rows on `rollups`, which in
+the prototype is computed from the WORKING set. So the row appears canonically
+the moment a lift is staged, and in production only once one is applied — and
+this quote has no committed lifts, so it never appears at all.
+
+Two bases for one question, which is Pattern 50 exactly. I wrote a comment in
+`detail-zone.tsx` claiming the existence test was correct because *"a lift
+refused by an override contributes exactly nothing, so keying on the delta would
+delete the rendering that shows a refusal happened."* That reasoning is sound
+and it is about the wrong axis: it argues existence-over-delta, and says nothing
+about committed-over-working. I got the first choice right and never noticed the
+second.
+
+**The reconciliation strip does not catch it**, and that is the sharpest part.
+The strip reads governed node values, not rendered rows, so it reports ✓ on a
+column whose *visible* rows no longer add up. Exactly the failure mode the
+4-decimal note in `format.ts` was written about — a correct assertion sitting
+under numbers that appear to contradict it — arriving by a different route.
+
+**Not repaired.** Disposition owed from Edward. The fix is small — source
+`liftSkus`/`overrideSkus` from the staged working set rather than the classifier
+— but it is a basis change on a surface where basis errors are the recurring
+defect, and it needs its own evidence rather than being folded into B-1's.
+
 ### B-1 · Staged changes gave no feedback where the operator was looking — **FIXED 2026-08-10**
 
 **Observed (step 1, reported early):** *"none of the 'Lift all 1 to floor'
