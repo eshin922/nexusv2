@@ -22,6 +22,94 @@ test run and deliberately not cleared.
 
 ## V1 blocker
 
+### D-1 · Two different quantities render under one `Blended margin` label — **OPEN**
+
+**Observed at step 1.** The header tile reads `BLENDED MARGIN 54.8%`; the grid
+row, also labelled `Blended margin`, reads `26.3% / 80.1% / 42.0% / 43.7%`.
+
+**Step 1's compliance-state contract PASSES and is not reopened:** one
+authoritative blocked / not-sendable verdict, the grid identifies the breaching
+SKU and tier, and corrective actions are presented from that state.
+
+#### 1 · The basis of the header 54.8%
+
+`summary_card.blended_margin_pct` ← `quote.blended_margin_pct` ← the engine's
+`blendedMarginPct`:
+
+```
+blendedRevenue += qr.totalRevenue      // costing.ts:3339, looping ALL tiers
+blendedCost    += qr.totalCost
+blendedMarginPct = (blendedRevenue - blendedCost) / blendedRevenue
+```
+
+**Revenue and cost summed ACROSS EVERY TIER**, then divided.
+
+#### 2 · The basis of each grid-row value
+
+`TierRollup.blended_margin_pct` — per tier, `(revenue_t − cost_t) / revenue_t`,
+forwarded from the engine. Same quantity the Cost Stack's `Margin` row reads
+from the governed node `quote/{tier}/margin`.
+
+#### 3 · Both are arithmetically correct and neither is recomputed locally
+
+Both are read from the engine. The classifier's local re-sum was removed
+deliberately (`pricing-classifier-context.tsx:598` records why: *"A second
+implementation of a commercial quantity does not announce itself while it
+agrees"*), and BV-010 plus `blended-margin-authority.test.ts` pin the per-tier
+figure.
+
+The header exceeding three of its four tiers is explained, not anomalous: T2
+carries the `$12.50` PM-SET override on Sprayer. At 10,000 units that is
+`$125,000` of T2's `$176,295` order value at ~97.6% margin, so T2 dominates a
+cross-tier sum and drags it to 54.8%.
+
+#### 4 · Labelling is NOT the narrowest correct repair, and this is why
+
+The Design Authority does not specify a cross-tier margin **anywhere**. Its
+equivalent tile is:
+
+```jsx
+const ri  = tiers.findIndex(t => t.recommended);   // :266
+const rec = rollups[ri];                           // :267
+...
+<div className="lbl">Blended margin</div>
+<div className="big">{pctS(rec.margin)}</div>      // :309-310
+```
+
+`rec.margin` is **the recommended tier's** blended margin — and every sibling
+tile in that card is recommended-tier-scoped: *Recommended tier*, *Order value ·
+T2*, *across all SKUs*. The card is titled "What you're sending", and what is
+being sent is the quote at its recommended tier.
+
+So production's tile shows a quantity **the Authority never defines**, sitting
+among three tiles that are all scoped to one tier. Under the Authority that tile
+should read the recommended tier's figure — **80.1%** here, not 54.8%.
+
+There is also a commercial question underneath: tiers are mutually exclusive
+quantity breaks. A customer buys at ONE. Summing revenue across all four
+describes a transaction that cannot occur, and here it is inflated by an
+override on a tier the customer may not choose.
+
+**Consequence for the repair.** Relabelling alone — "Quote-wide blended margin"
+versus "Tier blended margin" — satisfies the ambiguity but gives a precise,
+official-sounding name to a quantity that the Authority does not specify and
+that corresponds to no commercial event. That is a worse outcome than the
+ambiguity: it would make the number look deliberate.
+
+| option | change | consequence |
+|---|---|---|
+| **(a) Label only** | rename both labels; both values unchanged | Ambiguity gone. But the tile keeps asserting a cross-tier aggregate beside three recommended-tier tiles, now under a confident name. No calculation changes. |
+| **(b) Source the tile from the recommended tier, per the Authority** | tile reads the recommended tier's governed margin; labels still disambiguated | Matches the Design Authority and the card's own framing. **Changes a displayed number** (54.8% → 80.1%) — no calculation, aggregation or compliance logic is touched, and the value is already governed and already on the page in the grid. Leaves no consumer of the cross-tier figure on this surface. |
+
+**Recommendation: (b), with the labels disambiguated either way.** It is barely
+larger than (a) — one prop, no new arithmetic — and (a) alone would formalise
+the wrong quantity.
+
+**Held for disposition.** Edward's instruction scoped the repair to terminology
+*"assuming the numbers are correct"*. Each number is arithmetically correct; the
+premise that survives is narrower than that, so the choice is his rather than
+mine to assume.
+
 ### B-2 · A staged lift moved the quoted price with no row — **FIXED 2026-08-10**
 
 **Observed by Edward, step 1:** *"when i click global price adjustment i see the
