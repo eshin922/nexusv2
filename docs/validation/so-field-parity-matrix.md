@@ -101,3 +101,87 @@ with { limit: 6 }   -> [netsuite:auth] Invalid login attempt
 is any REST GET needing `?expandSubResources=true` — the projection an Item Group
 read-back would most naturally use. No current production caller passes either,
 so this is latent, not live.
+
+---
+
+## C.1 · CLOSED — governed customer payment terms (`0c2c523`, 2026-08-11)
+
+### The V1 authority contract
+
+```
+NetSuite Customer Terms → Nexus customer-facing quote terms → frozen Send snapshot
+```
+
+and, independently:
+
+```
+NetSuite accounting configuration → SO.terms
+```
+
+**Nexus does not force equality between the two after Send.** They answer
+different questions for different audiences: the quote snapshot preserves what
+was *promised to the customer*; `SO.terms` is what *Accounting operates on*.
+A difference between them is auditable commercial/accounting state, not drift
+to be reconciled. Nexus never writes `SO.terms`.
+
+### Why the previous value was not authority
+
+`firm_settings.payment_terms_default` is one firm-wide free-text string with no
+customer dimension. Against the 9 customers with verified NetSuite lineage:
+
+| | |
+|---|---|
+| had a populated governed Terms record | **9 of 9** |
+| disagreed with what Nexus would print | **9 of 9** |
+| disagreed **materially** (governed `Net 30` vs printed 50%-deposit) | **5 of 9** |
+| agreed only by coincidence of drafting | 4 of 9 |
+
+Coincidental free-text equivalence is not parity. That is why C.1 could not
+close as parity and had to close as a repair.
+
+### Operational consequence — intentional, not a defect
+
+> **A quote cannot be sent until its customer has verified NetSuite lineage and
+> a resolvable NetSuite Customer Terms value.**
+
+Fail-closed is the point: the alternative is printing an unauthorised
+commercial commitment. All 9 currently-mapped customers satisfy the gate, so no
+existing customer is blocked. A newly-imported deal will be blocked until its
+lineage is verified — expected behaviour, and worth knowing before a PM meets
+it.
+
+Drafts still render, marked `provisional` via `paymentTermsSource`, so quote
+authoring is never blocked — only the commitment is.
+
+### Quote-level Terms override — `DEFERRED, NOT DECLINED`
+
+Two prerequisites, both established, neither an engineering question:
+
+1. **Business authority** — who may override, and under what conditions.
+2. **An approved, enumerable governed Terms vocabulary.** Not available today:
+   `term` is not a SuiteQL record and `GET /record/v1/term/{id}` returns
+   `Permission Violation`. Reading *one* customer's term works (it arrives on
+   the customer record as `terms.refName`); listing the vocabulary does not.
+   Those are different permissions — which is why the starting value was
+   reachable now and a picker was not.
+
+Pinned by `governed-payment-terms.test.ts` test 11 so it cannot arrive by
+accident.
+
+### Explicitly out of V1 scope
+
+**No caching or freshness architecture.** Drafts resolve live; sent quotes read
+their frozen snapshot and never re-resolve. That is the whole model.
+
+### DPS-1045 — invalidated for Case B in its current sent state
+
+| | |
+|---|---|
+| frozen terms | `50% deposit, 50% on shipment` |
+| Nemah governed terms | `Net 30` |
+| verdict | **snapshot is not valid certification evidence** |
+
+**Do not Accept.** **Do not Revise/re-Send yet** — held until the remaining
+quote-side parity work is dispositioned, so external transitions are not spent
+unnecessarily. Nemah has verified lineage and a populated Terms record, so the
+governed Revise → Send path will succeed when it is time.
