@@ -435,6 +435,13 @@
       "when": 1786320000000,
       "tag": "0063_pricing_lift_persistence",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1786320001000,
+      "tag": "0064_below_floor_authorization",
+      "breakpoints": true
     }
   ]
 }

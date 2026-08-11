@@ -2,6 +2,11 @@ import "server-only";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
+  evaluateBelowFloorAuthorization,
+  fingerprintCommercialState,
+} from "@/lib/below-floor-authorization";
+import {
+  belowFloorAuthorizations,
   quotes as quotesTable,
   quoteTiers,
   quoteSnapshots,
@@ -188,9 +193,42 @@ export async function runMarkComplete(
   // because the accepted_tier_id may differ under PM override paths).
   // Blocks UNCONDITIONALLY — admin override deferred v1.1+ per CA Q4.
   if (tierRollup.blendedMarginStatus === "BELOW_FLOOR") {
-    throw new Error(
-      `Blocked — the accepted tier (${tierRollup.label}) is below the firm's margin floor. Cannot advance to complete.`,
-    );
+    // TRACK A · BV-005 1c. Completion has its OWN gate, independently of
+    // acceptance — the accepted tier may differ from the customer-accepted one
+    // under PM override paths, and a state that drifted between accepting and
+    // completing must be caught here rather than assumed settled upstream.
+    //
+    // Independence is measured against the actor COMPLETING, for the same
+    // reason it is measured against the actor accepting: whoever commits the
+    // below-floor outcome may not be the person who authorized it. No fallback.
+    const authorizations = await db
+      .select({
+        id: belowFloorAuthorizations.id,
+        quoteVersionNumber: belowFloorAuthorizations.quoteVersionNumber,
+        tierId: belowFloorAuthorizations.tierId,
+        approvedByUserId: belowFloorAuthorizations.approvedByUserId,
+        stateFingerprint: belowFloorAuthorizations.stateFingerprint,
+        invalidatedAt: belowFloorAuthorizations.invalidatedAt,
+      })
+      .from(belowFloorAuthorizations)
+      .where(eq(belowFloorAuthorizations.quoteId, quote.id));
+
+    const verdict = evaluateBelowFloorAuthorization({
+      authorizations,
+      scope: { quoteVersionNumber: quote.versionNumber, tierId: tierRollup.tierId },
+      currentFingerprint: fingerprintCommercialState({
+        totalRevenue: tierRollup.totalRevenue,
+        totalCost: tierRollup.totalCost,
+        blendedMarginPct: tierRollup.blendedMarginPct,
+      }),
+      actingUserId: actorUserId,
+    });
+
+    if (!verdict.ok) {
+      throw new Error(
+        `Blocked — the accepted tier (${tierRollup.label}) is below the firm's margin floor. ${verdict.message}`,
+      );
+    }
   }
   // Same reasoning as markAccepted's companion guard: an unpriced tier was
   // previously caught by the floor check via a fabricated 0% margin. It stays

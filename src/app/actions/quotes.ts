@@ -23,6 +23,7 @@ import {
   assemblyLeafTargets,
   assemblyLeaves,
   assemblyProductionInputs,
+  belowFloorAuthorizations,
   auditLog,
   firmSettings,
   freightCustomerArrangesMeta,
@@ -48,6 +49,10 @@ import {
   quoteTiers,
   users,
 } from "@/db/schema";
+import {
+  evaluateBelowFloorAuthorization,
+  fingerprintCommercialState,
+} from "@/lib/below-floor-authorization";
 import { writeAuditEntry } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { getCostingBundle } from "@/app/actions/costing";
@@ -2339,10 +2344,47 @@ export async function markAccepted(
     //   - quote stays 'sent'
     // Same shape as the isHubspotLinkedDealId guard 30 lines below.
     if (tierRollup.blendedMarginStatus === "BELOW_FLOOR") {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        `Cannot record acceptance at ${tierRollup.label} — the tier is below the firm's margin floor. Admin override required (not yet wired; block until it lands).`,
-      );
+      // TRACK A · BV-005 1c — the override the comment above used to promise.
+      //
+      // Still blocked by default. What changed is that there is now a governed
+      // door: an authorization recorded by a Commercial Approver, scoped to this
+      // quote version, this tier and this commercial state, and — checked HERE
+      // rather than at authorization time — decided by someone other than the
+      // person recording acceptance.
+      //
+      // NO FALLBACK. There is deliberately no branch in which the absence of an
+      // eligible independent approver resolves permissively. An estate with one
+      // person cannot sell below floor; that is the correct outcome, not an edge
+      // case to route around.
+      const authorizations = await db
+        .select({
+          id: belowFloorAuthorizations.id,
+          quoteVersionNumber: belowFloorAuthorizations.quoteVersionNumber,
+          tierId: belowFloorAuthorizations.tierId,
+          approvedByUserId: belowFloorAuthorizations.approvedByUserId,
+          stateFingerprint: belowFloorAuthorizations.stateFingerprint,
+          invalidatedAt: belowFloorAuthorizations.invalidatedAt,
+        })
+        .from(belowFloorAuthorizations)
+        .where(eq(belowFloorAuthorizations.quoteId, quote.id));
+
+      const verdict = evaluateBelowFloorAuthorization({
+        authorizations,
+        scope: { quoteVersionNumber: quote.versionNumber, tierId: tierRollup.tierId },
+        currentFingerprint: fingerprintCommercialState({
+          totalRevenue: tierRollup.totalRevenue,
+          totalCost: tierRollup.totalCost,
+          blendedMarginPct: tierRollup.blendedMarginPct,
+        }),
+        actingUserId: user.id,
+      });
+
+      if (!verdict.ok) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `Cannot record acceptance at ${tierRollup.label} — ${verdict.message}`,
+        );
+      }
     }
     // A tier with no revenue used to arrive here as BELOW_FLOOR and be
     // rejected — for the wrong reason, but rejected. Now that the engine

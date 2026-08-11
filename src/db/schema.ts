@@ -263,6 +263,21 @@ export const users = pgTable(
     email: text("email").notNull().unique(),
     name: text("name"),
     role: userRole("role").notNull().default("read_only"),
+    /**
+     * BV-005 Commercial Approver authority — Track A disposition 1c.
+     *
+     * DELIBERATELY NOT A ROLE, and deliberately not derived from `admin`.
+     * BV-005: authority "must not be hardcoded to the `admin` role", and admin
+     * may ADMINISTER the list without being on it. Its own column so that
+     * separation is structural rather than a convention a later refactor can
+     * quietly collapse into `role === "admin"`.
+     *
+     * Defaults false, and is NOT seeded. Membership is assigned after
+     * organisation-tenant SSO, when distinct staff identities exist — the three
+     * pre-SSO rows in production today are all the same person, so seeding from
+     * them would manufacture an independence the estate does not have.
+     */
+    commercialApprover: boolean("commercial_approver").notNull().default(false),
     hubspotOwnerId: text("hubspot_owner_id"),
     // Slice RI.7 — phone for PreparedBy contact derivation (DEC-8).
     // Back-filled from HubSpot owners API in ensureUser on first sign-in
@@ -884,6 +899,72 @@ export const quoteReviewEvents = pgTable(
 // rewrite both the markup_defaults rows and the category strings on
 // existing packaging_inputs rows. Kept as text PK (not enum) so that
 // future additions/renames don't require ALTER TYPE migrations.
+/**
+ * BV-005 1c — the governed below-floor override.
+ *
+ * Acceptance and completion block below the firm's margin floor. This table is
+ * the ONLY door through that block, and it is a door rather than a switch: one
+ * row per decision, scoped to exactly one quote version and tier and to the
+ * commercial state that was true when the decision was taken.
+ *
+ * There is no request lifecycle. Edward's disposition took 1c over the full
+ * BV-005 workflow for V1: no asynchronous request, no routing, no Slack, no
+ * quorum. An authorized approver decides; the gates consult the decision.
+ */
+export const belowFloorAuthorizations = pgTable(
+  "below_floor_authorizations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    /** Scoped to ONE version. A revision does not inherit an approval. */
+    quoteVersionNumber: integer("quote_version_number").notNull(),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+
+    /**
+     * What was true at decision time. EVIDENCE, never an input to a later
+     * computation — a floor raised afterwards must not rewrite the history of a
+     * decision that was correct when it was taken (BV-005: "a later firm-floor
+     * change alone does not erase or invalidate historical approval").
+     */
+    marginAtDecision: numeric("margin_at_decision", { precision: 9, scale: 6 }).notNull(),
+    floorAtDecision: numeric("floor_at_decision", { precision: 5, scale: 4 }).notNull(),
+
+    /**
+     * The material commercial state, fingerprinted.
+     *
+     * Invalidation compares this rather than re-deciding what "material" means
+     * at each call site — two call sites deciding that separately is how the
+     * same word comes to mean two things.
+     */
+    stateFingerprint: text("state_fingerprint").notNull(),
+
+    approvedByUserId: uuid("approved_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),
+    /** NOT NULL: an approval without a why helps an auditor and nobody else. */
+    reason: text("reason").notNull(),
+
+    /** Invalidation is a transition, not a delete. The decision was still taken. */
+    invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+    invalidatedReason: text("invalidated_reason"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("below_floor_auth_live_idx").on(
+      t.quoteId,
+      t.quoteVersionNumber,
+      t.tierId,
+    ),
+  ],
+);
+
 export const markupDefaults = pgTable("markup_defaults", {
   category: text("category").primaryKey(),
   defaultMarkupPct: numeric("default_markup_pct", {
