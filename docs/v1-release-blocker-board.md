@@ -285,6 +285,79 @@ suite, which is what let this ship at all.
 **Phase 3's closure holds elsewhere.** P3-001…P3-015 are unaffected; this is a
 new row against the interaction contract, not a reopening of any completed one.
 
+## P2-014 · Pricing Vendor store-snapshot staleness — **a cleared vendor can be silently rewritten**
+
+Observed during the VAL-104 repair, investigated independently of it, and **not
+caused by it** — it reproduces with that repair reverted.
+
+**Reported as display staleness. It is not display-only.**
+
+Reproduction, measured (probe, `quotes.draft` first packaging line):
+
+| step | database | rendered |
+|---|---|---|
+| page load | `Validation Packaging Vendor` | vendor chip |
+| select a different vendor, then **Clear** | `null` *(verified persisted)* | **`Validation Packaging Vendor`** |
+| edit **markup** — an unrelated field on the same line | **`Validation Packaging Vendor`** | — |
+
+The clear reached the database and was then **undone by an edit to a different
+field**. No error, no warning, and the operator has no reason to look again.
+
+**The value names the cause.** What comes back is the vendor the *page was
+loaded with* — not the one selected, and not empty. So the resolution at
+`packaging-drilldown.tsx:481-485`:
+
+```ts
+const storeVendorId =
+  storeLineRow?.pricingVendorHubspotCompanyId ?? line.pricingVendorHubspotCompanyId;
+```
+
+`??` cannot distinguish **"the store has no row"** from **"the row's value is
+legitimately null."** For a clearable field those are different states, and only
+the first justifies falling back to the RSC prop. A cleared vendor resolves to
+the page-load value, that value lands in local state, and `fireMetaSave` sends
+`stateRef.current.vendorId` on the *next save of any field* — so an unrelated
+edit writes it back.
+
+`StoredPackagingRow` does carry both vendor fields (`costing-store.ts:92-93`),
+and they are populated end to end, so **row presence is a sound discriminator**
+and the prop is only needed before the row exists.
+
+**A bare clear does not reproduce it.** The first probe run cleared without
+selecting first and came back clean — cleared render, `null` in the row. The
+preceding select is required, which is why this surfaced only in the
+select→clear sequence and not in VAL-104's own path.
+
+**Proposed repair (not applied — this is a disposition, not a fix):** fall back
+on row absence rather than value nullness, at all three sites resolved this way
+(`category` at `:475` and `markupPct` at `:477` share the shape and should be
+audited together, though only vendor is proven affected):
+
+```ts
+const storeVendorId = storeLineRow
+  ? storeLineRow.pricingVendorHubspotCompanyId
+  : line.pricingVendorHubspotCompanyId;
+```
+
+**Severity recommendation — fix before V1.**
+
+Weighing it honestly:
+
+- **Against blocking:** not customer-visible (Pricing Vendor is internal
+  provenance and sits behind the customer-view boundary); recoverable by the
+  operator after a reload; needs a specific sequence, not any clear.
+- **For blocking:** it is **silent data loss on a governed commercial field**,
+  reached by an ordinary sequence with no reload in it, and the operator's
+  evidence — the rendered chip — *agrees with the wrong value*, so nothing
+  prompts them to check. Pricing Vendor is the provenance for packaging
+  pricing, which Track B's accounting handoff reads.
+
+The repair is small and local. The reason to treat it as V1 is not its size but
+its signature: a write that succeeds, is confirmed, and is then reverted by an
+unrelated action.
+
+**Disposition owner: Edward.** Recorded, not repaired.
+
 ## Board status
 
 | Track | Blockers | Status |

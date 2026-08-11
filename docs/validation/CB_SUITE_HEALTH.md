@@ -210,6 +210,7 @@ release is how fast unknowns become classified and then closed.
 | **Boundary established, cause open** | **0** | — |
 | **Unclassified** | **0** | — |
 | **Active classified product defects** | **1** | VAL-104 — repaired, regression green |
+| **New findings raised** | **1** | P2-014 — Pricing Vendor staleness; recorded, disposition open |
 
 **Eleven scenarios were failing or unmeasured when classification began. Five
 remain unclassified.** No pass count was pursued, and one scenario moved to
@@ -632,6 +633,21 @@ outright; or make reconcile defer to rows holding uncommitted meta edits the way
 `markupDirty` already tracks. These differ in blast radius across markup,
 category and vendor, all three of which share `scheduleMetaSave`.
 
+### P2-014 — Pricing Vendor store-snapshot staleness (raised here, tracked on the blocker board)
+
+Surfaced while repairing VAL-104 and investigated separately. It is **not
+display-only**: after select → clear without a reload, the rendered vendor falls
+back to the page-load value, that value reaches local state, and the next save of
+**any** field on the line writes it back — silently undoing a clear that had
+already persisted. A bare clear does not reproduce it; the preceding select is
+required.
+
+Cause is `??` in the store/prop resolution conflating *no row* with *null value*.
+Full record, evidence table and severity recommendation:
+[`../v1-release-blocker-board.md`](../v1-release-blocker-board.md) § P2-014.
+
+Recorded, not repaired. Disposition is Edward's.
+
 ### VAL-104 — **product interaction defect: REPAIRED**
 
 **Governing behavior.** A stale asynchronous completion must not overwrite a
@@ -707,9 +723,10 @@ reverted, so it is not caused by it. Store-snapshot staleness (Pattern 41
 family); the regression reloads to step around it rather than asserting through
 it.
 
-**Suite variance worth recording:** VAL-101 failed once across five full-suite
-runs (`cm_assembly_total` null at the second of six autosaved fields) and passed
-on the next run. One occurrence, not investigated, not attributed.
+**Recorded as harness variance (Edward, 2026-08-11):** VAL-101 failed once
+across five full-suite runs — `cm_assembly_total` null at the second of six
+autosaved fields — and passed on the next. **The classification pass is not
+reopened for it.** It becomes a finding only if it becomes reproducible.
 
 ### VAL-209 — **harness: a destructive scenario with no teardown; now passes**
 
