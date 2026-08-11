@@ -536,6 +536,53 @@ parity; Bulk Raw — CP-001. **They are not reopened by rendered evidence
 remaining outstanding.** The fixture confirms the governed projection; it does
 not redefine it.
 
+### §2c.1 · Fixture population state — as of 2026-08-11
+
+**Partially populated. No rendering performed. No proof executed. Nothing here
+is evidence yet.**
+
+Recorded to this precision so the next session resumes deterministically and so
+no reader mistakes a partial fixture for a complete one.
+
+**Quote:** `f5f5ac14-4d6b-4a48-98da-e6285a2cd9be` · "Rendered coverage fixture
+(do not quote)" · Nemah `628dfce0` · status `draft`.
+
+#### Entered and verified against the database
+
+| design item | target | assembly | state |
+|---|---|---|---|
+| Structure | 2 assemblies | `FIX-ASY-A` (Bottle), `FIX-ASY-B` (Box) | **done** — one leaf each, both NetSuite-resolvable |
+| Tier quantity | 1,000 | — | **done** |
+| Packaging | $3.00 | A · `DPS-BOTTLE-0001` | **done** |
+| Packaging | $5.00 | B · `10064-GNX-Box` | **done** |
+| Production (filling/blending) | $7,000 | A | **done** |
+| One-time fee, allocation ON | setup $11,000 | A | **done** — `allocate_service_fees_to_cost = true` |
+| Bulk Raw | $13,000 | A | **done** — `customer_ships_raws = false`, so it is priced |
+| One-time fee, allocation OFF | tooling $17,000 | B | **amount done; POLICY NOT SET** |
+
+#### Outstanding
+
+| # | item | note |
+|---|---|---|
+| 1 | **B's `allocate_service_fees_to_cost` → `false`** | currently `true` (the insert default). **Until flipped, B's $17,000 amortises into unit sell and proof 7 cannot be run** — the fixture would silently exercise allocation-ON twice and allocation-OFF never |
+| 2 | Freight $19,000 | shipment over A — Create Shipment flow |
+| 3 | Duty $23,000 | customs entry on that shipment |
+| 4 | Tariff $29,000 | customs entry on that shipment |
+| 5 | Input ledger | derived from governed sources **before** rendering, never from output |
+| 6 | Render `itemized` + `turnkey_only` | two separate observations: Customer View and PDF |
+| 7 | The eight proofs | stop at the first failure; do not adjust fixture or presentation |
+| 8 | T-1 direct rendered itemized observation | on this fixture |
+
+Item 1 is the one that would quietly invalidate the run if missed, which is why
+it is listed first rather than in entry order.
+
+#### Incidental confirmation (not one of the eight proofs)
+
+The Costs cost stack now renders **RAW as its own row** with its own legend
+entry, alongside PKG / PROD / FRT / D+T — the T-4 repair (`abc7a52`) observed
+live on a real surface rather than only in unit tests. Recorded as an
+observation; T-4's evidence stands on its own suite.
+
 ## §3 · Required coverage
 
 Trace must run against **at least one `itemized` quote and one `turnkey_only`
