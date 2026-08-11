@@ -195,16 +195,19 @@ export function AddProductModal({
         setError(result.error.message);
         return;
       }
-      onSuccess?.({ kind: "leaf", id: result.data.leafId, name: leafName.trim() });
+      // Captured BEFORE onClose, which resets the form. The toast read
+      // `Added "" to the library` because it interpolated a field that had
+      // already been cleared -- a confirmation that named nothing, which is
+      // not a confirmation.
+      const created = leafName.trim();
+      onSuccess?.({ kind: "leaf", id: result.data.leafId, name: created });
       onClose();
       if (option === "continue") {
         router.push(
           `/projects/${projectId}/quotes/${quoteId}/leaves/${result.data.leafId}/specs`,
         );
       } else {
-        setToast(
-          `Added "${leafName.trim()}" to the library · specs deferred.`,
-        );
+        setToast(`Added "${created}" to the library · specs deferred.`);
         router.refresh();
       }
     });

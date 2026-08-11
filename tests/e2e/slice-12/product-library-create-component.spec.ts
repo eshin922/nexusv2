@@ -178,8 +178,28 @@ test("PVS-018 Product Library preserves creation through every catalog state", a
     await addProduct.getByRole("textbox", { name: "SKU" }).fill(successfulSku);
     await addProduct.getByRole("button", { name: /Add leaf/ }).click();
 
-    const createdRow = library.getByText(successfulName, { exact: true });
-    await expect(createdRow).toBeVisible();
+    // Governed post-create contract: creation is immediately CONFIRMED and
+    // deterministically DISCOVERABLE. It does not imply first-page placement
+    // in an alphabetically paginated catalog -- this library is 50 of 1000+,
+    // so a new name lands wherever it sorts. Asserting unfiltered first-page
+    // visibility tested the alphabet, not the product.
+    //
+    // Two independent facts instead, neither of which is database existence:
+
+    // 1. Immediate confirmation -- the toast names what was actually created.
+    //    VERIFIED FAILING: this flow does not navigate (it stays on setup),
+    //    and no toast reaches the operator, so creation currently confirms
+    //    nothing on this branch. That is the remaining product repair, not a
+    //    test expectation to relax.
+    await expect(
+      page.getByText(`Added "${successfulName}" to the library`, { exact: false }),
+    ).toBeVisible();
+
+    // 2. Catalog discoverability -- exact-name search returns it.
+    await page.getByRole("button", { name: /add component/i }).click();
+    const createdSearch = library.getByRole("textbox", { name: "Search library" });
+    await createdSearch.fill(successfulName);
+    await expect(library.getByText(successfulName, { exact: true })).toBeVisible();
     const [createdLeaf] = await sql<{ id: string; hubspot_product_id: string }[]>`
       select id, hubspot_product_id
       from leaves
