@@ -5362,3 +5362,66 @@ branch comparison against an unverified baseline is not evidence.
 any statement of the form "these failures are pre-existing." Ad hoc runners
 remain fine for iterating on a single file — just never for a number that
 appears in a report.
+
+## Drizzle journal `hash` is a content hash, not a filename
+
+**Standing rule — banked 2026-08-11 from the `0064` application to the shared
+database.**
+
+`drizzle.__drizzle_migrations` has three columns: `id`, `hash`, `created_at`.
+**`hash` is a SHA of the migration file's CONTENT.** It does not contain the
+migration tag, the filename, or the sequence number. Any rollback or
+verification step written as
+
+```sql
+DELETE FROM drizzle.__drizzle_migrations WHERE hash LIKE '%00NN_some_name%';
+```
+
+**matches zero rows**, silently.
+
+**Why the silence is the danger.** A rollback that follows such a predicate
+drops the tables and columns and then deletes nothing from the journal. Drizzle
+subsequently considers the migration applied against a database where its
+objects no longer exist, and the next `db:migrate` **skips it** — leaving the
+schema one migration behind what the journal claims, with nothing reporting the
+divergence. A rollback that fails announces itself; this one does not.
+
+**Identify the row by its verified journal identity.** Confirm before any
+destructive step:
+
+```sql
+SELECT id, created_at, left(hash, 16) FROM drizzle.__drizzle_migrations
+ ORDER BY created_at DESC LIMIT 3;
+```
+
+For `0064_below_floor_authorization` the verified identity is
+`created_at = 1786320001000` (`id = 66`). **That identifier is specific to 0064
+and must not be generalized to any other migration without re-deriving it** —
+`created_at` values come from the journal file, are not sequential in any
+predictable arithmetic, and differ per environment where migrations were applied
+at different times.
+
+**Reference moment.** Found while verifying the `0064` application to the shared
+database. A post-application check searched on the same wrong assumption and
+reported `journal rows matching 0064 : 0` while the migration was demonstrably
+applied (62 → 63). The disagreement between two checks — one asserting applied,
+one asserting absent — is what exposed the defect, before any rollback was ever
+attempted.
+
+**Adjacent discipline, same application.** `drizzle-kit migrate` applies EVERY
+pending migration, not the one being discussed. "Apply 0064" and "run the
+migrator" are the same action only when the journal says so. Verify the pending
+set before applying to a shared database:
+
+```sql
+SELECT count(*) FROM drizzle.__drizzle_migrations;   -- vs entries in drizzle/meta/_journal.json
+```
+
+62 against 63 meant exactly one pending. Had it been 60 against 63, running the
+migrator would have applied two migrations nobody authorized.
+
+**Cross-references.**
+- "Single Supabase project — dev and prod share one DB" — why any migration is a
+  production change.
+- Memory `feedback_migrations_before_code_merge` — apply additive migrations
+  BEFORE merging code that reads them.
