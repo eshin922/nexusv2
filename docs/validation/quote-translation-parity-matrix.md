@@ -240,7 +240,7 @@ One-time service fees with allocation OFF are explicitly **not** in unit sell �
 are "projected exactly once by the customer-view resolver, outside unit cost and
 unit sell." That is the citable contract for their separate-line presentation.
 
-### T-4 · Pattern 57's stated rationale for removing the RAW row is false against current code · **BUSINESS DISPOSITION REQUIRED**
+### T-4 · Bulk Raw absent from the Cost Stack · **V1 DESIGN AUTHORITY / OPERATOR-TRUTHFULNESS BLOCKER — REPAIRED 2026-08-11**
 
 Not a defect in the math — the math is correct. A defect in the **premise a
 governance decision was taken on**, which matters because Pattern 57 is now a
@@ -261,10 +261,63 @@ canonical node of its own?"* For bulk raw the answer is **yes**: own node, own
 markup category, own `cellSections` entry. By the rule's own criterion the row
 qualified.
 
-**Not reverting anything.** Edward removed the row and that disposition stands
-until he revisits it. Recorded because the rule will be applied again and the
-worked example under it is wrong. Requires Edward's disposition: re-examine
-row membership, or amend the recorded rationale to the real one.
+**Disposition (Edward, 2026-08-11): Pattern 57 reopened narrowly.** The prior
+disposition rested on a false factual premise, so the rationale that Bulk Raw is
+already represented by Production does not hold. Classified as a V1 Design
+Authority / operator-truthfulness blocker and repaired.
+
+**Repair -- representation only.**
+
+- RAW restored as its own governed Cost Stack section, sourced from
+  `rawSectionNode` via a new `per-unit/raw` component.
+- Its own resolved markup basis preserved -- `RAW_MARKUP_CATEGORY`, never
+  Manufacturing's.
+- Not folded into Production. PROD reads **net** of raw, so the two sections sum
+  to what PROD alone previously showed.
+- `breakdown.production` / `breakdown.productionMarkupSum` keep their folded
+  values for every existing consumer; `breakdown.rawCost` is **added**, the
+  cost-side counterpart to the `rawMarkupSum` that already existed.
+- Costing arithmetic, quoted sell, margins and markup policy unchanged.
+
+**Evidence** -- `tests/unit/cost-stack-bulk-raw-section.test.ts`, 8 tests:
+
+| # | requirement | result |
+|---|---|---|
+| 1 | Production > 0 **and** Bulk Raw > 0 | pass |
+| 2 | Manufacturing markup != Raw markup (0.32 vs 0.50) | pass |
+| 3 | both sections render | pass |
+| 4 | each matches its governed node independently | pass |
+| 5 | changing Raw markup moves only Raw | pass (see note) |
+| 6 | changing Manufacturing markup does not move Raw | pass |
+| 7 | visible reconciliation exact (sum of sections = subtotal) | pass |
+| 7b | quoted sell / raw's sell contribution untouched | pass |
+| 8 | falsification vs prior Pattern 57 behavior | pass |
+
+Note on item 5: PROD is asserted unmoved at a tolerance of 1e-9, not on bit
+equality. PROD is derived by subtraction, so changing the raw markup
+re-associates the float and PROD can differ in the last representable bit
+(6.6 vs 6.600000000000001). That is representation, not a commercial move --
+recorded because "unmoved within tolerance" is a weaker claim than "unmoved".
+
+**Falsification (item 8) establishes both halves of why the prior state was
+indefensible:**
+
+- with PROD net of raw and no RAW row, the visible stack **under-reports by
+  exactly the raw contribution** -- an unexplained gap;
+- with PROD folded, the stack reconciles but reports a blended markup rate
+  matching **neither** governing authority (0.32 nor 0.50) -- the money is
+  attributed to an authority that did not price it.
+
+**Governance record corrected, not rewritten.** `CLAUDE.md` Pattern 57 keeps its
+three passes verbatim under a notice that the worked example was invalidated by
+implementation evidence. The rule is unchanged and unweakened -- a financial
+stack contains only independently governed quantities, and bulk raw is one. The
+banked lesson is now sharper: answering "is this independently governed?" from a
+display-layer aggregate rather than from the node graph fails in exactly this
+direction, because **aggregation looks like absence**.
+
+**No inference drawn about customer-facing Bulk Raw presentation.** This repair
+is internal-surface only; customer presentation remains open below.
 
 ### Production inputs — **PARTIALLY TRACED** (sell side done in T-3; presentation outstanding)
 

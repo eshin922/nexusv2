@@ -674,6 +674,19 @@ export type QuoteCostBreakdown = {
   packagingMarkupSum: number;
   productionMarkupSum: number;
   rawMarkupSum: number;
+  // T-4 (2026-08-11) — bulk raw's COST side, tracked separately.
+  //
+  // `production` and `productionMarkupSum` fold raw in, and both keep doing so:
+  // every existing consumer reads the combined figure and un-folding them would
+  // change arithmetic outside the repair's scope. `rawMarkupSum` already
+  // existed; this is its cost-side counterpart, so a consumer that needs the
+  // two components apart can subtract rather than re-derive.
+  //
+  // Bulk raw is an independently governed quantity — its own canonical node
+  // (`nodeKey(sku, tier, "raw")`), its own markup authority
+  // (`RAW_MARKUP_CATEGORY`), its own `cellSections` entry feeding quoted sell.
+  // The Costs cost stack shows it as its own section on that basis.
+  rawCost: number;
   freightContainerMarkupSum: number;
   dutyAndTariffMarkupSum: number;
   separateServicesMarkupSum: number;
@@ -3043,6 +3056,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       packagingMarkupSum: 0,
       productionMarkupSum: 0,
       rawMarkupSum: 0,
+      rawCost: 0,
       freightContainerMarkupSum: 0,
       dutyAndTariffMarkupSum: 0,
       separateServicesMarkupSum: 0,
@@ -3074,6 +3088,9 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       // (see QuoteCostBreakdown comment).
       breakdown.production +=
         (pt.productionCostPerUnit + pt.rawCostPerUnit) * tQty;
+      // T-4 — same addend, kept apart. `production` stays folded for every
+      // existing consumer; this makes the raw half separable without it.
+      breakdown.rawCost += pt.rawCostPerUnit * tQty;
       breakdown.freight += pt.totalLandedFreightBeforeMarkup * tQty;
       // Slice RI.8 Option B+ — D+T cost-stack row reads dutyAndTariff;
       // FRT row reads freightContainer. `freight` stays as the
@@ -3135,11 +3152,24 @@ export function computeQuoteCosting(input: QuoteCostingInput,
     // carried as `divisor` DATA so the reconciler can check the operation
     // instead of reading the denominator out of a label.
     //
-    // RAW is absent on purpose. The header's raw row is an unbuilt stub
-    // returning 0 (UX_BACKLOG), and `productionMarkupSum` already folds bulk
-    // raw in — so emitting a raw node would double-count against production.
-    // The stub stays a stub; encoding it as canonical would make a UI gap look
-    // like a commercial fact.
+    // RAW IS EMITTED. It was previously absent on the stated grounds that
+    // "`productionMarkupSum` already folds bulk raw in — so emitting a raw node
+    // would double-count against production." The fold is real, and that is why
+    // PROD below subtracts. The conclusion drawn from it was not: bulk raw has
+    // its own canonical node (`nodeKey(sku, tier, "raw")`), its own markup
+    // authority (`RAW_MARKUP_CATEGORY`, distinct from Manufacturing), and its
+    // own `cellSections` entry contributing independently to quoted sell.
+    //
+    // So PROD reads production MINUS raw, and RAW reads raw. Their sum is what
+    // PROD alone used to be, which is why the subtotal is unchanged to the
+    // float — the split reapportions an existing figure between two rows, it
+    // does not add or remove one. Costing arithmetic, quoted sell, margins and
+    // markup policy are untouched: `breakdown.production` and
+    // `breakdown.productionMarkupSum` still carry the folded values for every
+    // other consumer.
+    //
+    // T-4, 2026-08-11. The prior disposition was taken on a false factual
+    // premise; see docs/validation/quote-translation-parity-matrix.md.
     const perUnitQty = num(tier.qty);
     if (perUnitQty > 0) {
       const originOf = (label: string, value: number): CostingNode => ({
@@ -3195,7 +3225,13 @@ export function computeQuoteCosting(input: QuoteCostingInput,
 
       const perUnitComponents: CostingNode[] = [
         perUnitComponent("pkg", "Packaging", breakdown.packaging, breakdown.packagingMarkupSum),
-        perUnitComponent("prod", "Production", breakdown.production, breakdown.productionMarkupSum),
+        perUnitComponent(
+          "prod",
+          "Production",
+          breakdown.production - breakdown.rawCost,
+          breakdown.productionMarkupSum - breakdown.rawMarkupSum,
+        ),
+        perUnitComponent("raw", "Bulk raw", breakdown.rawCost, breakdown.rawMarkupSum),
         perUnitComponent("frt", "Freight", breakdown.freightContainer, breakdown.freightContainerMarkupSum),
         perUnitComponent("dt", "Duty & tariff", breakdown.dutyAndTariff, breakdown.dutyAndTariffMarkupSum),
       ];

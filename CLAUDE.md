@@ -5279,7 +5279,46 @@ yes, it is a row. If no, whatever it has to say is **metadata about the row that
 does carry the money**, and belongs there: a legend qualifier, a tooltip, a
 sublabel. Not a line of its own.
 
-**Reference moment — three passes, two of them wrong, each defensible.** Bulk raw
+> **⚠ THE WORKED EXAMPLE BELOW WAS INVALIDATED BY IMPLEMENTATION EVIDENCE
+> (T-4, 2026-08-11). THE RULE STANDS; THE EXAMPLE DOES NOT.**
+>
+> The three passes are preserved as written because the decision was really
+> taken and the correction is only legible against it. But the factual premise
+> every pass rested on — that bulk raw has no independently governed value — is
+> false:
+>
+> - `rawSectionNode` **exists and is canonical**: `nodeKey(sku, tier, "raw")`,
+>   built at `costing.ts:1806-1868`.
+> - Bulk raw resolves markup through **`RAW_MARKUP_CATEGORY`**, a different
+>   authority from Manufacturing's `PRODUCTION_MARKUP_CATEGORY`.
+> - It is its **own `cellSections` entry**, contributing to quoted sell
+>   independently of Production.
+> - The cell-level `productionMarkupSum` (`costing.ts:1878`) reads
+>   `productionSectionNode.value` and **excludes** raw. Only the breakdown
+>   AGGREGATION folded the two — a reporting choice, not a statement about what
+>   is governed. Reading that aggregation as evidence about governance is the
+>   specific error.
+>
+> Applying **this rule's own test** — *does this have an independently governed
+> value, a canonical node of its own?* — bulk raw answers **yes**. It qualified
+> for a row under the very criterion used to remove it.
+>
+> **RAW was restored as its own Cost Stack section on 2026-08-11.** PROD now
+> reads net of raw so the subtotal is unchanged; costing arithmetic, quoted
+> sell, margins and markup policy were not touched. Evidence:
+> `tests/unit/cost-stack-bulk-raw-section.test.ts`. Full record:
+> `docs/validation/quote-translation-parity-matrix.md` §T-4.
+>
+> **The lesson this leaves is sharper than the one it replaced.** The rule asks
+> whether a quantity is independently governed. Answering that from a
+> *display-layer aggregate* rather than from the *node graph* gets it wrong in
+> exactly this direction — aggregation looks like absence. Ask the graph.
+>
+> Nothing here weakens the rule. A financial stack still contains only
+> independently governed quantities. Bulk raw is one.
+
+**Reference moment — three passes, two of them wrong, each defensible.**
+*(Historical record. Premise invalidated — see the notice above.)* Bulk raw
 is costed inside Production; `productionMarkupSum` already carries it, and no raw
 node exists.
 
