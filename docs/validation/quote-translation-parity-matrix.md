@@ -5,8 +5,9 @@ quote.** Separate from `so-field-parity-matrix.md` (Nexus → NetSuite Sales
 Order). Both carry into final V1 certification.
 
 **Status: OPEN. T-1 (HIGH) and T-4 (Design Authority) both REPAIRED 2026-08-11.
-Presentation matrix complete (2b), one coverage limitation stated. Two business
-dispositions outstanding: Bulk Raw bundling, and freight (OD-001).**
+Presentation matrix complete (2b). Rendered coverage CLOSED (2c) -- itemized 8/8
+and turnkey_only 8/8. Bulk Raw bundling settled by CP-001; freight presentation
+remains with OD-001.**
 
 ---
 
@@ -582,6 +583,97 @@ The Costs cost stack now renders **RAW as its own row** with its own legend
 entry, alongside PKG / PROD / FRT / D+T — the T-4 repair (`abc7a52`) observed
 live on a real surface rather than only in unit tests. Recorded as an
 observation; T-4's evidence stands on its own suite.
+
+
+### §2c · RENDERED COVERAGE — CLOSED 2026-08-11
+
+Fixture `f5f5ac14`, unchanged throughout. No governed input was altered to make
+any rendered result fit.
+
+**Independent ledger (governed sources, derived before any render):**
+
+| | per unit | |
+|---|---|---|
+| Packaging A | 3.90 | 3.00 × 1.3 |
+| Production A | 23.40 | (7,000 + **11,000** allocated) / 1,000 × 1.3 |
+| Bulk Raw A | 16.90 | 13,000 / 1,000 × 1.3 |
+| Freight A | 19.00 | 19,000 / 1,000, markup 0 |
+| Duty + Tariff A | 52.00 | (23,000 + 29,000) / 1,000, markup 0 |
+| **ASY-A** | **115.20** | |
+| **ASY-B** | **6.50** | packaging only — **17,000 tooling absent from unit sell** |
+
+Unit-priced total **121.70 × 1,000 = $121,700**; separate charge **$17,000**;
+expected customer-facing total **$138,700**.
+
+#### itemized — 8/8 PASS
+
+Rows $115.20 / $6.50 → $115,200 / $6,500; Turnkey total **$138,700**,
+**$138.70 /unit**; Additional Charges: Tooling & artwork **$17,000**.
+
+| # | | |
+|---|---|---|
+| 1 | reconciles | 115,200 + 6,500 + 17,000 = 138,700 |
+| 2 | Production bundled | inside $115.20, per contract |
+| 3 | Bulk Raw once, bundled | inside $115.20, **CP-001** |
+| 4 | Duty + Tariff bundled | $52.00 inside unit price, no line |
+| 5 | no unsupported freight claim | after `422cc7e` |
+| 6 | allocation-ON $11,000 once | unit pricing only; absent from Additional Charges |
+| 7 | allocation-OFF $17,000 once | outside unit sell; one line; reconciles exactly |
+| 8 | no internal leakage | **PASS — complete human visual inspection of both rendered PDF pages** |
+
+**T-1 itemized:** $138.70 × 1,000 = **$138,700**. ✓
+
+#### turnkey_only — 8/8 PASS (rendered fresh, separate observation)
+
+Single page. Tier 1 · 1k units · **$138,700** · **$138.70 /unit** · RECOMMENDED.
+Lede: *"The all-in turnkey total per tier — one-time fees folded in."*
+Includes note: *"Covers 2 finished products — DPS-BOTTLE-0001 · 10064-GNX-Box.
+† One-time project & SKU fees ($17,000) — folded into the total."*
+
+| # | | |
+|---|---|---|
+| 1 | reconciles to the ledger | 121,700 + 17,000 = 138,700 |
+| 2 | Production bundled | no line; inside the turnkey number |
+| 3 | Bulk Raw once, bundled | no line; **CP-001** |
+| 4 | Duty + Tariff bundled | no line |
+| 5 | **no freight statement** | the pre-`422cc7e` lede read *"…folded in. Outbound freight is billed separately at cost."* — that clause is gone |
+| 6 | allocation-ON $11,000 once | inside the turnkey unit price; the includes note names only the $17,000 |
+| 7 | allocation-OFF $17,000 once | disclosed once and folded into the total, per the governed turnkey `foldFees` contract |
+| 8 | no internal leakage | **PASS — complete human visual inspection of the rendered PDF page** |
+
+**T-1 turnkey:** $138.70 × 1,000 = **$138,700**. ✓
+
+**Note on proof 7 across modes.** Itemized *itemizes* the $17,000 as an
+Additional Charges line; turnkey *folds* it into the single number and discloses
+it in the includes footnote. Same money, same single disclosure, different
+granularity — which is what the detail-level axis means. Both totals are
+$138,700. This is the governed `foldFees` contract, not a discrepancy.
+
+#### Customer View vs PDF — no commercial discrepancy
+
+Compared as customer-visible results, not structurally. Every figure identical:
+$138,700 · $138.70/unit · Net 30 · the $17,000 includes note · no freight
+statement · single page. No resolver or input parameter difference produced a
+commercial difference. Preview and PDF are the same react-pdf route with the
+same axis parameters.
+
+#### Incidental confirmations (not proofs)
+
+- **C.1 live**: payment terms render **`Net 30`** — Nemah's governed NetSuite
+  Customer Terms, not the firm-wide default, on a draft.
+- **T-4 live**: the Costs cost stack renders RAW as its own governed row.
+
+#### §2c disposition
+
+**CLOSED.** The presentation matrix rows for Production, Bulk Raw, Freight, Duty
+and Tariff are now supported by rendered evidence in both modes, not only by
+resolver/contract analysis. The coverage limitation recorded at §2c is
+discharged.
+
+Two defects were found and repaired by this exercise: **T-1** (per-unit divided
+by SKU-row count) and **proof 5** (freight copy gated on a generic charge flag).
+Both were invisible to total-level reconciliation — the totals were correct in
+both cases. That is the standing rule earning its place twice.
 
 ## §3 · Required coverage
 
