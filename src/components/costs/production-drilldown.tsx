@@ -168,6 +168,31 @@ export function ProductionDrilldown({
 
   const leafSkus = skus.filter((s) => s.skuRole === "leaf");
 
+  // V1 Costs defect repair (2026-08-11) — allocation policy is ASSEMBLY-scoped.
+  //
+  // `assembly_production_inputs.allocate_service_fees_to_cost` is keyed by
+  // `assembly_id`; costing consumes it per assembly and so does the
+  // customer-view resolver. The UI was the outlier: one section-level control,
+  // read from the first leaf and broadcast to every assembly on change. An
+  // operator could not express A=ON / B=OFF, which the model has always
+  // supported.
+  //
+  // `policyBySku` is keyed by the ANCHOR LEAF (the adapter's per-assembly ->
+  // per-leaf coercion puts production data on the lowest-position child), so an
+  // assembly's own policy is read through its first child that has one.
+  const policyByAssembly = new Map<string, SkuPolicy>();
+  for (const asm of skus) {
+    if (asm.skuRole !== "assembly") continue;
+    for (const child of skus) {
+      if (child.parentSkuId !== asm.id) continue;
+      const p = policyBySku.get(child.id);
+      if (p) {
+        policyByAssembly.set(asm.id, p);
+        break;
+      }
+    }
+  }
+
   if (tiers.length === 0) {
     return (
       <div
@@ -231,6 +256,7 @@ export function ProductionDrilldown({
         // so the toggle action needs assembly IDs to find rows.
         assemblies={skus.filter((s) => s.skuRole === "assembly")}
         policy={sectionPolicy}
+        policyByAssembly={policyByAssembly}
         disabled={!editable}
         rawsMode={rawsMode}
       />
@@ -262,10 +288,9 @@ export function ProductionDrilldown({
 
         if (isAssembly) {
           return (
+            <div key={sku.id} style={indentStyle}>
             <div
-              key={sku.id}
               style={{
-                ...indentStyle,
                 marginBottom: "12px",
                 padding: "10px 14px",
                 background: "oklch(from var(--accent) l c h / 0.05)",
@@ -291,6 +316,12 @@ export function ProductionDrilldown({
               >
                 Production rolls up from leaf children.
               </span>
+              </div>
+              <AssemblyAllocationToggle
+                assemblyId={sku.id}
+                policy={policyByAssembly.get(sku.id) ?? sectionPolicy}
+                disabled={!editable}
+              />
             </div>
           );
         }
@@ -815,6 +846,7 @@ function ProductionTierCell({
 function SectionToggles({
   assemblies,
   policy,
+  policyByAssembly,
   disabled,
   rawsMode,
 }: {
@@ -826,13 +858,18 @@ function SectionToggles({
   // keyed by assembly_id, not leaf id.
   assemblies: QuoteSku[];
   policy: SkuPolicy;
+  /** Each assembly's OWN persisted policy. Used so the raws fan-out cannot
+   *  overwrite a divergent per-assembly allocation value. */
+  policyByAssembly: Map<string, SkuPolicy>;
   disabled: boolean;
   rawsMode: "cm_sources" | "dps_sources" | "customer_supplies";
 }) {
   const [pending, startTransition] = useTransition();
+  const [writeError, setWriteError] = useState<string | null>(null);
 
-  function flipToggle(field: "customerShipsRaws" | "allocateServiceFeesToCost") {
+  function flipToggle(field: "customerShipsRaws") {
     if (disabled || pending) return;
+    setWriteError(null);
     const newValue = !policy[field];
     startTransition(async () => {
       for (const asm of assemblies) {
@@ -848,11 +885,15 @@ function SectionToggles({
             : policy.customerShipsRaws
           ).toString(),
         );
+        // Each assembly's OWN allocation value, never the section's. Writing
+        // `policy.allocateServiceFeesToCost` here would let a raws toggle
+        // silently flatten A=ON / B=OFF back to whichever value the first leaf
+        // happened to carry — the same broadcast defect one level down.
         fd.set(
           "allocateServiceFeesToCost",
-          (field === "allocateServiceFeesToCost"
-            ? newValue
-            : policy.allocateServiceFeesToCost
+          (
+            policyByAssembly.get(asm.id)?.allocateServiceFeesToCost ??
+            policy.allocateServiceFeesToCost
           ).toString(),
         );
         fd.set("notes", policy.notes ?? "");
@@ -866,11 +907,16 @@ function SectionToggles({
         try {
           const res = await updateAssemblyProductionPolicy(fd);
           if (!res.ok) {
-            console.error("[production-policy] write failed", res.error);
+            // Control-integrity: this button renders from the RSC prop, so a
+            // rejected write leaves the OLD value on screen — indistinguishable
+            // from "nothing happened". Surface it rather than implying success.
+            setWriteError(res.error.message);
             break;
           }
         } catch (e) {
-          console.error("[production-policy] write threw", e);
+          setWriteError(
+            e instanceof Error ? e.message : "Policy update failed.",
+          );
           break;
         }
       }
@@ -908,10 +954,69 @@ function SectionToggles({
         </div>
       </button>
 
+      {/* The allocation control lives on the ASSEMBLY it governs — see
+          `AssemblyAllocationToggle`. It used to sit here and broadcast to every
+          assembly, which made the per-assembly policy that the schema, costing
+          and the customer-view resolver all model unreachable for operators. */}
+      {writeError && (
+        <div className="r6-prod-toggle-error" role="alert">
+          Could not save: {writeError}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Allocation policy for ONE assembly.
+ *
+ * Owned by the assembly whose production inputs it governs. It writes exactly
+ * one policy fan-out — its own — so A=ON / B=OFF is expressible, and it
+ * survives reconcile because no other control writes this field.
+ *
+ * `customerShipsRaws` and `notes` are carried through from THIS assembly's
+ * persisted policy, because the action rewrites the whole policy row. Sourcing
+ * them from anywhere else would reintroduce the broadcast defect one field over.
+ */
+function AssemblyAllocationToggle({
+  assemblyId,
+  policy,
+  disabled,
+}: {
+  assemblyId: string;
+  policy: SkuPolicy;
+  disabled: boolean;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [writeError, setWriteError] = useState<string | null>(null);
+
+  function flip() {
+    if (disabled || pending) return;
+    setWriteError(null);
+    const newValue = !policy.allocateServiceFeesToCost;
+    startTransition(async () => {
+      const fd = new FormData();
+      // Action reads formData.get("quoteSkuId") as the assembly id (name
+      // preserved for backward compat; semantic is assembly.id post-11.5).
+      fd.set("quoteSkuId", assemblyId);
+      fd.set("customerShipsRaws", policy.customerShipsRaws.toString());
+      fd.set("allocateServiceFeesToCost", newValue.toString());
+      fd.set("notes", policy.notes ?? "");
+      try {
+        const res = await updateAssemblyProductionPolicy(fd);
+        if (!res.ok) setWriteError(res.error.message);
+      } catch (e) {
+        setWriteError(e instanceof Error ? e.message : "Policy update failed.");
+      }
+    });
+  }
+
+  return (
+    <div className="r6-prod-toggles r6-prod-toggles-asm">
       <button
         type="button"
         className={`r6-prod-toggle ${policy.allocateServiceFeesToCost ? "on" : ""}`}
-        onClick={() => flipToggle("allocateServiceFeesToCost")}
+        onClick={flip}
         disabled={disabled || pending}
       >
         <span className="tog" />
@@ -920,6 +1025,7 @@ function SectionToggles({
           <div className="desc">
             Setup, tooling/artwork, R&amp;D, and other service fees allocate
             across quoted units. If OFF, they invoice once as separate charges.
+            This choice belongs to this product.
           </div>
           <div className="consequence">
             {policy.allocateServiceFeesToCost
@@ -928,6 +1034,11 @@ function SectionToggles({
           </div>
         </div>
       </button>
+      {writeError && (
+        <div className="r6-prod-toggle-error" role="alert">
+          Could not save: {writeError}
+        </div>
+      )}
     </div>
   );
 }

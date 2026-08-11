@@ -106,9 +106,23 @@ test("production service-fee cells roll back on the thrown path too", () => {
   assert.match(production, /updateProductionCell\(sku\.id, tier\.id/);
 });
 
-test("the production policy toggle cannot raise an unhandled rejection", () => {
-  // It has no optimistic projection, so the rollback contract does not apply —
-  // but a thrown write must not escape the transition.
-  assert.match(production, /\[production-policy\] write threw/);
-  assert.match(production, /\[production-policy\] write failed/);
+test("a rejected production policy write is surfaced, not silently swallowed", () => {
+  // Was: assert the two console.error strings. A thrown write not escaping the
+  // transition is necessary but not sufficient — the control renders from the
+  // RSC prop, so a rejected write leaves the OLD value on screen, which is
+  // visually identical to "nothing happened". Logging to the console does not
+  // reach the operator.
+  //
+  // Both failure paths — a governed `{ok:false}` and a thrown error — must now
+  // land in operator-visible state. Asserted on both the section control and
+  // the per-assembly control, since each owns its own error slot.
+  const rejected = production.match(/setWriteError\(res\.error\.message\)/g) ?? [];
+  const threw = production.match(/setWriteError\(\s*\n?\s*e instanceof Error/g) ?? [];
+  assert.ok(rejected.length >= 2, `governed rejection surfaced (${rejected.length})`);
+  assert.ok(threw.length >= 2, `thrown error surfaced (${threw.length})`);
+  // And it must actually render, not just be held in state.
+  assert.match(production, /r6-prod-toggle-error/);
+  assert.match(production, /Could not save:/);
+  // No path may go back to console-only.
+  assert.doesNotMatch(production, /console\.error\("\[production-policy\]/);
 });
