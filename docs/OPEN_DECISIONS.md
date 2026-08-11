@@ -880,7 +880,15 @@ isolated would be the wrong reading.
 > | `itemized` | **not required** — preserve the itemized presentation |
 > | `turnkey_only` | **required** |
 >
-> - **Which lines group:** the **assembly** is the deterministic boundary.
+> - **Which lines group — scoped by Product Structure** (correction 1, Edward,
+>   2026-08-11; see "Scoping correction" below):
+>
+>   | Product Structure | grouping boundary |
+>   |---|---|
+>   | **ASY-backed** | the **assembly** supplies the boundary; deterministic identity remains `composition_hash` |
+>   | **Direct Components / no ASY** | **no implicit boundary.** Each Direct LEAF remains an independent commercial line and projects as a flat NetSuite Item line under BV-006 §5. **Nexus must not synthesize an ASY merely to create a grouping boundary** |
+>   | **Mixed** | downstream contract **remains unapproved** under BV-006 §5 and is **outside this V1 projection proof** |
+>
 > - **Group identity:** `composition_hash`, unchanged.
 > - **Integration boundary: A2.** Nexus does not create the Item Group via an
 >   API operation REST/SOAP cannot perform. It produces the deterministic
@@ -892,6 +900,49 @@ isolated would be the wrong reading.
 >
 > Analysis: [`validation/od-004-decision-set.md`](validation/od-004-decision-set.md).
 > Evidence boundary: [`validation/od-004-evidence-boundary.md`](validation/od-004-evidence-boundary.md).
+
+**Scoping correction (Edward, 2026-08-11).** The original disposition said only
+*"the assembly is the deterministic boundary."* Reconciled against
+[BV-006 §5](business-validation/BV-006-product-structure-contract.md), that
+describes the **ASY-backed case alone**. It must not become a V1 architectural
+requirement that every commercially valid quote possess an ASY — BV-006 states
+that Direct Components *"must not cause implicit ASY creation"* and that an ASY
+*"must never be created silently as a convenience wrapper."* The table above is
+the scoped form. **This correction changes no runtime behaviour.**
+
+**V1 applicability limitation — `detail_level` is a temporary proxy.**
+OD-004 keys grouping applicability off `quotes.detail_level` **only because the
+currently reachable quote runtime is uniformly ASY-backed**, which leaves Product
+Structure with no discriminating signal: it is constant, so it cannot separate
+Detailed from Turnkey.
+
+It is **not permanent Commercial Representation authority.** BV-006 §4 remains
+governing and names customer-PDF detail level as **not an approved derivation
+input**, and separately records that *"Turnkey is distinct from the existing
+`turnkey_only` PDF presentation value."* When Direct Components become reachable,
+downstream representation must derive from the approved Product Structure /
+Commercial Representation contract, and `detail_level` returns to
+**presentation-only** semantics.
+
+**Deferred implementation defect — Direct Component silent drop.**
+
+> Once Direct Components become reachable, a Direct LEAF can enter costing but be
+> omitted from the NetSuite SO projection, because line construction searches
+> only `tree.assemblies[].children`.
+
+`src/lib/netsuite/mark-complete.ts:548-551` resolves each leaf rollup through
+`tree.assemblies.flatMap(a => a.children)`; an attachment with
+`quote_leaves.assembly_id IS NULL` has no entry there, so `treeLeaf` is undefined
+and the line hits `continue`. The costing adapter already admits such an
+attachment (`src/lib/costing-adapter.ts:120`, `:296`, `:342`), so the leaf would
+carry cost and revenue while contributing **no SO line** — the push would balance
+below the accepted total **without raising an error**.
+
+| | |
+|---|---|
+| **Reachability** | **Unreachable in current V1 runtime.** The only writer to `quote_leaves` is `attachGroupedMembership` (`src/lib/product-structure/grouped-membership-compatibility.ts:96`), whose args require a non-null `assemblyId`. No path creates a Direct Component |
+| **Classification** | **Not a V1 release blocker.** Required to be repaired **with the Direct Components feature slice** |
+| **Deferred alongside** | nullable / directless `PlanLineInput` support · Send-guard message correction (`quotes.ts:1435` says *SKU*, the query counts **assemblies**) · Direct Component runtime implementation |
 
 **Superseded authority.** `src/lib/netsuite/mark-complete.ts` STEP 5 previously
 asserted the wrap was *"MANDATORY for anything invoiced."* That is **overbroad

@@ -17,13 +17,35 @@ stops there rather than improvising. Do not build a workaround in advance.
 |---|---|
 | **Environment** | Name the NetSuite account in the record — sandbox or production. Every figure below is meaningless without it |
 | **Case A quote** | Accepted, un-completed, send-time `detail_level` = `itemized` |
-| **Case B quote** | Accepted, un-completed, send-time `detail_level` = `turnkey_only`, **with at least two assemblies** — a single-assembly quote cannot exercise mis-attribution |
+| **Case B quote** | Accepted, un-completed, send-time `detail_level` = `turnkey_only`, **with at least two assemblies** — a single-assembly quote cannot exercise mis-attribution. This is a *fixture property for the ASY-backed proof*, not a requirement on quotes generally (see "What each case proves") |
 | **Read the datum from the snapshot** | `SELECT s.detail_level FROM quote_snapshots s WHERE s.quote_id = :q AND s.superseded_at IS NULL;` — **not** `quotes.detail_level`. The live column can drift from what the customer agreed |
 | **People** | NetSuite administrator (performs the wrap), operator (drives Nexus), recorder |
 
 **Two live `turnkey_only` quotes and one sent snapshot exist.** If none is
 suitable, a Case B quote must be prepared and **sent** — the applicability datum
 is only frozen at send.
+
+---
+
+## What each case proves — read before recording anything
+
+**Case B proves only the ASY-backed turnkey/grouped projection.** Its
+two-assembly requirement exists so the walk can detect composition/membership
+errors **that preserve the commercial total** — a single assembly cannot exercise
+mis-attribution. **It is not evidence that all Nexus quotes require ASYs.**
+
+That every currently reachable quote is ASY-backed is a property of the present
+runtime, not a validated business rule. Under BV-006 §5, Direct Components
+project as **flat NetSuite Item lines with no grouping**; that path is approved
+business but unimplemented, and its absence from this session is **scope, not
+evidence**. See OD-004 "Scoping correction" and the deferred silent-drop defect.
+
+**Case A's claim stays narrow: it proves the currently implemented itemized
+handoff.** It does **not** prove the future Direct Component projection merely
+because both ultimately emit flat NetSuite Item lines. Case A's lines originate
+from ASY-member LEAFs; a Direct Component line would originate from a canonical
+attachment that no code path can yet produce. Same wire shape, different source
+— and the source is the untested part.
 
 ---
 
@@ -132,6 +154,7 @@ One group per `groups[]` entry:
 |---|---|
 | **Closes** | REG-4 (revised) · P1-014 · OD-005 · and — if concurrency and response-loss are exercised — REG-3, P1-011, SPEC-020 |
 | **Does not close** | Item Group **creation by Nexus**. Out of V1 scope: an external-platform limitation, carried v1.1+ via RESTlet or Assembly migration |
+| **Does not close** | **Direct Component / Detailed projection** (BV-006 §5). Approved business, unimplemented runtime, unreachable today. Neither case exercises it |
 
 ## Recording
 
