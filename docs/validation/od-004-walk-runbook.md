@@ -20,6 +20,7 @@ stops there rather than improvising. Do not build a workaround in advance.
 | **Case B quote** | Accepted, un-completed, send-time `detail_level` = `turnkey_only`, **with at least two assemblies** — a single-assembly quote cannot exercise mis-attribution. This is a *fixture property for the ASY-backed proof*, not a requirement on quotes generally (see "What each case proves") |
 | **Read the datum from the snapshot** | `SELECT s.detail_level FROM quote_snapshots s WHERE s.quote_id = :q AND s.superseded_at IS NULL;` — **not** `quotes.detail_level`. The live column can drift from what the customer agreed |
 | **People** | NetSuite administrator (performs the wrap), operator (drives Nexus), recorder |
+| **⚠ MANDATORY PREFLIGHT** | **Before Sales Order CREATE, verify in the target NetSuite account that no existing Sales Order carries the HubSpot deal ID.** `SELECT id, tranid, trandate, status FROM transaction WHERE type='SalesOrd' AND custbody_dps_deal_id='<dealId>';` — non-empty ⇒ CREATE is refused by `_dps_ue_prevent_dupplicated_so.js` (`DUPLICATED DEAL`). **Status is not a filter**: SO2624 is `Closed` and still blocks. A deal is consumed permanently by its first successful CREATE |
 
 **Two live `turnkey_only` quotes and one sent snapshot exist.** If none is
 suitable, a Case B quote must be prepared and **sent** — the applicability datum
