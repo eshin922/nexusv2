@@ -187,19 +187,35 @@ test("PVS-018 Product Library preserves creation through every catalog state", a
     // Two independent facts instead, neither of which is database existence:
 
     // 1. Immediate confirmation -- the toast names what was actually created.
-    //    VERIFIED FAILING: this flow does not navigate (it stays on setup),
-    //    and no toast reaches the operator, so creation currently confirms
-    //    nothing on this branch. That is the remaining product repair, not a
-    //    test expectation to relax.
+    //    It has to name it: the confirmation is the only evidence the operator
+    //    gets on this branch, and a confirmation that cannot say what it
+    //    confirms is not one. The name is captured before onClose() resets the
+    //    form, or this reads Added "" to the library.
     await expect(
       page.getByText(`Added "${successfulName}" to the library`, { exact: false }),
     ).toBeVisible();
 
     // 2. Catalog discoverability -- exact-name search returns it.
-    await page.getByRole("button", { name: /add component/i }).click();
-    const createdSearch = library.getByRole("textbox", { name: "Search library" });
-    await createdSearch.fill(successfulName);
-    await expect(library.getByText(successfulName, { exact: true })).toBeVisible();
+    //
+    //    The library does not close on create, and it runs the search itself:
+    //    onSuccess refocuses the catalog on the created name. So assert the
+    //    state the operator is actually left in. An earlier revision reopened
+    //    the library first and hung for 24s, because it was clicking a page
+    //    button sitting behind the library's own backdrop -- the modal it
+    //    meant to open had never closed.
+    //
+    //    Deliberately not asserted: unfiltered first-page visibility. This
+    //    catalog is 1049 components paginated alphabetically, so that would
+    //    test the alphabet rather than the product.
+    await expect(
+      library.getByRole("textbox", { name: "Search library" }),
+    ).toHaveValue(successfulName);
+    // Exactly one, not merely at least one. The name is deterministic across
+    // runs, so leftovers from a run that died mid-scenario would otherwise
+    // satisfy a visibility check and quietly pass on someone else's component.
+    await expect(
+      library.locator(".lib-row").filter({ hasText: successfulName }),
+    ).toHaveCount(1);
     const [createdLeaf] = await sql<{ id: string; hubspot_product_id: string }[]>`
       select id, hubspot_product_id
       from leaves
@@ -258,14 +274,35 @@ test("PVS-018 Product Library preserves creation through every catalog state", a
       contentType: "image/png",
     });
   } finally {
-    if (createdLeafId) {
-      await sql`delete from assembly_leaves where leaf_id = ${createdLeafId}`;
+    // Clean up by fixture IDENTITY, not by the id captured mid-scenario.
+    //
+    // `createdLeafId` is only assigned after the discoverability assertions, so
+    // a run that failed before them left its component behind. The name is
+    // deterministic, so the NEXT run then found several identically-named
+    // components, and the exact-name assertion failed on ambiguity -- reporting
+    // a discoverability defect that was really the previous run's debris. Three
+    // accumulated before the pattern was visible.
+    //
+    // Anything carrying this scenario's SKU that did not exist at entry was
+    // created by this run, whether or not it got as far as being recorded.
+    const priorIds = new Set(priorLeaves.map((leaf) => leaf.id));
+    const mine = (await sql<{ id: string }[]>`
+      select id from leaves where sku = ${successfulSku} or name = ${successfulName}
+    `).map((leaf) => leaf.id).filter((id) => !priorIds.has(id));
+    if (createdLeafId && !mine.includes(createdLeafId)) mine.push(createdLeafId);
+    for (const leafId of mine) {
+      // Attaching writes BOTH junctions. Removing only assembly_leaves left
+      // quote_leaves pointing at the row, and Postgres refused the delete --
+      // an FK violation raised from cleanup, which reads like a scenario
+      // failure and is not one.
+      await sql`delete from assembly_leaves where leaf_id = ${leafId}`;
+      await sql`delete from quote_leaves where leaf_id = ${leafId}`;
       await sql`
         delete from audit_log
-        where (entity_type = 'leaf' and entity_id = ${createdLeafId})
-           or (entity_type = 'assembly_leaf' and diff_json ->> 'leaf_id' = ${createdLeafId})
+        where (entity_type = 'leaf' and entity_id = ${leafId})
+           or (entity_type = 'assembly_leaf' and diff_json ->> 'leaf_id' = ${leafId})
       `;
-      await sql`delete from leaves where id = ${createdLeafId}`;
+      await sql`delete from leaves where id = ${leafId}`;
     }
     for (const leaf of priorLeaves) {
       await sql`update leaves set archived = ${leaf.archived} where id = ${leaf.id}`;

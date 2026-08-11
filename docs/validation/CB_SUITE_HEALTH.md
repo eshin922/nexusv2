@@ -208,7 +208,7 @@ release is how fast unknowns become classified and then closed.
 | **Closed** | **1** | VAL-104 — passes end to end |
 | **Classified, not closed** | **2** | VAL-101 harness contamination · VAL-103 harness race |
 | **Boundary established, cause open** | **0** | — |
-| **Unclassified** | **3** | product-library ×1 (PVS-018) · VAL-209 · VAL-101 |
+| **Unclassified** | **2** | VAL-209 · VAL-101 |
 
 **Eleven scenarios were failing or unmeasured when classification began. Five
 remain unclassified.** No pass count was pursued, and one scenario moved to
@@ -631,6 +631,64 @@ outright; or make reconcile defer to rows holding uncommitted meta edits the way
 `markupDirty` already tracks. These differ in blast radius across markup,
 category and vendor, all three of which share `scheduleMetaSave`.
 
+### PVS-018 — **product defect (small) + three test defects; now passes**
+
+The governed post-create contract, as dispositioned: **a successful creation must
+be immediately confirmable and deterministically discoverable. It does not imply
+first-page placement** in an alphabetically paginated catalog — this library is
+1049 components, so a new name lands wherever it sorts.
+
+**Product defect — the confirmation could not say what it confirmed.**
+
+`AddProductModal` called `onClose()` before composing the toast, and `onClose`
+resets the form. The toast read the already-cleared field, so the operator was
+told `Added "" to the library`. A confirmation that cannot name its subject is
+not one. Repaired by capturing the name before the reset (`586dcd0`), and
+`onSuccess` now carries it to the caller.
+
+The toast surface itself was never broken. Trace timings settle it:
+
+| t | action | outcome |
+|---|---|---|
+| 6.0s | click **Add leaf** | ok |
+| 6.0s | `expect(toast).toBeVisible()` | **passed in 0.1s** |
+| 6.1s | reopen library (test step) | **hung 24.4s → timeout** |
+
+So the notification already survives modal close. The earlier reading — that the
+toast was owned by the modal and died with it — was wrong: `AddProductModal`
+renders the toast outside its `open` conditional, and the library that hosts it
+does not close on create.
+
+**Three test defects**, each of which had been reporting as something else:
+
+1. **A reopen step that could not succeed.** The scenario clicked "+ Add
+   component" to go back to the library — but the library had never closed, and
+   `onSuccess → refreshLibrary(name)` had already refocused it on the exact
+   name. The click was aimed at a page button sitting behind the library's own
+   backdrop. It could only ever time out. The assertion now reads the state the
+   operator is actually left in.
+2. **Cleanup keyed on a variable assigned too late.** `createdLeafId` is set
+   *after* the discoverability assertions, so any run failing before them left
+   its component behind. The name is deterministic, so the next run found
+   several identically-named components and failed on ambiguity — a
+   discoverability defect that was really the previous run's debris. Three had
+   accumulated before the pattern was legible. Cleanup now keys on fixture
+   identity (SKU/name not present at entry).
+3. **Cleanup removed one of two junctions.** Attaching writes `assembly_leaves`
+   *and* `quote_leaves`; only the first was deleted, so Postgres refused the
+   delete and raised an FK violation from the teardown.
+
+**Deliberately not done**, per the disposition: no pinning of new records into
+page 1, no navigation added solely to satisfy the scenario, and no weakening to
+database existence. The scenario asserts two independent facts — the toast names
+the component, and exact-name search returns exactly one row.
+
+`toHaveCount(1)`, not `toBeVisible()`: leftovers from a dead run would otherwise
+satisfy a visibility check and quietly pass on someone else's component.
+
+**Verified:** two consecutive full runs, 2 passed each, and zero residual leaves
+or product types after the second.
+
 ### VAL-208 — **harness issue: two concurrent projects share one mutable quote**
 
 Classified from zero evidence, in the recorded sequence.
@@ -1032,7 +1090,7 @@ failure.
 | VAL-208 bulk pricing lift | **harness issue** — `quotes.draft` shared with `primary-send-lifecycle` across two concurrently-running projects |
 | costs-reconciliation-ordering | not yet classified |
 | phase-2-component-freight × 3 | **RESOLVED — product defect.** Dropped `shipReads` prop at `freight-drilldown.tsx:241` (`85d8d1f`, PR #221, **on `main`**) crashed the whole Costs page; the trigger was orphaned SSR content inside React's `div#S:0`. Repaired. 1 of 3 now passes; 2 sit at new unclassified boundaries |
-| product-library-create-component × 2 | not yet classified |
+| product-library-create-component × 2 | **PASSES.** One small product defect (confirmation carried no name) plus three test defects; no defect in creation itself |
 | pvs-020-refresh-performance × 2 | not yet classified |
 
 **No pass count has been improved.** Two scenarios that were unmeasured are now
