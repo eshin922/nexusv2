@@ -631,6 +631,52 @@ outright; or make reconcile defer to rows holding uncommitted meta edits the way
 `markupDirty` already tracks. These differ in blast radius across markup,
 category and vendor, all three of which share `scheduleMetaSave`.
 
+### VAL-104 full-suite boundary — **product decision required; not repaired**
+
+VAL-104 is recorded above as closed, and it passes when its file runs alone. In
+the **full-suite configuration** it fails, and the two ways it can fail are the
+same finding seen from opposite sides.
+
+**As committed** — `await (await clearReceipt).finished()` at `:537` hangs for
+the full 90s. `.finished()` waits for the Server Action response *body*, which
+is exactly what React abandons when a following refresh supersedes the receipt.
+
+**With that wait removed** — the scenario reaches the vendor search, and the
+rendered status reads:
+
+> `No eligible HubSpot Vendors match “”.`
+
+The searchbox is **empty**. `fill("No Matching Vendor")` landed and was then
+wiped by a refresh belonging to the *previous* action (Clear Pricing Vendor).
+
+**Why this is not a test-sequencing defect.** The clear's operator-visible
+effects are asserted *before* the fill, and they pass — the vendor input reads
+empty, `Historical supplier` and `Validation Supplier` are both restored. A
+refresh still arrives after all of that and resets the control.
+
+So there is **no operator-observable moment after which typing is safe.** The
+test could only ever serialise on the network receipt, which is why it did.
+
+**Same family as costs-reconciliation-ordering** (already classified as a V1
+product defect): an operator's uncommitted local value discarded by a reconcile
+belonging to a different action. Pattern 47 governs that contract, and Pattern
+55 governs the refresh volume that makes the window wide.
+
+**Why it stops here rather than being repaired.** The Pattern 47 dirty-flag
+contract was written for autosaved *persisted* fields. The Pricing Vendor
+control is a **search box** — its value is a query, not a stored value, and
+"commit on blur/Enter" is not obviously the right shape for search-as-you-type.
+Whether it takes the dirty contract, whether the clear action should refresh at
+all, or whether the refresh should be scoped away from operator-focused inputs,
+is a product/design decision rather than a mechanical repair.
+
+The experimental removal of the receipt waits was reverted; the file is at its
+committed state, so VAL-104 remains exactly as recorded — passing in isolation,
+failing in the full suite.
+
+**Not attributed elsewhere.** Whether this same window explains any other
+intermittent scenario is not asserted.
+
 ### VAL-209 — **harness: a destructive scenario with no teardown; now passes**
 
 The scenario asserts that a recommendation stages without writing, and then that
