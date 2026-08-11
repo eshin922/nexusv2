@@ -256,3 +256,67 @@ tenant-governed control back into a defeatable one.
 2. **Build now (dormant) or hold?** — Edward's sequencing call.
 3. **Pre-SSO account retirement** — confirm the gmail rows are deactivated at
    cutover, so `users.id` distinctness and person distinctness coincide.
+
+---
+
+# Track A — merge disposition (2026-08-11)
+
+## Status
+
+> **Track A — implemented + controlled-test proven + production-schema ready +
+> merged + post-SSO operator evidence pending**
+
+**Not fully closed.** The control is built, proven under controlled test
+identities, and its schema is live on the shared database — but the property it
+exists to enforce (that approval is *independent*) has never been exercised
+against two genuinely different people, because two genuinely different people
+do not yet exist in this estate. The three production user rows are all Edward.
+
+## What final closure still requires
+
+Post-SSO operator evidence, with **two distinct staff identities**, proving all
+five:
+
+1. one user **cannot self-approve**;
+2. an independent `commercial_approver` **can** authorize the below-floor quote;
+3. the authorization is **recorded** with actor, reason and time;
+4. **acceptance succeeds** while that authorization remains valid;
+5. **material commercial change invalidates** it.
+
+Items 1, 3 and 5 have unit-level proofs today; 2 and 4 have controlled-identity
+proofs. None of that substitutes for the real exercise — a self-approval guard
+verified by passing the same user id twice is a proof about a comparison, not
+about two people.
+
+## E-1 carried into merge/release evidence
+
+The governed `test:e2e` suite is **not green on this branch**, independently of
+Track A:
+
+- two pre-existing failures in `tests/e2e/costing/phase-2-component-freight.spec.ts`
+  (`:46` missing Add-line control; `:72` freight screenshot 840×1722 → 840×**1814**);
+- both **reproduce with the Track A change reverted** — verified by restoring
+  `src/components/quote-umbrella/` to `HEAD~1` and re-running `:72` to identical
+  failure;
+- Track A **increased the passing count without changing those failures**:
+  41 passed before the proof-9 spec, 43 after, same 2 failures either side;
+- they are **not merge blockers for this workstream** — they are Phase 2 baseline
+  drift and belong to a Phase 2 disposition.
+
+Recorded here so a Track A merge verdict states the suite's condition rather than
+inheriting it silently.
+
+**E-2** (two specs failing once, passing twice) remains **observation-only**
+unless it becomes reproducible.
+
+## Migration lesson banked
+
+The Drizzle journal `hash` is a content hash, not a filename — the rollback
+predicate originally documented for `0064` would have matched nothing and left
+the journal claiming an applied migration whose objects had been dropped.
+Detected before use and corrected; full write-up in CLAUDE.md, and the
+`0064`-specific journal identity (`created_at = 1786320001000`) in
+[`0064-migration-preflight.md`](0064-migration-preflight.md) §5.
+
+**That identifier is specific to 0064** and must not be generalized to another
+migration without re-deriving it.
