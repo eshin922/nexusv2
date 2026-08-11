@@ -379,3 +379,58 @@ supplied by words — but the sentence also names what the quoted price carries
 ## Post-V1
 
 *(none recorded yet)*
+
+---
+
+# Findings outside Phase 3 scope
+
+Observed during the same session on the **Costs** surface (Phase 2, in progress,
+design fidelity open). Recorded here so they are not lost; they belong to Costs
+acceptance, not to this review, and none is repaired.
+
+## C-1 · The Production markup cell says "no markup" while a markup is applied
+
+**Observed by Edward:** *"on the costs page, production section, markup fields
+doesn't seem to work."*
+
+**There is no field.** `production-drilldown.tsx:480` is the only occurrence of
+`markup` in the file:
+
+```jsx
+<div className="num">
+  <span className="markup">—</span>
+</div>
+```
+
+And it is not an unwired input either: `assembly_production_inputs` has **no
+markup column**. Production markup is firm-wide by design —
+`lookupMarkup(markupDefaults, "Manufacturing")`, set at
+`/admin/markup-defaults` — and the engine applies it:
+`productionCostSum × (1 + productionMarkup)` (`costing.ts:1687`).
+
+**So the behaviour is correct and the display is not.** In the same column, on
+the same page, packaging renders a *resolved, editable* markup with a
+`markupPctSource` of `category_default` or `manual_override`. Production renders
+a bare em-dash. An operator reading down the page sees markups on packaging and
+`—` on production, which reads as *production is quoted at cost*. It is not: the
+Manufacturing markup is in the PROD row of the cost stack and in every quoted
+price.
+
+This is Pattern 57's family — not a wrong number, a **cell asserting something
+false about a commercial quantity**. The nearest honest fix is small and needs no
+schema: the engine already holds the resolved value and even publishes it as a
+node (`costing.ts:1796`), so the cell can render it read-only with a source
+caption, exactly as packaging does for a category default.
+
+**Severity is Costs' call, not this review's.** It misleads rather than
+miscalculates, so it is not a V1 blocker on the Pricing acceptance criteria; on
+a cost surface whose job is to explain where money goes, it is more than
+cosmetic.
+
+## C-2 · Bulk raw silently uses the "Other" markup — adjacent, unasked, one line away
+
+Noticed while tracing C-1, and stated rather than left:
+`RAW_MARKUP_CATEGORY = "Raw ingredients"` carries its own comment —
+*"Slice 9 will likely add this; falls back to Other today"* (`costing.ts:841`).
+So every bulk-raw cost is marked up at the **Other** rate, and nothing on any
+surface says so. Same shape as C-1 one row down. Not investigated further.
