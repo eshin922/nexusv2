@@ -220,10 +220,27 @@ executions from identical clean environments produce identical outcomes.*
 **BASELINE-01 established 2026-08-10** — runs A and B agree exactly: 9 pass,
 10 fail, 3 unmeasured. A delta against it is now a measurement.
 
-It is a baseline, not a clean bill of health. **No failure is classified** —
-classification is step 4 and has not started. The three unmeasured scenarios
-sit behind VAL-101 in one serial file, and one of them is **VAL-104, REG-1's
-browser-level evidence**.
+**CLASSIFICATION COMPLETE — workstream closed 2026-08-11.** Unknown scenario
+groups: **0**. Every failure in BASELINE-01 has been classified from evidence,
+in the recorded order: reproduce from a clean controlled state, establish the
+first failing boundary, classify ownership, then repair.
+
+**Outcome — the suite was mostly measuring itself.** Of eleven scenarios:
+
+| ownership | count | scenarios |
+|---|---|---|
+| **product defect** | 3 | freight `shipReads` crash (PR #261, on `main`) · costs-reconciliation-ordering · VAL-104 |
+| **harness / fixture** | 5 | VAL-208 · VAL-209 · VAL-101 · VAL-103 · PVS-018 cleanup |
+| **stale expectation** | 2 | Add-line removal (freight scales · PHASE2 packaging) |
+| **evidence drift, Design Authority** | 1 | nested comparison snapshot |
+
+All three product defects are repaired, each with a regression proven to fail
+without its fix. **Current full suite: 24 passed, 2 failed** — both remaining
+failures the previously-classified non-product freight findings.
+
+One new finding was raised by the work rather than by the suite: **P2-014**,
+below. VAL-101's single non-reproducing failure across five full runs is
+recorded as **harness variance**; the pass is not reopened for it.
 
 ## Microsoft OAuth — operational readiness, not engineering
 
@@ -364,6 +381,7 @@ unrelated action.
 |---|---|---|
 | **A · Below-floor approval** | REG-2 · OD-002 | **Awaiting business disposition.** Engineering not started, by instruction |
 | **C · R12 staging contract** | P3-016 | **CLOSED 2026-08-10** on the recorded browser evidence. Observation taken, both callers classified, surgical+global repaired together, 714/714 unit + prebuild green, S-7 unmoved by the repair |
+| **CB classification** | — | **CLOSED 2026-08-11.** 0 unknown groups; 3 product defects found and repaired; 24/26 with both residual failures classified non-product |
 | **B · Accounting handoff** | REG-4 · OD-004 · OD-005 · P1-014 *(+REG-3)* | **Open — the primary release engineering blocker once the harness baseline exists.** OD-004 first; the walk requires a NetSuite administrator |
 
 **Seven distinct blockers. One closed — P3-016, Track C.**
