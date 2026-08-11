@@ -179,3 +179,80 @@ changing `Other` today has nothing telling them bulk raw moves with it.
 Under **1a** that is a documentation change and Track A closes with zero
 engineering. Under **1c** the engineering is bounded and does not require the
 Slack dependency or the rollback runbook Phase 4 assumes.
+
+
+---
+
+## Track A dispositions — Edward, 2026-08-10
+
+**1c** minimal governed override · **send warns, does not block** ·
+`commercial_approver` permission, not admin · **self-approval PROHIBITED** ·
+mandatory reason · one approver, no quorum · no Slack. No fallback to
+self-approval when no eligible approver exists — that condition stays blocked.
+
+### The membership question has no answer yet, and the reason is structural
+
+**Production holds three user rows, all carrying Edward's name:**
+
+| name | email | role | activity |
+|---|---|---|---|
+| Ed Shin | `edward.shin@gmail.com` | admin | sales rep on 1 project · recorded 2 acceptances |
+| Ed Shin | `edward@thedps.co` | admin | PM on 3 · rep on 3 · recorded 1 acceptance |
+| Edison Shin | `edisonlshin@gmail.com` | pm | none |
+
+Confirmed by Edward: **no users have been onboarded yet**, and **Microsoft OAuth
+is still being planned**.
+
+Rows are created at **first sign-in**. Staff will sign in through
+organisation-tenant SSO. So the dependency is not a preference:
+
+```
+MS OAuth ships → staff sign in → user rows exist
+              → commercial_approver membership can be granted
+              → the below-floor override becomes exercisable
+              → Track A closable on evidence
+```
+
+**There is no membership list to supply today, and none can be supplied until MS
+OAuth lands.** That is the answer to the outstanding question, rather than a
+delay in answering it.
+
+### Consequence 1 — the control can be built now, but not closed now
+
+Self-approval prohibited, plus no fallback, plus one human, means every
+below-floor acceptance stays blocked for everyone. Built today, 1c ships
+**dormant** — behaving exactly like 1a, the hard block it exists to make
+governable — until a second person holds the permission.
+
+That is not an argument against the disposition, and not a reason to defer the
+build: the implementation is bounded and independent. It is a statement about
+**what closing Track A can mean**. The gate cannot be exercised end to end
+against a one-person estate, so Track A can reach *implemented and unit-proven*
+now, and *closed on operator evidence* only after MS OAuth.
+
+**Edward's call:** build now and ship dormant, or hold until MS OAuth. Building
+now costs nothing but sequencing risk; holding keeps the two dependent items
+together.
+
+### Consequence 2 — "must differ" needs a definition, and MS OAuth resolves it
+
+The rule says the approving actor must differ from the actor owning the
+acceptance. Two of the three rows appear to be **one person with two accounts**,
+and `users.id` is the only identity the system has — so signing in as the other
+account would satisfy the check while being self-approval in substance, with the
+audit recording two "different" approvers who are the same human.
+
+**MS OAuth is the natural resolution.** Under organisation-tenant SSO, identity
+becomes tenant-governed (`@thedps.co`), and the two gmail rows are pre-SSO
+artifacts rather than a standing hole. What is needed is a decision that they
+are **retired or deactivated at the SSO cutover** rather than surviving as
+parallel identities — because a duplicate that outlives the cutover turns a
+tenant-governed control back into a defeatable one.
+
+### What remains outstanding
+
+1. **Nothing actionable on membership until MS OAuth ships.** The list is a
+   post-SSO input, not a pre-implementation one.
+2. **Build now (dormant) or hold?** — Edward's sequencing call.
+3. **Pre-SSO account retirement** — confirm the gmail rows are deactivated at
+   cutover, so `users.id` distinctness and person distinctness coincide.
