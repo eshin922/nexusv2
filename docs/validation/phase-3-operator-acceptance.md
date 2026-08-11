@@ -654,3 +654,42 @@ commercial policy without authority.
 accurately represented on the Costs surface, so the operator can see what is
 being charged. It remains **unresolved for final V1 release** until the
 commercial policy is explicit.
+
+---
+
+## Suite-health findings recorded during Track A proofs (2026-08-11)
+
+Surfaced while running the governed `test:e2e` suite for Track A proof 9.
+**Recorded, not repaired** — neither is in Track A scope and neither is
+attributable to it.
+
+### E-1 · Two `phase-2-component-freight` failures — pre-existing, Phase 2
+
+| | |
+|---|---|
+| **Spec** | `tests/e2e/costing/phase-2-component-freight.spec.ts:46` and `:72` |
+| **Symptom 46** | `packaging.getByRole("button", { name: /^Add line/ })` → expected 1, received 0 |
+| **Symptom 72** | Freight screenshot drift — expected 840×1722, received 840×**1814** (+92px tall); 5% of pixels differ |
+| **Attribution** | **Not Track A.** Verified by reverting `src/components/quote-umbrella/` to `HEAD~1` and re-running `:72` — it fails identically. The Track A change touches the Quote umbrella and two script loaders; neither is in the Costs route's module graph |
+| **Reading** | The +92px growth and the missing Add-line control are the shape of *deliberate* Phase 2 Costs surface work having moved ahead of its committed snapshot, not of a break. That is a Phase 2 disposition, not a repair to make here |
+
+**Consequence for the merge gate:** the governed suite is **not** green on this
+branch independently of Track A. A Track A merge verdict must state that
+explicitly rather than inherit it silently.
+
+### E-2 · Two intermittent failures observed once, not reproduced
+
+`slice-12/workspace-governance.spec.ts:18` and
+`costing/basic-quote-persistence.spec.ts:29` failed together on one full-suite
+run and passed on the two subsequent runs, and `workspace-governance` passes in
+isolation. `costing-serial` and `lifecycle-serial` run concurrently against one
+database (the contention VAL-208 already documents), which is the most likely
+cause.
+
+**Recorded rather than dismissed.** One observation is not enough to call it
+flake and be done; it is also not enough to call it a defect. If it recurs, the
+question to ask first is whether the two serial projects should share a database
+at all.
+
+**Track A's own contribution to the suite is additive:** 41 passed before the
+proof-9 spec, 43 after, with the same 2 failures either side.
