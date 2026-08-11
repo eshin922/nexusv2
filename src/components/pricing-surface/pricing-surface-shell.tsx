@@ -328,9 +328,9 @@ export function PricingSurfaceShell({
   // incomplete.
   //
   // `resolveNode` fails closed on BOTH missing and duplicate matches, and a
-  // tier missing any one of its six values is omitted from the map entirely
-  // rather than partially filled. Half a stack read from the graph and half
-  // invented is the exact failure this increment exists to remove.
+  // tier missing any one of its governed values is omitted from the map
+  // entirely rather than partially filled. Half a stack read from the graph and
+  // half invented is the exact failure this increment exists to remove.
   const graph = useCostingStore(selectGraph);
   const blendedByTier = useMemo(() => {
     const byNumeric = new Map<number, BlendedTierComponents>();
@@ -348,9 +348,23 @@ export function PricingSurfaceShell({
       const dt = read("dt");
       const sellBefore = read("sell-before");
       const sell = read("sell");
+      const cost = read("cost");
+      // P3-017 — the levers BETWEEN the first level and the last. The blend
+      // used to publish only its ends, so the ladder the Cost Stack renders was
+      // unstateable at this scope and the reconciliation could not be asserted
+      // against anything. These five are read, never derived: a delta obtained
+      // by subtracting two published levels telescopes through the aggregation
+      // and yields an identity true for any four numbers.
+      const adjDelta = read("adj-delta");
+      const sellAfterAdj = read("sell-after-adj");
+      const liftDelta = read("lift-delta");
+      const sellAfterLift = read("sell-after-lift");
+      const overrideDelta = read("override-delta");
       if (
         pkg === null || prod === null || raw === null || frt === null ||
-        dt === null || sellBefore === null || sell === null
+        dt === null || sellBefore === null || sell === null || cost === null ||
+        adjDelta === null || sellAfterAdj === null || liftDelta === null ||
+        sellAfterLift === null || overrideDelta === null
       ) {
         continue;
       }
@@ -360,7 +374,8 @@ export function PricingSurfaceShell({
       // stack to withhold a seventh value that does not exist.
       const margin = readNodeValue(graph, quoteScopeKey(tierUuid, "margin"));
       byNumeric.set(numeric, {
-        pkg, prod, raw, frt, dt, sellBefore, sell, margin,
+        pkg, prod, raw, frt, dt, sellBefore, sell, cost, margin,
+        adjDelta, sellAfterAdj, liftDelta, sellAfterLift, overrideDelta,
         // The same keys the values were just read from, carried down so the
         // trace opens at the node the operator pressed rather than at one
         // reconstructed from a numeric id the graph has never heard of.
@@ -372,7 +387,13 @@ export function PricingSurfaceShell({
           dt: quoteScopeKey(tierUuid, "dt"),
           sellBefore: quoteScopeKey(tierUuid, "sell-before"),
           sell: quoteScopeKey(tierUuid, "sell"),
+          cost: quoteScopeKey(tierUuid, "cost"),
           margin: quoteScopeKey(tierUuid, "margin"),
+          adjDelta: quoteScopeKey(tierUuid, "adj-delta"),
+          sellAfterAdj: quoteScopeKey(tierUuid, "sell-after-adj"),
+          liftDelta: quoteScopeKey(tierUuid, "lift-delta"),
+          sellAfterLift: quoteScopeKey(tierUuid, "sell-after-lift"),
+          overrideDelta: quoteScopeKey(tierUuid, "override-delta"),
         },
       });
     }
@@ -671,6 +692,7 @@ export function PricingSurfaceShell({
       <DetailZone
         state={state}
         blendedByTier={blendedByTier}
+        tierMeta={tierMeta}
         onPreviewGlobalAdjust={onPreviewGlobalAdjust}
         globalPreview={globalPreview}
         onCancelGlobalPreview={() => setGlobalPreview(null)}

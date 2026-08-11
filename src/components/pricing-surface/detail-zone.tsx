@@ -55,7 +55,8 @@ import type {
   TierRollup,
 } from "@/lib/pricing-classifier";
 import type { GlobalPricingPreview } from "@/lib/pricing-lift";
-import { fmtPct, fmtPct0, fmtQty, fmtUsd2 } from "./format";
+import { fmtPct, fmtPct0, fmtQty, fmtUsd2, fmtUsd4 } from "./format";
+import { tiersFailingReconciliation } from "@/lib/cost-stack-reconciliation";
 
 // ──────────────────────────────────────────────────────────────────
 // DetailZone — toggle wrapper.
@@ -102,6 +103,7 @@ function writeSessionOpen(quoteId: string, open: boolean): void {
 export function DetailZone({
   state,
   blendedByTier,
+  tierMeta,
   onPreviewGlobalAdjust,
   globalPreview,
   onCancelGlobalPreview,
@@ -120,6 +122,8 @@ export function DetailZone({
   /** Blended per-unit values read from the canonical graph, keyed by the
    *  classifier's numeric tier id. Resolved once at the composition point. */
   blendedByTier: Map<number, BlendedTierComponents>;
+  /** Tier label + ★ by numeric id, forwarded to the stack's header row. */
+  tierMeta?: Map<number, { label: string; recommended: boolean }>;
   /**
    * Retained on the contract, unused by the zone.
    *
@@ -192,6 +196,7 @@ export function DetailZone({
         <DetailCostStack
           state={state}
           blendedByTier={blendedByTier}
+          tierMeta={tierMeta}
           onTrace={onTraceStackCell}
           traced={tracedStackCell}
           renderTrace={renderStackTrace}
@@ -454,6 +459,27 @@ export type BlendedTierComponents = {
   dt: number;
   sellBefore: number;
   sell: number;
+  /** The governed blended unit cost, from `quote/{tier}/cost`. */
+  cost: number;
+  /**
+   * The price ladder's three CONTRIBUTIONS and its two intermediate LEVELS,
+   * from `quote/{tier}/{adj-delta,sell-after-adj,lift-delta,sell-after-lift,
+   * override-delta}`.
+   *
+   * Every one is read. None is obtained by subtracting one published level from
+   * another, and that is a correctness property rather than a stylistic one:
+   * blending is linear over a shared weight vector, so `blend(a − b)` is
+   * exactly `blend(a) − blend(b)` and a subtraction-derived delta telescopes
+   * straight through the aggregation. The reconciliation strip would then be
+   * asserting `before + (a − before) + (l − a) + (sell − l) === sell`, which
+   * holds for any four numbers and can never fail. The engine multiplies each
+   * lever by its own rate instead — see `tests/unit/p3-017-tier-ladder-authority.test.ts`.
+   */
+  adjDelta: number;
+  sellAfterAdj: number;
+  liftDelta: number;
+  sellAfterLift: number;
+  overrideDelta: number;
   /**
    * The governed blended margin for this tier, from `quote/{tier}/margin`.
    *
@@ -481,24 +507,45 @@ export type BlendedTierComponents = {
     dt: string;
     sellBefore: string;
     sell: string;
+    cost: string;
     margin: string;
+    adjDelta: string;
+    sellAfterAdj: string;
+    liftDelta: string;
+    sellAfterLift: string;
+    overrideDelta: string;
   };
 };
 
-interface TierCostStackDisplay {
-  id: string;
+/**
+ * One TIER — which is one COLUMN, the stack being transposed.
+ *
+ * `blend` is null for a tier the graph cannot answer for, and every cell in
+ * that column renders an em-dash. It is never filled with zeroes: a zero is a
+ * commercial claim, and "we could not read this" is not the same statement as
+ * "this is free".
+ */
+interface TierStackColumn {
   /** The classifier's numeric tier id — which row a trace belongs beneath. */
   numericId: number;
   label: string;
-  units: number | null;
-  subtotal: number | null;
-  adjustment: number;
-  sell: number | null;
-  margin_pct: number | null;
+  recommended: boolean;
+  qty: number | null;
+  skuCount: number;
+  blend: BlendedTierComponents | null;
   margin_state: "good" | "below_target" | "bad" | "incomplete";
   blended_no_margin_reason: NoMarginReason | null;
-  components: CostStackBucketDisplay[];
-  keys: BlendedTierComponents["keys"] | null;
+  /**
+   * The SKUs carrying a lift and an override at this tier, by EXISTENCE.
+   *
+   * Not by "the contribution is non-zero". A lift refused by an override
+   * contributes exactly nothing — §13.3, and pinned by the ladder authority
+   * test — so keying the row on the delta would delete the one rendering that
+   * shows a refusal happened. The row appears because the lever was pulled; the
+   * contribution says what it moved, including when the answer is nothing.
+   */
+  liftSkus: string[];
+  overrideSkus: string[];
 }
 
 /**
@@ -523,25 +570,33 @@ const COLUMN_TITLE = {
   dt: "Duty + tariff · blended per unit",
   sellBefore: "Sell before adjustment · blended per unit",
   sell: "Quoted sell · blended per unit",
+  cost: "Unit cost · blended per unit",
   margin: "Blended margin · this tier",
+  adjDelta: "Price adjustment contribution · blended per unit",
+  sellAfterAdj: "Sell after adjustment · blended per unit",
+  liftDelta: "Surgical lift contribution · blended per unit",
+  sellAfterLift: "Sell after lifts · blended per unit",
+  overrideDelta: "PM override contribution · blended per unit",
 } as const;
 
 /**
- * One numeric cell, pressable when the graph has a node behind it.
+ * One numeric cell in the transposed stack, pressable when the graph has a node
+ * behind it.
  *
- * A cell with no key is rendered as plain text rather than as a disabled
- * button. "Nothing to press" and "a control that refuses you" say different
- * things, and only the first is true: the value is there, the chain behind it
- * is not readable, and a dead affordance would suggest otherwise.
+ * A cell with no key renders as a flat `div` rather than as a disabled button.
+ * "Nothing to press" and "a control that refuses you" say different things, and
+ * only the first is true: the value is there, the chain behind it is not
+ * readable, and a dead affordance would suggest otherwise.
  */
-function StackNumCell({
+function StackCell({
   text,
   nodeKey,
   title,
   traced,
   onTrace,
   renderDelta,
-  cellClass = "num",
+  valueClass = "sell",
+  sub = null,
   note = null,
 }: {
   text: string;
@@ -550,44 +605,84 @@ function StackNumCell({
   traced?: TracedStackCell | null;
   onTrace?: (nodeKey: string, title: string) => void;
   renderDelta?: (nodeKey: string) => React.ReactNode;
-  /** The margin column carries its verdict tone here. */
-  cellClass?: string;
+  /** `sell` for a level, `delta pos|neg` for a contribution, `mg …` for margin. */
+  valueClass?: string;
+  /** The mono sub-caption beneath the figure — a rate, or the SKUs affected. */
+  sub?: React.ReactNode;
   /** Why there is no number, when there is none. */
   note?: string | null;
 }) {
   const delta = nodeKey && renderDelta ? renderDelta(nodeKey) : null;
-  const noteEl = note ? <span className="psr-num-note">{note}</span> : null;
+  const body = (
+    <>
+      <span className={valueClass}>{text}</span>
+      {delta}
+      {sub != null && <span className="cost">{sub}</span>}
+      {note && <span className="psr-num-note">{note}</span>}
+    </>
+  );
   if (!nodeKey || !onTrace) {
-    return (
-      <td className={cellClass}>
-        {text}
-        {delta}
-        {noteEl}
-      </td>
-    );
+    return <div className="r11-scell flat">{body}</div>;
   }
   const isOpen = traced?.nodeKey === nodeKey;
   return (
-    <td className={cellClass}>
-      <button
-        type="button"
-        className={"psr-stack-cell" + (isOpen ? " open" : "")}
-        onClick={() => onTrace(nodeKey, title)}
-        aria-expanded={isOpen}
-        title={isOpen ? "Close the trace" : `Why is this ${text}?`}
-      >
-        <span className="v">{text}</span>
-        {delta}
-        {noteEl}
-        <span className="why">{isOpen ? "tracing ▾" : "why? ▸"}</span>
-      </button>
-    </td>
+    <button
+      type="button"
+      className={"r11-scell" + (isOpen ? " open" : "")}
+      onClick={() => onTrace(nodeKey, title)}
+      aria-expanded={isOpen}
+      title={isOpen ? "Close the trace" : `Why is this ${text}?`}
+    >
+      {body}
+      <span className="why">{isOpen ? "tracing ▾" : "why? ▸"}</span>
+    </button>
+  );
+}
+
+/**
+ * The reconciliation strip — the stack's own audit of itself.
+ *
+ * Reads the same numbers the rows above it rendered, and states whether they
+ * add up. It CAN say no: `tiersFailingReconciliation` is a pure predicate over
+ * five governed quantities, none of them derived from the others.
+ *
+ * A tier the graph could not answer for is neither reconciling nor failing —
+ * it is unread, and it is counted separately. Folding it into the ✓ would put a
+ * green tick over a column of em-dashes.
+ */
+function ReconStrip({ columns }: { columns: TierStackColumn[] }) {
+  const readable = columns.filter(
+    (c): c is TierStackColumn & { blend: BlendedTierComponents } =>
+      c.blend !== null,
+  );
+  const unread = columns.length - readable.length;
+  const bad = tiersFailingReconciliation(readable.map((c) => c.blend));
+  const ok = bad.length === 0;
+  return (
+    // NO `role="status"`. It is not in the Design Authority, and it does not
+    // belong: an ARIA live region announces a TRANSIENT message about something
+    // that just happened, and this is a standing assertion about the numbers
+    // above it. Adding one also made every `getByRole("status")` on the pricing
+    // surface ambiguous — it collided with the "Pricing updated." confirmation
+    // that VAL-208 waits on. The failing state signals through the ✕ and the
+    // `.bad` register, which is what the design specifies.
+    <div className={"r11-recon" + (ok ? "" : " bad")}>
+      <span>{ok ? "✓" : "✕"}</span>
+      <span>
+        {ok
+          ? `every readable column reconciles — sections + adjustment + lifts + overrides = quoted sell, at ${readable.length} tier${readable.length === 1 ? "" : "s"}`
+          : `${bad.length} column(s) do NOT reconcile`}
+        {unread > 0 &&
+          ` · ${unread} tier(s) could not be read and are not asserted`}
+      </span>
+    </div>
   );
 }
 
 export function DetailCostStack({
   state,
   blendedByTier,
+  tierMeta,
   onTrace,
   traced,
   renderTrace,
@@ -596,6 +691,14 @@ export function DetailCostStack({
 }: {
   state: QuoteState;
   blendedByTier: Map<number, BlendedTierComponents>;
+  /**
+   * Tier label + ★, keyed by the classifier's numeric id.
+   *
+   * Optional, and the fallback is `T{id}` — the label the whole table used
+   * before. Passed rather than derived for the same reason the blend is: the
+   * real identity is the tier UUID, and this file only holds the numeric id.
+   */
+  tierMeta?: Map<number, { label: string; recommended: boolean }>;
   /** Press a cell → open the trace at that cell's canonical node. */
   onTrace?: (nodeKey: string, title: string) => void;
   traced?: TracedStackCell | null;
@@ -629,61 +732,134 @@ export function DetailCostStack({
   // A tier the graph cannot answer for is absent from the map and renders
   // incomplete. It is never filled with zeroes: a zero is a commercial claim,
   // and "we could not read this" is not the same statement as "this is free".
-  const tiers: TierCostStackDisplay[] = state.tiers.map((t) => {
-    const blend = blendedByTier.get(t.id);
-    if (!blend) {
-      return {
-        id: "T" + t.id,
-        numericId: t.id,
-        label: "T" + t.id,
-        units: t.qty,
-        subtotal: null,
-        adjustment: 0,
-        sell: null,
-        margin_pct: null,
-        margin_state: "incomplete",
-        blended_no_margin_reason: t.blended_no_margin_reason ?? null,
-        components: [],
-        keys: null,
-      };
+  //
+  // R11/R12 LAYOUT RESTORATION. The stack is TRANSPOSED — quantities are rows,
+  // tiers are columns — which is what makes the ladder legible: a column is one
+  // tier's price, read top to bottom from what the sections cost to what the
+  // customer is quoted, with every lever that moved it in between.
+  //
+  // The R6 shape this replaces put tiers on the rows and could only show the
+  // ladder's two ENDS, because those were the only levels published at tier
+  // scope. It is not evolved into the canonical shape; it is replaced by it.
+
+  // Which SKUs carry a lever at each tier — by existence, per `liftSkus`.
+  const skuCodeById = new Map<string, string>();
+  for (const s of state.skus) skuCodeById.set(s.id, s.code ?? s.name);
+  const leversByTier = new Map<number, { lifts: string[]; overrides: string[] }>();
+  for (const c of state.cells) {
+    let e = leversByTier.get(c.tier_id);
+    if (!e) {
+      e = { lifts: [], overrides: [] };
+      leversByTier.set(c.tier_id, e);
     }
+    const name = skuCodeById.get(c.sku_id) ?? c.sku_name;
+    if (c.lift_applied_pct !== null) e.lifts.push(name);
+    if (c.override_applied) e.overrides.push(name);
+  }
+
+  const columns: TierStackColumn[] = state.tiers.map((t) => {
+    const blend = blendedByTier.get(t.id) ?? null;
+    const meta = tierMeta?.get(t.id);
+    const levers = leversByTier.get(t.id);
     return {
-      id: "T" + t.id,
       numericId: t.id,
-      label: "T" + t.id,
-      keys: blend.keys,
-      units: t.qty,
-      subtotal: blend.sellBefore,
-      adjustment: 0,
-      sell: blend.sell,
-      // BV-010 — the GOVERNED blended margin, and the verdict on THAT
-      // margin. This column used to render `min_margin_pct`, the worst SKU's
-      // margin in the tier, unlabelled, in a row whose every other cell is a
-      // blended-across-SKUs figure — and it disagreed with the blend on 18 of
-      // 52 tiers by up to 2.1pp.
-      //
-      // The value comes from the graph, like its six row-mates, so the trace
-      // opens on the number that is displayed. The verdict comes from the
-      // engine rollup. Those are two expressions of one governed quantity
-      // (measured identical on every readable tier, and pinned by
-      // `tests/unit/blended-margin-authority.test.ts`) — not two authorities.
-      margin_pct: blend.margin,
+      label: meta?.label ?? "T" + t.id,
+      recommended: meta?.recommended ?? false,
+      qty: t.qty,
+      skuCount: state.skus.length,
+      blend,
+      // BV-010 — the verdict on the GOVERNED blended margin, from the engine
+      // rollup. Two expressions of one quantity (pinned by
+      // `tests/unit/blended-margin-authority.test.ts`), not two authorities.
       margin_state:
-        blend.margin === null ? "incomplete" : tierStatusToR6(t.blended_status),
+        blend == null || blend.margin === null
+          ? "incomplete"
+          : tierStatusToR6(t.blended_status),
       blended_no_margin_reason: t.blended_no_margin_reason ?? null,
-      // No cost/markup split any more. The split that used to appear was
-      // `mkShare`, a proportional re-allocation invented at the display layer;
-      // showing a segment the graph cannot account for would reinstate the
-      // derivation under a different name.
-      components: [
-        { key: "pkg", label: "PKG", cost: blend.pkg, markup: null },
-        { key: "prod", label: "PROD", cost: blend.prod, markup: null },
-        { key: "raw", label: "RAW", cost: blend.raw, markup: null },
-        { key: "frt", label: "FRT", cost: blend.frt, markup: null },
-        { key: "dt", label: "D+T", cost: blend.dt, markup: null, internal: true },
-      ],
+      liftSkus: levers?.lifts ?? [],
+      overrideSkus: levers?.overrides ?? [],
     };
   });
+
+  // Rows for the five blended sections, in canonical order. No cost/markup
+  // split: the split that used to appear was `mkShare`, a proportional
+  // re-allocation invented at the display layer, and showing a segment the
+  // graph cannot account for would reinstate the derivation under a new name.
+  const SECTIONS = [
+    { key: "pkg", label: "Packaging" },
+    { key: "prod", label: "Production" },
+    { key: "raw", label: "Bulk raw" },
+    { key: "frt", label: "Freight" },
+    { key: "dt", label: "Duty + tariff" },
+  ] as const;
+
+  // The two conditional rows key on EXISTENCE across any column, exactly as the
+  // Design Authority does — never on the contribution being non-zero.
+  const anyLifts = columns.some((c) => c.liftSkus.length > 0);
+  const anyOverrides = columns.some((c) => c.overrideSkus.length > 0);
+
+  /** A row of cells, one per tier, plus the trace panel if it is open here. */
+  const row = (
+    key: string,
+    className: string,
+    slab: React.ReactNode,
+    cell: (c: TierStackColumn) => React.ReactNode,
+  ) => (
+    <div className={className} key={key}>
+      <div className="r11-slab">{slab}</div>
+      {columns.map((c) => (
+        <Fragment key={c.numericId}>{cell(c)}</Fragment>
+      ))}
+    </div>
+  );
+
+  /** A LEVEL — a price at a point on the ladder. */
+  const level = (
+    c: TierStackColumn,
+    field: "pkg" | "prod" | "raw" | "frt" | "dt" | "sellBefore" | "sellAfterAdj" | "sellAfterLift" | "sell" | "cost",
+  ) => (
+    <StackCell
+      text={c.blend == null ? "—" : fmtUsd4(c.blend[field])}
+      nodeKey={c.blend ? c.blend.keys[field] : null}
+      title={`${c.label} · ${COLUMN_TITLE[field]}`}
+      traced={traced}
+      onTrace={onTrace}
+      renderDelta={renderDelta}
+    />
+  );
+
+  /**
+   * A CONTRIBUTION — what one lever moved. Signed, and read from the graph.
+   *
+   * The sign comes from the value itself. A price adjustment can be negative
+   * and an override can be either, so a hardcoded `+` on the adjustment row
+   * (which the prototype's fixture data made safe) would misstate a discount.
+   */
+  const contribution = (
+    c: TierStackColumn,
+    field: "adjDelta" | "liftDelta" | "overrideDelta",
+    sub: React.ReactNode,
+  ) => {
+    if (c.blend == null) return <div className="r11-scell flat"><span className="cost">—</span></div>;
+    const v = c.blend[field];
+    return (
+      <StackCell
+        text={(v < 0 ? "−" : "+") + fmtUsd4(Math.abs(v))}
+        nodeKey={c.blend.keys[field]}
+        title={`${c.label} · ${COLUMN_TITLE[field]}`}
+        traced={traced}
+        onTrace={onTrace}
+        renderDelta={renderDelta}
+        valueClass={"delta " + (v < 0 ? "neg" : "pos")}
+        sub={sub}
+      />
+    );
+  };
+
+  const tracedColumn = columns.find(
+    (c) => traced != null && traced.tierId === c.numericId,
+  );
+
   return (
     <div className="psr-detail-section psr-detail-section--cost-stack">
       <div className="section-head">
@@ -693,109 +869,185 @@ export function DetailCostStack({
           D+T is internal layer
         </span>
       </div>
-      <table className="psr-tier-table">
-        <thead>
-          <tr>
-            <th>Tier</th>
-            <th>PKG</th>
-            <th>PROD</th>
-            <th>RAW</th>
-            <th>FRT</th>
-            <th>D+T</th>
-            {/* Was "Unit cost". These columns carry MARKED-UP component
-                values, so the figure is sell-side; describing it as cost made
-                the row read as impossible beside the sell column. */}
-            <th>Sell before adj</th>
-            <th>Quoted sell · unit</th>
-            <th>Margin</th>
-          </tr>
-        </thead>
-        <tbody>
-          {tiers.map((t) => {
-            const rowTraced = traced != null && traced.tierId === t.numericId;
-            return (
-              <Fragment key={t.id}>
-                <tr className={rowTraced ? "psr-stack-row pinned" : "psr-stack-row"}>
-                  <td>
-                    <strong>{t.label}</strong>
-                  </td>
-                  {(["pkg", "prod", "raw", "frt", "dt"] as const).map((bucket) => {
-                    const comp = t.components.find((c) => c.key === bucket);
-                    return (
-                      <StackNumCell
-                        key={bucket}
-                        text={
-                          comp == null || comp.cost == null
-                            ? "—"
-                            : fmtUsd2(comp.cost)
-                        }
-                        nodeKey={t.keys ? t.keys[bucket] : null}
-                        title={`${t.label} · ${COLUMN_TITLE[bucket]}`}
-                        traced={traced}
-                        onTrace={onTrace}
-                        renderDelta={renderDelta}
-                      />
-                    );
-                  })}
-                  <StackNumCell
-                    text={t.subtotal == null ? "—" : fmtUsd2(t.subtotal)}
-                    nodeKey={t.keys ? t.keys.sellBefore : null}
-                    title={`${t.label} · ${COLUMN_TITLE.sellBefore}`}
-                    traced={traced}
-                    onTrace={onTrace}
-                    renderDelta={renderDelta}
-                  />
-                  <StackNumCell
-                    text={t.sell == null ? "—" : fmtUsd2(t.sell)}
-                    nodeKey={t.keys ? t.keys.sell : null}
-                    title={`${t.label} · ${COLUMN_TITLE.sell}`}
-                    traced={traced}
-                    onTrace={onTrace}
-                    renderDelta={renderDelta}
-                  />
-                  {/*
-                    Traceable now, and carrying the staged movement in POINTS
-                    — both of which became honest the moment the column
-                    started rendering the quantity the node holds. While it
-                    showed the worst SKU's margin, either would have explained
-                    a figure the operator did not press.
-                  */}
-                  <StackNumCell
-                    text={
-                      t.margin_pct == null ? "—" : fmtPct(t.margin_pct) + "%"
-                    }
-                    nodeKey={
-                      // No node to open when the ratio is undefined. The cell
-                      // renders an em-dash and does not invite a press.
-                      t.margin_pct == null || !t.keys ? null : t.keys.margin
-                    }
-                    title={`${t.label} · ${COLUMN_TITLE.margin}`}
-                    traced={traced}
-                    onTrace={onTrace}
-                    renderDelta={renderMarginDelta}
-                    cellClass={"num " + t.margin_state}
-                    note={
-                      // The two no-margin states are named apart here for the
-                      // same reason the grid names them apart: one has nothing
-                      // priced and carries no judgement, the other has cost
-                      // with nothing against it and is a certain loss.
-                      t.blended_no_margin_reason === "cost_without_revenue"
-                        ? "cost, no revenue"
-                        : null
-                    }
-                  />
 
-                </tr>
-                {rowTraced && renderTrace && (
-                  <tr className="psr-stack-tracerow">
-                    <td colSpan={9}>{renderTrace()}</td>
-                  </tr>
+      <div className="r11-stack">
+        <div className="r11-srow head">
+          <div className="r11-slab">
+            <span className="colhead">Cost stack · blended per unit</span>
+          </div>
+          {columns.map((c) => (
+            <div className="r11-scell flat" key={c.numericId}>
+              <span
+                className="sell"
+                style={{ fontSize: 11, letterSpacing: "0.06em" }}
+              >
+                {c.label}
+                {c.recommended && (
+                  <span style={{ color: "oklch(0.56 0.13 72)" }}> ★</span>
                 )}
-              </Fragment>
-            );
-          })}
-        </tbody>
-      </table>
+              </span>
+              <span className="cost">
+                {c.qty == null ? "—" : c.qty.toLocaleString()} × {c.skuCount} SKU
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {SECTIONS.map((s) =>
+          row(
+            s.key,
+            "r11-srow",
+            <>
+              <span className="n">{s.label}</span>
+              <span className="s">sell per unit</span>
+            </>,
+            (c) => level(c, s.key),
+          ),
+        )}
+
+        {row(
+          "sell-before",
+          "r11-srow rule",
+          <span className="n">Sell before adjustment</span>,
+          (c) => level(c, "sellBefore"),
+        )}
+
+        {row(
+          "adj",
+          "r11-srow",
+          <>
+            <span className="n">Price adjustment</span>
+            <span className="s">tier ?? global — replaces</span>
+          </>,
+          (c) => contribution(c, "adjDelta", null),
+        )}
+
+        {/*
+          The intermediate levels are rendered so a column can be read as a
+          running total rather than as a start, three jumps and an end. They are
+          published nodes, not sums taken here.
+        */}
+        {row(
+          "sell-after-adj",
+          "r11-srow",
+          <>
+            <span className="n">Sell after adjustment</span>
+            <span className="s">running</span>
+          </>,
+          (c) => level(c, "sellAfterAdj"),
+        )}
+
+        {anyLifts &&
+          row(
+            "lifts",
+            "r11-srow",
+            <>
+              <span className="n">Surgical lifts</span>
+              <span className="s">corrective — one cell each</span>
+            </>,
+            (c) =>
+              c.liftSkus.length
+                ? contribution(c, "liftDelta", c.liftSkus.join(", "))
+                : (
+                  <div className="r11-scell flat">
+                    <span className="cost">—</span>
+                  </div>
+                ),
+          )}
+
+        {anyLifts &&
+          row(
+            "sell-after-lift",
+            "r11-srow",
+            <>
+              <span className="n">Sell after lifts</span>
+              <span className="s">running</span>
+            </>,
+            (c) => level(c, "sellAfterLift"),
+          )}
+
+        {anyOverrides &&
+          row(
+            "overrides",
+            "r11-srow",
+            <>
+              <span className="n">PM overrides</span>
+              <span className="s">not derived — a human act</span>
+            </>,
+            (c) =>
+              c.overrideSkus.length
+                ? contribution(c, "overrideDelta", c.overrideSkus.join(", "))
+                : (
+                  <div className="r11-scell flat">
+                    <span className="cost">—</span>
+                  </div>
+                ),
+          )}
+
+        {row(
+          "quoted",
+          "r11-srow total rule",
+          <>
+            <span className="n">Quoted sell</span>
+            <span className="s">per unit, blended</span>
+          </>,
+          (c) => level(c, "sell"),
+        )}
+
+        {row(
+          "cost",
+          "r11-srow",
+          <span className="n">Unit cost</span>,
+          (c) => level(c, "cost"),
+        )}
+
+        {row(
+          "margin",
+          "r11-srow",
+          <span className="n">Margin</span>,
+          (c) => (
+            <StackCell
+              text={
+                c.blend == null || c.blend.margin === null
+                  ? "—"
+                  : fmtPct(c.blend.margin) + "%"
+              }
+              nodeKey={
+                // No node to open when the ratio is undefined. The cell renders
+                // an em-dash and does not invite a press.
+                c.blend == null || c.blend.margin === null
+                  ? null
+                  : c.blend.keys.margin
+              }
+              title={`${c.label} · ${COLUMN_TITLE.margin}`}
+              traced={traced}
+              onTrace={onTrace}
+              renderDelta={renderMarginDelta}
+              valueClass={"mg " + c.margin_state}
+              note={
+                // The two no-margin states are named apart here for the same
+                // reason the grid names them apart: one has nothing priced and
+                // carries no judgement, the other has cost with nothing against
+                // it and is a certain loss.
+                c.blended_no_margin_reason === "cost_without_revenue"
+                  ? "cost, no revenue"
+                  : null
+              }
+            />
+          ),
+        )}
+
+        <ReconStrip columns={columns} />
+      </div>
+
+      {/*
+        The trace opens BENEATH the stack rather than inside it. The grid is one
+        row per quantity now, so there is no per-tier row to pin it under — and
+        the panel already names the tier it was opened at.
+      */}
+      {tracedColumn && renderTrace && (
+        <div className="psr-stack-tracewrap">{renderTrace()}</div>
+      )}
     </div>
   );
 }

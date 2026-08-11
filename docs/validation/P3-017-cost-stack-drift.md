@@ -347,8 +347,99 @@ while staying reachable as a node; and each tier's `adj-delta` scales with the
 rate *that tier* resolved — 10% global on T1, its own 20% on T2, which is what
 pins the deltas to the authorities rather than to the levels beside them.
 
-**Still not started: the R11/R12 layout restoration.** The gate this section
-describes has been satisfied, not skipped.
+## Layout restoration — SHIPPED 2026-08-10
+
+Restored from the registered Design Authority, not evolved from the R6 summary.
+The stack is **transposed**: quantities are rows, tiers are columns, which is
+what makes a column readable as one tier's price from what the sections cost to
+what the customer is quoted, with every lever that moved it in between.
+
+Row order, canonical: five blended sections → `Sell before adjustment` (rule) →
+`Price adjustment` → `Sell after adjustment` → `Surgical lifts` → `Sell after
+lifts` → `PM overrides` → `Quoted sell` (total rule) → `Unit cost` → `Margin` →
+`ReconStrip`.
+
+**Every rendered quantity is READ, none derived.** `blendedByTier` in
+`pricing-surface-shell.tsx` resolves all thirteen through
+`readNodeValue(graph, quoteScopeKey(tierUuid, name))`, which fails closed on
+missing, duplicate *and* flagged-out nodes; a tier missing any one of them is
+omitted from the map entirely rather than partially filled. No level is
+subtracted from another to manufacture a contribution row.
+
+### The two conditional rows key on EXISTENCE
+
+`Surgical lifts` and `PM overrides` render when any column has a lever, never
+when a contribution is non-zero. A lift refused by an override contributes
+exactly nothing (§13.3, pinned by the authority test), so keying on the delta
+would delete the one rendering that shows a refusal happened. The row appears
+because the lever was pulled; the contribution says what it moved, including
+when the answer is nothing.
+
+### Four decimals is load-bearing
+
+The Design Authority renders every stack row at `money(v, 4)` and the port now
+matches. At two decimals a $0.0035 lift displays as `+$0.00` and the visible
+column stops adding up — while the strip, reading the underlying values, still
+says it does. A correct assertion sitting under numbers that appear to
+contradict it is worse than either alone.
+
+### Verification
+
+| requirement | evidence |
+|---|---|
+| each column reconciles sell-before → quoted sell | `tests/e2e/costing/cost-stack-ladder.spec.ts` sums the figures **read from the DOM**, independently of the component's own predicate, within the display's rounding budget |
+| unit cost and margin read governed tier values | both resolved via `readNodeValue` from `quote/{tier}/cost` and `quote/{tier}/margin`; the margin cell offers no trace when the ratio is undefined |
+| the assertion can fail | `tests/unit/p3-017-cost-stack-reconciliation.test.ts` — 8 tests over deliberately corrupted fixtures, including a corrupted *contribution* rather than only a corrupted total. Separately falsified end-to-end: rendering `sell-after-adj` in the `Quoted sell` row failed the e2e (`0.9499 + 0 + 0 + 1.9883 = 2.9382, but Quoted sell renders 0.9499`); reverted and re-verified byte-identical |
+| no S-7 governed scalar moves | `gate1b:verify-preserved` output **byte-identical** with and without the restoration (see below) |
+
+Gates: `test:unit` 731/731, `prebuild` PASS, `tsc` clean, `test:e2e` **26
+passed / 2 failed** — both the previously-classified freight findings.
+
+### One defect this introduced, and its repair
+
+The first cut put `role="status"` on the reconciliation strip. It is not in the
+Design Authority and it does not belong — an ARIA live region announces a
+*transient* message about something that just happened, and the strip is a
+standing assertion about the numbers above it. It also made every
+`getByRole("status")` on the pricing surface ambiguous and broke VAL-208, which
+waits on the "Pricing updated." confirmation. Repaired by removing the addition,
+not by narrowing VAL-208's locator: an unrelated test that starts failing is
+reporting something true.
+
+## S-7 preservation — measured, and NOT re-baselined
+
+`gate1b:verify-preserved` currently FAILS. Three measurements separate what
+caused what:
+
+| state | S-7 result |
+|---|---|
+| `fc97fdb` (before the authority publish) | **1** failure — `quoteRollup[0].blendedMarginPct: 0.2275 → 0.5072` on `ZZ-VALIDATION-tier-propagation` |
+| `94f8c63` (authority publish) | that same 1, **plus 23** × `sellBeforeAdjustmentPerUnit: null → <value>` |
+| + layout restoration | **byte-identical to `94f8c63`** |
+
+Two findings, and they are not the same kind of thing.
+
+**The 23 are field ADDITIONS**, from publishing the ladder. `null → value` is
+the digest reporting a key that did not previously exist; no existing number
+moved. Permitted under Amendment A-1 — *exposing computation structure is
+permitted, changing existing numbers is not*.
+
+**The 1 is a real movement, and it predates both commits.** It is on a
+validation fixture (`ZZ-VALIDATION-tier-propagation`), which the e2e suite
+writes tier adjustments to, so it is most likely data drift rather than
+commercial drift — but "most likely" is not a disposition, and this record does
+not make one.
+
+**The baseline has deliberately NOT been re-captured.** Re-baselining now would
+bake that unexplained movement in silently and destroy the evidence that
+distinguishes it from the additions. Disposition is Edward's: re-capture after
+the movement is explained, not before.
+
+**Process gap, stated plainly:** `gate1b:verify-preserved` is not part of
+`prebuild`, and I did not run it when publishing the authority at `94f8c63`. The
+gates reported there — `test:unit`, `prebuild`, `tsc` — were accurate and
+incomplete. A change to `SkuPerTierRollup` is precisely the shape S-7 exists to
+watch, and it should have been run at that commit rather than at this one.
 
 ---
 

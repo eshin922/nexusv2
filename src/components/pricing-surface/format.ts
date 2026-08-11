@@ -18,5 +18,19 @@ export const fmtUsd = (v: number | null | undefined): string =>
 export const fmtUsd2 = (v: number | null | undefined): string =>
   v == null ? "—" : "$" + v.toFixed(2);
 
+/**
+ * Four decimals, for the Cost Stack's price ladder.
+ *
+ * NOT a cosmetic preference. The ladder's rows are meant to be read as a
+ * running total, and the Design Authority renders every one of them at
+ * `money(v, 4)`. At two decimals a $0.0035 surgical lift displays as `+$0.00`
+ * and the visible column stops adding up — while the reconciliation strip,
+ * reading the underlying values, still says it does. A correct assertion
+ * sitting under numbers that appear to contradict it is worse than either
+ * alone.
+ */
+export const fmtUsd4 = (v: number | null | undefined): string =>
+  v == null ? "—" : "$" + v.toFixed(4);
+
 export const fmtQty = (v: number | null | undefined): string =>
   v == null ? "—" : v.toLocaleString();

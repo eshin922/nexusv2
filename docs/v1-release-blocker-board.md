@@ -435,8 +435,20 @@ findings), `test:unit` 715/715, `prebuild` PASS.
 
 **Seven distinct blockers. One closed — P3-016, Track C.**
 
-**P3-017 · Cost Stack drift — a new implementation item, not a blocker.**
-Verified 2026-08-10 as an **incomplete implementation**, not an intentional
+**P3-017 · Cost Stack drift — CLOSED 2026-08-10.** Both halves shipped: the
+price ladder published at tier scope (`94f8c63` — eight governed quantities,
+each contribution from its own lever's rate so the identity can fail), then the
+R11/R12 layout restored from the Design Authority. The stack is transposed,
+renders every lever that moves a price, and asserts its own reconciliation —
+falsified in both directions, and proven to move no S-7 scalar. One defect
+introduced and repaired in flight (a `role="status"` that broke VAL-208).
+`test:unit` 731/731, `prebuild` PASS, `test:e2e` 26/2 — both residual failures
+the previously-classified freight findings. **S-7 remains red and was
+deliberately not re-baselined**; see the record for why, and for the process gap
+that let the authority commit ship without running it.
+
+*Original finding, retained:* verified 2026-08-10 as an **incomplete
+implementation**, not an intentional
 simplification: production renders the R6 stack, carried forward as a black-box
 dependency by a brief that predates R11 and was never revisited when R11
 superseded it. `Price adjustment`, `Surgical lifts`, `PM overrides`, `Unit cost`

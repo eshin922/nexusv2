@@ -152,3 +152,30 @@
   color: var(--bad);
   margin-top: 1px;
 }
+
+/* ── The reconciliation strip's FAILING state ─────────────────────────────
+ *
+ * The canonical `.r11-recon` is unconditionally green — background
+ * `--good-soft`, text `--good` — because the prototype's fixture data always
+ * reconciles, so the strip has never been rendered in the state its own JSX
+ * can produce. Shipping that verbatim would put a ✕ and a failure count on a
+ * green field, which reads as a passing check with odd copy.
+ *
+ * An assertion that cannot LOOK like it failed is decoration. This is the
+ * register for the answer the strip is there to be able to give.
+ */
+.r11-recon.bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
+/* ── The trace, opened beneath the transposed stack ───────────────────────
+ *
+ * The R6 shape put one row per tier, so a trace could pin under the row it was
+ * opened from. Transposed, a tier is a COLUMN and there is no row to pin
+ * beneath — so the panel sits under the whole stack, and names the tier it was
+ * opened at in its own title.
+ */
+.psr-stack-tracewrap {
+  margin-top: 10px;
+}
