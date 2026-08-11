@@ -9,8 +9,10 @@ import {
 import { useCostingStore } from "@/components/costing-store-provider";
 import {
   selectActiveTierId,
+  selectGraph,
   selectUpdateProductionCell,
 } from "@/lib/costing-store";
+import { nodeKey, resolveNodes } from "@/lib/costing-nodes";
 
 // Step 8 — drilldown consumes the structural SkuRow shape from
 // sku-tree.ts (replaced typeof quoteSkus.$inferSelect dependency).
@@ -105,6 +107,11 @@ function num(v: string | null | undefined): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+/** A resolved markup rate, as the operator reads it: `32.0%`. */
+function fmtPct1(v: number): string {
+  return (v * 100).toFixed(1) + "%";
 }
 
 function fmtCurr2(n: number): string {
@@ -347,6 +354,10 @@ function ProductionTable({
   visibleLines: VirtualLine[];
   disabled: boolean;
 }) {
+  // One read for the whole section — the rate is firm-wide, so resolving it
+  // per row would be the same traversal repeated once per line.
+  const markup = useProductionMarkup(sku.id, tiers);
+
   // Per-line × per-tier value computation:
   // Every production input is persisted and entered as a total. Resulting
   // per-unit contributions are derived output, never the stored cell value.
@@ -410,6 +421,7 @@ function ProductionTable({
           sku={sku}
           policy={policy}
           tiers={tiers}
+          markup={markup}
           rowsByTier={rowsByTier}
           disabled={disabled}
         />
@@ -435,6 +447,101 @@ function ProductionTable({
   );
 }
 
+/**
+ * The Manufacturing markup this section is actually priced at — READ, not
+ * resolved here.
+ *
+ * C-1. This column rendered a bare em-dash while the engine applied
+ * `markupDefaults["Manufacturing"]` to every production cost
+ * (`costing.ts:1687`) and carried it into quoted price. In the same column on
+ * the same page, packaging shows a resolved rate and names the rung it came
+ * from — so an operator reading down the page saw markups on packaging and a
+ * dash on production, which says *production is quoted at cost*. It is not.
+ *
+ * Read the way packaging reads it, off the engine's own `resolution` operand,
+ * and for the reason recorded there: reimplementing a ladder the engine already
+ * walks is the defect, and a wrong fallback is what that always eventually
+ * looks like. Production's ladder has no per-line rung — there is no markup
+ * column on `assembly_production_inputs`, and this repair adds none — so the
+ * answer is one rate for the whole section.
+ *
+ * FAILS CLOSED, and more strictly than it strictly needs to. Production markup
+ * takes no tier input, so every tier must resolve the same rate; if they ever
+ * disagree this renders nothing rather than electing one tier's rate to speak
+ * for the section. A dash is honest about not knowing. A number that is right
+ * for one column and shown against all of them is not.
+ */
+interface ProductionMarkupRead {
+  pct: number | null;
+  /**
+   * Which rung supplied it — "Category default", "Other", and so on.
+   *
+   * NOT RENDERED. Edward's call on seeing it: the caption earned nothing, since
+   * production has one firm-wide rate and no ladder for a source line to
+   * disambiguate — unlike packaging, where "line override" versus "category
+   * default" is a real distinction about a real choice. Kept on the read
+   * because it is one field of a node already being traversed, and because a
+   * future rung would make it meaningful again; dropping it would mean
+   * re-deriving it then.
+   */
+  source: string | null;
+}
+
+/**
+ * TWO SECTIONS, TWO RATES, and conflating them was a bug in the first cut of
+ * this repair.
+ *
+ * The drilldown renders bulk raw as a row inside the production table, but the
+ * engine marks it up at `RAW_MARKUP_CATEGORY`, not at Manufacturing
+ * (`costing.ts:1676`). Showing the production rate against it would have been
+ * the same false-cell defect C-1 exists to remove, one row lower. It was
+ * invisible in the validation estate because both categories currently resolve
+ * to 30% — which is exactly how a cell like this hides until the day the two
+ * rates differ and nobody is looking.
+ */
+interface SectionMarkups {
+  prod: ProductionMarkupRead;
+  raw: ProductionMarkupRead;
+}
+
+function readSection(
+  graph: ReturnType<typeof selectGraph>,
+  skuId: string,
+  tiers: Array<{ id: string }>,
+  section: "prod" | "raw",
+): ProductionMarkupRead {
+  const keys = tiers.map((t) => nodeKey(skuId, t.id, section));
+  const resolved = resolveNodes(graph, keys);
+
+  let pct: number | null = null;
+  let source: string | null = null;
+  for (const key of keys) {
+    const node = resolved.get(key) ?? null;
+    if (!node || node.kind === "flagged-out") continue;
+    // Operand 1 is the `resolution` node the engine built for this section's
+    // markup — the same position packaging reads for its per-line rate.
+    const markupOperand = node.operands?.[1];
+    if (!markupOperand || markupOperand.kind !== "resolution") continue;
+    if (pct !== null && Math.abs(markupOperand.value - pct) > 1e-12) {
+      return { pct: null, source: null };
+    }
+    pct = markupOperand.value;
+    source = markupOperand.candidates?.find((c) => c.chosen)?.label ?? source;
+  }
+  return { pct, source };
+}
+
+function useProductionMarkup(
+  skuId: string,
+  tiers: Array<{ id: string }>,
+): SectionMarkups {
+  const graph = useCostingStore(selectGraph);
+  return {
+    prod: readSection(graph, skuId, tiers, "prod"),
+    raw: readSection(graph, skuId, tiers, "raw"),
+  };
+}
+
 function ProductionRow({
   line,
   sku,
@@ -442,6 +549,7 @@ function ProductionRow({
   tiers,
   rowsByTier,
   disabled,
+  markup,
 }: {
   line: VirtualLine;
   sku: QuoteSku;
@@ -449,6 +557,8 @@ function ProductionRow({
   tiers: Array<{ id: string; label: string; qty: number | null }>;
   rowsByTier: Map<string, ProdRowForUI>;
   disabled: boolean;
+  /** Both section rates, resolved once — see `useProductionMarkup`. */
+  markup: SectionMarkups;
 }) {
   const showAmortizedSub =
     line.kind === "one_time_fee" && policy.allocateServiceFeesToCost;
@@ -476,8 +586,20 @@ function ProductionRow({
           {line.kind === "one_time_fee" ? "one-time" : "tier total"}
         </span>
       </div>
+      {/*
+        READ-ONLY, and it stays that way. Production markup is firm-wide policy
+        set at /admin/markup-defaults; there is no per-line column behind this
+        cell and C-1 explicitly does not add one. What was wrong was rendering
+        an em-dash while a rate was being applied, not the absence of an input.
+      */}
       <div className="num">
-        <span className="markup">—</span>
+        <span className="markup">
+          {(() => {
+            // Bulk raw sits in this table but is priced off the RAW rate.
+            const read = line.field === "bulkRawCost" ? markup.raw : markup.prod;
+            return read.pct === null ? "—" : fmtPct1(read.pct);
+          })()}
+        </span>
       </div>
       {tiers.map((t) => (
         <ProductionTierCell

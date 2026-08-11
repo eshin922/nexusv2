@@ -388,7 +388,7 @@ Observed during the same session on the **Costs** surface (Phase 2, in progress,
 design fidelity open). Recorded here so they are not lost; they belong to Costs
 acceptance, not to this review, and none is repaired.
 
-## C-1 · The Production markup cell says "no markup" while a markup is applied
+## C-1 · The Production markup cell said "no markup" while a markup was applied — **FIXED 2026-08-10**
 
 **Observed by Edward:** *"on the costs page, production section, markup fields
 doesn't seem to work."*
@@ -422,15 +422,86 @@ schema: the engine already holds the resolved value and even publishes it as a
 node (`costing.ts:1796`), so the cell can render it read-only with a source
 caption, exactly as packaging does for a category default.
 
-**Severity is Costs' call, not this review's.** It misleads rather than
-miscalculates, so it is not a V1 blocker on the Pricing acceptance criteria; on
-a cost surface whose job is to explain where money goes, it is more than
-cosmetic.
+### Disposition — Edward, 2026-08-10: **V1 operator-acceptance blocker. Repaired.**
 
-## C-2 · Bulk raw silently uses the "Other" markup — adjacent, unasked, one line away
+Contained to presentation and authority consumption. No input added, no schema
+field, not editable, and the engine arithmetic is untouched.
 
-Noticed while tracing C-1, and stated rather than left:
-`RAW_MARKUP_CATEGORY = "Raw ingredients"` carries its own comment —
-*"Slice 9 will likely add this; falls back to Other today"* (`costing.ts:841`).
-So every bulk-raw cost is marked up at the **Other** rate, and nothing on any
-surface says so. Same shape as C-1 one row down. Not investigated further.
+**The read.** `useProductionMarkup` resolves the section node
+(`nodeKey(sku, tier, "prod")`) and takes **operand 1** — the engine's own
+`resolution` node — exactly as packaging reads its per-line rate, and for the
+reason recorded there: reimplementing a ladder the engine already walks is the
+defect, and a wrong fallback is what that always eventually looks like. Nothing
+is recomputed in the component.
+
+**Fails closed, deliberately harder than required.** Production markup takes no
+tier input, so every tier must resolve the same rate; if they ever disagree the
+cell renders `—` rather than electing one tier's rate to speak for the section.
+
+**The source caption was built and then removed** on Edward's read: production
+has one firm-wide rate and no ladder, so there is no "line override vs category
+default" distinction for a caption to disambiguate. Kept on the read type, not
+rendered — a future rung would make it meaningful, and dropping it would mean
+re-deriving it then.
+
+#### A defect in the first cut of this repair, caught before it shipped
+
+Bulk raw renders as a row inside the production table, but the engine prices it
+off `RAW_MARKUP_CATEGORY`, **not** Manufacturing. The first cut showed the
+production rate against it — C-1's own defect, one row lower.
+
+I initially wrote that the two rates "coincide at 30% today, which is how a cell
+like this hides". **That was wrong**, and reading it off a probe of the buggy
+build is how I got it wrong: `Manufacturing` is `0.3000` and `Other` is
+`0.1500`. The uniform 30% I saw *was the bug*, not a coincidence. Bulk raw was
+being shown a rate 15 points off what it is priced at. Split to read each
+section's own resolution node; verified live — production rows **30.0%**, Bulk
+raw **15.0%**.
+
+#### Evidence — `tests/e2e/costing/production-markup-visible.spec.ts`
+
+| | |
+|---|---|
+| renders a percentage, not `—` | **fails at `1d78e32`**: *"Production markup cell renders "—" — a markup IS applied"* |
+| matches the governed authority | equals `markup_defaults."Manufacturing"`, read from the row the engine resolves against |
+| the authority moves both halves | the governed default is changed, the page reloaded, and **the display and the section's own rollup both move** — restored in `finally` |
+
+**Two corrections to the test itself, both material:**
+
+1. It read cells with `querySelectorAll`, which matches HIDDEN elements — so the
+   drawer-opening helper saw cells inside a *collapsed* accordion, returned
+   early, and the assertions ran against text no operator could see. On a
+   finding whose whole substance is "the operator cannot see the markup", that
+   is the wrong thing to assert. Now a Playwright locator, gated on
+   `toBeVisible`.
+2. No quote in the validation estate carries any production cost, so
+   `cost × (1 + markup)` is zero at every rate and the "calculation moved" half
+   would have passed vacuously. The test now enters a cost through the
+   operator's own input, **confirms the write persisted** before drawing any
+   conclusion, and deletes it afterwards.
+
+Gates: `test:unit` 744/744, `prebuild` PASS, `tsc` clean, `test:e2e` 38 passed /
+3 failed — two the classified freight findings, the third (VAL-104) passing
+alone and alongside this spec.
+
+## C-2 · Bulk raw is marked up at the "Other" rate — OPEN, deliberately unchanged
+
+`RAW_MARKUP_CATEGORY = "Raw ingredients"` (`costing.ts:841`) carries its own
+comment: *"Slice 9 will likely add this; falls back to Other today."*
+
+**Facts established, no change made.** `markup_defaults` holds eight categories
+— Freight, Manufacturing, Other, Primary, Secondary, Soft Goods, Tooling,
+primary_packaging — and **"Raw ingredients" is not one of them.** So the
+fallback is not a configured policy being applied; it is an **absent
+configuration being silently absorbed**. Every bulk-raw cost is marked up at
+`Other` = **15%**, against Manufacturing's 30%.
+
+C-1's repair makes that rate **visible** for the first time — the Bulk raw row
+now reads 15.0% beside production's 30.0% — which is the right outcome either
+way: whatever the correct rate is, an operator can now see which one applies.
+
+**The disposition is Edward's, and is commercial, not technical:** is
+raw-ingredient markup at the Other rate (a) accepted V1 policy, (b) a temporary
+governed fallback pending a real category, or (c) an unresolved configuration
+requirement? The code comment is implementation history and **is not authority
+to change commercial behaviour**. Recorded; not touched.
