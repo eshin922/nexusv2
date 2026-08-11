@@ -1,8 +1,13 @@
 # AM-005 · S-7 measures software and mutable production data together
 
-**Status: INVESTIGATED 2026-08-10. Awaiting disposition.** Not a Pricing
-regression. Not repaired, and deliberately not — changing the hash scope is the
-decision this record exists to inform.
+**Status: INVESTIGATED 2026-08-10. Awaiting disposition — and now BLOCKING.**
+Not a Pricing regression. Not repaired, and deliberately not — changing the hash
+scope is the decision this record exists to inform.
+
+> **Escalated 2026-08-10 (second instance + prebuild wiring).** The same quote
+> moved again, and `verify:s7-preserved` is now part of `prebuild`, so this
+> record no longer describes a red check on a side path — it describes a red
+> check that **fails every build**. See *Second instance* below.
 
 ---
 
@@ -81,6 +86,76 @@ chip, unchanged at `15.4%` — and pinned by
 
 **Pattern 50**: two subsystems answering the same question from different bases.
 
+## Second instance — the same quote moved again, three hours later
+
+Re-measured during P3-017's close-out. The figure is no longer `0.4530`:
+
+| when (UTC) | change | source |
+|---|---|---|
+| 20:57:49.126 | tier `02278df4…` `null` → `0.1166` | `pricing_suggestion_surgical` |
+| 20:57:49.755 | tier `02278df4…` `0.1166` → `0.2468` | `pricing_suggestion_surgical` |
+| 20:57:59.771 | quote — bulk apply, `apply_delta 0.10995896…`, 4 tiers | `pricing_suggestion_global` |
+| 20:57:59.790–.845 | all four tiers → `0.5676` / `0.3839` / `0.1100` / `0.1100` | `pricing_suggestion_global` |
+
+**The 629ms compounding pair is the P3-016 signature again**, and it is not a
+regression of the repair: `b6de377` is on the release branch and **not on
+`main`**, so production is still serving the unfixed write-at-click path. The
+repair cannot stop an operator using the deployed application.
+
+Current blended margin: **`0.5072339132761682`**.
+
+### Proof that the arithmetic is not implicated — exact, and not via the engine
+
+`scripts/gate-1b/probe-zz-tier-propagation-margin.ts` (read-only). An adjustment
+scales a tier's revenue and leaves its cost alone, so if the adjustment is the
+*whole* cause then the moved figure must be reproducible from the **baseline's
+own** cost and revenue:
+
+```
+baseline Tier 1   cost 11500        revenue 14887.5     margin 0.22753988245172124
+live adjustment   0.5676
+14887.5 × 1.5676 = 23337.645, cost held at 11500
+predicted         0.5072339132761682
+reported          0.5072339132761682
+residual          0
+```
+
+Deliberately arithmetic rather than a re-run with the adjustments zeroed: a
+re-run answers the question *through* the code under suspicion, and what is
+being established is that the code did not change what it computes. Cost is on
+the left-hand side at its captured value, so any drift in a cost input, a
+markup, a freight allocation or the blend itself would surface as a residual.
+There is none.
+
+### What this second instance changes about the disposition
+
+Not the diagnosis — it is the same finding, twice. What it changes is the case
+for a **per-quote restore**, which is now visibly the wrong shape of fix:
+restoring the four adjustments to `null` (their captured state, recoverable
+exactly from the audit trail) would return the digest and leave the mechanism
+untouched. It has already re-broken once. The next manual walk re-breaks it
+again.
+
+**The mutation is not intentional, and it is also not the problem.** The quote's
+own `intent_note` reads *"DISPOSABLE VALIDATION ARTIFACT — do not use for
+commercial work. Created 2026-08-06 to certify tier → Freight break
+propagation."* Pricing adjustments are not what it exists to hold. But an
+artifact that announces its own disposability and still sits in the release's
+governing evidence is the basket question, not a data-hygiene question.
+
+### The wiring makes this urgent
+
+`verify:s7-preserved` is now the ninth step of `prebuild`, so a change to
+`SkuPerTierRollup` can no longer pass the build without executing the verifier
+that governs it. That is the intended guard. Its side effect is that **`prebuild`
+now fails whenever any of the 24 basket quotes is edited by anyone** — builds
+are bound to production data.
+
+That coupling is precisely this record's finding, arriving at a place where it
+costs something. The two are one decision: whichever basket scope restores the
+invariant's meaning also decouples the build. Until it is taken, `npm run build`
+fails.
+
 ## What the finding actually is
 
 **S-7 measures software and mutable production data together, and cannot
@@ -110,7 +185,8 @@ basket anyway.
 |---|---|
 | **Exclude `ZZ-VALIDATION-*` from the basket** | Narrowest. Restores the invariant's meaning without re-freezing anything, and the naming convention already exists. Leaves any future scratch quote that does **not** follow the convention in the basket |
 | **Re-baseline** | Accepts the current values as the new reference. Cheapest, and it discards the only evidence that the other 23 are preserved — the remainder digest above is exactly what re-baselining would throw away |
-| **Investigate the quote further** | Nothing left to find: the audit trail is unambiguous, and the movement is fully explained by two operator clicks |
+| **Investigate the quote further** | Nothing left to find, and now proven rather than argued: the movement is reproducible to a residual of zero from the adjustment alone. See *Second instance* |
+| **Restore the quote** | Available and exactly reversible — all four adjustments were `null` at capture, recoverable from the audit trail. Returns the digest; leaves the mechanism. Already re-broken once between the first investigation and the second |
 | **Freeze the basket as an explicit ID list** | Broadest. Makes coverage a decision rather than a side effect of a query, at the cost of new quotes not joining automatically |
 
 **Not chosen here.** The first is the smallest change that restores the

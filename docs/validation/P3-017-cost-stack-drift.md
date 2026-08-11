@@ -424,22 +424,33 @@ the digest reporting a key that did not previously exist; no existing number
 moved. Permitted under Amendment A-1 — *exposing computation structure is
 permitted, changing existing numbers is not*.
 
-**The 1 is a real movement, and it predates both commits.** It is on a
-validation fixture (`ZZ-VALIDATION-tier-propagation`), which the e2e suite
-writes tier adjustments to, so it is most likely data drift rather than
-commercial drift — but "most likely" is not a disposition, and this record does
-not make one.
+**The 1 is a real movement, and it predates both commits.** DISPOSED 2026-08-10
+as **[AM-005](AM-005-s7-scope.md), second instance** — not commercial drift, and
+not a P3-017 concern. Proven to a residual of **zero**: the moved figure is
+reproducible from the *baseline's own* cost and revenue scaled by the live tier
+adjustment (`scripts/gate-1b/probe-zz-tier-propagation-margin.ts`), so no cost
+input moved and the arithmetic did not change. The cause is operator clicks on
+the deployed Pricing surface, which still serves the unfixed P3-016 write-at-
+click path because `b6de377` is not on `main`. Full evidence in AM-005; the
+disposition owed is a **basket-scope** decision, not a per-quote restore.
 
-**The baseline has deliberately NOT been re-captured.** Re-baselining now would
-bake that unexplained movement in silently and destroy the evidence that
-distinguishes it from the additions. Disposition is Edward's: re-capture after
-the movement is explained, not before.
+**The baseline has deliberately NOT been re-captured.** Re-baselining would bake
+that movement in silently and destroy the remainder digest — the only evidence
+that the other 23 quotes are byte-identical.
 
-**Process gap, stated plainly:** `gate1b:verify-preserved` is not part of
-`prebuild`, and I did not run it when publishing the authority at `94f8c63`. The
-gates reported there — `test:unit`, `prebuild`, `tsc` — were accurate and
-incomplete. A change to `SkuPerTierRollup` is precisely the shape S-7 exists to
-watch, and it should have been run at that commit rather than at this one.
+**Process gap, closed.** `gate1b:verify-preserved` was not part of `prebuild`,
+and I did not run it when publishing the authority at `94f8c63`; the gates
+reported there were accurate and incomplete. `verify:s7-preserved` is now the
+ninth step of `prebuild` (`--env-file-if-exists`, so a build without a local env
+file falls back to real environment variables rather than hard-erroring). A
+change to `SkuPerTierRollup` can no longer pass the build without executing the
+verifier that governs that shape.
+
+**Consequence, stated rather than discovered later:** because S-7's basket is a
+query over live production quotes, `prebuild` is now bound to production data
+and currently **fails** — on the AM-005 movement, not on anything in P3-017.
+That coupling is AM-005's finding arriving somewhere it costs something, and the
+same basket-scope decision resolves both.
 
 ---
 

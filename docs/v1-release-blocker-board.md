@@ -442,10 +442,24 @@ R11/R12 layout restored from the Design Authority. The stack is transposed,
 renders every lever that moves a price, and asserts its own reconciliation —
 falsified in both directions, and proven to move no S-7 scalar. One defect
 introduced and repaired in flight (a `role="status"` that broke VAL-208).
-`test:unit` 731/731, `prebuild` PASS, `test:e2e` 26/2 — both residual failures
-the previously-classified freight findings. **S-7 remains red and was
-deliberately not re-baselined**; see the record for why, and for the process gap
-that let the authority commit ship without running it.
+`test:unit` 731/731, `test:e2e` 26/2 — both residual failures the
+previously-classified freight findings.
+
+**S-7 dispositioned by cause, not re-baselined.** The 23 ×
+`sellBeforeAdjustmentPerUnit: null → value` are additive authority published by
+P3-017, accepted under A-1. The single `blendedMarginPct` movement is
+**[AM-005](validation/AM-005-s7-scope.md), second instance** — proven to a
+residual of **zero** against the baseline's own cost and revenue, so no cost
+input moved and the arithmetic did not change; cause is operator clicks on the
+deployed Pricing surface, which still serves the unfixed P3-016 path because
+`b6de377` is not on `main`.
+
+**`verify:s7-preserved` is now the ninth step of `prebuild`** — a change to
+`SkuPerTierRollup` can no longer pass the build without executing the verifier
+that governs it. **`prebuild` therefore fails today**, on the AM-005 movement.
+S-7's basket is a query over live production quotes, so builds are now bound to
+production data; that coupling is AM-005's finding arriving where it costs
+something, and the basket-scope decision AM-005 has been awaiting resolves both.
 
 *Original finding, retained:* verified 2026-08-10 as an **incomplete
 implementation**, not an intentional
