@@ -484,7 +484,7 @@ Gates: `test:unit` 744/744, `prebuild` PASS, `tsc` clean, `test:e2e` 38 passed /
 3 failed — two the classified freight findings, the third (VAL-104) passing
 alone and alongside this spec.
 
-## C-2 · Bulk raw is marked up at the "Other" rate — OPEN, deliberately unchanged
+## C-2 · Bulk raw is marked up at the "Other" rate — **OPEN · business disposition**
 
 `RAW_MARKUP_CATEGORY = "Raw ingredients"` (`costing.ts:841`) carries its own
 comment: *"Slice 9 will likely add this; falls back to Other today."*
@@ -500,8 +500,23 @@ C-1's repair makes that rate **visible** for the first time — the Bulk raw row
 now reads 15.0% beside production's 30.0% — which is the right outcome either
 way: whatever the correct rate is, an operator can now see which one applies.
 
-**The disposition is Edward's, and is commercial, not technical:** is
-raw-ingredient markup at the Other rate (a) accepted V1 policy, (b) a temporary
-governed fallback pending a real category, or (c) an unresolved configuration
-requirement? The code comment is implementation history and **is not authority
-to change commercial behaviour**. Recorded; not touched.
+### Business disposition required for V1 release
+
+> **Is Bulk Raw intentionally governed by the `Other` markup rate for V1, or
+> must `Raw ingredients` receive its own explicit governed markup
+> configuration?**
+
+**Owner: Edward / Finance / Commercial.** Not an engineering decision. Neither
+answer is implemented until that authority decides; creating a Raw Ingredients
+default or changing the fallback now would convert implementation behaviour into
+commercial policy without authority.
+
+| answer | consequence |
+|---|---|
+| **(a) `Other` is the intended rate for V1** | No code change. But the coupling becomes policy and should be recorded as such: `Other` also governs "Other service fee total" and every uncategorised line, so an admin retuning `Other` silently reprices **all bulk raw across every quote** — two unrelated commercial concerns sharing one lever. The comment at `costing.ts:841` ("Slice 9 will likely add this") would then be *wrong* and should be rewritten to state the policy, so a later engineer does not "fix" a decision. |
+| **(b) `Raw ingredients` needs its own governed rate** | One `markup_defaults` row, Finance-set. **Every draft quote carrying bulk raw reprices the moment it lands** — from 15% to whatever is chosen — so it is a live commercial change, not a configuration tidy-up. It would also move the **S-7 preservation baseline** for each affected quote, which is a measurable, expected movement to be captured deliberately rather than discovered. Sent and accepted quotes are unaffected (Pattern 52 draft-lock). |
+
+**Does not block operator acceptance.** The applied rate is now visible and
+accurately represented on the Costs surface, so the operator can see what is
+being charged. It remains **unresolved for final V1 release** until the
+commercial policy is explicit.
