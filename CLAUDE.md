@@ -5392,6 +5392,27 @@ is the floor, not the ceiling. Two checks, not one:
    rate it displays is that authority's rate. Catches misattribution, which
    completeness structurally cannot.
 
+### Release-validation corollary (banked 2026-08-11)
+
+> **Total reconciliation is necessary but cannot certify customer-facing
+> commercial correctness. Attribution and presentation must be independently
+> validated.**
+
+Two concrete falsifications, both found on the same fixture, both
+customer-facing, and both present while the totals reconciled **exactly**:
+
+- **T-1** — the printed per-unit price divided by `pricedCount × quantity`,
+  a SKU-row cardinality. `$4.00` where `$12.00` was owed. The total was right.
+- **Proof 5** — the PDF told the customer freight was "billed separately at
+  cost (itemized below); not included in the turnkey total" because the gate
+  read `hasCharges`, which a service fee satisfies. Every clause false. The
+  total was right.
+
+Neither is reachable by summing. A certification that stops at "the numbers
+add up" would have passed both. So a release gate needs three questions, not
+one: does it reconcile, is each figure attributed to the authority that
+governs it, and does the document's own prose match what it actually did.
+
 **Where this applies:** any surface that decomposes a governed total — cost
 stacks, drilldown totals, customer PDF line tables, SO line projections,
 margin breakdowns. Wherever a display aggregates contributions from more than
