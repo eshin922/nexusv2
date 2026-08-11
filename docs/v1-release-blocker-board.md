@@ -302,7 +302,7 @@ suite, which is what let this ship at all.
 **Phase 3's closure holds elsewhere.** P3-001…P3-015 are unaffected; this is a
 new row against the interaction contract, not a reopening of any completed one.
 
-## P2-014 · Pricing Vendor store-snapshot staleness — **a cleared vendor can be silently rewritten**
+## P2-014 · A persisted clear could be silently reversed — **CLOSED 2026-08-11**
 
 Observed during the VAL-104 repair, investigated independently of it, and **not
 caused by it** — it reproduces with that repair reverted.
@@ -373,7 +373,55 @@ The repair is small and local. The reason to treat it as V1 is not its size but
 its signature: a write that succeeds, is confirmed, and is then reverted by an
 unrelated action.
 
-**Disposition owner: Edward.** Recorded, not repaired.
+### Audit before editing — the shape was used four times, and three fields were affected
+
+| field | cleared state is meaningful? | defect proven? |
+|---|---|---|
+| `pricingVendorHubspotCompanyId` / `NameSnapshot` | yes — no vendor | **yes** — select → Clear → edit markup |
+| `markupPct` | yes — `null` means *inherit* | **yes** — clear → set a vendor; restored to the page-load `1.0000` |
+| `category` | yes — `trimOrNull` persists empty as `null` | **yes** — clear → edit markup |
+
+`markupPct` needed care to prove. Choosing a category **deliberately** writes
+that category's default markup, so a category change as the "unrelated edit"
+would have proved nothing — the write is intended. Vendor is the clean lever.
+
+**`category` reproduced on one probe run and not the next**, and that is the
+most useful thing the audit produced: the defect only bites *while the prop is
+still stale*, so it is a race with prop revalidation. Sometimes the prop catches
+up first and the same sequence looks fine. Row presence removes the dependence
+on that race rather than narrowing the window — which is why the repair is not
+"widen a timeout" or "wait for revalidation".
+
+### Repair
+
+Fallback keyed on **row absence**, never on value nullness, at all four sites in
+`packaging-drilldown.tsx`. A row that exists is authoritative *including its
+nulls*; the prop is needed only before hydration, when there is genuinely no row.
+
+Scoped to that one component. The store, the other drilldowns and the shared
+selectors are untouched — `production-drilldown` and `freight-drilldown` consume
+props without this resolution shape and are a separate question, recorded but
+not opened here.
+
+### Regression — `tests/e2e/costing/line-meta-clear-persistence.spec.ts`
+
+The full destructive sequence, per the governing contract: select another
+vendor → Clear → **verify the row is null** → edit an unrelated field → allow
+persistence → vendor still null **and** rendered still cleared. Repeated for
+markup and category with an unrelated edit chosen so it cannot write the field
+under test.
+
+It also proves the **pre-store-row fallback**: a fresh load, before any
+interaction, renders the row's real vendor, category and markup — the case the
+prop exists to serve, which narrowing it to row-absence must not break.
+
+**Proven both directions.** Reverted, it fails; and it failed at the *rendered*
+assertion while that run's database assertion passed — the same race seen from
+its other side, which is why both halves are asserted rather than either alone.
+
+**Verified:** full suite **25 passed, 2 failed** (both classified freight
+findings), `test:unit` 715/715, `prebuild` PASS.
+
 
 ## Board status
 
@@ -381,7 +429,8 @@ unrelated action.
 |---|---|---|
 | **A · Below-floor approval** | REG-2 · OD-002 | **Awaiting business disposition.** Engineering not started, by instruction |
 | **C · R12 staging contract** | P3-016 | **CLOSED 2026-08-10** on the recorded browser evidence. Observation taken, both callers classified, surgical+global repaired together, 714/714 unit + prebuild green, S-7 unmoved by the repair |
-| **CB classification** | — | **CLOSED 2026-08-11.** 0 unknown groups; 3 product defects found and repaired; 24/26 with both residual failures classified non-product |
+| **CB classification** | — | **CLOSED 2026-08-11.** 0 unknown groups; 3 product defects found and repaired; both residual failures classified non-product |
+| **P2-014 · clear reversal** | — | **CLOSED 2026-08-11.** Row-presence fallback; vendor, markup and category all proven affected; regression exercises the destructive sequence |
 | **B · Accounting handoff** | REG-4 · OD-004 · OD-005 · P1-014 *(+REG-3)* | **Open — the primary release engineering blocker once the harness baseline exists.** OD-004 first; the walk requires a NetSuite administrator |
 
 **Seven distinct blockers. One closed — P3-016, Track C.**

@@ -472,17 +472,41 @@ function PackagingRow({
   const storeLineRow = storePackaging.find(
     (p) => p.lineGroupId === line.lineGroupId,
   );
-  const storeCategory: string = storeLineRow?.category ?? line.category ?? "";
-  const storeMarkupPct: string =
-    storeLineRow?.markupPct !== null && storeLineRow?.markupPct !== undefined
+  // P2-014 — fall back to the RSC prop on ROW ABSENCE, never on value nullness.
+  //
+  // These four resolutions used `?? line.x`, which cannot distinguish "the store
+  // has no row for this line" from "the row exists and its value is null". For
+  // a clearable field those are different states, and only the first justifies
+  // the prop. A cleared field therefore resolved to the value the PAGE WAS
+  // LOADED WITH -- and because that lands in local state, and `fireMetaSave`
+  // sends `stateRef.current`, the next save of ANY field on the line wrote it
+  // back. A persisted clear was silently reversed by an unrelated edit, with the
+  // rendered value agreeing with the resurrected one.
+  //
+  // Measured on all three: vendor (select -> clear -> edit markup), markup
+  // (clear -> clear vendor, restored to the page-load 1.0000), category (clear
+  // -> edit markup). Category did not reproduce on a second run, because the
+  // defect only bites while the prop is STILL stale -- it is a race with prop
+  // revalidation. Row presence removes the dependence on that timing rather
+  // than narrowing the window.
+  //
+  // A row that exists is authoritative including its nulls. The prop is needed
+  // only before hydration, when there is genuinely no row to read.
+  const storeCategory: string = storeLineRow
+    ? (storeLineRow.category ?? "")
+    : (line.category ?? "");
+  const storeMarkupPct: string = storeLineRow
+    ? storeLineRow.markupPct !== null && storeLineRow.markupPct !== undefined
       ? String(storeLineRow.markupPct)
-      : (line.markupPct ?? "");
+      : ""
+    : (line.markupPct ?? "");
 
-  const storeVendorId =
-    storeLineRow?.pricingVendorHubspotCompanyId ??
-    line.pricingVendorHubspotCompanyId;
-  const storeVendorName =
-    storeLineRow?.pricingVendorNameSnapshot ?? line.pricingVendorNameSnapshot;
+  const storeVendorId = storeLineRow
+    ? storeLineRow.pricingVendorHubspotCompanyId
+    : line.pricingVendorHubspotCompanyId;
+  const storeVendorName = storeLineRow
+    ? storeLineRow.pricingVendorNameSnapshot
+    : line.pricingVendorNameSnapshot;
   const [vendorId, setVendorId] = useState(storeVendorId);
   const [vendorName, setVendorName] = useState(storeVendorName);
   const [vendorQuery, setVendorQuery] = useState(storeVendorName ?? "");

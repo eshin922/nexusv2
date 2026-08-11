@@ -210,7 +210,7 @@ release is how fast unknowns become classified and then closed.
 | **Boundary established, cause open** | **0** | — |
 | **Unclassified** | **0** | — |
 | **Active classified product defects** | **1** | VAL-104 — repaired, regression green |
-| **New findings raised** | **1** | P2-014 — Pricing Vendor staleness; recorded, disposition open |
+| **New findings raised** | **1** | P2-014 — accepted as a V1 blocker, repaired and closed 2026-08-11 |
 
 **Eleven scenarios were failing or unmeasured when classification began. Five
 remain unclassified.** No pass count was pursued, and one scenario moved to
@@ -646,7 +646,11 @@ Cause is `??` in the store/prop resolution conflating *no row* with *null value*
 Full record, evidence table and severity recommendation:
 [`../v1-release-blocker-board.md`](../v1-release-blocker-board.md) § P2-014.
 
-Recorded, not repaired. Disposition is Edward's.
+**Accepted as a V1 release blocker and CLOSED 2026-08-11.** The audit found
+the same expression shape used four times, and **all three fields** — vendor,
+`markupPct` and `category` — proven affected. Repair: fall back on row absence,
+never on value nullness, scoped to that one component. Regression exercises the
+full destructive sequence plus the pre-store-row fallback.
 
 ### VAL-104 — **product interaction defect: REPAIRED**
 
