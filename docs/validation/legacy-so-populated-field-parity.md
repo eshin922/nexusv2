@@ -305,6 +305,45 @@ integration, so I cannot prove *nothing* reads it. If some report groups by it,
 Nexus-created lines will be absent from that grouping. That is the residual
 risk, and it is a reporting question rather than a payload one.
 
+## §11.2b · Project Manager — NetSuite-derived (SO2701 evidence, 2026-08-12)
+
+**`custbody_project_manager = 180234` on SO2701, and Nexus did not transmit it.**
+
+The frozen body (`.artifacts/PRE-CREATE-BODY.json`,
+`sha256 a82e11ba…`) contains no `custbody_project_manager`, and
+`markComplete` does not pass `projectManagerNsId` — asserted in
+`sales-order-accounting-contract.test.ts`. NetSuite populated the field itself.
+
+**Classification: NetSuite-derived, unless contrary evidence appears.** Same
+shape as Class — a field NetSuite fills from its own records when the sender
+stays out of the way. Most likely from the customer or an entity-level default,
+though the deriving source was not confirmed.
+
+**Consequence for the pm_id item:** the open question was how HubSpot
+`pm_id = 673896208` (an owner id) resolves to a NetSuite employee. On this
+evidence the mapping may not be needed at all — NetSuite already produced a PM
+without one. **Do not build the mapping** until something shows the derived
+value is wrong for a real order. Remains a separate parity/ownership item; the
+burden has moved from "build the mapping" to "check whether the derived value
+is correct."
+
+## §11.2c · Two SuiteQL read failures are observability gaps, not absences
+
+`custbody_dps_project_category` and `custbody_dps_payment_terms_text` both
+returned SuiteQL **500s** when read back from SO2701. Sibling custom body
+fields on the same record read fine in the same session
+(`custbody_dps_deal_id`, `cseg_dps_bus_seg`,
+`custbody_dps_project_service_s`, `custbody_dps_project_source`,
+`custbody_dps_est_invoice_date`).
+
+**These are read-path failures. They are NOT evidence the fields are unset.**
+Both are present in the frozen transmitted body. Recorded so a later audit does
+not mistake an unreadable field for a missing one — the same error class as
+reading absence of Class into the earlier §11.1 verdict.
+
+Adds to the standing enumeration limit already recorded against P-2, C.3 and
+§12: some NetSuite state is simply not reachable through this integration.
+
 ## §11.3 · Operator-field ownership — three of four are already HubSpot-derived
 
 `hubspot_deals_cache` carries far more than §3 credited:
