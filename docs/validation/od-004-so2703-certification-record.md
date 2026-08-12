@@ -1,4 +1,20 @@
-# OD-004 / Track B — final grouped certification record
+# OD-004 / Track B — SO2703 failed run (negative certification evidence)
+
+> **This is the FAILED run. It is retained deliberately.** Track B was
+> subsequently certified on SO2704 — see
+> [`reg-4-track-b-certification.md`](reg-4-track-b-certification.md) for the
+> closure record.
+>
+> SO2703 is the evidence that the verification gate **refused an incorrect
+> quantity-expansion model before any unsafe rate PATCH occurred**. It
+> demonstrates the safety properties a passing run cannot: whole-plan refusal on
+> structural mismatch, `awaiting_rates` retention with the SO id, and no second
+> CREATE. Its defective Item Groups `75156` / `75254` remain inactive, still
+> holding `qtyPerParent = 1000`, as the before/after record against `75354` /
+> `75454`.
+>
+> Do not delete, reactivate, or re-quantify any of it.
+
 
 Target: **Deal `55307858178` — Ro - GLP-1 Epson Proofs** (Roman Health Ventures, Inc)
 Nexus project `534bda3b-9516-456f-b272-22d392f51920`

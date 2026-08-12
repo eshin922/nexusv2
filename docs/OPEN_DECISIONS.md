@@ -868,9 +868,13 @@ isolated would be the wrong reading.
 
 ---
 
-### OD-004 · Item Group applicability datum — **DISPOSITIONED 2026-08-11**
+### OD-004 · Item Group applicability datum — **DISPOSITIONED 2026-08-11 · CERTIFIED 2026-08-12**
 
-**Owner:** Accounting / Operations · **Blocks:** Slice 13 Item Group gate
+**Owner:** Accounting / Operations · **Blocks:** nothing — REG-4 / Track B is
+**CLOSED** on real NetSuite sandbox provider evidence (SO2704 / `361441`;
+Item Groups `75354` / `75454`). Closure record:
+[`validation/reg-4-track-b-certification.md`](validation/reg-4-track-b-certification.md).
+Do not reopen Item Group architecture absent new contradictory provider evidence.
 
 > **Disposition (Edward, 2026-08-11): NetSuite grouping follows the quote's
 > agreed customer presentation.**
@@ -1008,6 +1012,34 @@ departure from the bundle is either an approved deviation or drift.
 
 **Decide at Phase 3 kickoff, not during implementation.** Deciding mid-build
 means deciding under schedule pressure.
+
+---
+
+### OD-022 · Operators cannot tell when an ASY structure is required
+
+**Owner:** Edward · **Blocks:** Product Library / V1 operator workflow · **Not**
+a Track B condition
+
+> Operators must understand when a Finished Product / ASY structure is required,
+> and that this structure governs downstream NetSuite Item Group composition.
+
+REG-4 / Track B certifies that the machinery is correct **given a correct
+structure**: the ASY composition becomes the Item Group's master definition, and
+its identity hash keys on that composition. What Track B does not certify — and
+cannot — is that an operator authoring a quote can tell when an ASY is needed at
+all, or that they understand the downstream consequence of getting it wrong.
+
+The consequence is not local. An ASY that should have been two groups, or two
+that should have been one, produces a Sales Order that reconciles to the correct
+total while shipping the wrong commercial structure — the exact
+attribution-without-reconciliation failure the certification gate exists to
+catch at the provider, and which is far cheaper to prevent at authoring time.
+
+**What settles it:** a Product Library / Setup workflow decision about when
+structure is prompted, required, or inferred, and how the NetSuite consequence
+is surfaced to the operator authoring it.
+
+Raised at Track B closure (2026-08-12) and deliberately carried out of it.
 
 ---
 
