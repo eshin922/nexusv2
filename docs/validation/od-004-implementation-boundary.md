@@ -209,6 +209,74 @@ needs a plan→`FindOrCreateInput` adapter and a call site, neither of which
 exists. **Not proposed for this walk; recorded as the cheapest route to
 deterministic identity if the UI cannot set External ID.**
 
+### UI FORM INSPECTED — External ID is NOT operator-settable
+
+**2026-08-12, sandbox `7924416_SB2`, authenticated by Edward. Nothing saved.**
+
+Form: **Lists → Accounting → Items → New → Item Group**
+(`item.nl?itemtype=Group`).
+
+| tab | External ID present? |
+|---|---|
+| Primary Information | no — Item Name/Number, UPC, Display Name, Vendor, Subitem Of, Description |
+| Classification | no — Subsidiary, Department, Class, Location |
+| **System Information** | no — contains only an `INACTIVE` checkbox |
+| Purchasing/Inventory · Communication · Merchandise Hierarchy · BILL | no |
+
+DOM sweep of the whole form (471 inputs):
+
+```json
+{"name":"externalid","id":"externalid","type":"hidden",
+ "disabled":false,"readOnly":false,"value":""}
+```
+
+`externalid` **exists in the submitted form but is `type="hidden"`**, with **no
+visible field and no label anywhere on the page**.
+
+**Conclusion: the normal UI does not permit setting External ID.** Per the
+standing instruction, group creation stops here rather than proceeding with an
+invented or substitute identifier.
+
+**A hidden field is not a permission.** The input is not disabled, so a value
+could be injected into it via the DOM before save. That is explicitly **not**
+done and **not** recommended: it creates a governed record through an
+unsupported path, which is precisely the improvisation this walk exists to
+avoid, and it would make the resulting identity untraceable to any sanctioned
+mechanism.
+
+**One legitimate alternative exists and is Edward's call, not an improvisation:**
+NetSuite's *Customize Form* lets an administrator set the External ID field to
+**Show** on the item form. That is a governed admin configuration change — but it
+alters a shared form in the account, so it is a deliberate decision rather than a
+step to take inside this walk.
+
+### Transition limitation — recorded
+
+> **Manually created Item Groups are not deterministically discoverable by
+> Nexus.**
+
+`findOrCreateItemGroup` layer 2 matches on
+`externalid = '<nxs-grp-…>' AND itemtype = 'Group'`. A group created through the
+normal UI has `externalid = NULL`, so:
+
+- **layer 1** (local `netsuite_item_groups` cache) misses — Nexus never wrote it;
+- **layer 2** (SuiteQL by externalId) misses — the group has no external id;
+- **layer 3** creates a **duplicate** group.
+
+This is consistent with the account as it stands: **34 Group items, 0 external
+ids** — every human-created group is already undiscoverable this way. The single
+exception was created by Nexus over REST.
+
+**Consequence for V1:** deterministic identity is not achievable for
+manually-created groups. Membership proof for this walk therefore rests on **B3
+structural read-back** (`Group → members → EndGroup`, validated against control
+SO2454), which is unaffected — it reads structure and rates, not identity.
+
+**Consequence for future automation:** any later automated create/reuse must
+treat pre-existing manual groups as invisible, and will duplicate rather than
+reuse them unless external ids are backfilled. Carried as a post-V1 item
+alongside the RESTlet / Assembly-migration routes.
+
 ### Housekeeping finding
 
 `nxs-probe-1785269500395` / `SMOKE-PROBE-1785269500395` is an **orphan** — the
