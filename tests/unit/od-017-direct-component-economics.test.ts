@@ -501,25 +501,18 @@ test("PATTERN 58 · the anchor moves attribution, never the arithmetic", () => {
   assert.equal(leafFreight(onMember, "ql-direct"), 0);
 });
 
-test("FINDING (OD-025) · Pattern 58 holds contingently, not structurally", () => {
-  // A TRIPWIRE, not an endorsement. This asserts the CURRENT DIVERGENT
-  // behaviour so the gap cannot go silent, and so that fixing it FAILS this
-  // test and forces the finding to be closed rather than quietly outlived.
+test("PATTERN 58 (was the OD-025 tripwire) · anchor invariance, now permanent", () => {
+  // INVERTED, not deleted. This assertion was `notEqual` while OD-025 was open:
+  // a tripwire holding the defect in place so it could not go silent, and so
+  // that repairing it would fail the test and force the finding closed.
   //
-  // Freight is amortised per unit, attributed to one leaf, and then multiplied
-  // by that leaf's quantity in the rollup. When leaf quantities differ, moving
-  // the anchor therefore moves quote-level commercial arithmetic — which the
-  // ratified invariant forbids.
+  // OD-025 is repaired — `rollUpAssemblyPerTier` is dimension-aware — so the
+  // same fixture now states the invariant itself. The history is kept because
+  // the failure it once encoded is the reason this test exists at all: freight
+  // was amortised per sellable unit, attributed to a leaf, and then scaled
+  // again by that leaf's BOM multiplicity.
   //
-  // It is invisible on production data because every live attachment carries
-  // quantity 1, so all anchors agree. That is a property holding by coincidence
-  // reading as one holding by construction (Pattern 56), and it is why S-7
-  // reported zero monetary movement across the whole live population.
-  //
-  // NOT introduced by OD-017: the multiplication predates it. What OD-017
-  // changed is that a second anchor became selectable at all, for shipments
-  // with no assembly. Assembly-owned shipments still resolve to exactly one
-  // anchor, so no live quote is affected today.
+  // Full falsification set: tests/unit/od-025-attribution-arithmetic.test.ts.
   const shipment = (ownerSkuId: string) => ({
     freightSubcategoryId: "sub-1",
     ownerSkuId,
@@ -545,12 +538,15 @@ test("FINDING (OD-025) · Pattern 58 holds contingently, not structurally", () =
   const freightOf = (r: ReturnType<typeof run>) =>
     r.quoteRollup.find((t) => t.tierId === TIER_A)!.costBreakdown.freight;
 
-  assert.notEqual(
+  assert.equal(
     freightOf(run("ql-member")),
     freightOf(run("ql-direct")),
-    "if this now passes, OD-025 has been fixed — close the finding and convert " +
-      "this test into an equality assertion",
+    "the attribution anchor must not move commercial arithmetic",
   );
+  // And the money is right in absolute terms, not merely consistent: a $500
+  // shipment over 1000 units is $500, whichever leaf carries it.
+  assert.equal(freightOf(run("ql-member")), 650);
+  assert.equal(freightOf(run("ql-direct")), 650);
 });
 
 // ---------------------------------------------------------------------------

@@ -1079,6 +1079,39 @@ means deciding under schedule pressure.
 
 ---
 
+### OD-026 · Direct Component packaging ignores the leaf's own multiplicity
+
+**Owner:** Nexus engineering + Edward · **Status:** OPEN, traced not repaired ·
+**Prerequisite to OD-022 if confirmed** · **Severity:** latent.
+
+> Direct Component packaging economics currently ignore the Direct leaf's
+> quantity/multiplicity, while equivalent Finished Product members scale by
+> `qtyPerParent`.
+
+Measured:
+
+```
+assembly-backed leaf   qty 1 → $10,000   qty 2 → $20,000   qty 3 → $30,000   scales
+DIRECT leaf            qty 1 → $10,000   qty 2 → $10,000   qty 3 → $10,000   ignored
+```
+
+A Direct Component attaches straight to the quote and is never folded, so
+nothing applies its `quote_leaves.quantity` at all.
+
+**Deliberately NOT repaired inside OD-025**, which concerns the point where an
+already-determined shipment-level Freight contribution is assigned to a leaf.
+This is a different question — component economics — and **must not be assumed
+to share OD-025's root cause until traced.** OD-025's cause was a dimensional
+error in a fold; this may instead be a missing multiplication, a deliberate
+semantic (a Direct leaf's quantity may not mean "per sellable unit" at all), or
+an undefined semantic. Apply the same dimensional-analysis discipline; do not
+inherit the conclusion.
+
+Latent today: every live attachment is quantity 1 and Direct Components are
+UI-unreachable. **Reachable exactly when OD-022 exposes them.**
+
+---
+
 ### OD-024 · Nexus Product Specifications — governed V1 capability
 
 **Owner:** Edward · **Status:** REGISTERED, not started. **Do not implement the
@@ -1114,11 +1147,38 @@ specification taxonomy and the NetSuite field mapping stay in this slice.
 
 ### OD-025 · The attribution invariant holds contingently, not structurally
 
-**Owner:** Nexus engineering + Edward · **Status:** DIAGNOSED, awaiting repair
-disposition · **Blocks:** OD-023, OD-022 · **Severity:** V1 correctness defect,
-latent on current data.
+> **CLOSED 2026-08-12 — Repair A, dimension-aware fold.** Suite 978/978, 14
+> falsifications, zero live monetary movement.
+>
+> `rollUpAssemblyPerTier` now folds by dimension: component-unit values still
+> scale by `qtyPerParent`; sellable-unit (freight-derived) values are carried at
+> ×1. Composites that mix both — `contribution`, `requiredSell`, `computedSell`
+> and the whole sell ladder — fold as `(v − f) × q + f`, with each freight
+> portion **derived** from the ladder's own ratios rather than assumed.
+>
+> **Proof:** a $500 shipment over 1000 units now quotes **$500 at qty 1, 2 and
+> 3**, in a fixture with ONE leaf and no alternate anchor — so it cannot be
+> satisfied by making two anchors agree on a wrong number. Packaging still
+> scales ($10k/$20k/$30k). The leg model is fixed identically.
+>
+> **The first repair attempt moved money and was caught.** `(v − f) × 1 + f` is
+> not exactly `v` in IEEE-754; the float noise shifted `blendedMarginPct` on
+> three live quotes. Short-circuiting `qty === 1` makes the fold a provable
+> identity for the entire production population (150/150 attachments measured at
+> quantity 1). Regression 14 asserts it bit-for-bit.
+>
+> **Correction to earlier reports.** My OD-017 and OD-025 "zero monetary
+> movement" claims were made with a census that grepped `" -> "` — a pattern
+> that structurally CANNOT match numeric differences. Re-measured properly
+> against three trees: pre-OD-017, post-OD-017, post-OD-025. Both slices moved
+> **zero** money; the one `costBreakdown.packaging` and one `blendedMarginPct`
+> difference are present in **all three** and predate both slices. They belong
+> to the stale baseline, not recaptured per instruction.
 
-Chain: `OD-012 CLOSED → OD-017 CLOSED → OD-025 → OD-023 → OD-022`.
+**Owner:** Nexus engineering + Edward · **Status:** CLOSED · **Severity:** V1
+correctness defect, was latent on current data.
+
+Chain: `OD-012 CLOSED → OD-017 CLOSED → OD-025 CLOSED → OD-023 → OD-022` (OD-026 gates OD-022).
 
 **Diagnosis:**
 [`validation/od-025-attribution-arithmetic-diagnosis.md`](validation/od-025-attribution-arithmetic-diagnosis.md).
@@ -1196,7 +1256,7 @@ commercial leaves were accepted; whether each was Direct or a Finished Product
 member; the Finished Product grouping/composition boundary; and the identity
 required for downstream projection.
 
-Dependency chain: `OD-012 CLOSED → OD-017 CLOSED → OD-025 → OD-023 → OD-022`.
+Dependency chain: `OD-012 CLOSED → OD-017 CLOSED → OD-025 CLOSED → OD-023 → OD-022` (OD-026 gates OD-022).
 OD-025 is a V1 correctness defect and precedes this slice.
 
 **Specification scope for this slice (per OD-024):** determine only what Product

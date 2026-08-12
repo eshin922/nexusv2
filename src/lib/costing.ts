@@ -2576,36 +2576,117 @@ function rollUpAssemblyPerTier(
   let containerFreightMarkup = 0;
   let dutyTariffMarkup = 0;
   let servicesMarkup = 0;
+  // ---------- OD-025 · the fold is DIMENSION-AWARE ----------
+  //
+  // `SkuPerTierRollup` carries values in TWO economic dimensions, and the fold
+  // must not treat them alike:
+  //
+  //   COMPONENT-UNIT values — packaging, production, raw and their markup sums.
+  //     Denominated $/component unit. Multiplying by `qtyPerParent` is what
+  //     converts them to $/sellable unit. Correct, and unchanged below.
+  //
+  //   SELLABLE-UNIT values — every freight-derived figure. Freight is amortised
+  //     at `computeShipmentContribution` by the governing tier quantity
+  //     (absolute shipment amount ÷ tierUnits), so it arrives here ALREADY
+  //     denominated $/sellable unit.
+  //
+  // The governing rule: a value already normalised to the sellable-unit basis
+  // must not be scaled again by BOM multiplicity. Before this, a $500 shipment
+  // on a leaf with qtyPerParent 2 reported $1000 at quote level — not a
+  // rounding artefact but a doubling, and present with a single anchor, so it
+  // was never merely an attribution-sensitivity problem.
+  //
+  // Freight is not confined to the freight fields: it is embedded inside
+  // `contribution`, `requiredSell`, `computedSell` and the whole sell ladder,
+  // all of which are legitimately scaled for their component content. So those
+  // are folded MIXED — the freight portion is held out of the multiplication
+  // and re-added once:
+  //
+  //     fold(v, f, q) = (v − f) × q + f
+  //
+  // which is exactly `v × q` when f = 0, and exactly `f` when v = f. The fold
+  // stays linear in the component part, so the reconciliation identity the
+  // ladder depends on survives.
+  // The two short-circuits are NOT micro-optimisation. `(v − f) × 1 + f` is not
+  // exactly `v` in IEEE-754: when the freight portion exceeds the composite —
+  // routine for a small `adjDelta` — the subtraction cancels and the re-addition
+  // does not restore the original bits. Measured on the live population, that
+  // float noise moved `blendedMarginPct` on three real quotes, which is
+  // monetary movement from a repair that must move no money at all.
+  //
+  // Every live attachment carries quantity 1 (measured: 150/150), so `qty === 1`
+  // is the whole production population. Returning `value` untouched makes the
+  // fold provably an identity there rather than approximately one.
+  const foldMixed = (value: number, freightPortion: number, qty: number) => {
+    if (qty === 1) return value;
+    if (freightPortion === 0) return value * qty;
+    return (value - freightPortion) * qty + freightPortion;
+  };
+
   for (const c of children) {
-    contribution += c.rollup.contributionCostPerUnit * c.qtyPerParent;
-    requiredSell += c.rollup.requiredSellPerUnit * c.qtyPerParent;
-    computedSell += c.rollup.computedSellPerUnit * c.qtyPerParent;
-    sellBeforeAdj += c.rollup.sellBeforeAdjustmentPerUnit * c.qtyPerParent;
-    adjDelta += c.rollup.adjDeltaPerUnit * c.qtyPerParent;
-    sellAfterAdj += c.rollup.sellAfterAdjustmentPerUnit * c.qtyPerParent;
-    liftDelta += c.rollup.liftDeltaPerUnit * c.qtyPerParent;
-    sellAfterLift += c.rollup.sellAfterLiftPerUnit * c.qtyPerParent;
-    overrideDelta += c.rollup.overrideDeltaPerUnit * c.qtyPerParent;
-    packaging += c.rollup.packagingCostPerUnit * c.qtyPerParent;
-    production += c.rollup.productionCostPerUnit * c.qtyPerParent;
-    raw += c.rollup.rawCostPerUnit * c.qtyPerParent;
-    landedFreight +=
-      c.rollup.totalLandedFreightBeforeMarkup * c.qtyPerParent;
-    containerFreight +=
-      c.rollup.totalContainerFreightBeforeMarkup * c.qtyPerParent;
-    dutyTariff += c.rollup.totalDutyTariffBeforeMarkup * c.qtyPerParent;
-    serviceFees += c.rollup.separateServiceFeesPerUnit * c.qtyPerParent;
-    packagingMarkup +=
-      c.rollup.packagingMarkupSumPerUnit * c.qtyPerParent;
-    productionMarkup +=
-      c.rollup.productionMarkupSumPerUnit * c.qtyPerParent;
-    rawMarkup += c.rollup.rawMarkupSumPerUnit * c.qtyPerParent;
-    containerFreightMarkup +=
-      c.rollup.freightContainerMarkupSumPerUnit * c.qtyPerParent;
-    dutyTariffMarkup +=
-      c.rollup.freightDutyTariffMarkupSumPerUnit * c.qtyPerParent;
-    servicesMarkup +=
-      c.rollup.separateServicesMarkupSumPerUnit * c.qtyPerParent;
+    const q = c.qtyPerParent;
+    const r = c.rollup;
+
+    // The freight portion of each composite, derived rather than assumed.
+    //
+    // Cost side: the freight inside `contribution` is the pre-markup landed
+    // total. Sell side: the freight inside `sellBeforeAdjustment` is the
+    // marked-up landed total — it IS the freight section of that sum.
+    const fCost = r.totalLandedFreightBeforeMarkup;
+    const fSellBefore = r.totalLandedFreightWithMarkup;
+
+    // Adjustment and lift are uniform multiplicative scalars on the whole cell,
+    // so the freight portion scales by the same ratio the cell did. Reading the
+    // ratio off the ladder is safer than re-deriving the rates: if the ladder
+    // ever changes shape, this follows it instead of silently disagreeing.
+    const adjRatio =
+      r.sellBeforeAdjustmentPerUnit !== 0
+        ? r.sellAfterAdjustmentPerUnit / r.sellBeforeAdjustmentPerUnit
+        : 1;
+    const fAfterAdj = fSellBefore * adjRatio;
+    const liftRatio =
+      r.sellAfterAdjustmentPerUnit !== 0
+        ? r.sellAfterLiftPerUnit / r.sellAfterAdjustmentPerUnit
+        : 1;
+    const fAfterLift = fAfterAdj * liftRatio;
+
+    // A per-cell override REPLACES the computed price outright. It is an
+    // operator-stated price for one component unit and carries no separable
+    // freight portion, so it folds by quantity in full — the pre-existing
+    // behaviour, preserved deliberately rather than by omission.
+    const fRequired = r.sellSource === "cell_override" ? 0 : fAfterLift;
+
+    // Mixed-dimension composites.
+    contribution += foldMixed(r.contributionCostPerUnit, fCost, q);
+    requiredSell += foldMixed(r.requiredSellPerUnit, fRequired, q);
+    computedSell += foldMixed(r.computedSellPerUnit, fAfterLift, q);
+    sellBeforeAdj += foldMixed(r.sellBeforeAdjustmentPerUnit, fSellBefore, q);
+    adjDelta += foldMixed(r.adjDeltaPerUnit, fAfterAdj - fSellBefore, q);
+    sellAfterAdj += foldMixed(r.sellAfterAdjustmentPerUnit, fAfterAdj, q);
+    liftDelta += foldMixed(r.liftDeltaPerUnit, fAfterLift - fAfterAdj, q);
+    sellAfterLift += foldMixed(r.sellAfterLiftPerUnit, fAfterLift, q);
+    overrideDelta += foldMixed(
+      r.overrideDeltaPerUnit,
+      fRequired - fAfterLift,
+      q,
+    );
+
+    // COMPONENT-UNIT values — scaling is the conversion, and is correct.
+    packaging += r.packagingCostPerUnit * q;
+    production += r.productionCostPerUnit * q;
+    raw += r.rawCostPerUnit * q;
+    serviceFees += r.separateServiceFeesPerUnit * q;
+    packagingMarkup += r.packagingMarkupSumPerUnit * q;
+    productionMarkup += r.productionMarkupSumPerUnit * q;
+    rawMarkup += r.rawMarkupSumPerUnit * q;
+    servicesMarkup += r.separateServicesMarkupSumPerUnit * q;
+
+    // SELLABLE-UNIT values — already amortised; carried through at ×1.
+    landedFreight += r.totalLandedFreightBeforeMarkup;
+    containerFreight += r.totalContainerFreightBeforeMarkup;
+    dutyTariff += r.totalDutyTariffBeforeMarkup;
+    containerFreightMarkup += r.freightContainerMarkupSumPerUnit;
+    dutyTariffMarkup += r.freightDutyTariffMarkupSumPerUnit;
   }
   const marginPct: number | null =
     requiredSell > 0 ? (requiredSell - contribution) / requiredSell : null;

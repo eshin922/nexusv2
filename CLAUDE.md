@@ -5399,7 +5399,28 @@ attribution anchors**
 introduces an anchor must carry the same falsification: change the anchor, hold
 every listed quantity constant.
 
-**The invariant currently holds CONTINGENTLY, not structurally — OD-025.**
+**Two measurement lessons banked from OD-025's repair.** Both produced confident
+false claims before they were caught.
+
+**1. A census pattern that cannot match the thing it certifies proves nothing.**
+"Zero monetary movement" was reported twice on the strength of a grep for
+`" -> "` — quoted strings on both sides. Numeric differences carry no quotes, so
+the pattern was structurally incapable of matching a moved number. It reported
+zero because it could only ever report zero. Same shape as the ad-hoc test
+runner below: a self-consistent measurement taken with the wrong instrument.
+**Check that your filter can express a failure before trusting it to report
+none.**
+
+**2. `(v − f) × 1 + f` is not `v`.** A dimension-aware fold that holds the
+freight portion out of a multiplication and re-adds it is exact algebra and
+inexact IEEE-754: where the held-out portion exceeds the composite — routine for
+a small delta — the subtraction cancels and the re-addition does not restore the
+original bits. On the live population that noise moved `blendedMarginPct` on
+three real quotes, from a repair whose entire premise was that it moves no money.
+Short-circuit the identity case (`qty === 1`) rather than trusting the round
+trip, and assert it **bit-for-bit**, not rounded.
+
+**The invariant held CONTINGENTLY, not structurally — OD-025, now CLOSED.**
 Discovered while building the ratification evidence, which is the argument for
 demanding falsification rather than a grep.
 
@@ -5421,9 +5442,12 @@ Not introduced by OD-017: the multiplication predates it. OD-017 made a second
 anchor *selectable* for shipments with no assembly. Assembly-owned shipments
 still resolve to exactly one anchor, so no live quote is affected today.
 
-Enforced as a **tripwire** in `od-017-direct-component-economics.test.ts`: the
-divergence is asserted, so fixing it fails the test and forces the finding to be
-closed rather than quietly outlived.
+Held as a **tripwire** while OD-025 was open — the divergence was asserted, so
+repairing it failed the test and forced the finding closed rather than letting it
+quietly outlive its record. **REPAIRED 2026-08-12** by the dimension-aware fold;
+the tripwire was **inverted into the permanent invariant assertion**, not
+deleted. Full falsification set:
+`tests/unit/od-025-attribution-arithmetic.test.ts`.
 
 **Recognition heuristic.** When a rule is expressed as "module X must not import
 Y", ask what property that import would violate. If the property can be asserted
