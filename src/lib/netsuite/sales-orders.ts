@@ -67,7 +67,15 @@ export interface SalesOrderPayloadInput {
   // <label> for the following field: custbody_dps_project_source"
   // (Class B parity finding, 2026-07-29).
   projectSourceId?: string | null;
-  businessSegmentId?: string | null;     // NetSuite class id (resolved via BS resolver → NS class)
+  // RAW HubSpot `business_segment` enum id — NOT a NetSuite class id, and not
+  // resolved to one. The prior comment here claimed "NetSuite class id
+  // (resolved via BS resolver → NS class)"; that was false and is what the
+  // Case B walk halted on. `business-segment-resolver.ts` resolves this enum
+  // id to a LABEL for display backfill. Nothing maps it to a class.
+  //
+  // No longer feeds `class` (V1 Class contract, 2026-08-12 — see below).
+  // Still feeds `cseg_dps_bus_seg`, whose own authority is under review.
+  businessSegmentId?: string | null;
   businessSegmentLabel?: string | null;  // fallback for readability
   clientPo?: string | null;
   invoiceDateEst?: string | null;        // YYYY-MM-DD
@@ -160,8 +168,40 @@ export function buildSalesOrderPayload(
   if (input.dealType) body.custbody_dps_deal_type = input.dealType;
   if (input.projectManagerNsId)
     body.custbody_project_manager = { id: input.projectManagerNsId };
+  // V1 CLASS CONTRACT (2026-08-12, Edward):
+  //
+  //   NetSuite owns Sales Order line Class through the Item record.
+  //   Nexus must not send `class`.
+  //
+  // Class remains required business/accounting data. What was removed is an
+  // invalid COMPETING authority, not the requirement. Nexus was sending the
+  // raw HubSpot `business_segment` enum id as `class` — two unrelated
+  // taxonomies. Segment 3 (`DPS Packaging`) is not a class at all and NetSuite
+  // rejected it; segment 1 (`Product 360°`) collides numerically with class 1
+  // (`Primary`) and was silently misattributing every order it touched.
+  //
+  // NetSuite already derives line Class from the Item record, correctly, with
+  // no help from us. Proven by SO2698 — created by Nexus transmitting NO class
+  // — whose lines came back 10064-GNX-Box → 10 Secondary, BA146400 → 58 Soft
+  // Goods and Accessories, DPS-BOTTLE-0001 → 1 Primary, each matching its
+  // Item-record class. 1,296 of 1,358 Items carry Class; 2,523 of 2,731
+  // historical classified lines match their Item's. The systematic exceptions
+  // are Accounting's own line-level refinements — a further reason not to
+  // overwrite this authority.
+  //
+  // Do NOT substitute Nexus cost category, markup category, HubSpot Business
+  // Segment, or any other mapping. Do not add a fallback for the 62 Items that
+  // carry no Class — that is an Accounting Item-master matter, and Group /
+  // Assembly items being unclassed already matches legacy behaviour.
+  //
+  // Evidence: tests/unit/netsuite-class-item-authority.test.ts
+  // Review:   docs/validation/netsuite-class-mapping-review.md
+  //
+  // `cseg_dps_bus_seg` is a DIFFERENT dimension (Business Segment, not Class)
+  // and is deliberately left as-is here. It is fed the same raw enum id and was
+  // rejected in the same CREATE; its authority is under separate review and
+  // must not be assumed valid because Class was settled.
   if (input.businessSegmentId) {
-    body.class = { id: input.businessSegmentId };
     body.cseg_dps_bus_seg = { id: input.businessSegmentId };
   }
 

@@ -92,7 +92,12 @@ test("maps the verified required and optional Sales Order accounting fields", ()
     custbody_dps_priority: "HIGH",
     custbody_dps_deal_type: "newbusiness",
     custbody_project_manager: { id: "employee-88" },
-    class: { id: "segment-4" },
+    // V1 Class contract (2026-08-12): `class` is NOT emitted. NetSuite owns
+    // line Class through the Item record; Nexus sending it installed a
+    // competing authority that was either rejected or silently wrong. Removed
+    // from this exhaustive expectation rather than the expectation loosened,
+    // so a reintroduction fails here too.
+    // Evidence: tests/unit/netsuite-class-item-authority.test.ts
     cseg_dps_bus_seg: { id: "segment-4" },
     item: {
       items: [
