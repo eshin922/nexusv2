@@ -1,9 +1,63 @@
 # Parity items — dispositions and open decisions
 
-**Dispositioned 2026-08-11 (Edward).** C.2 **CLOSED** for V1 as accepted manual
-NetSuite responsibility. OD-001 **CLOSED** for V1 by removing the unsupported
-operator control. **C.3 and C.4 remain HELD for Accounting** — they are external
-business inputs and must not be replaced by engineering inference.
+**Dispositioned 2026-08-11.** All four are now closed. C.2 **CLOSED** for V1 as
+accepted manual NetSuite responsibility; OD-001 **CLOSED** by removing the
+unsupported operator control (both Edward). C.3 **CLOSED with V1 repair** and
+C.4 **CLOSED with no implementation** — both by NetSuite technician disposition,
+the external business input these were held for.
+
+**One item remains open and is not in this package:** the PP/SP/SGA/COP legacy
+specification projection (`legacy-so-populated-field-parity.md` §12) still needs
+Accounting/Operations confirmation of whether any of those fields are consumed
+by current invoices or downstream operational workflows. Historical population
+is not authority to recreate them.
+
+## C.3 — DISPOSITION (V1) · CLOSED WITH REPAIR
+
+> **Customer PO should be `otherRefNum`. `custbody_dps_client_po` is the custom
+> field used to get the data from HubSpot.** — NetSuite technician, 2026-08-11
+
+This confirms what the estate showed and §11.4 could not close on its own:
+`otherRefNum` 684/699, `custbody_dps_client_po` 0/699, and Epicuren's cached
+`client_po = 13969` is exactly SO2646's `otherRefNum`. Nexus had already
+captured the governed value and carried it the whole way — to the dead field.
+
+**Repaired** at `sales-orders.ts`: `hubspot_deals_cache.client_po →
+SO.otherRefNum`. A redirect of a wired path; **no new capture mechanism added.**
+
+**The `custbody_dps_client_po` write is preserved, not replaced.** Whether it is
+still required as a staging field for the HubSpot synchronization path is not
+determinable from this side — SuiteScripts, workflows and saved searches are not
+enumerable through the REST integration, the same limit recorded against P-2 and
+§12. Per the instruction, unresolved ownership is authority to **add** the field
+Accounting named, not to remove one an upstream integration may depend on.
+0/699 population proves no operator filled it in; it does not prove nothing
+writes to or reads it.
+
+Evidence: `tests/unit/c3-customer-po-projection.test.ts` — identical value
+emitted, null does not fabricate, verbatim transmission across heterogeneous
+real PO shapes, payload purely additive, governed source wired at both call
+sites, and a falsification of the prior behaviour.
+
+**No effect on Case B.** Nemah's `client_po` is null, so neither the payload nor
+the expected read-back changes — asserted directly in test 2.
+
+## C.4 — DISPOSITION (V1) · CLOSED, NO IMPLEMENTATION
+
+> **The DPS customer-deposit fields are custom fields and are not related to
+> deposit invoicing.** — NetSuite technician, 2026-08-11
+
+`C.4 — legacy/custom metadata; not operative for deposit invoicing; no Nexus V1
+parity implementation required.`
+
+Their absence from Nexus-created Sales Orders is therefore **not** a V1
+accounting/deposit parity defect. **They must not be derived from payment
+terms.** The historical population remains useful context and is not authority
+to reproduce them.
+
+This also settles the C.1 linkage raised below: the 4-of-9 customers carrying
+deposit-shaped governed terms are not left with incomplete orders, because the
+fields those orders omit do not drive the deposit invoicing.
 
 ## C.2 — DISPOSITION (V1)
 

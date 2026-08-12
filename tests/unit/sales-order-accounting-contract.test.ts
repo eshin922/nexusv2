@@ -80,6 +80,11 @@ test("maps the verified required and optional Sales Order accounting fields", ()
     custbody_dps_project_service_s: "Co-Packing",
     custbody_dps_project_category: "Packaging",
     custbody_dps_project_source: { id: "source-3" },
+    // C.3 (2026-08-11): the customer PO now also reaches the standard field
+    // Accounting named. Both are asserted here so the exhaustive payload
+    // contract stays exhaustive; the projection itself is proven in
+    // tests/unit/c3-customer-po-projection.test.ts.
+    otherRefNum: "PO-9001",
     custbody_dps_client_po: "PO-9001",
     custbody_dps_est_invoice_date: "2026-09-15",
     custbody_dps_pp_production_ship_date: "2026-10-01",

@@ -128,7 +128,28 @@ export function buildSalesOrderPayload(
     body.custbody_dps_project_category = input.projectCategory;
   if (input.projectSourceId)
     body.custbody_dps_project_source = { id: input.projectSourceId };
-  if (input.clientPo) body.custbody_dps_client_po = input.clientPo;
+  // C.3 (2026-08-11) — NetSuite technician disposition: "Customer PO should be
+  // otherRefNum. custbody_dps_client_po is the custom field used to get the
+  // data from HubSpot."
+  //
+  // Estate evidence agrees: otherRefNum 684/699, custbody_dps_client_po 0/699,
+  // and Epicuren's cached client_po `13969` is exactly SO2646's otherRefNum.
+  // So this is a redirect of an already-wired path, not new capture.
+  //
+  // The custom-field write is PRESERVED rather than replaced. Whether it is
+  // still required as a staging field for the HubSpot synchronization path
+  // cannot be determined from this side — SuiteScripts, workflows and saved
+  // searches are not enumerable through the REST integration (the same limit
+  // recorded against P-2 and §12). Unresolved ownership is authority to ADD
+  // the field Accounting named, not to remove one an upstream integration may
+  // depend on. 0/699 population proves no operator filled it; it does not
+  // prove nothing writes to or reads it.
+  //
+  // Emitted verbatim to both. No formatting, no transformation, no inference.
+  if (input.clientPo) {
+    body.otherRefNum = input.clientPo;
+    body.custbody_dps_client_po = input.clientPo;
+  }
   if (input.invoiceDateEst)
     body.custbody_dps_est_invoice_date = input.invoiceDateEst;
   if (input.productionShipDateEst) {

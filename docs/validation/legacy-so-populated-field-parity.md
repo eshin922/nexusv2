@@ -329,6 +329,24 @@ operationally consumed". But the decision is now a one-line redirect of an
 existing wired path rather than new capture — and the coverage question
 (3 of 70 deals carry a PO) is part of what that answer must address.
 
+## §11.5 · C.3 — CLOSED (2026-08-11), repair shipped
+
+The NetSuite technician confirmed the redirect: **`otherRefNum` carries the
+customer PO; `custbody_dps_client_po` is the custom field used to get the data
+from HubSpot.**
+
+`sales-orders.ts` now emits `hubspot_deals_cache.client_po` to **both** — the
+standard field because Accounting named it, and the custom field preserved
+because its integration ownership is not determinable from this side (§12's
+enumeration limit applies identically here). No new capture mechanism was added.
+
+Full disposition and evidence: `parity-decision-package.md` § C.3.
+Test: `tests/unit/c3-customer-po-projection.test.ts`.
+
+**C.4 also closed** the same day: the DPS customer-deposit fields are custom
+metadata, not operative for deposit invoicing. No V1 implementation; not to be
+derived from payment terms.
+
 ---
 
 # §12 · Legacy specification projection (PP / SP / SGA / COP) — ONE disposition
