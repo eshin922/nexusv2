@@ -1114,8 +1114,36 @@ specification taxonomy and the NetSuite field mapping stay in this slice.
 
 ### OD-025 · The attribution invariant holds contingently, not structurally
 
-**Owner:** Nexus engineering + Edward · **Status:** OPEN finding · **Severity:**
-latent — no live quote affected today.
+**Owner:** Nexus engineering + Edward · **Status:** DIAGNOSED, awaiting repair
+disposition · **Blocks:** OD-023, OD-022 · **Severity:** V1 correctness defect,
+latent on current data.
+
+Chain: `OD-012 CLOSED → OD-017 CLOSED → OD-025 → OD-023 → OD-022`.
+
+**Diagnosis:**
+[`validation/od-025-attribution-arithmetic-diagnosis.md`](validation/od-025-attribution-arithmetic-diagnosis.md).
+
+> **The defect is larger than attribution-sensitivity.** Freight is
+> **over-counted outright** when the carrying leaf has multiplicity ≠ 1 — a $500
+> shipment reports $1000 at quote level at qty 2, with only ONE anchor in the
+> fixture. Anchor-sensitivity is the symptom; the cause is that `qtyPerParent` is
+> applied to a quantity already denominated per sellable unit. Both freight
+> models are affected, including the leg model, which has no anchor concept at
+> all.
+>
+> **Root cause:** `SkuPerTierRollup` carries two dimensions in one record.
+> Packaging is `$/component unit`; freight is `$/sellable unit` (already divided
+> by `tierUnits`). `rollUpAssemblyPerTier` multiplies everything by
+> `qtyPerParent`, which is correct for the former and dimensionally invalid for
+> the latter. **Eleven fold lines** are implicated, not the five pure-freight
+> ones — freight is embedded in `contribution`, `requiredSell` and the whole sell
+> ladder.
+>
+> **AWAITING DISPOSITION:** Repair A (dimension-aware fold; per-leaf freight
+> preserved) vs Repair B (attribute freight above the leaf; per-leaf freight
+> display removed). The two answer *"is a leaf's freight figure per sellable unit
+> or per component unit?"* differently, and that is a commercial/presentation
+> decision with a Pattern 57 dimension. **Recommendation: Repair A.**
 
 Pattern 58 (ratified 2026-08-12) governs: *membership may determine attribution,
 but must never determine commercial arithmetic.* The implementation does not
@@ -1168,7 +1196,8 @@ commercial leaves were accepted; whether each was Direct or a Finished Product
 member; the Finished Product grouping/composition boundary; and the identity
 required for downstream projection.
 
-Dependency chain: `OD-012 CLOSED → OD-017 CLOSED → OD-023 → OD-022`.
+Dependency chain: `OD-012 CLOSED → OD-017 CLOSED → OD-025 → OD-023 → OD-022`.
+OD-025 is a V1 correctness defect and precedes this slice.
 
 **Specification scope for this slice (per OD-024):** determine only what Product
 Structure / specification **attachment** information must be frozen at Send, so
