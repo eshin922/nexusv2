@@ -41,8 +41,8 @@ const groupA = {
   compositionHash: HASH_A,
   externalId: `nxs-grp-${HASH_A}`,
   members: [
-    { sku: "10064-GNX-Box", netsuiteItemId: "1024", quantity: 1000, rate: 6, amount: 6000 },
-    { sku: "DPS-BOTTLE-0001", netsuiteItemId: "66476", quantity: 1000, rate: 4, amount: 4000 },
+    { sku: "10064-GNX-Box", netsuiteItemId: "1024", quantity: 1000, qtyPerParent: 1, rate: 6, amount: 6000 },
+    { sku: "DPS-BOTTLE-0001", netsuiteItemId: "66476", quantity: 1000, qtyPerParent: 1, rate: 4, amount: 4000 },
   ],
   expectedAmount: 10000,
   turnkeyUnitPrice: 10,
@@ -54,7 +54,7 @@ const groupB = {
   compositionHash: HASH_B,
   externalId: `nxs-grp-${HASH_B}`,
   members: [
-    { sku: "DPS-BOTTLE-0001", netsuiteItemId: "66476", quantity: 1000, rate: 2, amount: 2000 },
+    { sku: "DPS-BOTTLE-0001", netsuiteItemId: "66476", quantity: 1000, qtyPerParent: 1, rate: 2, amount: 2000 },
   ],
   expectedAmount: 2000,
   turnkeyUnitPrice: 2,
@@ -165,11 +165,11 @@ test("5 · Group A / Group B asymmetric membership maps correctly", () => {
   const b = adaptPlannedGroup(groupB, ctx);
   assert.deepEqual(
     a.members.map((m) => [m.netsuiteItemId, m.quantity]),
-    [["1024", 1000], ["66476", 1000]],
+    [["1024", 1], ["66476", 1]],
   );
   assert.deepEqual(
     b.members.map((m) => [m.netsuiteItemId, m.quantity]),
-    [["66476", 1000]],
+    [["66476", 1]],
   );
   assert.notEqual(a.expectedExternalId, b.expectedExternalId);
 });
@@ -186,7 +186,7 @@ test("6 · a SKU shared across two groups stays distinct BY GROUP", () => {
   assert.notEqual(a.expectedCompositionHash, b.expectedCompositionHash);
   // A's membership must not validate against B's actual composition.
   assert.equal(
-    verifyReusedGroupMembership(a, [{ netsuiteItemId: "66476", quantity: 1000 }]).matches,
+    verifyReusedGroupMembership(a, [{ netsuiteItemId: "66476", quantity: 1 }]).matches,
     false,
   );
 });
@@ -252,8 +252,8 @@ test("11 · a created Group carries the PLANNED nxs-grp-* external id", () => {
 test("12 · a reused Group's membership MUST match the frozen plan", () => {
   const a = adaptPlannedGroup(groupA, ctx);
   const correct = [
-    { netsuiteItemId: "1024", quantity: 1000 },
-    { netsuiteItemId: "66476", quantity: 1000 },
+    { netsuiteItemId: "1024", quantity: 1 },
+    { netsuiteItemId: "66476", quantity: 1 },
   ];
   assert.equal(verifyReusedGroupMembership(a, correct).matches, true);
   // markComplete reads actual membership before emitting a reused group.
@@ -267,7 +267,7 @@ test("13 · stale Group — right external id, WRONG members — fails closed", 
   // that reconciles on identity while shipping wrong contents.
   const a = adaptPlannedGroup(groupA, ctx);
 
-  const missing = verifyReusedGroupMembership(a, [{ netsuiteItemId: "1024", quantity: 1000 }]);
+  const missing = verifyReusedGroupMembership(a, [{ netsuiteItemId: "1024", quantity: 1 }]);
   assert.equal(missing.matches, false);
   assert.match(missing.problems.join("|"), /missing member 66476/);
 
@@ -282,16 +282,18 @@ test("13 · stale Group — right external id, WRONG members — fails closed", 
   assert.match(extra.problems.join("|"), /unexpected member 99999/);
 
   const wrongQty = verifyReusedGroupMembership(a, [
-    { netsuiteItemId: "1024", quantity: 1 },
-    { netsuiteItemId: "66476", quantity: 1000 },
+    { netsuiteItemId: "1024", quantity: 1000 },
+    { netsuiteItemId: "66476", quantity: 1 },
   ]);
   assert.equal(wrongQty.matches, false);
-  assert.match(wrongQty.problems.join("|"), /quantity 1 does not match planned 1000/);
+  // 1,000 is precisely the value the OLD defective adapter wrote into the
+  // definition. A group still holding it is stale and must be refused.
+  assert.match(wrongQty.problems.join("|"), /quantity 1000 does not match planned 1/);
 
   const dup = verifyReusedGroupMembership(a, [
-    { netsuiteItemId: "1024", quantity: 1000 },
-    { netsuiteItemId: "66476", quantity: 1000 },
-    { netsuiteItemId: "66476", quantity: 1000 },
+    { netsuiteItemId: "1024", quantity: 1 },
+    { netsuiteItemId: "66476", quantity: 1 },
+    { netsuiteItemId: "66476", quantity: 1 },
   ]);
   assert.equal(dup.matches, false, "a duplicated member is divergence, not something to sum away");
 

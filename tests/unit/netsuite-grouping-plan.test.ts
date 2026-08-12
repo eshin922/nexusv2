@@ -31,6 +31,9 @@ function line(over: Partial<PlanLineInput> & Pick<PlanLineInput, "assemblyId" | 
     assemblyName: `Assembly ${over.assemblyId}`,
     netsuiteItemId: `ns-${over.sku}`,
     quantity: 1000,
+    // One of this member per group — the Item Group DEFINITION multiplier.
+    // Distinct from `quantity`, which is the tier-expanded transaction figure.
+    qtyPerParent: 1,
     rate: 2,
     ...over,
   } as PlanLineInput;
@@ -69,17 +72,22 @@ test("assemblies differing ONLY by member quantity are distinguishable", () => {
     customerNetsuiteId: CUSTOMER,
     tierQty: 1000,
     lines: [
-      line({ assemblyId: "A", sku: "BOTTLE", quantity: 1000 }),
-      line({ assemblyId: "A", sku: "PUMP", quantity: 1000 }),
+      line({ assemblyId: "A", sku: "BOTTLE", qtyPerParent: 1, quantity: 1000 }),
+      line({ assemblyId: "A", sku: "PUMP", qtyPerParent: 1, quantity: 1000 }),
     ],
   });
+  // The difference is in the COMPOSITION — two bottles per group — so the
+  // transaction quantity moves with it (2 × 1,000 tier). Previously this case
+  // varied only `quantity`, which read as a composition change because the
+  // hash saw the transaction figure. It no longer does, and must not: that
+  // conflation is what shipped SO2703's 1,000,000-unit members.
   const two = buildGroupingPlan({
     detailLevel: "turnkey_only",
     customerNetsuiteId: CUSTOMER,
     tierQty: 1000,
     lines: [
-      line({ assemblyId: "A", sku: "BOTTLE", quantity: 2000 }),
-      line({ assemblyId: "A", sku: "PUMP", quantity: 1000 }),
+      line({ assemblyId: "A", sku: "BOTTLE", qtyPerParent: 2, quantity: 2000 }),
+      line({ assemblyId: "A", sku: "PUMP", qtyPerParent: 1, quantity: 1000 }),
     ],
   });
   assert.notEqual(one.groups[0].compositionHash, two.groups[0].compositionHash);
@@ -288,12 +296,18 @@ test("a replayed frozen snapshot still strips before transmission", () => {
 // ── the defect the real-data dry run found ─────────────────────────────────
 
 test("a non-positive member quantity degrades the plan instead of throwing", () => {
-  // computeCompositionHash refuses quantity 0, which a zero-qty tier produces.
-  // Throwing here would put plan-building in the path of whether a Sales Order
-  // pushes at all — a provider-behaviour change §4 is not permitted to make.
+  // computeCompositionHash refuses quantity 0. Throwing here would put
+  // plan-building in the path of whether a Sales Order pushes at all — a
+  // provider-behaviour change §4 is not permitted to make.
+  //
+  // The trigger is a malformed COMPOSITION (`qtyPerParent: 0` — a group
+  // containing zero of a member). A zero-quantity TIER no longer reaches this
+  // path, and must not: "one bottle per group" is perfectly hashable however
+  // many groups the tier buys, and that independence is the point of keying
+  // identity on qtyPerParent.
   const plan = buildGroupingPlan({
     detailLevel: "turnkey_only", customerNetsuiteId: CUSTOMER, tierQty: 0,
-    lines: [line({ assemblyId: "A", sku: "BOTTLE", quantity: 0 })],
+    lines: [line({ assemblyId: "A", sku: "BOTTLE", qtyPerParent: 0, quantity: 0 })],
   });
 
   assert.equal(plan.derivable, false, "the plan must declare itself underivable");
@@ -311,7 +325,7 @@ test("one underivable group makes the whole plan underivable", () => {
     detailLevel: "turnkey_only", customerNetsuiteId: CUSTOMER, tierQty: 1000,
     lines: [
       line({ assemblyId: "A", sku: "BOTTLE" }),
-      line({ assemblyId: "B", sku: "JAR", quantity: 0 }),
+      line({ assemblyId: "B", sku: "JAR", qtyPerParent: 0, quantity: 0 }),
     ],
   });
   assert.equal(plan.derivable, false);

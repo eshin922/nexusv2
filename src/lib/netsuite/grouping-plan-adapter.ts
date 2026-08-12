@@ -134,12 +134,17 @@ export function adaptPlannedGroup(
       // silently change the hash the primitive computes.
       members: group.members.map((m) => ({
         netsuiteItemId: m.netsuiteItemId,
-        quantity: m.quantity,
+        quantity: m.qtyPerParent,
       })),
     },
+    // DEFINITION QUANTITY — `qtyPerParent`, never the tier-expanded quantity.
+    // NetSuite expands a group line as `group-line qty × member-definition
+    // qty`. mark-complete sends the tier quantity on the line, so writing the
+    // tier-expanded quantity here multiplies it a second time: SO2703 created
+    // 1,000,000-unit members from a 1,000-unit tier of single-item members.
     members: group.members.map((m) => ({
       netsuiteItemId: m.netsuiteItemId,
-      quantity: m.quantity,
+      quantity: m.qtyPerParent,
       sku: m.sku,
       name: m.sku,
     })),

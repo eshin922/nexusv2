@@ -45,14 +45,31 @@ export interface PlanLineInput {
   assemblyName: string;
   sku: string;
   netsuiteItemId: string;
+  /** TRANSACTION quantity for the accepted tier — `tierQty × qtyPerParent`. */
   quantity: number;
+  /**
+   * How many of this member ONE group contains. The Item Group definition's
+   * quantity, and the only quantity the composition hash may see.
+   *
+   * SEPARATE FROM `quantity` BY NECESSITY. NetSuite expands a group line as
+   * `group-line quantity × member-definition quantity`. Writing the
+   * transaction quantity into the definition and then sending the tier
+   * quantity on the line multiplies twice — SO2703 shipped members at
+   * 1,000,000 (1,000 × 1,000) for exactly this reason.
+   */
+  qtyPerParent: number;
   rate: number;
 }
 
 export interface PlannedMember {
   sku: string;
   netsuiteItemId: string;
+  /** TRANSACTION quantity — what the provider must show on the expanded
+   *  member line. `tierQty × qtyPerParent`. */
   quantity: number;
+  /** DEFINITION quantity — how many of this member one group contains.
+   *  What is written to the Item Group master, and what the hash sees. */
+  qtyPerParent: number;
   rate: number;
   /** `rate × quantity`, rounded to 4dp — this member's contribution. */
   amount: number;
@@ -172,6 +189,7 @@ export function buildGroupingPlan(input: {
         sku: l.sku,
         netsuiteItemId: l.netsuiteItemId,
         quantity: l.quantity,
+        qtyPerParent: l.qtyPerParent,
         rate: l.rate,
         amount: round4(l.rate * l.quantity),
       }))
@@ -181,9 +199,15 @@ export function buildGroupingPlan(input: {
     // members{netsuiteItemId, quantity}. Reusing the governed function rather
     // than restating its canonicalization is the point — a second
     // implementation would drift and the plan would stop matching the group.
+    // THE HASH DESCRIBES THE REUSABLE COMPOSITION, NOT THIS ORDER.
+    // `qtyPerParent`, never the tier-expanded `quantity`: an Item Group is
+    // shared master data, so its identity must be stable across every tier
+    // that buys the same composition, and must change when the composition
+    // itself does. Hashing the transaction quantity made a 1,000-unit tier and
+    // a 5,000-unit tier of the SAME product mix resolve to different groups.
     const hashMembers: CompositionMember[] = members.map((m) => ({
       netsuiteItemId: m.netsuiteItemId,
-      quantity: m.quantity,
+      quantity: m.qtyPerParent,
     }));
     let compositionHash: string | null = null;
     let notDerivableReason: string | undefined;

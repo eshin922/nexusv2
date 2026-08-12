@@ -602,6 +602,9 @@ export async function runMarkComplete(
         sku: treeLeaf.child.sku,
         netsuiteItemId: nsId,
         quantity: effectiveQty,
+        // The Item Group DEFINITION multiplier — how many of this leaf one
+        // group contains, independent of how many groups the tier buys.
+        qtyPerParent,
         rate: lineRate,
       });
     }
@@ -1037,10 +1040,26 @@ export async function runMarkComplete(
         };
       } catch (e) {
         const err = e instanceof NetsuiteError ? e : null;
+        // POST-CREATE VERIFICATION CLASS. Everything reachable here runs AFTER
+        // the Sales Order exists, so a non-provider failure in this block is
+        // always the same thing: the order was created but could not be shown
+        // to be commercially complete. `"verification"` names that; the old
+        // `"unknown"` said only that nobody had classified it, which is what
+        // SO2703's gate refusal recorded despite being fully understood.
+        //
+        // A NetsuiteError keeps its own className (rate_limit, auth, …) — that
+        // is strictly more specific, and those are transport failures rather
+        // than verdicts about the order's contents.
+        //
+        // CANNOT BECOME RELEASABLE. The 0065 predicate releases only
+        // `failed + validation`; `netsuiteSoId` is non-null here, so
+        // recordAttemptFailure holds the attempt at `awaiting_rates` and it can
+        // never be `failed` at all. The predicate is untouched — this class is
+        // excluded by the invariant, not by widening the rule.
         await recordAttemptFailure({
           attemptId: pendingId,
           netsuiteSoId: salesOrderInternalId, // non-null ⇒ cannot become `failed`
-          errorClass: err?.className ?? "unknown",
+          errorClass: err?.className ?? "verification",
           errorDetail: err?.context.detail ?? String(e),
         });
         try {

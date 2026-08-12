@@ -35,15 +35,15 @@ const planA = {
   assemblyId: "a", assemblySku: "OD004-CASEB-A", assemblyName: "A",
   compositionHash: "hA", externalId: "nxs-grp-hA", expectedAmount: 10000, turnkeyUnitPrice: 10,
   members: [
-    { sku: "10064-GNX-Box", netsuiteItemId: "1024", quantity: 1000, rate: 6, amount: 6000 },
-    { sku: "DPS-BOTTLE-0001", netsuiteItemId: "66476", quantity: 1000, rate: 4, amount: 4000 },
+    { sku: "10064-GNX-Box", netsuiteItemId: "1024", quantity: 1000, qtyPerParent: 1, rate: 6, amount: 6000 },
+    { sku: "DPS-BOTTLE-0001", netsuiteItemId: "66476", quantity: 1000, qtyPerParent: 1, rate: 4, amount: 4000 },
   ],
 } as never as import("../../src/lib/netsuite/grouping-plan.ts").PlannedGroup;
 
 const planB = {
   assemblyId: "b", assemblySku: "OD004-CASEB-B", assemblyName: "B",
   compositionHash: "hB", externalId: "nxs-grp-hB", expectedAmount: 2000, turnkeyUnitPrice: 2,
-  members: [{ sku: "DPS-BOTTLE-0001", netsuiteItemId: "66476", quantity: 1000, rate: 2, amount: 2000 }],
+  members: [{ sku: "DPS-BOTTLE-0001", netsuiteItemId: "66476", quantity: 1000, qtyPerParent: 1, rate: 2, amount: 2000 }],
 } as never as import("../../src/lib/netsuite/grouping-plan.ts").PlannedGroup;
 
 const PLAN = [planA, planB];
