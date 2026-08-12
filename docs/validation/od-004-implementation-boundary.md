@@ -141,6 +141,82 @@ different external id it would create a duplicate group.
 
 ---
 
+## External ID capability — evidence gathered 2026-08-12
+
+Commissioned before any manual group creation. **The UI form was NOT inspected**
+— no authenticated NetSuite session exists in this environment and I do not
+authenticate. What follows is read-only account evidence plus the code contract.
+
+### What layer 2 requires, exactly
+
+```sql
+SELECT id, itemid FROM item
+ WHERE externalid = '<externalId>' AND itemtype = 'Group'
+```
+
+An **exact** string match on `externalid`, with `itemtype = 'Group'`. The full
+identities — not the abbreviations used in conversation — are:
+
+```
+Group A  nxs-grp-6b601641ff73b53c6e8e31066a7e7f0ccbf0d46fc9f6b41132bf25dc6b929a0b
+Group B  nxs-grp-01df6311686e7875a38b7042e2f95087dd1af194237dcf5c46b3b9c004826656
+```
+
+`nxs-grp-` + 64 hex characters = 72 characters each. Both confirmed **absent**
+from the account, so neither collides.
+
+### Account evidence
+
+| | |
+|---|---|
+| `Group` items in the account | **34** |
+| …carrying an `externalid` | **1** |
+| Items of ANY type carrying an `externalid` | **7 of 1,358** |
+
+The six non-Group ones are `FR-0001`…`FR-0006`, whose `externalid` equals their
+SKU — an integration convention, not hand entry.
+
+**The single Group carrying an external id is `nxs-probe-1785269500395`
+(`SMOKE-PROBE-1785269500395`) — created by Nexus's own sandbox smoke via REST.**
+
+Two things follow:
+
+1. **`externalid` is definitely settable on an `itemGroup` record via REST.** Not
+   inferred — the residue of Nexus doing it is still in the account.
+2. **Not one of the 34 human-created Groups carries an external id.** Consistent
+   with the UI not exposing the field, and equally consistent with nobody
+   bothering. **It does not settle the UI question**, which needs the form.
+
+### What Edward must check on the unsaved form
+
+On **Lists → Accounting → Items → New → Item Group**, look for an **External ID**
+field — usually on the primary tab near Item Name/Number, sometimes only when
+*Setup → Company → Enable Features → SuiteCloud* exposes it. If present and
+editable, paste the full 72-character identity above. If absent, stop per the
+instruction: do not substitute another field.
+
+### An option this evidence opens
+
+Because REST **is** permitted for the Item Group *record* (only the Sales Order
+*line insert* is prohibited), the identity problem has a second solution that
+does not depend on the UI at all: Nexus creates the two group records with their
+exact planned identities via the already-working `findOrCreateItemGroup`, and the
+manual step becomes *select two existing groups* rather than *create two groups
+and name them correctly*.
+
+That is squarely in the "technically possible but not implemented" bucket — it
+needs a plan→`FindOrCreateInput` adapter and a call site, neither of which
+exists. **Not proposed for this walk; recorded as the cheapest route to
+deterministic identity if the UI cannot set External ID.**
+
+### Housekeeping finding
+
+`nxs-probe-1785269500395` / `SMOKE-PROBE-1785269500395` is an **orphan** — the
+smoke's cleanup step deletes what it creates, so this row is residue from a run
+that did not complete. Harmless in sandbox, but it is a `SMOKE-` record sitting
+in the item master and should be removed by whoever owns sandbox hygiene. Not
+touched here.
+
 ## Summary
 
 | question | answer |
