@@ -46,6 +46,30 @@ End of Group
   price on the item record.
 - **Initial group quantity was `1`**, not the commercial 1,000.
 
+### CORRECTION — what the failed attempts actually touched
+
+**Recorded explicitly because my earlier reporting was wrong about this.**
+
+I previously described a mis-aimed edit as landing on "the member row." It did
+not. Across **three** attempts spanning two sessions:
+
+- **Neither `6.00` attempt ever reached an Item Group member's Rate cell.**
+- **Both interacted with an existing FLAT line's Item field.** In the first, the
+  value was rejected outright (`No match for: 6.00`). In the third, `1000`
+  auto-matched a different catalogue item and silently substituted
+  `10064-GNX-Box @ $6.00 / $6,000` with
+  `10000-GNX-Label @ $0.00 / $0.00` **in the in-memory form**.
+- **That substitution existed only in an abandoned, unsaved form.** It was never
+  saved and never reached the database.
+- **SO2701 was verified byte-identical after Cancel** — read back from NetSuite
+  each time, not assumed.
+
+The third attempt is the serious one: it swapped a real commercial line for a
+different item at a different price while leaving the structure looking
+plausible. Had it been saved, the order would have carried a wrong item at a
+wrong price. This is exactly the class of defect the walk exists to prevent, and
+it was produced by the *instrument*, not by NetSuite.
+
 ### No evidence about editability
 
 Attempts to change rate and quantity **landed in the wrong cells** in the
@@ -69,6 +93,33 @@ Read-back after cancel matches the pre-probe read-back exactly:
 | 4 | *(TaxGroup, system)* | -1 | 0 | 0 | — |
 
 Mainline total `12000`. No group, no `EndGroup`, nothing added.
+
+## Instrumentation limitation — automated probing withdrawn
+
+**Three attempts established one thing conclusively, and it is not about
+NetSuite:** screenshot-coordinate interaction cannot reliably target cells in
+NetSuite's horizontally-scrolled transaction sublist. Every attempt hit a
+different cell than intended, and the failures were silent rather than loud.
+
+**Automated/browser-coordinate interaction with SO2701 is withdrawn.** No
+inference of any kind may be drawn from the three failed attempts — they are an
+instrument defect, and produce no evidence about Item Group member-rate
+behaviour in either direction.
+
+The single outstanding question is unchanged and unanswered:
+
+> **Can a NetSuite Item Group member's Rate be manually overridden from `$0.00`
+> to the negotiated transaction rate through the supported NetSuite UI?**
+
+**Edward performs that one interaction directly.** Outcomes:
+
+| result | classification |
+|---|---|
+| Box member **accepts and retains `$6.00`** in the unsaved form | Rate override **supported**. Manual grouping resumes, with Edward performing all cell-level SO edits. |
+| Box member **refuses or reverts to `$0.00`** | **V1 blocker.** The supported NetSuite Item Group workflow cannot preserve Nexus's negotiated member economics, so A2 manual grouping cannot carry the accepted commercial figures. |
+
+Either way the probe is cancelled. **SO2701 is not saved until the final
+grouping procedure is separately authorised.**
 
 ## Inventory warnings — informational, not blockers
 
