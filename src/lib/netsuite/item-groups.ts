@@ -51,6 +51,12 @@ export interface FindOrCreateInput {
   // Provenance for first-create only. quoteId is nullable to support
   // sandbox smoke tests + ad-hoc admin flows; production callers
   // always pass a real quote id.
+  /**
+   * The subsidiary the Sales Order and the member Items live under. REQUIRED:
+   * NetSuite refuses members whose subsidiaries are not contained by the
+   * group's. Supplied by the caller from governed authority.
+   */
+  subsidiaryId: string;
   customerDisplay: string;
   dealName: string;
   hubspotDealId: string;
@@ -199,6 +205,18 @@ export async function findOrCreateItemGroup(
     itemId: itemidDisplay,
     externalId,
     description,
+    // Step 2 (2026-08-12) — corrects the Probe-7-era gap. Without this,
+    // NetSuite refuses the members outright:
+    //
+    //   "You may not add members to a group/kit/assembly unless the
+    //    subsidiaries for those members completely contain the subsidiaries
+    //    of the group/kit/assembly."
+    //
+    // Observed live on the manual Group A save, so this is a measured
+    // constraint. Sourced from the SAME governed subsidiary authority the
+    // Sales Order uses — never hardcoded, or the primitive would only work
+    // inside the Case B fixture.
+    subsidiary: { id: input.subsidiaryId },
     member: {
       items: input.members.map((m) => ({
         item: { id: m.netsuiteItemId },
@@ -359,4 +377,30 @@ async function writeAudit(args: AuditArgs): Promise<void> {
     return;
   }
   await writeSystemAuditEntry({ ...shared, systemActor: SYSTEM_ACTORS.netsuiteIntegration });
+}
+
+/**
+ * Read an Item Group's CURRENT membership from NetSuite.
+ *
+ * Step 2 reuse safety. `nxs-grp-<hash>` proves the group was created for a
+ * composition once; it does not prove it still has that composition, because
+ * an administrator can change members afterwards without the external id
+ * changing. Callers verify this against the frozen plan
+ * (`verifyReusedGroupMembership`) and refuse before Sales Order CREATE.
+ *
+ * Read-only.
+ */
+export async function readItemGroupMembers(
+  groupInternalId: string,
+): Promise<Array<{ netsuiteItemId: string; quantity: number }>> {
+  const escaped = groupInternalId.replace(/'/g, "''");
+  const result = await suiteQL<{ item: string; quantity: string | null }>(
+    `SELECT gm.item AS item, gm.quantity AS quantity
+       FROM itemMember gm
+      WHERE gm.parentitem = '${escaped}'`,
+  );
+  return result.items.map((r) => ({
+    netsuiteItemId: String(r.item),
+    quantity: Number(r.quantity ?? 0),
+  }));
 }

@@ -83,8 +83,31 @@ export interface SalesOrderPayloadInput {
   priority?: string | null;
   dealType?: string | null;
   projectManagerNsId?: string | null;    // if HubSpot owner id maps to NS employee
-  // Lines
+  // Lines — FLAT (itemized). Mutually exclusive with `groupLines`.
   lines: SalesOrderLine[];
+  /**
+   * Item Group lines (turnkey_only). MUTUALLY EXCLUSIVE with `lines`.
+   *
+   * NetSuite expands each group into its member lines itself. Sending a group
+   * AND explicit member lines duplicates the members and doubles the total
+   * (Probe 7a) — a 204 that ships a wrong order. The builder therefore refuses
+   * to emit both rather than trusting callers to pass only one.
+   *
+   * Deliberately BARE: item + quantity only. Probe 7a also established that a
+   * rate on the group header is ignored, so putting the negotiated rate here
+   * would look like pricing and do nothing. Member pricing arrives by
+   * per-line PATCH in Step 3, after `awaiting_rates`.
+   */
+  groupLines?: SalesOrderGroupLine[];
+}
+
+export interface SalesOrderGroupLine {
+  /** The Item Group RECORD's internal id (not a member item). */
+  netsuiteItemId: string;
+  /** Group display sku — diagnostic only; not transmitted. */
+  sku: string;
+  /** Tier quantity. Members expand at `quantity × member-quantity-per-group`. */
+  quantity: number;
 }
 
 /**
@@ -220,6 +243,31 @@ export function buildSalesOrderPayload(
   // rate + amount sent as NUMBERS not strings — sandbox probe
   // 2026-07-28 confirmed NetSuite REST rejects strings with
   // INVALID_VALUE.
+  // GROUP vs FLAT is mutually exclusive, enforced here rather than trusted.
+  // Both together is the Probe 7a duplication: NetSuite expands the group AND
+  // honours the explicit members, doubling the order at 204.
+  const groupLines = input.groupLines ?? [];
+  if (groupLines.length > 0 && input.lines.length > 0) {
+    throw new Error(
+      "[sales-orders] refusing to emit Item Group lines alongside explicit line items — " +
+        "NetSuite expands group members itself and sending both duplicates them (Probe 7a). " +
+        `Got ${groupLines.length} group line(s) and ${input.lines.length} flat line(s).`,
+    );
+  }
+
+  if (groupLines.length > 0) {
+    // BARE group lines: item + quantity only. No rate (ignored on the group
+    // header), no amount, no per-line custom columns — the members NetSuite
+    // expands carry their own, and Step 3 patches their rates.
+    body.item = {
+      items: groupLines.map((g) => ({
+        item: { id: g.netsuiteItemId },
+        quantity: g.quantity,
+      })),
+    };
+    return body;
+  }
+
   body.item = {
     items: input.lines.map((line) => ({
       item: { id: line.netsuiteItemId },

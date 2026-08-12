@@ -24,7 +24,12 @@ import {
   formatCustomerMissingError,
 } from "./customer-map";
 import { formatResolutionErrors, type ResolveResult } from "./item-resolver";
-import { findOrCreateItemGroup } from "./item-groups";
+import { findOrCreateItemGroup, readItemGroupMembers } from "./item-groups";
+import {
+  adaptPlannedGroup,
+  assertIdentityMatchesPlan,
+  verifyReusedGroupMembership,
+} from "./grouping-plan-adapter";
 import {
   awaitingRatesOperatorMessage,
   mustNotCreate,
@@ -597,7 +602,10 @@ export async function runMarkComplete(
       );
     }
 
-    const builtPayload = buildSalesOrderPayload({
+    // Extracted so the turnkey_only branch can rebuild the SAME header with
+    // group lines swapped in — every governed header field stays identical by
+    // construction rather than by being re-listed.
+    const soPayloadInput = {
       netsuiteCustomerId: customer.netsuiteCustomerId,
       subsidiaryId: firm.netsuiteSubsidiaryId,
       orderStatusCode: firm.netsuiteSoOrderStatusCode,
@@ -617,7 +625,8 @@ export async function runMarkComplete(
       priority: dealCache.priority,
       dealType: dealCache.dealType,
       lines,
-    });
+    };
+    const builtPayload = buildSalesOrderPayload(soPayloadInput);
 
     // Track B §4 — freeze the grouping plan ALONGSIDE the payload, under a
     // reserved key stripped before transmission. It is the comparison target
@@ -629,7 +638,103 @@ export async function runMarkComplete(
       tierQty: tierRow.qty ?? null,
       lines: planLines,
     });
-    const builtPayloadWithPlan = attachGroupingPlan(builtPayload, groupingPlan);
+    // ── Step 2 — deterministic Item Group resolution + Group-line emission ──
+    //
+    // turnkey_only ONLY. `itemized` keeps the flat payload built above,
+    // byte-for-byte: an itemized quote acquires no grouping requirement, and
+    // its presentation is what the customer agreed to.
+    //
+    // The plan is the authority. No hash is recomputed and no identity is
+    // derived here — `adaptPlannedGroup` carries the frozen
+    // `compositionHash` / `nxs-grp-<hash>` through, and
+    // `assertIdentityMatchesPlan` proves the primitive returned that same
+    // identity rather than one of its own.
+    let payloadForSend = builtPayload;
+    if (groupingPlan.groupingRequired && groupingPlan.groups.length > 0) {
+      if (!groupingPlan.derivable) {
+        throw new Error(
+          "[markComplete] The grouping plan carries no deterministic identity for at least one " +
+            "assembly, so Item Group lines cannot be emitted. Refusing before Sales Order CREATE.",
+        );
+      }
+
+      const groupCtx = {
+        // GOVERNED SUBSIDIARY AUTHORITY — the same firm_settings value the
+        // Sales Order header uses. Not hardcoded; the Case B fixture's
+        // subsidiary must not be baked into the primitive.
+        subsidiaryId: firm.netsuiteSubsidiaryId,
+        customerNetsuiteId: customer.netsuiteCustomerId,
+        // Description text only — the group's identity is the composition
+        // hash, never this string.
+        customerDisplay: customer.netsuiteCustomerId,
+        dealName: dealCache.dealName,
+        hubspotDealId: projectRow.hubspotDealId as string,
+        quoteId,
+        userId: actorUserId,
+      };
+
+      const emittedGroupLines: Array<{
+        netsuiteItemId: string;
+        sku: string;
+        quantity: number;
+      }> = [];
+
+      for (const planned of groupingPlan.groups) {
+        const adapted = adaptPlannedGroup(planned, groupCtx);
+        const resolved = await findOrCreateItemGroup(adapted);
+
+        // The primitive must have produced the identity the plan froze.
+        assertIdentityMatchesPlan(adapted, resolved);
+
+        // REUSE SAFETY. An external-id hit proves the group was created for
+        // this composition once — not that it still HAS that composition. An
+        // administrator can change members afterwards and the external id does
+        // not change with them. Emitting such a group yields an order that
+        // reconciles on identity while shipping wrong contents.
+        //
+        // Fails CLOSED. The group is never rewritten to match: Item Groups are
+        // shared master data, and silently re-editing one could change another
+        // order's meaning.
+        if (resolved.outcome !== "created") {
+          const actualMembers = await readItemGroupMembers(resolved.netsuiteInternalId);
+          const verdict = verifyReusedGroupMembership(adapted, actualMembers);
+          if (!verdict.matches) {
+            throw new Error(
+              `[markComplete] NetSuite Item Group ${resolved.itemidDisplay} ` +
+                `(${resolved.netsuiteExternalId}) no longer matches the frozen grouping plan for ` +
+                `assembly ${planned.assemblySku}: ${verdict.problems.join("; ")}. ` +
+                `Refusing before Sales Order CREATE rather than rewriting shared NetSuite master data.`,
+            );
+          }
+        }
+
+        emittedGroupLines.push({
+          netsuiteItemId: resolved.netsuiteInternalId,
+          sku: resolved.itemidDisplay,
+          quantity: groupingPlan.tierQty ?? 0,
+        });
+
+        itemGroupOutcomes.push({
+          assemblyId: planned.assemblyId,
+          compositionHash: resolved.compositionHash,
+          netsuiteExternalId: resolved.netsuiteExternalId,
+          netsuiteInternalId: resolved.netsuiteInternalId,
+          itemidDisplay: resolved.itemidDisplay,
+          outcome: resolved.outcome,
+        });
+      }
+
+      // Group lines REPLACE the flat lines — never accompany them. The builder
+      // refuses both together (Probe 7a duplication), so this is checked twice
+      // by construction.
+      payloadForSend = buildSalesOrderPayload({
+        ...soPayloadInput,
+        lines: [],
+        groupLines: emittedGroupLines,
+      });
+    }
+
+    const builtPayloadWithPlan = attachGroupingPlan(payloadForSend, groupingPlan);
 
     let [durableAttempt] = await db
       .select({

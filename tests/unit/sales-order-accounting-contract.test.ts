@@ -201,8 +201,12 @@ test("completion structurally resolves exact SKUs, computes quantities, and chec
   assert.match(source, /netsuiteItemId: nsId/);
   assert.match(source, /quantity: effectiveQty/);
 
-  const payloadBuild = source.indexOf("const builtPayload = buildSalesOrderPayload({");
-  const payloadBuildEnd = source.indexOf("\n    });", payloadBuild);
+  // Step 2 extracted the payload input into `soPayloadInput` so the
+  // turnkey_only branch can rebuild the SAME header with group lines swapped
+  // in. What this assertion guards is unchanged: the completion input carries
+  // the send-time terms snapshot and does NOT carry a project-manager id.
+  const payloadBuild = source.indexOf("const soPayloadInput = {");
+  const payloadBuildEnd = source.indexOf("\n    };", payloadBuild);
   assert.ok(payloadBuild >= 0);
   assert.ok(payloadBuildEnd > payloadBuild);
   const completionInput = source.slice(payloadBuild, payloadBuildEnd);
