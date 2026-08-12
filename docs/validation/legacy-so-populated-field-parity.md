@@ -245,6 +245,29 @@ the builder already supports most of the delta — SO2698 simply had no cache ro
 
 ## §11.1 · P-1 Business Segment — **NO PAYLOAD CHANGE REQUIRED**
 
+> **⚠ FALSIFIED 2026-08-12 BY THE CASE B WALK. The verdict below is wrong.**
+> Preserved as written, because the correction is only legible against it.
+>
+> The walk halted at CREATE on precisely the emission this section predicted:
+> `Invalid Field Value 3 for the following field: class`. HubSpot
+> `business_segment` and NetSuite `classification` are **unrelated taxonomies** —
+> `3` = *DPS Packaging*, and no NetSuite class of that name exists. **50 of 67
+> deals cannot create a Sales Order.** The 17 that pass do so only because
+> HubSpot enum `1` (*Product 360°*) collides numerically with class `1`
+> (*Primary*), silently misattributing them.
+>
+> **The specific error to learn from:** this section asked whether the
+> conditional *guard* behaved correctly on absent data — it did — and never asked
+> whether the *value* was valid for the field it targets. Row 4 records the
+> mapping `business_segment_id → {id} on class` as a plain fact without testing
+> it. Verifying a guard is not verifying a value.
+>
+> Row 5's "residual, small: 3 of 70" counts deals **missing** the value. The
+> number that mattered was deals whose value **breaks** — 50.
+>
+> Full finding, blast radius and the open business question:
+> [`caseb-walk-1-business-segment-blocker.md`](caseb-walk-1-business-segment-blocker.md).
+
 | # | question | answer |
 |---|---|---|
 | 1 | in SO2698's frozen `payload_snapshot`? | **No.** 6 header keys only: `memo`, `entity`, `subsidiary`, `orderStatus`, `custbody_dps_deal_id`, `custbody_dps_payment_terms_text`. Neither `cseg_dps_bus_seg` nor `class` |
