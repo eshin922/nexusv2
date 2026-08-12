@@ -1,4 +1,28 @@
 /**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * SUPERSEDED FOR PRODUCTION-HUBSPOT TESTING — 2026-08-12
+ *
+ * This harness can restore HubSpot stage/amount after Nexus Accept, but a
+ * production HubSpot stage transition may trigger downstream automation that
+ * restoration cannot undo.
+ *
+ * Do not use this script as authorization to Accept a real production HubSpot
+ * deal for testing or certification.
+ *
+ * It may only be used with an explicitly safe validation/test deal or
+ * environment where the stage transition cannot trigger production workflows.
+ *
+ * Context: Nexus writes to the PRODUCTION HubSpot portal 21497798 while
+ * NetSuite is sandboxed (7924416_SB2) — the isolation is asymmetric. Restoring
+ * stage/amount restores CRM FIELD STATE ONLY, and makes the record look
+ * untouched, erasing evidence of the trigger from the record that would show it.
+ *
+ * PRESERVED as recovery tooling and evidence. The flat-line provider assertions
+ * below remain reusable once a safe validation deal or isolated portal exists.
+ * See docs/validation/hubspot-stage-trigger-finding.md.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+/**
  * Accounting Review Order A — POST-ACCEPT recovery + evidence script.
  *
  * Run IMMEDIATELY after pressing governed Accept in the Nexus UI. It closes the
