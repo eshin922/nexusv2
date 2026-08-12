@@ -195,3 +195,62 @@ with migration evidence and the thirteen regressions.
 
 **Nothing applied. `0049` / `0050` untouched. `freight_legs.freight_markup_pct`
 left to OD-009.**
+
+---
+
+## 7 · Held traces — completed 2026-08-12. **TWO BLOCKING FINDINGS.**
+
+Dispositions 1 and 2 are accepted and unchanged by these. But both findings
+change what `0066` must contain, so no DDL was authored.
+
+### T1 · Readers/writers — 13 modules
+
+`actions/assembly-leaf-inputs.ts`, `actions/costing.ts`,
+`actions/markup-defaults.ts`, `actions/pricing-lifts.ts`,
+`actions/pricing-provenance.ts`, `actions/quotes.ts`, `costs/page.tsx`,
+`db/schema.ts`, `lib/commercial-settings.ts`, `lib/costing-adapter.ts`,
+`lib/packaging-materialization.ts`, `lib/quote-cost-completeness.ts`,
+`lib/quote-guards.ts`. Each needs individual conversion; none may be assumed.
+
+### T2 · Snapshot does NOT freeze Product Structure — **BLOCKING**
+
+There is no per-leaf snapshot line table. `quote_snapshots` carries commercial
+settings and PDF axes; **it does not carry the leaf set or its structure.**
+
+Consequence: Complete re-derives structure from **live** assemblies. OD-017's
+closure bar requires a Direct Component to *"remain historically stable if
+Product Structure later changes"* — **that cannot be met today for any leaf**,
+Direct or ASY-backed. Flagged here rather than deferred to OD-022, as instructed.
+
+### T4 · Freight is SPLIT — **BLOCKING**
+
+| table | keys on | Direct-ready? |
+|---|---|---|
+| `freight_leg_component_tier_costs` | **`quote_leaf_id`** | **yes** — already correct |
+| `freight_subcategories` | `assembly_id` | no |
+| `freight_subcategory_items` | `assembly_leaf_id` *(unique: `subcategory_id, assembly_leaf_id`)* | no |
+
+The freight **output** already keys on the governed identity. The freight
+**authoring structure** does not: `actions/freight-worksheet.ts:114-117` requires
+`assemblyId` and raises a validation error without it, and
+`lib/freight-workbook.ts` builds exclusively from `assemblyIds`.
+
+This is precisely the dependency the brief prohibited: *"Freight must not retain
+an assembly-only dependency that leaves Direct Components economically
+incomplete."* Decision 1 explicitly includes Freight/customs in Direct Component
+V1 economics, so unlike Production this cannot be scoped out — it must be
+re-keyed.
+
+### Consequence for `0066`
+
+Re-keying only the three leaf-level tables would produce a Direct Component that
+holds packaging cost and nothing else — no freight, no historical stability —
+which does not satisfy OD-017's own closure requirements.
+
+**Recommended scope revision:** `0066` re-keys the three leaf-level tables **plus
+`freight_subcategory_items`** (`assembly_leaf_id` → `quote_leaf_id`, including
+its unique index). `freight_subcategories` needs a disposition equivalent to
+Decision 1's — is a freight *shipment grouping* an assembly concept, or must it
+span Direct Components? Snapshot structure (T2) is a separate migration.
+
+**Returned for disposition. Nothing authored, nothing applied.**
