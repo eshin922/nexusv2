@@ -1011,6 +1011,48 @@ means deciding under schedule pressure.
 
 ---
 
+### OD-021 · `Send` finalizes the quote but does not deliver it
+
+**Owner:** Edward · **Blocks:** V1 release — operator-facing copy currently
+states something false to the operator
+
+`sendQuote` freezes the snapshot, assigns the quote number, stamps `sent_at`,
+flips `status` to `sent`, and persists the PDF. It dispatches **no email** —
+there is no mail transport in the repository. Customer delivery is a separate
+manual `Download + open mail draft` action (`mailto:` with no recipient and no
+attachment). The Send sub-tab nevertheless tells the operator the customer
+"will receive the customer PDF by email."
+
+Two concepts are fused that need not be: **commercial finalization** (frozen,
+numbered, immutable — Nexus owns this and it works) and **customer delivery**
+(Nexus cannot perform it and holds no evidence of it).
+
+Not cosmetic: `valid_until = sent_at + days_valid`, so the customer's
+acceptance window starts at finalization, and the PDF prints that date as
+"Issued". A quote finalized Monday and emailed Thursday reaches the customer
+with three days already gone.
+
+**What settles it:** choosing **A** (Nexus owns email dispatch and delivery
+evidence — largest scope, makes the wording true) or **B** (operator sends;
+Nexus stops claiming delivery — smallest scope). If B, also settle **B1**
+(add an explicit `Mark as sent` confirmation, giving a real delivery datum and
+a correct `valid_until`) vs **B2** (Nexus tracks finalization only and never
+claims delivery).
+
+**Do not** repair by wiring email into `sendQuote` before this is dispositioned,
+and do not redefine `sent_at` / `status='sent'` / snapshot semantics — consumers
+are traced in the finding and all of them are correct about *finalization*.
+
+Full trace, surface inventory, and consumer list:
+[`validation/v1-finding-send-does-not-deliver.md`](validation/v1-finding-send-does-not-deliver.md).
+
+**Certification language correction (adopted now):** `status = sent` proves the
+quote was frozen and finalized by Nexus. It does not prove customer delivery.
+Prior walk evidence remains valid — it proved finalization, which is what it
+was demonstrating.
+
+---
+
 ### OD-008 · Costs-page shell scope
 
 **Owner:** Edward · **Blocks:** nothing today; will block Phase 2 close if unanswered
