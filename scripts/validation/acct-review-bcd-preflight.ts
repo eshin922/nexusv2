@@ -70,9 +70,27 @@ for (const r of REQUIRED) {
   const unique = res.status === "found";
   console.log(`  3 · NetSuite resolve: ${res.status}${unique ? ` id=${res.netsuiteItemId} type=${res.itemtype}` : ""}`);
 
-  const eligible = authorityOk && agrees && unique;
+  // OD-027 disposition (2026-08-12). HubSpot deletion alone is NOT product
+  // retirement — Nexus cannot distinguish retirement from CRM cleanup, and
+  // blocking on it would stop core products for an upstream filing decision.
+  //
+  //   HEALTHY  authority exists + identity agrees + unique resolution
+  //   STATE B  authority gone BUT historical provenance retained
+  //            + unique active resolution  → usable, VISIBLY DEGRADED
+  //   BLOCKED  no unique resolution (State C / D), or no provenance at all
+  //
+  // Unique downstream resolution is the load-bearing condition; the HubSpot
+  // record's current existence is not.
+  const provenanceRetained = !!leaf.hubspot_product_id;
+  let state: "HEALTHY" | "STATE_B_DEGRADED" | "BLOCKED";
+  if (unique && authorityOk && agrees) state = "HEALTHY";
+  else if (unique && provenanceRetained) state = "STATE_B_DEGRADED";
+  else state = "BLOCKED";
+
+  const eligible = state !== "BLOCKED";
   if (!eligible) allEligible = false;
-  console.log(`  ELIGIBLE: ${eligible ? "YES ✓" : "NO ✗"}`);
+  console.log(`  STATE   : ${state}`);
+  console.log(`  ELIGIBLE: ${eligible ? (state === "HEALTHY" ? "YES ✓" : "YES — but DEGRADED, must not display as healthy ⚠") : "NO ✗"}`);
 }
 
 console.log(`\n══ VERDICT ══`);
