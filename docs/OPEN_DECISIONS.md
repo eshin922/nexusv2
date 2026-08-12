@@ -339,10 +339,28 @@ decision to drop it.
 > work** (`2542310b` vs expected `e9943ad8`) — a pre-existing staleness, NOT
 > re-captured here, needing its own disposition.
 >
-> **Open gap:** `freight_subcategories.assembly_id` is still NOT NULL, so a
-> Direct Component can join any existing shipment but cannot be the sole
-> occupant of a new one in a quote with no assembly. Relaxing it was outside
-> the four-table scope authorised for `0066`.
+> **CLOSED 2026-08-12** by `0067` + `0068` (`4dd3444`). Suite 963/963.
+>
+> The remaining blocker was direct-only Freight. `0067` relaxed
+> `freight_subcategories.assembly_id` to nullable — ownership and membership
+> digests byte-identical afterwards. `0068` was needed because the schema was
+> **not the only place the requirement lived**: a constraint trigger resolved
+> membership through `assembly_leaf_id` and required member-assembly to equal
+> shipment-assembly, so a Direct Component was rejected by the database and the
+> approved **Mixed** case was unreachable. The guard now validates through
+> `quote_leaf_id`; same-Quote enforcement is preserved and was re-proven.
+>
+> **A claim in the `0066` report was wrong.** "A Direct Component can join any
+> existing shipment" was asserted from the action layer without exercising the
+> write; the trigger rejected it. The walk caught it. Also found and fixed:
+> `loadWorksheetFreightForQuote` — the live draft path — still emitted a legacy
+> anchor after the re-key, so worksheet freight would have silently vanished
+> from draft quotes.
+>
+> **Needs your ratification:** the "membership is descriptive only" invariant is
+> NARROWED. A shipment with no assembly has nothing but membership relating it
+> to a leaf, so its anchor is membership-derived. It still divides nothing —
+> proven behaviourally — and assembly-owned shipments are untouched.
 >
 > Not in scope by disposition: `assembly_production_inputs` (no production,
 > bulk raw or service fees on a Direct Component in V1); Product Structure
