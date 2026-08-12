@@ -144,9 +144,85 @@ The repair is only proven by what `generate` does *afterwards*:
 
 ---
 
-## 6 · Closure verdict
+## 5a · REPAIR EXECUTED — **OD-012 CLOSED 2026-08-12**
 
-**OD-012 is diagnosed, not yet closed.** The repair is a metadata-only change
+Metadata and tooling only. No production schema change, no runtime change, no
+database write.
+
+**Repair 1 deviated from plan, with evidence.** `drizzle-kit introspect` is
+**unusable in this repository**: it requires `drizzle-orm/gel-core`, which the
+installed `drizzle-orm` does not export (`ERR_PACKAGE_PATH_NOT_EXPORTED`) — a
+drizzle-kit/drizzle-orm version mismatch whose fix is a dependency bump, and
+therefore out of scope.
+
+The baseline was instead derived from `schema.ts` and then **verified against the
+live `information_schema`** — which supplies the DB-correspondence the plan
+wanted from introspect:
+
+| | |
+|---|---|
+| tables missing from DB | **0** |
+| columns missing from DB | **0** |
+| tables only in DB | 5 — `_archive_*` (Slice 11.5.1 archive snapshots, intentional) |
+| columns only in DB | 1 — `freight_legs.freight_markup_pct` |
+
+`schema.ts` is a strict subset of the database. Nothing it declares is absent,
+which is the direction that makes the baseline safe for a generator.
+
+**Drift finding, recorded not fixed:** `freight_legs.freight_markup_pct` exists
+in the database and in no code path. The live markup column is
+`freight_destination_breaks.freight_markup_pct`, which is used throughout
+`actions/costing.ts`. The legs-level column is residual. **OD-009 territory** —
+flagged for its owner, not touched here.
+
+**Honest limitation:** a `schema.ts`-derived baseline means `db:generate` diffs
+`schema.ts` against itself. It proves the *generator* is consistent; it cannot
+see database objects absent from `schema.ts` — the residual column above stays
+invisible to it. The `information_schema` comparison in
+`.artifacts/snapcheck.ts` is what covers that direction, and is the check to
+re-run if DB-correspondence is ever in doubt.
+
+**Repair 2** — `db:generate` now runs `scripts/verify/schema-drift.mjs`, which
+seeds a scratch dir from `drizzle/`, generates there, and reports statement
+count. *(First attempt generated into an empty directory and emitted the entire
+schema as `0000_…` — a missing baseline masquerading as catastrophic drift.
+Seeding is not incidental.)*
+
+**Repair 3** — `db:push` fails loudly with guidance to the governed path.
+
+**Guard** — `scripts/verify/migration-index-unique.ts`, wired into `prebuild`.
+Enforces highest-occupied-index authority, rejects duplicate indices, and
+requires every unjournaled file to be a *recorded* draft that declares its own
+contract — so the exemption is self-evidencing rather than a general licence.
+
+### Closure evidence — all eight
+
+| # | evidence | result |
+|---|---|---|
+| 1 | `meta/0065_snapshot.json` corresponds to applied schema | **PASS** — 0 missing tables/columns; 6 documented extras |
+| 2 | `_journal.json` unchanged | **PASS** — absent from `git status` |
+| 3 | applied-row count still 64 | **PASS** |
+| 4 | no database write | **PASS** — reads only |
+| 5 | scratch `db:generate` emits zero statements | **PASS** — *"zero statements"* |
+| 6 | no duplicate governed index | **PASS** — 66 files, 64 journaled, 2 recorded drafts, next is **`0066`** |
+| 7 | `db:push` cannot mutate | **PASS** — exits 1 with guidance |
+| 8 | governed suite unchanged | **PASS** — **942/942** |
+
+**Recorded separately, as required:** the migration history itself was already
+healthy — **64 journal entries = 64 applied rows**. OD-012 was an
+**authoring-tool safety defect**, never migration-history corruption.
+
+**Migration numbering contract, now enforced:**
+
+> The next governed hand-authored migration index derives from the highest
+> occupied governed index, not from `_journal.json` entry count.
+> **OD-017's migration begins at `0066`.**
+
+---
+
+## 6 · Original closure verdict *(superseded by §5a)*
+
+**OD-012 was diagnosed, not yet closed at the time of writing.** The repair is a metadata-only change
 with no database write and no runtime effect, but it changes the migration
 authoring path and should be reviewed before it lands — which is why it is
 proposed here rather than executed.

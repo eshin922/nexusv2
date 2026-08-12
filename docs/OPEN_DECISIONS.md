@@ -138,7 +138,14 @@ rows. The rehearsal is cheap; the ambiguity is not.
 
 ---
 
-### OD-012 · Drizzle migration generation is unsafe until its baseline is repaired
+### OD-012 · Drizzle migration generation is unsafe until its baseline is repaired — **CLOSED 2026-08-12**
+
+> **Repaired.** Baseline snapshot installed at `meta/0065_snapshot.json` and verified
+> against live `information_schema`; `db:generate` demoted to drift detection
+> (zero statements); `db:push` blocked; duplicate-index guard in `prebuild`.
+> Migration history was already healthy (64 journal entries = 64 applied rows) —
+> this was an authoring-tool safety defect. Next governed migration index: **0066**.
+> Record: [`validation/od-012-migration-baseline-repair.md`](validation/od-012-migration-baseline-repair.md).
 
 **Owner:** Nexus engineering · **Blocks:** authoring any new schema migration.
 Does **not** block Gate 1B analysis, and did not block Gate 1A close.
