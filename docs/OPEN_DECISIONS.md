@@ -1079,6 +1079,40 @@ means deciding under schedule pressure.
 
 ---
 
+### OD-027 · Product Library authority is not enforced downstream — V1
+
+**Owner:** Edward + product-master owner · **Status:** OPEN, evidenced ·
+**Blocks:** Accounting Review Order A · **May gate:** OD-022.
+
+Full finding + census:
+[`validation/product-library-authority-finding.md`](validation/product-library-authority-finding.md).
+Reproduced by `scripts/validation/product-library-authority-census.ts`.
+
+> A commercial Nexus library product is downstream-eligible only when its
+> governed HubSpot Product exists, the Nexus identity agrees with it, and it
+> resolves to exactly ONE eligible NetSuite Item. `archived = false` is not
+> evidence of that — and is the only signal an operator sees.
+
+**Census of 1,027 active commercial leaves: ~17.5% are not downstream-eligible**
+and are indistinguishable from the rest in the UI.
+
+| class | count |
+|---|---|
+| unique resolution | 847 |
+| **multiple active NetSuite matches (REFUSED at Send)** | **111** |
+| no NetSuite item | 55 |
+| no HubSpot id stored | 14 |
+
+Three proven classes: HubSpot→NetSuite sync missing (`CC-12oz-Filling-1.4` —
+NOT a Nexus mapping defect); **dangling authority** — active leaves whose
+HubSpot product was deleted (`10025-Fill`, `50010-Fill`); and SKU ambiguity.
+The resolver correctly REFUSES ambiguity rather than first-matching, so class 3
+is an upstream namespace problem, not a resolver defect.
+
+Kept SEPARATE from OD-026. Not merged without evidence.
+
+---
+
 ### OD-026 · Direct Component packaging ignores the leaf's own multiplicity
 
 **Owner:** Nexus engineering + Edward · **Status:** OPEN, traced not repaired ·
