@@ -1,0 +1,80 @@
+# Production go-live checklist — RELEASE BLOCKERS
+
+Items here are **release-readiness gates, not deferred recommendations.** Each
+must be proven with evidence before production go-live.
+
+---
+
+## BLOCKER 1 · Re-enable Nexus HubSpot Accept synchronization
+
+**Status: ACTIVE — suppression is in place for certification.**
+
+During certification, Nexus's Accept-side production HubSpot write is suppressed
+at source. This must be reversed before go-live, or **Accept will silently stop
+synchronizing to HubSpot in production** and the production HubSpot → NetSuite
+workflow will never fire.
+
+### Why the suppression exists
+
+The production HubSpot workflow
+**`NETSUITE: Auto create NetSuite sales order from won deal`** is ACTIVE.
+Enrollment includes `Deal stage = Won - In production (Sales)` (stage id
+`195607084`, pipeline `Sales` / `108896657`). Its first downstream action is
+**Create a NetSuite sales order** — in **production** NetSuite.
+
+Nexus certification targets the NetSuite **sandbox** (`7924416_SB2`), while
+HubSpot is the **production** portal (`21497798`). A certification Accept that
+moved a real deal into that stage would therefore create a **production** sales
+order from a sandbox certification run. Restoring the stage afterwards does not
+undo it — the workflow has already enrolled and acted. **The trigger must never
+fire**, which is why the write is suppressed rather than reversed.
+
+### The mechanism
+
+| | |
+|---|---|
+| **Flag** | `NEXUS_SUPPRESS_HUBSPOT_ACCEPT_SYNC` |
+| **Default** | **unset ⟹ synchronization ENABLED** (fail-safe) |
+| **Suppresses** | `updateDealStage`, `updateDealAmount` — deal-property mutation |
+| **Preserves** | every read; all Nexus-internal acceptance; sandbox NetSuite; HubSpot product creation |
+| **Contract** | `src/lib/config/certification-mode.ts` |
+| **Hard boundary** | `src/lib/integrations/hubspot-certification-suppression.ts` |
+| **Regressions** | `tests/unit/certification-hubspot-suppression.test.ts` |
+
+### Go-live evidence required
+
+- [ ] **1 · Synchronization is enabled.** `NEXUS_SUPPRESS_HUBSPOT_ACCEPT_SYNC`
+      is unset (or falsy) in the production environment.
+      Programmatic form: `assertHubspotAcceptSyncEnabledForGoLive()` **does not
+      throw** against the production env. Evidence must come from the deployed
+      environment, not from a local shell.
+- [ ] **2 · Accept writes the governed production stage.** A verification Accept
+      moves the deal to `firm_settings.hubspot_deal_stage_on_accept`, and the
+      `quote_accepted` audit row carries `from_stage_id ≠ to_stage_id` **and no
+      `suppressed` key**.
+- [ ] **3 · Amount synchronization behaves per the existing contract.** Accept
+      writes the tier turnkey amount rounded to 2dp in the same PATCH as the
+      stage; Complete's drift patch (`runAmountPatchIfNeeded`) is reachable and
+      reports `patched` / `skipped` on its own merits rather than on the flag.
+- [ ] **4 · The production HubSpot → NetSuite workflow is expected and
+      enabled.** Administrator confirmation that the workflow above is ON and
+      that Nexus Accept firing it is the **intended** production behaviour.
+- [ ] **5 · Certification-only suppression cannot remain active accidentally.**
+      Evidence 1 is asserted in the deployed environment, and no build/deploy
+      configuration sets the flag. Because the default is fail-safe, absence of
+      the variable is sufficient — but it must be **verified**, not assumed.
+
+### Non-substitutes
+
+Do **not** accept as evidence for item 1: a local `.env` inspection, a code
+reading, or "we never set it." The flag is environment-scoped; only the
+deployed environment can answer.
+
+---
+
+## Cross-references
+
+- `docs/validation/hubspot-stage-trigger-finding.md` — the production workflow
+  evidence and the standing rule on production deal-stage mutation.
+- `docs/validation/netsuite-accounting-review-runbook.md` — the Accounting
+  review, which resumes under suppression.

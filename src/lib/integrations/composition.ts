@@ -51,10 +51,23 @@ async function composeDependencies(): Promise<ApplicationDependencies> {
       import("@/lib/integrations/hubspot-production"),
       import("@/lib/integrations/netsuite-production"),
     ]);
+  // Certification mode — see src/lib/config/certification-mode.ts. When the
+  // suppression flag is set, production HubSpot deal MUTATION is refused at the
+  // dependency boundary. Reads pass through. Off by default, so production
+  // composition is unchanged unless suppression is explicitly requested.
+  const { isHubspotAcceptSyncSuppressed } = await import(
+    "@/lib/config/certification-mode"
+  );
+  const hubspot = isHubspotAcceptSyncSuppressed()
+    ? (
+        await import("@/lib/integrations/hubspot-certification-suppression")
+      ).withCertificationSuppression(productionHubSpot)
+    : productionHubSpot;
+
   return {
     authentication: clerkAuthentication,
     artifacts: supabaseArtifactStorage,
-    hubspot: productionHubSpot,
+    hubspot,
     netsuite: productionNetSuite,
   };
 }

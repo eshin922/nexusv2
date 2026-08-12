@@ -17,6 +17,7 @@ import {
   auditLog,
 } from "@/db/schema";
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
+import { isHubspotAcceptSyncSuppressed } from "@/lib/config/certification-mode";
 import { getCostingBundle } from "@/app/actions/costing";
 import { loadAssemblyTree } from "@/lib/assembly-tree";
 import {
@@ -1370,6 +1371,24 @@ async function runAmountPatchIfNeeded(args: {
   priorAmount: number | null;
   currentAmount: number;
 }): Promise<MarkCompleteResult["amountPatch"]> {
+  // CERTIFICATION MODE — see src/lib/config/certification-mode.ts. Complete is
+  // the SECOND production HubSpot write in the certification path: on amount
+  // drift it PATCHes the real deal, which would change the deal's
+  // last-modified timestamp even though Accept left it untouched. Checked
+  // before the drift computation so no drift can reach the write at all.
+  //
+  // Reported as "skipped" (the existing no-write status) rather than a new
+  // status, so every downstream consumer of amountPatch keeps working; the
+  // suppression itself is legible from the certification banner and the
+  // suppressed quote_accepted audit row.
+  if (isHubspotAcceptSyncSuppressed()) {
+    return {
+      status: "skipped",
+      prior: args.priorAmount,
+      current: args.currentAmount,
+      delta: null,
+    };
+  }
   if (args.priorAmount === null) {
     return { status: "skipped", prior: null, current: args.currentAmount, delta: null };
   }

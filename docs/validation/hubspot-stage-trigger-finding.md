@@ -231,3 +231,25 @@ explicit exception mechanism — not a reversal of the standing rule at the top 
 this document. Accounting review planning resumes **from the supplied inventory
 and disable semantics**, not from an attempt to discover the workflow topology
 from Nexus.
+
+---
+
+## 8 · Disposition — suppress the write, do not disable the workflow
+
+**Confirmed by the administrator (2026-08-12).** Production workflow
+`NETSUITE: Auto create NetSuite sales order from won deal` is **ACTIVE**.
+Enrollment includes `Deal stage = Won - In production (Sales)` — stage id
+`195607084`, pipeline `Sales` (`108896657`), verified read-only. First
+downstream action: **Create a NetSuite sales order** (production).
+
+The standing rule at the top of this document is therefore **evidence-backed**,
+not precautionary.
+
+**Disposition: the production workflow stays ON and untouched.** Nexus instead
+suppresses its own Accept-side production HubSpot write for the remainder of
+certification. See `docs/validation/production-go-live-checklist.md` BLOCKER 1
+for the mechanism, the evidence contract, and the re-enable gate.
+
+Restoration harnesses are preserved as recovery tooling. They are **not** the
+isolation mechanism and never were — the trigger fires on transition, so the
+only safe posture is that the transition never happens.

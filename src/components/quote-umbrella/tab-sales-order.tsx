@@ -121,6 +121,8 @@ export type TabSalesOrderProps = {
    * the "Now · HubSpot" system card copy; reused here on the status
    * ledger's HubSpot row. */
   hubspotAcceptStageLabel: string;
+  /** Certification mode: Accept did NOT write HubSpot. */
+  hubspotAcceptSyncSuppressed?: boolean;
   /** Slice 12 Step 8b — the amount 8a pushed to HubSpot at
    * acceptance. Reads from audit_log's quote_accepted diff_json.
    * Currently threaded from page.tsx via a lookup helper. */
@@ -159,6 +161,7 @@ export function TabSalesOrder({
   customerAcceptedTierIdDb,
   quoteRollup,
   hubspotAcceptStageLabel,
+  hubspotAcceptSyncSuppressed = false,
   hubspotPushedAmount,
   netsuiteStatusOnPush,
   salesOrderPreflight,
@@ -547,10 +550,22 @@ export function TabSalesOrder({
                 <div className="s">
                   {view.customer.name ?? "The customer"} accepted{" "}
                   {quoteNumberDb ?? "(quote)"} v{quoteVersionNumber} at{" "}
-                  {carriedTier.label}, and the HubSpot deal is{" "}
-                  <strong>{hubspotAcceptStageLabel}</strong> at{" "}
-                  {usd(hsAmountEffective)}. Nothing about the acceptance is
-                  undone, and you don&apos;t need to re-record it.
+                  {carriedTier.label}
+                  {hubspotAcceptSyncSuppressed ? (
+                    <>
+                      . The HubSpot deal was{" "}
+                      <strong>not modified</strong> — HubSpot Accept
+                      synchronization is disabled for certification
+                    </>
+                  ) : (
+                    <>
+                      , and the HubSpot deal is{" "}
+                      <strong>{hubspotAcceptStageLabel}</strong> at{" "}
+                      {usd(hsAmountEffective)}
+                    </>
+                  )}
+                  . Nothing about the acceptance is undone, and you
+                  don&apos;t need to re-record it.
                 </div>
               </div>
               <div className="half lost">
@@ -654,6 +669,7 @@ export function TabSalesOrder({
             soFlags={soFlags}
             hubspotAmount={hsAmountEffective}
             hubspotStageLabel={hubspotAcceptStageLabel}
+            hubspotSuppressed={hubspotAcceptSyncSuppressed}
             netsuiteStatusOnPush={netsuiteStatusOnPush}
           />
 

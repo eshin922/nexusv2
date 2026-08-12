@@ -15,6 +15,7 @@ import {
   buildQuotePdfStoragePath,
 } from "@/lib/supabase-server";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
+import { hubspotAcceptSyncState } from "@/lib/config/certification-mode";
 import { materializePackagingRows } from "@/lib/packaging-materialization";
 import {
   resolveGovernedPaymentTerms,
@@ -2516,6 +2517,9 @@ export async function markAccepted(
     let fromStageId: string;
     let fromStageLabel: string;
     let toStage: DealStageInfo;
+    // Certification suppression is resolved ONCE for this acceptance so the
+    // write decision and the audit record cannot disagree.
+    const acceptSyncState = hubspotAcceptSyncState();
     try {
       // Version-scoped recovery-first check. Both columns must be
       // populated AND the version must match the current quote
@@ -2562,16 +2566,29 @@ export async function markAccepted(
           .where(eq(quotes.id, quoteId));
       }
 
-      // Step 8a — patch stage AND amount in the SAME API call.
-      // HubSpot's basicApi.update is a single PATCH; two properties
-      // land atomically or both fail. See updateDealStage's opts.amount
-      // rationale for why we consolidated over two separate calls.
-      const { hubspot } = await getApplicationDependencies();
-      toStage = await hubspot.updateDealStage(
-        project.hubspotDealId as string,
-        firm.hubspotDealStageOnAccept,
-        { amount: tierTurnkeyAmount },
-      );
+      if (acceptSyncState.suppressed) {
+        // CERTIFICATION MODE — see src/lib/config/certification-mode.ts.
+        // The deal is NOT touched: no stage write, no amount write, no
+        // PATCH of any kind. `from === to` because nothing moved, which
+        // is the truthful audit record; `intended_stage_id` below
+        // preserves what production would have written.
+        //
+        // Everything after this point is Nexus-internal and proceeds
+        // unchanged — accepted state, accepted tier, freeze/snapshot,
+        // Complete eligibility, sandbox NetSuite.
+        toStage = { id: fromStageId, label: fromStageLabel };
+      } else {
+        // Step 8a — patch stage AND amount in the SAME API call.
+        // HubSpot's basicApi.update is a single PATCH; two properties
+        // land atomically or both fail. See updateDealStage's opts.amount
+        // rationale for why we consolidated over two separate calls.
+        const { hubspot } = await getApplicationDependencies();
+        toStage = await hubspot.updateDealStage(
+          project.hubspotDealId as string,
+          firm.hubspotDealStageOnAccept,
+          { amount: tierTurnkeyAmount },
+        );
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new ActionGuardError(
@@ -2636,6 +2653,20 @@ export async function markAccepted(
             to_stage_id: toStage.id,
             to_stage_label: toStage.label,
             amount: tierTurnkeyAmount,
+            // Certification suppression. Present ONLY when suppressed, so
+            // an ordinary production acceptance keeps its existing shape
+            // and a suppressed one is unmistakable in the forensic trail.
+            // `amount` above is the value that WOULD have been written;
+            // under suppression no amount reached HubSpot.
+            ...(acceptSyncState.suppressed
+              ? {
+                  suppressed: true,
+                  suppression_reason: acceptSyncState.reason,
+                  intended_stage_id: firm.hubspotDealStageOnAccept,
+                  stage_written: false,
+                  amount_written: false,
+                }
+              : {}),
           },
         },
       }, tx);
@@ -2812,12 +2843,25 @@ export async function unmarkAccepted(
 
     // External call FIRST (v3 §5.1 ordering).
     let rolledBackStage: DealStageInfo;
+    const revertSyncState = hubspotAcceptSyncState();
     try {
-      const { hubspot } = await getApplicationDependencies();
-      rolledBackStage = await hubspot.updateDealStage(
-        project.hubspotDealId as string,
-        priorStageId,
-      );
+      if (revertSyncState.suppressed) {
+        // CERTIFICATION MODE — the matching Accept never moved the deal, so
+        // there is nothing to roll back. Writing `priorStageId` here would
+        // MUTATE a deal that Nexus had left untouched, which is the exact
+        // production side effect suppression exists to prevent. The Nexus-side
+        // revert below proceeds normally.
+        const { hubspot } = await getApplicationDependencies();
+        rolledBackStage = await hubspot.getDealStage(
+          project.hubspotDealId as string,
+        );
+      } else {
+        const { hubspot } = await getApplicationDependencies();
+        rolledBackStage = await hubspot.updateDealStage(
+          project.hubspotDealId as string,
+          priorStageId,
+        );
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new ActionGuardError(
