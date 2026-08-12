@@ -328,3 +328,99 @@ ever used.
 operationally consumed". But the decision is now a one-line redirect of an
 existing wired path rather than new capture — and the coverage question
 (3 of 70 deals carry a PO) is part of what that answer must address.
+
+---
+
+# §12 · Legacy specification projection (PP / SP / SGA / COP) — ONE disposition
+
+**Treated as a single legacy capability requiring business disposition, not as
+dozens of individual V1 defects.** These four families historically projected
+product/production specification through the Sales Order and, in at least some
+cases, into downstream invoice/document workflows.
+
+## §12.1 · Measured usage — all 699 Sales Orders
+
+| family | most-populated field | range across the family |
+|---|---|---|
+| **SP** Secondary Packaging | `sp_color` **341** | 81 – 341 · description 329, finishing 303, coating 286, size 222, material 221, packout 185, freight svc 104, factory 81 |
+| **PP** Primary Packaging | `pp_description` **175** | 12 – 175 · size 144, component type 133, material 118, factory 114, deco 110, packout 95, freight svc 50, **production ship date 12** |
+| **SGA** Soft Goods / Accessories | `sga_description` **112** | 35 – 112 · deco 102, material 75, packout 73, finishing 70, size 67, factory 42, freight svc 35 |
+| **COP** Co-pack / Production | `cop_description` **104** | 18 – 104 · skus 89, fill size 78, packout 74, freight svc 18 |
+
+**Still in active use, not historical residue.** PP by year: 2023 · 14,
+2024 · 76, 2025 · 60, **2026 · 25**.
+
+**Two COP fields named in the request do not exist as SO body fields in this
+account:** `cop_blending_required` and `cop_claims_testing` returned *no such
+field*. They may live on another record, be differently named, or have been
+retired. Recorded rather than assumed — the disposition should not be written as
+if they exist.
+
+**~40 fields across four families.** SP is the largest by usage, not PP — worth
+noting, because the V1 manual list currently names only PP.
+
+## §12.2 · The disposition question — Accounting / Operations
+
+> Are any PP/SP/SGA/COP fields still consumed today by customer invoices,
+> packing/fulfilment documents, production operations, Accounting processes,
+> saved searches, SuiteScripts, or other downstream workflows?
+
+**This cannot be answered from Nexus.** Population proves operators fill them in;
+it does not prove anything reads them. Saved searches and SuiteScripts are not
+enumerable through this integration — the same limit that blocked P-2 and C.3.
+That is precisely why it is a business question.
+
+### If NONE are still consumed
+
+- Classify the legacy PP/SP/SGA/COP projection **obsolete for V1**.
+- **Do not reproduce these fields in Nexus.**
+- **Remove PP specification entry from the V1 manual post-CREATE list** — see
+  §12.3.
+- Retain product specifications in their governed Nexus product/project
+  structures, where they already live (`leaf_specs`, product types).
+
+### If SOME are still consumed
+
+Identify **per field**, not per family:
+
+1. which field;
+2. which downstream artifact/process consumes it;
+3. whether it must exist **at SO CREATE** or may be populated later;
+4. the authoritative source — Nexus, HubSpot, or NetSuite;
+5. whether the requirement is customer-facing, operational, accounting or
+   reporting.
+
+**Do not recreate an entire family because one field remains useful.** With
+~40 fields and four families, family-level reinstatement would be the expensive
+wrong answer to a narrow need.
+
+## §12.3 · Consequence for the V1 manual post-CREATE list
+
+The list currently reads:
+
+| item | owner | status |
+|---|---|---|
+| Final Ship-to verification/set | Accounting | firm (C.2) |
+| Transaction Hold | Accounting | firm |
+| Estimated Invoice Date | Accounting | firm |
+| **PP packaging specification** | operator | **CONDITIONAL on §12.2** |
+| COP Description | operator | **CONDITIONAL on §12.2** — it is a COP-family field |
+| Customer PO | pending C.3 | conditional |
+
+Two entries are conditional on this disposition. **COP Description was listed
+separately in §11.3 before this family framing existed** — it belongs to COP and
+should be dispositioned with it, not on its own.
+
+If the answer is "none consumed", both drop out and the manual list reduces to
+three firm Accounting items plus the C.3-dependent PO.
+
+## §12.4 · Consolidated business dependencies — hold implementation
+
+| # | question | owner |
+|---|---|---|
+| **C.3** | Does downstream workflow consume standard `otherRefNum`? If yes, Nexus already carries the source in `hubspot_deals_cache.client_po` — the fix is redirecting an existing wired path, not new capture | Accounting |
+| **C.4** | Are the deposit percentage/type/required-deposit fields operative accounting inputs? If yes, when must they exist and from what authority? Do not derive from payment terms | Accounting |
+| **§12** | Are any PP/SP/SGA/COP fields still consumed downstream? If some, name them individually | Accounting / Operations |
+
+**Implementation held on all three.** None of them changes the grouping
+mechanics being certified, so Case B preparation is not blocked by them.
