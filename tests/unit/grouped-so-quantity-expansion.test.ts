@@ -295,6 +295,35 @@ test("10 · a verification failure with an SO id is held, never released", () =>
   assert.match(withoutComments, /errorClass: err\?\.className \?\? "verification"/);
 });
 
+test("11 · CREATED group definitions are read back and verified before SO CREATE", () => {
+  const markComplete = readFileSync("src/lib/netsuite/mark-complete.ts", "utf8");
+  const stripped = markComplete
+    .replace(/\/\/[^\n]*/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+
+  // The read-back must NOT sit behind a reused-only branch. SO2703's groups
+  // were freshly created, so a `outcome !== "created"` guard skipped them
+  // entirely and the wrong definitions reached the Sales Order unchecked.
+  assert.doesNotMatch(
+    stripped,
+    /if\s*\(\s*resolved\.outcome\s*!==\s*"created"\s*\)/,
+    "verification must not be conditional on reuse",
+  );
+  assert.match(stripped, /readItemGroupMembers\(resolved\.netsuiteInternalId\)/);
+  assert.match(stripped, /verifyReusedGroupMembership\(adapted, actualMembers\)/);
+
+  // And it must precede the group line emission, which is what puts the group
+  // on the order.
+  const check = stripped.indexOf("verifyReusedGroupMembership(adapted, actualMembers)");
+  const emit = stripped.indexOf("emittedGroupLines.push(");
+  assert.ok(check > -1 && emit > -1);
+  assert.ok(check < emit, "the definition is verified before the group is emitted");
+
+  // The master quantities are recorded as evidence under their real name.
+  assert.match(stripped, /qtyPerParent: m\.quantity/);
+  assert.match(stripped, /item_group_definitions: itemGroupDefinitions/);
+});
+
 function obs(o: Partial<ObservedLine>): ObservedLine {
   return {
     kind: "member",

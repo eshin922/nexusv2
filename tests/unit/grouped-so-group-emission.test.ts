@@ -233,7 +233,11 @@ test("9 · an existing deterministic Group is reused, not recreated", () => {
   // REST create. Reuse outcomes are 'cache_hit' / 'external_id_hit'.
   assert.match(itemGroups, /Layer 2: SuiteQL by externalId/);
   assert.match(itemGroups, /outcome: "cache_hit"|"cache_hit"/);
-  assert.match(markComplete, /if \(resolved\.outcome !== "created"\)/);
+  // Reuse is decided by the primitive, not by a caller-side branch. The
+  // definition read-back is unconditional now, so a reused group and a freshly
+  // created one are verified identically before either reaches an order — but
+  // the outcome is still carried into the refusal message and the audit record.
+  assert.match(markComplete, /outcome: resolved\.outcome/);
 });
 
 test("10 · an absent deterministic Group invokes REST Item Group CREATE", () => {
@@ -298,7 +302,7 @@ test("13 · stale Group — right external id, WRONG members — fails closed", 
   assert.equal(dup.matches, false, "a duplicated member is divergence, not something to sum away");
 
   // And the caller refuses rather than rewriting shared master data.
-  assert.match(markComplete, /no longer matches the frozen grouping plan/);
+  assert.match(markComplete, /does not match the frozen /);
   assert.match(markComplete, /rather than rewriting shared NetSuite master data/);
 });
 

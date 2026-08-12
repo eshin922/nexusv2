@@ -452,6 +452,19 @@ export async function runMarkComplete(
   // /* const itemGroupOutcomes … */  // ← intentionally not built
   const itemGroupOutcomes: MarkCompleteResult["netsuite"]["itemGroups"] = [];
 
+  // Master-data evidence, read back from NetSuite at the boundary and recorded
+  // BEFORE the Sales Order exists. These are qtyPerParent quantities — what ONE
+  // group contains — never transaction quantities. Kept at this scope so the
+  // audit row carries them even when a later stage fails.
+  const itemGroupDefinitions: Array<{
+    assemblySku: string;
+    itemidDisplay: string;
+    netsuiteInternalId: string;
+    netsuiteExternalId: string;
+    outcome: string;
+    members: Array<{ netsuiteItemId: string; qtyPerParent: number }>;
+  }> = [];
+
   // ============================================================
   // STEP 6 — CHECK netsuite_so_pushes for prior success (#145 case)
   // ============================================================
@@ -699,27 +712,49 @@ export async function runMarkComplete(
         // The primitive must have produced the identity the plan froze.
         assertIdentityMatchesPlan(adapted, resolved);
 
-        // REUSE SAFETY. An external-id hit proves the group was created for
-        // this composition once — not that it still HAS that composition. An
-        // administrator can change members afterwards and the external id does
-        // not change with them. Emitting such a group yields an order that
-        // reconciles on identity while shipping wrong contents.
+        // MASTER-DATA BOUNDARY. Read the definition back from NetSuite and
+        // verify it before any Sales Order references it — for CREATED groups
+        // as well as reused ones.
         //
-        // Fails CLOSED. The group is never rewritten to match: Item Groups are
-        // shared master data, and silently re-editing one could change another
-        // order's meaning.
-        if (resolved.outcome !== "created") {
-          const actualMembers = await readItemGroupMembers(resolved.netsuiteInternalId);
-          const verdict = verifyReusedGroupMembership(adapted, actualMembers);
-          if (!verdict.matches) {
-            throw new Error(
-              `[markComplete] NetSuite Item Group ${resolved.itemidDisplay} ` +
-                `(${resolved.netsuiteExternalId}) no longer matches the frozen grouping plan for ` +
-                `assembly ${planned.assemblySku}: ${verdict.problems.join("; ")}. ` +
-                `Refusing before Sales Order CREATE rather than rewriting shared NetSuite master data.`,
-            );
-          }
+        // Reuse safety is the older half: an external-id hit proves the group
+        // was created for this composition once, not that it still HAS that
+        // composition. An administrator can re-quantify members afterwards and
+        // the external id does not change with them.
+        //
+        // Created groups are verified for a different reason, learned from
+        // SO2703. A freshly created group used to be TRUSTED — the write
+        // succeeded, so its contents were assumed correct. They were not: the
+        // adapter had written tier-expanded quantities into the definition,
+        // NetSuite accepted them, and the error only became visible after the
+        // Sales Order had expanded them to 1,000,000 units and consumed the
+        // deal. The definition is the last thing that can be checked while
+        // failure is still free, so it is checked unconditionally.
+        //
+        // Fails CLOSED, before CREATE. The group is never rewritten to match:
+        // Item Groups are shared master data, and silently re-editing one could
+        // change another order's meaning.
+        const actualMembers = await readItemGroupMembers(resolved.netsuiteInternalId);
+        const verdict = verifyReusedGroupMembership(adapted, actualMembers);
+        if (!verdict.matches) {
+          throw new Error(
+            `[markComplete] NetSuite Item Group ${resolved.itemidDisplay} ` +
+              `(${resolved.netsuiteExternalId}, ${resolved.outcome}) does not match the frozen ` +
+              `grouping plan for assembly ${planned.assemblySku}: ${verdict.problems.join("; ")}. ` +
+              `Refusing before Sales Order CREATE rather than rewriting shared NetSuite master data.`,
+          );
         }
+        itemGroupDefinitions.push({
+          assemblySku: planned.assemblySku,
+          itemidDisplay: resolved.itemidDisplay,
+          netsuiteInternalId: resolved.netsuiteInternalId,
+          netsuiteExternalId: resolved.netsuiteExternalId,
+          outcome: resolved.outcome,
+          // qtyPerParent master quantities, as NetSuite holds them.
+          members: actualMembers.map((m) => ({
+            netsuiteItemId: m.netsuiteItemId,
+            qtyPerParent: m.quantity,
+          })),
+        });
 
         emittedGroupLines.push({
           netsuiteItemId: resolved.netsuiteInternalId,
@@ -1255,6 +1290,10 @@ export async function runMarkComplete(
           tranid_fetch_outcome: tranidFetchOutcome,
           customer_netsuite_id: customer.netsuiteCustomerId,
           item_groups: itemGroupOutcomes,
+          // Provider-read master definitions (qtyPerParent), captured before
+          // SO CREATE. Separate from item_groups, which records identity and
+          // create-vs-reuse outcome rather than contents.
+          item_group_definitions: itemGroupDefinitions,
         },
       },
     }, tx);
