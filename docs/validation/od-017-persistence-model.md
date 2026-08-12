@@ -254,3 +254,60 @@ Decision 1's — is a freight *shipment grouping* an assembly concept, or must i
 span Direct Components? Snapshot structure (T2) is a separate migration.
 
 **Returned for disposition. Nothing authored, nothing applied.**
+
+---
+
+## 8 · Scope RESOLVED 2026-08-12 — ready to author
+
+### Decision 1 · Freight supports Direct Components
+
+A freight shipment/subcategory is **not** governed by ASY structure. The
+`freight_subcategories.assembly_id` ownership assumption is a limitation of the
+ASY-only runtime, not the target model.
+
+- The subcategory **remains** the shipment/destination container — it is *not*
+  replaced by a `quote_leaf_id`.
+- **Membership** is expressed through commercial leaves:
+  `freight_subcategory_items` keys its product association on `quote_leaf_id`.
+- Finished Product members and Direct Components both participate.
+- **No ASY is required to author Freight.** `freight-workbook.ts` and
+  `freight-worksheet.ts` must stop requiring `assemblyId` as the prerequisite
+  for participation.
+- Freight economics, markup, destination, break and customs contracts are
+  **unchanged**.
+
+### Decision 2 · T2 is its own V1 prerequisite, not OD-017's
+
+Send does not freeze the governed leaf/Product Structure set; Complete
+re-derives it from live assemblies. Confirmed as a **broader pre-existing
+defect** and lifted out of OD-017.
+
+**Revised chain:** `OD-012 → OD-017 → Product Structure snapshot/freeze → OD-022`
+
+OD-017 makes Direct Components economically valid in **live/draft** state.
+Historical Send/Complete stability moves to the snapshot slice and is **no
+longer an OD-017 closure condition**. OD-022 waits on both.
+
+### Final `0066` scope
+
+Re-key to `quote_leaf_id`: `assembly_leaf_inputs`, `assembly_leaf_overrides`,
+`assembly_leaf_targets`, **`freight_subcategory_items`** — with the PK / FK /
+unique / index changes each identity requires.
+
+**Not** re-keyed: `assembly_production_inputs`. Legacy `assembly_leaf_id`
+columns retained unless structurally required to drop; removal is a later
+governed cleanup after runtime proof.
+
+Proven preconditions (§1): 298/298 cost rows mapped, 0 orphans, 150/150
+assembly-leaf → quote-leaf, 1:1 and unambiguous, 0 existing Direct Components.
+
+### OD-017 closure bar (final)
+
+A synthetic, UI-unreachable Direct Component can receive component cost,
+governed markup/category, tier propagation, **Freight/customs**, reconciliation
+exactly once, correct quoted sell, and stable reload identity — with existing
+Finished Product costing unchanged, and Direct Components still unreachable in
+the normal UI.
+
+Freight authoring must be **proven**, not inferred from
+`freight_leg_component_tier_costs` already keying on `quote_leaf_id`.

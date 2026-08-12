@@ -1022,6 +1022,33 @@ means deciding under schedule pressure.
 
 ---
 
+### OD-023 · Send does not freeze the governed Product Structure — **V1 BLOCKER**
+
+**Owner:** Nexus engineering + Edward · **Blocks:** OD-022, and historical
+integrity of every sent quote today
+
+`quote_snapshots` carries commercial settings and PDF axes. It does **not**
+carry the governed leaf set or its structure, so Complete re-derives structure
+from **live** assemblies. A Setup edit between Send and Complete silently
+changes the structure of an already-sent quote.
+
+This is **pre-existing and affects Finished Products today** — it is not
+introduced by Direct Components. Uniform structure has masked it; Mixed quotes
+would make it reachable.
+
+The snapshot must freeze enough that a later live edit cannot change: which
+commercial leaves were accepted; whether each was Direct or a Finished Product
+member; the Finished Product grouping/composition boundary; and the identity
+required for downstream projection.
+
+Dependency chain: `OD-012 → OD-017 → OD-023 → OD-022`.
+
+Lifted out of OD-017 by disposition 2 (2026-08-12) so a cross-cutting repair is
+not buried inside a costing slice. Trace:
+[`validation/od-017-persistence-model.md`](validation/od-017-persistence-model.md) §7 T2.
+
+---
+
 ### OD-022 · Operators cannot tell when an ASY structure is required
 
 **Owner:** Edward · **Blocks:** Product Library / V1 operator workflow · **Not**
