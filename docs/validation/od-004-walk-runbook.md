@@ -149,6 +149,36 @@ One group per `groups[]` entry:
 
 ---
 
+## After CREATE — manual operational step (C.2)
+
+> **V1 MANUAL OPERATIONAL STEP — NOT NEXUS AUTOMATION.**
+>
+> After Sales Order CREATE and before downstream fulfillment/invoicing,
+> **Accounting verifies and, where required, sets the final transaction Ship-to
+> in NetSuite.**
+
+Nexus lets NetSuite populate the customer-default shipping address at CREATE and
+**does not claim that address is the final fulfillment Ship-to**. Per the C.2
+disposition — *V1 accepted manual/post-CREATE NetSuite responsibility; structured
+Nexus Ship-to automation deferred post-V1* — no precedence rule connects freight
+destinations to the Sales Order Ship-to.
+
+Recorded here because Track B is the immediate proof that needs it. **This is not
+a permanent operational checklist**, and one should not be invented to hold a
+single line. See "Operational-readiness items" below.
+
+## Operational-readiness items — no home document yet
+
+Nexus has **no operational handoff / go-live checklist document**. These
+manual-responsibility items need one before release, and belong in release/go-live
+documentation rather than in this walk runbook:
+
+| item | owner | source |
+|---|---|---|
+| Verify/set final transaction Ship-to after CREATE | Accounting | C.2 disposition |
+
+Recorded as an **operational-readiness gap**, not resolved here.
+
 ## What the session closes, and what it does not
 
 | | |
