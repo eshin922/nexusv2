@@ -24,7 +24,14 @@ import {
   formatCustomerMissingError,
 } from "./customer-map";
 import { formatResolutionErrors, type ResolveResult } from "./item-resolver";
-import { findOrCreateItemGroup, readItemGroupMembers } from "./item-groups";
+import {
+  findOrCreateItemGroup,
+  readItemGroupMembers,
+  readSalesOrderHeader,
+  readSalesOrderLines,
+} from "./item-groups";
+import { runRateConvergence } from "./rate-convergence";
+import { patchSalesOrderLine } from "./client";
 import {
   adaptPlannedGroup,
   assertIdentityMatchesPlan,
@@ -474,7 +481,10 @@ export async function runMarkComplete(
   }
 
   let salesOrderInternalId: string;
-  let salesOrderTranid: string | null;
+  // Initialised null: Step 3's convergence block runs BEFORE the tranid fetch
+  // (the SO id is the recovery key; the tranid is diagnostic), so its operator
+  // messages must tolerate a not-yet-known display id.
+  let salesOrderTranid: string | null = null;
   let amountPushed: number;
   let retryOutcome: MarkCompleteResult["retryOutcome"];
   // Slice 12 Step 10 Q15 — tranid_fetch_outcome tracks the four
@@ -975,6 +985,79 @@ export async function runMarkComplete(
       );
     }
     } // end CREATE branch (skipped entirely when resuming)
+
+    let rateConvergenceSummary: { patched: number; alreadyCorrect: number } | null = null;
+
+    // ── Step 3 — negotiated member-rate convergence + verification ────────
+    //
+    // Runs for turnkey_only only, AFTER the recovery boundary. Every failure
+    // from here on routes through recordAttemptFailure, which — because
+    // `netsuite_so_id` is now non-null — holds the attempt at
+    // `awaiting_rates` rather than `failed`. So an interruption anywhere in
+    // this block leaves an order that the next invocation resumes against.
+    //
+    // Convergent, not replayed: the order is re-read every run, addresses are
+    // re-derived from that read, correct members are skipped, and only
+    // mismatches are patched. A fully-correct order performs no commercial
+    // mutation.
+    if (groupingPlan.groupingRequired && groupingPlan.groups.length > 0) {
+      try {
+        const convergence = await runRateConvergence({
+          soId: salesOrderInternalId,
+          plannedGroups: groupingPlan.groups,
+          tierQty: groupingPlan.tierQty ?? 0,
+          acceptedTotal: currentAmount,
+          expectHeader: {
+            customerId: customer.netsuiteCustomerId,
+            hubspotDealId: projectRow.hubspotDealId as string,
+            businessSegmentId: dealCache.businessSegmentId,
+            termsPresent: true,
+          },
+          provider: {
+            readLines: (id: string) => readSalesOrderLines(id),
+            readHeader: (id: string) => readSalesOrderHeader(id),
+            patchLine: (id: string, address: number, patch: { rate: number }) =>
+              patchSalesOrderLine(id, address, patch),
+          },
+        });
+
+        if (!convergence.gate.pass) {
+          // The order exists and may be partly priced. Retained as resumable
+          // with the SO identity intact — never discarded, never re-created.
+          throw new Error(
+            `Sales Order ${salesOrderTranid ?? salesOrderInternalId} was created but is not ` +
+              `commercially complete. ${convergence.gate.failures.join("; ")}. ` +
+              `The order is retained and this push can be safely retried — it will resume ` +
+              `against the same Sales Order rather than creating another.`,
+          );
+        }
+        rateConvergenceSummary = {
+          patched: convergence.patched.length,
+          alreadyCorrect: convergence.alreadyCorrect,
+        };
+      } catch (e) {
+        const err = e instanceof NetsuiteError ? e : null;
+        await recordAttemptFailure({
+          attemptId: pendingId,
+          netsuiteSoId: salesOrderInternalId, // non-null ⇒ cannot become `failed`
+          errorClass: err?.className ?? "unknown",
+          errorDetail: err?.context.detail ?? String(e),
+        });
+        try {
+          await db
+            .update(quotesTable)
+            .set({
+              netsuiteSoPushStatus: "awaiting_rates",
+              netsuiteSoPushError: awaitingRatesOperatorMessage(salesOrderTranid),
+              updatedAt: new Date(),
+            })
+            .where(eq(quotesTable.id, quoteId));
+        } catch {
+          // non-fatal — netsuite_so_pushes still carries the resumable row
+        }
+        throw e;
+      }
+    }
 
     // Slice 12 Step 10 Q15 — post-create tranid fetch.
     //

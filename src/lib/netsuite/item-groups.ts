@@ -413,6 +413,33 @@ export async function readItemGroupMembers(
 }
 
 /**
+ * Read the governed header fields the success gate asserts.
+ *
+ * REST record GET rather than SuiteQL: several custom body fields returned
+ * 500s under SuiteQL on SO2701 (an observability gap, recorded in
+ * legacy-so-populated-field-parity §11.2c), and the gate must not fail because
+ * a read failed.
+ */
+export async function readSalesOrderHeader(soId: string): Promise<{
+  customerId: string | null;
+  hubspotDealId: string | null;
+  businessSegmentId: string | null;
+  termsId: string | null;
+}> {
+  const r = await nsRequest<Record<string, any>>({
+    method: "GET",
+    path: `/record/v1/salesOrder/${encodeURIComponent(soId)}`,
+  });
+  return {
+    customerId: r.entity?.id != null ? String(r.entity.id) : null,
+    hubspotDealId: r.custbody_dps_deal_id != null ? String(r.custbody_dps_deal_id) : null,
+    businessSegmentId:
+      r.cseg_dps_bus_seg?.id != null ? String(r.cseg_dps_bus_seg.id) : null,
+    termsId: r.terms?.id != null ? String(r.terms.id) : null,
+  };
+}
+
+/**
  * Read a Sales Order's item lines from the REST sub-resource — the ONLY
  * authoritative source for the PATCH address.
  *

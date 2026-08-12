@@ -328,10 +328,24 @@ test("15 · every unrelated SO header field is identical between flat and group"
   assert.deepEqual(grouped.custbody_dps_project_source, { id: "2" });
 });
 
-test("16 · Step 2 invokes NO member-rate PATCH", () => {
-  // Rate convergence is Step 3. Step 2 must leave the order at
-  // awaiting_rates with members at their Item Base Price.
-  assert.doesNotMatch(markComplete, /patchSalesOrderLine/);
+test("16 · member-rate PATCH is reached only THROUGH the convergence executor", () => {
+  // SUPERSEDED BY STEP 3, inverted rather than deleted so the record shows the
+  // contract changed and when. At Step 2 this asserted markComplete contained
+  // no `patchSalesOrderLine` at all, which was correct then: Step 2 had to
+  // leave the order at awaiting_rates with members at their Item Base Price.
+  //
+  // Step 3 wires convergence. What must remain true is narrower but more
+  // useful: markComplete never patches a line directly — every PATCH goes
+  // through runRateConvergence, which re-reads the order, refuses on
+  // structural blockers, and targets each member by ITS OWN provider address.
+  assert.match(markComplete, /runRateConvergence\(\{/);
+  const direct = markComplete.match(/await patchSalesOrderLine\(/g) ?? [];
+  assert.equal(direct.length, 0, "no direct awaited PATCH outside the executor");
+  // It is passed as the executor's provider dependency, not called inline.
+  assert.match(
+    markComplete,
+    /patchLine: \(id: string, address: number, patch: \{ rate: number \}\) =>\s*patchSalesOrderLine\(id, address, patch\)/,
+  );
 });
 
 test("17 · a plan group without a deterministic identity is refused", () => {
