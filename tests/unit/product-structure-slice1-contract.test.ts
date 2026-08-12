@@ -32,7 +32,11 @@ test("runtime schema makes compatibility mapping mandatory without removing lega
   const schema = await read("src/db/schema.ts");
   assert.match(schema, /quoteLeafId: uuid\("quote_leaf_id"\)[\s\S]*?\.notNull\(\)[\s\S]*?references/);
   for (const table of ["assemblyLeafInputs", "assemblyLeafOverrides", "assemblyLeafTargets"]) {
-    assert.match(schema, new RegExp(`export const ${table}[\\s\\S]*assemblyLeafId:[\\s\\S]*references\\(\\(\\) => assemblyLeaves\\.id`));
+    // OD-017 kept every legacy FK rather than dropping it in the same migration
+    // that stopped reading it. `\s*` tolerates the multi-line call the nullable
+    // form is written across; the assertion — legacy FKs are NOT removed —
+    // is unchanged.
+    assert.match(schema, new RegExp(`export const ${table}[\\s\\S]*assemblyLeafId:[\\s\\S]*references\\(\\s*\\(\\) => assemblyLeaves\\.id`));
   }
 });
 

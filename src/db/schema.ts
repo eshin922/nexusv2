@@ -2408,13 +2408,21 @@ export const freightSubcategoryItems = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     freightSubcategoryId: uuid("freight_subcategory_id").notNull().references(() => freightSubcategories.id, { onDelete: "cascade" }),
-    assemblyLeafId: uuid("assembly_leaf_id").notNull().references(() => assemblyLeaves.id, { onDelete: "cascade" }),
+    // OD-017 · membership is expressed through the governed commercial leaf, so
+    // a Direct Component can ship without an assembly. The SUBCATEGORY remains
+    // the shipment/destination container — only this association is re-keyed.
+    // The identity contract is (subcategory, product), not (product): one leaf
+    // may legitimately ship in more than one subcategory.
+    quoteLeafId: uuid("quote_leaf_id").notNull().references((): AnyPgColumn => quoteLeaves.id, { onDelete: "cascade" }),
+    // Legacy compatibility column. Read by nothing; NULL for a Direct Component.
+    assemblyLeafId: uuid("assembly_leaf_id").references(() => assemblyLeaves.id, { onDelete: "cascade" }),
     source: freightFactSource("source").notNull().default("manual"),
     fieldProvenance: jsonb("field_provenance").notNull().default(sql`'{}'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("freight_subcategory_items_identity_idx").on(t.freightSubcategoryId, t.assemblyLeafId),
+    uniqueIndex("freight_subcategory_items_identity_idx").on(t.freightSubcategoryId, t.quoteLeafId),
+    index("freight_subcategory_items_quote_leaf_idx").on(t.quoteLeafId),
     index("freight_subcategory_items_leaf_idx").on(t.assemblyLeafId),
   ],
 );
@@ -2634,9 +2642,19 @@ export const assemblyLeafInputs = pgTable(
   "assembly_leaf_inputs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    assemblyLeafId: uuid("assembly_leaf_id")
+    // OD-017 · governed cost-input identity. `quote_leaves.id` is the canonical
+    // commercial SKU (OD-014) and exists for BOTH a Product-member Component and
+    // a Direct Component. It is the sole identity every reader and writer uses.
+    quoteLeafId: uuid("quote_leaf_id")
       .notNull()
-      .references(() => assemblyLeaves.id, { onDelete: "cascade" }),
+      .references((): AnyPgColumn => quoteLeaves.id, { onDelete: "cascade" }),
+    // Legacy. Nullable, written for ASY-backed compatibility, READ BY NOTHING.
+    // A Direct Component has no junction row, so this is NULL for one. Dropped
+    // in a later governed cleanup once a release proves it is dead.
+    assemblyLeafId: uuid("assembly_leaf_id").references(
+      () => assemblyLeaves.id,
+      { onDelete: "cascade" },
+    ),
     tierId: uuid("tier_id")
       .notNull()
       .references(() => quoteTiers.id, { onDelete: "cascade" }),
@@ -2673,12 +2691,13 @@ export const assemblyLeafInputs = pgTable(
       .defaultNow(),
   },
   (t) => [
-    // One row per (assembly_leaf, line, tier). Prevents duplicate cells.
+    // One row per (quote_leaf, line, tier). Prevents duplicate cells.
     uniqueIndex("assembly_leaf_inputs_line_tier_idx").on(
-      t.assemblyLeafId,
+      t.quoteLeafId,
       t.lineGroupId,
       t.tierId,
     ),
+    index("assembly_leaf_inputs_quote_leaf_id_idx").on(t.quoteLeafId),
     index("assembly_leaf_inputs_assembly_leaf_id_idx").on(t.assemblyLeafId),
     index("assembly_leaf_inputs_tier_id_idx").on(t.tierId),
     index("assembly_leaf_inputs_line_group_id_idx").on(t.lineGroupId),
@@ -2782,9 +2801,15 @@ export const assemblyProductionInputs = pgTable(
 export const assemblyLeafOverrides = pgTable(
   "assembly_leaf_overrides",
   {
-    assemblyLeafId: uuid("assembly_leaf_id")
+    // OD-017 · governed cost-input identity (see assembly_leaf_inputs).
+    quoteLeafId: uuid("quote_leaf_id")
       .notNull()
-      .references(() => assemblyLeaves.id, { onDelete: "cascade" }),
+      .references((): AnyPgColumn => quoteLeaves.id, { onDelete: "cascade" }),
+    // Legacy compatibility column. Read by nothing; NULL for a Direct Component.
+    assemblyLeafId: uuid("assembly_leaf_id").references(
+      () => assemblyLeaves.id,
+      { onDelete: "cascade" },
+    ),
     tierId: uuid("tier_id")
       .notNull()
       .references(() => quoteTiers.id, { onDelete: "cascade" }),
@@ -2800,7 +2825,7 @@ export const assemblyLeafOverrides = pgTable(
       .defaultNow(),
   },
   (t) => [
-    primaryKey({ columns: [t.assemblyLeafId, t.tierId] }),
+    primaryKey({ columns: [t.quoteLeafId, t.tierId] }),
     index("assembly_leaf_overrides_tier_id_idx").on(t.tierId),
   ],
 );
@@ -2823,9 +2848,15 @@ export const assemblyLeafOverrides = pgTable(
 export const assemblyLeafTargets = pgTable(
   "assembly_leaf_targets",
   {
-    assemblyLeafId: uuid("assembly_leaf_id")
+    // OD-017 · governed cost-input identity (see assembly_leaf_inputs).
+    quoteLeafId: uuid("quote_leaf_id")
       .notNull()
-      .references(() => assemblyLeaves.id, { onDelete: "cascade" }),
+      .references((): AnyPgColumn => quoteLeaves.id, { onDelete: "cascade" }),
+    // Legacy compatibility column. Read by nothing; NULL for a Direct Component.
+    assemblyLeafId: uuid("assembly_leaf_id").references(
+      () => assemblyLeaves.id,
+      { onDelete: "cascade" },
+    ),
     tierId: uuid("tier_id")
       .notNull()
       .references(() => quoteTiers.id, { onDelete: "cascade" }),
@@ -2841,7 +2872,7 @@ export const assemblyLeafTargets = pgTable(
       .defaultNow(),
   },
   (t) => [
-    primaryKey({ columns: [t.assemblyLeafId, t.tierId] }),
+    primaryKey({ columns: [t.quoteLeafId, t.tierId] }),
     index("assembly_leaf_targets_tier_id_idx").on(t.tierId),
   ],
 );

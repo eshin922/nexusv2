@@ -1,6 +1,7 @@
 export type UnresolvedQuoteCost = {
   quoteLeafId: string | null;
-  assemblyLeafId: string;
+  /** Legacy junction id, or a freight container id. NULL for a Direct Component. */
+  assemblyLeafId: string | null;
   tierId: string;
   tierLabel: string;
   lineGroupId: string;
@@ -14,7 +15,7 @@ export class UnresolvedQuoteCostsError extends Error {
 
   constructor(unresolved: ReadonlyArray<UnresolvedQuoteCost>) {
     const details = unresolved.map((row) => {
-      const attachmentId = row.quoteLeafId ?? row.assemblyLeafId;
+      const attachmentId = row.quoteLeafId ?? row.assemblyLeafId ?? row.lineGroupId;
       if (row.description) return row.description;
       return `${row.leafName} (${row.leafSku ?? "no SKU"}) — attachment ${attachmentId}, tier ${row.tierLabel} (${row.tierId}), line ${row.lineGroupId}`;
     });

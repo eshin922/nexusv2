@@ -239,7 +239,9 @@ test("production data anchors to the lowest-position leaf, by canonical order", 
     }),
   );
   assert.equal(built.production.length, 1);
-  assert.equal(built.production[0].quoteSkuId, "al-1"); // position 0
+  // OD-017 · same leaf, named canonically. `ql-grouped-1` IS the position-0
+  // attachment `al-1` used to stand for; the anchor did not move.
+  assert.equal(built.production[0].quoteSkuId, "ql-grouped-1"); // position 0
 });
 
 // ---------------------------------------------------------------------------
@@ -307,10 +309,15 @@ test("identity is null, never the legacy id, when it cannot be resolved", () => 
 
 /** Per-leaf packaging so the contributors carry genuinely different values. */
 function packagingInputs() {
-  const line = (assemblyLeafId: string, unitCost: string) => ({
-    assemblyLeafId,
+  // OD-017 · cost rows key on the canonical `quote_leaf_id`. The VALUES below
+  // are unchanged from the legacy-keyed fixture on purpose: if re-keying moved
+  // any commercial number, every expectation downstream would shift. They do
+  // not, which is the evidence that this was an identity change and not an
+  // economic one.
+  const line = (quoteLeafId: string, unitCost: string) => ({
+    quoteLeafId,
     tierId: TIER_A,
-    lineGroupId: `lg-${assemblyLeafId}`,
+    lineGroupId: `lg-${quoteLeafId}`,
     pricingVendorHubspotCompanyId: null,
     pricingVendorNameSnapshot: null,
     unitCost,
@@ -318,7 +325,11 @@ function packagingInputs() {
     category: "Primary",
     markupPct: null,
   });
-  return [line("al-1", "10"), line("al-2", "20"), line("al-3", "30")];
+  return [
+    line("ql-grouped-1", "10"),
+    line("ql-grouped-2", "20"),
+    line("ql-grouped-3", "30"),
+  ];
 }
 
 const withCosts = () => args({ assemblyLeafInputs: packagingInputs() });

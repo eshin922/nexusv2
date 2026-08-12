@@ -449,6 +449,13 @@
       "when": 1786320002000,
       "tag": "0065_durable_attempt_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1786320003000,
+      "tag": "0066_direct_component_cost_identity",
+      "breakpoints": true
     }
   ]
 }

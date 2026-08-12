@@ -22,7 +22,23 @@ test("every legacy-keyed production mutation reaches canonical identity through 
   // One fewer since deleteAssemblyLeafInputLine was removed: Costs no longer
   // has a structure-delete path to guard.
   assert.equal((packaging.match(/quoteForAssemblyLeafInputLineGroup\(/g) ?? []).length, 1);
-  assert.equal((costing.match(/quoteForAssemblyLeaf\(/g) ?? []).length, 2);
+  // OD-017 · the two sparse-cell mutations in costing.ts now reach canonical
+  // identity DIRECTLY, through `quoteForQuoteLeaf` →
+  // `resolveCanonicalAttachmentForOperator` → `lookupCanonicalAttachment`.
+  // The invariant is unchanged — every mutation reaches canonical identity
+  // through a governed guard — but these two no longer need a legacy junction
+  // to get there, which is what makes them reachable for a Direct Component.
+  assert.equal((costing.match(/quoteForQuoteLeaf\(/g) ?? []).length, 2);
+  assert.doesNotMatch(costing, /quoteForAssemblyLeaf\(/);
+  // Definition plus its single call site inside the canonical guard.
+  assert.equal(
+    (guards.match(/resolveCanonicalAttachmentForOperator\(/g) ?? []).length,
+    2,
+  );
+  assert.equal(
+    (guards.match(/lookupCanonicalAttachment\((?!ByLegacyId)/g) ?? []).length,
+    1,
+  );
   assert.doesNotMatch(packaging, /lookupCanonicalAttachmentByLegacyId/);
   assert.doesNotMatch(costing, /lookupCanonicalAttachmentByLegacyId/);
 });

@@ -3048,6 +3048,7 @@ async function cloneFreightWorksheet(
   newQuoteId: string,
   assemblyIdMap: Map<string, string>,
   assemblyLeafIdMap: Map<string, string>,
+  quoteLeafIdMap: Map<string, string>,
   tierIdMap: Map<string, string>,
 ) {
   const subcategoryIdMap = new Map<string, string>();
@@ -3068,9 +3069,13 @@ async function cloneFreightWorksheet(
   }
   for (const row of workbook.memberships) {
     const freightSubcategoryId = subcategoryIdMap.get(row.freightSubcategoryId);
-    const assemblyLeafId = assemblyLeafIdMap.get(row.assemblyLeafId);
-    if (!freightSubcategoryId || !assemblyLeafId) throw new Error("clone: freight membership has unmapped identity");
-    await tx.insert(freightSubcategoryItems).values({ freightSubcategoryId, assemblyLeafId, source: row.source, fieldProvenance: row.fieldProvenance });
+    // OD-017 · membership clones by canonical leaf. The legacy id rides along
+    // only to keep the compatibility column truthful; NULL for a Direct
+    // Component, and read by nothing.
+    const quoteLeafId = quoteLeafIdMap.get(row.quoteLeafId);
+    const assemblyLeafId = row.assemblyLeafId ? assemblyLeafIdMap.get(row.assemblyLeafId) ?? null : null;
+    if (!freightSubcategoryId || !quoteLeafId) throw new Error("clone: freight membership has unmapped identity");
+    await tx.insert(freightSubcategoryItems).values({ freightSubcategoryId, quoteLeafId, assemblyLeafId, source: row.source, fieldProvenance: row.fieldProvenance });
   }
   for (const row of workbook.destinations) {
     const freightSubcategoryId = subcategoryIdMap.get(row.freightSubcategoryId);
@@ -3341,16 +3346,18 @@ async function cloneQuoteGraph(
         }
         await tx.insert(assemblyLeafInputs).values(
           sourceLeafInputs.map((r) => {
-            const newLeafId = assemblyLeafIdMap.get(r.assemblyLeafId);
+            const newLeafId = quoteLeafIdMap.get(r.quoteLeafId);
+            const newLegacyId = r.assemblyLeafId ? assemblyLeafIdMap.get(r.assemblyLeafId) ?? null : null;
             const newTierId = tierIdMap.get(r.tierId);
             const newLineGroupId = lineGroupIdMap.get(r.lineGroupId);
             if (!newLeafId || !newTierId || !newLineGroupId) {
               throw new Error(
-                `clone: assembly_leaf_inputs unmapped ref (leaf=${r.assemblyLeafId}, tier=${r.tierId}, lineGroup=${r.lineGroupId})`,
+                `clone: assembly_leaf_inputs unmapped ref (leaf=${r.quoteLeafId}, tier=${r.tierId}, lineGroup=${r.lineGroupId})`,
               );
             }
             return {
-              assemblyLeafId: newLeafId,
+              quoteLeafId: newLeafId,
+              assemblyLeafId: newLegacyId,
               tierId: newTierId,
               lineGroupId: newLineGroupId,
               sortOrder: r.sortOrder,
@@ -3384,15 +3391,17 @@ async function cloneQuoteGraph(
       if (sourceOverrides.length > 0) {
         await tx.insert(assemblyLeafOverrides).values(
           sourceOverrides.map((r) => {
-            const newLeafId = assemblyLeafIdMap.get(r.assemblyLeafId);
+            const newLeafId = quoteLeafIdMap.get(r.quoteLeafId);
+            const newLegacyId = r.assemblyLeafId ? assemblyLeafIdMap.get(r.assemblyLeafId) ?? null : null;
             const newTierId = tierIdMap.get(r.tierId);
             if (!newLeafId || !newTierId) {
               throw new Error(
-                `clone: assembly_leaf_overrides unmapped ref (leaf=${r.assemblyLeafId}, tier=${r.tierId})`,
+                `clone: assembly_leaf_overrides unmapped ref (leaf=${r.quoteLeafId}, tier=${r.tierId})`,
               );
             }
             return {
-              assemblyLeafId: newLeafId,
+              quoteLeafId: newLeafId,
+              assemblyLeafId: newLegacyId,
               tierId: newTierId,
               sellPriceOverride: r.sellPriceOverride,
             };
@@ -3413,15 +3422,17 @@ async function cloneQuoteGraph(
       if (sourceTargets.length > 0) {
         await tx.insert(assemblyLeafTargets).values(
           sourceTargets.map((r) => {
-            const newLeafId = assemblyLeafIdMap.get(r.assemblyLeafId);
+            const newLeafId = quoteLeafIdMap.get(r.quoteLeafId);
+            const newLegacyId = r.assemblyLeafId ? assemblyLeafIdMap.get(r.assemblyLeafId) ?? null : null;
             const newTierId = tierIdMap.get(r.tierId);
             if (!newLeafId || !newTierId) {
               throw new Error(
-                `clone: assembly_leaf_targets unmapped ref (leaf=${r.assemblyLeafId}, tier=${r.tierId})`,
+                `clone: assembly_leaf_targets unmapped ref (leaf=${r.quoteLeafId}, tier=${r.tierId})`,
               );
             }
             return {
-              assemblyLeafId: newLeafId,
+              quoteLeafId: newLeafId,
+              assemblyLeafId: newLegacyId,
               tierId: newTierId,
               clientTargetPricePerUnit: r.clientTargetPricePerUnit,
             };
@@ -3472,6 +3483,7 @@ async function cloneQuoteGraph(
     newQuoteId,
     assemblyIdMap,
     assemblyLeafIdMap,
+    quoteLeafIdMap,
     tierIdMap,
   );
 

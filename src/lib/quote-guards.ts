@@ -17,7 +17,9 @@ import {
 } from "./action-result";
 import {
   CanonicalAttachmentResolutionError,
+  canonicalQuoteLeafId,
   legacyAssemblyLeafId,
+  lookupCanonicalAttachment,
   lookupCanonicalAttachmentByLegacyId,
   type CanonicalAttachmentIdentity,
 } from "./product-structure/canonical-attachment-identity";
@@ -108,6 +110,27 @@ async function describeAttachmentFailure(assemblyLeafId: string) {
     candidateCount,
     reason,
   };
+}
+
+/**
+ * OD-017 · canonical form of the operator-boundary resolver. Takes the governed
+ * `quote_leaf_id` and succeeds for BOTH shapes — a Product-member Component and
+ * a Direct Component — because `lookupCanonicalAttachment` treats a direct-form
+ * row (no legacy mapping) as valid rather than as drift.
+ */
+async function resolveCanonicalAttachmentForOperator(
+  quoteLeafId: string,
+): Promise<CanonicalAttachmentIdentity> {
+  try {
+    return await lookupCanonicalAttachment(canonicalQuoteLeafId(quoteLeafId));
+  } catch (e) {
+    if (!(e instanceof CanonicalAttachmentResolutionError)) throw e;
+    console.error(
+      "[canonical-attachment] canonical resolution failed at operator write boundary",
+      { quoteLeafId, error: e.message },
+    );
+    throw new ActionGuardError(ERR.DATA_INTEGRITY, ATTACHMENT_INTEGRITY_MESSAGE);
+  }
 }
 
 /** Resolve at an operator boundary: hard failure becomes a governed result. */
@@ -229,6 +252,46 @@ export async function quoteForAssembly(
   const { quote, assembly } = rows[0];
   requireDraft(quote);
   return { quote, assembly };
+}
+
+/**
+ * OD-017 · resolve quote ownership through (quote_leaf → quote) and assert
+ * draft. THE governed cost-input guard.
+ *
+ * Its predecessor `quoteForAssemblyLeaf` reaches the quote via
+ * `assemblies`, so a Direct Component — which has no assembly — could never
+ * pass it. This one joins the canonical attachment straight to its quote, so
+ * both shapes resolve through one path with no branch on structure.
+ *
+ * `assembly` is returned as `null` for a Direct Component. Callers that
+ * genuinely need assembly-level state (production policy, service fees) must
+ * handle the null; callers doing leaf-level cost work should not consult it.
+ */
+export async function quoteForQuoteLeaf(quoteLeafId: string): Promise<{
+  quote: Quote;
+  quoteLeaf: typeof quoteLeaves.$inferSelect;
+  assembly: Assembly | null;
+  attachment: CanonicalAttachmentIdentity;
+}> {
+  const attachment = await resolveCanonicalAttachmentForOperator(quoteLeafId);
+  const rows = await db
+    .select({ quote: quotes, quoteLeaf: quoteLeaves, assembly: assemblies })
+    .from(quoteLeaves)
+    .innerJoin(quotes, eq(quotes.id, quoteLeaves.quoteId))
+    .leftJoin(assemblies, eq(assemblies.id, quoteLeaves.assemblyId))
+    .where(eq(quoteLeaves.id, quoteLeafId))
+    .limit(1);
+  if (rows.length === 0)
+    throw new ActionGuardError(ERR.NOT_FOUND, "Quote leaf not found");
+  const { quote, quoteLeaf, assembly } = rows[0];
+  if (attachment.quoteId !== quote.id || attachment.leafId !== quoteLeaf.leafId) {
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      "Commercial attachment identity does not match its Quote membership.",
+    );
+  }
+  requireDraft(quote);
+  return { quote, quoteLeaf, assembly, attachment };
 }
 
 // Resolve quote ownership through (assembly_leaf → assembly → quote)

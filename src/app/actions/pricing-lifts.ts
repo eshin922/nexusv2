@@ -316,18 +316,18 @@ export async function applyPricingAdjustments(
     }
     const storedGlobalAdj = normalizeGlobalAdj(input.globalAdjPct);
 
-    // ── the one identity crossing ─────────────────────────────────────────
+    // ── legacy compatibility lookup ───────────────────────────────────────
     //
-    // Canonical → legacy junction, for the direct prices only. One query, and
-    // it fails closed: an attachment carrying no junction row (OD-017's direct
-    // attachment) cannot hold a direct price today, and saying so is better
-    // than writing four chips out of five and reporting success.
+    // OD-017 REMOVED the identity crossing this used to be. Overrides key
+    // canonically now, so there is no canonical→legacy translation on the read
+    // or write path, and the refusal that used to live here — "a direct price
+    // cannot yet be set on this line" — is gone with it. A Direct Component can
+    // hold a direct price because the table can now express one.
+    //
+    // What remains is a one-query lookup used ONLY to keep the legacy
+    // compatibility column truthful while it still exists. It is not authority:
+    // a missing junction yields NULL rather than a rejection.
     const legacyByCanonical = new Map<string, string>();
-    const canonicalByLegacy = new Map<string, string>();
-    //
-    // Scoped through `quote_leaves`, which is the FK that says which quote a
-    // junction belongs to. Reaching the quote any other way is what OD-017 is
-    // about.
     const junctionRows = await db
       .select({
         legacyId: assemblyLeaves.id,
@@ -353,15 +353,6 @@ export async function applyPricingAdjustments(
         );
       }
       legacyByCanonical.set(r.canonicalId, r.legacyId);
-      canonicalByLegacy.set(r.legacyId, r.canonicalId);
-    }
-    for (const o of intendedOverrides.values()) {
-      if (!legacyByCanonical.has(o.row.quoteLeafId)) {
-        throw new ActionGuardError(
-          ERR.DATA_INTEGRITY,
-          "A direct price cannot yet be set on this line, so nothing was written.",
-        );
-      }
     }
 
     // ── read what is in effect, diff, write ───────────────────────────────
@@ -378,7 +369,7 @@ export async function applyPricingAdjustments(
 
     const persistedOverrideRows = await db
       .select({
-        legacyId: assemblyLeafOverrides.assemblyLeafId,
+        canonicalId: assemblyLeafOverrides.quoteLeafId,
         tierId: assemblyLeafOverrides.tierId,
         sellPriceOverride: assemblyLeafOverrides.sellPriceOverride,
       })
@@ -398,18 +389,14 @@ export async function applyPricingAdjustments(
     const persistedLifts = new Map(
       persistedLiftRows.map((r) => [applyCellId(r.quoteLeafId, r.tierId), r.liftPct]),
     );
-    // Only the canonically-addressable ones. A persisted override on a junction
-    // with no canonical row is real and in effect but cannot appear in a set
-    // addressed canonically, so its absence from that set is not a removal —
-    // it is unrepresentable. Treating it as a removal would delete a price the
-    // operator never saw, let alone chose to remove.
-    const persistedOverrides = new Map<string, { stored: string; legacyId: string }>();
+    // Every persisted override is canonically addressable now, so the previous
+    // "unrepresentable, therefore skip" branch is gone. It existed to avoid
+    // deleting a price the operator could not see; with one identity domain
+    // there is no such price.
+    const persistedOverrides = new Map<string, { stored: string }>();
     for (const r of persistedOverrideRows) {
-      const canonical = canonicalByLegacy.get(r.legacyId);
-      if (!canonical) continue;
-      persistedOverrides.set(applyCellId(canonical, r.tierId), {
+      persistedOverrides.set(applyCellId(r.canonicalId, r.tierId), {
         stored: r.sellPriceOverride,
-        legacyId: r.legacyId,
       });
     }
 
@@ -481,30 +468,30 @@ export async function applyPricingAdjustments(
       }
 
       for (const { key } of overridesRemoved) {
-        const legacyId = persistedOverrides.get(key)!.legacyId;
-        const { tierId } = parseApplyCellId(key);
+        const { quoteLeafId: canonicalId, tierId } = parseApplyCellId(key);
         await tx
           .delete(assemblyLeafOverrides)
           .where(
             and(
-              eq(assemblyLeafOverrides.assemblyLeafId, legacyId),
+              eq(assemblyLeafOverrides.quoteLeafId, canonicalId),
               eq(assemblyLeafOverrides.tierId, tierId),
             ),
           );
       }
       for (const { key, to } of overridesSet) {
         const { quoteLeafId: canonicalId, tierId } = parseApplyCellId(key);
-        const legacyId = legacyByCanonical.get(canonicalId)!;
         await tx
           .insert(assemblyLeafOverrides)
           .values({
-            assemblyLeafId: legacyId,
+            quoteLeafId: canonicalId,
+            // Legacy compatibility only; NULL for a Direct Component.
+            assemblyLeafId: legacyByCanonical.get(canonicalId) ?? null,
             tierId,
             sellPriceOverride: to,
           })
           .onConflictDoUpdate({
             target: [
-              assemblyLeafOverrides.assemblyLeafId,
+              assemblyLeafOverrides.quoteLeafId,
               assemblyLeafOverrides.tierId,
             ],
             set: { sellPriceOverride: to, updatedAt: new Date() },

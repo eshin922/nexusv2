@@ -78,13 +78,13 @@ const fields = (values: Record<string, string | number | null | undefined>) => {
 function shipmentCoverage(
   productComponents: Component[],
   shipments: Array<{ id: string }>,
-  memberships: Array<{ freightSubcategoryId: string; assemblyLeafId: string }>,
+  memberships: Array<{ freightSubcategoryId: string; quoteLeafId: string }>,
 ) {
   const shipmentIds = new Set(shipments.map((s) => s.id));
   const assignedIds = new Set(
     memberships
       .filter((m) => shipmentIds.has(m.freightSubcategoryId))
-      .map((m) => m.assemblyLeafId),
+      .map((m) => m.quoteLeafId),
   );
   const assigned = productComponents.filter((c) => assignedIds.has(c.id));
   const unassigned = productComponents.filter((c) => !assignedIds.has(c.id));
@@ -281,7 +281,7 @@ function ShipmentLedger({ shipment, index, count, tiers, workbook, components, e
     <div className="fr-schead">
       <div className="fr-eyebrow"><span className="num">{index + 1} of {count}</span><span>what ships</span><span className={shipment.crossesInternationalBorder ? "kind" : undefined}>· {shipment.crossesInternationalBorder ? "import · clears customs" : "domestic · no border"}</span></div>
       <div className="fr-scname"><span className="ships">{shipment.label}</span><span className="from">from {shipment.origin || "not set"}</span>{destinations.length > 1 && <span className={`count${shipment.selectedDestinationId ? "" : " undecided"}`}>{destinations.length} destinations priced</span>}</div>
-      <div className="fr-skus"><span className="k">for</span>{memberships.length === components.filter((item: Component) => item.assemblyId === shipment.assemblyId).length && <span className="fr-chip all">all {memberships.length} SKUs</span>}{memberships.map((membership: any) => { const item = components.find((component: Component) => component.id === membership.assemblyLeafId); return item ? <span className="fr-chip on" key={item.id} title={item.label}>{item.sku || item.label}</span> : null; })}</div>
+      <div className="fr-skus"><span className="k">for</span>{memberships.length === components.filter((item: Component) => item.assemblyId === shipment.assemblyId).length && <span className="fr-chip all">all {memberships.length} SKUs</span>}{memberships.map((membership: any) => { const item = components.find((component: Component) => component.id === membership.quoteLeafId); return item ? <span className="fr-chip on" key={item.id} title={item.label}>{item.sku || item.label}</span> : null; })}</div>
       <div className="fr-fields"><Fact label="carrier" value={shipment.carrierForwarder}/><Fact label="incoterm" value={shipment.incoterm}/><Fact label="journey" value={shipment.journeyLabel}/><Fact label="cargo ready" value={shipment.cargoReadyDate}/><Fact label="treatment" value={shipment.treatment === "pass_through" ? "pass-through" : "bundled · amortised across units"}/></div>
       {destinations.length > 1 && <DecisionSummary shipment={shipment} destinations={destinations} selected={selected} tiers={tiers} workbook={workbook}/>}
       {editable && <ShipmentEdit shipment={shipment} memberships={memberships} components={components} pending={busy(`editShipment:${shipment.id}`)} submit={submit(updateFreightSubcategory, `editShipment:${shipment.id}`)}/>}
@@ -579,7 +579,7 @@ function ShipmentDelete({ shipment, destinationCount, pending, submit }: any) {
 function ShipmentEdit({ shipment, memberships, components, pending, submit }: any) {
   const own = components.filter((item: Component) => item.assemblyId === shipment.assemblyId);
   const selectedCount = own.filter((item: Component) =>
-    memberships.some((row: any) => row.assemblyLeafId === item.id)).length;
+    memberships.some((row: any) => row.quoteLeafId === item.id)).length;
   // Names what is still unrecorded, so completion is readable rather than
   // inferred from which boxes happen to look empty.
   const missing = [
@@ -605,7 +605,7 @@ function ShipmentEdit({ shipment, memberships, components, pending, submit }: an
 <input type="hidden" name="treatment" value={shipment.treatment}/>
       <div className="fr-field check"><label><input type="checkbox" name="crossesInternationalBorder" value="true" defaultChecked={shipment.crossesInternationalBorder}/> crosses a border — it clears customs</label></div>
       <fieldset className="fr-shipment-contents"><legend>Shipment contents <span className="req">at least one</span></legend>
-        {own.map((item: Component) => <label key={item.id}><input type="checkbox" name="assemblyLeafId" value={item.id} defaultChecked={memberships.some((row: any) => row.assemblyLeafId === item.id)}/> {item.label}</label>)}
+        {own.map((item: Component) => <label key={item.id}><input type="checkbox" name="assemblyLeafId" value={item.id} defaultChecked={memberships.some((row: any) => row.quoteLeafId === item.id)}/> {item.label}</label>)}
         <span className="fr-hint">{selectedCount} of {own.length} selected. Assignment says which SKUs the freight is for. It does not divide the cost.</span>
       </fieldset>
       <div className="fr-editfoot">

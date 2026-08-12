@@ -2,14 +2,18 @@ import "server-only";
 
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { assemblies, assemblyLeafInputs, assemblyLeaves, leaves, quoteTiers } from "@/db/schema";
+import { assemblyLeafInputs, leaves, quoteLeaves, quoteTiers } from "@/db/schema";
 import { loadFreightWorkbook } from "./freight-workbook";
 import { assertQuoteCostsResolved, type UnresolvedQuoteCost } from "./quote-cost-completeness-contract";
 
 export async function loadUnresolvedQuoteCosts(quoteId: string): Promise<UnresolvedQuoteCost[]> {
   const [packaging, workbook, tiers] = await Promise.all([
+    // OD-017 · scoped through the canonical attachment. Reaching the quote via
+    // `assemblies` meant an unpriced Direct Component was invisible to this
+    // gate — the quote would have passed the Send check with a missing cost.
+    // This is a correctness fix, not only a plumbing one.
     db.select({
-      quoteLeafId: assemblyLeaves.quoteLeafId,
+      quoteLeafId: assemblyLeafInputs.quoteLeafId,
       assemblyLeafId: assemblyLeafInputs.assemblyLeafId,
       tierId: assemblyLeafInputs.tierId,
       tierLabel: quoteTiers.label,
@@ -17,11 +21,10 @@ export async function loadUnresolvedQuoteCosts(quoteId: string): Promise<Unresol
       leafSku: leaves.sku,
       leafName: leaves.name,
     }).from(assemblyLeafInputs)
-      .innerJoin(assemblyLeaves, eq(assemblyLeaves.id, assemblyLeafInputs.assemblyLeafId))
-      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
-      .innerJoin(leaves, eq(leaves.id, assemblyLeaves.leafId))
+      .innerJoin(quoteLeaves, eq(quoteLeaves.id, assemblyLeafInputs.quoteLeafId))
+      .innerJoin(leaves, eq(leaves.id, quoteLeaves.leafId))
       .innerJoin(quoteTiers, eq(quoteTiers.id, assemblyLeafInputs.tierId))
-      .where(and(eq(assemblies.quoteId, quoteId), isNull(assemblyLeafInputs.unitCost))),
+      .where(and(eq(quoteLeaves.quoteId, quoteId), isNull(assemblyLeafInputs.unitCost))),
     loadFreightWorkbook(quoteId),
     db.select({ id: quoteTiers.id, label: quoteTiers.label }).from(quoteTiers).where(eq(quoteTiers.quoteId, quoteId)),
   ]);

@@ -8,7 +8,7 @@ import {
   freightDestinationTracking,
   freightSubcategories,
   freightSubcategoryItems,
-  assemblyLeaves,
+  quoteLeaves,
   quoteTiers,
 } from "@/db/schema";
 
@@ -38,8 +38,13 @@ export async function loadFreightWorkbook(
     executor.select().from(freightSubcategoryItems).where(inArray(freightSubcategoryItems.freightSubcategoryId, subIds)).orderBy(asc(freightSubcategoryItems.createdAt)),
     executor.select().from(freightDestinations).where(inArray(freightDestinations.freightSubcategoryId, subIds)).orderBy(asc(freightDestinations.displayOrder)),
     executor.select().from(freightCustomsEntries).where(inArray(freightCustomsEntries.freightSubcategoryId, subIds)).orderBy(asc(freightCustomsEntries.createdAt)),
-    executor.select({ id: assemblyLeaves.id, assemblyId: assemblyLeaves.assemblyId, position: assemblyLeaves.position })
-      .from(assemblyLeaves).where(inArray(assemblyLeaves.assemblyId, assemblyIds)).orderBy(asc(assemblyLeaves.position)),
+    // OD-017 · the costing anchor is now the CANONICAL leaf id, because that is
+    // what the math layer keys a leaf by. Same leaf as before, named
+    // canonically: `quote_leaves` is 1:1 with the junction and the attachment
+    // validator rejects any row whose positions disagree, so the lowest-position
+    // member is identical under either ordering.
+    executor.select({ id: quoteLeaves.id, assemblyId: quoteLeaves.assemblyId, position: quoteLeaves.position })
+      .from(quoteLeaves).where(inArray(quoteLeaves.assemblyId, assemblyIds)).orderBy(asc(quoteLeaves.position)),
     executor.select({ id: quoteTiers.id, qty: quoteTiers.qty }).from(quoteTiers).where(eq(quoteTiers.quoteId, quoteId)).orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt)),
   ]);
   const destIds = destinations.map((row) => row.id);
@@ -67,6 +72,7 @@ export async function loadFreightWorkbook(
     costingContext: {
       ownerSkuByAssembly: Object.fromEntries(
         anchors.reduce<Array<[string, string]>>((entries, row) => {
+          if (!row.assemblyId) return entries;
           if (!entries.some(([assemblyId]) => assemblyId === row.assemblyId)) entries.push([row.assemblyId, row.id]);
           return entries;
         }, []),
