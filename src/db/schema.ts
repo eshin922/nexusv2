@@ -3072,9 +3072,19 @@ export const netsuiteSoPushes = pgTable(
     uniqueIndex("netsuite_so_pushes_snapshot_success_unique_idx")
       .on(t.quoteSnapshotId)
       .where(sql`status = 'succeeded' AND quote_snapshot_id IS NOT NULL`),
+    // One LIVE attempt per snapshot. A closed attempt releases its claim.
+    //
+    // The predicate must stay identical to the durable-payload selector in
+    // mark-complete.ts. An attempt that no longer pins the payload must also
+    // no longer occupy the snapshot, or the re-elected attempt has nowhere to
+    // be written. See migration 0065 and the selector's comment for why only
+    // `failed + validation` qualifies (conclusively terminal AND measured
+    // side-effect-free) and why this is not a blanket `status <> 'failed'`.
     uniqueIndex("netsuite_so_pushes_snapshot_attempt_unique_idx")
       .on(t.quoteSnapshotId)
-      .where(sql`quote_snapshot_id IS NOT NULL`),
+      .where(
+        sql`quote_snapshot_id IS NOT NULL AND NOT (status = 'failed' AND error_class = 'validation')`,
+      ),
     // Fast CHECK-then-write lookup.
     index("netsuite_so_pushes_quote_tier_idx").on(
       t.quoteId,

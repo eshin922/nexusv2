@@ -636,6 +636,46 @@ export async function runMarkComplete(
           eq(netsuiteSoPushes.quoteId, quoteId),
           eq(netsuiteSoPushes.quoteSnapshotId, acceptedSnapshotId),
           sql`${netsuiteSoPushes.payloadSnapshot} IS NOT NULL`,
+          // Lifecycle-aware election (2026-08-12). A CLOSED attempt does not
+          // own the snapshot's future retry payload.
+          //
+          // `status` used to be ignored here, so a terminal validation
+          // rejection permanently pinned its own invalid body: every later
+          // retry replayed the known-bad payload and no code repair could ever
+          // reach NetSuite. Found when the Class repair could not take effect
+          // on the Case B retry.
+          //
+          // ONLY `failed + validation` is excluded, and only because the
+          // evidence shows that state is conclusively terminal AND
+          // side-effect-free:
+          //   - NetSuite returned an explicit 4xx validation rejection;
+          //   - no internal id came back;
+          //   - the deal still carried ZERO Sales Orders afterwards (measured,
+          //     not assumed — Walk 1, deal 58332160883);
+          //   - the provider never created a transaction.
+          //
+          // Deliberately NOT a blanket `status <> 'failed'`. Every other
+          // failure keeps pinning, because its outcome is not conclusively
+          // known:
+          //   server  (5xx)   — NetSuite may have committed and failed to reply
+          //   network         — response lost; the POST may have landed
+          //   unknown         — unclassified by definition
+          //   rate_limit/auth/forbidden/not_found — refused before processing,
+          //                     so probably safe, but we have no MEASURED
+          //                     evidence for them and conservatism costs only
+          //                     a stuck payload, never a duplicate order.
+          //
+          // Backstop if a validation failure ever did create a record: the
+          // account's `_dps_ue_prevent_dupplicated_so.js` refuses a second
+          // Sales Order for a deal that already has one (DUPLICATED DEAL).
+          //
+          // MUST stay in lockstep with the partial unique index
+          // `netsuite_so_pushes_snapshot_attempt_unique_idx` (migration 0065),
+          // which uses the identical predicate so an excluded attempt also
+          // releases its claim on the snapshot and a new attempt row can be
+          // inserted. Selector and constraint are one rule expressed twice;
+          // changing one without the other reopens the defect.
+          sql`NOT (${netsuiteSoPushes.status} = 'failed' AND ${netsuiteSoPushes.errorClass} = 'validation')`,
         ),
       )
       .orderBy(asc(netsuiteSoPushes.createdAt))

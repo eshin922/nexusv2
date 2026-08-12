@@ -442,6 +442,13 @@
       "when": 1786320001000,
       "tag": "0064_below_floor_authorization",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1786320002000,
+      "tag": "0065_durable_attempt_lifecycle",
+      "breakpoints": true
     }
   ]
 }
