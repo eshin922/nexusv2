@@ -43,8 +43,17 @@ test("shipment and customs evidence remain editable through business-language co
   for (const field of ["journeyLabel", "treatment", "invoiceReference", "entryDescription"]) {
     assert.match(source, new RegExp(`name=\\"${field}\\"`));
   }
-  assert.match(source, /Bundled · amortised across units/);
-  assert.match(source, /Pass-through/);
+  // OD-001 V1 (2026-08-11) — this previously asserted the operator-facing
+  // "Bundled · amortised across units" / "Pass-through" labels. The choice was
+  // removed by disposition: the customer-view resolver never read `treatment`,
+  // so selecting Pass-through changed nothing a customer saw, and V1 will not
+  // build a pass-through presentation workflow to justify the control.
+  //
+  // Inverted rather than deleted, so the record shows the contract changed and
+  // when. `treatment` is still submitted (asserted above) — the field and its
+  // persisted values survive; only the operator choice is gone.
+  assert.doesNotMatch(source, /Bundled · amortised across units/);
+  assert.doesNotMatch(source, />Pass-through</);
 });
 
 test("Freight inherits commercial-product ownership from its product-group entry point", () => {

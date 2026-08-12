@@ -1,4 +1,44 @@
-# Minimum decision package — C.2, C.3, C.4, OD-001
+# Parity items — dispositions and open decisions
+
+**Dispositioned 2026-08-11 (Edward).** C.2 **CLOSED** for V1 as accepted manual
+NetSuite responsibility. OD-001 **CLOSED** for V1 by removing the unsupported
+operator control. **C.3 and C.4 remain HELD for Accounting** — they are external
+business inputs and must not be replaced by engineering inference.
+
+## C.2 — DISPOSITION (V1)
+
+> **C.2 — V1 accepted manual/post-CREATE NetSuite responsibility. Structured
+> Nexus Ship-to automation deferred post-V1.**
+
+At Sales Order CREATE, Nexus may let NetSuite populate the customer-default
+shipping address, and **does not claim that this is the final fulfilment
+Ship-to**. Accounting reviews and sets the transaction-specific Ship-to in
+NetSuite before downstream fulfilment/invoicing.
+
+**No precedence rule connecting freight destinations to SO Ship-to is
+invented.** The measured facts below are the reason it stays manual, not a plan
+to automate it: no structured address model, `consignee` unpopulated (0 of 11),
+inconsistent `destination` granularity, and divergent destinations already
+reachable on one live quote.
+
+**→ The operational handoff checklist must carry manual Ship-to verification.**
+
+## OD-001 — DISPOSITION (V1)
+
+> Remove the unsupported Pass-through/Bundled operator choice. Preserve the
+> single governed V1 freight behaviour. Pass-through capability is **post-V1,
+> not declined.**
+
+Implemented: the choice is gone from Create Shipment and shipment edit;
+`treatment` is still submitted; the edit path echoes each shipment's own
+persisted value so no historical row is rewritten. Freight/duty/tariff
+arithmetic, markup, quoted sell, Cost Stack attribution and the §2c-certified
+customer presentation are unchanged. Evidence:
+`tests/unit/od-001-freight-treatment-surface.test.ts`.
+
+---
+
+# Original decision package — C.2, C.3, C.4, OD-001
 
 **Everything here is blocked on a decision, not on engineering.** No further
 investigation is proposed. Each item states the established facts, the actual
