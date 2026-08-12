@@ -234,3 +234,97 @@ documentation.
    point and source authority for the customer PO.
 2. **C.4** — are the deposit fields operative inputs to deposit invoicing? If
    yes: lifecycle point and source authority.
+
+---
+
+# §11 · P-1, P-2 and operator-field ownership (2026-08-11)
+
+**Two corrections to §3–§10 above, both material.** That inventory was drawn
+from what SO2698 *received*. Reading the frozen payload and the deal cache shows
+the builder already supports most of the delta — SO2698 simply had no cache row.
+
+## §11.1 · P-1 Business Segment — **NO PAYLOAD CHANGE REQUIRED**
+
+| # | question | answer |
+|---|---|---|
+| 1 | in SO2698's frozen `payload_snapshot`? | **No.** 6 header keys only: `memo`, `entity`, `subsidiary`, `orderStatus`, `custbody_dps_deal_id`, `custbody_dps_payment_terms_text`. Neither `cseg_dps_bus_seg` nor `class` |
+| 2 | which condition suppressed it? | `mark-complete.ts:606` passes `businessSegmentId: dealCache.businessSegmentId`; `sales-orders.ts:142` gates on `if (input.businessSegmentId)`. **Deal `63252890041` has no `hubspot_deals_cache` row at all**, so the value was null and the guard correctly suppressed both fields |
+| 3 | did NetSuite accept / ignore / transform / reject? | **N/A — never transmitted.** NetSuite is exonerated |
+| 4 | governed source value | `hubspot_deals_cache.business_segment_id` (HubSpot deal property) → `{id}` on both `class` and `cseg_dps_bus_seg` |
+| 5 | fixture-specific or general? | **Fixture-specific.** 67 of 70 cached deals carry it — **Nemah = `3`.** SO2698's deal was the synthetic `SMOKE-CB-STEP10-DELETE-ME` fixture |
+
+**The conditional guard behaved correctly on absent data.** The Case B push on
+Nemah will emit `class` and `cseg_dps_bus_seg`. No repair.
+
+Residual, small: 3 of 70 deals have no `business_segment_id`, so those orders
+would carry no Business Segment. Arguably correct — do not invent a segment —
+but it is a real conditional gap worth knowing.
+
+## §11.2 · P-2 `custcol_dps_hubspot_line` — **NO PAYLOAD CHANGE REQUIRED**
+
+Populated on **1,731 of 4,864** SO lines (35.6%), across 2023–2026.
+
+**Decisive on purpose:** the values are `1, 2, 3, 4…` — 650 ones, 387 twos, 248
+threes, 137 fours, decaying. That is a **line ordinal**, not an identifier. A
+HubSpot line-item ID would be high-cardinality and unique (like the
+`2015042158` this codebase stores as `hubspot_product_id`).
+
+So it records the **position of a line within a HubSpot deal's line items** —
+and **Nexus quote lines are not HubSpot deal line items.** They are produced
+from the assembly tree. Populating it would fabricate a reference to a structure
+that does not exist for these orders, and the real identity is already carried
+by `custcol_dps_sku`, which Nexus does send.
+
+**Classification: legacy-only metadata superseded by Nexus identifiers.**
+
+**Stated limit:** I cannot enumerate SuiteScripts or saved searches from this
+integration, so I cannot prove *nothing* reads it. If some report groups by it,
+Nexus-created lines will be absent from that grouping. That is the residual
+risk, and it is a reporting question rather than a payload one.
+
+## §11.3 · Operator-field ownership — three of four are already HubSpot-derived
+
+`hubspot_deals_cache` carries far more than §3 credited:
+
+| field | cache column | populated | builder support | payload target |
+|---|---|---|---|---|
+| **Project Manager** | `pm_id` / `pm_name` / `pm_email` | **61 / 70** | `input.projectManagerNsId` → `sales-orders.ts:140` | `custbody_project_manager` |
+| **Project Services** | `project_service_s` | **69 / 70** | `input.projectServiceS` → `:125` | `custbody_dps_project_service_s` |
+| **Project Source** | `sourcing_location` | **69 / 70** | `input.projectSourceId` → `:129`, via `resolveProjectSource` label→id | `custbody_dps_project_source` |
+| **COP Description** | — none — | 0 | none | — |
+
+| field | authoritative source | required at CREATE? | derived? | Accounting maintains? | required for V1 downstream? |
+|---|---|---|---|---|---|
+| Project Manager | HubSpot deal (`pm_id`) | no | **HubSpot-derived, already wired** | no | not established |
+| Project Services | HubSpot deal | no | **HubSpot-derived, already wired** | no | not established |
+| Project Source | HubSpot deal `sourcing_location` | no | **HubSpot-derived, already wired** | no | not established |
+| **COP Description** | **operator, in NetSuite** | no | **no** | post-CREATE | not established |
+
+**Project Manager needs no invented mapping.** The concern does not arise:
+`projectManagerNsId` is already a NetSuite id in the builder's contract. What is
+*not* verified is how `pm_id` becomes that NetSuite id — that resolution step
+should be confirmed before relying on it, but no new mapping needs designing.
+
+**COP Description is the only true manual field** of the four → operational
+handoff list.
+
+## §11.4 · C.3 — correction to §5
+
+**§5 said "Nexus currently has no governed customer-PO capture." That was
+wrong.** Nexus has capture and writes it to the wrong field:
+
+- `hubspot_deals_cache.client_po` exists and is populated on **3 of 70** deals —
+  samples `13969`, `6321`, `PO1005`, which are exactly the values legacy orders
+  carry in `otherRefNum`. **SO2646's `otherRefNum` is `13969`**, and `13969` is
+  the cached `client_po` for Epicuren's deal.
+- `sales-orders.ts:131` writes it to **`custbody_dps_client_po`** — the field
+  populated on **0 of 699** Sales Orders.
+- `otherRefNum` — populated on **684 of 699** — is **never written by Nexus**.
+
+So the customer PO is captured, carried, and then written to a field nothing has
+ever used.
+
+**This does not change the C.3 hold.** Accounting still owns "which field is
+operationally consumed". But the decision is now a one-line redirect of an
+existing wired path rather than new capture — and the coverage question
+(3 of 70 deals carry a PO) is part of what that answer must address.
