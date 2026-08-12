@@ -5640,6 +5640,36 @@ any statement of the form "these failures are pre-existing." Ad hoc runners
 remain fine for iterating on a single file — just never for a number that
 appears in a report.
 
+### A green test suite does not establish that the code compiles
+
+**Banked 2026-08-12 from the `788305c` certification commit.**
+
+`npm run test:unit` runs under `--experimental-strip-types`, which **erases**
+types rather than checking them. A file with a genuine type error executes
+happily and reports green. The suite is structurally incapable of representing a
+compilation failure, so its silence about one is not evidence.
+
+**Reference moment.** `788305c` shipped with `npx tsc --noEmit` failing: a test
+spy typed `as never` erased the object type and broke property access in the
+falsification test. `test:unit` reported 996/996. The `tsc` run had happened
+BEFORE the test file was written and was not repeated afterwards, so both
+measurements were individually true and jointly misleading.
+
+**Rule.** A green engineering claim requires BOTH, run AFTER the last edit:
+
+```
+npx tsc --noEmit      # compilation
+npm run test:unit     # behaviour
+```
+
+This applies to edits to **tests** exactly as much as to implementation — the
+miss here was in a test file. An earlier `tsc` run does not cover later test
+edits.
+
+Same family as the grep that could not match numeric differences and the `catch`
+that reported "missing" for a read failure: a measurement taken with an
+instrument that cannot express the failure being excluded.
+
 ## Drizzle journal `hash` is a content hash, not a filename
 
 **Standing rule — banked 2026-08-11 from the `0064` application to the shared

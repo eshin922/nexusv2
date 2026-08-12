@@ -72,6 +72,33 @@ deployed environment can answer.
 
 ---
 
+## BLOCKER 2 - Dispose of `/api/certification-status` before release
+
+**Status: ACTIVE - the endpoint is public and unauthenticated.**
+
+`GET /api/certification-status` was built for the certification proof: it is the
+only way to establish suppression state from the runtime serving the UI, which
+is why it is public (auth-gating it makes the check unanswerable from the
+runtime - the exact failure mode it rules out).
+
+**A certification observability endpoint must not become a permanent production
+surface merely because it was useful during validation.** Before release,
+explicitly choose ONE and record the choice here:
+
+- [ ] **(a) Remove it.** Delete the route and its middleware public-matcher
+      entry. Cleanest if no production need exists.
+- [ ] **(b) Restrict it.** Require admin auth, or bind it to a non-public path.
+      Note this REMOVES its value as a pre-session runtime probe.
+- [ ] **(c) Prove public exposure is intentionally safe.** Document that the
+      response contains only a boolean, a fixed banner, a fixed reason, a
+      contract path, an env-var NAME (never its value), a pid, and a timestamp
+      - no secrets, no configuration values, no customer or deal data. If
+      chosen, state explicitly that the pid disclosure is accepted.
+
+Default if undecided at release time: **(a) remove**. Absence is the safe state.
+
+---
+
 ## Cross-references
 
 - `docs/validation/hubspot-stage-trigger-finding.md` — the production workflow

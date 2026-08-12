@@ -30,10 +30,44 @@ export const runtime = "nodejs";
 
 export async function GET() {
   const state = hubspotAcceptSyncState();
+
+  // The FLAG is not the guarantee — the composed provider is. The dependency
+  // graph is memoized for the process lifetime, and Next dev reloads
+  // `.env.local` WITHOUT restarting, so a runtime that composed its graph while
+  // suppression was off keeps an undecorated provider while the flag reads
+  // SUPPRESSED. Interrogate the provider that would actually be used.
+  const { getApplicationDependencies } = await import(
+    "@/lib/integrations/composition"
+  );
+  const { isProviderCertificationSuppressed } = await import(
+    "@/lib/integrations/hubspot-certification-suppression"
+  );
+  const { hubspot } = await getApplicationDependencies();
+  const providerSuppressed = isProviderCertificationSuppressed(hubspot);
+
+  // Both layers must agree. Disagreement is reported as its own state rather
+  // than resolved in favour of either side.
+  const effective =
+    state.suppressed && providerSuppressed
+      ? "SUPPRESSED"
+      : !state.suppressed && !providerSuppressed
+        ? "ENABLED"
+        : "INCONSISTENT";
+
   return NextResponse.json(
     {
-      hubspotAcceptSync: state.suppressed ? "SUPPRESSED" : "ENABLED",
-      suppressed: state.suppressed,
+      hubspotAcceptSync: effective,
+      flagSuppressed: state.suppressed,
+      providerSuppressed,
+      ...(effective === "INCONSISTENT"
+        ? {
+            warning:
+              "Flag and composed provider disagree. The dependency graph is " +
+              "memoized per process; restart the runtime so the provider is " +
+              "composed under the current flag. Do NOT proceed on this state.",
+          }
+        : {}),
+      suppressed: state.suppressed && providerSuppressed,
       banner: state.banner,
       reason: state.reason,
       // Distinguishes "this runtime has the suppression code" from "this

@@ -36,10 +36,37 @@ export class HubspotWriteSuppressedError extends Error {
   }
 }
 
+/**
+ * Marker proving a provider instance is ACTUALLY decorated.
+ *
+ * The env flag and the composed graph can disagree. `getApplicationDependencies`
+ * memoizes for the process lifetime (`dependenciesPromise ??=`), so a runtime
+ * that composed its graph while suppression was OFF keeps an UNDECORATED
+ * provider even after the env is reloaded — Next dev reloads `.env.local`
+ * without restarting. Reading the flag would report SUPPRESSED while this hard
+ * boundary is absent.
+ *
+ * So the probe must interrogate the provider it would actually use, not the
+ * variable that was meant to select it.
+ */
+export const CERTIFICATION_SUPPRESSED_MARKER = Symbol.for(
+  "nexus.hubspot.certificationSuppressed",
+);
+
+export function isProviderCertificationSuppressed(
+  provider: HubSpotOperations,
+): boolean {
+  return (
+    (provider as unknown as Record<symbol, unknown>)[
+      CERTIFICATION_SUPPRESSED_MARKER
+    ] === true
+  );
+}
+
 export function withCertificationSuppression(
   base: HubSpotOperations,
 ): HubSpotOperations {
-  return {
+  const decorated: HubSpotOperations = {
     ...base,
 
     updateDealStage: async (dealId, _stageId, _opts) => {
@@ -56,4 +83,13 @@ export function withCertificationSuppression(
       );
     },
   };
+
+  // Non-enumerable so it never leaks into spreads, logs or serialization; the
+  // marker is an identity assertion about this object, not part of the
+  // provider contract.
+  Object.defineProperty(decorated, CERTIFICATION_SUPPRESSED_MARKER, {
+    value: true,
+    enumerable: false,
+  });
+  return decorated;
 }
