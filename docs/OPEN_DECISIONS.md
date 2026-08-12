@@ -320,6 +320,34 @@ decision to drop it.
 
 ### OD-017 · Cost inputs key on `assembly_leaf_id`, blocking ASY-optional authoring
 
+> **RESOLVED 2026-08-12 — migration `0066` + 15-module conversion (`d6a1df2`).**
+> `quote_leaf_id` is the sole cost-input identity. The
+> `assemblyLeafId ?? quoteLeafId` fallback is REMOVED, not generalised.
+> Governed suite 956/956 including 14 OD-017 regressions and an explicit
+> falsification of the pre-`0066` state.
+>
+> Re-keying the tables was **necessary and not sufficient**: three loaders
+> reached the quote through `assemblies` and so excluded a Direct Component
+> even once its rows could exist — the cost bundle, packaging materialization,
+> and the **Send completeness gate**, where an unpriced Direct Component would
+> have passed the check with a missing cost.
+>
+> **Attribution evidence.** The S-7 preservation check reports a moved number.
+> It is not one: 20 differences across the live population, all
+> `skuRollups[].skuId`, and all 20 verified as exactly (legacy junction →
+> its canonical leaf). Separately, that baseline **already failed before this
+> work** (`2542310b` vs expected `e9943ad8`) — a pre-existing staleness, NOT
+> re-captured here, needing its own disposition.
+>
+> **Open gap:** `freight_subcategories.assembly_id` is still NOT NULL, so a
+> Direct Component can join any existing shipment but cannot be the sole
+> occupant of a new one in a quote with no assembly. Relaxing it was outside
+> the four-table scope authorised for `0066`.
+>
+> Not in scope by disposition: `assembly_production_inputs` (no production,
+> bulk raw or service fees on a Direct Component in V1); Product Structure
+> snapshotting (**OD-023**); operator-UI reachability (**OD-022**).
+
 **Owner:** Nexus engineering + Edward · **Blocks:** ASY-optional quote authoring.
 Does not block Increment 7.
 
