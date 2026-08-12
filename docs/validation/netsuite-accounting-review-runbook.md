@@ -23,7 +23,46 @@ window between now and execution is not zero.
 
 ---
 
-## 1b · Order A target WITHDRAWN — replacement candidates
+## 1a · ORDER A — steps 1-3 COMPLETE (2026-08-12)
+
+Target **approved and established**: HANKS · Sample Shipping Charges ·
+deal `45429836294` · customer `329665` · deposit Terms · Segment 1 · subsidiary 2.
+
+| step | state |
+|---|---|
+| 2 · zero-SO preflight | **SO-FREE ✓** (status not filtered) |
+| 3 · HubSpot baseline captured | see below — **read-only** |
+| 1 · governed Nexus project | **CREATED · `dc51fc48-02a4-4a7a-93ce-48b9d36dbba5`** |
+
+```
+dealname     : HANKS - Sample Shipping Charges
+dealstage    : 195274339                  ← RESTORE (exact id)
+amount       : 685.92                     ← RESTORE (exact)
+closedate    : 2025-10-09T21:46:58.164Z   ← must remain UNCHANGED
+lastmodified : 2026-07-06T22:12:42.394Z
+```
+
+The project was created by replicating `importDeal` faithfully — `importDeal`
+itself is a Clerk-authenticated server action using `redirect()` and is not
+script-callable. Every value came from `syncDealById`'s cache row; none invented
+(Pattern 53). `client_name` = `HANKS` from the cache, not from the deal name.
+
+**Nothing external mutated.** No HubSpot write, no NetSuite write. The fixture,
+Send and Accept were **not** performed — the HubSpot mutation window is not open.
+
+### Naming discipline for A's scenario
+
+The source deal is named *Sample Shipping Charges*; the control carries synthetic
+flat product lines that have nothing to do with that opportunity. The scenario
+must therefore be labelled so it cannot be misread as describing the real deal:
+
+> scenario label: **`NEXUS V1 ACCOUNTING REVIEW — SANDBOX · flat control`**
+> internal note: *synthetic validation lines; unrelated to the Sample Shipping
+> Charges opportunity.*
+
+---
+
+## 1b · Original Order A target WITHDRAWN — replacement candidates
 
 **HANKS `54020672837` is withdrawn.** Its live amount is **$1,800,000** and the
 review order would temporarily overwrite it to ~$4,500. That is unnecessary
