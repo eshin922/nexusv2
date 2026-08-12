@@ -27,6 +27,13 @@ test("selected worksheet shipment replaces legacy freight and contributes once",
 test("loader reaches only the selected destination and maps one assembly anchor", async () => {
   const source = await readFile(new URL("../../src/app/actions/costing.ts", import.meta.url), "utf8");
   assert.match(source, /eq\(freightDestinations\.id, freightSubcategories\.selectedDestinationId\)/);
-  assert.match(source, /if \(!anchorByAssembly\.has\(anchor\.assemblyId\)\)/);
+  // OD-017 · the anchor is CANONICAL and the assembly may be absent, so the
+  // guard gained a null check. One anchor per assembly is still the rule.
+  assert.match(source, /anchor\.assemblyId && !anchorByAssembly\.has\(anchor\.assemblyId\)/);
+  assert.match(
+    source,
+    /from\(quoteLeaves\)\.where\(inArray\(quoteLeaves\.assemblyId, assemblyIds\)\)/,
+    "the worksheet anchor must be a canonical quote_leaf id, not a legacy junction id",
+  );
   assert.doesNotMatch(source.slice(source.indexOf("loadWorksheetFreightForQuote"), source.indexOf("Slice 11.5", source.indexOf("loadWorksheetFreightForQuote"))), /freightSubcategoryItems/);
 });

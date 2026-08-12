@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { computeShipmentContribution } from "../../src/lib/costing.ts";
 
 // ============================================================================
 // Freight shipment membership — create-time SKU selection
@@ -270,9 +271,28 @@ test("Pattern 47(f) is recorded in the pattern library", () => {
 });
 
 test("freight totals are unaffected by membership — it is descriptive only", () => {
-  // Nothing in the costing path may read membership. If this ever fails, a
-  // membership edit has become capable of moving a price, which contradicts
-  // the Design Authority and would make assignment commercially load-bearing.
+  // The costing path may not read membership. If this fails, a membership edit
+  // has become capable of moving a price, which contradicts the Design
+  // Authority and would make assignment commercially load-bearing.
+  //
+  // OD-017 NARROWED THIS RULE, and the narrowing is stated rather than absorbed.
+  //
+  // A shipment may now have no assembly, and such a shipment has nothing BUT
+  // its membership relating it to a commercial leaf — so its costing anchor is
+  // necessarily membership-derived. Two things keep that from being the defect
+  // this test exists to catch:
+  //
+  //   1. It DIVIDES NOTHING. No share, no allocation, no split. The whole
+  //      shipment amount attributes to a single anchor leaf exactly as before,
+  //      so quote- and tier-level freight totals are untouched by membership.
+  //      That is the property this test is named for, and it is now asserted
+  //      behaviourally below rather than inferred from the absence of a symbol.
+  //   2. It cannot reach an assembly-owned shipment. Those keep deriving their
+  //      anchor from the product, so no existing quote's attribution moves.
+  //
+  // Derivation lives in `freight-workbook.ts` beside the assembly anchor;
+  // costing consumes anchors and still does not compute them. The grep below is
+  // retained for the modules that must never touch membership at all.
   for (const [name, source] of [
     ["costing.ts", costing],
     ["costing-adapter.ts", adapter],
@@ -282,4 +302,23 @@ test("freight totals are unaffected by membership — it is descriptive only", (
       `${name} must not consume shipment membership`,
     );
   }
+});
+
+test("membership changes which leaf anchors a Direct-only shipment, never the total", () => {
+  // The behavioural form of the invariant above. Two different membership sets
+  // over the SAME shipment amount must produce the same tier freight total —
+  // if membership could divide cost, these would differ.
+  const shipment = (ownerSkuId: string) => ({
+    tierUnits: 1000,
+    freightAmount: 500,
+    freightMarkupPct: 0,
+    dutyAmount: 100,
+    dutyMarkupPct: 0,
+    tariffAmount: 50,
+    tariffMarkupPct: 0,
+    ownerSkuId,
+  });
+  const a = computeShipmentContribution(shipment("leaf-a"));
+  const b = computeShipmentContribution(shipment("leaf-b"));
+  assert.deepEqual(a, b, "the anchor identity must not change the contribution");
 });

@@ -456,6 +456,20 @@
       "when": 1786320003000,
       "tag": "0066_direct_component_cost_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1786320004000,
+      "tag": "0067_freight_container_not_assembly_owned",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1786320005000,
+      "tag": "0068_freight_identity_guard_canonical",
+      "breakpoints": true
     }
   ]
 }

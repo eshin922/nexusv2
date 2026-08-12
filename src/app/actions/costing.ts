@@ -54,7 +54,7 @@ import {
 import { resolveQuoteCommercialSettings } from "@/lib/commercial-settings";
 import type { CommercialSettingsResolution } from "@/lib/commercial-settings-contract";
 import { buildQuoteCostingInputFromNewModel } from "@/lib/costing-adapter";
-import type { FreightWorkbook } from "@/lib/freight-workbook";
+import { loadShipmentMemberAnchors, type FreightWorkbook } from "@/lib/freight-workbook";
 import type { HydrateSnapshot } from "@/lib/costing-store";
 import {
   parseMarginPercent,
@@ -389,11 +389,31 @@ async function loadWorksheetFreightForQuote(
     .innerJoin(quoteTiers, eq(quoteTiers.id, freightDestinationBreaks.tierId))
     .where(eq(freightSubcategories.quoteId, quoteId));
   if (rows.length === 0) return [];
-  const assemblyIds = [...new Set(rows.map((row) => row.assemblyId))];
-  const anchors = await db.select({ id: assemblyLeaves.id, assemblyId: assemblyLeaves.assemblyId, position: assemblyLeaves.position })
-    .from(assemblyLeaves).where(inArray(assemblyLeaves.assemblyId, assemblyIds)).orderBy(asc(assemblyLeaves.position));
+  // OD-017 · anchors are CANONICAL. This path previously emitted
+  // `assembly_leaves.id`, which the math layer keyed on before the re-key; it no
+  // longer does, so an uncorrected anchor here would name a SKU that does not
+  // exist and worksheet freight would silently vanish from every draft quote.
+  //
+  // Nulls are filtered before `inArray`: a Direct-only shipment has no assembly,
+  // and its anchor comes from membership below.
+  const assemblyIds = [...new Set(rows.map((row) => row.assemblyId).filter((id): id is string => id !== null))];
+  const anchors = assemblyIds.length
+    ? await db.select({ id: quoteLeaves.id, assemblyId: quoteLeaves.assemblyId, position: quoteLeaves.position })
+        .from(quoteLeaves).where(inArray(quoteLeaves.assemblyId, assemblyIds)).orderBy(asc(quoteLeaves.position))
+    : [];
   const anchorByAssembly = new Map<string, string>();
-  for (const anchor of anchors) if (!anchorByAssembly.has(anchor.assemblyId)) anchorByAssembly.set(anchor.assemblyId, anchor.id);
+  for (const anchor of anchors) {
+    if (anchor.assemblyId && !anchorByAssembly.has(anchor.assemblyId)) {
+      anchorByAssembly.set(anchor.assemblyId, anchor.id);
+    }
+  }
+  // Anchor for shipments with no assembly. DERIVED IN THE FREIGHT LIB, not
+  // here: the costing path consumes anchors, it does not compute them. See
+  // `loadShipmentMemberAnchors` for why this narrows — but does not break — the
+  // "membership is descriptive only" invariant.
+  const anchorBySubcategory = await loadShipmentMemberAnchors(
+    [...new Set(rows.map((row) => row.subcategoryId))],
+  );
   const customs = await db.select({
     subcategoryId: freightCustomsEntries.freightSubcategoryId,
     tierId: freightCustomsBreaks.tierId,
@@ -409,8 +429,16 @@ async function loadWorksheetFreightForQuote(
   return rows.map((row) => {
     const duty = charge(row.subcategoryId, row.tierId, "duty");
     const tariff = charge(row.subcategoryId, row.tierId, "tariff");
-    const ownerSkuId = anchorByAssembly.get(row.assemblyId);
-    if (!ownerSkuId) throw new ActionGuardError(ERR.VALIDATION, "Freight-owning commercial product has no costing item");
+    const ownerSkuId = row.assemblyId
+      ? anchorByAssembly.get(row.assemblyId)
+      : anchorBySubcategory.get(row.subcategoryId);
+    if (!ownerSkuId)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        row.assemblyId
+          ? "Freight-owning commercial product has no costing item"
+          : "This shipment has no components, so its freight has nothing to cost against",
+      );
     return {
       freightSubcategoryId: row.subcategoryId,
       ownerSkuId,
@@ -443,8 +471,25 @@ function projectSnapshotWorkbook(
     const destination = workbook.destinations.find((candidate) => candidate.id === row.freightDestinationId);
     const subcategory = workbook.subcategories.find((candidate) => candidate.id === destination?.freightSubcategoryId);
     if (!subcategory) throw new ActionGuardError(ERR.VALIDATION, "Freight snapshot contains a drifting destination mapping");
-    const ownerSkuId = workbook.costingContext.ownerSkuByAssembly[subcategory.assemblyId];
-    if (!ownerSkuId) throw new ActionGuardError(ERR.VALIDATION, "Freight snapshot has no commercial-product costing anchor");
+    // OD-017 · a shipment with no assembly anchors on its own membership. This
+    // is not an assembly requirement reintroduced by another name: a Direct-only
+    // shipment resolves entirely through its recorded membership.
+    //
+    // Assembly-owned shipments deliberately keep the assembly anchor. Their
+    // anchor is the product's lowest-position leaf, which need not be a member
+    // of this particular shipment, so re-deriving it from membership would move
+    // WHICH leaf bears freight on live quotes — a commercial change, not a
+    // structural one, and out of scope here.
+    const ownerSkuId = subcategory.assemblyId
+      ? workbook.costingContext.ownerSkuByAssembly[subcategory.assemblyId]
+      : workbook.costingContext.ownerSkuBySubcategory[subcategory.id];
+    if (!ownerSkuId)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        subcategory.assemblyId
+          ? "Freight snapshot has no commercial-product costing anchor"
+          : "This shipment has no components, so its freight has nothing to cost against",
+      );
     const duty = customsCharge(subcategory.id, row.tierId, "duty");
     const tariff = customsCharge(subcategory.id, row.tierId, "tariff");
     return {

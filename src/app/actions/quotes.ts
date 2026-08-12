@@ -3055,8 +3055,10 @@ async function cloneFreightWorksheet(
   const destinationIdMap = new Map<string, string>();
   const customsEntryIdMap = new Map<string, string>();
   for (const row of workbook.subcategories) {
-    const assemblyId = assemblyIdMap.get(row.assemblyId);
-    if (!assemblyId) throw new Error(`clone: freight subcategory has unmapped assembly ${row.assemblyId}`);
+    // OD-017 · a shipment need not belong to an assembly. Ownership is cloned
+    // where it exists and stays absent where it does not.
+    const assemblyId = row.assemblyId ? assemblyIdMap.get(row.assemblyId) ?? null : null;
+    if (row.assemblyId && !assemblyId) throw new Error(`clone: freight subcategory has unmapped assembly ${row.assemblyId}`);
     const [inserted] = await tx.insert(freightSubcategories).values({
       quoteId: newQuoteId, assemblyId, label: row.label, origin: row.origin,
       carrierForwarder: row.carrierForwarder, incoterm: row.incoterm,

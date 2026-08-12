@@ -310,6 +310,123 @@ test("9 · existing Finished Product costing is unchanged by the re-key", () => 
 });
 
 // ---------------------------------------------------------------------------
+// 9b · DIRECT-ONLY freight. The case OD-017 could not close on until `0067`.
+//
+// Not "a Direct Component joins a Finished Product's shipment" — that already
+// worked once membership was canonical. This is a shipment with NO assembly at
+// all, which the schema forbade until `assembly_id` became nullable.
+// ---------------------------------------------------------------------------
+
+/** A quote whose ONLY commercial line is a Direct Component. No assembly. */
+const directOnly = (over: Partial<BuildQuoteCostingInputFromNewModelArgs> = {}) =>
+  buildQuoteCostingInputFromNewModel(
+    args({
+      assemblies: [],
+      quoteLeafAttachments: attachments().filter((a) => a.assemblyId === null),
+      ...over,
+    }),
+  );
+
+const directOnlyShipment = {
+  freightSubcategoryId: "sub-direct",
+  ownerSkuId: "ql-direct",
+  tierId: TIER_A,
+  treatment: "bundled" as const,
+  tierUnits: 1000,
+  freightAmount: 500,
+  freightMarkupPct: 0,
+  dutyAmount: 100,
+  dutyMarkupPct: 0,
+  tariffAmount: 50,
+  tariffMarkupPct: 0,
+};
+
+test("9b · a direct-only quote carries freight with no assembly anywhere", () => {
+  const input = directOnly({
+    assemblyLeafInputs: [line("ql-direct", TIER_A, "10")],
+    freightShipmentBreaks: [directOnlyShipment],
+  } as Partial<BuildQuoteCostingInputFromNewModelArgs>);
+  // Precondition of the test itself: there is genuinely no assembly to lean on.
+  assert.equal(input.skus.filter((s) => s.skuRole === "assembly").length, 0);
+  assert.equal(input.skus.length, 1);
+
+  const r = computeQuoteCosting(input);
+  const cell = r.skuRollups
+    .find((s) => s.skuId === "ql-direct")!
+    .perTier.find((t) => t.tierId === TIER_A)!;
+  assert.equal(Number(cell.totalContainerFreightBeforeMarkup.toFixed(4)), 0.5);
+  assert.equal(Number(cell.totalDutyTariffBeforeMarkup.toFixed(4)), 0.15);
+});
+
+test("9b · direct-only freight reaches costing EXACTLY once", () => {
+  const r = computeQuoteCosting(
+    directOnly({
+      assemblyLeafInputs: [line("ql-direct", TIER_A, "10")],
+      freightShipmentBreaks: [directOnlyShipment],
+    } as Partial<BuildQuoteCostingInputFromNewModelArgs>),
+  );
+  const rollups = r.skuRollups.filter((s) => s.skuId === "ql-direct");
+  assert.equal(rollups.length, 1);
+  const cell = rollups[0].perTier.filter((t) => t.tierId === TIER_A);
+  assert.equal(cell.length, 1);
+
+  // Exactly once, stated as arithmetic rather than as a count: 10 component
+  // + 0.50 freight + 0.15 duty/tariff. Twice would read 10.65 + 0.65.
+  assert.equal(Number(cell[0].contributionCostPerUnit.toFixed(4)), 10.65);
+});
+
+test("9b · reconciliation includes direct-only freight", () => {
+  const withFreight = computeQuoteCosting(
+    directOnly({
+      assemblyLeafInputs: [line("ql-direct", TIER_A, "10")],
+      freightShipmentBreaks: [directOnlyShipment],
+    } as Partial<BuildQuoteCostingInputFromNewModelArgs>),
+  );
+  const withoutFreight = computeQuoteCosting(
+    directOnly({
+      assemblyLeafInputs: [line("ql-direct", TIER_A, "10")],
+    } as Partial<BuildQuoteCostingInputFromNewModelArgs>),
+  );
+  const tierOf = (r: typeof withFreight) =>
+    r.quoteRollup.find((t) => t.tierId === TIER_A)!;
+  assert.ok(tierOf(withFreight), "the quote rollup resolves with no assembly present");
+  // The tier rollup MOVED by exactly the freight — so freight is included in
+  // reconciliation, not merely present on the leaf.
+  //
+  // The tier breakdown is absolute dollars for the tier, not per-unit: 0.65 per
+  // unit over 1000 units is 650. Both are asserted so the units are explicit
+  // and the two figures have to agree with each other.
+  const perUnit = withFreight.skuRollups
+    .find((s) => s.skuId === "ql-direct")!
+    .perTier.find((t) => t.tierId === TIER_A)!;
+  const freightPerUnit =
+    perUnit.totalContainerFreightBeforeMarkup + perUnit.totalDutyTariffBeforeMarkup;
+  assert.equal(Number(freightPerUnit.toFixed(4)), 0.65);
+
+  const delta =
+    tierOf(withFreight).costBreakdown.freight -
+    tierOf(withoutFreight).costBreakdown.freight;
+  assert.equal(Number(delta.toFixed(4)), 650);
+  assert.equal(Number((freightPerUnit * 1000).toFixed(4)), Number(delta.toFixed(4)));
+});
+
+test("9b · no ASY is synthesized to carry a direct-only shipment", () => {
+  const input = directOnly({
+    assemblyLeafInputs: [line("ql-direct", TIER_A, "10")],
+    freightShipmentBreaks: [directOnlyShipment],
+  } as Partial<BuildQuoteCostingInputFromNewModelArgs>);
+  const r = computeQuoteCosting(input);
+  // Nothing anywhere in the computed result may be an assembly. If freight had
+  // required an owner product, this is where the invented one would appear.
+  assert.equal(input.skus.filter((s) => s.skuRole === "assembly").length, 0);
+  assert.equal(r.skuRollups.filter((s) => s.skuRole === "assembly").length, 0);
+  assert.equal(
+    r.skuRollups.every((s) => s.skuId === "ql-direct"),
+    true,
+  );
+});
+
+// ---------------------------------------------------------------------------
 // 10-13 · Structural contracts. Source-level, because these are properties of
 // the code's shape rather than of any single computation.
 // ---------------------------------------------------------------------------
@@ -377,6 +494,48 @@ test("12 · Freight authoring requires no assembly — membership is canonical",
   // ...and the workbook no longer derives its anchor from the junction.
   assert.doesNotMatch(workbook, /from\(assemblyLeaves\)/);
   assert.match(workbook, /from\(quoteLeaves\)/);
+});
+
+test("14 · the freight container is not ASY-owned, in schema and in the action", () => {
+  const schema = read("src/db/schema.ts");
+  const worksheet = read("src/app/actions/freight-worksheet.ts");
+  const block = /export const freightSubcategories = pgTable\([\s\S]*?\n\);/.exec(schema)!;
+  assert.doesNotMatch(
+    block[0],
+    /assemblyId: uuid\("assembly_id"\)\s*\.notNull\(\)/,
+    "a shipment must not require an assembly",
+  );
+  // Still recorded where it is real — nullable, not removed.
+  assert.match(block[0], /assemblyId: uuid\("assembly_id"\)\.references/);
+  // And the action must not reimpose the requirement it just lost.
+  assert.match(worksheet, /const assemblyId = str\(fd, "assemblyId"\) \|\| null;/);
+  assert.doesNotMatch(
+    worksheet,
+    /if \(!quoteId \|\| !assemblyId \|\|/,
+    "assemblyId must not be a precondition for creating a shipment",
+  );
+});
+
+test("15 · the identity guard validates through quote_leaf_id, not the junction", () => {
+  // The database-layer half of the same rule. Migration 0068 replaced the guard
+  // that resolved membership through `assembly_leaf_id` — a column that is
+  // legitimately NULL for a Direct Component, which made the guard reject it.
+  const file = read("drizzle/0068_freight_identity_guard_canonical.sql");
+  // Assert against the FUNCTION BODY, not the file: the header comment names
+  // the dropped clause in order to explain it, and a whole-file assertion would
+  // read that explanation as the thing it describes.
+  const guard = file.slice(file.indexOf("CREATE OR REPLACE FUNCTION"));
+  assert.match(guard, /SELECT quote_id INTO related_quote FROM quote_leaves WHERE id = NEW\.quote_leaf_id/);
+  // Same-Quote enforcement is PRESERVED — that is the guard's real job.
+  assert.match(guard, /sub_quote <> related_quote THEN/);
+  // Assembly equality is deliberately gone: it cannot be satisfied by a mixed
+  // shipment, and it is the assembly-ownership assumption stated twice.
+  assert.doesNotMatch(guard, /sub_assembly <> related_assembly/);
+  // 0066 and 0067 are applied migrations and must not be edited after the fact.
+  assert.match(
+    read("drizzle/0067_freight_container_not_assembly_owned.sql"),
+    /ALTER COLUMN "assembly_id" DROP NOT NULL/,
+  );
 });
 
 test("13 · the legacy column is retained, nullable, and read by nothing", () => {

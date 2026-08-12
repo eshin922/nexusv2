@@ -2373,13 +2373,19 @@ export const quoteSnapshotFreightInputs = pgTable(
 
 // ---------- Phase 2 worksheet freight replacement ----------
 // V1 is manual entry. V2 import drafts use the same tables and provenance.
-// A subcategory is one shipment owned by one commercial product (assembly).
+// A subcategory is one SHIPMENT — a container, NOT an ASY-owned object.
+//
+// OD-017 · `assembly_id` is nullable. Commercial membership comes from
+// `freight_subcategory_items.quote_leaf_id`; a Direct Component is a governed
+// leaf with no assembly, so requiring one here forced an operator to invent an
+// ASY purely to satisfy a column. The value is still recorded where a shipment
+// genuinely belongs to a Finished Product — it just is not a prerequisite.
 export const freightSubcategories = pgTable(
   "freight_subcategories",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     quoteId: uuid("quote_id").notNull().references(() => quotes.id, { onDelete: "cascade" }),
-    assemblyId: uuid("assembly_id").notNull().references(() => assemblies.id, { onDelete: "cascade" }),
+    assemblyId: uuid("assembly_id").references(() => assemblies.id, { onDelete: "cascade" }),
     label: text("label").notNull(),
     origin: text("origin"),
     carrierForwarder: text("carrier_forwarder"),

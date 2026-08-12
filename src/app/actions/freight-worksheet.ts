@@ -111,12 +111,19 @@ async function audit(userId: string, entityType: string, entityId: string, actio
 export async function createFreightSubcategory(fd: FormData): Promise<ActionResult<{ id: string; quoteId: string; revision: string | null }>> {
   return runAction(async () => {
     const quoteId = str(fd, "quoteId");
-    const assemblyId = str(fd, "assemblyId");
+    // OD-017 · a shipment is a CONTAINER, not an ASY-owned object. `assemblyId`
+    // is OPTIONAL: a quote made only of Direct Components must be able to record
+    // freight without inventing a Finished Product to hang it on. When it IS
+    // supplied it is still fully validated — ownership is recorded where it is
+    // real, and is simply no longer a precondition.
+    const assemblyId = str(fd, "assemblyId") || null;
     const label = str(fd, "label");
     const destination = str(fd, "destination");
-    if (!quoteId || !assemblyId || !label || !destination) throw new ActionGuardError(ERR.VALIDATION, "Shipment context and destination are required");
+    if (!quoteId || !label || !destination) throw new ActionGuardError(ERR.VALIDATION, "Shipment context and destination are required");
     const user = await ensureUser();
-    const { quote, assembly } = await quoteForAssembly(assemblyId);
+    const { quote, assembly } = assemblyId
+      ? await quoteForAssembly(assemblyId)
+      : { quote: await quoteByIdDraft(quoteId), assembly: null };
     if (quote.id !== quoteId) throw new ActionGuardError(ERR.VALIDATION, "Commercial product does not belong to Quote");
     // Shipment membership — which of this product's components travel in this
     // shipment. Descriptive only: it records what the freight is FOR and never
