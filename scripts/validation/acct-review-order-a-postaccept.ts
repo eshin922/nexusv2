@@ -29,8 +29,17 @@
  *       --stage=<pre-accept stage id> --amount=<pre-accept amount> \
  *       --closedate=<pre-accept closedate ISO>
  *
- * Exit codes: 0 = restored and verified (workflow may still have failed, and is
- * reported); 1 = RESTORATION VERIFICATION FAILED — human action required.
+ * EXIT CONTRACT — cleanup success is NOT order success:
+ *   0 · Complete succeeded, provider evidence passed, restoration verified,
+ *       closedate unchanged. Accounting Order A completed and CRM restored.
+ *   2 · Complete and/or provider evidence FAILED, but stage + amount were
+ *       restored and verified. Order failed cleanly; CRM is safe. Do NOT
+ *       start Order B until the failure is classified.
+ *   1 · Restoration failed or unverified. HUMAN INTERVENTION REQUIRED — the
+ *       highest severity outcome, regardless of whether Complete succeeded.
+ *
+ * Both the workflow error and any restoration error are reported when both
+ * exist; cleanup never overwrites the original failure evidence.
  */
 import { eq, desc } from "drizzle-orm";
 import { db } from "@/db";
@@ -119,6 +128,9 @@ let completeResult: unknown = null;
 let soId: string | null = null;
 let tranid: string | null = null;
 let restoreOk = false;
+let closedateOk = false;
+let evidenceOk = false;
+let restoreError: unknown = null;
 let closedateDrift: { before: string | null; after: string | null } | null = null;
 
 // ═══ THE MUTATION WINDOW ════════════════════════════════════════════════════
@@ -201,9 +213,20 @@ if (soId) {
       log(`    item=${l.item} qty=${l.quantity} rate=${l.rate} amount=${l.netamount} class=${l.class ?? "-"}`);
       if (Number(l.netamount) === 0) log(`      ⚠ zero-amount governed commercial line`);
     }
-    log(`  line sum=${sum} · expected ${EXPECTED_TOTAL} · ${sum === EXPECTED_TOTAL ? "MATCH" : "MISMATCH"}`);
+    const totalOk = sum === EXPECTED_TOTAL;
+    log(`  line sum=${sum} · expected ${EXPECTED_TOTAL} · ${totalOk ? "MATCH" : "MISMATCH"}`);
     const groups = (lines.items as any[]).filter((l) => String(l.item ?? "").length && l.quantity === null);
-    log(`  flat-lines-only check: ${groups.length === 0 ? "no group rows detected ✓" : "GROUP ROWS PRESENT ✗"}`);
+    const flatOnly = groups.length === 0;
+    log(`  flat-lines-only check: ${flatOnly ? "no group rows detected ✓" : "GROUP ROWS PRESENT ✗"}`);
+    const zeroLines = (lines.items as any[]).filter((l) => Number(l.netamount) === 0).length;
+    const dealOk = String((head.items[0] as any)?.deal ?? "") === APPROVED_DEAL;
+    log(`  deal id on SO: ${dealOk ? "matches ✓" : "MISMATCH ✗"} · zero-amount lines: ${zeroLines}`);
+
+    // The provider-evidence verdict. Exit 0 requires ALL of it — a partially
+    // correct Accounting artifact is not an Accounting artifact.
+    evidenceOk =
+      totalOk && flatOnly && dealOk && zeroLines === 0 && lines.items.length === 3;
+    log(`  PROVIDER EVIDENCE: ${evidenceOk ? "PASS" : "FAIL"}`);
   } catch (e) {
     log(`  SO evidence read failed: ${(e as Error).message}`);
   }
@@ -222,6 +245,7 @@ try {
   await updateDealStage(APPROVED_DEAL, capturedStage!, { amount: capturedAmount });
   log(`  restore issued · stage ${capturedStage} · amount ${capturedAmount}`);
 } catch (e) {
+  restoreError = e;
   log(`  ✗ RESTORE CALL FAILED: ${(e as Error).message}`);
 }
 
@@ -232,7 +256,7 @@ try {
   const stageOk = after.dealstage === capturedStage;
   // Compare numerically: HubSpot may echo "685.92" or "685.9200".
   const amountOk = Number(after.amount) === capturedAmount;
-  const closedateOk = (after.closedate ?? null) === capturedClosedate;
+  closedateOk = (after.closedate ?? null) === capturedClosedate;
 
   log(`  stage    : ${after.dealstage} ${stageOk ? "✓ restored" : "✗ EXPECTED " + capturedStage}`);
   log(`  amount   : ${after.amount} ${amountOk ? "✓ restored" : "✗ EXPECTED " + capturedAmount}`);
@@ -247,26 +271,64 @@ try {
 
   restoreOk = stageOk && amountOk;
 } catch (e) {
+  restoreError ??= e;
   log(`  ✗ VERIFICATION READ FAILED: ${(e as Error).message}`);
 }
 
 } // ═══ end finally — mutation window closed ═════════════════════════════════
 
 // ── 6 · Verdict. The workflow error survives cleanup. ──────────────────────
+const workflowOk = workflowError === null;
+
 log(`\n── VERDICT ──`);
+log(`  Complete succeeded   : ${workflowOk ? "YES" : "NO"}`);
+log(`  provider evidence    : ${evidenceOk ? "PASS" : "FAIL"}`);
 log(`  restoration verified : ${restoreOk ? "YES" : "NO"}`);
+log(`  closedate unchanged  : ${closedateOk ? "YES" : "NO"}`);
 log(`  sales order          : ${tranid ?? soId ?? "none created"}`);
 log(`  closedate drift      : ${closedateDrift ? "YES — classify before repair" : "none"}`);
+
+// BOTH errors are reported when both exist. A cleanup failure must never
+// overwrite the evidence of why the business step failed — they are different
+// findings with different owners, and collapsing them loses one.
 if (workflowError) {
-  log(`\n  WORKFLOW FAILED — preserved through cleanup, not swallowed:`);
+  log(`\n  WORKFLOW / PROVIDER FAILURE — preserved through cleanup:`);
   log(`  ${(workflowError as Error).stack ?? String(workflowError)}`);
 }
+if (restoreError) {
+  log(`\n  RESTORATION FAILURE — separate finding, reported alongside the above:`);
+  log(`  ${(restoreError as Error).stack ?? String(restoreError)}`);
+}
 
+// ── EXIT CONTRACT ─────────────────────────────────────────────────────────
+//
+// Cleanup success is NOT order success. The two were conflated before: a
+// restored deal exited 0 even when no Accounting artifact existed, which would
+// have read as "Order A done" and licensed starting Order B on a failed order.
+//
+//   1 · restoration failed or unverified   → HUMAN INTERVENTION REQUIRED.
+//       Highest severity, regardless of whether Complete succeeded. A real
+//       commercial deal is left misstated; nothing else outranks that.
+//   2 · order failed, CRM safe             → failed cleanly. Do NOT start B.
+//   0 · order complete AND CRM restored    → the only success.
 if (!restoreOk) {
-  log(`\n  ✗ HANKS deal ${APPROVED_DEAL} is NOT verified restored. HUMAN ACTION REQUIRED.`);
+  log(`\n  ✗ EXIT 1 · HUMAN INTERVENTION REQUIRED`);
+  log(`    HANKS deal ${APPROVED_DEAL} is NOT verified restored.`);
   log(`    Restore manually: stage ${capturedStage} · amount ${capturedAmount}`);
+  log(`    Stop all review-set execution until this deal is clean.`);
   process.exit(1);
 }
-log(`\n  ✓ HANKS deal restored and verified. Mutation window CLOSED.`);
-if (workflowError) log(`    (The Accounting artifact failed; the deal is clean. Classify the failure.)`);
+
+if (!workflowOk || !evidenceOk || !closedateOk) {
+  log(`\n  ⚠ EXIT 2 · Accounting Order A FAILED CLEANLY; CRM state is safe.`);
+  log(`    HANKS restored and verified. The Accounting artifact is not valid.`);
+  if (!workflowOk) log(`    - Complete failed.`);
+  if (!evidenceOk) log(`    - Provider evidence did not pass.`);
+  if (!closedateOk) log(`    - closedate changed; classify the provider behaviour.`);
+  log(`    Do NOT proceed to Order B until the failure is classified.`);
+  process.exit(2);
+}
+
+log(`\n  ✓ EXIT 0 · Accounting Order A COMPLETED and CRM state restored.`);
+log(`    SO ${tranid ?? soId} · HANKS restored and verified. Window CLOSED.`);
 process.exit(0);
