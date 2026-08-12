@@ -5402,6 +5402,15 @@ every listed quantity constant.
 **Two measurement lessons banked from OD-025's repair.** Both produced confident
 false claims before they were caught.
 
+**0. A lookup wrapper that catches errors and returns "missing" cannot
+establish nonexistence.** It reports the same value for "deleted" and "the call
+failed", so a transient failure becomes a false verdict of absence. Absence is a
+claim and needs its own evidence: distinguish `exists` / authoritative
+`not_found` / `read_failed`, and make the third INDETERMINATE rather than
+folding it into the second. Banked from OD-027, where the Bottle/Box
+nonexistence finding was only valid because the reads were repeated with errors
+surfaced AND a known-good control succeeded through the same path.
+
 **1. A census pattern that cannot match the thing it certifies proves nothing.**
 "Zero monetary movement" was reported twice on the strength of a grep for
 `" -> "` — quoted strings on both sides. Numeric differences carry no quotes, so

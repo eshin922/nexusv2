@@ -23,6 +23,7 @@ const REQUIRED = [
 ];
 
 let allEligible = true;
+let indeterminate = false;
 for (const r of REQUIRED) {
   console.log(`\n── ${r.role} · ${r.sku}   (orders ${r.orders})`);
   const [leaf] = (await db.execute(sql`
@@ -30,11 +31,35 @@ for (const r of REQUIRED) {
   if (!leaf) { console.log(`  1 · Nexus leaf : NOT FOUND`); allEligible = false; continue; }
   console.log(`  0 · Nexus leaf : ${String(leaf.id).slice(0, 8)} active=${!leaf.archived}`);
 
-  // 1 · governed HubSpot authority exists
+  // 1 · governed HubSpot authority.
+  //
+  // THREE outcomes, not two. A wrapper that catches errors and returns
+  // "missing" CANNOT establish nonexistence — it reports the same value for
+  // "deleted" and "the API call failed". Conflating them is how a transient
+  // failure becomes a false ineligibility verdict, so a read failure is
+  // INDETERMINATE and aborts rather than counting as absence.
   let hs: any = null;
-  try { hs = leaf.hubspot_product_id ? await getProduct(String(leaf.hubspot_product_id)) : null; } catch { /* null */ }
-  const authorityOk = !!hs;
-  console.log(`  1 · HubSpot ${leaf.hubspot_product_id ?? "(none)"} : ${authorityOk ? "EXISTS" : "MISSING"}`);
+  let authority: "exists" | "not_found" | "read_failed" = "not_found";
+  if (!leaf.hubspot_product_id) {
+    authority = "not_found";
+  } else {
+    try {
+      hs = await getProduct(String(leaf.hubspot_product_id));
+      authority = hs ? "exists" : "not_found"; // authoritative null
+    } catch (e) {
+      authority = "read_failed";
+      console.log(`  1 · HubSpot read THREW: ${(e as Error).message.slice(0, 140)}`);
+    }
+  }
+  if (authority === "read_failed") {
+    console.log(`  1 · HubSpot ${leaf.hubspot_product_id} : INDETERMINATE — not a verdict.`);
+    console.log(`  ELIGIBLE: UNKNOWN — re-run. Absence was NOT concluded from a failed read.`);
+    allEligible = false;
+    indeterminate = true;
+    continue;
+  }
+  const authorityOk = authority === "exists";
+  console.log(`  1 · HubSpot ${leaf.hubspot_product_id ?? "(none)"} : ${authorityOk ? "EXISTS" : "NOT_FOUND (authoritative null)"}`);
 
   // 2 · Nexus identity agrees with that authority
   const agrees = authorityOk && String(hs.sku ?? "").trim() === String(leaf.sku).trim();
@@ -51,7 +76,11 @@ for (const r of REQUIRED) {
 }
 
 console.log(`\n══ VERDICT ══`);
-console.log(allEligible
-  ? `  All B/C/D commercial leaves are downstream-eligible. B may proceed.`
-  : `  At least one leaf is INELIGIBLE. Stop that order. Do NOT substitute.`);
-process.exit(allEligible ? 0 : 1);
+console.log(
+  indeterminate
+    ? `  INDETERMINATE — a HubSpot read failed. No eligibility verdict issued.`
+    : allEligible
+      ? `  All B/C/D commercial leaves are downstream-eligible.`
+      : `  At least one leaf is INELIGIBLE. Stop that order. Do NOT substitute.`,
+);
+process.exit(indeterminate ? 3 : allEligible ? 0 : 1);
