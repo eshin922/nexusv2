@@ -8,10 +8,11 @@ read-only; the mutation sequence is deliberately not begun in this session — s
 
 ## 1 · Preflight, re-run at approval time
 
-All four re-confirmed **SO-FREE**, status deliberately not filtered:
+B, C and D re-confirmed **SO-FREE**, status deliberately not filtered. All three
+replacement-A candidates in §1b are also SO-free:
 
 ```
-A · flat control       54020672837   SO-FREE ✓
+A · flat control       WITHDRAWN — replacement pending approval (§1b)
 B · single Group       59153706532   SO-FREE ✓
 C · multi-Group        59184980904   SO-FREE ✓
 D · Group + freight    59815074352   SO-FREE ✓
@@ -19,6 +20,77 @@ D · Group + freight    59815074352   SO-FREE ✓
 
 **Re-run this per deal immediately before each CREATE.** It is cheap and the
 window between now and execution is not zero.
+
+---
+
+## 1b · Order A target WITHDRAWN — replacement candidates
+
+**HANKS `54020672837` is withdrawn.** Its live amount is **$1,800,000** and the
+review order would temporarily overwrite it to ~$4,500. That is unnecessary
+commercial exposure for a fixture. B / C / D remain approved and staged.
+
+Read-only discovery, ranked by the stated preference order. Note that
+preference **6** (zero quotes / empty drafts only) outranks **7** (lower
+amount) — an initial scoring pass let amount dominate and surfaced two
+unusable candidates:
+
+- **Epicuren `40473295522`** — $5,000 with deposit Terms, but **14 quotes, 45
+  leaves, 18 assemblies, 1 non-draft**. A live working project. **Disqualified
+  on 6.**
+- **Smart Pressed Juice `58222880425`** — **disqualified**: carries the S-7
+  preservation population and a `ZZ-VALIDATION` scenario.
+
+**No remaining candidate satisfies both preference 5 (existing Nexus project)
+and 6 (clean).** Every clean candidate needs a project import first. Since 5 is
+*preferred* and 6 is close to mandatory for a fixture, all three below trade 5
+for 6.
+
+### A1 — HANKS · Sample Shipping Charges · deal `45429836294` — **recommended**
+
+| | |
+|---|---|
+| Amount | **$685.92** — ~2,600× less exposure than the withdrawn target |
+| Customer | 329665 HANKS · **ACTIVE** · subsidiary 2 |
+| Terms | **50% Deposit/balance at shipment** ✓ (pref 8) |
+| Business Segment | **1** ✓ (pref 9) |
+| Nexus content | **0 quotes — CLEAN** ✓ |
+| Nexus project | none — requires project import |
+| Live | stage `195274339` · amount `685.92` · closedate 2025-10-09 |
+
+**Why this one.** Same HANKS customer as the withdrawn target, so the deliberate
+Terms/Segment diversity of the original set is preserved exactly — deposit-style
+Terms and Segment 1 against B/C/D — while the exposed amount drops from $1.8M to
+$685.92. It satisfies every preference except 5.
+
+### A2 — MISTR · Pouch · deal `41604195598`
+
+| | |
+|---|---|
+| Amount | **$1** — lowest non-zero exposure |
+| Customer | 321443 heymistr.com · ACTIVE · subsidiary 2 |
+| Terms | 50% Deposit/balance at shipment ✓ |
+| Business Segment | **3** (not 1) |
+| Nexus content | 0 quotes — CLEAN ✓ |
+
+A **fourth distinct customer** across the set, which is the strongest lineage
+diversity available. Costs Business Segment 1.
+
+### A3 — Kirby Beauty · Cécred Silk Rinse · deal `61961680180`
+
+| | |
+|---|---|
+| Amount | **$0** — zero exposure |
+| Customer | 167468 Kirby Beauty LLC · ACTIVE · subsidiary 2 |
+| Terms | Net 30 (not deposit) |
+| Business Segment | 1 ✓ |
+| Nexus content | 0 quotes — CLEAN ✓ |
+
+Lowest possible exposure, but **shares customer 167468 with Order C**, so A and C
+would carry identical Terms and customer — weakening the control contrast and
+collapsing two of the four lineages into one.
+
+All three confirmed **SO-free**, active, subsidiary 2, governed Terms present.
+**None mutated.**
 
 ---
 
@@ -40,8 +112,27 @@ Restoring `closedate` would be describing a write Nexus never makes. Verifying i
 unchanged is the honest check, and it also catches an unexpected write if one
 ever appears.
 
-Both restorable properties go back through the same governed call:
+Both restorable properties go back through the same governed/narrow repair path:
 `updateDealStage(dealId, capturedStageId, { amount: capturedAmount })`.
+
+### Rules, binding
+
+1. **Restore by exact stage id, never by label.** `updateDealStage` accepts
+   either, and label-matching is case-insensitive text against a pipeline that
+   can be renamed. The captured id is the only stable handle. B already sits at
+   `195274340`, a different stage from the rest — a label assumption would be
+   wrong for it first.
+2. **Do not proactively write `closedate`.** Nexus does not send it. Writing it
+   "to be safe" would manufacture a modification that never happened and make
+   the deal's audit trail lie about what Nexus touched.
+3. **If `closedate` changes despite Nexus not sending it — STOP.** Do not repair
+   it. Classify it first as **HubSpot stage-transition behaviour**: some
+   pipelines set or clear `closedate` on entering a closed stage. That is a
+   provider behaviour finding with implications well beyond this review set, and
+   silently patching the value would erase the only evidence of it.
+4. **Verify live by re-reading.** Restoration is confirmed by a fresh
+   `getById`, never by the write call's return value. A write that reports
+   success and a field that actually holds the right value are different claims.
 
 ### Captured baseline — 2026-08-12, read-only
 
@@ -51,23 +142,31 @@ moved the deal in between and that must be understood before proceeding.
 
 | | Deal | `dealstage` | `amount` | `closedate` | `hs_lastmodifieddate` |
 |---|---|---|---|---|---|
-| **A** | 54020672837 Hanks | `195274339` | **1800000** | 2026-09-01T17:07:35.863Z | 2026-07-17T20:06:06.895Z |
+| ~~A~~ | ~~54020672837 Hanks~~ | — | — | — | **WITHDRAWN — $1.8M exposure (§1b)** |
 | **B** | 59153706532 Root | `195274340` | 10000 | 2026-06-02T00:16:34.596Z | 2026-07-23T18:56:09.124Z |
 | **C** | 59184980904 Kirby | `195274339` | 30000 | 2026-09-30T16:35:04.876Z | 2026-08-06T05:09:49.787Z |
 | **D** | 59815074352 Nemah | `195274339` | 10000 | 2026-06-01T19:29:13.908Z | 2026-07-16T17:50:19.703Z |
 
-> **A carries a live amount of 1,800,000.** Acceptance will overwrite it with the
-> review order's turnkey total (~4,500). That is a real commercial figure on a
-> real deal, and restoring it is not optional bookkeeping — it is the reason the
-> capture step exists. B is already at `195274340`, a different stage from the
-> other three; restore by **id**, never by label.
+> A is WITHDRAWN (§1b) precisely because it carried a live amount of 1,800,000
+> against a ~4,500 fixture. Its replacement is pending approval; capture its
+> baseline at execution time. B is already at `195274340`, a different stage from
+> the other two here — restore by **id**, never by label.
 
 ---
 
 ## 3 · Per-order sequence (atomic — each ends restored)
 
-Run A → B → C → D. Each order is a complete unit; a stop between orders leaves
-no deal mutated.
+Run A → B → C → D, **one order at a time as an atomic unit**:
+
+```
+zero-SO preflight → HubSpot capture → fixture → Send/Accept → NetSuite CREATE
+  → provider verification → HubSpot restore → live restoration verification
+  → Accounting matrix
+```
+
+**Do not begin the next order until the prior deal is fully restored and
+verified live.** This is the property that matters: an interruption between
+orders can then never leave more than zero real CRM deals mutated.
 
 1. Re-run zero-SO preflight for **this** deal.
 2. Capture `dealstage`, `amount`, `closedate`, `hs_lastmodifieddate` live.
