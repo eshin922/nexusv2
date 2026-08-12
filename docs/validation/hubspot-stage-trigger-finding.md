@@ -174,3 +174,60 @@ restoring fields after the trigger.
 - Draft scenarios untouched: Order A shell `7f831413…`; no Order B scenario.
 - No HubSpot mutation, no NetSuite mutation, nothing deleted or repaired.
 - Order A blocked (State C Filling); Order B held; C and D not started.
+
+---
+
+## 7 · Trigger inventory — a HubSpot administrator task, not a Nexus one
+
+**Do not attempt to infer the production workflow inventory from Nexus code or
+from an API token lacking Automation scope.** Nexus knows which stage it writes;
+it has no knowledge of what listens to that stage.
+
+- The repo contains **no workflow inventory**, and cannot: the listening side
+  lives entirely in HubSpot configuration.
+- Enumerating workflows requires the HubSpot **Automation API** and `automation`
+  scopes. Nexus's tokens are provisioned for deals/companies/products.
+
+**A failed or forbidden workflow query is not evidence that no workflow
+exists.** Nor is a workflow toggle showing "off" proof that production side
+effects are impossible. Both are instruments that cannot represent the failure
+they would be used to exclude — the same trap that produced a false "missing"
+verdict during the OD-027 preflight, and a false "zero monetary movement"
+census during OD-025.
+
+**What Nexus can supply read-only:** the stage id it writes, from
+`firm_settings.hubspot_deal_stage_on_accept`, applied at
+`src/app/actions/quotes.ts` via
+`hubspot.updateDealStage(project.hubspotDealId, firm.hubspotDealStageOnAccept, { amount })`.
+
+### Required from the HubSpot administrator, before any real-deal Accept window
+
+1. Every workflow/automation that **enrolls or reacts** when a deal enters the
+   Nexus Accept target stage.
+2. The **downstream action(s)** each performs.
+3. Whether turning the workflow **OFF prevents new enrollments**.
+4. What happens to **already-enrolled / in-flight** records when it is turned off.
+5. Whether events are **queued while off**.
+6. Whether turning it **back on can replay** or enroll deals based on changes
+   that occurred during the disabled window.
+7. **Any other automation outside HubSpot workflows** listening to the same
+   stage or property change.
+
+Assume more than one workflow until the inventory proves otherwise.
+
+### Required safety confirmation
+
+An explicit administrator answer establishing:
+
+> During the controlled disabled window, changing the selected real test deals
+> into the Accept stage **cannot trigger a production downstream action**,
+> either immediately or when the workflow is re-enabled.
+
+**If that cannot be established, real production HubSpot deals must not be used
+for the Accounting review.**
+
+A deliberately controlled window with the trigger **proven** disabled is an
+explicit exception mechanism — not a reversal of the standing rule at the top of
+this document. Accounting review planning resumes **from the supplied inventory
+and disable semantics**, not from an attempt to discover the workflow topology
+from Nexus.
