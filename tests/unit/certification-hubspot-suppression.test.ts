@@ -22,6 +22,7 @@ import {
   assertHubspotAcceptSyncEnabledForGoLive,
 } from "../../src/lib/config/certification-mode.ts";
 import { withCertificationSuppression } from "../../src/lib/integrations/hubspot-certification-suppression.ts";
+import type { HubSpotOperations } from "../../src/lib/integrations/hubspot-provider.ts";
 
 const E = SUPPRESS_HUBSPOT_ACCEPT_SYNC_ENV;
 const env = (v?: string) => (v === undefined ? {} : { [E]: v }) as NodeJS.ProcessEnv;
@@ -68,18 +69,18 @@ function spyProvider() {
     base: {
       getDealStage: async (id: string) => { calls.push(`getDealStage:${id}`); return { id: "195274339", label: "Development & Quoting" }; },
       listDealStages: async () => { calls.push("listDealStages"); return []; },
-      updateDealStage: async (id: string) => { calls.push(`updateDealStage:${id}`); return { id: "195607084", label: "Won - In production" }; },
-      updateDealAmount: async (id: string) => { calls.push(`updateDealAmount:${id}`); },
+      updateDealStage: async (id: string, _stageId?: string, _opts?: { amount?: number }) => { calls.push(`updateDealStage:${id}`); return { id: "195607084", label: "Won - In production" }; },
+      updateDealAmount: async (id: string, _amount?: number) => { calls.push(`updateDealAmount:${id}`); },
       findOwnerByEmail: async () => { calls.push("findOwnerByEmail"); return null; },
       resolveVendor: async () => { calls.push("resolveVendor"); return null; },
       createProduct: async () => { calls.push("createProduct"); return { id: "p1" }; },
-    } as never,
+    },
   };
 }
 
 test("4 · NO stage write reaches HubSpot under suppression", async () => {
   const { base, calls } = spyProvider();
-  const hs = withCertificationSuppression(base);
+  const hs = withCertificationSuppression(base as unknown as HubSpotOperations);
   await assert.rejects(
     () => hs.updateDealStage("45429836294", "195607084", { amount: 1 }),
     /disabled for certification/,
@@ -89,14 +90,14 @@ test("4 · NO stage write reaches HubSpot under suppression", async () => {
 
 test("5 · NO amount write reaches HubSpot under suppression", async () => {
   const { base, calls } = spyProvider();
-  const hs = withCertificationSuppression(base);
+  const hs = withCertificationSuppression(base as unknown as HubSpotOperations);
   await assert.rejects(() => hs.updateDealAmount("45429836294", 685.92), /disabled for certification/);
   assert.deepEqual(calls, []);
 });
 
 test("6 · reads and product creation pass through untouched", async () => {
   const { base, calls } = spyProvider();
-  const hs = withCertificationSuppression(base);
+  const hs = withCertificationSuppression(base as unknown as HubSpotOperations);
   const stage = await hs.getDealStage("45429836294");
   assert.equal(stage.id, "195274339", "lineage/stage resolution must still work");
   await hs.listDealStages();
