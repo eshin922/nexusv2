@@ -185,7 +185,15 @@ export function TabSalesOrder({
   // 'complete' → record; when a failed push exists and status is
   // still 'accepted' → failed; otherwise pending. Dev switcher
   // overrides all three (hard-guarded via showStateSwitcher).
-  const hasFailedPush = soPushMirror.pushStatus === "failed" && !isComplete;
+  // Step 1 recovery core — `awaiting_rates` means the Sales Order EXISTS but
+  // its commercial rate completion is outstanding. It reuses the failed
+  // variant's LAYOUT (no surface redesign) but must not reuse its copy: "the
+  // order didn't reach NetSuite" is simply false here, and the operator needs
+  // the tranid so Accounting can find the order.
+  const isAwaitingRates =
+    soPushMirror.pushStatus === "awaiting_rates" && !isComplete;
+  const hasFailedPush =
+    (soPushMirror.pushStatus === "failed" || isAwaitingRates) && !isComplete;
   const realVariant: ReceiptState = isComplete
     ? "record"
     : hasFailedPush
@@ -496,14 +504,20 @@ export function TabSalesOrder({
 
   const headingText = placed
     ? "Order placed"
-    : failed
-      ? "The order didn't reach NetSuite"
-      : `Send ${view.customer.name ?? "the customer"}'s order to NetSuite`;
+    : isAwaitingRates
+      ? soPushMirror.soTranid
+        ? `Sales Order ${soPushMirror.soTranid} created · pricing completion pending`
+        : "Sales Order created · pricing completion pending"
+      : failed
+        ? "The order didn't reach NetSuite"
+        : `Send ${view.customer.name ?? "the customer"}'s order to NetSuite`;
   const lede = placed
     ? "This is the canonical record of what was agreed and what was ordered. The quote and every sub-tab are read-only."
-    : failed
-      ? "Two things are true at once — read both before you retry."
-      : "Everything below goes to NetSuite exactly as shown. Read it, then send.";
+    : isAwaitingRates
+      ? "The order exists in NetSuite. Its negotiated line pricing is still being applied — safe to retry; retrying continues the same order rather than creating a second one."
+      : failed
+        ? "Two things are true at once — read both before you retry."
+        : "Everything below goes to NetSuite exactly as shown. Read it, then send.";
 
   return (
     <div className="r9-wrap">

@@ -26,6 +26,12 @@ import {
 import { formatResolutionErrors, type ResolveResult } from "./item-resolver";
 import { findOrCreateItemGroup } from "./item-groups";
 import {
+  awaitingRatesOperatorMessage,
+  mustNotCreate,
+  recordAttemptFailure,
+  recordSalesOrderCreated,
+} from "./attempt-lifecycle";
+import {
   buildSalesOrderPayload,
   computeIdempotencyKey,
   type SalesOrderLine,
@@ -629,6 +635,12 @@ export async function runMarkComplete(
       .select({
         id: netsuiteSoPushes.id,
         payloadSnapshot: netsuiteSoPushes.payloadSnapshot,
+        // Step 1 recovery core — the resumable state is (status, so_id).
+        // Both are selected so the CREATE branch can be skipped when an
+        // order already exists at the provider.
+        status: netsuiteSoPushes.status,
+        netsuiteSoId: netsuiteSoPushes.netsuiteSoId,
+        netsuiteSoTranid: netsuiteSoPushes.netsuiteSoTranid,
       })
       .from(netsuiteSoPushes)
       .where(
@@ -686,12 +698,29 @@ export async function runMarkComplete(
     // The snapshot-keyed attempt and first payload must be durable before
     // POST. A concurrent loser reloads and replays the winner's payload.
     let pendingId: string;
+    // Step 1 recovery core — resumable post-CREATE attempt.
+    //
+    // Set when the elected attempt already carries a NetSuite Sales Order id.
+    // An order exists at the provider; issuing another CREATE is never
+    // correct, and the duplicate-deal SuiteScript would refuse it anyway.
+    //
+    // Keyed on SO-id presence rather than status alone (see
+    // attempt-lifecycle.mustNotCreate) so that a row which somehow carries an
+    // id under any other status still cannot re-create.
+    let resumeSoId: string | null = durableAttempt?.netsuiteSoId ?? null;
+    let resumeSoTranid: string | null = durableAttempt?.netsuiteSoTranid ?? null;
+
     if (durableAttempt) {
       pendingId = durableAttempt.id;
-      await db
-        .update(netsuiteSoPushes)
-        .set({ status: "pending", errorClass: null, errorDetail: null })
-        .where(eq(netsuiteSoPushes.id, pendingId));
+      // Only reset to `pending` when nothing has been created. Resetting a
+      // resumable attempt would erase the very state that prevents a second
+      // CREATE.
+      if (!mustNotCreate(durableAttempt)) {
+        await db
+          .update(netsuiteSoPushes)
+          .set({ status: "pending", errorClass: null, errorDetail: null })
+          .where(eq(netsuiteSoPushes.id, pendingId));
+      }
     } else {
       try {
         const [pending] = await db
@@ -713,6 +742,9 @@ export async function runMarkComplete(
           .select({
             id: netsuiteSoPushes.id,
             payloadSnapshot: netsuiteSoPushes.payloadSnapshot,
+            status: netsuiteSoPushes.status,
+            netsuiteSoId: netsuiteSoPushes.netsuiteSoId,
+            netsuiteSoTranid: netsuiteSoPushes.netsuiteSoTranid,
           })
           .from(netsuiteSoPushes)
           .where(eq(netsuiteSoPushes.quoteSnapshotId, acceptedSnapshotId))
@@ -724,6 +756,12 @@ export async function runMarkComplete(
         }
         pendingId = durableAttempt.id;
         payload = durableAttempt.payloadSnapshot as Record<string, unknown>;
+        // The concurrent loser may have re-elected a row that ALREADY carries
+        // an SO id. Refresh the resume keys from what was actually loaded —
+        // they were computed before this re-select, and a stale null here
+        // would send the loser into CREATE against an existing order.
+        resumeSoId = durableAttempt.netsuiteSoId ?? null;
+        resumeSoTranid = durableAttempt.netsuiteSoTranid ?? null;
       }
     }
 
@@ -734,6 +772,18 @@ export async function runMarkComplete(
     }
 
     let created;
+    if (mustNotCreate({ status: durableAttempt?.status ?? "", netsuiteSoId: resumeSoId })) {
+      // RESUME. A Sales Order already exists for this durable attempt, so the
+      // CREATE is skipped entirely — not retried, not conditionally repeated.
+      // Step 2 will read this SO back structurally and complete the member
+      // rates; Step 1 only guarantees we arrive here instead of creating a
+      // duplicate.
+      created = { internalId: resumeSoId as string };
+      salesOrderInternalId = resumeSoId as string;
+      salesOrderTranid = resumeSoTranid;
+      amountPushed = currentAmount;
+      retryOutcome = "converged_from_prior_success";
+    } else {
     try {
       // Track B §4 — the envelope never reaches NetSuite. Unconditional and
       // safe on payloads that never carried one, which is what makes it
@@ -743,23 +793,22 @@ export async function runMarkComplete(
         idempotencyKey,
       });
     } catch (e) {
-      // NS create failed. Update the pending row (if we managed to
-      // write it) to failed status with error detail. Then throw.
+      // NS create failed. Route through the centralised lifecycle so the
+      // invariant is enforced in one place: pre-CREATE (no SO id) is terminal
+      // `failed` with 0065 semantics intact; an attempt that already carries
+      // an SO id can never be marked failed.
       const err = e instanceof NetsuiteError ? e : null;
       const failedAt = new Date();
       const errClass = err?.className ?? "unknown";
       const errDetail = err?.context.detail ?? String(e);
       if (pendingId) {
         try {
-          await db
-            .update(netsuiteSoPushes)
-            .set({
-              status: "failed",
-              errorClass: errClass,
-              errorDetail: errDetail,
-              completedAt: failedAt,
-            })
-            .where(eq(netsuiteSoPushes.id, pendingId));
+          await recordAttemptFailure({
+            attemptId: pendingId,
+            netsuiteSoId: resumeSoId,
+            errorClass: errClass,
+            errorDetail: errDetail,
+          });
         } catch {
           // secondary write failed — original throw is the real error
         }
@@ -769,12 +818,18 @@ export async function runMarkComplete(
       // across page reloads without a join to netsuite_so_pushes.
       // Non-fatal — if this write fails, netsuite_so_pushes still
       // carries the row; preflight loader reads either source.
+      //
+      // Step 1: mirrors the RESUMABLE variant when an SO already exists, so
+      // the operator surface never shows "failed" for an order that was in
+      // fact created. Same branch condition as the lifecycle helper.
       try {
         await db
           .update(quotesTable)
           .set({
-            netsuiteSoPushStatus: "failed",
-            netsuiteSoPushError: errDetail,
+            netsuiteSoPushStatus: resumeSoId ? "awaiting_rates" : "failed",
+            netsuiteSoPushError: resumeSoId
+              ? awaitingRatesOperatorMessage(resumeSoTranid)
+              : errDetail,
             updatedAt: failedAt,
           })
           .where(eq(quotesTable.id, quoteId));
@@ -787,6 +842,34 @@ export async function runMarkComplete(
     salesOrderInternalId = created.internalId;
     amountPushed = currentAmount;
     retryOutcome = "fresh";
+
+    // *** THE RECOVERY BOUNDARY ***
+    //
+    // Persist the SO identity and move the attempt to `awaiting_rates`
+    // IMMEDIATELY, before anything else can fail. Step 2's member-rate
+    // PATCH sequence runs after this point; a crash anywhere in it leaves a
+    // row that knows which order exists and resumes against it.
+    //
+    // Deliberately BEFORE the tranid fetch below: the tranid is diagnostic,
+    // the internal id is the recovery key, and the id must be durable even
+    // if the follow-up GET fails.
+    try {
+      await recordSalesOrderCreated({
+        attemptId: pendingId,
+        netsuiteSoId: salesOrderInternalId,
+        netsuiteSoTranid: null,
+        amountPushed: currentAmount,
+      });
+    } catch (persistErr) {
+      // A created SO whose id we failed to persist is the one thing worse
+      // than a failed create — it is unreachable by any retry. Surface it
+      // loudly rather than continuing into the rate sequence.
+      throw new Error(
+        `[markComplete] Sales Order ${salesOrderInternalId} was created but its identity could not be persisted; ` +
+          `manual reconciliation required. Cause: ${String(persistErr)}`,
+      );
+    }
+    } // end CREATE branch (skipped entirely when resuming)
 
     // Slice 12 Step 10 Q15 — post-create tranid fetch.
     //
