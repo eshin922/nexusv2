@@ -220,7 +220,11 @@ test("8 · missing subsidiary fails BEFORE Sales Order CREATE", () => {
       /No subsidiary available for Item Group/.test(e.message),
   );
   // And the primitive transmits it, so the group can actually accept members.
-  assert.match(itemGroups, /subsidiary: \{ id: input\.subsidiaryId \}/);
+  // COLLECTION shape, not a reference — proven on the disposable probe:
+  // `{ id }` is rejected INVALID_VALUE on itemGroup, because item records are
+  // multi-subsidiary under OneWorld. The Sales Order header's `{ id }` and
+  // this are NOT interchangeable.
+  assert.match(itemGroups, /subsidiary: \{ items: \[\{ id: input\.subsidiaryId \}\] \}/);
   assert.match(itemGroups, /subsidiaryId: string;/);
 });
 

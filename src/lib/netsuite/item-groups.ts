@@ -16,6 +16,7 @@ import {
 import { generateGroupDescription } from "./description-generator";
 import {
   createRecord,
+  nsRequest,
   suiteQL,
   type NetsuiteConfig,
 } from "./client";
@@ -216,7 +217,13 @@ export async function findOrCreateItemGroup(
     // constraint. Sourced from the SAME governed subsidiary authority the
     // Sales Order uses — never hardcoded, or the primitive would only work
     // inside the Case B fixture.
-    subsidiary: { id: input.subsidiaryId },
+    // FINDING (disposable sandbox probe, 2026-08-12): on `itemGroup` this is a
+    // COLLECTION, not a reference. `{ id }` is rejected INVALID_VALUE —
+    // "Invalid value for the resource or sub-resource field 'subsidiary'".
+    // Item records are multi-subsidiary under OneWorld, which the UI shows as
+    // a multi-select list. The Sales Order header takes `{ id }`; the item
+    // group does not, and the two shapes are not interchangeable.
+    subsidiary: { items: [{ id: input.subsidiaryId }] },
     member: {
       items: input.members.map((m) => ({
         item: { id: m.netsuiteItemId },
@@ -403,4 +410,100 @@ export async function readItemGroupMembers(
     netsuiteItemId: String(r.item),
     quantity: Number(r.quantity ?? 0),
   }));
+}
+
+/**
+ * Read a Sales Order's item lines from the REST sub-resource — the ONLY
+ * authoritative source for the PATCH address.
+ *
+ * PROVEN ON A DISPOSABLE SANDBOX ORDER (SO 361241, 2026-08-12, since deleted):
+ *
+ *   SuiteQL id/seq | itemtype  | REST array pos | REST self href
+ *   ---------------+-----------+----------------+----------------
+ *   0              | mainline  | (absent)       | (absent)
+ *   1              | Group     | [0]            | /item/1
+ *   2              | InvtPart  | [1]            | /item/2
+ *   3              | InvtPart  | [2]            | /item/3
+ *   4              | EndGroup  | [3]            | /item/4
+ *   5              | TaxGroup  | (absent)       | (absent)
+ *
+ * REST ARRAY POSITION IS OFF BY ONE from the address, because the collection
+ * omits the mainline and system rows. Patching by array position would have
+ * hit the Group header instead of the first member — succeeding silently
+ * against the wrong line.
+ *
+ * SuiteQL ids are unusable as addresses for a second reason: after a single
+ * member PATCH the TaxGroup row's id moved 5 → 6 while the commercial lines
+ * kept theirs. They are not stable across mutation.
+ *
+ * So the address is the element's own `line`, read per line from
+ * `/salesOrder/{id}/item/{n}`. That single GET returns address AND structure
+ * AND data together — `line`, `item.id`, `quantity`, `rate`, `amount`,
+ * `itemType` (Group / InvtPart / EndGroup) and Item-derived `class` — so no
+ * cross-source correlation is required, and none is performed.
+ */
+export async function readSalesOrderLines(soId: string): Promise<
+  Array<{
+    line: number;
+    itemId: string | null;
+    itemType: string | null;
+    quantity: number | null;
+    rate: number | null;
+    amount: number | null;
+    classId: string | null;
+  }>
+> {
+  const collection = await nsRequest<{
+    items?: Array<{ links?: Array<{ href?: string }> }>;
+  }>({
+    method: "GET",
+    path: `/record/v1/salesOrder/${encodeURIComponent(soId)}/item`,
+  });
+
+  // Addresses come from each element's OWN self href, never from its position.
+  const addresses: number[] = [];
+  for (const el of collection.items ?? []) {
+    const href = el.links?.find((l) => l.href)?.href ?? "";
+    const m = /\/item\/(\d+)\s*$/.exec(href);
+    if (m) addresses.push(Number(m[1]));
+  }
+
+  const lines: Array<{
+    line: number;
+    itemId: string | null;
+    itemType: string | null;
+    quantity: number | null;
+    rate: number | null;
+    amount: number | null;
+    classId: string | null;
+  }> = [];
+
+  for (const address of addresses) {
+    const l = await nsRequest<Record<string, unknown>>({
+      method: "GET",
+      path: `/record/v1/salesOrder/${encodeURIComponent(soId)}/item/${address}`,
+    });
+    const item = l.item as { id?: unknown } | undefined;
+    const itemType = l.itemType as { id?: unknown; refName?: unknown } | string | undefined;
+    const cls = l.class as { id?: unknown } | undefined;
+    lines.push({
+      // Prefer the element's own `line`; fall back to the href it was fetched
+      // by. Both were observed identical, and neither is an array position.
+      line: typeof l.line === "number" ? l.line : address,
+      itemId: item?.id != null ? String(item.id) : null,
+      itemType:
+        typeof itemType === "string"
+          ? itemType
+          : itemType?.id != null
+            ? String(itemType.id)
+            : itemType?.refName != null
+              ? String(itemType.refName)
+              : null,
+      quantity: typeof l.quantity === "number" ? l.quantity : null,
+      rate: typeof l.rate === "number" ? l.rate : null,
+      amount: typeof l.amount === "number" ? l.amount : null,
+      classId: cls?.id != null ? String(cls.id) : null,
+    });
+  }
+  return lines;
 }
