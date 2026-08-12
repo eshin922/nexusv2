@@ -357,10 +357,21 @@ decision to drop it.
 > anchor after the re-key, so worksheet freight would have silently vanished
 > from draft quotes.
 >
-> **Needs your ratification:** the "membership is descriptive only" invariant is
-> NARROWED. A shipment with no assembly has nothing but membership relating it
-> to a leaf, so its anchor is membership-derived. It still divides nothing —
-> proven behaviourally — and assembly-owned shipments are untouched.
+> **RATIFIED 2026-08-12.** The "membership is descriptive only" invariant is
+> replaced by **Pattern 58**: *membership may determine attribution, but must
+> never determine commercial arithmetic.* Freight amount, freight markup,
+> customs, landed cost and quoted sell must remain invariant to the anchor.
+> Assembly-owned shipments retain their product owner as anchor; a shipment with
+> no assembly derives one from `freight_subcategory_items.quote_leaf_id`.
+>
+> Building that ratification's evidence surfaced **OD-025**: the invariant holds
+> contingently on production data (every attachment is quantity 1) rather than
+> structurally. Recorded as its own finding; not a reason to reopen OD-017.
+>
+> Two validation lessons banked in CLAUDE.md: action-layer support does not prove
+> the database accepts a new structural state (check triggers on *referencing*
+> tables); and re-keying persistence does not prove every loader emits the new
+> identity (draft, snapshot and alternate read paths need independent tracing).
 >
 > Not in scope by disposition: `assembly_production_inputs` (no production,
 > bulk raw or service fees on a Direct Component in V1); Product Structure
@@ -1068,6 +1079,76 @@ means deciding under schedule pressure.
 
 ---
 
+### OD-024 · Nexus Product Specifications — governed V1 capability
+
+**Owner:** Edward · **Status:** REGISTERED, not started. **Do not implement the
+specification model yet.**
+
+Nexus will have its **own governed specification fields**, which must map
+explicitly to the existing NetSuite sandbox **PP / SP / SGA / COP** specification
+fields.
+
+**Nexus specifications are not a copy of the legacy NetSuite schema.** Legacy
+NetSuite field names are **integration targets, not Nexus authority**. Modelling
+Nexus specs by mirroring that schema would import an integration boundary as a
+business model — the same category error as letting a display aggregate define
+what is governed.
+
+The workstream distinguishes three layers, which must not be collapsed:
+
+1. **Nexus specification model** — the business-facing fields operators actually
+   author, and the Product Structure level each attaches to.
+2. **Nexus → NetSuite Sales Order mapping** — explicit translation from each
+   governed Nexus field to the appropriate sandbox field.
+3. **NetSuite → invoice / printed-document mapping** — a *separate* follow-on
+   business mapping. **Do not infer an invoice requirement merely because an SO
+   field exists.** An SO field's existence is evidence about the integration
+   surface, not about what a customer document must show.
+
+**Scope boundary with OD-023.** During OD-023, determine *only* what Product
+Structure / specification **attachment** information must be frozen at Send, so
+later Product Library edits cannot reinterpret an accepted quote. The detailed
+specification taxonomy and the NetSuite field mapping stay in this slice.
+
+---
+
+### OD-025 · The attribution invariant holds contingently, not structurally
+
+**Owner:** Nexus engineering + Edward · **Status:** OPEN finding · **Severity:**
+latent — no live quote affected today.
+
+Pattern 58 (ratified 2026-08-12) governs: *membership may determine attribution,
+but must never determine commercial arithmetic.* The implementation does not
+guarantee this structurally.
+
+Freight is amortised per unit, attributed to one leaf, then multiplied by that
+leaf's quantity in the rollup. With unequal leaf quantities, moving the anchor
+moves quote-level freight, landed cost and quoted sell:
+
+```
+equal quantities   (1, 1)  anchor A → 650   anchor B → 650    holds
+unequal quantities (2, 3)  anchor A → 1300  anchor B → 650    VIOLATED
+```
+
+Every live attachment carries quantity 1, so all anchors agree and the invariant
+holds on production data — which is why S-7 reported zero monetary movement.
+This is a property holding by **coincidence** reading as one holding by
+**construction** (Pattern 56).
+
+**Not introduced by OD-017.** The multiplication predates it; OD-017 made a
+second anchor selectable at all, for shipments with no assembly. Assembly-owned
+shipments still resolve to exactly one anchor.
+
+**Reachable when** a Direct Component or any attachment carries quantity ≠ 1 and
+anchors a shipment. Found while building the ratification evidence for Pattern
+58 — the argument for demanding falsification over an import-ban grep.
+
+Enforced as a tripwire in
+`tests/unit/od-017-direct-component-economics.test.ts`: the divergence is
+asserted, so a fix fails the test and forces this entry to be closed.
+
+---
+
 ### OD-023 · Send does not freeze the governed Product Structure — **V1 BLOCKER**
 
 **Owner:** Nexus engineering + Edward · **Blocks:** OD-022, and historical
@@ -1087,7 +1168,12 @@ commercial leaves were accepted; whether each was Direct or a Finished Product
 member; the Finished Product grouping/composition boundary; and the identity
 required for downstream projection.
 
-Dependency chain: `OD-012 → OD-017 → OD-023 → OD-022`.
+Dependency chain: `OD-012 CLOSED → OD-017 CLOSED → OD-023 → OD-022`.
+
+**Specification scope for this slice (per OD-024):** determine only what Product
+Structure / specification **attachment** information must be frozen at Send, so
+later Product Library edits cannot reinterpret an accepted quote. The
+specification taxonomy and NetSuite field mapping are OD-024's, not this slice's.
 
 Lifted out of OD-017 by disposition 2 (2026-08-12) so a cross-cutting repair is
 not buried inside a costing slice. Trace:

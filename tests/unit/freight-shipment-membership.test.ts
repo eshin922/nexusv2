@@ -271,28 +271,28 @@ test("Pattern 47(f) is recorded in the pattern library", () => {
 });
 
 test("freight totals are unaffected by membership — it is descriptive only", () => {
-  // The costing path may not read membership. If this fails, a membership edit
-  // has become capable of moving a price, which contradicts the Design
-  // Authority and would make assignment commercially load-bearing.
+  // GOVERNING INVARIANT (Pattern 58, ratified 2026-08-12):
   //
-  // OD-017 NARROWED THIS RULE, and the narrowing is stated rather than absorbed.
+  //   Membership may determine ATTRIBUTION, but must never determine
+  //   COMMERCIAL ARITHMETIC.
   //
-  // A shipment may now have no assembly, and such a shipment has nothing BUT
-  // its membership relating it to a commercial leaf — so its costing anchor is
-  // necessarily membership-derived. Two things keep that from being the defect
-  // this test exists to catch:
+  // This supersedes the broader "nothing in the costing path may read
+  // membership", which was a proxy for the real property and forbade a
+  // legitimate case: a shipment with no assembly has nothing BUT its membership
+  // relating it to a commercial leaf, so a Direct Component's freight could
+  // never have reached costing under the old wording.
   //
-  //   1. It DIVIDES NOTHING. No share, no allocation, no split. The whole
-  //      shipment amount attributes to a single anchor leaf exactly as before,
-  //      so quote- and tier-level freight totals are untouched by membership.
-  //      That is the property this test is named for, and it is now asserted
-  //      behaviourally below rather than inferred from the absence of a symbol.
-  //   2. It cannot reach an assembly-owned shipment. Those keep deriving their
-  //      anchor from the product, so no existing quote's attribution moves.
+  // Freight amount, freight markup, customs, landed cost and quoted sell must
+  // remain invariant to the anchor. That property is asserted BEHAVIOURALLY in
+  // the test below — the required evidence — rather than inferred from the
+  // absence of a symbol.
   //
-  // Derivation lives in `freight-workbook.ts` beside the assembly anchor;
-  // costing consumes anchors and still does not compute them. The grep below is
-  // retained for the modules that must never touch membership at all.
+  // Anchor selection: an assembly-owned shipment retains its product owner; a
+  // shipment with no assembly derives its anchor from governed
+  // `freight_subcategory_items.quote_leaf_id`. Derivation lives in
+  // `freight-workbook.ts` beside the assembly anchor; costing consumes anchors
+  // and does not compute them. The grep below is retained for the modules that
+  // must never touch membership at all.
   for (const [name, source] of [
     ["costing.ts", costing],
     ["costing-adapter.ts", adapter],

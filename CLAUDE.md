@@ -5356,6 +5356,137 @@ per-line granularity does not exist in the graph yet.
 - Gate 1B §0 — the canonical node graph is what "independently governed" means
   operationally: a row belongs if a node backs it.
 
+## Pattern 58 — "Membership determines attribution, never arithmetic"
+
+**Standing design rule — Edward's ratification, 2026-08-12.** Banked from the
+OD-017 Direct Component Freight proof. **Supersedes** the earlier and overly
+broad principle *"nothing in the costing path may read membership."*
+
+> **Membership may determine attribution, but must never determine commercial
+> arithmetic.**
+
+These must remain **invariant to the attribution anchor**:
+
+- freight amount
+- freight markup
+- customs
+- landed cost
+- quoted sell
+
+**The distinction.** Membership determines *where an already-computed economic
+contribution belongs*. It must not determine *how much the contribution is*.
+
+**Anchor selection rule.**
+
+- Where an explicit Finished Product / assembly owner exists, **retain that
+  owner** as the attribution anchor.
+- Where no assembly exists, a Direct Component derives its anchor from governed
+  `freight_subcategory_items.quote_leaf_id`.
+
+**Why the old rule was wrong, not merely inconvenient.** It was stated as a
+prohibition on *reading* a table, which is a proxy for the real property. A
+shipment with no assembly has nothing BUT its membership relating it to a
+commercial leaf, so under the old wording a Direct Component's freight could
+never reach costing at all — the proxy forbade the legitimate case along with
+the illegitimate one. The property that actually matters is that no arithmetic
+moves.
+
+**Required evidence — the falsification, not the absence of a symbol.** A grep
+for a table name cannot establish this. The governing evidence is the existing
+test proving an **identical economic contribution under two different
+attribution anchors**
+(`tests/unit/freight-shipment-membership.test.ts`). Any future surface that
+introduces an anchor must carry the same falsification: change the anchor, hold
+every listed quantity constant.
+
+**The invariant currently holds CONTINGENTLY, not structurally — OD-025.**
+Discovered while building the ratification evidence, which is the argument for
+demanding falsification rather than a grep.
+
+Freight is amortised per unit, attributed to one leaf, then multiplied by that
+leaf's quantity in the rollup. So when leaf quantities differ, moving the anchor
+DOES move quote-level arithmetic:
+
+```
+equal quantities (1, 1)   anchor A → freight 650   anchor B → freight 650   holds
+unequal quantities (2, 3) anchor A → freight 1300  anchor B → freight 650   VIOLATED
+```
+
+Every live attachment carries quantity 1, so all anchors agree and the invariant
+holds on production data — which is exactly why S-7 reported zero monetary
+movement across the whole population. A property holding by coincidence reading
+as one holding by construction (Pattern 56).
+
+Not introduced by OD-017: the multiplication predates it. OD-017 made a second
+anchor *selectable* for shipments with no assembly. Assembly-owned shipments
+still resolve to exactly one anchor, so no live quote is affected today.
+
+Enforced as a **tripwire** in `od-017-direct-component-economics.test.ts`: the
+divergence is asserted, so fixing it fails the test and forces the finding to be
+closed rather than quietly outlived.
+
+**Recognition heuristic.** When a rule is expressed as "module X must not import
+Y", ask what property that import would violate. If the property can be asserted
+directly — and especially if it can be falsified — assert the property. Import
+bans are cheap to check and easy to satisfy while still breaking the thing they
+were meant to protect.
+
+**Cross-references.**
+- "Exact reconciliation is necessary but not sufficient" — the sibling rule.
+  Attribution correctness and arithmetic correctness are separate checks; this
+  pattern is the case where attribution is ALLOWED to vary and arithmetic is not.
+- Pattern 57 (a financial stack contains only independently governed
+  quantities) — same family: ask what a display or a rule is really claiming.
+
+## Migration impact analysis — two lessons banked from OD-017
+
+**Standing verification discipline — 2026-08-12.** Both were real misses in a
+slice that was otherwise carefully evidenced, and both cost a false claim.
+
+**1. Action-layer support does not prove the database accepts a new structural
+state.** Constraints and triggers on **referencing** tables must be included in
+migration impact analysis — not only those on the table being altered.
+
+Reference moment: OD-017 reported "a Direct Component can join any existing
+shipment" on the strength of the action layer. It could not. A constraint
+trigger on `freight_subcategory_items` — a table *referencing* the one being
+altered — resolved membership through the legacy junction and rejected the
+write. The pre-migration probe checked triggers on `freight_subcategories` and
+correctly found none. **Checking the table being altered is not the same as
+checking the tables that reference it.**
+
+Practical sweep, before any structural migration:
+
+```sql
+-- triggers on the table AND on every table with an FK into it
+SELECT c.relname, t.tgname, pg_get_triggerdef(t.oid)
+  FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+ WHERE NOT t.tgisinternal
+   AND (c.oid = 'TARGET'::regclass
+        OR c.oid IN (SELECT conrelid FROM pg_constraint
+                      WHERE confrelid = 'TARGET'::regclass));
+```
+
+And exercise the write. A structural claim is proven by a transaction that
+performs it — rolled back if the state must not persist — never by reading the
+action layer.
+
+**2. Re-keying persistence does not prove all loaders emit the new canonical
+identity.** Draft, snapshot and alternate read paths require **independent**
+tracing.
+
+Reference moment: after OD-017 re-keyed the cost tables,
+`loadWorksheetFreightForQuote` — the live **draft** freight path, distinct from
+the snapshot path — still emitted the legacy `assembly_leaves.id` as its costing
+anchor. The math no longer keyed leaves that way, so worksheet freight on draft
+quotes would have attached to a SKU that does not exist and silently vanished.
+The snapshot path had been converted; the draft path was a sibling nobody
+enumerated.
+
+**Sweep rule:** when an identity changes, enumerate every producer of that
+identity, not every consumer of the table. Consumers surface in a type error;
+producers that emit a plausible-but-wrong value of the same type do not.
+
 ## Exact reconciliation is necessary but not sufficient
 
 **Standing validation rule — Edward's directive, 2026-08-11.** Banked from the

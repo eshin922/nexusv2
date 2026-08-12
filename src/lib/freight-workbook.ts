@@ -46,15 +46,16 @@ export type FreightWorkbook = {
  * freight concern — not in the costing path, which consumes anchors rather than
  * computing them.
  *
- * On the Design Authority invariant "assignment says WHICH SKUs the freight is
- * for; it does not divide the cost": that still holds. Nothing here divides,
- * shares or allocates. The whole shipment amount attributes to one leaf exactly
- * as it always has, so quote and tier freight TOTALS are untouched by
- * membership. What is genuinely new — and narrower than the original rule — is
- * that for a shipment with no assembly, membership determines WHICH leaf that
- * one anchor is, because nothing else in the model relates such a shipment to a
- * commercial leaf. Assembly-owned shipments are unaffected and keep deriving
- * their anchor from the product.
+ * GOVERNING INVARIANT (Pattern 58, ratified 2026-08-12): membership may
+ * determine ATTRIBUTION, but must never determine COMMERCIAL ARITHMETIC.
+ * Freight amount, freight markup, customs, landed cost and quoted sell are
+ * invariant to the anchor — nothing here divides, shares or allocates. The whole
+ * shipment amount attributes to one leaf exactly as it always has.
+ *
+ * Membership decides WHERE an already-computed contribution belongs, not HOW
+ * MUCH it is. Assembly-owned shipments retain their product owner as the anchor;
+ * only a shipment with no assembly derives one from membership, because nothing
+ * else in the model relates such a shipment to a commercial leaf.
  */
 export async function loadShipmentMemberAnchors(
   subcategoryIds: string[],

@@ -426,6 +426,133 @@ test("9b · no ASY is synthesized to carry a direct-only shipment", () => {
   );
 });
 
+test("PATTERN 58 · the anchor moves attribution, never the arithmetic", () => {
+  // The required evidence for the ratified invariant: identical economic
+  // contribution under two DIFFERENT attribution anchors.
+  //
+  // Both quotes carry the same two leaves and the same shipment. Only the
+  // anchor differs. Everything the invariant names — freight amount, markup,
+  // customs, landed cost, quoted sell — is asserted at the level where it is
+  // genuinely invariant: the QUOTE. Per-leaf placement is expected to differ,
+  // because that is precisely what "attribution" means; a test asserting
+  // per-leaf equality would be asserting that attribution does nothing.
+  const shipment = (ownerSkuId: string) => ({
+    freightSubcategoryId: "sub-1",
+    ownerSkuId,
+    tierId: TIER_A,
+    treatment: "bundled" as const,
+    tierUnits: 1000,
+    freightAmount: 500,
+    freightMarkupPct: 0.1,
+    dutyAmount: 100,
+    dutyMarkupPct: 0.1,
+    tariffAmount: 50,
+    tariffMarkupPct: 0.1,
+  });
+
+  // Quantities equalised. See the FINDING test below: the invariant is
+  // currently guaranteed only where leaf quantity is 1, which is every live
+  // attachment — so it holds on production data but not by construction.
+  const uniform = attachments().map((a) => ({ ...a, quantity: "1" }));
+  const runUniform = (ownerSkuId: string) =>
+    computeQuoteCosting(
+      buildQuoteCostingInputFromNewModel(
+        args({
+          quoteLeafAttachments: uniform,
+          assemblyLeafInputs: [
+            line("ql-direct", TIER_A, "10"),
+            line("ql-member", TIER_A, "20"),
+          ],
+          freightShipmentBreaks: [shipment(ownerSkuId)],
+        } as Partial<BuildQuoteCostingInputFromNewModelArgs>),
+      ),
+    );
+  const onDirect = runUniform("ql-direct");
+  const onMember = runUniform("ql-member");
+  const tier = (r: typeof onDirect) => r.quoteRollup.find((t) => t.tierId === TIER_A)!;
+
+  // Freight amount, markup, customs and landed cost — one figure covering all
+  // four, because they compose into it and a change in any would move it.
+  assert.equal(
+    tier(onDirect).costBreakdown.freight,
+    tier(onMember).costBreakdown.freight,
+    "freight/customs contribution must not depend on the anchor",
+  );
+  assert.equal(
+    tier(onDirect).costBreakdown.freightContainer,
+    tier(onMember).costBreakdown.freightContainer,
+  );
+  assert.equal(
+    tier(onDirect).costBreakdown.dutyAndTariff,
+    tier(onMember).costBreakdown.dutyAndTariff,
+  );
+  // Landed cost and quoted sell at the quote level.
+  assert.equal(tier(onDirect).totalCost, tier(onMember).totalCost, "landed cost");
+  assert.equal(tier(onDirect).totalRevenue, tier(onMember).totalRevenue, "quoted sell");
+
+  // And the anchor DID do something — otherwise this test would pass on a
+  // build where attribution was silently dropped altogether.
+  const leafFreight = (r: typeof onDirect, skuId: string) =>
+    r.skuRollups.find((s) => s.skuId === skuId)!.perTier.find((t) => t.tierId === TIER_A)!
+      .totalContainerFreightBeforeMarkup;
+  assert.ok(leafFreight(onDirect, "ql-direct") > 0);
+  assert.equal(leafFreight(onDirect, "ql-member"), 0);
+  assert.ok(leafFreight(onMember, "ql-member") > 0);
+  assert.equal(leafFreight(onMember, "ql-direct"), 0);
+});
+
+test("FINDING (OD-025) · Pattern 58 holds contingently, not structurally", () => {
+  // A TRIPWIRE, not an endorsement. This asserts the CURRENT DIVERGENT
+  // behaviour so the gap cannot go silent, and so that fixing it FAILS this
+  // test and forces the finding to be closed rather than quietly outlived.
+  //
+  // Freight is amortised per unit, attributed to one leaf, and then multiplied
+  // by that leaf's quantity in the rollup. When leaf quantities differ, moving
+  // the anchor therefore moves quote-level commercial arithmetic — which the
+  // ratified invariant forbids.
+  //
+  // It is invisible on production data because every live attachment carries
+  // quantity 1, so all anchors agree. That is a property holding by coincidence
+  // reading as one holding by construction (Pattern 56), and it is why S-7
+  // reported zero monetary movement across the whole live population.
+  //
+  // NOT introduced by OD-017: the multiplication predates it. What OD-017
+  // changed is that a second anchor became selectable at all, for shipments
+  // with no assembly. Assembly-owned shipments still resolve to exactly one
+  // anchor, so no live quote is affected today.
+  const shipment = (ownerSkuId: string) => ({
+    freightSubcategoryId: "sub-1",
+    ownerSkuId,
+    tierId: TIER_A,
+    treatment: "bundled" as const,
+    tierUnits: 1000,
+    freightAmount: 500,
+    freightMarkupPct: 0,
+    dutyAmount: 100,
+    dutyMarkupPct: 0,
+    tariffAmount: 50,
+    tariffMarkupPct: 0,
+  });
+  // The fixture's own quantities are deliberately unequal (2 and 3).
+  const run = (ownerSkuId: string) =>
+    costed({
+      assemblyLeafInputs: [
+        line("ql-direct", TIER_A, "10"),
+        line("ql-member", TIER_A, "20"),
+      ],
+      freightShipmentBreaks: [shipment(ownerSkuId)],
+    } as Partial<BuildQuoteCostingInputFromNewModelArgs>);
+  const freightOf = (r: ReturnType<typeof run>) =>
+    r.quoteRollup.find((t) => t.tierId === TIER_A)!.costBreakdown.freight;
+
+  assert.notEqual(
+    freightOf(run("ql-member")),
+    freightOf(run("ql-direct")),
+    "if this now passes, OD-025 has been fixed — close the finding and convert " +
+      "this test into an equality assertion",
+  );
+});
+
 // ---------------------------------------------------------------------------
 // 10-13 · Structural contracts. Source-level, because these are properties of
 // the code's shape rather than of any single computation.
