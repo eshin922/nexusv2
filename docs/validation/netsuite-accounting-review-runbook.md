@@ -50,6 +50,42 @@ script-callable. Every value came from `syncDealById`'s cache row; none invented
 **Nothing external mutated.** No HubSpot write, no NetSuite write. The fixture,
 Send and Accept were **not** performed — the HubSpot mutation window is not open.
 
+### Callability of the mutation window — decisive for sequencing
+
+Established by inspection, and it constrains how the atomic window can be run:
+
+| step | form | script-callable? |
+|---|---|---|
+| fixture authoring | server actions (Clerk) | no — UI, or governed action layer |
+| Send | server action (Clerk) | no |
+| **Accept** (`markAccepted`) | **server action, Clerk** | **NO** |
+| **Complete** (`runMarkComplete`) | **plain library fn, explicit `actorUserId`** | **YES** |
+| NetSuite verification | `suiteQL` | yes |
+| HubSpot restore + verify | `updateDealStage` / `getById` | yes |
+
+**`markAccepted` is the only step inside the atomic window that cannot be
+scripted.** It is a Clerk-authenticated server action that performs a durable
+pre-write of `pending_hubspot_from_stage_*`, then the HubSpot stage+amount push,
+then its DB transaction. Replicating it in a script would bypass exactly the
+governed sequencing that makes acceptance recoverable, so it must not be
+replicated.
+
+**Consequence for the window.** It cannot be one invocation. It must be:
+
+```
+UI:      Accept                    ← opens the HubSpot mutation window
+script:  Complete → NetSuite verify → restore → live verify   (ONE invocation)
+```
+
+So the window is crossed with exactly **one** UI action followed by **one**
+script run. That is the smallest achievable exposure, and the script must be
+**written and reviewed BEFORE Accept is pressed** — not authored while a real
+deal sits misstated. Prepare it first; press Accept second.
+
+`runMarkComplete` being a plain function with an explicit actor is what makes
+this safe at all — without it the whole window would be UI-driven and the
+exposure would span many interactions.
+
 ### Naming discipline for A's scenario
 
 The source deal is named *Sample Shipping Charges*; the control carries synthetic
