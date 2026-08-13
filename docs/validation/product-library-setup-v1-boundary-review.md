@@ -306,12 +306,28 @@ Observed on SO2707 (`361542`) and SO2704 (`361441`); both untouched by the read.
 one.** `buildSalesOrderPayload`'s flat branch already emits it, fully populated.
 That materially de-risks the keystone.
 
-**But it has never run.** Every certified Sales Order is group-based, consistent
-with §1's finding of 0 Direct attachments — nothing has ever produced the input
-the flat branch consumes. So the code exists and is unexercised: the first Direct
-Product must be **certified**, not merely wired. The two are not the same claim,
-and treating "the code path exists" as "the path works" is the error to avoid
-here.
+**CORRECTION (same day).** I first wrote that the flat branch "has never run".
+**That is wrong.** Grouping is applied only when `detailLevel === "turnkey_only"`
+(`grouping-plan.ts:180`); the flat payload is the **default**, kept byte-for-byte
+for `itemized`. **SO2698 is itemized**, and reads back as three plain `InvtPart`
+lines with rate, description and `custcol_dps_sku` all set at CREATE.
+
+I had sampled two group-based orders and generalized from them. The sample was
+the certified set, which is uniformly `turnkey_only` — so the population I looked
+at could not have shown me the flat branch even though it runs.
+
+**What is actually true, and is the claim that matters:**
+
+- the **flat projection** is exercised and proven in production (SO2698);
+- **no Direct (assembly-less) leaf has ever entered it** — every line to date
+  came from an assembly, consistent with §1's 0 Direct attachments.
+
+So the risk is narrower than I stated but real, and it sits in a different place:
+the payload shape is proven; what is unproven is the **upstream path that
+produces an assembly-less leaf** and its traversal through `loadAssemblyTree` →
+`skuRollups` → line construction. The first Direct Product must still be
+**certified** rather than assumed from source inspection — just not because the
+branch is cold.
 
 **For the Design Authority:** the choice between Add Product and Add Item Group
 is a **commercial/document decision**, not an organisational one. A one-product

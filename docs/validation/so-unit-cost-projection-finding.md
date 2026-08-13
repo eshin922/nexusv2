@@ -240,3 +240,42 @@ flat branch — which now carries `costEstimateType`/`costEstimateRate` at CREAT
 **has never run in production.** Its cost behaviour is proven by unit test and by
 the disposable sandbox CREATE probe, not by a governed artifact. See
 `product-library-setup-v1-boundary-review.md` §11.
+
+### 10.1 · Correction to §10, and a mechanism for the flat path
+
+§10 said the flat branch had never run. **Wrong** — grouping applies only when
+`detailLevel === "turnkey_only"`; the flat payload is the default and is kept
+byte-for-byte for `itemized`. **SO2698 is itemized** and reads back as three
+plain `InvtPart` lines. The certified set is uniformly `turnkey_only`, so the
+sample could not have shown the flat branch even though it runs.
+
+**And SO2698 carries `costEstimateType: CUSTOM`, `costEstimateRate: 0.1`** —
+pushed 2026-07-29, weeks before `20da735`, by code that demonstrably never sent
+those fields. `legacy-so-populated-field-parity.md:117` recorded the same values
+independently at the time, attributing them to "NetSuite-computed from unit
+cost".
+
+**The most consistent reading of the evidence: a NetSuite-side derivation
+populates the cost basis from `custcol_dps_unit_cost`.** On SO2698 the derived
+`costEstimateRate` (0.1) equals the transmitted custom column (0.1) exactly. That
+order also carries several other SuiteScript-populated fields, so server-side
+automation on REST-created orders is established behaviour for this account, not
+a novel hypothesis. I have **not** inspected the script itself, so this is a
+strong inference from values, not a read of the automation.
+
+**It explains the defect precisely, and sharpens it:**
+
+| path | `custcol_dps_unit_cost` | resulting cost basis |
+|---|---|---|
+| flat / itemized | sent at CREATE | derived → `CUSTOM` + correct rate |
+| Item Group members | **never set** (bare group lines) | nothing to derive → `AVGCOST` + `0` = **blank** |
+
+So Unit Cost was never uniformly broken — it worked wherever the custom column
+reached the line, and failed wherever it could not. The three certified orders
+are all `turnkey_only`, which is why Accounting saw blanks on all of them.
+
+**This does not weaken the repair; it removes a dependency.** `20da735` sets the
+native pair directly on both paths, so the value no longer relies on a
+server-side derivation Nexus does not own, cannot see, and did not know it was
+depending on. That dependency is itself worth recording as a finding: correct
+output was being produced by a mechanism outside the codebase.
