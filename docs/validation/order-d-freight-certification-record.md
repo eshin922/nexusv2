@@ -44,7 +44,11 @@ Guards: exactly one SO for the deal · one Item Group · no $0.00 governed membe
 production HubSpot unchanged on all four values (stage `195274339`, amount
 `10000`, closedate, lastmodified).
 
-## The composition Accounting must understand
+## Accounting interpretation point — NOT a D certification failure
+
+**Classification, per Edward 2026-08-13: this is an interpretation point for
+Accounting, not a defect and not a failure of D's certification.** D passed every
+verification check; the SO is commercially correct at $4,150.
 
 **Freight and customs do not appear as separate Sales Order lines.** They are
 absorbed into the anchor member's rate: Box bills at **$1.90**, of which $1.25 is
@@ -65,5 +69,9 @@ to show:
    The Box line rate is not the Box's commercial price. Attribution is governed
    (anchor-leaf, per the costing-adapter contract) and the arithmetic is correct
    — but a reader who takes the line rate as a product price will misread it.
+
+**The reconstruction limit, stated plainly:** NetSuite cannot reconstruct the
+$3,500 product / $650 logistics-customs split from the SO lines alone. Nexus
+holds that split; the Sales Order does not carry it.
 
 Recorded for Accounting's disposition; no change made.
