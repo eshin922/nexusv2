@@ -247,3 +247,28 @@ Downstream consumers of `custcol_dps_unit_cost` remain **INDETERMINATE** —
 metadata tables are not exposed to this integration role. Not required: the
 column is consumed by the NetSuite UI itself, which the metadata catalog
 establishes by title.
+
+## Operator-visible confirmation — NetSuite UI, independent of the API read-back
+
+Confirmed on screen in NetSuite, not through the REST layer this certification
+otherwise used. That matters: every other check in this document reads the same
+API the repair writes through, so an operator-visible read is the one piece of
+evidence that cannot share a failure mode with the write path.
+
+| observed in NetSuite | value |
+|---|---|
+| Group structure | Box and Bottle as members, followed by **End of Group** |
+| Box | **Unit Cost 0.37** · sell rate **0.5365** |
+| Bottle | **Unit Cost 1.29** · sell rate **1.8705** |
+| Group commercial amount | **2,407.00** |
+| BA146400 | renders **independently after End of Group** · **Unit Cost 2.53** · sell rate **3.6685** |
+| BA146400 commercial amount | **3,668.50** |
+| combined commercial value | **6,075.50** |
+
+This independently confirms the **Accounting-visible Unit Cost column** is
+populated for **post-expansion grouped members** and for the **Direct line** —
+the column whose blankness was the original report, and the specific claim the
+confounded controls in `so-unit-cost-projection-finding.md` §2 got wrong.
+
+**M1–M4 certification is CLOSED.** No further repair or certification work is
+required on this artifact.
