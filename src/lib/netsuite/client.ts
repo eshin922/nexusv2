@@ -66,6 +66,52 @@ function inferEnv(accountId: string): "sandbox" | "production" {
   return /_SB\d+$/i.test(accountId) ? "sandbox" : "production";
 }
 
+/**
+ * Non-sensitive description of the provider target THIS PROCESS would write to.
+ *
+ * Exists so a certification runtime can be interrogated from outside without
+ * exposing anything. It returns three derived booleans/enums and **no
+ * identifiers**: no account id, no keys, no tokens, no URLs.
+ *
+ * It REUSES the real resolver and the real guard rather than restating them.
+ * `writeAuthorized` is literally `assertWriteAuthorized`'s own verdict, captured
+ * by calling it — a reimplementation could agree with the guard today and
+ * diverge silently later, which would make this endpoint worse than no endpoint,
+ * since it would report safety it no longer establishes.
+ *
+ * WHY TWO SEPARATE SANDBOX FACTS. `environment` is
+ * `NETSUITE_ENV ?? inferEnv(accountId)`, so an explicit `NETSUITE_ENV=sandbox`
+ * on a PRODUCTION account reports "sandbox" and suppresses the guard.
+ * `accountIsSandbox` asks the account itself, ignoring the override. Together
+ * they close that hole: agreement proves the target; disagreement exposes an
+ * override masking a production account, which is the one configuration that
+ * looks safe from every other angle.
+ */
+export type NetsuiteTargetFacts = {
+  environment: "sandbox" | "production";
+  /** From the account shape alone — NOT influenced by `NETSUITE_ENV`. */
+  accountIsSandbox: boolean;
+  /** The production guard's own answer for a write attempt. */
+  writeAuthorized: boolean;
+};
+
+export function describeNetsuiteTarget(): NetsuiteTargetFacts {
+  const config = loadNetsuiteConfig();
+  let writeAuthorized = true;
+  try {
+    // POST, because that is what a Sales Order CREATE is. GET short-circuits
+    // inside the guard and would prove nothing.
+    assertWriteAuthorized(config, "POST");
+  } catch {
+    writeAuthorized = false;
+  }
+  return {
+    environment: config.env,
+    accountIsSandbox: inferEnv(config.accountId) === "sandbox",
+    writeAuthorized,
+  };
+}
+
 /** Guardrail: refuse production writes without explicit opt-in. */
 function assertWriteAuthorized(config: NetsuiteConfig, method: string) {
   if (method === "GET") return;
