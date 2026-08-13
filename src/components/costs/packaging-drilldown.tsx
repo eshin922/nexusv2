@@ -14,6 +14,11 @@ import {
   resolveNodes,
 } from "@/lib/costing-nodes";
 import {
+  buildPackagingIdentityMap,
+  resolvePackagingRowIdentity,
+  type PackagingRowIdentity,
+} from "@/lib/costs/packaging-row-identity";
+import {
   selectActiveTierId,
   selectGraph,
   selectPackaging,
@@ -27,6 +32,9 @@ import {
 // depends on the OLD `quote_skus` schema type.
 type QuoteSku = {
   id: string;
+  // OD-017 governed cost-input identity — the id a packaging line carries in
+  // `quoteSkuId`. Null for an assembly, which owns no cost row.
+  quoteLeafId: string | null;
   skuLabel: string;
   productName: string;
   skuRole: "leaf" | "assembly";
@@ -169,7 +177,9 @@ export function PackagingDrilldown({
   categories: Array<{ category: string; defaultMarkupPct: string }>;
   editable: boolean;
 }) {
-  const skuMap = new Map(skus.map((s) => [s.id, s]));
+  // COSTS-RENDER-1 — see `@/lib/costs/packaging-row-identity` for why this is
+  // keyed on the governed cost-input identity and not on `s.id`.
+  const identityMap = buildPackagingIdentityMap(skus);
   const linesById = new Map<string, LineForUI>();
   for (const r of inputRows) {
     const row = r.packaging_inputs;
@@ -399,7 +409,10 @@ export function PackagingDrilldown({
             key={line.lineGroupId}
             line={line}
             tiers={tiers}
-            sku={skuMap.get(line.quoteSkuId)}
+            identity={resolvePackagingRowIdentity(
+              identityMap,
+              line.quoteSkuId,
+            )}
             categories={categories}
             reads={reads}
             disabled={!editable}
@@ -448,14 +461,15 @@ function EmptyDrawer({
 function PackagingRow({
   line,
   tiers,
-  sku,
+  identity,
   categories,
   reads,
   disabled,
 }: {
   line: LineForUI;
   tiers: Array<{ id: string; label: string; qty: number | null }>;
-  sku: QuoteSku | undefined;
+  /** Resolved visible identity of the governed component this row costs. */
+  identity: PackagingRowIdentity;
   categories: Array<{ category: string; defaultMarkupPct: string }>;
   /** Governed per-(line, tier) values, resolved once for the whole drawer. */
   reads: Map<string, LineTierRead>;
@@ -784,12 +798,11 @@ function PackagingRow({
     }, 250);
   }
 
-  const skuLabel = sku?.skuLabel ?? "";
-  const productName = sku?.productName ?? "";
   // The library LEAF is the cost-bearing component identity. Pricing Vendor
   // remains provenance in its own column and must never replace what is being
-  // costed. `quoteSkuId` resolves through assembly_leaves to this LEAF.
-  const componentName = productName || skuLabel || "Unknown component";
+  // costed. Resolution lives in `@/lib/costs/packaging-row-identity` so the
+  // binding is assertable without rendering.
+  const { componentName, skuLabel } = identity;
 
   return (
     <div className="r6-dt-row">

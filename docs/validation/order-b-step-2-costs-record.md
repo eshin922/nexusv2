@@ -127,8 +127,15 @@ and Proof 5, reached through data entry rather than through display.
 The DB binding is correct (`assembly_leaf_inputs → assembly_leaves → leaves`
 resolves to Box and Bottle); the defect is confined to the rendered label.
 
-**Not fixed here** — out of Step 2 scope, and Order B is mid-sequence. Raised
-for disposition.
+**Dispositioned and REPAIRED** — classified a V1 operator-correctness defect and
+fixed before Step 3. Root cause was a join across two identity spaces introduced
+by OD-017 on this branch (not deployed). See
+[`costs-render-1-packaging-row-identity.md`](costs-render-1-packaging-row-identity.md).
+
+Order B's authored values were **not** modified or re-authored. After the
+repair the rows visibly read `Primary - Bottle / DPS-BOTTLE-0001 · 1.125` and
+`Genexa - Box - Kids' Cough (10064-GNX) / 10064-GNX-Box · 0.625` with no
+devtools inspection, so **Step 2 operator certification is complete**.
 
 ---
 

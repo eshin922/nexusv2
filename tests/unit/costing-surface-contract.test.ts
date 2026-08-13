@@ -11,15 +11,26 @@ test("packaging rows use LEAF identity rather than pricing provenance", async ()
     "utf8",
   );
 
-  assert.match(
-    source,
-    /const componentName = productName \|\| skuLabel \|\| "Unknown component"/,
+  const resolver = await readFile(
+    new URL("../../src/lib/costs/packaging-row-identity.ts", import.meta.url),
+    "utf8",
   );
+
+  // COSTS-RENDER-1 moved resolution into its own module so the binding is
+  // assertable without rendering. The row still renders it in the name slot.
+  assert.match(source, /const \{ componentName, skuLabel \} = identity/);
   assert.match(source, /<span className="lab">\{componentName\}<\/span>/);
+
+  // Pricing provenance must never stand in for what is being costed.
   assert.doesNotMatch(
     source,
     /const lineName = vendorName \|\| line\.supplier/,
   );
+  // The resolver draws identity from the LEAF alone — it cannot reach a vendor,
+  // supplier or category even by accident.
+  assert.match(resolver, /sku\?\.productName/);
+  assert.match(resolver, /sku\?\.skuLabel/);
+  assert.doesNotMatch(resolver, /vendor|supplier|category/i);
 });
 
 test("costs expose every SKU without a switching control", async () => {
@@ -118,9 +129,22 @@ test("packaging rows keep their explicit SKU association", async () => {
     "utf8",
   );
 
-  assert.match(source, /sku=\{skuMap\.get\(line\.quoteSkuId\)\}/);
-  assert.match(source, /const skuLabel = sku\?\.skuLabel \?\? ""/);
+  const resolver = await readFile(
+    new URL("../../src/lib/costs/packaging-row-identity.ts", import.meta.url),
+    "utf8",
+  );
+
+  // The row is still bound explicitly to its own line's identity...
+  assert.match(source, /identity=\{resolvePackagingRowIdentity\(/);
+  assert.match(source, /line\.quoteSkuId,/);
   assert.match(source, /\{skuLabel\}/);
+
+  // ...and that binding uses the GOVERNED cost-input identity. Pinning the map
+  // key in source is what makes a future re-key fail here rather than silently
+  // degrade every row to "Unknown component", which is how COSTS-RENDER-1
+  // reached production-adjacent certification unnoticed.
+  assert.match(resolver, /\[\[s\.quoteLeafId, s\] as const\]/);
+  assert.doesNotMatch(resolver, /\[\[s\.id, s\] as const\]/);
 });
 
 test("Bulk Raw operator surface is absent while compatibility plumbing remains", async () => {

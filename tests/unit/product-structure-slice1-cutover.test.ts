@@ -53,6 +53,15 @@ const classifiedIdentityFiles = new Set([
   // for staged-vs-committed deltas. Naming the identity here is the contract,
   // not a legacy reference — positional keys would break that join.
   "src/lib/costing-nodes.ts",
+  // CLASSIFIED — enduring, canonical-only. COSTS-RENDER-1. Resolves which
+  // governed component a Packaging cost row is costing, so an operator can see
+  // it on the row. Keys STRICTLY on quoteLeafId, because that is the identity
+  // every assembly_leaf_inputs row carries post-OD-017; it names assemblyLeafId
+  // only to document the id space it must NOT key on. Deliberately has no
+  // legacy fallback — a permissive lookup would silently re-absorb the next
+  // re-key, which is the defect this module exists to prevent. Nothing to
+  // retire: it should be canonical-only forever.
+  "src/lib/costs/packaging-row-identity.ts",
   // CLASSIFIED — canonical, session-scoped. The staging model addresses a
   // staged lift or direct price by `quote_leaf_id x tier_id`, which is the
   // canonical commercial attachment Phase 3 §1a requires lifts to persist
