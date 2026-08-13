@@ -133,7 +133,12 @@ export async function runRateConvergence(args: {
   // 3-5 · compare against the frozen plan. Any structural blocker refuses the
   // WHOLE run — patching into a structure that does not match the plan would
   // make a wrong order reconcile on totals.
-  const plan = planRateConvergence(plannedGroups, before, tierQty);
+  const plan = planRateConvergence(
+    plannedGroups,
+    before,
+    tierQty,
+    args.plannedDirectLines ?? [],
+  );
 
   const patched: ConvergenceOutcome["patched"] = [];
   if (plan.blockers.length === 0) {

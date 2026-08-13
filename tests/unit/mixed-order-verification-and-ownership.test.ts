@@ -17,6 +17,7 @@ import { decideReconciliation } from "../../src/lib/netsuite/create-reconciliati
 import {
   evaluateSuccessGate,
   normalizeStructure,
+  planRateConvergence,
   type ObservedLine,
 } from "../../src/lib/netsuite/so-structure.ts";
 
@@ -275,4 +276,51 @@ test("a group-only order is unaffected by the repair", () => {
     expectHeader: expectHeader as never,
   });
   assert.deepEqual(gate.failures, []);
+});
+
+// ───────────────── the planner, not just the gate (SO2714) ─────────────────
+//
+// Repairing `evaluateSuccessGate` alone was insufficient, and the live artifact
+// proved it. `planRateConvergence` carried the same "every line is grouped"
+// assumption, blocked on the Direct line, and therefore patched NO rates at
+// all — leaving both group members at the $0.00 un-priced expansion on SO2714
+// while the Direct line was perfectly correct.
+//
+// The acting half matters more than the reporting half: a wrong report is a
+// wrong message, a blocked planner is an unpriced order.
+
+test("the planner patches group members when a PLANNED Direct line is present", () => {
+  const plan = planRateConvergence(
+    plannedGroups as never,
+    normalizeStructure(mixedLines({ includeDirect: true })),
+    1000,
+    plannedDirectLines,
+  );
+  assert.deepEqual(plan.blockers, []);
+});
+
+test("the planner still blocks on an UNPLANNED ungrouped line", () => {
+  // Narrowed, not removed: an ungrouped line nobody accepted must still stop
+  // the run rather than be patched around.
+  const plan = planRateConvergence(
+    plannedGroups as never,
+    normalizeStructure(mixedLines({ includeDirect: true })),
+    1000,
+    [], // the Direct line is NOT declared
+  );
+  assert.ok(plan.blockers.some((b) => /unplanned item line/.test(b)));
+});
+
+test("blocking the planner is what leaves members un-priced", () => {
+  // The failure mode as observed: with the Direct line undeclared the planner
+  // returns no patches, so every member keeps rate 0 — which the gate then
+  // correctly reports as the un-priced expansion state. One missed assumption
+  // in the planner produces both symptoms.
+  const blocked = planRateConvergence(
+    plannedGroups as never,
+    normalizeStructure(mixedLines({ includeDirect: true })),
+    1000,
+    [],
+  );
+  assert.equal(blocked.patches.length, 0);
 });

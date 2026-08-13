@@ -266,6 +266,12 @@ export function planRateConvergence(
   plannedGroups: PlannedGroup[],
   structure: NormalizedStructure,
   tierQty: number,
+  /**
+   * Direct Product lines the accepted quote requires outside the groups.
+   * Optional so existing callers keep their exact previous meaning: with none
+   * declared, every ungrouped line is unexpected, as before.
+   */
+  plannedDirectLines: PlannedDirectLine[] = [],
 ): ConvergencePlan {
   const patches: PlannedPatch[] = [];
   const blockers: string[] = [];
@@ -277,9 +283,24 @@ export function planRateConvergence(
     );
     return { patches, alreadyCorrect, blockers };
   }
-  if (structure.ungroupedMembers.length > 0) {
+
+  // Only UNPLANNED ungrouped lines block.
+  //
+  // This planner is the half that ACTS; `evaluateSuccessGate` is the half that
+  // REPORTS. Repairing the reporter alone left this one still refusing every
+  // ungrouped line, so a mixed order blocked here, no rate was patched at all,
+  // and the members stayed at the $0.00 un-priced expansion — observed live on
+  // SO2714. A structural assumption has to be lifted everywhere it was encoded,
+  // and the acting half matters more than the reporting half.
+  const expectedUngrouped = new Set(
+    plannedDirectLines.map((l) => String(l.netsuiteItemId)),
+  );
+  const unexpected = structure.ungroupedMembers.filter(
+    (l) => !expectedUngrouped.has(String(l.netsuiteItemId)),
+  );
+  if (unexpected.length > 0) {
     blockers.push(
-      `${structure.ungroupedMembers.length} item line(s) sit outside any group on a grouped order`,
+      `${unexpected.length} unplanned item line(s) sit outside any group on a grouped order`,
     );
   }
 
