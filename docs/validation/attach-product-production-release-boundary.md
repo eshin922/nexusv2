@@ -414,3 +414,87 @@ Routes, for disposition:
   so `verify` genuinely passes. Durable and correct, but it is the follow-up
   rather than the outage path, and it requires deciding what database CI may
   reach — on a single shared project that is not a small question.
+
+**Route A taken.** `enforce_admins` was disabled in the GitHub UI by the
+operator, the merge performed, and the setting **restored and re-verified**
+(`enforce_admins: true`, required check `verify` intact).
+
+---
+
+## 7 · Merge, production smoke, and cleanup — CLOSED GREEN
+
+### 7.1 Merge
+
+| | |
+|---|---|
+| **Merge SHA** | **`e97011c`** |
+| Merged at | 2026-08-13 16:12:43 UTC |
+| Parents | `954163d` (prior production) + `065aed3` (gated boundary) |
+| Method | Merge commit — no squash, no rebase; 171 commits preserved |
+| **Tree parity** | `11c4a3ea9ab0d17ccb2bffc0cee065c09c1e6ba3` on **both** `065aed3` and `e97011c` |
+
+Tree parity is the load-bearing check: the merge commit's tree is byte-identical
+to the SHA that passed all five gates, so production built exactly what was
+gated and the merge contributed no content of its own.
+
+**Production deployment:** Vercel status `success`, bound to commit `e97011c`.
+
+### 7.2 Smoke target selection — a trap avoided
+
+Attaching a product changes a quote's costing. **`9cff9b26` (PSR smoke-step-8)
+is in the S-7 preservation baseline** — smoking there would have moved a
+preserved number and failed `verify:s7-preserved` on the *next* production
+build, reproducing this outage's shape, self-inflicted, and surfacing only on
+someone else's merge.
+
+Target chosen: **`52bd0077` · `ZZ-VALIDATION-tier-propagation`** — the S-7
+verifier names that namespace explicitly as *"a namespace of mutable
+instruments"* and excludes it from preservation. The PSR quotes were rejected
+despite being baseline-free because each is shaped around a specific classifier
+state; mutating one would silently invalidate a fixture.
+
+Product attached: **`Genexa - Box - Kids' Cough (10064-GNX)`** — the *same
+product* whose attach threw 23502 in production, through the same Library modal,
+for a faithful reproduction.
+
+### 7.3 Smoke result — 12/12 PASS
+
+Operator path: production UI, Setup → Add component → Attach. UI confirmed
+`✓ ATTACHED`, assembly `2 components → 3`, `3 OF 3 LEAVES PENDING`. No error.
+
+| Claim | Evidence |
+|---|---|
+| **no 23502** | attach completed; `NULL quote_leaf_id` count **0**; `is_nullable=NO` — constraint still enforced, not silently dropped |
+| **canonical `quote_leaf_id`** | all 4 created rows carry `quote_leaf_id = f3fe2482…` = the new `quote_leaves.id`; legacy `assembly_leaf_id` also populated (dual-key intact) |
+| **attachment completes normally** | rows **305 → 309** = exactly 1 new leaf × 4 tiers; one row per tier; one line group across all tiers |
+| **no adjacent regression** | 0 cost-input rows written to any other quote; 0 dangling FKs; orphan untouched |
+
+### 7.4 Orphan cleanup — executed, 3 rows
+
+Preconditions re-proven **inside** the transaction so a surprise would roll back
+rather than widen: 0 cost-input rows referencing the orphan; quote still
+`draft`, `quote_number=NULL`, `sent_at=NULL`.
+
+```
+DELETE assembly_leaves  df69181a : 1 row
+DELETE quote_leaves     b7a85aa2 : 1 row
+DELETE assemblies       bd53ac8e : 1 row
+TOTAL AFFECTED ROWS              : 3      COMMITTED
+```
+
+**Post-cleanup verification — 12/12 PASS.** All three orphan rows gone. Quote
+`d1bbdb4e` **preserved** (now a clean 0-assembly draft); library leaf
+`10064-GNX-Box` **preserved**; `assembly_leaf_inputs` still **309** — the cleanup
+touched no cost data; zero NULL `quote_leaf_id` anywhere; zero dangling
+`assembly_leaves` or cost-input FKs; the smoke quote's 12 rows (8 pre-existing +
+4 new) intact.
+
+### 7.5 Outstanding
+
+- **CI `verify` remains infrastructure-misconfigured.** Durable follow-up: a
+  scoped database credential for the job, or relocate the DB-backed preservation
+  gate to an environment where it can genuinely execute. **Not** a skip-when-absent.
+- **Interim restriction in force:** no firm-settings edits until the workstream
+  carrying `slack_approval_channel_id` forward is deployed (§3C).
+- Defects **A** (non-atomic attach) and **B** (migration deploy-order governance,
+  now amended in CLAUDE.md) remain recorded and unrepaired by design.
