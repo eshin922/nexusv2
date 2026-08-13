@@ -95,7 +95,7 @@ export function OverrideModal({
         </div>
 
         <div className="formfield">
-          <label>Slack DM preview</label>
+          <label>Approval request preview</label>
           <div className="slack-preview">
             <div className="slack-head">
               <div className="slack-logo">S</div>
@@ -144,11 +144,11 @@ export function OverrideModal({
             className="btn bad"
             disabled={!reason.trim()}
             onClick={() => {
-              alert("Stub — Slice 12 dispatches Slack DM + logs override request.");
+              alert("Stub — delivery is not built; this logs nothing yet.");
               onClose();
             }}
           >
-            ⚡ Send Slack DM · log override request
+            ⚡ Log override request
           </button>
         </div>
       </ModalFoot>
