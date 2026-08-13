@@ -21,6 +21,7 @@ import {
 } from "@/lib/action-result";
 import { materializePackagingRows } from "@/lib/packaging-materialization";
 import { revalidateQuoteTree } from "@/lib/revalidate";
+import { evaluateAttachmentEligibility } from "@/lib/product-structure/attachment-eligibility";
 import {
   attachGroupedMembership,
   detachGroupedMembership,
@@ -320,11 +321,15 @@ export async function attachAssemblyLeaf(
       .limit(1);
     if (leafRows.length === 0)
       throw new ActionGuardError(ERR.NOT_FOUND, "Leaf not found");
-    if (leafRows[0].archived)
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Archived leaves can't be attached.",
-      );
+    // Shared with the Direct Product path. Adds the SKU-less refusal alongside
+    // the existing archived one: a product with no SKU cannot be matched by the
+    // NetSuite resolver, so attaching it builds a quote that is already unable
+    // to complete — and the failure would otherwise surface at the irreversible
+    // commit rather than here.
+    const eligibility = evaluateAttachmentEligibility(leafRows[0]);
+    if (!eligibility.attachable) {
+      throw new ActionGuardError(ERR.VALIDATION, eligibility.message);
+    }
 
     // Reject duplicate attach (friendly error vs raw unique-violation).
     const existingRows = await db

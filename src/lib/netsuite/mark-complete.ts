@@ -19,7 +19,11 @@ import {
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { isHubspotAcceptSyncSuppressed } from "@/lib/config/certification-mode";
 import { getCostingBundle } from "@/app/actions/costing";
-import { loadAssemblyTree } from "@/lib/assembly-tree";
+import {
+  loadAssemblyTree,
+  type AssemblyNode,
+  type DirectProductNode,
+} from "@/lib/assembly-tree";
 import {
   resolveNetsuiteCustomer,
   formatCustomerMissingError,
@@ -343,15 +347,22 @@ export async function runMarkComplete(
   // ============================================================
   // Load assembly tree via loadAssemblyTree (F1.5 ASY/LEAF path).
   const tree = await loadAssemblyTree(quoteId);
-  if (!tree || tree.assemblies.length === 0) {
-    throw new Error("Quote has no assemblies to push.");
+  // A quote is pushable if it carries ANY product. Requiring an assembly was
+  // the structural assumption that made a Direct Product unshippable — the
+  // quote had products, just not grouped ones.
+  if (!tree || (tree.assemblies.length === 0 && tree.directProducts.length === 0)) {
+    throw new Error("Quote has no products to push.");
   }
 
-  // Every UNIQUE leaf SKU across all assemblies must resolve.
+  // Every UNIQUE product SKU on the quote must resolve — grouped members AND
+  // Direct Products. A Direct Product resolves through the identical SKU-match;
+  // membership has never been part of item resolution.
   const uniqueSkus = Array.from(
     new Set(
-      tree.assemblies
-        .flatMap((a) => a.children)
+      [
+        ...tree.assemblies.flatMap((a) => a.children),
+        ...tree.directProducts,
+      ]
         .map((child) => child.sku)
         .filter((s): s is string => Boolean(s)),
     ),
@@ -586,16 +597,28 @@ export async function runMarkComplete(
     // the outgoing handoff, so the two cannot disagree.
     const planLines: PlanLineInput[] = [];
     for (const leafRollup of leafRollups) {
-      // Locate the leaf's tree entry to get its SKU + name.
-      const treeLeaf = tree.assemblies
-        .flatMap((a) => a.children.map((c) => ({ assembly: a, child: c })))
-        // OD-028 — match on the CANONICAL cost-input identity. `skuRollups` are
-        // keyed by quote_leaf_id since OD-017; `junctionId` is the legacy
-        // assembly_leaf id and matched 0/2 on Order B, so every leaf was
-        // skipped and the empty-lines guard refused the push. Deliberately NO
-        // fallback to junctionId: a fallback would silently re-absorb the next
-        // re-key, which is exactly how this class keeps recurring.
-        .find(({ child }) => child.quoteLeafId === leafRollup.skuId);
+      // Locate the product's tree entry to get its SKU + name. Grouped members
+      // and Direct Products are searched in ONE space keyed by the canonical
+      // identity — a Direct Product differs only in having no assembly, which
+      // is carried as `assembly: null` rather than by being looked up elsewhere.
+      const treeLeaf =
+        tree.assemblies
+          .flatMap((a) =>
+            a.children.map((c) => ({
+              assembly: a as AssemblyNode | null,
+              child: c as DirectProductNode,
+            })),
+          )
+          // OD-028 — match on the CANONICAL cost-input identity. `skuRollups` are
+          // keyed by quote_leaf_id since OD-017; `junctionId` is the legacy
+          // assembly_leaf id and matched 0/2 on Order B, so every leaf was
+          // skipped and the empty-lines guard refused the push. Deliberately NO
+          // fallback to junctionId: a fallback would silently re-absorb the next
+          // re-key, which is exactly how this class keeps recurring.
+          .find(({ child }) => child.quoteLeafId === leafRollup.skuId) ??
+        tree.directProducts
+          .filter((d) => d.quoteLeafId === leafRollup.skuId)
+          .map((d) => ({ assembly: null as AssemblyNode | null, child: d }))[0];
       if (!treeLeaf?.child.sku) continue; // no SKU → skipped upstream by resolver
       const nsId = nsIdBySku.get(treeLeaf.child.sku);
       if (!nsId) continue;
@@ -614,7 +637,9 @@ export async function runMarkComplete(
         sku: treeLeaf.child.sku,
         description:
           treeLeaf.child.name ||
-          `${treeLeaf.assembly.name} — ${treeLeaf.child.sku}`,
+          (treeLeaf.assembly
+            ? `${treeLeaf.assembly.name} — ${treeLeaf.child.sku}`
+            : treeLeaf.child.sku),
         quantity: effectiveQty,
         rate: lineRate,
         unitCost:
@@ -623,9 +648,11 @@ export async function runMarkComplete(
             : null,
       });
       planLines.push({
-        assemblyId: treeLeaf.assembly.id,
-        assemblySku: treeLeaf.assembly.sku,
-        assemblyName: treeLeaf.assembly.name,
+        // NULL for a Direct Product. The plan records it as attributed to no
+        // group, which is a positive fact the walk can assert — not an absence.
+        assemblyId: treeLeaf.assembly?.id ?? null,
+        assemblySku: treeLeaf.assembly?.sku ?? null,
+        assemblyName: treeLeaf.assembly?.name ?? null,
         sku: treeLeaf.child.sku,
         netsuiteItemId: nsId,
         quantity: effectiveQty,
@@ -699,6 +726,34 @@ export async function runMarkComplete(
     // identity rather than one of its own.
     let payloadForSend = builtPayload;
     if (groupingPlan.groupingRequired && groupingPlan.groups.length > 0) {
+      // MIXED-STRUCTURE BOUNDARY — fail closed, do not guess.
+      //
+      // A turnkey_only quote carrying BOTH grouped assemblies and Direct
+      // Products would need group lines and flat lines in one payload.
+      // `buildSalesOrderPayload` refuses that combination because Probe 7a
+      // observed NetSuite expanding the group AND honouring explicit members,
+      // returning 204 while silently doubling the order.
+      //
+      // That probe concerned members OF a group sent alongside it, and a Direct
+      // Product is a member of nothing — so the duplication may well not apply
+      // here. It has not been measured, and a plausible argument is not
+      // evidence. Refusing before CREATE costs an operator an error message;
+      // being wrong costs a doubled Sales Order on a real customer.
+      //
+      // Unblocking this needs one disposable sandbox probe: group line + an
+      // unrelated flat line in a single CREATE, then read back the line count.
+      const directLineCount = groupingPlan.lineAttribution.filter(
+        (l) => l.assemblyId === null,
+      ).length;
+      if (directLineCount > 0) {
+        throw new Error(
+          `[markComplete] This quote mixes ${groupingPlan.groups.length} Item Group(s) with ` +
+            `${directLineCount} Direct Product line(s) at turnkey_only detail. Emitting both in one ` +
+            `Sales Order is unproven against NetSuite's group expansion (Probe 7a duplication), so ` +
+            `Nexus refuses before CREATE rather than risk a doubled order. Send this quote itemized, ` +
+            `or place the Direct Products in an Item Group.`,
+        );
+      }
       if (!groupingPlan.derivable) {
         throw new Error(
           "[markComplete] The grouping plan carries no deterministic identity for at least one " +

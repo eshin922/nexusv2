@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblies,
@@ -7,6 +7,7 @@ import {
   leafSpecs,
   leaves,
   productTypes,
+  quoteLeaves,
 } from "@/db/schema";
 
 // Phase A.1 v2 — Setup IA tree shape + loader.
@@ -97,13 +98,31 @@ export type AssemblyCompletenessRollup =
   | { kind: "partial"; complete: number; total: number }
   | { kind: "mixed_with_placeholders"; complete: number; total: number; placeholders: number };
 
+// A product attached directly to the quote — `quote_leaves.assembly_id IS NULL`.
+//
+// Structurally identical to an assembly member MINUS `junctionId`, because a
+// Direct Product has no `assembly_leaves` row at all. The omission is the point:
+// the legacy junction is what makes something a group member, so a type that
+// cannot carry one cannot accidentally be treated as grouped.
+export type DirectProductNode = Omit<AssemblyLeafNode, "junctionId">;
+
 export type AssemblyTree = {
   assemblies: AssemblyNode[];
+  // Products attached at quote level. PEER to `assemblies`, never a member of
+  // one — the Design Authority holds that Add Product and Add Item Group are
+  // independent operator choices, and SO2704 proves the distinction survives
+  // into the customer document (a one-product Item Group prints as a named
+  // container with a nested line; a Direct Product prints as one line).
+  //
+  // Consumers must therefore never collapse a single-member assembly into this
+  // collection, nor wrap a member of this collection into an assembly.
+  directProducts: DirectProductNode[];
   // Headline counts for the header counter ("N SKUs · M assemblies").
-  // SKU count = leaf count across all assemblies; assembly count =
-  // top-level ASY count.
+  // SKU count = leaf count across all assemblies PLUS direct products;
+  // assembly count = top-level ASY count.
   totalSkus: number;
   totalAssemblies: number;
+  totalDirectProducts: number;
 };
 
 /**
@@ -125,22 +144,34 @@ export type AssemblyTree = {
 export async function loadAssemblyTree(
   quoteId: string,
 ): Promise<AssemblyTree | null> {
-  // First query: assemblies for this quote, ordered by position.
-  const asmRows = await db
-    .select()
-    .from(assemblies)
-    .where(eq(assemblies.quoteId, quoteId))
-    .orderBy(asc(assemblies.position), asc(assemblies.createdAt));
+  // First wave: assemblies AND quote-level Direct Products. Both are
+  // top-level structure, so neither may gate the other — an early return on
+  // zero assemblies would have made a Direct-only quote render as empty, which
+  // is the shape of the OD-017 defect (structure that exists and is never seen).
+  const [asmRows, directRows] = await Promise.all([
+    db
+      .select()
+      .from(assemblies)
+      .where(eq(assemblies.quoteId, quoteId))
+      .orderBy(asc(assemblies.position), asc(assemblies.createdAt)),
+    db
+      .select()
+      .from(quoteLeaves)
+      .where(and(eq(quoteLeaves.quoteId, quoteId), isNull(quoteLeaves.assemblyId)))
+      .orderBy(asc(quoteLeaves.position), asc(quoteLeaves.createdAt)),
+  ]);
 
   // canonical-scenario-create-flow — empty-state return (was
   // `return null` triggering legacy fallback; now returns empty
   // tree so AssemblyTreeView renders its "No assemblies yet"
-  // empty state).
-  if (asmRows.length === 0) {
+  // empty state). Now gated on BOTH collections being empty.
+  if (asmRows.length === 0 && directRows.length === 0) {
     return {
       assemblies: [],
+      directProducts: [],
       totalSkus: 0,
       totalAssemblies: 0,
+      totalDirectProducts: 0,
     };
   }
 
@@ -150,11 +181,13 @@ export async function loadAssemblyTree(
   // rows give us leafIds; product types we deref via the assembly's
   // productTypeId (one fetch covers both ASY-scope + leaf-scope).
   const [junctionRows, allTypes] = await Promise.all([
-    db
-      .select()
-      .from(assemblyLeaves)
-      .where(inArray(assemblyLeaves.assemblyId, asmIds))
-      .orderBy(asc(assemblyLeaves.position), asc(assemblyLeaves.createdAt)),
+    asmIds.length > 0
+      ? db
+          .select()
+          .from(assemblyLeaves)
+          .where(inArray(assemblyLeaves.assemblyId, asmIds))
+          .orderBy(asc(assemblyLeaves.position), asc(assemblyLeaves.createdAt))
+      : Promise.resolve([] as (typeof assemblyLeaves.$inferSelect)[]),
     db.select().from(productTypes),
   ]);
 
@@ -174,11 +207,18 @@ export async function loadAssemblyTree(
     }
   }
 
-  const leafIds = Array.from(new Set(junctionRows.map((r) => r.leafId)));
+  // Library rows are needed for BOTH grouped members and Direct Products, so
+  // the id set spans both. One query pair serves the whole tree.
+  const leafIds = Array.from(
+    new Set([
+      ...junctionRows.map((r) => r.leafId),
+      ...directRows.map((r) => r.leafId),
+    ]),
+  );
   if (leafIds.length === 0) {
-    // Edge case: ASYs exist but no junction rows — all assemblies
-    // have empty children. Skip leaf + spec queries.
-    return assembleTree(asmRows, junctionRows, [], [], new Map(), typeMap);
+    // Edge case: ASYs exist but no junction rows and no Direct Products — all
+    // assemblies have empty children. Skip leaf + spec queries.
+    return assembleTree(asmRows, junctionRows, directRows, [], [], new Map(), typeMap);
   }
 
   // Third wave: library leaves + current spec rows for those leaves
@@ -191,24 +231,42 @@ export async function loadAssemblyTree(
       .where(
         and(inArray(leafSpecs.leafId, leafIds), eq(leafSpecs.isCurrent, true)),
       ),
+    // Counted on `quote_leaves` — the CANONICAL attachment table — not on the
+    // legacy junction. A Direct Product has no junction row, so the old basis
+    // would have counted it as zero and reported "this scenario only" for a
+    // product used elsewhere.
+    //
+    // This is not a behaviour change for existing data: the two tables were
+    // verified to agree exactly (0 leaves with differing counts) before the
+    // basis was switched. One basis for both collections, so a caption cannot
+    // mean different things depending on which branch produced it.
     db
       .select({
-        leafId: assemblyLeaves.leafId,
+        leafId: quoteLeaves.leafId,
         n: sql<number>`count(*)::int`,
       })
-      .from(assemblyLeaves)
-      .where(inArray(assemblyLeaves.leafId, leafIds))
-      .groupBy(assemblyLeaves.leafId),
+      .from(quoteLeaves)
+      .where(inArray(quoteLeaves.leafId, leafIds))
+      .groupBy(quoteLeaves.leafId),
   ]);
 
   const refCountMap = new Map(globalRefRows.map((r) => [r.leafId, r.n] as const));
 
-  return assembleTree(asmRows, junctionRows, leafRows, specRows, refCountMap, typeMap);
+  return assembleTree(
+    asmRows,
+    junctionRows,
+    directRows,
+    leafRows,
+    specRows,
+    refCountMap,
+    typeMap,
+  );
 }
 
 function assembleTree(
   asmRows: (typeof assemblies.$inferSelect)[],
   junctionRows: (typeof assemblyLeaves.$inferSelect)[],
+  directRows: (typeof quoteLeaves.$inferSelect)[],
   leafRows: (typeof leaves.$inferSelect)[],
   specRows: (typeof leafSpecs.$inferSelect)[],
   refCountMap: Map<string, number>,
@@ -216,6 +274,33 @@ function assembleTree(
 ): AssemblyTree {
   const leafMap = new Map(leafRows.map((r) => [r.id, r] as const));
   const specMap = new Map(specRows.map((r) => [r.leafId, r] as const));
+
+  // Shared projection so a Direct Product and an assembly member are described
+  // identically wherever they are genuinely the same thing. The ONLY difference
+  // between them is membership, and membership is expressed by which collection
+  // the node lands in — never by differing field semantics.
+  const describeLeaf = (
+    leaf: typeof leaves.$inferSelect,
+  ): Omit<DirectProductNode, "quoteLeafId" | "position" | "quantity"> => {
+    const leafType = leaf.productTypeId ? typeMap.get(leaf.productTypeId) : null;
+    return {
+      leafId: leaf.id,
+      name: leaf.name,
+      sku: leaf.sku,
+      productType: leafType
+        ? {
+            id: leafType.id,
+            name: leafType.name,
+            scope: leafType.scope as "assembly" | "leaf",
+            placeholder: leafType.placeholder,
+          }
+        : null,
+      unitCost: leaf.unitCost,
+      archived: leaf.archived,
+      globalRefCount: refCountMap.get(leaf.id) ?? 1,
+      specCompleteness: computeSpecCompleteness(leafType, specMap.get(leaf.id)),
+    };
+  };
 
   // Group junctions by assemblyId. Pre-ordered by (position, createdAt).
   const junctionsByAsm = new Map<string, typeof junctionRows>();
@@ -239,30 +324,12 @@ function assembleTree(
             `[assembly-tree] leafId ${j.leafId} referenced by junction ${j.id} but no leaf row found`,
           );
         }
-        const leafType = leaf.productTypeId
-          ? typeMap.get(leaf.productTypeId)
-          : null;
-        const productType: ProductTypeRef | null = leafType
-          ? {
-              id: leafType.id,
-              name: leafType.name,
-              scope: leafType.scope as "assembly" | "leaf",
-              placeholder: leafType.placeholder,
-            }
-          : null;
         return {
           junctionId: j.id,
           quoteLeafId: j.quoteLeafId,
           position: j.position,
           quantity: j.quantity,
-          leafId: leaf.id,
-          name: leaf.name,
-          sku: leaf.sku,
-          productType,
-          unitCost: leaf.unitCost,
-          archived: leaf.archived,
-          globalRefCount: refCountMap.get(leaf.id) ?? 1,
-          specCompleteness: computeSpecCompleteness(leafType, specMap.get(leaf.id)),
+          ...describeLeaf(leaf),
         } satisfies AssemblyLeafNode;
       });
 
@@ -293,10 +360,32 @@ function assembleTree(
     } satisfies AssemblyNode;
   });
 
+  const directProducts: DirectProductNode[] = directRows.map((row) => {
+    const leaf = leafMap.get(row.leafId);
+    if (!leaf) {
+      throw new Error(
+        `[assembly-tree] leafId ${row.leafId} referenced by quote_leaf ${row.id} but no leaf row found`,
+      );
+    }
+    return {
+      quoteLeafId: row.id,
+      position: row.position,
+      quantity: row.quantity,
+      ...describeLeaf(leaf),
+    } satisfies DirectProductNode;
+  });
+
   return {
     assemblies: assemblyNodes,
-    totalSkus: assemblyNodes.reduce((acc, a) => acc + a.children.length, 0),
+    directProducts,
+    // Both collections are SKUs on the quote. A Direct Product is a product the
+    // customer is being quoted, so omitting it here would under-report the
+    // quote's own size.
+    totalSkus:
+      assemblyNodes.reduce((acc, a) => acc + a.children.length, 0) +
+      directProducts.length,
     totalAssemblies: assemblyNodes.length,
+    totalDirectProducts: directProducts.length,
   };
 }
 

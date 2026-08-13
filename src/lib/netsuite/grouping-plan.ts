@@ -40,9 +40,18 @@ export type GroupingApplicability = "itemized" | "turnkey_only";
 /** One emitted SO line, carrying the assembly attribution the payload drops.
  *  Supplied BY the line-build loop — never re-derived here (constraint 3). */
 export interface PlanLineInput {
-  assemblyId: string;
-  assemblySku: string;
-  assemblyName: string;
+  /**
+   * NULL for a Direct Product — a product attached at quote level with no
+   * assembly. Such a line is never a group member and never contributes to a
+   * composition hash; it stays a plain Sales Order line.
+   *
+   * It IS still carried in `lineAttribution`, because "this line belongs to no
+   * group" is a fact the walk must be able to prove, not an absence to infer
+   * from the line's non-appearance.
+   */
+  assemblyId: string | null;
+  assemblySku: string | null;
+  assemblyName: string | null;
   sku: string;
   netsuiteItemId: string;
   /** TRANSACTION quantity for the accepted tier — `tierQty × qtyPerParent`. */
@@ -159,9 +168,10 @@ export interface GroupingPlan {
   lineAttribution: Array<{
     sku: string;
     netsuiteItemId: string;
-    assemblyId: string;
-    assemblySku: string;
-    assemblyName: string;
+    /** NULL for a Direct Product — attributed to the quote, not to a group. */
+    assemblyId: string | null;
+    assemblySku: string | null;
+    assemblyName: string | null;
   }>;
 }
 
@@ -193,11 +203,36 @@ export function buildGroupingPlan(input: {
 
   // Group by assembly, preserving first-seen order so the plan reads in the
   // same order as the emitted lines.
-  const byAssembly = new Map<string, PlanLineInput[]>();
+  // A line that actually carries an assembly. The narrowing is done once, here,
+  // so everything downstream reads non-null assembly fields without casts.
+  type GroupedPlanLine = PlanLineInput & {
+    assemblyId: string;
+    assemblySku: string;
+    assemblyName: string;
+  };
+
+  const byAssembly = new Map<string, GroupedPlanLine[]>();
   for (const line of input.lines) {
-    const bucket = byAssembly.get(line.assemblyId);
-    if (bucket) bucket.push(line);
-    else byAssembly.set(line.assemblyId, [line]);
+    // Direct Products are excluded from grouping by CONSTRUCTION, not by a
+    // later filter: a line with no assembly has no group to belong to. Bucketing
+    // them under a synthetic key would have manufactured exactly the auto-wrap
+    // the Design Authority forbids.
+    if (
+      line.assemblyId === null ||
+      line.assemblySku === null ||
+      line.assemblyName === null
+    ) {
+      continue;
+    }
+    const grouped: GroupedPlanLine = {
+      ...line,
+      assemblyId: line.assemblyId,
+      assemblySku: line.assemblySku,
+      assemblyName: line.assemblyName,
+    };
+    const bucket = byAssembly.get(grouped.assemblyId);
+    if (bucket) bucket.push(grouped);
+    else byAssembly.set(grouped.assemblyId, [grouped]);
   }
 
   const groups: PlannedGroup[] = [];

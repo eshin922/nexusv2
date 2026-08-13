@@ -193,6 +193,17 @@ const classifiedIdentityFiles = new Set([
   // why a resolver that has already refused did so. Retire with the
   // compatibility window.
   "scripts/rehearsal/r2-identity-parity.ts",
+  // CLASSIFIED — canonical only, by construction. The Direct Product path
+  // writes and reads `quote_leaves` and never touches the legacy junction:
+  // `assembly_leaves` appears in the helper exactly once, in a guard that
+  // REFUSES to detach a row carrying a junction, because such a row is a
+  // grouped member in a corrupted state rather than a Direct Product.
+  //
+  // There is no compatibility window to retire here. A Direct Product has no
+  // legacy identity to be compatible with — it is the first structure in the
+  // system that exists only in the canonical space.
+  "src/app/actions/quote-products.ts",
+  "src/lib/product-structure/direct-attachment.ts",
   "scripts/smoke/mark-complete.ts", "scripts/verify/costing-adapter.ts",
   "scripts/verify/sample-order-margin.ts", "scripts/verify/slice-11-5-1-warnings-parity.ts",
   "tests/harness/fixtures/world.ts",
