@@ -2156,6 +2156,40 @@ export const leaves = pgTable(
     // HubSpot via pullFromHubSpot. Unique partial index below
     // prevents duplicate HubSpot Product attachments.
     hubspotProductId: text("hubspot_product_id"),
+    /**
+     * HubSpot's `hs_product_type` — stored as the RAW INTERNAL OPTION VALUE,
+     * never a display label.
+     *
+     * SEPARATE FROM `productTypeId` ON PURPOSE. That column is Nexus's own
+     * product/structural taxonomy; this is HubSpot's commercial classification.
+     * The two vocabularies genuinely differ — Nexus has an assembly scope
+     * HubSpot has no counterpart for, HubSpot has service and commercial
+     * categories (Freight, Design, One Time Charges, R&D, Logistics, Turnkey,
+     * Finished Goods, Formulation) that no Nexus leaf type covers. Reusing one
+     * column for both would conflate them and lose information in whichever
+     * direction the mapping ran.
+     *
+     * INTERNAL VALUE, NOT LABEL. Three options diverge, and they are the three
+     * largest categories:
+     *
+     *     label "Primary Packaging"   → value `Primary`
+     *     label "Secondary Packaging" → value `Secondary`
+     *     label "Logistics"           → value `Third Party Logistics`
+     *
+     * A value derived from the HubSpot UI's labels would miss about half the
+     * catalogue and fail silently, so this column stores exactly what the API
+     * returns.
+     *
+     * NULL means one of two genuinely different things, and they stay
+     * distinguishable rather than being collapsed into a fabricated type:
+     * either the product is Nexus-local (no `hubspot_product_id`), or HubSpot
+     * itself has no classification for it (5 such products as of 2026-08-13).
+     *
+     * Not an enum: HubSpot may add options at any time, and a database enum
+     * would reject a legal upstream value at ingestion. Fidelity to the source
+     * outranks local validation here.
+     */
+    hubspotProductType: text("hubspot_product_type"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

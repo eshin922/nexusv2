@@ -2,9 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { LibraryBrowseRow } from "@/lib/library-browse-loader";
+import {
+  UNCLASSIFIED_SOURCE_TYPE,
+  type LibraryBrowseRow,
+} from "@/lib/library-browse-loader";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
-import { fetchLibraryBrowse, restoreLeaf } from "@/app/actions/leaves";
+import {
+  fetchHubspotProductTypes,
+  fetchLibraryBrowse,
+  restoreLeaf,
+} from "@/app/actions/leaves";
 import { attachAssemblyLeaf } from "@/app/actions/assemblies";
 import { attachQuoteProduct } from "@/app/actions/quote-products";
 import { AddProductModal } from "@/components/add-product/add-product-modal";
@@ -95,6 +102,12 @@ export function LibraryBrowseModal({
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("");
+  // HubSpot classification filter — the populated vocabulary. `typeFilter`
+  // above is retained for the Nexus taxonomy but is no longer chip-driven.
+  const [sourceTypeFilter, setSourceTypeFilter] = useState<string>("");
+  const [hsTypeOptions, setHsTypeOptions] = useState<
+    { label: string; value: string }[]
+  >([]);
   const [scopeFilter, setScopeFilter] = useState<"all" | "this" | "other">(
     "all",
   );
@@ -146,6 +159,20 @@ export function LibraryBrowseModal({
   const [toast, setToast] = useState<string | null>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Governed HubSpot vocabulary for the type chips. Fetched, never listed
+  // locally: a hard-coded copy drifts silently the moment an option is added.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      const r = await fetchHubspotProductTypes();
+      if (!cancelled && r.ok) setHsTypeOptions(r.data.options);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
   // Initial load + filter changes (debounced for search input).
   useEffect(() => {
     if (!open) return;
@@ -156,6 +183,7 @@ export function LibraryBrowseModal({
         const result = await fetchLibraryBrowse({
           search,
           typeFilter: typeFilter || undefined,
+        sourceTypeFilter: sourceTypeFilter || undefined,
           scopeFilter,
           targetQuoteId: quoteId,
         });
@@ -176,7 +204,7 @@ export function LibraryBrowseModal({
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
-  }, [open, search, typeFilter, scopeFilter, quoteId]);
+  }, [open, search, typeFilter, sourceTypeFilter, scopeFilter, quoteId]);
 
   // Escape dismiss.
   useEffect(() => {
@@ -337,6 +365,7 @@ export function LibraryBrowseModal({
       const refreshed = await fetchLibraryBrowse({
         search,
         typeFilter: typeFilter || undefined,
+        sourceTypeFilter: sourceTypeFilter || undefined,
         scopeFilter,
         targetQuoteId: quoteId,
       });
@@ -373,6 +402,7 @@ export function LibraryBrowseModal({
       const refreshed = await fetchLibraryBrowse({
         search,
         typeFilter: typeFilter || undefined,
+        sourceTypeFilter: sourceTypeFilter || undefined,
         scopeFilter,
         targetQuoteId: quoteId,
       });
@@ -799,31 +829,54 @@ export function LibraryBrowseModal({
                 aria-label="Search library"
               />
             </div>
+            {/* Type filter, driven by HubSpot's classification rather than the
+                Nexus taxonomy. The Nexus column carries a value on 26 of 1,077
+                leaves, so filtering it returned almost nothing and read as
+                broken; `hs_product_type` is populated on 1,032 of 1,037 HubSpot
+                products.
+
+                Chips render the LABEL and filter on the VALUE — they differ on
+                the three largest categories, so a label-keyed predicate would
+                return zero for Primary, Secondary and Logistics.
+
+                "Unclassified" is a SELECTABLE state, not an absence. Before it,
+                choosing any type silently dropped every unclassified product
+                with nothing on screen saying so. */}
             <div className="lib-seg" role="tablist" aria-label="Type filter">
               <button
                 type="button"
                 role="tab"
-                aria-selected={typeFilter === ""}
-                className={typeFilter === "" ? "active" : ""}
-                onClick={() => setTypeFilter("")}
+                aria-selected={sourceTypeFilter === ""}
+                className={sourceTypeFilter === "" ? "active" : ""}
+                onClick={() => setSourceTypeFilter("")}
               >
                 All types
               </button>
-              {leafTypes.map((t) => (
+              {hsTypeOptions.map((t) => (
                 <button
-                  key={t.id}
+                  key={t.value}
                   type="button"
                   role="tab"
-                  aria-selected={typeFilter === t.id}
-                  className={typeFilter === t.id ? "active" : ""}
-                  onClick={() => setTypeFilter(t.id)}
-                  title={
-                    t.placeholder ? `${t.name} · fields TBD` : t.name
-                  }
+                  aria-selected={sourceTypeFilter === t.value}
+                  className={sourceTypeFilter === t.value ? "active" : ""}
+                  onClick={() => setSourceTypeFilter(t.value)}
+                  title={`HubSpot product type · ${t.value}`}
                 >
-                  {t.name}
+                  {t.label}
                 </button>
               ))}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={sourceTypeFilter === UNCLASSIFIED_SOURCE_TYPE}
+                className={
+                  sourceTypeFilter === UNCLASSIFIED_SOURCE_TYPE ? "active" : ""
+                }
+                onClick={() => setSourceTypeFilter(UNCLASSIFIED_SOURCE_TYPE)}
+                title="Products with no HubSpot classification — Nexus-local, or unclassified in HubSpot"
+              >
+                Unclassified
+              </button>
             </div>
             <span className="lib-result-count">
               {pending && rows.length === 0

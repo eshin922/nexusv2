@@ -477,6 +477,13 @@
       "when": 1786320006000,
       "tag": "0069_below_floor_approval_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1786320007000,
+      "tag": "0070_leaf_hubspot_product_type",
+      "breakpoints": true
     }
   ]
 }

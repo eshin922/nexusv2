@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { createAssembly } from "@/app/actions/assemblies";
-import { createLeaf } from "@/app/actions/leaves";
+import { createLeaf, fetchHubspotProductTypes } from "@/app/actions/leaves";
 
 // Phase A.1 v2 impl-4 — Add Product modal (scenarios ⑪-⑯).
 //
@@ -86,6 +86,15 @@ export function AddProductModal({
   // LEAF form state
   const [leafName, setLeafName] = useState("");
   const [leafTypeId, setLeafTypeId] = useState<string>("");
+  // HubSpot's own classification, kept separate from the Nexus type above.
+  // `hsTypeValue` holds the INTERNAL option value; the label is only ever
+  // rendered. The two differ on the three largest categories, so conflating
+  // them would send a string HubSpot stores but never matches.
+  const [hsTypeValue, setHsTypeValue] = useState<string>("");
+  const [hsTypeOptions, setHsTypeOptions] = useState<
+    { label: string; value: string }[]
+  >([]);
+  const [hsTypeError, setHsTypeError] = useState<string | null>(null);
   const [leafSku, setLeafSku] = useState("");
   const [leafUnitCost, setLeafUnitCost] = useState("");
   const [leafUrl, setLeafUrl] = useState("");
@@ -110,7 +119,34 @@ export function AddProductModal({
     setLeafSku("");
     setLeafUnitCost("");
     setLeafUrl("");
+    setHsTypeValue("");
     setError(null);
+  }, [open]);
+
+  // Load the governed HubSpot option set when the modal opens. Fetched rather
+  // than hard-coded: a local copy would drift the moment an option is added in
+  // HubSpot, and the drift is silent — a product classified under the new value
+  // would simply stop matching anything.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      const result = await fetchHubspotProductTypes();
+      if (cancelled) return;
+      if (result.ok) {
+        setHsTypeOptions(result.data.options);
+        setHsTypeError(null);
+      } else {
+        // Surfaced, not swallowed: without the vocabulary the operator cannot
+        // classify, and an empty dropdown that looks like "no options exist"
+        // would be a worse lie than an error.
+        setHsTypeOptions([]);
+        setHsTypeError(result.error.message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   // Escape dismiss + backdrop click.
@@ -184,6 +220,10 @@ export function AddProductModal({
     const fd = new FormData();
     fd.set("name", leafName.trim());
     fd.set("productTypeId", leafTypeId);
+    // The internal value, never the label. The server re-validates membership
+    // against the governed option set, so a stale client cannot write a
+    // withdrawn or invented classification.
+    if (hsTypeValue) fd.set("hubspotProductType", hsTypeValue);
     if (leafSku) fd.set("sku", leafSku.trim());
     if (leafUnitCost) fd.set("unitCost", leafUnitCost.trim());
     if (leafUrl) fd.set("url", leafUrl.trim());
@@ -305,6 +345,10 @@ export function AddProductModal({
                   onUrl={setLeafUrl}
                   leafTypes={leafTypes}
                   selectedType={selectedLeafType}
+                  hsTypeValue={hsTypeValue}
+                  onHsTypeValue={setHsTypeValue}
+                  hsTypeOptions={hsTypeOptions}
+                  hsTypeError={hsTypeError}
                 />
               )}
               {error ? (
@@ -501,6 +545,12 @@ function LeafFields(props: {
   onUrl: (v: string) => void;
   leafTypes: LeafSpecEntryProductType[];
   selectedType: LeafSpecEntryProductType | null;
+  /** HubSpot's `hs_product_type` INTERNAL value — never a label. */
+  hsTypeValue: string;
+  onHsTypeValue: (v: string) => void;
+  /** Governed option set, fetched from the HubSpot property definition. */
+  hsTypeOptions: { label: string; value: string }[];
+  hsTypeError: string | null;
 }) {
   return (
     <>
@@ -514,6 +564,37 @@ function LeafFields(props: {
           placeholder="e.g., 30ml Glass Dropper Bottle · Type III soda-lime"
           autoFocus
         />
+      </div>
+
+      {/* HubSpot classification — a SEPARATE field from the Nexus Product Type
+          below, because they are separate vocabularies. This one travels to
+          HubSpot with the product and is what the Library's type filter reads;
+          the Nexus type drives spec fields and stays operator-authored.
+
+          The option list is the governed HubSpot property definition. The
+          operator reads `label`; `value` is what is submitted — they differ on
+          Primary Packaging/Primary, Secondary Packaging/Secondary and
+          Logistics/Third Party Logistics, so the two are never interchanged. */}
+      <div className="field">
+        <span className="lbl">HubSpot product type</span>
+        <select
+          aria-label="HubSpot product type"
+          value={props.hsTypeValue}
+          onChange={(e) => props.onHsTypeValue(e.target.value)}
+          disabled={props.hsTypeOptions.length === 0}
+        >
+          <option value="">— unclassified —</option>
+          {props.hsTypeOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <span className="hint">
+          {props.hsTypeError
+            ? `Could not load HubSpot product types: ${props.hsTypeError}`
+            : "Sent to HubSpot with this product. Drives the Library type filter."}
+        </span>
       </div>
       <div className="row-pair">
         <div className="field">

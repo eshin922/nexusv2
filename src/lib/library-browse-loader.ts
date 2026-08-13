@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, count, eq, ilike, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblies,
@@ -53,7 +53,18 @@ import {
 
 export type LibraryBrowseFilters = {
   search?: string;
-  typeFilter?: string; // product_type_id
+  /**
+   * Nexus taxonomy filter (`product_types.id`). Operator-authored; 26 of 1,077
+   * leaves carry one. Retained unchanged — the TypePicker still writes it.
+   */
+  typeFilter?: string;
+  /**
+   * HubSpot classification filter — the RAW internal `hs_product_type` value,
+   * or the sentinel `UNCLASSIFIED_SOURCE_TYPE` for products HubSpot has not
+   * classified. This is the filter the Library's type chips drive, because it
+   * is the vocabulary that is actually populated (1,032 of 1,037 products).
+   */
+  sourceTypeFilter?: string;
   scopeFilter?: "all" | "this" | "other";
   targetQuoteId: string;
   limit?: number;
@@ -96,7 +107,24 @@ export type LibraryBrowseRow = {
    * only lets the operator see it before spending an action on it.
    */
   eligibility: AttachmentEligibility;
+  /**
+   * HubSpot's `hs_product_type`, raw internal value. NULL means the product is
+   * genuinely unclassified — either Nexus-local (no HubSpot record) or HubSpot
+   * has no value for it. Those two remain distinguishable via
+   * `hubspotProductId`; neither is given a fabricated type.
+   */
+  hubspotProductType: string | null;
 };
+
+/**
+ * Sentinel for "no HubSpot classification".
+ *
+ * A filter value rather than an absence, so the unclassified population is
+ * SELECTABLE instead of silently excluded. Before this, choosing any type
+ * dropped 1,051 of 1,077 products with nothing on screen saying so — which is
+ * why the filter read as untrustworthy rather than as unpopulated.
+ */
+export const UNCLASSIFIED_SOURCE_TYPE = "__unclassified__";
 
 const DEFAULT_LIMIT = 50;
 
@@ -145,6 +173,17 @@ export async function loadLibraryBrowse(
   }
   if (filters.typeFilter) {
     conds.push(eq(leaves.productTypeId, filters.typeFilter));
+  }
+  if (filters.sourceTypeFilter) {
+    // Equality on the RAW internal value — never on a display label. The three
+    // largest categories have labels that differ from their values, so a
+    // label-matched predicate would return nothing for them and look like an
+    // empty catalogue rather than a wrong query.
+    conds.push(
+      filters.sourceTypeFilter === UNCLASSIFIED_SOURCE_TYPE
+        ? isNull(leaves.hubspotProductType)
+        : eq(leaves.hubspotProductType, filters.sourceTypeFilter),
+    );
   }
 
   // Wave 1: filtered base rows + unfiltered library count + quote
@@ -271,6 +310,7 @@ export async function loadLibraryBrowse(
       archived: r.archived,
       // The gate's own verdict, not a re-derivation of it.
       eligibility: evaluateAttachmentEligibility({ sku: r.sku, archived: r.archived }),
+      hubspotProductType: r.hubspotProductType,
       totalRefs: js.length,
       totalScenarios: distinctQuoteIds.size,
       attachedAssemblyIdsInTargetQuote,
