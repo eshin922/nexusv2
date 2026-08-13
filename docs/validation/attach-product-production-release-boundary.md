@@ -318,3 +318,99 @@ it against *deployed* code, not branch code.
 **Both defects share a root:** the database was the only thing enforcing a
 property the model claimed to guarantee, and nothing tested the claim against a
 deployed writer.
+
+---
+
+## 6 · Promotion attempt — 2026-08-13
+
+### 6.1 The boundary moved: `4b8f5b7` → `065aed3`
+
+`4b8f5b7` passed the three gates originally specified and **still does not
+build.** `verify:s7-preserved` runs inside `prebuild`; Vercel runs `prebuild`
+before `next build`; and at `4b8f5b7` the S-7 baseline is stale — it predates the
+refresh at `d2a9272`:
+
+```
+FAIL  fa74cbe5…  quoteRollup[0].costBreakdown.packaging: 3000 -> 4250
+      A commercial number moved.
+```
+
+Run locally **with a live database**, so this is not the CI credential gap. Had
+`4b8f5b7` been merged, the production deployment would have failed and production
+would have stayed on the broken `954163d` — the outage unrepaired, plus a red
+deploy.
+
+**The three-gate boundary was insufficient because it omitted the production
+`prebuild` path.** The gate is now five: `prebuild`, Vercel green at the exact
+SHA, TypeScript, governed unit suite, 0069 compatibility.
+
+**Corrected boundary `065aed3` = `4b8f5b7` + `d2a9272` (cherry-picked).** The
+refresh touches **zero `src/` files** — two baseline JSONs and one record — so the
+paused Slack workstream remains excluded.
+
+### 6.2 Release gate at exactly `065aed3` — all PASS
+
+| Gate | Result |
+|---|---|
+| `npm run prebuild` (production build path, live DB) | **PASS** — exit 0, all 12 verifiers |
+| Vercel build / deployment | **PASS** — status `success` bound to commit `065aed3` |
+| `npx tsc --noEmit` | **PASS** — exit 0 |
+| `npm run test:unit` (governed) | **PASS** — 1031/1031, 0 fail |
+| Migration 0069 compatibility | **PASS** — §3B |
+
+PR **#262**, head `065aed3`, **171 commits** per GitHub metadata.
+
+### 6.3 Recorded exception — required check `verify` is infrastructure-misconfigured
+
+- The job runs `npm run prebuild`, which includes the DB-backed
+  `verify:s7-preserved`, and the workflow supplies **no `DATABASE_URL`**:
+  `Error: DATABASE_URL is not set` → exit 1. All nine verifiers ahead of it in
+  the `&&` chain pass.
+- **39 failed / 1 cancelled / 0 succeeded** across the last 40 runs. It has never
+  been green.
+- `npm run prebuild` passed **all 12 verifiers** against a live database at the
+  exact promotion SHA.
+- The Vercel production-equivalent build passed at the exact promotion SHA.
+
+`verify:s7-preserved` must **not** be weakened into a silent skip when the
+database is absent. Durable follow-up: give the CI job an appropriately scoped
+database credential, or move the DB-backed preservation gate into an environment
+where it can genuinely execute.
+
+### 6.4 Merge blocked — `enforce_admins`, not the check
+
+The authorized admin-merge was **refused**:
+
+```
+GraphQL: Required status check "verify" is failing. (mergePullRequest)
+```
+
+Cause established, not inferred:
+
+| Fact | Value |
+|---|---|
+| `branches/main/protection.enforce_admins.enabled` | **`true`** |
+| required checks | `["verify"]`, `strict: false` |
+| authenticated account | `eshin922`, repo `admin: true`, `push: true` |
+| token scopes | `repo`, `read:org`, `gist` |
+
+"Include administrators" is enabled, so the required check binds administrators
+too. No merge method and no token can bypass it while that setting stands — the
+authorization to merge past a failing check cannot be executed without first
+changing the protection configuration, which is a **repository governance change
+and a different action from merging**. Not taken unilaterally.
+
+**Production remains on `954163d`; attach-product remains broken.**
+
+Routes, for disposition:
+
+- **A — settings toggle, no delegation.** Settings → Branches → `main` → uncheck
+  *"Do not allow bypassing the above settings"*, merge #262 with **Merge commit**,
+  re-enable. Fastest; the bypass window is under human control throughout.
+- **B — delegated.** Authorize a `PATCH` of `enforce_admins` to `false`, the
+  merge, and immediate restore, with before/after state recorded here. Same
+  outcome; the bypass window is unattended for its duration.
+- **C — fix the root cause first.** Supply the workflow a scoped `DATABASE_URL`
+  so `verify` genuinely passes. Durable and correct, but it is the follow-up
+  rather than the outage path, and it requires deciding what database CI may
+  reach — on a single shared project that is not a small question.
