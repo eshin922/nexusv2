@@ -41,7 +41,27 @@
  *
  * `markAccepted` is NOT reproduced — governed Clerk action.
  *
- * USAGE — every restoration value is REQUIRED; there is no historical fallback:
+ * ⚠ THE USAGE COMMAND BELOW IS STALE (2026-08-13). It no longer loads.
+ *
+ * Importing `runMarkComplete` outside a Next runtime fails: the module graph
+ * reaches client-only Next/Clerk modules. Two runtimes were tried and both fail
+ * on the same root cause with different symptoms —
+ *   • the recorded command below → `Directory import '@clerk/nextjs/.../
+ *     client-boundary/hooks' is not supported`
+ *   • `npx tsx --conditions=react-server` → `_react.default.createContext is
+ *     not a function` (via `next/navigation`)
+ * Narrowing the import to `runMarkComplete` alone does not help.
+ *
+ * NOT REPAIRED — recorded as tooling debt per the 2026-08-13 disposition. The
+ * Accounting Unit Cost certification was routed through the real Nexus UI
+ * Complete boundary instead, which executes inside the Next runtime where this
+ * graph loads by construction. Repair this only if a governed capability needs
+ * the standalone harness again; do not make it a tooling project.
+ *
+ * The provider assertions below remain reusable and are unaffected.
+ *
+ * USAGE — STALE, see above. Every restoration value is REQUIRED; there is no
+ * historical fallback:
  *   node --env-file=.env.local --experimental-strip-types \
  *     --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs \
  *     scripts/validation/acct-review-order-b-postaccept.ts \
