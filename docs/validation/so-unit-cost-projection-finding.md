@@ -144,3 +144,55 @@ Whether the certified artifacts should be left as-is with the gap recorded, or t
 projection fixed and a fresh artifact produced for Accounting, is a decision for
 Accounting and not one I have taken. Per instruction, SO2707/2708/2709 are
 unchanged.
+
+---
+
+## 9 · Status at walk stop (2026-08-13)
+
+The repair is implemented and evidenced; the end-to-end governed artifact is
+**not** produced. Recorded here so the distinction survives.
+
+| | |
+|---|---|
+| Implementation `20da735` | complete — `tsc` clean, 9/9 new tests, 139/139 affected |
+| Direct provider write | **proven** (sandbox probe, GET read-back) |
+| Item Group member scalar PATCH | **proven** (12/12, no sublist expansion) |
+| Targeted / affected regression suites | **green** |
+| Full governed artifact | **PENDING** |
+| SO2707 / SO2708 / SO2709 | preserved unchanged |
+| Production deployment | **not deployed** — `main` is `e97011c`, which lacks the repair |
+
+### Why no artifact was produced
+
+Not for want of a working repair. Two independent environment/fixture facts, in
+the order they were hit:
+
+1. **CERT-ENV-1** — no deployed runtime suppressed HubSpot writes. Fixed for
+   Preview only; see `cert-env-1-deployed-suppression-absent.md`.
+2. **`fa74cbe5` is disqualified as a Complete fixture.** Its HubSpot deal
+   (`63198467934`) carries **no company association**, verified authoritatively
+   against a control deal resolving through the identical call.
+   `markComplete` requires `associatedCompanyId` for customer resolution and
+   throws without it. Restoring the evicted cache row does not help — the
+   association does not exist at source.
+
+**This is fixture lineage, not evidence against `20da735`.** Nothing observed
+implicates the repair; the walk never reached the code under test.
+
+Both accepted quotes in the database are SMOKE fixtures with the same gap, so no
+qualifying fixture exists today. A replacement would require a full
+draft → send → accept → complete run on a real deal-backed project — safe now
+that Preview suppression is proven, but a longer tail than a one-click Complete.
+
+**Deliberately not built before the Accounting call.** If Accounting's downstream
+Production / OTC / Freight decisions change what the artifact must show, one
+fixture can satisfy both rather than spending two.
+
+### Blocking gate carried forward
+
+No NetSuite write may occur on any deployed runtime until Vercel Preview
+`NETSUITE_ACCOUNT_ID` and `NETSUITE_ENV` are read and recorded in
+`cert-env-1-deployed-suppression-absent.md`. `assertWriteAuthorized` fails closed
+on a production account **unless** `NETSUITE_ENV=sandbox` is set explicitly,
+which would override the inference — so the guard cannot be assumed without both
+values.

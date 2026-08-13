@@ -78,6 +78,36 @@ finding.** CERT-ENV-1 stays open as a release/certification-environment record
 because the false generalization already happened once, and the corrected
 configuration is invisible in any artifact produced before it.
 
+## Companion gate — provider target on the deployed runtime (OPEN)
+
+Same class, same runtime, not yet answered: **which NetSuite account does the
+Preview runtime authenticate against?**
+
+`.env.local` holds sandbox `7924416_SB2`, but that is one machine's value and
+generalizing it to a deployed runtime is the exact error above. **No runtime
+probe can answer it** — no endpoint exposes the account, and
+`loadSalesOrderPreflight` is DB-only ("2 indexed DB reads"), so no UI path makes
+a NetSuite call without also writing. The value must be read from the Vercel
+Preview environment scope:
+
+- `NETSUITE_ACCOUNT_ID` — expected to end `_SB2`
+- `NETSUITE_ENV` — whether set, and to what
+
+**Partial structural protection exists.** `assertWriteAuthorized`
+(`src/lib/netsuite/client.ts`) refuses every non-GET when the account resolves
+to production, and `allowProduction` is never populated from env — so a
+production account **alone** fails closed. This is a genuinely better posture
+than the HubSpot flag had, whose fail-safe pointed toward production writes.
+
+**It has one hole.** `env` is `process.env.NETSUITE_ENV ?? inferEnv(accountId)`.
+An explicit `NETSUITE_ENV=sandbox` on a production account overrides the
+inference and re-opens the write. Since setting `NETSUITE_ENV=sandbox`
+everywhere is a natural thing to have done, the guard cannot be assumed to hold
+without reading both values.
+
+**No NetSuite write may occur on any deployed runtime until both are recorded
+here.**
+
 ## Standing rules this establishes
 
 1. **Suppression is a property of a process, never of a repository or a
