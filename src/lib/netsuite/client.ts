@@ -241,7 +241,7 @@ export async function getRecord<T = Record<string, unknown>>(
 export async function patchSalesOrderLine(
   soId: string,
   lineIdx: number,
-  patch: { rate: number },
+  patch: { rate?: number; unitCost?: number },
   config?: NetsuiteConfig,
 ): Promise<void> {
   if (!Number.isInteger(lineIdx) || lineIdx < 0) {
@@ -249,9 +249,19 @@ export async function patchSalesOrderLine(
       `[netsuite] patchSalesOrderLine: lineIdx must be a non-negative integer (got ${String(lineIdx)})`,
     );
   }
-  if (!Number.isFinite(patch.rate)) {
+  if (patch.rate !== undefined && !Number.isFinite(patch.rate)) {
     throw new Error(
       `[netsuite] patchSalesOrderLine: rate must be finite (got ${String(patch.rate)})`,
+    );
+  }
+  if (patch.unitCost !== undefined && !Number.isFinite(patch.unitCost)) {
+    throw new Error(
+      `[netsuite] patchSalesOrderLine: unitCost must be finite (got ${String(patch.unitCost)})`,
+    );
+  }
+  if (patch.rate === undefined && patch.unitCost === undefined) {
+    throw new Error(
+      "[netsuite] patchSalesOrderLine: nothing to patch — supply rate, unitCost, or both",
     );
   }
 
@@ -261,9 +271,27 @@ export async function patchSalesOrderLine(
     `/record/v1/salesOrder/${encodeURIComponent(soId)}/item/${lineIdx}`;
   assertWriteAuthorized(cfg, "PATCH");
 
-  // Only `rate` is transmitted. Not spread from the argument — an explicit
-  // single-key body so a future caller cannot smuggle `item.items` through.
-  const body = { rate: patch.rate };
+  // Built FIELD-BY-FIELD from known scalars. Never spread from the argument —
+  // that is the property that stops a future caller smuggling `item.items`
+  // through and reaching the full-sublist shape, and widening this function to
+  // carry cost does not relax it. Every key below is written literally here;
+  // nothing reaches the wire that this function did not name itself.
+  //
+  // `unitCost` expands to the pair NetSuite's Accounting basis reads. Sending
+  // `costEstimateRate` without `costEstimateType: CUSTOM` leaves the line on
+  // its item-master costing method, which silently ignores the value — proven
+  // in the 2026-08-13 sandbox probe, where members inherited ITEMDEFINED,
+  // AVGCOST and LASTPURCHPRICE independently of what was sent.
+  //
+  // `costEstimate` (the extended value) is deliberately NOT sent: NetSuite
+  // derives it as quantity × rate. Sending it would create a second authority
+  // for the same number.
+  const body: Record<string, unknown> = {};
+  if (patch.rate !== undefined) body.rate = patch.rate;
+  if (patch.unitCost !== undefined) {
+    body.costEstimateType = { id: "CUSTOM" };
+    body.costEstimateRate = patch.unitCost;
+  }
 
   const response = await fetch(url, {
     method: "PATCH",

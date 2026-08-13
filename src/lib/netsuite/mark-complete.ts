@@ -60,6 +60,11 @@ import {
 import { NetsuiteError } from "./errors";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { requireResolvedQuoteCosts } from "@/lib/quote-cost-completeness";
+import {
+  planCostProjection,
+  projectGovernedCosts,
+  type CostProjectionOutcome,
+} from "./cost-projection";
 
 // Slice 12 Step 8c-3 — markComplete orchestrator.
 //
@@ -628,6 +633,14 @@ export async function runMarkComplete(
         // group contains, independent of how many groups the tier buys.
         qtyPerParent,
         rate: lineRate,
+        // Same expression as the flat line above, deliberately — one governed
+        // source reaching both structures is the invariant this repair exists
+        // to hold. Never re-derived from `rate`, the accepted total, freight,
+        // duty or tariff.
+        unitCost:
+          perTierRollup.contributionCostPerUnit != null
+            ? Number(perTierRollup.contributionCostPerUnit)
+            : null,
       });
     }
 
@@ -1142,6 +1155,8 @@ export async function runMarkComplete(
     } // end CREATE branch (skipped entirely when resuming)
 
     let rateConvergenceSummary: { patched: number; alreadyCorrect: number } | null = null;
+  // Reporting only — never a gate. See cost-projection.ts.
+  let costProjectionSummary: CostProjectionOutcome | null = null;
 
     // ── Step 3 — negotiated member-rate convergence + verification ────────
     //
@@ -1190,6 +1205,40 @@ export async function runMarkComplete(
           patched: convergence.patched.length,
           alreadyCorrect: convergence.alreadyCorrect,
         };
+
+        // ---- Governed cost → NetSuite Accounting basis (one-shot) ----
+        //
+        // AFTER convergence, because member line identities only exist once
+        // NetSuite has expanded the group, and OUTSIDE its gate, because cost
+        // has no commercial invariant to converge toward. See cost-projection.ts.
+        //
+        // Never throws: a Sales Order that is commercially correct must not be
+        // refused because a reporting basis failed to write.
+        try {
+          const costLines = await readSalesOrderLines(salesOrderInternalId);
+          const plan = planCostProjection({
+            lines: costLines,
+            governed: groupingPlan.groups.flatMap((g) =>
+              g.members.map((m) => ({
+                netsuiteItemId: m.netsuiteItemId,
+                unitCost: m.unitCost,
+              })),
+            ),
+          });
+          costProjectionSummary = await projectGovernedCosts({
+            plan,
+            patchLine: (address, unitCost) =>
+              patchSalesOrderLine(salesOrderInternalId!, address, { unitCost }),
+          });
+        } catch (e) {
+          costProjectionSummary = {
+            written: 0,
+            skipped: 0,
+            failures: [
+              { address: -1, message: e instanceof Error ? e.message : String(e) },
+            ],
+          };
+        }
       } catch (e) {
         const err = e instanceof NetsuiteError ? e : null;
         // POST-CREATE VERIFICATION CLASS. Everything reachable here runs AFTER

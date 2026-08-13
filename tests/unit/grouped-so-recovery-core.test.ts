@@ -183,7 +183,28 @@ test("9 · patchSalesOrderLine uses the Probe 7d single-line shape", () => {
     "per-line endpoint",
   );
   assert.match(client, /method: "PATCH"/);
-  assert.match(client, /const body = \{ rate: patch\.rate \};/, "single-key body");
+
+  // The body was `const body = { rate: patch.rate };` until the cost-projection
+  // repair (2026-08-13) added the Accounting cost basis. The single-literal
+  // assertion tracked the SYNTAX; what it existed to protect is that every key
+  // reaching the wire is named literally in this function and none is derived
+  // from caller-supplied structure.
+  //
+  // So this now enumerates the COMPLETE allowlist instead. That is stricter,
+  // not looser: the old form could not have detected a fourth key being added
+  // beside it, and this fails the moment one is.
+  const fn = client
+    .split("export async function patchSalesOrderLine")[1]
+    .split("export async function")[0];
+  const assigned = [...fn.matchAll(/\bbody\.([A-Za-z_$][\w$]*)\s*=/g)].map((m) => m[1]);
+  assert.deepEqual(
+    [...new Set(assigned)].sort(),
+    ["costEstimateRate", "costEstimateType", "rate"],
+    "exactly the three governed scalar keys — nothing else may be written",
+  );
+  // Never assembled from the argument object.
+  assert.doesNotMatch(fn, /\.\.\.patch/, "body is not spread from the argument");
+  assert.doesNotMatch(fn, /Object\.assign/, "body is not merged from the argument");
 });
 
 test("10 · patchSalesOrderLine CANNOT perform a full-sublist PATCH", () => {

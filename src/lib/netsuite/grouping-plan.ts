@@ -59,6 +59,22 @@ export interface PlanLineInput {
    */
   qtyPerParent: number;
   rate: number;
+  /**
+   * Governed per-unit PRODUCT cost for this member — the Accounting cost basis.
+   *
+   * Threaded from `perTierRollup.contributionCostPerUnit`, the same certified
+   * value the flat path already sends to `custcol_dps_unit_cost`. It is NEVER
+   * derived here from `rate`, the accepted total, freight, duty, tariff, or a
+   * NetSuite item default: those are commercial or foreign quantities, and the
+   * governing invariant is that the same product at the same governed cost
+   * reaches the same `costEstimateRate` regardless of structure or freight
+   * treatment.
+   *
+   * `null` means "no governed cost" and must stay null all the way to the
+   * provider, where it suppresses the write entirely rather than asserting a
+   * zero. A zero cost is a claim; an absent one is not.
+   */
+  unitCost: number | null;
 }
 
 export interface PlannedMember {
@@ -71,6 +87,10 @@ export interface PlannedMember {
    *  What is written to the Item Group master, and what the hash sees. */
   qtyPerParent: number;
   rate: number;
+  /** Governed per-unit product cost — the Accounting basis. See
+   *  `PlanLineInput.unitCost`. Null means "no governed cost"; it must not
+   *  become a zero. */
+  unitCost: number | null;
   /** `rate × quantity`, rounded to 4dp — this member's contribution. */
   amount: number;
 }
@@ -191,6 +211,7 @@ export function buildGroupingPlan(input: {
         quantity: l.quantity,
         qtyPerParent: l.qtyPerParent,
         rate: l.rate,
+        unitCost: l.unitCost,
         amount: round4(l.rate * l.quantity),
       }))
       .sort((a, b) => a.netsuiteItemId.localeCompare(b.netsuiteItemId));

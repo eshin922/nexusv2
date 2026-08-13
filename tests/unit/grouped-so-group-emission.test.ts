@@ -41,8 +41,8 @@ const groupA = {
   compositionHash: HASH_A,
   externalId: `nxs-grp-${HASH_A}`,
   members: [
-    { sku: "10064-GNX-Box", netsuiteItemId: "1024", quantity: 1000, qtyPerParent: 1, rate: 6, amount: 6000 },
-    { sku: "DPS-BOTTLE-0001", netsuiteItemId: "66476", quantity: 1000, qtyPerParent: 1, rate: 4, amount: 4000 },
+    { sku: "10064-GNX-Box", netsuiteItemId: "1024", quantity: 1000, qtyPerParent: 1, rate: 6, unitCost: null, amount: 6000 },
+    { sku: "DPS-BOTTLE-0001", netsuiteItemId: "66476", quantity: 1000, qtyPerParent: 1, rate: 4, unitCost: null, amount: 4000 },
   ],
   expectedAmount: 10000,
   turnkeyUnitPrice: 10,
@@ -54,7 +54,7 @@ const groupB = {
   compositionHash: HASH_B,
   externalId: `nxs-grp-${HASH_B}`,
   members: [
-    { sku: "DPS-BOTTLE-0001", netsuiteItemId: "66476", quantity: 1000, qtyPerParent: 1, rate: 2, amount: 2000 },
+    { sku: "DPS-BOTTLE-0001", netsuiteItemId: "66476", quantity: 1000, qtyPerParent: 1, rate: 2, unitCost: null, amount: 2000 },
   ],
   expectedAmount: 2000,
   turnkeyUnitPrice: 2,

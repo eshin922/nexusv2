@@ -276,8 +276,31 @@ export function buildSalesOrderPayload(
       description: line.description,
       ...(input.taxCodeId ? { taxCode: { id: input.taxCodeId } } : {}),
       custcol_dps_sku: line.sku,
+      // GOVERNED PRODUCT COST → two destinations, one source.
+      //
+      // `custcol_dps_unit_cost` is RETAINED: it has carried this value since
+      // Slice 12 and may feed reporting not visible from this side. The native
+      // pair is ADDED alongside, not substituted for it.
+      //
+      // The defect this closes was never missing data — Nexus always sent the
+      // governed cost. It sent it only to a custom column, while NetSuite's
+      // standard Unit Cost display and margin basis read `costEstimateRate`.
+      // With that field unset the line falls back to the item master's costing
+      // method, which on the certified set was AVGCOST against an empty basis
+      // (hence "blank"), and on other items resolves to LASTPURCHPRICE figures
+      // unrelated to the quote.
+      //
+      // `costEstimate` is NOT sent — NetSuite derives it as quantity × rate.
+      //
+      // The null guard is load-bearing in both directions: absent governed cost
+      // must leave NetSuite's own default intact rather than assert a zero. A
+      // zero is a claim that the product is free; silence is not.
       ...(line.unitCost !== null
-        ? { custcol_dps_unit_cost: parseFloat(line.unitCost.toFixed(4)) }
+        ? {
+            custcol_dps_unit_cost: parseFloat(line.unitCost.toFixed(4)),
+            costEstimateType: { id: "CUSTOM" },
+            costEstimateRate: parseFloat(line.unitCost.toFixed(4)),
+          }
         : {}),
     })),
   };
