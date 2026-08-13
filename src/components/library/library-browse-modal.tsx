@@ -6,6 +6,7 @@ import type { LibraryBrowseRow } from "@/lib/library-browse-loader";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { fetchLibraryBrowse, restoreLeaf } from "@/app/actions/leaves";
 import { attachAssemblyLeaf } from "@/app/actions/assemblies";
+import { attachQuoteProduct } from "@/app/actions/quote-products";
 import { AddProductModal } from "@/components/add-product/add-product-modal";
 import { usePullFromHubSpot } from "@/components/assembly-tree/use-pull-from-hubspot";
 
@@ -44,6 +45,7 @@ export type AssemblyTarget = {
 };
 
 export function LibraryBrowseModal({
+  mode = "group",
   open,
   onClose,
   quoteId,
@@ -54,6 +56,18 @@ export function LibraryBrowseModal({
   fullLeafTypes,
   permissions,
 }: {
+  /**
+   * `direct` — attach the chosen product straight to the quote
+   * (`assembly_id = NULL`). No Item Group is created, ever, including when the
+   * quote ends up holding exactly one product.
+   *
+   * `group` — the existing grouped path: pick or create an Item Group, then add
+   * products inside it.
+   *
+   * Defaults to `group` so any caller not yet passing a mode keeps its current
+   * behaviour rather than silently changing structure.
+   */
+  mode?: "direct" | "group";
   open: boolean;
   onClose: () => void;
   quoteId: string;
@@ -276,9 +290,15 @@ export function LibraryBrowseModal({
     [assemblies, targetAssemblyId],
   );
 
+  // Direct mode needs no target: the quote IS the target. Gating it on an
+  // assembly would have made Add Product impossible on a quote with no Item
+  // Groups — precisely the quote it exists to serve.
+  const attachReady = mode === "direct" || Boolean(targetAssemblyId);
+
   function handleAttach(row: LibraryBrowseRow) {
-    if (!targetAssemblyId) {
-      setError("Pick a target ASY at the top of the modal first.");
+    const direct = mode === "direct";
+    if (!direct && !targetAssemblyId) {
+      setError("Pick a target item group at the top of the modal first.");
       return;
     }
     setAttaching(row.leafId);
@@ -286,13 +306,23 @@ export function LibraryBrowseModal({
     // toast carries the value even if the user changes the target
     // picker between submit + result. handleAttach is invoked from
     // the row's button, so targetAssembly was current at click time.
-    const targetSkuAtClick = targetAssembly?.sku ?? "ASY";
+    const targetSkuAtClick = direct
+      ? "this quote"
+      : (targetAssembly?.sku ?? "the item group");
     const fd = new FormData();
-    fd.set("assemblyId", targetAssemblyId);
+    if (direct) {
+      fd.set("quoteId", quoteId);
+    } else {
+      fd.set("assemblyId", targetAssemblyId);
+    }
     fd.set("leafId", row.leafId);
     startTransition(async () => {
       setError(null);
-      const result = await attachAssemblyLeaf(fd);
+      // Two writers, chosen by the operator's explicit action — never by
+      // product count, and never by falling back from one to the other.
+      const result = direct
+        ? await attachQuoteProduct(fd)
+        : await attachAssemblyLeaf(fd);
       setAttaching(null);
       if (!result.ok) {
         setError(result.error.message);
@@ -622,7 +652,15 @@ export function LibraryBrowseModal({
               Attach action; the bar is the single source of the
               attach destination (row buttons just say "Attach"). */}
           <div className="lib-target-bar">
-            <span className="eyebrow">Attaching to</span>
+            <span className="eyebrow">Adding to</span>
+            {mode === "direct" ? (
+              // No picker in direct mode: the destination is the quote, and a
+              // control offering item groups here would invite the operator to
+              // group a product they explicitly chose not to group.
+              <span className="name" style={{ justifySelf: "flex-start" }}>
+                This quote — as a standalone product
+              </span>
+            ) : (
             <div
               ref={targetMenuRef}
               style={{ position: "relative", justifySelf: "flex-start" }}
@@ -675,10 +713,10 @@ export function LibraryBrowseModal({
                       className="name"
                       style={{ color: "var(--ink-3)" }}
                     >
-                      No assemblies in this quote
+                      No item groups in this quote
                     </span>
                     <span className="meta">
-                      Create an ASY before attaching components
+                      Create an item group before adding products
                     </span>
                   </span>
                 </div>
@@ -687,10 +725,10 @@ export function LibraryBrowseModal({
                 <div
                   className="lib-target-menu"
                   role="menu"
-                  aria-label="Pick attach target"
+                  aria-label="Pick item group"
                 >
                   <div className="header">
-                    Assemblies in {scenarioLabel || "this scenario"}
+                    Item groups in {scenarioLabel || "this scenario"}
                   </div>
                   {assemblies.map((a) => {
                     const active = a.id === targetAssemblyId;
@@ -732,9 +770,12 @@ export function LibraryBrowseModal({
                   })}
                 </div>
               )}
-            </div>
+              </div>
+            )}
             <span className="target-hint">
-              Components you attach land here
+              {mode === "direct"
+                ? "Each product you add becomes its own quote line"
+                : "Products you add land in this item group"}
             </span>
           </div>
 
@@ -983,7 +1024,7 @@ export function LibraryBrowseModal({
                             </span>
                             <span>SKU {row.sku ?? "—"}</span>
                             <span className="usage">
-                              · {row.totalRefs} ASY
+                              · {row.totalRefs} group
                               {row.totalRefs === 1 ? "" : "s"} ·{" "}
                               {row.totalScenarios} scenario
                               {row.totalScenarios === 1 ? "" : "s"}
@@ -1035,18 +1076,20 @@ export function LibraryBrowseModal({
                             className="lib-attach-btn"
                             onClick={() => handleAttach(row)}
                             disabled={
-                              !targetAssemblyId ||
+                              !attachReady ||
                               attaching === row.leafId ||
                               pending
                             }
-                            aria-disabled={!targetAssemblyId}
+                            aria-disabled={!attachReady}
                             title={
-                              targetAssemblyId
-                                ? `Attach to ${targetAssembly?.sku}`
-                                : "Create an ASY first to enable attach"
+                              mode === "direct"
+                                ? "Add this product to the quote"
+                                : targetAssemblyId
+                                  ? `Add to ${targetAssembly?.sku}`
+                                  : "Create an item group first to enable adding"
                             }
                           >
-                            {attaching === row.leafId ? "Adding…" : "Attach"}
+                            {attaching === row.leafId ? "Adding…" : "Add"}
                           </button>
                         )}
                       </span>

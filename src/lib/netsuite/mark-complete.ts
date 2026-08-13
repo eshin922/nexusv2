@@ -354,6 +354,36 @@ export async function runMarkComplete(
     throw new Error("Quote has no products to push.");
   }
 
+  // MIXED STRUCTURE — uncertified downstream, refused at the irreversible
+  // boundary and nowhere earlier.
+  //
+  // A quote holding both Direct Products and Item Groups is structurally valid
+  // in Nexus and the operator may build and edit it freely. What is not
+  // established is how the two project together into ONE Sales Order. That is
+  // an absence of evidence, not evidence of failure — Probe 7a observed
+  // duplication for group members sent alongside their own group, which is a
+  // different payload shape and proves nothing about this one.
+  //
+  // So the refusal claims only what is true: not yet certified. Unblocking it
+  // is a provider probe, and that probe is itself blocked until the deployed
+  // NetSuite target is proven sandbox.
+  //
+  // Placed at the first point the structure is known, which is after the
+  // customer LOOKUP and before item resolution, Item Group creation and Sales
+  // Order CREATE. Precisely: no provider WRITE and no master-data read occurs
+  // first. The customer lookup that precedes it is a read that changes nothing.
+  // Stated exactly rather than as "before any provider call", which would have
+  // been the neater sentence and untrue.
+  const groupedCount = tree.assemblies.filter((a) => a.children.length > 0).length;
+  if (groupedCount > 0 && tree.directProducts.length > 0) {
+    throw new Error(
+      `This quote contains both ${tree.directProducts.length} Direct Product(s) and ` +
+        `${groupedCount} Item Group(s). Projecting both structures into one Sales Order is not yet ` +
+        `certified against NetSuite, so Nexus stops here rather than guessing. The quote itself is ` +
+        `unaffected — move the Direct Products into an Item Group, or send them as a separate quote.`,
+    );
+  }
+
   // Every UNIQUE product SKU on the quote must resolve — grouped members AND
   // Direct Products. A Direct Product resolves through the identical SKU-match;
   // membership has never been part of item resolution.
@@ -726,34 +756,8 @@ export async function runMarkComplete(
     // identity rather than one of its own.
     let payloadForSend = builtPayload;
     if (groupingPlan.groupingRequired && groupingPlan.groups.length > 0) {
-      // MIXED-STRUCTURE BOUNDARY — fail closed, do not guess.
-      //
-      // A turnkey_only quote carrying BOTH grouped assemblies and Direct
-      // Products would need group lines and flat lines in one payload.
-      // `buildSalesOrderPayload` refuses that combination because Probe 7a
-      // observed NetSuite expanding the group AND honouring explicit members,
-      // returning 204 while silently doubling the order.
-      //
-      // That probe concerned members OF a group sent alongside it, and a Direct
-      // Product is a member of nothing — so the duplication may well not apply
-      // here. It has not been measured, and a plausible argument is not
-      // evidence. Refusing before CREATE costs an operator an error message;
-      // being wrong costs a doubled Sales Order on a real customer.
-      //
-      // Unblocking this needs one disposable sandbox probe: group line + an
-      // unrelated flat line in a single CREATE, then read back the line count.
-      const directLineCount = groupingPlan.lineAttribution.filter(
-        (l) => l.assemblyId === null,
-      ).length;
-      if (directLineCount > 0) {
-        throw new Error(
-          `[markComplete] This quote mixes ${groupingPlan.groups.length} Item Group(s) with ` +
-            `${directLineCount} Direct Product line(s) at turnkey_only detail. Emitting both in one ` +
-            `Sales Order is unproven against NetSuite's group expansion (Probe 7a duplication), so ` +
-            `Nexus refuses before CREATE rather than risk a doubled order. Send this quote itemized, ` +
-            `or place the Direct Products in an Item Group.`,
-        );
-      }
+      // Mixed structure was already refused at STEP 3, before any provider
+      // call. Nothing carrying a Direct Product reaches this branch.
       if (!groupingPlan.derivable) {
         throw new Error(
           "[markComplete] The grouping plan carries no deterministic identity for at least one " +

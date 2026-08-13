@@ -152,7 +152,7 @@ export function AsyRow({
             </span>
           </div>
         </div>
-        <span className="leaf-count">{asy.children.length} leaves</span>
+        <span className="leaf-count">{asy.children.length} products</span>
         <AsyRollupChip rollup={asy.rollup} />
         <AsyNotesTrigger
           assemblyId={asy.id}
@@ -223,7 +223,7 @@ function LeafRow({
   const otherRefs = Math.max(0, leaf.globalRefCount - 1);
   const refsCopy =
     otherRefs > 0
-      ? `+ ${otherRefs} other ASY${otherRefs === 1 ? "" : "s"}`
+      ? `+ ${otherRefs} other use${otherRefs === 1 ? "" : "s"}`
       : "this scenario only";
   const qtyNum = Number(leaf.quantity);
   const qtyDisplay = qtyNum < 1 ? qtyNum.toFixed(4) : String(qtyNum);
@@ -285,23 +285,23 @@ function AsyRollupChip({ rollup }: { rollup: AssemblyCompletenessRollup }) {
   switch (rollup.kind) {
     case "all_complete":
       state = "complete";
-      copy = `✓ All ${rollup.count} leaves complete`;
+      copy = `✓ All ${rollup.count} products complete`;
       break;
     case "partial": {
       const pending = rollup.total - rollup.complete;
       state = "partial";
-      copy = `⚠ ${pending} of ${rollup.total} leaves pending`;
+      copy = `⚠ ${pending} of ${rollup.total} products pending`;
       break;
     }
     case "mixed_with_placeholders": {
       const pending = rollup.total - rollup.complete;
       state = "partial";
-      copy = `⚠ ${pending} of ${rollup.total} leaves pending`;
+      copy = `⚠ ${pending} of ${rollup.total} products pending`;
       break;
     }
     case "no_leaves":
       state = "empty";
-      copy = "— No leaves";
+      copy = "— No products";
       break;
   }
   return <span className={`a1v2-chip ${state}`}>{copy}</span>;

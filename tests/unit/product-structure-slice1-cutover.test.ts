@@ -204,6 +204,12 @@ const classifiedIdentityFiles = new Set([
   // system that exists only in the canonical space.
   "src/app/actions/quote-products.ts",
   "src/lib/product-structure/direct-attachment.ts",
+  // CLASSIFIED — canonical only, render surface. Both hold `quoteLeafId` as an
+  // opaque handle: a React key and the argument the detach action takes. Neither
+  // resolves an identity, maps between the two spaces, or shows either id to the
+  // operator, who sees product name and SKU.
+  "src/components/assembly-tree/assembly-tree-body.tsx",
+  "src/components/assembly-tree/direct-product-row.tsx",
   "scripts/smoke/mark-complete.ts", "scripts/verify/costing-adapter.ts",
   "scripts/verify/sample-order-margin.ts", "scripts/verify/slice-11-5-1-warnings-parity.ts",
   "tests/harness/fixtures/world.ts",

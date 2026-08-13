@@ -10,7 +10,7 @@ import { detachAssemblyLeaf } from "@/app/actions/assemblies";
 // LeafContextMenu (lines 262-276). Items:
 //   - Edit specs (primary, accent-tinted) — the load-bearing action
 //     per CD designer notes §3.2 ("Leaf context menu owns Edit specs")
-//   - [sep] Move up / Move down / Assign to parent ASY / View library
+//   - [sep] Move up / Move down / Move to another item group / View library
 //          record
 //   - [sep] Delete from this ASY (destructive, "library leaf stays"
 //          caption)
@@ -25,7 +25,7 @@ import { detachAssemblyLeaf } from "@/app/actions/assemblies";
 //   - Edit specs → impl-3 (Phase 3 Spec entry surface; brief §5.3)
 //   - Move up/down → Step 9 (drag-to-reorder primary path; menu can
 //                   ride keyboard-arrow accessibility on top)
-//   - Assign to parent ASY → follow-up (cross-ASY junction-move
+//   - Move to another item group → follow-up (cross-ASY junction-move
 //                            workflow design TBD)
 //   - View library record → impl-5 (Phase 5 library browse + reps)
 
@@ -143,9 +143,9 @@ export function LeafContextMenu({
             role="menuitem"
             disabled
             aria-disabled="true"
-            title="Cross-ASY junction-move workflow — design TBD"
+            title="Move between item groups — design TBD"
           >
-            Assign to parent ASY
+            Move to another item group
           </button>
           <button
             type="button"
@@ -166,10 +166,10 @@ export function LeafContextMenu({
             disabled={pending}
           >
             {confirmingDelete ? (
-              "Confirm — detach from ASY"
+              "Confirm — remove from item group"
             ) : (
               <>
-                Delete from this ASY{" "}
+                Remove from item group{" "}
                 <span
                   style={{
                     marginLeft: "auto",

@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import type { AssemblyTree } from "@/lib/assembly-tree";
 import { AsyRow } from "./asy-row";
+import { DirectProductRow } from "./direct-product-row";
 import { reorderAssemblies } from "@/app/actions/assemblies";
 
 // Phase A.1 v2 impl-2 Step 9 — Drag-to-reorder ASY rows.
@@ -102,27 +103,44 @@ export function AssemblyTreeBody({
     });
   }
 
+  // Direct Products render as peers of Item Groups, not inside them. They are
+  // listed first because a quote-level product is the simpler structure and
+  // reading it before the nested one matches how the operator built it.
+  const isEmpty =
+    orderedAssemblies.length === 0 && tree.directProducts.length === 0;
+
   return (
     <div className="a1v2-tree" onDragEnd={handleAsyDragEnd}>
-      {orderedAssemblies.length === 0 ? (
+      {isEmpty ? (
         <p className="r7b-empty-state">
           {editable
-            ? "Start by adding your first product · click + Add component → to search the library or create new."
-            : "No assemblies."}
+            ? "Nothing on this quote yet · use Add Product for a single product, or Add Item Group to sell several together."
+            : "No products."}
         </p>
       ) : (
-        orderedAssemblies.map((asy) => (
-          <AsyRow
-            key={asy.id}
-            asy={asy}
-            editable={editable}
-            projectId={projectId}
-            quoteId={quoteId}
-            isDragging={dragId === asy.id}
-            onDragStart={(e) => handleAsyDragStart(e, asy.id)}
-            onDragOver={(e) => handleAsyDragOver(e, asy.id)}
-          />
-        ))
+        <>
+          {tree.directProducts.map((product) => (
+            <DirectProductRow
+              key={product.quoteLeafId}
+              product={product}
+              editable={editable}
+              quoteId={quoteId}
+              editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${product.leafId}/specs`}
+            />
+          ))}
+          {orderedAssemblies.map((asy) => (
+            <AsyRow
+              key={asy.id}
+              asy={asy}
+              editable={editable}
+              projectId={projectId}
+              quoteId={quoteId}
+              isDragging={dragId === asy.id}
+              onDragStart={(e) => handleAsyDragStart(e, asy.id)}
+              onDragOver={(e) => handleAsyDragOver(e, asy.id)}
+            />
+          ))}
+        </>
       )}
       {error ? (
         <div

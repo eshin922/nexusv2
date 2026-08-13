@@ -68,14 +68,26 @@ export function AssemblyTreeView({
     { good: 0, warn: 0, empty: 0 },
   );
 
-  // Per CD's tree summary: "X of Y leaves have complete specs".
+  // Per CD's tree summary: "X of Y products have complete specs". Counts BOTH
+  // structures — a Direct Product's spec completeness matters exactly as much
+  // as a grouped one's, and omitting it would overstate readiness.
   const totalLeaves = tree.totalSkus;
-  const completeLeaves = tree.assemblies.reduce(
-    (sum, a) =>
-      sum +
-      a.children.filter((c) => c.specCompleteness?.kind === "complete").length,
-    0,
-  );
+  const completeLeaves =
+    tree.assemblies.reduce(
+      (sum, a) =>
+        sum +
+        a.children.filter((c) => c.specCompleteness?.kind === "complete").length,
+      0,
+    ) +
+    tree.directProducts.filter((p) => p.specCompleteness?.kind === "complete")
+      .length;
+
+  const assemblyTargets = tree.assemblies.map((a) => ({
+    id: a.id,
+    sku: a.sku,
+    name: a.name,
+    leafCount: a.children.length,
+  }));
 
   return (
     <div className="a1v2-card r-a1v2-card-tree">
@@ -88,27 +100,35 @@ export function AssemblyTreeView({
               brief §5.2. Reads off the same totals the tree-summary
               header uses (totalSkus = leaf children across all
               assemblies; totalAssemblies = top-level ASY count). */}
-          <span className="meta" aria-label="SKU + assembly count caption">
-            {tree.totalSkus} {tree.totalSkus === 1 ? "SKU" : "SKUs"}
+          <span className="meta" aria-label="product and item group count">
+            {tree.totalSkus} {tree.totalSkus === 1 ? "product" : "products"}
             {" · "}
             {tree.totalAssemblies}{" "}
-            {tree.totalAssemblies === 1 ? "assembly" : "assemblies"}
+            {tree.totalAssemblies === 1 ? "item group" : "item groups"}
           </span>
-          {/* slice-library-first-creation-flow Step 6 — single
-              primary CTA. Opens LibraryBrowseModal which hosts
-              search + attach existing + create new (stacked
-              AddProductModal) + refresh from HubSpot (inline
-              progress band). */}
+          {/* TWO PEER ACTIONS. Neither implies the other, and the operator's
+              choice is structural rather than cosmetic: a one-product Item
+              Group prints on the customer's Sales Order as a named container
+              with a nested line, where a Direct Product prints as one line.
+              So grouping is never inferred from how many products are added —
+              it is only ever what the operator explicitly asked for. */}
           <LibraryBrowseTrigger
+            mode="direct"
             quoteId={quoteId}
             projectId={projectId}
             editable={editable}
-            assemblies={tree.assemblies.map((a) => ({
-              id: a.id,
-              sku: a.sku,
-              name: a.name,
-              leafCount: a.children.length,
-            }))}
+            assemblies={assemblyTargets}
+            leafTypes={leafTypesForFilter}
+            assemblyTypes={assemblyTypes}
+            fullLeafTypes={leafTypes}
+            permissions={permissions}
+          />
+          <LibraryBrowseTrigger
+            mode="group"
+            quoteId={quoteId}
+            projectId={projectId}
+            editable={editable}
+            assemblies={assemblyTargets}
             leafTypes={leafTypesForFilter}
             assemblyTypes={assemblyTypes}
             fullLeafTypes={leafTypes}
@@ -119,7 +139,7 @@ export function AssemblyTreeView({
 
       <div className="a1v2-tree-summary">
         <span className="pip complete" />{" "}
-        <strong>{counts.good}</strong> ASY all-complete
+        <strong>{counts.good}</strong> item groups complete
         <span style={{ color: "var(--ink-4)" }}>·</span>
         <span className="pip partial" />{" "}
         <strong>{counts.warn}</strong> partial
@@ -127,7 +147,7 @@ export function AssemblyTreeView({
         <span className="pip empty" />{" "}
         <strong>{counts.empty}</strong> empty
         <span className="right">
-          {completeLeaves} of {totalLeaves} leaves have complete specs
+          {completeLeaves} of {totalLeaves} products have complete specs
         </span>
       </div>
 

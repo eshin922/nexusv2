@@ -50,8 +50,8 @@ export function AsyNotesTrigger({
       aria-controls={`asy-notes-${assemblyId}`}
       aria-label={
         hasNote
-          ? "ASY notes (notes present) — toggle drawer"
-          : "ASY notes (no notes yet) — toggle drawer"
+          ? "Item group notes (notes present) — toggle drawer"
+          : "Item group notes (no notes yet) — toggle drawer"
       }
     >
       Notes {open ? "⌃" : "⌄"}
@@ -116,7 +116,7 @@ export function AsyNotesDrawerPanel({
       id={`asy-notes-${assemblyId}`}
       className="a1v2-asy-notes-drawer"
       role="region"
-      aria-label="ASY notes editor"
+      aria-label="Item group notes editor"
     >
       <label
         className="a1v2-asy-notes-label"
@@ -130,7 +130,7 @@ export function AsyNotesDrawerPanel({
         value={draft}
         onChange={handleChange}
         disabled={disabled}
-        placeholder="Notes about this ASY — sourcing dependencies, customer phone notes, R&D blockers…"
+        placeholder="Notes about this item group — sourcing dependencies, customer phone notes, R&D blockers…"
         rows={3}
       />
       <div className="a1v2-asy-notes-meta">

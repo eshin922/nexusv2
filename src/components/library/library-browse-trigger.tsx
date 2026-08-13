@@ -27,6 +27,7 @@ import { LibraryBrowseModal, type AssemblyTarget } from "./library-browse-modal"
 // leaf from library →` → `+ Add component →`.
 
 export function LibraryBrowseTrigger({
+  mode,
   quoteId,
   projectId,
   editable,
@@ -36,6 +37,12 @@ export function LibraryBrowseTrigger({
   fullLeafTypes,
   permissions,
 }: {
+  /**
+   * Which structure this button creates. The two are PEERS — `direct` never
+   * becomes `group` because one product was added, and `group` never collapses
+   * to `direct` because it holds only one.
+   */
+  mode: "direct" | "group";
   quoteId: string;
   projectId: string;
   editable: boolean;
@@ -46,26 +53,30 @@ export function LibraryBrowseTrigger({
   permissions: { canCreateLeaves: boolean };
 }) {
   const [open, setOpen] = useState(false);
+  const isDirect = mode === "direct";
 
   return (
     <>
       <button
         type="button"
-        className="a1v2-btn primary sm"
+        className={`a1v2-btn ${isDirect ? "primary" : "ghost"} sm`}
         onClick={() => setOpen(true)}
         disabled={!editable}
         aria-disabled={!editable}
         aria-haspopup="dialog"
         aria-expanded={open}
         title={
-          editable
-            ? "Find or create a component for this quote"
-            : "Quote is not draft — editing disabled"
+          !editable
+            ? "Quote is not draft — editing disabled"
+            : isDirect
+              ? "Add a single product to this quote"
+              : "Group several products that are sold together"
         }
       >
-        + Add component →
+        {isDirect ? "+ Add Product" : "+ Add Item Group"}
       </button>
       <LibraryBrowseModal
+        mode={mode}
         open={open}
         onClose={() => setOpen(false)}
         quoteId={quoteId}

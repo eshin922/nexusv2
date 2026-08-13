@@ -176,7 +176,9 @@ test("markComplete refuses the mixed structure before CREATE", async () => {
   const src = await read("src/lib/netsuite/mark-complete.ts");
   // The guard must precede group emission, so nothing is written to NetSuite
   // master data before the refusal.
-  const guardAt = src.indexOf("mixes ");
+  const guardAt = src.indexOf(
+    "groupedCount > 0 && tree.directProducts.length > 0",
+  );
   const emitAt = src.indexOf("findOrCreateItemGroup(adapted)");
   assert.ok(guardAt > 0, "mixed-structure guard must exist");
   assert.ok(emitAt > 0);

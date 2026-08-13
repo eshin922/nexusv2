@@ -6,7 +6,7 @@ import { deleteAssembly } from "@/app/actions/assemblies";
 // Phase A.1 v2 impl-2 Step 6 — ASY context menu (scenario ③)
 //
 // Canonical structure per docs/design-prototypes/dist/qw_a1v2.jsx
-// AsyContextMenu (lines 245-260). Items: Edit product · Duplicate ASY
+// AsyContextMenu (lines 245-260). Items: Edit product · Duplicate item group
 // · Move position · [sep] · Edit specs (disabled, "leaves only"
 // caption) · [sep] · Delete ASY · cascade (destructive).
 //
@@ -18,7 +18,7 @@ import { deleteAssembly } from "@/app/actions/assemblies";
 //
 // Inert until later phases / steps:
 //   - Edit product → Phase 4 impl-4 (add-product modal mode toggle)
-//   - Duplicate ASY → follow-up (design choice: clone leaves or just
+//   - Duplicate item group → follow-up (design choice: clone leaves or just
 //                     shell; banked for impl-2 polish or v1.1+)
 //   - Move position → Step 9 (drag-to-reorder is the primary path;
 //                     menu keyboard-move can ride that infrastructure)
@@ -96,7 +96,7 @@ export function AsyContextMenu({
         disabled={disabled || pending}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`ASY ${assemblySku} context menu`}
+        aria-label={`Item group ${assemblySku} context menu`}
       >
         ⋯
       </button>
@@ -104,9 +104,9 @@ export function AsyContextMenu({
         <div
           className="a1v2-context-menu"
           role="menu"
-          aria-label="ASY actions"
+          aria-label="Item group actions"
         >
-          <div className="header">ASY actions</div>
+          <div className="header">Item group actions</div>
           <button
             type="button"
             className="item"
@@ -123,9 +123,9 @@ export function AsyContextMenu({
             role="menuitem"
             disabled
             aria-disabled="true"
-            title="Duplicate ASY — design TBD (clone leaves or shell?)"
+            title="Duplicate item group — design TBD (clone products or shell?)"
           >
-            Duplicate ASY
+            Duplicate item group
           </button>
           <button
             type="button"
@@ -142,7 +142,7 @@ export function AsyContextMenu({
             className="item disabled"
             role="menuitem"
             aria-disabled="true"
-            title="Specs live on leaves, not ASYs"
+            title="Specs live on products, not item groups"
           >
             Edit specs{" "}
             <span
@@ -166,7 +166,7 @@ export function AsyContextMenu({
           >
             {confirmingDelete
               ? "Confirm delete — cascade"
-              : "Delete ASY · cascade"}
+              : "Delete item group · cascade"}
           </button>
           {error ? (
             <div

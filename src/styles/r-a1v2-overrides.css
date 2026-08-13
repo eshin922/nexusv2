@@ -413,3 +413,28 @@
   font-size: 11px;
   line-height: 1.4;
 }
+
+/* Direct Product row — nexus extension, no canonical source.
+ *
+ * A Direct Product is a peer of an Item Group, so it reuses `.a1v2-asy-row`'s
+ * register deliberately: same height, same rhythm, same left rule. It carries
+ * one extra cell (the actions cluster), so the grid is restated with a seventh
+ * column rather than letting the surplus child wrap onto an implicit row.
+ *
+ * The left rule is the only visual distinction — a Direct Product has no
+ * children to expand, so the accent-on-expanded treatment would never fire and
+ * the row would otherwise read as a permanently-collapsed Item Group.
+ */
+.a1v2-asy-row.a1v2-direct-row {
+  grid-template-columns: 24px 90px 1fr auto auto auto;
+  border-left-color: var(--ink-4);
+}
+.a1v2-asy-row.a1v2-direct-row .twirl {
+  cursor: default;
+}
+.a1v2-asy-row.a1v2-direct-row .direct-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
