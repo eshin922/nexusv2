@@ -12,6 +12,8 @@
 // structure, and regardless of freight/customs treatment.
 
 import { test } from "node:test";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import assert from "node:assert/strict";
 import { buildSalesOrderPayload } from "../../src/lib/netsuite/sales-orders.ts";
 import { planCostProjection } from "../../src/lib/netsuite/cost-projection.ts";
@@ -181,4 +183,94 @@ test("a member with no governed cost is skipped, not zeroed", () => {
   });
   assert.equal(plan.actions.length, 0);
   assert.match(plan.skipped[0].reason, /default preserved/);
+});
+
+// ────────────── grouped members: BOTH cost columns, one source ──────────────
+//
+// NetSuite has two distinct columns and they were confused for each other:
+//
+//   custcol_dps_unit_cost → titled "Unit Cost"  (metadata catalog)
+//   costEstimateRate      → titled "Est. Rate"
+//
+// Accounting's defect was about **Unit Cost**. 20da735 populated Est. Rate on
+// grouped members and left Unit Cost blank, so the reported defect survived a
+// repair that looked complete. SO2646/SO2698 could not have revealed this —
+// both fields held identical values there, so the controls were confounded.
+//
+// A grouped member does not exist at CREATE, so the scalar PATCH is the only
+// place either column can be set for it.
+
+test("the member PATCH writes BOTH cost columns from one governed value", async () => {
+  const client = await readFile(
+    path.join(import.meta.dirname, "../../src/lib/netsuite/client.ts"),
+    "utf8",
+  );
+  const fn = client
+    .split("export async function patchSalesOrderLine")[1]
+    .split("export async function")[0];
+
+  // Both columns assigned...
+  assert.match(fn, /body\.custcol_dps_unit_cost = patch\.unitCost/);
+  assert.match(fn, /body\.costEstimateRate = patch\.unitCost/);
+  assert.match(fn, /body\.costEstimateType = \{ id: "CUSTOM" \}/);
+
+  // ...from the SAME argument. Two destinations, one source: a second source
+  // could drift, and the two columns would then disagree about one product's
+  // cost — which is exactly the state this repair exists to end.
+  const unitCostAssignments = [...fn.matchAll(/body\.(\w+) = ([^;]+);/g)]
+    .filter(([, key]) => key !== "rate")
+    .map(([, , value]) => value.trim());
+  for (const v of unitCostAssignments) {
+    assert.ok(
+      v === "patch.unitCost" || v === '{ id: "CUSTOM" }',
+      `cost field assigned from ${v} — must be patch.unitCost, never re-derived`,
+    );
+  }
+});
+
+test("both cost columns are gated by the SAME null guard", async () => {
+  const client = await readFile(
+    path.join(import.meta.dirname, "../../src/lib/netsuite/client.ts"),
+    "utf8",
+  );
+  const fn = client
+    .split("export async function patchSalesOrderLine")[1]
+    .split("export async function")[0];
+  // One guard, one block. Separate guards could diverge and populate one column
+  // while leaving the other blank — the precise shape of the defect being fixed.
+  const guard = fn.split("if (patch.unitCost !== undefined)")[1] ?? "";
+  assert.match(guard, /custcol_dps_unit_cost/);
+  assert.match(guard, /costEstimateRate/);
+  assert.equal(fn.split("if (patch.unitCost !== undefined)").length, 2);
+});
+
+test("structural Group / EndGroup lines receive NEITHER column", () => {
+  const plan = planCostProjection({
+    lines: [
+      { line: 1, itemId: "58837", itemType: "Group", quantity: 250 },
+      { line: 2, itemId: "1024", itemType: "InvtPart", quantity: 250 },
+      { line: 3, itemId: null, itemType: "EndGroup", quantity: null },
+    ],
+    governed: [
+      { netsuiteItemId: "58837", unitCost: 9.99 },
+      { netsuiteItemId: "1024", unitCost: 0.37 },
+    ],
+  });
+  // Only the member is actionable. Structural lines carry no product and are
+  // excluded by type, so neither column can reach them.
+  assert.deepEqual(
+    plan.actions.map((a) => [a.address, a.unitCost]),
+    [[2, 0.37]],
+  );
+  assert.deepEqual(plan.skipped.map((s) => s.address).sort(), [1, 3]);
+});
+
+test("flat/Direct CREATE behaviour is unchanged by the member repair", () => {
+  const body = buildSalesOrderPayload({ ...BASE, lines: [line()] } as never);
+  const l = items(body)[0];
+  // All three, from CREATE, exactly as before — the Direct path never depended
+  // on the PATCH and must not start to.
+  assert.equal(l.custcol_dps_unit_cost, 0.625);
+  assert.deepEqual(l.costEstimateType, { id: "CUSTOM" });
+  assert.equal(l.costEstimateRate, 0.625);
 });

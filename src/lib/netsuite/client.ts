@@ -337,6 +337,20 @@ export async function patchSalesOrderLine(
   if (patch.unitCost !== undefined) {
     body.costEstimateType = { id: "CUSTOM" };
     body.costEstimateRate = patch.unitCost;
+    // NetSuite's **Unit Cost** column. Confirmed from the salesOrder metadata
+    // catalog, which titles `custcol_dps_unit_cost` "Unit Cost" and
+    // `costEstimateRate` "Est. Rate" — they are two different columns, and the
+    // defect Accounting reported was about this one.
+    //
+    // The flat CREATE path has always written all three from the same governed
+    // value; a grouped member does not exist at CREATE, so this PATCH is the
+    // only place it can be set. Omitting it here is what left members blank in
+    // the column while their Est. Rate was correct.
+    //
+    // ONE SOURCE, THREE DESTINATIONS. `patch.unitCost` is the governed
+    // contribution cost; nothing here re-derives it from rate, amount or a
+    // NetSuite default.
+    body.custcol_dps_unit_cost = patch.unitCost;
   }
 
   const response = await fetch(url, {

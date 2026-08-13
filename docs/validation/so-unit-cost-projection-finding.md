@@ -26,7 +26,47 @@ Specifically:
   no receipt history in this account, so average cost resolves to zero. NetSuite is
   deriving correctly from an empty basis.
 
-## 2 · The field, established by arithmetic rather than by label
+## 2 · The field — ⚠ SUPERSEDED 2026-08-13, THE CLAIM BELOW IS FALSE
+
+> **The displayed UNIT COST column is `custcol_dps_unit_cost`, NOT
+> `costEstimateRate`.** Established from NetSuite's own salesOrder metadata
+> catalog, which titles the two fields:
+>
+> | field | NetSuite title |
+> |---|---|
+> | `custcol_dps_unit_cost` | **"Unit Cost"** |
+> | `costEstimateRate` | **"Est. Rate"** |
+>
+> They are two different columns. Accounting's defect was about **Unit Cost**.
+>
+> **Why the section below reached the wrong answer.** Every control it used —
+> SO2645, SO2646, SO2698, SO2701 — carried the SAME value in both fields,
+> because the flat CREATE path writes both from one governed source. A control
+> in which two candidates always agree cannot distinguish between them. The
+> arithmetic it checks is correct and proves only that `costEstimate =
+> costEstimateRate × qty`; it never tested which field the column displays.
+> The heading "established by arithmetic rather than by label" names the error
+> exactly: the label was the evidence that mattered.
+>
+> **SO2714 separated them**, because the two mechanisms populate different
+> fields: grouped members carry `costEstimateRate` 0.37 / 1.29 with
+> `custcol_dps_unit_cost` **null**, and their Unit Cost column renders blank.
+>
+> **Consequence.** `20da735` correctly added native NetSuite costing for
+> grouped members and **did not repair the reported defect**. SO2707/2708/2709
+> remain blank in the Unit Cost column. Repaired by extending the grouped-member
+> scalar PATCH to write `custcol_dps_unit_cost` alongside the native pair;
+> see `mixed-certification-artifact-record.md`.
+>
+> **Downstream consumers of `custcol_dps_unit_cost` are INDETERMINATE**, not
+> absent: every metadata query (`transactioncolumncustomfield`,
+> `transactionbodycustomfield`, `script`, `workflow`) failed as an invalid
+> search type for this integration role, while a control query on the same path
+> returned rows. Unavailability, not emptiness. Not required for this repair —
+> the column is consumed by the NetSuite UI itself.
+
+The section below is retained verbatim as the record of what was believed and on
+what basis. **Do not act on it.**
 
 The displayed **UNIT COST** column is **`costEstimateRate`** (per unit).
 `costEstimate` is the extended value. Proven against the firm's own Sales Orders:

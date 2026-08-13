@@ -199,8 +199,15 @@ test("9 · patchSalesOrderLine uses the Probe 7d single-line shape", () => {
   const assigned = [...fn.matchAll(/\bbody\.([A-Za-z_$][\w$]*)\s*=/g)].map((m) => m[1]);
   assert.deepEqual(
     [...new Set(assigned)].sort(),
-    ["costEstimateRate", "costEstimateType", "rate"],
-    "exactly the three governed scalar keys — nothing else may be written",
+    [
+      // NetSuite's "Unit Cost" column — the one Accounting reported blank.
+      "custcol_dps_unit_cost",
+      // NetSuite's "Est. Rate" column, plus the type that makes it authoritative.
+      "costEstimateRate",
+      "costEstimateType",
+      "rate",
+    ].sort(),
+    "exactly the four governed scalar keys — nothing else may be written",
   );
   // Never assembled from the argument object.
   assert.doesNotMatch(fn, /\.\.\.patch/, "body is not spread from the argument");
