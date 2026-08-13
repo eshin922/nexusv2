@@ -470,6 +470,13 @@
       "when": 1786320005000,
       "tag": "0068_freight_identity_guard_canonical",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1786320006000,
+      "tag": "0069_below_floor_approval_requests",
+      "breakpoints": true
     }
   ]
 }

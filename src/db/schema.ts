@@ -278,6 +278,18 @@ export const users = pgTable(
      * them would manufacture an independence the estate does not have.
      */
     commercialApprover: boolean("commercial_approver").notNull().default(false),
+    /**
+     * Durable Slack↔Nexus identity binding (`U…`).
+     *
+     * Email is a BOOTSTRAP only: the first successful Slack decision resolves
+     * Slack id → verified Slack email → unique Nexus user, then persists the id
+     * here. Every later callback uses THIS binding and ignores email.
+     *
+     * If a stored binding and a Slack email later disagree, the decision fails
+     * closed — rebinding is an administrative act, never an inference from a
+     * changed email. Unique so two Slack accounts cannot claim one Nexus user.
+     */
+    slackUserId: text("slack_user_id").unique(),
     hubspotOwnerId: text("hubspot_owner_id"),
     // Slice RI.7 — phone for PreparedBy contact derivation (DEC-8).
     // Back-filled from HubSpot owners API in ensureUser on first sign-in
@@ -965,6 +977,90 @@ export const belowFloorAuthorizations = pgTable(
   ],
 );
 
+/**
+ * The below-floor APPROVAL REQUEST lifecycle.
+ *
+ * `below_floor_authorizations` is decision-only: a row is an approval, and a
+ * refusal is silence. This table is the missing asynchronous half — who asked,
+ * what they asked against, whether anyone has answered, and what the answer was
+ * when it was "no".
+ *
+ * IT AUTHORIZES NOTHING. An approved request PRODUCES an authorization row
+ * (`authorizationId`); the Send/Accept gates read only that row and are
+ * unchanged. Slack request state is not authorization.
+ *
+ * DECISION AND DELIVERY ARE ORTHOGONAL. `status` is what a human decided;
+ * `deliveryStatus` is whether Slack received the message. A request may be
+ * `pending` + `failed`, which authorizes nothing — a delivery state must never
+ * imply authority.
+ */
+export const belowFloorApprovalRequests = pgTable(
+  "below_floor_approval_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    // Same governed commercial scope as the authorization it may produce.
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    quoteVersionNumber: integer("quote_version_number").notNull(),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+
+    requestedByUserId: uuid("requested_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The requester's why. NOT NULL — a request without one is unreviewable. */
+    justification: text("justification").notNull(),
+
+    /**
+     * The commercial state this request was raised against, from the same
+     * `fingerprintCommercialState` the gate uses. Comparing it at decision time
+     * is what makes a delayed Slack click supersede rather than authorize.
+     */
+    stateFingerprint: text("state_fingerprint").notNull(),
+    /** Evidence at request time. Never an input to a later computation. */
+    marginAtRequest: numeric("margin_at_request", { precision: 9, scale: 6 }).notNull(),
+    floorAtRequest: numeric("floor_at_request", { precision: 5, scale: 4 }).notNull(),
+
+    /** 'pending' | 'approved' | 'rejected' | 'superseded' | 'cancelled' */
+    status: text("status").notNull().default("pending"),
+    decidedByUserId: uuid("decided_by_user_id").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** REQUIRED on reject; optional on approve. */
+    decisionReason: text("decision_reason"),
+    /** Set only on approval — the join to the governed decision. */
+    authorizationId: uuid("authorization_id").references(
+      () => belowFloorAuthorizations.id,
+    ),
+
+    // Slack message identity, so the projection can be re-synced after a
+    // decision. Nexus stays authoritative if the update fails.
+    slackChannelId: text("slack_channel_id"),
+    slackMessageTs: text("slack_message_ts"),
+    /** 'pending' | 'delivered' | 'failed' — orthogonal to `status`. */
+    deliveryStatus: text("delivery_status").notNull().default("pending"),
+    deliveryError: text("delivery_error"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    /**
+     * At most ONE live request per governed commercial scope. Structural, not
+     * conventional: a second pending request cannot be inserted at all, so
+     * duplicate Slack messages competing to authorize one tier is not a state
+     * the system can reach.
+     */
+    uniqueIndex("below_floor_request_pending_idx")
+      .on(t.quoteId, t.quoteVersionNumber, t.tierId)
+      .where(sql`status = 'pending'`),
+    index("below_floor_request_quote_idx").on(t.quoteId),
+  ],
+);
+
 export const markupDefaults = pgTable("markup_defaults", {
   category: text("category").primaryKey(),
   defaultMarkupPct: numeric("default_markup_pct", {
@@ -1038,6 +1134,19 @@ export const firmSettings = pgTable(
     leadTimeDefault: text("lead_time_default"),
     incotermsDefault: text("incoterms_default"),
     daysValidDefault: integer("days_valid_default"),
+    /**
+     * Designated Slack channel for governed below-floor approval requests.
+     *
+     * GOVERNED CONFIGURATION, NOT A SECRET — it belongs here rather than in env
+     * so an admin can change it without a deploy and the change is versioned
+     * and audited like every other firm policy. The bot token and signing
+     * secret remain environment secrets.
+     *
+     * MUST participate in `versionedFirmSettingsUpdate` carry-forward, or a
+     * later margin-only edit silently clears the channel and approval requests
+     * stop being delivered while nothing reports an error.
+     */
+    slackApprovalChannelId: text("slack_approval_channel_id"),
     // Slice 12 Step 3 — external-system defaults per v3 brief §5 +
     // Q4/Q5 dispositions. Configurable per firm; Step 7 (HubSpot
     // push) + Step 8 (NetSuite push) read the current row.
