@@ -109,7 +109,19 @@ test("5 · retry of awaiting_rates cannot invoke Sales Order CREATE", () => {
   const guardIdx = markComplete.indexOf("if (mustNotCreate({ status:");
   const createIdx = markComplete.indexOf("await netsuite.createSalesOrder(");
   assert.ok(guardIdx < createIdx, "the guard precedes the CREATE call");
-  assert.match(rules, /return attempt\.netsuiteSoId !== null;/);
+
+  // The rule was widened from a test of KNOWLEDGE to a test of POSSIBILITY when
+  // the provider header was measured not to be honoured — an order can exist
+  // without its id ever having been learned. Asserted behaviourally rather than
+  // by pinning the literal expression, which is what this line used to do and
+  // what broke when the rule correctly grew stronger.
+  assert.equal(mustNotCreate({ status: "pending", netsuiteSoId: null }), false);
+  assert.equal(
+    mustNotCreate({ status: "needs_reconciliation", netsuiteSoId: null }),
+    true,
+    "an unresolved ambiguous outcome must also suppress CREATE",
+  );
+  assert.match(rules, /attempt\.netsuiteSoId !== null/);
 });
 
 test("6 · awaiting_rates → succeeded is permitted, and requires an SO id", () => {

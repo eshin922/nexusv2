@@ -169,3 +169,36 @@ export async function recordAttemptSucceeded(args: {
     })
     .where(eq(netsuiteSoPushes.id, args.attemptId));
 }
+
+/**
+ * Park an attempt whose CREATE outcome could not be reconciled.
+ *
+ * Written when an external Sales Order MAY exist and provider reconciliation
+ * could not establish which one — `DUPLICATED DEAL` with an unverifiable or
+ * contradictory candidate set, or several candidates for one deal.
+ *
+ * WHY NOT `failed`. `failed + validation` is the one state `ownsSnapshot`
+ * excludes, so writing it here would release the snapshot, admit a sibling
+ * attempt row, and let a fresh CREATE proceed behind an order that already
+ * exists — the exact sequence this repair removes. `needs_reconciliation`
+ * keeps the snapshot AND satisfies `mustNotCreate`, so the attempt is inert
+ * until a human resolves it.
+ *
+ * `netsuiteSoId` stays whatever it was: in the response-loss case it is null
+ * precisely because the id was never learned, and inventing one here would be
+ * worse than recording the ambiguity honestly.
+ */
+export async function recordNeedsReconciliation(args: {
+  attemptId: string;
+  errorDetail: string;
+}): Promise<void> {
+  await db
+    .update(netsuiteSoPushes)
+    .set({
+      status: "needs_reconciliation",
+      errorClass: "duplicate_deal",
+      errorDetail: args.errorDetail,
+      completedAt: new Date(),
+    })
+    .where(eq(netsuiteSoPushes.id, args.attemptId));
+}

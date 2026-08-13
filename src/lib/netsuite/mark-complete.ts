@@ -33,6 +33,7 @@ import {
 } from "./item-groups";
 import { runRateConvergence } from "./rate-convergence";
 import { patchSalesOrderLine } from "./client";
+import { reconcileBeforeCreate } from "./create-reconciliation";
 import {
   adaptPlannedGroup,
   assertIdentityMatchesPlan,
@@ -42,6 +43,7 @@ import {
   awaitingRatesOperatorMessage,
   mustNotCreate,
   recordAttemptFailure,
+  recordNeedsReconciliation,
   recordSalesOrderCreated,
 } from "./attempt-lifecycle";
 import {
@@ -861,6 +863,10 @@ export async function runMarkComplete(
     // Keyed on SO-id presence rather than status alone (see
     // attempt-lifecycle.mustNotCreate) so that a row which somehow carries an
     // id under any other status still cannot re-create.
+    // True when this run rejoined an order the provider already held rather
+    // than creating one. Keeps the post-catch fallthrough from labelling it
+    // `fresh`.
+    let adoptedViaReconciliation = false;
     let resumeSoId: string | null = durableAttempt?.netsuiteSoId ?? null;
     let resumeSoTranid: string | null = durableAttempt?.netsuiteSoTranid ?? null;
 
@@ -925,6 +931,59 @@ export async function runMarkComplete(
       console.log("[markComplete] SO payload:\n" + JSON.stringify(payload, null, 2));
     }
 
+    // ── AMBIGUOUS-CREATE RECONCILIATION (Step 2) ──────────────────────────
+    //
+    // An INHERITED attempt in `pending + netsuite_so_id = NULL` is not "safe to
+    // create again": it is indistinguishable between "died before POST" and
+    // "POST landed, response lost". A row inserted during THIS invocation has
+    // provably not been POSTed, so it is excluded — only `durableAttempt`
+    // reaches here.
+    //
+    // Provider-header idempotency cannot be leaned on: measured absent on this
+    // account (two identical keys → SO2705 + SO2706).
+    if (
+      durableAttempt &&
+      !mustNotCreate({ status: durableAttempt.status ?? "", netsuiteSoId: resumeSoId })
+    ) {
+      const decision = await reconcileBeforeCreate({
+        trigger: "ambiguous_attempt",
+        expect: {
+          customerId: customer.netsuiteCustomerId,
+          hubspotDealId: projectRow.hubspotDealId as string,
+          tierQty: groupingPlan.tierQty ?? 0,
+          plannedGroups: groupingPlan.groups,
+        },
+      });
+      if (decision.action === "adopt") {
+        // Rejoin the normal post-CREATE lifecycle through the SAME recovery
+        // boundary a fresh CREATE uses. No CREATE is issued; convergence and
+        // the unweakened final gate still have to pass before `succeeded`.
+        await recordSalesOrderCreated({
+          attemptId: pendingId,
+          netsuiteSoId: decision.candidate.internalId,
+          netsuiteSoTranid: decision.candidate.tranid,
+          amountPushed: currentAmount,
+        });
+        resumeSoId = decision.candidate.internalId;
+        resumeSoTranid = decision.candidate.tranid;
+        adoptedViaReconciliation = true;
+        // The prior CREATE DID succeed — only its response was lost — so this
+        // is convergence from a prior success, not a new outcome kind. The
+        // adoption itself is forensically recorded on the attempt row.
+        retryOutcome = "converged_from_prior_success";
+      } else if (decision.action === "fail_closed") {
+        await recordNeedsReconciliation({
+          attemptId: pendingId,
+          errorDetail: `${decision.reason}${decision.failures.length ? ` — ${decision.failures.join("; ")}` : ""}`,
+        });
+        throw new Error(
+          `[markComplete] ambiguous Sales Order CREATE outcome: ${decision.reason}`,
+        );
+      }
+      // action === "create" — the provider positively shows no order for this
+      // deal, so the CREATE below is safe.
+    }
+
     let created;
     if (mustNotCreate({ status: durableAttempt?.status ?? "", netsuiteSoId: resumeSoId })) {
       // RESUME. A Sales Order already exists for this durable attempt, so the
@@ -955,6 +1014,54 @@ export async function runMarkComplete(
       const failedAt = new Date();
       const errClass = err?.className ?? "unknown";
       const errDetail = err?.context.detail ?? String(e);
+
+      // ── DUPLICATED DEAL (Step 3) ────────────────────────────────────────
+      //
+      // The provider has just asserted an order EXISTS for this governed deal.
+      // Its HTTP class is 400, shared with ordinary validation, but its business
+      // meaning is the opposite: validation means "nothing happened, discard
+      // safely" — this means "the external effect you attempted may already
+      // exist". Routing it to the validation branch is what released snapshot
+      // ownership and orphaned the real order.
+      if (errClass === "duplicate_deal" && pendingId) {
+        const decision = await reconcileBeforeCreate({
+          trigger: "duplicate_deal",
+          expect: {
+            customerId: customer.netsuiteCustomerId,
+            hubspotDealId: projectRow.hubspotDealId as string,
+            tierQty: groupingPlan.tierQty ?? 0,
+            plannedGroups: groupingPlan.groups,
+          },
+        });
+        if (decision.action === "adopt") {
+          await recordSalesOrderCreated({
+            attemptId: pendingId,
+            netsuiteSoId: decision.candidate.internalId,
+            netsuiteSoTranid: decision.candidate.tranid,
+            amountPushed: currentAmount,
+          });
+          created = { internalId: decision.candidate.internalId };
+          salesOrderInternalId = decision.candidate.internalId;
+          salesOrderTranid = decision.candidate.tranid;
+          amountPushed = currentAmount;
+          adoptedViaReconciliation = true;
+          retryOutcome = "converged_from_prior_success";
+        } else {
+          // Zero candidates is a CONTRADICTION — the guard matched on something
+          // this query cannot see — and several candidates cannot be
+          // disambiguated. Both park; neither creates. `create` is unreachable
+          // here by construction (`decideReconciliation` never returns it for
+          // this trigger), and is treated as fail-closed regardless.
+          const reason =
+            decision.action === "fail_closed" ? decision.reason : "unresolved duplicate-deal outcome";
+          const detail =
+            decision.action === "fail_closed" && decision.failures.length
+              ? `${reason} — ${decision.failures.join("; ")}`
+              : reason;
+          await recordNeedsReconciliation({ attemptId: pendingId, errorDetail: detail });
+          throw new Error(`[markComplete] DUPLICATED DEAL could not be reconciled: ${detail}`);
+        }
+      } else {
       if (pendingId) {
         try {
           await recordAttemptFailure({
@@ -991,11 +1098,14 @@ export async function runMarkComplete(
         // non-fatal — preflight reads netsuite_so_pushes as fallback
       }
       throw e;
+      }
     }
 
     salesOrderInternalId = created.internalId;
     amountPushed = currentAmount;
-    retryOutcome = "fresh";
+    // An adopted order was created by the PRIOR attempt whose response was
+    // lost, so it must not be relabelled `fresh` on the way out of the catch.
+    retryOutcome = adoptedViaReconciliation ? "converged_from_prior_success" : "fresh";
 
     // *** THE RECOVERY BOUNDARY ***
     //
