@@ -134,7 +134,7 @@ these:
    matched on deal id, so a deal that already has one puts the attempt in
    contact with a sibling quote's order. Added after the SO2707 incident, where
    omitting this check cost a completed order its rates
-   (). Check  on sibling quotes.
+   (`so2707-adoption-incident.md`). Check `netsuite_so_id` on sibling quotes.
 8. **Non-null governed costs.** ← *the assertion-specific one.* With a null cost
    the code correctly writes nothing, so a cost-less artifact certifies nothing
    about M2 or M3. It would pass while proving the opposite of what was intended.
