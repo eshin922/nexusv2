@@ -9,6 +9,8 @@ import {
   quoteTiers,
 } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
+import { loadApprovalStateByTier } from "@/lib/below-floor-approval-loader";
+import { fingerprintCommercialState } from "@/lib/below-floor-authorization";
 import { CostingStoreProvider } from "@/components/costing-store-provider";
 import { isProductionRealtimeConfigured } from "@/lib/integrations/realtime-composition";
 import { PricingPageHead } from "@/components/pricing/pricing-page-head";
@@ -165,6 +167,24 @@ export default async function CostingPage({
     recommended: t.recommended,
   }));
 
+  // Approval workflow state, projected from the SAME costing read the page
+  // renders. Sourcing the fingerprint anywhere else could call an approval
+  // current against economics the operator is not looking at.
+  const { states: approvalStates } = await loadApprovalStateByTier({
+    quoteId,
+    quoteVersionNumber: quote.versionNumber,
+    fingerprintByTier: new Map(
+      bundle.data.costing.quoteRollup.map((r) => [
+        r.tierId,
+        fingerprintCommercialState({
+          totalRevenue: r.totalRevenue,
+          totalCost: r.totalCost,
+          blendedMarginPct: r.blendedMarginPct,
+        }),
+      ]),
+    ),
+  });
+
   console.log(`[pricing:${tag}] pre-render ${elapsed()} memory=${heapMb()}MB`);
   return (
     <NavShell
@@ -259,6 +279,7 @@ export default async function CostingPage({
             projectId={projectId}
             quoteId={quoteId}
             tiers={tiersForReframe}
+            approvalStates={approvalStates}
           />
         </main>
         </PricingStagingProvider>

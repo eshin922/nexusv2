@@ -155,6 +155,8 @@ async function handleSubmit(
     action: meta.action,
     reason,
     actorUserId: identity.userId,
+    // Provenance only. Authority came from the binding resolution above.
+    actingSlackUserId: slackUserId,
   });
 
   if (outcome.kind === "refused") {

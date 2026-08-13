@@ -31,12 +31,18 @@
 // engine. One classify, one engine call per render.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Mode } from "@/lib/pricing-classifier";
 import {
   applyGlobalAdj,
   previewGlobalAdj,
   undoGlobalAdj,
 } from "@/app/actions/pricing-apply";
+import { requestBelowFloorApproval } from "@/app/actions/below-floor-approval-request";
+import {
+  mayRequestApproval,
+  type ApprovalTierState,
+} from "@/lib/below-floor-approval-state";
 import { composePricingAdjustment } from "@/lib/pricing-adjustment";
 import type { GlobalPricingPreview } from "@/lib/pricing-lift";
 import {
@@ -56,6 +62,8 @@ import { ComplianceGrid } from "./compliance-grid";
 import { PricingTrace } from "./pricing-trace";
 import { useProvenantNodes } from "./pricing-provenance-context";
 import { StagingBar } from "./staging-bar";
+import { RequestOverrideModal } from "./request-override-modal";
+import { ApprovalStateCard } from "./approval-state-card";
 import { StagedDelta, StagedMarginDelta } from "./staged-delta";
 import { usePricingStaging } from "./pricing-staging-context";
 import { parseCellKey, type CellRef } from "@/lib/pricing-staging";
@@ -81,17 +89,25 @@ export interface PricingSurfaceShellProps {
    * `idMap` — the map that already owns that correspondence.
    */
   tiers: ReadonlyArray<{ id: string; label: string; recommended: boolean }>;
+  /**
+   * Workflow state, projected server-side and composed here. Deliberately NOT
+   * classifier output — the classifier is a pure function of commercial inputs
+   * and must not own asynchronous approval persistence.
+   */
+  approvalStates: Record<string, ApprovalTierState>;
 }
 
 export function PricingSurfaceShell({
   projectId: _projectId,
   quoteId,
   tiers,
+  approvalStates,
 }: PricingSurfaceShellProps) {
   // Single source of truth — `state` is the classifier output,
   // identical to what `<PricingPageHead>` consumes.
   const { state, idMap } = usePricingClassifier();
-  const { uuidToNumeric } = idMap;
+  const { uuidToNumeric, numericToUuid } = idMap;
+  const router = useRouter();
 
   // Mode-transition flash + 30s persistent hint ─────────────────
   const previousModeRef = useRef<Mode | null>(null);
@@ -99,6 +115,11 @@ export function PricingSurfaceShell({
     null,
   );
   const [justUpdatedAt, setJustUpdatedAt] = useState<number | null>(null);
+
+  // Below-floor approval request — modal, in-flight, error.
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [requestPending, setRequestPending] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
 
   useEffect(() => {
     const prev = previousModeRef.current;
@@ -242,6 +263,15 @@ export function PricingSurfaceShell({
       onApply(kind);
       return;
     }
+    // The existing Request action, connected to the existing lifecycle.
+    // Eligibility is decided upstream: the classifier emits this kind only in
+    // the below-floor branch and only when `policy.allow_override`. Nothing
+    // here re-decides that.
+    if (kind === "request_override") {
+      setRequestError(null);
+      setRequestOpen(true);
+      return;
+    }
     // preview_pdf ActionCard was removed from the shell render per
     // Edward's disposition (redundant with the YourNextMoveBanner
     // that already surfaces "Preview quote PDF →" in sendable
@@ -249,9 +279,8 @@ export function PricingSurfaceShell({
     // (recommendedOrPrimary in pricing-page-head.tsx picks
     // preview_pdf as primary → banner label) but never reaches
     // this handler because the shell filter drops it.
-    // request_override · tighten_to_target — v1 ships as no-op
-    // placeholders. Admin-override workflow + tighten-to-target
-    // automation banked v1.1+. override_unavailable +
+    // tighten_to_target — still a no-op placeholder; that automation is
+    // banked v1.1+. override_unavailable +
     // calculating_suggestion + suggestion_infeasible +
     // suggestion_manual_only are inert kinds (ActionCard renders
     // no CTA button for them; this branch is unreachable but kept
@@ -419,6 +448,60 @@ export function PricingSurfaceShell({
     }
     return byNumeric;
   }, [tiers, uuidToNumeric]);
+
+  /**
+   * The tier a request would authorize.
+   *
+   * `blended_status`, NOT `status`. The acceptance gate reads the tier's BLENDED
+   * margin; `status` is the worst CELL's band and answers a different question.
+   * Requesting against the worst-cell tier could seek authorization for a tier
+   * the gate never blocks while leaving the blocking one unauthorized.
+   *
+   * Worst-first when several qualify, matching StateCard's existing convention.
+   * An authorization covers ONE tier, so a quote with several blocking tiers
+   * needs one request each — the modal names the tier so that is visible.
+   */
+  const requestTier = useMemo(() => {
+    const blocking = state.tiers.filter((t) => t.blended_status === "below_floor");
+    if (blocking.length === 0) return null;
+    const worst = blocking.reduce((a, b) =>
+      (b.blended_margin_pct ?? Infinity) < (a.blended_margin_pct ?? Infinity) ? b : a,
+    );
+    const uuid = numericToUuid.get(worst.id);
+    if (!uuid) return null; // never guess an identity the map does not carry
+    return {
+      tierId: uuid,
+      label: tierMeta.get(worst.id)?.label ?? `Tier ${worst.id}`,
+      blendedMarginPct: worst.blended_margin_pct,
+    };
+  }, [state.tiers, numericToUuid, tierMeta]);
+
+  const approvalState: ApprovalTierState = requestTier
+    ? (approvalStates[requestTier.tierId] ?? { kind: "none" })
+    : { kind: "none" };
+
+  async function onSubmitOverrideRequest(justification: string) {
+    if (!requestTier) return;
+    setRequestError(null);
+    setRequestPending(true);
+    const r = await requestBelowFloorApproval({
+      quoteId,
+      tierId: requestTier.tierId,
+      justification,
+    });
+    setRequestPending(false);
+    // On failure: surface the message, keep the modal open, mutate NO pricing
+    // state — nothing about the quote changed, so the classifier's view of it
+    // must not change either.
+    if (!r.ok) {
+      setRequestError(r.error.message);
+      return;
+    }
+    setRequestOpen(false);
+    // The pending state is persisted, so a refresh shows it too. Re-reading the
+    // server projection is what makes that true rather than a local flag.
+    router.refresh();
+  }
 
   // VERIFIED at mount time, and it is not the obvious field: the staging key's
   // SKU half is `canonicalQuoteLeafId`, which is a SEPARATE field from the
@@ -713,6 +796,13 @@ export function PricingSurfaceShell({
           .filter(
             (a) => state.mode !== "suggestion_led" || !a.recommended,
           )
+          // A request that is open, approved or already decided must not keep
+          // presenting an actionable Request card. Suppressed HERE rather than
+          // in the classifier: eligibility is policy (classifier's job),
+          // whether one is already in flight is workflow state (not its job).
+          .filter(
+            (a) => a.kind !== "request_override" || mayRequestApproval(approvalState),
+          )
           .map((action) => (
             <ActionCard
               key={action.kind}
@@ -778,6 +868,24 @@ export function PricingSurfaceShell({
         renderStackDelta={renderStackDelta}
         renderStackMarginDelta={renderStackMarginDelta}
       />
+
+      {/* Workflow state, composed with — never folded into — classifier output. */}
+      {requestTier && approvalState.kind !== "none" && (
+        <ApprovalStateCard state={approvalState} tierLabel={requestTier.label} />
+      )}
+
+      {requestTier && (
+        <RequestOverrideModal
+          open={requestOpen}
+          onClose={() => setRequestOpen(false)}
+          onSubmit={onSubmitOverrideRequest}
+          tierLabel={requestTier.label}
+          blendedMarginPct={requestTier.blendedMarginPct}
+          floorPct={state.policy.floor_margin_pct}
+          pending={requestPending}
+          error={requestError}
+        />
+      )}
     </section>
   );
 }

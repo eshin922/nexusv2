@@ -178,6 +178,13 @@ export interface DecideBelowFloorApprovalInput {
    * route boundary. Never a caller-nominated id.
    */
   actorUserId: string;
+  /**
+   * The Slack member id that actually clicked, when the decision arrived that
+   * way. Recorded as PROVENANCE alongside the resolved Nexus actor — a binding
+   * can be re-pointed later, and without this there is no way to reconstruct
+   * which Slack account took the decision. Never used for authority.
+   */
+  actingSlackUserId?: string | null;
 }
 
 export type DecideOutcome =
@@ -262,6 +269,9 @@ export async function decideBelowFloorApproval(
           request_id: request.id,
           fingerprint_at_request: request.stateFingerprint,
           fingerprint_now: state.fingerprint,
+          acting_slack_user_id: input.actingSlackUserId ?? null,
+          signature_verified: true,
+          source: "slack",
         },
       });
       return { kind: "superseded" };
@@ -296,6 +306,25 @@ export async function decideBelowFloorApproval(
       .from(belowFloorApprovalRequests)
       .where(eq(belowFloorApprovalRequests.id, request.id))
       .limit(1);
+    // A duplicate or replayed callback against an already-settled request. The
+    // claim protected state; without this row the attempt would leave no trace
+    // at all, and "nothing happened" is indistinguishable from "nobody tried".
+    await writeAuditEntry({
+      userId: actor.id,
+      entityType: "quote",
+      entityId: request.quoteId,
+      action: "below_floor_approval_callback_duplicate",
+      summary: `Duplicate below-floor decision callback ignored (already ${fresh?.status ?? "decided"})`,
+      diffJson: {
+        request_id: request.id,
+        attempted_action: input.action,
+        existing_status: fresh?.status ?? "unknown",
+        acting_slack_user_id: input.actingSlackUserId ?? null,
+        signature_verified: true,
+        source: "slack",
+        outcome: "no_state_change",
+      },
+    });
     return { kind: "noop", status: fresh?.status ?? "unknown" };
   }
 
@@ -334,6 +363,13 @@ export async function decideBelowFloorApproval(
       request_id: request.id,
       authorization_id: authorizationId,
       decided_by_user_id: actor.id,
+      // Provenance, not authority: the Slack account that acted, recorded
+      // beside the governed Nexus identity it resolved to.
+      acting_slack_user_id: input.actingSlackUserId ?? null,
+      // The callback reached this point only by passing raw-body HMAC
+      // verification at the route boundary. Recording the fact — never the
+      // signature itself — is what makes an accepted callback auditable.
+      signature_verified: true,
       decision_reason: input.reason?.trim() || null,
       state_fingerprint: request.stateFingerprint,
       source: "slack",
