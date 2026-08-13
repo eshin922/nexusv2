@@ -1372,16 +1372,22 @@ test("readNodeValue · a genuine zero still reads as zero", () => {
   assert.equal(readNodeValue(g(nodes), "quote/t1/per-unit/dt"), 0);
 });
 
-test("the Costs header's required node set resolves, and RAW is not in it", () => {
-  // The cutover's contract: the header reads sixteen values per tier and
-  // renders nothing unless all sixteen are there. This asserts the engine
-  // supplies exactly that set — and that RAW is absent from it, so a quote
-  // sourcing its own raws still renders a complete column.
+test("the Costs header's required node set resolves, and RAW is in it", () => {
+  // The cutover's contract: the header renders nothing unless every value it
+  // reads is there. This asserts the engine supplies that set.
+  //
+  // T-4 INVERSION (2026-08-11). This test previously asserted the OPPOSITE for
+  // RAW — `readNodeValue(k("raw")) === null` — on the recorded grounds that
+  // "production already carries bulk raw, so a raw node would double-count".
+  // That premise was false: bulk raw has its own canonical node, its own markup
+  // authority, and its own contribution to quoted sell. The assertion is
+  // inverted rather than deleted so the record shows the contract changed and
+  // when.
   const out = computeQuoteCosting(input({ packaging: THREE_LINES }));
   const tierId = TIER;
   const k = (name: string) => quoteScopeKey(tierId, `per-unit/${name}`);
 
-  for (const comp of ["pkg", "prod", "frt", "dt"]) {
+  for (const comp of ["pkg", "prod", "raw", "frt", "dt"]) {
     for (const suffix of ["", "/cost", "/markup"]) {
       const key = k(comp + suffix);
       assert.notEqual(
@@ -1400,10 +1406,8 @@ test("the Costs header's required node set resolves, and RAW is not in it", () =
     "subtotal",
   );
 
-  // RAW has no independently governed per-unit value — production already
-  // carries bulk raw, so a raw node would double-count. The header states
-  // "included in PROD" rather than reading one.
-  assert.equal(readNodeValue(out.graph, k("raw")), null);
+  // RAW is independently governed and must resolve as its own value.
+  assert.notEqual(readNodeValue(out.graph, k("raw")), null, "header requires RAW");
 });
 
 

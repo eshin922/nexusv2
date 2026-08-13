@@ -33,6 +33,13 @@ export type NetsuiteErrorClass =
   | "not_found"
   | "rate_limit"
   | "validation"
+  // The account's duplicate-deal UserEvent refused the CREATE because a Sales
+  // Order already exists for this governed deal. Arrives as HTTP 400, but its
+  // business meaning is the OPPOSITE of ordinary validation: validation means
+  // "nothing happened, discard safely", this means "the external effect you
+  // attempted may already exist". Routed to reconciliation, never treated as a
+  // terminal releasable failure.
+  | "duplicate_deal"
   | "server"
   | "network"
   | "unknown";
@@ -72,7 +79,10 @@ export class NetsuiteError extends Error {
     return (
       this.className === "auth" ||
       this.className === "forbidden" ||
-      this.className === "validation"
+      this.className === "validation" ||
+      // Blocking, and never retryable: a retry can only re-provoke the same
+      // refusal while the order it is complaining about stays orphaned.
+      this.className === "duplicate_deal"
     );
   }
 }
@@ -111,10 +121,28 @@ export function classifyResponse(args: {
     // Rate-limit sometimes surfaces as 400 with a specific message.
     if (detail.toLowerCase().includes("concurrency"))
       return new NetsuiteError("rate_limit", context);
+    // Detected by the UserEvent's own marker, not by status code — the status
+    // is shared with every other 4xx and cannot carry this meaning. Must be
+    // tested BEFORE the generic validation fallthrough, or the one response
+    // that means "an order may exist" takes the branch that discards it.
+    if (isDuplicateDealDetail(detail))
+      return new NetsuiteError("duplicate_deal", context);
     return new NetsuiteError("validation", context);
   }
   if (status >= 500) return new NetsuiteError("server", context);
   return new NetsuiteError("unknown", context);
+}
+
+/**
+ * The duplicate-deal UserEvent marker.
+ *
+ * `_dps_ue_prevent_dupplicated_so.js` fails with `DUPLICATED DEAL`. Matched
+ * case-insensitively and tolerant of surrounding text, because the marker is
+ * embedded in a longer provider message. Deliberately narrow: broadening this
+ * would make ordinary validation failures sticky, which regression #12 forbids.
+ */
+export function isDuplicateDealDetail(detail: string): boolean {
+  return /duplicated\s+deal/i.test(detail);
 }
 
 /** Wrap a fetch-thrown error (network layer) as a NetsuiteError. */

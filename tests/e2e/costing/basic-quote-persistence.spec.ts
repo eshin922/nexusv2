@@ -51,7 +51,22 @@ test("VAL-101 creates and persists basic production pricing inputs", async ({
       /^\/projects\/[^/]+\/quotes\/[^/]+\/costs$/.test(url.pathname) &&
       url.searchParams.has("_rsc") &&
       failure === "net::ERR_ABORTED";
-    if (!expectedSupersededRsc) {
+    // The Server Action's own receipt can be superseded the same way its RSC
+    // receipt is: a following action or reload aborts the fetch carrying the
+    // result back, after the action has already committed.
+    //
+    // Only the receipt is abandoned, and this scenario proves the write is
+    // not -- it waits for an ok() POST, polls the row to the expected value,
+    // and reads the value back after a reload. `next-action` is what
+    // separates a superseded Server Action receipt from an ordinary failed
+    // POST; without it this allowance would excuse any aborted POST.
+    const expectedSupersededActionReceipt =
+      request.method() === "POST" &&
+      request.resourceType() === "fetch" &&
+      /^\/projects\/[^/]+\/quotes\/[^/]+\/costs$/.test(url.pathname) &&
+      request.headers()["next-action"] !== undefined &&
+      failure === "net::ERR_ABORTED";
+    if (!expectedSupersededRsc && !expectedSupersededActionReceipt) {
       requestFailures.push(`${request.method()} ${request.url()} ${failure}`);
     }
   });
@@ -243,7 +258,22 @@ test("VAL-103 concurrent debounced cost edits persist without save loss", async 
       url.pathname === costPath &&
       url.searchParams.has("_rsc") &&
       failure === "net::ERR_ABORTED";
-    if (!expectedSupersededRsc) {
+    // The Server Action's own receipt can be superseded the same way its RSC
+    // receipt is: a following action or reload aborts the fetch carrying the
+    // result back, after the action has already committed.
+    //
+    // Only the receipt is abandoned, and this scenario proves the write is
+    // not -- it waits for an ok() POST, polls the row to the expected value,
+    // and reads the value back after a reload. `next-action` is what
+    // separates a superseded Server Action receipt from an ordinary failed
+    // POST; without it this allowance would excuse any aborted POST.
+    const expectedSupersededActionReceipt =
+      request.method() === "POST" &&
+      request.resourceType() === "fetch" &&
+      url.pathname === costPath &&
+      request.headers()["next-action"] !== undefined &&
+      failure === "net::ERR_ABORTED";
+    if (!expectedSupersededRsc && !expectedSupersededActionReceipt) {
       requestFailures.push(`${request.method()} ${request.url()} ${failure}`);
     }
   });
@@ -433,7 +463,18 @@ test("VAL-104 governed Pricing Vendor persists without exposing dormant Pricing 
       /^\/projects\/[^/]+\/quotes\/[^/]+\/costs$/.test(url.pathname) &&
       url.searchParams.has("_rsc") &&
       failure === "net::ERR_ABORTED";
-    if (!expectedSupersededRsc) {
+    // Same allowance as VAL-101's, and now with the same evidence behind it:
+    // this scenario polls the row until the vendor snapshot is what was
+    // chosen, so the write is proven independently of the receipt. It was
+    // held strict until the receipt waits were removed, because until then
+    // there was nothing here that verified persistence.
+    const expectedSupersededActionReceipt =
+      request.method() === "POST" &&
+      request.resourceType() === "fetch" &&
+      /^\/projects\/[^/]+\/quotes\/[^/]+\/costs$/.test(url.pathname) &&
+      request.headers()["next-action"] !== undefined &&
+      failure === "net::ERR_ABORTED";
+    if (!expectedSupersededRsc && !expectedSupersededActionReceipt) {
       requestFailures.push(`${request.method()} ${request.url()} ${failure}`);
     }
   });
@@ -450,19 +491,44 @@ test("VAL-104 governed Pricing Vendor persists without exposing dormant Pricing 
     "Validation Leaf 1",
   );
   await expect(firstPackagingRow.locator(".name .sub")).toContainText(
-    "VAL-SLICE12-1",
+    // Derived, not written down. The fixture builds this code from the runId
+    // (`VAL-{RUNID}-1`), so the literal `VAL-SLICE12-1` asserted a value that
+    // only exists when NEXUS_VALIDATION_RUN_ID happens to be `slice12` — and
+    // every run under any other runId failed here on the spec's own hardcoding
+    // rather than on anything the product did. Pattern 53 for the assertion
+    // side: read from the same source the fixture read.
+    `VAL-${runId.toUpperCase()}-1`,
   );
   await expect(firstPackagingRow.locator(".name .lab")).not.toHaveText(
     "Validation Packaging Vendor",
   );
-  await page
-    .getByText("Other SKUs in this scenario (2)", { exact: false })
-    .click();
+  // No disclosure to open. The `Other SKUs in this scenario (N)` control was
+  // removed by the §6.b path-B Costs migration, which recorded why at the
+  // removal site: *"The redundant Other SKUs control is intentionally absent
+  // because the unified Costs page already renders every SKU."*
+  //
+  // The capability this asserts is unchanged — the other SKUs in the scenario
+  // are reachable from here — and it is now satisfied more directly, so the
+  // assertions below read the context region as rendered rather than opening
+  // something first. The control is NOT recreated for the test's benefit.
   const scenarioContext = page.getByRole("region", {
     name: "SKU + scenario context",
   });
-  await expect(scenarioContext.getByText("Validation Leaf 2")).toBeVisible();
-  await expect(scenarioContext.getByText("Validation Leaf 3")).toBeVisible();
+  // Scoped to the PAGE, not to the context strip. The strip is an anchor-SKU
+  // context — `VAL-…-1 — anchor SKU · Validation Leaf 1 · 2 tiers` plus a
+  // Switch scenario link — and was never a roster. The region scope was
+  // inherited from when the removed disclosure expanded inside it; with the
+  // control gone, the container that renders every SKU is the page, which is
+  // what the §6.b rationale said it would be.
+  //
+  // The capability is unchanged: the other SKUs in this scenario are visible
+  // from here.
+  await expect(page.getByText("Validation Leaf 2").first()).toBeVisible();
+  await expect(page.getByText("Validation Leaf 3").first()).toBeVisible();
+  // Stays on the REGION. This one genuinely is about the strip's contents —
+  // the anchor context names a leaf, never the assembly above it — and
+  // widening it to the page would assert the assembly is absent from a surface
+  // that has every right to render it.
   await expect(
     scenarioContext.getByText("Validation draft assembly"),
   ).toHaveCount(0);
@@ -472,14 +538,17 @@ test("VAL-104 governed Pricing Vendor persists without exposing dormant Pricing 
   await expect(firstPackagingRow.getByText("Historical supplier")).toHaveCount(0);
   await expect(page.getByLabel("Pricing Date")).toHaveCount(0);
 
-  const clearReceipt = page.waitForResponse(
-    (candidate) =>
-      candidate.request().method() === "POST" &&
-      candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
-      candidate.ok(),
-  );
+  // These steps used to wait on Server Action receipts, and `.finished()`
+  // waits for the response BODY -- exactly the part React abandons when a
+  // later refresh supersedes the receipt. In the full-suite configuration that
+  // hung for the whole 90s timeout.
+  //
+  // The waits were load-bearing for a reason that no longer exists: the clear's
+  // completion used to reset the search box, so the scenario had to let it land
+  // before typing. That was VAL-104's product defect, and it is repaired -- see
+  // vendor-search-query-ownership.spec.ts. Search state is now operator-owned,
+  // so there is nothing to serialise against, and the assertions below poll.
   await page.getByRole("button", { name: "Clear Pricing Vendor" }).first().click();
-  await (await clearReceipt).finished();
   const vendorInput = page
     .getByRole("searchbox", { name: "Pricing Vendor" })
     .first();
@@ -489,39 +558,32 @@ test("VAL-104 governed Pricing Vendor persists without exposing dormant Pricing 
   ).toBeVisible();
   await expect(firstPackagingRow.getByText("Validation Supplier")).toBeVisible();
 
-  const emptySearchReceipt = page.waitForResponse(
-    (candidate) =>
-      candidate.request().method() === "POST" &&
-      candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
-      candidate.ok(),
-  );
   await vendorInput.fill("No Matching Vendor");
-  await (await emptySearchReceipt).finished();
   await expect(
     page.getByText('No eligible HubSpot Vendors match “No Matching Vendor”.'),
   ).toBeVisible();
 
-  const searchReceipt = page.waitForResponse(
-    (candidate) =>
-      candidate.request().method() === "POST" &&
-      candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
-      candidate.ok(),
-  );
   await vendorInput.fill("Contract");
-  await (await searchReceipt).finished();
-  const saveVendorReceipt = page.waitForResponse(
-    (candidate) =>
-      candidate.request().method() === "POST" &&
-      candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
-      candidate.ok(),
-  );
   await page
     .getByRole("option", { name: "Validation Contract Manufacturer" })
     .click();
-  await (await saveVendorReceipt).finished();
 
   const sql = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
   try {
+    // Polled rather than read once: the save is proven by the row, not by a
+    // receipt that may be superseded before its body arrives.
+    await expect
+      .poll(async () => {
+        const [row] = await sql<{ snapshot: string | null }[]>`
+          select pricing_vendor_name_snapshot as snapshot
+          from assembly_leaf_inputs
+          where line_group_id = ${lineGroupId}
+          order by tier_id limit 1
+        `;
+        return row?.snapshot ?? null;
+      })
+      .toBe("Validation Contract Manufacturer");
+
     const rows = await sql<{
       line_group_id: string;
       pricing_vendor_hubspot_company_id: string;
@@ -629,50 +691,59 @@ test("PHASE2 Packaging targets each SKU and omits the Bulk Raw surface", async (
   });
   expect(response?.status()).toBe(200);
 
-  await expect(page.getByRole("button", { name: /^Add line · VAL-/ })).toHaveCount(3);
   await expect(page.getByText("Bulk Raw", { exact: true })).toHaveCount(0);
   await expect(
     page.locator('button[aria-controls="section-freight-drawer"]'),
   ).toHaveCount(1);
 
-  const targetSku = `VAL-${runId.toUpperCase()}-3`;
+  // "Add line · <SKU>" used to be the proof that packaging targets each SKU:
+  // one authoring affordance per SKU, clicked on one of them. It was removed
+  // by Business Authority on 2026-08-06 -- Setup owns packaging structure and
+  // Costs consumes and prices it, so rows now materialize from Setup on both
+  // axes (leaf attach, tier creation). The removal notice is at
+  // src/app/actions/assembly-leaf-inputs.ts.
+  //
+  // The claim outlives the affordance; only its mechanism changed. Assert it
+  // against the materialized structure instead, across all three SKUs rather
+  // than the single one the old version happened to click.
+  await expect(page.getByRole("button", { name: /^Add line · VAL-/ })).toHaveCount(0);
+
+  const skus = [1, 2, 3].map((n) => `VAL-${runId.toUpperCase()}-${n}`);
+  for (const sku of skus) {
+    await expect(
+      page.locator(".r6-dt.pkg .r6-dt-row .name .sub", { hasText: sku }),
+    ).toHaveCount(1);
+  }
+
   const sql = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
   try {
-    const [{ count: before }] = await sql<{ count: number }[]>`
-      select count(distinct ali.line_group_id)::int as count
+    // Rendering one row per SKU is necessary but not sufficient: a single
+    // line group spanning every SKU would render identically while meaning
+    // the opposite of "targets each SKU". So check the grouping itself.
+    const perSku = await sql<{ sku: string; groups: number }[]>`
+      select l.sku, count(distinct ali.line_group_id)::int as groups
       from assembly_leaf_inputs ali
       join assembly_leaves al on al.id = ali.assembly_leaf_id
       join assemblies a on a.id = al.assembly_id
       join leaves l on l.id = al.leaf_id
-      where a.quote_id = ${draft.quoteId} and l.sku = ${targetSku}
+      where a.quote_id = ${draft.quoteId} and l.sku in ${sql(skus)}
+      group by l.sku order by l.sku
     `;
+    expect(perSku.map((row) => row.sku)).toEqual(skus);
+    expect(perSku.every((row) => row.groups >= 1)).toBe(true);
 
-    const actionResponse = page.waitForResponse(
-      (candidate) =>
-        candidate.request().method() === "POST" &&
-        candidate.url().includes(`/quotes/${draft.quoteId}/costs`) &&
-        candidate.ok(),
-    );
-    await page.getByRole("button", { name: `Add line · ${targetSku}` }).click();
-    await actionResponse;
-
-    await expect.poll(async () => {
-      const [{ count }] = await sql<{ count: number }[]>`
-        select count(distinct ali.line_group_id)::int as count
-        from assembly_leaf_inputs ali
-        join assembly_leaves al on al.id = ali.assembly_leaf_id
-        join assemblies a on a.id = al.assembly_id
-        join leaves l on l.id = al.leaf_id
-        where a.quote_id = ${draft.quoteId} and l.sku = ${targetSku}
-      `;
-      return count;
-    }).toBe(before + 1);
+    const shared = await sql<{ line_group_id: string }[]>`
+      select ali.line_group_id
+      from assembly_leaf_inputs ali
+      join assembly_leaves al on al.id = ali.assembly_leaf_id
+      join assemblies a on a.id = al.assembly_id
+      join leaves l on l.id = al.leaf_id
+      where a.quote_id = ${draft.quoteId}
+      group by ali.line_group_id
+      having count(distinct l.sku) > 1
+    `;
+    expect(shared, "no packaging line group may span more than one SKU").toEqual([]);
   } finally {
     await sql.end();
   }
-
-  await page.reload({ waitUntil: "networkidle" });
-  await expect(
-    page.locator(".r6-dt.pkg .r6-dt-row .name .sub", { hasText: targetSku }),
-  ).toHaveCount(2);
 });

@@ -53,6 +53,15 @@ const classifiedIdentityFiles = new Set([
   // for staged-vs-committed deltas. Naming the identity here is the contract,
   // not a legacy reference — positional keys would break that join.
   "src/lib/costing-nodes.ts",
+  // CLASSIFIED — enduring, canonical-only. COSTS-RENDER-1. Resolves which
+  // governed component a Packaging cost row is costing, so an operator can see
+  // it on the row. Keys STRICTLY on quoteLeafId, because that is the identity
+  // every assembly_leaf_inputs row carries post-OD-017; it names assemblyLeafId
+  // only to document the id space it must NOT key on. Deliberately has no
+  // legacy fallback — a permissive lookup would silently re-absorb the next
+  // re-key, which is the defect this module exists to prevent. Nothing to
+  // retire: it should be canonical-only forever.
+  "src/lib/costs/packaging-row-identity.ts",
   // CLASSIFIED — canonical, session-scoped. The staging model addresses a
   // staged lift or direct price by `quote_leaf_id x tier_id`, which is the
   // canonical commercial attachment Phase 3 §1a requires lifts to persist
@@ -201,7 +210,11 @@ async function sourceFiles(dir: string): Promise<string[]> {
 }
 
 test("every source identity usage has an explicit Cutover classification", async () => {
-  const identity = /assemblyLeafId|assembly_leaf_id|assemblyLeaves\.id|assembly_leaves\.id|quoteLeafId|quote_leaf_id|leafId|leaf_id|junctionId/;
+  // OD-017 added `quoteLeaves.id` / `quote_leaves.id`. Without them the sweep
+  // LOSES a file the moment it converts from the legacy junction to canonical
+  // identity — the registry would quietly shrink exactly when a file starts
+  // handling the governed identity, which is the opposite of what it is for.
+  const identity = /assemblyLeafId|assembly_leaf_id|assemblyLeaves\.id|assembly_leaves\.id|quoteLeafId|quote_leaf_id|quoteLeaves\.id|quote_leaves\.id|leafId|leaf_id|junctionId/;
   const matches: string[] = [];
   for (const file of [
     ...await sourceFiles("src"),
@@ -232,7 +245,10 @@ test("grouped action evidence is canonical with legacy context", async () => {
   assert.match(assemblies, /entityType: "quote_leaf"[\s\S]*entityId: attached\.quoteLeafId/);
   assert.match(assemblies, /entityType: "quote_leaf"[\s\S]*entityId: detached\.quoteLeafId/);
   assert.match(assemblies, /quoteLeafId: membership\.quoteLeafId[\s\S]*junctionId: membership\.assemblyLeafId/);
-  assert.match(costing, /quote_leaf_id: attachment\.quoteLeafId[\s\S]*assembly_leaf_id: assemblyLeafId/);
+  // OD-017 · both halves now come from the resolved attachment. The legacy id
+  // is context, and for a Direct Component it is legitimately null — reading it
+  // from the resolver rather than from a local is what makes that expressible.
+  assert.match(costing, /quote_leaf_id: attachment\.quoteLeafId[\s\S]*assembly_leaf_id: attachment\.assemblyLeafId/);
   assert.match(inputs, /quote_leaf_id: attachment\.quoteLeafId/);
 });
 

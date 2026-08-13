@@ -2,7 +2,7 @@
 
 **Status:** Governing. The answer to *"which document governs this, right
 now?"*
-**Last reconciled:** 2026-08-04
+**Last reconciled:** 2026-08-10
 
 Every document in this repository is one of four things. This map says which,
 so that authority can be determined **from the repository alone**.
@@ -78,8 +78,8 @@ renumbered to close gaps.
 | [`../CROSS-PHASE-AUTHORITY-DEPENDENCY-MAP.md`](../CROSS-PHASE-AUTHORITY-DEPENDENCY-MAP.md) | **Governing.** Authority per phase, dependency graph, reversibility |
 | [`../PHASE-1-QUOTE-COMMERCIAL-INTEGRITY.md`](../PHASE-1-QUOTE-COMMERCIAL-INTEGRITY.md) | **Frozen and shipped.** Binding as the record of what exists |
 | [`../PHASE-2-COSTS-WORKSPACE-MULTI-SKU.md`](../PHASE-2-COSTS-WORKSPACE-MULTI-SKU.md) | **In progress.** Freight sections superseded by the worksheet model — see the document's own amendment notice |
-| [`../PHASE-3-PRICING-WORKSPACE.md`](../PHASE-3-PRICING-WORKSPACE.md) | **Not started.** Blocked on Phase 2 operator acceptance |
-| [`../PHASE-4-MARGIN-APPROVAL.md`](../PHASE-4-MARGIN-APPROVAL.md) | **Not started.** Blocked on Phase 3 and [OD-002](OPEN_DECISIONS.md) |
+| [`../PHASE-3-PRICING-WORKSPACE.md`](../PHASE-3-PRICING-WORKSPACE.md) | **Closed for implementation 2026-08-10.** Release-ready; binding as the record of what exists. It shipped ahead of Phase 2 operator acceptance rather than after it — recorded because the dependency was real and was not met |
+| [`../PHASE-4-MARGIN-APPROVAL.md`](../PHASE-4-MARGIN-APPROVAL.md) | **Not started.** Phase 3 is no longer the constraint; blocked on [OD-002](OPEN_DECISIONS.md) alone. Tracked as REG-2 on the [blocker board](v1-release-blocker-board.md) |
 
 ### Design
 
@@ -168,7 +168,7 @@ than by re-deriving the argument.
 
 | Document | Role |
 |---|---|
-| [`SPEC.md`](SPEC.md) | v3, April 2026. Predates every phase decision. **Product intent, not implementation authority** |
+| [`SPEC.md`](SPEC.md) | v3, April 2026. Predates every phase decision. **Product intent, not implementation authority.** §12's eight "open questions" are keyed to a slice sequence that no longer exists — historical, not open |
 | [`STRATEGIC_VISION.md`](STRATEGIC_VISION.md) | Long-arc direction |
 | [`V1_BETA_READINESS.md`](V1_BETA_READINESS.md) | Enhancements required before beta begins. Not phase scope |
 | [`UX_BACKLOG.md`](UX_BACKLOG.md) | Deferred UX capture. Non-binding |

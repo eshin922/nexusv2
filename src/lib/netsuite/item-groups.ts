@@ -16,6 +16,7 @@ import {
 import { generateGroupDescription } from "./description-generator";
 import {
   createRecord,
+  nsRequest,
   suiteQL,
   type NetsuiteConfig,
 } from "./client";
@@ -51,6 +52,12 @@ export interface FindOrCreateInput {
   // Provenance for first-create only. quoteId is nullable to support
   // sandbox smoke tests + ad-hoc admin flows; production callers
   // always pass a real quote id.
+  /**
+   * The subsidiary the Sales Order and the member Items live under. REQUIRED:
+   * NetSuite refuses members whose subsidiaries are not contained by the
+   * group's. Supplied by the caller from governed authority.
+   */
+  subsidiaryId: string;
   customerDisplay: string;
   dealName: string;
   hubspotDealId: string;
@@ -199,6 +206,24 @@ export async function findOrCreateItemGroup(
     itemId: itemidDisplay,
     externalId,
     description,
+    // Step 2 (2026-08-12) — corrects the Probe-7-era gap. Without this,
+    // NetSuite refuses the members outright:
+    //
+    //   "You may not add members to a group/kit/assembly unless the
+    //    subsidiaries for those members completely contain the subsidiaries
+    //    of the group/kit/assembly."
+    //
+    // Observed live on the manual Group A save, so this is a measured
+    // constraint. Sourced from the SAME governed subsidiary authority the
+    // Sales Order uses — never hardcoded, or the primitive would only work
+    // inside the Case B fixture.
+    // FINDING (disposable sandbox probe, 2026-08-12): on `itemGroup` this is a
+    // COLLECTION, not a reference. `{ id }` is rejected INVALID_VALUE —
+    // "Invalid value for the resource or sub-resource field 'subsidiary'".
+    // Item records are multi-subsidiary under OneWorld, which the UI shows as
+    // a multi-select list. The Sales Order header takes `{ id }`; the item
+    // group does not, and the two shapes are not interchangeable.
+    subsidiary: { items: [{ id: input.subsidiaryId }] },
     member: {
       items: input.members.map((m) => ({
         item: { id: m.netsuiteItemId },
@@ -359,4 +384,153 @@ async function writeAudit(args: AuditArgs): Promise<void> {
     return;
   }
   await writeSystemAuditEntry({ ...shared, systemActor: SYSTEM_ACTORS.netsuiteIntegration });
+}
+
+/**
+ * Read an Item Group's CURRENT membership from NetSuite.
+ *
+ * Step 2 reuse safety. `nxs-grp-<hash>` proves the group was created for a
+ * composition once; it does not prove it still has that composition, because
+ * an administrator can change members afterwards without the external id
+ * changing. Callers verify this against the frozen plan
+ * (`verifyReusedGroupMembership`) and refuse before Sales Order CREATE.
+ *
+ * Read-only.
+ */
+export async function readItemGroupMembers(
+  groupInternalId: string,
+): Promise<Array<{ netsuiteItemId: string; quantity: number }>> {
+  const escaped = groupInternalId.replace(/'/g, "''");
+  const result = await suiteQL<{ item: string; quantity: string | null }>(
+    `SELECT gm.item AS item, gm.quantity AS quantity
+       FROM itemMember gm
+      WHERE gm.parentitem = '${escaped}'`,
+  );
+  return result.items.map((r) => ({
+    netsuiteItemId: String(r.item),
+    quantity: Number(r.quantity ?? 0),
+  }));
+}
+
+/**
+ * Read the governed header fields the success gate asserts.
+ *
+ * REST record GET rather than SuiteQL: several custom body fields returned
+ * 500s under SuiteQL on SO2701 (an observability gap, recorded in
+ * legacy-so-populated-field-parity §11.2c), and the gate must not fail because
+ * a read failed.
+ */
+export async function readSalesOrderHeader(soId: string): Promise<{
+  customerId: string | null;
+  hubspotDealId: string | null;
+  businessSegmentId: string | null;
+  termsId: string | null;
+}> {
+  const r = await nsRequest<Record<string, any>>({
+    method: "GET",
+    path: `/record/v1/salesOrder/${encodeURIComponent(soId)}`,
+  });
+  return {
+    customerId: r.entity?.id != null ? String(r.entity.id) : null,
+    hubspotDealId: r.custbody_dps_deal_id != null ? String(r.custbody_dps_deal_id) : null,
+    businessSegmentId:
+      r.cseg_dps_bus_seg?.id != null ? String(r.cseg_dps_bus_seg.id) : null,
+    termsId: r.terms?.id != null ? String(r.terms.id) : null,
+  };
+}
+
+/**
+ * Read a Sales Order's item lines from the REST sub-resource — the ONLY
+ * authoritative source for the PATCH address.
+ *
+ * PROVEN ON A DISPOSABLE SANDBOX ORDER (SO 361241, 2026-08-12, since deleted):
+ *
+ *   SuiteQL id/seq | itemtype  | REST array pos | REST self href
+ *   ---------------+-----------+----------------+----------------
+ *   0              | mainline  | (absent)       | (absent)
+ *   1              | Group     | [0]            | /item/1
+ *   2              | InvtPart  | [1]            | /item/2
+ *   3              | InvtPart  | [2]            | /item/3
+ *   4              | EndGroup  | [3]            | /item/4
+ *   5              | TaxGroup  | (absent)       | (absent)
+ *
+ * REST ARRAY POSITION IS OFF BY ONE from the address, because the collection
+ * omits the mainline and system rows. Patching by array position would have
+ * hit the Group header instead of the first member — succeeding silently
+ * against the wrong line.
+ *
+ * SuiteQL ids are unusable as addresses for a second reason: after a single
+ * member PATCH the TaxGroup row's id moved 5 → 6 while the commercial lines
+ * kept theirs. They are not stable across mutation.
+ *
+ * So the address is the element's own `line`, read per line from
+ * `/salesOrder/{id}/item/{n}`. That single GET returns address AND structure
+ * AND data together — `line`, `item.id`, `quantity`, `rate`, `amount`,
+ * `itemType` (Group / InvtPart / EndGroup) and Item-derived `class` — so no
+ * cross-source correlation is required, and none is performed.
+ */
+export async function readSalesOrderLines(soId: string): Promise<
+  Array<{
+    line: number;
+    itemId: string | null;
+    itemType: string | null;
+    quantity: number | null;
+    rate: number | null;
+    amount: number | null;
+    classId: string | null;
+  }>
+> {
+  const collection = await nsRequest<{
+    items?: Array<{ links?: Array<{ href?: string }> }>;
+  }>({
+    method: "GET",
+    path: `/record/v1/salesOrder/${encodeURIComponent(soId)}/item`,
+  });
+
+  // Addresses come from each element's OWN self href, never from its position.
+  const addresses: number[] = [];
+  for (const el of collection.items ?? []) {
+    const href = el.links?.find((l) => l.href)?.href ?? "";
+    const m = /\/item\/(\d+)\s*$/.exec(href);
+    if (m) addresses.push(Number(m[1]));
+  }
+
+  const lines: Array<{
+    line: number;
+    itemId: string | null;
+    itemType: string | null;
+    quantity: number | null;
+    rate: number | null;
+    amount: number | null;
+    classId: string | null;
+  }> = [];
+
+  for (const address of addresses) {
+    const l = await nsRequest<Record<string, unknown>>({
+      method: "GET",
+      path: `/record/v1/salesOrder/${encodeURIComponent(soId)}/item/${address}`,
+    });
+    const item = l.item as { id?: unknown } | undefined;
+    const itemType = l.itemType as { id?: unknown; refName?: unknown } | string | undefined;
+    const cls = l.class as { id?: unknown } | undefined;
+    lines.push({
+      // Prefer the element's own `line`; fall back to the href it was fetched
+      // by. Both were observed identical, and neither is an array position.
+      line: typeof l.line === "number" ? l.line : address,
+      itemId: item?.id != null ? String(item.id) : null,
+      itemType:
+        typeof itemType === "string"
+          ? itemType
+          : itemType?.id != null
+            ? String(itemType.id)
+            : itemType?.refName != null
+              ? String(itemType.refName)
+              : null,
+      quantity: typeof l.quantity === "number" ? l.quantity : null,
+      rate: typeof l.rate === "number" ? l.rate : null,
+      amount: typeof l.amount === "number" ? l.amount : null,
+      classId: cls?.id != null ? String(cls.id) : null,
+    });
+  }
+  return lines;
 }

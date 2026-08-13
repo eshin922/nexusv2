@@ -27,16 +27,16 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { getCostingBundle } from "@/app/actions/costing";
 import { canonical } from "./canonical-digest.ts";
+import { basketPredicate } from "./basket.ts";
 
+// One definition of the basket, shared with the verifier — see `basket.ts` for
+// why the validation namespace is out of scope, and for why a second copy of
+// this rule is the specific bug that manufactures the failure S-7 detects.
 const quotes = (await db.execute(sql`
   select q.id::text as quote_id, q.status, q.scenario_label, p.deal_name
     from quotes q
     join projects p on p.id = q.project_id
-   where exists (
-     select 1 from assemblies a
-      join assembly_leaves al on al.assembly_id = a.id
-     where a.quote_id = q.id
-   )
+   where ${basketPredicate()}
    order by q.id
 `)) as unknown as { quote_id: string; status: string; scenario_label: string; deal_name: string }[];
 

@@ -1,5 +1,6 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import ts from "typescript";
 
 /**
  * Lets a plain node script import the REAL modules under src/.
@@ -15,10 +16,22 @@ import { fileURLToPath, pathToFileURL } from "node:url";
  *   "@/..." path aliases   — tsconfig paths, mapped here to src/ on disk
  *   extensionless imports  — "./schema" for schema.ts
  *
- * Deliberately narrow: it adds resolution only, no transformation. Sibling of
- * tests/support/server-contract-loader.mjs, which does the same job for the
- * unit suite; this one additionally understands the "@/" alias. Kept separate
- * so changes here cannot alter how the governed test command behaves.
+ * Almost entirely resolution. Sibling of tests/support/server-contract-loader.mjs,
+ * which does the same job for the unit suite; this one additionally understands
+ * the "@/" alias. Kept separate so changes here cannot alter how the governed
+ * test command behaves.
+ *
+ * ONE TRANSFORMATION, and the reason it is safe. Node's --experimental-strip-types
+ * erases type annotations; it does not transform JSX, so a .tsx file fails to
+ * LOAD with ERR_UNKNOWN_FILE_EXTENSION however well it resolves. The isolated
+ * authentication provider is .tsx (it carries a sign-in screen), so any script
+ * exercising a server action -- every action calls ensureUser() -- drags it in
+ * and dies before reaching the code under test.
+ *
+ * The `load` hook below transpiles .tsx and nothing else. That scope is what
+ * makes it provably inert for existing evidence: .tsx currently throws under
+ * this loader, so no script that works today can change behaviour. The governed
+ * gate1b/S-7 scripts import no .tsx and take the untouched path.
  */
 
 const SRC = pathToFileURL(`${process.cwd()}/src/`).href;
@@ -98,4 +111,26 @@ export async function resolve(specifier, context, nextResolve) {
     if (found) return { url: found, shortCircuit: true };
     throw error;
   }
+}
+
+/**
+ * .tsx only. Uses the repo's own `typescript` devDependency rather than a
+ * transitive esbuild, so the transform cannot silently disappear under a
+ * dependency bump. `react-jsx` matches tsconfig, so the emitted module imports
+ * react/jsx-runtime and resolves normally from node_modules.
+ */
+export async function load(url, context, nextLoad) {
+  if (!url.endsWith(".tsx")) return nextLoad(url, context);
+
+  const { outputText } = ts.transpileModule(readFileSync(fileURLToPath(url), "utf8"), {
+    fileName: fileURLToPath(url),
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      jsx: ts.JsxEmit.ReactJSX,
+      verbatimModuleSyntax: false,
+    },
+  });
+
+  return { format: "module", source: outputText, shortCircuit: true };
 }

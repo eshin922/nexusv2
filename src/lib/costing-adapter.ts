@@ -127,23 +127,28 @@ export type AdapterQuoteLeafAttachmentRow = {
 };
 
 /**
- * The id the math layer keys a leaf by: the legacy `assembly_leaf_id` wherever
- * one exists. Using it here is what lets the population move to the canonical
- * source without moving a single commercial number.
+ * The id the math layer keys a leaf by: the canonical `quote_leaf_id`, always.
  *
- * A direct canonical attachment has no legacy row, so it falls back to its own
- * `quote_leaf_id`. It also has no cost inputs, because every cost-input table
- * keys on `assembly_leaf_id` — so it is representable but not yet priceable.
- * That is a recorded plumbing finding, not a behaviour to invent around.
+ * OD-017 removed the previous `assemblyLeafId ?? quoteLeafId` fallback. That
+ * fallback existed because the cost-input tables keyed on the legacy junction,
+ * which a Direct Component has no row in — so a direct attachment was
+ * representable but not priceable. Migration 0066 re-keyed those tables onto
+ * `quote_leaf_id`, so there is now exactly one identity and nothing to fall
+ * back to.
+ *
+ * The fallback was REMOVED rather than generalised on purpose. Two
+ * interchangeable identifiers surviving into steady state is precisely the
+ * ambiguity this slice exists to end: a single domain makes an ASY-backed leaf
+ * and a Direct Component unable to collide, rather than unlikely to.
  */
 function mathSkuId(row: AdapterQuoteLeafAttachmentRow): string {
-  return row.assemblyLeafId ?? row.quoteLeafId;
+  return row.quoteLeafId;
 }
 
 // Minimum columns from `assembly_leaf_inputs`. Direct passthrough
 // to CostingPackagingInput.
 export type AdapterAssemblyLeafInputRow = {
-  assemblyLeafId: string;
+  quoteLeafId: string;
   tierId: string;
   lineGroupId: string;
   pricingVendorHubspotCompanyId: string | null;
@@ -174,14 +179,14 @@ export type AdapterAssemblyProductionInputRow = {
 // Minimum columns from `assembly_leaf_overrides`. Sparse — only
 // rows where a PM has set an override exist.
 export type AdapterAssemblyLeafOverrideRow = {
-  assemblyLeafId: string;
+  quoteLeafId: string;
   tierId: string;
   sellPriceOverride: string;
 };
 
 // Minimum columns from `assembly_leaf_targets`. Sparse mirror.
 export type AdapterAssemblyLeafTargetRow = {
-  assemblyLeafId: string;
+  quoteLeafId: string;
   tierId: string;
   clientTargetPricePerUnit: string;
 };
@@ -305,13 +310,13 @@ export function buildQuoteCostingInputFromNewModel(
 
   // ---- packaging[] : assembly_leaf_inputs direct passthrough ----
   //
-  // assembly_leaf_inputs is per-(assembly_leaf, line_group, tier).
-  // Math layer keys CostingPackagingInput by quoteSkuId which —
-  // post-adapter — is the assembly_leaf.id (the math-leaf identity
-  // for NEW-model packaging cells).
+  // assembly_leaf_inputs is per-(quote_leaf, line_group, tier) after OD-017.
+  // Math layer keys CostingPackagingInput by quoteSkuId which — post-adapter —
+  // is the quote_leaves.id, the same identity `mathSkuId` assigns the leaf. A
+  // Direct Component's cells therefore land on its leaf with no special case.
   const packaging: CostingPackagingInput[] = args.assemblyLeafInputs.map(
     (ali) => ({
-      quoteSkuId: ali.assemblyLeafId,
+      quoteSkuId: ali.quoteLeafId,
       tierId: ali.tierId,
       lineGroupId: ali.lineGroupId,
       unitCost: numOrNull(ali.unitCost),
@@ -380,7 +385,7 @@ export function buildQuoteCostingInputFromNewModel(
   // ---- cellOverrides[] : assembly_leaf_overrides direct passthrough ----
   const cellOverrides: CostingCellOverride[] = args.assemblyLeafOverrides.map(
     (alo) => ({
-      quoteSkuId: alo.assemblyLeafId,
+      quoteSkuId: alo.quoteLeafId,
       tierId: alo.tierId,
       sellPriceOverride: num(alo.sellPriceOverride),
     }),
@@ -389,7 +394,7 @@ export function buildQuoteCostingInputFromNewModel(
   // ---- cellTargets[] : assembly_leaf_targets direct passthrough ----
   const cellTargets: CostingCellTarget[] = args.assemblyLeafTargets.map(
     (alt) => ({
-      quoteSkuId: alt.assemblyLeafId,
+      quoteSkuId: alt.quoteLeafId,
       tierId: alt.tierId,
       clientTargetPricePerUnit: num(alt.clientTargetPricePerUnit),
     }),

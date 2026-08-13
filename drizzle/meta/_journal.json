@@ -435,6 +435,41 @@
       "when": 1786320000000,
       "tag": "0063_pricing_lift_persistence",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1786320001000,
+      "tag": "0064_below_floor_authorization",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1786320002000,
+      "tag": "0065_durable_attempt_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1786320003000,
+      "tag": "0066_direct_component_cost_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1786320004000,
+      "tag": "0067_freight_container_not_assembly_owned",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1786320005000,
+      "tag": "0068_freight_identity_guard_canonical",
+      "breakpoints": true
     }
   ]
 }

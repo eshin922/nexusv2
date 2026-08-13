@@ -28,7 +28,12 @@ test("draft Preview to Send to Client to Client Review", async ({
 }, testInfo) => {
   test.setTimeout(90_000);
   const manifest = await readManifest();
-  const fixture = manifest.quotes.draft;
+  // Fixture isolation (VAL-208, 2026-08-10). This scenario SENDS its quote,
+  // destroying the draft state every other scenario depends on. It therefore
+  // owns a dedicated draft fixture rather than sharing `quotes.draft`:
+  // costing-serial and lifecycle-serial run concurrently against one database,
+  // so sharing it made VAL-208 fail on a correct Pattern 52 refusal.
+  const fixture = manifest.quotes.sendable;
   const consoleFailures: string[] = [];
   const pageFailures: string[] = [];
   const requestFailures: string[] = [];

@@ -133,6 +133,11 @@ test("the change kinds the bar handles are exactly the model's", () => {
     "lift-removed",
     "override",
     "override-removed",
+    // The fourth lever. Added by P3-016, when per-tier adjustments stopped
+    // being written at click time and became something the operator stages,
+    // previews and can discard like the other three.
+    "tier-adj",
+    "tier-adj-removed",
   ]);
   for (const k of unique) assert.ok(SRC.includes(`case "${k}":`), `${k} undescribed`);
 });
@@ -148,7 +153,9 @@ test("a chip carries a stable identity per change", () => {
 });
 
 test("dismiss is reachable without sight", () => {
-  assert.ok(/aria-label=\{`Discard: \$\{describeChange\(change, label\)\}`\}/.test(SRC));
+  assert.ok(
+    /aria-label=\{`Discard: \$\{describeChange\(change, label, tierLabel\)\}`\}/.test(SRC),
+  );
 });
 
 // A type-level check that the exported describer covers the union: if a kind
@@ -158,6 +165,8 @@ const _exhaustive: Record<StagedChange["kind"], true> = {
   "lift-removed": true,
   override: true,
   "override-removed": true,
+  "tier-adj": true,
+  "tier-adj-removed": true,
   adj: true,
 };
 void _exhaustive;

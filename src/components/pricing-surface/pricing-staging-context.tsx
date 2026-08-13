@@ -102,6 +102,16 @@ export interface PricingStagingValue {
 
   stageLift: (ref: CellRef, pct: number | null) => void;
   stageOverride: (ref: CellRef, value: number | null) => void;
+  /**
+   * Stage a per-tier adjustment. `null` removes it, so the tier falls back to
+   * the quote-wide adjustment.
+   *
+   * The value is the RESULTING adjustment, not a delta. A caller composing a
+   * recommendation onto what a tier already carries does so with
+   * `composePricingAdjustment` — the one composition rule on this surface —
+   * and stages the result.
+   */
+  stageTierAdj: (tierId: string, pct: number | null) => void;
   stageGlobalAdj: (pct: number) => void;
   /** Discard ONE pending change: restore that key to its committed value. */
   unstage: (change: StagedChange) => void;
@@ -195,7 +205,7 @@ export function PricingStagingProvider({
    * precisely because removing a layer is not an operation on the base.
    */
   const baseline: PricingSet = useMemo(
-    () => ({ lifts: {}, overrides: {}, globalAdj: 0 }),
+    () => ({ lifts: {}, overrides: {}, tierAdj: {}, globalAdj: 0 }),
     [],
   );
 
@@ -224,6 +234,12 @@ export function PricingStagingProvider({
    * canonical attachment, which is the identity a staging key already carries —
    * the one sparse table for which the persisted row and the staging address
    * are the same thing. Overrides key on the legacy junction and so must cross.
+   *
+   * Per-tier adjustments are seeded here too, and a mount-time seed is now the
+   * RIGHT reading of them rather than a stale one: nothing writes
+   * `quote_tiers.tier_price_adj_pct` behind this layer's back any more. That
+   * was the whole of P3-016 — a lever the set did not carry, written by a CTA
+   * at click time, which the operator could neither preview nor discard.
    */
   const initial: PricingSet = useMemo(() => {
     const state = storeApi.getState();
@@ -231,6 +247,10 @@ export function PricingStagingProvider({
       lifts: state.lifts,
       cellOverrides: state.cellOverrides,
       skus: state.skus,
+      tierAdj: state.tiers.map((t) => ({
+        tierId: t.id,
+        adjPct: t.tierPriceAdjPct,
+      })),
       globalAdj: initialGlobalAdj,
     });
     // Mount-time only, deliberately — see above. `storeApi` is stable.
@@ -284,6 +304,15 @@ export function PricingStagingProvider({
     });
   }, []);
 
+  const stageTierAdj = useCallback((tierId: string, pct: number | null) => {
+    setWorking((w) => {
+      const tierAdj = { ...w.tierAdj };
+      if (pct === null) delete tierAdj[tierId];
+      else tierAdj[tierId] = pct;
+      return { ...w, tierAdj };
+    });
+  }, []);
+
   const stageGlobalAdj = useCallback((pct: number) => {
     setWorking((w) => ({ ...w, globalAdj: pct }));
   }, []);
@@ -299,6 +328,13 @@ export function PricingStagingProvider({
     (change: StagedChange) => {
       setWorking((w) => {
         if (change.kind === "adj") return { ...w, globalAdj: committed.globalAdj };
+        if (change.kind.startsWith("tier-adj")) {
+          const tierAdj = { ...w.tierAdj };
+          const committedValue = committed.tierAdj[change.key];
+          if (committedValue === undefined) delete tierAdj[change.key];
+          else tierAdj[change.key] = committedValue;
+          return { ...w, tierAdj };
+        }
         const field = change.kind.startsWith("lift") ? "lifts" : "overrides";
         const next = { ...w[field] };
         const committedValue = committed[field][change.key];
@@ -346,20 +382,6 @@ export function PricingStagingProvider({
         }
       }
       setCommitError(null);
-      // Per-tier adjustments are read LIVE from the store rather than from the
-      // mount-time seed, because they are written by an action outside this
-      // layer (`applySurgicalAdj`) that revalidates without remounting. Seeded
-      // once, an Apply would silently revert an adjustment the operator made
-      // thirty seconds earlier by sending back a set that no longer described
-      // the quote. This is Pattern 41 for a value the store owns and the seed
-      // does not.
-      //
-      // Baseline clears them; an ordinary Apply passes them back unchanged and
-      // therefore plans no change to them.
-      const liveTierAdj = storeApi
-        .getState()
-        .tiers.filter((t) => t.tierPriceAdjPct !== null)
-        .map((t) => ({ tierId: t.id, adjPct: t.tierPriceAdjPct as number }));
       start(async () => {
         const result = await applyPricingAdjustments({
           quoteId,
@@ -371,7 +393,16 @@ export function PricingStagingProvider({
             ...parseCellKey(key),
             sellPrice,
           })),
-          tierAdjustments: intent === "baseline" ? [] : liveTierAdj,
+          // From the SET, like every other lever. It used to be read live from
+          // the store, because a CTA outside this layer wrote it at click time
+          // and a set-derived value would have reverted it. That CTA stages
+          // now, so the set is authoritative — and being authoritative is what
+          // lets a per-tier adjustment be previewed, discarded and removed.
+          // `baseline` carries none, so Return to baseline still clears them.
+          tierAdjustments: Object.entries(next.tierAdj).map(([tierId, adjPct]) => ({
+            tierId,
+            adjPct,
+          })),
           globalAdjPct: next.globalAdj,
           intent,
         });
@@ -453,6 +484,16 @@ export function PricingStagingProvider({
     const preview: QuoteCostingInput = {
       ...base,
       quote: { ...base.quote, globalPriceAdjPct: working.globalAdj },
+      // The fourth lever, resolved the same way as the others: the working set
+      // is the COMPLETE intended state, so a tier absent from it has no
+      // adjustment of its own and falls back to the quote-wide one. Rebuilding
+      // from the committed rows and layering staged values over them would
+      // make a staged REMOVAL invisible in the preview — the chip would say
+      // the adjustment was gone while the figures still carried it.
+      tiers: base.tiers.map((t) => ({
+        ...t,
+        tierPriceAdjPct: working.tierAdj[t.id] ?? null,
+      })),
       // A new array with new objects for the touched cells only; the committed
       // input's own objects are never written to. A permanent test asserts it.
       //
@@ -489,21 +530,20 @@ export function PricingStagingProvider({
   }, [changes.length, storeApi, working]);
 
   /**
-   * How many adjustments the QUOTE carries — all four levers.
+   * How many adjustments the QUOTE carries — all four levers, all read from
+   * the committed set.
    *
-   * The per-tier component is subscribed rather than seeded. It is written by
-   * `applySurgicalAdj`, outside this layer, and a mount-time seed would leave
-   * the bar reading "1 adjustment" immediately after the operator applied a
-   * second one — stale at exactly the moment they are looking for confirmation.
+   * The per-tier component used to be subscribed to the store instead, because
+   * it was written outside this layer and a seed would have gone stale the
+   * moment a CTA wrote one. Nothing writes it from outside now, so the
+   * committed set is both correct and the same source as the other three —
+   * and a count assembled from two sources is a count that can disagree with
+   * itself.
    */
-  const tierAdjCount = useCostingStore(
-    (s) => s.tiers.filter((t) => t.tierPriceAdjPct !== null).length,
-  );
-
   const appliedCount =
     Object.keys(committed.lifts).length +
     Object.keys(committed.overrides).length +
-    tierAdjCount +
+    Object.keys(committed.tierAdj).length +
     (Math.abs(committed.globalAdj - baseline.globalAdj) > ADJ_EPSILON ? 1 : 0);
 
   const value: PricingStagingValue = {
@@ -514,6 +554,7 @@ export function PricingStagingProvider({
     appliedCount,
     stageLift,
     stageOverride,
+    stageTierAdj,
     stageGlobalAdj,
     unstage,
     reset,

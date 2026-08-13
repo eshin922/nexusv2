@@ -263,6 +263,21 @@ export const users = pgTable(
     email: text("email").notNull().unique(),
     name: text("name"),
     role: userRole("role").notNull().default("read_only"),
+    /**
+     * BV-005 Commercial Approver authority — Track A disposition 1c.
+     *
+     * DELIBERATELY NOT A ROLE, and deliberately not derived from `admin`.
+     * BV-005: authority "must not be hardcoded to the `admin` role", and admin
+     * may ADMINISTER the list without being on it. Its own column so that
+     * separation is structural rather than a convention a later refactor can
+     * quietly collapse into `role === "admin"`.
+     *
+     * Defaults false, and is NOT seeded. Membership is assigned after
+     * organisation-tenant SSO, when distinct staff identities exist — the three
+     * pre-SSO rows in production today are all the same person, so seeding from
+     * them would manufacture an independence the estate does not have.
+     */
+    commercialApprover: boolean("commercial_approver").notNull().default(false),
     hubspotOwnerId: text("hubspot_owner_id"),
     // Slice RI.7 — phone for PreparedBy contact derivation (DEC-8).
     // Back-filled from HubSpot owners API in ensureUser on first sign-in
@@ -884,6 +899,72 @@ export const quoteReviewEvents = pgTable(
 // rewrite both the markup_defaults rows and the category strings on
 // existing packaging_inputs rows. Kept as text PK (not enum) so that
 // future additions/renames don't require ALTER TYPE migrations.
+/**
+ * BV-005 1c — the governed below-floor override.
+ *
+ * Acceptance and completion block below the firm's margin floor. This table is
+ * the ONLY door through that block, and it is a door rather than a switch: one
+ * row per decision, scoped to exactly one quote version and tier and to the
+ * commercial state that was true when the decision was taken.
+ *
+ * There is no request lifecycle. Edward's disposition took 1c over the full
+ * BV-005 workflow for V1: no asynchronous request, no routing, no Slack, no
+ * quorum. An authorized approver decides; the gates consult the decision.
+ */
+export const belowFloorAuthorizations = pgTable(
+  "below_floor_authorizations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    /** Scoped to ONE version. A revision does not inherit an approval. */
+    quoteVersionNumber: integer("quote_version_number").notNull(),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+
+    /**
+     * What was true at decision time. EVIDENCE, never an input to a later
+     * computation — a floor raised afterwards must not rewrite the history of a
+     * decision that was correct when it was taken (BV-005: "a later firm-floor
+     * change alone does not erase or invalidate historical approval").
+     */
+    marginAtDecision: numeric("margin_at_decision", { precision: 9, scale: 6 }).notNull(),
+    floorAtDecision: numeric("floor_at_decision", { precision: 5, scale: 4 }).notNull(),
+
+    /**
+     * The material commercial state, fingerprinted.
+     *
+     * Invalidation compares this rather than re-deciding what "material" means
+     * at each call site — two call sites deciding that separately is how the
+     * same word comes to mean two things.
+     */
+    stateFingerprint: text("state_fingerprint").notNull(),
+
+    approvedByUserId: uuid("approved_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),
+    /** NOT NULL: an approval without a why helps an auditor and nobody else. */
+    reason: text("reason").notNull(),
+
+    /** Invalidation is a transition, not a delete. The decision was still taken. */
+    invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+    invalidatedReason: text("invalidated_reason"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("below_floor_auth_live_idx").on(
+      t.quoteId,
+      t.quoteVersionNumber,
+      t.tierId,
+    ),
+  ],
+);
+
 export const markupDefaults = pgTable("markup_defaults", {
   category: text("category").primaryKey(),
   defaultMarkupPct: numeric("default_markup_pct", {
@@ -2292,13 +2373,19 @@ export const quoteSnapshotFreightInputs = pgTable(
 
 // ---------- Phase 2 worksheet freight replacement ----------
 // V1 is manual entry. V2 import drafts use the same tables and provenance.
-// A subcategory is one shipment owned by one commercial product (assembly).
+// A subcategory is one SHIPMENT — a container, NOT an ASY-owned object.
+//
+// OD-017 · `assembly_id` is nullable. Commercial membership comes from
+// `freight_subcategory_items.quote_leaf_id`; a Direct Component is a governed
+// leaf with no assembly, so requiring one here forced an operator to invent an
+// ASY purely to satisfy a column. The value is still recorded where a shipment
+// genuinely belongs to a Finished Product — it just is not a prerequisite.
 export const freightSubcategories = pgTable(
   "freight_subcategories",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     quoteId: uuid("quote_id").notNull().references(() => quotes.id, { onDelete: "cascade" }),
-    assemblyId: uuid("assembly_id").notNull().references(() => assemblies.id, { onDelete: "cascade" }),
+    assemblyId: uuid("assembly_id").references(() => assemblies.id, { onDelete: "cascade" }),
     label: text("label").notNull(),
     origin: text("origin"),
     carrierForwarder: text("carrier_forwarder"),
@@ -2327,13 +2414,21 @@ export const freightSubcategoryItems = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     freightSubcategoryId: uuid("freight_subcategory_id").notNull().references(() => freightSubcategories.id, { onDelete: "cascade" }),
-    assemblyLeafId: uuid("assembly_leaf_id").notNull().references(() => assemblyLeaves.id, { onDelete: "cascade" }),
+    // OD-017 · membership is expressed through the governed commercial leaf, so
+    // a Direct Component can ship without an assembly. The SUBCATEGORY remains
+    // the shipment/destination container — only this association is re-keyed.
+    // The identity contract is (subcategory, product), not (product): one leaf
+    // may legitimately ship in more than one subcategory.
+    quoteLeafId: uuid("quote_leaf_id").notNull().references((): AnyPgColumn => quoteLeaves.id, { onDelete: "cascade" }),
+    // Legacy compatibility column. Read by nothing; NULL for a Direct Component.
+    assemblyLeafId: uuid("assembly_leaf_id").references(() => assemblyLeaves.id, { onDelete: "cascade" }),
     source: freightFactSource("source").notNull().default("manual"),
     fieldProvenance: jsonb("field_provenance").notNull().default(sql`'{}'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("freight_subcategory_items_identity_idx").on(t.freightSubcategoryId, t.assemblyLeafId),
+    uniqueIndex("freight_subcategory_items_identity_idx").on(t.freightSubcategoryId, t.quoteLeafId),
+    index("freight_subcategory_items_quote_leaf_idx").on(t.quoteLeafId),
     index("freight_subcategory_items_leaf_idx").on(t.assemblyLeafId),
   ],
 );
@@ -2553,9 +2648,19 @@ export const assemblyLeafInputs = pgTable(
   "assembly_leaf_inputs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    assemblyLeafId: uuid("assembly_leaf_id")
+    // OD-017 · governed cost-input identity. `quote_leaves.id` is the canonical
+    // commercial SKU (OD-014) and exists for BOTH a Product-member Component and
+    // a Direct Component. It is the sole identity every reader and writer uses.
+    quoteLeafId: uuid("quote_leaf_id")
       .notNull()
-      .references(() => assemblyLeaves.id, { onDelete: "cascade" }),
+      .references((): AnyPgColumn => quoteLeaves.id, { onDelete: "cascade" }),
+    // Legacy. Nullable, written for ASY-backed compatibility, READ BY NOTHING.
+    // A Direct Component has no junction row, so this is NULL for one. Dropped
+    // in a later governed cleanup once a release proves it is dead.
+    assemblyLeafId: uuid("assembly_leaf_id").references(
+      () => assemblyLeaves.id,
+      { onDelete: "cascade" },
+    ),
     tierId: uuid("tier_id")
       .notNull()
       .references(() => quoteTiers.id, { onDelete: "cascade" }),
@@ -2592,12 +2697,13 @@ export const assemblyLeafInputs = pgTable(
       .defaultNow(),
   },
   (t) => [
-    // One row per (assembly_leaf, line, tier). Prevents duplicate cells.
+    // One row per (quote_leaf, line, tier). Prevents duplicate cells.
     uniqueIndex("assembly_leaf_inputs_line_tier_idx").on(
-      t.assemblyLeafId,
+      t.quoteLeafId,
       t.lineGroupId,
       t.tierId,
     ),
+    index("assembly_leaf_inputs_quote_leaf_id_idx").on(t.quoteLeafId),
     index("assembly_leaf_inputs_assembly_leaf_id_idx").on(t.assemblyLeafId),
     index("assembly_leaf_inputs_tier_id_idx").on(t.tierId),
     index("assembly_leaf_inputs_line_group_id_idx").on(t.lineGroupId),
@@ -2701,9 +2807,15 @@ export const assemblyProductionInputs = pgTable(
 export const assemblyLeafOverrides = pgTable(
   "assembly_leaf_overrides",
   {
-    assemblyLeafId: uuid("assembly_leaf_id")
+    // OD-017 · governed cost-input identity (see assembly_leaf_inputs).
+    quoteLeafId: uuid("quote_leaf_id")
       .notNull()
-      .references(() => assemblyLeaves.id, { onDelete: "cascade" }),
+      .references((): AnyPgColumn => quoteLeaves.id, { onDelete: "cascade" }),
+    // Legacy compatibility column. Read by nothing; NULL for a Direct Component.
+    assemblyLeafId: uuid("assembly_leaf_id").references(
+      () => assemblyLeaves.id,
+      { onDelete: "cascade" },
+    ),
     tierId: uuid("tier_id")
       .notNull()
       .references(() => quoteTiers.id, { onDelete: "cascade" }),
@@ -2719,7 +2831,7 @@ export const assemblyLeafOverrides = pgTable(
       .defaultNow(),
   },
   (t) => [
-    primaryKey({ columns: [t.assemblyLeafId, t.tierId] }),
+    primaryKey({ columns: [t.quoteLeafId, t.tierId] }),
     index("assembly_leaf_overrides_tier_id_idx").on(t.tierId),
   ],
 );
@@ -2742,9 +2854,15 @@ export const assemblyLeafOverrides = pgTable(
 export const assemblyLeafTargets = pgTable(
   "assembly_leaf_targets",
   {
-    assemblyLeafId: uuid("assembly_leaf_id")
+    // OD-017 · governed cost-input identity (see assembly_leaf_inputs).
+    quoteLeafId: uuid("quote_leaf_id")
       .notNull()
-      .references(() => assemblyLeaves.id, { onDelete: "cascade" }),
+      .references((): AnyPgColumn => quoteLeaves.id, { onDelete: "cascade" }),
+    // Legacy compatibility column. Read by nothing; NULL for a Direct Component.
+    assemblyLeafId: uuid("assembly_leaf_id").references(
+      () => assemblyLeaves.id,
+      { onDelete: "cascade" },
+    ),
     tierId: uuid("tier_id")
       .notNull()
       .references(() => quoteTiers.id, { onDelete: "cascade" }),
@@ -2760,7 +2878,7 @@ export const assemblyLeafTargets = pgTable(
       .defaultNow(),
   },
   (t) => [
-    primaryKey({ columns: [t.assemblyLeafId, t.tierId] }),
+    primaryKey({ columns: [t.quoteLeafId, t.tierId] }),
     index("assembly_leaf_targets_tier_id_idx").on(t.tierId),
   ],
 );
@@ -2991,9 +3109,19 @@ export const netsuiteSoPushes = pgTable(
     uniqueIndex("netsuite_so_pushes_snapshot_success_unique_idx")
       .on(t.quoteSnapshotId)
       .where(sql`status = 'succeeded' AND quote_snapshot_id IS NOT NULL`),
+    // One LIVE attempt per snapshot. A closed attempt releases its claim.
+    //
+    // The predicate must stay identical to the durable-payload selector in
+    // mark-complete.ts. An attempt that no longer pins the payload must also
+    // no longer occupy the snapshot, or the re-elected attempt has nowhere to
+    // be written. See migration 0065 and the selector's comment for why only
+    // `failed + validation` qualifies (conclusively terminal AND measured
+    // side-effect-free) and why this is not a blanket `status <> 'failed'`.
     uniqueIndex("netsuite_so_pushes_snapshot_attempt_unique_idx")
       .on(t.quoteSnapshotId)
-      .where(sql`quote_snapshot_id IS NOT NULL`),
+      .where(
+        sql`quote_snapshot_id IS NOT NULL AND NOT (status = 'failed' AND error_class = 'validation')`,
+      ),
     // Fast CHECK-then-write lookup.
     index("netsuite_so_pushes_quote_tier_idx").on(
       t.quoteId,

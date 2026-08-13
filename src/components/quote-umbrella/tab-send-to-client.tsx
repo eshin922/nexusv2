@@ -24,6 +24,7 @@
 //     sent quote has at least 1 entry — the system 'sent' log).
 
 import type { CustomerView } from "@/types/quote";
+import type { QuotePerTierRollup } from "@/lib/costing";
 import { AdvanceBar } from "./advance-bar";
 import { computeUmbrellaAdvance } from "./advance-target";
 import { ReviseButton } from "./revise-button";
@@ -43,6 +44,60 @@ function daysElapsedSince(iso: string | null): number | null {
   return Math.max(0, Math.floor((now - then) / (24 * 60 * 60 * 1000)));
 }
 
+/**
+ * TRACK A · proof 9 — the below-floor warning at the Send decision.
+ *
+ * Edward's disposition: WARN, DO NOT BLOCK. Send stays available, and this
+ * component adds no gate — it renders text and nothing else. The governance
+ * lives downstream, in `markAccepted` and `markComplete`.
+ *
+ * WHAT THE OPERATOR IS ACTUALLY BEING TOLD, and why it is not "this quote is
+ * below floor". The floor is evaluated per TIER against the one the customer
+ * accepts, so naming the affected tiers is the difference between a warning an
+ * operator can act on and an alarm they learn to dismiss. A quote with one
+ * below-floor tier out of four is entirely sendable and three of its outcomes
+ * need no exception at all.
+ *
+ * Silent for a compliant quote — the third required regression. A warning that
+ * appears when nothing is wrong teaches operators that the exception is routine,
+ * which is the failure this control exists to prevent.
+ */
+function BelowFloorSendWarning({ rollup }: { rollup: QuotePerTierRollup[] }) {
+  const below = rollup.filter((r) => r.blendedMarginStatus === "BELOW_FLOOR");
+  if (below.length === 0) return null;
+
+  const names = below.map((r) => r.label);
+  const allTiers = below.length === rollup.length;
+
+  return (
+    <div
+      role="status"
+      data-testid="send-below-floor-warning"
+      style={{
+        marginTop: 16,
+        padding: "10px 12px",
+        borderRadius: 4,
+        borderLeft: "3px solid var(--warn, #92400e)",
+        background: "var(--warn-soft, #fff4e5)",
+        color: "var(--warn, #92400e)",
+        fontSize: 12,
+        lineHeight: 1.5,
+      }}
+    >
+      <strong style={{ display: "block", marginBottom: 2 }}>
+        {allTiers
+          ? "Every tier on this quote is below the margin floor."
+          : `${names.length} of ${rollup.length} tiers are below the margin floor: ${names.join(", ")}.`}
+      </strong>
+      Sending is not blocked. But if the customer accepts{" "}
+      {allTiers ? "any tier" : names.length === 1 ? names[0] : "one of those tiers"},
+      recording that acceptance will require a Commercial Approver to authorize
+      the exception first
+      {allTiers ? "" : " — the other tiers can be accepted normally"}.
+    </div>
+  );
+}
+
 // Extract first name from a full name for the "awaiting {name}" copy.
 function firstName(name: string | null): string {
   if (!name) return "customer";
@@ -57,6 +112,7 @@ export function TabSendToClient({
   quoteVersionNumber,
   reviewFeedCount,
   isHubspotLinked,
+  quoteRollup,
   onGo,
 }: {
   view: CustomerView;
@@ -68,6 +124,10 @@ export function TabSendToClient({
   quoteVersionNumber: number;
   reviewFeedCount: number;
   isHubspotLinked: boolean;
+  /** PM-internal per-tier margin verdicts. Deliberately NOT routed through
+   * `view`: CustomerView is the projected customer-facing shape and margin has
+   * no business crossing that seam (Pattern 45). */
+  quoteRollup: QuotePerTierRollup[];
   onGo: (id: SubTabId) => void;
 }) {
   const isDraft = quoteStatus === "draft";
@@ -203,6 +263,12 @@ export function TabSendToClient({
                   </div>
                 </div>
               </div>
+              {/* Track A proof 9 — placed BETWEEN the recipient card and
+                  the Send button, so it is on screen at the moment the
+                  decision is taken rather than somewhere the operator has
+                  already scrolled past. */}
+              <BelowFloorSendWarning rollup={quoteRollup} />
+
               {/* Slice 12 Step 5d — real Send action, ported from
                   PreviewToolbar. SendQuoteFlow reads PDF axis state
                   from QuoteAxisProvider context so the PM's current

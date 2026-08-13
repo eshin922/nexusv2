@@ -3,7 +3,6 @@
 import { and, asc, eq, inArray, max, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  assemblyLeaves,
   auditLog,
   freightCustomsBreaks,
   freightCustomsEntries,
@@ -13,6 +12,7 @@ import {
   freightDestinationTracking,
   freightSubcategories,
   freightSubcategoryItems,
+  quoteLeaves,
   quoteTiers,
   quotes,
 } from "@/db/schema";
@@ -111,12 +111,19 @@ async function audit(userId: string, entityType: string, entityId: string, actio
 export async function createFreightSubcategory(fd: FormData): Promise<ActionResult<{ id: string; quoteId: string; revision: string | null }>> {
   return runAction(async () => {
     const quoteId = str(fd, "quoteId");
-    const assemblyId = str(fd, "assemblyId");
+    // OD-017 · a shipment is a CONTAINER, not an ASY-owned object. `assemblyId`
+    // is OPTIONAL: a quote made only of Direct Components must be able to record
+    // freight without inventing a Finished Product to hang it on. When it IS
+    // supplied it is still fully validated — ownership is recorded where it is
+    // real, and is simply no longer a precondition.
+    const assemblyId = str(fd, "assemblyId") || null;
     const label = str(fd, "label");
     const destination = str(fd, "destination");
-    if (!quoteId || !assemblyId || !label || !destination) throw new ActionGuardError(ERR.VALIDATION, "Shipment context and destination are required");
+    if (!quoteId || !label || !destination) throw new ActionGuardError(ERR.VALIDATION, "Shipment context and destination are required");
     const user = await ensureUser();
-    const { quote, assembly } = await quoteForAssembly(assemblyId);
+    const { quote, assembly } = assemblyId
+      ? await quoteForAssembly(assemblyId)
+      : { quote: await quoteByIdDraft(quoteId), assembly: null };
     if (quote.id !== quoteId) throw new ActionGuardError(ERR.VALIDATION, "Commercial product does not belong to Quote");
     // Shipment membership — which of this product's components travel in this
     // shipment. Descriptive only: it records what the freight is FOR and never
@@ -129,7 +136,13 @@ export async function createFreightSubcategory(fd: FormData): Promise<ActionResu
     // not be modelled at creation. Selection now comes from the modal, using
     // the same `assemblyLeafId` field name and product-scope rule that
     // `updateFreightSubcategory` already enforces.
-    const members = await db.select({ id: assemblyLeaves.id }).from(assemblyLeaves).where(eq(assemblyLeaves.assemblyId, assemblyId));
+    //
+    // OD-017 · eligibility is QUOTE-scoped through the canonical commercial
+    // leaf, not assembly-scoped through the junction. A Direct Component has no
+    // junction row, so the previous rule made it permanently unshippable. The
+    // `assemblyLeafId` form field name is unchanged for wire stability; what it
+    // carries is now a `quote_leaf_id`.
+    const members = await db.select({ id: quoteLeaves.id }).from(quoteLeaves).where(eq(quoteLeaves.quoteId, quote.id));
     const eligible = new Set(members.map((member) => member.id));
     if (eligible.size === 0) throw new ActionGuardError(ERR.VALIDATION, "Add components in Setup before recording freight");
     const requested = [...new Set(fd.getAll("assemblyLeafId").map(String).filter(Boolean))];
@@ -156,7 +169,7 @@ export async function createFreightSubcategory(fd: FormData): Promise<ActionResu
         displayOrder: (order?.value ?? -1) + 1,
         fieldProvenance: provenance(["label", "origin", "carrierForwarder", "incoterm", "cargoReadyDate", "journeyLabel", "treatment", "crossesInternationalBorder"]),
       }).returning({ id: freightSubcategories.id });
-      await tx.insert(freightSubcategoryItems).values(memberIds.map((assemblyLeafId) => ({ freightSubcategoryId: subcategory.id, assemblyLeafId, fieldProvenance: provenance(["assemblyLeafId"]) })));
+      await tx.insert(freightSubcategoryItems).values(memberIds.map((quoteLeafId) => ({ freightSubcategoryId: subcategory.id, quoteLeafId, fieldProvenance: provenance(["assemblyLeafId"]) })));
       const [dest] = await tx.insert(freightDestinations).values({
         freightSubcategoryId: subcategory.id, destination, transitDays: nullable(fd, "transitDays"), internalNotes: nullable(fd, "internalNotes"),
         fieldProvenance: provenance(["destination", "transitDays", "internalNotes"]),
@@ -188,10 +201,13 @@ export async function updateFreightSubcategory(fd: FormData): Promise<ActionResu
     if (!id || !label || memberIds.length === 0) throw new ActionGuardError(ERR.VALIDATION, "Shipment and at least one included component are required");
     const user = await ensureUser();
     const { subcategory, quote } = await draftSubcategory(id);
-    const allowedRows = await db.select({ id: assemblyLeaves.id }).from(assemblyLeaves).where(eq(assemblyLeaves.assemblyId, subcategory.assemblyId));
+    // OD-017 · quote-scoped eligibility (see createFreightSubcategory). The
+    // membership rule is "belongs to this Quote", not "belongs to this
+    // assembly" — the latter cannot express a Direct Component at all.
+    const allowedRows = await db.select({ id: quoteLeaves.id }).from(quoteLeaves).where(eq(quoteLeaves.quoteId, quote.id));
     const allowed = new Set(allowedRows.map((row) => row.id));
-    if (memberIds.some((memberId) => !allowed.has(memberId))) throw new ActionGuardError(ERR.VALIDATION, "Shipment membership must belong to its commercial product");
-    const beforeMembers = await db.select({ id: freightSubcategoryItems.assemblyLeafId }).from(freightSubcategoryItems).where(eq(freightSubcategoryItems.freightSubcategoryId, id));
+    if (memberIds.some((memberId) => !allowed.has(memberId))) throw new ActionGuardError(ERR.VALIDATION, "Shipment membership must belong to its Quote");
+    const beforeMembers = await db.select({ id: freightSubcategoryItems.quoteLeafId }).from(freightSubcategoryItems).where(eq(freightSubcategoryItems.freightSubcategoryId, id));
     const fields = ["label", "origin", "carrierForwarder", "incoterm", "cargoReadyDate", "journeyLabel", "treatment", "crossesInternationalBorder"];
     await db.transaction(async (tx) => {
       await tx.update(freightSubcategories).set({
@@ -202,8 +218,8 @@ export async function updateFreightSubcategory(fd: FormData): Promise<ActionResu
         source: correctedSource(subcategory.source), fieldProvenance: mergeProvenance(subcategory.fieldProvenance, fields, subcategory.source),
       }).where(eq(freightSubcategories.id, id));
       await tx.delete(freightSubcategoryItems).where(eq(freightSubcategoryItems.freightSubcategoryId, id));
-      await tx.insert(freightSubcategoryItems).values(memberIds.map((assemblyLeafId) => ({
-        freightSubcategoryId: id, assemblyLeafId, source: correctedSource(subcategory.source),
+      await tx.insert(freightSubcategoryItems).values(memberIds.map((quoteLeafId) => ({
+        freightSubcategoryId: id, quoteLeafId, source: correctedSource(subcategory.source),
         fieldProvenance: provenance(["assemblyLeafId"], correctedSource(subcategory.source)),
       })));
       await writeAuditEntry({ userId: user.id, entityType: "freight_subcategory", entityId: id, action: "freight_subcategory_updated", diffJson: { fields, membership: { from: beforeMembers.map((row) => row.id), to: memberIds } } }, tx);

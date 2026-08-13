@@ -47,13 +47,15 @@ export type ApplyPlan = {
   /**
    * Per-tier adjustments, keyed by tier id.
    *
-   * The fourth lever, and the one that is authored elsewhere. `applySurgicalAdj`
-   * and `applyGlobalAdj` write `quote_tiers.tier_price_adj_pct` immediately,
-   * with their own audit; nothing here stages one. It is in the plan because it
-   * is an adjustment IN EFFECT, and Return to baseline that left it standing
-   * would not return the quote to its computed base — the operator would be
-   * told the levers were removed while one of them still moved every price on
-   * that tier.
+   * The fourth lever. It is staged like the other three: the staging set
+   * carries it, the preview evaluates it, and Apply sends the COMPLETE
+   * intended set, so an absent tier is a removal.
+   *
+   * It was not always. Until P3-016 the recommendation CTAs wrote
+   * `quote_tiers.tier_price_adj_pct` at click time and nothing staged one,
+   * which is why this field's presence in the plan was originally justified
+   * by Return to baseline alone. That reason still holds and is no longer
+   * the only one.
    */
   tierAdjSet: PlannedChange[];
   tierAdjRemoved: PlannedRemoval[];

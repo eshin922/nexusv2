@@ -29,7 +29,10 @@ test("pricing Preview and Apply are separate server actions", async () => {
   );
   const preview = actionSource.slice(
     actionSource.indexOf("export async function previewGlobalAdj"),
-    actionSource.indexOf("// ---------- applySurgicalAdj"),
+    // Was `applySurgicalAdj`, which followed Preview in this file until P3-016
+    // removed it. `applyGlobalAdj` is the next section now, and the property
+    // under test is unchanged: Preview writes nothing.
+    actionSource.indexOf("// ---------- applyGlobalAdj"),
   );
   assert.doesNotMatch(preview, /\.insert\(|\.update\(|revalidateQuoteTree/);
 

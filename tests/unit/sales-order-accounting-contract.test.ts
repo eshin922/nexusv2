@@ -80,6 +80,11 @@ test("maps the verified required and optional Sales Order accounting fields", ()
     custbody_dps_project_service_s: "Co-Packing",
     custbody_dps_project_category: "Packaging",
     custbody_dps_project_source: { id: "source-3" },
+    // C.3 (2026-08-11): the customer PO now also reaches the standard field
+    // Accounting named. Both are asserted here so the exhaustive payload
+    // contract stays exhaustive; the projection itself is proven in
+    // tests/unit/c3-customer-po-projection.test.ts.
+    otherRefNum: "PO-9001",
     custbody_dps_client_po: "PO-9001",
     custbody_dps_est_invoice_date: "2026-09-15",
     custbody_dps_pp_production_ship_date: "2026-10-01",
@@ -87,7 +92,12 @@ test("maps the verified required and optional Sales Order accounting fields", ()
     custbody_dps_priority: "HIGH",
     custbody_dps_deal_type: "newbusiness",
     custbody_project_manager: { id: "employee-88" },
-    class: { id: "segment-4" },
+    // V1 Class contract (2026-08-12): `class` is NOT emitted. NetSuite owns
+    // line Class through the Item record; Nexus sending it installed a
+    // competing authority that was either rejected or silently wrong. Removed
+    // from this exhaustive expectation rather than the expectation loosened,
+    // so a reintroduction fails here too.
+    // Evidence: tests/unit/netsuite-class-item-authority.test.ts
     cseg_dps_bus_seg: { id: "segment-4" },
     item: {
       items: [
@@ -191,8 +201,12 @@ test("completion structurally resolves exact SKUs, computes quantities, and chec
   assert.match(source, /netsuiteItemId: nsId/);
   assert.match(source, /quantity: effectiveQty/);
 
-  const payloadBuild = source.indexOf("const builtPayload = buildSalesOrderPayload({");
-  const payloadBuildEnd = source.indexOf("\n    });", payloadBuild);
+  // Step 2 extracted the payload input into `soPayloadInput` so the
+  // turnkey_only branch can rebuild the SAME header with group lines swapped
+  // in. What this assertion guards is unchanged: the completion input carries
+  // the send-time terms snapshot and does NOT carry a project-manager id.
+  const payloadBuild = source.indexOf("const soPayloadInput = {");
+  const payloadBuildEnd = source.indexOf("\n    };", payloadBuild);
   assert.ok(payloadBuild >= 0);
   assert.ok(payloadBuildEnd > payloadBuild);
   const completionInput = source.slice(payloadBuild, payloadBuildEnd);
@@ -215,9 +229,16 @@ test("completion structurally resolves exact SKUs, computes quantities, and chec
     source.slice(convergenceBranch, createCall),
     /retryOutcome = "converged_from_prior_success"/,
   );
+  // Track B §4 amended this from `createSalesOrder(payload, ...)`. What the
+  // assertion guards is unchanged: the transmitted body derives from the
+  // DURABLE payload rather than a rebuild, and carries the idempotency key.
+  // The only permitted wrapper is `stripGroupingPlan`, which removes the
+  // reserved plan envelope so the frozen snapshot can carry the grouping plan
+  // without transmitting it. Naming the wrapper explicitly — rather than
+  // relaxing to `.*` — keeps a future rebuild-at-send-time from slipping past.
   assert.match(
-    source.slice(createCall, createCall + 160),
-    /await netsuite\.createSalesOrder\(\s*payload,\s*\{ idempotencyKey \}/,
+    source.slice(createCall, createCall + 200),
+    /await netsuite\.createSalesOrder\(\s*stripGroupingPlan\(payload\),\s*\{\s*idempotencyKey,?\s*\}/,
   );
   assert.match(
     schema,
@@ -225,7 +246,7 @@ test("completion structurally resolves exact SKUs, computes quantities, and chec
   );
   assert.match(source, /acceptedSnapshotRows\.length !== 1/);
   assert.match(source, /computeIdempotencyKey\(quoteId, acceptedSnapshotId\)/);
-  assert.match(source, /durableAttempt\?\.payloadSnapshot \?\? builtPayload/);
+  assert.match(source, /durableAttempt\?\.payloadSnapshot \?\? builtPayloadWithPlan/);
   assert.match(source, /Could not establish the durable Sales Order send identity before NetSuite execution/);
   assert.match(schema, /quoteSnapshotId: uuid\("quote_snapshot_id"\)/);
   assert.match(

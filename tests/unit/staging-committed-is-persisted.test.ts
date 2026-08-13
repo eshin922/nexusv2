@@ -58,6 +58,7 @@ function seed(
     lifts,
     cellOverrides: persisted,
     skus: SKUS,
+    tierAdj: [],
     globalAdj,
   });
 }
@@ -128,6 +129,7 @@ test("a lift is seeded even when its SKU carries no engine attachment", () => {
     lifts: [{ quoteLeafId: "canonical-orphan", tierId: TIER, liftPct: 0.05 }],
     cellOverrides: [],
     skus: SKUS,
+    tierAdj: [],
     globalAdj: 0,
   });
   assert.equal(committed.lifts[`canonical-orphan::${TIER}`], 0.05);

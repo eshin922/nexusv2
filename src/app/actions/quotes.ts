@@ -15,7 +15,12 @@ import {
   buildQuotePdfStoragePath,
 } from "@/lib/supabase-server";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
+import { hubspotAcceptSyncState } from "@/lib/config/certification-mode";
 import { materializePackagingRows } from "@/lib/packaging-materialization";
+import {
+  resolveGovernedPaymentTerms,
+  unresolvedTermsMessage,
+} from "@/lib/netsuite/customer-terms";
 import {
   assemblies,
   assemblyLeafInputs,
@@ -23,6 +28,7 @@ import {
   assemblyLeafTargets,
   assemblyLeaves,
   assemblyProductionInputs,
+  belowFloorAuthorizations,
   auditLog,
   firmSettings,
   freightCustomerArrangesMeta,
@@ -48,6 +54,10 @@ import {
   quoteTiers,
   users,
 } from "@/db/schema";
+import {
+  evaluateBelowFloorAuthorization,
+  fingerprintCommercialState,
+} from "@/lib/below-floor-authorization";
 import { writeAuditEntry } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { getCostingBundle } from "@/app/actions/costing";
@@ -1654,6 +1664,29 @@ export async function sendQuote(
     // includeSpecAddendum; we pass them as searchParams to the
     // resolver so the render uses PM's live values; AND write the
     // same values to the snapshot columns for post-send reproduction.
+    // C.1 — Send FAILS CLOSED on unverifiable customer payment terms.
+    //
+    // The term printed on a sent quote is a commercial commitment, and Send is
+    // the moment it becomes one. `firm_settings.payment_terms_default` has no
+    // customer dimension: measured against the 9 customers with verified
+    // NetSuite lineage it disagreed with all 9, and materially with 5 (governed
+    // "Net 30" against a printed 50%-deposit commitment). It may stand in on a
+    // draft, clearly marked; it may not be frozen as a promise.
+    //
+    // Placed BEFORE the render so a quote that cannot be sent does not first
+    // produce a PDF asserting terms nobody authorised.
+    const governedTerms = await resolveGovernedPaymentTerms(
+      project.hubspotDealId,
+    );
+    if (governedTerms.status !== "governed") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        unresolvedTermsMessage(governedTerms) ??
+          "Customer payment terms could not be verified.",
+      );
+    }
+    const governedPaymentTerms = governedTerms.value;
+
     const sendPdfLayout = String(formData.get("pdfLayout") ?? "").trim();
     const sendDetailLevel = String(formData.get("detailLevel") ?? "").trim();
     const sendAddendumRaw = String(formData.get("includeSpecAddendum") ?? "").trim();
@@ -1780,7 +1813,7 @@ export async function sendQuote(
         validUntil: validUntilIso,
         quoteNumber,
         tcs: firm.tcsDefault ?? null,
-        paymentTerms: firm.paymentTermsDefault ?? null,
+        paymentTerms: governedPaymentTerms,
         leadTime: firm.leadTimeDefault ?? null,
         incoterms: firm.incotermsDefault ?? null,
         daysValid,
@@ -1844,7 +1877,7 @@ export async function sendQuote(
           validUntil: validUntilIso,
           // DEC-7: commercial snapshots
           tcsSnapshot: firm.tcsDefault ?? null,
-          paymentTermsSnapshot: firm.paymentTermsDefault ?? null,
+          paymentTermsSnapshot: governedPaymentTerms,
           leadTimeSnapshot: firm.leadTimeDefault ?? null,
           incotermsSnapshot: firm.incotermsDefault ?? null,
           daysValidSnapshot: daysValid,
@@ -1886,7 +1919,7 @@ export async function sendQuote(
           validUntil: updated.validUntil,
           snapshots: {
             tcs: firm.tcsDefault ?? null,
-            paymentTerms: firm.paymentTermsDefault ?? null,
+            paymentTerms: governedPaymentTerms,
             leadTime: firm.leadTimeDefault ?? null,
             incoterms: firm.incotermsDefault ?? null,
             daysValid,
@@ -2339,10 +2372,47 @@ export async function markAccepted(
     //   - quote stays 'sent'
     // Same shape as the isHubspotLinkedDealId guard 30 lines below.
     if (tierRollup.blendedMarginStatus === "BELOW_FLOOR") {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        `Cannot record acceptance at ${tierRollup.label} — the tier is below the firm's margin floor. Admin override required (not yet wired; block until it lands).`,
-      );
+      // TRACK A · BV-005 1c — the override the comment above used to promise.
+      //
+      // Still blocked by default. What changed is that there is now a governed
+      // door: an authorization recorded by a Commercial Approver, scoped to this
+      // quote version, this tier and this commercial state, and — checked HERE
+      // rather than at authorization time — decided by someone other than the
+      // person recording acceptance.
+      //
+      // NO FALLBACK. There is deliberately no branch in which the absence of an
+      // eligible independent approver resolves permissively. An estate with one
+      // person cannot sell below floor; that is the correct outcome, not an edge
+      // case to route around.
+      const authorizations = await db
+        .select({
+          id: belowFloorAuthorizations.id,
+          quoteVersionNumber: belowFloorAuthorizations.quoteVersionNumber,
+          tierId: belowFloorAuthorizations.tierId,
+          approvedByUserId: belowFloorAuthorizations.approvedByUserId,
+          stateFingerprint: belowFloorAuthorizations.stateFingerprint,
+          invalidatedAt: belowFloorAuthorizations.invalidatedAt,
+        })
+        .from(belowFloorAuthorizations)
+        .where(eq(belowFloorAuthorizations.quoteId, quote.id));
+
+      const verdict = evaluateBelowFloorAuthorization({
+        authorizations,
+        scope: { quoteVersionNumber: quote.versionNumber, tierId: tierRollup.tierId },
+        currentFingerprint: fingerprintCommercialState({
+          totalRevenue: tierRollup.totalRevenue,
+          totalCost: tierRollup.totalCost,
+          blendedMarginPct: tierRollup.blendedMarginPct,
+        }),
+        actingUserId: user.id,
+      });
+
+      if (!verdict.ok) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `Cannot record acceptance at ${tierRollup.label} — ${verdict.message}`,
+        );
+      }
     }
     // A tier with no revenue used to arrive here as BELOW_FLOOR and be
     // rejected — for the wrong reason, but rejected. Now that the engine
@@ -2447,6 +2517,9 @@ export async function markAccepted(
     let fromStageId: string;
     let fromStageLabel: string;
     let toStage: DealStageInfo;
+    // Certification suppression is resolved ONCE for this acceptance so the
+    // write decision and the audit record cannot disagree.
+    const acceptSyncState = hubspotAcceptSyncState();
     try {
       // Version-scoped recovery-first check. Both columns must be
       // populated AND the version must match the current quote
@@ -2493,16 +2566,29 @@ export async function markAccepted(
           .where(eq(quotes.id, quoteId));
       }
 
-      // Step 8a — patch stage AND amount in the SAME API call.
-      // HubSpot's basicApi.update is a single PATCH; two properties
-      // land atomically or both fail. See updateDealStage's opts.amount
-      // rationale for why we consolidated over two separate calls.
-      const { hubspot } = await getApplicationDependencies();
-      toStage = await hubspot.updateDealStage(
-        project.hubspotDealId as string,
-        firm.hubspotDealStageOnAccept,
-        { amount: tierTurnkeyAmount },
-      );
+      if (acceptSyncState.suppressed) {
+        // CERTIFICATION MODE — see src/lib/config/certification-mode.ts.
+        // The deal is NOT touched: no stage write, no amount write, no
+        // PATCH of any kind. `from === to` because nothing moved, which
+        // is the truthful audit record; `intended_stage_id` below
+        // preserves what production would have written.
+        //
+        // Everything after this point is Nexus-internal and proceeds
+        // unchanged — accepted state, accepted tier, freeze/snapshot,
+        // Complete eligibility, sandbox NetSuite.
+        toStage = { id: fromStageId, label: fromStageLabel };
+      } else {
+        // Step 8a — patch stage AND amount in the SAME API call.
+        // HubSpot's basicApi.update is a single PATCH; two properties
+        // land atomically or both fail. See updateDealStage's opts.amount
+        // rationale for why we consolidated over two separate calls.
+        const { hubspot } = await getApplicationDependencies();
+        toStage = await hubspot.updateDealStage(
+          project.hubspotDealId as string,
+          firm.hubspotDealStageOnAccept,
+          { amount: tierTurnkeyAmount },
+        );
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new ActionGuardError(
@@ -2567,6 +2653,20 @@ export async function markAccepted(
             to_stage_id: toStage.id,
             to_stage_label: toStage.label,
             amount: tierTurnkeyAmount,
+            // Certification suppression. Present ONLY when suppressed, so
+            // an ordinary production acceptance keeps its existing shape
+            // and a suppressed one is unmistakable in the forensic trail.
+            // `amount` above is the value that WOULD have been written;
+            // under suppression no amount reached HubSpot.
+            ...(acceptSyncState.suppressed
+              ? {
+                  suppressed: true,
+                  suppression_reason: acceptSyncState.reason,
+                  intended_stage_id: firm.hubspotDealStageOnAccept,
+                  stage_written: false,
+                  amount_written: false,
+                }
+              : {}),
           },
         },
       }, tx);
@@ -2743,12 +2843,25 @@ export async function unmarkAccepted(
 
     // External call FIRST (v3 §5.1 ordering).
     let rolledBackStage: DealStageInfo;
+    const revertSyncState = hubspotAcceptSyncState();
     try {
-      const { hubspot } = await getApplicationDependencies();
-      rolledBackStage = await hubspot.updateDealStage(
-        project.hubspotDealId as string,
-        priorStageId,
-      );
+      if (revertSyncState.suppressed) {
+        // CERTIFICATION MODE — the matching Accept never moved the deal, so
+        // there is nothing to roll back. Writing `priorStageId` here would
+        // MUTATE a deal that Nexus had left untouched, which is the exact
+        // production side effect suppression exists to prevent. The Nexus-side
+        // revert below proceeds normally.
+        const { hubspot } = await getApplicationDependencies();
+        rolledBackStage = await hubspot.getDealStage(
+          project.hubspotDealId as string,
+        );
+      } else {
+        const { hubspot } = await getApplicationDependencies();
+        rolledBackStage = await hubspot.updateDealStage(
+          project.hubspotDealId as string,
+          priorStageId,
+        );
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new ActionGuardError(
@@ -2979,14 +3092,17 @@ async function cloneFreightWorksheet(
   newQuoteId: string,
   assemblyIdMap: Map<string, string>,
   assemblyLeafIdMap: Map<string, string>,
+  quoteLeafIdMap: Map<string, string>,
   tierIdMap: Map<string, string>,
 ) {
   const subcategoryIdMap = new Map<string, string>();
   const destinationIdMap = new Map<string, string>();
   const customsEntryIdMap = new Map<string, string>();
   for (const row of workbook.subcategories) {
-    const assemblyId = assemblyIdMap.get(row.assemblyId);
-    if (!assemblyId) throw new Error(`clone: freight subcategory has unmapped assembly ${row.assemblyId}`);
+    // OD-017 · a shipment need not belong to an assembly. Ownership is cloned
+    // where it exists and stays absent where it does not.
+    const assemblyId = row.assemblyId ? assemblyIdMap.get(row.assemblyId) ?? null : null;
+    if (row.assemblyId && !assemblyId) throw new Error(`clone: freight subcategory has unmapped assembly ${row.assemblyId}`);
     const [inserted] = await tx.insert(freightSubcategories).values({
       quoteId: newQuoteId, assemblyId, label: row.label, origin: row.origin,
       carrierForwarder: row.carrierForwarder, incoterm: row.incoterm,
@@ -2999,9 +3115,13 @@ async function cloneFreightWorksheet(
   }
   for (const row of workbook.memberships) {
     const freightSubcategoryId = subcategoryIdMap.get(row.freightSubcategoryId);
-    const assemblyLeafId = assemblyLeafIdMap.get(row.assemblyLeafId);
-    if (!freightSubcategoryId || !assemblyLeafId) throw new Error("clone: freight membership has unmapped identity");
-    await tx.insert(freightSubcategoryItems).values({ freightSubcategoryId, assemblyLeafId, source: row.source, fieldProvenance: row.fieldProvenance });
+    // OD-017 · membership clones by canonical leaf. The legacy id rides along
+    // only to keep the compatibility column truthful; NULL for a Direct
+    // Component, and read by nothing.
+    const quoteLeafId = quoteLeafIdMap.get(row.quoteLeafId);
+    const assemblyLeafId = row.assemblyLeafId ? assemblyLeafIdMap.get(row.assemblyLeafId) ?? null : null;
+    if (!freightSubcategoryId || !quoteLeafId) throw new Error("clone: freight membership has unmapped identity");
+    await tx.insert(freightSubcategoryItems).values({ freightSubcategoryId, quoteLeafId, assemblyLeafId, source: row.source, fieldProvenance: row.fieldProvenance });
   }
   for (const row of workbook.destinations) {
     const freightSubcategoryId = subcategoryIdMap.get(row.freightSubcategoryId);
@@ -3272,16 +3392,18 @@ async function cloneQuoteGraph(
         }
         await tx.insert(assemblyLeafInputs).values(
           sourceLeafInputs.map((r) => {
-            const newLeafId = assemblyLeafIdMap.get(r.assemblyLeafId);
+            const newLeafId = quoteLeafIdMap.get(r.quoteLeafId);
+            const newLegacyId = r.assemblyLeafId ? assemblyLeafIdMap.get(r.assemblyLeafId) ?? null : null;
             const newTierId = tierIdMap.get(r.tierId);
             const newLineGroupId = lineGroupIdMap.get(r.lineGroupId);
             if (!newLeafId || !newTierId || !newLineGroupId) {
               throw new Error(
-                `clone: assembly_leaf_inputs unmapped ref (leaf=${r.assemblyLeafId}, tier=${r.tierId}, lineGroup=${r.lineGroupId})`,
+                `clone: assembly_leaf_inputs unmapped ref (leaf=${r.quoteLeafId}, tier=${r.tierId}, lineGroup=${r.lineGroupId})`,
               );
             }
             return {
-              assemblyLeafId: newLeafId,
+              quoteLeafId: newLeafId,
+              assemblyLeafId: newLegacyId,
               tierId: newTierId,
               lineGroupId: newLineGroupId,
               sortOrder: r.sortOrder,
@@ -3315,15 +3437,17 @@ async function cloneQuoteGraph(
       if (sourceOverrides.length > 0) {
         await tx.insert(assemblyLeafOverrides).values(
           sourceOverrides.map((r) => {
-            const newLeafId = assemblyLeafIdMap.get(r.assemblyLeafId);
+            const newLeafId = quoteLeafIdMap.get(r.quoteLeafId);
+            const newLegacyId = r.assemblyLeafId ? assemblyLeafIdMap.get(r.assemblyLeafId) ?? null : null;
             const newTierId = tierIdMap.get(r.tierId);
             if (!newLeafId || !newTierId) {
               throw new Error(
-                `clone: assembly_leaf_overrides unmapped ref (leaf=${r.assemblyLeafId}, tier=${r.tierId})`,
+                `clone: assembly_leaf_overrides unmapped ref (leaf=${r.quoteLeafId}, tier=${r.tierId})`,
               );
             }
             return {
-              assemblyLeafId: newLeafId,
+              quoteLeafId: newLeafId,
+              assemblyLeafId: newLegacyId,
               tierId: newTierId,
               sellPriceOverride: r.sellPriceOverride,
             };
@@ -3344,15 +3468,17 @@ async function cloneQuoteGraph(
       if (sourceTargets.length > 0) {
         await tx.insert(assemblyLeafTargets).values(
           sourceTargets.map((r) => {
-            const newLeafId = assemblyLeafIdMap.get(r.assemblyLeafId);
+            const newLeafId = quoteLeafIdMap.get(r.quoteLeafId);
+            const newLegacyId = r.assemblyLeafId ? assemblyLeafIdMap.get(r.assemblyLeafId) ?? null : null;
             const newTierId = tierIdMap.get(r.tierId);
             if (!newLeafId || !newTierId) {
               throw new Error(
-                `clone: assembly_leaf_targets unmapped ref (leaf=${r.assemblyLeafId}, tier=${r.tierId})`,
+                `clone: assembly_leaf_targets unmapped ref (leaf=${r.quoteLeafId}, tier=${r.tierId})`,
               );
             }
             return {
-              assemblyLeafId: newLeafId,
+              quoteLeafId: newLeafId,
+              assemblyLeafId: newLegacyId,
               tierId: newTierId,
               clientTargetPricePerUnit: r.clientTargetPricePerUnit,
             };
@@ -3403,6 +3529,7 @@ async function cloneQuoteGraph(
     newQuoteId,
     assemblyIdMap,
     assemblyLeafIdMap,
+    quoteLeafIdMap,
     tierIdMap,
   );
 

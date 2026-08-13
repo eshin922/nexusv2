@@ -1,15 +1,24 @@
 "use server";
 
-// Pricing reframe v1 — suggestion apply paths.
+// Pricing reframe v1 — the bulk-lift write path.
 //
-// Two server actions, one per suggestion kind (Slice 9.4b
-// single-concern helper naming):
+// WHAT USED TO BE HERE, AND WHY IT IS NOT
 //
-//   - applySurgicalAdj  → writes one quote_tiers.tier_price_adj_pct
-//                          row, single audit row, diff_json.source =
-//                          'pricing_suggestion_surgical'. Emits
-//                          surgical_apply + recommended_{accepted,
-//                          overridden} telemetry.
+// `applySurgicalAdj` lived here and wrote one
+// `quote_tiers.tier_price_adj_pct` at click time, straight from the
+// recommendation CTA. P3-016 is the record of what that produced: an
+// audited pricing change with no chip, no preview and no Discard, which
+// read to the operator as a button that did nothing. Recommendations
+// stage now (see `pricing-staging-context.tsx`), and the action had no
+// other caller, so it is gone rather than left reachable for something
+// to be re-wired to.
+//
+// `applyGlobalAdj` STAYS, and is not the same case. Its surviving caller
+// is the bulk-lift workflow, which is separately governed: a read-only
+// preview (PB-004), an apply carrying `expectedPreview` so a stale
+// commit is refused, and a receipt-based exact Undo. VAL-208 walks all
+// three.
+//
 //   - applyGlobalAdj    → writes N quote_tiers.tier_price_adj_pct
 //                          rows under the cascade audit pattern (root
 //                          row + N derived rows with caused_by_audit_id
@@ -139,103 +148,6 @@ function assertNewAdjFitsBound(
         `margin before applying suggestion.`,
     );
   }
-}
-
-// ---------- applySurgicalAdj ----------
-
-export async function applySurgicalAdj(
-  formData: FormData,
-): Promise<ActionResult<{ tierId: string; tierPriceAdjPct: string }>> {
-  return runAction(async () => {
-    const quoteId = String(formData.get("quoteId") ?? "").trim();
-    const tierId = String(formData.get("tierId") ?? "").trim();
-    const applyDeltaRaw = String(formData.get("applyDelta") ?? "").trim();
-    const optionRecommended =
-      String(formData.get("optionRecommended") ?? "").trim() === "true";
-
-    if (!quoteId)
-      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
-    if (!tierId)
-      throw new ActionGuardError(ERR.VALIDATION, "tierId required");
-    if (!applyDeltaRaw)
-      throw new ActionGuardError(ERR.VALIDATION, "applyDelta required");
-
-    const applyDelta = validateApplyDelta(applyDeltaRaw);
-    const user = await ensureUser();
-    const quote = await quoteByIdDraft(quoteId);
-
-    const tierRows = await db
-      .select()
-      .from(quoteTiers)
-      .where(eq(quoteTiers.id, tierId))
-      .limit(1);
-    if (tierRows.length === 0)
-      throw new ActionGuardError(ERR.NOT_FOUND, "Tier not found");
-    const tier = tierRows[0];
-    if (tier.quoteId !== quoteId) {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Tier does not belong to quote",
-      );
-    }
-
-    const currentEffectiveAdj =
-      tier.tierPriceAdjPct !== null
-        ? Number(tier.tierPriceAdjPct)
-        : Number(quote.globalPriceAdjPct ?? 0);
-    const newAdj = computeNewAdj(currentEffectiveAdj, applyDelta);
-
-    // Bug #2 fix (α): contextual error if composed new_adj exceeds
-    // numeric(5,4) field bound. Replaces Postgres overflow with
-    // diagnostic message naming the tier + reason.
-    assertNewAdjFitsBound(newAdj, tier.label);
-
-    // 1. Update the tier row.
-    await db
-      .update(quoteTiers)
-      .set({ tierPriceAdjPct: newAdj, updatedAt: new Date() })
-      .where(eq(quoteTiers.id, tierId));
-
-    // 2. Audit log — same action as manual updateTierPriceAdj; namespaced
-    //    source per Disposition B.
-    await writeAuditEntry({
-      userId: user.id,
-      entityType: "quote_tier",
-      entityId: tierId,
-      action: "tier_price_adj_updated",
-      diffJson: {
-        tier_price_adj_pct: {
-          from: tier.tierPriceAdjPct,
-          to: newAdj,
-        },
-        source: "pricing_suggestion_surgical",
-      },
-    });
-
-    // 3. Telemetry — surgical_apply always; recommended_accepted vs
-    //    recommended_overridden based on which option PM picked.
-    await db.insert(pricingEvents).values([
-      {
-        quoteId,
-        userId: user.id,
-        eventType: "surgical_apply",
-        violationTierId: tierId,
-        suggestionTargetTierIds: [tierId],
-      },
-      {
-        quoteId,
-        userId: user.id,
-        eventType: optionRecommended
-          ? "recommended_accepted"
-          : "recommended_overridden",
-        violationTierId: tierId,
-        suggestionTargetTierIds: [tierId],
-      },
-    ]);
-
-    revalidateQuoteTree(quote.projectId, quote.id);
-    return { tierId, tierPriceAdjPct: newAdj };
-  });
 }
 
 // ---------- applyGlobalAdj ----------

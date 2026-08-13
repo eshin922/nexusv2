@@ -67,7 +67,15 @@ export interface SalesOrderPayloadInput {
   // <label> for the following field: custbody_dps_project_source"
   // (Class B parity finding, 2026-07-29).
   projectSourceId?: string | null;
-  businessSegmentId?: string | null;     // NetSuite class id (resolved via BS resolver → NS class)
+  // RAW HubSpot `business_segment` enum id — NOT a NetSuite class id, and not
+  // resolved to one. The prior comment here claimed "NetSuite class id
+  // (resolved via BS resolver → NS class)"; that was false and is what the
+  // Case B walk halted on. `business-segment-resolver.ts` resolves this enum
+  // id to a LABEL for display backfill. Nothing maps it to a class.
+  //
+  // No longer feeds `class` (V1 Class contract, 2026-08-12 — see below).
+  // Still feeds `cseg_dps_bus_seg`, whose own authority is under review.
+  businessSegmentId?: string | null;
   businessSegmentLabel?: string | null;  // fallback for readability
   clientPo?: string | null;
   invoiceDateEst?: string | null;        // YYYY-MM-DD
@@ -75,8 +83,31 @@ export interface SalesOrderPayloadInput {
   priority?: string | null;
   dealType?: string | null;
   projectManagerNsId?: string | null;    // if HubSpot owner id maps to NS employee
-  // Lines
+  // Lines — FLAT (itemized). Mutually exclusive with `groupLines`.
   lines: SalesOrderLine[];
+  /**
+   * Item Group lines (turnkey_only). MUTUALLY EXCLUSIVE with `lines`.
+   *
+   * NetSuite expands each group into its member lines itself. Sending a group
+   * AND explicit member lines duplicates the members and doubles the total
+   * (Probe 7a) — a 204 that ships a wrong order. The builder therefore refuses
+   * to emit both rather than trusting callers to pass only one.
+   *
+   * Deliberately BARE: item + quantity only. Probe 7a also established that a
+   * rate on the group header is ignored, so putting the negotiated rate here
+   * would look like pricing and do nothing. Member pricing arrives by
+   * per-line PATCH in Step 3, after `awaiting_rates`.
+   */
+  groupLines?: SalesOrderGroupLine[];
+}
+
+export interface SalesOrderGroupLine {
+  /** The Item Group RECORD's internal id (not a member item). */
+  netsuiteItemId: string;
+  /** Group display sku — diagnostic only; not transmitted. */
+  sku: string;
+  /** Tier quantity. Members expand at `quantity × member-quantity-per-group`. */
+  quantity: number;
 }
 
 /**
@@ -128,7 +159,28 @@ export function buildSalesOrderPayload(
     body.custbody_dps_project_category = input.projectCategory;
   if (input.projectSourceId)
     body.custbody_dps_project_source = { id: input.projectSourceId };
-  if (input.clientPo) body.custbody_dps_client_po = input.clientPo;
+  // C.3 (2026-08-11) — NetSuite technician disposition: "Customer PO should be
+  // otherRefNum. custbody_dps_client_po is the custom field used to get the
+  // data from HubSpot."
+  //
+  // Estate evidence agrees: otherRefNum 684/699, custbody_dps_client_po 0/699,
+  // and Epicuren's cached client_po `13969` is exactly SO2646's otherRefNum.
+  // So this is a redirect of an already-wired path, not new capture.
+  //
+  // The custom-field write is PRESERVED rather than replaced. Whether it is
+  // still required as a staging field for the HubSpot synchronization path
+  // cannot be determined from this side — SuiteScripts, workflows and saved
+  // searches are not enumerable through the REST integration (the same limit
+  // recorded against P-2 and §12). Unresolved ownership is authority to ADD
+  // the field Accounting named, not to remove one an upstream integration may
+  // depend on. 0/699 population proves no operator filled it; it does not
+  // prove nothing writes to or reads it.
+  //
+  // Emitted verbatim to both. No formatting, no transformation, no inference.
+  if (input.clientPo) {
+    body.otherRefNum = input.clientPo;
+    body.custbody_dps_client_po = input.clientPo;
+  }
   if (input.invoiceDateEst)
     body.custbody_dps_est_invoice_date = input.invoiceDateEst;
   if (input.productionShipDateEst) {
@@ -139,8 +191,40 @@ export function buildSalesOrderPayload(
   if (input.dealType) body.custbody_dps_deal_type = input.dealType;
   if (input.projectManagerNsId)
     body.custbody_project_manager = { id: input.projectManagerNsId };
+  // V1 CLASS CONTRACT (2026-08-12, Edward):
+  //
+  //   NetSuite owns Sales Order line Class through the Item record.
+  //   Nexus must not send `class`.
+  //
+  // Class remains required business/accounting data. What was removed is an
+  // invalid COMPETING authority, not the requirement. Nexus was sending the
+  // raw HubSpot `business_segment` enum id as `class` — two unrelated
+  // taxonomies. Segment 3 (`DPS Packaging`) is not a class at all and NetSuite
+  // rejected it; segment 1 (`Product 360°`) collides numerically with class 1
+  // (`Primary`) and was silently misattributing every order it touched.
+  //
+  // NetSuite already derives line Class from the Item record, correctly, with
+  // no help from us. Proven by SO2698 — created by Nexus transmitting NO class
+  // — whose lines came back 10064-GNX-Box → 10 Secondary, BA146400 → 58 Soft
+  // Goods and Accessories, DPS-BOTTLE-0001 → 1 Primary, each matching its
+  // Item-record class. 1,296 of 1,358 Items carry Class; 2,523 of 2,731
+  // historical classified lines match their Item's. The systematic exceptions
+  // are Accounting's own line-level refinements — a further reason not to
+  // overwrite this authority.
+  //
+  // Do NOT substitute Nexus cost category, markup category, HubSpot Business
+  // Segment, or any other mapping. Do not add a fallback for the 62 Items that
+  // carry no Class — that is an Accounting Item-master matter, and Group /
+  // Assembly items being unclassed already matches legacy behaviour.
+  //
+  // Evidence: tests/unit/netsuite-class-item-authority.test.ts
+  // Review:   docs/validation/netsuite-class-mapping-review.md
+  //
+  // `cseg_dps_bus_seg` is a DIFFERENT dimension (Business Segment, not Class)
+  // and is deliberately left as-is here. It is fed the same raw enum id and was
+  // rejected in the same CREATE; its authority is under separate review and
+  // must not be assumed valid because Class was settled.
   if (input.businessSegmentId) {
-    body.class = { id: input.businessSegmentId };
     body.cseg_dps_bus_seg = { id: input.businessSegmentId };
   }
 
@@ -159,6 +243,31 @@ export function buildSalesOrderPayload(
   // rate + amount sent as NUMBERS not strings — sandbox probe
   // 2026-07-28 confirmed NetSuite REST rejects strings with
   // INVALID_VALUE.
+  // GROUP vs FLAT is mutually exclusive, enforced here rather than trusted.
+  // Both together is the Probe 7a duplication: NetSuite expands the group AND
+  // honours the explicit members, doubling the order at 204.
+  const groupLines = input.groupLines ?? [];
+  if (groupLines.length > 0 && input.lines.length > 0) {
+    throw new Error(
+      "[sales-orders] refusing to emit Item Group lines alongside explicit line items — " +
+        "NetSuite expands group members itself and sending both duplicates them (Probe 7a). " +
+        `Got ${groupLines.length} group line(s) and ${input.lines.length} flat line(s).`,
+    );
+  }
+
+  if (groupLines.length > 0) {
+    // BARE group lines: item + quantity only. No rate (ignored on the group
+    // header), no amount, no per-line custom columns — the members NetSuite
+    // expands carry their own, and Step 3 patches their rates.
+    body.item = {
+      items: groupLines.map((g) => ({
+        item: { id: g.netsuiteItemId },
+        quantity: g.quantity,
+      })),
+    };
+    return body;
+  }
+
   body.item = {
     items: input.lines.map((line) => ({
       item: { id: line.netsuiteItemId },

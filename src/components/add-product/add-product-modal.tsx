@@ -52,7 +52,10 @@ export function AddProductModal({
   // only on successful create. Absent → preserves stable API for
   // any future direct consumer that doesn't need to discriminate
   // submit vs cancel.
-  onSuccess?: (result: { kind: "asy" | "leaf"; id: string }) => void;
+  // `name` lets the caller CONFIRM the creation. An id alone cannot be
+  // shown to an operator or searched for; the library searches by name or
+  // SKU, so the name is what makes the new record locatable.
+  onSuccess?: (result: { kind: "asy" | "leaf"; id: string; name: string }) => void;
   // slice-library-first-creation-flow Step 4 — when mounted as a
   // sub-flow on top of another modal (LibraryBrowseModal's
   // "+ Create new product"), pass stacked={true}. Applies the
@@ -162,7 +165,7 @@ export function AddProductModal({
         setError(result.error.message);
         return;
       }
-      onSuccess?.({ kind: "asy", id: result.data.assemblyId });
+      onSuccess?.({ kind: "asy", id: result.data.assemblyId, name: asyName.trim() });
       onClose();
       setToast(`Added "${asyName.trim()}" to this quote.`);
       router.refresh();
@@ -192,16 +195,19 @@ export function AddProductModal({
         setError(result.error.message);
         return;
       }
-      onSuccess?.({ kind: "leaf", id: result.data.leafId });
+      // Captured BEFORE onClose, which resets the form. The toast read
+      // `Added "" to the library` because it interpolated a field that had
+      // already been cleared -- a confirmation that named nothing, which is
+      // not a confirmation.
+      const created = leafName.trim();
+      onSuccess?.({ kind: "leaf", id: result.data.leafId, name: created });
       onClose();
       if (option === "continue") {
         router.push(
           `/projects/${projectId}/quotes/${quoteId}/leaves/${result.data.leafId}/specs`,
         );
       } else {
-        setToast(
-          `Added "${leafName.trim()}" to the library · specs deferred.`,
-        );
+        setToast(`Added "${created}" to the library · specs deferred.`);
         router.refresh();
       }
     });

@@ -394,3 +394,22 @@
   flex: 1;
   min-height: 0;
 }
+
+/* ─── Costs · per-assembly allocation policy (V1 defect repair, 2026-08-11) ───
+   Nexus extension, not canonical R6. The allocation control moved from the
+   section to the assembly that governs it, so it needs a placement rule the
+   canonical stylesheet has no selector for. Kept out of `r6-costs.css` per
+   Pattern 30 — that file stays verbatim from the design source. */
+.r6-prod-toggles-asm {
+  margin: 8px 0 0;
+}
+.r6-prod-toggle-error {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--bad, oklch(0.55 0.18 25));
+  border-radius: 6px;
+  background: oklch(from var(--bad, oklch(0.55 0.18 25)) l c h / 0.08);
+  color: var(--bad, oklch(0.55 0.18 25));
+  font-size: 11px;
+  line-height: 1.4;
+}

@@ -121,6 +121,8 @@ export type OrderReceiptProps = {
    * is the tier turnkey figure 8a pushed. */
   hubspotAmount: number;
   hubspotStageLabel: string;
+  /** Certification mode: no stage/amount was written to HubSpot. */
+  hubspotSuppressed?: boolean;
   netsuiteStatusOnPush: string;
 };
 
@@ -166,6 +168,7 @@ export function OrderReceipt({
   soFlags,
   hubspotAmount,
   hubspotStageLabel,
+  hubspotSuppressed = false,
   netsuiteStatusOnPush,
 }: OrderReceiptProps): ReactNode {
   const placed = state === "record";
@@ -311,14 +314,30 @@ export function OrderReceipt({
       ))}
 
       <div className="r9-so-status">
-        <div className="r9-so-srow done">
-          <span className="icon">✓</span>
-          <span className="lbl">
-            <strong>HubSpot</strong> — deal set to {hubspotStageLabel} at{" "}
-            {usd(hubspotAmount)}
-          </span>
-          <span className="val">done at acceptance</span>
-        </div>
+        {hubspotSuppressed ? (
+          // Certification mode — Accept wrote NOTHING to HubSpot. Rendering the
+          // usual "deal set to X · done at acceptance" row here would assert a
+          // production write that never happened, so the row states the
+          // suppression instead of the stage.
+          <div className="r9-so-srow">
+            <span className="icon">—</span>
+            <span className="lbl">
+              <strong>HubSpot</strong> — deal not modified. HubSpot Accept
+              synchronization is disabled for certification; no stage or amount
+              was written.
+            </span>
+            <span className="val">suppressed</span>
+          </div>
+        ) : (
+          <div className="r9-so-srow done">
+            <span className="icon">✓</span>
+            <span className="lbl">
+              <strong>HubSpot</strong> — deal set to {hubspotStageLabel} at{" "}
+              {usd(hubspotAmount)}
+            </span>
+            <span className="val">done at acceptance</span>
+          </div>
+        )}
         <div
           className={
             "r9-so-srow " + (placed ? "done" : failed ? "fail" : "")

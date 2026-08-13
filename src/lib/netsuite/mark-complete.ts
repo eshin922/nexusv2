@@ -2,6 +2,11 @@ import "server-only";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
+  evaluateBelowFloorAuthorization,
+  fingerprintCommercialState,
+} from "@/lib/below-floor-authorization";
+import {
+  belowFloorAuthorizations,
   quotes as quotesTable,
   quoteTiers,
   quoteSnapshots,
@@ -12,6 +17,7 @@ import {
   auditLog,
 } from "@/db/schema";
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
+import { isHubspotAcceptSyncSuppressed } from "@/lib/config/certification-mode";
 import { getCostingBundle } from "@/app/actions/costing";
 import { loadAssemblyTree } from "@/lib/assembly-tree";
 import {
@@ -19,12 +25,38 @@ import {
   formatCustomerMissingError,
 } from "./customer-map";
 import { formatResolutionErrors, type ResolveResult } from "./item-resolver";
-import { findOrCreateItemGroup } from "./item-groups";
+import {
+  findOrCreateItemGroup,
+  readItemGroupMembers,
+  readSalesOrderHeader,
+  readSalesOrderLines,
+} from "./item-groups";
+import { runRateConvergence } from "./rate-convergence";
+import { patchSalesOrderLine } from "./client";
+import { reconcileBeforeCreate } from "./create-reconciliation";
+import {
+  adaptPlannedGroup,
+  assertIdentityMatchesPlan,
+  verifyReusedGroupMembership,
+} from "./grouping-plan-adapter";
+import {
+  awaitingRatesOperatorMessage,
+  mustNotCreate,
+  recordAttemptFailure,
+  recordNeedsReconciliation,
+  recordSalesOrderCreated,
+} from "./attempt-lifecycle";
 import {
   buildSalesOrderPayload,
   computeIdempotencyKey,
   type SalesOrderLine,
 } from "./sales-orders";
+import {
+  attachGroupingPlan,
+  buildGroupingPlan,
+  stripGroupingPlan,
+  type PlanLineInput,
+} from "./grouping-plan";
 import { NetsuiteError } from "./errors";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { requireResolvedQuoteCosts } from "@/lib/quote-cost-completeness";
@@ -146,7 +178,10 @@ export async function runMarkComplete(
   }
 
   const acceptedSnapshotRows = await db
-    .select({ id: quoteSnapshots.id })
+    // Track B §4 — detail_level comes from the ACCEPTED SNAPSHOT, not the live
+    // quotes column: the applicability datum must be the value that was true
+    // when the customer agreed, per the OD-004 disposition.
+    .select({ id: quoteSnapshots.id, detailLevel: quoteSnapshots.detailLevel })
     .from(quoteSnapshots)
     .where(
       and(
@@ -161,6 +196,7 @@ export async function runMarkComplete(
     );
   }
   const acceptedSnapshotId = acceptedSnapshotRows[0].id;
+  const acceptedDetailLevel = acceptedSnapshotRows[0].detailLevel;
 
   // Phase 1 defense in depth. Governed customer send already rejects an
   // unresolved cost, so accepted Quotes cannot normally reach this state.
@@ -188,9 +224,42 @@ export async function runMarkComplete(
   // because the accepted_tier_id may differ under PM override paths).
   // Blocks UNCONDITIONALLY — admin override deferred v1.1+ per CA Q4.
   if (tierRollup.blendedMarginStatus === "BELOW_FLOOR") {
-    throw new Error(
-      `Blocked — the accepted tier (${tierRollup.label}) is below the firm's margin floor. Cannot advance to complete.`,
-    );
+    // TRACK A · BV-005 1c. Completion has its OWN gate, independently of
+    // acceptance — the accepted tier may differ from the customer-accepted one
+    // under PM override paths, and a state that drifted between accepting and
+    // completing must be caught here rather than assumed settled upstream.
+    //
+    // Independence is measured against the actor COMPLETING, for the same
+    // reason it is measured against the actor accepting: whoever commits the
+    // below-floor outcome may not be the person who authorized it. No fallback.
+    const authorizations = await db
+      .select({
+        id: belowFloorAuthorizations.id,
+        quoteVersionNumber: belowFloorAuthorizations.quoteVersionNumber,
+        tierId: belowFloorAuthorizations.tierId,
+        approvedByUserId: belowFloorAuthorizations.approvedByUserId,
+        stateFingerprint: belowFloorAuthorizations.stateFingerprint,
+        invalidatedAt: belowFloorAuthorizations.invalidatedAt,
+      })
+      .from(belowFloorAuthorizations)
+      .where(eq(belowFloorAuthorizations.quoteId, quote.id));
+
+    const verdict = evaluateBelowFloorAuthorization({
+      authorizations,
+      scope: { quoteVersionNumber: quote.versionNumber, tierId: tierRollup.tierId },
+      currentFingerprint: fingerprintCommercialState({
+        totalRevenue: tierRollup.totalRevenue,
+        totalCost: tierRollup.totalCost,
+        blendedMarginPct: tierRollup.blendedMarginPct,
+      }),
+      actingUserId: actorUserId,
+    });
+
+    if (!verdict.ok) {
+      throw new Error(
+        `Blocked — the accepted tier (${tierRollup.label}) is below the firm's margin floor. ${verdict.message}`,
+      );
+    }
   }
   // Same reasoning as markAccepted's companion guard: an unpriced tier was
   // previously caught by the floor check via a fabricated 0% margin. It stays
@@ -340,11 +409,34 @@ export async function runMarkComplete(
   //   customs, and setup components separately. INV2978 (Aisha's
   //   canonical example): two grouped lines at $2.218 and $2.419
   //   with freight/customs invisible — the group doing its job.
-  //   Flat lines from Nexus would expose those components on any
-  //   customer-facing document.
-  //   → Aisha's wrap step remains MANDATORY for anything invoiced.
-  //     Nexus emits correct prices; Aisha wraps in the NS UI post-
-  //     push before invoice generation.
+  //
+  //   ┌─ SUPERSEDED 2026-08-11 (Edward, OD-004 business disposition) ─┐
+  //   │ This block previously read: "Aisha's wrap step remains         │
+  //   │ MANDATORY for anything invoiced."                              │
+  //   │                                                                │
+  //   │ That is OVERBROAD and is no longer governing authority.        │
+  //   │ Grouping FOLLOWS THE QUOTE'S AGREED CUSTOMER PRESENTATION:     │
+  //   │                                                                │
+  //   │   detail_level = 'itemized'      → do NOT group. The itemized  │
+  //   │                                    presentation is what the    │
+  //   │                                    customer agreed to; wrapping│
+  //   │                                    it would show them an       │
+  //   │                                    invoice shaped unlike their │
+  //   │                                    quote.                      │
+  //   │   detail_level = 'turnkey_only'  → grouping IS required.       │
+  //   │                                                                │
+  //   │ The axis is `quotes.detail_level`, read from the SEND-TIME     │
+  //   │ SNAPSHOT (`detail_level_snapshot`) — the value that was true   │
+  //   │ when the customer agreed, not the live column.                 │
+  //   │                                                                │
+  //   │ Governing record: docs/validation/od-004-decision-set.md.      │
+  //   │ Do not restore the universal rule; two live rules is exactly   │
+  //   │ what this supersession exists to prevent.                      │
+  //   └────────────────────────────────────────────────────────────────┘
+  //
+  //   Where grouping IS required, Aisha wraps in the NS UI post-push
+  //   before invoice generation; Nexus emits correct prices and (once
+  //   the grouping plan lands) the deterministic plan she executes.
   //
   // The `findOrCreateItemGroup` code + composition_hash + Nexus's
   // `netsuite_item_groups` table stay live in the codebase. 8c-1's
@@ -362,6 +454,19 @@ export async function runMarkComplete(
   //
   // /* const itemGroupOutcomes … */  // ← intentionally not built
   const itemGroupOutcomes: MarkCompleteResult["netsuite"]["itemGroups"] = [];
+
+  // Master-data evidence, read back from NetSuite at the boundary and recorded
+  // BEFORE the Sales Order exists. These are qtyPerParent quantities — what ONE
+  // group contains — never transaction quantities. Kept at this scope so the
+  // audit row carries them even when a later stage fails.
+  const itemGroupDefinitions: Array<{
+    assemblySku: string;
+    itemidDisplay: string;
+    netsuiteInternalId: string;
+    netsuiteExternalId: string;
+    outcome: string;
+    members: Array<{ netsuiteItemId: string; qtyPerParent: number }>;
+  }> = [];
 
   // ============================================================
   // STEP 6 — CHECK netsuite_so_pushes for prior success (#145 case)
@@ -392,7 +497,10 @@ export async function runMarkComplete(
   }
 
   let salesOrderInternalId: string;
-  let salesOrderTranid: string | null;
+  // Initialised null: Step 3's convergence block runs BEFORE the tranid fetch
+  // (the SO id is the recovery key; the tranid is diagnostic), so its operator
+  // messages must tolerate a not-yet-known display id.
+  let salesOrderTranid: string | null = null;
   let amountPushed: number;
   let retryOutcome: MarkCompleteResult["retryOutcome"];
   // Slice 12 Step 10 Q15 — tranid_fetch_outcome tracks the four
@@ -468,11 +576,21 @@ export async function runMarkComplete(
       (r) => r.skuRole === "leaf",
     );
     const lines: SalesOrderLine[] = [];
+    // Track B §4 — assembly attribution, captured HERE rather than re-derived
+    // later. Constraint 3: the plan is built from the same governed state as
+    // the outgoing handoff, so the two cannot disagree.
+    const planLines: PlanLineInput[] = [];
     for (const leafRollup of leafRollups) {
       // Locate the leaf's tree entry to get its SKU + name.
       const treeLeaf = tree.assemblies
         .flatMap((a) => a.children.map((c) => ({ assembly: a, child: c })))
-        .find(({ child }) => child.junctionId === leafRollup.skuId);
+        // OD-028 — match on the CANONICAL cost-input identity. `skuRollups` are
+        // keyed by quote_leaf_id since OD-017; `junctionId` is the legacy
+        // assembly_leaf id and matched 0/2 on Order B, so every leaf was
+        // skipped and the empty-lines guard refused the push. Deliberately NO
+        // fallback to junctionId: a fallback would silently re-absorb the next
+        // re-key, which is exactly how this class keeps recurring.
+        .find(({ child }) => child.quoteLeafId === leafRollup.skuId);
       if (!treeLeaf?.child.sku) continue; // no SKU → skipped upstream by resolver
       const nsId = nsIdBySku.get(treeLeaf.child.sku);
       if (!nsId) continue;
@@ -485,6 +603,7 @@ export async function runMarkComplete(
       const qtyPerParent = Math.max(1, Math.round(leafRollup.qtyPerParent ?? 1));
       const effectiveQty = (tierRow.qty ?? 0) * qtyPerParent;
 
+      const lineRate = Number(perTierRollup.requiredSellPerUnit);
       lines.push({
         netsuiteItemId: nsId,
         sku: treeLeaf.child.sku,
@@ -492,11 +611,23 @@ export async function runMarkComplete(
           treeLeaf.child.name ||
           `${treeLeaf.assembly.name} — ${treeLeaf.child.sku}`,
         quantity: effectiveQty,
-        rate: Number(perTierRollup.requiredSellPerUnit),
+        rate: lineRate,
         unitCost:
           perTierRollup.contributionCostPerUnit != null
             ? Number(perTierRollup.contributionCostPerUnit)
             : null,
+      });
+      planLines.push({
+        assemblyId: treeLeaf.assembly.id,
+        assemblySku: treeLeaf.assembly.sku,
+        assemblyName: treeLeaf.assembly.name,
+        sku: treeLeaf.child.sku,
+        netsuiteItemId: nsId,
+        quantity: effectiveQty,
+        // The Item Group DEFINITION multiplier — how many of this leaf one
+        // group contains, independent of how many groups the tier buys.
+        qtyPerParent,
+        rate: lineRate,
       });
     }
 
@@ -506,7 +637,10 @@ export async function runMarkComplete(
       );
     }
 
-    const builtPayload = buildSalesOrderPayload({
+    // Extracted so the turnkey_only branch can rebuild the SAME header with
+    // group lines swapped in — every governed header field stays identical by
+    // construction rather than by being re-listed.
+    const soPayloadInput = {
       netsuiteCustomerId: customer.netsuiteCustomerId,
       subsidiaryId: firm.netsuiteSubsidiaryId,
       orderStatusCode: firm.netsuiteSoOrderStatusCode,
@@ -526,12 +660,149 @@ export async function runMarkComplete(
       priority: dealCache.priority,
       dealType: dealCache.dealType,
       lines,
+    };
+    const builtPayload = buildSalesOrderPayload(soPayloadInput);
+
+    // Track B §4 — freeze the grouping plan ALONGSIDE the payload, under a
+    // reserved key stripped before transmission. It is the comparison target
+    // the turnkey_only read-back needs; without it a wrong-member grouping with
+    // a correct total is undetectable.
+    const groupingPlan = buildGroupingPlan({
+      detailLevel: acceptedDetailLevel,
+      customerNetsuiteId: customer.netsuiteCustomerId,
+      tierQty: tierRow.qty ?? null,
+      lines: planLines,
     });
+    // ── Step 2 — deterministic Item Group resolution + Group-line emission ──
+    //
+    // turnkey_only ONLY. `itemized` keeps the flat payload built above,
+    // byte-for-byte: an itemized quote acquires no grouping requirement, and
+    // its presentation is what the customer agreed to.
+    //
+    // The plan is the authority. No hash is recomputed and no identity is
+    // derived here — `adaptPlannedGroup` carries the frozen
+    // `compositionHash` / `nxs-grp-<hash>` through, and
+    // `assertIdentityMatchesPlan` proves the primitive returned that same
+    // identity rather than one of its own.
+    let payloadForSend = builtPayload;
+    if (groupingPlan.groupingRequired && groupingPlan.groups.length > 0) {
+      if (!groupingPlan.derivable) {
+        throw new Error(
+          "[markComplete] The grouping plan carries no deterministic identity for at least one " +
+            "assembly, so Item Group lines cannot be emitted. Refusing before Sales Order CREATE.",
+        );
+      }
+
+      const groupCtx = {
+        // GOVERNED SUBSIDIARY AUTHORITY — the same firm_settings value the
+        // Sales Order header uses. Not hardcoded; the Case B fixture's
+        // subsidiary must not be baked into the primitive.
+        subsidiaryId: firm.netsuiteSubsidiaryId,
+        customerNetsuiteId: customer.netsuiteCustomerId,
+        // Description text only — the group's identity is the composition
+        // hash, never this string.
+        customerDisplay: customer.netsuiteCustomerId,
+        dealName: dealCache.dealName,
+        hubspotDealId: projectRow.hubspotDealId as string,
+        quoteId,
+        userId: actorUserId,
+      };
+
+      const emittedGroupLines: Array<{
+        netsuiteItemId: string;
+        sku: string;
+        quantity: number;
+      }> = [];
+
+      for (const planned of groupingPlan.groups) {
+        const adapted = adaptPlannedGroup(planned, groupCtx);
+        const resolved = await findOrCreateItemGroup(adapted);
+
+        // The primitive must have produced the identity the plan froze.
+        assertIdentityMatchesPlan(adapted, resolved);
+
+        // MASTER-DATA BOUNDARY. Read the definition back from NetSuite and
+        // verify it before any Sales Order references it — for CREATED groups
+        // as well as reused ones.
+        //
+        // Reuse safety is the older half: an external-id hit proves the group
+        // was created for this composition once, not that it still HAS that
+        // composition. An administrator can re-quantify members afterwards and
+        // the external id does not change with them.
+        //
+        // Created groups are verified for a different reason, learned from
+        // SO2703. A freshly created group used to be TRUSTED — the write
+        // succeeded, so its contents were assumed correct. They were not: the
+        // adapter had written tier-expanded quantities into the definition,
+        // NetSuite accepted them, and the error only became visible after the
+        // Sales Order had expanded them to 1,000,000 units and consumed the
+        // deal. The definition is the last thing that can be checked while
+        // failure is still free, so it is checked unconditionally.
+        //
+        // Fails CLOSED, before CREATE. The group is never rewritten to match:
+        // Item Groups are shared master data, and silently re-editing one could
+        // change another order's meaning.
+        const actualMembers = await readItemGroupMembers(resolved.netsuiteInternalId);
+        const verdict = verifyReusedGroupMembership(adapted, actualMembers);
+        if (!verdict.matches) {
+          throw new Error(
+            `[markComplete] NetSuite Item Group ${resolved.itemidDisplay} ` +
+              `(${resolved.netsuiteExternalId}, ${resolved.outcome}) does not match the frozen ` +
+              `grouping plan for assembly ${planned.assemblySku}: ${verdict.problems.join("; ")}. ` +
+              `Refusing before Sales Order CREATE rather than rewriting shared NetSuite master data.`,
+          );
+        }
+        itemGroupDefinitions.push({
+          assemblySku: planned.assemblySku,
+          itemidDisplay: resolved.itemidDisplay,
+          netsuiteInternalId: resolved.netsuiteInternalId,
+          netsuiteExternalId: resolved.netsuiteExternalId,
+          outcome: resolved.outcome,
+          // qtyPerParent master quantities, as NetSuite holds them.
+          members: actualMembers.map((m) => ({
+            netsuiteItemId: m.netsuiteItemId,
+            qtyPerParent: m.quantity,
+          })),
+        });
+
+        emittedGroupLines.push({
+          netsuiteItemId: resolved.netsuiteInternalId,
+          sku: resolved.itemidDisplay,
+          quantity: groupingPlan.tierQty ?? 0,
+        });
+
+        itemGroupOutcomes.push({
+          assemblyId: planned.assemblyId,
+          compositionHash: resolved.compositionHash,
+          netsuiteExternalId: resolved.netsuiteExternalId,
+          netsuiteInternalId: resolved.netsuiteInternalId,
+          itemidDisplay: resolved.itemidDisplay,
+          outcome: resolved.outcome,
+        });
+      }
+
+      // Group lines REPLACE the flat lines — never accompany them. The builder
+      // refuses both together (Probe 7a duplication), so this is checked twice
+      // by construction.
+      payloadForSend = buildSalesOrderPayload({
+        ...soPayloadInput,
+        lines: [],
+        groupLines: emittedGroupLines,
+      });
+    }
+
+    const builtPayloadWithPlan = attachGroupingPlan(payloadForSend, groupingPlan);
 
     let [durableAttempt] = await db
       .select({
         id: netsuiteSoPushes.id,
         payloadSnapshot: netsuiteSoPushes.payloadSnapshot,
+        // Step 1 recovery core — the resumable state is (status, so_id).
+        // Both are selected so the CREATE branch can be skipped when an
+        // order already exists at the provider.
+        status: netsuiteSoPushes.status,
+        netsuiteSoId: netsuiteSoPushes.netsuiteSoId,
+        netsuiteSoTranid: netsuiteSoPushes.netsuiteSoTranid,
       })
       .from(netsuiteSoPushes)
       .where(
@@ -539,22 +810,83 @@ export async function runMarkComplete(
           eq(netsuiteSoPushes.quoteId, quoteId),
           eq(netsuiteSoPushes.quoteSnapshotId, acceptedSnapshotId),
           sql`${netsuiteSoPushes.payloadSnapshot} IS NOT NULL`,
+          // Lifecycle-aware election (2026-08-12). A CLOSED attempt does not
+          // own the snapshot's future retry payload.
+          //
+          // `status` used to be ignored here, so a terminal validation
+          // rejection permanently pinned its own invalid body: every later
+          // retry replayed the known-bad payload and no code repair could ever
+          // reach NetSuite. Found when the Class repair could not take effect
+          // on the Case B retry.
+          //
+          // ONLY `failed + validation` is excluded, and only because the
+          // evidence shows that state is conclusively terminal AND
+          // side-effect-free:
+          //   - NetSuite returned an explicit 4xx validation rejection;
+          //   - no internal id came back;
+          //   - the deal still carried ZERO Sales Orders afterwards (measured,
+          //     not assumed — Walk 1, deal 58332160883);
+          //   - the provider never created a transaction.
+          //
+          // Deliberately NOT a blanket `status <> 'failed'`. Every other
+          // failure keeps pinning, because its outcome is not conclusively
+          // known:
+          //   server  (5xx)   — NetSuite may have committed and failed to reply
+          //   network         — response lost; the POST may have landed
+          //   unknown         — unclassified by definition
+          //   rate_limit/auth/forbidden/not_found — refused before processing,
+          //                     so probably safe, but we have no MEASURED
+          //                     evidence for them and conservatism costs only
+          //                     a stuck payload, never a duplicate order.
+          //
+          // Backstop if a validation failure ever did create a record: the
+          // account's `_dps_ue_prevent_dupplicated_so.js` refuses a second
+          // Sales Order for a deal that already has one (DUPLICATED DEAL).
+          //
+          // MUST stay in lockstep with the partial unique index
+          // `netsuite_so_pushes_snapshot_attempt_unique_idx` (migration 0065),
+          // which uses the identical predicate so an excluded attempt also
+          // releases its claim on the snapshot and a new attempt row can be
+          // inserted. Selector and constraint are one rule expressed twice;
+          // changing one without the other reopens the defect.
+          sql`NOT (${netsuiteSoPushes.status} = 'failed' AND ${netsuiteSoPushes.errorClass} = 'validation')`,
         ),
       )
       .orderBy(asc(netsuiteSoPushes.createdAt))
       .limit(1);
-    let payload = (durableAttempt?.payloadSnapshot ?? builtPayload) as Record<string, unknown>;
+    let payload = (durableAttempt?.payloadSnapshot ?? builtPayloadWithPlan) as Record<string, unknown>;
     const idempotencyKey = computeIdempotencyKey(quoteId, acceptedSnapshotId);
 
     // The snapshot-keyed attempt and first payload must be durable before
     // POST. A concurrent loser reloads and replays the winner's payload.
     let pendingId: string;
+    // Step 1 recovery core — resumable post-CREATE attempt.
+    //
+    // Set when the elected attempt already carries a NetSuite Sales Order id.
+    // An order exists at the provider; issuing another CREATE is never
+    // correct, and the duplicate-deal SuiteScript would refuse it anyway.
+    //
+    // Keyed on SO-id presence rather than status alone (see
+    // attempt-lifecycle.mustNotCreate) so that a row which somehow carries an
+    // id under any other status still cannot re-create.
+    // True when this run rejoined an order the provider already held rather
+    // than creating one. Keeps the post-catch fallthrough from labelling it
+    // `fresh`.
+    let adoptedViaReconciliation = false;
+    let resumeSoId: string | null = durableAttempt?.netsuiteSoId ?? null;
+    let resumeSoTranid: string | null = durableAttempt?.netsuiteSoTranid ?? null;
+
     if (durableAttempt) {
       pendingId = durableAttempt.id;
-      await db
-        .update(netsuiteSoPushes)
-        .set({ status: "pending", errorClass: null, errorDetail: null })
-        .where(eq(netsuiteSoPushes.id, pendingId));
+      // Only reset to `pending` when nothing has been created. Resetting a
+      // resumable attempt would erase the very state that prevents a second
+      // CREATE.
+      if (!mustNotCreate(durableAttempt)) {
+        await db
+          .update(netsuiteSoPushes)
+          .set({ status: "pending", errorClass: null, errorDetail: null })
+          .where(eq(netsuiteSoPushes.id, pendingId));
+      }
     } else {
       try {
         const [pending] = await db
@@ -576,6 +908,9 @@ export async function runMarkComplete(
           .select({
             id: netsuiteSoPushes.id,
             payloadSnapshot: netsuiteSoPushes.payloadSnapshot,
+            status: netsuiteSoPushes.status,
+            netsuiteSoId: netsuiteSoPushes.netsuiteSoId,
+            netsuiteSoTranid: netsuiteSoPushes.netsuiteSoTranid,
           })
           .from(netsuiteSoPushes)
           .where(eq(netsuiteSoPushes.quoteSnapshotId, acceptedSnapshotId))
@@ -587,6 +922,12 @@ export async function runMarkComplete(
         }
         pendingId = durableAttempt.id;
         payload = durableAttempt.payloadSnapshot as Record<string, unknown>;
+        // The concurrent loser may have re-elected a row that ALREADY carries
+        // an SO id. Refresh the resume keys from what was actually loaded —
+        // they were computed before this re-select, and a stale null here
+        // would send the loser into CREATE against an existing order.
+        resumeSoId = durableAttempt.netsuiteSoId ?? null;
+        resumeSoTranid = durableAttempt.netsuiteSoTranid ?? null;
       }
     }
 
@@ -596,27 +937,145 @@ export async function runMarkComplete(
       console.log("[markComplete] SO payload:\n" + JSON.stringify(payload, null, 2));
     }
 
+    // ── AMBIGUOUS-CREATE RECONCILIATION (Step 2) ──────────────────────────
+    //
+    // An INHERITED attempt in `pending + netsuite_so_id = NULL` is not "safe to
+    // create again": it is indistinguishable between "died before POST" and
+    // "POST landed, response lost". A row inserted during THIS invocation has
+    // provably not been POSTed, so it is excluded — only `durableAttempt`
+    // reaches here.
+    //
+    // Provider-header idempotency cannot be leaned on: measured absent on this
+    // account (two identical keys → SO2705 + SO2706).
+    if (
+      durableAttempt &&
+      !mustNotCreate({ status: durableAttempt.status ?? "", netsuiteSoId: resumeSoId })
+    ) {
+      const decision = await reconcileBeforeCreate({
+        trigger: "ambiguous_attempt",
+        expect: {
+          customerId: customer.netsuiteCustomerId,
+          hubspotDealId: projectRow.hubspotDealId as string,
+          tierQty: groupingPlan.tierQty ?? 0,
+          plannedGroups: groupingPlan.groups,
+        },
+      });
+      if (decision.action === "adopt") {
+        // Rejoin the normal post-CREATE lifecycle through the SAME recovery
+        // boundary a fresh CREATE uses. No CREATE is issued; convergence and
+        // the unweakened final gate still have to pass before `succeeded`.
+        await recordSalesOrderCreated({
+          attemptId: pendingId,
+          netsuiteSoId: decision.candidate.internalId,
+          netsuiteSoTranid: decision.candidate.tranid,
+          amountPushed: currentAmount,
+        });
+        resumeSoId = decision.candidate.internalId;
+        resumeSoTranid = decision.candidate.tranid;
+        adoptedViaReconciliation = true;
+        // The prior CREATE DID succeed — only its response was lost — so this
+        // is convergence from a prior success, not a new outcome kind. The
+        // adoption itself is forensically recorded on the attempt row.
+        retryOutcome = "converged_from_prior_success";
+      } else if (decision.action === "fail_closed") {
+        await recordNeedsReconciliation({
+          attemptId: pendingId,
+          errorDetail: `${decision.reason}${decision.failures.length ? ` — ${decision.failures.join("; ")}` : ""}`,
+        });
+        throw new Error(
+          `[markComplete] ambiguous Sales Order CREATE outcome: ${decision.reason}`,
+        );
+      }
+      // action === "create" — the provider positively shows no order for this
+      // deal, so the CREATE below is safe.
+    }
+
     let created;
+    if (mustNotCreate({ status: durableAttempt?.status ?? "", netsuiteSoId: resumeSoId })) {
+      // RESUME. A Sales Order already exists for this durable attempt, so the
+      // CREATE is skipped entirely — not retried, not conditionally repeated.
+      // Step 2 will read this SO back structurally and complete the member
+      // rates; Step 1 only guarantees we arrive here instead of creating a
+      // duplicate.
+      created = { internalId: resumeSoId as string };
+      salesOrderInternalId = resumeSoId as string;
+      salesOrderTranid = resumeSoTranid;
+      amountPushed = currentAmount;
+      retryOutcome = "converged_from_prior_success";
+    } else {
     try {
-      created = await netsuite.createSalesOrder(payload, { idempotencyKey });
+      // Track B §4 — the envelope never reaches NetSuite. Unconditional and
+      // safe on payloads that never carried one, which is what makes it
+      // correct on the durable-replay path too (a replayed snapshot carries
+      // the envelope). The transmitted body is byte-identical to pre-§4.
+      created = await netsuite.createSalesOrder(stripGroupingPlan(payload), {
+        idempotencyKey,
+      });
     } catch (e) {
-      // NS create failed. Update the pending row (if we managed to
-      // write it) to failed status with error detail. Then throw.
+      // NS create failed. Route through the centralised lifecycle so the
+      // invariant is enforced in one place: pre-CREATE (no SO id) is terminal
+      // `failed` with 0065 semantics intact; an attempt that already carries
+      // an SO id can never be marked failed.
       const err = e instanceof NetsuiteError ? e : null;
       const failedAt = new Date();
       const errClass = err?.className ?? "unknown";
       const errDetail = err?.context.detail ?? String(e);
+
+      // ── DUPLICATED DEAL (Step 3) ────────────────────────────────────────
+      //
+      // The provider has just asserted an order EXISTS for this governed deal.
+      // Its HTTP class is 400, shared with ordinary validation, but its business
+      // meaning is the opposite: validation means "nothing happened, discard
+      // safely" — this means "the external effect you attempted may already
+      // exist". Routing it to the validation branch is what released snapshot
+      // ownership and orphaned the real order.
+      if (errClass === "duplicate_deal" && pendingId) {
+        const decision = await reconcileBeforeCreate({
+          trigger: "duplicate_deal",
+          expect: {
+            customerId: customer.netsuiteCustomerId,
+            hubspotDealId: projectRow.hubspotDealId as string,
+            tierQty: groupingPlan.tierQty ?? 0,
+            plannedGroups: groupingPlan.groups,
+          },
+        });
+        if (decision.action === "adopt") {
+          await recordSalesOrderCreated({
+            attemptId: pendingId,
+            netsuiteSoId: decision.candidate.internalId,
+            netsuiteSoTranid: decision.candidate.tranid,
+            amountPushed: currentAmount,
+          });
+          created = { internalId: decision.candidate.internalId };
+          salesOrderInternalId = decision.candidate.internalId;
+          salesOrderTranid = decision.candidate.tranid;
+          amountPushed = currentAmount;
+          adoptedViaReconciliation = true;
+          retryOutcome = "converged_from_prior_success";
+        } else {
+          // Zero candidates is a CONTRADICTION — the guard matched on something
+          // this query cannot see — and several candidates cannot be
+          // disambiguated. Both park; neither creates. `create` is unreachable
+          // here by construction (`decideReconciliation` never returns it for
+          // this trigger), and is treated as fail-closed regardless.
+          const reason =
+            decision.action === "fail_closed" ? decision.reason : "unresolved duplicate-deal outcome";
+          const detail =
+            decision.action === "fail_closed" && decision.failures.length
+              ? `${reason} — ${decision.failures.join("; ")}`
+              : reason;
+          await recordNeedsReconciliation({ attemptId: pendingId, errorDetail: detail });
+          throw new Error(`[markComplete] DUPLICATED DEAL could not be reconciled: ${detail}`);
+        }
+      } else {
       if (pendingId) {
         try {
-          await db
-            .update(netsuiteSoPushes)
-            .set({
-              status: "failed",
-              errorClass: errClass,
-              errorDetail: errDetail,
-              completedAt: failedAt,
-            })
-            .where(eq(netsuiteSoPushes.id, pendingId));
+          await recordAttemptFailure({
+            attemptId: pendingId,
+            netsuiteSoId: resumeSoId,
+            errorClass: errClass,
+            errorDetail: errDetail,
+          });
         } catch {
           // secondary write failed — original throw is the real error
         }
@@ -626,12 +1085,18 @@ export async function runMarkComplete(
       // across page reloads without a join to netsuite_so_pushes.
       // Non-fatal — if this write fails, netsuite_so_pushes still
       // carries the row; preflight loader reads either source.
+      //
+      // Step 1: mirrors the RESUMABLE variant when an SO already exists, so
+      // the operator surface never shows "failed" for an order that was in
+      // fact created. Same branch condition as the lifecycle helper.
       try {
         await db
           .update(quotesTable)
           .set({
-            netsuiteSoPushStatus: "failed",
-            netsuiteSoPushError: errDetail,
+            netsuiteSoPushStatus: resumeSoId ? "awaiting_rates" : "failed",
+            netsuiteSoPushError: resumeSoId
+              ? awaitingRatesOperatorMessage(resumeSoTranid)
+              : errDetail,
             updatedAt: failedAt,
           })
           .where(eq(quotesTable.id, quoteId));
@@ -639,11 +1104,131 @@ export async function runMarkComplete(
         // non-fatal — preflight reads netsuite_so_pushes as fallback
       }
       throw e;
+      }
     }
 
     salesOrderInternalId = created.internalId;
     amountPushed = currentAmount;
-    retryOutcome = "fresh";
+    // An adopted order was created by the PRIOR attempt whose response was
+    // lost, so it must not be relabelled `fresh` on the way out of the catch.
+    retryOutcome = adoptedViaReconciliation ? "converged_from_prior_success" : "fresh";
+
+    // *** THE RECOVERY BOUNDARY ***
+    //
+    // Persist the SO identity and move the attempt to `awaiting_rates`
+    // IMMEDIATELY, before anything else can fail. Step 2's member-rate
+    // PATCH sequence runs after this point; a crash anywhere in it leaves a
+    // row that knows which order exists and resumes against it.
+    //
+    // Deliberately BEFORE the tranid fetch below: the tranid is diagnostic,
+    // the internal id is the recovery key, and the id must be durable even
+    // if the follow-up GET fails.
+    try {
+      await recordSalesOrderCreated({
+        attemptId: pendingId,
+        netsuiteSoId: salesOrderInternalId,
+        netsuiteSoTranid: null,
+        amountPushed: currentAmount,
+      });
+    } catch (persistErr) {
+      // A created SO whose id we failed to persist is the one thing worse
+      // than a failed create — it is unreachable by any retry. Surface it
+      // loudly rather than continuing into the rate sequence.
+      throw new Error(
+        `[markComplete] Sales Order ${salesOrderInternalId} was created but its identity could not be persisted; ` +
+          `manual reconciliation required. Cause: ${String(persistErr)}`,
+      );
+    }
+    } // end CREATE branch (skipped entirely when resuming)
+
+    let rateConvergenceSummary: { patched: number; alreadyCorrect: number } | null = null;
+
+    // ── Step 3 — negotiated member-rate convergence + verification ────────
+    //
+    // Runs for turnkey_only only, AFTER the recovery boundary. Every failure
+    // from here on routes through recordAttemptFailure, which — because
+    // `netsuite_so_id` is now non-null — holds the attempt at
+    // `awaiting_rates` rather than `failed`. So an interruption anywhere in
+    // this block leaves an order that the next invocation resumes against.
+    //
+    // Convergent, not replayed: the order is re-read every run, addresses are
+    // re-derived from that read, correct members are skipped, and only
+    // mismatches are patched. A fully-correct order performs no commercial
+    // mutation.
+    if (groupingPlan.groupingRequired && groupingPlan.groups.length > 0) {
+      try {
+        const convergence = await runRateConvergence({
+          soId: salesOrderInternalId,
+          plannedGroups: groupingPlan.groups,
+          tierQty: groupingPlan.tierQty ?? 0,
+          acceptedTotal: currentAmount,
+          expectHeader: {
+            customerId: customer.netsuiteCustomerId,
+            hubspotDealId: projectRow.hubspotDealId as string,
+            businessSegmentId: dealCache.businessSegmentId,
+            termsPresent: true,
+          },
+          provider: {
+            readLines: (id: string) => readSalesOrderLines(id),
+            readHeader: (id: string) => readSalesOrderHeader(id),
+            patchLine: (id: string, address: number, patch: { rate: number }) =>
+              patchSalesOrderLine(id, address, patch),
+          },
+        });
+
+        if (!convergence.gate.pass) {
+          // The order exists and may be partly priced. Retained as resumable
+          // with the SO identity intact — never discarded, never re-created.
+          throw new Error(
+            `Sales Order ${salesOrderTranid ?? salesOrderInternalId} was created but is not ` +
+              `commercially complete. ${convergence.gate.failures.join("; ")}. ` +
+              `The order is retained and this push can be safely retried — it will resume ` +
+              `against the same Sales Order rather than creating another.`,
+          );
+        }
+        rateConvergenceSummary = {
+          patched: convergence.patched.length,
+          alreadyCorrect: convergence.alreadyCorrect,
+        };
+      } catch (e) {
+        const err = e instanceof NetsuiteError ? e : null;
+        // POST-CREATE VERIFICATION CLASS. Everything reachable here runs AFTER
+        // the Sales Order exists, so a non-provider failure in this block is
+        // always the same thing: the order was created but could not be shown
+        // to be commercially complete. `"verification"` names that; the old
+        // `"unknown"` said only that nobody had classified it, which is what
+        // SO2703's gate refusal recorded despite being fully understood.
+        //
+        // A NetsuiteError keeps its own className (rate_limit, auth, …) — that
+        // is strictly more specific, and those are transport failures rather
+        // than verdicts about the order's contents.
+        //
+        // CANNOT BECOME RELEASABLE. The 0065 predicate releases only
+        // `failed + validation`; `netsuiteSoId` is non-null here, so
+        // recordAttemptFailure holds the attempt at `awaiting_rates` and it can
+        // never be `failed` at all. The predicate is untouched — this class is
+        // excluded by the invariant, not by widening the rule.
+        await recordAttemptFailure({
+          attemptId: pendingId,
+          netsuiteSoId: salesOrderInternalId, // non-null ⇒ cannot become `failed`
+          errorClass: err?.className ?? "verification",
+          errorDetail: err?.context.detail ?? String(e),
+        });
+        try {
+          await db
+            .update(quotesTable)
+            .set({
+              netsuiteSoPushStatus: "awaiting_rates",
+              netsuiteSoPushError: awaitingRatesOperatorMessage(salesOrderTranid),
+              updatedAt: new Date(),
+            })
+            .where(eq(quotesTable.id, quoteId));
+        } catch {
+          // non-fatal — netsuite_so_pushes still carries the resumable row
+        }
+        throw e;
+      }
+    }
 
     // Slice 12 Step 10 Q15 — post-create tranid fetch.
     //
@@ -822,6 +1407,10 @@ export async function runMarkComplete(
           tranid_fetch_outcome: tranidFetchOutcome,
           customer_netsuite_id: customer.netsuiteCustomerId,
           item_groups: itemGroupOutcomes,
+          // Provider-read master definitions (qtyPerParent), captured before
+          // SO CREATE. Separate from item_groups, which records identity and
+          // create-vs-reuse outcome rather than contents.
+          item_group_definitions: itemGroupDefinitions,
         },
       },
     }, tx);
@@ -898,6 +1487,24 @@ async function runAmountPatchIfNeeded(args: {
   priorAmount: number | null;
   currentAmount: number;
 }): Promise<MarkCompleteResult["amountPatch"]> {
+  // CERTIFICATION MODE — see src/lib/config/certification-mode.ts. Complete is
+  // the SECOND production HubSpot write in the certification path: on amount
+  // drift it PATCHes the real deal, which would change the deal's
+  // last-modified timestamp even though Accept left it untouched. Checked
+  // before the drift computation so no drift can reach the write at all.
+  //
+  // Reported as "skipped" (the existing no-write status) rather than a new
+  // status, so every downstream consumer of amountPatch keeps working; the
+  // suppression itself is legible from the certification banner and the
+  // suppressed quote_accepted audit row.
+  if (isHubspotAcceptSyncSuppressed()) {
+    return {
+      status: "skipped",
+      prior: args.priorAmount,
+      current: args.currentAmount,
+      delta: null,
+    };
+  }
   if (args.priorAmount === null) {
     return { status: "skipped", prior: null, current: args.currentAmount, delta: null };
   }

@@ -1,0 +1,46 @@
+-- OD-017 · a freight shipment is a CONTAINER, not an ASY-owned object.
+--
+-- `freight_subcategories.assembly_id NOT NULL` encoded the assumption that every
+-- shipment belongs to a Finished Product. Under the approved Product Structure
+-- model that is false: commercial membership is expressed through
+-- `freight_subcategory_items.quote_leaf_id`, and a Direct Component is a
+-- governed commercial leaf with no assembly at all.
+--
+-- The practical consequence, and the reason this blocks OD-017: a Direct
+-- Component could JOIN an existing shipment but a quote containing ONLY Direct
+-- Components could not create one — the operator would have to invent an ASY to
+-- satisfy a column, which is exactly the structural fiction the model rejects.
+--
+-- SCOPE: one column, one nullability relaxation. No backfill, no row rewrite,
+-- no other Freight change. Existing values are preserved; a shipment that
+-- legitimately belongs to a Finished Product keeps saying so.
+--
+-- PRE-MIGRATION FACTS, measured live:
+--   freight_subcategories        4 rows, 4 with assembly_id, 0 NULL
+--   constraints                  simple FK → assemblies(id) ON DELETE CASCADE;
+--                                FK → quotes(id) ON DELETE CASCADE;
+--                                composite FK on (selected_destination_id, id)
+--   composite (assembly_id, quote_id) FK on THIS table: none
+--   triggers                     none
+--   inbound FKs                  reference `id` only, never assembly ownership
+--
+-- WHY THIS IS SAFE RATHER THAN MERELY UNBLOCKED:
+--
+--   * Relaxing NOT NULL cannot invalidate an existing row — every current value
+--     still satisfies the weaker constraint. There is nothing to backfill and
+--     no row to rewrite.
+--   * The FK is retained. A NULL satisfies a foreign key, so a Direct-only
+--     shipment costs nothing while every assembly-owned row stays guarded.
+--   * ON DELETE CASCADE keeps its meaning where it has one: deleting an
+--     assembly still removes shipments that belong to it. A Direct-only
+--     shipment has no assembly to be deleted with, and remains covered by the
+--     quote_id CASCADE — so no shipment outlives its quote.
+--   * `freight_subcategories_assembly_idx` is a plain btree and indexes NULLs
+--     without change.
+--
+-- The runtime invariant this enables is stated once, here, so it is not
+-- re-derived from the column: membership comes from
+-- `freight_subcategory_items.quote_leaf_id`. Nothing may reintroduce an
+-- assembly requirement elsewhere to compensate for this column being nullable.
+
+ALTER TABLE "freight_subcategories" ALTER COLUMN "assembly_id" DROP NOT NULL;

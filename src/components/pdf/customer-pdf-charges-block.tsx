@@ -38,11 +38,22 @@ export function ChargesBlock({
   return (
     <View style={styles.charges} wrap={false}>
       <Text style={styles.eyebrow}>{"Additional charges".toUpperCase()}</Text>
-      <Text style={styles.h2}>One-time fees {"&"} pass-through freight</Text>
-      <Text style={styles.chargeSub}>
-        Freight amounts shown landed per unit for {recTier.full} (
-        {qtyK(recTier.quantity)} units). Per-tier amounts available on request.
+      {/* Proof-5 repair (2026-08-11) — the block's own title and subtitle are
+          freight-specific statements and were unconditional, so a quote with
+          service fees and no freight lines announced "pass-through freight" and
+          then explained how freight amounts are shown, while showing none. Same
+          defect as the `freightAtCost={hasCharges}` gate, one layer over.
+          Gated on the same evidence: the freight lines actually in the model. */}
+      <Text style={styles.h2}>
+        One-time fees
+        {freightLines.length > 0 ? ` & pass-through freight` : ""}
       </Text>
+      {freightLines.length > 0 && (
+        <Text style={styles.chargeSub}>
+          Freight amounts shown landed per unit for {recTier.full} (
+          {qtyK(recTier.quantity)} units). Per-tier amounts available on request.
+        </Text>
+      )}
       {/* Slice 11 matrix Fix 1c (2026-07-27) — only render the fee
           section header when there are actual fee line items. Same
           shape as the C2-B gate: an unconditional header with zero

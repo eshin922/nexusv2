@@ -48,6 +48,21 @@ test("VAL-208 previews, applies, and exactly undoes a bulk pricing lift", async 
 
   const sql = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
   try {
+    // Fixture precondition (VAL-208, 2026-08-10). This scenario needs an
+    // EDITABLE quote. When it previously shared `quotes.draft` with the send
+    // lifecycle -- which runs in a different Playwright project, concurrently,
+    // against the same database -- a lost race surfaced eleven assertions later
+    // as a UI timeout waiting for a status message, with nothing on screen
+    // pointing at lifecycle state. Assert it here so contamination fails at the
+    // harness boundary, naming its own cause.
+    const [precondition] = await sql<{ status: string }[]>`
+      select status from quotes where id = ${fixture.quoteId}
+    `;
+    expect(
+      precondition?.status,
+      "VAL-208 requires a draft quote; something advanced its lifecycle first",
+    ).toBe("draft");
+
     const before = await sql`
       select id, tier_price_adj_pct::text as adjustment
       from quote_tiers where quote_id = ${fixture.quoteId} order by sort_order

@@ -5279,7 +5279,46 @@ yes, it is a row. If no, whatever it has to say is **metadata about the row that
 does carry the money**, and belongs there: a legend qualifier, a tooltip, a
 sublabel. Not a line of its own.
 
-**Reference moment — three passes, two of them wrong, each defensible.** Bulk raw
+> **⚠ THE WORKED EXAMPLE BELOW WAS INVALIDATED BY IMPLEMENTATION EVIDENCE
+> (T-4, 2026-08-11). THE RULE STANDS; THE EXAMPLE DOES NOT.**
+>
+> The three passes are preserved as written because the decision was really
+> taken and the correction is only legible against it. But the factual premise
+> every pass rested on — that bulk raw has no independently governed value — is
+> false:
+>
+> - `rawSectionNode` **exists and is canonical**: `nodeKey(sku, tier, "raw")`,
+>   built at `costing.ts:1806-1868`.
+> - Bulk raw resolves markup through **`RAW_MARKUP_CATEGORY`**, a different
+>   authority from Manufacturing's `PRODUCTION_MARKUP_CATEGORY`.
+> - It is its **own `cellSections` entry**, contributing to quoted sell
+>   independently of Production.
+> - The cell-level `productionMarkupSum` (`costing.ts:1878`) reads
+>   `productionSectionNode.value` and **excludes** raw. Only the breakdown
+>   AGGREGATION folded the two — a reporting choice, not a statement about what
+>   is governed. Reading that aggregation as evidence about governance is the
+>   specific error.
+>
+> Applying **this rule's own test** — *does this have an independently governed
+> value, a canonical node of its own?* — bulk raw answers **yes**. It qualified
+> for a row under the very criterion used to remove it.
+>
+> **RAW was restored as its own Cost Stack section on 2026-08-11.** PROD now
+> reads net of raw so the subtotal is unchanged; costing arithmetic, quoted
+> sell, margins and markup policy were not touched. Evidence:
+> `tests/unit/cost-stack-bulk-raw-section.test.ts`. Full record:
+> `docs/validation/quote-translation-parity-matrix.md` §T-4.
+>
+> **The lesson this leaves is sharper than the one it replaced.** The rule asks
+> whether a quantity is independently governed. Answering that from a
+> *display-layer aggregate* rather than from the *node graph* gets it wrong in
+> exactly this direction — aggregation looks like absence. Ask the graph.
+>
+> Nothing here weakens the rule. A financial stack still contains only
+> independently governed quantities. Bulk raw is one.
+
+**Reference moment — three passes, two of them wrong, each defensible.**
+*(Historical record. Premise invalidated — see the notice above.)* Bulk raw
 is costed inside Production; `productionMarkupSum` already carries it, and no raw
 node exists.
 
@@ -5316,6 +5355,244 @@ per-line granularity does not exist in the graph yet.
   omission-plus-metadata to a visible stub.
 - Gate 1B §0 — the canonical node graph is what "independently governed" means
   operationally: a row belongs if a node backs it.
+
+## Pattern 58 — "Membership determines attribution, never arithmetic"
+
+**Standing design rule — Edward's ratification, 2026-08-12.** Banked from the
+OD-017 Direct Component Freight proof. **Supersedes** the earlier and overly
+broad principle *"nothing in the costing path may read membership."*
+
+> **Membership may determine attribution, but must never determine commercial
+> arithmetic.**
+
+These must remain **invariant to the attribution anchor**:
+
+- freight amount
+- freight markup
+- customs
+- landed cost
+- quoted sell
+
+**The distinction.** Membership determines *where an already-computed economic
+contribution belongs*. It must not determine *how much the contribution is*.
+
+**Anchor selection rule.**
+
+- Where an explicit Finished Product / assembly owner exists, **retain that
+  owner** as the attribution anchor.
+- Where no assembly exists, a Direct Component derives its anchor from governed
+  `freight_subcategory_items.quote_leaf_id`.
+
+**Why the old rule was wrong, not merely inconvenient.** It was stated as a
+prohibition on *reading* a table, which is a proxy for the real property. A
+shipment with no assembly has nothing BUT its membership relating it to a
+commercial leaf, so under the old wording a Direct Component's freight could
+never reach costing at all — the proxy forbade the legitimate case along with
+the illegitimate one. The property that actually matters is that no arithmetic
+moves.
+
+**Required evidence — the falsification, not the absence of a symbol.** A grep
+for a table name cannot establish this. The governing evidence is the existing
+test proving an **identical economic contribution under two different
+attribution anchors**
+(`tests/unit/freight-shipment-membership.test.ts`). Any future surface that
+introduces an anchor must carry the same falsification: change the anchor, hold
+every listed quantity constant.
+
+**Two measurement lessons banked from OD-025's repair.** Both produced confident
+false claims before they were caught.
+
+**0. A lookup wrapper that catches errors and returns "missing" cannot
+establish nonexistence.** It reports the same value for "deleted" and "the call
+failed", so a transient failure becomes a false verdict of absence. Absence is a
+claim and needs its own evidence: distinguish `exists` / authoritative
+`not_found` / `read_failed`, and make the third INDETERMINATE rather than
+folding it into the second. Banked from OD-027, where the Bottle/Box
+nonexistence finding was only valid because the reads were repeated with errors
+surfaced AND a known-good control succeeded through the same path.
+
+**1. A census pattern that cannot match the thing it certifies proves nothing.**
+"Zero monetary movement" was reported twice on the strength of a grep for
+`" -> "` — quoted strings on both sides. Numeric differences carry no quotes, so
+the pattern was structurally incapable of matching a moved number. It reported
+zero because it could only ever report zero. Same shape as the ad-hoc test
+runner below: a self-consistent measurement taken with the wrong instrument.
+**Check that your filter can express a failure before trusting it to report
+none.**
+
+**2. `(v − f) × 1 + f` is not `v`.** A dimension-aware fold that holds the
+freight portion out of a multiplication and re-adds it is exact algebra and
+inexact IEEE-754: where the held-out portion exceeds the composite — routine for
+a small delta — the subtraction cancels and the re-addition does not restore the
+original bits. On the live population that noise moved `blendedMarginPct` on
+three real quotes, from a repair whose entire premise was that it moves no money.
+Short-circuit the identity case (`qty === 1`) rather than trusting the round
+trip, and assert it **bit-for-bit**, not rounded.
+
+**The invariant held CONTINGENTLY, not structurally — OD-025, now CLOSED.**
+Discovered while building the ratification evidence, which is the argument for
+demanding falsification rather than a grep.
+
+Freight is amortised per unit, attributed to one leaf, then multiplied by that
+leaf's quantity in the rollup. So when leaf quantities differ, moving the anchor
+DOES move quote-level arithmetic:
+
+```
+equal quantities (1, 1)   anchor A → freight 650   anchor B → freight 650   holds
+unequal quantities (2, 3) anchor A → freight 1300  anchor B → freight 650   VIOLATED
+```
+
+Every live attachment carries quantity 1, so all anchors agree and the invariant
+holds on production data — which is exactly why S-7 reported zero monetary
+movement across the whole population. A property holding by coincidence reading
+as one holding by construction (Pattern 56).
+
+Not introduced by OD-017: the multiplication predates it. OD-017 made a second
+anchor *selectable* for shipments with no assembly. Assembly-owned shipments
+still resolve to exactly one anchor, so no live quote is affected today.
+
+Held as a **tripwire** while OD-025 was open — the divergence was asserted, so
+repairing it failed the test and forced the finding closed rather than letting it
+quietly outlive its record. **REPAIRED 2026-08-12** by the dimension-aware fold;
+the tripwire was **inverted into the permanent invariant assertion**, not
+deleted. Full falsification set:
+`tests/unit/od-025-attribution-arithmetic.test.ts`.
+
+**Recognition heuristic.** When a rule is expressed as "module X must not import
+Y", ask what property that import would violate. If the property can be asserted
+directly — and especially if it can be falsified — assert the property. Import
+bans are cheap to check and easy to satisfy while still breaking the thing they
+were meant to protect.
+
+**Cross-references.**
+- "Exact reconciliation is necessary but not sufficient" — the sibling rule.
+  Attribution correctness and arithmetic correctness are separate checks; this
+  pattern is the case where attribution is ALLOWED to vary and arithmetic is not.
+- Pattern 57 (a financial stack contains only independently governed
+  quantities) — same family: ask what a display or a rule is really claiming.
+
+## Migration impact analysis — two lessons banked from OD-017
+
+**Standing verification discipline — 2026-08-12.** Both were real misses in a
+slice that was otherwise carefully evidenced, and both cost a false claim.
+
+**1. Action-layer support does not prove the database accepts a new structural
+state.** Constraints and triggers on **referencing** tables must be included in
+migration impact analysis — not only those on the table being altered.
+
+Reference moment: OD-017 reported "a Direct Component can join any existing
+shipment" on the strength of the action layer. It could not. A constraint
+trigger on `freight_subcategory_items` — a table *referencing* the one being
+altered — resolved membership through the legacy junction and rejected the
+write. The pre-migration probe checked triggers on `freight_subcategories` and
+correctly found none. **Checking the table being altered is not the same as
+checking the tables that reference it.**
+
+Practical sweep, before any structural migration:
+
+```sql
+-- triggers on the table AND on every table with an FK into it
+SELECT c.relname, t.tgname, pg_get_triggerdef(t.oid)
+  FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+ WHERE NOT t.tgisinternal
+   AND (c.oid = 'TARGET'::regclass
+        OR c.oid IN (SELECT conrelid FROM pg_constraint
+                      WHERE confrelid = 'TARGET'::regclass));
+```
+
+And exercise the write. A structural claim is proven by a transaction that
+performs it — rolled back if the state must not persist — never by reading the
+action layer.
+
+**2. Re-keying persistence does not prove all loaders emit the new canonical
+identity.** Draft, snapshot and alternate read paths require **independent**
+tracing.
+
+Reference moment: after OD-017 re-keyed the cost tables,
+`loadWorksheetFreightForQuote` — the live **draft** freight path, distinct from
+the snapshot path — still emitted the legacy `assembly_leaves.id` as its costing
+anchor. The math no longer keyed leaves that way, so worksheet freight on draft
+quotes would have attached to a SKU that does not exist and silently vanished.
+The snapshot path had been converted; the draft path was a sibling nobody
+enumerated.
+
+**Sweep rule:** when an identity changes, enumerate every producer of that
+identity, not every consumer of the table. Consumers surface in a type error;
+producers that emit a plausible-but-wrong value of the same type do not.
+
+## Exact reconciliation is necessary but not sufficient
+
+**Standing validation rule — Edward's directive, 2026-08-11.** Banked from the
+T-4 Bulk Raw finding.
+
+> Exact reconciliation is necessary but not sufficient. A presentation can
+> reconcile perfectly while attributing value to the wrong governing authority.
+
+**Why reconciliation feels like proof, and is not.** A stack that sums to its
+subtotal has demonstrated that no money was lost. It has demonstrated nothing
+about *whose* money each line is. Aggregate two contributions priced by two
+different authorities into one row and the total is still exact — the row now
+just reports a blended rate belonging to neither of them.
+
+**Reference moment — T-4.** The Costs cost stack folded bulk raw into
+Production. It reconciled. It always had. The falsification made the second
+question explicit and both halves failed:
+
+- with PROD net of raw and no RAW row, the stack **under-reports by exactly
+  the raw contribution** — visible as a gap;
+- with PROD folded, the stack **reconciles** and reports a markup rate matching
+  **neither** `PRODUCTION_MARKUP_CATEGORY` nor `RAW_MARKUP_CATEGORY` — invisible,
+  and the reason the defect survived.
+
+Only the first shape is caught by summing. The second is caught by asking, per
+line, *which authority priced this, and does the displayed rate match it?*
+
+**Apply it as a second question, always.** After "does it reconcile?", ask
+"is each figure attributed to the authority that governs it?" Reconciliation
+is the floor, not the ceiling. Two checks, not one:
+
+1. **Completeness** — Σ parts = whole. Catches omission and double-count.
+2. **Attribution** — each part traces to the authority that priced it, and the
+   rate it displays is that authority's rate. Catches misattribution, which
+   completeness structurally cannot.
+
+### Release-validation corollary (banked 2026-08-11)
+
+> **Total reconciliation is necessary but cannot certify customer-facing
+> commercial correctness. Attribution and presentation must be independently
+> validated.**
+
+Two concrete falsifications, both found on the same fixture, both
+customer-facing, and both present while the totals reconciled **exactly**:
+
+- **T-1** — the printed per-unit price divided by `pricedCount × quantity`,
+  a SKU-row cardinality. `$4.00` where `$12.00` was owed. The total was right.
+- **Proof 5** — the PDF told the customer freight was "billed separately at
+  cost (itemized below); not included in the turnkey total" because the gate
+  read `hasCharges`, which a service fee satisfies. Every clause false. The
+  total was right.
+
+Neither is reachable by summing. A certification that stops at "the numbers
+add up" would have passed both. So a release gate needs three questions, not
+one: does it reconcile, is each figure attributed to the authority that
+governs it, and does the document's own prose match what it actually did.
+
+**Where this applies:** any surface that decomposes a governed total — cost
+stacks, drilldown totals, customer PDF line tables, SO line projections,
+margin breakdowns. Wherever a display aggregates contributions from more than
+one markup, rate, or policy authority.
+
+**Corollary for bundling.** Bundling is not disproved by reconciliation, but it
+is not *justified* by it either. A bundled presentation needs an accepted
+contract saying the bundle is intended. Implementation behaviour that happens
+to reconcile is not that contract.
+
+**Cross-references.**
+- Pattern 57 — the rule whose worked example this corrects.
+- Pattern 56 (latency margins hide missing ordering contracts) — same family:
+  a property that holds by coincidence reads as one that holds by construction.
+- Pattern 50 (compliance-basis intersection state) — two subsystems agreeing by
+  coincidence rather than construction.
 
 ## Merge and certification evidence must use repository-governed test commands
 
@@ -5362,3 +5639,96 @@ branch comparison against an unverified baseline is not evidence.
 any statement of the form "these failures are pre-existing." Ad hoc runners
 remain fine for iterating on a single file — just never for a number that
 appears in a report.
+
+### A green test suite does not establish that the code compiles
+
+**Banked 2026-08-12 from the `788305c` certification commit.**
+
+`npm run test:unit` runs under `--experimental-strip-types`, which **erases**
+types rather than checking them. A file with a genuine type error executes
+happily and reports green. The suite is structurally incapable of representing a
+compilation failure, so its silence about one is not evidence.
+
+**Reference moment.** `788305c` shipped with `npx tsc --noEmit` failing: a test
+spy typed `as never` erased the object type and broke property access in the
+falsification test. `test:unit` reported 996/996. The `tsc` run had happened
+BEFORE the test file was written and was not repeated afterwards, so both
+measurements were individually true and jointly misleading.
+
+**Rule.** A green engineering claim requires BOTH, run AFTER the last edit:
+
+```
+npx tsc --noEmit      # compilation
+npm run test:unit     # behaviour
+```
+
+This applies to edits to **tests** exactly as much as to implementation — the
+miss here was in a test file. An earlier `tsc` run does not cover later test
+edits.
+
+Same family as the grep that could not match numeric differences and the `catch`
+that reported "missing" for a read failure: a measurement taken with an
+instrument that cannot express the failure being excluded.
+
+## Drizzle journal `hash` is a content hash, not a filename
+
+**Standing rule — banked 2026-08-11 from the `0064` application to the shared
+database.**
+
+`drizzle.__drizzle_migrations` has three columns: `id`, `hash`, `created_at`.
+**`hash` is a SHA of the migration file's CONTENT.** It does not contain the
+migration tag, the filename, or the sequence number. Any rollback or
+verification step written as
+
+```sql
+DELETE FROM drizzle.__drizzle_migrations WHERE hash LIKE '%00NN_some_name%';
+```
+
+**matches zero rows**, silently.
+
+**Why the silence is the danger.** A rollback that follows such a predicate
+drops the tables and columns and then deletes nothing from the journal. Drizzle
+subsequently considers the migration applied against a database where its
+objects no longer exist, and the next `db:migrate` **skips it** — leaving the
+schema one migration behind what the journal claims, with nothing reporting the
+divergence. A rollback that fails announces itself; this one does not.
+
+**Identify the row by its verified journal identity.** Confirm before any
+destructive step:
+
+```sql
+SELECT id, created_at, left(hash, 16) FROM drizzle.__drizzle_migrations
+ ORDER BY created_at DESC LIMIT 3;
+```
+
+For `0064_below_floor_authorization` the verified identity is
+`created_at = 1786320001000` (`id = 66`). **That identifier is specific to 0064
+and must not be generalized to any other migration without re-deriving it** —
+`created_at` values come from the journal file, are not sequential in any
+predictable arithmetic, and differ per environment where migrations were applied
+at different times.
+
+**Reference moment.** Found while verifying the `0064` application to the shared
+database. A post-application check searched on the same wrong assumption and
+reported `journal rows matching 0064 : 0` while the migration was demonstrably
+applied (62 → 63). The disagreement between two checks — one asserting applied,
+one asserting absent — is what exposed the defect, before any rollback was ever
+attempted.
+
+**Adjacent discipline, same application.** `drizzle-kit migrate` applies EVERY
+pending migration, not the one being discussed. "Apply 0064" and "run the
+migrator" are the same action only when the journal says so. Verify the pending
+set before applying to a shared database:
+
+```sql
+SELECT count(*) FROM drizzle.__drizzle_migrations;   -- vs entries in drizzle/meta/_journal.json
+```
+
+62 against 63 meant exactly one pending. Had it been 60 against 63, running the
+migrator would have applied two migrations nobody authorized.
+
+**Cross-references.**
+- "Single Supabase project — dev and prod share one DB" — why any migration is a
+  production change.
+- Memory `feedback_migrations_before_code_merge` — apply additive migrations
+  BEFORE merging code that reads them.

@@ -616,6 +616,14 @@ Bug fixes from internal testing. Onboard one or two PMs to use the tool on real 
 
 ## 12. Open Questions (must resolve before specific slices)
 
+> **⚠️ HISTORICAL — not open questions.** These eight are keyed to a slice
+> sequence that no longer exists; work is organised into four phases. Several
+> are self-evidently answered by the product running in production (repo,
+> accounts, subdomain, PDF template). The rest were overtaken or are tracked in
+> [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md), which is the live register.
+> **Nothing here gates release.** Recorded as row SPEC-021 of the
+> [V1 compliance matrix](v1-spec-compliance-matrix.md).
+
 1. **Subdomain.** `app.thedps.co` / `quotes.thedps.co` / `tools.thedps.co`. Before Slice 1.
 2. **HubSpot sandbox.** Provision before Slice 2. Production HubSpot is not written until Slice 12.
 3. **PDF reference template.** Pick canonical Estimate-tab output to model. Before Slice 11.

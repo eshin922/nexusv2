@@ -52,3 +52,6 @@ next-env.d.ts
 Thumbs.db
 .vercel
 .env*
+
+# OD-012 — drift-detection output, never governed migrations
+.drizzle-drift/

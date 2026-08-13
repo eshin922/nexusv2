@@ -65,7 +65,8 @@ export type ProvenanceInputSpec = {
    * `audit_log.action` values that record a change to it.
    *
    * More than one where the same input is authored by more than one path — a
-   * per-tier adjustment is written both by `applySurgicalAdj` and by Apply, and
+   * per-tier adjustment is written by Apply (P3-016 removed the
+   * click-time writer, `applySurgicalAdj`) and by bulk lift, and
    * both are the same commercial fact about the same column.
    */
   actions: readonly string[];

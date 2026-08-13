@@ -558,6 +558,32 @@ export type SkuPerTierRollup = {
   computedSellPerUnit: number;
   requiredSellPerUnit: number;
   sellSource: SellSource;
+  // ---------- P3-017 · the ladder, at cell scope ----------
+  //
+  // The four levels a quoted price passes through, and the three contributions
+  // that move it between them. The blend publishes each of these at TIER scope,
+  // where the Cost Stack renders, so that every stack row reads a governed node
+  // instead of a number the display worked out.
+  //
+  // THE DELTAS ARE NOT DIFFERENCES OF THE LEVELS, and that is the whole point.
+  // Blending is linear over a shared weight vector, so blending differences
+  // would give `blend(a - b) === blend(a) - blend(b)` and the reconciliation
+  // identity would telescope — true for any four numbers, incapable of failing,
+  // decoration rather than an assertion. Each delta is instead computed from
+  // the lever's OWN governed authority: the adjustment rate, the lift rate.
+  // The identity then holds only if two independent aggregations of the same
+  // graph agree, which is a statement that can be false.
+  //
+  // `overrideDeltaPerUnit` is the exception, and honestly so: an override is
+  // terminal — a person's number replacing a computed one — so its
+  // contribution IS definitionally the difference it makes. There is no rate to
+  // multiply by, and inventing one would be worse than naming the difference.
+  sellBeforeAdjustmentPerUnit: number;
+  adjDeltaPerUnit: number;
+  sellAfterAdjustmentPerUnit: number;
+  liftDeltaPerUnit: number;
+  sellAfterLiftPerUnit: number;
+  overrideDeltaPerUnit: number;
   /**
    * `(sell - cost) / sell` for this cell, or NULL when there is no sell price.
    *
@@ -648,6 +674,19 @@ export type QuoteCostBreakdown = {
   packagingMarkupSum: number;
   productionMarkupSum: number;
   rawMarkupSum: number;
+  // T-4 (2026-08-11) — bulk raw's COST side, tracked separately.
+  //
+  // `production` and `productionMarkupSum` fold raw in, and both keep doing so:
+  // every existing consumer reads the combined figure and un-folding them would
+  // change arithmetic outside the repair's scope. `rawMarkupSum` already
+  // existed; this is its cost-side counterpart, so a consumer that needs the
+  // two components apart can subtract rather than re-derive.
+  //
+  // Bulk raw is an independently governed quantity — its own canonical node
+  // (`nodeKey(sku, tier, "raw")`), its own markup authority
+  // (`RAW_MARKUP_CATEGORY`), its own `cellSections` entry feeding quoted sell.
+  // The Costs cost stack shows it as its own section on that basis.
+  rawCost: number;
   freightContainerMarkupSum: number;
   dutyAndTariffMarkupSum: number;
   separateServicesMarkupSum: number;
@@ -2407,6 +2446,19 @@ function computeLeafPerTier(args: {
     computedSellPerUnit,
     requiredSellPerUnit,
     sellSource,
+    // P3-017 — see the type for why the deltas are products of the levers'
+    // own rates rather than differences between the levels beside them.
+    sellBeforeAdjustmentPerUnit: sellBeforeAdjustment,
+    adjDeltaPerUnit: sellBeforeAdjustment * effectiveAdj,
+    sellAfterAdjustmentPerUnit: adjustmentNode.value,
+    // A rejected lift contributes zero, and the flagged-out node carries the
+    // reason. Absent and refused are different states everywhere else in this
+    // graph; they are the same number here only because a refusal genuinely
+    // moves the price by nothing.
+    liftDeltaPerUnit: cellLift !== null ? adjustmentNode.value * cellLift : 0,
+    sellAfterLiftPerUnit: computedChain.value,
+    overrideDeltaPerUnit:
+      cellOverride !== null ? cellOverride - computedChain.value : 0,
     marginPct,
     // Slice 9.4a — verdict band against effective target (per-quote
     // override or firm) and firm floor. Uses the same computeStatus
@@ -2427,6 +2479,15 @@ function computeLeafPerTier(args: {
 // Empty per-tier rollup for assemblies before children fold in.
 function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
   return {
+    // P3-017 ladder — an assembly with no children has passed through no
+    // levers, so every level and every contribution is zero. The identity
+    // holds trivially, which is correct rather than merely convenient.
+    sellBeforeAdjustmentPerUnit: 0,
+    adjDeltaPerUnit: 0,
+    sellAfterAdjustmentPerUnit: 0,
+    liftDeltaPerUnit: 0,
+    sellAfterLiftPerUnit: 0,
+    overrideDeltaPerUnit: 0,
     tierId: tier.id,
     packagingCostPerUnit: 0,
     productionCostPerUnit: 0,
@@ -2485,6 +2546,15 @@ function rollUpAssemblyPerTier(
   // (override-where-present, computed-elsewhere) — that's the "real"
   // assembly price the customer would pay.
   let computedSell = 0;
+  // P3-017 ladder — folds exactly as every other per-unit quantity here does:
+  // child value x qtyPerParent. The fold is linear, so the reconciliation
+  // identity that holds at each child holds for the assembly built from them.
+  let sellBeforeAdj = 0;
+  let adjDelta = 0;
+  let sellAfterAdj = 0;
+  let liftDelta = 0;
+  let sellAfterLift = 0;
+  let overrideDelta = 0;
   // Per-component bubble-up so a top-level assembly's per-component
   // values reflect the qty_per_parent chain to every leaf below it.
   // Used by the quote-level cost breakdown in QuoteSummaryCard. Earlier
@@ -2506,34 +2576,127 @@ function rollUpAssemblyPerTier(
   let containerFreightMarkup = 0;
   let dutyTariffMarkup = 0;
   let servicesMarkup = 0;
+  // ---------- OD-025 · the fold is DIMENSION-AWARE ----------
+  //
+  // `SkuPerTierRollup` carries values in TWO economic dimensions, and the fold
+  // must not treat them alike:
+  //
+  //   COMPONENT-UNIT values — packaging, production, raw and their markup sums.
+  //     Denominated $/component unit. Multiplying by `qtyPerParent` is what
+  //     converts them to $/sellable unit. Correct, and unchanged below.
+  //
+  //   SELLABLE-UNIT values — every freight-derived figure. Freight is amortised
+  //     at `computeShipmentContribution` by the governing tier quantity
+  //     (absolute shipment amount ÷ tierUnits), so it arrives here ALREADY
+  //     denominated $/sellable unit.
+  //
+  // The governing rule: a value already normalised to the sellable-unit basis
+  // must not be scaled again by BOM multiplicity. Before this, a $500 shipment
+  // on a leaf with qtyPerParent 2 reported $1000 at quote level — not a
+  // rounding artefact but a doubling, and present with a single anchor, so it
+  // was never merely an attribution-sensitivity problem.
+  //
+  // Freight is not confined to the freight fields: it is embedded inside
+  // `contribution`, `requiredSell`, `computedSell` and the whole sell ladder,
+  // all of which are legitimately scaled for their component content. So those
+  // are folded MIXED — the freight portion is held out of the multiplication
+  // and re-added once:
+  //
+  //     fold(v, f, q) = (v − f) × q + f
+  //
+  // which is exactly `v × q` when f = 0, and exactly `f` when v = f. The fold
+  // stays linear in the component part, so the reconciliation identity the
+  // ladder depends on survives.
+  // The two short-circuits are NOT micro-optimisation. `(v − f) × 1 + f` is not
+  // exactly `v` in IEEE-754: when the freight portion exceeds the composite —
+  // routine for a small `adjDelta` — the subtraction cancels and the re-addition
+  // does not restore the original bits. Measured on the live population, that
+  // float noise moved `blendedMarginPct` on three real quotes, which is
+  // monetary movement from a repair that must move no money at all.
+  //
+  // Every live attachment carries quantity 1 (measured: 150/150), so `qty === 1`
+  // is the whole production population. Returning `value` untouched makes the
+  // fold provably an identity there rather than approximately one.
+  const foldMixed = (value: number, freightPortion: number, qty: number) => {
+    if (qty === 1) return value;
+    if (freightPortion === 0) return value * qty;
+    return (value - freightPortion) * qty + freightPortion;
+  };
+
   for (const c of children) {
-    contribution += c.rollup.contributionCostPerUnit * c.qtyPerParent;
-    requiredSell += c.rollup.requiredSellPerUnit * c.qtyPerParent;
-    computedSell += c.rollup.computedSellPerUnit * c.qtyPerParent;
-    packaging += c.rollup.packagingCostPerUnit * c.qtyPerParent;
-    production += c.rollup.productionCostPerUnit * c.qtyPerParent;
-    raw += c.rollup.rawCostPerUnit * c.qtyPerParent;
-    landedFreight +=
-      c.rollup.totalLandedFreightBeforeMarkup * c.qtyPerParent;
-    containerFreight +=
-      c.rollup.totalContainerFreightBeforeMarkup * c.qtyPerParent;
-    dutyTariff += c.rollup.totalDutyTariffBeforeMarkup * c.qtyPerParent;
-    serviceFees += c.rollup.separateServiceFeesPerUnit * c.qtyPerParent;
-    packagingMarkup +=
-      c.rollup.packagingMarkupSumPerUnit * c.qtyPerParent;
-    productionMarkup +=
-      c.rollup.productionMarkupSumPerUnit * c.qtyPerParent;
-    rawMarkup += c.rollup.rawMarkupSumPerUnit * c.qtyPerParent;
-    containerFreightMarkup +=
-      c.rollup.freightContainerMarkupSumPerUnit * c.qtyPerParent;
-    dutyTariffMarkup +=
-      c.rollup.freightDutyTariffMarkupSumPerUnit * c.qtyPerParent;
-    servicesMarkup +=
-      c.rollup.separateServicesMarkupSumPerUnit * c.qtyPerParent;
+    const q = c.qtyPerParent;
+    const r = c.rollup;
+
+    // The freight portion of each composite, derived rather than assumed.
+    //
+    // Cost side: the freight inside `contribution` is the pre-markup landed
+    // total. Sell side: the freight inside `sellBeforeAdjustment` is the
+    // marked-up landed total — it IS the freight section of that sum.
+    const fCost = r.totalLandedFreightBeforeMarkup;
+    const fSellBefore = r.totalLandedFreightWithMarkup;
+
+    // Adjustment and lift are uniform multiplicative scalars on the whole cell,
+    // so the freight portion scales by the same ratio the cell did. Reading the
+    // ratio off the ladder is safer than re-deriving the rates: if the ladder
+    // ever changes shape, this follows it instead of silently disagreeing.
+    const adjRatio =
+      r.sellBeforeAdjustmentPerUnit !== 0
+        ? r.sellAfterAdjustmentPerUnit / r.sellBeforeAdjustmentPerUnit
+        : 1;
+    const fAfterAdj = fSellBefore * adjRatio;
+    const liftRatio =
+      r.sellAfterAdjustmentPerUnit !== 0
+        ? r.sellAfterLiftPerUnit / r.sellAfterAdjustmentPerUnit
+        : 1;
+    const fAfterLift = fAfterAdj * liftRatio;
+
+    // A per-cell override REPLACES the computed price outright. It is an
+    // operator-stated price for one component unit and carries no separable
+    // freight portion, so it folds by quantity in full — the pre-existing
+    // behaviour, preserved deliberately rather than by omission.
+    const fRequired = r.sellSource === "cell_override" ? 0 : fAfterLift;
+
+    // Mixed-dimension composites.
+    contribution += foldMixed(r.contributionCostPerUnit, fCost, q);
+    requiredSell += foldMixed(r.requiredSellPerUnit, fRequired, q);
+    computedSell += foldMixed(r.computedSellPerUnit, fAfterLift, q);
+    sellBeforeAdj += foldMixed(r.sellBeforeAdjustmentPerUnit, fSellBefore, q);
+    adjDelta += foldMixed(r.adjDeltaPerUnit, fAfterAdj - fSellBefore, q);
+    sellAfterAdj += foldMixed(r.sellAfterAdjustmentPerUnit, fAfterAdj, q);
+    liftDelta += foldMixed(r.liftDeltaPerUnit, fAfterLift - fAfterAdj, q);
+    sellAfterLift += foldMixed(r.sellAfterLiftPerUnit, fAfterLift, q);
+    overrideDelta += foldMixed(
+      r.overrideDeltaPerUnit,
+      fRequired - fAfterLift,
+      q,
+    );
+
+    // COMPONENT-UNIT values — scaling is the conversion, and is correct.
+    packaging += r.packagingCostPerUnit * q;
+    production += r.productionCostPerUnit * q;
+    raw += r.rawCostPerUnit * q;
+    serviceFees += r.separateServiceFeesPerUnit * q;
+    packagingMarkup += r.packagingMarkupSumPerUnit * q;
+    productionMarkup += r.productionMarkupSumPerUnit * q;
+    rawMarkup += r.rawMarkupSumPerUnit * q;
+    servicesMarkup += r.separateServicesMarkupSumPerUnit * q;
+
+    // SELLABLE-UNIT values — already amortised; carried through at ×1.
+    landedFreight += r.totalLandedFreightBeforeMarkup;
+    containerFreight += r.totalContainerFreightBeforeMarkup;
+    dutyTariff += r.totalDutyTariffBeforeMarkup;
+    containerFreightMarkup += r.freightContainerMarkupSumPerUnit;
+    dutyTariffMarkup += r.freightDutyTariffMarkupSumPerUnit;
   }
   const marginPct: number | null =
     requiredSell > 0 ? (requiredSell - contribution) / requiredSell : null;
   return {
+    sellBeforeAdjustmentPerUnit: sellBeforeAdj,
+    adjDeltaPerUnit: adjDelta,
+    sellAfterAdjustmentPerUnit: sellAfterAdj,
+    liftDeltaPerUnit: liftDelta,
+    sellAfterLiftPerUnit: sellAfterLift,
+    overrideDeltaPerUnit: overrideDelta,
     tierId: tier.id,
     packagingCostPerUnit: packaging,
     productionCostPerUnit: production,
@@ -2974,6 +3137,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       packagingMarkupSum: 0,
       productionMarkupSum: 0,
       rawMarkupSum: 0,
+      rawCost: 0,
       freightContainerMarkupSum: 0,
       dutyAndTariffMarkupSum: 0,
       separateServicesMarkupSum: 0,
@@ -3005,6 +3169,9 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       // (see QuoteCostBreakdown comment).
       breakdown.production +=
         (pt.productionCostPerUnit + pt.rawCostPerUnit) * tQty;
+      // T-4 — same addend, kept apart. `production` stays folded for every
+      // existing consumer; this makes the raw half separable without it.
+      breakdown.rawCost += pt.rawCostPerUnit * tQty;
       breakdown.freight += pt.totalLandedFreightBeforeMarkup * tQty;
       // Slice RI.8 Option B+ — D+T cost-stack row reads dutyAndTariff;
       // FRT row reads freightContainer. `freight` stays as the
@@ -3066,11 +3233,24 @@ export function computeQuoteCosting(input: QuoteCostingInput,
     // carried as `divisor` DATA so the reconciler can check the operation
     // instead of reading the denominator out of a label.
     //
-    // RAW is absent on purpose. The header's raw row is an unbuilt stub
-    // returning 0 (UX_BACKLOG), and `productionMarkupSum` already folds bulk
-    // raw in — so emitting a raw node would double-count against production.
-    // The stub stays a stub; encoding it as canonical would make a UI gap look
-    // like a commercial fact.
+    // RAW IS EMITTED. It was previously absent on the stated grounds that
+    // "`productionMarkupSum` already folds bulk raw in — so emitting a raw node
+    // would double-count against production." The fold is real, and that is why
+    // PROD below subtracts. The conclusion drawn from it was not: bulk raw has
+    // its own canonical node (`nodeKey(sku, tier, "raw")`), its own markup
+    // authority (`RAW_MARKUP_CATEGORY`, distinct from Manufacturing), and its
+    // own `cellSections` entry contributing independently to quoted sell.
+    //
+    // So PROD reads production MINUS raw, and RAW reads raw. Their sum is what
+    // PROD alone used to be, which is why the subtotal is unchanged to the
+    // float — the split reapportions an existing figure between two rows, it
+    // does not add or remove one. Costing arithmetic, quoted sell, margins and
+    // markup policy are untouched: `breakdown.production` and
+    // `breakdown.productionMarkupSum` still carry the folded values for every
+    // other consumer.
+    //
+    // T-4, 2026-08-11. The prior disposition was taken on a false factual
+    // premise; see docs/validation/quote-translation-parity-matrix.md.
     const perUnitQty = num(tier.qty);
     if (perUnitQty > 0) {
       const originOf = (label: string, value: number): CostingNode => ({
@@ -3126,7 +3306,13 @@ export function computeQuoteCosting(input: QuoteCostingInput,
 
       const perUnitComponents: CostingNode[] = [
         perUnitComponent("pkg", "Packaging", breakdown.packaging, breakdown.packagingMarkupSum),
-        perUnitComponent("prod", "Production", breakdown.production, breakdown.productionMarkupSum),
+        perUnitComponent(
+          "prod",
+          "Production",
+          breakdown.production - breakdown.rawCost,
+          breakdown.productionMarkupSum - breakdown.rawMarkupSum,
+        ),
+        perUnitComponent("raw", "Bulk raw", breakdown.rawCost, breakdown.rawMarkupSum),
         perUnitComponent("frt", "Freight", breakdown.freightContainer, breakdown.freightContainerMarkupSum),
         perUnitComponent("dt", "Duty & tariff", breakdown.dutyAndTariff, breakdown.dutyAndTariffMarkupSum),
       ];
@@ -3622,6 +3808,40 @@ export function computeQuoteCosting(input: QuoteCostingInput,
     // strictly positive. Blended SELL can still be zero \u2014 a tier of unpriced
     // cells has weight but no price \u2014 and a ratio over it is undefined, so that
     // case is flagged-out rather than published as 0%.
+    // ---------- P3-017 · the ladder, published at tier scope ----------
+    //
+    // The blend published the FIRST level and the LAST and dropped the levers
+    // between them, so at the scope the Cost Stack actually renders, the
+    // reconciliation the per-cell graph can express was unstateable. Not
+    // because the UI was wrong — because the governed values it would read did
+    // not exist here.
+    //
+    // Eight quantities make the ladder expressible AND the assertion
+    // falsifiable. Three already existed: `sell-before`, `sell`, `cost`. These
+    // five are the rest.
+    //
+    // Every one aggregates INDEPENDENTLY, straight from its own per-cell
+    // authority. No node here consults another, and no delta is a subtraction
+    // of the levels beside it. That independence is the entire value:
+    //
+    //   sellBefore + adjDelta + liftDelta + overrideDelta === quotedSell
+    //
+    // is then an assertion that two separate aggregations of the same graph
+    // agree, and it fails if the blend is wrong. Obtained by subtraction it
+    // would telescope and hold for any four numbers.
+    //
+    // Float note: the identity is exact in real arithmetic but not in binary —
+    // `a + a*r` and `a*(1+r)` can differ by an ulp, and blending accumulates
+    // more. Consumers assert it to a tolerance, which is a property of floats
+    // and not a weakening of the claim.
+    graphNodes.push(
+      blend("adj-delta", "Blended price adjustment contribution", (pt) => pt.adjDeltaPerUnit),
+      blend("sell-after-adj", "Blended sell after adjustment", (pt) => pt.sellAfterAdjustmentPerUnit),
+      blend("lift-delta", "Blended surgical lift contribution", (pt) => pt.liftDeltaPerUnit),
+      blend("sell-after-lift", "Blended sell after lift", (pt) => pt.sellAfterLiftPerUnit),
+      blend("override-delta", "Blended override contribution", (pt) => pt.overrideDeltaPerUnit),
+    );
+
     const sellBlend = blend("sell", "Blended sell per unit", (pt) => pt.requiredSellPerUnit);
     const costBlend = blend("cost", "Blended cost per unit", (pt) => pt.contributionCostPerUnit);
 

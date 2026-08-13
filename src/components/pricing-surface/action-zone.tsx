@@ -77,7 +77,17 @@ export function SendableSummary({ state }: { state: QuoteState }) {
           <span className="sub">across all SKUs</span>
         </div>
         <div className="psr-summary-cell">
-          <span className="lab">Blended margin</span>
+          {/*
+            SCOPE IS IN THE LABEL. The sibling tile above already reads
+            "Order value · T{n}", so naming the tier here follows the card's
+            established convention rather than inventing vocabulary — and it is
+            what stops this figure and the grid's per-tier `Blended margin` row
+            being read as the same aggregation. D-1.
+          */}
+          <span className="lab">
+            Blended margin
+            {sc.recommended_tier != null && ` · T${sc.recommended_tier}`}
+          </span>
           <span className="val numeric">
             {fmtPct(sc.blended_margin_pct)}%
           </span>

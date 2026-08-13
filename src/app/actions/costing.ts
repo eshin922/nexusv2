@@ -41,7 +41,7 @@ import {
 } from "@/lib/action-result";
 import {
   quoteByIdDraft,
-  quoteForAssemblyLeaf,
+  quoteForQuoteLeaf,
 } from "@/lib/quote-guards";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
@@ -54,7 +54,7 @@ import {
 import { resolveQuoteCommercialSettings } from "@/lib/commercial-settings";
 import type { CommercialSettingsResolution } from "@/lib/commercial-settings-contract";
 import { buildQuoteCostingInputFromNewModel } from "@/lib/costing-adapter";
-import type { FreightWorkbook } from "@/lib/freight-workbook";
+import { loadShipmentMemberAnchors, type FreightWorkbook } from "@/lib/freight-workbook";
 import type { HydrateSnapshot } from "@/lib/costing-store";
 import {
   parseMarginPercent,
@@ -389,11 +389,31 @@ async function loadWorksheetFreightForQuote(
     .innerJoin(quoteTiers, eq(quoteTiers.id, freightDestinationBreaks.tierId))
     .where(eq(freightSubcategories.quoteId, quoteId));
   if (rows.length === 0) return [];
-  const assemblyIds = [...new Set(rows.map((row) => row.assemblyId))];
-  const anchors = await db.select({ id: assemblyLeaves.id, assemblyId: assemblyLeaves.assemblyId, position: assemblyLeaves.position })
-    .from(assemblyLeaves).where(inArray(assemblyLeaves.assemblyId, assemblyIds)).orderBy(asc(assemblyLeaves.position));
+  // OD-017 · anchors are CANONICAL. This path previously emitted
+  // `assembly_leaves.id`, which the math layer keyed on before the re-key; it no
+  // longer does, so an uncorrected anchor here would name a SKU that does not
+  // exist and worksheet freight would silently vanish from every draft quote.
+  //
+  // Nulls are filtered before `inArray`: a Direct-only shipment has no assembly,
+  // and its anchor comes from membership below.
+  const assemblyIds = [...new Set(rows.map((row) => row.assemblyId).filter((id): id is string => id !== null))];
+  const anchors = assemblyIds.length
+    ? await db.select({ id: quoteLeaves.id, assemblyId: quoteLeaves.assemblyId, position: quoteLeaves.position })
+        .from(quoteLeaves).where(inArray(quoteLeaves.assemblyId, assemblyIds)).orderBy(asc(quoteLeaves.position))
+    : [];
   const anchorByAssembly = new Map<string, string>();
-  for (const anchor of anchors) if (!anchorByAssembly.has(anchor.assemblyId)) anchorByAssembly.set(anchor.assemblyId, anchor.id);
+  for (const anchor of anchors) {
+    if (anchor.assemblyId && !anchorByAssembly.has(anchor.assemblyId)) {
+      anchorByAssembly.set(anchor.assemblyId, anchor.id);
+    }
+  }
+  // Anchor for shipments with no assembly. DERIVED IN THE FREIGHT LIB, not
+  // here: the costing path consumes anchors, it does not compute them. See
+  // `loadShipmentMemberAnchors` for why this narrows — but does not break — the
+  // "membership is descriptive only" invariant.
+  const anchorBySubcategory = await loadShipmentMemberAnchors(
+    [...new Set(rows.map((row) => row.subcategoryId))],
+  );
   const customs = await db.select({
     subcategoryId: freightCustomsEntries.freightSubcategoryId,
     tierId: freightCustomsBreaks.tierId,
@@ -409,8 +429,16 @@ async function loadWorksheetFreightForQuote(
   return rows.map((row) => {
     const duty = charge(row.subcategoryId, row.tierId, "duty");
     const tariff = charge(row.subcategoryId, row.tierId, "tariff");
-    const ownerSkuId = anchorByAssembly.get(row.assemblyId);
-    if (!ownerSkuId) throw new ActionGuardError(ERR.VALIDATION, "Freight-owning commercial product has no costing item");
+    const ownerSkuId = row.assemblyId
+      ? anchorByAssembly.get(row.assemblyId)
+      : anchorBySubcategory.get(row.subcategoryId);
+    if (!ownerSkuId)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        row.assemblyId
+          ? "Freight-owning commercial product has no costing item"
+          : "This shipment has no components, so its freight has nothing to cost against",
+      );
     return {
       freightSubcategoryId: row.subcategoryId,
       ownerSkuId,
@@ -443,8 +471,25 @@ function projectSnapshotWorkbook(
     const destination = workbook.destinations.find((candidate) => candidate.id === row.freightDestinationId);
     const subcategory = workbook.subcategories.find((candidate) => candidate.id === destination?.freightSubcategoryId);
     if (!subcategory) throw new ActionGuardError(ERR.VALIDATION, "Freight snapshot contains a drifting destination mapping");
-    const ownerSkuId = workbook.costingContext.ownerSkuByAssembly[subcategory.assemblyId];
-    if (!ownerSkuId) throw new ActionGuardError(ERR.VALIDATION, "Freight snapshot has no commercial-product costing anchor");
+    // OD-017 · a shipment with no assembly anchors on its own membership. This
+    // is not an assembly requirement reintroduced by another name: a Direct-only
+    // shipment resolves entirely through its recorded membership.
+    //
+    // Assembly-owned shipments deliberately keep the assembly anchor. Their
+    // anchor is the product's lowest-position leaf, which need not be a member
+    // of this particular shipment, so re-deriving it from membership would move
+    // WHICH leaf bears freight on live quotes — a commercial change, not a
+    // structural one, and out of scope here.
+    const ownerSkuId = subcategory.assemblyId
+      ? workbook.costingContext.ownerSkuByAssembly[subcategory.assemblyId]
+      : workbook.costingContext.ownerSkuBySubcategory[subcategory.id];
+    if (!ownerSkuId)
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        subcategory.assemblyId
+          ? "Freight snapshot has no commercial-product costing anchor"
+          : "This shipment has no components, so its freight has nothing to cost against",
+      );
     const duty = customsCharge(subcategory.id, row.tierId, "duty");
     const tariff = customsCharge(subcategory.id, row.tierId, "tariff");
     return {
@@ -538,15 +583,18 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
         asc(quoteLeaves.assemblyId),
         asc(quoteLeaves.position),
       )),
+    // OD-017 · scoped through the CANONICAL attachment, not through
+    // `assemblies`. Reaching the quote via `assemblies` structurally excluded a
+    // Direct Component — its rows existed but no loader could see them, which
+    // is most of why a direct attachment was unpriceable.
     timed("nm.assembly_leaf_inputs", quoteId, db
       .select({ assembly_leaf_inputs: assemblyLeafInputs })
       .from(assemblyLeafInputs)
       .innerJoin(
-        assemblyLeaves,
-        eq(assemblyLeaves.id, assemblyLeafInputs.assemblyLeafId),
+        quoteLeaves,
+        eq(quoteLeaves.id, assemblyLeafInputs.quoteLeafId),
       )
-      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
-      .where(eq(assemblies.quoteId, quoteId))
+      .where(eq(quoteLeaves.quoteId, quoteId))
       .orderBy(
         asc(assemblyLeafInputs.sortOrder),
         asc(assemblyLeafInputs.lineGroupId),
@@ -565,24 +613,21 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
       .select({ assembly_leaf_overrides: assemblyLeafOverrides })
       .from(assemblyLeafOverrides)
       .innerJoin(
-        assemblyLeaves,
-        eq(assemblyLeaves.id, assemblyLeafOverrides.assemblyLeafId),
+        quoteLeaves,
+        eq(quoteLeaves.id, assemblyLeafOverrides.quoteLeafId),
       )
-      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
-      .where(eq(assemblies.quoteId, quoteId))),
+      .where(eq(quoteLeaves.quoteId, quoteId))),
     timed("nm.assembly_leaf_targets", quoteId, db
       .select({ assembly_leaf_targets: assemblyLeafTargets })
       .from(assemblyLeafTargets)
       .innerJoin(
-        assemblyLeaves,
-        eq(assemblyLeaves.id, assemblyLeafTargets.assemblyLeafId),
+        quoteLeaves,
+        eq(quoteLeaves.id, assemblyLeafTargets.quoteLeafId),
       )
-      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
-      .where(eq(assemblies.quoteId, quoteId))),
+      .where(eq(quoteLeaves.quoteId, quoteId))),
     // Phase 3 · Package 1 — applied surgical lifts, scoped through the
-    // CANONICAL attachment. Its five siblings above reach the quote via
-    // `assemblies`, which structurally excludes a direct attachment (OD-017 /
-    // C-2). Lifts key canonically, so this one does not have to.
+    // CANONICAL attachment. As of OD-017 every leaf-level cost loader above
+    // does the same; this one simply got there first.
     timed("nm.quote_leaf_lifts", quoteId, db
       .select({ quote_leaf_lifts: quoteLeafLifts })
       .from(quoteLeafLifts)
@@ -710,7 +755,7 @@ export async function getQuoteCosting(
         };
       }),
       assemblyLeafInputs: newModelData.assemblyLeafInputRows.map((r) => ({
-        assemblyLeafId: r.assemblyLeafId,
+        quoteLeafId: r.quoteLeafId,
         tierId: r.tierId,
         lineGroupId: r.lineGroupId,
         pricingVendorHubspotCompanyId: r.pricingVendorHubspotCompanyId,
@@ -737,12 +782,12 @@ export async function getQuoteCosting(
         }),
       ),
       assemblyLeafOverrides: newModelData.assemblyLeafOverrideRows.map((r) => ({
-        assemblyLeafId: r.assemblyLeafId,
+        quoteLeafId: r.quoteLeafId,
         tierId: r.tierId,
         sellPriceOverride: r.sellPriceOverride,
       })),
       assemblyLeafTargets: newModelData.assemblyLeafTargetRows.map((r) => ({
-        assemblyLeafId: r.assemblyLeafId,
+        quoteLeafId: r.quoteLeafId,
         tierId: r.tierId,
         clientTargetPricePerUnit: r.clientTargetPricePerUnit,
       })),
@@ -1067,16 +1112,20 @@ export async function updateAssemblyLeafOverride(
   }>
 > {
   return runAction(async () => {
-    const assemblyLeafId = String(formData.get("quoteSkuId") ?? "").trim();
+    // OD-017 · `quoteSkuId` carries the math-leaf id, which IS the canonical
+    // `quote_leaf_id` now that the adapter no longer keys leaves on the legacy
+    // junction. The form field name is unchanged to keep the wire contract
+    // stable; only what it denotes moved.
+    const quoteLeafId = String(formData.get("quoteSkuId") ?? "").trim();
     const tierId = String(formData.get("tierId") ?? "").trim();
-    if (!assemblyLeafId)
+    if (!quoteLeafId)
       throw new ActionGuardError(ERR.VALIDATION, "quoteSkuId required");
     if (!tierId)
       throw new ActionGuardError(ERR.VALIDATION, "tierId required");
 
     const user = await ensureUser();
-    // Quote draft + ownership through the assembly_leaf.
-    const { quote, attachment } = await quoteForAssemblyLeaf(assemblyLeafId);
+    // Quote draft + ownership through the canonical leaf — no assembly needed.
+    const { quote, attachment } = await quoteForQuoteLeaf(quoteLeafId);
 
     // Verify tier belongs to the same quote (defense in depth — FK
     // alone can't catch cross-quote tier IDs).
@@ -1107,7 +1156,7 @@ export async function updateAssemblyLeafOverride(
       .from(assemblyLeafOverrides)
       .where(
         and(
-          eq(assemblyLeafOverrides.assemblyLeafId, assemblyLeafId),
+          eq(assemblyLeafOverrides.quoteLeafId, quoteLeafId),
           eq(assemblyLeafOverrides.tierId, tierId),
         ),
       )
@@ -1119,7 +1168,7 @@ export async function updateAssemblyLeafOverride(
     if (numericEquals(previousValue, parsedValue?.toString() ?? null)) {
       return {
         quoteLeafId: attachment.quoteLeafId,
-        quoteSkuId: assemblyLeafId,
+        quoteSkuId: quoteLeafId,
         tierId,
         sellPriceOverride: previousValue,
       };
@@ -1131,7 +1180,7 @@ export async function updateAssemblyLeafOverride(
         .delete(assemblyLeafOverrides)
         .where(
           and(
-            eq(assemblyLeafOverrides.assemblyLeafId, assemblyLeafId),
+            eq(assemblyLeafOverrides.quoteLeafId, quoteLeafId),
             eq(assemblyLeafOverrides.tierId, tierId),
           ),
         );
@@ -1141,13 +1190,16 @@ export async function updateAssemblyLeafOverride(
       await db
         .insert(assemblyLeafOverrides)
         .values({
-          assemblyLeafId,
+          quoteLeafId,
+          // Legacy compatibility only — NULL for a Direct Component, and read
+          // by nothing. Written so the column stays truthful until it is dropped.
+          assemblyLeafId: attachment.assemblyLeafId,
           tierId,
           sellPriceOverride: stored,
         })
         .onConflictDoUpdate({
           target: [
-            assemblyLeafOverrides.assemblyLeafId,
+            assemblyLeafOverrides.quoteLeafId,
             assemblyLeafOverrides.tierId,
           ],
           set: { sellPriceOverride: stored, updatedAt: new Date() },
@@ -1161,11 +1213,11 @@ export async function updateAssemblyLeafOverride(
     await logAudit({
       userId: user.id,
       entityType: "assembly_leaf_override",
-      entityId: `${assemblyLeafId}:${tierId}`,
+      entityId: `${quoteLeafId}:${tierId}`,
       action: "assembly_leaf_sell_override_updated",
       diffJson: {
         quote_leaf_id: attachment.quoteLeafId,
-        assembly_leaf_id: assemblyLeafId,
+        assembly_leaf_id: attachment.assemblyLeafId,
         tier_id: tierId,
         sell_price_override: {
           from: previousValue,
@@ -1178,7 +1230,7 @@ export async function updateAssemblyLeafOverride(
 
     return {
       quoteLeafId: attachment.quoteLeafId,
-      quoteSkuId: assemblyLeafId,
+      quoteSkuId: quoteLeafId,
       tierId,
       sellPriceOverride: storedValue,
     };
@@ -1220,15 +1272,16 @@ export async function updateAssemblyLeafTarget(
   }>
 > {
   return runAction(async () => {
-    const assemblyLeafId = String(formData.get("quoteSkuId") ?? "").trim();
+    // OD-017 · canonical `quote_leaf_id` (see updateAssemblyLeafOverride).
+    const quoteLeafId = String(formData.get("quoteSkuId") ?? "").trim();
     const tierId = String(formData.get("tierId") ?? "").trim();
-    if (!assemblyLeafId)
+    if (!quoteLeafId)
       throw new ActionGuardError(ERR.VALIDATION, "quoteSkuId required");
     if (!tierId)
       throw new ActionGuardError(ERR.VALIDATION, "tierId required");
 
     const user = await ensureUser();
-    const { quote, attachment } = await quoteForAssemblyLeaf(assemblyLeafId);
+    const { quote, attachment } = await quoteForQuoteLeaf(quoteLeafId);
 
     // Verify tier belongs to the same quote.
     const tierRows = await db
@@ -1273,7 +1326,7 @@ export async function updateAssemblyLeafTarget(
       .from(assemblyLeafTargets)
       .where(
         and(
-          eq(assemblyLeafTargets.assemblyLeafId, assemblyLeafId),
+          eq(assemblyLeafTargets.quoteLeafId, quoteLeafId),
           eq(assemblyLeafTargets.tierId, tierId),
         ),
       )
@@ -1286,7 +1339,7 @@ export async function updateAssemblyLeafTarget(
     if (numericEquals(previousValue, parsedValue?.toString() ?? null)) {
       return {
         quoteLeafId: attachment.quoteLeafId,
-        quoteSkuId: assemblyLeafId,
+        quoteSkuId: quoteLeafId,
         tierId,
         clientTargetPricePerUnit: previousValue,
       };
@@ -1298,7 +1351,7 @@ export async function updateAssemblyLeafTarget(
         .delete(assemblyLeafTargets)
         .where(
           and(
-            eq(assemblyLeafTargets.assemblyLeafId, assemblyLeafId),
+            eq(assemblyLeafTargets.quoteLeafId, quoteLeafId),
             eq(assemblyLeafTargets.tierId, tierId),
           ),
         );
@@ -1308,13 +1361,15 @@ export async function updateAssemblyLeafTarget(
       await db
         .insert(assemblyLeafTargets)
         .values({
-          assemblyLeafId,
+          quoteLeafId,
+          // Legacy compatibility only — NULL for a Direct Component; read by nothing.
+          assemblyLeafId: attachment.assemblyLeafId,
           tierId,
           clientTargetPricePerUnit: stored,
         })
         .onConflictDoUpdate({
           target: [
-            assemblyLeafTargets.assemblyLeafId,
+            assemblyLeafTargets.quoteLeafId,
             assemblyLeafTargets.tierId,
           ],
           set: {
@@ -1328,11 +1383,11 @@ export async function updateAssemblyLeafTarget(
     await logAudit({
       userId: user.id,
       entityType: "assembly_leaf_target",
-      entityId: `${assemblyLeafId}:${tierId}`,
+      entityId: `${quoteLeafId}:${tierId}`,
       action: "assembly_leaf_client_target_updated",
       diffJson: {
         quote_leaf_id: attachment.quoteLeafId,
-        assembly_leaf_id: assemblyLeafId,
+        assembly_leaf_id: attachment.assemblyLeafId,
         tier_id: tierId,
         client_target_price_per_unit: {
           from: previousValue,
@@ -1345,7 +1400,7 @@ export async function updateAssemblyLeafTarget(
 
     return {
       quoteLeafId: attachment.quoteLeafId,
-      quoteSkuId: assemblyLeafId,
+      quoteSkuId: quoteLeafId,
       tierId,
       clientTargetPricePerUnit: storedValue,
     };
@@ -1476,7 +1531,7 @@ export async function applyClientTargetSolveTierAdj(
         };
       }),
       assemblyLeafInputs: newModelData.assemblyLeafInputRows.map((r) => ({
-        assemblyLeafId: r.assemblyLeafId,
+        quoteLeafId: r.quoteLeafId,
         tierId: r.tierId,
         lineGroupId: r.lineGroupId,
         pricingVendorHubspotCompanyId: r.pricingVendorHubspotCompanyId,
@@ -1503,12 +1558,12 @@ export async function applyClientTargetSolveTierAdj(
         }),
       ),
       assemblyLeafOverrides: newModelData.assemblyLeafOverrideRows.map((r) => ({
-        assemblyLeafId: r.assemblyLeafId,
+        quoteLeafId: r.quoteLeafId,
         tierId: r.tierId,
         sellPriceOverride: r.sellPriceOverride,
       })),
       assemblyLeafTargets: newModelData.assemblyLeafTargetRows.map((r) => ({
-        assemblyLeafId: r.assemblyLeafId,
+        quoteLeafId: r.quoteLeafId,
         tierId: r.tierId,
         clientTargetPricePerUnit: r.clientTargetPricePerUnit,
       })),
@@ -1796,7 +1851,7 @@ export async function getCostingBundle(
         };
       }),
       assemblyLeafInputs: newModelData.assemblyLeafInputRows.map((r) => ({
-        assemblyLeafId: r.assemblyLeafId,
+        quoteLeafId: r.quoteLeafId,
         tierId: r.tierId,
         lineGroupId: r.lineGroupId,
         pricingVendorHubspotCompanyId: r.pricingVendorHubspotCompanyId,
@@ -1823,12 +1878,12 @@ export async function getCostingBundle(
         }),
       ),
       assemblyLeafOverrides: newModelData.assemblyLeafOverrideRows.map((r) => ({
-        assemblyLeafId: r.assemblyLeafId,
+        quoteLeafId: r.quoteLeafId,
         tierId: r.tierId,
         sellPriceOverride: r.sellPriceOverride,
       })),
       assemblyLeafTargets: newModelData.assemblyLeafTargetRows.map((r) => ({
-        assemblyLeafId: r.assemblyLeafId,
+        quoteLeafId: r.quoteLeafId,
         tierId: r.tierId,
         clientTargetPricePerUnit: r.clientTargetPricePerUnit,
       })),
@@ -1852,7 +1907,10 @@ export async function getCostingBundle(
     const skuList = input.skus;
     const packagingList = newModelData.assemblyLeafInputRows.map((r) => ({
       rowId: r.id,
-      quoteSkuId: r.assemblyLeafId,
+      // Store keys must agree with the math-leaf identity, which is canonical
+      // after OD-017 — otherwise optimistic edits would key on a value no
+      // rollup carries, and a Direct Component would key on NULL.
+      quoteSkuId: r.quoteLeafId,
       tierId: r.tierId,
       lineGroupId: r.lineGroupId,
       pricingVendorHubspotCompanyId: r.pricingVendorHubspotCompanyId,

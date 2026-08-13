@@ -27,6 +27,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import "@/styles/r-shared-primitives.css";
 import "@/styles/r8-quote-umbrella.css";
 import "@/styles/r9-quote-umbrella-addendum.css";
+import { isHubspotAcceptSyncSuppressed } from "@/lib/config/certification-mode";
 
 // Slice RI.6 — Quote page (visual shell + boundary-guard
 // build invariant per brief §3.7).
@@ -303,6 +304,7 @@ export default async function CustomerViewPage({
           quoteRollup={quoteRollup}
           acceptancePrefill={acceptancePrefill}
           hubspotAcceptStageLabel={hubspotAcceptStageLabel}
+          hubspotAcceptSyncSuppressed={isHubspotAcceptSyncSuppressed()}
           hubspotPushedAmount={hubspotPushedAmount}
           netsuiteStatusOnPush={
             firmSettingsRow[0]?.netsuiteSoStatusOnCreate ??

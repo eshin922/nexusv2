@@ -214,6 +214,84 @@ export async function getRecord<T = Record<string, unknown>>(
  * returns the new record id in the response's Location header, not
  * body). If the platform ever adds bodies, extend here.
  */
+/**
+ * PATCH a SINGLE Sales Order item line's rate.
+ *
+ * The Probe 7d shape, and deliberately the ONLY update shape this client
+ * exposes:
+ *
+ *     PATCH /record/v1/salesOrder/{soId}/item/{lineIdx}   body { rate }
+ *
+ * WHY THIS IS NARROW BY CONSTRUCTION (hazard 1, banked from Probe 5/7):
+ * a full-sublist `PATCH /salesOrder/{id}` with `item.items=[...]` returns
+ * **204 and silently ADDS a second full group expansion** — 12 tx-lines,
+ * doubled rollup, no error surfaced. An implementation that reaches for the
+ * sublist shape ships wrong Sales Orders that report as successful.
+ *
+ * A code convention is not enough to prevent that, so the sublist shape is
+ * simply not reachable from here: this function takes a single `lineIdx`,
+ * builds the per-line URL itself, and accepts only `{ rate }`. There is no
+ * argument that can widen it.
+ *
+ * `lineIdx` MUST come from a fresh structural read-back (SuiteQL
+ * `transactionLine`) on each invocation. Line indices are never durable
+ * authority — a stale index is precisely how a "safe" single-line PATCH
+ * writes the wrong line.
+ */
+export async function patchSalesOrderLine(
+  soId: string,
+  lineIdx: number,
+  patch: { rate: number },
+  config?: NetsuiteConfig,
+): Promise<void> {
+  if (!Number.isInteger(lineIdx) || lineIdx < 0) {
+    throw new Error(
+      `[netsuite] patchSalesOrderLine: lineIdx must be a non-negative integer (got ${String(lineIdx)})`,
+    );
+  }
+  if (!Number.isFinite(patch.rate)) {
+    throw new Error(
+      `[netsuite] patchSalesOrderLine: rate must be finite (got ${String(patch.rate)})`,
+    );
+  }
+
+  const cfg = config ?? loadNetsuiteConfig();
+  const url =
+    suiteTalkBaseUrl(cfg.accountId) +
+    `/record/v1/salesOrder/${encodeURIComponent(soId)}/item/${lineIdx}`;
+  assertWriteAuthorized(cfg, "PATCH");
+
+  // Only `rate` is transmitted. Not spread from the argument — an explicit
+  // single-key body so a future caller cannot smuggle `item.items` through.
+  const body = { rate: patch.rate };
+
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      Authorization: buildAuthHeader({ method: "PATCH", url, creds: cfg }),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    let parsed: unknown = text;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      /* keep string */
+    }
+    throw classifyResponse({
+      status: response.status,
+      body: parsed,
+      url,
+      method: "PATCH",
+      payloadPreview: JSON.stringify(body),
+    });
+  }
+}
+
 export async function createRecord(args: {
   recordType: string;
   body: Record<string, unknown>;

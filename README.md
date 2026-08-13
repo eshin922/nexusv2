@@ -41,8 +41,8 @@ numbered slice sequence used until 2026-07. Where you find slice numbering or a
 |---|---|---|
 | **1 · Quote Commercial Integrity** | Immutable commercial pins; a sent quote means what it meant when sent | **Frozen and shipped** |
 | **2 · Costs Workspace** | Every cost entry point on one page; worksheet-driven Freight | **In progress** — freight persistence accepted; design fidelity open |
-| **3 · Pricing Workspace** | Compliance grid, progressive traceability, staged adjustment | Not started — blocked on Phase 2 operator acceptance |
-| **4 · Margin Approval** | Governed below-floor exception | Not started — blocked on Phase 3 and a BV-005 amendment |
+| **3 · Pricing Workspace** | Compliance grid, progressive traceability, staged adjustment | **Closed for implementation 2026-08-10** — release-ready |
+| **4 · Margin Approval** | Governed below-floor exception | Not started — blocked on a BV-005 amendment ([OD-002](docs/OPEN_DECISIONS.md)). Phase 3 is no longer the constraint |
 
 Authority per phase, the dependency graph, and per-phase reversibility:
 [`CROSS-PHASE-AUTHORITY-DEPENDENCY-MAP.md`](CROSS-PHASE-AUTHORITY-DEPENDENCY-MAP.md).

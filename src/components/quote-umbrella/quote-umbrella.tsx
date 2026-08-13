@@ -48,6 +48,7 @@ export function QuoteUmbrella({
   quoteRollup,
   acceptancePrefill,
   hubspotAcceptStageLabel,
+  hubspotAcceptSyncSuppressed = false,
   hubspotPushedAmount,
   netsuiteStatusOnPush,
   salesOrderPreflight,
@@ -117,6 +118,7 @@ export function QuoteUmbrella({
    * verbatim when the stored value is already a label. Fallback
    * string when resolution fails. */
   hubspotAcceptStageLabel: string;
+  hubspotAcceptSyncSuppressed?: boolean;
   /** Slice 12 Step 8b — HubSpot amount 8a pushed at acceptance,
    * read from audit_log's quote_accepted diff_json.hubspot.amount.
    * Rendered on the Sales Order tab's ledger row ("HubSpot — deal
@@ -299,6 +301,7 @@ export function QuoteUmbrella({
               quoteVersionNumber={quoteVersionNumber}
               reviewFeedCount={reviewFeedCount}
               isHubspotLinked={isHubspotLinked}
+              quoteRollup={quoteRollup}
               onGo={onGo}
             />
           )}
@@ -328,6 +331,7 @@ export function QuoteUmbrella({
               prefillSourceRowId={acceptancePrefill?.sourceRowId ?? null}
               prefillSourceAt={acceptancePrefill?.createdAt ?? null}
               hubspotAcceptStageLabel={hubspotAcceptStageLabel}
+              hubspotAcceptSyncSuppressed={hubspotAcceptSyncSuppressed}
               onGo={onGo}
             />
           )}
@@ -342,6 +346,7 @@ export function QuoteUmbrella({
               customerAcceptedTierIdDb={customerAcceptedTierIdDb}
               quoteRollup={quoteRollup}
               hubspotAcceptStageLabel={hubspotAcceptStageLabel}
+              hubspotAcceptSyncSuppressed={hubspotAcceptSyncSuppressed}
               hubspotPushedAmount={hubspotPushedAmount}
               netsuiteStatusOnPush={netsuiteStatusOnPush}
               salesOrderPreflight={salesOrderPreflight}

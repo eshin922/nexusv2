@@ -12,6 +12,7 @@ import {
   costSectionDeposits,
   leaves,
   projects,
+  quoteLeaves,
   quotes,
   quoteTiers,
 } from "@/db/schema";
@@ -185,12 +186,14 @@ export default async function CostBuildPage({
     db
       .select({ assembly_leaf_inputs: assemblyLeafInputs })
       .from(assemblyLeafInputs)
+      // OD-017 · canonical scoping, matching getCostingBundle. Joining through
+      // `assemblies` here would hide a Direct Component's rows from the surface
+      // that authors them.
       .innerJoin(
-        assemblyLeaves,
-        eq(assemblyLeaves.id, assemblyLeafInputs.assemblyLeafId),
+        quoteLeaves,
+        eq(quoteLeaves.id, assemblyLeafInputs.quoteLeafId),
       )
-      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
-      .where(eq(assemblies.quoteId, quote.id))
+      .where(eq(quoteLeaves.quoteId, quote.id))
       .orderBy(
         asc(assemblyLeafInputs.sortOrder),
         asc(assemblyLeafInputs.lineGroupId),
@@ -248,6 +251,14 @@ export default async function CostBuildPage({
   // types.
   type SyntheticQuoteSku = {
     id: string;
+    // OD-017 governed cost-input identity. `id` remains the assembly_leaf id
+    // because the production anchor-leaf fan-out and the assembly tree are
+    // keyed on it, but every COST row now carries `quote_leaf_id` — so any
+    // consumer joining against a cost row must key on THIS field, not `id`.
+    // NOT NULL on assembly_leaves (unique index
+    // `assembly_leaves_quote_leaf_idx`), so it is always present for a leaf;
+    // null for an assembly, which owns no cost row.
+    quoteLeafId: string | null;
     quoteId: string;
     hubspotProductId: string | null;
     skuLabel: string;
@@ -316,6 +327,8 @@ export default async function CostBuildPage({
   for (const a of newAssemblyRows) {
     skus.push({
       id: a.id,
+      // An assembly owns no cost row, so it has no governed cost-input identity.
+      quoteLeafId: null,
       quoteId: a.quoteId,
       hubspotProductId: null,
       skuLabel: a.sku,
@@ -337,6 +350,8 @@ export default async function CostBuildPage({
   for (const { al, leaf } of newAssemblyLeafRows) {
     skus.push({
       id: al.id,
+      // The identity every assembly_leaf_inputs row carries (see type comment).
+      quoteLeafId: al.quoteLeafId,
       quoteId: quote.id,
       hubspotProductId: leaf.hubspotProductId ?? null,
       // leaves.sku is nullable; quote_skus.skuLabel is NOT NULL.
@@ -361,7 +376,7 @@ export default async function CostBuildPage({
   const pkgRows: SyntheticPackagingRow[] = newPkgInputRows.map((r) => ({
     packaging_inputs: {
       id: r.assembly_leaf_inputs.id,
-      quoteSkuId: r.assembly_leaf_inputs.assemblyLeafId,
+      quoteSkuId: r.assembly_leaf_inputs.quoteLeafId,
       tierId: r.assembly_leaf_inputs.tierId,
       lineGroupId: r.assembly_leaf_inputs.lineGroupId,
       sortOrder: r.assembly_leaf_inputs.sortOrder,

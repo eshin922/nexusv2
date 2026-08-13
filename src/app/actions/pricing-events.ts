@@ -5,7 +5,12 @@
 // Single table, five event types feeding v1.1 Path 2 promotion analysis +
 // ★ Recommended reliability tracking:
 //
-//   - surgical_apply         · written from applySurgicalAdj (Step 7)
+//   - surgical_apply         · HISTORICAL. Written from applySurgicalAdj,
+//                              which P3-016 removed when recommendations
+//                              moved onto the staging model. Retained in the
+//                              union so existing rows stay readable; nothing
+//                              writes it. See the P3-016 record for the
+//                              recommendation-telemetry gap this leaves open.
 //   - request_override       · written when PM clicks Request override on
 //                              below-floor (Step 7, paired with admin gate)
 //   - recommended_fired      · written when SuggestionEngine surfaces the

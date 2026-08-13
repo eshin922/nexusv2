@@ -59,9 +59,14 @@ import type { MarginBand, QuoteMarginStatus } from "@/lib/costing";
 // tooltips below name the basis so an operator is not left to assume.
 //
 // THE STACK SHOWS INDEPENDENTLY GOVERNED QUANTITIES AND NOTHING ELSE. Bulk raw
-// is costed inside Production and has no node of its own, so it gets no row —
-// it is explanatory metadata on the row that carries the money, not a line of
-// its own. See `PROD_INCLUDES_BULK_RAW`.
+// is one: its own canonical node (`nodeKey(sku, tier, "raw")`), its own markup
+// authority (`RAW_MARKUP_CATEGORY`, distinct from Manufacturing), its own
+// contribution to quoted sell. It gets a row on exactly that basis.
+//
+// It previously did not, on the recorded grounds that it "has no node of its
+// own" and was "already carried by Production". Implementation evidence
+// invalidated both (T-4, 2026-08-11). The rule did not change; the worked
+// example under it was wrong.
 
 const URL_PARAM = "tier";
 
@@ -69,12 +74,14 @@ const URL_PARAM = "tier";
  * The rows with an independently governed per-unit value, in render order.
  *
  * `node` addresses the canonical graph; `label` and `swatch` are presentation.
- * Bulk raw is deliberately absent — it has no independently governed value, so
- * it is metadata on Production rather than a row. See `PROD_INCLUDES_BULK_RAW`.
+ * Bulk raw sits directly after Production because that is where an operator
+ * looks for it, and because PROD's value is now net of it — the two are read
+ * together or not at all.
  */
 const GOVERNED_ROWS = [
   { node: "pkg", label: "PKG", swatch: "pkg", mod: "" },
   { node: "prod", label: "PROD", swatch: "prod", mod: "" },
+  { node: "raw", label: "RAW", swatch: "raw", mod: "raw" },
   { node: "frt", label: "FRT", swatch: "frt", mod: "" },
   { node: "dt", label: "D+T", swatch: "dt", mod: "dt" },
 ] as const;
@@ -234,13 +241,11 @@ export function CostStackHeader({
         <div className="legend">
           <LegendItem label="Packaging" variant="pkg" />
           {/* A legend swatch is a promise that a colour appears in the bars.
-              Bulk raw has no segment to colour, so it gets no entry of its own
-              — it qualifies the Production swatch instead. */}
-          <LegendItem
-            label="Production"
-            tail={showRaw ? "incl. bulk raw" : undefined}
-            variant="prod"
-          />
+              Bulk raw now draws its own segment, so it keeps its own entry and
+              Production no longer qualifies itself with "incl. bulk raw" — that
+              tail became false the moment PROD went net of raw (T-4). */}
+          <LegendItem label="Production" variant="prod" />
+          <LegendItem label="Bulk raw" variant="raw" />
           <LegendItem label="Freight" variant="frt" />
           <LegendItem label="D+T" tail="internal" variant="dt" />
           {/* Passthrough legend slot — R6 commitment to stack grammar
@@ -300,7 +305,7 @@ function LegendItem({
 }: {
   label: string;
   tail?: string;
-  variant: "pkg" | "prod" | "frt" | "dt" | "pass";
+  variant: "pkg" | "prod" | "raw" | "frt" | "dt" | "pass";
 }) {
   return (
     <span>
@@ -378,7 +383,7 @@ function TierColumn({
               values={found ? found.values : null}
               maxPerUnitCost={maxPerUnitCost}
               hint={
-                showRaw && row.node === "prod" ? PROD_INCLUDES_BULK_RAW : null
+                row.node === "raw" ? BULK_RAW_OWN_MARKUP : null
               }
             />
           );
@@ -459,26 +464,41 @@ function TierColumn({
 /**
  * Bulk raw, when the quote sources its own.
  *
- * It IS costed — folded into Production, which `productionMarkupSum` already
- * carries. What does not exist is an independently attributable raw figure, so
- * there is no node to read.
+ * HISTORICAL RECORD — the prior reasoning, preserved because the decision was
+ * real and the correction is only legible against it:
  *
- * IT THEREFORE GETS NO ROW. The stack shows independently governed commercial
- * quantities and nothing else; a line that carries no value is not a member of
- * that set, however carefully it explains itself. An earlier pass shipped it as
- * a row reading "included in PROD" — accurate, and still a stack line an
- * operator has to read past to find the figures. The relationship is metadata
- * about Production, so it lives on Production: a tail on the legend entry and a
- * tooltip on the row that actually carries the money.
+ * > It IS costed — folded into Production, which `productionMarkupSum` already
+ * > carries. What does not exist is an independently attributable raw figure,
+ * > so there is no node to read. IT THEREFORE GETS NO ROW.
  *
- * Scoped to `dps_sources` exactly as the row was. Under `cm_sources` the
- * contract manufacturer buys the raws and they arrive inside their price; under
- * `customer_supplies` there is no raw cost to fold. Only DPS-sourced raws land
- * in this quote's Production figure.
+ * INVALIDATED BY IMPLEMENTATION EVIDENCE (T-4, 2026-08-11). The premise was
+ * false in every part that mattered:
+ *
+ * - `rawSectionNode` exists and is canonical — `nodeKey(sku, tier, "raw")`,
+ *   built at `costing.ts:1806-1868`.
+ * - Bulk raw resolves its markup through `RAW_MARKUP_CATEGORY`, a different
+ *   authority from Manufacturing's `PRODUCTION_MARKUP_CATEGORY`.
+ * - It is its own `cellSections` entry, contributing to quoted sell
+ *   independently of Production.
+ * - The cell-level `productionMarkupSum` (`costing.ts:1878`) reads
+ *   `productionSectionNode.value` and excludes raw. Only the breakdown
+ *   AGGREGATION folded the two together, which is a reporting choice, not a
+ *   statement about what is governed.
+ *
+ * The governing rule did not change — a financial stack contains only
+ * independently governed quantities. Bulk raw satisfies it. What was wrong was
+ * the worked example, which asserted the opposite of what the graph says.
+ *
+ * `dps_sources` scoping needs no special case now. Under `cm_sources` the
+ * contract manufacturer's price already contains the raws and under
+ * `customer_supplies` there is no raw cost, so in both the governed value is
+ * genuinely zero — and a governed zero already renders as an empty row by the
+ * stack's existing grammar. The row appears when there is something to show
+ * because the number says so, not because a mode flag says so.
  */
-const PROD_INCLUDES_BULK_RAW =
-  "Includes DPS-sourced bulk raw material, which is costed inside Production " +
-  "and is not separately attributable in this stack.";
+const BULK_RAW_OWN_MARKUP =
+  "DPS-sourced bulk raw material. Carries its own markup authority, " +
+  "resolved separately from Manufacturing.";
 
 // Canonical .r6-comp-row grammar:
 //   <div class="r6-comp-row {dt|raw|empty}">

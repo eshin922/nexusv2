@@ -9,8 +9,10 @@ import {
 import { useCostingStore } from "@/components/costing-store-provider";
 import {
   selectActiveTierId,
+  selectGraph,
   selectUpdateProductionCell,
 } from "@/lib/costing-store";
+import { nodeKey, resolveNodes } from "@/lib/costing-nodes";
 
 // Step 8 — drilldown consumes the structural SkuRow shape from
 // sku-tree.ts (replaced typeof quoteSkus.$inferSelect dependency).
@@ -107,6 +109,11 @@ function num(v: string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** A resolved markup rate, as the operator reads it: `32.0%`. */
+function fmtPct1(v: number): string {
+  return (v * 100).toFixed(1) + "%";
+}
+
 function fmtCurr2(n: number): string {
   return n.toLocaleString("en-US", {
     style: "currency",
@@ -160,6 +167,31 @@ export function ProductionDrilldown({
   }
 
   const leafSkus = skus.filter((s) => s.skuRole === "leaf");
+
+  // V1 Costs defect repair (2026-08-11) — allocation policy is ASSEMBLY-scoped.
+  //
+  // `assembly_production_inputs.allocate_service_fees_to_cost` is keyed by
+  // `assembly_id`; costing consumes it per assembly and so does the
+  // customer-view resolver. The UI was the outlier: one section-level control,
+  // read from the first leaf and broadcast to every assembly on change. An
+  // operator could not express A=ON / B=OFF, which the model has always
+  // supported.
+  //
+  // `policyBySku` is keyed by the ANCHOR LEAF (the adapter's per-assembly ->
+  // per-leaf coercion puts production data on the lowest-position child), so an
+  // assembly's own policy is read through its first child that has one.
+  const policyByAssembly = new Map<string, SkuPolicy>();
+  for (const asm of skus) {
+    if (asm.skuRole !== "assembly") continue;
+    for (const child of skus) {
+      if (child.parentSkuId !== asm.id) continue;
+      const p = policyBySku.get(child.id);
+      if (p) {
+        policyByAssembly.set(asm.id, p);
+        break;
+      }
+    }
+  }
 
   if (tiers.length === 0) {
     return (
@@ -224,6 +256,7 @@ export function ProductionDrilldown({
         // so the toggle action needs assembly IDs to find rows.
         assemblies={skus.filter((s) => s.skuRole === "assembly")}
         policy={sectionPolicy}
+        policyByAssembly={policyByAssembly}
         disabled={!editable}
         rawsMode={rawsMode}
       />
@@ -255,10 +288,9 @@ export function ProductionDrilldown({
 
         if (isAssembly) {
           return (
+            <div key={sku.id} style={indentStyle}>
             <div
-              key={sku.id}
               style={{
-                ...indentStyle,
                 marginBottom: "12px",
                 padding: "10px 14px",
                 background: "oklch(from var(--accent) l c h / 0.05)",
@@ -284,6 +316,12 @@ export function ProductionDrilldown({
               >
                 Production rolls up from leaf children.
               </span>
+              </div>
+              <AssemblyAllocationToggle
+                assemblyId={sku.id}
+                policy={policyByAssembly.get(sku.id) ?? sectionPolicy}
+                disabled={!editable}
+              />
             </div>
           );
         }
@@ -347,6 +385,10 @@ function ProductionTable({
   visibleLines: VirtualLine[];
   disabled: boolean;
 }) {
+  // One read for the whole section — the rate is firm-wide, so resolving it
+  // per row would be the same traversal repeated once per line.
+  const markup = useProductionMarkup(sku.id, tiers);
+
   // Per-line × per-tier value computation:
   // Every production input is persisted and entered as a total. Resulting
   // per-unit contributions are derived output, never the stored cell value.
@@ -410,6 +452,7 @@ function ProductionTable({
           sku={sku}
           policy={policy}
           tiers={tiers}
+          markup={markup}
           rowsByTier={rowsByTier}
           disabled={disabled}
         />
@@ -435,6 +478,101 @@ function ProductionTable({
   );
 }
 
+/**
+ * The Manufacturing markup this section is actually priced at — READ, not
+ * resolved here.
+ *
+ * C-1. This column rendered a bare em-dash while the engine applied
+ * `markupDefaults["Manufacturing"]` to every production cost
+ * (`costing.ts:1687`) and carried it into quoted price. In the same column on
+ * the same page, packaging shows a resolved rate and names the rung it came
+ * from — so an operator reading down the page saw markups on packaging and a
+ * dash on production, which says *production is quoted at cost*. It is not.
+ *
+ * Read the way packaging reads it, off the engine's own `resolution` operand,
+ * and for the reason recorded there: reimplementing a ladder the engine already
+ * walks is the defect, and a wrong fallback is what that always eventually
+ * looks like. Production's ladder has no per-line rung — there is no markup
+ * column on `assembly_production_inputs`, and this repair adds none — so the
+ * answer is one rate for the whole section.
+ *
+ * FAILS CLOSED, and more strictly than it strictly needs to. Production markup
+ * takes no tier input, so every tier must resolve the same rate; if they ever
+ * disagree this renders nothing rather than electing one tier's rate to speak
+ * for the section. A dash is honest about not knowing. A number that is right
+ * for one column and shown against all of them is not.
+ */
+interface ProductionMarkupRead {
+  pct: number | null;
+  /**
+   * Which rung supplied it — "Category default", "Other", and so on.
+   *
+   * NOT RENDERED. Edward's call on seeing it: the caption earned nothing, since
+   * production has one firm-wide rate and no ladder for a source line to
+   * disambiguate — unlike packaging, where "line override" versus "category
+   * default" is a real distinction about a real choice. Kept on the read
+   * because it is one field of a node already being traversed, and because a
+   * future rung would make it meaningful again; dropping it would mean
+   * re-deriving it then.
+   */
+  source: string | null;
+}
+
+/**
+ * TWO SECTIONS, TWO RATES, and conflating them was a bug in the first cut of
+ * this repair.
+ *
+ * The drilldown renders bulk raw as a row inside the production table, but the
+ * engine marks it up at `RAW_MARKUP_CATEGORY`, not at Manufacturing
+ * (`costing.ts:1676`). Showing the production rate against it would have been
+ * the same false-cell defect C-1 exists to remove, one row lower. It was
+ * invisible in the validation estate because both categories currently resolve
+ * to 30% — which is exactly how a cell like this hides until the day the two
+ * rates differ and nobody is looking.
+ */
+interface SectionMarkups {
+  prod: ProductionMarkupRead;
+  raw: ProductionMarkupRead;
+}
+
+function readSection(
+  graph: ReturnType<typeof selectGraph>,
+  skuId: string,
+  tiers: Array<{ id: string }>,
+  section: "prod" | "raw",
+): ProductionMarkupRead {
+  const keys = tiers.map((t) => nodeKey(skuId, t.id, section));
+  const resolved = resolveNodes(graph, keys);
+
+  let pct: number | null = null;
+  let source: string | null = null;
+  for (const key of keys) {
+    const node = resolved.get(key) ?? null;
+    if (!node || node.kind === "flagged-out") continue;
+    // Operand 1 is the `resolution` node the engine built for this section's
+    // markup — the same position packaging reads for its per-line rate.
+    const markupOperand = node.operands?.[1];
+    if (!markupOperand || markupOperand.kind !== "resolution") continue;
+    if (pct !== null && Math.abs(markupOperand.value - pct) > 1e-12) {
+      return { pct: null, source: null };
+    }
+    pct = markupOperand.value;
+    source = markupOperand.candidates?.find((c) => c.chosen)?.label ?? source;
+  }
+  return { pct, source };
+}
+
+function useProductionMarkup(
+  skuId: string,
+  tiers: Array<{ id: string }>,
+): SectionMarkups {
+  const graph = useCostingStore(selectGraph);
+  return {
+    prod: readSection(graph, skuId, tiers, "prod"),
+    raw: readSection(graph, skuId, tiers, "raw"),
+  };
+}
+
 function ProductionRow({
   line,
   sku,
@@ -442,6 +580,7 @@ function ProductionRow({
   tiers,
   rowsByTier,
   disabled,
+  markup,
 }: {
   line: VirtualLine;
   sku: QuoteSku;
@@ -449,6 +588,8 @@ function ProductionRow({
   tiers: Array<{ id: string; label: string; qty: number | null }>;
   rowsByTier: Map<string, ProdRowForUI>;
   disabled: boolean;
+  /** Both section rates, resolved once — see `useProductionMarkup`. */
+  markup: SectionMarkups;
 }) {
   const showAmortizedSub =
     line.kind === "one_time_fee" && policy.allocateServiceFeesToCost;
@@ -476,8 +617,20 @@ function ProductionRow({
           {line.kind === "one_time_fee" ? "one-time" : "tier total"}
         </span>
       </div>
+      {/*
+        READ-ONLY, and it stays that way. Production markup is firm-wide policy
+        set at /admin/markup-defaults; there is no per-line column behind this
+        cell and C-1 explicitly does not add one. What was wrong was rendering
+        an em-dash while a rate was being applied, not the absence of an input.
+      */}
       <div className="num">
-        <span className="markup">—</span>
+        <span className="markup">
+          {(() => {
+            // Bulk raw sits in this table but is priced off the RAW rate.
+            const read = line.field === "bulkRawCost" ? markup.raw : markup.prod;
+            return read.pct === null ? "—" : fmtPct1(read.pct);
+          })()}
+        </span>
       </div>
       {tiers.map((t) => (
         <ProductionTierCell
@@ -693,6 +846,7 @@ function ProductionTierCell({
 function SectionToggles({
   assemblies,
   policy,
+  policyByAssembly,
   disabled,
   rawsMode,
 }: {
@@ -704,13 +858,18 @@ function SectionToggles({
   // keyed by assembly_id, not leaf id.
   assemblies: QuoteSku[];
   policy: SkuPolicy;
+  /** Each assembly's OWN persisted policy. Used so the raws fan-out cannot
+   *  overwrite a divergent per-assembly allocation value. */
+  policyByAssembly: Map<string, SkuPolicy>;
   disabled: boolean;
   rawsMode: "cm_sources" | "dps_sources" | "customer_supplies";
 }) {
   const [pending, startTransition] = useTransition();
+  const [writeError, setWriteError] = useState<string | null>(null);
 
-  function flipToggle(field: "customerShipsRaws" | "allocateServiceFeesToCost") {
+  function flipToggle(field: "customerShipsRaws") {
     if (disabled || pending) return;
+    setWriteError(null);
     const newValue = !policy[field];
     startTransition(async () => {
       for (const asm of assemblies) {
@@ -726,11 +885,15 @@ function SectionToggles({
             : policy.customerShipsRaws
           ).toString(),
         );
+        // Each assembly's OWN allocation value, never the section's. Writing
+        // `policy.allocateServiceFeesToCost` here would let a raws toggle
+        // silently flatten A=ON / B=OFF back to whichever value the first leaf
+        // happened to carry — the same broadcast defect one level down.
         fd.set(
           "allocateServiceFeesToCost",
-          (field === "allocateServiceFeesToCost"
-            ? newValue
-            : policy.allocateServiceFeesToCost
+          (
+            policyByAssembly.get(asm.id)?.allocateServiceFeesToCost ??
+            policy.allocateServiceFeesToCost
           ).toString(),
         );
         fd.set("notes", policy.notes ?? "");
@@ -744,11 +907,16 @@ function SectionToggles({
         try {
           const res = await updateAssemblyProductionPolicy(fd);
           if (!res.ok) {
-            console.error("[production-policy] write failed", res.error);
+            // Control-integrity: this button renders from the RSC prop, so a
+            // rejected write leaves the OLD value on screen — indistinguishable
+            // from "nothing happened". Surface it rather than implying success.
+            setWriteError(res.error.message);
             break;
           }
         } catch (e) {
-          console.error("[production-policy] write threw", e);
+          setWriteError(
+            e instanceof Error ? e.message : "Policy update failed.",
+          );
           break;
         }
       }
@@ -786,10 +954,69 @@ function SectionToggles({
         </div>
       </button>
 
+      {/* The allocation control lives on the ASSEMBLY it governs — see
+          `AssemblyAllocationToggle`. It used to sit here and broadcast to every
+          assembly, which made the per-assembly policy that the schema, costing
+          and the customer-view resolver all model unreachable for operators. */}
+      {writeError && (
+        <div className="r6-prod-toggle-error" role="alert">
+          Could not save: {writeError}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Allocation policy for ONE assembly.
+ *
+ * Owned by the assembly whose production inputs it governs. It writes exactly
+ * one policy fan-out — its own — so A=ON / B=OFF is expressible, and it
+ * survives reconcile because no other control writes this field.
+ *
+ * `customerShipsRaws` and `notes` are carried through from THIS assembly's
+ * persisted policy, because the action rewrites the whole policy row. Sourcing
+ * them from anywhere else would reintroduce the broadcast defect one field over.
+ */
+function AssemblyAllocationToggle({
+  assemblyId,
+  policy,
+  disabled,
+}: {
+  assemblyId: string;
+  policy: SkuPolicy;
+  disabled: boolean;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [writeError, setWriteError] = useState<string | null>(null);
+
+  function flip() {
+    if (disabled || pending) return;
+    setWriteError(null);
+    const newValue = !policy.allocateServiceFeesToCost;
+    startTransition(async () => {
+      const fd = new FormData();
+      // Action reads formData.get("quoteSkuId") as the assembly id (name
+      // preserved for backward compat; semantic is assembly.id post-11.5).
+      fd.set("quoteSkuId", assemblyId);
+      fd.set("customerShipsRaws", policy.customerShipsRaws.toString());
+      fd.set("allocateServiceFeesToCost", newValue.toString());
+      fd.set("notes", policy.notes ?? "");
+      try {
+        const res = await updateAssemblyProductionPolicy(fd);
+        if (!res.ok) setWriteError(res.error.message);
+      } catch (e) {
+        setWriteError(e instanceof Error ? e.message : "Policy update failed.");
+      }
+    });
+  }
+
+  return (
+    <div className="r6-prod-toggles r6-prod-toggles-asm">
       <button
         type="button"
         className={`r6-prod-toggle ${policy.allocateServiceFeesToCost ? "on" : ""}`}
-        onClick={() => flipToggle("allocateServiceFeesToCost")}
+        onClick={flip}
         disabled={disabled || pending}
       >
         <span className="tog" />
@@ -798,6 +1025,7 @@ function SectionToggles({
           <div className="desc">
             Setup, tooling/artwork, R&amp;D, and other service fees allocate
             across quoted units. If OFF, they invoice once as separate charges.
+            This choice belongs to this product.
           </div>
           <div className="consequence">
             {policy.allocateServiceFeesToCost
@@ -806,6 +1034,11 @@ function SectionToggles({
           </div>
         </div>
       </button>
+      {writeError && (
+        <div className="r6-prod-toggle-error" role="alert">
+          Could not save: {writeError}
+        </div>
+      )}
     </div>
   );
 }

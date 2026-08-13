@@ -5,7 +5,16 @@ import {
 } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
-const isPublicRoute = createRouteMatcher(["/sign-in(.*)"]);
+// `/api/certification-status` is public by design. It reports whether THIS
+// runtime has certification suppression active — the gate that must be proven
+// before any Accept against a real production HubSpot deal. Auth-gating it
+// would make the check unanswerable from the runtime itself (the failure mode
+// it exists to rule out), and it exposes only a boolean, a fixed banner and a
+// fixed reason: no secrets, no configuration values, no customer data.
+const isPublicRoute = createRouteMatcher([
+  "/sign-in(.*)",
+  "/api/certification-status",
+]);
 const PRIMARY_DOMAIN = "@thedps.co";
 
 function emailAllowed(email: string | undefined): boolean {

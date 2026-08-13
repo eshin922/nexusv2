@@ -138,7 +138,14 @@ rows. The rehearsal is cheap; the ambiguity is not.
 
 ---
 
-### OD-012 · Drizzle migration generation is unsafe until its baseline is repaired
+### OD-012 · Drizzle migration generation is unsafe until its baseline is repaired — **CLOSED 2026-08-12**
+
+> **Repaired.** Baseline snapshot installed at `meta/0065_snapshot.json` and verified
+> against live `information_schema`; `db:generate` demoted to drift detection
+> (zero statements); `db:push` blocked; duplicate-index guard in `prebuild`.
+> Migration history was already healthy (64 journal entries = 64 applied rows) —
+> this was an authoring-tool safety defect. Next governed migration index: **0066**.
+> Record: [`validation/od-012-migration-baseline-repair.md`](validation/od-012-migration-baseline-repair.md).
 
 **Owner:** Nexus engineering · **Blocks:** authoring any new schema migration.
 Does **not** block Gate 1B analysis, and did not block Gate 1A close.
@@ -313,6 +320,63 @@ decision to drop it.
 
 ### OD-017 · Cost inputs key on `assembly_leaf_id`, blocking ASY-optional authoring
 
+> **RESOLVED 2026-08-12 — migration `0066` + 15-module conversion (`d6a1df2`).**
+> `quote_leaf_id` is the sole cost-input identity. The
+> `assemblyLeafId ?? quoteLeafId` fallback is REMOVED, not generalised.
+> Governed suite 956/956 including 14 OD-017 regressions and an explicit
+> falsification of the pre-`0066` state.
+>
+> Re-keying the tables was **necessary and not sufficient**: three loaders
+> reached the quote through `assemblies` and so excluded a Direct Component
+> even once its rows could exist — the cost bundle, packaging materialization,
+> and the **Send completeness gate**, where an unpriced Direct Component would
+> have passed the check with a missing cost.
+>
+> **Attribution evidence.** The S-7 preservation check reports a moved number.
+> It is not one: 20 differences across the live population, all
+> `skuRollups[].skuId`, and all 20 verified as exactly (legacy junction →
+> its canonical leaf). Separately, that baseline **already failed before this
+> work** (`2542310b` vs expected `e9943ad8`) — a pre-existing staleness, NOT
+> re-captured here, needing its own disposition.
+>
+> **CLOSED 2026-08-12** by `0067` + `0068` (`4dd3444`). Suite 963/963.
+>
+> The remaining blocker was direct-only Freight. `0067` relaxed
+> `freight_subcategories.assembly_id` to nullable — ownership and membership
+> digests byte-identical afterwards. `0068` was needed because the schema was
+> **not the only place the requirement lived**: a constraint trigger resolved
+> membership through `assembly_leaf_id` and required member-assembly to equal
+> shipment-assembly, so a Direct Component was rejected by the database and the
+> approved **Mixed** case was unreachable. The guard now validates through
+> `quote_leaf_id`; same-Quote enforcement is preserved and was re-proven.
+>
+> **A claim in the `0066` report was wrong.** "A Direct Component can join any
+> existing shipment" was asserted from the action layer without exercising the
+> write; the trigger rejected it. The walk caught it. Also found and fixed:
+> `loadWorksheetFreightForQuote` — the live draft path — still emitted a legacy
+> anchor after the re-key, so worksheet freight would have silently vanished
+> from draft quotes.
+>
+> **RATIFIED 2026-08-12.** The "membership is descriptive only" invariant is
+> replaced by **Pattern 58**: *membership may determine attribution, but must
+> never determine commercial arithmetic.* Freight amount, freight markup,
+> customs, landed cost and quoted sell must remain invariant to the anchor.
+> Assembly-owned shipments retain their product owner as anchor; a shipment with
+> no assembly derives one from `freight_subcategory_items.quote_leaf_id`.
+>
+> Building that ratification's evidence surfaced **OD-025**: the invariant holds
+> contingently on production data (every attachment is quantity 1) rather than
+> structurally. Recorded as its own finding; not a reason to reopen OD-017.
+>
+> Two validation lessons banked in CLAUDE.md: action-layer support does not prove
+> the database accepts a new structural state (check triggers on *referencing*
+> tables); and re-keying persistence does not prove every loader emits the new
+> identity (draft, snapshot and alternate read paths need independent tracing).
+>
+> Not in scope by disposition: `assembly_production_inputs` (no production,
+> bulk raw or service fees on a Direct Component in V1); Product Structure
+> snapshotting (**OD-023**); operator-UI reachability (**OD-022**).
+
 **Owner:** Nexus engineering + Edward · **Blocks:** ASY-optional quote authoring.
 Does not block Increment 7.
 
@@ -338,12 +402,27 @@ cannot be priced.
 that ASY remains mandatory.
 
 
-### OD-019 · How a margin is represented in the canonical graph
+### OD-019 · How a margin is represented in the canonical graph — **SETTLED 2026-08-07**
 
-**Owner:** Edward + CA · **Blocks:** the margin-in-points transient delta,
-which Phase 3 §3 requires. **In Phase 3 scope** — Phase 3 does not close
-without it. Blocks nothing else; the staging bar and page mounting proceed in
-parallel.
+> **Settled.** A `ratio` node kind was added — `operand ÷ basis`, deliberately
+> generic, with `costing-nodes.ts:74` recording *"a margin is the instance that
+> motivated it (OD-019)"*. A `margin` kind was rejected because it would name
+> one business quantity in a vocabulary of eleven structural kinds.
+> [BV-010](business-validation/BV-010-blended-margin-definition.md) then defined
+> the quantity itself, and `quote/{tier}/margin` carries it.
+>
+> **Retained in place** rather than deleted: the reasoning below is why the
+> graph has a `ratio` kind and not a `margin` one, which is the kind of question
+> that gets re-asked.
+>
+> *Kept under Blocking until 2026-08-10, after Phase 3 had already closed. The
+> decision was made; the register was not updated. Corrected as
+> **AM/OD specification maintenance** following the V1 compliance audit
+> (row OD-019).*
+
+**Owner:** Edward + CA · **Blocked:** the margin-in-points transient delta,
+which Phase 3 §3 requires. **Was in Phase 3 scope.** Blocked nothing else; the
+staging bar and page mounting proceeded in parallel.
 
 **Classification:** design decision, not an implementation one. §2 of the node
 specification is explicit that adding a node kind is the former, so this stops
@@ -853,16 +932,93 @@ isolated would be the wrong reading.
 
 ---
 
-### OD-004 · Item Group applicability datum
+### OD-004 · Item Group applicability datum — **DISPOSITIONED 2026-08-11 · CERTIFIED 2026-08-12**
 
-**Owner:** Accounting / Operations · **Blocks:** Slice 13 Item Group gate
+**Owner:** Accounting / Operations · **Blocks:** nothing — REG-4 / Track B is
+**CLOSED** on real NetSuite sandbox provider evidence (SO2704 / `361441`;
+Item Groups `75354` / `75454`). Closure record:
+[`validation/reg-4-track-b-certification.md`](validation/reg-4-track-b-certification.md).
+Do not reopen Item Group architecture absent new contradictory provider evidence.
 
-- What existing business datum determines detailed items vs Item Group vs
-  finished-good Assembly?
-- What controlled sandbox result approves the member-rate pricing procedure?
+> **Disposition (Edward, 2026-08-11): NetSuite grouping follows the quote's
+> agreed customer presentation.**
+>
+> | `quotes.detail_level` | grouping |
+> |---|---|
+> | `itemized` | **not required** — preserve the itemized presentation |
+> | `turnkey_only` | **required** |
+>
+> - **Which lines group — scoped by Product Structure** (correction 1, Edward,
+>   2026-08-11; see "Scoping correction" below):
+>
+>   | Product Structure | grouping boundary |
+>   |---|---|
+>   | **ASY-backed** | the **assembly** supplies the boundary; deterministic identity remains `composition_hash` |
+>   | **Direct Components / no ASY** | **no implicit boundary.** Each Direct LEAF remains an independent commercial line and projects as a flat NetSuite Item line under BV-006 §5. **Nexus must not synthesize an ASY merely to create a grouping boundary** |
+>   | **Mixed** | downstream contract **remains unapproved** under BV-006 §5 and is **outside this V1 projection proof** |
+>
+> - **Group identity:** `composition_hash`, unchanged.
+> - **Integration boundary: A2.** Nexus does not create the Item Group via an
+>   API operation REST/SOAP cannot perform. It produces the deterministic
+>   grouping plan when grouping is required, preserves the accepted commercial
+>   content, and supports evidence that the NetSuite result matches it.
+>
+> **Explicitly NOT required for V1:** `cost_category` · leaf classification ·
+> the 1,000-row backfill · any new fulfilment taxonomy.
+>
+> Analysis: [`validation/od-004-decision-set.md`](validation/od-004-decision-set.md).
+> Evidence boundary: [`validation/od-004-evidence-boundary.md`](validation/od-004-evidence-boundary.md).
 
-Accounting currently supplies this decision manually. No canonical Nexus datum
-is approved.
+**Scoping correction (Edward, 2026-08-11).** The original disposition said only
+*"the assembly is the deterministic boundary."* Reconciled against
+[BV-006 §5](business-validation/BV-006-product-structure-contract.md), that
+describes the **ASY-backed case alone**. It must not become a V1 architectural
+requirement that every commercially valid quote possess an ASY — BV-006 states
+that Direct Components *"must not cause implicit ASY creation"* and that an ASY
+*"must never be created silently as a convenience wrapper."* The table above is
+the scoped form. **This correction changes no runtime behaviour.**
+
+**V1 applicability limitation — `detail_level` is a temporary proxy.**
+OD-004 keys grouping applicability off `quotes.detail_level` **only because the
+currently reachable quote runtime is uniformly ASY-backed**, which leaves Product
+Structure with no discriminating signal: it is constant, so it cannot separate
+Detailed from Turnkey.
+
+It is **not permanent Commercial Representation authority.** BV-006 §4 remains
+governing and names customer-PDF detail level as **not an approved derivation
+input**, and separately records that *"Turnkey is distinct from the existing
+`turnkey_only` PDF presentation value."* When Direct Components become reachable,
+downstream representation must derive from the approved Product Structure /
+Commercial Representation contract, and `detail_level` returns to
+**presentation-only** semantics.
+
+**Deferred implementation defect — Direct Component silent drop.**
+
+> Once Direct Components become reachable, a Direct LEAF can enter costing but be
+> omitted from the NetSuite SO projection, because line construction searches
+> only `tree.assemblies[].children`.
+
+`src/lib/netsuite/mark-complete.ts:548-551` resolves each leaf rollup through
+`tree.assemblies.flatMap(a => a.children)`; an attachment with
+`quote_leaves.assembly_id IS NULL` has no entry there, so `treeLeaf` is undefined
+and the line hits `continue`. The costing adapter already admits such an
+attachment (`src/lib/costing-adapter.ts:120`, `:296`, `:342`), so the leaf would
+carry cost and revenue while contributing **no SO line** — the push would balance
+below the accepted total **without raising an error**.
+
+| | |
+|---|---|
+| **Reachability** | **Unreachable in current V1 runtime.** The only writer to `quote_leaves` is `attachGroupedMembership` (`src/lib/product-structure/grouped-membership-compatibility.ts:96`), whose args require a non-null `assemblyId`. No path creates a Direct Component |
+| **Classification** | **Not a V1 release blocker.** Required to be repaired **with the Direct Components feature slice** |
+| **Deferred alongside** | nullable / directless `PlanLineInput` support · Send-guard message correction (`quotes.ts:1435` says *SKU*, the query counts **assemblies**) · Direct Component runtime implementation |
+
+**Superseded authority.** `src/lib/netsuite/mark-complete.ts` STEP 5 previously
+asserted the wrap was *"MANDATORY for anything invoiced."* That is **overbroad
+and no longer governing** — it is annotated as superseded at the source. Two live
+rules is the failure this supersession prevents.
+
+**Still open (second original question):** what controlled sandbox result
+approves the **member-rate pricing procedure**. Unchanged by this disposition.
 
 **Standing constraint, independent of the answer:** a `$0.00` upstream catalog
 price can satisfy NetSuite validation but **must never become the commercial
@@ -920,6 +1076,301 @@ departure from the bundle is either an approved deviation or drift.
 
 **Decide at Phase 3 kickoff, not during implementation.** Deciding mid-build
 means deciding under schedule pressure.
+
+---
+
+### OD-027 · Product Library authority is not enforced downstream — V1
+
+**Owner:** Edward + product-master owner · **Status:** OPEN, evidenced ·
+**Blocks:** Accounting Review Order A · **May gate:** OD-022.
+
+Full finding + census:
+[`validation/product-library-authority-finding.md`](validation/product-library-authority-finding.md).
+Reproduced by `scripts/validation/product-library-authority-census.ts`.
+
+> A commercial Nexus library product is downstream-eligible only when its
+> governed HubSpot Product exists, the Nexus identity agrees with it, and it
+> resolves to exactly ONE eligible NetSuite Item. `archived = false` is not
+> evidence of that — and is the only signal an operator sees.
+
+**Census of 1,027 active commercial leaves: ~17.5% are not downstream-eligible**
+and are indistinguishable from the rest in the UI.
+
+| class | count |
+|---|---|
+| unique resolution | 847 |
+| **multiple active NetSuite matches (REFUSED at Send)** | **111** |
+| no NetSuite item | 55 |
+| no HubSpot id stored | 14 |
+
+Three proven classes: HubSpot→NetSuite sync missing (`CC-12oz-Filling-1.4` —
+NOT a Nexus mapping defect); **dangling authority** — active leaves whose
+HubSpot product was deleted (`10025-Fill`, `50010-Fill`); and SKU ambiguity.
+The resolver correctly REFUSES ambiguity rather than first-matching, so class 3
+is an upstream namespace problem, not a resolver defect.
+
+Kept SEPARATE from OD-026. Not merged without evidence.
+
+---
+
+### OD-026 · Direct Component packaging ignores the leaf's own multiplicity
+
+**Owner:** Nexus engineering + Edward · **Status:** OPEN, traced not repaired ·
+**Prerequisite to OD-022 if confirmed** · **Severity:** latent.
+
+> Direct Component packaging economics currently ignore the Direct leaf's
+> quantity/multiplicity, while equivalent Finished Product members scale by
+> `qtyPerParent`.
+
+Measured:
+
+```
+assembly-backed leaf   qty 1 → $10,000   qty 2 → $20,000   qty 3 → $30,000   scales
+DIRECT leaf            qty 1 → $10,000   qty 2 → $10,000   qty 3 → $10,000   ignored
+```
+
+A Direct Component attaches straight to the quote and is never folded, so
+nothing applies its `quote_leaves.quantity` at all.
+
+**Deliberately NOT repaired inside OD-025**, which concerns the point where an
+already-determined shipment-level Freight contribution is assigned to a leaf.
+This is a different question — component economics — and **must not be assumed
+to share OD-025's root cause until traced.** OD-025's cause was a dimensional
+error in a fold; this may instead be a missing multiplication, a deliberate
+semantic (a Direct leaf's quantity may not mean "per sellable unit" at all), or
+an undefined semantic. Apply the same dimensional-analysis discipline; do not
+inherit the conclusion.
+
+Latent today: every live attachment is quantity 1 and Direct Components are
+UI-unreachable. **Reachable exactly when OD-022 exposes them.**
+
+---
+
+### OD-024 · Nexus Product Specifications — governed V1 capability
+
+**Owner:** Edward · **Status:** REGISTERED, not started. **Do not implement the
+specification model yet.**
+
+Nexus will have its **own governed specification fields**, which must map
+explicitly to the existing NetSuite sandbox **PP / SP / SGA / COP** specification
+fields.
+
+**Nexus specifications are not a copy of the legacy NetSuite schema.** Legacy
+NetSuite field names are **integration targets, not Nexus authority**. Modelling
+Nexus specs by mirroring that schema would import an integration boundary as a
+business model — the same category error as letting a display aggregate define
+what is governed.
+
+The workstream distinguishes three layers, which must not be collapsed:
+
+1. **Nexus specification model** — the business-facing fields operators actually
+   author, and the Product Structure level each attaches to.
+2. **Nexus → NetSuite Sales Order mapping** — explicit translation from each
+   governed Nexus field to the appropriate sandbox field.
+3. **NetSuite → invoice / printed-document mapping** — a *separate* follow-on
+   business mapping. **Do not infer an invoice requirement merely because an SO
+   field exists.** An SO field's existence is evidence about the integration
+   surface, not about what a customer document must show.
+
+**Scope boundary with OD-023.** During OD-023, determine *only* what Product
+Structure / specification **attachment** information must be frozen at Send, so
+later Product Library edits cannot reinterpret an accepted quote. The detailed
+specification taxonomy and the NetSuite field mapping stay in this slice.
+
+---
+
+### OD-025 · The attribution invariant holds contingently, not structurally
+
+> **CLOSED 2026-08-12 — Repair A, dimension-aware fold.** Suite 978/978, 14
+> falsifications, zero live monetary movement.
+>
+> `rollUpAssemblyPerTier` now folds by dimension: component-unit values still
+> scale by `qtyPerParent`; sellable-unit (freight-derived) values are carried at
+> ×1. Composites that mix both — `contribution`, `requiredSell`, `computedSell`
+> and the whole sell ladder — fold as `(v − f) × q + f`, with each freight
+> portion **derived** from the ladder's own ratios rather than assumed.
+>
+> **Proof:** a $500 shipment over 1000 units now quotes **$500 at qty 1, 2 and
+> 3**, in a fixture with ONE leaf and no alternate anchor — so it cannot be
+> satisfied by making two anchors agree on a wrong number. Packaging still
+> scales ($10k/$20k/$30k). The leg model is fixed identically.
+>
+> **The first repair attempt moved money and was caught.** `(v − f) × 1 + f` is
+> not exactly `v` in IEEE-754; the float noise shifted `blendedMarginPct` on
+> three live quotes. Short-circuiting `qty === 1` makes the fold a provable
+> identity for the entire production population (150/150 attachments measured at
+> quantity 1). Regression 14 asserts it bit-for-bit.
+>
+> **Correction to earlier reports.** My OD-017 and OD-025 "zero monetary
+> movement" claims were made with a census that grepped `" -> "` — a pattern
+> that structurally CANNOT match numeric differences. Re-measured properly
+> against three trees: pre-OD-017, post-OD-017, post-OD-025. Both slices moved
+> **zero** money; the one `costBreakdown.packaging` and one `blendedMarginPct`
+> difference are present in **all three** and predate both slices. They belong
+> to the stale baseline, not recaptured per instruction.
+
+**Owner:** Nexus engineering + Edward · **Status:** CLOSED · **Severity:** V1
+correctness defect, was latent on current data.
+
+Chain: `OD-012 CLOSED → OD-017 CLOSED → OD-025 CLOSED → OD-023 → OD-022` (OD-026 gates OD-022).
+
+**Diagnosis:**
+[`validation/od-025-attribution-arithmetic-diagnosis.md`](validation/od-025-attribution-arithmetic-diagnosis.md).
+
+> **The defect is larger than attribution-sensitivity.** Freight is
+> **over-counted outright** when the carrying leaf has multiplicity ≠ 1 — a $500
+> shipment reports $1000 at quote level at qty 2, with only ONE anchor in the
+> fixture. Anchor-sensitivity is the symptom; the cause is that `qtyPerParent` is
+> applied to a quantity already denominated per sellable unit. Both freight
+> models are affected, including the leg model, which has no anchor concept at
+> all.
+>
+> **Root cause:** `SkuPerTierRollup` carries two dimensions in one record.
+> Packaging is `$/component unit`; freight is `$/sellable unit` (already divided
+> by `tierUnits`). `rollUpAssemblyPerTier` multiplies everything by
+> `qtyPerParent`, which is correct for the former and dimensionally invalid for
+> the latter. **Eleven fold lines** are implicated, not the five pure-freight
+> ones — freight is embedded in `contribution`, `requiredSell` and the whole sell
+> ladder.
+>
+> **AWAITING DISPOSITION:** Repair A (dimension-aware fold; per-leaf freight
+> preserved) vs Repair B (attribute freight above the leaf; per-leaf freight
+> display removed). The two answer *"is a leaf's freight figure per sellable unit
+> or per component unit?"* differently, and that is a commercial/presentation
+> decision with a Pattern 57 dimension. **Recommendation: Repair A.**
+
+Pattern 58 (ratified 2026-08-12) governs: *membership may determine attribution,
+but must never determine commercial arithmetic.* The implementation does not
+guarantee this structurally.
+
+Freight is amortised per unit, attributed to one leaf, then multiplied by that
+leaf's quantity in the rollup. With unequal leaf quantities, moving the anchor
+moves quote-level freight, landed cost and quoted sell:
+
+```
+equal quantities   (1, 1)  anchor A → 650   anchor B → 650    holds
+unequal quantities (2, 3)  anchor A → 1300  anchor B → 650    VIOLATED
+```
+
+Every live attachment carries quantity 1, so all anchors agree and the invariant
+holds on production data — which is why S-7 reported zero monetary movement.
+This is a property holding by **coincidence** reading as one holding by
+**construction** (Pattern 56).
+
+**Not introduced by OD-017.** The multiplication predates it; OD-017 made a
+second anchor selectable at all, for shipments with no assembly. Assembly-owned
+shipments still resolve to exactly one anchor.
+
+**Reachable when** a Direct Component or any attachment carries quantity ≠ 1 and
+anchors a shipment. Found while building the ratification evidence for Pattern
+58 — the argument for demanding falsification over an import-ban grep.
+
+Enforced as a tripwire in
+`tests/unit/od-017-direct-component-economics.test.ts`: the divergence is
+asserted, so a fix fails the test and forces this entry to be closed.
+
+---
+
+### OD-023 · Send does not freeze the governed Product Structure — **V1 BLOCKER**
+
+**Owner:** Nexus engineering + Edward · **Blocks:** OD-022, and historical
+integrity of every sent quote today
+
+`quote_snapshots` carries commercial settings and PDF axes. It does **not**
+carry the governed leaf set or its structure, so Complete re-derives structure
+from **live** assemblies. A Setup edit between Send and Complete silently
+changes the structure of an already-sent quote.
+
+This is **pre-existing and affects Finished Products today** — it is not
+introduced by Direct Components. Uniform structure has masked it; Mixed quotes
+would make it reachable.
+
+The snapshot must freeze enough that a later live edit cannot change: which
+commercial leaves were accepted; whether each was Direct or a Finished Product
+member; the Finished Product grouping/composition boundary; and the identity
+required for downstream projection.
+
+Dependency chain: `OD-012 CLOSED → OD-017 CLOSED → OD-025 CLOSED → OD-023 → OD-022` (OD-026 gates OD-022).
+OD-025 is a V1 correctness defect and precedes this slice.
+
+**Specification scope for this slice (per OD-024):** determine only what Product
+Structure / specification **attachment** information must be frozen at Send, so
+later Product Library edits cannot reinterpret an accepted quote. The
+specification taxonomy and NetSuite field mapping are OD-024's, not this slice's.
+
+Lifted out of OD-017 by disposition 2 (2026-08-12) so a cross-cutting repair is
+not buried inside a costing slice. Trace:
+[`validation/od-017-persistence-model.md`](validation/od-017-persistence-model.md) §7 T2.
+
+---
+
+### OD-022 · Operators cannot tell when an ASY structure is required
+
+**Owner:** Edward · **Blocks:** Product Library / V1 operator workflow · **Not**
+a Track B condition
+
+> Operators must understand when a Finished Product / ASY structure is required,
+> and that this structure governs downstream NetSuite Item Group composition.
+
+REG-4 / Track B certifies that the machinery is correct **given a correct
+structure**: the ASY composition becomes the Item Group's master definition, and
+its identity hash keys on that composition. What Track B does not certify — and
+cannot — is that an operator authoring a quote can tell when an ASY is needed at
+all, or that they understand the downstream consequence of getting it wrong.
+
+The consequence is not local. An ASY that should have been two groups, or two
+that should have been one, produces a Sales Order that reconciles to the correct
+total while shipping the wrong commercial structure — the exact
+attribution-without-reconciliation failure the certification gate exists to
+catch at the provider, and which is far cheaper to prevent at authoring time.
+
+**What settles it:** a Product Library / Setup workflow decision about when
+structure is prompted, required, or inferred, and how the NetSuite consequence
+is surfaced to the operator authoring it.
+
+Raised at Track B closure (2026-08-12) and deliberately carried out of it.
+
+---
+
+### OD-021 · `Send` finalizes the quote but does not deliver it
+
+**Owner:** Edward · **Blocks:** V1 release — operator-facing copy currently
+states something false to the operator
+
+`sendQuote` freezes the snapshot, assigns the quote number, stamps `sent_at`,
+flips `status` to `sent`, and persists the PDF. It dispatches **no email** —
+there is no mail transport in the repository. Customer delivery is a separate
+manual `Download + open mail draft` action (`mailto:` with no recipient and no
+attachment). The Send sub-tab nevertheless tells the operator the customer
+"will receive the customer PDF by email."
+
+Two concepts are fused that need not be: **commercial finalization** (frozen,
+numbered, immutable — Nexus owns this and it works) and **customer delivery**
+(Nexus cannot perform it and holds no evidence of it).
+
+Not cosmetic: `valid_until = sent_at + days_valid`, so the customer's
+acceptance window starts at finalization, and the PDF prints that date as
+"Issued". A quote finalized Monday and emailed Thursday reaches the customer
+with three days already gone.
+
+**What settles it:** choosing **A** (Nexus owns email dispatch and delivery
+evidence — largest scope, makes the wording true) or **B** (operator sends;
+Nexus stops claiming delivery — smallest scope). If B, also settle **B1**
+(add an explicit `Mark as sent` confirmation, giving a real delivery datum and
+a correct `valid_until`) vs **B2** (Nexus tracks finalization only and never
+claims delivery).
+
+**Do not** repair by wiring email into `sendQuote` before this is dispositioned,
+and do not redefine `sent_at` / `status='sent'` / snapshot semantics — consumers
+are traced in the finding and all of them are correct about *finalization*.
+
+Full trace, surface inventory, and consumer list:
+[`validation/v1-finding-send-does-not-deliver.md`](validation/v1-finding-send-does-not-deliver.md).
+
+**Certification language correction (adopted now):** `status = sent` proves the
+quote was frozen and finalized by Nexus. It does not prove customer delivery.
+Prior walk evidence remains valid — it proved finalization, which is what it
+was demonstrating.
 
 ---
 
@@ -1048,3 +1499,5 @@ now lives.)*
 |---|---|---|---|
 | OD-014 | A commercial SKU for Pricing aggregation is the quote-scoped leaf attachment, `quote_leaves.id` | 2026-08-07 | [`gate-1b-od-014-sku-identity.md`](gate-1b-od-014-sku-identity.md) |
 | OD-018 | The Packaging TOTAL is the simple sum of every governed SKU's packaging contribution at the tier — it shows Packaging's contribution to the Cost Stack, so it sums rather than averaging or weighting | 2026-08-07 | `quote/{tier}/cost-stack/pkg-total`; [`gate-1b-derivation-inventory.md`](gate-1b-derivation-inventory.md) §3.2.2 |
+| OD-019 | A margin is a `ratio` node — `operand ÷ basis`, generic by design. No `margin` kind: it would name one business quantity in a vocabulary of structural kinds | 2026-08-07 | `costing-nodes.ts:74`; `quote/{tier}/margin`; [BV-010](business-validation/BV-010-blended-margin-definition.md) |
+| OD-003 | Phase 3 rollback after first Apply — the pre-Phase-3 runtime **ignores** applied lifts. Rollback requires `DELETE FROM quote_leaf_lifts` first, or quoted prices sit below the operator-approved amount | 2026-08-10 | [R1 rehearsal](rehearsals/R1-rollback-after-first-apply.md); [cross-phase map §5](../CROSS-PHASE-AUTHORITY-DEPENDENCY-MAP.md) |

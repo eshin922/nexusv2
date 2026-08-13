@@ -106,6 +106,7 @@ export function TabMarkAccepted({
   prefillSourceRowId,
   prefillSourceAt,
   hubspotAcceptStageLabel,
+  hubspotAcceptSyncSuppressed = false,
   onGo,
 }: {
   view: CustomerView;
@@ -142,6 +143,8 @@ export function TabMarkAccepted({
    * loadPipelineStages if the value is an id, else passes verbatim.
    * Fallback: 'the accept stage' if resolution fails. */
   hubspotAcceptStageLabel: string;
+  /** Certification mode: Accept writes NOTHING to HubSpot. */
+  hubspotAcceptSyncSuppressed?: boolean;
   onGo: (id: SubTabId) => void;
 }) {
   const router = useRouter();
@@ -263,7 +266,12 @@ export function TabMarkAccepted({
             <div className="r9-handoff">
               <span className="mark">✓</span>
               <div className="txt">
-                <h4>Acceptance recorded · HubSpot set to {hubspotAcceptStageLabel}</h4>
+                <h4>
+                  Acceptance recorded ·{" "}
+                  {hubspotAcceptSyncSuppressed
+                    ? "HubSpot deal not modified (certification)"
+                    : `HubSpot set to ${hubspotAcceptStageLabel}`}
+                </h4>
                 <p>
                   {customer.name ?? "The customer"} accepted v{quoteVersionNumber} at{" "}
                   <strong>{capturedLabel}</strong>
@@ -552,11 +560,23 @@ export function TabMarkAccepted({
             <div className="r9-system pending">
               <div className="k">Now · HubSpot</div>
               <div className="v">
-                Deal moves to <strong>{hubspotAcceptStageLabel}</strong>
-                {selectedTier && (
-                  <> at {usd(selectedTier.totalRevenue)}</>
+                {hubspotAcceptSyncSuppressed ? (
+                  <>
+                    <strong>
+                      HubSpot Accept synchronization is disabled for
+                      certification.
+                    </strong>{" "}
+                    The deal will NOT be modified — no stage and no amount
+                    will be written. Acceptance is still recorded in Nexus.
+                  </>
+                ) : (
+                  <>
+                    Deal moves to <strong>{hubspotAcceptStageLabel}</strong>
+                    {selectedTier && <> at {usd(selectedTier.totalRevenue)}</>}
+                    . Acceptance is a sales fact — it closes when the customer
+                    says yes.
+                  </>
                 )}
-                . Acceptance is a sales fact — it closes when the customer says yes.
               </div>
               <span className="badge">fires on record</span>
             </div>

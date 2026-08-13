@@ -16,9 +16,9 @@
 //     decides what mounts; zone components don't gate on mode)
 //   - Mode-transition flash via `previousModeRef` + 30s timer
 //     (rendering chrome, not classifier responsibility)
-//   - Apply-path handlers wiring to Slice 9.4b server actions
-//     (applySurgicalAdj, applyGlobalAdj), read-only bulk preview,
-//     and receipt-based exact bulk Undo
+//   - Recommendation handlers, which STAGE into the working set
+//     (P3-016 — they used to write at click time), read-only bulk
+//     preview, and receipt-based exact bulk Undo
 //   - Local UI state: applyError, justUpdatedAt
 //
 // Apply-delta + apply-to resolution: the classifier QuoteState's
@@ -34,10 +34,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Mode } from "@/lib/pricing-classifier";
 import {
   applyGlobalAdj,
-  applySurgicalAdj,
   previewGlobalAdj,
   undoGlobalAdj,
 } from "@/app/actions/pricing-apply";
+import { composePricingAdjustment } from "@/lib/pricing-adjustment";
 import type { GlobalPricingPreview } from "@/lib/pricing-lift";
 import {
   ActionCard,
@@ -129,6 +129,11 @@ export function PricingSurfaceShell({
   const justUpdated = justUpdatedAt !== null;
 
   // Apply-path handlers ─────────────────────────────────────────
+  //
+  // Read here rather than further down because the recommendation handlers
+  // below stage into this set. They are the surface's operator pricing levers,
+  // and every one of them now goes through the same door.
+  const { stageTierAdj, committed, working, previewResult } = usePricingStaging();
   const [applyError, setApplyError] = useState<string | null>(null);
   const [globalPreview, setGlobalPreview] =
     useState<GlobalPricingPreview | null>(null);
@@ -137,40 +142,87 @@ export function PricingSurfaceShell({
   const [pricingConfirmation, setPricingConfirmation] =
     useState<string | null>(null);
 
-  async function onApply(kind: "apply_surgical" | "apply_global") {
+  /**
+   * A recommendation STAGES. It does not write.
+   *
+   * P3-016: both CTAs used to call an immediate-write action at click time.
+   * The write landed, with its audit row, and produced no chip, no preview and
+   * no Discard — so the operator saw the below-floor headline they had just
+   * acted on still standing, and the button they had pressed gone. A committed
+   * pricing change presenting as a no-op.
+   *
+   * The recommendation is a solver output, and this is the whole of what
+   * happens to it: it enters the working set. `composePricingAdjustment` is
+   * the surface's one composition rule — the same one the bulk-lift preview
+   * uses — so no arithmetic is invented here, and the page-level Apply owns
+   * persistence for these levers exactly as it does for lifts and overrides.
+   */
+  function onApply(kind: "apply_surgical" | "apply_global") {
     setApplyError(null);
     const sugg = state.quote.suggestions ?? {};
 
-    if (kind === "apply_surgical" && sugg.surgical) {
-      // Resolve numeric tier id → store UUID.
+    /**
+     * What the tier carries on the COMMITTED set — its own value, or the
+     * quote-wide fallback.
+     *
+     * Committed, not working, and the distinction is load-bearing. The
+     * classifier computes this recommendation from committed state: after
+     * staging, the compliance grid, the blocked count and the suggestion all
+     * still describe the quote as it is persisted. So `lift_pct` is a lift
+     * measured from committed — and composing it onto a working value that
+     * already contains it applies it twice.
+     *
+     * That is not hypothetical. It is what put `0.4123` on a production quote:
+     * two presses 727ms apart, each composing onto the result of the last,
+     * `1.1884² − 1`. Reading committed makes a repeat press IDEMPOTENT — the
+     * second stages the same value as the first, so the chip does not move and
+     * nothing compounds.
+     *
+     * Pattern 50: two subsystems answering the same question from different
+     * bases. The fix is to use the basis the recommendation was computed from.
+     */
+    const effectiveAdj = (tierUuid: string) =>
+      committed.tierAdj[tierUuid] ?? committed.globalAdj;
+
+    if (kind === "apply_surgical") {
+      // FAIL LOUDLY. A rendered surgical CTA with no surgical suggestion used
+      // to fall through two guarded branches to a silent return — the operator
+      // pressed a recommended action and nothing happened, anywhere, with no
+      // account of why. If this state is reachable the operator finds out.
+      if (!sugg.surgical) {
+        setApplyError(
+          "This surgical recommendation is no longer available — the quote has changed since it was offered. Reload to see the current recommendation.",
+        );
+        return;
+      }
       const targetTierUuid = idMap.numericToUuid.get(sugg.surgical.tier_id);
       if (!targetTierUuid) {
         setApplyError("Surgical lift target tier not found");
         return;
       }
-      const fd = new FormData();
-      fd.set("quoteId", quoteId);
-      fd.set("tierId", targetTierUuid);
-      fd.set("applyDelta", String(sugg.surgical.lift_pct));
-      fd.set("optionRecommended", "true");
-      const r = await applySurgicalAdj(fd);
-      if (!r.ok) setApplyError(r.error.message);
+      stageTierAdj(
+        targetTierUuid,
+        composePricingAdjustment(effectiveAdj(targetTierUuid), sugg.surgical.lift_pct),
+      );
       return;
     }
 
-    if (kind === "apply_global" && sugg.global) {
-      // `buildGlobal` always returns `applyTo: rollup.map(t => t.tierId)`
-      // (all tiers in the rollup). Derive from the idMap to avoid
-      // re-invoking the suggestion engine.
-      const allTierUuids = Array.from(idMap.numericToUuid.values());
-      const fd = new FormData();
-      fd.set("quoteId", quoteId);
-      fd.set("applyTo", allTierUuids.join(","));
-      fd.set("applyDelta", String(sugg.global.lift_pct));
-      fd.set("optionRecommended", "true");
-      const r = await applyGlobalAdj(fd);
-      if (!r.ok) setApplyError(r.error.message);
+    if (!sugg.global) {
+      setApplyError(
+        "This global recommendation is no longer available — the quote has changed since it was offered. Reload to see the current recommendation.",
+      );
       return;
+    }
+    // `buildGlobal` always returns `applyTo: rollup.map(t => t.tierId)` — all
+    // tiers in the rollup. Derived from the idMap to avoid re-invoking the
+    // suggestion engine. Each tier composes against its OWN current value, so
+    // a tier already carrying an adjustment is lifted from where it stands
+    // rather than being flattened to a shared figure.
+    for (const tierUuid of idMap.numericToUuid.values()) {
+      stageTierAdj(
+        tierUuid,
+        composePricingAdjustment(effectiveAdj(tierUuid), sugg.global.lift_pct),
+      );
     }
   }
 
@@ -187,7 +239,7 @@ export function PricingSurfaceShell({
       | "suggestion_manual_only",
   ) {
     if (kind === "apply_surgical" || kind === "apply_global") {
-      void onApply(kind);
+      onApply(kind);
       return;
     }
     // preview_pdf ActionCard was removed from the shell render per
@@ -276,9 +328,9 @@ export function PricingSurfaceShell({
   // incomplete.
   //
   // `resolveNode` fails closed on BOTH missing and duplicate matches, and a
-  // tier missing any one of its six values is omitted from the map entirely
-  // rather than partially filled. Half a stack read from the graph and half
-  // invented is the exact failure this increment exists to remove.
+  // tier missing any one of its governed values is omitted from the map
+  // entirely rather than partially filled. Half a stack read from the graph and
+  // half invented is the exact failure this increment exists to remove.
   const graph = useCostingStore(selectGraph);
   const blendedByTier = useMemo(() => {
     const byNumeric = new Map<number, BlendedTierComponents>();
@@ -296,9 +348,23 @@ export function PricingSurfaceShell({
       const dt = read("dt");
       const sellBefore = read("sell-before");
       const sell = read("sell");
+      const cost = read("cost");
+      // P3-017 — the levers BETWEEN the first level and the last. The blend
+      // used to publish only its ends, so the ladder the Cost Stack renders was
+      // unstateable at this scope and the reconciliation could not be asserted
+      // against anything. These five are read, never derived: a delta obtained
+      // by subtracting two published levels telescopes through the aggregation
+      // and yields an identity true for any four numbers.
+      const adjDelta = read("adj-delta");
+      const sellAfterAdj = read("sell-after-adj");
+      const liftDelta = read("lift-delta");
+      const sellAfterLift = read("sell-after-lift");
+      const overrideDelta = read("override-delta");
       if (
         pkg === null || prod === null || raw === null || frt === null ||
-        dt === null || sellBefore === null || sell === null
+        dt === null || sellBefore === null || sell === null || cost === null ||
+        adjDelta === null || sellAfterAdj === null || liftDelta === null ||
+        sellAfterLift === null || overrideDelta === null
       ) {
         continue;
       }
@@ -308,7 +374,8 @@ export function PricingSurfaceShell({
       // stack to withhold a seventh value that does not exist.
       const margin = readNodeValue(graph, quoteScopeKey(tierUuid, "margin"));
       byNumeric.set(numeric, {
-        pkg, prod, raw, frt, dt, sellBefore, sell, margin,
+        pkg, prod, raw, frt, dt, sellBefore, sell, cost, margin,
+        adjDelta, sellAfterAdj, liftDelta, sellAfterLift, overrideDelta,
         // The same keys the values were just read from, carried down so the
         // trace opens at the node the operator pressed rather than at one
         // reconstructed from a numeric id the graph has never heard of.
@@ -320,7 +387,13 @@ export function PricingSurfaceShell({
           dt: quoteScopeKey(tierUuid, "dt"),
           sellBefore: quoteScopeKey(tierUuid, "sell-before"),
           sell: quoteScopeKey(tierUuid, "sell"),
+          cost: quoteScopeKey(tierUuid, "cost"),
           margin: quoteScopeKey(tierUuid, "margin"),
+          adjDelta: quoteScopeKey(tierUuid, "adj-delta"),
+          sellAfterAdj: quoteScopeKey(tierUuid, "sell-after-adj"),
+          liftDelta: quoteScopeKey(tierUuid, "lift-delta"),
+          sellAfterLift: quoteScopeKey(tierUuid, "sell-after-lift"),
+          overrideDelta: quoteScopeKey(tierUuid, "override-delta"),
         },
       });
     }
@@ -376,6 +449,17 @@ export function PricingSurfaceShell({
   }, [skuRollups, tiers]);
 
   /**
+   * The same fail-closed contract as `cellLabel`, for the tier a per-tier
+   * adjustment chip names. An unresolved tier shows its raw id rather than a
+   * blank — ugly and recoverable, where a chip naming the wrong tier beside an
+   * adjustment about to be committed is neither.
+   */
+  const tierLabel = useMemo(() => {
+    const byId = new Map(tiers.map((t) => [t.id, t.label]));
+    return (tierId: string): string => byId.get(tierId) ?? tierId;
+  }, [tiers]);
+
+  /**
    * Classifier ids → the canonical staging address.
    *
    * The same two-sided join the labeller does, in the same place and for the
@@ -388,6 +472,76 @@ export function PricingSurfaceShell({
    * stage; the alternative is a price change on whichever line the wrong id
    * happens to hit.
    */
+  /**
+   * WHICH TIERS CARRY A LEVER — from the governed WORKING set.
+   *
+   * B-2. This used to be derived inside the Cost Stack from
+   * `state.cells[].lift_applied_pct`, which is the CLASSIFIER, which describes
+   * COMMITTED state. The Design Authority keys the same rows on `rollups`,
+   * computed from the WORKING set — so canonically the `Surgical lifts` row
+   * appears the moment a lift is STAGED, and in the shipped build it appeared
+   * only once one was applied. On a quote with no committed lifts it never
+   * appeared at all, and a staged lift moved `Quoted sell` with no row
+   * accounting for it. R11 §4 marks that contract load-bearing: every lever
+   * that can change a quoted price owes the cost stack a row.
+   *
+   * UNION, not replacement. `working` is the complete intended set and is the
+   * right basis, but the staging model documents one case it cannot carry:
+   * persisted overrides whose identity does not translate to a staging key
+   * "pass through unchanged — they are real and in effect". Keying purely on
+   * `working` would drop the row for those. Existence is monotone, so a lever
+   * shown when either source knows about it is correct in both directions; a
+   * union cannot lose a row, which is the whole property under repair.
+   *
+   * CONTRIBUTION IS NOT SOURCED HERE. Only existence. What each lever moved is
+   * read from its governed node in `blendedByTier`, so a refused lift still
+   * gets its row and renders the zero the graph actually holds — the
+   * existence-over-delta rule, preserved rather than reasoned about twice.
+   */
+  const leversByTier = useMemo(() => {
+    const byNumeric = new Map<number, { lifts: string[]; overrides: string[] }>();
+    const nameByQuoteLeafId = new Map<string, string>();
+    for (const sr of skuRollups) {
+      if (sr.canonicalQuoteLeafId) {
+        nameByQuoteLeafId.set(sr.canonicalQuoteLeafId, sr.productName);
+      }
+    }
+    const slot = (numeric: number) => {
+      let e = byNumeric.get(numeric);
+      if (!e) {
+        e = { lifts: [], overrides: [] };
+        byNumeric.set(numeric, e);
+      }
+      return e;
+    };
+    const addStaged = (kind: "lifts" | "overrides", cellKey: string) => {
+      const { quoteLeafId, tierId } = parseCellKey(cellKey);
+      const numeric = uuidToNumeric.get(tierId);
+      // Fail closed. A tier the classifier does not carry has no column to put
+      // this in, and attaching it to the wrong one is worse than omitting it.
+      if (numeric === undefined) return;
+      const name = nameByQuoteLeafId.get(quoteLeafId) ?? quoteLeafId;
+      const list = slot(numeric)[kind];
+      if (!list.includes(name)) list.push(name);
+    };
+    for (const key of Object.keys(working.lifts)) addStaged("lifts", key);
+    for (const key of Object.keys(working.overrides)) addStaged("overrides", key);
+    // The committed half of the union — reaches persisted rows the staging keys
+    // cannot name.
+    for (const c of state.cells) {
+      const name = c.sku_name;
+      if (c.lift_applied_pct !== null) {
+        const l = slot(c.tier_id).lifts;
+        if (!l.includes(name)) l.push(name);
+      }
+      if (c.override_applied) {
+        const o = slot(c.tier_id).overrides;
+        if (!o.includes(name)) o.push(name);
+      }
+    }
+    return byNumeric;
+  }, [working, skuRollups, uuidToNumeric, state.cells]);
+
   const resolveCell = useCallback(
     (skuId: string, tierId: number): CellRef | null => {
       const sr = skuRollups.find((r) => r.skuId === skuId);
@@ -405,7 +559,6 @@ export function PricingSurfaceShell({
   // readers refuse the wrong authority by construction — `readNodeValue`
   // returns null when a graph's own `evaluation` is not what the caller named
   // — so inverting these yields no deltas rather than plausible ones.
-  const { previewResult } = usePricingStaging();
   const previewGraph = previewResult?.graph ?? null;
 
   const renderStackDelta = useCallback(
@@ -519,7 +672,7 @@ export function PricingSurfaceShell({
         there is nothing to say. Its own component decides which of the two
         bars renders; neither is a state this file computes.
       */}
-      <StagingBar label={cellLabel} />
+      <StagingBar label={cellLabel} tierLabel={tierLabel} />
 
       {/* STATE — always visible. justUpdated chrome on mode transition. */}
       <StateLine state={state} justUpdated={justUpdated} />
@@ -609,6 +762,8 @@ export function PricingSurfaceShell({
       <DetailZone
         state={state}
         blendedByTier={blendedByTier}
+        tierMeta={tierMeta}
+        leversByTier={leversByTier}
         onPreviewGlobalAdjust={onPreviewGlobalAdjust}
         globalPreview={globalPreview}
         onCancelGlobalPreview={() => setGlobalPreview(null)}

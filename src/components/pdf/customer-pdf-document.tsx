@@ -96,12 +96,17 @@ function PageChrome({
 function ItemizedHead({
   isSingle,
   hasCharges,
+  hasSeparateFreight,
   hasUnpriced,
   fullLabelIfSingle,
   recommendedTierFullLabel,
 }: {
   isSingle: boolean;
   hasCharges: boolean;
+  /** Governed evidence that separately projected freight EXISTS — i.e. the
+   *  customer-view model actually carries freight lines. Freight-specific
+   *  copy renders only from this, never from `hasCharges`. */
+  hasSeparateFreight: boolean;
   hasUnpriced: boolean;
   /** Passed when isSingle=true; used for h2 "Per-unit pricing · {full}". */
   fullLabelIfSingle: string | null;
@@ -127,8 +132,9 @@ function ItemizedHead({
       <Text style={styles.h2}>{h2}</Text>
       <Text style={styles.lede}>
         Pricing per the terms below across volume tiers.
-        {hasCharges &&
-          " Outbound freight is billed separately at cost; one-time charges are itemized below."}
+        {hasSeparateFreight &&
+          " Outbound freight is billed separately at cost."}
+        {hasCharges && " One-time charges are itemized below."}
         {hasUnpriced &&
           " One or more items are pending finalization — a quote is available on request once sourcing is locked."}
         {showRecommendedNote &&
@@ -186,13 +192,36 @@ export function CustomerPdfDocument({
   } = data;
   const isSingle = layout === "single_tier";
   const turnkey = detail === "turnkey_only";
+
+  // Proof-5 repair (2026-08-11) — freight copy needs FREIGHT evidence.
+  //
+  // Every freight-specific clause used to render from `hasCharges`, which is
+  // `serviceFees.length > 0 || freightLines.length > 0`. A service fee alone
+  // therefore asserted, to the customer, that outbound freight was "billed
+  // separately at cost (itemized below); not included in the turnkey total".
+  // On the governed fixture all of that was false at once: freight was inside
+  // unit sell and inside the turnkey total, and nothing was itemized — the
+  // claim fired purely because a $17,000 tooling fee existed.
+  //
+  // Because `freightLines` is the only model evidence of separately projected
+  // freight, and the resolver does not populate it today, the honest result is
+  // that these sentences do not render. That is the intended outcome: suppress
+  // rather than invent a presentation contract the model cannot support.
+  //
+  // This decides nothing about OD-001. OD-001 asks whether freight SHOULD be
+  // shown; this only stops the document asserting freight facts it cannot
+  // demonstrate. If a future state genuinely projects freight lines, the copy
+  // returns on its own — gated on the evidence, not on a sibling charge.
+  const hasSeparateFreight = freightLines.length > 0;
   const recommendedTier = tiers[recommendedTierIdx];
 
   // Turnkey lede — composes from same flag axes. Base sentence
   // varies with hasCharges (turnkey-with-fees folds them into the
   // total; without-fees is landed & all-in).
   const turnkeyLede = hasCharges
-    ? "The all-in turnkey total per tier — one-time fees folded in. Outbound freight is billed separately at cost."
+    ? hasSeparateFreight
+      ? "The all-in turnkey total per tier — one-time fees folded in. Outbound freight is billed separately at cost."
+      : "The all-in turnkey total per tier — one-time fees folded in."
     : hasUnpriced
       ? "All-in turnkey total per tier. One tier is still pending a final line price, noted below."
       : "Pricing is landed and all-in — one number per volume tier, freight and duty included.";
@@ -228,7 +257,7 @@ export function CustomerPdfDocument({
                 serviceFees={serviceFees}
                 layout={layout}
                 foldFees={hasCharges}
-                freightAtCost={hasCharges}
+                freightAtCost={hasSeparateFreight}
                 allInUnit={!hasCharges}
                 partial={hasUnpriced}
                 lede={turnkeyLede}
@@ -240,6 +269,7 @@ export function CustomerPdfDocument({
                 <ItemizedHead
                   isSingle={isSingle}
                   hasCharges={hasCharges}
+                  hasSeparateFreight={hasSeparateFreight}
                   hasUnpriced={hasUnpriced}
                   fullLabelIfSingle={
                     isSingle && recommendedTier ? recommendedTier.full : null
@@ -262,7 +292,7 @@ export function CustomerPdfDocument({
                   serviceFees={serviceFees}
                   layout={layout}
                   foldFees={hasCharges}
-                  freightAtCost={hasCharges}
+                  freightAtCost={hasSeparateFreight}
                   allInUnit={!hasCharges}
                 />
                 <PricingFoot partial={hasUnpriced} />

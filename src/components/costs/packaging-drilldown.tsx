@@ -14,6 +14,11 @@ import {
   resolveNodes,
 } from "@/lib/costing-nodes";
 import {
+  buildPackagingIdentityMap,
+  resolvePackagingRowIdentity,
+  type PackagingRowIdentity,
+} from "@/lib/costs/packaging-row-identity";
+import {
   selectActiveTierId,
   selectGraph,
   selectPackaging,
@@ -27,6 +32,9 @@ import {
 // depends on the OLD `quote_skus` schema type.
 type QuoteSku = {
   id: string;
+  // OD-017 governed cost-input identity — the id a packaging line carries in
+  // `quoteSkuId`. Null for an assembly, which owns no cost row.
+  quoteLeafId: string | null;
   skuLabel: string;
   productName: string;
   skuRole: "leaf" | "assembly";
@@ -169,7 +177,9 @@ export function PackagingDrilldown({
   categories: Array<{ category: string; defaultMarkupPct: string }>;
   editable: boolean;
 }) {
-  const skuMap = new Map(skus.map((s) => [s.id, s]));
+  // COSTS-RENDER-1 — see `@/lib/costs/packaging-row-identity` for why this is
+  // keyed on the governed cost-input identity and not on `s.id`.
+  const identityMap = buildPackagingIdentityMap(skus);
   const linesById = new Map<string, LineForUI>();
   for (const r of inputRows) {
     const row = r.packaging_inputs;
@@ -399,7 +409,10 @@ export function PackagingDrilldown({
             key={line.lineGroupId}
             line={line}
             tiers={tiers}
-            sku={skuMap.get(line.quoteSkuId)}
+            identity={resolvePackagingRowIdentity(
+              identityMap,
+              line.quoteSkuId,
+            )}
             categories={categories}
             reads={reads}
             disabled={!editable}
@@ -448,14 +461,15 @@ function EmptyDrawer({
 function PackagingRow({
   line,
   tiers,
-  sku,
+  identity,
   categories,
   reads,
   disabled,
 }: {
   line: LineForUI;
   tiers: Array<{ id: string; label: string; qty: number | null }>;
-  sku: QuoteSku | undefined;
+  /** Resolved visible identity of the governed component this row costs. */
+  identity: PackagingRowIdentity;
   categories: Array<{ category: string; defaultMarkupPct: string }>;
   /** Governed per-(line, tier) values, resolved once for the whole drawer. */
   reads: Map<string, LineTierRead>;
@@ -472,17 +486,41 @@ function PackagingRow({
   const storeLineRow = storePackaging.find(
     (p) => p.lineGroupId === line.lineGroupId,
   );
-  const storeCategory: string = storeLineRow?.category ?? line.category ?? "";
-  const storeMarkupPct: string =
-    storeLineRow?.markupPct !== null && storeLineRow?.markupPct !== undefined
+  // P2-014 — fall back to the RSC prop on ROW ABSENCE, never on value nullness.
+  //
+  // These four resolutions used `?? line.x`, which cannot distinguish "the store
+  // has no row for this line" from "the row exists and its value is null". For
+  // a clearable field those are different states, and only the first justifies
+  // the prop. A cleared field therefore resolved to the value the PAGE WAS
+  // LOADED WITH -- and because that lands in local state, and `fireMetaSave`
+  // sends `stateRef.current`, the next save of ANY field on the line wrote it
+  // back. A persisted clear was silently reversed by an unrelated edit, with the
+  // rendered value agreeing with the resurrected one.
+  //
+  // Measured on all three: vendor (select -> clear -> edit markup), markup
+  // (clear -> clear vendor, restored to the page-load 1.0000), category (clear
+  // -> edit markup). Category did not reproduce on a second run, because the
+  // defect only bites while the prop is STILL stale -- it is a race with prop
+  // revalidation. Row presence removes the dependence on that timing rather
+  // than narrowing the window.
+  //
+  // A row that exists is authoritative including its nulls. The prop is needed
+  // only before hydration, when there is genuinely no row to read.
+  const storeCategory: string = storeLineRow
+    ? (storeLineRow.category ?? "")
+    : (line.category ?? "");
+  const storeMarkupPct: string = storeLineRow
+    ? storeLineRow.markupPct !== null && storeLineRow.markupPct !== undefined
       ? String(storeLineRow.markupPct)
-      : (line.markupPct ?? "");
+      : ""
+    : (line.markupPct ?? "");
 
-  const storeVendorId =
-    storeLineRow?.pricingVendorHubspotCompanyId ??
-    line.pricingVendorHubspotCompanyId;
-  const storeVendorName =
-    storeLineRow?.pricingVendorNameSnapshot ?? line.pricingVendorNameSnapshot;
+  const storeVendorId = storeLineRow
+    ? storeLineRow.pricingVendorHubspotCompanyId
+    : line.pricingVendorHubspotCompanyId;
+  const storeVendorName = storeLineRow
+    ? storeLineRow.pricingVendorNameSnapshot
+    : line.pricingVendorNameSnapshot;
   const [vendorId, setVendorId] = useState(storeVendorId);
   const [vendorName, setVendorName] = useState(storeVendorName);
   const [vendorQuery, setVendorQuery] = useState(storeVendorName ?? "");
@@ -495,6 +533,22 @@ function PackagingRow({
   const [searching, startSearchTransition] = useTransition();
   const [category, setCategory] = useState(storeCategory);
   const [markupPct, setMarkupPct] = useState(storeMarkupPct);
+  // Pattern 47 authoring contract for line markup.
+  //
+  // Markup is the only line-meta field an operator TYPES; category and vendor
+  // are chosen, and commit on change. A typed value needs a dirty flag,
+  // because between the first keystroke and the commit there is a local value
+  // that is more current than the store, and the store must not win.
+  //
+  // A ref shadows the state because the sync effect below reads dirtiness at
+  // store-change time, and a state read there would be the value from the
+  // render that scheduled the effect.
+  const [markupDirty, setMarkupDirtyState] = useState(false);
+  const markupDirtyRef = useRef(false);
+  const setMarkupDirty = (next: boolean) => {
+    markupDirtyRef.current = next;
+    setMarkupDirtyState(next);
+  };
 
   // The rate this line inherits when it has none of its own. Markup is
   // per-line, so every tier's read carries the same answer — the first one that
@@ -506,8 +560,33 @@ function PackagingRow({
   const inheritedMarkup = inherited?.inheritedMarkup ?? null;
   const inheritedSource = inherited?.inheritedSource ?? null;
   const isInheriting = markupPct === "" && inheritedMarkup !== null;
-  const metaDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ownership boundary for the Pricing Vendor control (VAL-104).
+  //
+  // The control holds two kinds of state, and they have different owners:
+  //
+  //   vendor DATA      -- vendorId, vendorName. Server-owned. Async
+  //                       completions and store reconciles set these.
+  //   SEARCH state     -- vendorQuery, vendorEditing, vendorResults,
+  //                       vendorSearchComplete. OPERATOR-owned. Only an
+  //                       operator gesture (type, Change, Clear, Cancel,
+  //                       select) or a change of line identity may set them.
+  //
+  // They used to share one owner, and a Clear's own completion then wiped a
+  // query the operator had typed while it was in flight: the box emptied and
+  // the surface reported `No eligible HubSpot Vendors match ""`. Nothing
+  // failed, and there was no moment after which typing was safe -- the clear's
+  // visible effects had already landed when the reset arrived.
+  //
+  // This is transient search-as-you-type state, not an autosaved value, so it
+  // takes no Pattern 47 blur/Enter contract. Separation is the whole fix.
+  //
+  // The generation counter covers what separation cannot: two searches can be
+  // in flight at once (the debounce cancels pending timers, not requests), so
+  // an older response could still land over a newer query's results. Each
+  // search interaction takes the next number, and a completion carrying an
+  // older one is stale by definition and drops.
+  const searchGeneration = useRef(0);
   const stateRef = useRef({
     vendorId,
     vendorName,
@@ -523,22 +602,38 @@ function PackagingRow({
   const canonicalRef = useRef(stateRef.current);
 
   // Sync local input state on either line identity or canonical value change.
-  // Wait-for-quiet at the provider level (QUIET_PERIOD_MS=800ms)
-  // prevents mid-typing clobber.
+  //
+  // Wait-for-quiet at the provider level does NOT protect this. It defers
+  // reconciliation while the operator is typing, and the case that broke was
+  // an operator who had already stopped: they typed a markup, tabbed away, and
+  // a reconcile caused by a DIFFERENT row's save reset this row from the store
+  // before the pending edit had been persisted. The edit vanished with no
+  // error and never reached the database (costs-reconciliation-ordering).
+  //
+  // Dirty state is what protects it now: while the operator holds an
+  // uncommitted markup, the store does not get to overwrite it. Identity
+  // change still resets, because that is a different line.
+  // A different line is a different control, so its search interaction resets.
+  // This is the ONLY non-gesture path allowed to touch search state.
+  useEffect(() => {
+    setVendorSearchState(storeVendorName ?? "", false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [line.lineGroupId]);
+
   useEffect(() => {
     setVendorId(storeVendorId);
     setVendorName(storeVendorName);
-    setVendorQuery(storeVendorName ?? "");
-    setVendorEditing(false);
-    setVendorSearchComplete(false);
     setCategory(storeCategory);
-    setMarkupPct(storeMarkupPct);
+    // canonicalRef always tracks server truth -- it is the rollback target --
+    // but the VISIBLE value stays the operator's while their edit is pending.
+    if (!markupDirtyRef.current) setMarkupPct(storeMarkupPct);
     canonicalRef.current = {
       vendorId: storeVendorId,
       vendorName: storeVendorName,
       category: storeCategory,
       markupPct: storeMarkupPct,
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     line.lineGroupId,
     storeVendorId,
@@ -549,7 +644,6 @@ function PackagingRow({
 
   useEffect(
     () => () => {
-      if (metaDebounce.current) clearTimeout(metaDebounce.current);
       if (searchDebounce.current) clearTimeout(searchDebounce.current);
     },
     [],
@@ -578,10 +672,12 @@ function PackagingRow({
         const previous = canonicalRef.current;
         setVendorId(previous.vendorId);
         setVendorName(previous.vendorName);
-        setVendorQuery(previous.vendorName ?? "");
-        setVendorEditing(false);
+        // Same boundary as the success path: a rollback restores the vendor
+        // DATA. It is still an asynchronous completion, so it does not get to
+        // reach into a search the operator has since started.
         setCategory(previous.category);
         setMarkupPct(previous.markupPct);
+        setMarkupDirty(false);
         updateLineMeta(line.lineGroupId, {
           pricingVendorHubspotCompanyId: previous.vendorId,
           pricingVendorNameSnapshot: previous.vendorName,
@@ -610,10 +706,16 @@ function PackagingRow({
         rollback(result.error.message);
         return;
       }
+      // Persisted. The operator's value is now the store's value, so
+      // synchronisation resumes.
+      setMarkupDirty(false);
       setVendorId(result.data.pricingVendorHubspotCompanyId);
       setVendorName(result.data.pricingVendorNameSnapshot);
-      setVendorQuery(result.data.pricingVendorNameSnapshot ?? "");
-      setVendorEditing(false);
+      // Deliberately does NOT set the query or leave edit mode. Every gesture
+      // that changes the vendor already set both, at the moment it was made --
+      // Clear empties the query once, select fills it with the chosen name.
+      // Repeating it here adds nothing except the chance to arrive late and
+      // overwrite whatever the operator has typed since.
       canonicalRef.current = {
         vendorId: result.data.pricingVendorHubspotCompanyId,
         vendorName: result.data.pricingVendorNameSnapshot,
@@ -632,18 +734,46 @@ function PackagingRow({
     });
   }
 
-  function scheduleMetaSave(overrides: Partial<{
-    vendorId: string | null;
-    vendorName: string | null;
-    category: string;
-    markupPct: string;
-  }>) {
-    if (metaDebounce.current) clearTimeout(metaDebounce.current);
-    metaDebounce.current = setTimeout(() => fireMetaSave(overrides), DEBOUNCE_MS);
+  /**
+   * Commit a typed markup on blur or Enter.
+   *
+   * Replaces a change-debounced save. A debounce is a rendering convenience
+   * and was never a persistence guarantee: the edit lived only inside a
+   * pending timer, so anything that re-rendered the row first destroyed it.
+   * Category and vendor keep their immediate-on-change semantics -- they are
+   * chosen, not typed, and there is no partial value to protect.
+   */
+  function commitMarkup() {
+    if (!markupDirtyRef.current) return;
+    if (markupPct === canonicalRef.current.markupPct) {
+      setMarkupDirty(false);
+      return;
+    }
+    fireMetaSave({ markupPct });
+  }
+
+  /**
+   * Set the search interaction. The ONLY way search state changes, other than
+   * a keystroke.
+   *
+   * Bumping the generation is what makes leaving a search final: an in-flight
+   * request would otherwise return and repopulate the results of a search the
+   * operator has already abandoned.
+   */
+  function setVendorSearchState(nextQuery: string, editing: boolean) {
+    searchGeneration.current += 1;
+    setVendorQuery(nextQuery);
+    setVendorEditing(editing);
+    setVendorResults([]);
+    setVendorSearchComplete(false);
   }
 
   function scheduleVendorSearch(query: string) {
     if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    // Every keystroke supersedes whatever was in flight, so it takes the next
+    // generation. Results carrying an older one belong to a query the operator
+    // has already moved past.
+    const generation = ++searchGeneration.current;
     if (query.trim().length < 2) {
       setVendorResults([]);
       setVendorSearchComplete(false);
@@ -653,10 +783,13 @@ function PackagingRow({
     searchDebounce.current = setTimeout(() => {
       startSearchTransition(async () => {
         try {
-          setVendorResults(await searchPricingVendors(query));
+          const results = await searchPricingVendors(query);
+          if (generation !== searchGeneration.current) return;
+          setVendorResults(results);
           setVendorSearchComplete(true);
           setVendorError(null);
         } catch {
+          if (generation !== searchGeneration.current) return;
           setVendorResults([]);
           setVendorSearchComplete(false);
           setVendorError("Pricing Vendors could not be loaded.");
@@ -665,12 +798,11 @@ function PackagingRow({
     }, 250);
   }
 
-  const skuLabel = sku?.skuLabel ?? "";
-  const productName = sku?.productName ?? "";
   // The library LEAF is the cost-bearing component identity. Pricing Vendor
   // remains provenance in its own column and must never replace what is being
-  // costed. `quoteSkuId` resolves through assembly_leaves to this LEAF.
-  const componentName = productName || skuLabel || "Unknown component";
+  // costed. Resolution lives in `@/lib/costs/packaging-row-identity` so the
+  // binding is assertable without rendering.
+  const { componentName, skuLabel } = identity;
 
   return (
     <div className="r6-dt-row">
@@ -703,9 +835,12 @@ function PackagingRow({
             const cat = categories.find((c) => c.category === v);
             if (cat) {
               setMarkupPct(cat.defaultMarkupPct);
-              scheduleMetaSave({ category: v, markupPct: cat.defaultMarkupPct });
+              // Chosen, not typed, and written in the same call -- so the
+              // auto-filled markup is committed, not dirty.
+              setMarkupDirty(false);
+              fireMetaSave({ category: v, markupPct: cat.defaultMarkupPct });
             } else {
-              scheduleMetaSave({ category: v });
+              fireMetaSave({ category: v });
             }
           }}
           style={{
@@ -738,12 +873,7 @@ function PackagingRow({
               <span className="pricing-source-actions">
                 <button
                   type="button"
-                  onClick={() => {
-                    setVendorEditing(true);
-                    setVendorQuery("");
-                    setVendorResults([]);
-                    setVendorSearchComplete(false);
-                  }}
+                  onClick={() => setVendorSearchState("", true)}
                 >
                   Change
                 </button>
@@ -758,10 +888,10 @@ function PackagingRow({
                     };
                     setVendorId(null);
                     setVendorName(null);
-                    setVendorQuery("");
-                    setVendorResults([]);
-                    setVendorSearchComplete(false);
-                    scheduleMetaSave({ vendorId: null, vendorName: null });
+                    // The query is emptied here, once, by the gesture that
+                    // means it. The save's completion no longer repeats it.
+                    setVendorSearchState("", false);
+                    fireMetaSave({ vendorId: null, vendorName: null });
                   }}
                 >
                   Clear
@@ -787,12 +917,7 @@ function PackagingRow({
             {vendorId && !disabled && (
               <button
                 type="button"
-                onClick={() => {
-                  setVendorEditing(false);
-                  setVendorQuery(vendorName ?? "");
-                  setVendorResults([]);
-                  setVendorSearchComplete(false);
-                }}
+                onClick={() => setVendorSearchState(vendorName ?? "", false)}
               >
                 Cancel
               </button>
@@ -830,11 +955,10 @@ function PackagingRow({
                   };
                   setVendorId(vendor.id);
                   setVendorName(vendor.name);
-                  setVendorQuery(vendor.name);
-                  setVendorEditing(false);
-                  setVendorResults([]);
-                  setVendorSearchComplete(false);
-                  scheduleMetaSave({
+                  setVendorSearchState(vendor.name, false);
+                  // Vendor selection is a choice, so it commits on the click
+                  // that makes it -- immediate, not debounced.
+                  fireMetaSave({
                     vendorId: vendor.id,
                     vendorName: vendor.name,
                   });
@@ -922,13 +1046,29 @@ function PackagingRow({
             type="number"
             step="0.01"
             min={0}
-            value={markupPct === "" ? "" : (Number(markupPct) * 100).toString()}
+            // Stored as a decimal, entered as a percent -- and `0.07 * 100`
+            // is 7.000000000000001, which is what the operator would read in
+            // the box. markup_pct is numeric(5,4), so the percent it can
+            // represent has at most two decimals; rounding there is exact
+            // rather than cosmetic.
+            value={
+              markupPct === ""
+                ? ""
+                : String(Math.round(Number(markupPct) * 10000) / 100)
+            }
             disabled={disabled}
             onChange={(e) => {
               const v = e.target.value;
               const decimal = v === "" ? "" : (Number(v) / 100).toString();
               setMarkupPct(decimal);
-              scheduleMetaSave({ markupPct: decimal });
+              setMarkupDirty(true);
+            }}
+            onBlur={commitMarkup}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.currentTarget.blur();
+              }
             }}
             placeholder={
               inheritedMarkup !== null ? (inheritedMarkup * 100).toFixed(0) : "—"
@@ -954,7 +1094,7 @@ function PackagingRow({
           tierId={t.id}
           line={line}
           markupPct={markupPct}
-          markupDirty={markupPct !== storeMarkupPct}
+          markupDirty={markupDirty}
           read={reads.get(readKey(line.lineGroupId, t.id)) ?? NO_READ}
           isActive={activeTierId === t.id}
           disabled={disabled}
