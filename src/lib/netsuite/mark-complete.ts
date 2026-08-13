@@ -584,7 +584,13 @@ export async function runMarkComplete(
       // Locate the leaf's tree entry to get its SKU + name.
       const treeLeaf = tree.assemblies
         .flatMap((a) => a.children.map((c) => ({ assembly: a, child: c })))
-        .find(({ child }) => child.junctionId === leafRollup.skuId);
+        // OD-028 — match on the CANONICAL cost-input identity. `skuRollups` are
+        // keyed by quote_leaf_id since OD-017; `junctionId` is the legacy
+        // assembly_leaf id and matched 0/2 on Order B, so every leaf was
+        // skipped and the empty-lines guard refused the push. Deliberately NO
+        // fallback to junctionId: a fallback would silently re-absorb the next
+        // re-key, which is exactly how this class keeps recurring.
+        .find(({ child }) => child.quoteLeafId === leafRollup.skuId);
       if (!treeLeaf?.child.sku) continue; // no SKU → skipped upstream by resolver
       const nsId = nsIdBySku.get(treeLeaf.child.sku);
       if (!nsId) continue;

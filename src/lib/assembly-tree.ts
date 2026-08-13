@@ -33,6 +33,14 @@ export type ProductTypeRef = {
 export type AssemblyLeafNode = {
   // Junction row identity (the row in assembly_leaves)
   junctionId: string;
+  // OD-017 CANONICAL COST-INPUT IDENTITY (the row in quote_leaves).
+  //
+  // This is the id the math layer keys `skuRollups` on, so ANY consumer
+  // joining a tree node to costing output must match on this — never on
+  // `junctionId`, which is the legacy grouped-membership identity and lives in
+  // a different id space. Both are `string`, so the compiler cannot tell them
+  // apart; OD-028 is the third consumer found matching on the wrong one.
+  quoteLeafId: string;
   position: number;
   quantity: string;
   // Library leaf identity (the row in leaves)
@@ -244,6 +252,7 @@ function assembleTree(
           : null;
         return {
           junctionId: j.id,
+          quoteLeafId: j.quoteLeafId,
           position: j.position,
           quantity: j.quantity,
           leafId: leaf.id,
