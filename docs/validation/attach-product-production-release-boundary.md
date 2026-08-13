@@ -489,12 +489,62 @@ touched no cost data; zero NULL `quote_leaf_id` anywhere; zero dangling
 `assembly_leaves` or cost-input FKs; the smoke quote's 12 rows (8 pre-existing +
 4 new) intact.
 
-### 7.5 Outstanding
+### 7.5 CLOSED — final production-recovery evidence
 
-- **CI `verify` remains infrastructure-misconfigured.** Durable follow-up: a
-  scoped database credential for the job, or relocate the DB-backed preservation
-  gate to an environment where it can genuinely execute. **Not** a skip-when-absent.
-- **Interim restriction in force:** no firm-settings edits until the workstream
-  carrying `slack_approval_channel_id` forward is deployed (§3C).
-- Defects **A** (non-atomic attach) and **B** (migration deploy-order governance,
-  now amended in CLAUDE.md) remain recorded and unrepaired by design.
+**Production attach-product recovery is CLOSED.** The accepted evidence is
+merge SHA `e97011c`, Vercel GREEN on that exact merge, tree parity with certified
+`065aed3`, smoke 12/12, canonical `quote_leaf_id` on every newly materialized
+cost row, 23502 no longer reproducing, clean adjacent attachment integrity, the
+three-row cleanup committed, and post-cleanup verification 12/12.
+
+**Commit `151ecb4` is the final production-recovery evidence record.**
+
+### 7.6 Smoke residue — recorded, deliberately not reversed
+
+The smoke left one additional component (`Genexa - Box - Kids' Cough`,
+`10064-GNX`) attached to validation quote `52bd0077`
+(`ZZ-VALIDATION-tier-propagation`), which now carries 3 leaves rather than 2.
+
+**Disposition: leave it attached.** It sits inside the verifier-designated
+mutable namespace, so it affects neither preservation nor any commercial
+artifact. **No further production mutation may be made solely to restore a
+mutable fixture's former leaf count** — a write to undo a harmless write is still
+a write, and it would be the only unforced production change in this recovery.
+
+### 7.7 Outstanding — OPEN, not scheduled
+
+**CI required-check defect — OPEN, release-infrastructure work.**
+
+- The DB-backed S-7 verifier is part of `prebuild`.
+- CI supplies no `DATABASE_URL`.
+- The required `verify` check therefore **cannot genuinely pass**.
+- **S-7 must not be weakened into a no-DB skip.**
+- Durable solution: a properly scoped CI database / read-only verification model,
+  or relocation of the DB-backed gate to an environment where it can actually run.
+
+**This repair is not to be implemented merely because production recovery is
+idle.** It is release-infrastructure work awaiting its own scheduling.
+
+**Branch protection.** `enforce_admins = true`, restored and verified. The
+production-recovery bypass is **closed** and must not become a normal merge
+mechanism.
+
+**Interim restriction in force.** No firm-settings edits until the Slack
+workstream carrying `slack_approval_channel_id` forward is deployed (§3C).
+
+**Defects A and B** (non-atomic attach; migration deploy-order governance, now
+amended in CLAUDE.md) remain recorded and unrepaired by design.
+
+### 7.8 Posture — engineering held
+
+Engineering work is **held pending the Accounting discussion**. The next business
+input is Accounting's review of **SO2707 / SO2708 / SO2709** and the
+Production / OTC / Freight representation questions.
+
+Held at their current boundaries, not to be resumed while waiting:
+
+- Slack — paused at the controlled-walk boundary (independent-reviewer gate)
+- OD-022
+- the ambiguous-response provider walk
+- Order A (Filling Product-master gap)
+- any unrelated cleanup
