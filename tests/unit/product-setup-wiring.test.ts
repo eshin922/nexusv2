@@ -1,12 +1,29 @@
-// Product Setup wiring — two peer operator actions.
+// Product Setup wiring — THREE distinct operator intentions.
 //
-// The operator contract these hold:
-//   Add Product      → Direct Product, assembly_id = NULL
-//   Add Item Group   → explicit grouped structure
-// Neither implies the other. Grouping is never inferred from product count.
+//   Add Product        browse the library, attach an EXISTING product to the
+//                      quote as a standalone Direct Product (assembly_id NULL)
+//   Create Item Group  create quote-local grouping structure. Not a product.
+//                      Writes nothing to the Nexus/HubSpot product library.
+//   Create New Product library master data — a new reusable library product.
+//                      Never offers an Item Group as a kind of "product".
 //
-// Structural + source-level. The end-to-end operator walk (attach → render →
-// reload) is exercised separately; these guard the wiring that walk depends on.
+// Neither structural action implies the other; grouping is never inferred from
+// product count.
+//
+// WHAT THE EARLIER VERSION OF THIS FILE ESTABLISHED, AND WHAT IT DID NOT.
+// It asserted that two correctly-labelled triggers existed and that the two
+// ATTACH writers never crossed over. Both were true, and both still pass. They
+// did not establish GROUPED-CREATION REACHABILITY, and finding B-1 lived in
+// exactly that gap: "+ Add Item Group" opened a Library that can only attach
+// into a group that already exists, so on a quote with zero groups every row
+// was disabled and the only route to `createAssembly` ran through a product-
+// creation screen nested inside that same Library. A grep for `mode="group"`
+// cannot fail when the capability behind the mode is missing — the instrument
+// could not express the defect it was read as excluding.
+//
+// The reachability walk below can. It is falsified against a reconstruction of
+// the pre-repair wiring, so its ability to FAIL is demonstrated rather than
+// assumed.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -24,20 +41,128 @@ async function code(p: string): Promise<string> {
     .replace(/\/\/.*$/gm, "");
 }
 
-// ------------------------------------------------------- two peer actions
-test("Setup exposes Add Product and Add Item Group as peers", async () => {
-  const src = await code("src/components/assembly-tree/assembly-tree-view.tsx");
-  assert.match(src, /mode="direct"/);
-  assert.match(src, /mode="group"/);
-  // The single consolidated CTA is gone — it could only produce grouped
-  // structure, so leaving it would have left grouping as the default.
-  assert.doesNotMatch(src, /\+ Add component/);
+// ----------------------------------------- B-1 · grouped-creation reachability
+
+/**
+ * Can an operator on a quote with ZERO Item Groups reach Item Group creation?
+ *
+ * Walks the module graph link by link from the setup surface to the writer and
+ * names the failing link, so a break anywhere on the path is reported rather
+ * than reduced to a boolean. Takes source TEXT rather than reading files, so
+ * the same walk can be run against a reconstruction of the pre-repair wiring.
+ */
+function reachesItemGroupCreation(src: {
+  view: string;
+  trigger: string;
+  modal: string;
+}): { reachable: true } | { reachable: false; broken: string } {
+  const view = src.view
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+    .replace(/\/\/.*$/gm, "");
+
+  if (!/<CreateItemGroupTrigger\b/.test(view))
+    return { reachable: false, broken: "setup surface renders no create-item-group action" };
+
+  // The action must not be conditional on an Item Group already existing.
+  // That inversion IS the defect, not a milder form of it.
+  if (/\{\s*assembl\w*\.length\s*>\s*0\s*\?\s*\([\s\S]{0,400}?<CreateItemGroupTrigger/.test(view))
+    return { reachable: false, broken: "create action is gated on an existing Item Group" };
+
+  if (!/CreateItemGroupModal/.test(src.trigger))
+    return { reachable: false, broken: "trigger opens no item-group creation surface" };
+  if (/LibraryBrowse/.test(src.trigger))
+    return { reachable: false, broken: "trigger routes through the Library first" };
+
+  if (!/createAssembly\(fd\)/.test(src.modal))
+    return { reachable: false, broken: "creation surface never calls createAssembly" };
+
+  return { reachable: true };
+}
+
+async function currentSources() {
+  return {
+    view: await read("src/components/assembly-tree/assembly-tree-view.tsx"),
+    trigger: await read("src/components/assembly-tree/create-item-group-trigger.tsx"),
+    modal: await read("src/components/item-group/create-item-group-modal.tsx"),
+  };
+}
+
+test("B-1 · from a zero-group quote, Create Item Group reaches creation without the Library", async () => {
+  assert.deepEqual(reachesItemGroupCreation(await currentSources()), {
+    reachable: true,
+  });
 });
 
-test("each trigger names exactly one structure", async () => {
-  const src = await read("src/components/library/library-browse-trigger.tsx");
-  assert.match(src, /\+ Add Product/);
-  assert.match(src, /\+ Add Item Group/);
+test("B-1 · the reachability walk can express the original failure", async () => {
+  // Falsification. Without it, a walk that always returned `reachable` would
+  // pass exactly as quietly as the label greps it replaces.
+  const preRepair = {
+    view: '<LibraryBrowseTrigger mode="direct" />\n<LibraryBrowseTrigger mode="group" />',
+    trigger: "",
+    modal: "",
+  };
+  const before = reachesItemGroupCreation(preRepair);
+  assert.equal(before.reachable, false);
+  assert.match(
+    (before as { broken: string }).broken,
+    /renders no create-item-group action/,
+  );
+
+  // And the narrower regression this repair could still slip into: the action
+  // present, but gated on the very thing it exists to create.
+  const gated = reachesItemGroupCreation({
+    ...(await currentSources()),
+    view: "{assemblyTargets.length > 0 ? (\n  <CreateItemGroupTrigger />\n) : null}",
+  });
+  assert.equal(gated.reachable, false);
+  assert.match(
+    (gated as { broken: string }).broken,
+    /gated on an existing Item Group/,
+  );
+});
+
+// ------------------------------------------------- three distinct intentions
+test("Add Product remains the Direct Product path", async () => {
+  const view = await code("src/components/assembly-tree/assembly-tree-view.tsx");
+  assert.match(view, /mode="direct"/);
+  assert.match(
+    await read("src/components/library/library-browse-trigger.tsx"),
+    /\+ Add Product/,
+  );
+  // The single consolidated CTA is gone — it could only produce grouped
+  // structure, so leaving it would have left grouping as the default.
+  assert.doesNotMatch(view, /\+ Add component/);
+});
+
+test("Create Item Group writes quote structure and nothing to the library", async () => {
+  const modal = await read("src/components/item-group/create-item-group-modal.tsx");
+  assert.match(modal, /createAssembly/);
+  // An Item Group is not library master data. Calling a library writer here
+  // would merge the two capabilities again.
+  assert.doesNotMatch(modal, /createLeaf|createProduct/);
+});
+
+test("Create New Product is library master data only — no Item Group branch", async () => {
+  const src = await read("src/components/add-product/add-product-modal.tsx");
+  assert.match(src, /createLeaf/);
+  // The ASY branch, its writer, and the toggle that presented an Item Group as
+  // a second kind of product are all gone.
+  assert.doesNotMatch(src, /createAssembly/);
+  assert.doesNotMatch(src, /a1v2-mode-toggle/);
+  assert.doesNotMatch(
+    await code("src/components/add-product/add-product-modal.tsx"),
+    /\bASY\b/,
+  );
+});
+
+test("the grouped Library entry appears only once a destination exists", async () => {
+  const view = await code("src/components/assembly-tree/assembly-tree-view.tsx");
+  // Requirement 6: the grouped workflow survives. Requirement 3: it is never
+  // the path an empty quote is sent down.
+  assert.match(
+    view,
+    /assemblyTargets\.length > 0 \? \(\s*<LibraryBrowseTrigger\s+mode="group"/,
+  );
 });
 
 // --------------------------------------------------------------- routing

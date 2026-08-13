@@ -30,6 +30,7 @@ import type { AssemblyTree } from "@/lib/assembly-tree";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AssemblyTreeBody } from "./assembly-tree-body";
 import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
+import { CreateItemGroupTrigger } from "./create-item-group-trigger";
 
 export function AssemblyTreeView({
   tree,
@@ -106,12 +107,28 @@ export function AssemblyTreeView({
             {tree.totalAssemblies}{" "}
             {tree.totalAssemblies === 1 ? "item group" : "item groups"}
           </span>
-          {/* TWO PEER ACTIONS. Neither implies the other, and the operator's
-              choice is structural rather than cosmetic: a one-product Item
-              Group prints on the customer's Sales Order as a named container
-              with a nested line, where a Direct Product prints as one line.
-              So grouping is never inferred from how many products are added —
-              it is only ever what the operator explicitly asked for. */}
+          {/* THREE OPERATOR INTENTIONS, kept distinct.
+
+              + Add Product      — browse the library, attach an existing
+                                   product to the quote as a standalone
+                                   Direct Product.
+              + Create Item Group— create quote-local grouping structure. Not a
+                                   product, and nothing is written to the
+                                   library.
+              + Add to Item Group— put products into a group that already
+                                   exists.
+
+              The first two are PEERS and are always available. Structure is
+              never inferred from product count: a one-product Item Group prints
+              on the Sales Order as a named container with a nested line, where a
+              Direct Product prints as one line, so grouping is only ever what
+              the operator explicitly asked for.
+
+              The third is CONDITIONAL, and that is the B-1 repair. The Library
+              attaches into a destination, so it cannot be the entry point for
+              creating that destination — offering it on a quote with no groups
+              is what produced a dead end the operator had to reason their way
+              out of. */}
           <LibraryBrowseTrigger
             mode="direct"
             quoteId={quoteId}
@@ -119,21 +136,26 @@ export function AssemblyTreeView({
             editable={editable}
             assemblies={assemblyTargets}
             leafTypes={leafTypesForFilter}
-            assemblyTypes={assemblyTypes}
             fullLeafTypes={leafTypes}
             permissions={permissions}
           />
-          <LibraryBrowseTrigger
-            mode="group"
+          <CreateItemGroupTrigger
             quoteId={quoteId}
-            projectId={projectId}
             editable={editable}
-            assemblies={assemblyTargets}
-            leafTypes={leafTypesForFilter}
             assemblyTypes={assemblyTypes}
-            fullLeafTypes={leafTypes}
-            permissions={permissions}
           />
+          {assemblyTargets.length > 0 ? (
+            <LibraryBrowseTrigger
+              mode="group"
+              quoteId={quoteId}
+              projectId={projectId}
+              editable={editable}
+              assemblies={assemblyTargets}
+              leafTypes={leafTypesForFilter}
+              fullLeafTypes={leafTypes}
+              permissions={permissions}
+            />
+          ) : null}
         </div>
       </div>
 

@@ -114,7 +114,7 @@ export function AssemblyTreeBody({
       {isEmpty ? (
         <p className="r7b-empty-state">
           {editable
-            ? "Nothing on this quote yet · use Add Product for a single product, or Add Item Group to sell several together."
+            ? "Nothing on this quote yet · use Add Product for a single product, or Create Item Group to sell several together."
             : "No products."}
         </p>
       ) : (

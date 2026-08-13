@@ -57,7 +57,6 @@ export function LibraryBrowseModal({
   projectId,
   assemblies,
   leafTypes,
-  assemblyTypes,
   fullLeafTypes,
   permissions,
 }: {
@@ -89,7 +88,6 @@ export function LibraryBrowseModal({
   // placeholder + fieldSchema). Threaded through alongside the
   // type-filter shape; same source (loadProductTypeOptions) on
   // the page.
-  assemblyTypes: { id: string; name: string }[];
   fullLeafTypes: LeafSpecEntryProductType[];
   // slice-library-first-creation-flow Step 3 — per locked Q6:
   // gate "+ Create new product" + (Step 5) "↗ Refresh from
@@ -1209,7 +1207,6 @@ export function LibraryBrowseModal({
           }
         }}
         stacked
-        assemblyTypes={assemblyTypes}
         leafTypes={fullLeafTypes}
       />
       {/* slice-library-first-creation-flow Step 4 — attach toast

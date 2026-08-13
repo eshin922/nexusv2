@@ -33,7 +33,6 @@ export function LibraryBrowseTrigger({
   editable,
   assemblies,
   leafTypes,
-  assemblyTypes,
   fullLeafTypes,
   permissions,
 }: {
@@ -48,7 +47,6 @@ export function LibraryBrowseTrigger({
   editable: boolean;
   assemblies: AssemblyTarget[];
   leafTypes: { id: string; name: string; placeholder: boolean }[];
-  assemblyTypes: { id: string; name: string }[];
   fullLeafTypes: LeafSpecEntryProductType[];
   permissions: { canCreateLeaves: boolean };
 }) {
@@ -70,10 +68,10 @@ export function LibraryBrowseTrigger({
             ? "Quote is not draft — editing disabled"
             : isDirect
               ? "Add a single product to this quote"
-              : "Group several products that are sold together"
+              : "Add products into an existing item group"
         }
       >
-        {isDirect ? "+ Add Product" : "+ Add Item Group"}
+        {isDirect ? "+ Add Product" : "+ Add to Item Group"}
       </button>
       <LibraryBrowseModal
         mode={mode}
@@ -83,7 +81,6 @@ export function LibraryBrowseTrigger({
         projectId={projectId}
         assemblies={assemblies}
         leafTypes={leafTypes}
-        assemblyTypes={assemblyTypes}
         fullLeafTypes={fullLeafTypes}
         permissions={permissions}
       />
