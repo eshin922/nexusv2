@@ -137,3 +137,47 @@ Order**, or the fixture must use a deal that does not.
   push at `awaiting_rates`. **Not retried** — a retry would converge against
   SO2707 again. Whether to recover or discard it is an open decision.
 - Governed suite 1136/1136, `tsc` clean, prebuild green.
+
+---
+
+## Disposition of the certification quote (2026-08-13)
+
+**`a4c36959…` is ABANDONED for certification.** Not retried, not recovered, not
+manipulated back into a reusable fixture.
+
+Its deal already owns SO2707, so under the repaired ownership contract the
+attempt is now **intentionally fail-closed**. Recovering it would mean either
+retrying against an order it must never adopt, or editing durable state to
+disguise the condition the repair exists to enforce.
+
+Preserved as evidence, exactly as it stands:
+
+| | |
+|---|---|
+| quote | `accepted`, `accepted_tier_id` NULL, `netsuite_so_id` NULL |
+| push | `awaiting_rates`, `error_class: verification`, `netsuite_so_id 361542` |
+| SO2707 | **restored**, not pristine |
+
+**SO2707 must be described as restored going forward.** Its commercial content
+is correct — Box 1.25, Bottle 2.25, total $3,500 — and its NetSuite modified
+history correctly records that it was mutated and repaired. That history is
+evidence and is not a defect to be tidied away.
+
+## What the ownership repair does and does not close
+
+**Closes:** the demonstrated failure. A Sales Order durably owned by another
+Nexus quote or snapshot can never be adopted by the current attempt.
+
+**Does not close:** provider identity in general. An **unowned** Sales Order
+discovered only by deal id remains **correlation, not deterministic identity** —
+and the candidate sweep below proved that is not hypothetical: two deals carry
+provider orders (SO2646, SO2624) that Nexus has no record of and would therefore
+treat as unowned. The provider-side quote/snapshot identity field stays **open
+debt**.
+
+## Standing invariant from the gate repair
+
+> Every accepted commercial element must appear downstream **exactly once, in
+> its intended structure**.
+
+Total reconciliation is necessary and not sufficient.
