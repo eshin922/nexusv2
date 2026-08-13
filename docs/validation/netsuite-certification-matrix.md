@@ -130,7 +130,12 @@ these:
 5. **Accepted state** with `customer_accepted_tier_id`; `accepted_tier_id` NULL
    is the correct pre-Complete state and must not be seeded (Pattern 52 / #154).
 6. **Exactly one active sent snapshot.**
-7. **Non-null governed costs.** ← *the assertion-specific one.* With a null cost
+7. **The HubSpot deal must carry NO existing Sales Order.** Candidates are
+   matched on deal id, so a deal that already has one puts the attempt in
+   contact with a sibling quote's order. Added after the SO2707 incident, where
+   omitting this check cost a completed order its rates
+   (). Check  on sibling quotes.
+8. **Non-null governed costs.** ← *the assertion-specific one.* With a null cost
    the code correctly writes nothing, so a cost-less artifact certifies nothing
    about M2 or M3. It would pass while proving the opposite of what was intended.
 

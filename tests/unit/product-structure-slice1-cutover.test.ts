@@ -157,6 +157,11 @@ const classifiedIdentityFiles = new Set([
   "scripts/parity/so-field-parity.ts", "scripts/product-structure/slice1-compatibility-rehearsal.ts",
   "scripts/product-structure/slice1-contract-rehearsal.ts",
   "scripts/product-structure/slice1-cutover-rehearsal.ts", "scripts/product-structure/slice1-preflight.ts",
+  // CLASSIFIED — fixture provisioner, canonical only. Writes `quote_leaves`
+  // for both structures and `assembly_leaves` only for grouped members, which
+  // is what makes the seeded quote a genuine mixed case rather than a
+  // simulation of one. Resolves no identity and maps between no id spaces.
+  "scripts/provision-mixed-certification-fixture.ts",
   "scripts/provision-cb-step10-fixture.ts", "scripts/provision-cb-step8b-fixture.ts",
   "scripts/provision-cb-step8c4-fixture.ts", "scripts/seed-sample-order.mjs",
   "scripts/validation/phase-1-identity-reachability.ts",

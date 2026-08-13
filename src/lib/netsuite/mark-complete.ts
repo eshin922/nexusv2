@@ -1036,6 +1036,7 @@ export async function runMarkComplete(
     ) {
       const decision = await reconcileBeforeCreate({
         trigger: "ambiguous_attempt",
+        quoteId,
         expect: {
           customerId: customer.netsuiteCustomerId,
           hubspotDealId: projectRow.hubspotDealId as string,
@@ -1115,6 +1116,7 @@ export async function runMarkComplete(
       if (errClass === "duplicate_deal" && pendingId) {
         const decision = await reconcileBeforeCreate({
           trigger: "duplicate_deal",
+          quoteId,
           expect: {
             customerId: customer.netsuiteCustomerId,
             hubspotDealId: projectRow.hubspotDealId as string,
@@ -1245,6 +1247,17 @@ export async function runMarkComplete(
         const convergence = await runRateConvergence({
           soId: salesOrderInternalId,
           plannedGroups: groupingPlan.groups,
+          // The accepted Direct Products, so the gate can prove each one
+          // reached the order. Derived from the SAME `directLines` that built
+          // the payload — the gate must check what was actually required, not
+          // a second derivation that could agree with a wrong payload.
+          plannedDirectLines: directLines.map((l) => ({
+            sku: l.sku,
+            netsuiteItemId: l.netsuiteItemId,
+            quantity: l.quantity,
+            rate: l.rate,
+            amount: Math.round(l.rate * l.quantity * 10000) / 10000,
+          })),
           tierQty: groupingPlan.tierQty ?? 0,
           acceptedTotal: currentAmount,
           expectHeader: {

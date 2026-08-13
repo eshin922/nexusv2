@@ -34,6 +34,7 @@ import {
   type ObservedLineKind,
   type HeaderExpectation,
   type SuccessGateResult,
+  type PlannedDirectLine,
 } from "./so-structure";
 
 /** One line exactly as `readSalesOrderLines` returns it. */
@@ -113,6 +114,8 @@ export interface ConvergenceOutcome {
 export async function runRateConvergence(args: {
   soId: string;
   plannedGroups: PlannedGroup[];
+  /** Direct Product lines the accepted quote requires alongside the groups. */
+  plannedDirectLines?: PlannedDirectLine[];
   tierQty: number;
   acceptedTotal: number;
   expectHeader: HeaderExpectation;
@@ -147,6 +150,7 @@ export async function runRateConvergence(args: {
   const header = await provider.readHeader(soId);
   const gate = evaluateSuccessGate({
     plannedGroups,
+    plannedDirectLines: args.plannedDirectLines,
     structure: after,
     tierQty,
     acceptedTotal,
