@@ -33,7 +33,7 @@ const sql = postgres(DB, { prepare: false, max: 1, connect_timeout: 10 });
 // company 52961503280 → NetSuite customer 360189. Reused deliberately so the
 // fixture makes NO HubSpot write — creating a deal would be a production
 // mutation, and suppression covers Accept-side writes, not deal creation.
-const PROJECT_ID = "7d9c22dd-e7f5-4ccc-82c4-46502b718eba";
+const PROJECT_ID = "71ced625-2b64-4887-925a-a524e038ce30";
 
 // Library leaves, by SKU. All three resolve in the NetSuite sandbox.
 const GROUP_MEMBER_A = "eabba094-daff-481f-98d7-7341f52e7c47"; // 10064-GNX-Box

@@ -150,3 +150,100 @@ record of.
   status is `succeeded` — stale residue from the pre-resume failure, not
   cleared on success. Cosmetic, and misleading to anyone querying by
   `error_class`.
+
+---
+
+# CERTIFICATION ARTIFACT 2 — SO2715 · M1–M4 ALL CERTIFIED
+
+**Quote** `d6a3ba17-9216-40b0-b473-92f4472dbbba` · scenario
+`CERT-MIXED-DELETE-ME-2026-08-13T22-43-03` · **Smart Pressed Juice - Juice
+Cleanse Reorder 2026** · deal `58222880425` · customer **124560**
+**Sales Order SO2715 (`362341`)** · push **`succeeded`**, `error_class` **null**,
+completed 2026-08-13T22:45:59Z — **first Complete, no retry, no recovery**.
+
+Run on `a2a61f8`, which carries the grouped-member Unit Cost repair.
+
+## Why a second artifact was needed
+
+SO2714 certified M1, M2 and M4 but exposed that `custcol_dps_unit_cost`
+("Unit Cost") and `costEstimateRate` ("Est. Rate") are **different NetSuite
+columns**, and that only the latter reached grouped members. Its lifecycle was
+already terminal — `complete` / `succeeded` — so no governed path could re-run
+convergence against it. SO2714 is preserved as the pre-repair evidence.
+
+## Provider read-back — authoritative
+
+```
+line 1  Group      75954            qty 1000   UnitCost —      EstRate —
+line 2  InvtPart    1024  rate 0.5365  amt  536.5   UnitCost 0.37   EstRate 0.37   CUSTOM  costEst 370
+line 3  InvtPart   66476  rate 1.8705  amt 1870.5   UnitCost 1.29   EstRate 1.29   CUSTOM  costEst 1290
+line 4  EndGroup                       amt 2407     UnitCost —      EstRate —
+line 5  InvtPart   71529  rate 3.6685  amt 3668.5   UnitCost 2.53   EstRate 2.53   CUSTOM  costEst 2530
+```
+
+**34 of 35 automated checks passed. The one failure was the check, not the
+system** — see "A wrong check" below.
+
+## M1–M4
+
+| | claim | evidence |
+|---|---|---|
+| **M1** | Direct projects end-to-end | `71529` exactly once, ordinary line, positioned **after** EndGroup; members positioned **before** it |
+| **M2** | Direct Unit Cost at CREATE | Unit Cost **2.53** and Est. Rate **2.53**, extended **2530** |
+| **M3** | grouped-member cost, **both representations** | Box **Unit Cost 0.37 / Est. Rate 0.37 / 370**; Bottle **Unit Cost 1.29 / Est. Rate 1.29 / 1290** — written post-expansion to lines that did not exist at CREATE |
+| **M4** | mixed projection | one group, each member once, one Direct line, nothing duplicated, nothing omitted, all quantities 1000 |
+
+**Structural lines receive neither representation**: Group and EndGroup carry no
+Unit Cost, no Est. Rate, no `costEstimateType`.
+
+**Economics** (corroboration, not proof): group subtotal **2407** + Direct
+**3668.5** = **6075.5** = the accepted Nexus revenue recorded at acceptance, and
+the SO total.
+
+## Isolation
+
+| | |
+|---|---|
+| deal `58222880425` | **exactly one** Sales Order — SO2715/362341 (control Root → SO2707 passing) |
+| sibling quotes `2f29af72`, `52bd0077` | `updated_at` **byte-identical** to the pre-seed capture — untouched |
+| SO2714 | 6075.5 @ 22:03 — unchanged |
+| SO2707 / SO2708 / SO2709 | 3500 @ 21:01 · 5550 @ 04:45 · 4150 @ 04:58 — unchanged |
+
+## A wrong check, recorded rather than quietly fixed
+
+The automated gate asserted *"customer 124560 has exactly one Sales Order"* and
+failed: the customer carries five historical orders (SO2334, SO2315, SO2259,
+SO2092, SO2087) from 2024–2025 on **other deals**.
+
+**The assertion was mis-scoped, not the system mis-behaved.** Isolation is
+DEAL-scoped, because that is the granularity reconciliation matches on. Re-run
+correctly, deal `58222880425` holds exactly one order and it is SO2715.
+
+Worth keeping because it cuts the other way too: a customer-scoped prerequisite
+would have wrongly disqualified this candidate during the sweep. Deal scope is
+right in both directions.
+
+## Certification status
+
+| | |
+|---|---|
+| **M1** Direct projection | **CERTIFIED** (SO2714 and SO2715) |
+| **M2** Direct Unit Cost at CREATE | **CERTIFIED** (SO2714 and SO2715) |
+| **M3** grouped-member Unit Cost + Est. Rate | **CERTIFIED** (SO2715) |
+| **M4** mixed projection | **CERTIFIED** (SO2714 and SO2715) |
+
+Also proven on the way: the ambiguous-create **recovery path** (SO2714's resume
+reused its order rather than creating one), and the **ownership veto** (SO2714
+created its own order rather than adopting SO2707).
+
+## Residual, unchanged
+
+An **unowned** provider Sales Order matched only by deal id remains
+**correlation, not deterministic identity**. Live, not hypothetical: the sweep
+found SO2646 and SO2624 on deals Nexus has no record of. A provider-side
+quote/snapshot key stays open debt.
+
+Downstream consumers of `custcol_dps_unit_cost` remain **INDETERMINATE** —
+metadata tables are not exposed to this integration role. Not required: the
+column is consumed by the NetSuite UI itself, which the metadata catalog
+establishes by title.
