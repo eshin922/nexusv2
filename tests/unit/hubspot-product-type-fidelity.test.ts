@@ -40,7 +40,15 @@ async function code(p: string): Promise<string> {
     .replace(/^\s*\/\/.*$/gm, "");
 }
 
-/** The live vocabulary, as read from the property definition 2026-08-13. */
+/**
+ * The PRODUCTION vocabulary, as read from the property definition 2026-08-13.
+ *
+ * A fixture for the pure predicate only — never a source of truth. The sandbox
+ * portal's option set is genuinely different (it has `Corrugated` and
+ * `Preliminary`, lacks `Finished Goods` and `Turnkey`, and does not diverge on
+ * Logistics), which is exactly why the vocabulary is fetched at runtime and why
+ * it must be fetched through the products client.
+ */
 const LIVE_OPTIONS = [
   { label: "Cards, Booklets", value: "Cards, Booklets", displayOrder: 0 },
   { label: "Design", value: "Design", displayOrder: 1 },
@@ -154,6 +162,20 @@ test("the vocabulary is fetched, never hard-coded", async () => {
   // Withdrawn options must not be offered — classifying under a retired value
   // would be legal at the API and wrong for the firm.
   assert.match(src, /\.filter\(\(o\) => !o\.hidden\)/);
+});
+
+test("the vocabulary is read from the SAME portal that holds the products", async () => {
+  const vocab = await code("src/lib/hubspot-product-type-vocabulary.ts");
+  const pull = await code("src/lib/hubspot-pull.ts");
+  // The Products domain is dev/prod-aware and the two portals' option sets
+  // differ. Reading the vocabulary through getReadClient() would validate a
+  // create against production's options while createProduct writes to the
+  // sandbox — `Turnkey` is legal in one and absent from the other. The
+  // vocabulary, the listing, and the create must all be one client.
+  assert.match(vocab, /getProductsClient\(\)/);
+  assert.doesNotMatch(vocab, /getReadClient/);
+  // And the values being filtered come from that same client's listing.
+  assert.match(pull, /hubspot\.listProducts\(/);
 });
 
 test("create validates membership BEFORE writing to HubSpot", async () => {

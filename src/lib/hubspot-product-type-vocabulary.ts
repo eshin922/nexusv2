@@ -1,5 +1,5 @@
 import "server-only";
-import { getReadClient } from "@/lib/hubspot";
+import { getProductsClient } from "@/lib/hubspot";
 
 /**
  * The governed `hs_product_type` option set, read from HubSpot's property
@@ -21,6 +21,16 @@ import { getReadClient } from "@/lib/hubspot";
  * that sends a label, or filters on one, misses roughly half the catalogue and
  * fails silently — there is no error, just an empty result that looks like an
  * empty catalogue.
+ *
+ * WHY THE PRODUCTS CLIENT AND NOT THE READ CLIENT. The Products domain is
+ * dev/prod-aware: in dev it talks to the sandbox portal, in production to the
+ * live one. Those portals' option sets are NOT the same — `Finished Goods` and
+ * `Turnkey` exist only in production, `Corrugated` and `Preliminary` only in
+ * the sandbox, and `Logistics` -> `Third Party Logistics` diverges in
+ * production but not in the sandbox. The vocabulary must therefore come from
+ * the same client that reads and writes the products, or a create would be
+ * validated against options the receiving portal does not have and the Library
+ * would offer chips matching nothing.
  */
 
 export const HS_PRODUCT_TYPE_PROPERTY = "hs_product_type";
@@ -44,7 +54,7 @@ export async function loadHubspotProductTypeOptions(): Promise<
   HubspotProductTypeOption[]
 > {
   if (cached) return cached;
-  const client = getReadClient();
+  const client = getProductsClient();
   const prop = await client.crm.properties.coreApi.getByName(
     "products",
     HS_PRODUCT_TYPE_PROPERTY,
