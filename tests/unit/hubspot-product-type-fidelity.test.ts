@@ -208,6 +208,25 @@ test("chips render labels and filter on values", async () => {
   assert.match(src, /setSourceTypeFilter\(UNCLASSIFIED_SOURCE_TYPE\)/);
 });
 
+test("the Library modal takes no RUNTIME value from the server-only loader", async () => {
+  // The modal is a client component. A type import from the loader is erased
+  // and harmless; a value import pulls the whole server-only module — and
+  // therefore the db client — into the client graph, which fails the build.
+  // The sentinel lives in a boundary-neutral module for exactly that reason.
+  const src = await code("src/components/library/library-browse-modal.tsx");
+  // `[^;]` bounds the match at the statement terminator. A `[\s\S]*?` here
+  // silently swallows preceding import statements and reports the wrong one.
+  const loaderImports = src.match(
+    /import[^;]*?from "@\/lib\/library-browse-loader"/g,
+  );
+  for (const imp of loaderImports ?? []) {
+    assert.match(imp, /^import type\b/, `value import from the loader: ${imp}`);
+  }
+  assert.match(src, /from "@\/lib\/library-source-type"/);
+  // And the neutral module must stay neutral.
+  assert.doesNotMatch(await code("src/lib/library-source-type.ts"), /server-only/);
+});
+
 test("the Nexus taxonomy survives untouched in both directions", async () => {
   // Independence: this repair neither reads productTypeId to derive a source
   // type nor writes it from one. Both filters coexist.

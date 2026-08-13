@@ -2,10 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  UNCLASSIFIED_SOURCE_TYPE,
-  type LibraryBrowseRow,
-} from "@/lib/library-browse-loader";
+import { UNCLASSIFIED_SOURCE_TYPE } from "@/lib/library-source-type";
+import type { LibraryBrowseRow } from "@/lib/library-browse-loader";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import {
   fetchHubspotProductTypes,

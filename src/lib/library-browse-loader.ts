@@ -1,4 +1,5 @@
 import "server-only";
+import { UNCLASSIFIED_SOURCE_TYPE } from "@/lib/library-source-type";
 import { and, asc, count, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
@@ -124,7 +125,7 @@ export type LibraryBrowseRow = {
  * dropped 1,051 of 1,077 products with nothing on screen saying so — which is
  * why the filter read as untrustworthy rather than as unpopulated.
  */
-export const UNCLASSIFIED_SOURCE_TYPE = "__unclassified__";
+export { UNCLASSIFIED_SOURCE_TYPE } from "@/lib/library-source-type";
 
 const DEFAULT_LIMIT = 50;
 
