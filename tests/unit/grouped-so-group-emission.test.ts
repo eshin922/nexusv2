@@ -129,9 +129,57 @@ test("2 · turnkey_only emits Group lines INSTEAD of flat members", () => {
   }
 });
 
-test("3 · Group + explicit members can NEVER be emitted together", () => {
+test("3 · a group's OWN members can never be emitted alongside it", () => {
   // Probe 7a: NetSuite expands the group AND honours the explicit members,
   // duplicating them and doubling the total — at 204, with no error.
+  //
+  // The rule is MEMBERSHIP, not co-occurrence. P1 (SO2713) measured a group
+  // beside a flat line for an item in no group and found no duplication, so
+  // refusing co-occurrence outright would forbid the safe case along with the
+  // unsafe one — and did, by forcing `lines: []` and silently dropping Direct
+  // Products from turnkey quotes.
+  assert.throws(
+    () =>
+      buildSalesOrderPayload({
+        ...header,
+        lines: flatLines, // 1024 + 66476 — both members of the group below
+        groupLines: [{ netsuiteItemId: "90001", sku: "A-G", quantity: 1000 }],
+        groupMemberItemIds: ["1024", "66476"],
+      }),
+    /refusing to emit a flat line for an item the Item Group already expands/,
+  );
+});
+
+test("3b · a flat line for an item in NO group is emitted alongside the group", () => {
+  const payload = buildSalesOrderPayload({
+    ...header,
+    lines: [
+      {
+        netsuiteItemId: "71529",
+        sku: "BA146400",
+        description: "Direct",
+        quantity: 7,
+        rate: 1.11,
+        unitCost: 0.5,
+      },
+    ],
+    groupLines: [{ netsuiteItemId: "90001", sku: "A-G", quantity: 1000 }],
+    groupMemberItemIds: ["1024", "66476"],
+  });
+  const rows = items(payload);
+  assert.equal(rows.length, 2);
+  // Group header first, bare; then the Direct line, fully populated.
+  assert.deepEqual(rows[0].item, { id: "90001" });
+  assert.equal(has(rows[0], "rate"), false);
+  assert.deepEqual(rows[1].item, { id: "71529" });
+  assert.equal(rows[1].rate, 1.11);
+  assert.deepEqual(rows[1].costEstimateType, { id: "CUSTOM" });
+  assert.equal(rows[1].costEstimateRate, 0.5);
+});
+
+test("3c · flat lines beside groups without a declared member set are refused", () => {
+  // Membership cannot be checked, so the safe case cannot be distinguished from
+  // the doubling one. Refuse rather than assume no collision.
   assert.throws(
     () =>
       buildSalesOrderPayload({
@@ -139,7 +187,7 @@ test("3 · Group + explicit members can NEVER be emitted together", () => {
         lines: flatLines,
         groupLines: [{ netsuiteItemId: "90001", sku: "A-G", quantity: 1000 }],
       }),
-    /refusing to emit Item Group lines alongside explicit line items/,
+    /membership cannot be checked/,
   );
 });
 

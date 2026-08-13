@@ -67,6 +67,49 @@ test("a Direct Product is never bucketed into an Item Group", () => {
   );
 });
 
+// --------------------------------------------------------------- 1b
+test("a mixed turnkey_only plan carries the group AND the independent Direct line", () => {
+  // Both halves asserted in ONE test on purpose. Checking them separately would
+  // pass while the two coexisted incorrectly — a plan can hold a correct group
+  // and have quietly lost the Direct line, and each half-test would still be
+  // green.
+  const plan = buildGroupingPlan({
+    detailLevel: "turnkey_only",
+    customerNetsuiteId: "11323",
+    tierQty: 1000,
+    lines: [
+      groupedLine({ sku: "SKU-G1", netsuiteItemId: "101" }),
+      groupedLine({ sku: "SKU-G2", netsuiteItemId: "102" }),
+      directLine(),
+    ] as never,
+  });
+
+  // — the expected grouped structure —
+  assert.equal(plan.groupingRequired, true);
+  assert.equal(plan.groups.length, 1, "exactly one group, from the one assembly");
+  assert.deepEqual(
+    plan.groups[0].members.map((m) => m.netsuiteItemId).sort(),
+    ["101", "102"],
+    "both grouped members, and ONLY them",
+  );
+  assert.equal(
+    plan.groups[0].members.some((m) => m.netsuiteItemId === "200"),
+    false,
+    "the Direct Product must never appear inside the group",
+  );
+
+  // — the expected independent Direct line —
+  const direct = plan.lineAttribution.filter((l) => l.assemblyId === null);
+  assert.equal(direct.length, 1, "exactly one unattributed line");
+  assert.equal(direct[0].sku, "SKU-D");
+  assert.equal(direct[0].netsuiteItemId, "200");
+
+  // — and the two are disjoint, which is what "mixed" has to mean —
+  const grouped = new Set(plan.groups.flatMap((g) => g.members.map((m) => m.netsuiteItemId)));
+  assert.equal(grouped.has("200"), false);
+  assert.equal(plan.lineAttribution.length, 3, "no line lost on either side");
+});
+
 // ---------------------------------------------------------------- 2
 test("a lone Direct Product produces no group even at turnkey_only", () => {
   // The auto-wrap temptation lives exactly here: grouping is REQUIRED by the
@@ -143,46 +186,57 @@ test("a Direct Product emits one ordinary line, no Group/EndGroup", () => {
 });
 
 // ---------------------------------------------------------------- 6
-test("mixing group lines and flat lines is refused, not attempted", () => {
-  // Probe 7a: NetSuite expands the group AND honours explicit members,
-  // returning 204 while doubling the order. Unproven for an UNRELATED flat
-  // line, and an unproven argument is not a licence to send it.
+test("a group's own member is refused as a flat line; an outsider is not", () => {
+  // Probe 7a is about MEMBERSHIP. P1 (SO2713) measured a group beside a flat
+  // line for an item in no group and found no duplication, so the guard forbids
+  // the member rather than the co-occurrence.
+  const base = {
+    netsuiteCustomerId: "11323",
+    subsidiaryId: "2",
+    orderStatusCode: "B",
+    hubspotDealId: "D1",
+    hubspotDealName: "Deal",
+    groupLines: [{ netsuiteItemId: "999", sku: "ASY-1-G", quantity: 1 }],
+    groupMemberItemIds: ["100"],
+  };
+  const flat = (netsuiteItemId: string, sku: string) => ({
+    netsuiteItemId,
+    sku,
+    description: sku,
+    quantity: 1,
+    rate: 1,
+    unitCost: null,
+  });
   assert.throws(
     () =>
       buildSalesOrderPayload({
-        netsuiteCustomerId: "11323",
-        subsidiaryId: "2",
-        orderStatusCode: "B",
-        hubspotDealId: "D1",
-        hubspotDealName: "Deal",
-        lines: [
-          {
-            netsuiteItemId: "200",
-            sku: "SKU-D",
-            description: "d",
-            quantity: 1,
-            rate: 1,
-            unitCost: null,
-          },
-        ],
-        groupLines: [{ netsuiteItemId: "999", sku: "ASY-1-G", quantity: 1 }],
+        ...base,
+        lines: [flat("100", "MEMBER")],
       } as never),
-    /refusing to emit Item Group lines alongside explicit line items/,
+    /already expands/,
   );
+  const ok = buildSalesOrderPayload({
+    ...base,
+    lines: [flat("200", "OUTSIDER")],
+  } as never);
+  const rows = (ok.item as { items: Record<string, unknown>[] }).items;
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0].item, { id: "999" }); // group header first
+  assert.deepEqual(rows[1].item, { id: "200" }); // then the Direct line
 });
 
 // ---------------------------------------------------------------- 7
-test("markComplete refuses the mixed structure before CREATE", async () => {
+test("markComplete emits Direct lines alongside groups, never dropping them", async () => {
   const src = await read("src/lib/netsuite/mark-complete.ts");
-  // The guard must precede group emission, so nothing is written to NetSuite
-  // master data before the refusal.
-  const guardAt = src.indexOf(
-    "groupedCount > 0 && tree.directProducts.length > 0",
-  );
-  const emitAt = src.indexOf("findOrCreateItemGroup(adapted)");
-  assert.ok(guardAt > 0, "mixed-structure guard must exist");
-  assert.ok(emitAt > 0);
-  assert.ok(guardAt < emitAt, "guard must run before any Item Group is created");
+  // The grouped payload used to send `lines: []`, which silently removed every
+  // Direct Product from a turnkey quote: the order would balance against its
+  // own lines while omitting a product the customer had accepted.
+  assert.match(src, /lines: directLines/);
+  // Membership comes from the VERIFIED read-back, not the plan's intent.
+  assert.match(src, /itemGroupDefinitions\.flatMap/);
+  assert.match(src, /groupMemberItemIds: expandedMemberItemIds/);
+  // The blanket refusal is gone.
+  assert.doesNotMatch(src, /Projecting both structures into one Sales Order is not yet/);
 });
 
 // ---------------------------------------------------------------- 8

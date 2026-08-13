@@ -354,35 +354,24 @@ export async function runMarkComplete(
     throw new Error("Quote has no products to push.");
   }
 
-  // MIXED STRUCTURE — uncertified downstream, refused at the irreversible
-  // boundary and nowhere earlier.
+  // MIXED STRUCTURE — certified 2026-08-13, refusal removed.
   //
-  // A quote holding both Direct Products and Item Groups is structurally valid
-  // in Nexus and the operator may build and edit it freely. What is not
-  // established is how the two project together into ONE Sales Order. That is
-  // an absence of evidence, not evidence of failure — Probe 7a observed
-  // duplication for group members sent alongside their own group, which is a
-  // different payload shape and proves nothing about this one.
+  // A quote may hold both Direct Products and Item Groups. P1 (SO2713,
+  // disposable, deleted) measured one CREATE carrying a group line plus a flat
+  // line for an item in no group: five lines, group header once, each member
+  // expanded once at the sent quantity, EndGroup, flat line once. No
+  // duplication, no quantity multiplication.
   //
-  // So the refusal claims only what is true: not yet certified. Unblocking it
-  // is a provider probe, and that probe is itself blocked until the deployed
-  // NetSuite target is proven sandbox.
+  // The refusal that stood here claimed only "not yet certified", which was the
+  // honest claim available at the time — Probe 7a concerned members sent
+  // alongside THEIR OWN group, a different payload that proved nothing about
+  // this one. P1 is the evidence the refusal named as missing, so it is gone
+  // rather than weakened.
   //
-  // Placed at the first point the structure is known, which is after the
-  // customer LOOKUP and before item resolution, Item Group creation and Sales
-  // Order CREATE. Precisely: no provider WRITE and no master-data read occurs
-  // first. The customer lookup that precedes it is a read that changes nothing.
-  // Stated exactly rather than as "before any provider call", which would have
-  // been the neater sentence and untrue.
-  const groupedCount = tree.assemblies.filter((a) => a.children.length > 0).length;
-  if (groupedCount > 0 && tree.directProducts.length > 0) {
-    throw new Error(
-      `This quote contains both ${tree.directProducts.length} Direct Product(s) and ` +
-        `${groupedCount} Item Group(s). Projecting both structures into one Sales Order is not yet ` +
-        `certified against NetSuite, so Nexus stops here rather than guessing. The quote itself is ` +
-        `unaffected — move the Direct Products into an Item Group, or send them as a separate quote.`,
-    );
-  }
+  // What replaces it is a narrower, permanent guard one layer down:
+  // `buildSalesOrderPayload` refuses a flat line for an item an emitted group
+  // already expands. That is the condition Probe 7a actually established, and
+  // it remains true.
 
   // Every UNIQUE product SKU on the quote must resolve — grouped members AND
   // Direct Products. A Direct Product resolves through the identical SKU-match;
@@ -622,6 +611,12 @@ export async function runMarkComplete(
       (r) => r.skuRole === "leaf",
     );
     const lines: SalesOrderLine[] = [];
+    // The subset of `lines` belonging to Direct Products. Collected in the same
+    // pass that builds `lines`, keyed by the attachment's own structure rather
+    // than by index alignment or SKU matching — the same product may legitimately
+    // be attached directly AND be a member of a group on one quote, so SKU is
+    // not an identity here.
+    const directLines: SalesOrderLine[] = [];
     // Track B §4 — assembly attribution, captured HERE rather than re-derived
     // later. Constraint 3: the plan is built from the same governed state as
     // the outgoing handoff, so the two cannot disagree.
@@ -662,7 +657,7 @@ export async function runMarkComplete(
       const effectiveQty = (tierRow.qty ?? 0) * qtyPerParent;
 
       const lineRate = Number(perTierRollup.requiredSellPerUnit);
-      lines.push({
+      const soLine: SalesOrderLine = {
         netsuiteItemId: nsId,
         sku: treeLeaf.child.sku,
         description:
@@ -676,7 +671,9 @@ export async function runMarkComplete(
           perTierRollup.contributionCostPerUnit != null
             ? Number(perTierRollup.contributionCostPerUnit)
             : null,
-      });
+      };
+      lines.push(soLine);
+      if (treeLeaf.assembly === null) directLines.push(soLine);
       planLines.push({
         // NULL for a Direct Product. The plan records it as attributed to no
         // group, which is a positive fact the walk can assert — not an absence.
@@ -853,13 +850,27 @@ export async function runMarkComplete(
         });
       }
 
-      // Group lines REPLACE the flat lines — never accompany them. The builder
-      // refuses both together (Probe 7a duplication), so this is checked twice
-      // by construction.
+      // Grouped members are replaced by their group lines; Direct Products are
+      // NOT, because no group expands them.
+      //
+      // This previously sent `lines: []` unconditionally, which silently
+      // DROPPED every Direct Product from a turnkey quote — the quote would
+      // complete, the Sales Order would balance against its own lines, and a
+      // product the customer had accepted would simply not be on the order.
+      // The mixed-structure refusal that stood here masked it; removing the
+      // refusal without this would have exposed it.
+      //
+      // Member ids come from `itemGroupDefinitions`, which holds the membership
+      // READ BACK from NetSuite and verified — what the groups will actually
+      // expand, rather than what the plan intended them to.
+      const expandedMemberItemIds = itemGroupDefinitions.flatMap((d) =>
+        d.members.map((m) => m.netsuiteItemId),
+      );
       payloadForSend = buildSalesOrderPayload({
         ...soPayloadInput,
-        lines: [],
+        lines: directLines,
         groupLines: emittedGroupLines,
+        groupMemberItemIds: expandedMemberItemIds,
       });
     }
 

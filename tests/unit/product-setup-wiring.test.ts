@@ -166,37 +166,26 @@ test("the gate blocks NEW attachment only — history stays readable", async () 
 });
 
 // ------------------------------------------------------- mixed structure
-test("mixed structure is refused before Complete, not transformed", async () => {
+test("mixed structure projects both, and drops neither", async () => {
   const src = await read("src/lib/netsuite/mark-complete.ts");
-  assert.match(
-    src,
-    /groupedCount > 0 && tree\.directProducts\.length > 0/,
-  );
-  // Truthful reason: not yet certified. NOT a claim that it fails.
-  assert.match(src, /not yet\s*\+?\s*`?certified/);
-  // Probe 7a tested a different payload shape and is not evidence here.
-  const guardStart = src.indexOf("MIXED STRUCTURE");
-  const guardEnd = src.indexOf("STEP 4", guardStart);
-  const guardText = src.slice(guardStart, guardEnd);
-  assert.doesNotMatch(
-    guardText,
-    /because Probe 7a|Probe 7a proves|Probe 7a duplication/,
-  );
-  // And nothing silently regroups or drops a Direct Product instead.
-  assert.doesNotMatch(src, /wrap.*directProducts.*assembly/i);
+  // Certified by P1 (SO2713): a group beside a flat line for an item in no
+  // group produces no duplication. The blanket refusal is gone.
+  assert.doesNotMatch(src, /Projecting both structures into one Sales Order is not yet/);
+  // What replaced it matters more than its removal: Direct lines are now
+  // EMITTED alongside groups. The previous `lines: []` would have dropped them
+  // silently the moment the refusal lifted.
+  assert.match(src, /lines: directLines/);
+  assert.match(src, /groupMemberItemIds: expandedMemberItemIds/);
 });
 
-test("the mixed refusal precedes every provider write", async () => {
-  const src = await read("src/lib/netsuite/mark-complete.ts");
-  const guardAt = src.indexOf("groupedCount > 0 && tree.directProducts.length > 0");
-  // The customer LOOKUP legitimately precedes it — the structure is not known
-  // until the tree loads. What must not precede it is any provider WRITE or
-  // master-data read.
-  for (const call of ["netsuite.resolveItem(", "findOrCreateItemGroup("]) {
-    const callAt = src.indexOf(call);
-    assert.ok(callAt > 0, `${call} not found`);
-    assert.ok(guardAt < callAt, `guard must precede ${call}`);
-  }
+test("the surviving guard is membership-based and sits in the builder", async () => {
+  const src = await read("src/lib/netsuite/sales-orders.ts");
+  // Probe 7a established that a group's OWN members duplicate. That remains
+  // permanently true and is now enforced precisely, one layer below Complete.
+  assert.match(src, /already expands/);
+  assert.match(src, /groupMemberItemIds/);
+  // Undeclared membership is refused rather than assumed safe.
+  assert.match(src, /membership cannot be checked/);
 });
 
 test("editing a mixed quote is never blocked", async () => {
