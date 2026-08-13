@@ -196,3 +196,47 @@ No NetSuite write may occur on any deployed runtime until Vercel Preview
 on a production account **unless** `NETSUITE_ENV=sandbox` is set explicitly,
 which would override the inference — so the guard cannot be assumed without both
 values.
+
+---
+
+## 10 · Correction to §1 (2026-08-13, from read-only SO line inspection)
+
+**§1 states the governed cost was always transmitted, "only to
+`custcol_dps_unit_cost`". That is true of the FLAT branch and false of the Item
+Group branch.** Direct line-item reads of the certified orders show the custom
+column is `null` on **every** line of an Item Group order — group header, members
+and EndGroup alike:
+
+```
+SO2707 (361542)                        SO2704 (361441)
+line 1 Group     custcol_dps_unit_cost null    line 1 Group     null
+line 2 InvtPart  null · AVGCOST · rate 0       line 2 InvtPart  null · AVGCOST · rate 0
+line 3 InvtPart  null · AVGCOST · rate 0       line 5 Group     null   (1-member group)
+line 4 EndGroup  null                          line 6 InvtPart  null · AVGCOST · rate 0
+```
+
+The mechanism is the create payload: the group branch sends **bare** group lines
+(`item` + `quantity` only), because sending members explicitly alongside a group
+duplicates the order (Probe 7a). NetSuite expands the members itself, and they
+inherit from the item master — so no per-line custom column was ever set, and no
+later pass patched one. Only `rate` was patched, by rate convergence.
+
+**So on Item Group orders neither the custom column nor the native cost basis
+carried the governed cost.** `costEstimateType: AVGCOST` with
+`costEstimateRate: 0` is confirmed empirically as the source of the blank Unit
+Cost Accounting reported.
+
+This **strengthens** the repair's rationale rather than changing it: the
+projection pass added in `20da735` is the only mechanism that can reach member
+lines at all, since they do not exist at CREATE time.
+
+**It also sharpens the scope of the gap on the certified set.** §8 says the three
+orders are incomplete rather than wrong; that stands, and the incompleteness is
+total for Item Group orders — no cost field of any kind was populated on their
+lines.
+
+**Related, and unexercised:** every certified Sales Order is group-based. The
+flat branch — which now carries `costEstimateType`/`costEstimateRate` at CREATE —
+**has never run in production.** Its cost behaviour is proven by unit test and by
+the disposable sandbox CREATE probe, not by a governed artifact. See
+`product-library-setup-v1-boundary-review.md` §11.

@@ -282,12 +282,41 @@ requirement; 3 removes a defect that can reach a customer-facing commitment.
 
 ---
 
-## 11 · Open question I could not resolve
+## 11 · RESOLVED (2026-08-13) — the two projections differ materially
 
-**Does an Item Group with exactly one product differ commercially from a Direct
-Product?** If the NetSuite projection differs, the operator's choice is a
-commercial decision, not a presentation one — and the UI must say so. If it does
-not differ, the two paths converge downstream and the distinction is organisational
-only. This determines whether §9.1's "plain SO line" is a new projection or an
-existing one, and it should be settled before implementation. It may be an
-Accounting question rather than a Design Authority one.
+Answered by read-only GETs of the certified Sales Orders. **SO2704 contains a
+single-product Item Group** (`OD004-CERT-B-G2`, one member), so the exact case in
+question exists live and did not need to be constructed.
+
+**They differ, and the difference is visible on the customer/Accounting-facing
+document.**
+
+| | Item Group (1 product) | Direct Product (flat branch) |
+|---|---|---|
+| Document lines | **3** — `Group` header, member, `EndGroup` | **1** |
+| Composed Nexus description | on the **group header** | on the **line itself** |
+| Member/line `description` | **`null`** | Nexus-composed |
+| `rate` | on the member, patched post-create | at CREATE |
+| `custcol_dps_sku` | present (NetSuite sources it from the item record) | sent at CREATE |
+| `taxCode` | applied | applied |
+
+Observed on SO2707 (`361542`) and SO2704 (`361441`); both untouched by the read.
+
+**Consequence for §9.1: "plain SO line" is an EXISTING projection, not a new
+one.** `buildSalesOrderPayload`'s flat branch already emits it, fully populated.
+That materially de-risks the keystone.
+
+**But it has never run.** Every certified Sales Order is group-based, consistent
+with §1's finding of 0 Direct attachments — nothing has ever produced the input
+the flat branch consumes. So the code exists and is unexercised: the first Direct
+Product must be **certified**, not merely wired. The two are not the same claim,
+and treating "the code path exists" as "the path works" is the error to avoid
+here.
+
+**For the Design Authority:** the choice between Add Product and Add Item Group
+is a **commercial/document decision**, not an organisational one. A one-product
+Item Group prints as a named container with a nested line; a Direct Product
+prints as a single line. §8's "never infer Item Group intent from product count"
+is therefore correct for a second, independent reason — the two shapes are not
+interchangeable downstream, so a count-based inference would silently change what
+the customer receives.
