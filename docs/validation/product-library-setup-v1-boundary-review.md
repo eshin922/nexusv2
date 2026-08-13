@@ -336,3 +336,53 @@ prints as a single line. §8's "never infer Item Group intent from product count
 is therefore correct for a second, independent reason — the two shapes are not
 interchangeable downstream, so a count-based inference would silently change what
 the customer receives.
+
+---
+
+## 12 · V1 package status (2026-08-13)
+
+| § | item | status |
+|---|---|---|
+| 9.1 | Direct Product structural support | **DONE and CERTIFIED** |
+| 9.2 | Setup UI — two peer actions | **DONE**, operator-walked |
+| 9.3 | SKU-less attach eligibility gate | **DONE**, operator-walked |
+| 9.4 | Library state vocabulary | **not started** |
+
+### 9.1 is now certified, not merely wired
+
+§11 recorded that the flat projection was proven but **no assembly-less leaf had
+ever entered it**, and that the first Direct Product therefore had to be
+certified rather than assumed. That is now closed:
+
+- **SO2714** — Direct Product projected as exactly one ordinary line outside the
+  group, with its governed cost at CREATE.
+- **SO2715** — the same, plus grouped members carrying both cost representations,
+  confirmed in the NetSuite UI.
+
+See `mixed-certification-artifact-record.md`. The upstream path that produces an
+assembly-less leaf — `loadAssemblyTree` → `skuRollups` → line construction — is
+provider-proven end to end.
+
+### What the certification detour also changed here
+
+Three repairs landed that Product Library depends on but that §9 did not
+anticipate, each found by a live walk rather than by review:
+
+- **Costs surface named Direct Products** (`67957a5`) — they arrived with cost
+  rows but no name, rendering as "Unknown component".
+- **Mixed structure is projectable** — the refusal is gone, so a quote may hold
+  Direct Products and Item Groups together. §9.1's "plain SO line" is fully
+  reachable rather than blocked at Complete.
+- **Grouped-member Unit Cost** — unrelated to Direct Products, but it means the
+  Item Group half of the peer model is now correct for Accounting too.
+
+### Remaining in scope
+
+**§9.4 Library state vocabulary** is the only unstarted V1-package item. §8's
+table is the specification: Healthy · Degraded-but-usable (16 leaves with no
+HubSpot authority) · **Not projectable — no SKU (47)** · Historical-only
+(0 instances) · Ambiguous-downstream (not knowable pre-Send).
+
+The gate for the third state already exists and is enforced server-side; what is
+missing is showing it in the Library **before** an operator tries to attach and
+is refused. Everything in §10 remains deferred.
