@@ -10,6 +10,10 @@ import {
   quotes,
 } from "@/db/schema";
 import { productTypeOrderExpression } from "@/lib/product-type-order";
+import {
+  evaluateAttachmentEligibility,
+  type AttachmentEligibility,
+} from "@/lib/product-structure/attachment-eligibility";
 
 // Phase A.1 v2 impl-5 — Library browse data loader.
 //
@@ -80,6 +84,18 @@ export type LibraryBrowseRow = {
   totalRefs: number;
   totalScenarios: number;
   attachedAssemblyIdsInTargetQuote: string[];
+  /**
+   * Whether the attach gate would REFUSE this product, and why — computed
+   * server-side by `evaluateAttachmentEligibility`, the same function both
+   * attach actions call.
+   *
+   * ONE CLASSIFIER, TWO SURFACES. The client must not decide eligibility for
+   * itself: a second implementation could disagree with the server, and the
+   * disagreement would show as a product that looks attachable and is refused,
+   * or worse, looks refused and is not. The rejection stays authoritative; this
+   * only lets the operator see it before spending an action on it.
+   */
+  eligibility: AttachmentEligibility;
 };
 
 const DEFAULT_LIMIT = 50;
@@ -253,6 +269,8 @@ export async function loadLibraryBrowse(
       url: r.url,
       hubspotProductId: r.hubspotProductId,
       archived: r.archived,
+      // The gate's own verdict, not a re-derivation of it.
+      eligibility: evaluateAttachmentEligibility({ sku: r.sku, archived: r.archived }),
       totalRefs: js.length,
       totalScenarios: distinctQuoteIds.size,
       attachedAssemblyIdsInTargetQuote,

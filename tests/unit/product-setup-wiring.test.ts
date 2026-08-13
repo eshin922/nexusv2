@@ -201,3 +201,87 @@ test("editing a mixed quote is never blocked", async () => {
     assert.doesNotMatch(src, /mixes .* Item Group/);
   }
 });
+
+// ───────────── §9.4 · eligibility-state surfacing (scoped) ─────────────
+//
+// Makes the ALREADY-ENFORCED refusal visible before the operator spends an
+// action on it. Deliberately ONE state — "not projectable — no SKU" — because
+// it is the only one of §8's five that is authoritative, locally knowable, and
+// has real instances (47). The other four remain vocabulary.
+//
+// The property that matters most is single-classifier: surfacing and refusal
+// must be the same verdict, or the badge becomes a second opinion that can
+// disagree with the gate.
+
+test("the loader returns the SERVER's eligibility verdict, not a flag", async () => {
+  const src = await read("src/lib/library-browse-loader.ts");
+  assert.match(src, /evaluateAttachmentEligibility\(\{ sku: r\.sku, archived: r\.archived \}\)/);
+  assert.match(src, /eligibility: AttachmentEligibility/);
+});
+
+test("the client never re-derives eligibility", async () => {
+  // Comments stripped — the rationale comment names the function it must not
+  // call, which is exactly the distinction being asserted.
+  const src = await code("src/components/library/library-browse-modal.tsx");
+  // No second classifier: the modal must not inspect SKUs to decide
+  // attachability. A local rule could disagree with the gate, and the
+  // disagreement would surface as a product that looks attachable and is
+  // refused — or looks refused and is not.
+  assert.doesNotMatch(src, /hasUsableSku/);
+  assert.doesNotMatch(src, /evaluateAttachmentEligibility/);
+  assert.doesNotMatch(src, /row\.sku\s*(===|!==|\?\?)\s*(null|"")/);
+  // It consumes the verdict instead.
+  assert.match(src, /row\.eligibility\.attachable/);
+  assert.match(src, /row\.eligibility\.reason === "missing_sku"/);
+});
+
+test("an ineligible product is marked AND cannot be attempted", async () => {
+  const src = await read("src/components/library/library-browse-modal.tsx");
+  assert.match(src, /not projectable — no SKU/);
+  // Preventative, not a replacement: the button is disabled by the same verdict.
+  assert.match(src, /!row\.eligibility\.attachable \|\|\s*\n\s*!attachReady/);
+});
+
+test("the disabled control states the reason, in the server's words", async () => {
+  const src = await read("src/components/library/library-browse-modal.tsx");
+  // Pattern 47(f): a disabled control must communicate why. Reusing the gate's
+  // message means the operator reads the same sentence whether they hover the
+  // button or trigger the refusal.
+  assert.match(src, /!row\.eligibility\.attachable\s*\n\s*\?\s*row\.eligibility\.message/);
+});
+
+test("server enforcement remains authoritative and unchanged", async () => {
+  // The gate is untouched by the surfacing work — both attach paths still call
+  // it, and it still refuses independently of anything the client believes.
+  for (const file of [
+    "src/app/actions/assemblies.ts",
+    "src/app/actions/quote-products.ts",
+  ]) {
+    assert.match(await read(file), /evaluateAttachmentEligibility/);
+  }
+});
+
+test("no new state semantics were introduced", async () => {
+  const src = await read("src/components/library/library-browse-modal.tsx");
+  // §8's other four states stay vocabulary: no HubSpot-health, historical-only,
+  // downstream-ambiguity, snapshot/current or NetSuite-resolution surface.
+  for (const forbidden of [
+    /hubspot.?health/i,
+    /historical.only/i,
+    /ambiguous/i,
+    /netsuite.?resolution/i,
+    /degraded/i,
+  ]) {
+    assert.doesNotMatch(src, forbidden);
+  }
+});
+
+test("healthy and archived rows keep their existing presentation", async () => {
+  const src = await read("src/components/library/library-browse-modal.tsx");
+  // The readiness pill still renders for everything the gate permits, and
+  // archived keeps its own pill — that state has a Restore path, so replacing
+  // it would remove an affordance rather than add information.
+  assert.match(src, /status-pill \$\{readiness\}/);
+  assert.match(src, /readiness === "archived"/);
+  assert.match(src, /lib-restore-btn/);
+});

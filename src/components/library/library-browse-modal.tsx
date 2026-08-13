@@ -1036,10 +1036,33 @@ export function LibraryBrowseModal({
                         {row.productType?.name ?? "untyped"}
                       </span>
                       <span className="status-cell">
-                        <span className={`status-pill ${readiness}`}>
-                          <span className="dot" aria-hidden="true" />
-                          {readiness}
-                        </span>
+                        {/* §9.4 — surface the ALREADY-ENFORCED eligibility
+                            state before the operator spends an action on it.
+                            `row.eligibility` is the server's own verdict from
+                            `evaluateAttachmentEligibility`; nothing here
+                            re-derives it, so the badge and the refusal can
+                            never disagree.
+
+                            Shown INSTEAD of the readiness pill, not beside it:
+                            a product that cannot be attached has no meaningful
+                            readiness, and showing "ready · not projectable"
+                            together would be contradictory. Archived keeps its
+                            own pill — that state has a Restore path. */}
+                        {!row.eligibility.attachable &&
+                        row.eligibility.reason === "missing_sku" ? (
+                          <span
+                            className="status-pill not-projectable"
+                            title={row.eligibility.message}
+                          >
+                            <span className="dot" aria-hidden="true" />
+                            not projectable — no SKU
+                          </span>
+                        ) : (
+                          <span className={`status-pill ${readiness}`}>
+                            <span className="dot" aria-hidden="true" />
+                            {readiness}
+                          </span>
+                        )}
                       </span>
                       <span className="action-cell">
                         {/* Readiness-driven action: Attach (ready) /
@@ -1076,17 +1099,30 @@ export function LibraryBrowseModal({
                             className="lib-attach-btn"
                             onClick={() => handleAttach(row)}
                             disabled={
+                              // Preventative only. The server gate remains
+                              // authoritative — this stops the operator
+                              // spending an action on a refusal they can
+                              // already be shown.
+                              !row.eligibility.attachable ||
                               !attachReady ||
                               attaching === row.leafId ||
                               pending
                             }
-                            aria-disabled={!attachReady}
+                            aria-disabled={
+                              !attachReady || !row.eligibility.attachable
+                            }
                             title={
-                              mode === "direct"
-                                ? "Add this product to the quote"
-                                : targetAssemblyId
-                                  ? `Add to ${targetAssembly?.sku}`
-                                  : "Create an item group first to enable adding"
+                              // A disabled control must say why (Pattern 47f).
+                              // The server's own message is reused verbatim, so
+                              // the operator reads the same reason whether they
+                              // hover it here or trigger the refusal.
+                              !row.eligibility.attachable
+                                ? row.eligibility.message
+                                : mode === "direct"
+                                  ? "Add this product to the quote"
+                                  : targetAssemblyId
+                                    ? `Add to ${targetAssembly?.sku}`
+                                    : "Create an item group first to enable adding"
                             }
                           >
                             {attaching === row.leafId ? "Adding…" : "Add"}
