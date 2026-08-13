@@ -5520,6 +5520,67 @@ enumerated.
 identity, not every consumer of the table. Consumers surface in a type error;
 producers that emit a plausible-but-wrong value of the same type do not.
 
+## Migration deployment order is determined by compatibility, not by a fixed direction
+
+**Standing rule — Edward's directive, 2026-08-13.** Banked from the attach-product
+production break. **Amends**, and is stronger than, the prior working rule
+*"apply additive migrations before merging code that reads them."*
+
+> **Deployment order is determined by backward/forward compatibility. A tightening
+> migration may precede application code only when every currently deployed writer
+> already satisfies the tightened invariant; otherwise establish writer
+> compatibility first, or use a staged expand / backfill / validate / contract
+> migration.**
+
+The prior rule is not replaced by its own inversion. *"Tightening migrations after
+code"* would be just as wrong in the other direction — it is a second fixed
+ordering, and fixed orderings are the error. The question is never *which way
+round*; it is **whether the two sides are compatible in the interval between
+them**, which is a property to be established, not a convention to be followed.
+
+**Reference moment.** `0066_direct_component_cost_identity` applied four
+`SET NOT NULL` statements to the shared database. The deployed code
+(`954163d`) omitted `quoteLeafId` from a `$inferInsert`-typed literal in
+`packaging-materialization.ts`. Drizzle's `.notNull()` is a **declaration, not a
+runtime check**, so the column was simply absent from the INSERT and Postgres
+supplied NULL. While the database column was nullable this succeeded silently on
+every attach-product materialization in production. The migration made the
+database agree with the model, and a dormant defect became `PostgresError 23502`
+for operators.
+
+**0066 did not introduce the bug. It removed the permissiveness that had been
+absorbing it** — Pattern 56 in a different medium: a property that held only
+because nothing was checking it.
+
+**Classify every migration at authoring time.**
+
+| Class | Examples | Safe to apply ahead of code? |
+|---|---|---|
+| **additive** | new nullable column, new table, new index on new table | yes |
+| **tightening** | `SET NOT NULL`, `CHECK`, `UNIQUE` on existing data, narrowing a type | **only with a deployed-writer compatibility proof** |
+| **destructive** | `DROP COLUMN`, `DROP TABLE`, renames | never ahead of code |
+
+**The compatibility proof for a tightening migration must be taken against
+DEPLOYED code, not branch code.** On a shared dev/prod database the branch is
+irrelevant to what is currently writing. Enumerate every writer of the affected
+column in the deployed tree and show each one populates it — and note that a
+model-level `.notNull()` is *not* such a proof, because it is the very thing that
+was true and untrue at the same time here.
+
+**When the proof fails, stage it:** expand (add nullable) → backfill → validate
+(prove zero violating writers remain) → contract (tighten). Each step is
+independently safe and independently reversible; the interval between any two is
+compatible in both directions.
+
+**Cross-references.**
+- "Single Supabase project — dev and prod share one DB" — why any migration is a
+  production change, and why "deployed" and "local" are the same database but not
+  the same code.
+- Pattern 56 (latency margins hide missing ordering contracts) — same family: a
+  guarantee supplied for free by something incidental, until it isn't.
+- Memory `feedback_migrations_before_code_merge` — the prior rule, now amended
+  rather than replaced.
+
 ## Exact reconciliation is necessary but not sufficient
 
 **Standing validation rule — Edward's directive, 2026-08-11.** Banked from the

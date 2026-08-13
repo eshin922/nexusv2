@@ -162,6 +162,76 @@ the recommended boundary is short of that by the Slack workstream.
 
 ---
 
+## 3A · Promotion gates — run at exactly `4b8f5b7` (2026-08-13)
+
+Boundary approved as candidate. All three gates required before promotion.
+
+| Gate | Command | Result |
+|---|---|---|
+| 1 | `npx tsc --noEmit` | **PASS** — exit 0 |
+| 2 | `npm run test:unit` | **PASS** — 1031/1031, 0 fail, 0 cancelled |
+| 3 | 0069 compatibility with the boundary | **PASS** — §3B |
+
+Gate 1 first reported `TS2307` on `.next/types/validator.ts` referencing the Slack
+interactivity route. That was **stale generated output** from a prior branch-tip
+build, not source: `.next` is not tracked. Cleared and re-run clean.
+
+### 3B · Migration 0069 compatibility — proven, not assumed
+
+"Applied but unused" was rejected as proof. 0069 alters **two pre-existing
+tables**, so the writer question is real. Established against the live database:
+
+| Claim | Evidence |
+|---|---|
+| `users.slack_user_id` nullable, no default | `is_nullable=YES`, `default=none` |
+| `firm_settings.slack_approval_channel_id` nullable, no default | `is_nullable=YES`, `default=none` |
+| unique constraint permits many NULLs | `UNIQUE (slack_user_id)` — **not** `NULLS NOT DISTINCT` |
+| …empirically | 2 user rows already hold NULL under the live constraint |
+| no FK points **into** the new table | `pg_constraint confrelid` count = 0 |
+| no triggers introduced | 0 on `users` / `firm_settings` / new table |
+| bound Slack id survives a 4b8f5b7 deploy | `ensureUser` uses `onConflictDoNothing` — existing rows never rewritten |
+| nothing at 4b8f5b7 reads either column | model declares neither |
+
+**Verdict:** 0069 imposes **no writer requirement and no runtime semantic
+dependency** on `4b8f5b7`.
+
+### 3C · Recorded hazard — non-blocking, opposite direction
+
+The gate asked whether 0069 constrains `4b8f5b7`. It does not. But the **reverse**
+holds and is worth recording: `4b8f5b7` can silently discard 0069 state.
+
+`firm_settings` is versioned, and `versionedFirmSettingsUpdate` builds the new
+version row by **explicit column enumeration** — there is no `...prior` spread. A
+column the model does not declare therefore cannot be carried forward. At this
+boundary the model does not declare `slack_approval_channel_id`, whose live value
+is **`C0BPZSQ96JV`**. Any firm-settings edit (margin, vendor identity, CFD) while
+`4b8f5b7` is deployed inserts a new current row with that column NULL.
+
+- **Impact:** none functional or commercial — nothing at this boundary reads it.
+- **Mitigation:** avoid firm-settings edits until the Slack workstream lands, or
+  re-set the channel afterward. The value is recorded here; it is a public Slack
+  channel id, not a credential.
+- **Shape:** the standing versioned-table carry-forward hazard met from the
+  opposite direction — the column reached the database ahead of the code, so
+  carry-forward is structurally impossible rather than merely forgotten.
+
+### 3D · Promotion mechanics
+
+`origin/main` **is** `954163d` — production deploys from `main`; local `main`
+(`024d231`) is stale and was the source of the §0.1 error. `4b8f5b7` is a clean
+fast-forward from `origin/main` (`4b8f5b7..origin/main` = 0 commits: nothing is
+lost).
+
+Direct push was **rejected by branch protection** — `main` requires the `verify`
+status check — so promotion routes through PR **#262**, head
+`release/production-boundary-4b8f5b7` pinned at exactly `4b8f5b7`. Since `main` is
+an ancestor, every merge method produces an identical tree; merge-commit is
+requested so the 178-commit history survives.
+
+**Deployed SHA and production smoke evidence are recorded in §6 after merge.**
+
+---
+
 ## 4 · Cleanup plan for the orphan — PREPARED, NOT EXECUTED
 
 Failed attach on quote `d1bbdb4e` (Kirby Beauty, scenario "Primary", draft).
