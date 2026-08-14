@@ -397,3 +397,41 @@ test("the Direct row renders one cell per declared column", async () => {
     /<div className="direct-actions"[^>]*>\s*\{?\s*\/\*[\s\S]*?\*\/\s*\}?\s*<CompletenessChip|<div className="direct-actions" ref=\{menuRef\}>\s*<CompletenessChip/,
   );
 });
+
+// ── 8 · One SKU register for one entity role ────────────────────────────────
+
+test("Direct and member SKUs share ONE typography declaration, not two copies", async () => {
+  const canonical = await read("src/styles/r-a1v2-setup.css");
+  const overrides = await read("src/styles/r-a1v2-overrides.css");
+
+  const decls = (src: string, selector: string) => {
+    const i = src.indexOf(selector);
+    assert.ok(i >= 0, `selector not found: ${selector}`);
+    const block = src.slice(src.indexOf("{", i) + 1, src.indexOf("}", i));
+    return block
+      .split(";")
+      .map((d) => d.trim().replace(/\s+/g, " "))
+      .filter(Boolean)
+      .sort();
+  };
+
+  const member = decls(canonical, ".a1v2-leaf-row .leaf-sku {");
+  const shared = decls(overrides, ".a1v2-asy-row.a1v2-direct-row > .leaf-sku {");
+
+  // Same entity role ⇒ same register. Family, size, colour and tracking all.
+  assert.deepEqual(shared, member);
+  assert.ok(shared.some((d) => d.startsWith("font-family: var(--mono)")));
+
+  // The override must reach BOTH rows from one declaration. A root-only rule
+  // holding the same values is a second variant, and two copies of one register
+  // drift on the first edit to either.
+  assert.match(
+    overrides,
+    /\.a1v2-leaf-row \.leaf-sku,\s*\n\.a1v2-asy-row\.a1v2-direct-row > \.leaf-sku \{/,
+    "the member selector must be restated alongside the root one",
+  );
+
+  // The Item Group container keeps its own treatment — a container is a
+  // different role, and this fix must not reach it.
+  assert.match(overrides, /\.a1v2-asy-row\.a1v2-direct-row \.sku-pill \{/);
+});

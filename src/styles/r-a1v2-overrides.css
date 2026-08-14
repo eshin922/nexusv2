@@ -773,6 +773,31 @@
 /* Overflow needs positioning context now that the actions collapsed into it. */
 .a1v2-asy-row.a1v2-direct-row .direct-actions { position: relative; }
 
+/* SKU TYPOGRAPHY IS A PROPERTY OF THE ENTITY ROLE, NOT OF THE ROW.
+ *
+ * A Direct Product and a member product are both PRODUCT identities, so they
+ * take one SKU register. The canonical rule (`r-a1v2-setup.css:206`) scopes it
+ * to `.a1v2-leaf-row .leaf-sku`, so once the root row started rendering its own
+ * `.leaf-sku` cell that cell matched NO rule and fell back to the inherited
+ * sans face — visibly heavier and larger beside the member SKUs it now aligns
+ * with. Giving the column the same x-coordinate made the mismatch obvious
+ * rather than causing it.
+ *
+ * The member selector is restated here ON PURPOSE. Writing a root-only rule
+ * would be a second root-specific variant holding the same values, and two
+ * copies of one register drift on the first edit. One declaration, both
+ * selectors — and `tests/unit/product-setup-wiring.test.ts` asserts this block
+ * declares exactly what the canonical block declares, so a CD refresh that
+ * changes the register fails the test instead of splitting the two apart.
+ *
+ * Item Group SKU treatment is untouched: a container is a different role and
+ * keeps its `.sku-pill`.
+ */
+.a1v2-leaf-row .leaf-sku,
+.a1v2-asy-row.a1v2-direct-row > .leaf-sku {
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.04em;
+}
+
 /* B-12 · the drag grip.
    Conventional six dots. Quiet at rest — it is an affordance, not information —
    and it only exists on rows where a move is actually possible, so its presence
