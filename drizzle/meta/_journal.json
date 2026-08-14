@@ -512,6 +512,13 @@
       "when": 1786320011000,
       "tag": "0074_item_group_categories",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1786320012000,
+      "tag": "0075_drop_retired_product_type_authorities",
+      "breakpoints": true
     }
   ]
 }

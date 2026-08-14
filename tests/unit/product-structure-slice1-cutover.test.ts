@@ -248,6 +248,10 @@ const classifiedIdentityFiles = new Set([
   // asserts attachment is read from `quote_leaves`, the canonical table, and
   // creates its own fixtures.
   "scripts/verify/b14-attachment-state.ts",
+  // CLASSIFIED — read-only evidence, canonical only. The Step 9 post-drop
+  // runtime probe executes every loader that once read the dropped columns; it
+  // creates nothing and maps between no identity spaces.
+  "scripts/verify/step-9-post-drop-runtime.ts",
   // CLASSIFIED — canonical only. The Step 4 backfill reads `leaf_specs` by
   // (quote_id, leaf_id) and writes only the pinned schema columns; it maps
   // between no identity spaces.
