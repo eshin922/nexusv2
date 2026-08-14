@@ -6,6 +6,13 @@ disposition.
 
 ---
 
+> **AMENDED 2026-08-13.** The business rule is now stronger: specifications are
+> quote-specific from the moment of attachment, and no quote may share a mutable
+> spec authority with the Library or another quote. **The shared-pin /
+> reference-counted copy-on-write model in §5 below is WITHDRAWN.** The trace
+> and the evidence stand; the proposed mechanism does not. See "B-3 amended"
+> at the foot of this document.
+
 ## Verdict, before the evidence
 
 **Every structure the invariant needs already exists and none of it is used.**
@@ -204,3 +211,153 @@ name, SKU, or archived state, which remain library-level and shared. If the
 business needs those frozen per quote too, that is a separate and much larger
 question — and the cost path already has its own per-quote authority in
 `assembly_leaf_inputs`.
+
+---
+
+# B-3 amended · quote-owned spec authority — schema answer
+
+**Amends the model above.** Shared-pin / reference-counted copy-on-write is
+withdrawn. **No implementation.**
+
+## The schema question, answered
+
+> *Can `leaf_specs` cleanly represent both Library-current/default versions and
+> quote-owned non-current spec instances without making `version_number`,
+> `is_current`, effective dates, or lineage semantics ambiguous?*
+
+**Not as it stands — no. Three of the four named columns become ambiguous, and
+ownership is unrepresentable.** But the ambiguity has a single cause, and fixing
+that cause resolves all of them at once. **The table can be reused; it needs
+scope, not replacement.**
+
+### Why it is ambiguous as-is
+
+| column | today's meaning | under the new rule |
+|---|---|---|
+| `version_number` | position in a leaf's linear library lineage | quote-owned rows are **not a lineage** — they are siblings. Two quotes attaching the same leaf the same day would take v2 and v3, implying a succession that never happened |
+| `is_current` | "this is the Library default" | quote-owned rows would all be `false`, conflating **dead history** (a superseded library version) with **the live authority for a quote**. Opposite meanings, one value |
+| `effective_from` / `effective_to` | the interval a library default governed | a quote-owned row succeeds nothing and is succeeded by nothing. `effective_to` NULL forever on ~141 rows makes "open interval" meaningless |
+| lineage / ownership | — | **no column expresses which quote owns a row, or which library version it was templated from.** Ownership would only be inferable by reverse-lookup from `quote_leaves`, which cannot distinguish an orphan from a library version |
+
+The common cause: **every one of those columns is scoped to "this leaf's library
+timeline", and the new model introduces a second scope the table cannot name.**
+
+### The smallest explicit model
+
+Give the table the scope it is missing. **One nullable discriminator plus one
+lineage pointer — no new table, and the existing `quote_leaves` pointer is
+unchanged.**
+
+```sql
+ALTER TABLE leaf_specs
+  ADD COLUMN quote_id uuid REFERENCES quotes(id) ON DELETE CASCADE,
+  ADD COLUMN templated_from_spec_id uuid REFERENCES leaf_specs(id);
+
+-- One quote-owned spec per (quote, leaf). This IS rule 6, enforced by
+-- construction rather than by convention: two attachments of the same SKU in
+-- one quote cannot reach different authorities because only one can exist.
+CREATE UNIQUE INDEX leaf_specs_quote_owned_idx
+  ON leaf_specs (quote_id, leaf_id) WHERE quote_id IS NOT NULL;
+
+-- Tighten the existing library-current index so a quote-owned row can never
+-- claim to be the Library default.
+DROP INDEX leaf_specs_current_idx;
+CREATE UNIQUE INDEX leaf_specs_current_idx
+  ON leaf_specs (leaf_id) WHERE quote_id IS NULL AND is_current = true;
+```
+
+`quote_id IS NULL` = Library master/template. `quote_id IS NOT NULL` =
+quote-owned instance.
+
+**With scope explicit, every previously-ambiguous column becomes well-defined —
+it means the same thing *within its own scope*:**
+
+| column | library row (`quote_id IS NULL`) | quote-owned row |
+|---|---|---|
+| `version_number` | position in the library lineage | revision counter within this (quote, leaf); starts at 1 |
+| `is_current` | is the Library default | is this quote's live spec — **true**, since only one exists per (quote, leaf) |
+| `effective_from/to` | interval this default governed | interval this quote revision governed, if quote-side revisions are ever versioned |
+| `templated_from_spec_id` | NULL | the library version this instance was copied from — provenance without stuffing it into `spec_values` |
+
+Nothing is overloaded, because nothing is asked to mean two things at once.
+
+**Why not a separate `quote_leaf_specs` table.** It would duplicate
+`spec_values`, `version_number`, the timestamps and the audit columns, force
+every reader to branch on which table to query, and require `quote_leaves
+.leaf_spec_version_id` to become a polymorphic pointer with no FK — losing the
+referential integrity the column has today. A discriminator on one table keeps a
+single FK, a single reader shape, and one place where spec values live.
+
+## The amended lifecycle
+
+| rule | mechanism |
+|---|---|
+| 1 · attach with a library default | INSERT quote-owned row, `spec_values` copied from the library-current row, `templated_from_spec_id` set; point `quote_leaves.leaf_spec_version_id` at it. **The quote never points at the mutable library row** |
+| 2 · attach with no default | INSERT quote-owned row with `spec_values = '{}'`, `templated_from_spec_id = NULL`; point at it. **Never NULL, so never floating** |
+| 3 · quote-side edit | UPDATE the quote's own row in place. **No reference counting** — exclusivity is guaranteed by `leaf_specs_quote_owned_idx`, so no other quote can observe it |
+| 4 · library master | unchanged rows, still the template for future attachments. No new master surface in V1 |
+| 5 · readers | resolve through `leaf_spec_version_id`. **The `is_current` fallback is deleted, not deprioritised** — with rules 1-2 an attached leaf always has a pointer, so a fallback could only ever mask a bug |
+| 6 · same product twice in a quote | structural: one row per (quote, leaf) |
+
+Rule 5 is the assertable one: **no quote-context reader may reference
+`isCurrent` at all.** That is a grep, and unlike the current situation it can
+fail.
+
+## Backfill
+
+| | |
+|---|---|
+| attachments to repoint | **169** |
+| quote-owned rows to create | **141** distinct (quote_id, leaf_id) |
+| of those, with a library template available | **27** attachments' leaves have a current spec |
+| the rest | instantiate empty, per rule 2 |
+
+Lossless, and provably: **0 historical rows exist and max `version_number` is
+1**, so the current library row is the only row that has ever existed for a
+specced leaf. Copying it is exact, not a reconstruction.
+
+Sent, accepted and complete quotes are included — after migration **no
+attachment depends on a mutable library row**, which is rule 7 and also closes
+the customer-PDF addendum exposure recorded above.
+
+**Migration-impact check done, per the referencing-table rule:** `quote_leaves`
+is the only table referencing `leaf_specs`; there are **no triggers** on
+`leaf_specs` or on `quote_leaves`. The DDL is additive (two nullable columns);
+the index tightening is the only non-additive step and it strictly narrows a
+partial predicate over rows that all satisfy `quote_id IS NULL` at that moment.
+
+## Adjacent · `leaves.product_type_id`
+
+**Recommendation: quote-specific, carried on the quote-owned spec row** — one
+more nullable column in the same migration.
+
+The reason is not symmetry. **The product type IS the schema that gives
+`spec_values` meaning**: field keys are validated against
+`product_types.field_schema`, and `changeLeafProductType` discards values on
+change. Pinning the values while leaving the schema library-mutable reproduces
+the same defect one level down — a library type change would silently
+invalidate, or empty, every quote's pinned specification, and those quotes would
+have no record of the schema their values were authored under.
+
+```sql
+ALTER TABLE leaf_specs ADD COLUMN product_type_id uuid REFERENCES product_types(id);
+```
+
+Library rows: NULL, deferring to `leaves.product_type_id`. Quote-owned rows: the
+type in force when the instance was created. `leaves.product_type_id` remains
+the default for future attachments, and a quote-side type change writes the
+quote's own row.
+
+**The alternative — restrict type changes to an explicit Library-master
+action —** is smaller and leaves the hole open: any legitimate library type
+change still invalidates existing quotes' pinned values, and nothing records
+what they were authored against. It also needs a master surface that rule 4 says
+V1 does not have, so in practice it would mean *no one can change a product
+type*, which is not a V1 posture anyone chose.
+
+## What is still not addressed
+
+`leaves.unit_cost`, name, SKU and archived state remain library-level and
+shared. The cost path already has its own per-quote authority in
+`assembly_leaf_inputs`, so cost is not exposed the way specs were. Naming this
+so the boundary of the fix is explicit rather than assumed.
