@@ -285,3 +285,91 @@ structure is never inferred from product count; both governed writers unchanged.
 `npx tsc --noEmit` clean · `npm run test:unit` **1171/1171**.
 
 **Operator sign-off remains blocked** pending the repaired walk.
+
+
+### OW-2 · resolution — isolated first, refreshed second (2026-08-13)
+
+**Option 1 taken.** The two Direct Products were NOT detached and no fixture was
+created. Order is the point: **preservation is established by the pre-refresh
+diff below.** The refreshed baseline is green by construction and is evidence of
+nothing.
+
+`verify:s7-preserved` reports the FIRST difference and stops — right for a gate,
+useless for justifying a refresh, because `skuRollups: length 4 -> 6` is equally
+consistent with two rows added AND a price moving inside one of the other four.
+`scripts/gate-1b/ow-2-isolate.ts` proves the delta narrowly. **5/5:**
+
+```
+PASS  the failing quote is the ONLY basket member whose projection changed
+        changed: 2f29af72 · basket size 30
+PASS  no quote-level value moved — tiers, quoteRollup, quoteSummary, firmSettings
+PASS  every pre-existing rollup is identical to the prior baseline
+        4 retained rollups compared field-by-field
+PASS  the two added rollups correspond exactly to the two operator-walk attach events
+        f429f95e @ 23:46:47 · 1d4f658e @ 23:46:57 · edward.shin@gmail.com
+PASS  no governed numeric value moved anywhere in the basket
+```
+
+**An instrument error found while building the proof, and worth keeping.** The
+first version of the isolation screened the gate's POSITIONAL diff and reported
+~100 moved prices. Direct Products render FIRST, so inserting two at the head
+shifts every array index: the entire rollup array reads as moved. Compared by
+`skuId`, all four retained rollups are byte-identical. The positional reading
+would have argued for REFUSING a refresh that is in fact justified — the same
+class of error as a filter that cannot express its own failure, and the more
+dangerous direction of it, because refusing looks like caution.
+
+**Refresh delta, verified rather than assumed** — old vs new baseline:
+
+| | |
+|---|---|
+| entries | 30 → 33 |
+| **changed digests** | **1** — `2f29af72`, the isolated quote |
+| removed | 0 |
+| globalDigest | `fc89ad0f…` → `08986108…` |
+
+Cause: intentional operator-walk structural attachment of two Direct Products.
+**Not a costing or arithmetic change.**
+
+### OW-3 · the refresh enrolled three disposable certification quotes
+
+**Surfaced, not resolved — it needs its own disposition.**
+
+The 3 new baseline entries are certification scratch:
+
+```
+a4c36959  Root - 2 Side Seal Sachets      / CERT-MIXED-DELETE-ME-2026-08-13T20-26-37
+ad6f7513  Hanks - Hydration Full Retail   / CERT-MIXED-DELETE-ME-2026-08-13T21-26-07
+d6a3ba17  Smart Pressed Juice             / CERT-MIXED-DELETE-ME-2026-08-13T22-43-03
+```
+
+Before the refresh the verifier listed them as *"new since baseline, not
+covered"*. They are now permanent preservation references — quotes whose own
+labels say they are to be deleted. **When they are deleted, S-7 will fail with
+"in baseline, absent now. Coverage silently shrank"**, which reads as
+preservation loss and will not be one.
+
+This is precisely the mechanism `basket.ts` already documents for the validation
+namespace: *"the basket is a QUERY rather than a list, so each one joins the
+release's governing evidence automatically and silently."* The `ZZ-VALIDATION-`
+exclusion gave that convention force for one namespace. `CERT-MIXED-DELETE-ME-`
+is a second namespace with the same property — created to be driven and
+discarded — and has no exclusion.
+
+Not fixed here: extending the excluded-namespace set is a change to the basket
+DEFINITION, which is a governance decision and outside the narrow authorization
+to refresh. Recommended follow-up: exclude a certification namespace the same
+way, then recapture. Doing so removes the three entries symmetrically, per the
+`baselineEntryInBasket` rule that already prevents an exclusion from reading as
+shrunken coverage.
+
+### Workflow lesson — do not mutate S-7 baselined quotes during a walk
+
+Use a **non-basket** quote for Product Library validation unless the walk
+specifically targets S-7 behaviour. The basket is a live query over
+structure-bearing production quotes in the shared dev/prod database, so any
+attach, detach, or cost edit during a walk turns the build red and forces a
+baseline disposition mid-review. A quote is in the basket if it has at least one
+`assembly_leaves` row and its `scenario_label` is outside the excluded
+namespaces — which is most real quotes, so the check is worth making before the
+walk rather than after the build fails.

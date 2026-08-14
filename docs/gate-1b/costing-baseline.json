@@ -1,7 +1,7 @@
 {
-  "capturedOver": 30,
+  "capturedOver": 33,
   "failed": 0,
-  "globalDigest": "fc89ad0fc3c1898c66241a5522e1b90b0994af5f0e887bac3ceda8c8a5bccd0a",
+  "globalDigest": "0898610811cc4b81e500dc939de29232c4728c270d4cf61c25e69b1b97684176",
   "entries": [
     {
       "quote_id": "071486be-e1a6-4475-8df6-2a2b78a21b58",
@@ -47,8 +47,8 @@
       "quote_id": "2f29af72-805b-446c-866c-73e9b0991b1a",
       "status": "draft",
       "label": "Smart Pressed Juice - Juice Cleanse Reorder 2026 / Primary",
-      "digest": "2df34c46d4fbd4f97315b05805826204",
-      "skus": 4,
+      "digest": "bb6992081abf611812733a72e10d73dd",
+      "skus": 6,
       "tiers": 3
     },
     {
@@ -132,6 +132,22 @@
       "tiers": 2
     },
     {
+      "quote_id": "a4c36959-78e6-4347-a530-62892aecfa71",
+      "status": "accepted",
+      "label": "Root - 2 Side Seal Sachets / CERT-MIXED-DELETE-ME-2026-08-13T20-26-37",
+      "digest": "047d7f6d26956168caad59911ce22a8c",
+      "skus": 4,
+      "tiers": 1
+    },
+    {
+      "quote_id": "ad6f7513-17fc-4e84-978e-a2492cdb8f29",
+      "status": "complete",
+      "label": "Hanks - Hydration Full Retail Rollout / CERT-MIXED-DELETE-ME-2026-08-13T21-26-07",
+      "digest": "7665bea43eddeac2510ddcac50bd3208",
+      "skus": 4,
+      "tiers": 1
+    },
+    {
       "quote_id": "bd95c0f2-d9d5-4564-b772-3c6ff385dd6d",
       "status": "complete",
       "label": "SMOKE-CB-STEP10-DELETE-ME-2026-07-29T17-43-34 / SMOKE-CB-STEP10",
@@ -153,6 +169,14 @@
       "label": "Kirby Beauty - Restoring Shampoo and Conditioner Tandem / NEXUS V1 ACCOUNTING REVIEW — SANDBOX · multi Item Group",
       "digest": "c075938783baa20e2f48427bcfa39ecb",
       "skus": 5,
+      "tiers": 1
+    },
+    {
+      "quote_id": "d6a3ba17-9216-40b0-b473-92f4472dbbba",
+      "status": "complete",
+      "label": "Smart Pressed Juice - Juice Cleanse Reorder 2026 / CERT-MIXED-DELETE-ME-2026-08-13T22-43-03",
+      "digest": "48c200043e24bd66463315c980b5b36a",
+      "skus": 4,
       "tiers": 1
     },
     {

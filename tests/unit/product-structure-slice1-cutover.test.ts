@@ -215,6 +215,13 @@ const classifiedIdentityFiles = new Set([
   // operator, who sees product name and SKU.
   "src/components/assembly-tree/assembly-tree-body.tsx",
   "src/components/assembly-tree/direct-product-row.tsx",
+  // CLASSIFIED — read-only evidence, canonical only. OW-2's isolation reads
+  // `quote_leaf_id` from `quote_product_attach` audit rows and matches it
+  // against `skuRollups[].skuId`, which OD-017 made the canonical quote-leaf id.
+  // That correspondence IS the finding: it is what proves the two added rollups
+  // are the operator's two attachments and not a third thing. No mapping between
+  // identity spaces, no writes.
+  "scripts/gate-1b/ow-2-isolate.ts",
   "scripts/smoke/mark-complete.ts", "scripts/verify/costing-adapter.ts",
   "scripts/verify/sample-order-margin.ts", "scripts/verify/slice-11-5-1-warnings-parity.ts",
   "tests/harness/fixtures/world.ts",
