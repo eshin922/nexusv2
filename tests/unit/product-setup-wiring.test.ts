@@ -728,7 +728,21 @@ test("B-10 · a Direct Product renders in the PRODUCT register", async () => {
   // Independence stays in POSITION — root placement, no connector, no child
   // inset — not in container styling. The 3px rule is transparent rather than
   // removed so the border box still reserves shared geometry.
-  assert.match(css, /\.a1v2-direct-row \{[^}]*grid-template-columns: 110px 1fr auto auto auto/);
+  // SUPERSEDED BY THE B-12 GRIP REPAIR, and rewritten rather than dropped.
+  //
+  // The row was five columns with only four cells and no SKU of its own, so
+  // root SKU and member SKU could not share an x-coordinate. Adding the grip
+  // exposed it: the sixth element fell out of the last column and the overflow
+  // stopped terminating the row.
+  //
+  // The register is now literal — grip | SKU | name | Type | readiness |
+  // overflow — and every column exists on both row kinds. What must not return
+  // is a template whose column count disagrees with the cells rendered into it.
+  assert.match(css, /\.a1v2-direct-row \{[^}]*grid-template-columns: 16px 110px 1fr auto auto auto/);
+  const rowSrc = await code("src/components/assembly-tree/direct-product-row.tsx");
+  assert.match(rowSrc, /className="leaf-sku"/, "root rows must carry their own SKU cell");
+  // Identity absorbs the slack instead of pushing its neighbours out of line.
+  assert.match(css, /min-width: 0/);
   assert.match(css, /\.a1v2-direct-row \{[^}]*padding: 10px 16px/);
   assert.match(css, /\.a1v2-direct-row \{[^}]*border-left-color: transparent/);
   // The inert diamond is gone, and its column with it — a meaningless glyph is

@@ -444,9 +444,43 @@
    * not, and containment is the only difference because it is the only thing
    * that actually differs.
    */
-  grid-template-columns: 110px 1fr auto auto auto;
+  /* B-12 REPAIR · a narrow leading slot for the grip.
+   *
+   * The grip was added as a sixth element into a five-column template, so it
+   * consumed the SKU slot and pushed every subsequent cell one place right —
+   * the overflow fell out of the row's last column entirely. The row stopped
+   * scanning as a table because it had stopped BEING one.
+   *
+   * 16px, fixed. It is an affordance, not data: it must not flex, and it must
+   * be the same width on every root row so SKU starts on one x-coordinate. The
+   * note above about there being no correct leading-column target still holds
+   * for ALIGNMENT to the container or the member inset — this column aligns to
+   * neither, it just reserves the grip.
+   */
+  grid-template-columns: 16px 110px 1fr auto auto auto;
+  gap: 10px;
+  align-items: center;
   padding: 10px 16px;
   border-left-color: transparent;
+}
+/* Identity takes the slack, and absorbs it. `min-width: 0` is what lets a long
+   name truncate inside its own cell instead of widening the column and pushing
+   Type, readiness and the overflow out of alignment across rows. */
+.a1v2-asy-row.a1v2-direct-row > .name-cell,
+.a1v2-leaf-row > .leaf-name-cell {
+  min-width: 0;
+}
+.a1v2-asy-row.a1v2-direct-row > .name-cell .name,
+.a1v2-leaf-row > .leaf-name-cell .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The overflow terminates the row. Explicit, so no future cell can drift past
+   it and leave `⋯` mid-row. */
+.a1v2-asy-row.a1v2-direct-row > .direct-actions {
+  grid-column: -2;
+  justify-self: end;
 }
 .a1v2-asy-row.a1v2-direct-row .direct-actions {
   display: flex;
@@ -762,3 +796,10 @@
   box-shadow: inset 2px 0 0 var(--accent);
 }
 .a1v2-tree.drop-active { background: oklch(from var(--accent) l c h / 0.03); }
+
+/* Member rows keep their existing 60px indent slot — the hierarchy signal is
+   the indentation and connector, unchanged. The grip is centred inside that
+   slot rather than given a column of its own, so members are NOT re-columned
+   into a second grid system: their SKU, name, Type and readiness stay on the
+   x-coordinates they already had. */
+.a1v2-leaf-row > .a1v2-grip { justify-self: center; }

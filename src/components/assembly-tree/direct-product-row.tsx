@@ -109,6 +109,12 @@ export function DirectProductRow({
             not improved by replacing it with meaningless whitespace, so the
             column goes with it and identity reclaims the width. */}
         <span className="sku-pill">{product.sku ?? "—"}</span>
+        {/* B-12 REPAIR · the SKU cell. Root rows never had one, so root SKU and
+            member SKU could not share an x-coordinate — the identity block
+            simply started wherever the previous cell ended. The requested
+            register is grip | SKU | name | Type | readiness | overflow, and it
+            only holds if every column actually exists on both row kinds. */}
+        <span className="leaf-sku">{product.sku ?? "—"}</span>
         <div className="name-cell">
           <div className="name">{product.name}</div>
           <div className="meta">
