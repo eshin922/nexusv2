@@ -610,23 +610,31 @@ test("B-3 · attachment instantiates the authority, and reuses it", async () => 
 });
 
 // --------------------------------------- B-5/B-6/B-7 · the surfaces say the rule
-test("B-5 · the pre-B-3 cascade model is gone from the operator surface", async () => {
-  const src = await read("src/components/spec-entry/cascade-warning.tsx");
-  // Removed, not reworded. The panel existed to predict which quotes an edit
-  // would propagate to; nothing propagates, so the decision it supported is
-  // gone with it.
-  for (const dead of [
-    "WILL UPDATE",
-    "STAYS PINNED",
-    "auto-update",
-    "stay pinned",
-  ]) {
-    assert.ok(!(await code("src/components/spec-entry/cascade-warning.tsx")).includes(dead), dead);
+test("B-5 · the cascade panel is gone from the operator surface entirely", async () => {
+  // First it lost its false lifecycle model (WILL UPDATE / STAYS PINNED /
+  // auto-update); then it lost its remaining line too. Under B-3 isolation a
+  // cross-quote usage count changes no decision on either surface, so what
+  // survived the rewrite was a fact with nothing to inform.
+  const { access } = await import("node:fs/promises");
+  let exists = true;
+  try {
+    await access(path.join(root, "src/components/spec-entry/cascade-warning.tsx"));
+  } catch {
+    exists = false;
   }
-  assert.match(src, /Used in \{otherQuotes\} other quote/);
-  // No lifecycle branch survives — a status-dependent explanation is exactly
-  // the complexity B-3 removed the need for.
-  assert.doesNotMatch(await code("src/components/spec-entry/cascade-warning.tsx"), /status|draft|sent/i);
+  assert.equal(exists, false, "cascade-warning.tsx should be deleted");
+
+  const src = await code("src/components/spec-entry/spec-entry-surface.tsx");
+  assert.doesNotMatch(src, /CascadeWarning/);
+  for (const dead of ["WILL UPDATE", "STAYS PINNED", "auto-update"]) {
+    assert.ok(!src.includes(dead), dead);
+  }
+  // Not a blanket "other quote" ban — the scope copy legitimately says
+  // "Library defaults and other quotes are not changed". What must be gone is
+  // the COUNT, which is what carried no decision.
+  assert.doesNotMatch(src, /Used in \{/);
+  // And the sibling that stated the same fact in different units.
+  assert.doesNotMatch(src, /item group\{refCount/);
 });
 
 test("B-6 · each surface states which authority it edits", async () => {
@@ -643,15 +651,18 @@ test("B-6 · each surface states which authority it edits", async () => {
 test("B-7 · no operator-facing ASY on the spec surfaces", async () => {
   for (const f of [
     "src/components/spec-entry/spec-entry-surface.tsx",
-    "src/components/spec-entry/cascade-warning.tsx",
     "src/app/library/leaves/[leafId]/defaults/page.tsx",
   ]) {
     assert.doesNotMatch(await code(f), /\bASY\b/, `${f} still shows ASY`);
   }
   // The generated ASY-* identifiers went with the reference list they were in.
-  assert.match(
+  // "Used in N item groups" replaced "Referenced by N ASYs" here, and has since
+  // gone too: it stated the same cross-quote fact in different units as the
+  // usage line beside it, so removing one and keeping the other would have left
+  // the density unchanged and the page inconsistent.
+  assert.doesNotMatch(
     await read("src/components/spec-entry/spec-entry-surface.tsx"),
-    /item group\{refCount === 1 \? "" : "s"\}/,
+    /item group|refCount/,
   );
 });
 

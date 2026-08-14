@@ -8,7 +8,6 @@ import { SpecPanel } from "./spec-panel";
 import { PlaceholderPanel } from "./placeholder-panel";
 import { TypePicker } from "./type-picker";
 import { ChangeTypeModal } from "./change-type-modal";
-import { CascadeWarning } from "./cascade-warning";
 
 // Phase A.1 v2 impl-3 Step 3 — SpecEntry surface (server wrapper).
 //
@@ -40,7 +39,6 @@ export function SpecEntrySurface({
 }) {
   const { leaf, productType, currentSpec, references } = data;
   const completeness = computeCompleteness(productType, currentSpec?.specValues);
-  const refCount = references.length;
 
   const isLibrary = "library" in scope;
 
@@ -70,12 +68,6 @@ export function SpecEntrySurface({
           </div>
         </div>
       ) : null}
-      {!readOnly ? (
-        <CascadeWarning
-          references={references}
-          currentQuoteId={isLibrary ? undefined : scope.quoteId}
-        />
-      ) : null}
       <div className="a1v2-card">
         <div className="a1v2-leaf-header">
           <span className="icon" aria-hidden="true">
@@ -93,10 +85,6 @@ export function SpecEntrySurface({
                   <span>${Number(leaf.unitCost).toFixed(2)} unit cost</span>
                 </>
               ) : null}
-              <span className="sep">·</span>
-              <span>
-                Used in {refCount} item group{refCount === 1 ? "" : "s"}
-              </span>
               {leaf.fscClaim ? (
                 <>
                   <span className="sep">·</span>
