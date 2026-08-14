@@ -346,7 +346,221 @@ decides whether the snapshot is per-version or per-quote.
 
 | Item | Current state | Remaining action | Blocker | Scope |
 |---|---|---|---|---|
-| OD-023 | Inventory measured; model proposed | Reconcile version semantics, then implement snapshot + guards | Edward's call on Revise semantics | **V1 blocker** |
+| OD-023 | **ARCHITECTURE DISPOSITIONED 2026-08-14** — see §11a | Implement per the plan in §11a | None — decided | **V1 blocker** |
+
+## 11a · OD-023 — architecture dispositioned (2026-08-14)
+
+### Version semantics — SETTLED
+
+> **The live quote row is the mutable working copy. The immutable historical
+> version is the sent snapshot.**
+
+Revise keeps the existing supersede + `version_number` bump **on the same quote
+row**. No new quote row per revision, and no second revision identity system.
+
+The invariant:
+
+- while a quote is `sent`, that version cannot change;
+- the sent snapshot must contain enough governed state to reconstruct exactly
+  what the customer saw;
+- Revise supersedes that snapshot and returns the working quote to `draft` as
+  the next version;
+- subsequent edits affect the new working version, never the historical
+  snapshot.
+
+**Guard is `assertDraft`, not `assertNotFrozen`.** `assertNotFrozen` passes on
+`sent` and therefore cannot express sent-version immutability. `assertDraft` is
+already what every structural writer uses, so this adds no new concept.
+
+### Writer inventory — SEMANTIC, per function
+
+Rule applied: *every mutation that can change customer-visible content or
+commercial meaning must require draft.* Not inferred from module names.
+
+**Requires `assertDraft` (currently unguarded):**
+
+| Module | Fns | Note |
+|---|---|---|
+| `leaf-specs.ts` | 2 | spec values reach the addendum |
+| `assembly-leaf-inputs.ts` | 3 | packaging cost + per-cell overrides |
+| `assembly-production-inputs.ts` | 2 | production cost + policy |
+| `costing.ts` | 9 | includes GPA, per-cell overrides, client targets |
+| `pricing-lifts.ts` | 1 | lift persistence |
+| `pricing-apply.ts` | 3 | applies lifts/prices |
+| `bulk-raw.ts` | 1 | raw cost |
+| `freight.ts` | 15 | component/tier freight costs |
+| `freight-worksheet.ts` | 12 | **per-function sweep done** — 11 of 12 have no guard at all; the twelfth (`updateFreightTracking` region, line ~502) uses `assertNotFrozen`, which permits `sent` and so does not satisfy the invariant either. All twelve need `assertDraft`. |
+
+**Total: 48 write paths across 9 modules.**
+
+**Outside the freeze, with rationale rather than by assumption:**
+
+- `quote-attachments.ts` (3 fns) — **internal PM metadata.** Verified: no
+  reference to attachments anywhere in `src/components/pdf/` or
+  `customer-view-resolver.ts`. They are not part of the sent artifact and cannot
+  alter it. If a future feature attaches a document TO the customer artifact,
+  this classification must be revisited — that is the trigger, not the passage
+  of time.
+- `below-floor-approval-request.ts` / `below-floor-authorization.ts` (4 fns) —
+  approval/audit workflow state. It records who authorized a below-floor price;
+  it cannot change the price or any customer-visible content. Recording the
+  rationale rather than broadening the freeze automatically.
+- `firm-settings.ts`, `markup-defaults.ts`, `users.ts` — admin-scoped, already
+  `requireAdminAction`, and not quote-scoped. Their values are **pinned into the
+  snapshot at Send** (commercial settings pin), so a later admin edit cannot
+  reach a sent quote.
+- `hubspot-pull.ts`, `leaves.ts`, `projects.ts`, `workspace.ts`,
+  `surface-visits.ts`, `pricing-provenance.ts`, `pricing-events.ts`,
+  `warnings.ts`, `quote-review-events.ts` — library/master data, navigation
+  telemetry, derived reads, or review-log appends. None mutates quote-scoped
+  commercial content.
+
+### Snapshot completeness — the actual gap, in one line
+
+`customer-view-resolver.ts` reads `firmSettings`, `quotes`, `quoteTiers`,
+`users` — and **`getCostingBundle`**, which is the entire live product,
+structure, cost and pricing graph.
+
+`quote_snapshots` today carries commercial terms (`tcs`, `payment_terms`,
+`lead_time`, `incoterms`, `days_valid`), prepared-by identity, the three PDF
+axes, `pdf_url`, and `accepted_snapshot_json`. It carries **no product content
+whatsoever**.
+
+So every customer-visible product fact — which leaves, Direct or member, group
+membership and order, quantities, tiers, spec values, computed prices — is
+re-derived live on every historical read.
+
+**To capture (extending `quote_snapshots`, not a parallel store):**
+
+- leaf/product set with canonical `quote_leaves.id` identity;
+- Direct vs Item Group structure, membership and ordering;
+- tiers and quantities;
+- spec state the artifact renders;
+- computed commercial output the artifact prints (per-tier prices, totals);
+- commercial/pricing state already governed by the snapshot (unchanged).
+
+**NOT to capture:** runtime/cache/provider state, realtime subscriptions,
+warnings/derived advisory output, navigation telemetry, provenance indices.
+These are not part of the customer version.
+
+### Historical readers
+
+Once sent, historical/versioned customer output reads the **snapshot**. It must
+not silently recompute an old version from today's working tables. `pdf_url`
+already pins the exact file the customer received; the snapshot must make the
+same version reconstructible in queryable form.
+
+### Dispositions — 2026-08-14
+
+**1 · Snapshot payload is inventoried, not inferred.** Do not derive the JSONB
+shape from `customer-view-resolver`. Trace the real dependency —
+`CustomerView → customer-view-to-cpdf → PDF components` — and design the payload
+from what the artifact actually consumes. Capture structure and specs *where
+actually rendered*. Do not snapshot incidental caches, provider state or
+internal workflow metadata merely because it is reachable.
+
+**2 · Historical stability is proven by two authorities, with no PDF machinery.**
+No text extraction, no re-render comparison, no font/timestamp normalization for
+V1.
+
+- **Stored artifact:** `pdf_url` is immutable. Prove Revise and subsequent edits
+  neither replace nor mutate the prior sent file.
+- **Semantic representation:** derive the historical customer-render input from
+  the snapshot, and compare its canonical structured representation before and
+  after Revise plus arbitrary edits. It must be identical.
+
+**3 · Pre-migration sent quotes are NOT backfilled.** Backfilling structure from
+today's live rows would record current state as historical sent state — false
+evidence of exactly the kind this work exists to prevent. Those versions are
+explicitly **legacy / structural snapshot unavailable**. Where an immutable
+`pdf_url` exists, that PDF remains the historical customer artifact. No
+reconstructed structure is invented for them. Acceptable for V1, and the
+existing development dataset retires at Beta Day 0 anyway (§6).
+
+### Measurement correction — the "48 unguarded paths" figure was wrong
+
+**A module can enforce draft without calling `assertDraft`.** The sweep that
+produced 48 counted a HELPER NAME, not the invariant. Re-measured including
+inline `status !== "draft"` checks:
+
+| Module | `assertDraft` | inline draft check | `assertNotFrozen` |
+|---|---|---|---|
+| `costing.ts` | 0 | **3** | 0 |
+| `freight.ts` | 0 | **2** | 0 |
+| `warnings.ts` | 0 | **1** (`acceptWarning`) | 0 |
+| `freight-worksheet.ts` | 0 | 0 | 2 |
+| the other six | 0 | 0 | 0 |
+
+So some paths are already protected and 48 overstates the work. This is the same
+error shape that has recurred all session — measuring a proxy for a property
+instead of the property — and it is why Step 1 is gated on per-function
+classification rather than a module-level sweep.
+
+**Durable fix, folded into Step 1:** normalize the inline checks to
+`assertDraft`, so the invariant becomes greppable and the next person measuring
+it gets a true answer.
+
+### Per-function classification — REQUIRED before any guard is applied
+
+Ambiguous modules needing explicit in/out rationale per function:
+`freight-worksheet.ts` (12), `pricing-events.ts` (2), `warnings.ts` (3),
+`quote-attachments.ts` (3).
+
+#### `freight-worksheet.ts` — CLASSIFICATION COMPLETE
+
+`function | writes? | customer-visible/commercial? | current guard | action`
+
+| Function | W | Commercial? | Guard | Action |
+|---|---|---|---|---|
+| `createFreightSubcategory` | 5 | yes — freight cost reaches quoted price | none | `assertDraft` |
+| `updateFreightSubcategory` | 3 | yes | none | `assertDraft` |
+| `updateFreightDestination` | 1 | yes | none | `assertDraft` |
+| `addFreightDestination` | 4 | yes | none | `assertDraft` |
+| `selectFreightDestination` | 1 | yes — selects which destination prices | none | `assertDraft` |
+| `updateFreightDestinationBreak` | 1 | yes | none | `assertDraft` |
+| `updateFreightDestinationBreakGroup` | 2 | yes | none | `assertDraft` |
+| `deleteFreightDestination` | 2 | yes | none | `assertDraft` |
+| `deleteFreightSubcategory` | 1 | yes | none | `assertDraft` |
+| `updateFreightCustomsEntry` | 1 | yes — duty/tariff enter landed cost | none | `assertDraft` |
+| `updateFreightCustomsBreak` | 2 | yes | none | `assertDraft` |
+| `updateFreightTracking` | 2 | **NO — operational** | — | **OUTSIDE. Must NOT be draft-gated.** |
+
+**`updateFreightTracking` is a trap, and mechanically guarding this module would
+have sprung it.** It writes `freight_destination_tracking`, audits every entry
+with `{ operational: true }`, and is absent from the customer tree. Shipment
+tracking is entered AFTER a quote is sent — often after acceptance — so
+requiring draft would make the feature unreachable at exactly the point it is
+used. Freight *pricing* is commercial; freight *tracking* is logistics, and they
+live in one module.
+
+This is the concrete reason the semantic rule beats the module rule.
+
+**Freight-worksheet protected surface: 11 of 12.**
+
+#### Other modules
+
+Findings so far:
+
+- `warnings.ts` · `acceptWarning` — **already draft-gated inline.** Normalize to
+  `assertDraft`; no behaviour change.
+- `warnings.ts` · `reconcileWarnings`, `getQuoteWarnings` — derived/advisory.
+  `quote_warnings` appears nowhere in the customer tree. **Outside**, but
+  `reconcileWarnings` writes rows, so confirm it cannot run against a sent quote
+  in a way that alters a customer-visible read.
+- `pricing-events.ts` · both fns — append-only telemetry to `pricing_events`;
+  absent from the customer tree. **Outside.**
+- `quote-attachments.ts` · all three — verified absent from `src/components/pdf/`
+  and `customer-view-resolver.ts`. **Outside**, revisit trigger recorded above.
+
+### Proof obligations — all seven, before this closes
+
+1. Send captures a complete snapshot.
+2. All customer/commercial writers refuse while status is `sent`.
+3. Historical sent output is semantically stable across a Revise.
+4. Revise supersedes the old snapshot and bumps the working version.
+5. New edits affect only the new draft version.
+6. Re-sending creates the next immutable snapshot.
+7. Acceptance/Complete semantics continue to point at the correct sent version.
 
 ## 12 · OD-021 — what `Send` actually means
 
