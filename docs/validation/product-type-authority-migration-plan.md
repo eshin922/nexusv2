@@ -185,3 +185,51 @@ which stay commercial and must never acquire a packaging schema; and it MISSED
 the clearest genuine corrugated row in the data — `Master carton · ECT-32 ·
 12-up` — because its HubSpot type is NULL. A heuristic that both
 over-selects and under-selects is a search, not a classifier.
+
+---
+
+## 12 · Tertiary source-authority prerequisite — CLOSED (2026-08-14)
+
+**Baseline correction recorded: HubSpot `Labels` = 116.** The 117 was a
+Nexus-side distribution count carried into a HubSpot baseline by mistake.
+HubSpot did not drift.
+
+### Vocabulary gate — PASS
+
+16 persisted options; all 15 originals present with **byte-for-byte unchanged
+internal values**, including the three divergent pairs. `Tertiary Packaging`
+added. HubSpot's "17 active · 1 with issues" and the blank row were an **unsaved
+UI editing placeholder** — nothing blank persists in the property definition.
+
+### Controls reclassified and verified
+
+| | |
+|---|---|
+| `Corrugated Shipper` · `COR-0001` · `2008073042` | Secondary → **Tertiary Packaging** |
+| `Lemme - Corrugated Mailer` · `21897636395` | Secondary → **Tertiary Packaging** |
+
+Single-property PATCH per object — unlike the enumeration definition, an object
+update replaces nothing else on the record.
+
+Governed pull: 1,037 processed. Nexus persists the exact authoritative internal
+value `Tertiary Packaging` for both. Census moved **only** as predicted:
+`Secondary` 346 → **344**, `Tertiary Packaging` 0 → **2**. Every other value
+unchanged. No side-effect reclassification.
+
+`Corrugated Insert` and `Corrugated Display` deliberately untouched: corrugated
+substrate, but Product Type reflects business role, not material.
+
+### Recorded
+
+**The corrugated-name sweep is candidate DISCOVERY only, never coverage
+evidence.** It over-selects (shopping bags, tissue, stickers, hang tags, rigid
+boxes; `Art Direction` on the substring `RSC`), it must not touch service
+charges carrying carton/pallet terminology, and it MISSES the most textually
+perfect Tertiary record in the data — `Master carton · ECT-32 · 12-up` — because
+that row has no HubSpot product identity. It is supporting evidence for the
+schema's business validity and is **not** an authority-path control.
+
+Only four products across 1,037 carry explicit corrugated naming, so either
+little corrugated is quoted through Nexus or corrugated products are named by
+client and purpose rather than material. The historical population cannot be
+established this way, and remains non-blocking cleanup.
