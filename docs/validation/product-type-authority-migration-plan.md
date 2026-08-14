@@ -233,3 +233,91 @@ Only four products across 1,037 carry explicit corrugated naming, so either
 little corrugated is quoted through Nexus or corrugated products are named by
 client and purpose rather than material. The historical population cannot be
 established this way, and remains non-blocking cleanup.
+
+---
+
+## 13 · Step 3 — governed mapping — CLOSED (2026-08-14)
+
+Commit `e98a618`. **A complete additive unit. No existing runtime behaviour
+reads this mapping.**
+
+`src/lib/product-structure/spec-schema-mapping.ts` ·
+`tests/unit/spec-schema-mapping.test.ts`
+
+### What is established
+
+- Governed Product Type → Spec Schema mapping exists.
+- **Primary / Secondary / Tertiary** mappings proven, both Tertiary controls
+  resolving against live data.
+- **Labels** and **Cards, Booklets** → Secondary proven.
+- Service/commercial categories → **explicit `NO_SCHEMA`** proven (11 values).
+- Missing Product Type remains **`null` / NO TYPE SET**.
+- **Authoritative internal values drive the mapping, never display labels.**
+- Divergent labels are explicitly **rejected** as mapping keys — `Primary
+  Packaging`, `Secondary Packaging` and `Logistics` each resolve `unmapped`,
+  which is the only form of that assertion capable of failing.
+- **Exhaustiveness against the fetched authoritative vocabulary is CI-enforced**
+  via `specSchemaMappingIsExhaustive`.
+- Sandbox-only residue such as `Preliminary` remains **unmapped**, not
+  special-cased.
+
+### The three-state contract — DO NOT COLLAPSE
+
+| state | meaning |
+|---|---|
+| **`schema`** | specifications apply |
+| **`no_schema`** | specifications intentionally do not apply |
+| **`null`** | authoritative Product Type is missing |
+
+`no_schema` is a finished answer; `null` is missing authority. They must never
+render, store, or compare alike.
+
+### `unmapped` — accepted as a runtime result
+
+An unrecognised authoritative value is **returned, not thrown**. Fail-loud
+belongs in the CI exhaustiveness check, where a human sees a broken build —
+**not** on an operator-facing page. An unmapped authoritative type must **never**
+be silently coerced to `NO_SCHEMA`.
+
+---
+
+## 14 · Step 4 boundary — START IN A FRESH SESSION
+
+**Do not combine the destructive cleanup with the additive cutover.**
+
+### Order
+
+1. Add explicit **Spec Schema representation** to the Library/quote-owned
+   authority model.
+2. At attachment, resolve authoritative HubSpot Product Type through the
+   governed mapping and **pin** the resulting Spec Schema into quote-owned B-3
+   authority.
+3. **Backfill** existing quote-owned authority from authoritative HubSpot
+   Product Type.
+4. Update quote-context spec **readers/validators** to use the pinned
+   quote-owned Spec Schema.
+5. Update **Setup display/readiness** so Product Type is always HubSpot
+   authority and schema applicability comes from the pinned Spec Schema.
+6. Prove falsifications **7–10**.
+7. Separate assembly-scope classification naming/semantics as **Item Group
+   Category** and prove behaviour unchanged (falsification 11).
+8. Retire the independent leaf **TypePicker** / Nexus Product Type write paths
+   and prove falsification **12**.
+9. **Only after all replacement readers/writers are proven**, return for
+   authorization to drop or destructively repurpose `leaves.product_type_id`.
+
+### Required remaining falsifications
+
+| # | claim |
+|---|---|
+| 7 | Existing quote **retains** pinned Spec Schema after a later HubSpot Product Type change |
+| 8 | A **new attachment** after that change receives the newly-resolved schema |
+| 9 | Product Library and Setup show the **same** authoritative Product Type |
+| 10 | Quote spec **validation** uses the pinned Spec Schema, not mutable HubSpot classification |
+| 11 | **Item Group Category** behaviour remains unchanged |
+| 12 | **No leaf operator path** can independently assign a second Nexus Product Type after cutover |
+
+### Standing state
+
+PR **#260 remains unmerged**. **Step 5 remains paused.**
+**`leaves.product_type_id` remains untouched.**
