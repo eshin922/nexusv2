@@ -15,6 +15,7 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { leafSpecs, leaves, quoteLeaves, quotes, users } from "@/db/schema";
 import { ensureQuoteSpecAuthority } from "@/lib/product-structure/quote-spec-authority";
+import { resolveSpecSchema } from "@/lib/product-structure/spec-schema-mapping";
 
 let checks = 0;
 let failures = 0;
@@ -57,10 +58,12 @@ async function main() {
   const qb = await mk("B");
   const qc = await mk("C");
 
-  const mkLeaf = async (name: string) => {
+  // Classified in HubSpot, because that is now the only place a leaf gets a
+  // Product Type — and claim 5 needs a real authoritative value to resolve.
+  const mkLeaf = async (name: string, hubspotProductType: string | null = "Primary") => {
     const [l] = await db
       .insert(leaves)
-      .values({ name: `${TAG} ${name}`, createdBy: user.id })
+      .values({ name: `${TAG} ${name}`, hubspotProductType, createdBy: user.id })
       .returning({ id: leaves.id });
     created.leaves.push(l.id);
     return l.id;
@@ -123,19 +126,71 @@ async function main() {
   );
 
   // ----------------------------------------------------------------------- 5
-  await db
-    .update(leafSpecs)
-    .set({ productTypeId: "leaf_other" })
-    .where(eq(leafSpecs.id, a1.id));
-  const [leafRow] = await db
-    .select({ productTypeId: leaves.productTypeId })
+  //
+  // REWRITTEN FOR STEP 9. This claim used to set a quote-side Nexus type and
+  // assert it did not reach `leaves.product_type_id` or the sibling quote. The
+  // operator path that made that possible was retired in Step 8 and the column
+  // itself is being dropped, so the ORIGINAL assertion is no longer expressible.
+  //
+  // It is not simply deleted. What it existed to catch — a second, independent
+  // classification authority that one quote's edit could push into shared
+  // state — is exactly what must never come back. So the same claim number now
+  // asserts the CURRENT authority model, and the isolation half is preserved
+  // against the field that carries authority today: the pinned Spec Schema.
+  //
+  //   Product Type   = HubSpot `hs_product_type`, LIVE, shared, may change.
+  //   Spec Schema    = derived through the governed mapping, PINNED per quote,
+  //                    and must not float when the live type moves.
+  const [libLeaf] = await db
+    .select({ hubspotProductType: leaves.hubspotProductType })
     .from(leaves)
     .where(eq(leaves.id, withDefault));
-  const [bAfter] = await db.select().from(leafSpecs).where(eq(leafSpecs.id, b1.id));
   claim(
-    leafRow.productTypeId === null && bAfter.productTypeId !== "leaf_other",
-    "5 · Quote A type change touches neither Quote B nor the Library type",
-    `library leaves.product_type_id=${leafRow.productTypeId}`,
+    libLeaf.hubspotProductType === "Primary",
+    "5 · leaf Product Type comes from HubSpot `hs_product_type`",
+    `hubspot_product_type=${libLeaf.hubspotProductType}`,
+  );
+  const resolved = resolveSpecSchema(libLeaf.hubspotProductType);
+  claim(
+    resolved?.kind === "schema" && resolved.schemaId === "primary",
+    "5b · the Spec Schema is resolved from it through the governed mapping",
+    JSON.stringify(resolved),
+  );
+  const [aPin] = await db.select().from(leafSpecs).where(eq(leafSpecs.id, a1.id));
+  const [bPin] = await db.select().from(leafSpecs).where(eq(leafSpecs.id, b1.id));
+  claim(
+    aPin.specSchema === "primary" && bPin.specSchema === "primary",
+    "5c · and each quote holds its OWN pinned copy of it",
+    `A=${aPin.specSchema} B=${bPin.specSchema}`,
+  );
+
+  // The isolation falsification, carried forward onto the field that now
+  // carries authority. A reclassification is shared state: if a pin floated
+  // with it, the second-authority failure would be back in a new place.
+  await db
+    .update(leaves)
+    .set({ hubspotProductType: "Freight" })
+    .where(eq(leaves.id, withDefault));
+  const [aAfter] = await db.select().from(leafSpecs).where(eq(leafSpecs.id, a1.id));
+  const [bAfter] = await db.select().from(leafSpecs).where(eq(leafSpecs.id, b1.id));
+  const [movedLeaf] = await db
+    .select({ hubspotProductType: leaves.hubspotProductType })
+    .from(leaves)
+    .where(eq(leaves.id, withDefault));
+  claim(
+    movedLeaf.hubspotProductType === "Freight" &&
+      aAfter.specSchema === "primary" &&
+      bAfter.specSchema === "primary",
+    "5d · a later HubSpot reclassification does NOT float either quote's pin",
+    `live=${movedLeaf.hubspotProductType} A=${aAfter.specSchema} B=${bAfter.specSchema}`,
+  );
+  // And nothing reconciles them behind the operator's back: the live type and
+  // the pin are ALLOWED to disagree, and that disagreement is the mechanism.
+  claim(
+    resolveSpecSchema(movedLeaf.hubspotProductType)?.kind === "no_schema" &&
+      aAfter.specSchema === "primary",
+    "5e · live type and pinned schema may legitimately disagree — not drift",
+    `live resolves no_schema · pin stays primary`,
   );
 
   // ------------------------------------------------------------------- 6 + 7

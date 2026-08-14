@@ -461,3 +461,95 @@ isolated change, and for the same reason: nothing reads it.
 from a Library template, and no longer authoritative for behaviour now that
 `spec_schema` is pinned. Its disposition (drop, or keep as provenance) is a
 separate question from the two above and is **not** proposed here.
+
+---
+
+## 18 · Step 9 — code-side COMPLETE, drop HELD (2026-08-14)
+
+Authorized as an isolated destructive cleanup of `leaves.product_type_id` and
+`assemblies.product_type_id`. `leaf_specs.product_type_id` excluded, as
+directed.
+
+### Pre-drop requirement — DONE
+
+`scripts/verify/b3-spec-authority.ts` claim 5 rewritten, not deleted. It used to
+set a quote-side Nexus type and assert it reached neither the Library column nor
+the sibling quote — an assertion Step 8 made inexpressible. What it existed to
+catch, a second classification authority one quote's edit could push into shared
+state, is exactly what must never return, so the same claim now asserts the
+current model and carries the isolation half onto the field that holds authority
+today:
+
+| | |
+|---|---|
+| **5** | leaf Product Type comes from HubSpot `hs_product_type` |
+| **5b** | the Spec Schema is resolved from it through the governed mapping |
+| **5c** | each quote holds its own pinned copy |
+| **5d** | a later HubSpot reclassification does **not** float either quote's pin |
+| **5e** | live type and pinned schema may legitimately disagree — **not drift** |
+
+**24/24.** Zero dependency on either dropped column.
+
+Falsification 12i received the same treatment: it asserted the retired column
+stayed NULL through a create-and-attach cycle, a query that cannot survive the
+drop. It now asserts the **model declares neither column**, which is what
+actually governs whether anything can emit one, and holds on both sides.
+
+### Code side — COMPLETE
+
+Dual-writes removed from `createAssembly` and the quote-copy path; both column
+declarations and the `leaves_product_type_idx` index removed from the Drizzle
+model. No alias, no replacement column, no fallback read, no legacy write path.
+**The branch has zero live dependency on either column.**
+
+Because Drizzle emits column lists from the model, the branch is **already
+compatible with the un-dropped database** — extra columns are inert. That is the
+expand/contract shape, and it is what makes the branch safe to deploy first.
+
+### The drop — HELD, NOT APPLIED
+
+`drizzle/pending/0075_drop_retired_product_type_authorities.sql`. **Deliberately
+un-journaled**, so `drizzle-kit migrate` cannot pick it up.
+
+**Dev and production share one database, and the deployed code is `origin/main`,
+which both reads and writes both columns:**
+
+| deployed path | operation |
+|---|---|
+| `createAssembly` · `createLeaf` · `copyQuote` | INSERT names the column |
+| assembly-tree loader · library-browse loader · leaf-spec loader | SELECT names it |
+| **addendum loader** | SELECT names it — **customer PDF** |
+
+Drizzle emits explicit column lists, so after the DROP each becomes
+`42703 column does not exist`. Not a degraded path: the Setup tree, the Library
+and the customer PDF addendum would 500 for every operator immediately, and stay
+broken until the branch merges and deploys.
+
+This is the failure class banked from the 0066 attach-product outage — a
+destructive migration must never precede the code that stops depending on the
+thing being destroyed. **The instruction that PR #260 remains unmerged through
+verification is itself what makes applying the drop unsafe now**, since it fixes
+the deployed code at a commit that still depends on both columns.
+
+The repository proof is complete. The gap is deployment, not code.
+
+**To arm, in order:** merge #260 → deploy → confirm the deployed commit
+references neither column → move the file into `drizzle/` → add the journal
+entry → verify exactly one pending → `npm run db:migrate`.
+
+### Evidence delivered now
+
+| # | item | result |
+|---|---|---|
+| 1 | migration applied | **HELD** — see above |
+| 2 | schema inspection: columns absent | **PENDING the drop** |
+| 3 | repository sweep, zero runtime/operator/customer refs | **green** — only SQL comments remain |
+| 4 | updated B-3 authority harness | **24/24** |
+| 5 | falsifications 7-12 | **11/11 · 8/8 · 9/9** |
+| 6 | `tsc --noEmit` | **clean** |
+| 7 | unit suite by runner exit status | **1214/1214** |
+| 8 | `verify:s7-preserved`, governed digest | **green**, `22264ba2…f13dc0e8` unchanged, 33 quotes |
+| 9 | Item Group census | **67 / 44 / 0** |
+| 10 | leaf Product Type from HubSpot; validation from pinned schema | **green** (12e-12h) |
+
+Items 1 and 2 are the only two outstanding, and both gate on the same deploy.

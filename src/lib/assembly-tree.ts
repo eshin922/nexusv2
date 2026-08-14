@@ -442,8 +442,8 @@ function assembleTree(
       });
 
     // Step 7 · read from the Item Group Category registry. Never from
-    // `product_types`, and never from `assemblies.product_type_id`, which is
-    // now dual-written legacy awaiting its separate destructive removal.
+    // `product_types`. The legacy `assemblies.product_type_id` it replaced was
+    // removed in Step 9.
     const asmCategory = asm.itemGroupCategoryId
       ? categoryMap.get(asm.itemGroupCategoryId)
       : null;

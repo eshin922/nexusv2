@@ -1,0 +1,63 @@
+-- Step 9 · isolated destructive removal of the retired legacy authorities.
+--
+--   leaves.product_type_id       the Nexus leaf taxonomy, superseded by
+--                                HubSpot `hs_product_type` + the pinned
+--                                Spec Schema
+--   assemblies.product_type_id   superseded by item_group_category_id
+--
+-- `leaf_specs.product_type_id` is DELIBERATELY NOT INCLUDED. It is a different
+-- column with a different disposition, held separately.
+--
+-- No compatibility alias. No replacement column carrying the old semantics. No
+-- fallback read. No legacy write path. The point is structural removal.
+--
+-- ============================================================================
+-- HELD — NOT JOURNALED, THEREFORE NOT APPLIED.
+-- ============================================================================
+--
+-- This file lives under `drizzle/pending/` and has NO entry in
+-- `drizzle/meta/_journal.json`, so `drizzle-kit migrate` cannot pick it up.
+-- That is deliberate and is the whole reason it is here rather than in
+-- `drizzle/`.
+--
+-- WHY. Dev and production share ONE database. The code currently deployed to
+-- production is `origin/main`, and main both READS and WRITES both columns:
+--
+--   createAssembly            INSERT names assemblies.product_type_id
+--   createLeaf                INSERT names leaves.product_type_id
+--   copyQuote                 INSERT names assemblies.product_type_id
+--   assembly-tree loader      SELECT names leaves.product_type_id
+--   library-browse loader     SELECT names leaves.product_type_id
+--   addendum loader           SELECT names leaves.product_type_id (customer PDF)
+--   leaf-spec loader          SELECT names leaves.product_type_id
+--
+-- Drizzle emits an explicit column list, so after this DROP every one of those
+-- becomes `42703 column does not exist`. That is not a degraded path — the
+-- Setup tree, the Library and the customer PDF addendum would 500 for every
+-- operator, immediately, and stay broken until the branch merges and deploys.
+--
+-- This is the failure class recorded in CLAUDE.md under "Migration deployment
+-- order is determined by compatibility, not by a fixed direction", banked from
+-- the 0066 attach-product outage. A destructive migration never precedes the
+-- code that stops depending on the thing being destroyed.
+--
+-- The repository-side proof is complete: this branch has zero live dependency
+-- on either column. The gap is DEPLOYMENT, not code.
+--
+-- TO ARM THIS MIGRATION, in order:
+--   1. Merge PR #260 and deploy it to production.
+--   2. Confirm the deployed commit no longer references either column.
+--   3. Move this file to `drizzle/0075_drop_retired_product_type_authorities.sql`.
+--   4. Add its entry to `drizzle/meta/_journal.json`.
+--   5. Verify exactly one migration is pending, then run `npm run db:migrate`.
+--
+-- Steps 1 and 2 are the ones that cannot be skipped.
+
+ALTER TABLE "leaves" DROP COLUMN IF EXISTS "product_type_id";
+
+-- The index over the dropped column goes with it. Named explicitly rather than
+-- relying on the implicit cascade, so the intent is legible in the migration
+-- rather than inferred from Postgres behaviour.
+DROP INDEX IF EXISTS "leaves_product_type_idx";
+
+ALTER TABLE "assemblies" DROP COLUMN IF EXISTS "product_type_id";

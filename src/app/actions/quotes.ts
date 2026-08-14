@@ -3296,9 +3296,6 @@ async function cloneQuoteGraph(
           name: a.name,
           packLabel: a.packLabel,
           itemGroupCategoryId: a.itemGroupCategoryId,
-          // Dual-written until the retired column's separate removal, so a
-          // copy made now still reads correctly on currently deployed code.
-          productTypeId: a.itemGroupCategoryId,
           description: a.description,
           url: a.url,
           imageUrl: a.imageUrl,

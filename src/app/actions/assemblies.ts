@@ -166,9 +166,6 @@ export async function createAssembly(
         sku: skuValue,
         name,
         itemGroupCategoryId,
-        // Dual-written until the separate destructive step, so the currently
-        // deployed code — which still reads this column — keeps working.
-        productTypeId: itemGroupCategoryId,
         description,
         unitPrice: unitPriceRaw === "" ? null : unitPriceRaw,
         unitCost: unitCostRaw === "" ? null : unitCostRaw,

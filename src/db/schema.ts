@@ -2119,11 +2119,6 @@ export const assemblies = pgTable(
     sku: text("sku").notNull(),
     name: text("name").notNull(),
     packLabel: text("pack_label"),
-    /**
-     * RETIRED by Step 7. Still DUAL-WRITTEN so the currently deployed code,
-     * which reads it, keeps working across the interval. Dropped separately.
-     */
-    productTypeId: text("product_type_id").references(() => productTypes.id),
     /** Step 7 · the Item Group's classification. The read authority. */
     itemGroupCategoryId: text("item_group_category_id").references(
       () => itemGroupCategories.id,
@@ -2180,7 +2175,6 @@ export const leaves = pgTable(
     sku: text("sku"),
     url: text("url"),
     imageUrl: text("image_url"),
-    productTypeId: text("product_type_id").references(() => productTypes.id),
     unitCost: numeric("unit_cost"),
     fscClaim: boolean("fsc_claim"),
     fscStatus: text("fsc_status"),
@@ -2198,14 +2192,13 @@ export const leaves = pgTable(
      * HubSpot's `hs_product_type` — stored as the RAW INTERNAL OPTION VALUE,
      * never a display label.
      *
-     * SEPARATE FROM `productTypeId` ON PURPOSE. That column is Nexus's own
-     * product/structural taxonomy; this is HubSpot's commercial classification.
-     * The two vocabularies genuinely differ — Nexus has an assembly scope
-     * HubSpot has no counterpart for, HubSpot has service and commercial
-     * categories (Freight, Design, One Time Charges, R&D, Logistics, Turnkey,
-     * Finished Goods, Formulation) that no Nexus leaf type covers. Reusing one
-     * column for both would conflate them and lose information in whichever
-     * direction the mapping ran.
+     * THE ONLY leaf classification. Step 9 removed `product_type_id`, the
+     * Nexus taxonomy that used to sit beside this one — two authorities for
+     * one question, of which the operator-maintained half was unset on ~1,051
+     * of 1,077 products. Nexus behaviour (which specification fields apply) is
+     * DERIVED from this value through the governed mapping in
+     * `product-structure/spec-schema-mapping.ts` and pinned per quote; it is
+     * never a second thing an operator can set.
      *
      * INTERNAL VALUE, NOT LABEL. Three options diverge, and they are the three
      * largest categories:
@@ -2236,10 +2229,6 @@ export const leaves = pgTable(
       .defaultNow(),
   },
   (t) => [
-    // Library browse by type (filter on archived for active set).
-    index("leaves_product_type_idx")
-      .on(t.productTypeId)
-      .where(sql`archived = false`),
     // Library search by SKU.
     index("leaves_sku_idx").on(t.sku).where(sql`archived = false`),
     // slice-hubspot-bidirectional — partial index over archived

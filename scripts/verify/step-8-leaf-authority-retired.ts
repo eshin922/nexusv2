@@ -184,16 +184,45 @@ async function main() {
     `type=${node(untyped)?.productType} chip=${node(untyped)?.specCompleteness?.kind}`,
   );
 
-  // The retired column stays NULL through a full create-and-attach cycle. If
-  // any path had quietly kept writing it, this is where it would surface.
-  const [{ n }] = await db
-    .select({ n: sql<number>`count(*) filter (where product_type_id is not null)::int` })
-    .from(leaves)
-    .where(inArray(leaves.id, created.leaves));
+  // REWRITTEN FOR STEP 9. This used to assert the retired column stayed NULL
+  // through a create-and-attach cycle. That query cannot survive the drop, so
+  // the claim becomes the one it was always standing in for — and it is
+  // code-side, which is what actually governs whether anything CAN write:
+  // the model declares neither column, so Drizzle can never emit either name.
+  //
+  // Kept rather than deleted, because a reintroduced column is precisely the
+  // shape a returning second authority would take and nothing else would
+  // notice it.
+  const schemaSrc = bodies.get("src/db/schema.ts") ?? "";
+  const between = (from: string, to: string) => {
+    const a = schemaSrc.indexOf(from);
+    const b = schemaSrc.indexOf(to);
+    return a >= 0 && b > a ? schemaSrc.slice(a, b) : "";
+  };
+  const leavesBlock = between('"leaves",', '"leaf_specs",');
+  const asmBlock = between('"assemblies",', '"assembly_leaves",');
   claim(
-    n === 0,
-    "12i · no path wrote `leaves.product_type_id` during create + attach",
-    `${n} of ${created.leaves.length} products carry one`,
+    leavesBlock.length > 0 &&
+      asmBlock.length > 0 &&
+      !/product_type_id/.test(leavesBlock) &&
+      !/product_type_id/.test(asmBlock),
+    "12i · the model declares NEITHER retired column, so nothing can emit one",
+    `leaves=${/product_type_id/.test(leavesBlock) ? "PRESENT" : "absent"} · ` +
+      `assemblies=${/product_type_id/.test(asmBlock) ? "PRESENT" : "absent"}`,
+  );
+
+  // REPORTED, NOT CLAIMED. The columns still exist in the database until the
+  // held Step 9 migration is armed, and a check that passed either way would
+  // be a check incapable of failing.
+  const [{ present }] = (await db.execute(sql`
+    select count(*)::int as present
+      from information_schema.columns
+     where (table_name = 'leaves'     and column_name = 'product_type_id')
+        or (table_name = 'assemblies' and column_name = 'product_type_id')
+  `)) as unknown as [{ present: number }];
+  console.log(
+    `  ----  database still carries ${present} of 2 retired columns ` +
+      `(drop HELD pending deploy — drizzle/pending/0075)`,
   );
 
   console.log(`\n  ${checks - failures}/${checks} passed\n`);
