@@ -8,7 +8,17 @@ Reconciled against: `main` and current branch code · open PRs · `OPEN_DECISION
 
 ---
 
-## 0 · Blocking now — read first
+## 0 · S-7 — RESOLVED 2026-08-14 (kept for the record)
+
+**Current state: green on `84890653…6150a6df`, five consecutive stable runs,
+both branches identical, no data mutated to satisfy the verifier.** The second
+refresh to `4361217b…` was withdrawn as a torn read — see §0b (S7-1) and OW-11.
+Do not refresh to `4361217b…` again.
+
+The original entry follows, because the reasoning that produced the first
+authorized refresh is still the reasoning that governs the next one.
+
+## 0a · Blocking then — read first
 
 **S-7 is RED, and it blocks every Preview build.** `prebuild` runs
 `verify:s7-preserved`, so #265 and #266 both fail to deploy until this is
@@ -54,6 +64,44 @@ provisioned for exactly this walk — `ZZ-VALIDATION-drag-drop`,
 baseline. Pointing drag/drop walks at it prevents recurrence.
 
 ---
+
+## 0b · S7-1 — S-7 costing capture is not snapshot-consistent
+
+**Bounded V1 item. Verifier/release-gate reliability, NOT a quote-calculation
+defect.** Nothing about how a quote is costed is in question.
+
+`getCostingBundle` composes one logical result from 8+ INDEPENDENT queries with
+no shared snapshot. During concurrent writes the verifier can therefore compose
+a state that never existed atomically, and report preservation drift that is an
+artifact of its own read pattern.
+
+**Demonstrated, not theorised** (2026-08-14): the 18:05 capture produced
+`4361217b…` while an operator drag session ran against a different quote in the
+shared database. `2f29af72` had no write after 16:59:50; captures before and
+after — five runs — all return `84890653…`. The outlier carried large real
+inconsistencies (`cost 10000 -> 14000`), not floating-point noise, so it was a
+torn read across the bundle rather than a rounding artifact.
+
+**Repair, before the final V1 certification/beta checkpoint:** make S-7's
+capture path read through a consistent snapshot — a single transaction at
+REPEATABLE READ, or an equivalent proof that every read forming one digest
+observes one logical state. **Do not redesign costing**, and do not let this
+expand into a broad slice; the capture path is the surface.
+
+**Until S7-1 is repaired — operating rules, in force now:**
+
+1. Do not run baseline captures while active mutation testing is occurring.
+2. Characterize any unexpected digest BEFORE refreshing —
+   `scripts/gate-1b/confirm-s7-delta.ts`, which now separates float-noise from
+   real movement and prints a sample `before -> after` per moved path.
+3. Never treat the verifier's first reported difference as an exhaustive
+   description of the delta. It reports the first divergence in its walk order,
+   which on 2026-08-14 was a 1-ULP difference sitting in front of ~1.4×
+   movements.
+
+| Item | Current state | Remaining action | Blocker | Scope |
+|---|---|---|---|---|
+| S7-1 | Diagnosed, operating rules in force | Snapshot-consistent capture path | None — scheduled, not blocking | V1, before final checkpoint |
 
 ## 1 · Quote-surface closeout
 
