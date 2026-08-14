@@ -361,7 +361,7 @@ test("editing a mixed quote is never blocked", async () => {
 // ───────────── §9.4 · eligibility-state surfacing (scoped) ─────────────
 //
 // Makes the ALREADY-ENFORCED refusal visible before the operator spends an
-// action on it. Deliberately ONE state — "not projectable — no SKU" — because
+// action on it. Deliberately ONE state — "no SKU" — because
 // it is the only one of §8's five that is authoritative, locally knowable, and
 // has real instances (47). The other four remain vocabulary.
 //
@@ -393,7 +393,7 @@ test("the client never re-derives eligibility", async () => {
 
 test("an ineligible product is marked AND cannot be attempted", async () => {
   const src = await read("src/components/library/library-browse-modal.tsx");
-  assert.match(src, /not projectable — no SKU/);
+  assert.match(src, /no SKU/);
   // Preventative, not a replacement: the button is disabled by the same verdict.
   assert.match(src, /!row\.eligibility\.attachable \|\|\s*\n\s*!attachReady/);
 });

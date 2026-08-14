@@ -1137,7 +1137,7 @@ export function LibraryBrowseModal({
                             title={row.eligibility.message}
                           >
                             <span className="dot" aria-hidden="true" />
-                            not projectable — no SKU
+                            no SKU
                           </span>
                         ) : (
                           <span className={`status-pill ${readiness}`}>
