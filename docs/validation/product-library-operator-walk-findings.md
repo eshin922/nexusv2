@@ -632,3 +632,81 @@ disposition intentionally changed the grammar; the inline pair arrived with
 **Coverage gap worth naming separately:** `updateLeafSpec` and
 `detachQuoteProduct` have no unit coverage at all. One writes shared library
 master data; the other is the only destructive action on a Direct Product.
+
+---
+
+## B-5 · The cascade banner states the pre-B-3 model, and is now false — **BLOCKER**
+
+**Observed, not repaired.** Preview `4d052a8`, product `LEAF-GLW-30-PP`. No value
+was edited; the walk baseline is untouched.
+
+Both spec pages render this banner:
+
+> ⚠ *30ml Glass Dropper Bottle · Type III soda-lime · matte black is used in 15
+> ASYs across 7 scenarios. Editing specs affects referencing quotes per their
+> state: **sent quotes stay pinned to v1; draft quotes auto-update to the new
+> values.***
+
+followed by 15 rows, each stamped **`DRAFT · WILL UPDATE`** or
+**`SENT · STAYS PINNED`**.
+
+**Every clause of that is now false.** After B-3 no existing quote is affected by
+a Library-default edit, draft or sent, because each owns its authority. "Draft
+quotes auto-update" describes precisely the defect B-3 removed.
+
+**On the Library page it contradicts the page's own header**, which says *"Quotes
+that already use this product keep their own specifications and are not
+changed."* Two statements about one action, and **the false one is louder** — a
+full-width amber banner with 13 rows saying WILL UPDATE, against one line of
+body text.
+
+**Why this is a blocker rather than stale copy.** It inverts the operator's
+decision. Someone reading "13 draft quotes WILL UPDATE" will not edit the
+Library default — the safe-looking choice is now the wrong one, and the isolation
+B-3 built is unusable because nothing on screen says it exists. It also means an
+operator who *does* edit will believe they changed 13 quotes and may go
+"correcting" quotes that were never touched.
+
+## B-6 · The quote page states no scope at all
+
+The asymmetry runs the wrong way. The **Library** page names its scope well: an
+eyebrow (`ALL DEALS · PRODUCT LIBRARY`), a distinct title (*Library defaults*),
+and an explicit paragraph about future attachments.
+
+The **quote** page has **no scope statement whatsoever**. Below the false banner
+it is the product card and spec panel, with nothing saying these values belong
+to this quote. The only cue is the left scenario rail showing Alt 4 — which is
+navigation chrome, not a statement about what you are editing.
+
+So on the authority boundary you asked me to watch: the Library side reads
+clearly, the quote side reads as "editing the product", and the two pages are
+otherwise near-identical below the header — same banner, same card, same panel.
+An operator who arrives at the quote page from a row action has nothing telling
+them this edit is theirs alone.
+
+**Note this cuts against B-3's own vocabulary disposition:** *Library context:
+`Edit default specs`; Quote context: `Edit product specs`.* The actions are
+named correctly; the destinations are not.
+
+## B-7 · `ASY` is operator-visible on both pages
+
+- banner: *"used in 15 **ASYs** across 7 scenarios"*
+- product card: *"Referenced by 15 **ASYs**"*
+- row identifiers: `ASY-f88c22e3-1`, `ASY-180e6410-1`, `ASY-9de0a19d-1`
+
+Same class as B-4 drift 6 and the same cause: the vocabulary sweep covered the
+Setup tree's JSX and never reached this surface, and the row identifiers are
+generated data rather than source strings, so the test asserting `ASY` is gone
+cannot see them.
+
+## What the walk still needs
+
+The underlying isolation is proven by the 20/20 falsifications, but **none of
+B-5/B-6/B-7 is visible to them** — every one is copy or presentation, which is
+exactly the category automated evidence cannot reach. The operator-visible
+authority boundary is NOT confirmed, and B-5 is severe enough that walking the
+edit sequence would mean acting against on-screen instructions that say the
+opposite of what will happen.
+
+Recommend dispositioning B-5 before the value-editing half of the walk, so the
+screen and the behaviour agree while you are judging them.
