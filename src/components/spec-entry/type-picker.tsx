@@ -22,12 +22,12 @@ import { assignLeafProductType } from "@/app/actions/leaf-specs";
 // for placeholder types).
 
 export function TypePicker({
-  quoteId,
+  scope,
   leafId,
   availableTypes,
   disabled,
 }: {
-  quoteId: string;
+  scope: { quoteId: string } | { library: true };
   leafId: string;
   availableTypes: LeafSpecEntryProductType[];
   disabled: boolean;
@@ -43,7 +43,13 @@ export function TypePicker({
     setError(null);
     const fd = new FormData();
     fd.set("leafId", leafId);
-      fd.set("quoteId", quoteId);
+      // The scope travels with every write. A form that omitted it would be
+      // refused rather than defaulted.
+      if ("library" in scope) fd.set("scope", "library");
+      else {
+        fd.set("scope", "quote");
+        fd.set("quoteId", scope.quoteId);
+      }
     fd.set("productTypeId", typeId);
     startTransition(async () => {
       const result = await assignLeafProductType(fd);

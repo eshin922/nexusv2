@@ -58,7 +58,24 @@ export type QuoteSpecAuthority = {
  */
 export async function ensureQuoteSpecAuthority(
   tx: Executor,
-  args: { quoteId: string; leafId: string; createdBy: string },
+  args: {
+    quoteId: string;
+    leafId: string;
+    createdBy: string;
+    /**
+     * Copy Quote. Template from THAT quote's authority instead of the Library
+     * default.
+     *
+     * A copy duplicates the commercial configuration being copied. Re-resolving
+     * the Library default would silently discard whatever the source quote had
+     * configured — the copy would look like the source in every respect except
+     * the one the operator was working on.
+     *
+     * The source's VALUES are copied; its authority row is never shared, so the
+     * two quotes stay isolated in both directions from the first moment.
+     */
+    templateFromQuoteId?: string;
+  },
 ): Promise<QuoteSpecAuthority> {
   const existing = await tx
     .select()
@@ -72,18 +89,41 @@ export async function ensureQuoteSpecAuthority(
     .limit(1);
   if (existing.length > 0) return toAuthority(existing[0]);
 
-  // The Library default, used ONLY as a template.
-  const [libraryDefault] = await tx
+  // The template. A copy takes the SOURCE QUOTE's configuration; a fresh
+  // attachment takes the Library default. Both are read-only here — a template
+  // is copied, never pointed at.
+  const [template] = await tx
     .select()
     .from(leafSpecs)
     .where(
-      and(
-        eq(leafSpecs.leafId, args.leafId),
-        isNull(leafSpecs.quoteId),
-        eq(leafSpecs.isCurrent, true),
-      ),
+      args.templateFromQuoteId
+        ? and(
+            eq(leafSpecs.leafId, args.leafId),
+            eq(leafSpecs.quoteId, args.templateFromQuoteId),
+          )
+        : and(
+            eq(leafSpecs.leafId, args.leafId),
+            isNull(leafSpecs.quoteId),
+            eq(leafSpecs.isCurrent, true),
+          ),
     )
     .limit(1);
+  // A copy whose source held no authority falls back to the Library default,
+  // because "no configuration to duplicate" is the same situation as a fresh
+  // attachment — not a reason to leave the destination without authority.
+  const [libraryDefault] = template
+    ? [template]
+    : await tx
+        .select()
+        .from(leafSpecs)
+        .where(
+          and(
+            eq(leafSpecs.leafId, args.leafId),
+            isNull(leafSpecs.quoteId),
+            eq(leafSpecs.isCurrent, true),
+          ),
+        )
+        .limit(1);
 
   const [leaf] = await tx
     .select({ productTypeId: leaves.productTypeId })
@@ -101,7 +141,13 @@ export async function ensureQuoteSpecAuthority(
       // carried its own type that wins, since it is the schema the copied
       // values were authored under.
       productTypeId: libraryDefault?.productTypeId ?? leaf?.productTypeId ?? null,
-      templatedFromSpecId: libraryDefault?.id ?? null,
+      // For a fresh attachment this is the Library default it copied. For a
+      // copy it is the source quote's own provenance, carried forward, so a
+      // clone still records which Library version its values originate from
+      // rather than pointing at another quote's row.
+      templatedFromSpecId: args.templateFromQuoteId
+        ? (libraryDefault?.templatedFromSpecId ?? null)
+        : (libraryDefault?.id ?? null),
       versionNumber: 1,
       // `is_current` is a LIBRARY-scope concept and quote rows opt out of it.
       // Authority here is established by quote_leaves.leaf_spec_version_id, not

@@ -80,8 +80,13 @@ async function main() {
     })
     .returning();
 
-  const attach = (quoteId: string, leafId: string) =>
-    ensureQuoteSpecAuthority(db as never, { quoteId, leafId, createdBy: user.id });
+  const attach = (quoteId: string, leafId: string, templateFromQuoteId?: string) =>
+    ensureQuoteSpecAuthority(db as never, {
+      quoteId,
+      leafId,
+      createdBy: user.id,
+      templateFromQuoteId,
+    });
 
   // ---------------------------------------------------------------- 1 + 2
   const a1 = await attach(qa, withDefault);
@@ -202,6 +207,75 @@ async function main() {
     unresolved.n === 0,
     "10 · every attachment resolves quote-owned authority, sent/accepted included",
     `unresolved=${unresolved.n} · sent/accepted/complete attachments=${sentPop.n}`,
+  );
+
+  // --------------------------------------------------- A · Library defaults
+  // Proven over the SAME rows the quote-side claims used, so "unchanged" means
+  // unchanged after everything above rather than in a fresh world.
+  await db
+    .update(leafSpecs)
+    .set({ specValues: { material: "LIBRARY-EDIT-2" }, productTypeId: "leaf_other" })
+    .where(and(eq(leafSpecs.leafId, withDefault), isNull(leafSpecs.quoteId)));
+  const [aA] = await db.select().from(leafSpecs).where(eq(leafSpecs.id, a1.id));
+  const [bA] = await db.select().from(leafSpecs).where(eq(leafSpecs.id, b1.id));
+  claim(
+    (aA.specValues as Record<string, unknown>).material === "QUOTE-A-ONLY",
+    "A2 · after a Library default edit, existing Quote A is unchanged",
+  );
+  claim(
+    (bA.specValues as Record<string, unknown>).material === "LIBRARY-ORIGINAL",
+    "A3 · after a Library default edit, existing Quote B is unchanged",
+  );
+  const qd = await mk("D");
+  const d1 = await attach(qd, withDefault);
+  claim(
+    (d1.specValues as Record<string, unknown>).material === "LIBRARY-EDIT-2" &&
+      d1.productTypeId === "leaf_other",
+    "A4/A5 · a quote attached afterwards receives the new default, type included",
+    JSON.stringify(d1.specValues),
+  );
+
+  // -------------------------------------------------------- B · Copy Quote
+  // The source is already customised away from the Library default (claim 3).
+  const qclone = await mk("CLONE");
+  const cl = await attach(qclone, withDefault, qa);
+  claim(
+    (cl.specValues as Record<string, unknown>).material === "QUOTE-A-ONLY",
+    "B1/B2 · a clone receives the SOURCE's values, not the Library default",
+    JSON.stringify(cl.specValues),
+  );
+  claim(cl.id !== a1.id, "B3 · the clone does not share the source's authority row");
+
+  await db
+    .update(leafSpecs)
+    .set({ specValues: { material: "SOURCE-LATER" } })
+    .where(eq(leafSpecs.id, a1.id));
+  const [clAfterSource] = await db.select().from(leafSpecs).where(eq(leafSpecs.id, cl.id));
+  claim(
+    (clAfterSource.specValues as Record<string, unknown>).material === "QUOTE-A-ONLY",
+    "B4 · a later SOURCE edit does not change the clone",
+  );
+
+  await db
+    .update(leafSpecs)
+    .set({ specValues: { material: "CLONE-LATER" } })
+    .where(eq(leafSpecs.id, cl.id));
+  const [aAfterClone] = await db.select().from(leafSpecs).where(eq(leafSpecs.id, a1.id));
+  claim(
+    (aAfterClone.specValues as Record<string, unknown>).material === "SOURCE-LATER",
+    "B5 · a later CLONE edit does not change the source",
+  );
+
+  await db
+    .update(leafSpecs)
+    .set({ specValues: { material: "LIBRARY-EDIT-3" } })
+    .where(and(eq(leafSpecs.leafId, withDefault), isNull(leafSpecs.quoteId)));
+  const [aFin] = await db.select().from(leafSpecs).where(eq(leafSpecs.id, a1.id));
+  const [clFin] = await db.select().from(leafSpecs).where(eq(leafSpecs.id, cl.id));
+  claim(
+    (aFin.specValues as Record<string, unknown>).material === "SOURCE-LATER" &&
+      (clFin.specValues as Record<string, unknown>).material === "CLONE-LATER",
+    "B6 · a later LIBRARY-default edit changes neither source nor clone",
   );
 
   console.log(`\n  ${failures === 0 ? "ALL HOLD" : "FALSIFIED"} — ${checks - failures}/${checks}\n`);

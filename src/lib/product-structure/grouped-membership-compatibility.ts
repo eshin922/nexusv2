@@ -32,6 +32,8 @@ type AttachGroupedMembershipArgs = {
   position: number;
   /** B-3 — attribution for the quote-owned spec instantiated here. */
   createdBy: string;
+  /** Copy Quote — template the new authority from this source quote. */
+  specTemplateFromQuoteId?: string;
   createdAt?: Date;
   fault?: CompatibilityFaultInjector;
 };
@@ -102,6 +104,7 @@ export async function attachGroupedMembership(
     quoteId: args.quoteId,
     leafId: args.leafId,
     createdBy: args.createdBy,
+    templateFromQuoteId: args.specTemplateFromQuoteId,
   });
 
   const [canonical] = await tx

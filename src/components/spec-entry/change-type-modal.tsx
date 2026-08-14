@@ -19,13 +19,13 @@ import { changeLeafProductType } from "@/app/actions/leaf-specs";
 // uses this modal).
 
 export function ChangeTypeModal({
-  quoteId,
+  scope,
   leafId,
   currentType,
   availableTypes,
   disabled,
 }: {
-  quoteId: string;
+  scope: { quoteId: string } | { library: true };
   leafId: string;
   currentType: LeafSpecEntryProductType;
   availableTypes: LeafSpecEntryProductType[];
@@ -72,7 +72,13 @@ export function ChangeTypeModal({
     if (!targetTypeId) return;
     const fd = new FormData();
     fd.set("leafId", leafId);
-      fd.set("quoteId", quoteId);
+      // The scope travels with every write. A form that omitted it would be
+      // refused rather than defaulted.
+      if ("library" in scope) fd.set("scope", "library");
+      else {
+        fd.set("scope", "quote");
+        fd.set("quoteId", scope.quoteId);
+      }
     fd.set("productTypeId", targetTypeId);
     startTransition(async () => {
       setError(null);

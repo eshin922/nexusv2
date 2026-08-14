@@ -226,6 +226,10 @@ const classifiedIdentityFiles = new Set([
   // (quote_id, leaf_id); it reads leafId to template from the Library default
   // and never touches the legacy junction or maps between identity spaces.
   "src/lib/product-structure/quote-spec-authority.ts",
+  // CLASSIFIED — canonical only, and deliberately quote-free. The Library
+  // master surface names `leafId` because a Library product IS a leaf; it holds
+  // no quote identity at all, which is the whole point of the route.
+  "src/app/library/leaves/[leafId]/defaults/page.tsx",
   // CLASSIFIED — read-only evidence, canonical only. The B-3 falsification
   // harness builds fixtures keyed by (quote_id, leaf_id) and never touches the
   // legacy junction or maps between identity spaces.

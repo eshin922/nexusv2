@@ -71,7 +71,7 @@ export default async function SpecEntryPage({
           </Link>
         </div>
 
-        <SpecEntrySurface quoteId={quoteId} data={data} readOnly={readOnly} />
+        <SpecEntrySurface scope={{ quoteId }} data={data} readOnly={readOnly} />
       </main>
     </NavShell>
   );

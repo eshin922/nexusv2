@@ -1137,6 +1137,20 @@ export function LibraryBrowseModal({
                         {/* Readiness-driven action: Attach (ready) /
                             ✓ Attached (attached, no button) /
                             Restore (archived, perm-gated). */}
+                        {/* B-3 · A — the Library-master path, named so it
+                            cannot be confused with the quote-side action.
+                            "defaults" is the whole distinction: this edits the
+                            template future attachments start from, and touches
+                            no quote that already uses the product. */}
+                        <a
+                          className="lib-defaults-link"
+                          href={`/library/leaves/${row.leafId}/defaults`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Edit the default specs and Product Type for future attachments. Quotes already using this product are not changed."
+                        >
+                          Edit defaults
+                        </a>
                         {readiness === "attached" ? (
                           <span className="lib-attached-mark">
                             ✓ Attached

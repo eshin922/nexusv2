@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, leafSpecs, leaves, productTypes } from "@/db/schema";
 import { writeAuditEntries, writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
@@ -36,6 +36,42 @@ type UpdateLeafSpecResult = {
   versionNumber: number;
 };
 
+/**
+ * Which authority a spec write targets. B-3 · A.
+ *
+ * REQUIRED, with no default. The two candidates are "this quote" and "the
+ * template every future quote starts from", and a wrong guess is silent in both
+ * directions — so the caller states it rather than the action inferring it.
+ */
+function readScope(formData: FormData): { library: true } | { quoteId: string } {
+  const scope = String(formData.get("scope") ?? "").trim();
+  if (scope === "library") return { library: true };
+  if (scope === "quote" || scope === "") {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    // Fail closed. An empty id would produce a predicate that matches no row,
+    // so the write would succeed and change nothing — the worst outcome
+    // available, because the operator is told it saved.
+    if (!quoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+    return { quoteId };
+  }
+  throw new ActionGuardError(ERR.VALIDATION, `unknown scope "${scope}"`);
+}
+
+/** Row selector for the resolved scope. Library = the current default row. */
+function scopeWhere(
+  leafId: string,
+  scope: { library: true } | { quoteId: string },
+) {
+  return "library" in scope
+    ? and(
+        eq(leafSpecs.leafId, leafId),
+        isNull(leafSpecs.quoteId),
+        eq(leafSpecs.isCurrent, true),
+      )
+    : and(eq(leafSpecs.leafId, leafId), eq(leafSpecs.quoteId, scope.quoteId));
+}
+
 export async function updateLeafSpec(
   formData: FormData,
 ): Promise<ActionResult<UpdateLeafSpecResult>> {
@@ -44,7 +80,6 @@ export async function updateLeafSpec(
     // B-3 — which authority is being edited. Required: an edit with no scope
     // has no safe default, because the two candidates are "this quote" and
     // "every future quote", and guessing wrong is silent either way.
-    const quoteId = String(formData.get("quoteId") ?? "").trim();
     const fieldKey = String(formData.get("fieldKey") ?? "").trim();
     // Raw value preserved as string; jsonb stores strings. Future
     // expansion to typed fields (number, boolean, select) maps here.
@@ -54,8 +89,6 @@ export async function updateLeafSpec(
       throw new ActionGuardError(ERR.VALIDATION, "leafId required");
     if (!fieldKey)
       throw new ActionGuardError(ERR.VALIDATION, "fieldKey required");
-    if (!quoteId)
-      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
 
     // Permission gate (Path B per Architect Gate 5; impl-1 helper).
     const user = await assertCanEditSpecs();
@@ -117,12 +150,13 @@ export async function updateLeafSpec(
     const trimmed = rawValue.trim();
     const nextValue: string | null = trimmed.length === 0 ? null : rawValue;
 
-    // Load THIS QUOTE's authority. Not the Library default — a quote-side edit
+    const scope = readScope(formData);
+    // Load the addressed authority. Not the Library default — a quote-side edit
     // must never reach master data or another quote.
     const currentRows = await db
       .select()
       .from(leafSpecs)
-      .where(and(eq(leafSpecs.leafId, leafId), eq(leafSpecs.quoteId, quoteId)))
+      .where(scopeWhere(leafId, scope))
       .limit(1);
     const current = currentRows[0];
 
@@ -140,12 +174,14 @@ export async function updateLeafSpec(
         .insert(leafSpecs)
         .values({
           leafId,
-          quoteId,
+          ...("library" in scope
+            ? { isCurrent: true }
+            : { quoteId: scope.quoteId }),
           specValues: initialValues,
           versionNumber: 1,
-          // Library-scope concept; quote rows opt out. Authority is the
-          // pointer on quote_leaves, never a flag.
-          isCurrent: false,
+          // Library-scope concept; quote rows opt out. Authority for a quote
+          // is the pointer on quote_leaves, never a flag.
+          ...("library" in scope ? {} : { isCurrent: false }),
           createdBy: user.id,
         })
         .returning();
@@ -249,9 +285,9 @@ export async function assignLeafProductType(
   return runAction(async () => {
     const leafId = String(formData.get("leafId") ?? "").trim();
     const productTypeId = String(formData.get("productTypeId") ?? "").trim();
-    // B-3 — quote-scoped. The Product Type IS the schema spec_values are
-    // validated against, so it belongs to the same authority as the values.
-    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    // B-3 — the Product Type IS the schema spec_values are validated against,
+    // so it belongs to the same authority as the values.
+    const assignScope = readScope(formData);
 
     if (!leafId)
       throw new ActionGuardError(ERR.VALIDATION, "leafId required");
@@ -295,15 +331,13 @@ export async function assignLeafProductType(
         "Selected type is not a leaf-scope type.",
       );
 
-    if (!quoteId)
-      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
     // Writes THIS QUOTE's authority. `leaves.product_type_id` is the Library
     // default for FUTURE attachments and is deliberately untouched — changing
     // it here would retype every other quote using this product.
     await db
       .update(leafSpecs)
       .set({ productTypeId, updatedAt: new Date(), updatedBy: user.id })
-      .where(and(eq(leafSpecs.leafId, leafId), eq(leafSpecs.quoteId, quoteId)));
+      .where(scopeWhere(leafId, assignScope));
 
     // No `leaf_spec_type_change` audit on initial assignment —
     // that action is reserved for actual type SWITCHES (Step 9).
@@ -356,8 +390,8 @@ export async function changeLeafProductType(
   return runAction(async () => {
     const leafId = String(formData.get("leafId") ?? "").trim();
     const toTypeId = String(formData.get("productTypeId") ?? "").trim();
-    // B-3 — quote-scoped, for the same reason as the assign path.
-    const changeQuoteId = String(formData.get("quoteId") ?? "").trim();
+    // B-3 — same authority as the values, for the same reason.
+    const changeScope = readScope(formData);
 
     if (!leafId)
       throw new ActionGuardError(ERR.VALIDATION, "leafId required");
@@ -409,9 +443,7 @@ export async function changeLeafProductType(
       .select()
       .from(leafSpecs)
       // Quote-scoped: the prior values being transformed are this quote's.
-      .where(
-        and(eq(leafSpecs.leafId, leafId), eq(leafSpecs.quoteId, changeQuoteId)),
-      )
+      .where(scopeWhere(leafId, changeScope))
       .limit(1);
     const current = currentRows[0];
     const priorValues = (current?.specValues as
@@ -424,21 +456,14 @@ export async function changeLeafProductType(
         !(typeof v === "string" && v.trim() === ""),
     );
 
-    if (!changeQuoteId)
-      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
-    // Transaction: retype THIS QUOTE's authority + clear its spec_values +
+    // Transaction: retype the addressed authority + clear its spec_values +
     // emit cascade audit rows atomically. `leaves.product_type_id` stays as
     // the Library default for future attachments.
     await db.transaction(async (tx) => {
       await tx
         .update(leafSpecs)
         .set({ productTypeId: toTypeId, updatedAt: new Date(), updatedBy: user.id })
-        .where(
-          and(
-            eq(leafSpecs.leafId, leafId),
-            eq(leafSpecs.quoteId, changeQuoteId),
-          ),
-        );
+        .where(scopeWhere(leafId, changeScope));
 
       if (current) {
         await tx

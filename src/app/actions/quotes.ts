@@ -3341,14 +3341,16 @@ async function cloneQuoteGraph(
           );
         }
         const attached = await attachGroupedMembership(tx, {
-          // B-3 · OPEN QUESTION, flagged rather than decided. The copy receives
-          // an authority templated from the LIBRARY default, which reproduces
-          // pre-B-3 behaviour exactly: before quote-owned specs existed, a copy
-          // and its source both resolved the same Library row, so a copy never
-          // carried source customisations. Once quotes customise, copying a
-          // customised quote and getting Library defaults may surprise — but
-          // copying the source's values is new semantics FR-12 never
-          // dispositioned, so it is not invented here.
+          // B-3 · Copy Quote duplicates the commercial configuration being
+          // copied. The destination's authority is templated from the SOURCE
+          // QUOTE's, not re-resolved from the Library default, which would
+          // silently discard whatever the source had configured.
+          //
+          // FR-12 is silent on specifications — neither the brief nor SPEC
+          // names leaf_specs in the Cloneable/Inherited/Reset buckets, because
+          // quote-owned specs did not exist when it was written. So this adds
+          // a bucket rather than contradicting one.
+          specTemplateFromQuoteId: args.sourceQuoteId,
           createdBy: args.createdByUserId,
           quoteId: newQuoteId,
           assemblyId: newAsyId,

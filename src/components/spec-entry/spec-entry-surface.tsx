@@ -26,12 +26,15 @@ import { CascadeWarning } from "./cascade-warning";
 // fill the actual panels.
 
 export function SpecEntrySurface({
-  quoteId,
+  scope,
   data,
   readOnly,
 }: {
-  /** B-3 — which authority these edits target. */
-  quoteId: string;
+  /**
+   * B-3 — which authority these edits target. No default: the two candidates
+   * are one quote and every future quote.
+   */
+  scope: { quoteId: string } | { library: true };
   data: LeafSpecEntryData;
   readOnly: boolean;
 }) {
@@ -109,7 +112,7 @@ export function SpecEntrySurface({
             ) : null}
             {productType && !readOnly ? (
               <ChangeTypeModal
-                quoteId={quoteId}
+                scope={scope}
                 leafId={leaf.id}
                 currentType={productType}
                 availableTypes={data.availableLeafTypes}
@@ -121,7 +124,7 @@ export function SpecEntrySurface({
         <div className="a1v2-card-body">
           {!productType ? (
             <TypePicker
-              quoteId={quoteId}
+              scope={scope}
               leafId={leaf.id}
               availableTypes={data.availableLeafTypes}
               disabled={readOnly}
@@ -131,7 +134,7 @@ export function SpecEntrySurface({
           ) : productType.fieldSchema ? (
             // Scenarios ⑤/⑥ — SpecPanel field grid (Step 4-5).
             <SpecPanel
-              quoteId={quoteId}
+              scope={scope}
               title={productType.name}
               fields={productType.fieldSchema.fields}
               leafId={leaf.id}

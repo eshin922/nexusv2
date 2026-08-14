@@ -579,8 +579,16 @@ test("B-3 · quote-side writers never touch Library master data", async () => {
   // leaves.product_type_id is the Library default for FUTURE attachments.
   // Retyping from inside a quote must not retype every other quote.
   assert.doesNotMatch(src, /update\(leaves\)/);
-  assert.match(src, /eq\(leafSpecs\.quoteId, quoteId\)/);
+  // Scope is READ, never defaulted. The two candidates are "this quote" and
+  // "the template every future quote starts from", and a wrong guess is silent
+  // in both directions — so the caller states it and the action refuses
+  // anything it does not recognise.
+  assert.match(src, /function readScope\(/);
   assert.match(src, /quoteId required/);
+  assert.match(src, /unknown scope/);
+  // The library branch resolves the default row; the quote branch never can.
+  assert.match(src, /isNull\(leafSpecs\.quoteId\)/);
+  assert.match(src, /eq\(leafSpecs\.quoteId, scope\.quoteId\)/);
 });
 
 test("B-3 · attachment instantiates the authority, and reuses it", async () => {

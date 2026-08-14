@@ -31,7 +31,7 @@ const SAVE_DEBOUNCE_MS = 500;
 export function SpecPanel({
   title,
   fields,
-  quoteId,
+  scope,
   leafId,
   initialValues,
   filled,
@@ -40,7 +40,7 @@ export function SpecPanel({
 }: {
   title: string;
   fields: LeafSpecField[];
-  quoteId: string;
+  scope: { quoteId: string } | { library: true };
   leafId: string;
   initialValues: Record<string, unknown>;
   filled: number;
@@ -60,7 +60,7 @@ export function SpecPanel({
           <SpecCell
             key={f.key}
             field={f}
-            quoteId={quoteId}
+            scope={scope}
             leafId={leafId}
             initialValue={normalizeInitial(initialValues[f.key])}
             readOnly={readOnly}
@@ -72,14 +72,14 @@ export function SpecPanel({
 }
 
 function SpecCell({
-  quoteId,
+  scope,
   field,
   leafId,
   initialValue,
   readOnly,
 }: {
   field: LeafSpecField;
-  quoteId: string;
+  scope: { quoteId: string } | { library: true };
   leafId: string;
   initialValue: string;
   readOnly: boolean;
@@ -109,7 +109,13 @@ function SpecCell({
     timeoutRef.current = setTimeout(() => {
       const fd = new FormData();
       fd.set("leafId", leafId);
-      fd.set("quoteId", quoteId);
+      // The scope travels with every write. A form that omitted it would be
+      // refused rather than defaulted.
+      if ("library" in scope) fd.set("scope", "library");
+      else {
+        fd.set("scope", "quote");
+        fd.set("quoteId", scope.quoteId);
+      }
       fd.set("fieldKey", field.key);
       fd.set("value", value);
       startTransition(async () => {
