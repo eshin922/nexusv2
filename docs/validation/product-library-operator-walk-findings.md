@@ -808,3 +808,40 @@ quote.
 **Not in scope and not touched:** Item Group / member structure, quote-spec
 authority, Library-default authority, cost, pricing, projection. This is
 row-level CSS and one JSX move.
+
+---
+
+## OW-5 · S-7 baseline refresh — ordering-only drift on Alt 5 (2026-08-13)
+
+**Distinct from OW-2.** That was an attachment cause; this one moved nothing at
+all. Characterised as **ordering-only baseline drift**, not identity and not
+attachment.
+
+Pre-refresh isolation, which is the evidence — the refreshed green baseline is
+not:
+
+- Alt 5 is the only changed basket member (basket 33)
+- rollup cardinality unchanged at 21; the rollup SET is identical
+- every retained rollup field-for-field identical when matched by `skuId`
+- no quote-level governed value moved
+- no cost, sell, freight, duty, tariff, margin or quantity moved anywhere
+- the sole difference is ordering: six positional entries shifted while
+  identity and content stayed put
+
+Refresh delta: 33 → 33 entries, **1** changed digest, 0 new, 0 removed;
+`08986108…` → `e60be671…`. Alt 5 was **not** modified to match the old baseline.
+
+### Follow-up, recorded not solved
+
+**S-7 compares rollups positionally, so a reorder reads as movement.** Here it
+reported `skuRollups[2].canonicalQuoteLeafId` being replaced — which is the
+cascade of a shift, not a value change, and it cost a full isolation pass to
+establish that nothing had moved.
+
+The preservation gate should eventually distinguish ordering from content and
+identity movement explicitly: match rollups by `skuId` before comparing fields,
+and report a pure permutation as its own outcome rather than as a replaced
+identity. The isolation script already does exactly this in its retained-rollup
+claim, so the technique is proven; it belongs in the gate.
+
+Not in this slice.

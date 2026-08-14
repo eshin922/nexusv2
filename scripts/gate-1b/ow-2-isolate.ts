@@ -34,7 +34,9 @@ const baselineDetail = JSON.parse(
   '{"_":' + readFileSync("docs/gate-1b/costing-baseline-detail.json", "utf8").trim() + "}",
 )._ as Record<string, Record<string, unknown>>;
 
-const SUSPECT = "2f29af72-805b-446c-866c-73e9b0991b1a";
+// Parameterised: the same isolation applies to any single-quote delta, and a
+// hardcoded id would have meant a copy of this file per incident.
+const SUSPECT = process.argv[2] ?? "2f29af72-805b-446c-866c-73e9b0991b1a";
 
 /** EVERY difference, not the first — the whole point of this pass. */
 function allDifferences(a: unknown, b: unknown, path = "", out: string[] = []): string[] {
