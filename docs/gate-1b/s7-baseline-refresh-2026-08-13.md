@@ -175,3 +175,61 @@ S-7 will fail on missing entries until the baseline is refreshed again.** That i
 a property of the basket predicate rather than of this merge, so it is recorded
 rather than quietly worked around — but it should be dispositioned before the
 fixtures are cleaned up.
+
+---
+
+## Refresh 2026-08-14 · intentional operator GPA update during Pricing walk
+
+**Authorized.** Baseline `22264ba2…f13dc0e8` → **`8d4ab825…88577763`**. 33 entries,
+membership unchanged.
+
+### Isolation confirmation
+
+| | |
+|---|---|
+| baseline entries compared | **33** |
+| changed quotes | **1** — `2f29af72` Smart Pressed Juice · Primary |
+| moved governed scalars | **1** — `quote.globalPriceAdjPct: 0 → 0.05` |
+| cost / sell / freight / duty / tariff / margin / quantity | **none moved** |
+| basket membership | **unchanged** — none added, none removed |
+
+### Provenance — established, not inferred
+
+```
+2026-08-14T15:29:51Z  global_price_adj_updated     edward.shin@gmail.com
+  {"source":"pricing_apply","global_price_adj_pct":{"from":0,"to":0.05}}
+2026-08-14T15:29:51Z  pricing_adjustments_applied  edward.shin@gmail.com
+```
+
+`source: "pricing_apply"` is the operator path — not a system suggestion, not a
+backfill, not a migration. Both rows share one timestamp, so it was a single
+deliberate apply, and they are the **only** writes to that quote in 48 hours.
+
+Intent was **confirmed by the operator**, not read off the value. A well-formed
+audit row establishes the path, never the intention.
+
+### How it surfaced
+
+Not through a walk — through the **Vercel build for PR #266 failing**. S-7 runs
+in `prebuild`, so it gates deployment as well as merge. The failure looked like
+a build defect on a PR that changes no costing; it was the preservation gate
+working correctly against live data.
+
+**Every Preview and production build failed until this refresh.** That is the
+cost of a basket quote being mutable.
+
+### Workflow correction — `2f29af72` retired from mutation
+
+It had been doing three incompatible jobs at once: **S-7 preservation
+evidence**, **Client Send regression case**, and **operator walk subject**. A
+quote cannot be both frozen evidence and a test subject.
+
+**Standing rule from here:**
+
+- **S-7 basket quotes are read-only evidence.** No interactive Pricing or Setup
+  walk on one.
+- **Use a non-basket, non-certification validation quote** whenever a walk may
+  mutate anything.
+- This is the **second** governed-state incident on `2f29af72`. Normal operator
+  testing should never block every deployment, and it will keep doing so for as
+  long as walk subjects and preservation evidence are the same rows.
