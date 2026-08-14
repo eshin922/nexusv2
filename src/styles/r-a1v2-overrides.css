@@ -504,3 +504,43 @@
   color: var(--ink-4);
   margin-bottom: 14px;
 }
+
+/* B-8 · member-row density. Within the DA — no new visual vocabulary.
+ *
+ * ONE COLUMN FEWER. The cross-quote usage cell is gone from this surface (it
+ * changes no quote-side decision under B-3 isolation), so the row declares five
+ * cells and the reclaimed width goes to the 1fr identity column. On a
+ * 15-product quote that width is returned on every row.
+ */
+.a1v2-leaf-row {
+  grid-template-columns: 60px 110px 1fr auto auto;
+}
+
+/* TYPE TAG DEMOTED TO THE DA'S OWN QUIET REGISTER.
+ *
+ * The canonical stylesheet contains two type-tag treatments: an outlined accent
+ * one on member rows and a flat one on Item Group rows. This applies the second
+ * to the first — a move within the DA rather than an invention.
+ *
+ * The point is subtraction. Two coloured, enclosed shapes sat adjacent at the
+ * row's right edge and only one of them was actionable; removing the border and
+ * the accent from the passive one leaves the readiness chip as the only
+ * coloured element, without making the chip louder.
+ */
+.a1v2-leaf-row .type-tag.leaf-type {
+  color: var(--ink-4);
+  background: var(--paper-3);
+  border-color: transparent;
+}
+
+/* UNTYPED STAYS ACTIONABLE. "No type set" requires operator action, so it
+ * belongs with the readiness signals rather than with valid classification
+ * metadata. Restated after the demotion above so the cascade cannot quietly
+ * flatten it — the whole value of the demotion is that what remains coloured
+ * is what needs doing.
+ */
+.a1v2-leaf-row .type-tag.leaf-type.untyped {
+  color: var(--bad);
+  background: var(--bad-soft);
+  border-color: oklch(from var(--bad) l c h / 0.25);
+}

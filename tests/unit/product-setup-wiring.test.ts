@@ -462,16 +462,17 @@ test("usage is counted in QUOTES, not attachment rows", async () => {
   assert.doesNotMatch(src, /n: sql<number>`count\(\*\)::int`/);
 });
 
-test("the usage caption makes no claim about what an edit would reach", async () => {
+test("the usage caption is gone from the quote tree entirely", async () => {
+  // B-3 item 4 demoted this to neutral wording; B-8 removed it. Superseded
+  // rather than deleted, so the file still records that this surface must make
+  // no cross-quote claim — the strongest form of which is saying nothing.
   for (const f of [
     "src/components/assembly-tree/asy-row.tsx",
     "src/components/assembly-tree/direct-product-row.tsx",
   ]) {
     const src = await read(f);
-    assert.match(src, /Used in \$\{otherRefs\} other quote/);
-    // "other uses" read as a blast radius. Whether an edit reaches another
-    // quote depends on that quote's pin state, which this number does not model.
-    assert.doesNotMatch(src, /other use\$\{/);
+    assert.doesNotMatch(src, /other use/);
+    assert.doesNotMatch(src, /this scenario only/);
   }
 });
 
@@ -661,4 +662,45 @@ test("B-5/B-6 repair changed no authority behaviour", async () => {
   assert.match(authority, /ensureQuoteSpecAuthority/);
   assert.match(authority, /isCurrent: false/);
   assert.match(await code("src/app/actions/leaf-specs.ts"), /function readScope\(/);
+});
+
+// -------------------------------------------------- B-8 · row density
+test("B-8 · cross-quote usage is gone from the quote tree", async () => {
+  // Under B-3 isolation it changes no quote-side decision — this quote owns its
+  // specification, so where else the product is used cannot affect what the
+  // operator does here. Reuse belongs to the Library context.
+  for (const f of [
+    "src/components/assembly-tree/asy-row.tsx",
+    "src/components/assembly-tree/direct-product-row.tsx",
+  ]) {
+    const src = await code(f);
+    assert.doesNotMatch(src, /leaf-refs/, `${f} still renders the usage cell`);
+    assert.doesNotMatch(src, /other quote/, `${f} still renders usage copy`);
+  }
+});
+
+test("B-8 · the member row reclaims the freed column for identity", async () => {
+  const css = await read("src/styles/r-a1v2-overrides.css");
+  // Five cells now, and the 1fr identity column takes the width back.
+  assert.match(
+    css,
+    /\.a1v2-leaf-row \{\s*grid-template-columns: 60px 110px 1fr auto auto;/,
+  );
+});
+
+test("B-8 · the type tag uses the DA's quiet register, untyped stays actionable", async () => {
+  const css = await read("src/styles/r-a1v2-overrides.css");
+  // Demoted to the register the DA already uses on Item Group rows.
+  assert.match(
+    css,
+    /\.a1v2-leaf-row \.type-tag\.leaf-type \{[^}]*color: var\(--ink-4\)[^}]*background: var\(--paper-3\)[^}]*border-color: transparent/,
+  );
+  // But "no type set" needs doing, so it keeps the warning register — restated
+  // after the demotion so the cascade cannot flatten it.
+  assert.match(
+    css,
+    /\.a1v2-leaf-row \.type-tag\.leaf-type\.untyped \{[^}]*color: var\(--bad\)/,
+  );
+  // The readiness chip is untouched: primary by subtraction, not amplification.
+  assert.doesNotMatch(css, /\.a1v2-chip\.(complete|partial|empty|no_type)/);
 });

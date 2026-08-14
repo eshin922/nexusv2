@@ -251,15 +251,13 @@ function LeafRow({
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
 }) {
-  const otherRefs = Math.max(0, leaf.globalRefCount - 1);
-  // Neutral wording, deliberately. This is NOT a blast-radius count: whether a
-  // spec edit reaches another quote depends on that quote's own pin state, which
-  // this number does not model. It says where the product is used and stops
-  // there. B-3 item 4.
-  const refsCopy =
-    otherRefs > 0
-      ? `Used in ${otherRefs} other quote${otherRefs === 1 ? "" : "s"}`
-      : "this scenario only";
+  // B-8 — the cross-quote usage cell is GONE from this surface. Under B-3
+  // isolation it changes no quote-side decision: this quote owns its
+  // specification, so where else the product is used cannot affect what the
+  // operator does here. Reuse and history belong to the Library/master context.
+  //
+  // The loader still computes globalRefCount; it is left in place for that
+  // Library context rather than torn out of the query on the way past.
   const qtyNum = Number(leaf.quantity);
   const qtyDisplay = qtyNum < 1 ? qtyNum.toFixed(4) : String(qtyNum);
   const costDisplay = leaf.unitCost
@@ -293,7 +291,6 @@ function LeafRow({
       >
         {leaf.productType?.name ?? "untyped"}
       </span>
-      <span className="leaf-refs">{refsCopy}</span>
       <div
         style={{
           position: "relative",
