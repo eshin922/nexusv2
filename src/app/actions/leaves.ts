@@ -3,6 +3,10 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, leaves, productTypes } from "@/db/schema";
+import {
+  isKnownHubspotProductTypeValue,
+  loadHubspotProductTypeOptions,
+} from "@/lib/hubspot-product-type-vocabulary";
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import {
   ActionGuardError,
@@ -60,9 +64,16 @@ export async function createLeaf(
   return runAction(async () => {
     const name = String(formData.get("name") ?? "").trim();
     const sku = String(formData.get("sku") ?? "").trim() || null;
-    const productTypeIdRaw =
-      String(formData.get("productTypeId") ?? "").trim();
-    const productTypeId = productTypeIdRaw === "" ? null : productTypeIdRaw;
+    // Step 8 · `productTypeId` is NO LONGER READ. A leaf's classification is
+    // HubSpot's alone; accepting a Nexus type here would have left the second
+    // authority creatable at the exact moment a product enters the Library.
+    //
+    // HubSpot classification — the INTERNAL option value the dropdown carried,
+    // never the label it displayed.
+    const hubspotProductTypeRaw =
+      String(formData.get("hubspotProductType") ?? "").trim();
+    const hubspotProductType =
+      hubspotProductTypeRaw === "" ? null : hubspotProductTypeRaw;
     const unitCostRaw = String(formData.get("unitCost") ?? "").trim();
     const unitCost = unitCostRaw === "" ? null : unitCostRaw;
     const ownerIdRaw = String(formData.get("ownerId") ?? "").trim();
@@ -74,25 +85,6 @@ export async function createLeaf(
     // Permission gate (Path B per Architect Gate 5).
     const user = await assertCanCreateLeaves();
 
-    // Validate product type if provided (must be leaf-scope).
-    if (productTypeId) {
-      const typeRows = await db
-        .select()
-        .from(productTypes)
-        .where(eq(productTypes.id, productTypeId))
-        .limit(1);
-      if (typeRows.length === 0)
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "Selected product type not found.",
-        );
-      if (typeRows[0].scope !== "leaf")
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "Selected type is not a leaf-scope type.",
-        );
-    }
-
     // HubSpot-first write-back. Push mapping per Concern C
     // disposition: name + sku + unit_cost + url + technical catalog price.
     // Price defaults to 0.00 at the mapper/provider boundary and is never a
@@ -100,11 +92,27 @@ export async function createLeaf(
     // HubSpot product attributes (description, owner, FSC fields,
     // image_url) stay HubSpot-empty until pull-back or HubSpot UI
     // edit.
+    // Reject anything that is not a member of the governed option set. This is
+    // what stops a display label being written into the value's place — HubSpot
+    // would accept "Primary Packaging" as a free string, and it would then match
+    // no filter and no report, silently.
+    if (hubspotProductType) {
+      const options = await loadHubspotProductTypeOptions();
+      if (!isKnownHubspotProductTypeValue(hubspotProductType, options)) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `"${hubspotProductType}" is not a current HubSpot product type. ` +
+            `Expected one of the internal option values, not a display label.`,
+        );
+      }
+    }
+
     const hubspotInput = mapLeafToHubspotCreate({
       name,
       sku,
       unitCost,
       url,
+      hubspotProductType,
     });
 
     let hubspotProductId: string;
@@ -132,12 +140,14 @@ export async function createLeaf(
       .values({
         name,
         sku,
-        productTypeId,
         unitCost,
         ownerId: ownerIdRaw === "" ? null : ownerIdRaw,
         url,
         archived: false,
         hubspotProductId,
+        // Persisted from the same value sent to HubSpot, so a later pull
+        // re-reading the product finds the classification unchanged.
+        hubspotProductType,
       })
       .returning();
     const newRow = inserted[0];
@@ -154,7 +164,6 @@ export async function createLeaf(
       diffJson: {
         name: newRow.name,
         sku: newRow.sku,
-        product_type_id: newRow.productTypeId,
         unit_cost: newRow.unitCost,
         owner_id: newRow.ownerId,
         url: newRow.url,
@@ -256,5 +265,27 @@ export async function fetchLibraryBrowse(
     await ensureUser();
     const result = await loadLibraryBrowse(filters);
     return result;
+  });
+}
+
+/**
+ * The governed `hs_product_type` option set, for the create-product dropdown.
+ *
+ * A server action rather than a threaded prop: the vocabulary is HubSpot-side
+ * configuration, and fetching it where it is used keeps the authority in one
+ * place instead of copying it down a component chain that would then need to
+ * stay in sync.
+ *
+ * Labels are for display, values are what get sent and stored — the two differ
+ * on the three largest categories, so the dropdown must carry both rather than
+ * reconstructing one from the other.
+ */
+export async function fetchHubspotProductTypes(): Promise<
+  ActionResult<{ options: { label: string; value: string }[] }>
+> {
+  return runAction(async () => {
+    await ensureUser();
+    const options = await loadHubspotProductTypeOptions();
+    return { options: options.map((o) => ({ label: o.label, value: o.value })) };
   });
 }

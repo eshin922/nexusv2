@@ -109,6 +109,15 @@ test("maps the verified required and optional Sales Order accounting fields", ()
           taxCode: { id: "tax-7" },
           custcol_dps_sku: "SKU-EXACT-123",
           custcol_dps_unit_cost: 0.9877,
+          // Governed product cost reaches NetSuite's STANDARD cost basis, not
+          // only the custom column. The custom column is retained alongside —
+          // added, never substituted — because it has carried this value since
+          // Slice 12 and may feed reporting not visible from this side.
+          // `costEstimate` is deliberately absent: NetSuite derives it as
+          // quantity × rate, and sending it would create a second authority for
+          // the same number.
+          costEstimateType: { id: "CUSTOM" },
+          costEstimateRate: 0.9877,
         },
       ],
     },
@@ -144,6 +153,10 @@ test("omits optional, standard-terms, historical, derived, and unknown fields", 
   assert.equal(own(payload, "custbody_project_manager"), false);
   assert.equal(own(line, "taxCode"), false);
   assert.equal(own(line, "custcol_dps_unit_cost"), false);
+  // A null governed cost must leave NetSuite's own default intact rather than
+  // assert a zero. A zero claims the product is free; silence claims nothing.
+  assert.equal(own(line, "costEstimateType"), false);
+  assert.equal(own(line, "costEstimateRate"), false);
   assert.equal(own(line, "amount"), false);
 });
 

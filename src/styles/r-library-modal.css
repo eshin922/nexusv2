@@ -313,6 +313,17 @@
 .lib-row .status-pill.ready { background: var(--paper-3); color: var(--ink-3); }
 .lib-row .status-pill.attached { background: var(--good-soft); color: var(--good); }
 .lib-row .status-pill.archived { background: var(--paper-3); color: var(--ink-4); }
+/* §9.4 — the attach gate's own verdict, made visible before the operator
+ * spends an action on it. Warning register rather than error: the product is
+ * legitimately in the library and usable once it has a SKU; what it cannot do
+ * is reach NetSuite. Distinct from `archived`, which is subdued because that
+ * state has a Restore path — this one needs the operator to go add a SKU. */
+.lib-row .status-pill.not-projectable {
+  background: var(--warn-soft, oklch(from var(--warn) l c h / 0.12));
+  color: var(--warn);
+  white-space: nowrap;
+}
+.lib-row .lib-attach-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .lib-row .action-cell { display: flex; justify-content: flex-end; }
 /* action buttons constrained INSIDE the row bounds (issue 1 fix) */

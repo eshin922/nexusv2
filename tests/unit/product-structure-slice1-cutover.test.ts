@@ -40,9 +40,9 @@ const classifiedIdentityFiles = new Set([
   // reference. Becomes a canonical quoteLeafId read when OD-017 is settled and
   // cost inputs stop being keyed on assembly_leaf_id.
   "src/components/costs/packaging-drilldown.tsx",
-  "src/components/library/library-browse-modal.tsx", "src/components/spec-entry/change-type-modal.tsx",
+  "src/components/library/library-browse-modal.tsx",
   "src/components/spec-entry/spec-entry-surface.tsx", "src/components/spec-entry/spec-panel.tsx",
-  "src/components/spec-entry/type-picker.tsx", "src/db/schema.ts", "src/lib/addendum-loader.ts",
+  "src/db/schema.ts", "src/lib/addendum-loader.ts",
   "src/lib/assembly-tree.ts", "src/lib/costing-adapter.ts",
   // CLASSIFIED — enduring. costing.ts carries canonicalQuoteLeafId on
   // CostingSku; the math layer keys on canonical identity by design.
@@ -157,6 +157,11 @@ const classifiedIdentityFiles = new Set([
   "scripts/parity/so-field-parity.ts", "scripts/product-structure/slice1-compatibility-rehearsal.ts",
   "scripts/product-structure/slice1-contract-rehearsal.ts",
   "scripts/product-structure/slice1-cutover-rehearsal.ts", "scripts/product-structure/slice1-preflight.ts",
+  // CLASSIFIED — fixture provisioner, canonical only. Writes `quote_leaves`
+  // for both structures and `assembly_leaves` only for grouped members, which
+  // is what makes the seeded quote a genuine mixed case rather than a
+  // simulation of one. Resolves no identity and maps between no id spaces.
+  "scripts/provision-mixed-certification-fixture.ts",
   "scripts/provision-cb-step10-fixture.ts", "scripts/provision-cb-step8b-fixture.ts",
   "scripts/provision-cb-step8c4-fixture.ts", "scripts/seed-sample-order.mjs",
   "scripts/validation/phase-1-identity-reachability.ts",
@@ -193,6 +198,56 @@ const classifiedIdentityFiles = new Set([
   // why a resolver that has already refused did so. Retire with the
   // compatibility window.
   "scripts/rehearsal/r2-identity-parity.ts",
+  // CLASSIFIED — canonical only, by construction. The Direct Product path
+  // writes and reads `quote_leaves` and never touches the legacy junction:
+  // `assembly_leaves` appears in the helper exactly once, in a guard that
+  // REFUSES to detach a row carrying a junction, because such a row is a
+  // grouped member in a corrupted state rather than a Direct Product.
+  //
+  // There is no compatibility window to retire here. A Direct Product has no
+  // legacy identity to be compatible with — it is the first structure in the
+  // system that exists only in the canonical space.
+  "src/app/actions/quote-products.ts",
+  "src/lib/product-structure/direct-attachment.ts",
+  // CLASSIFIED — canonical only, render surface. Both hold `quoteLeafId` as an
+  // opaque handle: a React key and the argument the detach action takes. Neither
+  // resolves an identity, maps between the two spaces, or shows either id to the
+  // operator, who sees product name and SKU.
+  "src/components/assembly-tree/assembly-tree-body.tsx",
+  "src/components/assembly-tree/direct-product-row.tsx",
+  // CLASSIFIED — read-only evidence, canonical only. OW-2's isolation reads
+  // `quote_leaf_id` from `quote_product_attach` audit rows and matches it
+  // against `skuRollups[].skuId`, which OD-017 made the canonical quote-leaf id.
+  // That correspondence IS the finding: it is what proves the two added rollups
+  // are the operator's two attachments and not a third thing. No mapping between
+  // identity spaces, no writes.
+  "scripts/gate-1b/ow-2-isolate.ts",
+  // CLASSIFIED — canonical only. B-3's quote-owned spec authority is keyed by
+  // (quote_id, leaf_id); it reads leafId to template from the Library default
+  // and never touches the legacy junction or maps between identity spaces.
+  "src/lib/product-structure/quote-spec-authority.ts",
+  // CLASSIFIED — canonical only, and deliberately quote-free. The Library
+  // master surface names `leafId` because a Library product IS a leaf; it holds
+  // no quote identity at all, which is the whole point of the route.
+  "src/app/library/leaves/[leafId]/defaults/page.tsx",
+  // CLASSIFIED — canonical only, and deliberately quote-free. The stacked
+  // Library spec editor names `leafId` because a Library product IS a leaf; it
+  // holds no quote identity, which is what makes it Library scope.
+  "src/components/library/library-spec-modal.tsx",
+  // CLASSIFIED — read-only evidence, canonical only. The B-3 falsification
+  // harness builds fixtures keyed by (quote_id, leaf_id) and never touches the
+  // legacy junction or maps between identity spaces.
+  "scripts/verify/b3-spec-authority.ts",
+  // CLASSIFIED — read-only evidence, canonical only. The Step 4 falsification
+  // harness keys on (quote_id, leaf_id) and never touches the legacy junction.
+  "scripts/verify/step-4-pinned-spec-schema.ts",
+  // CLASSIFIED — canonical only. Step 8 builds fixtures keyed by
+  // (quote_id, leaf_id) and sweeps source for the retired write paths.
+  "scripts/verify/step-8-leaf-authority-retired.ts",
+  // CLASSIFIED — canonical only. The Step 4 backfill reads `leaf_specs` by
+  // (quote_id, leaf_id) and writes only the pinned schema columns; it maps
+  // between no identity spaces.
+  "scripts/product-structure/backfill-pinned-spec-schema.ts",
   "scripts/smoke/mark-complete.ts", "scripts/verify/costing-adapter.ts",
   "scripts/verify/sample-order-margin.ts", "scripts/verify/slice-11-5-1-warnings-parity.ts",
   "tests/harness/fixtures/world.ts",

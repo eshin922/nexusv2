@@ -178,8 +178,29 @@ export function decideReconciliation(args: {
   trigger: ReconciliationTrigger;
   candidates: CandidateSalesOrder[];
   verify: (c: CandidateSalesOrder) => AdoptionVerdict;
+  /**
+   * OWNERSHIP VETO. True when this NetSuite Sales Order id is already durably
+   * associated with a DIFFERENT Nexus quote — another push row, another
+   * quote's `netsuite_so_id`, or another accepted snapshot.
+   *
+   * WHY THIS IS SEPARATE FROM VERIFICATION. Candidates are found by
+   * `custbody_dps_deal_id`, which identifies the HubSpot DEAL. A deal
+   * legitimately carries many Nexus scenarios, so "one Sales Order carries this
+   * deal id" does not mean "this attempt's Sales Order" — it may be a sibling
+   * quote's completed order. Structural verification cannot separate them: a
+   * sibling scenario on the same deal can look structurally plausible.
+   *
+   * Ownership is checked BEFORE verification and vetoes it, because adopting an
+   * order that belongs to another quote leads to rate convergence rewriting a
+   * completed order's commercial terms. That is the 2026-08-13 SO2707 incident.
+   *
+   * Optional so existing callers and tests keep their meaning; when absent, no
+   * ownership claim is asserted and behaviour is unchanged.
+   */
+  isOwnedByAnotherQuote?: (c: CandidateSalesOrder) => boolean;
 }): ReconciliationDecision {
   const { trigger, candidates, verify } = args;
+  const ownedByAnother = args.isOwnedByAnotherQuote ?? (() => false);
 
   if (candidates.length === 0) {
     return trigger === "ambiguous_attempt"
@@ -203,6 +224,22 @@ export function decideReconciliation(args: {
   }
 
   const only = candidates[0];
+
+  // Ownership first. A structurally plausible candidate that belongs to another
+  // quote must never be adopted, and checking it before verification means no
+  // verification outcome can override it.
+  if (ownedByAnother(only)) {
+    return {
+      action: "fail_closed",
+      reason:
+        `Sales Order ${only.internalId}${only.tranid ? ` (${only.tranid})` : ""} is already owned by a ` +
+        `different Nexus quote. Candidates are matched on HubSpot deal id, and one deal legitimately ` +
+        `carries several scenarios — this order belongs to a sibling quote, not to this attempt. ` +
+        `Adopting it would rewrite a completed order's commercial terms. Manual reconciliation required.`,
+      failures: [`owned by another quote: ${only.internalId}`],
+    };
+  }
+
   const verdict = verify(only);
   if (verdict.adopt) return { action: "adopt", candidate: only };
   return {

@@ -11,9 +11,18 @@ import { NextResponse } from "next/server";
 // would make the check unanswerable from the runtime itself (the failure mode
 // it exists to rule out), and it exposes only a boolean, a fixed banner and a
 // fixed reason: no secrets, no configuration values, no customer data.
+// `/api/slack/interactivity` is public BY NECESSITY, not by convenience: Slack
+// carries no Clerk session, so a session gate would make interactive approvals
+// impossible rather than merely inconvenient. Its authentication is Slack
+// request signing — raw-body HMAC-SHA256, a five-minute replay window and a
+// constant-time comparison, all evaluated before the payload is parsed. See
+// `src/lib/slack/signature.ts`. It decides nothing itself: it establishes a
+// governed Nexus identity and delegates to the same authorization core the UI
+// uses, which re-reads authority from the database.
 const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
   "/api/certification-status",
+  "/api/slack/interactivity",
 ]);
 const PRIMARY_DOMAIN = "@thedps.co";
 

@@ -10,7 +10,7 @@ import { detachAssemblyLeaf } from "@/app/actions/assemblies";
 // LeafContextMenu (lines 262-276). Items:
 //   - Edit specs (primary, accent-tinted) — the load-bearing action
 //     per CD designer notes §3.2 ("Leaf context menu owns Edit specs")
-//   - [sep] Move up / Move down / Assign to parent ASY / View library
+//   - [sep] Move up / Move down / Move to another item group / View library
 //          record
 //   - [sep] Delete from this ASY (destructive, "library leaf stays"
 //          caption)
@@ -25,7 +25,7 @@ import { detachAssemblyLeaf } from "@/app/actions/assemblies";
 //   - Edit specs → impl-3 (Phase 3 Spec entry surface; brief §5.3)
 //   - Move up/down → Step 9 (drag-to-reorder primary path; menu can
 //                   ride keyboard-arrow accessibility on top)
-//   - Assign to parent ASY → follow-up (cross-ASY junction-move
+//   - Move to another item group → follow-up (cross-ASY junction-move
 //                            workflow design TBD)
 //   - View library record → impl-5 (Phase 5 library browse + reps)
 
@@ -114,49 +114,21 @@ export function LeafContextMenu({
             role="menuitem"
             onClick={() => setOpen(false)}
           >
-            Edit specs
+            Edit product specs
           </Link>
-          <div className="sep" />
-          <button
-            type="button"
-            className="item"
-            role="menuitem"
-            disabled
-            aria-disabled="true"
-            title="Drag-to-reorder is the primary path (Step 9)"
-          >
-            Move up
-          </button>
-          <button
-            type="button"
-            className="item"
-            role="menuitem"
-            disabled
-            aria-disabled="true"
-            title="Drag-to-reorder is the primary path (Step 9)"
-          >
-            Move down
-          </button>
-          <button
-            type="button"
-            className="item"
-            role="menuitem"
-            disabled
-            aria-disabled="true"
-            title="Cross-ASY junction-move workflow — design TBD"
-          >
-            Assign to parent ASY
-          </button>
-          <button
-            type="button"
-            className="item"
-            role="menuitem"
-            disabled
-            aria-disabled="true"
-            title="Library browse surface ships in impl-5"
-          >
-            View library record
-          </button>
+          {/* B-4B — four disabled items removed: Move up, Move down, Move to
+              another item group, View library record.
+
+              None was a capability. Move up/down duplicated drag-to-reorder,
+              which works and writes assembly_leaves.sort_order. Move to another
+              item group had no writer anywhere in the action layer. View
+              library record had no handler.
+
+              A rendered command that cannot run is worse than an absent one: it
+              teaches the operator that this menu is unreliable, and the doubt
+              transfers to the two items that DO work. Removed rather than left
+              greyed — none is required for V1, and the writers for the first
+              three either exist elsewhere or do not exist at all. */}
           <div className="sep" />
           <button
             type="button"
@@ -166,10 +138,10 @@ export function LeafContextMenu({
             disabled={pending}
           >
             {confirmingDelete ? (
-              "Confirm — detach from ASY"
+              "Confirm — remove from item group"
             ) : (
               <>
-                Delete from this ASY{" "}
+                Remove from item group{" "}
                 <span
                   style={{
                     marginLeft: "auto",

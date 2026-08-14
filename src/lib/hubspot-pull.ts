@@ -193,10 +193,16 @@ export async function pullProductsBatch(
       const prev = existingByHubspotId.get(mapped.hubspotProductId);
 
       if (prev) {
-        // UPDATE existing leaf. Preserve productTypeId — never
-        // auto-set from HubSpot (HubSpot's hs_product_type enum
-        // ≠ nexus product_types taxonomy; PM sets manually via
-        // TypePicker post-pull).
+        // UPDATE existing leaf.
+        //
+        // productTypeId is PRESERVED and never auto-set from HubSpot: that is
+        // Nexus's own taxonomy and the PM authors it via the TypePicker. The
+        // vocabularies genuinely differ, so mapping one onto the other would
+        // lose information.
+        //
+        // hubspotProductType IS written, because it is HubSpot's own
+        // classification stored verbatim rather than a translation of it. The
+        // two columns coexist; neither derives from the other.
         await tx
           .update(leaves)
           .set({
@@ -210,6 +216,7 @@ export async function pullProductsBatch(
             supplierVerified: mapped.supplierVerified,
             ownerId: mapped.ownerId,
             archived: mapped.archived,
+            hubspotProductType: mapped.hubspotProductType,
             updatedAt: new Date(),
           })
           .where(eq(leaves.id, prev.id));
@@ -257,6 +264,7 @@ export async function pullProductsBatch(
             ownerId: mapped.ownerId,
             archived: mapped.archived,
             hubspotProductId: mapped.hubspotProductId,
+            hubspotProductType: mapped.hubspotProductType,
           })
           .returning({ id: leaves.id });
         added++;

@@ -19,7 +19,11 @@ import {
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { isHubspotAcceptSyncSuppressed } from "@/lib/config/certification-mode";
 import { getCostingBundle } from "@/app/actions/costing";
-import { loadAssemblyTree } from "@/lib/assembly-tree";
+import {
+  loadAssemblyTree,
+  type AssemblyNode,
+  type DirectProductNode,
+} from "@/lib/assembly-tree";
 import {
   resolveNetsuiteCustomer,
   formatCustomerMissingError,
@@ -60,6 +64,11 @@ import {
 import { NetsuiteError } from "./errors";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { requireResolvedQuoteCosts } from "@/lib/quote-cost-completeness";
+import {
+  planCostProjection,
+  projectGovernedCosts,
+  type CostProjectionOutcome,
+} from "./cost-projection";
 
 // Slice 12 Step 8c-3 — markComplete orchestrator.
 //
@@ -338,15 +347,41 @@ export async function runMarkComplete(
   // ============================================================
   // Load assembly tree via loadAssemblyTree (F1.5 ASY/LEAF path).
   const tree = await loadAssemblyTree(quoteId);
-  if (!tree || tree.assemblies.length === 0) {
-    throw new Error("Quote has no assemblies to push.");
+  // A quote is pushable if it carries ANY product. Requiring an assembly was
+  // the structural assumption that made a Direct Product unshippable — the
+  // quote had products, just not grouped ones.
+  if (!tree || (tree.assemblies.length === 0 && tree.directProducts.length === 0)) {
+    throw new Error("Quote has no products to push.");
   }
 
-  // Every UNIQUE leaf SKU across all assemblies must resolve.
+  // MIXED STRUCTURE — certified 2026-08-13, refusal removed.
+  //
+  // A quote may hold both Direct Products and Item Groups. P1 (SO2713,
+  // disposable, deleted) measured one CREATE carrying a group line plus a flat
+  // line for an item in no group: five lines, group header once, each member
+  // expanded once at the sent quantity, EndGroup, flat line once. No
+  // duplication, no quantity multiplication.
+  //
+  // The refusal that stood here claimed only "not yet certified", which was the
+  // honest claim available at the time — Probe 7a concerned members sent
+  // alongside THEIR OWN group, a different payload that proved nothing about
+  // this one. P1 is the evidence the refusal named as missing, so it is gone
+  // rather than weakened.
+  //
+  // What replaces it is a narrower, permanent guard one layer down:
+  // `buildSalesOrderPayload` refuses a flat line for an item an emitted group
+  // already expands. That is the condition Probe 7a actually established, and
+  // it remains true.
+
+  // Every UNIQUE product SKU on the quote must resolve — grouped members AND
+  // Direct Products. A Direct Product resolves through the identical SKU-match;
+  // membership has never been part of item resolution.
   const uniqueSkus = Array.from(
     new Set(
-      tree.assemblies
-        .flatMap((a) => a.children)
+      [
+        ...tree.assemblies.flatMap((a) => a.children),
+        ...tree.directProducts,
+      ]
         .map((child) => child.sku)
         .filter((s): s is string => Boolean(s)),
     ),
@@ -576,21 +611,39 @@ export async function runMarkComplete(
       (r) => r.skuRole === "leaf",
     );
     const lines: SalesOrderLine[] = [];
+    // The subset of `lines` belonging to Direct Products. Collected in the same
+    // pass that builds `lines`, keyed by the attachment's own structure rather
+    // than by index alignment or SKU matching — the same product may legitimately
+    // be attached directly AND be a member of a group on one quote, so SKU is
+    // not an identity here.
+    const directLines: SalesOrderLine[] = [];
     // Track B §4 — assembly attribution, captured HERE rather than re-derived
     // later. Constraint 3: the plan is built from the same governed state as
     // the outgoing handoff, so the two cannot disagree.
     const planLines: PlanLineInput[] = [];
     for (const leafRollup of leafRollups) {
-      // Locate the leaf's tree entry to get its SKU + name.
-      const treeLeaf = tree.assemblies
-        .flatMap((a) => a.children.map((c) => ({ assembly: a, child: c })))
-        // OD-028 — match on the CANONICAL cost-input identity. `skuRollups` are
-        // keyed by quote_leaf_id since OD-017; `junctionId` is the legacy
-        // assembly_leaf id and matched 0/2 on Order B, so every leaf was
-        // skipped and the empty-lines guard refused the push. Deliberately NO
-        // fallback to junctionId: a fallback would silently re-absorb the next
-        // re-key, which is exactly how this class keeps recurring.
-        .find(({ child }) => child.quoteLeafId === leafRollup.skuId);
+      // Locate the product's tree entry to get its SKU + name. Grouped members
+      // and Direct Products are searched in ONE space keyed by the canonical
+      // identity — a Direct Product differs only in having no assembly, which
+      // is carried as `assembly: null` rather than by being looked up elsewhere.
+      const treeLeaf =
+        tree.assemblies
+          .flatMap((a) =>
+            a.children.map((c) => ({
+              assembly: a as AssemblyNode | null,
+              child: c as DirectProductNode,
+            })),
+          )
+          // OD-028 — match on the CANONICAL cost-input identity. `skuRollups` are
+          // keyed by quote_leaf_id since OD-017; `junctionId` is the legacy
+          // assembly_leaf id and matched 0/2 on Order B, so every leaf was
+          // skipped and the empty-lines guard refused the push. Deliberately NO
+          // fallback to junctionId: a fallback would silently re-absorb the next
+          // re-key, which is exactly how this class keeps recurring.
+          .find(({ child }) => child.quoteLeafId === leafRollup.skuId) ??
+        tree.directProducts
+          .filter((d) => d.quoteLeafId === leafRollup.skuId)
+          .map((d) => ({ assembly: null as AssemblyNode | null, child: d }))[0];
       if (!treeLeaf?.child.sku) continue; // no SKU → skipped upstream by resolver
       const nsId = nsIdBySku.get(treeLeaf.child.sku);
       if (!nsId) continue;
@@ -604,23 +657,29 @@ export async function runMarkComplete(
       const effectiveQty = (tierRow.qty ?? 0) * qtyPerParent;
 
       const lineRate = Number(perTierRollup.requiredSellPerUnit);
-      lines.push({
+      const soLine: SalesOrderLine = {
         netsuiteItemId: nsId,
         sku: treeLeaf.child.sku,
         description:
           treeLeaf.child.name ||
-          `${treeLeaf.assembly.name} — ${treeLeaf.child.sku}`,
+          (treeLeaf.assembly
+            ? `${treeLeaf.assembly.name} — ${treeLeaf.child.sku}`
+            : treeLeaf.child.sku),
         quantity: effectiveQty,
         rate: lineRate,
         unitCost:
           perTierRollup.contributionCostPerUnit != null
             ? Number(perTierRollup.contributionCostPerUnit)
             : null,
-      });
+      };
+      lines.push(soLine);
+      if (treeLeaf.assembly === null) directLines.push(soLine);
       planLines.push({
-        assemblyId: treeLeaf.assembly.id,
-        assemblySku: treeLeaf.assembly.sku,
-        assemblyName: treeLeaf.assembly.name,
+        // NULL for a Direct Product. The plan records it as attributed to no
+        // group, which is a positive fact the walk can assert — not an absence.
+        assemblyId: treeLeaf.assembly?.id ?? null,
+        assemblySku: treeLeaf.assembly?.sku ?? null,
+        assemblyName: treeLeaf.assembly?.name ?? null,
         sku: treeLeaf.child.sku,
         netsuiteItemId: nsId,
         quantity: effectiveQty,
@@ -628,6 +687,14 @@ export async function runMarkComplete(
         // group contains, independent of how many groups the tier buys.
         qtyPerParent,
         rate: lineRate,
+        // Same expression as the flat line above, deliberately — one governed
+        // source reaching both structures is the invariant this repair exists
+        // to hold. Never re-derived from `rate`, the accepted total, freight,
+        // duty or tariff.
+        unitCost:
+          perTierRollup.contributionCostPerUnit != null
+            ? Number(perTierRollup.contributionCostPerUnit)
+            : null,
       });
     }
 
@@ -686,6 +753,8 @@ export async function runMarkComplete(
     // identity rather than one of its own.
     let payloadForSend = builtPayload;
     if (groupingPlan.groupingRequired && groupingPlan.groups.length > 0) {
+      // Mixed structure was already refused at STEP 3, before any provider
+      // call. Nothing carrying a Direct Product reaches this branch.
       if (!groupingPlan.derivable) {
         throw new Error(
           "[markComplete] The grouping plan carries no deterministic identity for at least one " +
@@ -781,13 +850,27 @@ export async function runMarkComplete(
         });
       }
 
-      // Group lines REPLACE the flat lines — never accompany them. The builder
-      // refuses both together (Probe 7a duplication), so this is checked twice
-      // by construction.
+      // Grouped members are replaced by their group lines; Direct Products are
+      // NOT, because no group expands them.
+      //
+      // This previously sent `lines: []` unconditionally, which silently
+      // DROPPED every Direct Product from a turnkey quote — the quote would
+      // complete, the Sales Order would balance against its own lines, and a
+      // product the customer had accepted would simply not be on the order.
+      // The mixed-structure refusal that stood here masked it; removing the
+      // refusal without this would have exposed it.
+      //
+      // Member ids come from `itemGroupDefinitions`, which holds the membership
+      // READ BACK from NetSuite and verified — what the groups will actually
+      // expand, rather than what the plan intended them to.
+      const expandedMemberItemIds = itemGroupDefinitions.flatMap((d) =>
+        d.members.map((m) => m.netsuiteItemId),
+      );
       payloadForSend = buildSalesOrderPayload({
         ...soPayloadInput,
-        lines: [],
+        lines: directLines,
         groupLines: emittedGroupLines,
+        groupMemberItemIds: expandedMemberItemIds,
       });
     }
 
@@ -953,6 +1036,7 @@ export async function runMarkComplete(
     ) {
       const decision = await reconcileBeforeCreate({
         trigger: "ambiguous_attempt",
+        quoteId,
         expect: {
           customerId: customer.netsuiteCustomerId,
           hubspotDealId: projectRow.hubspotDealId as string,
@@ -1032,6 +1116,7 @@ export async function runMarkComplete(
       if (errClass === "duplicate_deal" && pendingId) {
         const decision = await reconcileBeforeCreate({
           trigger: "duplicate_deal",
+          quoteId,
           expect: {
             customerId: customer.netsuiteCustomerId,
             hubspotDealId: projectRow.hubspotDealId as string,
@@ -1142,6 +1227,8 @@ export async function runMarkComplete(
     } // end CREATE branch (skipped entirely when resuming)
 
     let rateConvergenceSummary: { patched: number; alreadyCorrect: number } | null = null;
+  // Reporting only — never a gate. See cost-projection.ts.
+  let costProjectionSummary: CostProjectionOutcome | null = null;
 
     // ── Step 3 — negotiated member-rate convergence + verification ────────
     //
@@ -1160,6 +1247,17 @@ export async function runMarkComplete(
         const convergence = await runRateConvergence({
           soId: salesOrderInternalId,
           plannedGroups: groupingPlan.groups,
+          // The accepted Direct Products, so the gate can prove each one
+          // reached the order. Derived from the SAME `directLines` that built
+          // the payload — the gate must check what was actually required, not
+          // a second derivation that could agree with a wrong payload.
+          plannedDirectLines: directLines.map((l) => ({
+            sku: l.sku,
+            netsuiteItemId: l.netsuiteItemId,
+            quantity: l.quantity,
+            rate: l.rate,
+            amount: Math.round(l.rate * l.quantity * 10000) / 10000,
+          })),
           tierQty: groupingPlan.tierQty ?? 0,
           acceptedTotal: currentAmount,
           expectHeader: {
@@ -1190,6 +1288,40 @@ export async function runMarkComplete(
           patched: convergence.patched.length,
           alreadyCorrect: convergence.alreadyCorrect,
         };
+
+        // ---- Governed cost → NetSuite Accounting basis (one-shot) ----
+        //
+        // AFTER convergence, because member line identities only exist once
+        // NetSuite has expanded the group, and OUTSIDE its gate, because cost
+        // has no commercial invariant to converge toward. See cost-projection.ts.
+        //
+        // Never throws: a Sales Order that is commercially correct must not be
+        // refused because a reporting basis failed to write.
+        try {
+          const costLines = await readSalesOrderLines(salesOrderInternalId);
+          const plan = planCostProjection({
+            lines: costLines,
+            governed: groupingPlan.groups.flatMap((g) =>
+              g.members.map((m) => ({
+                netsuiteItemId: m.netsuiteItemId,
+                unitCost: m.unitCost,
+              })),
+            ),
+          });
+          costProjectionSummary = await projectGovernedCosts({
+            plan,
+            patchLine: (address, unitCost) =>
+              patchSalesOrderLine(salesOrderInternalId!, address, { unitCost }),
+          });
+        } catch (e) {
+          costProjectionSummary = {
+            written: 0,
+            skipped: 0,
+            failures: [
+              { address: -1, message: e instanceof Error ? e.message : String(e) },
+            ],
+          };
+        }
       } catch (e) {
         const err = e instanceof NetsuiteError ? e : null;
         // POST-CREATE VERIFICATION CLASS. Everything reachable here runs AFTER

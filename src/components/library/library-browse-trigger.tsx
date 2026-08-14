@@ -12,7 +12,7 @@ import { LibraryBrowseModal, type AssemblyTarget } from "./library-browse-modal"
 // library-first-creation-flow replaced.
 //
 // slice-library-first-creation-flow Step 3 — extended props thread
-// projectId + assemblyTypes + fullLeafTypes + permissions through
+// projectId + itemGroupCategories + fullLeafTypes + permissions through
 // for the nested AddProductModal launched from "+ Create new
 // product" inside the library modal's empty-states.
 //
@@ -27,52 +27,67 @@ import { LibraryBrowseModal, type AssemblyTarget } from "./library-browse-modal"
 // leaf from library →` → `+ Add component →`.
 
 export function LibraryBrowseTrigger({
+  mode,
   quoteId,
   projectId,
   editable,
   assemblies,
-  leafTypes,
-  assemblyTypes,
+  initialTargetAssemblyId,
+  label,
+  className,
   fullLeafTypes,
   permissions,
 }: {
+  /**
+   * Which structure this button creates. The two are PEERS — `direct` never
+   * becomes `group` because one product was added, and `group` never collapses
+   * to `direct` because it holds only one.
+   */
+  mode: "direct" | "group";
   quoteId: string;
   projectId: string;
   editable: boolean;
   assemblies: AssemblyTarget[];
-  leafTypes: { id: string; name: string; placeholder: boolean }[];
-  assemblyTypes: { id: string; name: string }[];
+  /** Preselected destination — set when launched from an Item Group row. */
+  initialTargetAssemblyId?: string;
+  /** Overrides the default copy; the row-level control names its own action. */
+  label?: string;
+  /** Overrides the default button weight for non-card-head placements. */
+  className?: string;
   fullLeafTypes: LeafSpecEntryProductType[];
   permissions: { canCreateLeaves: boolean };
 }) {
   const [open, setOpen] = useState(false);
+  const isDirect = mode === "direct";
 
   return (
     <>
       <button
         type="button"
-        className="a1v2-btn primary sm"
+        className={className ?? `a1v2-btn ${isDirect ? "primary" : "ghost"} sm`}
         onClick={() => setOpen(true)}
         disabled={!editable}
         aria-disabled={!editable}
         aria-haspopup="dialog"
         aria-expanded={open}
         title={
-          editable
-            ? "Find or create a component for this quote"
-            : "Quote is not draft — editing disabled"
+          !editable
+            ? "Quote is not draft — editing disabled"
+            : isDirect
+              ? "Add a single product to this quote"
+              : "Add products into an existing item group"
         }
       >
-        + Add component →
+        {label ?? (isDirect ? "+ Add Product" : "+ Add to Item Group")}
       </button>
       <LibraryBrowseModal
+        mode={mode}
+        initialTargetAssemblyId={initialTargetAssemblyId}
         open={open}
         onClose={() => setOpen(false)}
         quoteId={quoteId}
         projectId={projectId}
         assemblies={assemblies}
-        leafTypes={leafTypes}
-        assemblyTypes={assemblyTypes}
         fullLeafTypes={fullLeafTypes}
         permissions={permissions}
       />

@@ -99,6 +99,18 @@ export interface SalesOrderPayloadInput {
    * per-line PATCH in Step 3, after `awaiting_rates`.
    */
   groupLines?: SalesOrderGroupLine[];
+  /**
+   * Item ids the emitted Item Groups will expand into member lines.
+   *
+   * Required whenever `groupLines` and `lines` are both non-empty: it is what
+   * lets the builder refuse a flat line for an item the group already expands
+   * (Probe 7a doubling) while permitting one for an item in no group (P1).
+   * Membership is the rule; co-occurrence is not.
+   *
+   * Source it from the VERIFIED master data read back from NetSuite, not from
+   * the plan's intent — what the group will actually expand is what matters.
+   */
+  groupMemberItemIds?: string[];
 }
 
 export interface SalesOrderGroupLine {
@@ -243,44 +255,91 @@ export function buildSalesOrderPayload(
   // rate + amount sent as NUMBERS not strings — sandbox probe
   // 2026-07-28 confirmed NetSuite REST rejects strings with
   // INVALID_VALUE.
-  // GROUP vs FLAT is mutually exclusive, enforced here rather than trusted.
-  // Both together is the Probe 7a duplication: NetSuite expands the group AND
-  // honours the explicit members, doubling the order at 204.
+  // WHAT DUPLICATES, PRECISELY. Probe 7a sent a group's OWN MEMBERS alongside
+  // the group: NetSuite expanded the group and also honoured the explicit
+  // members, doubling the order at 204. P1 (2026-08-13, SO2713) sent a group
+  // plus a flat line for an item in NO group and measured five lines — header,
+  // both members expanded once each, EndGroup, and the flat line once.
+  //
+  // So the rule is membership, not co-occurrence. The guard used to refuse both
+  // together because membership was the thing it could not see; now the caller
+  // supplies the member set, so the guard can express what actually breaks.
+  //
+  // Refusing co-occurrence outright was not merely conservative — it forced the
+  // caller to send `lines: []` whenever a group was present, which SILENTLY
+  // DROPPED any Direct Product on a turnkey quote. A blunt guard produced a
+  // worse failure than the one it prevented.
   const groupLines = input.groupLines ?? [];
-  if (groupLines.length > 0 && input.lines.length > 0) {
-    throw new Error(
-      "[sales-orders] refusing to emit Item Group lines alongside explicit line items — " +
-        "NetSuite expands group members itself and sending both duplicates them (Probe 7a). " +
-        `Got ${groupLines.length} group line(s) and ${input.lines.length} flat line(s).`,
-    );
-  }
-
+  const memberItemIds = new Set(input.groupMemberItemIds ?? []);
   if (groupLines.length > 0) {
-    // BARE group lines: item + quantity only. No rate (ignored on the group
-    // header), no amount, no per-line custom columns — the members NetSuite
-    // expands carry their own, and Step 3 patches their rates.
-    body.item = {
-      items: groupLines.map((g) => ({
-        item: { id: g.netsuiteItemId },
-        quantity: g.quantity,
-      })),
-    };
-    return body;
+    const offenders = input.lines.filter((l) =>
+      memberItemIds.has(l.netsuiteItemId),
+    );
+    if (offenders.length > 0) {
+      throw new Error(
+        "[sales-orders] refusing to emit a flat line for an item the Item Group already expands — " +
+          "NetSuite honours both and doubles the quantity (Probe 7a). " +
+          `Offending item id(s): ${offenders.map((o) => o.netsuiteItemId).join(", ")}.`,
+      );
+    }
+    // A caller that emits groups without declaring their members cannot have
+    // its flat lines checked at all. Fail rather than assume none collide.
+    if (input.lines.length > 0 && memberItemIds.size === 0) {
+      throw new Error(
+        "[sales-orders] flat lines were supplied alongside Item Group lines without " +
+          "`groupMemberItemIds`, so membership cannot be checked. Refusing rather than " +
+          "assuming no flat line collides with an expanded member.",
+      );
+    }
   }
 
-  body.item = {
-    items: input.lines.map((line) => ({
+  // BARE group lines: item + quantity only. No rate (ignored on the group
+  // header), no amount, no per-line custom columns — the members NetSuite
+  // expands carry their own, and Step 3 patches their rates.
+  const groupItems = groupLines.map((g) => ({
+    item: { id: g.netsuiteItemId },
+    quantity: g.quantity,
+  }));
+
+  const flatItems = input.lines.map((line) => ({
       item: { id: line.netsuiteItemId },
       quantity: line.quantity,
       rate: parseFloat(line.rate.toFixed(4)),
       description: line.description,
       ...(input.taxCodeId ? { taxCode: { id: input.taxCodeId } } : {}),
       custcol_dps_sku: line.sku,
+      // GOVERNED PRODUCT COST → two destinations, one source.
+      //
+      // `custcol_dps_unit_cost` is RETAINED: it has carried this value since
+      // Slice 12 and may feed reporting not visible from this side. The native
+      // pair is ADDED alongside, not substituted for it.
+      //
+      // The defect this closes was never missing data — Nexus always sent the
+      // governed cost. It sent it only to a custom column, while NetSuite's
+      // standard Unit Cost display and margin basis read `costEstimateRate`.
+      // With that field unset the line falls back to the item master's costing
+      // method, which on the certified set was AVGCOST against an empty basis
+      // (hence "blank"), and on other items resolves to LASTPURCHPRICE figures
+      // unrelated to the quote.
+      //
+      // `costEstimate` is NOT sent — NetSuite derives it as quantity × rate.
+      //
+      // The null guard is load-bearing in both directions: absent governed cost
+      // must leave NetSuite's own default intact rather than assert a zero. A
+      // zero is a claim that the product is free; silence is not.
       ...(line.unitCost !== null
-        ? { custcol_dps_unit_cost: parseFloat(line.unitCost.toFixed(4)) }
+        ? {
+            custcol_dps_unit_cost: parseFloat(line.unitCost.toFixed(4)),
+            costEstimateType: { id: "CUSTOM" },
+            costEstimateRate: parseFloat(line.unitCost.toFixed(4)),
+          }
         : {}),
-    })),
-  };
+  }));
+
+  // Groups first, then Direct lines — the order the operator built them in and
+  // the order the read-back is asserted against. A mixed order carries both;
+  // a single-structure order carries one and an empty other.
+  body.item = { items: [...groupItems, ...flatItems] };
 
   return body;
 }

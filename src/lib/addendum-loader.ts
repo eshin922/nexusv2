@@ -9,6 +9,10 @@ import {
   productTypes,
 } from "@/db/schema";
 import { productTypeOrderExpression } from "@/lib/product-type-order";
+import {
+  decodePinnedSchema,
+  SPEC_SCHEMA_PRODUCT_TYPE_ID,
+} from "@/lib/product-structure/spec-schema-mapping";
 
 // Phase A.1 v2 impl-6 — PDF addendum data loader.
 //
@@ -132,8 +136,12 @@ export async function loadQuoteAddendum(
     db
       .select()
       .from(leafSpecs)
+      // B-3 — QUOTE-SCOPED. Resolves this quote's own authority. There is no
+      // `is_current` fallback: after B-3 an attached leaf always owns a row, so
+      // a fallback could only serve Library state to a quote, which is the
+      // defect this replaced.
       .where(
-        and(inArray(leafSpecs.leafId, leafIds), eq(leafSpecs.isCurrent, true)),
+        and(inArray(leafSpecs.leafId, leafIds), eq(leafSpecs.quoteId, quoteId)),
       ),
   ]);
 
@@ -165,9 +173,20 @@ export async function loadQuoteAddendum(
         };
       }
       totalLeaves++;
-      const type = leaf.productTypeId
-        ? typeMap.get(leaf.productTypeId)
-        : null;
+      // Step 4.4 · CUSTOMER-FACING. The schema shown to a customer is the one
+      // PINNED on this quote's authority, so a HubSpot reclassification after
+      // send cannot change which fields a re-render prints. Reading
+      // `leaves.product_type_id` here would have made the customer document
+      // depend on a taxonomy the operator no longer maintains.
+      const pinnedRow = specMap.get(leaf.id);
+      const pinned = decodePinnedSchema(
+        pinnedRow?.specSchema,
+        pinnedRow?.schemaDerivedFromType,
+      );
+      const type =
+        pinned?.kind === "schema"
+          ? typeMap.get(SPEC_SCHEMA_PRODUCT_TYPE_ID[pinned.schemaId])
+          : null;
       if (!type) {
         // Untyped is a meaningful render state per scenario ㉔'s
         // mixed-types coverage — count it as content.

@@ -68,6 +68,10 @@ function certLines(tierQty = TIER): PlanLineInput[] {
     netsuiteItemId: nsId,
     quantity: tierQty * qtyPerParent,
     qtyPerParent,
+    // Quantity-expansion fixtures assert structure, not cost. Null keeps the
+    // cost projection out of these cases entirely rather than introducing a
+    // value they would not otherwise exercise.
+    unitCost: null,
     rate,
   });
   return [

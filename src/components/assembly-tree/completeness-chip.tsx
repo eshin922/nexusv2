@@ -38,6 +38,18 @@ export function CompletenessChip({
       return <span className="a1v2-chip partial">⚠ Fields pending</span>;
     case "empty":
       return <span className="a1v2-chip empty">— No specs entered</span>;
+    // Step 4.5 · a FINISHED answer, and it reads like one. Freight, services
+    // and one-time charges have no product specification, so nothing is
+    // pending and nothing is missing. It takes the quiet `empty` register
+    // rather than the `no_type` warning register precisely because there is
+    // no action for the operator to take.
+    case "no_schema":
+      return <span className="a1v2-chip empty">— Specs not applicable</span>;
+    // Step 4.5 · this now means the AUTHORITATIVE classification is missing.
+    // Before the cutover it fired whenever nobody had run the Nexus
+    // TypePicker, which was almost every product — so it was noise. It is a
+    // warning again because it is once more actionable: classify the product
+    // in HubSpot.
     case "no_type":
       return <span className="a1v2-chip no_type">⚠ No type set</span>;
   }

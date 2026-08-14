@@ -1,5 +1,6 @@
 import "server-only";
-import { and, asc, count, eq, ilike, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
+import { UNCLASSIFIED_SOURCE_TYPE } from "@/lib/library-source-type";
+import { and, asc, count, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblies,
@@ -10,6 +11,10 @@ import {
   quotes,
 } from "@/db/schema";
 import { productTypeOrderExpression } from "@/lib/product-type-order";
+import {
+  evaluateAttachmentEligibility,
+  type AttachmentEligibility,
+} from "@/lib/product-structure/attachment-eligibility";
 
 // Phase A.1 v2 impl-5 — Library browse data loader.
 //
@@ -49,7 +54,17 @@ import { productTypeOrderExpression } from "@/lib/product-type-order";
 
 export type LibraryBrowseFilters = {
   search?: string;
-  typeFilter?: string; // product_type_id
+  /**
+   * Nexus taxonomy filter (`product_types.id`). Operator-authored; 26 of 1,077
+   * leaves carry one. Retained unchanged — the TypePicker still writes it.
+   */
+  /**
+   * HubSpot classification filter — the RAW internal `hs_product_type` value,
+   * or the sentinel `UNCLASSIFIED_SOURCE_TYPE` for products HubSpot has not
+   * classified. This is the filter the Library's type chips drive, because it
+   * is the vocabulary that is actually populated (1,032 of 1,037 products).
+   */
+  sourceTypeFilter?: string;
   scopeFilter?: "all" | "this" | "other";
   targetQuoteId: string;
   limit?: number;
@@ -59,7 +74,6 @@ export type LibraryBrowseRow = {
   leafId: string;
   name: string;
   sku: string | null;
-  productType: { id: string; name: string } | null;
   unitCost: string | null;
   url: string | null;
   // slice-hubspot-bidirectional — origin indicator. Non-null when
@@ -80,7 +94,36 @@ export type LibraryBrowseRow = {
   totalRefs: number;
   totalScenarios: number;
   attachedAssemblyIdsInTargetQuote: string[];
+  /**
+   * Whether the attach gate would REFUSE this product, and why — computed
+   * server-side by `evaluateAttachmentEligibility`, the same function both
+   * attach actions call.
+   *
+   * ONE CLASSIFIER, TWO SURFACES. The client must not decide eligibility for
+   * itself: a second implementation could disagree with the server, and the
+   * disagreement would show as a product that looks attachable and is refused,
+   * or worse, looks refused and is not. The rejection stays authoritative; this
+   * only lets the operator see it before spending an action on it.
+   */
+  eligibility: AttachmentEligibility;
+  /**
+   * HubSpot's `hs_product_type`, raw internal value. NULL means the product is
+   * genuinely unclassified — either Nexus-local (no HubSpot record) or HubSpot
+   * has no value for it. Those two remain distinguishable via
+   * `hubspotProductId`; neither is given a fabricated type.
+   */
+  hubspotProductType: string | null;
 };
+
+/**
+ * Sentinel for "no HubSpot classification".
+ *
+ * A filter value rather than an absence, so the unclassified population is
+ * SELECTABLE instead of silently excluded. Before this, choosing any type
+ * dropped 1,051 of 1,077 products with nothing on screen saying so — which is
+ * why the filter read as untrustworthy rather than as unpopulated.
+ */
+export { UNCLASSIFIED_SOURCE_TYPE } from "@/lib/library-source-type";
 
 const DEFAULT_LIMIT = 50;
 
@@ -127,8 +170,19 @@ export async function loadLibraryBrowse(
     );
     if (orClause) conds.push(orClause);
   }
-  if (filters.typeFilter) {
-    conds.push(eq(leaves.productTypeId, filters.typeFilter));
+  // Step 8 · the Nexus-taxonomy filter is retired. `sourceTypeFilter` below
+  // matches on authoritative HubSpot classification, which is the only
+  // classification a leaf now has.
+  if (filters.sourceTypeFilter) {
+    // Equality on the RAW internal value — never on a display label. The three
+    // largest categories have labels that differ from their values, so a
+    // label-matched predicate would return nothing for them and look like an
+    // empty catalogue rather than a wrong query.
+    conds.push(
+      filters.sourceTypeFilter === UNCLASSIFIED_SOURCE_TYPE
+        ? isNull(leaves.hubspotProductType)
+        : eq(leaves.hubspotProductType, filters.sourceTypeFilter),
+    );
   }
 
   // Wave 1: filtered base rows + unfiltered library count + quote
@@ -196,8 +250,9 @@ export async function loadLibraryBrowse(
     };
   }
 
-  // Wave 2: junction + product_types in parallel.
-  const [junctionRows, allTypes] = await Promise.all([
+  // Step 8 · product_types is no longer read here. A Library row's
+  // classification is HubSpot's, carried on `hubspot_product_type`.
+  const [junctionRows] = await Promise.all([
     db
       .select({
         junctionId: assemblyLeaves.id,
@@ -208,7 +263,6 @@ export async function loadLibraryBrowse(
       .from(assemblyLeaves)
       .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
       .where(inArray(assemblyLeaves.leafId, baseIds)),
-    db.select().from(productTypes),
   ]);
 
   // Group junctions by leaf for per-leaf stats + attached-flag.
@@ -218,8 +272,6 @@ export async function loadLibraryBrowse(
     list.push(j);
     junctionsByLeaf.set(j.leafId, list);
   }
-
-  const typeMap = new Map(allTypes.map((t) => [t.id, t] as const));
 
   // Scope filter at row level.
   const filteredBase = baseRows.filter((r) => {
@@ -242,17 +294,18 @@ export async function loadLibraryBrowse(
       .filter((j) => j.assemblyQuoteId === filters.targetQuoteId)
       .map((j) => j.assemblyId);
     const distinctQuoteIds = new Set(js.map((j) => j.assemblyQuoteId));
-    const type = r.productTypeId ? typeMap.get(r.productTypeId) : null;
 
     return {
       leafId: r.id,
       name: r.name,
       sku: r.sku,
-      productType: type ? { id: type.id, name: type.name } : null,
       unitCost: r.unitCost,
       url: r.url,
       hubspotProductId: r.hubspotProductId,
       archived: r.archived,
+      // The gate's own verdict, not a re-derivation of it.
+      eligibility: evaluateAttachmentEligibility({ sku: r.sku, archived: r.archived }),
+      hubspotProductType: r.hubspotProductType,
       totalRefs: js.length,
       totalScenarios: distinctQuoteIds.size,
       attachedAssemblyIdsInTargetQuote,
@@ -267,27 +320,6 @@ export async function loadLibraryBrowse(
     scenarioLabel,
     clientName,
   };
-}
-
-/**
- * Loads the list of leaf-scope product types for the library
- * browse type filter. Mirrors the productTypeOptions loader from
- * impl-4 but trimmed to id + name + placeholder flag.
- */
-export async function loadLeafTypesForFilter(): Promise<
-  { id: string; name: string; placeholder: boolean }[]
-> {
-  // Canonical ordering per Edward §15.2 (Bug #L fix).
-  const rows = await db
-    .select()
-    .from(productTypes)
-    .where(and(eq(productTypes.scope, "leaf"), eq(productTypes.hidden, false)))
-    .orderBy(productTypeOrderExpression, asc(productTypes.name));
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    placeholder: r.placeholder,
-  }));
 }
 
 // `assembly_leaves_assembly_id` import alias for the inner-join

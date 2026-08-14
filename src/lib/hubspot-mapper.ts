@@ -19,7 +19,7 @@ import {
 // | hs_cost_of_goods_sold   | unit_cost         | both      | numeric stored as text |
 // | hs_url                  | url               | both      | direct |
 // | hs_images               | image_url         | pull only | first URL only |
-// | hs_product_type         | (skip)            | (skip)    | HubSpot enum ≠ nexus product_types taxonomy |
+// | hs_product_type         | hubspot_product_type | pull   | RAW INTERNAL VALUE. Distinct from product_type_id — see below |
 // | description             | (no column)       | (skip)    | Catch #12 — no nexus column; revisit v1.1+ |
 // | price                   | (no column)       | push only | explicit value or technical 0.00 default; never quote price |
 // | hubspot_owner_id        | owner_id          | pull cond | mapped via users.hubspot_owner_id lookup |
@@ -44,6 +44,22 @@ export type MappedLeafFromHubspot = {
   supplierVerified: boolean | null;
   ownerId: string | null;
   archived: boolean;
+  /**
+   * HubSpot's `hs_product_type`, as the RAW INTERNAL OPTION VALUE.
+   *
+   * Lands in `leaves.hubspot_product_type`, NOT `product_type_id`. Those are
+   * different vocabularies — Nexus's taxonomy has an assembly scope HubSpot
+   * lacks, HubSpot has commercial categories no Nexus leaf type covers — and
+   * conflating them would lose information in whichever direction the mapping
+   * ran. The Nexus taxonomy stays operator-authored via the TypePicker.
+   *
+   * NEVER derived from a display label. Three options diverge, and they are the
+   * three largest categories: `Primary` is labelled "Primary Packaging",
+   * `Secondary` is "Secondary Packaging", `Third Party Logistics` is
+   * "Logistics". Matching labels would miss roughly half the catalogue and fail
+   * silently.
+   */
+  hubspotProductType: string | null;
 };
 
 // Pull-direction translator. `userIdByHubspotOwnerId` is a
@@ -94,6 +110,9 @@ export function mapHubspotToLeaf(
     supplierVerified,
     ownerId,
     archived: raw.archived,
+    // Raw internal value, verbatim. `|| null` only collapses the empty string,
+    // which HubSpot returns for a cleared select — it never rewrites a value.
+    hubspotProductType: p.hs_product_type || null,
   };
 }
 
@@ -113,11 +132,19 @@ export function mapLeafToHubspotCreate(input: {
   unitCost?: string | null;
   url?: string | null;
   price?: string | null;
+  /**
+   * HubSpot's `hs_product_type` INTERNAL OPTION VALUE — e.g. `Primary`, not
+   * the "Primary Packaging" label the operator selected. The caller validates
+   * membership against the governed option set before reaching here; sending a
+   * label would be accepted by HubSpot as a free string and then match nothing.
+   */
+  hubspotProductType?: string | null;
 }): HubSpotProductCreateInput {
   const out: HubSpotProductCreateInput = { name: input.name };
   if (input.sku) out.hs_sku = input.sku;
   if (input.unitCost) out.hs_cost_of_goods_sold = input.unitCost;
   if (input.url) out.hs_url = input.url;
+  if (input.hubspotProductType) out.hs_product_type = input.hubspotProductType;
   if (input.price !== undefined && input.price !== null) out.price = input.price;
   return normalizeHubSpotProductCreateInput(out);
 }

@@ -65,7 +65,18 @@ let _productsClient: Client | null = null;
  * orphan refs are invisible. Phase 2 (catalog parity) owns the
  * orphan-handling story when refresh ships.
  */
-function getProductsClient(): Client {
+/**
+ * The Products-domain client. Dev/prod-aware: in dev it talks to the SANDBOX
+ * portal, in production to the live one.
+ *
+ * Exported because the `hs_product_type` vocabulary must be read from the same
+ * portal that supplies and receives product values. The two portals' option
+ * sets genuinely differ — `Finished Goods` and `Turnkey` exist only in
+ * production; `Corrugated` and `Preliminary` only in the sandbox — so a
+ * vocabulary read from the other client would validate a create against options
+ * the receiving portal does not have.
+ */
+export function getProductsClient(): Client {
   if (_productsClient) return _productsClient;
   const isDev = process.env.NODE_ENV !== "production";
   const token = isDev

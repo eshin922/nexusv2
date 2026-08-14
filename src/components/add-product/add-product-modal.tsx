@@ -3,33 +3,27 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
-import { createAssembly } from "@/app/actions/assemblies";
-import { createLeaf } from "@/app/actions/leaves";
+import { createLeaf, fetchHubspotProductTypes } from "@/app/actions/leaves";
 
 // Phase A.1 v2 impl-4 — Add Product modal (scenarios ⑪-⑯).
 //
 // Canonical structure per docs/design-prototypes/dist/qw_a1v2.jsx
-// AddProductModal (lines 445-508) + AsyModalFields (510-567) +
-// LeafModalFields (569-627).
+// Create New Product — LIBRARY MASTER DATA ONLY.
 //
-// Behavior shape:
-//   - mode toggle (ASY / LEAF segmented control)
-//   - ASY mode: commercial fields (name + type + sku + description +
-//     unit price + unit cost + markup% + owner). Tax schedule field
-//     DROPPED per Pattern 22 §0.5 finding (no tax_schedules table).
-//   - LEAF mode: identity fields (name + type + sku + cost + owner +
-//     url) + "Next step" preview card + Continue/Defer submit choice
-//   - Submit ASY → createAssembly → close
-//   - Submit LEAF Continue → createLeaf → navigate to
-//     /projects/.../leaves/<newLeafId>/specs (Q-Type6 disposition)
-//   - Submit LEAF Defer → createLeaf → close + post-creation toast
+// Creates a globally reusable library product via the governed Nexus/HubSpot
+// creation path. It does NOT create quote structure. The ASY branch that used
+// to live here offered an Item Group as a second kind of "product"; Item Groups
+// are quote-local structure and are created from their own setup-surface entry
+// point (see components/item-group/create-item-group-modal.tsx).
+//
+//   - identity fields (name + Nexus type + HubSpot type + sku + cost + url)
+//   - Submit Continue → createLeaf → navigate to specs
+//   - Submit Defer    → createLeaf → close + post-creation toast
 //
 // Pattern 47 invariants on form inputs: controlled values, no
 // `disabled={pending}` on inputs (button-level pending only).
 
-type Mode = "asy" | "leaf";
 
-type AssemblyTypeOption = { id: string; name: string };
 
 export function AddProductModal({
   quoteId,
@@ -38,7 +32,6 @@ export function AddProductModal({
   onClose,
   onSuccess,
   stacked = false,
-  assemblyTypes,
   leafTypes,
 }: {
   quoteId: string;
@@ -55,7 +48,7 @@ export function AddProductModal({
   // `name` lets the caller CONFIRM the creation. An id alone cannot be
   // shown to an operator or searched for; the library searches by name or
   // SKU, so the name is what makes the new record locatable.
-  onSuccess?: (result: { kind: "asy" | "leaf"; id: string; name: string }) => void;
+  onSuccess?: (result: { kind: "leaf"; id: string; name: string }) => void;
   // slice-library-first-creation-flow Step 4 — when mounted as a
   // sub-flow on top of another modal (LibraryBrowseModal's
   // "+ Create new product"), pass stacked={true}. Applies the
@@ -65,27 +58,25 @@ export function AddProductModal({
   // underlying modal's keydown listener doesn't also fire. See
   // r-a1v2-overrides.css for full pattern documentation.
   stacked?: boolean;
-  assemblyTypes: AssemblyTypeOption[];
   leafTypes: LeafSpecEntryProductType[];
 }) {
-  const [mode, setMode] = useState<Mode>("asy");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const router = useRouter();
 
-  // ASY form state
-  const [asyName, setAsyName] = useState("");
-  const [asyTypeId, setAsyTypeId] = useState<string>("");
-  const [asySku, setAsySku] = useState("");
-  const [asyDescription, setAsyDescription] = useState("");
-  const [asyUnitPrice, setAsyUnitPrice] = useState("");
-  const [asyUnitCost, setAsyUnitCost] = useState("");
-  const [asyMarkupPct, setAsyMarkupPct] = useState("");
-
   // LEAF form state
   const [leafName, setLeafName] = useState("");
   const [leafTypeId, setLeafTypeId] = useState<string>("");
+  // HubSpot's own classification, kept separate from the Nexus type above.
+  // `hsTypeValue` holds the INTERNAL option value; the label is only ever
+  // rendered. The two differ on the three largest categories, so conflating
+  // them would send a string HubSpot stores but never matches.
+  const [hsTypeValue, setHsTypeValue] = useState<string>("");
+  const [hsTypeOptions, setHsTypeOptions] = useState<
+    { label: string; value: string }[]
+  >([]);
+  const [hsTypeError, setHsTypeError] = useState<string | null>(null);
   const [leafSku, setLeafSku] = useState("");
   const [leafUnitCost, setLeafUnitCost] = useState("");
   const [leafUrl, setLeafUrl] = useState("");
@@ -97,20 +88,39 @@ export function AddProductModal({
   // own ~3s timer in the parent).
   useEffect(() => {
     if (open) return;
-    setMode("asy");
-    setAsyName("");
-    setAsyTypeId("");
-    setAsySku("");
-    setAsyDescription("");
-    setAsyUnitPrice("");
-    setAsyUnitCost("");
-    setAsyMarkupPct("");
     setLeafName("");
     setLeafTypeId("");
     setLeafSku("");
     setLeafUnitCost("");
     setLeafUrl("");
+    setHsTypeValue("");
     setError(null);
+  }, [open]);
+
+  // Load the governed HubSpot option set when the modal opens. Fetched rather
+  // than hard-coded: a local copy would drift the moment an option is added in
+  // HubSpot, and the drift is silent — a product classified under the new value
+  // would simply stop matching anything.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      const result = await fetchHubspotProductTypes();
+      if (cancelled) return;
+      if (result.ok) {
+        setHsTypeOptions(result.data.options);
+        setHsTypeError(null);
+      } else {
+        // Surfaced, not swallowed: without the vocabulary the operator cannot
+        // classify, and an empty dropdown that looks like "no options exist"
+        // would be a worse lie than an error.
+        setHsTypeOptions([]);
+        setHsTypeError(result.error.message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   // Escape dismiss + backdrop click.
@@ -143,35 +153,6 @@ export function AddProductModal({
 
   const selectedLeafType = leafTypes.find((t) => t.id === leafTypeId) ?? null;
 
-  function handleSubmitAsy() {
-    if (!asyName.trim()) {
-      setError("Product name is required.");
-      return;
-    }
-    const fd = new FormData();
-    fd.set("quoteId", quoteId);
-    fd.set("name", asyName.trim());
-    if (asyTypeId) fd.set("productTypeId", asyTypeId);
-    if (asySku) fd.set("sku", asySku.trim());
-    if (asyDescription) fd.set("description", asyDescription.trim());
-    if (asyUnitPrice) fd.set("unitPrice", asyUnitPrice.trim());
-    if (asyUnitCost) fd.set("unitCost", asyUnitCost.trim());
-    if (asyMarkupPct) fd.set("markupPct", asyMarkupPct.trim());
-
-    startTransition(async () => {
-      setError(null);
-      const result = await createAssembly(fd);
-      if (!result.ok) {
-        setError(result.error.message);
-        return;
-      }
-      onSuccess?.({ kind: "asy", id: result.data.assemblyId, name: asyName.trim() });
-      onClose();
-      setToast(`Added "${asyName.trim()}" to this quote.`);
-      router.refresh();
-    });
-  }
-
   function handleSubmitLeaf(option: "continue" | "defer") {
     if (!leafName.trim()) {
       setError("Leaf name is required.");
@@ -183,7 +164,13 @@ export function AddProductModal({
     }
     const fd = new FormData();
     fd.set("name", leafName.trim());
-    fd.set("productTypeId", leafTypeId);
+    // Step 8 · a Nexus leaf type is no longer sent. Classification travels as
+    // `hubspotProductType` only, which is the authority the Library, Setup and
+    // the Spec Schema mapping all read.
+    // The internal value, never the label. The server re-validates membership
+    // against the governed option set, so a stale client cannot write a
+    // withdrawn or invented classification.
+    if (hsTypeValue) fd.set("hubspotProductType", hsTypeValue);
     if (leafSku) fd.set("sku", leafSku.trim());
     if (leafUnitCost) fd.set("unitCost", leafUnitCost.trim());
     if (leafUrl) fd.set("url", leafUrl.trim());
@@ -236,77 +223,37 @@ export function AddProductModal({
             aria-labelledby="add-product-title"
           >
             <div className="a1v2-modal-head">
-              <h2 id="add-product-title">
-                {mode === "asy" ? "Add product · ASY" : "Add product · LEAF"}
-              </h2>
-              {mode === "leaf" ? (
-                <span className="sub lib-scope">
-                  ↗ Creating a globally reusable library item · available
-                  across all scenarios
-                </span>
-              ) : (
-                <p className="sub">
-                  Creates a new product/SKU in this scenario. Leaves get
-                  attached separately.
-                </p>
-              )}
-              <div className="a1v2-mode-toggle">
-                <button
-                  type="button"
-                  className={mode === "leaf" ? "active" : ""}
-                  onClick={() => setMode("leaf")}
-                  disabled={pending}
-                >
-                  <span className="lab">LEAF</span>
-                  <span className="desc">Reusable component · type + specs</span>
-                </button>
-                <button
-                  type="button"
-                  className={mode === "asy" ? "active" : ""}
-                  onClick={() => setMode("asy")}
-                  disabled={pending}
-                >
-                  <span className="lab">ASY</span>
-                  <span className="desc">Quotable product · commercial fields</span>
-                </button>
-              </div>
+              <h2 id="add-product-title">Create New Product</h2>
+              {/* B-1 refinement — this creates LIBRARY MASTER DATA and nothing
+                  else. It used to carry an ASY / LEAF toggle, which offered an
+                  Item Group as a second kind of "product". An Item Group is
+                  quote-local structure, not a product, and it now has its own
+                  entry point on the setup surface. */}
+              <span className="sub lib-scope">
+                ↗ Creating a globally reusable library item · available across
+                all scenarios
+              </span>
             </div>
 
             <div className="a1v2-modal-body">
-              {mode === "asy" ? (
-                <AsyFields
-                  name={asyName}
-                  onName={setAsyName}
-                  typeId={asyTypeId}
-                  onTypeId={setAsyTypeId}
-                  sku={asySku}
-                  onSku={setAsySku}
-                  description={asyDescription}
-                  onDescription={setAsyDescription}
-                  unitPrice={asyUnitPrice}
-                  onUnitPrice={setAsyUnitPrice}
-                  unitCost={asyUnitCost}
-                  onUnitCost={setAsyUnitCost}
-                  markupPct={asyMarkupPct}
-                  onMarkupPct={setAsyMarkupPct}
-                  assemblyTypes={assemblyTypes}
-                />
-              ) : (
-                <LeafFields
-                  name={leafName}
-                  onName={setLeafName}
-                  typeId={leafTypeId}
-                  onTypeId={setLeafTypeId}
-                  sku={leafSku}
-                  onSku={setLeafSku}
-                  unitCost={leafUnitCost}
-                  onUnitCost={setLeafUnitCost}
-                  url={leafUrl}
-                  onUrl={setLeafUrl}
-                  leafTypes={leafTypes}
-                  selectedType={selectedLeafType}
-                />
-              )}
+              <LeafFields
+                name={leafName}
+                onName={setLeafName}
+                typeId={leafTypeId}
+                onTypeId={setLeafTypeId}
+                sku={leafSku}
+                onSku={setLeafSku}
+                unitCost={leafUnitCost}
+                onUnitCost={setLeafUnitCost}
+                url={leafUrl}
+                onUrl={setLeafUrl}
+                leafTypes={leafTypes}
+                selectedType={selectedLeafType}
+                hsTypeValue={hsTypeValue}
+                onHsTypeValue={setHsTypeValue}
+                hsTypeOptions={hsTypeOptions}
+                hsTypeError={hsTypeError}
+              />
               {error ? (
                 <div
                   role="alert"
@@ -324,9 +271,7 @@ export function AddProductModal({
 
             <div className="a1v2-modal-foot">
               <span className="left">
-                {mode === "leaf"
-                  ? "⌥ Specs entered next step · or defer"
-                  : "⌥ Leaves added separately via the tree"}
+                ⌥ Specs entered next step · or defer
               </span>
               <button
                 type="button"
@@ -336,16 +281,7 @@ export function AddProductModal({
               >
                 Cancel
               </button>
-              {mode === "asy" ? (
-                <button
-                  type="button"
-                  className="a1v2-btn primary"
-                  onClick={handleSubmitAsy}
-                  disabled={pending}
-                >
-                  {pending ? "Adding…" : "Add product"}
-                </button>
-              ) : !leafTypeId ? (
+              {!leafTypeId ? (
                 <button
                   type="button"
                   className="a1v2-btn primary"
@@ -389,105 +325,6 @@ export function AddProductModal({
   );
 }
 
-function AsyFields(props: {
-  name: string;
-  onName: (v: string) => void;
-  typeId: string;
-  onTypeId: (v: string) => void;
-  sku: string;
-  onSku: (v: string) => void;
-  description: string;
-  onDescription: (v: string) => void;
-  unitPrice: string;
-  onUnitPrice: (v: string) => void;
-  unitCost: string;
-  onUnitCost: (v: string) => void;
-  markupPct: string;
-  onMarkupPct: (v: string) => void;
-  assemblyTypes: AssemblyTypeOption[];
-}) {
-  return (
-    <>
-      <div className="field">
-        <span className="lbl req">Product name</span>
-        <input
-          type="text"
-          value={props.name}
-          onChange={(e) => props.onName(e.target.value)}
-          placeholder="e.g., Hydra-Glow Vitamin C Serum 30ml"
-          autoFocus
-        />
-      </div>
-      <div className="row-pair">
-        <div className="field">
-          <span className="lbl">ASY Product Type</span>
-          <select
-            value={props.typeId}
-            onChange={(e) => props.onTypeId(e.target.value)}
-          >
-            <option value="">— Pick a type —</option>
-            {props.assemblyTypes.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <span className="lbl">SKU</span>
-          <input
-            type="text"
-            value={props.sku}
-            onChange={(e) => props.onSku(e.target.value)}
-            placeholder="auto-generated if blank"
-          />
-        </div>
-      </div>
-      <div className="field">
-        <span className="lbl">Description</span>
-        <textarea
-          value={props.description}
-          onChange={(e) => props.onDescription(e.target.value)}
-          placeholder="One-line product descriptor for the quote"
-          style={{ minHeight: 50, resize: "vertical", fontFamily: "inherit" }}
-        />
-      </div>
-      <div className="row-triple">
-        <div className="field">
-          <span className="lbl">Unit price</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={props.unitPrice}
-            onChange={(e) => props.onUnitPrice(e.target.value)}
-            placeholder="$0.00"
-          />
-        </div>
-        <div className="field">
-          <span className="lbl">Unit cost</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={props.unitCost}
-            onChange={(e) => props.onUnitCost(e.target.value)}
-            placeholder="$0.00"
-          />
-        </div>
-        <div className="field">
-          <span className="lbl">Markup %</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={props.markupPct}
-            onChange={(e) => props.onMarkupPct(e.target.value)}
-            placeholder="30"
-          />
-        </div>
-      </div>
-    </>
-  );
-}
-
 function LeafFields(props: {
   name: string;
   onName: (v: string) => void;
@@ -501,6 +338,12 @@ function LeafFields(props: {
   onUrl: (v: string) => void;
   leafTypes: LeafSpecEntryProductType[];
   selectedType: LeafSpecEntryProductType | null;
+  /** HubSpot's `hs_product_type` INTERNAL value — never a label. */
+  hsTypeValue: string;
+  onHsTypeValue: (v: string) => void;
+  /** Governed option set, fetched from the HubSpot property definition. */
+  hsTypeOptions: { label: string; value: string }[];
+  hsTypeError: string | null;
 }) {
   return (
     <>
@@ -514,6 +357,37 @@ function LeafFields(props: {
           placeholder="e.g., 30ml Glass Dropper Bottle · Type III soda-lime"
           autoFocus
         />
+      </div>
+
+      {/* HubSpot classification — a SEPARATE field from the Nexus Product Type
+          below, because they are separate vocabularies. This one travels to
+          HubSpot with the product and is what the Library's type filter reads;
+          the Nexus type drives spec fields and stays operator-authored.
+
+          The option list is the governed HubSpot property definition. The
+          operator reads `label`; `value` is what is submitted — they differ on
+          Primary Packaging/Primary, Secondary Packaging/Secondary and
+          Logistics/Third Party Logistics, so the two are never interchanged. */}
+      <div className="field">
+        <span className="lbl">HubSpot product type</span>
+        <select
+          aria-label="HubSpot product type"
+          value={props.hsTypeValue}
+          onChange={(e) => props.onHsTypeValue(e.target.value)}
+          disabled={props.hsTypeOptions.length === 0}
+        >
+          <option value="">— unclassified —</option>
+          {props.hsTypeOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <span className="hint">
+          {props.hsTypeError
+            ? `Could not load HubSpot product types: ${props.hsTypeError}`
+            : "Sent to HubSpot with this product. Drives the Library type filter."}
+        </span>
       </div>
       <div className="row-pair">
         <div className="field">

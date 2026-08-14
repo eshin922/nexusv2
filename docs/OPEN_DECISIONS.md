@@ -829,6 +829,44 @@ a kind whose advertised operation it does not perform.
 
 ## Open — needed before the relevant work starts
 
+### CI-1 · the S-7 preservation required check is configured without the database authority it needs
+
+**Owner:** Edward · **Blocks:** nothing functionally — but it defeats branch
+protection today
+**Raised:** 2026-08-14, during the Product Type authority cutover deployment
+step. **Repair AFTER that cutover completes**, not during it.
+
+`verify:s7-preserved` is a **required** check on `main`. It reads the live
+database through `src/db/index.ts`, which throws `DATABASE_URL is not set` when
+the variable is absent. CI does not provide one.
+
+**The check is therefore permanently red and carries no branch-specific
+signal.** Verified rather than assumed: `main`'s own latest run, at the
+currently deployed commit `e97011c`, fails with the identical error. It has been
+red since a database-dependent verifier was added to a CI job that has no
+database secret.
+
+**Why this is worth fixing rather than tolerating.** A required check that can
+never pass makes every merge an override, and an override that is always
+necessary stops being read. The next genuinely-failing check arrives against a
+habit of clicking through — which is precisely the condition under which a real
+regression ships. A permanently-red gate is worse than no gate, because it also
+consumes the attention a working gate would have earned.
+
+**Candidate resolutions, not yet dispositioned:**
+
+| option | note |
+|---|---|
+| Give the workflow a read-only `DATABASE_URL` secret | Restores the signal. Requires a CI-reachable credential against the shared database, which is a security question of its own — CI would hold live production access. |
+| Split the job: keep source-only verifiers required, move DB-dependent ones to a non-required or manually-triggered job | No new credential. S-7 stays where it actually runs today — locally, before merge — and remains recorded in the PR body as evidence rather than enforced by CI. |
+| Remove `verify:s7-preserved` from CI entirely | Honest about where the gate really lives, but loses the reminder that it must be run. |
+
+The second is the cheapest correct answer if no CI credential is wanted; the
+first is the only one that makes the check genuinely enforcing.
+
+**Do not fold this into an unrelated change.** It touches branch protection and
+possibly CI credentials, and belongs in its own PR with its own review.
+
 ### OD-009 · Freight markup resolution when a break carries no markup
 
 **Owner:** Edward + operators (Logistics) · **Blocks:** nothing today —

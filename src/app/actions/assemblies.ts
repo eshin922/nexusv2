@@ -9,6 +9,7 @@ import {
   leaves,
   productTypes,
   quotes,
+  itemGroupCategories,
 } from "@/db/schema";
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -21,6 +22,7 @@ import {
 } from "@/lib/action-result";
 import { materializePackagingRows } from "@/lib/packaging-materialization";
 import { revalidateQuoteTree } from "@/lib/revalidate";
+import { evaluateAttachmentEligibility } from "@/lib/product-structure/attachment-eligibility";
 import {
   attachGroupedMembership,
   detachGroupedMembership,
@@ -91,8 +93,15 @@ export async function createAssembly(
     const quoteId = String(formData.get("quoteId") ?? "").trim();
     const sku = String(formData.get("sku") ?? "").trim();
     const name = String(formData.get("name") ?? "").trim();
-    const productTypeId =
-      String(formData.get("productTypeId") ?? "").trim() || null;
+    // Step 7 · the Item Group's CATEGORY. `productTypeId` is still accepted as
+    // an alias so a form rendered before this deploy keeps working; the two
+    // never disagree because the ids are the originals, unchanged.
+    const itemGroupCategoryId =
+      String(
+        formData.get("itemGroupCategoryId") ??
+          formData.get("productTypeId") ??
+          "",
+      ).trim() || null;
     const description =
       String(formData.get("description") ?? "").trim() || null;
     const unitPriceRaw = String(formData.get("unitPrice") ?? "").trim();
@@ -105,22 +114,22 @@ export async function createAssembly(
     if (!name)
       throw new ActionGuardError(ERR.VALIDATION, "name required");
 
-    // Validate product type if provided (must be assembly-scope).
-    if (productTypeId) {
-      const typeRows = await db
+    // Step 7 · validated against the Item Group Category registry.
+    //
+    // The former `scope !== 'assembly'` check is gone because it is no longer
+    // expressible: the registry contains categories and nothing else, so a leaf
+    // Spec Schema id simply is not found. The separation moved from a runtime
+    // check that one caller could forget into the shape of the data.
+    if (itemGroupCategoryId) {
+      const categoryRows = await db
         .select()
-        .from(productTypes)
-        .where(eq(productTypes.id, productTypeId))
+        .from(itemGroupCategories)
+        .where(eq(itemGroupCategories.id, itemGroupCategoryId))
         .limit(1);
-      if (typeRows.length === 0)
+      if (categoryRows.length === 0)
         throw new ActionGuardError(
           ERR.VALIDATION,
-          "Selected product type not found.",
-        );
-      if (typeRows[0].scope !== "assembly")
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "Selected type is not an ASY-scope type.",
+          "Selected Item Group category not found.",
         );
     }
 
@@ -156,7 +165,7 @@ export async function createAssembly(
         quoteId,
         sku: skuValue,
         name,
-        productTypeId,
+        itemGroupCategoryId,
         description,
         unitPrice: unitPriceRaw === "" ? null : unitPriceRaw,
         unitCost: unitCostRaw === "" ? null : unitCostRaw,
@@ -176,7 +185,7 @@ export async function createAssembly(
         quote_id: quoteId,
         sku: newRow.sku,
         name: newRow.name,
-        product_type_id: newRow.productTypeId,
+        item_group_category_id: newRow.itemGroupCategoryId,
         description: newRow.description,
         unit_price: newRow.unitPrice,
         unit_cost: newRow.unitCost,
@@ -244,7 +253,7 @@ export async function deleteAssembly(
             sku: asm.sku,
             name: asm.name,
             pack_label: asm.packLabel,
-            product_type_id: asm.productTypeId,
+            item_group_category_id: asm.itemGroupCategoryId,
             position: asm.position,
           },
           cascaded_junctions: junctionRows.map((r) => ({
@@ -320,11 +329,15 @@ export async function attachAssemblyLeaf(
       .limit(1);
     if (leafRows.length === 0)
       throw new ActionGuardError(ERR.NOT_FOUND, "Leaf not found");
-    if (leafRows[0].archived)
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Archived leaves can't be attached.",
-      );
+    // Shared with the Direct Product path. Adds the SKU-less refusal alongside
+    // the existing archived one: a product with no SKU cannot be matched by the
+    // NetSuite resolver, so attaching it builds a quote that is already unable
+    // to complete — and the failure would otherwise surface at the irreversible
+    // commit rather than here.
+    const eligibility = evaluateAttachmentEligibility(leafRows[0]);
+    if (!eligibility.attachable) {
+      throw new ActionGuardError(ERR.VALIDATION, eligibility.message);
+    }
 
     // Reject duplicate attach (friendly error vs raw unique-violation).
     const existingRows = await db
@@ -356,6 +369,7 @@ export async function attachAssemblyLeaf(
     try {
       membership = await db.transaction(async (tx) => {
         const attached = await attachGroupedMembership(tx, {
+          createdBy: user.id,
           quoteId: asm.quoteId,
           assemblyId,
           leafId,

@@ -278,6 +278,18 @@ export const users = pgTable(
      * them would manufacture an independence the estate does not have.
      */
     commercialApprover: boolean("commercial_approver").notNull().default(false),
+    /**
+     * Durable Slack↔Nexus identity binding (`U…`).
+     *
+     * Email is a BOOTSTRAP only: the first successful Slack decision resolves
+     * Slack id → verified Slack email → unique Nexus user, then persists the id
+     * here. Every later callback uses THIS binding and ignores email.
+     *
+     * If a stored binding and a Slack email later disagree, the decision fails
+     * closed — rebinding is an administrative act, never an inference from a
+     * changed email. Unique so two Slack accounts cannot claim one Nexus user.
+     */
+    slackUserId: text("slack_user_id").unique(),
     hubspotOwnerId: text("hubspot_owner_id"),
     // Slice RI.7 — phone for PreparedBy contact derivation (DEC-8).
     // Back-filled from HubSpot owners API in ensureUser on first sign-in
@@ -965,6 +977,90 @@ export const belowFloorAuthorizations = pgTable(
   ],
 );
 
+/**
+ * The below-floor APPROVAL REQUEST lifecycle.
+ *
+ * `below_floor_authorizations` is decision-only: a row is an approval, and a
+ * refusal is silence. This table is the missing asynchronous half — who asked,
+ * what they asked against, whether anyone has answered, and what the answer was
+ * when it was "no".
+ *
+ * IT AUTHORIZES NOTHING. An approved request PRODUCES an authorization row
+ * (`authorizationId`); the Send/Accept gates read only that row and are
+ * unchanged. Slack request state is not authorization.
+ *
+ * DECISION AND DELIVERY ARE ORTHOGONAL. `status` is what a human decided;
+ * `deliveryStatus` is whether Slack received the message. A request may be
+ * `pending` + `failed`, which authorizes nothing — a delivery state must never
+ * imply authority.
+ */
+export const belowFloorApprovalRequests = pgTable(
+  "below_floor_approval_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    // Same governed commercial scope as the authorization it may produce.
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    quoteVersionNumber: integer("quote_version_number").notNull(),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+
+    requestedByUserId: uuid("requested_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The requester's why. NOT NULL — a request without one is unreviewable. */
+    justification: text("justification").notNull(),
+
+    /**
+     * The commercial state this request was raised against, from the same
+     * `fingerprintCommercialState` the gate uses. Comparing it at decision time
+     * is what makes a delayed Slack click supersede rather than authorize.
+     */
+    stateFingerprint: text("state_fingerprint").notNull(),
+    /** Evidence at request time. Never an input to a later computation. */
+    marginAtRequest: numeric("margin_at_request", { precision: 9, scale: 6 }).notNull(),
+    floorAtRequest: numeric("floor_at_request", { precision: 5, scale: 4 }).notNull(),
+
+    /** 'pending' | 'approved' | 'rejected' | 'superseded' | 'cancelled' */
+    status: text("status").notNull().default("pending"),
+    decidedByUserId: uuid("decided_by_user_id").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** REQUIRED on reject; optional on approve. */
+    decisionReason: text("decision_reason"),
+    /** Set only on approval — the join to the governed decision. */
+    authorizationId: uuid("authorization_id").references(
+      () => belowFloorAuthorizations.id,
+    ),
+
+    // Slack message identity, so the projection can be re-synced after a
+    // decision. Nexus stays authoritative if the update fails.
+    slackChannelId: text("slack_channel_id"),
+    slackMessageTs: text("slack_message_ts"),
+    /** 'pending' | 'delivered' | 'failed' — orthogonal to `status`. */
+    deliveryStatus: text("delivery_status").notNull().default("pending"),
+    deliveryError: text("delivery_error"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    /**
+     * At most ONE live request per governed commercial scope. Structural, not
+     * conventional: a second pending request cannot be inserted at all, so
+     * duplicate Slack messages competing to authorize one tier is not a state
+     * the system can reach.
+     */
+    uniqueIndex("below_floor_request_pending_idx")
+      .on(t.quoteId, t.quoteVersionNumber, t.tierId)
+      .where(sql`status = 'pending'`),
+    index("below_floor_request_quote_idx").on(t.quoteId),
+  ],
+);
+
 export const markupDefaults = pgTable("markup_defaults", {
   category: text("category").primaryKey(),
   defaultMarkupPct: numeric("default_markup_pct", {
@@ -1038,6 +1134,19 @@ export const firmSettings = pgTable(
     leadTimeDefault: text("lead_time_default"),
     incotermsDefault: text("incoterms_default"),
     daysValidDefault: integer("days_valid_default"),
+    /**
+     * Designated Slack channel for governed below-floor approval requests.
+     *
+     * GOVERNED CONFIGURATION, NOT A SECRET — it belongs here rather than in env
+     * so an admin can change it without a deploy and the change is versioned
+     * and audited like every other firm policy. The bot token and signing
+     * secret remain environment secrets.
+     *
+     * MUST participate in `versionedFirmSettingsUpdate` carry-forward, or a
+     * later margin-only edit silently clears the channel and approval requests
+     * stop being delivered while nothing reports an error.
+     */
+    slackApprovalChannelId: text("slack_approval_channel_id"),
     // Slice 12 Step 3 — external-system defaults per v3 brief §5 +
     // Q4/Q5 dispositions. Configurable per firm; Step 7 (HubSpot
     // push) + Step 8 (NetSuite push) read the current row.
@@ -1970,6 +2079,36 @@ export const productTypes = pgTable(
 //
 // `internal_notes` surfaces in Setup tree view's HAS NOTE chip.
 // `position` drives tree-order rendering.
+// ---------- item_group_categories (Step 7 · authority separation) ----------
+
+/**
+ * How a quote-local Item Group is classified. Skincare, Supplement, Hair care,
+ * and six more.
+ *
+ * SEPARATE FROM `product_types` ON PURPOSE. These nine have no HubSpot origin,
+ * no field schema and no relationship to a specification — they were never
+ * product types in the sense the leaf rows are. Sharing a table with the leaf
+ * Spec Schemas is what let an Item Group be presented as carrying a competing
+ * leaf `Product Type`.
+ *
+ * The separation is structural rather than conventional: `createAssembly` used
+ * to enforce it with a runtime `scope !== 'assembly'` check, and one check is
+ * one place to forget. An FK into a table containing only categories cannot
+ * reference a Spec Schema at all.
+ *
+ * Ids are the originals, verbatim, so no existing group's classification moved.
+ */
+export const itemGroupCategories = pgTable("item_group_categories", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  /** Display order. Previously a CASE expression in a product-type helper. */
+  position: integer("position").notNull().default(0),
+  hidden: boolean("hidden").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const assemblies = pgTable(
   "assemblies",
   {
@@ -1980,7 +2119,10 @@ export const assemblies = pgTable(
     sku: text("sku").notNull(),
     name: text("name").notNull(),
     packLabel: text("pack_label"),
-    productTypeId: text("product_type_id").references(() => productTypes.id),
+    /** Step 7 · the Item Group's classification. The read authority. */
+    itemGroupCategoryId: text("item_group_category_id").references(
+      () => itemGroupCategories.id,
+    ),
     description: text("description"),
     url: text("url"),
     imageUrl: text("image_url"),
@@ -2033,7 +2175,6 @@ export const leaves = pgTable(
     sku: text("sku"),
     url: text("url"),
     imageUrl: text("image_url"),
-    productTypeId: text("product_type_id").references(() => productTypes.id),
     unitCost: numeric("unit_cost"),
     fscClaim: boolean("fsc_claim"),
     fscStatus: text("fsc_status"),
@@ -2047,6 +2188,39 @@ export const leaves = pgTable(
     // HubSpot via pullFromHubSpot. Unique partial index below
     // prevents duplicate HubSpot Product attachments.
     hubspotProductId: text("hubspot_product_id"),
+    /**
+     * HubSpot's `hs_product_type` — stored as the RAW INTERNAL OPTION VALUE,
+     * never a display label.
+     *
+     * THE ONLY leaf classification. Step 9 removed `product_type_id`, the
+     * Nexus taxonomy that used to sit beside this one — two authorities for
+     * one question, of which the operator-maintained half was unset on ~1,051
+     * of 1,077 products. Nexus behaviour (which specification fields apply) is
+     * DERIVED from this value through the governed mapping in
+     * `product-structure/spec-schema-mapping.ts` and pinned per quote; it is
+     * never a second thing an operator can set.
+     *
+     * INTERNAL VALUE, NOT LABEL. Three options diverge, and they are the three
+     * largest categories:
+     *
+     *     label "Primary Packaging"   → value `Primary`
+     *     label "Secondary Packaging" → value `Secondary`
+     *     label "Logistics"           → value `Third Party Logistics`
+     *
+     * A value derived from the HubSpot UI's labels would miss about half the
+     * catalogue and fail silently, so this column stores exactly what the API
+     * returns.
+     *
+     * NULL means one of two genuinely different things, and they stay
+     * distinguishable rather than being collapsed into a fabricated type:
+     * either the product is Nexus-local (no `hubspot_product_id`), or HubSpot
+     * itself has no classification for it (5 such products as of 2026-08-13).
+     *
+     * Not an enum: HubSpot may add options at any time, and a database enum
+     * would reject a legal upstream value at ingestion. Fidelity to the source
+     * outranks local validation here.
+     */
+    hubspotProductType: text("hubspot_product_type"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -2055,10 +2229,6 @@ export const leaves = pgTable(
       .defaultNow(),
   },
   (t) => [
-    // Library browse by type (filter on archived for active set).
-    index("leaves_product_type_idx")
-      .on(t.productTypeId)
-      .where(sql`archived = false`),
     // Library search by SKU.
     index("leaves_sku_idx").on(t.sku).where(sql`archived = false`),
     // slice-hubspot-bidirectional — partial index over archived
@@ -2196,6 +2366,54 @@ export const leafSpecs = pgTable(
     leafId: uuid("leaf_id")
       .notNull()
       .references(() => leaves.id, { onDelete: "cascade" }),
+    /**
+     * Scope. NULL = Library master/default; NOT NULL = quote-owned authority.
+     *
+     * B-3. Without it, `version_number`, `is_current` and the effective dates
+     * each had to mean two things — quote-owned rows are siblings, not a
+     * version succession. Naming the scope lets every one of them mean exactly
+     * one thing within it.
+     */
+    quoteId: uuid("quote_id").references(() => quotes.id, {
+      onDelete: "cascade",
+    }),
+    /** Which Library default this quote-owned row was templated from. */
+    templatedFromSpecId: uuid("templated_from_spec_id"),
+    /**
+     * The Product Type governing THESE values.
+     *
+     * Carried on the authority because the type IS the schema `spec_values`
+     * are validated against. Freezing the values while inheriting a mutable
+     * Library type would let a Library type change silently invalidate every
+     * quote's specification. Library rows leave it NULL and defer to
+     * `leaves.product_type_id`.
+     */
+    productTypeId: text("product_type_id").references(() => productTypes.id),
+    /**
+     * The PINNED Spec Schema. Step 4 · the authority cutover.
+     *
+     * Product Type (`leaves.hubspot_product_type`) is LIVE authority and is
+     * what every surface displays. Spec Schema is Nexus behaviour derived from
+     * it, and it is pinned here at attachment so a later HubSpot
+     * reclassification cannot retroactively reinterpret values an operator
+     * already authored.
+     *
+     * Six states, none interchangeable:
+     *   'primary' | 'secondary' | 'tertiary'  a schema applies
+     *   'no_schema'  specifications intentionally do not apply
+     *   'unmapped'   classified, no governed disposition — never folded into
+     *                no_schema, because one is an answer and the other is not
+     *   'no_type'    authoritative Product Type is missing (NO TYPE SET)
+     *   NULL         not pinned. Correct for Library rows, which are templates
+     *                and defer; a bug on a quote-owned row.
+     */
+    specSchema: text("spec_schema"),
+    /**
+     * Provenance, NEVER display. The authoritative HubSpot internal value the
+     * pin was derived from, so the pin stays explicable after HubSpot changes
+     * and an `unmapped` pin is recoverable. Display reads the live value.
+     */
+    schemaDerivedFromType: text("schema_derived_from_type"),
     specValues: jsonb("spec_values").notNull().default(sql`'{}'::jsonb`),
     versionNumber: integer("version_number").notNull().default(1),
     isCurrent: boolean("is_current").notNull().default(true),
@@ -2218,9 +2436,17 @@ export const leafSpecs = pgTable(
     // Partial unique — one current row per leaf. Enforces "the
     // current spec for leaf X is unique" while allowing multiple
     // historical versions.
+    // Only a LIBRARY-scope row may be the Library default.
     uniqueIndex("leaf_specs_current_idx")
       .on(t.leafId)
-      .where(sql`is_current = true`),
+      .where(sql`quote_id is null and is_current = true`),
+    // One quote-owned authority per (quote, leaf) — so two appearances of the
+    // same product in one quote cannot silently diverge, and quote-side edits
+    // need no reference counting because exclusivity is structural.
+    uniqueIndex("leaf_specs_quote_owned_idx")
+      .on(t.quoteId, t.leafId)
+      .where(sql`quote_id is not null`),
+    index("leaf_specs_quote_leaf_idx").on(t.quoteId, t.leafId),
     // Historical version lookup (pin-time queries +
     // version-comparison views).
     index("leaf_specs_leaf_version_idx").on(t.leafId, t.versionNumber),

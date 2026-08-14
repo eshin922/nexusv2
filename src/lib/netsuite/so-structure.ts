@@ -79,9 +79,34 @@ export interface NormalizedGroup {
 
 export interface NormalizedStructure {
   groups: NormalizedGroup[];
-  /** Item lines outside any group — must be empty on a turnkey_only order. */
+  /**
+   * Item lines outside any group.
+   *
+   * These are no longer an error by definition. A Direct Product is a peer
+   * projection — assembly-less by the operator's explicit choice — and lands
+   * here legitimately. What must hold is that every one of them was PLANNED:
+   * an unexpected ungrouped line is still a failure, and a planned one that is
+   * ABSENT is the more dangerous failure, because the order still reconciles
+   * internally without it.
+   */
   ungroupedMembers: ObservedLine[];
   systemLines: ObservedLine[];
+}
+
+/**
+ * A Direct Product line the accepted quote requires on the Sales Order.
+ *
+ * Carried separately from `PlannedGroup` because the two are peers with
+ * different provider mechanics: a group is expanded by NetSuite, a Direct line
+ * is sent whole.
+ */
+export interface PlannedDirectLine {
+  sku: string;
+  netsuiteItemId: string;
+  quantity: number;
+  rate: number;
+  /** `rate × quantity`, 4dp — this line's contribution to the accepted total. */
+  amount: number;
 }
 
 /**
@@ -241,6 +266,12 @@ export function planRateConvergence(
   plannedGroups: PlannedGroup[],
   structure: NormalizedStructure,
   tierQty: number,
+  /**
+   * Direct Product lines the accepted quote requires outside the groups.
+   * Optional so existing callers keep their exact previous meaning: with none
+   * declared, every ungrouped line is unexpected, as before.
+   */
+  plannedDirectLines: PlannedDirectLine[] = [],
 ): ConvergencePlan {
   const patches: PlannedPatch[] = [];
   const blockers: string[] = [];
@@ -252,9 +283,24 @@ export function planRateConvergence(
     );
     return { patches, alreadyCorrect, blockers };
   }
-  if (structure.ungroupedMembers.length > 0) {
+
+  // Only UNPLANNED ungrouped lines block.
+  //
+  // This planner is the half that ACTS; `evaluateSuccessGate` is the half that
+  // REPORTS. Repairing the reporter alone left this one still refusing every
+  // ungrouped line, so a mixed order blocked here, no rate was patched at all,
+  // and the members stayed at the $0.00 un-priced expansion — observed live on
+  // SO2714. A structural assumption has to be lifted everywhere it was encoded,
+  // and the acting half matters more than the reporting half.
+  const expectedUngrouped = new Set(
+    plannedDirectLines.map((l) => String(l.netsuiteItemId)),
+  );
+  const unexpected = structure.ungroupedMembers.filter(
+    (l) => !expectedUngrouped.has(String(l.netsuiteItemId)),
+  );
+  if (unexpected.length > 0) {
     blockers.push(
-      `${structure.ungroupedMembers.length} item line(s) sit outside any group on a grouped order`,
+      `${unexpected.length} unplanned item line(s) sit outside any group on a grouped order`,
     );
   }
 
@@ -351,6 +397,12 @@ export interface SuccessGateResult {
  */
 export function evaluateSuccessGate(args: {
   plannedGroups: PlannedGroup[];
+  /**
+   * Direct Product lines the accepted quote requires. Empty for a
+   * group-only order; omitted defaults to empty, so existing callers keep
+   * their previous meaning exactly.
+   */
+  plannedDirectLines?: PlannedDirectLine[];
   structure: NormalizedStructure;
   tierQty: number;
   acceptedTotal: number;
@@ -361,15 +413,13 @@ export function evaluateSuccessGate(args: {
 }): SuccessGateResult {
   const failures: string[] = [];
   const { plannedGroups, structure, tierQty, acceptedTotal, header, expectHeader } = args;
+  const plannedDirectLines = args.plannedDirectLines ?? [];
 
   // 1 · expected group count
   if (structure.groups.length !== plannedGroups.length) {
     failures.push(
       `group count ${structure.groups.length} ≠ planned ${plannedGroups.length}`,
     );
-  }
-  if (structure.ungroupedMembers.length > 0) {
-    failures.push(`${structure.ungroupedMembers.length} item line(s) outside any group`);
   }
 
   const n = Math.min(structure.groups.length, plannedGroups.length);
@@ -426,9 +476,93 @@ export function evaluateSuccessGate(args: {
     }
   }
 
-  // 7 · Σ group amounts = accepted total
-  if (!amountsEqual(groupAmountSum, acceptedTotal)) {
-    failures.push(`Σ group amounts ${groupAmountSum} ≠ accepted total ${acceptedTotal}`);
+  // 6b · Direct Product lines — presence and attribution, not just totals.
+  //
+  // THE FAILURE THIS EXISTS TO CATCH. A mixed order missing its Direct line
+  // reconciles perfectly against its own remaining lines: the groups match
+  // their planned amounts, every member is present at the right rate, and
+  // nothing looks wrong. Only comparing the observed set against what was
+  // ACCEPTED reveals that a product the customer bought never reached the
+  // order. Totals alone are structurally incapable of catching it, which is
+  // why each planned line is matched individually below.
+  let directAmountSum = 0;
+  const observedUngrouped = [...structure.ungroupedMembers];
+
+  for (const planned of plannedDirectLines) {
+    const idx = observedUngrouped.findIndex(
+      (l) => String(l.netsuiteItemId) === String(planned.netsuiteItemId),
+    );
+    if (idx === -1) {
+      // Also assert it was not smuggled INTO a group — a Direct Product that
+      // reappears as a group member is misattributed, not merely missing, and
+      // the two need different remedies.
+      const swallowed = structure.groups.some((g) =>
+        g.members.some(
+          (m) => String(m.netsuiteItemId) === String(planned.netsuiteItemId),
+        ),
+      );
+      failures.push(
+        swallowed
+          ? `Direct Product ${planned.sku} (${planned.netsuiteItemId}) appears INSIDE an Item Group — it was accepted as a standalone line`
+          : `Direct Product ${planned.sku} (${planned.netsuiteItemId}) is ABSENT from the Sales Order — accepted but never projected`,
+      );
+      continue;
+    }
+    const line = observedUngrouped.splice(idx, 1)[0];
+
+    if (Number(line.quantity) !== Number(planned.quantity)) {
+      failures.push(
+        `Direct Product ${planned.sku}: quantity ${String(line.quantity)} ≠ accepted ${planned.quantity}`,
+      );
+    }
+    if (line.rate === null || !ratesEqual(line.rate, planned.rate)) {
+      failures.push(
+        `Direct Product ${planned.sku}: rate ${String(line.rate)} ≠ accepted ${planned.rate}`,
+      );
+    }
+    if (line.rate === 0 || line.amount === 0) {
+      failures.push(`Direct Product ${planned.sku} is $0.00 — un-priced`);
+    }
+    if (line.amount !== null) directAmountSum += line.amount;
+  }
+
+  // Any ungrouped line left over was never accepted. Previously EVERY ungrouped
+  // line was an error; now only the unplanned ones are — the check narrowed
+  // rather than disappeared.
+  for (const extra of observedUngrouped) {
+    failures.push(
+      `unexpected ungrouped line: item ${String(extra.netsuiteItemId)} was not part of the accepted quote`,
+    );
+  }
+
+  // A grouped member must never ALSO appear as a flat line — that is the
+  // Probe 7a doubling, observed from the provider side rather than prevented
+  // at the payload.
+  for (const g of structure.groups) {
+    for (const m of g.members) {
+      if (
+        structure.ungroupedMembers.some(
+          (u) => String(u.netsuiteItemId) === String(m.netsuiteItemId),
+        )
+      ) {
+        failures.push(
+          `item ${String(m.netsuiteItemId)} appears BOTH inside a group and as a flat line — duplicated`,
+        );
+      }
+    }
+  }
+
+  // 7 · Σ group amounts + Σ Direct amounts = accepted total.
+  //
+  // Summing groups alone was correct only while every line was grouped. Once
+  // Direct Products became a peer projection it under-counted the order by
+  // exactly the Direct subtotal, so a CORRECT mixed order failed the gate and
+  // an order missing its Direct line could have passed it.
+  const commercialTotal = groupAmountSum + directAmountSum;
+  if (!amountsEqual(commercialTotal, acceptedTotal)) {
+    failures.push(
+      `Σ group amounts ${groupAmountSum} + Σ Direct amounts ${directAmountSum} = ${commercialTotal} ≠ accepted total ${acceptedTotal}`,
+    );
   }
 
   // Header — checked IN ADDITION, never INSTEAD.

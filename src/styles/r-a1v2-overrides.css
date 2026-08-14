@@ -413,3 +413,320 @@
   font-size: 11px;
   line-height: 1.4;
 }
+
+/* Direct Product row — nexus extension, no canonical source.
+ *
+ * A Direct Product is a peer of an Item Group, so it reuses `.a1v2-asy-row`'s
+ * register deliberately: same height, same rhythm, same left rule. It carries
+ * one extra cell (the actions cluster), so the grid is restated with a seventh
+ * column rather than letting the surplus child wrap onto an implicit row.
+ *
+ * The left rule is the only visual distinction — a Direct Product has no
+ * children to expand, so the accent-on-expanded treatment would never fire and
+ * the row would otherwise read as a permanently-collapsed Item Group.
+ */
+.a1v2-asy-row.a1v2-direct-row {
+  /* B-4/B-10 · the PRODUCT shell at ROOT depth.
+   *
+   * Five cells, no leading column. Aligning Direct SKUs to the container's 24px
+   * grid would re-assert the equivalence this change removes; aligning them to
+   * the member's 60px would imply an indentation that is not there. Neither
+   * target is right, so the column serves no alignment function and identity
+   * takes the width.
+   *
+   * Padding drops to the product row's rhythm. The 3px left rule goes
+   * TRANSPARENT rather than being removed, so the border box still reserves its
+   * width and root rows stay aligned with the container above them — the rule
+   * is a container marking, but its space is shared geometry.
+   *
+   * What is deliberately ABSENT is the whole statement: no connector, no 60px
+   * inset, no .a1v2-leaves tint. A member is contained; a Direct Product is
+   * not, and containment is the only difference because it is the only thing
+   * that actually differs.
+   */
+  grid-template-columns: 110px 1fr auto auto auto;
+  padding: 10px 16px;
+  border-left-color: transparent;
+}
+.a1v2-asy-row.a1v2-direct-row .direct-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* B-4A · Item Group row restoration — evidenced against qw_styles.css.
+ *
+ * ITEM 1 — GRID. The canonical `.a1v2-asy-row` declares six columns for the six
+ * cells CD drew. Nexus renders eight: the canonical six plus a notes trigger and
+ * `+ Add products`. The surplus wrapped onto an implicit second row, which is
+ * what broke the seal between the group header and its `.a1v2-leaves` block —
+ * not the member connector, which is intact and canonical.
+ *
+ * Restated with one column per rendered cell, exactly the precedent
+ * `.a1v2-direct-row` already set for its actions cluster. Column widths and
+ * order are unchanged; only the count grows.
+ *
+ * ITEM 2 — STRUCTURAL IDENTITY. Canonical gives the accent left rule to
+ * `.expanded`, and `isExpanded` is `children.length > 0`. So an EMPTY Item Group
+ * rendered identically to a Direct Product: the structural distinction rested on
+ * a population state that does not track it.
+ *
+ * The accent rule now marks the Item Group itself. The expanded state keeps its
+ * own separate treatment — the tinted background — so the two signals stay
+ * legible as different things: what this row IS, and whether it is open.
+ *
+ * `:not(.a1v2-direct-row)` rather than ordering, so the Direct Product's
+ * `--ink-4` rule and this one can never both match the same element.
+ */
+.a1v2-asy-row:not(.a1v2-direct-row) {
+  grid-template-columns: 24px 90px 1fr auto auto auto auto auto;
+  border-left-color: var(--accent);
+}
+
+/* B-6 · scope head — the one sentence that says which authority is being
+ * edited. Same structure on both surfaces so the DIFFERENCE reads rather than
+ * the wording, and the left rule carries the distinction at a glance: accent
+ * for a quote's own values, neutral for the shared Library template.
+ */
+.a1v2-scope-head {
+  border-left: 3px solid var(--ink-4);
+  padding: 10px 0 10px 14px;
+  margin-bottom: 18px;
+}
+.a1v2-scope-head.quote { border-left-color: var(--accent); }
+.a1v2-scope-head h2 {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0;
+}
+.a1v2-scope-head p {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 3px 0 0;
+}
+
+/* B-5 · usage note. Deliberately quiet: it orients, it does not warn. The
+ * banner it replaced warned about a propagation that no longer happens.
+ */
+.a1v2-usage-note {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-4);
+  margin-bottom: 14px;
+}
+
+/* B-8 · member-row density. Within the DA — no new visual vocabulary.
+ *
+ * ONE COLUMN FEWER. The cross-quote usage cell is gone from this surface (it
+ * changes no quote-side decision under B-3 isolation), so the row declares five
+ * cells and the reclaimed width goes to the 1fr identity column. On a
+ * 15-product quote that width is returned on every row.
+ */
+.a1v2-leaf-row {
+  grid-template-columns: 60px 110px 1fr auto auto;
+}
+
+/* TYPE TAG DEMOTED TO THE DA'S OWN QUIET REGISTER.
+ *
+ * The canonical stylesheet contains two type-tag treatments: an outlined accent
+ * one on member rows and a flat one on Item Group rows. This applies the second
+ * to the first — a move within the DA rather than an invention.
+ *
+ * The point is subtraction. Two coloured, enclosed shapes sat adjacent at the
+ * row's right edge and only one of them was actionable; removing the border and
+ * the accent from the passive one leaves the readiness chip as the only
+ * coloured element, without making the chip louder.
+ */
+.a1v2-leaf-row .type-tag.leaf-type {
+  color: var(--ink-4);
+  background: var(--paper-3);
+  border-color: transparent;
+}
+
+/* UNTYPED STAYS ACTIONABLE. "No type set" requires operator action, so it
+ * belongs with the readiness signals rather than with valid classification
+ * metadata. Restated after the demotion above so the cascade cannot quietly
+ * flatten it — the whole value of the demotion is that what remains coloured
+ * is what needs doing.
+ */
+.a1v2-leaf-row .type-tag.leaf-type.untyped {
+  color: var(--bad);
+  background: var(--bad-soft);
+  border-color: oklch(from var(--bad) l c h / 0.25);
+}
+
+/* B-3 · Step 3 — Edit specs, subordinate inside the existing action cell.
+ *
+ * The DA's fifth column holds ONE state-exclusive control (Add / Restore /
+ * ✓ Attached). This stacks a quiet secondary beneath it rather than beside it:
+ * no sixth column, no wider modal, and the primary keeps the visual weight.
+ *
+ * The cell is a column flex so the two can never collide with the status cell
+ * or wrap into each other — the failure the previous `Edit defaults` column
+ * produced when it was given peer standing.
+ */
+.lib-row .action-cell {
+  /* Row, not column: two compact icon controls side by side. Still one cell —
+     no sixth column, no wider modal. */
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Compact, but NOT tiny, and the whole control is the hit target rather than
+ * the glyph. 28px square clears the 24px minimum for a pointer target while
+ * still fitting the 56px fixed row height the DA specifies. */
+.lib-icon-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 5px;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+/* PRIMARY — the add control keeps the accent fill it had as a text button, so
+ * demoting the secondary did not also demote the main workflow. */
+.lib-attach-btn.lib-icon-btn { font-size: 16px; font-weight: 500; }
+
+/* SECONDARY — visible at rest, so discoverability never depends on hover, but
+ * outlined rather than filled so it cannot read as a peer of Add.
+ * A pencil, not a gear: this edits product specifications, not settings. */
+.lib-edit-specs.lib-icon-btn {
+  background: none;
+  border: 1px solid var(--rule);
+  color: var(--ink-3);
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.lib-edit-specs.lib-icon-btn:hover {
+  color: var(--ink);
+  border-color: var(--ink-4);
+  background: var(--paper-2);
+}
+.lib-icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  color: var(--ink);
+}
+
+/* The stacked spec editor is a reading-and-editing surface, not a form dialog,
+ * so it takes more width than the create modal. */
+.r-lib-spec-modal { max-width: 980px; width: 92vw; }
+
+/* Step 2B · Type filter — one control beside Search.
+ *
+ * Replaces a horizontal chip row that clipped the vocabulary. The set is
+ * DYNAMIC, so no fixed-width control can be right for whatever HubSpot has
+ * next; a select is bounded by its own box and unbounded in what it can hold.
+ */
+.lib-type-select {
+  height: 30px;
+  max-width: 220px;
+  padding: 0 26px 0 10px;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.lib-type-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Constrained-state composition. The status pill and the action controls were
+ * pressing against each other when the status text is long
+ * ("NOT PROJECTABLE — NO SKU") and the action area still carries two controls.
+ *
+ * Fixed inside the existing five columns: the status cell may shrink and wrap
+ * its own text, and the action cell may not shrink at all. Previously both were
+ * flexible, so the two negotiated width against each other and the loser
+ * collided. No sixth column and no wider modal.
+ */
+.lib-row .status-cell {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+.lib-row .status-cell .status-pill { white-space: normal; text-align: left; }
+.lib-row .action-cell { flex-shrink: 0; }
+
+/* B-4/B-10 · one visual system.
+ *
+ * GOVERNING PRINCIPLE: register represents structural ROLE — container or
+ * product. Depth is carried by position, indentation and connectors, which is
+ * what the DA already uses depth for.
+ *
+ * The seam this closes: a Direct Product is a PRODUCT, and it was rendering in
+ * the Item Group's container register — 14px display italic with an accent SKU
+ * pill — so a container and a product were typographically identical and only a
+ * rule colour and a glyph told them apart. On the reference quote the pills were
+ * empty as well, so Direct Products were taking container prominence while
+ * carrying no container identity at all.
+ *
+ * Structural independence is preserved by POSITION and the existing top-level
+ * left rule, not by typography. No third register is introduced.
+ */
+.a1v2-asy-row.a1v2-direct-row .name-cell .name {
+  font-family: inherit;
+  font-style: normal;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+/* Plain mono identity, as member rows use — not a filled accent pill. */
+.a1v2-asy-row.a1v2-direct-row .sku-pill {
+  background: none;
+  color: var(--ink-3);
+  font-weight: 400;
+  font-size: 10.5px;
+  padding: 0;
+  text-align: left;
+}
+/* The role word sits with the metadata rather than competing with the name. */
+.a1v2-asy-row.a1v2-direct-row .leaf-count {
+  font-size: 10px;
+  color: var(--ink-4);
+}
+/* Type tag matches the demoted member treatment exactly, so Direct and member
+   products carry ONE type grammar and the readiness chip stays the only
+   coloured element on a product row at either level. `untyped` keeps the
+   warning register, as on member rows, because a missing type is actionable. */
+.a1v2-asy-row.a1v2-direct-row .type-tag.leaf-type {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  color: var(--ink-4);
+  background: var(--paper-3);
+  white-space: nowrap;
+}
+.a1v2-asy-row.a1v2-direct-row .type-tag.leaf-type.untyped {
+  color: var(--bad);
+  background: var(--bad-soft);
+  border-color: oklch(from var(--bad) l c h / 0.25);
+}
+/* Overflow needs positioning context now that the actions collapsed into it. */
+.a1v2-asy-row.a1v2-direct-row .direct-actions { position: relative; }

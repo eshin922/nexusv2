@@ -3295,7 +3295,7 @@ async function cloneQuoteGraph(
           sku: a.sku,
           name: a.name,
           packLabel: a.packLabel,
-          productTypeId: a.productTypeId,
+          itemGroupCategoryId: a.itemGroupCategoryId,
           description: a.description,
           url: a.url,
           imageUrl: a.imageUrl,
@@ -3341,6 +3341,17 @@ async function cloneQuoteGraph(
           );
         }
         const attached = await attachGroupedMembership(tx, {
+          // B-3 · Copy Quote duplicates the commercial configuration being
+          // copied. The destination's authority is templated from the SOURCE
+          // QUOTE's, not re-resolved from the Library default, which would
+          // silently discard whatever the source had configured.
+          //
+          // FR-12 is silent on specifications — neither the brief nor SPEC
+          // names leaf_specs in the Cloneable/Inherited/Reset buckets, because
+          // quote-owned specs did not exist when it was written. So this adds
+          // a bucket rather than contradicting one.
+          specTemplateFromQuoteId: args.sourceQuoteId,
+          createdBy: args.createdByUserId,
           quoteId: newQuoteId,
           assemblyId: newAsyId,
           leafId: sourceJunction.leafId,

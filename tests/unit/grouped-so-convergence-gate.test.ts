@@ -296,10 +296,16 @@ test("18 · Item-derived Class must be preserved on members", () => {
   assert.match(r.failures.join("|"), /class 1 ≠ Item-derived 10/);
 });
 
-test("19 · Σ group amounts must equal the accepted total", () => {
+test("19 · Σ group amounts (+ Σ Direct) must equal the accepted total", () => {
   const r = gate(converged(), { acceptedTotal: 13000 });
   assert.equal(r.pass, false);
-  assert.match(r.failures.join("|"), /Σ group amounts 12000 ≠ accepted total 13000/);
+  // The commercial total now spans BOTH projections. With no Direct lines the
+  // Direct term is 0 and the group-only invariant is unchanged — the message
+  // names both sides so a mixed-order failure says which half is short.
+  assert.match(
+    r.failures.join("|"),
+    /Σ group amounts 12000 \+ Σ Direct amounts 0 = 12000 ≠ accepted total 13000/,
+  );
 });
 
 test("20 · FALSIFICATION — crash-after-zero and crash-after-some both converge", () => {

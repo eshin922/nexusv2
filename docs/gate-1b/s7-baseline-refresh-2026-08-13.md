@@ -120,3 +120,58 @@ regression until traced. That is the cost this rule prevents — not the edit
 itself, which was fine, but the silence around it.
 
 Deliberately not a new governance system. One process rule.
+
+---
+
+## Superseded 2026-08-14 by two further authorized refreshes
+
+The baseline recorded above (**30 entries · `fc89ad0f…`**) was superseded on the
+`release/v1-spec-compliance-audit` branch before the merge to main. Recorded
+here because the merge presented a conflict in the baseline files and the
+resolution is a preservation-gate decision, not a mechanical one.
+
+**Current baseline: 33 entries · `22264ba2919d0908debff2efe799e93a46f3abb44b6df3db04cde860f13dc0e8`.**
+
+### What differs, and why
+
+| | |
+|---|---|
+| shared quotes | **30** — main's set is a strict subset; `only_theirs = 0` |
+| digests differing on shared quotes | **2** |
+| quotes present only in the newer baseline | **3** |
+
+The two differing digests are exactly the two **individually authorized,
+isolation-evidenced** controlled refreshes performed during the Product Library
+operator walk:
+
+- `600dd15c` · Epicuren — Pro Mask Boosters / Alt 5 — the ordering-only delta.
+- `2f29af72` · Smart Pressed Juice — Juice Cleanse Reorder 2026 / Primary — the
+  operator-walk delta, after which the quote was retired from further mutation.
+
+The three additional quotes (`a4c36959`, `ad6f7513`, `d6a3ba17`) joined the
+basket by the standing rule — structure-bearing quotes outside the
+`ZZ-VALIDATION-` namespace — because they exist in the shared database.
+
+### How the conflict was settled
+
+**Empirically, not by argument.** `verify:s7-preserved` was run against BOTH
+baselines on the same live database:
+
+```
+main   (30 · fc89ad0f)  EXIT=1  FAIL 2f29af72 · FAIL 600dd15c
+branch (33 · 22264ba2)  EXIT=0  ok 33 quotes — every captured scalar identical
+```
+
+Main's baseline no longer describes the database: it fails on precisely the two
+quotes whose refreshes were authorized after it was captured. The newer baseline
+is therefore the correct one, and taking it loses none of main's coverage.
+
+### Flagged, not absorbed
+
+The three added quotes are labelled **`CERT-MIXED-DELETE-ME-2026-08-13…`**. They
+are certification fixtures whose names announce that they are meant to be
+deleted, and the basket rule admitted them automatically. **If they are deleted,
+S-7 will fail on missing entries until the baseline is refreshed again.** That is
+a property of the basket predicate rather than of this merge, so it is recorded
+rather than quietly worked around — but it should be dispositioned before the
+fixtures are cleaned up.

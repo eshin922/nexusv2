@@ -127,6 +127,11 @@ async function versionedFirmSettingsUpdate(args: {
         prior?.hubspotDealStageOnAccept ?? "Closed Won",
       netsuiteSoStatusOnCreate:
         prior?.netsuiteSoStatusOnCreate ?? "Pending Fulfillment",
+      // Slack approval channel — SAME HARD GATE. Without this line a
+      // margin-only edit inserts a new row with a NULL channel, approval
+      // requests silently stop being delivered, and nothing reports an error.
+      // Regression: tests/unit/firm-settings-slack-channel-carry-forward.test.ts
+      slackApprovalChannelId: prior?.slackApprovalChannelId ?? null,
       // Override with caller's edits
       ...overrides,
       // Versioning fields (always new)

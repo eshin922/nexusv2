@@ -6,9 +6,6 @@ import type {
 import { CompletenessChip } from "@/components/assembly-tree/completeness-chip";
 import { SpecPanel } from "./spec-panel";
 import { PlaceholderPanel } from "./placeholder-panel";
-import { TypePicker } from "./type-picker";
-import { ChangeTypeModal } from "./change-type-modal";
-import { CascadeWarning } from "./cascade-warning";
 
 // Phase A.1 v2 impl-3 Step 3 — SpecEntry surface (server wrapper).
 //
@@ -26,18 +23,37 @@ import { CascadeWarning } from "./cascade-warning";
 // fill the actual panels.
 
 export function SpecEntrySurface({
+  scope,
   data,
   readOnly,
 }: {
+  /**
+   * B-3 — which authority these edits target. No default: the two candidates
+   * are one quote and every future quote.
+   */
+  scope: { quoteId: string } | { library: true };
   data: LeafSpecEntryData;
   readOnly: boolean;
 }) {
   const { leaf, productType, currentSpec, references } = data;
   const completeness = computeCompleteness(productType, currentSpec?.specValues);
-  const refCount = references.length;
+
+  const isLibrary = "library" in scope;
 
   return (
     <>
+      {/* B-6 — scope is part of correctness now, so each surface says which
+          authority it edits rather than leaving it to the URL or the nav rail.
+          One sentence, and the same shape on both, so the DIFFERENCE is what
+          reads rather than the wording. */}
+      <div className={`a1v2-scope-head ${isLibrary ? "library" : "quote"}`}>
+        <h2>{isLibrary ? "Default specifications" : "Quote specifications"}</h2>
+        <p>
+          {isLibrary
+            ? "Used as the starting point for future quotes. Existing quotes are not changed."
+            : "Changes apply only to this quote. Library defaults and other quotes are not changed."}
+        </p>
+      </div>
       {readOnly ? (
         <div className="a1v2-rls-banner">
           <span className="glyph" aria-hidden="true">
@@ -49,13 +65,6 @@ export function SpecEntrySurface({
             but inputs are disabled.
           </div>
         </div>
-      ) : null}
-      {!readOnly ? (
-        <CascadeWarning
-          references={references}
-          leafName={leaf.name}
-          currentVersion={currentSpec?.versionNumber ?? 1}
-        />
       ) : null}
       <div className="a1v2-card">
         <div className="a1v2-leaf-header">
@@ -74,10 +83,6 @@ export function SpecEntrySurface({
                   <span>${Number(leaf.unitCost).toFixed(2)} unit cost</span>
                 </>
               ) : null}
-              <span className="sep">·</span>
-              <span>
-                Referenced by {refCount} ASY{refCount === 1 ? "" : "s"}
-              </span>
               {leaf.fscClaim ? (
                 <>
                   <span className="sep">·</span>
@@ -104,28 +109,24 @@ export function SpecEntrySurface({
                 {productType.name}
               </span>
             ) : null}
-            {productType && !readOnly ? (
-              <ChangeTypeModal
-                leafId={leaf.id}
-                currentType={productType}
-                availableTypes={data.availableLeafTypes}
-                disabled={readOnly}
-              />
-            ) : null}
+            {/* Step 8 · the change-type control is retired. Classification is
+                HubSpot's, and the Spec Schema follows from it — so there is
+                nothing here for an operator to choose. Offering a choice was
+                what created a second authority. */}
           </div>
         </div>
         <div className="a1v2-card-body">
           {!productType ? (
-            <TypePicker
-              leafId={leaf.id}
-              availableTypes={data.availableLeafTypes}
-              disabled={readOnly}
+            <NoSchemaPanel
+              state={data.specSchemaState}
+              typeValue={leaf.hubspotProductType}
             />
           ) : productType.placeholder ? (
             <PlaceholderPanel productType={productType} />
           ) : productType.fieldSchema ? (
             // Scenarios ⑤/⑥ — SpecPanel field grid (Step 4-5).
             <SpecPanel
+              scope={scope}
               title={productType.name}
               fields={productType.fieldSchema.fields}
               leafId={leaf.id}
@@ -164,6 +165,7 @@ function getFilledCount(c: SpecCompleteness | null): number {
       return c.filled;
     case "empty":
     case "no_type":
+    case "no_schema":
     case "placeholder":
       return 0;
   }
@@ -201,4 +203,58 @@ function computeCompleteness(
     return { kind: "partial", typeName: productType.name, filled, total };
   }
   return { kind: "complete", typeName: productType.name, total };
+}
+
+/**
+ * Step 8 · what the spec surface says when no field set applies.
+ *
+ * Replaces the TypePicker. There is no longer a choice to offer here: a
+ * product's classification is HubSpot's, and the Spec Schema follows from it.
+ * So the panel explains WHICH of the two situations this is, and where the
+ * operator would go to change it — which is HubSpot, not Nexus.
+ *
+ * The two states are kept apart deliberately. "Not classified" is an
+ * unanswered question with an action attached; "specifications do not apply"
+ * is a finished answer with none. Showing one message for both is what made
+ * classified and unclassified products look identical.
+ */
+function NoSchemaPanel({
+  state,
+  typeValue,
+}: {
+  state: "schema" | "no_schema" | "unmapped" | "no_type";
+  typeValue: string | null;
+}) {
+  if (state === "no_schema") {
+    return (
+      <div className="a1v2-empty">
+        <strong>Specifications not applicable</strong>
+        <p>
+          {typeValue ?? "This category"} does not carry a product
+          specification. Nothing is missing.
+        </p>
+      </div>
+    );
+  }
+  if (state === "unmapped") {
+    return (
+      <div className="a1v2-empty">
+        <strong>No specification schema for “{typeValue}”</strong>
+        <p>
+          This Product Type has no governed schema yet. It needs adding to the
+          mapping before specifications can be authored.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="a1v2-empty">
+      <strong>No Product Type set</strong>
+      <p>
+        This product has no Product Type in HubSpot, so no specification schema
+        applies. Classify it in HubSpot and it will pick up its schema on the
+        next attachment.
+      </p>
+    </div>
+  );
 }

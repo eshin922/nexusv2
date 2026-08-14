@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
   // Slice 11.5 — NEW-model cost-data tables (Step 2 schema).
@@ -161,6 +161,7 @@ export default async function CostBuildPage({
   const [
     newAssemblyRows,
     newAssemblyLeafJoinRows,
+    newDirectProductRows,
     newPkgInputRows,
     newProdInputRows,
     tiers,
@@ -183,6 +184,23 @@ export default async function CostBuildPage({
         asc(assemblyLeaves.assemblyId),
         asc(assemblyLeaves.position),
       ),
+    // Direct Products — attached to the quote with no assembly, so they have no
+    // `assembly_leaves` row and the join above cannot see them. Their cost rows
+    // DO arrive (the input query below scopes canonically through
+    // `quote_leaves`), so without this the surface renders a priced row it
+    // cannot name: "Unknown component".
+    //
+    // Found by the operator walk, not by the structural tests — those proved
+    // the attachment and the Setup render, and this surface resolves identity
+    // through a different query.
+    db
+      .select({ quote_leaves: quoteLeaves, leaves })
+      .from(quoteLeaves)
+      .innerJoin(leaves, eq(leaves.id, quoteLeaves.leafId))
+      .where(
+        and(eq(quoteLeaves.quoteId, quote.id), isNull(quoteLeaves.assemblyId)),
+      )
+      .orderBy(asc(quoteLeaves.position), asc(quoteLeaves.createdAt)),
     db
       .select({ assembly_leaf_inputs: assemblyLeafInputs })
       .from(assemblyLeafInputs)
@@ -370,6 +388,32 @@ export default async function CostBuildPage({
       tariffPct: null,
       createdAt: al.createdAt,
       updatedAt: al.createdAt,
+    });
+  }
+  // Direct Products enter the same synthetic-SKU list as leaves. `id` carries
+  // the canonical quote_leaf id because there is no legacy junction id to carry
+  // — and `parentSkuId` stays null, which is what makes the row a quote-level
+  // product rather than a member of anything.
+  for (const { quote_leaves: ql, leaves: leaf } of newDirectProductRows) {
+    skus.push({
+      id: ql.id,
+      quoteLeafId: ql.id,
+      quoteId: quote.id,
+      hubspotProductId: leaf.hubspotProductId ?? null,
+      skuLabel: leaf.sku ?? "",
+      productName: leaf.name,
+      unitsPerPack: 1,
+      retailBenchmark: null,
+      sortOrder: ql.position,
+      notes: null,
+      lastHubspotRefreshAt: null,
+      parentSkuId: null,
+      skuRole: "leaf",
+      qtyPerParent: ql.quantity,
+      dutyPct: null,
+      tariffPct: null,
+      createdAt: ql.createdAt,
+      updatedAt: ql.createdAt,
     });
   }
 

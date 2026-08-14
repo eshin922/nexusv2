@@ -27,7 +27,7 @@ export function MarkAcceptedPending({
             ⏳ Mark accepted · waiting on override
           </button>
           <span className="macc-cta-secondary">
-            Slack DM sent · waiting on admin approval
+            Waiting on approver · contact them directly
           </span>
         </div>
       </div>
@@ -36,15 +36,15 @@ export function MarkAcceptedPending({
         <div className="pulse" />
         <div className="text">
           <strong>
-            Override request pending · Slack DM sent to sales leadership.
+            Override request pending · no notification has been sent.
           </strong>{" "}
-          You&rsquo;ll be notified in Slack and in-app the moment approval
-          lands; this page will refresh.
+          Nexus does not yet deliver approval requests — contact the approver
+          directly. This page reflects approval the moment it is recorded.
           <span className="meta">
             quote_warnings.override_status = pending · stub data — Slice 12 wires real timing.
           </span>
         </div>
-        <button className="btn sm">Re-send DM</button>
+        <button className="btn sm">Re-send request</button>
         <button className="btn sm ghost">Cancel request</button>
       </div>
 
@@ -91,8 +91,8 @@ export function MarkAcceptedPending({
             >
               Editing during a pending override would invalidate the gate state
               the approver is approving against. If you need to tune lines,{" "}
-              <strong>cancel the request</strong> first — that sends a &ldquo;
-              request withdrawn&rdquo; Slack reply automatically.
+              <strong>cancel the request</strong> first, then tell the
+              approver it has been withdrawn.
             </p>
           </div>
 
@@ -160,8 +160,8 @@ export function MarkAcceptedPending({
               margin: "0 0 12px",
             }}
           >
-            Admin replies in Slack thread, or clicks the link in the DM. Either
-            path:
+            An authorized approver records the decision in Nexus. Either
+            outcome:
           </p>
           <ol
             style={{

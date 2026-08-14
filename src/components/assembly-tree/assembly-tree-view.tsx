@@ -30,24 +30,23 @@ import type { AssemblyTree } from "@/lib/assembly-tree";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AssemblyTreeBody } from "./assembly-tree-body";
 import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
+import { CreateItemGroupTrigger } from "./create-item-group-trigger";
 
 export function AssemblyTreeView({
   tree,
   editable,
   projectId,
   quoteId,
-  assemblyTypes,
+  itemGroupCategories,
   leafTypes,
-  leafTypesForFilter,
   permissions,
 }: {
   tree: AssemblyTree;
   editable: boolean;
   projectId: string;
   quoteId: string;
-  assemblyTypes: { id: string; name: string }[];
+  itemGroupCategories: { id: string; name: string }[];
   leafTypes: LeafSpecEntryProductType[];
-  leafTypesForFilter: { id: string; name: string; placeholder: boolean }[];
   // slice-library-first-creation-flow Step 3 — threaded through to
   // LibraryBrowseTrigger → LibraryBrowseModal for the gated
   // "+ Create new product" + "↗ Refresh from HubSpot" affordances.
@@ -68,14 +67,26 @@ export function AssemblyTreeView({
     { good: 0, warn: 0, empty: 0 },
   );
 
-  // Per CD's tree summary: "X of Y leaves have complete specs".
+  // Per CD's tree summary: "X of Y products have complete specs". Counts BOTH
+  // structures — a Direct Product's spec completeness matters exactly as much
+  // as a grouped one's, and omitting it would overstate readiness.
   const totalLeaves = tree.totalSkus;
-  const completeLeaves = tree.assemblies.reduce(
-    (sum, a) =>
-      sum +
-      a.children.filter((c) => c.specCompleteness?.kind === "complete").length,
-    0,
-  );
+  const completeLeaves =
+    tree.assemblies.reduce(
+      (sum, a) =>
+        sum +
+        a.children.filter((c) => c.specCompleteness?.kind === "complete").length,
+      0,
+    ) +
+    tree.directProducts.filter((p) => p.specCompleteness?.kind === "complete")
+      .length;
+
+  const assemblyTargets = tree.assemblies.map((a) => ({
+    id: a.id,
+    sku: a.sku,
+    name: a.name,
+    leafCount: a.children.length,
+  }));
 
   return (
     <div className="a1v2-card r-a1v2-card-tree">
@@ -88,38 +99,48 @@ export function AssemblyTreeView({
               brief §5.2. Reads off the same totals the tree-summary
               header uses (totalSkus = leaf children across all
               assemblies; totalAssemblies = top-level ASY count). */}
-          <span className="meta" aria-label="SKU + assembly count caption">
-            {tree.totalSkus} {tree.totalSkus === 1 ? "SKU" : "SKUs"}
+          <span className="meta" aria-label="product and item group count">
+            {tree.totalSkus} {tree.totalSkus === 1 ? "product" : "products"}
             {" · "}
             {tree.totalAssemblies}{" "}
-            {tree.totalAssemblies === 1 ? "assembly" : "assemblies"}
+            {tree.totalAssemblies === 1 ? "item group" : "item groups"}
           </span>
-          {/* slice-library-first-creation-flow Step 6 — single
-              primary CTA. Opens LibraryBrowseModal which hosts
-              search + attach existing + create new (stacked
-              AddProductModal) + refresh from HubSpot (inline
-              progress band). */}
+          {/* TWO PEER STRUCTURAL ACTIONS, at equal visual weight.
+
+              + Add Product       browse the library, attach an existing product
+                                  to the quote as a standalone Direct Product.
+              + Create Item Group create quote-local grouping structure. Not a
+                                  product; nothing is written to the library.
+
+              Both are primary. A ghost beside a filled button is not a peer —
+              it reads as secondary chrome, which is how the grouped choice went
+              unnoticed even after it became reachable (B-1, OW-4).
+
+              ADDING PRODUCTS INTO A GROUP IS NOT HERE. It belongs to a specific
+              Item Group, so it lives on that group's row, where the operator
+              has already named the destination by choosing which row to act on.
+              A quote-level entry had to ask for the destination in a menu, and
+              on a quote with no groups it could not be answered at all. */}
           <LibraryBrowseTrigger
+            mode="direct"
             quoteId={quoteId}
             projectId={projectId}
             editable={editable}
-            assemblies={tree.assemblies.map((a) => ({
-              id: a.id,
-              sku: a.sku,
-              name: a.name,
-              leafCount: a.children.length,
-            }))}
-            leafTypes={leafTypesForFilter}
-            assemblyTypes={assemblyTypes}
+            assemblies={assemblyTargets}
             fullLeafTypes={leafTypes}
             permissions={permissions}
+          />
+          <CreateItemGroupTrigger
+            quoteId={quoteId}
+            editable={editable}
+            itemGroupCategories={itemGroupCategories}
           />
         </div>
       </div>
 
       <div className="a1v2-tree-summary">
         <span className="pip complete" />{" "}
-        <strong>{counts.good}</strong> ASY all-complete
+        <strong>{counts.good}</strong> item groups complete
         <span style={{ color: "var(--ink-4)" }}>·</span>
         <span className="pip partial" />{" "}
         <strong>{counts.warn}</strong> partial
@@ -127,7 +148,7 @@ export function AssemblyTreeView({
         <span className="pip empty" />{" "}
         <strong>{counts.empty}</strong> empty
         <span className="right">
-          {completeLeaves} of {totalLeaves} leaves have complete specs
+          {completeLeaves} of {totalLeaves} products have complete specs
         </span>
       </div>
 
@@ -136,6 +157,9 @@ export function AssemblyTreeView({
         editable={editable}
         projectId={projectId}
         quoteId={quoteId}
+        assemblies={assemblyTargets}
+        fullLeafTypes={leafTypes}
+        permissions={permissions}
       />
     </div>
   );

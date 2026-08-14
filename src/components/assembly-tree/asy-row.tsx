@@ -9,6 +9,9 @@ import type {
 import { AsyContextMenu } from "./asy-context-menu";
 import { LeafContextMenu } from "./leaf-context-menu";
 import { AsyNotesDrawerPanel, AsyNotesTrigger } from "./asy-notes-drawer";
+import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
+import { assemblyDisplaySku } from "@/lib/product-structure/assembly-display-sku";
+import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { CompletenessChip } from "./completeness-chip";
 import { reorderAssemblyLeaves } from "@/app/actions/assemblies";
 
@@ -25,6 +28,9 @@ import { reorderAssemblyLeaves } from "@/app/actions/assemblies";
 // ASY" affordance which is deferred to a follow-up).
 
 export function AsyRow({
+  assemblies,
+  fullLeafTypes,
+  permissions,
   asy,
   editable,
   projectId,
@@ -35,6 +41,9 @@ export function AsyRow({
 }: {
   asy: AssemblyNode;
   editable: boolean;
+  assemblies: { id: string; sku: string; name: string; leafCount: number }[];
+  fullLeafTypes: LeafSpecEntryProductType[];
+  permissions: { canCreateLeaves: boolean };
   projectId: string;
   quoteId: string;
   isDragging: boolean;
@@ -42,6 +51,10 @@ export function AsyRow({
   onDragOver: (e: React.DragEvent) => void;
 }) {
   const isExpanded = asy.children.length > 0;
+  // B-4A item 3 — display only. The stored SKU is unchanged and still carries
+  // certified NetSuite projection and audit identity; `ASY-` is simply not a
+  // word the operator has ever been shown for this concept.
+  const displaySku = assemblyDisplaySku(asy.sku, quoteId);
   const [notesOpen, setNotesOpen] = useState(false);
 
   // LEAF-level drag state (scoped per ASY — leaves can only reorder
@@ -141,18 +154,27 @@ export function AsyRow({
         >
           ▾
         </span>
-        <span className="sku-pill">{asy.sku}</span>
+        {/* No pill at all when the SKU is the governed generated placeholder.
+            An accent pill wrapped around an em dash reads as broken rather than
+            as absent. The detection reconstructs the exact generated string, so
+            an operator-authored "ASY-7" keeps its pill. */}
+        {displaySku ? (
+          <span className="sku-pill">{displaySku}</span>
+        ) : (
+          <span aria-hidden="true" />
+        )}
         <div className="name-cell">
           <div className="name">{asy.name}</div>
           <div className="meta">
             {asy.packLabel ? <span>{asy.packLabel}</span> : null}
             {asy.packLabel ? <span className="sep">·</span> : null}
-            <span className="type-tag">
-              {asy.productType?.name ?? "—"}
-            </span>
+            {/* Step 7 · the Item Group's CATEGORY. An Item Group has never
+                had a leaf Product Type; presenting one here is what made the
+                two taxonomies look like a single competing authority. */}
+            <span className="type-tag">{asy.category?.name ?? "—"}</span>
           </div>
         </div>
-        <span className="leaf-count">{asy.children.length} leaves</span>
+        <span className="leaf-count">{asy.children.length} products</span>
         <AsyRollupChip rollup={asy.rollup} />
         <AsyNotesTrigger
           assemblyId={asy.id}
@@ -162,9 +184,24 @@ export function AsyRow({
           open={notesOpen}
           onToggle={() => setNotesOpen((v) => !v)}
         />
+        {/* Adding products belongs to THIS group. Launching the Library from
+            the row means the destination is already chosen — the operator named
+            it by acting on this row — so the picker has nothing left to ask. */}
+        <LibraryBrowseTrigger
+          mode="group"
+          quoteId={quoteId}
+          projectId={projectId}
+          editable={editable}
+          assemblies={assemblies}
+          initialTargetAssemblyId={asy.id}
+          label="+ Add products"
+          className="a1v2-btn ghost xs"
+          fullLeafTypes={fullLeafTypes}
+          permissions={permissions}
+        />
         <AsyContextMenu
           assemblyId={asy.id}
-          assemblySku={asy.sku}
+          assemblySku={displaySku ?? asy.name}
           disabled={!editable}
         />
       </div>
@@ -220,11 +257,13 @@ function LeafRow({
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
 }) {
-  const otherRefs = Math.max(0, leaf.globalRefCount - 1);
-  const refsCopy =
-    otherRefs > 0
-      ? `+ ${otherRefs} other ASY${otherRefs === 1 ? "" : "s"}`
-      : "this scenario only";
+  // B-8 — the cross-quote usage cell is GONE from this surface. Under B-3
+  // isolation it changes no quote-side decision: this quote owns its
+  // specification, so where else the product is used cannot affect what the
+  // operator does here. Reuse and history belong to the Library/master context.
+  //
+  // The loader still computes globalRefCount; it is left in place for that
+  // Library context rather than torn out of the query on the way past.
   const qtyNum = Number(leaf.quantity);
   const qtyDisplay = qtyNum < 1 ? qtyNum.toFixed(4) : String(qtyNum);
   const costDisplay = leaf.unitCost
@@ -256,9 +295,8 @@ function LeafRow({
       <span
         className={`type-tag leaf-type${leaf.productType ? "" : " untyped"}`}
       >
-        {leaf.productType?.name ?? "untyped"}
+        {leaf.productType?.label ?? "untyped"}
       </span>
-      <span className="leaf-refs">{refsCopy}</span>
       <div
         style={{
           position: "relative",
@@ -285,23 +323,23 @@ function AsyRollupChip({ rollup }: { rollup: AssemblyCompletenessRollup }) {
   switch (rollup.kind) {
     case "all_complete":
       state = "complete";
-      copy = `✓ All ${rollup.count} leaves complete`;
+      copy = `✓ All ${rollup.count} products complete`;
       break;
     case "partial": {
       const pending = rollup.total - rollup.complete;
       state = "partial";
-      copy = `⚠ ${pending} of ${rollup.total} leaves pending`;
+      copy = `⚠ ${pending} of ${rollup.total} products pending`;
       break;
     }
     case "mixed_with_placeholders": {
       const pending = rollup.total - rollup.complete;
       state = "partial";
-      copy = `⚠ ${pending} of ${rollup.total} leaves pending`;
+      copy = `⚠ ${pending} of ${rollup.total} products pending`;
       break;
     }
     case "no_leaves":
       state = "empty";
-      copy = "— No leaves";
+      copy = "— No products";
       break;
   }
   return <span className={`a1v2-chip ${state}`}>{copy}</span>;

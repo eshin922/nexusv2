@@ -12,7 +12,6 @@ import { projects, quotes, quoteTiers, users } from "@/db/schema";
 import { loadAssemblyTree } from "@/lib/assembly-tree";
 import { AssemblyTreeView } from "@/components/assembly-tree/assembly-tree-view";
 import { loadProductTypeOptions } from "@/lib/product-type-options";
-import { loadLeafTypesForFilter } from "@/lib/library-browse-loader";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { loadQuoteAttachments } from "@/lib/quote-attachments-loader";
 import { AttachmentListTrigger } from "@/components/quote-attachments/attachment-list-trigger";
@@ -96,7 +95,6 @@ export default async function QuoteBuilderPage({
   // modal's type filter dropdown. Shape (id + name + placeholder)
   // differs from productTypeOptions.leafTypes (which carries full
   // fieldSchema); kept separate to avoid coupling unrelated UIs.
-  const leafTypesForFilter = await loadLeafTypesForFilter();
 
   // canonical-scenario-create-flow Step 7 — quote attachments for
   // the Setup-header attachment-list affordance. Loaded
@@ -268,9 +266,8 @@ export default async function QuoteBuilderPage({
           editable={editable}
           projectId={projectId}
           quoteId={quoteId}
-          assemblyTypes={productTypeOptions.assemblyTypes}
+          itemGroupCategories={productTypeOptions.itemGroupCategories}
           leafTypes={productTypeOptions.leafTypes}
-          leafTypesForFilter={leafTypesForFilter}
           permissions={{ canCreateLeaves: user.canCreateLeaves }}
         />
       ) : null}

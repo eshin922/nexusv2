@@ -1,4 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
+import { ensureQuoteSpecAuthority } from "./quote-spec-authority";
 import type { db } from "../../db/index.ts";
 import { assemblies, assemblyLeaves, quoteLeaves } from "../../db/schema.ts";
 
@@ -29,6 +30,10 @@ type AttachGroupedMembershipArgs = {
   leafId: string;
   quantity: string;
   position: number;
+  /** B-3 — attribution for the quote-owned spec instantiated here. */
+  createdBy: string;
+  /** Copy Quote — template the new authority from this source quote. */
+  specTemplateFromQuoteId?: string;
   createdAt?: Date;
   fault?: CompatibilityFaultInjector;
 };
@@ -92,12 +97,24 @@ export async function attachGroupedMembership(
     );
   }
 
+  // B-3 — same rule as the Direct path: the quote owns its specification from
+  // attachment. Idempotent, so a leaf attached to two Item Groups in one quote
+  // resolves to ONE authority rather than minting a second.
+  const authority = await ensureQuoteSpecAuthority(tx as never, {
+    quoteId: args.quoteId,
+    leafId: args.leafId,
+    createdBy: args.createdBy,
+    templateFromQuoteId: args.specTemplateFromQuoteId,
+  });
+
   const [canonical] = await tx
     .insert(quoteLeaves)
     .values({
       quoteId: args.quoteId,
       assemblyId: args.assemblyId,
       leafId: args.leafId,
+      leafSpecVersionId: authority.id,
+      pinnedAt: new Date(),
       quantity: args.quantity,
       position: args.position,
       ...(args.createdAt ? { createdAt: args.createdAt } : {}),

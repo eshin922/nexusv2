@@ -53,7 +53,37 @@ export async function authorizeBelowFloor(
   input: AuthorizeBelowFloorInput,
 ): Promise<ActionResult<{ authorizationId: string }>> {
   return runAction(async () => {
+    // THE NEXUS-UI BOUNDARY. A Clerk session establishes the actor here and
+    // only here; the core below never authenticates, it is handed an already
+    // established governed identity.
     const actor = await ensureUser();
+    return authorizeBelowFloorAsUser({ ...input, actorUserId: actor.id });
+  });
+}
+
+/**
+ * The authorization core, with the actor supplied explicitly.
+ *
+ * WHY THIS EXISTS. A Slack callback carries no Clerk session, so `ensureUser()`
+ * cannot establish who is deciding. Rather than weaken that function, the
+ * caller establishes identity at its own boundary and passes the result in.
+ *
+ * THE CONTRACT ON `actorUserId`. It must already be an AUTHENTICATED governed
+ * identity — for Slack that means a verified request signature, a Slack user
+ * id, and a durable `users.slack_user_id` binding, in that order. This function
+ * must never be reachable from a path where a caller can nominate an arbitrary
+ * user id.
+ *
+ * Authority itself is NOT delegated: `commercialApprover` is still read from
+ * the database here, at decision time, exactly as before. The refactor moves
+ * where IDENTITY comes from, and nothing about what that identity is allowed
+ * to do.
+ */
+export async function authorizeBelowFloorAsUser(
+  input: AuthorizeBelowFloorInput & { actorUserId: string },
+): Promise<{ authorizationId: string }> {
+  {
+    const actor = { id: input.actorUserId };
 
     const reason = input.reason?.trim() ?? "";
     if (reason === "") {
@@ -164,5 +194,5 @@ export async function authorizeBelowFloor(
 
     revalidatePath(`/projects`, "layout");
     return { authorizationId: row.id };
-  });
+  }
 }

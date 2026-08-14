@@ -195,8 +195,9 @@ export function MarkAcceptedBothGates({
                   lineHeight: 1.5,
                 }}
               >
-                Slack DM to sales leadership. Reason captured. Approval logs to
-                the quote. Gate unlocks; Mark-accepted enables.
+                Reason captured. Approval logs to the quote. Gate unlocks;
+                Mark-accepted enables. Nexus does not yet notify the approver —
+                contact them directly.
               </p>
               <button
                 className="btn bad sm"
@@ -223,12 +224,12 @@ export function MarkAcceptedBothGates({
             }}
           >
             <li>Request override (button →)</li>
-            <li>Slack DM drafts to leadership</li>
+            <li>Approver contacted directly (no automated delivery yet)</li>
             <li>
               Reason logged to <code>quote_warnings</code>
             </li>
             <li>Out-of-band approval</li>
-            <li>Approval logs back via Slack reaction or button click</li>
+            <li>Approval recorded in Nexus by an authorized approver</li>
             <li>Mark-accepted enables · proceeds normally</li>
           </ol>
 

@@ -34,6 +34,7 @@ import {
   type ObservedLineKind,
   type HeaderExpectation,
   type SuccessGateResult,
+  type PlannedDirectLine,
 } from "./so-structure";
 
 /** One line exactly as `readSalesOrderLines` returns it. */
@@ -113,6 +114,8 @@ export interface ConvergenceOutcome {
 export async function runRateConvergence(args: {
   soId: string;
   plannedGroups: PlannedGroup[];
+  /** Direct Product lines the accepted quote requires alongside the groups. */
+  plannedDirectLines?: PlannedDirectLine[];
   tierQty: number;
   acceptedTotal: number;
   expectHeader: HeaderExpectation;
@@ -130,7 +133,12 @@ export async function runRateConvergence(args: {
   // 3-5 · compare against the frozen plan. Any structural blocker refuses the
   // WHOLE run — patching into a structure that does not match the plan would
   // make a wrong order reconcile on totals.
-  const plan = planRateConvergence(plannedGroups, before, tierQty);
+  const plan = planRateConvergence(
+    plannedGroups,
+    before,
+    tierQty,
+    args.plannedDirectLines ?? [],
+  );
 
   const patched: ConvergenceOutcome["patched"] = [];
   if (plan.blockers.length === 0) {
@@ -147,6 +155,7 @@ export async function runRateConvergence(args: {
   const header = await provider.readHeader(soId);
   const gate = evaluateSuccessGate({
     plannedGroups,
+    plannedDirectLines: args.plannedDirectLines,
     structure: after,
     tierQty,
     acceptedTotal,

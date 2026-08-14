@@ -79,17 +79,78 @@ export async function findSalesOrdersByDealId(
  * The read happens only in the single-candidate case, which is the only case
  * `decideReconciliation` verifies.
  */
+/**
+ * Sales Order ids already durably owned by a Nexus quote OTHER than `quoteId`.
+ *
+ * Read from Nexus's own durable state, never inferred from the provider: the
+ * provider cannot tell which of a deal's scenarios an order belongs to, which
+ * is precisely the gap that let a certification attempt adopt SO2707.
+ *
+ * Both sources are consulted because they can diverge: `netsuite_so_pushes`
+ * holds attempts that never reached the quote row (including ones stuck
+ * mid-lifecycle), while `quotes.netsuite_so_id` holds completed pushes.
+ */
+export async function loadForeignOwnedSalesOrderIds(
+  quoteId: string,
+): Promise<Set<string>> {
+  const { db } = await import("@/db");
+  const { netsuiteSoPushes, quotes } = await import("@/db/schema");
+  const { and, isNotNull, ne } = await import("drizzle-orm");
+
+  const [pushRows, quoteRows] = await Promise.all([
+    db
+      .select({ soId: netsuiteSoPushes.netsuiteSoId })
+      .from(netsuiteSoPushes)
+      .where(
+        and(
+          isNotNull(netsuiteSoPushes.netsuiteSoId),
+          ne(netsuiteSoPushes.quoteId, quoteId),
+        ),
+      ),
+    db
+      .select({ soId: quotes.netsuiteSoId })
+      .from(quotes)
+      .where(and(isNotNull(quotes.netsuiteSoId), ne(quotes.id, quoteId))),
+  ]);
+
+  return new Set(
+    [...pushRows, ...quoteRows]
+      .map((r) => r.soId)
+      .filter((id): id is string => Boolean(id))
+      .map(String),
+  );
+}
+
 export async function reconcileBeforeCreate(args: {
   trigger: ReconciliationTrigger;
   expect: AdoptionExpectation;
+  /**
+   * The quote making this attempt. Required to distinguish "an order for this
+   * deal" from "this quote's order" — without it, a sibling scenario's
+   * completed Sales Order is indistinguishable from this attempt's.
+   */
+  quoteId?: string;
   /** Injectable for tests; defaults to the live provider. */
   findByDealId?: (dealId: string) => Promise<CandidateSalesOrder[]>;
   readLines?: (soId: string) => Promise<ProviderLine[]>;
+  /** Injectable for tests; defaults to Nexus's durable ownership record. */
+  loadForeignOwned?: (quoteId: string) => Promise<Set<string>>;
 }): Promise<ReconciliationDecision> {
   const find = args.findByDealId ?? findSalesOrdersByDealId;
   const read = args.readLines ?? readSalesOrderLines;
+  const loadOwned = args.loadForeignOwned ?? loadForeignOwnedSalesOrderIds;
 
   const candidates = await find(args.expect.hubspotDealId);
+
+  // Fail closed rather than silently skipping the veto: without a quote id
+  // there is no way to tell this attempt's order from a sibling's, and the
+  // permissive reading of that ambiguity is what caused the SO2707 incident.
+  const foreignOwned = args.quoteId
+    ? await loadOwned(args.quoteId)
+    : new Set<string>();
+  const isOwnedByAnotherQuote = args.quoteId
+    ? (c: CandidateSalesOrder) => foreignOwned.has(String(c.internalId))
+    : () => true;
 
   // Fails closed if it is ever reached without a read — an unverifiable
   // candidate must never be adopted by default.
@@ -106,5 +167,10 @@ export async function reconcileBeforeCreate(args: {
       evaluateAdoptionCandidate({ candidate: c, structure, expect: args.expect });
   }
 
-  return decideReconciliation({ trigger: args.trigger, candidates, verify });
+  return decideReconciliation({
+    trigger: args.trigger,
+    candidates,
+    verify,
+    isOwnedByAnotherQuote,
+  });
 }

@@ -1,11 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { LibrarySpecModal } from "./library-spec-modal";
 import { useRouter } from "next/navigation";
+import { UNCLASSIFIED_SOURCE_TYPE } from "@/lib/library-source-type";
 import type { LibraryBrowseRow } from "@/lib/library-browse-loader";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
-import { fetchLibraryBrowse, restoreLeaf } from "@/app/actions/leaves";
+import {
+  fetchHubspotProductTypes,
+  fetchLibraryBrowse,
+  restoreLeaf,
+} from "@/app/actions/leaves";
 import { attachAssemblyLeaf } from "@/app/actions/assemblies";
+import { attachQuoteProduct } from "@/app/actions/quote-products";
 import { AddProductModal } from "@/components/add-product/add-product-modal";
 import { usePullFromHubSpot } from "@/components/assembly-tree/use-pull-from-hubspot";
 
@@ -44,16 +51,37 @@ export type AssemblyTarget = {
 };
 
 export function LibraryBrowseModal({
+  mode = "group",
   open,
   onClose,
   quoteId,
   projectId,
   assemblies,
-  leafTypes,
-  assemblyTypes,
+  initialTargetAssemblyId,
   fullLeafTypes,
   permissions,
 }: {
+  /**
+   * `direct` — attach the chosen product straight to the quote
+   * (`assembly_id = NULL`). No Item Group is created, ever, including when the
+   * quote ends up holding exactly one product.
+   *
+   * `group` — the existing grouped path: pick or create an Item Group, then add
+   * products inside it.
+   *
+   * Defaults to `group` so any caller not yet passing a mode keeps its current
+   * behaviour rather than silently changing structure.
+   */
+  mode?: "direct" | "group";
+  /**
+   * Preselected destination for `group` mode.
+   *
+   * Set when the Library is opened FROM an Item Group row, where the operator
+   * has already named the destination by choosing which row to act on. Asking
+   * them to pick it again in a menu would be asking a question they just
+   * answered.
+   */
+  initialTargetAssemblyId?: string;
   open: boolean;
   onClose: () => void;
   quoteId: string;
@@ -64,13 +92,11 @@ export function LibraryBrowseModal({
   projectId: string;
   assemblies: AssemblyTarget[];
   // Type-filter dropdown options (id + name + placeholder).
-  leafTypes: { id: string; name: string; placeholder: boolean }[];
   // slice-library-first-creation-flow Step 3 — AddProductModal
   // form requires the full leaf-spec-entry shape (id + name +
   // placeholder + fieldSchema). Threaded through alongside the
   // type-filter shape; same source (loadProductTypeOptions) on
   // the page.
-  assemblyTypes: { id: string; name: string }[];
   fullLeafTypes: LeafSpecEntryProductType[];
   // slice-library-first-creation-flow Step 3 — per locked Q6:
   // gate "+ Create new product" + (Step 5) "↗ Refresh from
@@ -81,10 +107,18 @@ export function LibraryBrowseModal({
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("");
+  // HubSpot classification filter — the populated vocabulary. `typeFilter`
+  // above is retained for the Nexus taxonomy but is no longer chip-driven.
+  const [sourceTypeFilter, setSourceTypeFilter] = useState<string>("");
+  const [hsTypeOptions, setHsTypeOptions] = useState<
+    { label: string; value: string }[]
+  >([]);
   const [scopeFilter, setScopeFilter] = useState<"all" | "this" | "other">(
     "all",
   );
-  const [targetAssemblyId, setTargetAssemblyId] = useState<string>("");
+  const [targetAssemblyId, setTargetAssemblyId] = useState<string>(
+    initialTargetAssemblyId ?? "",
+  );
   const [rows, setRows] = useState<LibraryBrowseRow[]>([]);
   const [total, setTotal] = useState(0);
   // slice-library-first-creation-flow Step 2 — libraryTotal lets
@@ -118,6 +152,8 @@ export function LibraryBrowseModal({
   // via the .r-a1v2-modal-stacked nexus extension (z-index: 110 +
   // capture-phase Escape with stopImmediatePropagation).
   const [createOpen, setCreateOpen] = useState(false);
+  const [specOpen, setSpecOpen] = useState(false);
+  const [specLeafId, setSpecLeafId] = useState<string | null>(null);
   // slice-library-modal-polish Step 4 — attach-target picker menu
   // open state. Click .lib-target-select toggles; click outside or
   // selecting an item closes. Single source of truth for the
@@ -132,6 +168,20 @@ export function LibraryBrowseModal({
   const [toast, setToast] = useState<string | null>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Governed HubSpot vocabulary for the type chips. Fetched, never listed
+  // locally: a hard-coded copy drifts silently the moment an option is added.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      const r = await fetchHubspotProductTypes();
+      if (!cancelled && r.ok) setHsTypeOptions(r.data.options);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
   // Initial load + filter changes (debounced for search input).
   useEffect(() => {
     if (!open) return;
@@ -141,7 +191,7 @@ export function LibraryBrowseModal({
         setError(null);
         const result = await fetchLibraryBrowse({
           search,
-          typeFilter: typeFilter || undefined,
+          sourceTypeFilter: sourceTypeFilter || undefined,
           scopeFilter,
           targetQuoteId: quoteId,
         });
@@ -162,7 +212,7 @@ export function LibraryBrowseModal({
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
-  }, [open, search, typeFilter, scopeFilter, quoteId]);
+  }, [open, search, typeFilter, sourceTypeFilter, scopeFilter, quoteId]);
 
   // Escape dismiss.
   useEffect(() => {
@@ -205,11 +255,19 @@ export function LibraryBrowseModal({
   // placeholder, row attach buttons disable).
   useEffect(() => {
     if (!open) return;
+    // An explicit destination wins, and is re-applied on every open: the same
+    // modal instance serves a different Item Group each time it is launched
+    // from a row, so carrying the previous target forward would silently attach
+    // to the wrong group.
+    if (initialTargetAssemblyId) {
+      setTargetAssemblyId(initialTargetAssemblyId);
+      return;
+    }
     if (targetAssemblyId) return;
     if (assemblies.length > 0) {
       setTargetAssemblyId(assemblies[0].id);
     }
-  }, [open, assemblies, targetAssemblyId]);
+  }, [open, assemblies, targetAssemblyId, initialTargetAssemblyId]);
 
   // slice-library-modal-polish Step 4 — click-outside dismiss for
   // the target picker menu. Document-level listener attached only
@@ -255,7 +313,6 @@ export function LibraryBrowseModal({
     startTransition(async () => {
       const refreshed = await fetchLibraryBrowse({
         search,
-        typeFilter: undefined,
         scopeFilter: "all",
         targetQuoteId: quoteId,
       });
@@ -276,9 +333,15 @@ export function LibraryBrowseModal({
     [assemblies, targetAssemblyId],
   );
 
+  // Direct mode needs no target: the quote IS the target. Gating it on an
+  // assembly would have made Add Product impossible on a quote with no Item
+  // Groups — precisely the quote it exists to serve.
+  const attachReady = mode === "direct" || Boolean(targetAssemblyId);
+
   function handleAttach(row: LibraryBrowseRow) {
-    if (!targetAssemblyId) {
-      setError("Pick a target ASY at the top of the modal first.");
+    const direct = mode === "direct";
+    if (!direct && !targetAssemblyId) {
+      setError("Pick a target item group at the top of the modal first.");
       return;
     }
     setAttaching(row.leafId);
@@ -286,13 +349,23 @@ export function LibraryBrowseModal({
     // toast carries the value even if the user changes the target
     // picker between submit + result. handleAttach is invoked from
     // the row's button, so targetAssembly was current at click time.
-    const targetSkuAtClick = targetAssembly?.sku ?? "ASY";
+    const targetSkuAtClick = direct
+      ? "this quote"
+      : (targetAssembly?.sku ?? "the item group");
     const fd = new FormData();
-    fd.set("assemblyId", targetAssemblyId);
+    if (direct) {
+      fd.set("quoteId", quoteId);
+    } else {
+      fd.set("assemblyId", targetAssemblyId);
+    }
     fd.set("leafId", row.leafId);
     startTransition(async () => {
       setError(null);
-      const result = await attachAssemblyLeaf(fd);
+      // Two writers, chosen by the operator's explicit action — never by
+      // product count, and never by falling back from one to the other.
+      const result = direct
+        ? await attachQuoteProduct(fd)
+        : await attachAssemblyLeaf(fd);
       setAttaching(null);
       if (!result.ok) {
         setError(result.error.message);
@@ -306,7 +379,7 @@ export function LibraryBrowseModal({
       // (and refresh the Setup tree behind the modal).
       const refreshed = await fetchLibraryBrowse({
         search,
-        typeFilter: typeFilter || undefined,
+        sourceTypeFilter: sourceTypeFilter || undefined,
         scopeFilter,
         targetQuoteId: quoteId,
       });
@@ -342,7 +415,7 @@ export function LibraryBrowseModal({
       setToast(`Restored "${row.name}" to the library.`);
       const refreshed = await fetchLibraryBrowse({
         search,
-        typeFilter: typeFilter || undefined,
+        sourceTypeFilter: sourceTypeFilter || undefined,
         scopeFilter,
         targetQuoteId: quoteId,
       });
@@ -622,7 +695,15 @@ export function LibraryBrowseModal({
               Attach action; the bar is the single source of the
               attach destination (row buttons just say "Attach"). */}
           <div className="lib-target-bar">
-            <span className="eyebrow">Attaching to</span>
+            <span className="eyebrow">Adding to</span>
+            {mode === "direct" ? (
+              // No picker in direct mode: the destination is the quote, and a
+              // control offering item groups here would invite the operator to
+              // group a product they explicitly chose not to group.
+              <span className="name" style={{ justifySelf: "flex-start" }}>
+                This quote — as a standalone product
+              </span>
+            ) : (
             <div
               ref={targetMenuRef}
               style={{ position: "relative", justifySelf: "flex-start" }}
@@ -675,10 +756,10 @@ export function LibraryBrowseModal({
                       className="name"
                       style={{ color: "var(--ink-3)" }}
                     >
-                      No assemblies in this quote
+                      No item groups in this quote
                     </span>
                     <span className="meta">
-                      Create an ASY before attaching components
+                      Create an item group before adding products
                     </span>
                   </span>
                 </div>
@@ -687,10 +768,10 @@ export function LibraryBrowseModal({
                 <div
                   className="lib-target-menu"
                   role="menu"
-                  aria-label="Pick attach target"
+                  aria-label="Pick item group"
                 >
                   <div className="header">
-                    Assemblies in {scenarioLabel || "this scenario"}
+                    Item groups in {scenarioLabel || "this scenario"}
                   </div>
                   {assemblies.map((a) => {
                     const active = a.id === targetAssemblyId;
@@ -732,9 +813,12 @@ export function LibraryBrowseModal({
                   })}
                 </div>
               )}
-            </div>
+              </div>
+            )}
             <span className="target-hint">
-              Components you attach land here
+              {mode === "direct"
+                ? "Each product you add becomes its own quote line"
+                : "Products you add land in this item group"}
             </span>
           </div>
 
@@ -758,32 +842,50 @@ export function LibraryBrowseModal({
                 aria-label="Search library"
               />
             </div>
-            <div className="lib-seg" role="tablist" aria-label="Type filter">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={typeFilter === ""}
-                className={typeFilter === "" ? "active" : ""}
-                onClick={() => setTypeFilter("")}
-              >
-                All types
-              </button>
-              {leafTypes.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={typeFilter === t.id}
-                  className={typeFilter === t.id ? "active" : ""}
-                  onClick={() => setTypeFilter(t.id)}
-                  title={
-                    t.placeholder ? `${t.name} · fields TBD` : t.name
-                  }
-                >
-                  {t.name}
-                </button>
+            {/* Type filter, driven by HubSpot's classification rather than the
+                Nexus taxonomy. The Nexus column carries a value on 26 of 1,077
+                leaves, so filtering it returned almost nothing and read as
+                broken; `hs_product_type` is populated on 1,032 of 1,037 HubSpot
+                products.
+
+                Chips render the LABEL and filter on the VALUE — they differ on
+                the three largest categories, so a label-keyed predicate would
+                return zero for Primary, Secondary and Logistics.
+
+                "Unclassified" is a SELECTABLE state, not an absence. Before it,
+                choosing any type silently dropped every unclassified product
+                with nothing on screen saying so. */}
+            {/* Step 2B — ONE control, not a chip row.
+                
+                The horizontal treatment could not hold the vocabulary: 15
+                production categories clipped, and the set is dynamic, so any
+                fixed-width row is wrong for whatever HubSpot has next. Smaller
+                type, wrapping, horizontal scroll and a curated subset were all
+                rejected — each keeps the control's width as the constraint on
+                what the operator can reach.
+
+                A native <select> follows the vocabulary at whatever size it is,
+                shows its own selection, and is keyboard-accessible and
+                screen-reader-addressable without any work from us. */}
+            <select
+              className="lib-type-select"
+              aria-label="Filter by HubSpot product type"
+              value={sourceTypeFilter}
+              onChange={(e) => setSourceTypeFilter(e.target.value)}
+            >
+              <option value="">All types</option>
+              {/* LABEL shown, VALUE submitted. They differ on the three largest
+                  categories, so a label-keyed predicate returns zero for
+                  Primary, Secondary and Logistics. */}
+              {hsTypeOptions.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
               ))}
-            </div>
+              {/* A selectable STATE, not an absence. Without it, choosing any
+                  type silently dropped every unclassified product. */}
+              <option value={UNCLASSIFIED_SOURCE_TYPE}>Unclassified</option>
+            </select>
             <span className="lib-result-count">
               {pending && rows.length === 0
                 ? "loading…"
@@ -983,7 +1085,7 @@ export function LibraryBrowseModal({
                             </span>
                             <span>SKU {row.sku ?? "—"}</span>
                             <span className="usage">
-                              · {row.totalRefs} ASY
+                              · {row.totalRefs} group
                               {row.totalRefs === 1 ? "" : "s"} ·{" "}
                               {row.totalScenarios} scenario
                               {row.totalScenarios === 1 ? "" : "s"}
@@ -991,14 +1093,52 @@ export function LibraryBrowseModal({
                           </span>
                         </span>
                       </div>
+                      {/* B-2 — the Library's visible Type is HubSpot's
+                          classification, because HubSpot's value is what this
+                          surface FILTERS on. Reading the Nexus taxonomy here
+                          made a product HubSpot classifies correctly display
+                          as "untyped" whenever Nexus's separate and largely
+                          unset taxonomy had no row — the column disagreeing
+                          with the chips directly above it.
+
+                          Raw value stays the authority; the label is looked up
+                          for display only. Nexus productTypeId is neither read
+                          nor written here: two taxonomies, no mapping. */}
                       <span className="type-cell">
-                        {row.productType?.name ?? "untyped"}
+                        {row.hubspotProductType
+                          ? (hsTypeOptions.find(
+                              (o) => o.value === row.hubspotProductType,
+                            )?.label ?? row.hubspotProductType)
+                          : "Unclassified"}
                       </span>
                       <span className="status-cell">
-                        <span className={`status-pill ${readiness}`}>
-                          <span className="dot" aria-hidden="true" />
-                          {readiness}
-                        </span>
+                        {/* §9.4 — surface the ALREADY-ENFORCED eligibility
+                            state before the operator spends an action on it.
+                            `row.eligibility` is the server's own verdict from
+                            `evaluateAttachmentEligibility`; nothing here
+                            re-derives it, so the badge and the refusal can
+                            never disagree.
+
+                            Shown INSTEAD of the readiness pill, not beside it:
+                            a product that cannot be attached has no meaningful
+                            readiness, and showing "ready · not projectable"
+                            together would be contradictory. Archived keeps its
+                            own pill — that state has a Restore path. */}
+                        {!row.eligibility.attachable &&
+                        row.eligibility.reason === "missing_sku" ? (
+                          <span
+                            className="status-pill not-projectable"
+                            title={row.eligibility.message}
+                          >
+                            <span className="dot" aria-hidden="true" />
+                            no SKU
+                          </span>
+                        ) : (
+                          <span className={`status-pill ${readiness}`}>
+                            <span className="dot" aria-hidden="true" />
+                            {readiness}
+                          </span>
+                        )}
                       </span>
                       <span className="action-cell">
                         {/* Readiness-driven action: Attach (ready) /
@@ -1032,23 +1172,63 @@ export function LibraryBrowseModal({
                         ) : (
                           <button
                             type="button"
-                            className="lib-attach-btn"
+                            className="lib-attach-btn lib-icon-btn"
                             onClick={() => handleAttach(row)}
                             disabled={
-                              !targetAssemblyId ||
+                              // Preventative only. The server gate remains
+                              // authoritative — this stops the operator
+                              // spending an action on a refusal they can
+                              // already be shown.
+                              !row.eligibility.attachable ||
+                              !attachReady ||
                               attaching === row.leafId ||
                               pending
                             }
-                            aria-disabled={!targetAssemblyId}
+                            aria-disabled={
+                              !attachReady || !row.eligibility.attachable
+                            }
+                            aria-label={`Add product ${row.name}`}
                             title={
-                              targetAssemblyId
-                                ? `Attach to ${targetAssembly?.sku}`
-                                : "Create an ASY first to enable attach"
+                              // A disabled control must say why (Pattern 47f).
+                              // The server's own message is reused verbatim, so
+                              // the operator reads the same reason whether they
+                              // hover it here or trigger the refusal.
+                              !row.eligibility.attachable
+                                ? row.eligibility.message
+                                : mode === "direct"
+                                  ? "Add this product to the quote"
+                                  : targetAssemblyId
+                                    ? `Add to ${targetAssembly?.sku}`
+                                    : "Create an item group first to enable adding"
                             }
                           >
-                            {attaching === row.leafId ? "Adding…" : "Attach"}
+                            <span aria-hidden="true">
+                              {attaching === row.leafId ? "…" : "+"}
+                            </span>
                           </button>
                         )}
+
+                        {/* B-3 · Step 3 — SUBORDINATE, and inside the existing
+                            action cell. Not a sixth column and not a second
+                            peer button: the state action above stays primary,
+                            and this is a quiet text control beneath it.
+
+                            A real <button>, so it is keyboard-focusable with a
+                            visible focus ring and an accessible name. Hover
+                            carries no part of the discoverability — it is
+                            always rendered. */}
+                        <button
+                          type="button"
+                          className="lib-edit-specs lib-icon-btn"
+                          onClick={() => {
+                            setSpecLeafId(row.leafId);
+                            setSpecOpen(true);
+                          }}
+                          aria-label={`Edit default specs for ${row.name}`}
+                          title="Edit default specs"
+                        >
+                          <span aria-hidden="true">✎</span>
+                        </button>
                       </span>
                     </div>
                   );
@@ -1079,13 +1259,17 @@ export function LibraryBrowseModal({
           }
         }}
         stacked
-        assemblyTypes={assemblyTypes}
         leafTypes={fullLeafTypes}
       />
       {/* slice-library-first-creation-flow Step 4 — attach toast
           per locked Q9. Matches the .a1v2-toast register PR #50
           commit 10 shipped (fixed bottom-right via nexus extension;
           glyph + body structure). Auto-dismisses 3s. */}
+      <LibrarySpecModal
+        leafId={specLeafId}
+        open={specOpen}
+        onClose={() => setSpecOpen(false)}
+      />
       {toast ? (
         <div className="a1v2-toast" role="status" aria-live="polite">
           <span className="glyph">✓</span>

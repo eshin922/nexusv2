@@ -16,6 +16,13 @@
 #                         a named manual checkpoint before and after engine
 #                         changes until it can run against deterministic
 #                         isolated fixtures.
+#
+#                         This exclusion was stated here from the start and
+#                         violated in practice for months: the verifier step ran
+#                         `prebuild`, which contains S-7, so CI kept invoking the
+#                         thing this file forbids. Fixed by `verify:ci` — see the
+#                         step below. A governance boundary written only in a
+#                         comment is a boundary nothing enforces.
 #   Playwright e2e        needs the validation database and app running.
 #   NetSuite/HubSpot      hit live sandboxes.
 #   Deployment            Vercel already does this, and separately.
@@ -79,14 +86,34 @@ jobs:
       - name: unit tests
         run: npm run test:unit
 
-      # Eight structural checks: customer-view + react-pdf containment, font
-      # register coverage, autosave focus stability, two single-writer guards,
-      # pricing classifier invariants, NetSuite adapter contract. All are
-      # environment-free; none touches a database.
+      # `verify:ci`, NOT `prebuild`. CI-1.
       #
-      # These also run on every Vercel build via the npm lifecycle. Running them
-      # here too is intentional: there they fail the DEPLOYMENT, here they fail
-      # the MERGE, and with a shared production database those are different
-      # protections.
+      # This step used to run `prebuild`, which is the DEPLOYMENT gate and
+      # includes `verify:s7-preserved` — a check this workflow's own header
+      # says explicitly must not run here, because it needs `.env.local` and the
+      # shared live database. So CI was invoking, indirectly, the one thing it
+      # had documented itself as excluding, and it threw `DATABASE_URL is not
+      # set` before doing any work.
+      #
+      # The check was therefore permanently red on `main` as well as on every
+      # PR, which is worse than absent: a required check that can never pass
+      # makes every merge an override, and an override that is always necessary
+      # stops being read.
+      #
+      # `verify:ci` is `prebuild` minus that one entry — eleven checks, each
+      # verified to need no DATABASE_URL, no `.env.local`, no HubSpot or
+      # NetSuite credential, no validation database and no external provider.
+      # `prebuild` is deliberately UNCHANGED and keeps S-7, so the deployment
+      # gate loses nothing.
+      #
+      # WHY NOT SIMPLY GIVE CI THE DATABASE URL. It would couple mergeability to
+      # the availability of a shared mutable database, so a transient pool error
+      # would present as a code regression — the precise failure the header
+      # already rejects — and it would hand CI live production credentials.
+      #
+      # These eleven also run on every Vercel build via the npm lifecycle.
+      # Running them here too is intentional: there they fail the DEPLOYMENT,
+      # here they fail the MERGE, and with a shared production database those
+      # are different protections.
       - name: structural verifiers
-        run: npm run prebuild
+        run: npm run verify:ci

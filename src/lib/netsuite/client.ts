@@ -66,6 +66,52 @@ function inferEnv(accountId: string): "sandbox" | "production" {
   return /_SB\d+$/i.test(accountId) ? "sandbox" : "production";
 }
 
+/**
+ * Non-sensitive description of the provider target THIS PROCESS would write to.
+ *
+ * Exists so a certification runtime can be interrogated from outside without
+ * exposing anything. It returns three derived booleans/enums and **no
+ * identifiers**: no account id, no keys, no tokens, no URLs.
+ *
+ * It REUSES the real resolver and the real guard rather than restating them.
+ * `writeAuthorized` is literally `assertWriteAuthorized`'s own verdict, captured
+ * by calling it — a reimplementation could agree with the guard today and
+ * diverge silently later, which would make this endpoint worse than no endpoint,
+ * since it would report safety it no longer establishes.
+ *
+ * WHY TWO SEPARATE SANDBOX FACTS. `environment` is
+ * `NETSUITE_ENV ?? inferEnv(accountId)`, so an explicit `NETSUITE_ENV=sandbox`
+ * on a PRODUCTION account reports "sandbox" and suppresses the guard.
+ * `accountIsSandbox` asks the account itself, ignoring the override. Together
+ * they close that hole: agreement proves the target; disagreement exposes an
+ * override masking a production account, which is the one configuration that
+ * looks safe from every other angle.
+ */
+export type NetsuiteTargetFacts = {
+  environment: "sandbox" | "production";
+  /** From the account shape alone — NOT influenced by `NETSUITE_ENV`. */
+  accountIsSandbox: boolean;
+  /** The production guard's own answer for a write attempt. */
+  writeAuthorized: boolean;
+};
+
+export function describeNetsuiteTarget(): NetsuiteTargetFacts {
+  const config = loadNetsuiteConfig();
+  let writeAuthorized = true;
+  try {
+    // POST, because that is what a Sales Order CREATE is. GET short-circuits
+    // inside the guard and would prove nothing.
+    assertWriteAuthorized(config, "POST");
+  } catch {
+    writeAuthorized = false;
+  }
+  return {
+    environment: config.env,
+    accountIsSandbox: inferEnv(config.accountId) === "sandbox",
+    writeAuthorized,
+  };
+}
+
 /** Guardrail: refuse production writes without explicit opt-in. */
 function assertWriteAuthorized(config: NetsuiteConfig, method: string) {
   if (method === "GET") return;
@@ -241,7 +287,7 @@ export async function getRecord<T = Record<string, unknown>>(
 export async function patchSalesOrderLine(
   soId: string,
   lineIdx: number,
-  patch: { rate: number },
+  patch: { rate?: number; unitCost?: number },
   config?: NetsuiteConfig,
 ): Promise<void> {
   if (!Number.isInteger(lineIdx) || lineIdx < 0) {
@@ -249,9 +295,19 @@ export async function patchSalesOrderLine(
       `[netsuite] patchSalesOrderLine: lineIdx must be a non-negative integer (got ${String(lineIdx)})`,
     );
   }
-  if (!Number.isFinite(patch.rate)) {
+  if (patch.rate !== undefined && !Number.isFinite(patch.rate)) {
     throw new Error(
       `[netsuite] patchSalesOrderLine: rate must be finite (got ${String(patch.rate)})`,
+    );
+  }
+  if (patch.unitCost !== undefined && !Number.isFinite(patch.unitCost)) {
+    throw new Error(
+      `[netsuite] patchSalesOrderLine: unitCost must be finite (got ${String(patch.unitCost)})`,
+    );
+  }
+  if (patch.rate === undefined && patch.unitCost === undefined) {
+    throw new Error(
+      "[netsuite] patchSalesOrderLine: nothing to patch — supply rate, unitCost, or both",
     );
   }
 
@@ -261,9 +317,41 @@ export async function patchSalesOrderLine(
     `/record/v1/salesOrder/${encodeURIComponent(soId)}/item/${lineIdx}`;
   assertWriteAuthorized(cfg, "PATCH");
 
-  // Only `rate` is transmitted. Not spread from the argument — an explicit
-  // single-key body so a future caller cannot smuggle `item.items` through.
-  const body = { rate: patch.rate };
+  // Built FIELD-BY-FIELD from known scalars. Never spread from the argument —
+  // that is the property that stops a future caller smuggling `item.items`
+  // through and reaching the full-sublist shape, and widening this function to
+  // carry cost does not relax it. Every key below is written literally here;
+  // nothing reaches the wire that this function did not name itself.
+  //
+  // `unitCost` expands to the pair NetSuite's Accounting basis reads. Sending
+  // `costEstimateRate` without `costEstimateType: CUSTOM` leaves the line on
+  // its item-master costing method, which silently ignores the value — proven
+  // in the 2026-08-13 sandbox probe, where members inherited ITEMDEFINED,
+  // AVGCOST and LASTPURCHPRICE independently of what was sent.
+  //
+  // `costEstimate` (the extended value) is deliberately NOT sent: NetSuite
+  // derives it as quantity × rate. Sending it would create a second authority
+  // for the same number.
+  const body: Record<string, unknown> = {};
+  if (patch.rate !== undefined) body.rate = patch.rate;
+  if (patch.unitCost !== undefined) {
+    body.costEstimateType = { id: "CUSTOM" };
+    body.costEstimateRate = patch.unitCost;
+    // NetSuite's **Unit Cost** column. Confirmed from the salesOrder metadata
+    // catalog, which titles `custcol_dps_unit_cost` "Unit Cost" and
+    // `costEstimateRate` "Est. Rate" — they are two different columns, and the
+    // defect Accounting reported was about this one.
+    //
+    // The flat CREATE path has always written all three from the same governed
+    // value; a grouped member does not exist at CREATE, so this PATCH is the
+    // only place it can be set. Omitting it here is what left members blank in
+    // the column while their Est. Rate was correct.
+    //
+    // ONE SOURCE, THREE DESTINATIONS. `patch.unitCost` is the governed
+    // contribution cost; nothing here re-derives it from rate, amount or a
+    // NetSuite default.
+    body.custcol_dps_unit_cost = patch.unitCost;
+  }
 
   const response = await fetch(url, {
     method: "PATCH",
