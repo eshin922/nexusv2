@@ -55,10 +55,6 @@ import {
 export type LibraryBrowseFilters = {
   search?: string;
   /**
-   * Nexus taxonomy filter (`product_types.id`). Operator-authored; 26 of 1,077
-   * leaves carry one. Retained unchanged — the TypePicker still writes it.
-   */
-  /**
    * HubSpot classification filter — the RAW internal `hs_product_type` value,
    * or the sentinel `UNCLASSIFIED_SOURCE_TYPE` for products HubSpot has not
    * classified. This is the filter the Library's type chips drive, because it

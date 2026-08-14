@@ -56,18 +56,31 @@ async function main() {
   );
 
   // ------------------------------------------- existing group data unchanged
+  // REWRITTEN FOR STEP 9. This compared `product_type_id` against
+  // `item_group_category_id` and required zero mismatches. Step 9 dropped the
+  // left-hand column, so the comparison is no longer expressible — it was
+  // proven at migration time (67 / 44 / 0) and is now historical fact.
+  //
+  // The forward-looking claim is what survives: the same 67 groups, the same 44
+  // classified, and every category id resolving to the registry. That still
+  // fails if a classification is lost or re-pointed at something that does not
+  // exist, which is what 11c existed to catch. The third census figure changes
+  // meaning from `mismatched` to `orphaned`, and is stated rather than left to
+  // look like the old one.
   const [drift] = await db
     .select({
       total: sql<number>`count(*)::int`,
-      classified: sql<number>`count(*) filter (where product_type_id is not null)::int`,
-      migrated: sql<number>`count(*) filter (where item_group_category_id is not null)::int`,
-      mismatched: sql<number>`count(*) filter (where product_type_id is distinct from item_group_category_id)::int`,
+      classified: sql<number>`count(*) filter (where item_group_category_id is not null)::int`,
+      orphaned: sql<number>`count(*) filter (
+        where item_group_category_id is not null
+          and item_group_category_id not in (select id from item_group_categories)
+      )::int`,
     })
     .from(assemblies);
   claim(
-    drift.mismatched === 0 && drift.classified === drift.migrated,
-    "11c · every existing Item Group carries the SAME classification as before",
-    `${drift.total} groups · ${drift.classified} classified · ${drift.mismatched} mismatched`,
+    drift.total === 67 && drift.classified === 44 && drift.orphaned === 0,
+    "11c · the Item Group census is unchanged and every category resolves",
+    `${drift.total} groups · ${drift.classified} classified · ${drift.orphaned} orphaned (expect 67 / 44 / 0)`,
   );
 
   // ------------------------------------------------------ validation accepts

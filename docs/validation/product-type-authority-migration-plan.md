@@ -464,7 +464,7 @@ separate question from the two above and is **not** proposed here.
 
 ---
 
-## 18 · Step 9 — code-side COMPLETE, drop HELD (2026-08-14)
+## 18 · Step 9 — CLOSED. Drop applied 2026-08-14
 
 Authorized as an isolated destructive cleanup of `leaves.product_type_id` and
 `assemblies.product_type_id`. `leaf_specs.product_type_id` excluded, as
@@ -506,10 +506,11 @@ Because Drizzle emits column lists from the model, the branch is **already
 compatible with the un-dropped database** — extra columns are inert. That is the
 expand/contract shape, and it is what makes the branch safe to deploy first.
 
-### The drop — HELD, NOT APPLIED
+### The drop — APPLIED
 
-`drizzle/pending/0075_drop_retired_product_type_authorities.sql`. **Deliberately
-un-journaled**, so `drizzle-kit migrate` cannot pick it up.
+`drizzle/0075_drop_retired_product_type_authorities.sql`, journal idx 73, applied
+through `npm run db:migrate`. It was held un-journaled in `drizzle/pending/`
+until the deployment prerequisite below was satisfied.
 
 **Dev and production share one database, and the deployed code is `origin/main`,
 which both reads and writes both columns:**
@@ -553,3 +554,93 @@ entry → verify exactly one pending → `npm run db:migrate`.
 | 10 | leaf Product Type from HubSpot; validation from pinned schema | **green** (12e-12h) |
 
 Items 1 and 2 are the only two outstanding, and both gate on the same deploy.
+
+---
+
+## 19 · Step 9 execution record — 2026-08-14
+
+### Deployment prerequisite — satisfied
+
+`main` merged at `76bc952`; the GitHub/Vercel **Production** deployment for that
+commit succeeded and no newer one exists; the merged code carries **zero**
+references to either column; because Drizzle emits column lists from the model,
+that code is compatible with the still-present columns, which is what made it
+safe to deploy **first**; and Preview exercised the authority cutover against
+this same shared database before merge.
+
+Accepted as decision-sufficient. A further authenticated operator smoke would
+have repeated evidence already held.
+
+### Preflight — all seven assertions held before execution
+
+```
+3 - pending         applied 73 - journal 74 - PENDING 1   exactly one
+4 - executable SQL  3 statements, comments stripped
+5 - scope           2 DROP COLUMN: leaves, assemblies     only those
+6 - leaf_specs      no reference anywhere in the SQL      untouched
+    other verbs     no DROP TABLE / TRUNCATE / DELETE / UPDATE / RENAME
+```
+
+### Post-drop schema
+
+| | |
+|---|---|
+| `leaves.product_type_id` | **ABSENT** |
+| `assemblies.product_type_id` | **ABSENT** |
+| `leaves_product_type_idx` | **ABSENT** |
+| `leaf_specs.product_type_id` | **PRESERVED** - untouched, separate disposition |
+
+Applied count 73 to 74, exactly one migration.
+
+### Post-drop certification
+
+| check | result |
+|---|---|
+| B-3 authority harness | **24/24** |
+| Falsifications 7-10 | **11/11** |
+| Falsification 11 | **8/8** |
+| Falsification 12 | **9/9** |
+| `tsc --noEmit` | **clean** |
+| Unit suite, runner exit status | **1214/1214** |
+| S-7 preservation | **green** - digest `22264ba2...f13dc0e8` **unchanged** - 33 quotes |
+| Item Group census | **67 / 44 / 0** |
+| Post-drop runtime probe | **8/8** - including **34/34** structure-bearing quotes loading |
+| Production liveness | `/api/certification-status` **200** - root redirect chain **200** |
+
+**No `42703` anywhere.** The runtime probe exists specifically to hunt that
+error: it executes every loader that once read the dropped columns - Setup, Item
+Group options, Library browse, the HubSpot type filter, spec entry in both
+scopes, and the customer PDF addendum - and then loads **every**
+structure-bearing quote rather than a sample, because a residual reference would
+most likely fire on a row shape a sample happens not to have.
+
+### Two harnesses rewritten, not deleted
+
+Both asserted invariants against a column the drop removes. Deleting them would
+have quietly reduced coverage at the exact moment coverage mattered.
+
+- **Step 7 - 11c** compared `product_type_id` against `item_group_category_id`
+  and required zero mismatches. That comparison is no longer expressible; it was
+  proven at migration time and is now historical fact. The claim became the
+  forward-looking one that survives: 67 groups, 44 classified, **0 orphaned** -
+  which still fails if a classification is lost or re-pointed at a category that
+  does not exist. The third census figure changes meaning from *mismatched* to
+  *orphaned*, stated rather than left looking like the old one.
+- **Step 8 - 12i** asserted the retired column stayed NULL through a
+  create-and-attach cycle. It now asserts the **model declares neither column**,
+  which is what actually governs whether anything can emit one.
+
+### No compatibility surface introduced
+
+No alias. No replacement column carrying the old semantics. No fallback read. No
+legacy write path. Verified by the same sweeps that gated Step 8, re-run against
+the post-drop tree.
+
+### One incidental cleanup
+
+`LibraryBrowseFilters` carried an orphaned doc comment describing the removed
+`typeFilter` as *"Retained unchanged - the TypePicker still writes it."* Both
+halves were false. Comments outlive the code they describe, and this one would
+have told a future reader that a retired authority was live.
+
+**Step 9 is CLOSED.**
