@@ -238,6 +238,13 @@ const classifiedIdentityFiles = new Set([
   // harness builds fixtures keyed by (quote_id, leaf_id) and never touches the
   // legacy junction or maps between identity spaces.
   "scripts/verify/b3-spec-authority.ts",
+  // CLASSIFIED — read-only evidence, canonical only. The Step 4 falsification
+  // harness keys on (quote_id, leaf_id) and never touches the legacy junction.
+  "scripts/verify/step-4-pinned-spec-schema.ts",
+  // CLASSIFIED — canonical only. The Step 4 backfill reads `leaf_specs` by
+  // (quote_id, leaf_id) and writes only the pinned schema columns; it maps
+  // between no identity spaces.
+  "scripts/product-structure/backfill-pinned-spec-schema.ts",
   "scripts/smoke/mark-complete.ts", "scripts/verify/costing-adapter.ts",
   "scripts/verify/sample-order-margin.ts", "scripts/verify/slice-11-5-1-warnings-parity.ts",
   "tests/harness/fixtures/world.ts",

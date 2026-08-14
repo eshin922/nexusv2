@@ -117,7 +117,7 @@ export function DirectProductRow({
         <span
           className={`type-tag leaf-type${product.productType ? "" : " untyped"}`}
         >
-          {product.productType?.name ?? "untyped"}
+          {product.productType?.label ?? "untyped"}
         </span>
         <CompletenessChip completeness={product.specCompleteness} />
         {/* One grid cell for every action, so the confirm state adding a

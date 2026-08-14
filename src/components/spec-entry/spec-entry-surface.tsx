@@ -174,6 +174,7 @@ function getFilledCount(c: SpecCompleteness | null): number {
       return c.filled;
     case "empty":
     case "no_type":
+    case "no_schema":
     case "placeholder":
       return 0;
   }

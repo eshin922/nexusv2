@@ -12,6 +12,11 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import { assertCanEditSpecs } from "@/lib/spec-permission-guard";
+import {
+  decodePinnedSchema,
+  resolveSpecSchema,
+  SPEC_SCHEMA_PRODUCT_TYPE_ID,
+} from "@/lib/product-structure/spec-schema-mapping";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { revalidatePath } from "next/cache";
 
@@ -82,6 +87,11 @@ export async function updateLeafSpec(
     // B-3 — which authority is being edited. Required: an edit with no scope
     // has no safe default, because the two candidates are "this quote" and
     // "every future quote", and guessing wrong is silent either way.
+    //
+    // Resolved HERE rather than just before the write, because Step 4.4 made
+    // validation scope-dependent too: which schema governs the value is a
+    // property of the authority being edited.
+    const scope = readScope(formData);
     const fieldKey = String(formData.get("fieldKey") ?? "").trim();
     // Raw value preserved as string; jsonb stores strings. Future
     // expansion to typed fields (number, boolean, select) maps here.
@@ -109,16 +119,51 @@ export async function updateLeafSpec(
         ERR.VALIDATION,
         "Archived leaves can't be edited.",
       );
-    if (!leaf.productTypeId)
+    // Step 4.4 · validate against the PINNED Spec Schema. Never against
+    // `leaves.product_type_id`, the retired Nexus taxonomy.
+    //
+    // In quote scope the pin is this quote's own, frozen at attachment, so the
+    // fields accepted here are exactly the fields the operator was shown — a
+    // HubSpot reclassification mid-edit cannot start rejecting a key that was
+    // valid when the surface rendered.
+    //
+    // In Library scope there is no pin, because that row is a TEMPLATE and
+    // owns no quote's values; its schema resolves live from authoritative
+    // classification, which is what a future attachment will inherit.
+    const [scopedSpec] = await db
+      .select()
+      .from(leafSpecs)
+      .where(scopeWhere(leafId, scope))
+      .limit(1);
+    const resolution =
+      "quoteId" in scope
+        ? decodePinnedSchema(
+            scopedSpec?.specSchema,
+            scopedSpec?.schemaDerivedFromType,
+          )
+        : resolveSpecSchema(leaf.hubspotProductType);
+    if (resolution === null)
       throw new ActionGuardError(
         ERR.VALIDATION,
-        "Leaf has no Product Type assigned. Pick a type first.",
+        "This product has no Product Type in HubSpot, so no specification " +
+          "schema applies. Classify it in HubSpot first.",
+      );
+    if (resolution.kind === "no_schema")
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Specifications do not apply to this product category.",
+      );
+    if (resolution.kind === "unmapped")
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `"${resolution.value}" has no governed specification schema. ` +
+          "The Product Type mapping needs extending.",
       );
 
     const typeRows = await db
       .select()
       .from(productTypes)
-      .where(eq(productTypes.id, leaf.productTypeId))
+      .where(eq(productTypes.id, SPEC_SCHEMA_PRODUCT_TYPE_ID[resolution.schemaId]))
       .limit(1);
     const type = typeRows[0];
     if (!type)
@@ -152,7 +197,6 @@ export async function updateLeafSpec(
     const trimmed = rawValue.trim();
     const nextValue: string | null = trimmed.length === 0 ? null : rawValue;
 
-    const scope = readScope(formData);
     // Load the addressed authority. Not the Library default — a quote-side edit
     // must never reach master data or another quote.
     const currentRows = await db

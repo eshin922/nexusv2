@@ -2362,6 +2362,31 @@ export const leafSpecs = pgTable(
      * `leaves.product_type_id`.
      */
     productTypeId: text("product_type_id").references(() => productTypes.id),
+    /**
+     * The PINNED Spec Schema. Step 4 · the authority cutover.
+     *
+     * Product Type (`leaves.hubspot_product_type`) is LIVE authority and is
+     * what every surface displays. Spec Schema is Nexus behaviour derived from
+     * it, and it is pinned here at attachment so a later HubSpot
+     * reclassification cannot retroactively reinterpret values an operator
+     * already authored.
+     *
+     * Six states, none interchangeable:
+     *   'primary' | 'secondary' | 'tertiary'  a schema applies
+     *   'no_schema'  specifications intentionally do not apply
+     *   'unmapped'   classified, no governed disposition — never folded into
+     *                no_schema, because one is an answer and the other is not
+     *   'no_type'    authoritative Product Type is missing (NO TYPE SET)
+     *   NULL         not pinned. Correct for Library rows, which are templates
+     *                and defer; a bug on a quote-owned row.
+     */
+    specSchema: text("spec_schema"),
+    /**
+     * Provenance, NEVER display. The authoritative HubSpot internal value the
+     * pin was derived from, so the pin stays explicable after HubSpot changes
+     * and an `unmapped` pin is recoverable. Display reads the live value.
+     */
+    schemaDerivedFromType: text("schema_derived_from_type"),
     specValues: jsonb("spec_values").notNull().default(sql`'{}'::jsonb`),
     versionNumber: integer("version_number").notNull().default(1),
     isCurrent: boolean("is_current").notNull().default(true),

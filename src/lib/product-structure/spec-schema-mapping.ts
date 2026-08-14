@@ -107,6 +107,57 @@ export function specSchemaMappingIsExhaustive(
     : { exhaustive: false, missing };
 }
 
+/**
+ * How a resolution is stored on `leaf_specs.spec_schema`. Step 4.
+ *
+ * NO TYPE SET is stored as the explicit `'no_type'` rather than as NULL, so
+ * that "this product has no authoritative classification" and "nothing has
+ * pinned this row yet" are distinguishable in the table. Collapsing them would
+ * make an unpinned row — a bug — indistinguishable from a legitimate state.
+ */
+export type PinnedSpecSchema =
+  | SpecSchemaId
+  | "no_schema"
+  | "unmapped"
+  | "no_type";
+
+/** Resolution → stored pin. Total: every resolution has exactly one encoding. */
+export function encodePinnedSchema(
+  resolution: SpecSchemaResolution | null,
+): PinnedSpecSchema {
+  if (resolution === null) return "no_type";
+  if (resolution.kind === "schema") return resolution.schemaId;
+  if (resolution.kind === "no_schema") return "no_schema";
+  return "unmapped";
+}
+
+/**
+ * Stored pin → resolution.
+ *
+ * `derivedFrom` restores the value an `unmapped` pin was resolved from, which
+ * is why that column exists — without it the sentinel could name no cause.
+ *
+ * Returns `null` for BOTH `'no_type'` and an unpinned row, because a caller
+ * asking "which schema governs these values" gets the same answer either way:
+ * none is established. The two are distinguished at the storage layer, where
+ * the difference is diagnosable, rather than in every consuming branch.
+ */
+export function decodePinnedSchema(
+  stored: string | null | undefined,
+  derivedFrom?: string | null,
+): SpecSchemaResolution | null {
+  if (!stored || stored === "no_type") return null;
+  if (stored === "no_schema") return { kind: "no_schema" };
+  if (stored === "unmapped")
+    return { kind: "unmapped", value: derivedFrom ?? "" };
+  if (stored === "primary" || stored === "secondary" || stored === "tertiary")
+    return { kind: "schema", schemaId: stored };
+  // An unrecognised stored value is NOT coerced. The CHECK constraint makes
+  // this unreachable through the database; reaching it means the constraint
+  // was bypassed, and quietly returning `no_schema` would hide that.
+  return { kind: "unmapped", value: stored };
+}
+
 /** The `product_types.id` a schema resolves to. Those rows keep their fields. */
 export const SPEC_SCHEMA_PRODUCT_TYPE_ID: Record<SpecSchemaId, string> = {
   primary: "leaf_primary_packaging",

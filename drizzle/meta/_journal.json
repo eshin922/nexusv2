@@ -498,6 +498,13 @@
       "when": 1786320009000,
       "tag": "0072_product_type_label_trim",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1786320010000,
+      "tag": "0073_pinned_spec_schema",
+      "breakpoints": true
     }
   ]
 }

@@ -10,6 +10,11 @@ import {
   quotes,
 } from "@/db/schema";
 import { productTypeOrderExpression } from "@/lib/product-type-order";
+import {
+  decodePinnedSchema,
+  resolveSpecSchema,
+  SPEC_SCHEMA_PRODUCT_TYPE_ID,
+} from "@/lib/product-structure/spec-schema-mapping";
 
 // Phase A.1 v2 impl-3 — Spec entry surface data loader.
 //
@@ -53,6 +58,8 @@ export type LeafSpecEntryData = {
     name: string;
     sku: string | null;
     productTypeId: string | null;
+    /** AUTHORITATIVE Product Type — HubSpot's, read live. Step 4.5. */
+    hubspotProductType: string | null;
     unitCost: string | null;
     fscClaim: boolean | null;
     fscStatus: string | null;
@@ -155,9 +162,28 @@ export async function loadLeafForSpecEntry(
     ),
   );
 
-  const productType = leaf.productTypeId
-    ? typeMap.get(leaf.productTypeId) ?? null
-    : null;
+  // Step 4.4 · the schema these values are validated against is the one PINNED
+  // on the authority being read, not a live lookup on the leaf.
+  //
+  // In quote scope that pin is the quote's own, frozen at attachment, so a
+  // later HubSpot reclassification cannot make fields appear or disappear
+  // underneath values an operator already entered. In Library scope there is
+  // no pin — the Library row is a TEMPLATE — so the schema is resolved live
+  // from authoritative classification, which is what a future attachment will
+  // inherit.
+  //
+  // `leaves.product_type_id` is deliberately not consulted in either branch.
+  const pinned = decodePinnedSchema(
+    specRows[0]?.specSchema,
+    specRows[0]?.schemaDerivedFromType,
+  );
+  const resolution =
+    "quoteId" in scope ? pinned : resolveSpecSchema(leaf.hubspotProductType);
+  const schemaTypeId =
+    resolution?.kind === "schema"
+      ? SPEC_SCHEMA_PRODUCT_TYPE_ID[resolution.schemaId]
+      : null;
+  const productType = schemaTypeId ? typeMap.get(schemaTypeId) ?? null : null;
 
   const availableLeafTypes: LeafSpecEntryProductType[] = typeRows
     .filter((t) => t.scope === "leaf" && !t.hidden)
@@ -194,6 +220,7 @@ export async function loadLeafForSpecEntry(
       name: leaf.name,
       sku: leaf.sku,
       productTypeId: leaf.productTypeId,
+      hubspotProductType: leaf.hubspotProductType,
       unitCost: leaf.unitCost,
       fscClaim: leaf.fscClaim,
       fscStatus: leaf.fscStatus,

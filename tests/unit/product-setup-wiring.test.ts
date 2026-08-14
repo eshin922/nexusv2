@@ -759,13 +759,23 @@ test("B-10 · an absent Item Group SKU renders no pill, and the duplicate type s
   assert.doesNotMatch(direct, /className="sep"[\s\S]{0,80}type-tag/);
 });
 
-test("B-10 · displayed type and readiness share ONE quote-owned authority", async () => {
+test("B-10 · displayed type and readiness resolve from named authorities", async () => {
+  // SUPERSEDED BY STEP 4, deliberately, and rewritten rather than deleted.
+  //
+  // B-10 originally required ONE authority behind both, because the defect was
+  // a product typed in the Library reading `untyped` in Setup. The cutover
+  // fixes that at the source instead: display is HubSpot's classification read
+  // LIVE, so the two surfaces cannot disagree about what a product is.
+  //
+  // Readiness is now a SECOND, different authority on purpose — the pinned
+  // Spec Schema — because it answers a different question: which fields these
+  // values were authored against. Freezing one and not the other is the point.
+  // What must never return is a THIRD authority nobody maintains, so the
+  // assertion is that neither reads the retired Nexus taxonomy.
   const src = await code("src/lib/assembly-tree.ts");
-  // The invariant must hold by construction, not by coincidence. Library and
-  // quote-owned agree today only because the backfill copied one into the
-  // other; a quote-side type change would separate them silently.
-  assert.match(src, /const effectiveTypeId = spec\?\.productTypeId \?\? leaf\.productTypeId/);
-  assert.match(src, /computeSpecCompleteness\(leafType/);
+  assert.match(src, /productType: typeValue/);
+  assert.match(src, /specCompleteness: computeSpecCompleteness\(schema/);
+  assert.doesNotMatch(src, /leaf\.productTypeId/);
 });
 
 test("B-10 · the generic Product label is replaced by the quote-owned type", async () => {
@@ -776,4 +786,56 @@ test("B-10 · the generic Product label is replaced by the quote-owned type", as
   // Absent stays absent: the Library's HubSpot classification is a different
   // taxonomy and is never substituted to silence the warning.
   assert.doesNotMatch(src, /hubspotProductType/);
+});
+
+// ------------------------------------- Step 4 · Product Type authority cutover
+test("Step 4 · no display or validation reader consults the retired Nexus taxonomy", async () => {
+  // Falsifications 9 and 10, as a property of the CODE rather than of a run.
+  //
+  // The runtime script proves the pinned and live resolutions disagree and
+  // that the pinned one is selected. It cannot prove that no OTHER branch in
+  // these files quietly reaches for `leaves.product_type_id` instead — a
+  // second reader would be silent, and would only surface as one surface
+  // disagreeing with another for products nobody had hand-typed.
+  //
+  // `leaf-specs.ts` is excluded: it still WRITES the retired column through
+  // assignLeafProductType / changeLeafProductType, which step 8 retires. This
+  // asserts the READ paths, which is what step 4 cut over.
+  for (const f of [
+    "src/lib/assembly-tree.ts",
+    "src/lib/addendum-loader.ts",
+  ]) {
+    const src = await code(f);
+    assert.doesNotMatch(
+      src,
+      /leaf\.productTypeId|leaves\.productTypeId/,
+      `${f} still reads the retired Nexus Product Type`,
+    );
+    assert.match(
+      src,
+      /decodePinnedSchema/,
+      `${f} does not resolve the pinned Spec Schema`,
+    );
+  }
+});
+
+test("Step 4 · the Setup tree displays LIVE authoritative classification", async () => {
+  // Falsification 9. The B-4/B-10 finding was a product typed in the Library
+  // reading `untyped` in Setup, because Setup consulted a second taxonomy
+  // nobody populated. The type tag must therefore trace to the same column the
+  // Library reads.
+  const src = await code("src/lib/assembly-tree.ts");
+  assert.match(src, /leaf\.hubspotProductType/);
+  // Fail-soft: a HubSpot outage must degrade the LABEL, never the page.
+  assert.match(src, /typeLabels\.get\(typeValue\) \?\? typeValue/);
+});
+
+test("Step 4 · spec validation selects its schema from the pin, in quote scope", async () => {
+  // Falsification 10. Reading live classification here would let a HubSpot
+  // change mid-edit start rejecting a field key that was valid when the
+  // surface rendered.
+  const src = await code("src/app/actions/leaf-specs.ts");
+  assert.match(src, /"quoteId" in scope\s*\?\s*decodePinnedSchema/);
+  // The unmapped state must not be absorbed into "no schema applies".
+  assert.match(src, /resolution\.kind === "unmapped"/);
 });

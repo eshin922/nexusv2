@@ -1,6 +1,11 @@
 import "server-only";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { leafSpecs, leaves } from "@/db/schema";
+import {
+  encodePinnedSchema,
+  resolveSpecSchema,
+  type PinnedSpecSchema,
+} from "@/lib/product-structure/spec-schema-mapping";
 
 /**
  * Quote-owned product specification authority. B-3.
@@ -46,6 +51,10 @@ export type QuoteSpecAuthority = {
   specValues: Record<string, unknown>;
   productTypeId: string | null;
   templatedFromSpecId: string | null;
+  /** The pinned Spec Schema. See `leaf_specs.spec_schema`. */
+  specSchema: PinnedSpecSchema | null;
+  /** Provenance for the pin. Never displayed. */
+  schemaDerivedFromType: string | null;
 };
 
 /**
@@ -126,10 +135,27 @@ export async function ensureQuoteSpecAuthority(
         .limit(1);
 
   const [leaf] = await tx
-    .select({ productTypeId: leaves.productTypeId })
+    .select({
+      productTypeId: leaves.productTypeId,
+      hubspotProductType: leaves.hubspotProductType,
+    })
     .from(leaves)
     .where(eq(leaves.id, args.leafId))
     .limit(1);
+
+  // Step 4.2 · resolve the Spec Schema from AUTHORITATIVE Product Type and pin
+  // it. A copy inherits the source quote's pin instead of re-resolving: the
+  // values being duplicated were authored under that schema, and re-resolving
+  // after a HubSpot reclassification would validate copied values against a
+  // schema nobody entered them under. Same reasoning as the type line below —
+  // whatever governs the values travels with them.
+  const inheritedPin = libraryDefault?.specSchema ?? null;
+  const specSchema =
+    inheritedPin ??
+    encodePinnedSchema(resolveSpecSchema(leaf?.hubspotProductType));
+  const schemaDerivedFromType = inheritedPin
+    ? (libraryDefault?.schemaDerivedFromType ?? null)
+    : (leaf?.hubspotProductType ?? null);
 
   const [row] = await tx
     .insert(leafSpecs)
@@ -137,6 +163,8 @@ export async function ensureQuoteSpecAuthority(
       leafId: args.leafId,
       quoteId: args.quoteId,
       specValues: libraryDefault?.specValues ?? {},
+      specSchema,
+      schemaDerivedFromType,
       // The Library type in force at attach time. Where the Library default
       // carried its own type that wins, since it is the schema the copied
       // values were authored under.
@@ -169,6 +197,8 @@ function toAuthority(row: typeof leafSpecs.$inferSelect): QuoteSpecAuthority {
     specValues: (row.specValues as Record<string, unknown>) ?? {},
     productTypeId: row.productTypeId,
     templatedFromSpecId: row.templatedFromSpecId,
+    specSchema: (row.specSchema as PinnedSpecSchema | null) ?? null,
+    schemaDerivedFromType: row.schemaDerivedFromType,
   };
 }
 

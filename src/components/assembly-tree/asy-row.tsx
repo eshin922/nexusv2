@@ -297,7 +297,7 @@ function LeafRow({
       <span
         className={`type-tag leaf-type${leaf.productType ? "" : " untyped"}`}
       >
-        {leaf.productType?.name ?? "untyped"}
+        {leaf.productType?.label ?? "untyped"}
       </span>
       <div
         style={{

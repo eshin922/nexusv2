@@ -2,6 +2,12 @@ import "server-only";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
+  decodePinnedSchema,
+  SPEC_SCHEMA_PRODUCT_TYPE_ID,
+  type PinnedSpecSchema,
+} from "@/lib/product-structure/spec-schema-mapping";
+import { loadHubspotProductTypeOptions } from "@/lib/hubspot-product-type-vocabulary";
+import {
   assemblies,
   assemblyLeaves,
   leafSpecs,
@@ -31,6 +37,39 @@ export type ProductTypeRef = {
   placeholder: boolean;
 };
 
+/**
+ * A leaf's AUTHORITATIVE Product Type — HubSpot's `hs_product_type`. Step 4.5.
+ *
+ * Deliberately NOT a `ProductTypeRef`. That shape names a `product_types` row,
+ * and a leaf's Product Type is no longer one: it is HubSpot's classification,
+ * read live, so the Library and Setup cannot disagree about what a product is.
+ * Giving it its own type made the compiler find every consumer during the
+ * cutover instead of letting a field quietly change meaning underneath them.
+ *
+ * `ProductTypeRef` survives for ASSEMBLIES, whose classification is genuinely
+ * a Nexus-local `product_types` row (Item Group Category).
+ */
+export type AuthoritativeProductType = {
+  /** HubSpot internal value. What is stored and what filters match. */
+  value: string;
+  /** What the operator reads. Falls back to `value` when unresolvable. */
+  label: string;
+};
+
+/**
+ * The PINNED Spec Schema governing this quote's spec values. Step 4.4.
+ *
+ * Pinned at attachment, so a later HubSpot reclassification cannot retroactively
+ * reinterpret values already authored. Distinct from the Product Type above:
+ * that one is live, this one is frozen, and conflating them is the defect.
+ */
+export type SpecSchemaRef = {
+  pin: PinnedSpecSchema;
+  /** `product_types.id` carrying the field schema — null when none applies. */
+  typeId: string | null;
+  typeName: string | null;
+};
+
 export type AssemblyLeafNode = {
   // Junction row identity (the row in assembly_leaves)
   junctionId: string;
@@ -48,7 +87,10 @@ export type AssemblyLeafNode = {
   leafId: string;
   name: string;
   sku: string | null;
-  productType: ProductTypeRef | null;
+  /** LIVE HubSpot authority. Same value the Library shows. Step 4.5. */
+  productType: AuthoritativeProductType | null;
+  /** PINNED behaviour. What `spec_values` are validated against. Step 4.4. */
+  specSchema: SpecSchemaRef | null;
   unitCost: string | null;
   archived: boolean;
   // Global reference count — total assembly_leaves rows pointing at
@@ -62,7 +104,15 @@ export type AssemblyLeafNode = {
 };
 
 export type SpecCompleteness =
-  | { kind: "no_type" } // leaf has no product_type_id
+  // Step 4.5 · the authoritative Product Type is MISSING. Before the cutover
+  // this fired whenever nobody had run the Nexus TypePicker, which was ~1,051
+  // of 1,077 products and therefore told an operator nothing.
+  | { kind: "no_type" }
+  // Specifications intentionally do not apply — freight, services, one-time
+  // charges. A finished answer, and kept distinct from `no_type` because that
+  // one is an unanswered question. Collapsing them is what made a classified
+  // product and an unclassified one look identical.
+  | { kind: "no_schema"; typeLabel: string }
   | { kind: "placeholder"; typeName: string } // type is placeholder (Soft goods, Tertiary)
   | { kind: "empty"; typeName: string; total: number } // type has schema; zero filled
   | {
@@ -141,6 +191,28 @@ export type AssemblyTree = {
  * Single-pass: 4 parallel queries (assemblies, junctions, leaves,
  * current leaf_specs) + 1 product_types fetch. No N+1.
  */
+/**
+ * Operator-facing labels for the authoritative Product Type values. Step 4.5.
+ *
+ * FAIL-SOFT BY CONSTRUCTION. The vocabulary is HubSpot-side and cached for the
+ * process lifetime, but the first call in a cold process is a network request,
+ * and Setup must not stop rendering because HubSpot is slow or unreachable.
+ * On failure every type falls back to its internal value — still authoritative,
+ * still correct, merely less polished than the label.
+ *
+ * The label is presentation ONLY. `value` is what is stored, filtered and
+ * mapped; a reader that matched on the label would miss the three divergent
+ * options, which is roughly half the catalogue.
+ */
+async function loadTypeLabels(): Promise<Map<string, string>> {
+  try {
+    const options = await loadHubspotProductTypeOptions();
+    return new Map(options.map((o) => [o.value, o.label] as const));
+  } catch {
+    return new Map();
+  }
+}
+
 export async function loadAssemblyTree(
   quoteId: string,
 ): Promise<AssemblyTree | null> {
@@ -190,6 +262,10 @@ export async function loadAssemblyTree(
       : Promise.resolve([] as (typeof assemblyLeaves.$inferSelect)[]),
     db.select().from(productTypes),
   ]);
+  // Loaded here rather than inside the projection so one lookup covers the
+  // whole tree, and so a HubSpot outage degrades the LABEL only — never the
+  // structure or the classification itself.
+  const typeLabels = await loadTypeLabels();
 
   const typeMap = new Map(allTypes.map((t) => [t.id, t] as const));
 
@@ -218,7 +294,7 @@ export async function loadAssemblyTree(
   if (leafIds.length === 0) {
     // Edge case: ASYs exist but no junction rows and no Direct Products — all
     // assemblies have empty children. Skip leaf + spec queries.
-    return assembleTree(asmRows, junctionRows, directRows, [], [], new Map(), typeMap);
+    return assembleTree(asmRows, junctionRows, directRows, [], [], new Map(), typeMap, typeLabels);
   }
 
   // Third wave: library leaves + current spec rows for those leaves
@@ -266,6 +342,7 @@ export async function loadAssemblyTree(
     specRows,
     refCountMap,
     typeMap,
+    typeLabels,
   );
 }
 
@@ -277,6 +354,7 @@ function assembleTree(
   specRows: (typeof leafSpecs.$inferSelect)[],
   refCountMap: Map<string, number>,
   typeMap: Map<string, typeof productTypes.$inferSelect>,
+  typeLabels: Map<string, string>,
 ): AssemblyTree {
   const leafMap = new Map(leafRows.map((r) => [r.id, r] as const));
   const specMap = new Map(specRows.map((r) => [r.leafId, r] as const));
@@ -288,35 +366,35 @@ function assembleTree(
   const describeLeaf = (
     leaf: typeof leaves.$inferSelect,
   ): Omit<DirectProductNode, "quoteLeafId" | "position" | "quantity"> => {
-    // B-3/B-10 · the QUOTE-OWNED Product Type, which is the schema this
-    // quote's spec_values are validated against. Reading leaves.product_type_id
-    // — the Library default — would let the displayed type and the readiness
-    // verdict come from different authorities. They agree today only because
-    // the backfill copied Library into quote-owned, so the invariant currently
-    // holds by coincidence rather than by construction; a quote-side type
-    // change would separate them silently.
+    // Step 4.5 · TWO authorities, deliberately not one.
     //
-    // Falls back to the Library value only when no quote-owned row exists at
-    // all, which after B-3 means an attachment that predates it.
+    // The displayed Product Type is HubSpot's, read LIVE, so the Library and
+    // Setup can never disagree about what a product is — that divergence was
+    // the B-4/B-10 finding, where a product typed in the Library read `untyped`
+    // here because Nexus kept a second taxonomy nobody populated.
+    //
+    // The Spec Schema is PINNED on this quote's own authority, so a later
+    // HubSpot reclassification changes what future attachments resolve without
+    // reinterpreting values an operator already authored.
+    //
+    // Neither reads `leaves.product_type_id`. There is no fallback to it: an
+    // unlinked product has no authoritative classification, and inventing one
+    // from the retired taxonomy is what this cutover removes.
     const spec = specMap.get(leaf.id);
-    const effectiveTypeId = spec?.productTypeId ?? leaf.productTypeId;
-    const leafType = effectiveTypeId ? typeMap.get(effectiveTypeId) : null;
+    const schema = describeSpecSchema(spec, typeMap);
+    const typeValue = leaf.hubspotProductType;
     return {
       leafId: leaf.id,
       name: leaf.name,
       sku: leaf.sku,
-      productType: leafType
-        ? {
-            id: leafType.id,
-            name: leafType.name,
-            scope: leafType.scope as "assembly" | "leaf",
-            placeholder: leafType.placeholder,
-          }
+      productType: typeValue
+        ? { value: typeValue, label: typeLabels.get(typeValue) ?? typeValue }
         : null,
+      specSchema: schema,
       unitCost: leaf.unitCost,
       archived: leaf.archived,
       globalRefCount: refCountMap.get(leaf.id) ?? 1,
-      specCompleteness: computeSpecCompleteness(leafType, specMap.get(leaf.id)),
+      specCompleteness: computeSpecCompleteness(schema, spec, typeMap),
     };
   };
 
@@ -421,23 +499,70 @@ function assembleTree(
  * "Filled" is non-empty-string, non-null value. Empty strings count
  * as not-filled (a PM clearing a field shouldn't count toward complete).
  */
-function computeSpecCompleteness(
-  type: typeof productTypes.$inferSelect | undefined | null,
+/**
+ * Resolve the pinned Spec Schema into the `product_types` row carrying its
+ * field definitions. Step 4.4.
+ *
+ * The three schema rows keep their field definitions; what changed is how a
+ * leaf arrives at one. It is no longer an operator-authored assignment — it is
+ * derived from authoritative classification and frozen at attachment.
+ */
+function describeSpecSchema(
   spec: typeof leafSpecs.$inferSelect | undefined,
+  typeMap: Map<string, typeof productTypes.$inferSelect>,
+): SpecSchemaRef | null {
+  if (!spec) return null;
+  const resolution = decodePinnedSchema(
+    spec.specSchema,
+    spec.schemaDerivedFromType,
+  );
+  // `null` covers both `no_type` and an unpinned row: no schema is established
+  // either way. The two stay distinguishable in the table, where the difference
+  // is diagnosable, rather than in every branch that consumes this.
+  if (resolution === null)
+    return { pin: "no_type", typeId: null, typeName: null };
+  if (resolution.kind === "schema") {
+    const typeId = SPEC_SCHEMA_PRODUCT_TYPE_ID[resolution.schemaId];
+    return {
+      pin: resolution.schemaId,
+      typeId,
+      typeName: typeMap.get(typeId)?.name ?? null,
+    };
+  }
+  // An `unmapped` pin is NOT folded into `no_schema`. CI is meant to make it
+  // unreachable, so if one renders, that is the signal it exists.
+  return {
+    pin: resolution.kind === "no_schema" ? "no_schema" : "unmapped",
+    typeId: null,
+    typeName: null,
+  };
+}
+
+function computeSpecCompleteness(
+  schema: SpecSchemaRef | null,
+  spec: typeof leafSpecs.$inferSelect | undefined,
+  typeMap: Map<string, typeof productTypes.$inferSelect>,
 ): SpecCompleteness | null {
+  if (!schema || schema.pin === "no_type") return { kind: "no_type" };
+  if (schema.pin === "no_schema" || schema.pin === "unmapped")
+    return {
+      kind: "no_schema",
+      typeLabel: spec?.schemaDerivedFromType ?? "",
+    };
+  const type = schema.typeId ? typeMap.get(schema.typeId) : null;
   if (!type) return { kind: "no_type" };
   if (type.placeholder) return { kind: "placeholder", typeName: type.name };
-  const schema = type.fieldSchema as
+  const fieldSchema = type.fieldSchema as
     | { fields: { key: string }[] }
     | null
     | undefined;
-  if (!schema || !Array.isArray(schema.fields)) {
+  if (!fieldSchema || !Array.isArray(fieldSchema.fields)) {
     return { kind: "placeholder", typeName: type.name };
   }
-  const total = schema.fields.length;
+  const total = fieldSchema.fields.length;
   if (total === 0) return { kind: "placeholder", typeName: type.name };
   const values = (spec?.specValues as Record<string, unknown> | undefined) ?? {};
-  const filled = schema.fields.filter((f) => {
+  const filled = fieldSchema.fields.filter((f) => {
     const v = values[f.key];
     if (v === null || v === undefined) return false;
     if (typeof v === "string" && v.trim() === "") return false;
