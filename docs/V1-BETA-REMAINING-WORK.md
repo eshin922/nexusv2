@@ -506,6 +506,39 @@ Ambiguous modules needing explicit in/out rationale per function:
 `freight-worksheet.ts` (12), `pricing-events.ts` (2), `warnings.ts` (3),
 `quote-attachments.ts` (3).
 
+#### `freight-worksheet.ts` — CLASSIFICATION COMPLETE
+
+`function | writes? | customer-visible/commercial? | current guard | action`
+
+| Function | W | Commercial? | Guard | Action |
+|---|---|---|---|---|
+| `createFreightSubcategory` | 5 | yes — freight cost reaches quoted price | none | `assertDraft` |
+| `updateFreightSubcategory` | 3 | yes | none | `assertDraft` |
+| `updateFreightDestination` | 1 | yes | none | `assertDraft` |
+| `addFreightDestination` | 4 | yes | none | `assertDraft` |
+| `selectFreightDestination` | 1 | yes — selects which destination prices | none | `assertDraft` |
+| `updateFreightDestinationBreak` | 1 | yes | none | `assertDraft` |
+| `updateFreightDestinationBreakGroup` | 2 | yes | none | `assertDraft` |
+| `deleteFreightDestination` | 2 | yes | none | `assertDraft` |
+| `deleteFreightSubcategory` | 1 | yes | none | `assertDraft` |
+| `updateFreightCustomsEntry` | 1 | yes — duty/tariff enter landed cost | none | `assertDraft` |
+| `updateFreightCustomsBreak` | 2 | yes | none | `assertDraft` |
+| `updateFreightTracking` | 2 | **NO — operational** | — | **OUTSIDE. Must NOT be draft-gated.** |
+
+**`updateFreightTracking` is a trap, and mechanically guarding this module would
+have sprung it.** It writes `freight_destination_tracking`, audits every entry
+with `{ operational: true }`, and is absent from the customer tree. Shipment
+tracking is entered AFTER a quote is sent — often after acceptance — so
+requiring draft would make the feature unreachable at exactly the point it is
+used. Freight *pricing* is commercial; freight *tracking* is logistics, and they
+live in one module.
+
+This is the concrete reason the semantic rule beats the module rule.
+
+**Freight-worksheet protected surface: 11 of 12.**
+
+#### Other modules
+
 Findings so far:
 
 - `warnings.ts` · `acceptWarning` — **already draft-gated inline.** Normalize to
