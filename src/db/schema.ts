@@ -2339,6 +2339,29 @@ export const leafSpecs = pgTable(
     leafId: uuid("leaf_id")
       .notNull()
       .references(() => leaves.id, { onDelete: "cascade" }),
+    /**
+     * Scope. NULL = Library master/default; NOT NULL = quote-owned authority.
+     *
+     * B-3. Without it, `version_number`, `is_current` and the effective dates
+     * each had to mean two things — quote-owned rows are siblings, not a
+     * version succession. Naming the scope lets every one of them mean exactly
+     * one thing within it.
+     */
+    quoteId: uuid("quote_id").references(() => quotes.id, {
+      onDelete: "cascade",
+    }),
+    /** Which Library default this quote-owned row was templated from. */
+    templatedFromSpecId: uuid("templated_from_spec_id"),
+    /**
+     * The Product Type governing THESE values.
+     *
+     * Carried on the authority because the type IS the schema `spec_values`
+     * are validated against. Freezing the values while inheriting a mutable
+     * Library type would let a Library type change silently invalidate every
+     * quote's specification. Library rows leave it NULL and defer to
+     * `leaves.product_type_id`.
+     */
+    productTypeId: text("product_type_id").references(() => productTypes.id),
     specValues: jsonb("spec_values").notNull().default(sql`'{}'::jsonb`),
     versionNumber: integer("version_number").notNull().default(1),
     isCurrent: boolean("is_current").notNull().default(true),
@@ -2361,9 +2384,17 @@ export const leafSpecs = pgTable(
     // Partial unique — one current row per leaf. Enforces "the
     // current spec for leaf X is unique" while allowing multiple
     // historical versions.
+    // Only a LIBRARY-scope row may be the Library default.
     uniqueIndex("leaf_specs_current_idx")
       .on(t.leafId)
-      .where(sql`is_current = true`),
+      .where(sql`quote_id is null and is_current = true`),
+    // One quote-owned authority per (quote, leaf) — so two appearances of the
+    // same product in one quote cannot silently diverge, and quote-side edits
+    // need no reference counting because exclusivity is structural.
+    uniqueIndex("leaf_specs_quote_owned_idx")
+      .on(t.quoteId, t.leafId)
+      .where(sql`quote_id is not null`),
+    index("leaf_specs_quote_leaf_idx").on(t.quoteId, t.leafId),
     // Historical version lookup (pin-time queries +
     // version-comparison views).
     index("leaf_specs_leaf_version_idx").on(t.leafId, t.versionNumber),

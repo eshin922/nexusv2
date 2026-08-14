@@ -1,4 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm";
+import { ensureQuoteSpecAuthority } from "./quote-spec-authority";
 import type { db } from "../../db/index.ts";
 import { assemblyLeaves, quoteLeaves } from "../../db/schema.ts";
 
@@ -48,6 +49,8 @@ export async function attachDirectProduct(
     leafId: string;
     quantity: string;
     position: number;
+    /** B-3 — attribution for the quote-owned spec instantiated here. */
+    createdBy: string;
   },
 ): Promise<DirectAttachmentEvidence> {
   // Duplicate check is scoped to DIRECT attachments only. The same library
@@ -72,12 +75,22 @@ export async function attachDirectProduct(
     );
   }
 
+  // B-3 — the quote owns its specification from the moment of attachment. The
+  // Library default is a template; the quote never points at the mutable row.
+  const authority = await ensureQuoteSpecAuthority(tx as never, {
+    quoteId: args.quoteId,
+    leafId: args.leafId,
+    createdBy: args.createdBy,
+  });
+
   const [row] = await tx
     .insert(quoteLeaves)
     .values({
       quoteId: args.quoteId,
       assemblyId: null,
       leafId: args.leafId,
+      leafSpecVersionId: authority.id,
+      pinnedAt: new Date(),
       quantity: args.quantity,
       position: args.position,
     })

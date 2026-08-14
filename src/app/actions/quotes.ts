@@ -3341,6 +3341,15 @@ async function cloneQuoteGraph(
           );
         }
         const attached = await attachGroupedMembership(tx, {
+          // B-3 · OPEN QUESTION, flagged rather than decided. The copy receives
+          // an authority templated from the LIBRARY default, which reproduces
+          // pre-B-3 behaviour exactly: before quote-owned specs existed, a copy
+          // and its source both resolved the same Library row, so a copy never
+          // carried source customisations. Once quotes customise, copying a
+          // customised quote and getting Library defaults may surprise — but
+          // copying the source's values is new semantics FR-12 never
+          // dispositioned, so it is not invented here.
+          createdBy: args.createdByUserId,
           quoteId: newQuoteId,
           assemblyId: newAsyId,
           leafId: sourceJunction.leafId,

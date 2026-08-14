@@ -44,7 +44,7 @@ export default async function SpecEntryPage({
   const { quote, project } = quoteRows[0];
   if (project.id !== projectId) notFound();
 
-  const data = await loadLeafForSpecEntry(leafId);
+  const data = await loadLeafForSpecEntry(leafId, { quoteId });
   if (!data) notFound();
 
   // Permission gate at render time. Non-admin users without
@@ -71,7 +71,7 @@ export default async function SpecEntryPage({
           </Link>
         </div>
 
-        <SpecEntrySurface data={data} readOnly={readOnly} />
+        <SpecEntrySurface quoteId={quoteId} data={data} readOnly={readOnly} />
       </main>
     </NavShell>
   );

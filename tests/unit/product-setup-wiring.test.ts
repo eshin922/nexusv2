@@ -547,3 +547,55 @@ test("suppression is display-only — no writer touches the stored SKU", async (
     /`ASY-\$\{quoteId\.slice\(0, 8\)\}-\$\{nextPosition \+ 1\}`/,
   );
 });
+
+// ------------------------------------------ B-3 · quote-owned spec authority
+test("B-3 · no quote-context reader resolves Library is_current", async () => {
+  // Falsification 11. Every one of these serves a QUOTE. If any resolves the
+  // Library default, that quote is reading master data it does not own — the
+  // defect B-3 removed, and one that is silent in both directions.
+  for (const f of [
+    "src/lib/addendum-loader.ts",
+    "src/lib/assembly-tree.ts",
+  ]) {
+    const src = await code(f);
+    assert.doesNotMatch(src, /isCurrent/, `${f} still resolves Library is_current`);
+    assert.match(src, /eq\(leafSpecs\.quoteId, quoteId\)/, `${f} is not quote-scoped`);
+  }
+});
+
+test("B-3 · the spec surface must be told which authority it edits", async () => {
+  const loader = await code("src/lib/leaf-spec-loader.ts");
+  // No default. The two candidates are "this quote" and "every future quote",
+  // and guessing wrong is silent either way.
+  assert.match(loader, /scope: \{ quoteId: string \} \| \{ library: true \}/);
+  assert.match(
+    await code("src/app/projects/[id]/quotes/[quoteId]/leaves/[leafId]/specs/page.tsx"),
+    /loadLeafForSpecEntry\(leafId, \{ quoteId \}\)/,
+  );
+});
+
+test("B-3 · quote-side writers never touch Library master data", async () => {
+  const src = await code("src/app/actions/leaf-specs.ts");
+  // leaves.product_type_id is the Library default for FUTURE attachments.
+  // Retyping from inside a quote must not retype every other quote.
+  assert.doesNotMatch(src, /update\(leaves\)/);
+  assert.match(src, /eq\(leafSpecs\.quoteId, quoteId\)/);
+  assert.match(src, /quoteId required/);
+});
+
+test("B-3 · attachment instantiates the authority, and reuses it", async () => {
+  for (const f of [
+    "src/lib/product-structure/direct-attachment.ts",
+    "src/lib/product-structure/grouped-membership-compatibility.ts",
+  ]) {
+    const src = await code(f);
+    assert.match(src, /ensureQuoteSpecAuthority/, `${f} does not instantiate`);
+    assert.match(src, /leafSpecVersionId: authority\.id/, `${f} does not pin`);
+  }
+  const authority = await code("src/lib/product-structure/quote-spec-authority.ts");
+  // Idempotent: the second and third attachment of one product to one quote
+  // resolve to the SAME row, or two appearances could silently diverge.
+  assert.match(authority, /if \(existing\.length > 0\) return toAuthority\(existing\[0\]\)/);
+  // Quote rows opt out of the Library-scope flag.
+  assert.match(authority, /isCurrent: false/);
+});

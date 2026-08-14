@@ -132,8 +132,12 @@ export async function loadQuoteAddendum(
     db
       .select()
       .from(leafSpecs)
+      // B-3 — QUOTE-SCOPED. Resolves this quote's own authority. There is no
+      // `is_current` fallback: after B-3 an attached leaf always owns a row, so
+      // a fallback could only serve Library state to a quote, which is the
+      // defect this replaced.
       .where(
-        and(inArray(leafSpecs.leafId, leafIds), eq(leafSpecs.isCurrent, true)),
+        and(inArray(leafSpecs.leafId, leafIds), eq(leafSpecs.quoteId, quoteId)),
       ),
   ]);
 

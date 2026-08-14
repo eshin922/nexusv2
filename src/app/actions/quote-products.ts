@@ -90,6 +90,7 @@ export async function attachQuoteProduct(
     try {
       attached = await db.transaction(async (tx) => {
         const row = await attachDirectProductRow(tx, {
+          createdBy: user.id,
           quoteId,
           leafId,
           quantity: quantityRaw === "" ? "1" : quantityRaw,

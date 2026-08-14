@@ -22,10 +22,12 @@ import { assignLeafProductType } from "@/app/actions/leaf-specs";
 // for placeholder types).
 
 export function TypePicker({
+  quoteId,
   leafId,
   availableTypes,
   disabled,
 }: {
+  quoteId: string;
   leafId: string;
   availableTypes: LeafSpecEntryProductType[];
   disabled: boolean;
@@ -41,6 +43,7 @@ export function TypePicker({
     setError(null);
     const fd = new FormData();
     fd.set("leafId", leafId);
+      fd.set("quoteId", quoteId);
     fd.set("productTypeId", typeId);
     startTransition(async () => {
       const result = await assignLeafProductType(fd);

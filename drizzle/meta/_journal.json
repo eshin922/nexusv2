@@ -484,6 +484,13 @@
       "when": 1786320007000,
       "tag": "0070_leaf_hubspot_product_type",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1786320008000,
+      "tag": "0071_quote_owned_spec_authority",
+      "breakpoints": true
     }
   ]
 }

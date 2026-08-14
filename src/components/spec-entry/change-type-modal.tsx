@@ -19,11 +19,13 @@ import { changeLeafProductType } from "@/app/actions/leaf-specs";
 // uses this modal).
 
 export function ChangeTypeModal({
+  quoteId,
   leafId,
   currentType,
   availableTypes,
   disabled,
 }: {
+  quoteId: string;
   leafId: string;
   currentType: LeafSpecEntryProductType;
   availableTypes: LeafSpecEntryProductType[];
@@ -70,6 +72,7 @@ export function ChangeTypeModal({
     if (!targetTypeId) return;
     const fd = new FormData();
     fd.set("leafId", leafId);
+      fd.set("quoteId", quoteId);
     fd.set("productTypeId", targetTypeId);
     startTransition(async () => {
       setError(null);

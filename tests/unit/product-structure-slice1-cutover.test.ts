@@ -222,6 +222,10 @@ const classifiedIdentityFiles = new Set([
   // are the operator's two attachments and not a third thing. No mapping between
   // identity spaces, no writes.
   "scripts/gate-1b/ow-2-isolate.ts",
+  // CLASSIFIED — canonical only. B-3's quote-owned spec authority is keyed by
+  // (quote_id, leaf_id); it reads leafId to template from the Library default
+  // and never touches the legacy junction or maps between identity spaces.
+  "src/lib/product-structure/quote-spec-authority.ts",
   "scripts/smoke/mark-complete.ts", "scripts/verify/costing-adapter.ts",
   "scripts/verify/sample-order-margin.ts", "scripts/verify/slice-11-5-1-warnings-parity.ts",
   "tests/harness/fixtures/world.ts",

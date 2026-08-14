@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblies,
@@ -84,6 +84,15 @@ export type LeafSpecEntryData = {
  */
 export async function loadLeafForSpecEntry(
   leafId: string,
+  /**
+   * B-3 — which authority to read.
+   *
+   * A quote id resolves that quote's own specification. `null` resolves the
+   * LIBRARY default, and is only legitimate for a master/template context.
+   * The route already carried the quote in its URL and discarded it; that is
+   * what let a quote-context surface edit Library master data.
+   */
+  scope: { quoteId: string } | { library: true },
 ): Promise<LeafSpecEntryData | null> {
   const leafRows = await db
     .select()
@@ -98,7 +107,17 @@ export async function loadLeafForSpecEntry(
     db
       .select()
       .from(leafSpecs)
-      .where(and(eq(leafSpecs.leafId, leafId), eq(leafSpecs.isCurrent, true)))
+      // No `is_current` fallback in the quote branch: after B-3 an attached
+      // leaf always owns a row, so a fallback could only serve Library state
+      // to a quote.
+      .where(
+        and(
+          eq(leafSpecs.leafId, leafId),
+          "quoteId" in scope
+            ? eq(leafSpecs.quoteId, scope.quoteId)
+            : and(isNull(leafSpecs.quoteId), eq(leafSpecs.isCurrent, true)),
+        ),
+      )
       .limit(1),
     db
       .select()

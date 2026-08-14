@@ -361,6 +361,7 @@ export async function attachAssemblyLeaf(
     try {
       membership = await db.transaction(async (tx) => {
         const attached = await attachGroupedMembership(tx, {
+          createdBy: user.id,
           quoteId: asm.quoteId,
           assemblyId,
           leafId,

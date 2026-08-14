@@ -41,6 +41,10 @@ export async function updateLeafSpec(
 ): Promise<ActionResult<UpdateLeafSpecResult>> {
   return runAction(async () => {
     const leafId = String(formData.get("leafId") ?? "").trim();
+    // B-3 — which authority is being edited. Required: an edit with no scope
+    // has no safe default, because the two candidates are "this quote" and
+    // "every future quote", and guessing wrong is silent either way.
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
     const fieldKey = String(formData.get("fieldKey") ?? "").trim();
     // Raw value preserved as string; jsonb stores strings. Future
     // expansion to typed fields (number, boolean, select) maps here.
@@ -50,6 +54,8 @@ export async function updateLeafSpec(
       throw new ActionGuardError(ERR.VALIDATION, "leafId required");
     if (!fieldKey)
       throw new ActionGuardError(ERR.VALIDATION, "fieldKey required");
+    if (!quoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
 
     // Permission gate (Path B per Architect Gate 5; impl-1 helper).
     const user = await assertCanEditSpecs();
@@ -111,11 +117,12 @@ export async function updateLeafSpec(
     const trimmed = rawValue.trim();
     const nextValue: string | null = trimmed.length === 0 ? null : rawValue;
 
-    // Load current spec row (is_current = true).
+    // Load THIS QUOTE's authority. Not the Library default — a quote-side edit
+    // must never reach master data or another quote.
     const currentRows = await db
       .select()
       .from(leafSpecs)
-      .where(and(eq(leafSpecs.leafId, leafId), eq(leafSpecs.isCurrent, true)))
+      .where(and(eq(leafSpecs.leafId, leafId), eq(leafSpecs.quoteId, quoteId)))
       .limit(1);
     const current = currentRows[0];
 
@@ -133,9 +140,12 @@ export async function updateLeafSpec(
         .insert(leafSpecs)
         .values({
           leafId,
+          quoteId,
           specValues: initialValues,
           versionNumber: 1,
-          isCurrent: true,
+          // Library-scope concept; quote rows opt out. Authority is the
+          // pointer on quote_leaves, never a flag.
+          isCurrent: false,
           createdBy: user.id,
         })
         .returning();
@@ -239,6 +249,9 @@ export async function assignLeafProductType(
   return runAction(async () => {
     const leafId = String(formData.get("leafId") ?? "").trim();
     const productTypeId = String(formData.get("productTypeId") ?? "").trim();
+    // B-3 — quote-scoped. The Product Type IS the schema spec_values are
+    // validated against, so it belongs to the same authority as the values.
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
 
     if (!leafId)
       throw new ActionGuardError(ERR.VALIDATION, "leafId required");
@@ -282,10 +295,15 @@ export async function assignLeafProductType(
         "Selected type is not a leaf-scope type.",
       );
 
+    if (!quoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+    // Writes THIS QUOTE's authority. `leaves.product_type_id` is the Library
+    // default for FUTURE attachments and is deliberately untouched — changing
+    // it here would retype every other quote using this product.
     await db
-      .update(leaves)
-      .set({ productTypeId, updatedAt: new Date() })
-      .where(eq(leaves.id, leafId));
+      .update(leafSpecs)
+      .set({ productTypeId, updatedAt: new Date(), updatedBy: user.id })
+      .where(and(eq(leafSpecs.leafId, leafId), eq(leafSpecs.quoteId, quoteId)));
 
     // No `leaf_spec_type_change` audit on initial assignment —
     // that action is reserved for actual type SWITCHES (Step 9).
@@ -338,6 +356,8 @@ export async function changeLeafProductType(
   return runAction(async () => {
     const leafId = String(formData.get("leafId") ?? "").trim();
     const toTypeId = String(formData.get("productTypeId") ?? "").trim();
+    // B-3 — quote-scoped, for the same reason as the assign path.
+    const changeQuoteId = String(formData.get("quoteId") ?? "").trim();
 
     if (!leafId)
       throw new ActionGuardError(ERR.VALIDATION, "leafId required");
@@ -388,7 +408,10 @@ export async function changeLeafProductType(
     const currentRows = await db
       .select()
       .from(leafSpecs)
-      .where(and(eq(leafSpecs.leafId, leafId), eq(leafSpecs.isCurrent, true)))
+      // Quote-scoped: the prior values being transformed are this quote's.
+      .where(
+        and(eq(leafSpecs.leafId, leafId), eq(leafSpecs.quoteId, changeQuoteId)),
+      )
       .limit(1);
     const current = currentRows[0];
     const priorValues = (current?.specValues as
@@ -401,13 +424,21 @@ export async function changeLeafProductType(
         !(typeof v === "string" && v.trim() === ""),
     );
 
-    // Transaction: update leaves.product_type_id + clear spec_values
-    // + emit cascade audit rows atomically.
+    if (!changeQuoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+    // Transaction: retype THIS QUOTE's authority + clear its spec_values +
+    // emit cascade audit rows atomically. `leaves.product_type_id` stays as
+    // the Library default for future attachments.
     await db.transaction(async (tx) => {
       await tx
-        .update(leaves)
-        .set({ productTypeId: toTypeId, updatedAt: new Date() })
-        .where(eq(leaves.id, leafId));
+        .update(leafSpecs)
+        .set({ productTypeId: toTypeId, updatedAt: new Date(), updatedBy: user.id })
+        .where(
+          and(
+            eq(leafSpecs.leafId, leafId),
+            eq(leafSpecs.quoteId, changeQuoteId),
+          ),
+        );
 
       if (current) {
         await tx
