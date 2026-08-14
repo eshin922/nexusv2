@@ -450,6 +450,75 @@ not silently recompute an old version from today's working tables. `pdf_url`
 already pins the exact file the customer received; the snapshot must make the
 same version reconstructible in queryable form.
 
+### Dispositions — 2026-08-14
+
+**1 · Snapshot payload is inventoried, not inferred.** Do not derive the JSONB
+shape from `customer-view-resolver`. Trace the real dependency —
+`CustomerView → customer-view-to-cpdf → PDF components` — and design the payload
+from what the artifact actually consumes. Capture structure and specs *where
+actually rendered*. Do not snapshot incidental caches, provider state or
+internal workflow metadata merely because it is reachable.
+
+**2 · Historical stability is proven by two authorities, with no PDF machinery.**
+No text extraction, no re-render comparison, no font/timestamp normalization for
+V1.
+
+- **Stored artifact:** `pdf_url` is immutable. Prove Revise and subsequent edits
+  neither replace nor mutate the prior sent file.
+- **Semantic representation:** derive the historical customer-render input from
+  the snapshot, and compare its canonical structured representation before and
+  after Revise plus arbitrary edits. It must be identical.
+
+**3 · Pre-migration sent quotes are NOT backfilled.** Backfilling structure from
+today's live rows would record current state as historical sent state — false
+evidence of exactly the kind this work exists to prevent. Those versions are
+explicitly **legacy / structural snapshot unavailable**. Where an immutable
+`pdf_url` exists, that PDF remains the historical customer artifact. No
+reconstructed structure is invented for them. Acceptable for V1, and the
+existing development dataset retires at Beta Day 0 anyway (§6).
+
+### Measurement correction — the "48 unguarded paths" figure was wrong
+
+**A module can enforce draft without calling `assertDraft`.** The sweep that
+produced 48 counted a HELPER NAME, not the invariant. Re-measured including
+inline `status !== "draft"` checks:
+
+| Module | `assertDraft` | inline draft check | `assertNotFrozen` |
+|---|---|---|---|
+| `costing.ts` | 0 | **3** | 0 |
+| `freight.ts` | 0 | **2** | 0 |
+| `warnings.ts` | 0 | **1** (`acceptWarning`) | 0 |
+| `freight-worksheet.ts` | 0 | 0 | 2 |
+| the other six | 0 | 0 | 0 |
+
+So some paths are already protected and 48 overstates the work. This is the same
+error shape that has recurred all session — measuring a proxy for a property
+instead of the property — and it is why Step 1 is gated on per-function
+classification rather than a module-level sweep.
+
+**Durable fix, folded into Step 1:** normalize the inline checks to
+`assertDraft`, so the invariant becomes greppable and the next person measuring
+it gets a true answer.
+
+### Per-function classification — REQUIRED before any guard is applied
+
+Ambiguous modules needing explicit in/out rationale per function:
+`freight-worksheet.ts` (12), `pricing-events.ts` (2), `warnings.ts` (3),
+`quote-attachments.ts` (3).
+
+Findings so far:
+
+- `warnings.ts` · `acceptWarning` — **already draft-gated inline.** Normalize to
+  `assertDraft`; no behaviour change.
+- `warnings.ts` · `reconcileWarnings`, `getQuoteWarnings` — derived/advisory.
+  `quote_warnings` appears nowhere in the customer tree. **Outside**, but
+  `reconcileWarnings` writes rows, so confirm it cannot run against a sent quote
+  in a way that alters a customer-visible read.
+- `pricing-events.ts` · both fns — append-only telemetry to `pricing_events`;
+  absent from the customer tree. **Outside.**
+- `quote-attachments.ts` · all three — verified absent from `src/components/pdf/`
+  and `customer-view-resolver.ts`. **Outside**, revisit trigger recorded above.
+
 ### Proof obligations — all seven, before this closes
 
 1. Send captures a complete snapshot.
