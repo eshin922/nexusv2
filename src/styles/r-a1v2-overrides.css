@@ -444,9 +444,51 @@
    * not, and containment is the only difference because it is the only thing
    * that actually differs.
    */
-  grid-template-columns: 110px 1fr auto auto auto;
+  /* B-12 REPAIR · a narrow leading slot for the grip.
+   *
+   * The grip was added as a sixth element into a five-column template, so it
+   * consumed the SKU slot and pushed every subsequent cell one place right —
+   * the overflow fell out of the row's last column entirely. The row stopped
+   * scanning as a table because it had stopped BEING one.
+   *
+   * 16px, fixed. It is an affordance, not data: it must not flex, and it must
+   * be the same width on every root row so SKU starts on one x-coordinate. The
+   * note above about there being no correct leading-column target still holds
+   * for ALIGNMENT to the container or the member inset — this column aligns to
+   * neither, it just reserves the grip.
+   */
+  /* FIVE columns, matching `.a1v2-leaf-row` cell-for-cell:
+   *   grip | SKU | name+meta | Type | readiness+overflow
+   * The ONLY declared difference is the leading slot: 16px here reserves the
+   * grip, 60px there reserves the grip PLUS the hierarchy indent and connector.
+   * That gutter is the one intentional divergence — everything downstream of it
+   * lines up because the two templates are otherwise identical. */
+  grid-template-columns: 16px 110px 1fr auto auto;
+  gap: 10px;
+  align-items: center;
   padding: 10px 16px;
   border-left-color: transparent;
+}
+/* Identity takes the slack, and absorbs it. `min-width: 0` is what lets a long
+   name truncate inside its own cell instead of widening the column and pushing
+   Type, readiness and the overflow out of alignment across rows. */
+.a1v2-asy-row.a1v2-direct-row > .name-cell,
+.a1v2-leaf-row > .leaf-name-cell {
+  min-width: 0;
+}
+.a1v2-asy-row.a1v2-direct-row > .name-cell .name,
+.a1v2-leaf-row > .leaf-name-cell .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The trailing cell terminates the row at the final column. `-1` is the last
+   line, so `-2 / -1` is the last TRACK — the previous `-2` alone resolved to the
+   second-to-last track and left the final column standing empty, which is the
+   gap the overflow appeared to be stranded beside. */
+.a1v2-asy-row.a1v2-direct-row > .direct-actions {
+  grid-column: -2 / -1;
+  justify-self: end;
 }
 .a1v2-asy-row.a1v2-direct-row .direct-actions {
   display: flex;
@@ -730,3 +772,208 @@
 }
 /* Overflow needs positioning context now that the actions collapsed into it. */
 .a1v2-asy-row.a1v2-direct-row .direct-actions { position: relative; }
+
+/* SKU TYPOGRAPHY IS A PROPERTY OF THE ENTITY ROLE, NOT OF THE ROW.
+ *
+ * A Direct Product and a member product are both PRODUCT identities, so they
+ * take one SKU register. The canonical rule (`r-a1v2-setup.css:206`) scopes it
+ * to `.a1v2-leaf-row .leaf-sku`, so once the root row started rendering its own
+ * `.leaf-sku` cell that cell matched NO rule and fell back to the inherited
+ * sans face — visibly heavier and larger beside the member SKUs it now aligns
+ * with. Giving the column the same x-coordinate made the mismatch obvious
+ * rather than causing it.
+ *
+ * The member selector is restated here ON PURPOSE. Writing a root-only rule
+ * would be a second root-specific variant holding the same values, and two
+ * copies of one register drift on the first edit. One declaration, both
+ * selectors — and `tests/unit/product-setup-wiring.test.ts` asserts this block
+ * declares exactly what the canonical block declares, so a CD refresh that
+ * changes the register fails the test instead of splitting the two apart.
+ *
+ * Item Group SKU treatment is untouched: a container is a different role and
+ * keeps its `.sku-pill`.
+ */
+.a1v2-leaf-row .leaf-sku,
+.a1v2-asy-row.a1v2-direct-row > .leaf-sku {
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.04em;
+}
+
+/* B-12 · the drag grip.
+   Conventional six dots. Quiet at rest — it is an affordance, not information —
+   and it only exists on rows where a move is actually possible, so its presence
+   is itself the signal. */
+.a1v2-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  cursor: grab;
+  color: var(--ink-4);
+  opacity: 0.45;
+  transition: opacity 90ms ease;
+}
+.a1v2-grip:active { cursor: grabbing; }
+.a1v2-grip svg { fill: currentColor; }
+.a1v2-asy-row:hover .a1v2-grip,
+.a1v2-leaf-row:hover .a1v2-grip { opacity: 0.9; }
+
+/* The row being moved recedes rather than being decorated — the operator is
+   watching the cursor, not the source. */
+.a1v2-leaf-row.moving,
+.a1v2-direct-row.moving { opacity: 0.4; }
+
+/* Drop feedback uses the container that already exists. No inserted dropzone
+   element, no "drop here" copy: the group tints, and that is the whole signal. */
+.a1v2-asy-row.drop-target {
+  background: oklch(from var(--accent) l c h / 0.06);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.a1v2-tree.drop-active { background: oklch(from var(--accent) l c h / 0.03); }
+
+/* Member rows keep their existing 60px indent slot — the hierarchy signal is
+   the indentation and connector, unchanged. The grip is centred inside that
+   slot rather than given a column of its own, so members are NOT re-columned
+   into a second grid system: their SKU, name, Type and readiness stay on the
+   x-coordinates they already had. */
+.a1v2-leaf-row > .a1v2-grip { justify-self: center; }
+
+/* ── Drag feedback ──────────────────────────────────────────────────────────
+ *
+ * Two transient cues, both gone at drop. Neither is chrome: nothing here is
+ * rendered when a drag is not in flight.
+ */
+
+/* 1 · WHAT AM I CARRYING.
+ * Parked offscreen because the browser must snapshot a PAINTED element for
+ * `setDragImage` — `display:none` and `visibility:hidden` both snapshot empty.
+ * The operator never sees it in this position; they see the browser's copy of
+ * it under the pointer. */
+.a1v2-drag-proxy {
+  position: fixed;
+  top: -1000px;
+  left: -1000px;
+  z-index: -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+  padding: 6px 10px;
+  background: var(--paper);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  box-shadow: 0 4px 14px oklch(0% 0 0 / 0.18);
+  font-size: 12px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.a1v2-drag-proxy .sku {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+.a1v2-drag-proxy .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 2 · WHERE WILL IT LAND.
+ * An inset shadow, not a border and not an inserted node: a real element would
+ * reflow the list under the pointer mid-drag, and a border would change the
+ * row's box and shift its neighbours by a pixel. This paints inside the row and
+ * moves nothing.
+ *
+ * The row carrying the line is the row that will occupy the RESULTING index —
+ * chosen by `indicatorAnchor`, not by which row the pointer is over. */
+.a1v2-leaf-row.drop-before,
+.a1v2-asy-row.drop-before {
+  box-shadow: inset 0 2px 0 -0.5px var(--accent);
+}
+.a1v2-leaf-row.drop-after,
+.a1v2-asy-row.drop-after {
+  box-shadow: inset 0 -2px 0 -0.5px var(--accent);
+}
+/* The group tint and the insertion line coexist — the tint says WHICH group,
+   the line says WHERE in it. Restated together because both write box-shadow
+   and the later rule would otherwise drop the tint's left edge. */
+.a1v2-asy-row.drop-target.drop-after {
+  box-shadow: inset 2px 0 0 var(--accent), inset 0 -2px 0 -0.5px var(--accent);
+}
+
+/* ROOT INSERTION LANE.
+ *
+ * The root destination was the tree container's blank background. Item Groups
+ * occupy the full width and most of the height, so there was almost none of it
+ * — Group -> Direct was implemented and proven and still unreachable, because
+ * the operator had to find a few pixels of nothing.
+ *
+ * A lane occupies each root slot DURING A DRAG ONLY. It is not rendered
+ * otherwise, so no permanent drop chrome enters the surface.
+ *
+ * The 12px height is hit area, and `margin: -6px 0` gives it back to the
+ * layout, so lanes appearing and disappearing never shift the rows around
+ * them. `z-index` lifts the lane over the adjacent row edges — without it the
+ * row's own dragover wins along the boundary, which is precisely the band the
+ * operator aims at when they mean "between these two".
+ */
+.a1v2-root-lane {
+  /* 28px of acquisition, 24 of it given back to the layout. The visible line
+     stays 2px — restrained cue, forgiving target — because the operator aims
+     at a BAND, not at a line, and a 12px band crossed at normal pointer speed
+     can be stepped over between dragover ticks.
+     `margin: -13px 0` leaves a 2px net footprint, so lanes appearing at
+     dragstart barely shift the rows they sit between; combined with the
+     overlap they cover the row edges an operator naturally aims for when they
+     mean "between these two". */
+  height: 28px;
+  margin: -13px 0;
+  position: relative;
+  z-index: 3;
+}
+/* Resting state is a faint seam: enough to show a slot EXISTS while dragging,
+   not so much that it competes with the active one. */
+.a1v2-root-lane::after {
+  content: "";
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-1px);
+  border-radius: 1px;
+  background: oklch(from var(--accent) l c h / 0.18);
+}
+/* The same insertion line the rest of the surface uses, so the cue means what
+   it already means: the product lands HERE, and it lands Direct. */
+.a1v2-root-lane.active::after {
+  background: var(--accent);
+}
+
+/* STRUCTURE PERSISTING.
+ *
+ * The row is already in its new place — the gesture is not in doubt — so this
+ * says "still saving", not "still moving". Quiet on purpose: a loud marker on a
+ * row that has visibly arrived reads as an error.
+ *
+ * Note what is NOT here: no pointer-events block and no disabled state. Per
+ * Pattern 47(e)/(f), pending is for status, never for taking a control away
+ * from the operator — and per 47(f) it must never disable a control it does not
+ * describe. This marks one row; it gates nothing.
+ */
+.a1v2-leaf-row.structure-pending,
+.a1v2-asy-row.structure-pending {
+  opacity: 0.72;
+}
+.a1v2-leaf-row.structure-pending::after,
+.a1v2-asy-row.structure-pending::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0.55;
+}
+.a1v2-leaf-row.structure-pending,
+.a1v2-asy-row.structure-pending { position: relative; }

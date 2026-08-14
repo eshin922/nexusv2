@@ -216,11 +216,16 @@ test("direct mode needs no item group to be attachable", async () => {
 // ------------------------------------------------------------- rendering
 test("Direct Products render as first-class rows beside Item Groups", async () => {
   const src = await read("src/components/assembly-tree/assembly-tree-body.tsx");
-  assert.match(src, /tree\.directProducts\.map/);
+  assert.match(src, /view\.direct\.map/);
   assert.match(src, /<DirectProductRow/);
-  // Peer, not nested: the direct map must not be inside the assembly map.
-  const directAt = src.indexOf("tree.directProducts.map");
-  const asyAt = src.indexOf("orderedAssemblies.map");
+  // Peer, not nested, and Direct first.
+  //
+  // Measured on the RENDERED ELEMENTS rather than on the map calls. The map
+  // expressions now also appear in the optimistic-view memo above the JSX, so
+  // a first-occurrence search finds a derivation rather than a render and
+  // reports an ordering that is not the one the operator sees.
+  const directAt = src.indexOf("<DirectProductRow");
+  const asyAt = src.indexOf("<AsyRow");
   assert.ok(directAt > 0 && asyAt > 0);
   assert.ok(directAt < asyAt, "Direct Products render before Item Groups");
 });
@@ -724,11 +729,57 @@ test("B-10 · a Direct Product renders in the PRODUCT register", async () => {
   // was wearing the Item Group's container typography — so a container and a
   // product were typographically identical.
   assert.match(css, /\.a1v2-direct-row \.name-cell \.name \{[^}]*font-style: normal[^}]*font-size: 12\.5px/);
+  // The `.sku-pill` rule REMAINS in the stylesheet — Item Group rows still use
+  // it — but the Direct row no longer renders one. See the register assertions
+  // below for why: it was rendering the SKU twice.
   assert.match(css, /\.a1v2-direct-row \.sku-pill \{[^}]*background: none/);
   // Independence stays in POSITION — root placement, no connector, no child
   // inset — not in container styling. The 3px rule is transparent rather than
   // removed so the border box still reserves shared geometry.
-  assert.match(css, /\.a1v2-direct-row \{[^}]*grid-template-columns: 110px 1fr auto auto auto/);
+  // SUPERSEDED BY THE B-12 GRIP REPAIR, and rewritten rather than dropped.
+  //
+  // The row was five columns with only four cells and no SKU of its own, so
+  // root SKU and member SKU could not share an x-coordinate. Adding the grip
+  // exposed it: the sixth element fell out of the last column and the overflow
+  // stopped terminating the row.
+  //
+  // REWRITTEN AGAIN after operator review of the first repair, which did not
+  // hold: the row rendered the SKU TWICE — an Item Group `.sku-pill` and a
+  // member `.leaf-sku` — so it put seven children into the six-column template
+  // this assertion previously pinned. The surplus wrapped to an implicit second
+  // line and took the overflow with it. Asserting the template alone could not
+  // catch that, because the template was exactly what it claimed to be; what
+  // disagreed was the number of cells rendered into it.
+  //
+  // So the register is asserted as a RELATIONSHIP between the two row kinds,
+  // and against the cells actually rendered — not as a literal string that is
+  // true while the row is still broken.
+  const direct = css.match(/\.a1v2-asy-row\.a1v2-direct-row \{[\s\S]*?grid-template-columns: ([^;]+);/);
+  const member = css.match(/\.a1v2-leaf-row \{\s*grid-template-columns: ([^;]+);/);
+  assert.ok(direct && member, "both row templates must be declared");
+  const directCols = direct[1].trim().split(/\s+/);
+  const memberCols = member[1].trim().split(/\s+/);
+  assert.equal(directCols.length, 5);
+  // Identical downstream of the leading slot. That slot is the ONLY sanctioned
+  // difference between the two kinds: it carries the member hierarchy gutter.
+  assert.deepEqual(directCols.slice(1), memberCols.slice(1));
+  const rowSrc = await code("src/components/assembly-tree/direct-product-row.tsx");
+  assert.equal(
+    rowSrc.match(/className="leaf-sku"/g)?.length,
+    1,
+    "root rows carry exactly one SKU cell, in the member register",
+  );
+  assert.doesNotMatch(
+    rowSrc,
+    /className="sku-pill"/,
+    "the Item Group SKU pill must not also be rendered on a product row",
+  );
+  // The trailing cell must reach the LAST track. `-2` alone resolves to the
+  // second-to-last track and leaves the final column standing empty, which is
+  // the gap the overflow appeared stranded beside.
+  assert.match(css, /\.a1v2-direct-row > \.direct-actions \{[^}]*grid-column: -2 \/ -1/);
+  // Identity absorbs the slack instead of pushing its neighbours out of line.
+  assert.match(css, /min-width: 0/);
   assert.match(css, /\.a1v2-direct-row \{[^}]*padding: 10px 16px/);
   assert.match(css, /\.a1v2-direct-row \{[^}]*border-left-color: transparent/);
   // The inert diamond is gone, and its column with it — a meaningless glyph is
@@ -838,4 +889,64 @@ test("Step 4 · spec validation selects its schema from the pin, in quote scope"
   assert.match(src, /"quoteId" in scope\s*\?\s*decodePinnedSchema/);
   // The unmapped state must not be absorbed into "no schema applies".
   assert.match(src, /resolution\.kind === "unmapped"/);
+});
+
+// ------------------------------------------- drag/drop · structural movement
+test("every drag direction reaches the move primitive, not detach + attach", async () => {
+  // The primitive is the only safe writer: composing a move from detach +
+  // attach mints a new quote_leaves.id AND cascades the product's cost inputs
+  // away through the dual-keyed assembly_leaf_id. Both leave the tree looking
+  // correct, so this is asserted structurally rather than trusted.
+  const action = await code("src/app/actions/assemblies.ts");
+  assert.match(action, /moveStructuralMembership/);
+  assert.match(action, /target === "direct"[\s\S]{0,120}kind: "direct"/);
+  assert.match(action, /kind: "group", assemblyId: target/);
+  // A move is a draft-only structural edit.
+  assert.match(action, /assertDraft\(quote\)/);
+  // It must never reach for the destructive helpers.
+  const moveBlock = action.slice(action.indexOf("moveProductMembership"));
+  assert.doesNotMatch(moveBlock, /detachGroupedMembership|attachGroupedMembership/);
+});
+
+test("the move writer records both structural homes in its audit row", async () => {
+  const action = await code("src/app/actions/assemblies.ts");
+  assert.match(action, /action: "product_membership_moved"/);
+  assert.match(action, /from: evidence\.from/);
+  assert.match(action, /to: evidence\.to/);
+});
+
+test("member drag state lives at tree level, not inside one Item Group", async () => {
+  // Per-ASY state can only describe movement INSIDE one group, which is why
+  // cross-group movement was unreachable before.
+  const body = await code("src/components/assembly-tree/assembly-tree-body.tsx");
+  assert.match(body, /movingLeafId/);
+  assert.match(body, /moveProductMembership/);
+  // The tree container is the Direct/root drop zone — no inserted dropzone.
+  // REWRITTEN: the drop handler no longer takes the destination as an argument.
+  // It reads the PLAN, which carries destination and resulting index together,
+  // so the position released on is the position the indicator promised. Pinning
+  // the old `dropOnZone(e, "direct")` call shape would forbid exactly that fix.
+  assert.match(body, /onDragOver=\{\(e\) => overZoneTail\(e, \{ kind: "direct" \}\)\}/);
+  assert.match(body, /onDrop=\{commitDrop\}/);
+  // No optimistic reshuffle across a governed boundary.
+  assert.match(body, /router\.refresh\(\)/);
+});
+
+test("the grip renders only where a move is supported", async () => {
+  const grip = await code("src/components/assembly-tree/drag-grip.tsx");
+  assert.match(grip, /draggable/);
+  for (const f of [
+    "src/components/assembly-tree/asy-row.tsx",
+    "src/components/assembly-tree/direct-product-row.tsx",
+  ]) {
+    const src = await code(f);
+    // Guarded on BOTH editability and the handler's presence.
+    assert.match(src, /editable && onMoveStart \? \(?\s*<DragGrip/);
+  }
+});
+
+test("same-group reorder is untouched by the cross-home move", async () => {
+  const src = await code("src/components/assembly-tree/asy-row.tsx");
+  assert.match(src, /reorderAssemblyLeaves/);
+  assert.match(src, /handleLeafDragOver/);
 });

@@ -41,16 +41,48 @@ function numerics(node: unknown, path: string, out: Map<string, number[]>) {
   }
 }
 
+/**
+ * A movement is only a MOVEMENT if it exceeds floating-point noise.
+ *
+ * IEEE-754 addition is not associative, so the same mathematical value
+ * accumulated in a different row order differs in the last bit. A comparison
+ * that treats 0.37550000000000006 and 0.3755 as different numbers reports a
+ * commercial change where there is none — and that report is expensive,
+ * because the honest response to it is to refresh a governed baseline.
+ *
+ * The threshold is RELATIVE and deliberately tiny: 1e-9 is ~1e7 times larger
+ * than a double's epsilon at these magnitudes, and ~1e5 times smaller than the
+ * smallest commercially meaningful movement (a hundredth of a cent). Nothing a
+ * human would call a price change hides under it.
+ */
+const NOISE = 1e-9;
+const isNoise = (x: number, y: number) =>
+  x === y || Math.abs(x - y) <= NOISE * Math.max(1, Math.abs(x), Math.abs(y));
+
 function multisetDiff(a: Map<string, number[]>, b: Map<string, number[]>) {
   const keys = new Set([...a.keys(), ...b.keys()]);
   const moved: string[] = [];
+  const noise: string[] = [];
   for (const k of keys) {
     const x = (a.get(k) ?? []).slice().sort((p, q) => p - q);
     const y = (b.get(k) ?? []).slice().sort((p, q) => p - q);
-    if (x.length !== y.length || x.some((v, i) => v !== y[i]))
+    if (x.length !== y.length) {
       moved.push(`${k}  n=${x.length}->${y.length}`);
+      continue;
+    }
+    const diffs = x
+      .map((v, i) => [v, y[i]] as const)
+      .filter(([p, q]) => p !== q);
+    if (diffs.length === 0) continue;
+    if (diffs.every(([p, q]) => isNoise(p, q))) {
+      const worst = diffs.reduce((m, [p, q]) => Math.max(m, Math.abs(p - q)), 0);
+      noise.push(`${k}  max|delta|=${worst.toExponential(2)}`);
+      continue;
+    }
+    const sample = diffs.find(([p, q]) => !isNoise(p, q))!;
+    moved.push(`${k}  e.g. ${sample[0]} -> ${sample[1]}`);
   }
-  return moved;
+  return { moved, noise };
 }
 
 const basket = (await db.execute(sql`
@@ -78,9 +110,14 @@ for (const q of basket) {
 
   const nb = new Map<string, number[]>(); numerics(before, "", nb);
   const na = new Map<string, number[]>(); numerics(after, "", na);
-  const moved = multisetDiff(nb, na);
+  const { moved, noise } = multisetDiff(nb, na);
   console.log(`    commercial scalars moved : ${moved.length === 0 ? "NONE — every numeric value present before is present after" : moved.length}`);
   for (const m of moved) console.log(`      ${m}`);
+  // Reported SEPARATELY, never folded into the count above. Silently ignoring
+  // them would hide a real determinism problem; counting them as movement
+  // manufactures a commercial finding out of the last bit of a double.
+  console.log(`    float-noise-only paths   : ${noise.length}`);
+  for (const n of noise) console.log(`      ${n}`);
 
   const ids = (n: unknown): string[] => {
     const out: string[] = [];
