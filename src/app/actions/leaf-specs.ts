@@ -1,6 +1,7 @@
 "use server";
 
 import { and, eq, isNull, sql } from "drizzle-orm";
+import { loadLeafForSpecEntry, type LeafSpecEntryData } from "@/lib/leaf-spec-loader";
 import { db } from "@/db";
 import { auditLog, leafSpecs, leaves, productTypes } from "@/db/schema";
 import { writeAuditEntries, writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
@@ -11,6 +12,7 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import { assertCanEditSpecs } from "@/lib/spec-permission-guard";
+import { ensureUser } from "@/lib/auth/ensure-user";
 import { revalidatePath } from "next/cache";
 
 // Phase A.1 v2 impl-3 — server actions for leaf_specs.
@@ -526,5 +528,22 @@ export async function changeLeafProductType(
       toTypeId,
       clearedFieldCount: clearedFields.length,
     };
+  });
+}
+
+/**
+ * Library-default specification data, for the stacked editor.
+ *
+ * B-3 · Step 3. Loads LIBRARY scope explicitly — `quote_id IS NULL`. There is
+ * no quote branch here on purpose: this action exists to serve the Library
+ * sub-flow, and a scope parameter would let a quote-context caller reach master
+ * data through a door that was built for the other room.
+ */
+export async function fetchLibraryDefaultSpecs(
+  leafId: string,
+): Promise<ActionResult<LeafSpecEntryData | null>> {
+  return runAction(async () => {
+    await ensureUser();
+    return loadLeafForSpecEntry(leafId, { library: true });
   });
 }

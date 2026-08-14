@@ -257,3 +257,32 @@ test("the Library's visible Type is HubSpot's classification, not the Nexus taxo
   assert.match(src, /: "Unclassified"/);
   assert.match(src, /\?\? row\.hubspotProductType/);
 });
+
+test("Library Edit specs is a subordinate control, not a peer or a column", async () => {
+  const src = await read("src/components/library/library-browse-modal.tsx");
+  // Inside the existing action cell — no sixth column, no widened modal.
+  assert.match(src, /className="lib-edit-specs"/);
+  // The previous treatment: a persistent column that opened a new tab.
+  assert.doesNotMatch(src, /lib-defaults-link/);
+  assert.doesNotMatch(src, /target="_blank"/);
+  // Keyboard-reachable with an explicit accessible name; discoverability never
+  // depends on hover.
+  assert.match(src, /aria-label=\{`Edit library default specs for \$\{row\.name\}`\}/);
+  const css = await read("src/styles/r-a1v2-overrides.css");
+  assert.match(css, /\.lib-edit-specs:focus-visible \{[^}]*outline: 2px solid var\(--accent\)/);
+  assert.match(css, /\.lib-row \.action-cell \{[^}]*flex-direction: column/);
+});
+
+test("the Library spec editor stacks over the browse modal", async () => {
+  const src = await read("src/components/library/library-spec-modal.tsx");
+  // The Library is a modal, so a route would destroy browse state and no back
+  // link recovers it. Stacking keeps the browse modal mounted underneath, which
+  // makes "returns to the exact position" true by construction.
+  assert.match(src, /r-a1v2-modal-stacked/);
+  assert.match(src, /scope=\{\{ library: true \}\}/);
+  // Library scope only — no quote branch to reach master data through.
+  assert.match(
+    await read("src/app/actions/leaf-specs.ts"),
+    /loadLeafForSpecEntry\(leafId, \{ library: true \}\)/,
+  );
+});

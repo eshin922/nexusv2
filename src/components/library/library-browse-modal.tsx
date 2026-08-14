@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { LibrarySpecModal } from "./library-spec-modal";
 import { useRouter } from "next/navigation";
 import { UNCLASSIFIED_SOURCE_TYPE } from "@/lib/library-source-type";
 import type { LibraryBrowseRow } from "@/lib/library-browse-loader";
@@ -153,6 +154,8 @@ export function LibraryBrowseModal({
   // via the .r-a1v2-modal-stacked nexus extension (z-index: 110 +
   // capture-phase Escape with stopImmediatePropagation).
   const [createOpen, setCreateOpen] = useState(false);
+  const [specOpen, setSpecOpen] = useState(false);
+  const [specLeafId, setSpecLeafId] = useState<string | null>(null);
   // slice-library-modal-polish Step 4 — attach-target picker menu
   // open state. Click .lib-target-select toggles; click outside or
   // selecting an item closes. Single source of truth for the
@@ -1152,20 +1155,6 @@ export function LibraryBrowseModal({
                         {/* Readiness-driven action: Attach (ready) /
                             ✓ Attached (attached, no button) /
                             Restore (archived, perm-gated). */}
-                        {/* B-3 · A — the Library-master path, named so it
-                            cannot be confused with the quote-side action.
-                            "defaults" is the whole distinction: this edits the
-                            template future attachments start from, and touches
-                            no quote that already uses the product. */}
-                        <a
-                          className="lib-defaults-link"
-                          href={`/library/leaves/${row.leafId}/defaults`}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="Edit the default specs and Product Type for future attachments. Quotes already using this product are not changed."
-                        >
-                          Edit defaults
-                        </a>
                         {readiness === "attached" ? (
                           <span className="lib-attached-mark">
                             ✓ Attached
@@ -1226,6 +1215,27 @@ export function LibraryBrowseModal({
                             {attaching === row.leafId ? "Adding…" : "Add"}
                           </button>
                         )}
+
+                        {/* B-3 · Step 3 — SUBORDINATE, and inside the existing
+                            action cell. Not a sixth column and not a second
+                            peer button: the state action above stays primary,
+                            and this is a quiet text control beneath it.
+
+                            A real <button>, so it is keyboard-focusable with a
+                            visible focus ring and an accessible name. Hover
+                            carries no part of the discoverability — it is
+                            always rendered. */}
+                        <button
+                          type="button"
+                          className="lib-edit-specs"
+                          onClick={() => {
+                            setSpecLeafId(row.leafId);
+                            setSpecOpen(true);
+                          }}
+                          aria-label={`Edit library default specs for ${row.name}`}
+                        >
+                          Edit specs
+                        </button>
                       </span>
                     </div>
                   );
@@ -1262,6 +1272,11 @@ export function LibraryBrowseModal({
           per locked Q9. Matches the .a1v2-toast register PR #50
           commit 10 shipped (fixed bottom-right via nexus extension;
           glyph + body structure). Auto-dismisses 3s. */}
+      <LibrarySpecModal
+        leafId={specLeafId}
+        open={specOpen}
+        onClose={() => setSpecOpen(false)}
+      />
       {toast ? (
         <div className="a1v2-toast" role="status" aria-live="polite">
           <span className="glyph">✓</span>

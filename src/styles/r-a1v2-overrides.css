@@ -544,3 +544,48 @@
   background: var(--bad-soft);
   border-color: oklch(from var(--bad) l c h / 0.25);
 }
+
+/* B-3 · Step 3 — Edit specs, subordinate inside the existing action cell.
+ *
+ * The DA's fifth column holds ONE state-exclusive control (Add / Restore /
+ * ✓ Attached). This stacks a quiet secondary beneath it rather than beside it:
+ * no sixth column, no wider modal, and the primary keeps the visual weight.
+ *
+ * The cell is a column flex so the two can never collide with the status cell
+ * or wrap into each other — the failure the previous `Edit defaults` column
+ * produced when it was given peer standing.
+ */
+.lib-row .action-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+}
+.lib-edit-specs {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  cursor: pointer;
+  text-align: center;
+  white-space: nowrap;
+}
+.lib-edit-specs:hover { color: var(--ink-2); }
+/* Discoverability never depends on hover, and focus is always visible — this
+ * is the only route to Library master data, so it must be reachable by keyboard
+ * and legible when it is. */
+.lib-edit-specs:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+  color: var(--ink);
+}
+
+/* The stacked spec editor is a reading-and-editing surface, not a form dialog,
+ * so it takes more width than the create modal. */
+.r-lib-spec-modal { max-width: 980px; width: 92vw; }
