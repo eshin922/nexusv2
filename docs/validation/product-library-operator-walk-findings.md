@@ -893,3 +893,32 @@ from Product Library operator mutation. **Every remaining walk quote must be
 proven outside the basket before it is mutated** — the basket is
 structure-bearing quotes (≥1 `assembly_leaves` row) minus the
 `ZZ-VALIDATION-` namespace, so the proof is one query, not an assumption.
+
+---
+
+## OW-7 · Release-process finding — source-backed schema additions ship unpopulated
+
+**Recorded, not solved. Applies to future work, not this release.**
+
+Migration `0070` added `leaves.hubspot_product_type` as a nullable column. Nothing
+in the deploy path could fill it, because no deploy step reads HubSpot — and
+`getProductsClient()` resolves by `NODE_ENV`, so only a production runtime can
+even reach the live portal. The result was a feature whose code was correct and
+whose catalogue was **99.4% unclassified** (7 of 1,066 linked leaves) until an
+operator discovered a Refresh button.
+
+**The gap is a class, not an instance:** any schema addition backed by an
+external source ships empty unless someone separately populates it, and nothing
+in the merge gate notices, because every automated check passes on an empty
+column.
+
+**For future source-backed additions:** the slice that adds the column owns the
+initial population as an explicit, named step — a one-shot post-deploy job
+invoking the SAME governed sync path, idempotent, emitting the same audit rows.
+It cannot live inside `drizzle-kit migrate`: it needs network egress and a
+provider token at deploy time. Manual Refresh then remains what it should be —
+ongoing synchronization, never initialization.
+
+**This release:** the completed production pull IS the governed initial
+population. 1,037 processed, 5 added, 1,032 updated, typed 7 → 1,039. No
+synchronization is being added to normal deployments.

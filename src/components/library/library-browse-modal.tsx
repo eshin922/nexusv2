@@ -861,42 +861,37 @@ export function LibraryBrowseModal({
                 "Unclassified" is a SELECTABLE state, not an absence. Before it,
                 choosing any type silently dropped every unclassified product
                 with nothing on screen saying so. */}
-            <div className="lib-seg" role="tablist" aria-label="Type filter">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={sourceTypeFilter === ""}
-                className={sourceTypeFilter === "" ? "active" : ""}
-                onClick={() => setSourceTypeFilter("")}
-              >
-                All types
-              </button>
+            {/* Step 2B — ONE control, not a chip row.
+                
+                The horizontal treatment could not hold the vocabulary: 15
+                production categories clipped, and the set is dynamic, so any
+                fixed-width row is wrong for whatever HubSpot has next. Smaller
+                type, wrapping, horizontal scroll and a curated subset were all
+                rejected — each keeps the control's width as the constraint on
+                what the operator can reach.
+
+                A native <select> follows the vocabulary at whatever size it is,
+                shows its own selection, and is keyboard-accessible and
+                screen-reader-addressable without any work from us. */}
+            <select
+              className="lib-type-select"
+              aria-label="Filter by HubSpot product type"
+              value={sourceTypeFilter}
+              onChange={(e) => setSourceTypeFilter(e.target.value)}
+            >
+              <option value="">All types</option>
+              {/* LABEL shown, VALUE submitted. They differ on the three largest
+                  categories, so a label-keyed predicate returns zero for
+                  Primary, Secondary and Logistics. */}
               {hsTypeOptions.map((t) => (
-                <button
-                  key={t.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={sourceTypeFilter === t.value}
-                  className={sourceTypeFilter === t.value ? "active" : ""}
-                  onClick={() => setSourceTypeFilter(t.value)}
-                  title={`HubSpot product type · ${t.value}`}
-                >
+                <option key={t.value} value={t.value}>
                   {t.label}
-                </button>
+                </option>
               ))}
-              <button
-                type="button"
-                role="tab"
-                aria-selected={sourceTypeFilter === UNCLASSIFIED_SOURCE_TYPE}
-                className={
-                  sourceTypeFilter === UNCLASSIFIED_SOURCE_TYPE ? "active" : ""
-                }
-                onClick={() => setSourceTypeFilter(UNCLASSIFIED_SOURCE_TYPE)}
-                title="Products with no HubSpot classification — Nexus-local, or unclassified in HubSpot"
-              >
-                Unclassified
-              </button>
-            </div>
+              {/* A selectable STATE, not an absence. Without it, choosing any
+                  type silently dropped every unclassified product. */}
+              <option value={UNCLASSIFIED_SOURCE_TYPE}>Unclassified</option>
+            </select>
             <span className="lib-result-count">
               {pending && rows.length === 0
                 ? "loading…"

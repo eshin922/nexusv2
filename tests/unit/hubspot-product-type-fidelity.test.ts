@@ -201,11 +201,18 @@ test("the Library filters the source classification, not the Nexus taxonomy", as
   assert.match(src, /UNCLASSIFIED_SOURCE_TYPE/);
 });
 
-test("chips render labels and filter on values", async () => {
-  const src = await code("src/components/library/library-browse-modal.tsx");
-  assert.match(src, /setSourceTypeFilter\(t\.value\)/);
-  assert.match(src, /\{t\.label\}/);
-  assert.match(src, /setSourceTypeFilter\(UNCLASSIFIED_SOURCE_TYPE\)/);
+test("the type filter is one vocabulary-driven control, not a chip row", async () => {
+  const src = await read("src/components/library/library-browse-modal.tsx");
+  // Step 2B. A horizontal row clipped 15 categories, and the set is DYNAMIC —
+  // any fixed-width control is wrong for whatever HubSpot has next.
+  assert.match(src, /className="lib-type-select"/);
+  assert.doesNotMatch(src, /className="lib-seg" role="tablist"/);
+  // Label shown, value submitted — they differ on the three largest categories.
+  assert.match(src, /<option key=\{t\.value\} value=\{t\.value\}>\s*\{t\.label\}/);
+  assert.match(src, /setSourceTypeFilter\(e\.target\.value\)/);
+  // Unclassified is a selectable state, and the vocabulary is never hard-coded.
+  assert.match(src, /<option value=\{UNCLASSIFIED_SOURCE_TYPE\}>Unclassified/);
+  assert.match(src, /hsTypeOptions\.map/);
 });
 
 test("the Library modal takes no RUNTIME value from the server-only loader", async () => {
