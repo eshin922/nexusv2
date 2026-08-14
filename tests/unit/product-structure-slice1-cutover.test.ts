@@ -154,6 +154,12 @@ const classifiedIdentityFiles = new Set([
   // assembly_leaf_inputs to prove the per-line cutover moved exactly the
   // cells the pre-flight predicted and blanked none.
   "scripts/gate-1b/verify-packaging-cutover.ts",
+  // CLASSIFIED — verification only. Scenario Copy acceptance. Reads legacy
+  // `assembly_leaf_id` solely to COUNT the canonical-only rows (legacy key
+  // NULL) that the clone's old legacy-keyed SELECT could not see; the clone
+  // itself now selects on `quote_leaf_id`. Creates and deletes its own
+  // `ZZ-VALIDATION-copy-*` quotes, which the S-7 basket excludes.
+  "scripts/gate-1b/verify-scenario-copy.ts",
   "scripts/parity/so-field-parity.ts", "scripts/product-structure/slice1-compatibility-rehearsal.ts",
   "scripts/product-structure/slice1-contract-rehearsal.ts",
   "scripts/product-structure/slice1-cutover-rehearsal.ts", "scripts/product-structure/slice1-preflight.ts",

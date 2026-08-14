@@ -51,6 +51,15 @@ export async function attachDirectProduct(
     position: number;
     /** B-3 — attribution for the quote-owned spec instantiated here. */
     createdBy: string;
+    /**
+     * Copy Quote. Template the quote-owned spec from THAT quote's authority
+     * rather than the Library default — peer to the grouped path's argument of
+     * the same name. Without it a copied Direct Product would silently revert
+     * to the Library default while its grouped siblings kept the source's
+     * configuration, so the copy would differ from the source in exactly the
+     * place the operator had been working.
+     */
+    specTemplateFromQuoteId?: string;
   },
 ): Promise<DirectAttachmentEvidence> {
   // Duplicate check is scoped to DIRECT attachments only. The same library
@@ -81,6 +90,7 @@ export async function attachDirectProduct(
     quoteId: args.quoteId,
     leafId: args.leafId,
     createdBy: args.createdBy,
+    templateFromQuoteId: args.specTemplateFromQuoteId,
   });
 
   const [row] = await tx
