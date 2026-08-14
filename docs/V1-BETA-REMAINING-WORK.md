@@ -159,22 +159,49 @@ write guards · NetSuite sandbox account/endpoints · feature flags · Slack/ema
 test destinations · send suppression · bypass credentials · Preview URLs ·
 `NEXUS_ISOLATED_TEST` and validation identity paths · `--admin` style bypasses.
 
-## 6 · Production DB reset
+## 6 · Beta Day 0 — final development-evidence retirement
+
+**MODEL CORRECTED 2026-08-14.** This is not a "production reset with test data
+removed". Dev and prod are ONE Supabase project, so there is no test data that
+is separable from working data. The purge is a **final development-evidence
+retirement event**, and it intentionally destroys:
+
+- development/test quotes;
+- the validation fixtures, including `ZZ-VALIDATION-drag-drop`;
+- the current S-7 basket;
+- certification-evidence quote records;
+- other quote-owned transactional evidence.
+
+Everything V1 has been proving things with goes. That is the point, and it is
+why sequencing is the whole design.
+
+### Sequence — no step may precede the one above it
+
+1. Complete ALL V1 engineering and certification. Nothing that still needs an
+   S-7 basket or a validation fixture may be outstanding.
+2. Archive/export any evidence to retain OUTSIDE the live database — baselines,
+   certification records, the walk findings that cite quote ids.
+3. Recoverable database backup.
+4. Dry-run purge census + explicit purge/preserve inventory.
+5. Explicit destructive authorization from Edward. Not implied by this plan.
+6. Purge quote/project transactional test state.
+7. Verify preserved master/reference/configuration data — Library leaves,
+   product types, firm settings, markup defaults, users, NetSuite mappings.
+8. Establish the clean Beta Day 0 baseline.
+9. Create the MINIMAL beta-safe validation mechanism needed from then on.
+
+**Do not purge while active engineering still depends on validation fixtures or
+S-7 evidence.** Step 1 is a gate, not a preamble.
+
+### Standing dependency this creates
+
+OD-023's freeze model (section 11) will need evidence quotes to reason about. If
+that work is still open at purge time, it loses its subjects. **Sequence the
+purge after OD-023 closes, not merely after "V1 engineering" in the abstract.**
 
 | Item | Current state | Remaining action | Blocker | Scope |
 |---|---|---|---|---|
-| Purge transactional test data | Not started | Backup → dry-run census → explicit destructive authorization → execute | **See the flag below** | beta |
-| Preserve master/reference/config | — | Define the preserve set explicitly | — | beta |
-| S-7 basket disposition | Open | Retire or re-baseline at Day 0 | §0 | beta |
-| Beta Day 0 baseline | Not established | Capture after purge | Purge | beta |
-
-**⚠ HIDDEN PREREQUISITE — dev and prod are ONE Supabase database.** There is no
-separate dev instance. "Purge production transactional test data" therefore
-purges the data development is currently working against, including every
-validation fixture, the S-7 basket, and the certification-evidence quotes. This
-needs an explicit decision before the purge is designed: either stand up a
-second Supabase project first, or accept that development loses its working data
-at Day 0 and sequence the purge after all §1–§4 work is certified.
+| Retirement event | Modelled, not scheduled | Steps 1-9 | Section 11 OD-023 must close first | beta |
 
 ## 7 · Training / presentation package
 
@@ -253,3 +280,191 @@ Beta exit criteria satisfied → Nexus becomes the normal quoting workflow. **be
 **B-17 is the one I would NOT drop from beta** despite being presentation: if
 operators run dark mode, unreadable structure on the Setup and Tier tables costs
 real time on every quote for two weeks, and it is a token change.
+
+
+---
+
+# Reconciliation pass — 2026-08-14
+
+Reconciled against `main` after #265 merged, against open PRs,
+`OPEN_DECISIONS.md`, and the validation records.
+
+## 11 · OD-023 — Send does not freeze the governed Product Structure
+
+**V1 BLOCKER.** Absent from the original baseline; carried here now.
+
+### Post-Send mutation inventory — MEASURED, not assumed
+
+Guard counts per writer module (`assertDraft` / `assertNotFrozen` /
+`requireRevisable`):
+
+| Writer | Guards | Post-Send mutable? |
+|---|---|---|
+| `actions/assemblies.ts` | `assertDraft` x8 | **No** — create/delete/attach/detach/reorder/move all gated |
+| `actions/quote-products.ts` | `assertDraft` x2 | **No** — attach/detach gated |
+| `actions/leaf-specs.ts` | **none** | **YES** |
+| `actions/assembly-leaf-inputs.ts` | **none** | **YES** |
+| `actions/assembly-production-inputs.ts` | **none** | **YES** |
+| `actions/costing.ts` | **none** | **YES** |
+| `actions/pricing-lifts.ts` | **none** | **YES** |
+
+**This refines OD-023's framing rather than confirming it.** The entry says a
+Setup edit between Send and Complete silently changes structure. Structure
+itself is in fact gated — every structural action calls `assertDraft`. What is
+NOT gated is everything a structural element *contains*: specs, packaging and
+production cost inputs, and pricing lifts. So the reachable defect today is not
+"the tree changes shape" but "the same tree means something different".
+
+Two live paths to a changed sent quote:
+
+1. **Direct.** Edit specs / cost inputs / lifts on a sent quote. No guard
+   refuses it. Complete then re-derives from live values.
+2. **Via Revise.** `requireRevisable` returns a sent/accepted quote to draft;
+   the structural guards then permit edits; Complete re-derives from live
+   structure. This is OD-023's stated mechanism and it is real — but it needs
+   the Revise step, which the entry does not mention.
+
+### Smallest coherent freeze/edit-after-send model — PROPOSAL, not built
+
+Consistent with existing versioning/supersession rather than new machinery:
+
+- **Send freezes by SNAPSHOT, not by lock.** Extend `quote_snapshots` to carry
+  the governed leaf set and its structure — which leaves, Direct or member, the
+  grouping boundary, and the identity downstream projection needs. Complete and
+  the customer artifact read the SNAPSHOT. This is the one change OD-023
+  actually requires.
+- **Editing a sent quote remains possible and produces a VERSION.** That is
+  already the supersession model; it needs no invention.
+- **`assertNotFrozen` on the five unguarded writers**, so a sent quote cannot be
+  edited in place at all — the operator is routed to Revise, which is the
+  existing, audited, reversible path.
+
+**Do not begin implementation until lifecycle/version semantics are
+reconciled.** Specifically: does Revise supersede (new version row) or reopen in
+place, and which does Complete read? That is a business-state decision, and it
+decides whether the snapshot is per-version or per-quote.
+
+| Item | Current state | Remaining action | Blocker | Scope |
+|---|---|---|---|---|
+| OD-023 | Inventory measured; model proposed | Reconcile version semantics, then implement snapshot + guards | Edward's call on Revise semantics | **V1 blocker** |
+
+## 12 · OD-021 — what `Send` actually means
+
+**Measured from `sendQuote`:** it assigns the customer-facing quote number,
+snapshots commercial defaults and the prepared-by contact, generates the
+customer PDF and persists it to storage, transitions `status='sent'`, and logs a
+Client Review entry.
+
+**It delivers nothing to the customer.** No email, no portal, no external
+transmission of any kind.
+
+For beta this is **acceptable but must be stated**, because the button's name
+implies otherwise and an operator who assumes transmission will not follow up:
+
+- **Who sends it:** the PM, outside Nexus, using the generated PDF.
+- **By what channel:** existing email/CRM practice — unchanged by Nexus.
+- **What Nexus records:** finalization, not delivery. `sent_at` means "the
+  artifact was generated and frozen", not "the customer received it".
+- **How the operator knows:** the Send confirmation copy and the beta rules of
+  engagement must say delivery remains theirs.
+
+**Do not build email delivery merely because the button is named Send.** If V1
+genuinely requires Nexus-managed delivery, that is a separate scoped decision —
+not an inference from a label.
+
+| Item | Current state | Remaining action | Blocker | Scope |
+|---|---|---|---|---|
+| OD-021 | Behaviour established | Confirmation copy + training/demo/beta materials state delivery ownership | None | V1 (copy) / beta (materials) |
+
+## 13 · OD-027 — Product Library authority not enforced downstream
+
+Open, V1-scoped, and **partially addressed by work already merged**: B-3
+established quote-owned specification authority, and B-14 made Attached state
+read from canonical `quote_leaves`. What remains is the downstream enforcement
+the entry names.
+
+| Item | Current state | Remaining action | Blocker | Scope |
+|---|---|---|---|---|
+| OD-027 | Partially addressed by B-3/B-14 | Re-scope against current code, then close or carve | Needs a re-read post-#265 | V1 |
+
+## 14 · Dormant PRs
+
+`original claim | current code state | still reproducible? | V1 blocker? |
+disposition`. **A "release blocker" title from 2026-08-05 is not current
+authority** — none of these was reproduced before this pass, and none is
+dispositioned on its title.
+
+| PR | Original claim | Current code state | Reproducible? | Blocker? | Disposition |
+|---|---|---|---|---|---|
+| **#182** `fix/setup-costs-inheritance` +917/-40, idle 9 days | Setup to Costs inheritance broken; titled *release blocker* | Costs has since taken the Gate-1B node-graph work, the OD-017 re-key and the 11.5.1 migration. The branch predates all of it. | **UNKNOWN — must be reproduced on current `main` before any merge** | Undetermined | **Reproduce first.** If it reproduces, re-implement against current Costs rather than merging a 917-line branch built on a superseded model. If not, close with the finding recorded. |
+| **#180** `release/pr-f-freight-realtime` +489/-8, idle 9 days | Worksheet Freight realtime + store architecture, publication 0036 | `drizzle/manual/0002` already carries `freight_leg_groups` / `freight_legs` in the realtime publication | Publication membership appears already landed; the store-architecture half does not | No | **Split.** Confirm what is already on `main`, carve any genuinely missing store work into the Costs closeout, close the branch. |
+| **#94** `hotfix/p0-suggestion-infeasible-copy-and-seed` +15/-6, idle ~7 weeks | `suggestion_infeasible` sublabel copy + sample order T1 bump | `action-zone.tsx` handles `suggestion_infeasible`, and Pattern 50 later introduced `suggestion_manual_only` for the intersection state | Superseded by the Pattern 50 work | No | **Close as superseded.** Re-check the sublabel copy inside the B-16 Pricing slice, which touches that surface anyway. |
+| **#63** `docs/slice-11-5-brief-v1` +675/-0, idle ~8 weeks | Slice 11.5 brief v1 | Slice 11.5 and 11.5.1 both shipped; `docs/` carries the 11.5.1 briefs and amendments | Historical | No | **Close.** The slice it briefs is complete; merging a superseded brief would add a document that contradicts what shipped. |
+
+**None is a V1 blocker on current evidence. #182 is the only one that could
+become one**, and only if its defect reproduces.
+
+## 15 · Program-level beta rollback
+
+Lightweight by design — this is a two-week beta with real orders staged in BOTH
+processes, so the fallback already exists.
+
+**Pause conditions** (any one, for the affected workflow only):
+
+- a commercial number in Nexus disagrees with the existing process and the cause
+  is not identified same-day;
+- a NetSuite push produces an order Accounting will not accept;
+- a quote reaches a customer with wrong content;
+- Nexus is unavailable for more than half a working day.
+
+**Fallback:** the existing production process continues throughout — nothing is
+switched off during beta, which is what makes the rollback cheap. Pausing means
+"stop staging new orders in Nexus for that workflow", not "recover data".
+
+**Partially-created records:** a Nexus quote with no NetSuite SO is abandoned in
+place (draft, no external effect). A quote WITH a pushed SO is reconciled
+manually in NetSuite and the Nexus quote annotated — never silently deleted,
+because the SO is real.
+
+**Who calls it:** Edward pauses and resumes. Not a per-operator judgement, so one
+workflow's trouble does not quietly become a general stop.
+
+**Resuming:** re-run the commercial and NetSuite reconciliation for the paused
+workflow before staging new orders in it.
+
+| Item | Current state | Remaining action | Blocker | Scope |
+|---|---|---|---|---|
+| Rollback | Defined here | Fold into the beta rules of engagement (section 7) | None | beta |
+
+## 16 · Classification updates — applied
+
+**Already complete, removed from remaining work:** CI-1 · Step 9 · B-12 · B-14 ·
+Client Send engineering repair (#266 — operator acceptance still outstanding) ·
+**#265 drag/drop (MERGED 2026-08-14)**.
+
+**Not blocking beta:** B-15 Product Type icons · CS-1 · OBS-1 ·
+`leaf_specs.product_type_id` provenance · historical imports.
+
+**B-17 STAYS in the V1 presentation closeout** — dark-mode structural
+readability affects normal operator use and is low-cost.
+
+### Presentation closeout — consolidated contents
+
+One slice, no standalone deploys:
+
+- **B-11** pagination / control bar
+- **B-13** Setup guidance
+- **B-16** Pricing grid floor/target visualization (Pattern 50 — same basis as
+  Next Move)
+- **B-17** dark-mode structural contrast (token-level, then sweep representative
+  surfaces for over-contrast)
+- **Recommended Tier** — move out of Setup to Pricing
+- **Remove per-Item-Group `+ Add products`** — SUPERSEDES the earlier
+  "keep for V1" disposition. Top-level `+ Add Product` remains the
+  discovery/attach entry point, its destination selector already supports
+  attaching straight into an Item Group, and drag/drop now restructures
+  already-attached products. The per-group action is duplicate chrome.
+- remaining Type/status/font/presentation consistency
+
+**Drag/drop is DONE for V1.** No further polish before beta unless a new blocker
+appears.
