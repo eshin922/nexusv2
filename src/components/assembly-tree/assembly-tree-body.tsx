@@ -7,6 +7,11 @@ import { AsyRow } from "./asy-row";
 import { DirectProductRow } from "./direct-product-row";
 import { attachDragProxy } from "./drag-proxy";
 import {
+  applyOptimisticMove,
+  moveSettled,
+  type OptimisticMove,
+} from "@/lib/product-structure/optimistic-structure";
+import {
   indicatorAnchor,
   isNoOpDrop,
   resolveDropIndex,
@@ -141,21 +146,44 @@ export function AssemblyTreeBody({
   // row is the pointer over". Those two disagree on every downward same-list
   // drag, and the operator is being shown a promise about the former.
   const [plan, setPlan] = useState<DropPlan | null>(null);
+  // The gesture's result, shown before the server confirms it. STRUCTURE ONLY —
+  // see optimistic-structure.ts for why no field inside a node is touched.
+  const [optimistic, setOptimistic] = useState<OptimisticMove | null>(null);
   const [, startMoveTransition] = useTransition();
 
+  // Server truth, with the in-flight move applied. Once the refreshed tree
+  // shows the product in its new home the optimistic layer stops applying, so
+  // there is no flicker back to the old position and no argument with the
+  // server about order.
+  const view = useMemo(() => {
+    const base = {
+      direct: tree.directProducts,
+      groups: orderedAssemblies.map((a) => ({ id: a.id, children: a.children })),
+    };
+    if (!optimistic || moveSettled(base, optimistic)) return base;
+    return applyOptimisticMove(base, optimistic, {
+      // Copy across; never compute. The two node types differ only by the
+      // legacy junction id, and a moved product has no true junction id yet.
+      toDirect: ({ junctionId: _drop, ...rest }) => rest,
+      toMember: (d) => ({ ...d, junctionId: `optimistic:${d.quoteLeafId}` }),
+    });
+  }, [tree.directProducts, orderedAssemblies, optimistic]);
+
+  const childrenOf = useCallback(
+    (assemblyId: string) =>
+      view.groups.find((g) => g.id === assemblyId)?.children ?? [],
+    [view],
+  );
+
   const directIds = useMemo(
-    () => tree.directProducts.map((p) => p.quoteLeafId),
-    [tree.directProducts],
+    () => view.direct.map((p) => p.quoteLeafId),
+    [view],
   );
   const groupMemberIds = useMemo(() => {
     const m = new Map<string, string[]>();
-    for (const a of orderedAssemblies)
-      m.set(
-        a.id,
-        a.children.map((c) => c.quoteLeafId),
-      );
+    for (const g of view.groups) m.set(g.id, g.children.map((c) => c.quoteLeafId));
     return m;
-  }, [orderedAssemblies]);
+  }, [view]);
 
   const siblingsFor = useCallback(
     (zone: DropZone): string[] =>
@@ -275,6 +303,15 @@ export function AssemblyTreeBody({
       target.zone.kind === "direct" ? "direct" : target.zone.assemblyId,
     );
     fd.set("position", String(target.index));
+    // Show the result of the gesture NOW. Structure only — the server stays
+    // authoritative for persistence and for every dependent economic value,
+    // including the per-SKU cost attribution that legitimately moves with
+    // membership and therefore must not be guessed here.
+    setOptimistic({
+      quoteLeafId,
+      zone: target.zone,
+      index: target.index,
+    });
     startMoveTransition(async () => {
       setError(null);
       const result = await moveProductMembership(fd);
@@ -282,8 +319,18 @@ export function AssemblyTreeBody({
       // tree redraws from what the server actually did rather than from what
       // the drop implied — a failed move must not leave the operator looking
       // at a structure that does not exist.
-      if (!result.ok) setError(result.error.message);
-      else router.refresh();
+      if (!result.ok) {
+        // Roll back visibly. A refused move that left the optimistic structure
+        // on screen would be the one outcome worse than the dead period this
+        // replaces: the operator believes a structure exists that does not.
+        setOptimistic(null);
+        setError(result.error.message);
+        return;
+      }
+      // Kept applied until the refreshed tree shows the product in its new
+      // home — `moveSettled` retires it. Clearing here would snap the row back
+      // to its old position for the length of the round trip.
+      router.refresh();
     });
   }
 
@@ -404,7 +451,7 @@ export function AssemblyTreeBody({
         </p>
       ) : (
         <>
-          {tree.directProducts.map((product) => (
+          {view.direct.map((product) => (
             <Fragment key={product.quoteLeafId}>
               {rootLaneIndexBefore.map.has(product.quoteLeafId) ? (
                 <RootLane
@@ -423,6 +470,7 @@ export function AssemblyTreeBody({
               editable={editable}
               quoteId={quoteId}
               isMoving={movingLeafId === product.quoteLeafId}
+              pending={optimistic?.quoteLeafId === product.quoteLeafId}
               onMoveStart={(e) =>
                 beginMove(e, product.quoteLeafId, product.name, product.sku)
               }
@@ -450,7 +498,7 @@ export function AssemblyTreeBody({
           {orderedAssemblies.map((asy) => (
             <AsyRow
               key={asy.id}
-              asy={asy}
+              asy={{ ...asy, children: childrenOf(asy.id) }}
               editable={editable}
               projectId={projectId}
               quoteId={quoteId}
@@ -458,6 +506,7 @@ export function AssemblyTreeBody({
               onDragStart={(e) => handleAsyDragStart(e, asy.id)}
               onDragOver={(e) => handleAsyDragOver(e, asy.id)}
               movingLeafId={movingLeafId}
+              pendingLeafId={optimistic?.quoteLeafId ?? null}
               isDropTarget={
                 plan?.zone.kind === "group" && plan.zone.assemblyId === asy.id
               }

@@ -29,6 +29,7 @@ export function DirectProductRow({
   isMoving,
   onMoveStart,
   dropEdge,
+  pending: savingStructure,
   onRowDragOver,
   onRowDrop,
 }: {
@@ -42,6 +43,8 @@ export function DirectProductRow({
   onMoveStart?: (e: React.DragEvent) => void;
   /** Insertion line edge, when this row is the one the product will land at. */
   dropEdge?: "before" | "after" | null;
+  /** Structural move persisting. Visual only — no input is disabled (Pattern 47). */
+  pending?: boolean;
   onRowDragOver?: (e: React.DragEvent) => void;
   onRowDrop?: (e: React.DragEvent) => void;
 }) {
@@ -104,7 +107,7 @@ export function DirectProductRow({
   return (
     <>
       <div
-        className={`a1v2-asy-row a1v2-direct-row${isMoving ? " moving" : ""}${dropEdge ? ` drop-${dropEdge}` : ""}`}
+        className={`a1v2-asy-row a1v2-direct-row${isMoving ? " moving" : ""}${dropEdge ? ` drop-${dropEdge}` : ""}${savingStructure ? " structure-pending" : ""}`}
         onDragOver={onRowDragOver}
         onDrop={onRowDrop}
       >

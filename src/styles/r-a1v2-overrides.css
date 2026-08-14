@@ -948,3 +948,32 @@
 .a1v2-root-lane.active::after {
   background: var(--accent);
 }
+
+/* STRUCTURE PERSISTING.
+ *
+ * The row is already in its new place — the gesture is not in doubt — so this
+ * says "still saving", not "still moving". Quiet on purpose: a loud marker on a
+ * row that has visibly arrived reads as an error.
+ *
+ * Note what is NOT here: no pointer-events block and no disabled state. Per
+ * Pattern 47(e)/(f), pending is for status, never for taking a control away
+ * from the operator — and per 47(f) it must never disable a control it does not
+ * describe. This marks one row; it gates nothing.
+ */
+.a1v2-leaf-row.structure-pending,
+.a1v2-asy-row.structure-pending {
+  opacity: 0.72;
+}
+.a1v2-leaf-row.structure-pending::after,
+.a1v2-asy-row.structure-pending::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0.55;
+}
+.a1v2-leaf-row.structure-pending,
+.a1v2-asy-row.structure-pending { position: relative; }

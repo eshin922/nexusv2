@@ -17,6 +17,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  applyOptimisticMove,
+  moveSettled,
+} from "../../src/lib/product-structure/optimistic-structure.ts";
+import {
   indicatorAnchor,
   isNoOpDrop,
   orderAfterMove,
@@ -565,4 +569,143 @@ test("the acquisition band is forgiving while the line stays restrained", async 
   assert.ok(h - 2 * m <= 4, `lane consumes ${h - 2 * m}px of layout`);
   // The visible cue is unchanged — restrained line, forgiving target.
   assert.match(block, /height: 2px;/);
+});
+
+// ── 11 · Optimistic structure agrees with what gets persisted ───────────────
+
+type N = { quoteLeafId: string; junctionId?: string };
+
+const adapt = {
+  toDirect: (m: N): N => ({ quoteLeafId: m.quoteLeafId }),
+  toMember: (d: N): N => ({ ...d, junctionId: `optimistic:${d.quoteLeafId}` }),
+};
+
+/** What the server will render, derived from the shared rule alone. */
+function persisted(
+  siblings: string[],
+  movingId: string,
+  index: number,
+): string[] {
+  return orderAfterMove(
+    siblings.filter((s) => s !== movingId),
+    movingId,
+    index,
+  );
+}
+
+const baseView = () => ({
+  direct: [{ quoteLeafId: "d1" }, { quoteLeafId: "d2" }] as N[],
+  groups: [
+    { id: "A", children: [{ quoteLeafId: "a1" }, { quoteLeafId: "a2" }] as N[] },
+    { id: "B", children: [{ quoteLeafId: "b1" }] as N[] },
+  ],
+});
+
+test("optimistic destination equals persisted destination — all four transitions", () => {
+  const cases: { name: string; moving: string; zone: DropZone; index: number }[] = [
+    { name: "same-group reorder", moving: "a1", zone: GROUP_A, index: 1 },
+    { name: "Group A -> Group B", moving: "a1", zone: GROUP_B, index: 1 },
+    { name: "Direct -> Group", moving: "d1", zone: GROUP_A, index: 0 },
+    { name: "Group -> Direct/root", moving: "a2", zone: DIRECT, index: 1 },
+  ];
+
+  for (const c of cases) {
+    const before = baseView();
+    const out = applyOptimisticMove(before, {
+      quoteLeafId: c.moving,
+      zone: c.zone,
+      index: c.index,
+    }, adapt);
+
+    const zone = c.zone;
+    const destination =
+      zone.kind === "direct"
+        ? out.direct.map((d) => d.quoteLeafId)
+        : out.groups.find((g) => g.id === zone.assemblyId)!.children.map((m) => m.quoteLeafId);
+
+    const sourceSiblings =
+      zone.kind === "direct"
+        ? before.direct.map((d) => d.quoteLeafId)
+        : before.groups.find((g) => g.id === zone.assemblyId)!.children.map((m) => m.quoteLeafId);
+
+    assert.deepEqual(
+      destination,
+      persisted(
+        sourceSiblings.includes(c.moving) ? sourceSiblings : [...sourceSiblings, c.moving],
+        c.moving,
+        c.index,
+      ),
+      c.name,
+    );
+
+    // Left exactly one home, and the product exists exactly once in the tree.
+    const all = [
+      ...out.direct.map((d) => d.quoteLeafId),
+      ...out.groups.flatMap((g) => g.children.map((m) => m.quoteLeafId)),
+    ];
+    assert.equal(all.filter((x) => x === c.moving).length, 1, `${c.name}: duplicated`);
+    assert.equal(all.length, 5, `${c.name}: product count changed`);
+  }
+});
+
+test("the optimistic layer never edits a value inside a node", () => {
+  const before = {
+    direct: [] as (N & { quantity: string; unitCost: string })[],
+    groups: [
+      {
+        id: "A",
+        children: [
+          { quoteLeafId: "a1", junctionId: "j1", quantity: "3", unitCost: "1.25" },
+        ],
+      },
+    ],
+  };
+  const out = applyOptimisticMove(
+    before,
+    { quoteLeafId: "a1", zone: DIRECT, index: 0 },
+    {
+      toDirect: ({ junctionId: _d, ...rest }) => rest as never,
+      toMember: (d) => d as never,
+    },
+  );
+  const moved = out.direct[0] as unknown as { quantity: string; unitCost: string };
+  // Membership moved; the numbers came ACROSS. Per-SKU cost attribution really
+  // does move with membership (OW-10), so a projection that recomputed here
+  // would be inventing a commercial value the server has not returned.
+  assert.equal(moved.quantity, "3");
+  assert.equal(moved.unitCost, "1.25");
+});
+
+test("a stale optimistic move degrades to server truth instead of throwing", () => {
+  const out = applyOptimisticMove(
+    baseView(),
+    { quoteLeafId: "not-in-tree", zone: DIRECT, index: 0 },
+    adapt,
+  );
+  assert.deepEqual(out, baseView());
+});
+
+test("the optimistic layer retires once the server agrees on the home", () => {
+  const move = { quoteLeafId: "a1", zone: DIRECT as DropZone, index: 0 };
+  assert.equal(moveSettled(baseView(), move), false);
+  const after = {
+    direct: [{ quoteLeafId: "a1" }, { quoteLeafId: "d1" }, { quoteLeafId: "d2" }],
+    groups: [{ id: "A", children: [{ quoteLeafId: "a2" }] }, { id: "B", children: [{ quoteLeafId: "b1" }] }],
+  };
+  // Zone only. Once it is home the server owns the order, and holding the
+  // optimistic order until the INDEX matched would make the UI argue with the
+  // authority it just deferred to.
+  assert.equal(moveSettled(after, move), true);
+});
+
+test("failure rolls the structure back rather than leaving it on screen", async () => {
+  const body = await read("src/components/assembly-tree/assembly-tree-body.tsx");
+  assert.match(body, /if \(!result\.ok\) \{[\s\S]{0,400}setOptimistic\(null\);[\s\S]{0,200}setError\(result\.error\.message\)/);
+  // Success does NOT clear it — clearing before the refresh lands would snap
+  // the row back to its old position for the length of the round trip.
+  assert.match(body, /moveSettled\(base, optimistic\)/);
+  // Pending is presentation only. Pattern 47: it must not disable an input.
+  const css = await read("src/styles/r-a1v2-overrides.css");
+  const block = css.slice(css.indexOf(".a1v2-leaf-row.structure-pending"));
+  assert.doesNotMatch(block, /pointer-events:\s*none/);
 });

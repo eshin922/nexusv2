@@ -255,6 +255,13 @@ const classifiedIdentityFiles = new Set([
   // written value, because a renumber that left ties would satisfy the latter
   // and still render wrongly. Keys on quote_leaves.id throughout.
   "scripts/verify/structural-move-ordering.ts",
+  // CLASSIFIED — canonical only, and it RESOLVES NOTHING. The optimistic
+  // structural projection moves whole nodes between homes and orders them via
+  // the shared rule; it addresses them by quoteLeafId because that is the
+  // identity a rendered row carries. It never reads or writes assembly_leaf_id
+  // — the one place a junction id appears, it is synthesised as a React key for
+  // a node that has no true junction id yet, and is explicitly not persisted.
+  "src/lib/product-structure/optimistic-structure.ts",
   // CLASSIFIED — canonical only. Provisions the mutable drag/drop operator
   // fixture through the governed attach helpers, so every attachment it creates
   // carries canonical identity by construction rather than by insertion.

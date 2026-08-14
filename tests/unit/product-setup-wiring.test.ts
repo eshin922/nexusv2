@@ -216,11 +216,16 @@ test("direct mode needs no item group to be attachable", async () => {
 // ------------------------------------------------------------- rendering
 test("Direct Products render as first-class rows beside Item Groups", async () => {
   const src = await read("src/components/assembly-tree/assembly-tree-body.tsx");
-  assert.match(src, /tree\.directProducts\.map/);
+  assert.match(src, /view\.direct\.map/);
   assert.match(src, /<DirectProductRow/);
-  // Peer, not nested: the direct map must not be inside the assembly map.
-  const directAt = src.indexOf("tree.directProducts.map");
-  const asyAt = src.indexOf("orderedAssemblies.map");
+  // Peer, not nested, and Direct first.
+  //
+  // Measured on the RENDERED ELEMENTS rather than on the map calls. The map
+  // expressions now also appear in the optimistic-view memo above the JSX, so
+  // a first-occurrence search finds a derivation rather than a render and
+  // reports an ordering that is not the one the operator sees.
+  const directAt = src.indexOf("<DirectProductRow");
+  const asyAt = src.indexOf("<AsyRow");
   assert.ok(directAt > 0 && asyAt > 0);
   assert.ok(directAt < asyAt, "Direct Products render before Item Groups");
 });

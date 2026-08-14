@@ -40,6 +40,7 @@ export function AsyRow({
   onDragStart,
   onDragOver,
   movingLeafId,
+  pendingLeafId,
   isDropTarget,
   showTailIndicator,
   memberDropEdge,
@@ -61,6 +62,8 @@ export function AsyRow({
   onDragOver: (e: React.DragEvent) => void;
   /** Structural move in flight, held at tree level so it can cross rows. */
   movingLeafId?: string | null;
+  /** Structural move persisting for this product. Visual only. */
+  pendingLeafId?: string | null;
   isDropTarget?: boolean;
   /** Destination is this group but it has no member row to anchor the line to. */
   showTailIndicator?: boolean;
@@ -274,6 +277,7 @@ export function AsyRow({
             onDrop={(e) => (movingLeafId ? onMemberDropOnGroup?.(e) : undefined)}
             dropEdge={memberDropEdge?.(leaf.quoteLeafId) ?? null}
             isMoving={movingLeafId === leaf.quoteLeafId}
+            pending={pendingLeafId === leaf.quoteLeafId}
             onMoveStart={
               onMemberDragStart
                 ? (e) =>
@@ -309,6 +313,7 @@ function LeafRow({
   onDrop,
   dropEdge,
   isMoving,
+  pending: savingStructure,
   onMoveStart,
 }: {
   leaf: AssemblyLeafNode;
@@ -322,6 +327,8 @@ function LeafRow({
   dropEdge?: "before" | "after" | null;
   /** Cross-home move in flight for THIS member. */
   isMoving?: boolean;
+  /** Structural move persisting. Visual only — no input is disabled. */
+  pending?: boolean;
   onMoveStart?: (e: React.DragEvent) => void;
 }) {
   // B-8 — the cross-quote usage cell is GONE from this surface. Under B-3
@@ -339,7 +346,7 @@ function LeafRow({
 
   return (
     <div
-      className={`a1v2-leaf-row${isDragging ? " dragging" : ""}${isMoving ? " moving" : ""}${dropEdge ? ` drop-${dropEdge}` : ""}`}
+      className={`a1v2-leaf-row${isDragging ? " dragging" : ""}${isMoving ? " moving" : ""}${dropEdge ? ` drop-${dropEdge}` : ""}${savingStructure ? " structure-pending" : ""}`}
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
