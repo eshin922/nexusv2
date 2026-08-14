@@ -13,6 +13,7 @@ import {
   getLatestRespondedEventForPrefill,
 } from "@/lib/quote-review-events";
 import { getLatestSupersededSnapshot } from "@/lib/quote-snapshots";
+import { loadUnresolvedQuoteCosts } from "@/lib/quote-cost-completeness";
 import { resolveHubspotAcceptStageLabel } from "@/lib/hubspot-stage-label";
 import { loadSalesOrderPreflight } from "@/lib/netsuite/sales-order-preflight";
 import { db } from "@/db";
@@ -150,6 +151,10 @@ export default async function CustomerViewPage({
       latestSupersededSnapshot,
       acceptancePrefill,
       firmSettingsRow,
+      // Send readiness. The cost guard has always refused an unresolved send;
+      // loading it here is what lets the surface SAY so before the operator
+      // presses the button, instead of the refusal arriving as an exception.
+      unresolvedCosts,
     ] = await Promise.all([
       loadScenarioVersionChain({
         projectId: project.id,
@@ -173,6 +178,7 @@ export default async function CustomerViewPage({
         .where(isNull(firmSettings.effectiveUntil))
         .orderBy(desc(firmSettings.effectiveFrom))
         .limit(1),
+      loadUnresolvedQuoteCosts(quote.id),
     ]);
 
     // Slice 12 Step 8b — pull the HubSpot amount 8a pushed at
@@ -292,6 +298,7 @@ export default async function CustomerViewPage({
           />
         </div>
         <QuoteUmbrella
+          unresolvedCosts={unresolvedCosts}
           activeTab={activeTab}
           view={view}
           quoteId={quote.id}

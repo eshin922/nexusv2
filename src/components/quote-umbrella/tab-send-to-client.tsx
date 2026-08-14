@@ -29,6 +29,8 @@ import { AdvanceBar } from "./advance-bar";
 import { computeUmbrellaAdvance } from "./advance-target";
 import { ReviseButton } from "./revise-button";
 import { SendQuoteFlow } from "./send-quote-flow";
+import { UnresolvedCostsNotice } from "./unresolved-costs-notice";
+import type { UnresolvedQuoteCost } from "@/lib/quote-cost-completeness-contract";
 import type { SubTabId } from "./subtabs";
 
 function shortDate(iso: string | null): string {
@@ -106,6 +108,7 @@ function firstName(name: string | null): string {
 }
 
 export function TabSendToClient({
+  unresolvedCosts,
   view,
   quoteId,
   quoteStatus,
@@ -115,6 +118,8 @@ export function TabSendToClient({
   quoteRollup,
   onGo,
 }: {
+  /** Send readiness. Empty means nothing blocks the send. */
+  unresolvedCosts: ReadonlyArray<UnresolvedQuoteCost>;
   view: CustomerView;
   quoteId: string;
   quoteStatus: string;
@@ -273,8 +278,19 @@ export function TabSendToClient({
                   PreviewToolbar. SendQuoteFlow reads PDF axis state
                   from QuoteAxisProvider context so the PM's current
                   toolbar-toggle choices flow through to sendQuote. */}
+              {/* The refusal, stated BEFORE the gesture. Previously this only
+                  existed as an exception thrown at send time, so the operator
+                  found out by pressing the button. */}
+              <UnresolvedCostsNotice unresolved={unresolvedCosts} />
+
               <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 12 }}>
                 <SendQuoteFlow
+                  // Unavailable while costs are unresolved. The action-side
+                  // guard stays authoritative regardless — this only stops the
+                  // operator walking into a refusal they could have been told
+                  // about.
+                  disabled={unresolvedCosts.length > 0}
+                  disabledReason="Resolve costs before sending."
                   quoteId={quoteId}
                   customerName={customer.name}
                   projectTitle={quote.projectTitle}

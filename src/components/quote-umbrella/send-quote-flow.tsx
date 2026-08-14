@@ -31,6 +31,8 @@ export function SendQuoteFlow({
   isHubspotLinked,
   buttonLabel = "↗ Send",
   buttonClassName = "btn sm primary",
+  disabled = false,
+  disabledReason,
 }: {
   quoteId: string;
   customerName: string | null;
@@ -38,6 +40,13 @@ export function SendQuoteFlow({
   isHubspotLinked: boolean;
   buttonLabel?: string;
   buttonClassName?: string;
+  /**
+   * Send is unavailable. The action-side guard remains authoritative — this
+   * only prevents the operator walking into a refusal they could have been
+   * shown first.
+   */
+  disabled?: boolean;
+  disabledReason?: string;
 }) {
   const router = useRouter();
   const [_pending, startTransition] = useTransition();
@@ -93,11 +102,13 @@ export function SendQuoteFlow({
         type="button"
         className={buttonClassName}
         onClick={onOpenConfirm}
-        disabled={isModalOpen || !isHubspotLinked}
+        disabled={isModalOpen || !isHubspotLinked || disabled}
         title={
-          !isHubspotLinked
-            ? "This deal isn't linked to HubSpot. Push it to HubSpot before sending."
-            : "Send the quote — generates the customer PDF, transitions the quote to sent, and captures the immutable snapshot."
+          disabled && disabledReason
+            ? disabledReason
+            : !isHubspotLinked
+              ? "This deal isn't linked to HubSpot. Push it to HubSpot before sending."
+              : "Send the quote — generates the customer PDF, transitions the quote to sent, and captures the immutable snapshot."
         }
         data-testid="send-quote-button"
       >
