@@ -1124,7 +1124,54 @@ move that did NOT reattribute would be the defect.
    question is again "what KIND of movement", and the multiset comparison is the
    instrument that answers it.
 
-## OW-11 · Second authorized S-7 refresh, and the permanent test-surface move (2026-08-14)
+## OW-11 · WITHDRAWN — the second refresh captured a torn read, not operator activity (2026-08-14)
+
+> **CORRECTED 2026-08-14.** The refresh recorded below was real, authorized and
+> WRONG. Its baseline `4361217b…59f3bdcd` has been reverted to
+> `84890653…6150a6df`, the value authorized at 17:25 and the value the system
+> actually computes. The original entry is preserved unedited beneath this
+> notice, because the correction is only legible against what was claimed.
+>
+> **What was claimed:** additional operator structural movement on the retired
+> basket quote; attribution followed membership.
+>
+> **What was true:** `2f29af72` had NO write after 16:59:50. Every audit row
+> from 17:51 onward belongs to the fixture `ff90d502` — the test-surface
+> boundary held completely. The 18:05 capture nevertheless read a different
+> state, and re-reads at 18:40 (×3) and after the revert (×2) all return the
+> 17:25 value. One anomalous capture, bracketed by agreement on both sides.
+>
+> **Why the capture was anomalous.** It ran at 18:05, inside the operator's
+> active fixture drag session (17:51–18:18). `getCostingBundle` issues 8+
+> INDEPENDENT queries with no shared snapshot, so a capture taken during
+> concurrent mutation can observe different queries on different sides of a
+> commit — a torn read across the bundle rather than a change to any quote.
+>
+> **How I misread it, which is the reusable part.** For OW-10 I printed
+> magnitudes and found conservation: sum identical, blended margin identical,
+> `0.0150` and `0.1400` moving between products. For OW-11 I ran only the
+> multiset check, saw "10 paths moved", and reused OW-10's explanation. The
+> magnitudes were never looked at. They were ~1.4× — `cost 10000 -> 14000`,
+> `1.5 -> 2.06` — nothing like attribution moving between siblings, and visible
+> in one command I did not run.
+>
+> A characterization is a claim about the DATA. Reusing the previous one because
+> the shape of the summary matched is pattern-matching, which is exactly what
+> the instrument exists to replace.
+>
+> **Harness rules banked from this:**
+>
+> 1. **Never capture the S-7 baseline while the system is under concurrent write
+>    load.** The bundle has no shared snapshot. Capture when the surface is
+>    quiet, and re-read once to confirm stability before committing.
+> 2. **Confirm a delta by MAGNITUDE, not by path count.** `confirm-s7-delta.ts`
+>    now separates float-noise paths from real movement and prints a sample
+>    `before -> after` for each moved path, so "10 paths moved" can no longer be
+>    read without seeing what moved.
+> 3. **A digest that returns to a previous value is evidence of an anomalous
+>    read, not of data drift.** Data does not usually revert exactly.
+
+## OW-11 (ORIGINAL, WITHDRAWN) · Second authorized S-7 refresh, and the permanent test-surface move (2026-08-14)
 
 **Refreshed** `84890653…6150a6df` → `4361217b…59f3bdcd`. 33 quotes, 0 failed.
 
