@@ -467,3 +467,40 @@
   grid-template-columns: 24px 90px 1fr auto auto auto auto auto;
   border-left-color: var(--accent);
 }
+
+/* B-6 · scope head — the one sentence that says which authority is being
+ * edited. Same structure on both surfaces so the DIFFERENCE reads rather than
+ * the wording, and the left rule carries the distinction at a glance: accent
+ * for a quote's own values, neutral for the shared Library template.
+ */
+.a1v2-scope-head {
+  border-left: 3px solid var(--ink-4);
+  padding: 10px 0 10px 14px;
+  margin-bottom: 18px;
+}
+.a1v2-scope-head.quote { border-left-color: var(--accent); }
+.a1v2-scope-head h2 {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0;
+}
+.a1v2-scope-head p {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 3px 0 0;
+}
+
+/* B-5 · usage note. Deliberately quiet: it orients, it does not warn. The
+ * banner it replaced warned about a propagation that no longer happens.
+ */
+.a1v2-usage-note {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-4);
+  margin-bottom: 14px;
+}

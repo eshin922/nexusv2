@@ -607,3 +607,58 @@ test("B-3 · attachment instantiates the authority, and reuses it", async () => 
   // Quote rows opt out of the Library-scope flag.
   assert.match(authority, /isCurrent: false/);
 });
+
+// --------------------------------------- B-5/B-6/B-7 · the surfaces say the rule
+test("B-5 · the pre-B-3 cascade model is gone from the operator surface", async () => {
+  const src = await read("src/components/spec-entry/cascade-warning.tsx");
+  // Removed, not reworded. The panel existed to predict which quotes an edit
+  // would propagate to; nothing propagates, so the decision it supported is
+  // gone with it.
+  for (const dead of [
+    "WILL UPDATE",
+    "STAYS PINNED",
+    "auto-update",
+    "stay pinned",
+  ]) {
+    assert.ok(!(await code("src/components/spec-entry/cascade-warning.tsx")).includes(dead), dead);
+  }
+  assert.match(src, /Used in \{otherQuotes\} other quote/);
+  // No lifecycle branch survives — a status-dependent explanation is exactly
+  // the complexity B-3 removed the need for.
+  assert.doesNotMatch(await code("src/components/spec-entry/cascade-warning.tsx"), /status|draft|sent/i);
+});
+
+test("B-6 · each surface states which authority it edits", async () => {
+  const src = await read("src/components/spec-entry/spec-entry-surface.tsx");
+  assert.match(src, /Default specifications/);
+  assert.match(src, /Used as the starting point for future quotes\. Existing quotes are not changed\./);
+  assert.match(src, /Quote specifications/);
+  assert.match(src, /Changes apply only to this quote\. Library defaults and other quotes are not changed\./);
+  // Driven by the same scope the writes use, so the sentence cannot disagree
+  // with what the page actually does.
+  assert.match(src, /const isLibrary = "library" in scope/);
+});
+
+test("B-7 · no operator-facing ASY on the spec surfaces", async () => {
+  for (const f of [
+    "src/components/spec-entry/spec-entry-surface.tsx",
+    "src/components/spec-entry/cascade-warning.tsx",
+    "src/app/library/leaves/[leafId]/defaults/page.tsx",
+  ]) {
+    assert.doesNotMatch(await code(f), /\bASY\b/, `${f} still shows ASY`);
+  }
+  // The generated ASY-* identifiers went with the reference list they were in.
+  assert.match(
+    await read("src/components/spec-entry/spec-entry-surface.tsx"),
+    /item group\{refCount === 1 \? "" : "s"\}/,
+  );
+});
+
+test("B-5/B-6 repair changed no authority behaviour", async () => {
+  // The scope discriminator, the writers and the resolver are untouched by
+  // this repair — it is copy and presentation only.
+  const authority = await code("src/lib/product-structure/quote-spec-authority.ts");
+  assert.match(authority, /ensureQuoteSpecAuthority/);
+  assert.match(authority, /isCurrent: false/);
+  assert.match(await code("src/app/actions/leaf-specs.ts"), /function readScope\(/);
+});

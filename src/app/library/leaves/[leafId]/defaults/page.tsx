@@ -45,16 +45,6 @@ export default async function LibraryDefaultsPage({
           <h1>
             Library defaults <em>· {data.leaf.name}</em>
           </h1>
-          {/* Says plainly what this changes and what it does not. The operator
-              arrives here from a product row and could reasonably assume they
-              are editing "the product" — which is true, and is exactly why the
-              blast radius has to be stated rather than inferred. */}
-          <p className="sub">
-            Editing the default specification and Product Type for this library
-            product. This is the starting point for <strong>future</strong>{" "}
-            quote attachments. Quotes that already use this product keep their
-            own specifications and are not changed.
-          </p>
         </div>
 
         <SpecEntrySurface scope={{ library: true }} data={data} readOnly={false} />

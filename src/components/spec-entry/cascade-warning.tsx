@@ -1,78 +1,45 @@
-import type { LeafSpecReference } from "@/lib/leaf-spec-loader";
-
-// Phase A.1 v2 impl-3 Step 10 — Cascade warning banner.
+// Usage indicator. B-5.
 //
-// Per CD designer notes Pushback 2: "Cascade warning is
-// informational, not blocking — same risk as iter 1's soft gate."
-// The banner surfaces awareness for widely-referenced edits;
-// autosave continues per-field; PMs see the impact context.
+// WHAT THIS REPLACED, AND WHY IT IS SO MUCH SMALLER. This surface used to be a
+// cascade warning: a full-width amber banner listing every referencing quote,
+// each stamped DRAFT · WILL UPDATE or SENT · STAYS PINNED, above the sentence
+// "sent quotes stay pinned to v1; draft quotes auto-update to the new values".
 //
-// Canonical structure per docs/design-prototypes/dist/qw_a1v2.jsx
-// CascadeWarningDemo (lines 801-829) — only the banner portion;
-// the canonical's "Save · cascade to N drafts" button is intentionally
-// dropped (autosave model, not explicit-save).
+// That was true of the pre-B-3 model and is now false in every clause. Editing
+// a Library default changes NO existing quote, whatever its state, because each
+// quote owns its specification from the moment of attachment. A quote-side edit
+// changes that quote alone.
 //
-// Trigger heuristic: render when the leaf is referenced by more
-// than 1 ASY OR spans more than 1 scenario/quote. Below the
-// threshold, the surface stays uncluttered.
+// So the panel is not reworded — the decision it existed to support no longer
+// exists. Its whole job was to let an operator predict which quotes an edit
+// would propagate to; nothing propagates. A rewritten warning would be
+// complexity preserved out of habit, and the B-3 rule is deliberately simple
+// enough not to need one.
+//
+// What remains is orientation, not a warning: how widely this product is used.
+// Neutral by construction, because it makes no claim about what an edit
+// reaches — that claim now belongs to the page header, where it is one sentence.
 
 export function CascadeWarning({
   references,
-  leafName,
-  currentVersion,
+  currentQuoteId,
 }: {
-  references: LeafSpecReference[];
-  leafName: string;
-  currentVersion: number;
+  references: { quoteId: string }[];
+  /**
+   * The quote being edited, excluded from the count. Absent in Library scope,
+   * where every referencing quote is genuinely "another quote".
+   */
+  currentQuoteId?: string;
 }) {
-  const distinctScenarios = new Set(
-    references.map((r) => `${r.quoteId}:${r.scenarioLabel ?? ""}`),
-  );
-  if (references.length <= 1 && distinctScenarios.size <= 1) return null;
+  const otherQuotes = new Set(
+    references.map((r) => r.quoteId).filter((id) => id !== currentQuoteId),
+  ).size;
 
-  // Quote-status grouping per the canonical's sent/draft distinction.
-  // Sent + accepted quotes "stay pinned"; drafts "auto-update" on
-  // edits since they re-read current spec values at quote-pin time.
-  const sentStatuses = new Set(["sent", "accepted", "superseded"]);
+  if (otherQuotes === 0) return null;
 
   return (
-    <div className="a1v2-cascade-warning">
-      <span className="glyph" aria-hidden="true">
-        ⚠
-      </span>
-      <div className="body">
-        <span>
-          <strong>
-            {leafName} is used in {references.length} ASY
-            {references.length === 1 ? "" : "s"} across{" "}
-            {distinctScenarios.size} scenario
-            {distinctScenarios.size === 1 ? "" : "s"}.
-          </strong>{" "}
-          Editing specs affects referencing quotes per their state:{" "}
-          <strong>sent quotes stay pinned</strong> to v{currentVersion};{" "}
-          <strong>draft quotes auto-update</strong> to the new values.
-        </span>
-        <div className="ref-list">
-          {references.map((r) => {
-            const isSent = sentStatuses.has(r.quoteStatus);
-            return (
-              <div key={r.assemblyId} className="ref-row">
-                <span className="scenario">
-                  {r.scenarioLabel ?? "(no scenario)"}
-                </span>
-                <span className="asy">
-                  {r.assemblySku} · {r.assemblyName}
-                </span>
-                <span className={`status ${isSent ? "sent" : "draft"}`}>
-                  {isSent
-                    ? `${r.quoteStatus} · stays pinned`
-                    : "draft · will update"}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+    <div className="a1v2-usage-note" role="note">
+      Used in {otherQuotes} other quote{otherQuotes === 1 ? "" : "s"}.
     </div>
   );
 }

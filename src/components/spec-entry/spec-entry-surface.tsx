@@ -42,8 +42,22 @@ export function SpecEntrySurface({
   const completeness = computeCompleteness(productType, currentSpec?.specValues);
   const refCount = references.length;
 
+  const isLibrary = "library" in scope;
+
   return (
     <>
+      {/* B-6 — scope is part of correctness now, so each surface says which
+          authority it edits rather than leaving it to the URL or the nav rail.
+          One sentence, and the same shape on both, so the DIFFERENCE is what
+          reads rather than the wording. */}
+      <div className={`a1v2-scope-head ${isLibrary ? "library" : "quote"}`}>
+        <h2>{isLibrary ? "Default specifications" : "Quote specifications"}</h2>
+        <p>
+          {isLibrary
+            ? "Used as the starting point for future quotes. Existing quotes are not changed."
+            : "Changes apply only to this quote. Library defaults and other quotes are not changed."}
+        </p>
+      </div>
       {readOnly ? (
         <div className="a1v2-rls-banner">
           <span className="glyph" aria-hidden="true">
@@ -59,8 +73,7 @@ export function SpecEntrySurface({
       {!readOnly ? (
         <CascadeWarning
           references={references}
-          leafName={leaf.name}
-          currentVersion={currentSpec?.versionNumber ?? 1}
+          currentQuoteId={isLibrary ? undefined : scope.quoteId}
         />
       ) : null}
       <div className="a1v2-card">
@@ -82,7 +95,7 @@ export function SpecEntrySurface({
               ) : null}
               <span className="sep">·</span>
               <span>
-                Referenced by {refCount} ASY{refCount === 1 ? "" : "s"}
+                Used in {refCount} item group{refCount === 1 ? "" : "s"}
               </span>
               {leaf.fscClaim ? (
                 <>
