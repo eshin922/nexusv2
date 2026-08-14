@@ -917,10 +917,18 @@
  * operator aims at when they mean "between these two".
  */
 .a1v2-root-lane {
-  height: 12px;
-  margin: -6px 0;
+  /* 28px of acquisition, 24 of it given back to the layout. The visible line
+     stays 2px — restrained cue, forgiving target — because the operator aims
+     at a BAND, not at a line, and a 12px band crossed at normal pointer speed
+     can be stepped over between dragover ticks.
+     `margin: -13px 0` leaves a 2px net footprint, so lanes appearing at
+     dragstart barely shift the rows they sit between; combined with the
+     overlap they cover the row edges an operator naturally aims for when they
+     mean "between these two". */
+  height: 28px;
+  margin: -13px 0;
   position: relative;
-  z-index: 2;
+  z-index: 3;
 }
 /* Resting state is a faint seam: enough to show a slot EXISTS while dragging,
    not so much that it competes with the active one. */

@@ -442,17 +442,15 @@ test("root insertion lanes exist, and only during a drag", async () => {
   const body = await read("src/components/assembly-tree/assembly-tree-body.tsx");
   // The lane returns null with no move in flight, so no permanent drop chrome
   // enters the surface — the guard is the whole reason this is not a dropzone.
-  assert.match(
-    body,
-    /function RootLane\(\{ index \}: \{ index: number \}\) \{\s*if \(!movingLeafId\) return null;/,
-  );
+  assert.match(body, /if \(!dragging\) return null;/);
   // A lane at every root slot, plus the tail. Blank container background is no
   // longer the only root target.
-  assert.match(body, /<RootLane index=\{rootLaneIndexBefore\.tail\} \/>/);
+  assert.match(body, /laneId="tail:above-groups"/);
   assert.match(body, /rootLaneIndexBefore\.map\.has\(product\.quoteLeafId\)/);
   // It proposes an EXACT index, so root placement is ordered rather than
   // "make it Direct somewhere".
   assert.match(body, /proposePlanAt\(\{ kind: "direct" \}, index\)/);
+  assert.match(body, /onAcquire\(laneId, index\)/);
   // And it commits through the same proven primitive.
   assert.match(body, /onDrop=\{commitDrop\}/);
   // Comments explain WHY there is no "drop here" affordance, so the raw source
@@ -493,17 +491,78 @@ test("the root indicator has exactly one owner", async () => {
   // Row-anchored edges are suppressed for the direct zone. Both mechanisms
   // would match the same plan and paint two lines for one destination.
   assert.match(body, /if \(zone\.kind === "direct"\) return null;/);
-  assert.match(body, /plan\?\.zone\.kind === "direct" && plan\.index === index/);
+  assert.match(body, /active=\{activeLane === /);
 });
 
-test("the lane reserves hit area without moving the rows around it", async () => {
+test("the lane paints over the row edges the operator aims at", async () => {
   const css = await read("src/styles/r-a1v2-overrides.css");
   const block = css.slice(css.indexOf(".a1v2-root-lane {"));
-  // 12px of target, given back to the layout — lanes appearing on dragstart
-  // must not shift the rows the operator is aiming between.
-  assert.match(block, /height: 12px;\s*\n\s*margin: -6px 0;/);
-  // Lifted over the adjacent row edges, which is the band the operator aims at
-  // when they mean "between these two".
-  assert.match(block, /z-index: 2;/);
-  assert.match(block, /\.a1v2-root-lane\.active::after \{\s*\n\s*background: var\(--accent\);/);
+  // SIZING moved to the acquisition-band test below, which superseded the
+  // literal 12px/-6px this asserted — the band was widened because 12px was
+  // exactly the defect. What stays here is the part sizing does not cover.
+  //
+  // Lifted over the neighbouring rows: the boundary band between two rows IS
+  // what someone aims at when they mean "between these two", and an unlifted
+  // lane loses that band to whichever row paints last.
+  assert.match(block, /position: relative;/);
+  const z = Number(block.match(/z-index: (\d+);/)![1]);
+  assert.ok(z >= 2, `lane must sit above the rows it spans, got z-index ${z}`);
+  // Active state uses the same accent as every other insertion cue.
+  assert.match(block, /\.a1v2-root-lane\.active::after \{\s+background: var\(--accent\);/);
+});
+
+// ── 10 · The interaction seam, not the primitive ────────────────────────────
+
+test("RootLane is defined at module level, so it survives a drag", async () => {
+  const body = await read("src/components/assembly-tree/assembly-tree-body.tsx");
+  // THE BUG THIS PINS. Defined inside AssemblyTreeBody, RootLane was a new
+  // component TYPE on every render. Every setPlan during a drag — every pointer
+  // move — remounted the lane, destroying and recreating the element under the
+  // cursor mid-gesture and losing the browser's drag target. It reads exactly
+  // like a hit-target that is too small, and is not one.
+  const bodyFnStart = body.indexOf("export function AssemblyTreeBody");
+  const laneFnStart = body.indexOf("function RootLane(");
+  assert.ok(laneFnStart > bodyFnStart, "RootLane must be declared in the file");
+  // Declared AFTER the parent's closing brace — i.e. a sibling, not a nested
+  // definition. Measured by brace depth rather than by eye.
+  const upTo = body.slice(bodyFnStart, laneFnStart);
+  const depth =
+    (upTo.match(/\{/g) ?? []).length - (upTo.match(/\}/g) ?? []).length;
+  assert.equal(depth, 0, "RootLane must not be nested inside the parent component");
+});
+
+test("a lane claims the drag on ENTER, not only on the next over-tick", async () => {
+  const body = await read("src/components/assembly-tree/assembly-tree-body.tsx");
+  // Crossing in from inside an Item Group, the first event the lane sees is
+  // dragEnter. Without it the lane stays unclaimed until the next dragOver, and
+  // a fast gesture can cross the whole band between ticks without acquiring it.
+  assert.match(body, /onDragEnter=\{claim\}/);
+  assert.match(body, /onDragOver=\{claim\}/);
+});
+
+test("the outward gesture has a target below the Item Groups", async () => {
+  const body = await read("src/components/assembly-tree/assembly-tree-body.tsx");
+  // Dragging a member OUT of a group is naturally downward. With only the
+  // above-groups lane, the sole root target sat above the group being left, so
+  // the operator had to drag up past it.
+  assert.match(body, /laneId="tail:below-groups"/);
+  assert.match(body, /laneId="tail:above-groups"/);
+  // Both hold the append index, so the highlight cannot be keyed on the index
+  // or a single destination would light two lanes.
+  assert.equal(body.match(/index=\{rootLaneIndexBefore\.tail\}/g)?.length, 2);
+  assert.match(body, /const \[activeLane, setActiveLane\] = useState<string \| null>\(null\)/);
+});
+
+test("the acquisition band is forgiving while the line stays restrained", async () => {
+  const css = await read("src/styles/r-a1v2-overrides.css");
+  const block = css.slice(css.indexOf(".a1v2-root-lane {"));
+  const h = Number(block.match(/height: (\d+)px;/)![1]);
+  const m = Number(block.match(/margin: -(\d+)px 0;/)![1]);
+  // The operator aims at a BAND. 12px could be stepped over between dragover
+  // ticks at normal pointer speed.
+  assert.ok(h >= 24, `acquisition band too narrow: ${h}px`);
+  // But it must not push the rows apart: net footprint stays negligible.
+  assert.ok(h - 2 * m <= 4, `lane consumes ${h - 2 * m}px of layout`);
+  // The visible cue is unchanged — restrained line, forgiving target.
+  assert.match(block, /height: 2px;/);
 });

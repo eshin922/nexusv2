@@ -263,6 +263,7 @@ export function AssemblyTreeBody({
     const target = plan;
     setMovingLeafId(null);
     setPlan(null);
+    setActiveLane(null);
     // No indicator was showing, so nothing was promised. Releasing over an
     // invalid destination returns the product to where it already is.
     if (!target) return;
@@ -289,6 +290,7 @@ export function AssemblyTreeBody({
   function endMove() {
     setMovingLeafId(null);
     setPlan(null);
+    setActiveLane(null);
   }
 
   // Which row carries the line, and on which edge.
@@ -363,25 +365,19 @@ export function AssemblyTreeBody({
     return { map, tail: k };
   }, [directIds, movingLeafId]);
 
-  const rootLaneActive = (index: number) =>
-    plan?.zone.kind === "direct" && plan.index === index;
+  // Which lane is LIT. Tracked by lane id, not by index: two lanes legitimately
+  // hold the append index — one above the Item Groups where a root append
+  // actually lands, one below them where the outward gesture ends — and keying
+  // the highlight on the index would light both for a single destination.
+  const [activeLane, setActiveLane] = useState<string | null>(null);
 
-  function RootLane({ index }: { index: number }) {
-    if (!movingLeafId) return null;
-    return (
-      <div
-        className={`a1v2-root-lane${rootLaneActive(index) ? " active" : ""}`}
-        onDragOver={(e) => {
-          if (!editable) return;
-          e.preventDefault();
-          e.stopPropagation();
-          e.dataTransfer.dropEffect = "move";
-          proposePlanAt({ kind: "direct" }, index);
-        }}
-        onDrop={commitDrop}
-      />
-    );
-  }
+  const acquireLane = useCallback(
+    (laneId: string, index: number) => {
+      setActiveLane(laneId);
+      proposePlanAt({ kind: "direct" }, index);
+    },
+    [proposePlanAt],
+  );
 
   const isEmpty =
     orderedAssemblies.length === 0 && tree.directProducts.length === 0;
@@ -411,7 +407,15 @@ export function AssemblyTreeBody({
           {tree.directProducts.map((product) => (
             <Fragment key={product.quoteLeafId}>
               {rootLaneIndexBefore.map.has(product.quoteLeafId) ? (
-                <RootLane index={rootLaneIndexBefore.map.get(product.quoteLeafId)!} />
+                <RootLane
+                  laneId={`before:${product.quoteLeafId}`}
+                  index={rootLaneIndexBefore.map.get(product.quoteLeafId)!}
+                  active={activeLane === `before:${product.quoteLeafId}`}
+                  editable={editable}
+                  dragging={!!movingLeafId}
+                  onAcquire={acquireLane}
+                  onDrop={commitDrop}
+                />
               ) : null}
             <DirectProductRow
               key={product.quoteLeafId}
@@ -434,7 +438,15 @@ export function AssemblyTreeBody({
           {/* The tail slot — appending to root. Sits directly above the Item
               Groups, which is exactly where a root append lands, since Direct
               Products always render before groups. */}
-          <RootLane index={rootLaneIndexBefore.tail} />
+          <RootLane
+            laneId="tail:above-groups"
+            index={rootLaneIndexBefore.tail}
+            active={activeLane === "tail:above-groups"}
+            editable={editable}
+            dragging={!!movingLeafId}
+            onAcquire={acquireLane}
+            onDrop={commitDrop}
+          />
           {orderedAssemblies.map((asy) => (
             <AsyRow
               key={asy.id}
@@ -473,6 +485,22 @@ export function AssemblyTreeBody({
               permissions={permissions}
             />
           ))}
+          {/* The OUTWARD gesture. Dragging a member out of a group is naturally
+              downward-and-left or straight down; before this there was nothing
+              below the groups to land on, so the only root target was above
+              them — the operator had to drag UP past the group they were
+              leaving. Same append index as the lane above the groups; the
+              highlight is keyed by lane id so only the one under the pointer
+              lights. */}
+          <RootLane
+            laneId="tail:below-groups"
+            index={rootLaneIndexBefore.tail}
+            active={activeLane === "tail:below-groups"}
+            editable={editable}
+            dragging={!!movingLeafId}
+            onAcquire={acquireLane}
+            onDrop={commitDrop}
+          />
         </>
       )}
       {error ? (
@@ -489,5 +517,58 @@ export function AssemblyTreeBody({
         </div>
       ) : null}
     </div>
+  );
+}
+
+
+/**
+ * A root destination slot. MODULE LEVEL, and that is the fix, not a tidy-up.
+ *
+ * Defined inside the parent it was a NEW COMPONENT TYPE on every render. Each
+ * `setPlan` during a drag — which is to say every pointer move — remounted the
+ * lane, so the element under the cursor was destroyed and recreated mid-gesture
+ * and the browser lost its drag target. The line appeared, then activation
+ * dropped as soon as the operator moved, which reads exactly like a hit-target
+ * that is too small and is not one.
+ *
+ * Hoisting it makes the identity stable across renders, so the node under the
+ * pointer survives the whole drag.
+ */
+function RootLane({
+  laneId,
+  index,
+  active,
+  editable,
+  dragging,
+  onAcquire,
+  onDrop,
+}: {
+  laneId: string;
+  index: number;
+  active: boolean;
+  editable: boolean;
+  dragging: boolean;
+  onAcquire: (laneId: string, index: number) => void;
+  onDrop: (e: React.DragEvent) => void;
+}) {
+  if (!dragging) return null;
+  const claim = (e: React.DragEvent) => {
+    if (!editable) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    onAcquire(laneId, index);
+  };
+  return (
+    <div
+      className={`a1v2-root-lane${active ? " active" : ""}`}
+      // dragEnter AND dragOver. Entering from inside an Item Group, the first
+      // event the lane sees is dragEnter; without it the lane stays unclaimed
+      // until the next dragOver tick, and a fast gesture can cross the whole
+      // lane between ticks without ever acquiring it.
+      onDragEnter={claim}
+      onDragOver={claim}
+      onDrop={onDrop}
+    />
   );
 }
