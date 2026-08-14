@@ -899,3 +899,44 @@
 .a1v2-asy-row.drop-target.drop-after {
   box-shadow: inset 2px 0 0 var(--accent), inset 0 -2px 0 -0.5px var(--accent);
 }
+
+/* ROOT INSERTION LANE.
+ *
+ * The root destination was the tree container's blank background. Item Groups
+ * occupy the full width and most of the height, so there was almost none of it
+ * — Group -> Direct was implemented and proven and still unreachable, because
+ * the operator had to find a few pixels of nothing.
+ *
+ * A lane occupies each root slot DURING A DRAG ONLY. It is not rendered
+ * otherwise, so no permanent drop chrome enters the surface.
+ *
+ * The 12px height is hit area, and `margin: -6px 0` gives it back to the
+ * layout, so lanes appearing and disappearing never shift the rows around
+ * them. `z-index` lifts the lane over the adjacent row edges — without it the
+ * row's own dragover wins along the boundary, which is precisely the band the
+ * operator aims at when they mean "between these two".
+ */
+.a1v2-root-lane {
+  height: 12px;
+  margin: -6px 0;
+  position: relative;
+  z-index: 2;
+}
+/* Resting state is a faint seam: enough to show a slot EXISTS while dragging,
+   not so much that it competes with the active one. */
+.a1v2-root-lane::after {
+  content: "";
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-1px);
+  border-radius: 1px;
+  background: oklch(from var(--accent) l c h / 0.18);
+}
+/* The same insertion line the rest of the surface uses, so the cue means what
+   it already means: the product lands HERE, and it lands Direct. */
+.a1v2-root-lane.active::after {
+  background: var(--accent);
+}

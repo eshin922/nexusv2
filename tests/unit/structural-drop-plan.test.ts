@@ -435,3 +435,75 @@ test("Direct and member SKUs share ONE typography declaration, not two copies", 
   // different role, and this fix must not reach it.
   assert.match(overrides, /\.a1v2-asy-row\.a1v2-direct-row \.sku-pill \{/);
 });
+
+// ── 9 · Group -> Direct must be physically reachable ────────────────────────
+
+test("root insertion lanes exist, and only during a drag", async () => {
+  const body = await read("src/components/assembly-tree/assembly-tree-body.tsx");
+  // The lane returns null with no move in flight, so no permanent drop chrome
+  // enters the surface — the guard is the whole reason this is not a dropzone.
+  assert.match(
+    body,
+    /function RootLane\(\{ index \}: \{ index: number \}\) \{\s*if \(!movingLeafId\) return null;/,
+  );
+  // A lane at every root slot, plus the tail. Blank container background is no
+  // longer the only root target.
+  assert.match(body, /<RootLane index=\{rootLaneIndexBefore\.tail\} \/>/);
+  assert.match(body, /rootLaneIndexBefore\.map\.has\(product\.quoteLeafId\)/);
+  // It proposes an EXACT index, so root placement is ordered rather than
+  // "make it Direct somewhere".
+  assert.match(body, /proposePlanAt\(\{ kind: "direct" \}, index\)/);
+  // And it commits through the same proven primitive.
+  assert.match(body, /onDrop=\{commitDrop\}/);
+  // Comments explain WHY there is no "drop here" affordance, so the raw source
+  // contains the string it is excluding. Third instance of this shape in one
+  // slice: a filter that cannot tell code from prose about the code is
+  // measuring the wrong thing.
+  assert.doesNotMatch(stripComments(body), /drop here/i);
+});
+
+test("lane indices count non-moving rows, so one slot never has two lanes", async () => {
+  const body = await read("src/components/assembly-tree/assembly-tree-body.tsx");
+  // `resolveDropIndex` resolves against the list with the dragged row removed.
+  // Emitting a lane before the moving row too would give two lanes one index,
+  // and both would light for a single plan.
+  assert.match(body, /if \(id === movingLeafId\) continue;/);
+
+  // The arithmetic that guarantees it, exercised directly.
+  const direct = ["a", "b", "c"];
+  for (const moving of [...direct, "fromGroup"]) {
+    const map = new Map<string, number>();
+    let k = 0;
+    for (const id of direct) {
+      if (id === moving) continue;
+      map.set(id, k);
+      k += 1;
+    }
+    const indices = [...map.values(), k];
+    assert.equal(new Set(indices).size, indices.length, `duplicate lane index moving ${moving}`);
+    const others = direct.filter((d) => d !== moving);
+    assert.equal(k, others.length, "tail lane must be the append slot");
+    // Every reachable root index is offered — including the append slot.
+    assert.deepEqual(indices.sort((x, y) => x - y), others.map((_, i) => i).concat(others.length));
+  }
+});
+
+test("the root indicator has exactly one owner", async () => {
+  const body = await read("src/components/assembly-tree/assembly-tree-body.tsx");
+  // Row-anchored edges are suppressed for the direct zone. Both mechanisms
+  // would match the same plan and paint two lines for one destination.
+  assert.match(body, /if \(zone\.kind === "direct"\) return null;/);
+  assert.match(body, /plan\?\.zone\.kind === "direct" && plan\.index === index/);
+});
+
+test("the lane reserves hit area without moving the rows around it", async () => {
+  const css = await read("src/styles/r-a1v2-overrides.css");
+  const block = css.slice(css.indexOf(".a1v2-root-lane {"));
+  // 12px of target, given back to the layout — lanes appearing on dragstart
+  // must not shift the rows the operator is aiming between.
+  assert.match(block, /height: 12px;\s*\n\s*margin: -6px 0;/);
+  // Lifted over the adjacent row edges, which is the band the operator aims at
+  // when they mean "between these two".
+  assert.match(block, /z-index: 2;/);
+  assert.match(block, /\.a1v2-root-lane\.active::after \{\s*\n\s*background: var\(--accent\);/);
+});

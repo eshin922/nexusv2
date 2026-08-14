@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { Fragment, useCallback, useMemo, useState, useTransition } from "react";
 import type { AssemblyTree } from "@/lib/assembly-tree";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AsyRow } from "./asy-row";
@@ -299,11 +299,89 @@ export function AssemblyTreeBody({
 
   const dropEdgeFor = useCallback(
     (zone: DropZone, quoteLeafId: string): "before" | "after" | null => {
+      // Root destinations are drawn by the lanes below, not on the row. Both
+      // mechanisms would light for the same plan and paint two lines.
+      if (zone.kind === "direct") return null;
       if (!plan || !anchor || !sameZone(plan.zone, zone)) return null;
       return anchor.overId === quoteLeafId ? anchor.edge : null;
     },
     [plan, anchor],
   );
+
+  /** Propose an exact index, for a target that already knows its position. */
+  const proposePlanAt = useCallback(
+    (zone: DropZone, index: number) => {
+      if (!movingLeafId) return;
+      const next: DropPlan = { zone, index };
+      if (
+        isNoOpDrop({
+          plan: next,
+          currentZone: movingHome,
+          currentSiblings: movingHome ? siblingsFor(movingHome) : [],
+          movingId: movingLeafId,
+        })
+      ) {
+        setPlan(null);
+        return;
+      }
+      setPlan((prev) =>
+        prev && sameZone(prev.zone, next.zone) && prev.index === next.index
+          ? prev
+          : next,
+      );
+    },
+    [movingLeafId, movingHome, siblingsFor],
+  );
+
+  /**
+   * ROOT INSERTION LANES.
+   *
+   * The root destination used to be the tree container's blank background.
+   * With Item Groups occupying the full width and most of the height there is
+   * almost none of it, so Group -> Direct was implemented, proven, and
+   * unreachable — the operator had to discover a few pixels of nothing.
+   *
+   * A lane sits at each root slot and carries the SAME insertion line the rest
+   * of the surface uses, so the cue means what it already means: the product
+   * becomes Direct AT THIS EXACT POSITION. Not "make it Direct somewhere".
+   *
+   * Lanes exist only while a move is in flight — during a drag they are the
+   * target, and the rest of the time they are not in the DOM at all.
+   *
+   * Indices count NON-MOVING rows, because `resolveDropIndex` resolves against
+   * the list with the dragged row removed. Emitting a lane before the moving
+   * row too would produce two lanes holding one index, and both would light.
+   */
+  const rootLaneIndexBefore = useMemo(() => {
+    const map = new Map<string, number>();
+    let k = 0;
+    for (const id of directIds) {
+      if (id === movingLeafId) continue;
+      map.set(id, k);
+      k += 1;
+    }
+    return { map, tail: k };
+  }, [directIds, movingLeafId]);
+
+  const rootLaneActive = (index: number) =>
+    plan?.zone.kind === "direct" && plan.index === index;
+
+  function RootLane({ index }: { index: number }) {
+    if (!movingLeafId) return null;
+    return (
+      <div
+        className={`a1v2-root-lane${rootLaneActive(index) ? " active" : ""}`}
+        onDragOver={(e) => {
+          if (!editable) return;
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = "move";
+          proposePlanAt({ kind: "direct" }, index);
+        }}
+        onDrop={commitDrop}
+      />
+    );
+  }
 
   const isEmpty =
     orderedAssemblies.length === 0 && tree.directProducts.length === 0;
@@ -331,6 +409,10 @@ export function AssemblyTreeBody({
       ) : (
         <>
           {tree.directProducts.map((product) => (
+            <Fragment key={product.quoteLeafId}>
+              {rootLaneIndexBefore.map.has(product.quoteLeafId) ? (
+                <RootLane index={rootLaneIndexBefore.map.get(product.quoteLeafId)!} />
+              ) : null}
             <DirectProductRow
               key={product.quoteLeafId}
               product={product}
@@ -347,7 +429,12 @@ export function AssemblyTreeBody({
               onRowDrop={commitDrop}
               editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${product.leafId}/specs`}
             />
+            </Fragment>
           ))}
+          {/* The tail slot — appending to root. Sits directly above the Item
+              Groups, which is exactly where a root append lands, since Direct
+              Products always render before groups. */}
+          <RootLane index={rootLaneIndexBefore.tail} />
           {orderedAssemblies.map((asy) => (
             <AsyRow
               key={asy.id}
