@@ -710,3 +710,101 @@ opposite of what will happen.
 
 Recommend dispositioning B-5 before the value-editing half of the walk, so the
 screen and the behaviour agree while you are judging them.
+
+---
+
+## B-3 · OPERATOR-PROVEN (2026-08-13)
+
+Quote-spec / Library-default isolation validated on Preview `f921904`. The
+authority model is closed: quote-owned specification from the moment of
+attachment, Library defaults as template for future attachments only, neither
+reachable from the other. **Not to be reopened on UX grounds.**
+
+Standing evidence: `scripts/verify/b3-spec-authority.ts` 20/20 against the live
+database; falsification 11 as a source grep in the unit suite; migration `0071`
+with 141 quote-owned rows and 169/169 attachments pinned.
+
+---
+
+## B-8 · SKU tree visual density — DA trace and proposal
+
+**Investigation only. Nothing changed.** Structure is not in scope: the Item
+Group / member hierarchy reads correctly after B-4 and is not touched here.
+
+### What the DA specifies for a member row
+
+`.a1v2-leaf-row` — `grid-template-columns: 60px 110px 1fr auto auto auto`, six
+cells. The implementation renders exactly six, so **there is no grid overflow
+here** — this is not a repeat of B-4 drift 5.
+
+| # | cell | DA register |
+|---|---|---|
+| 1 | `.leaf-icon` | mono 13px, `--ink-4` |
+| 2 | `.leaf-sku` | mono 10.5px, `--ink-3` |
+| 3 | `.leaf-name-cell .name` | **12.5px, weight 500, `--ink`** |
+| | `.leaf-name-cell .meta` | mono 10px, `--ink-4` — qty · cost |
+| 4 | `.type-tag.leaf-type` | mono 9.5px, `--accent-ink`, accent 0.08 fill, **1px accent 0.20 border** |
+| 5 | `.leaf-refs` | mono 10px, **`--ink-4`** |
+| 6 | `.context-trigger` (+ nexus: `.a1v2-chip`) | chip: mono 10px, uppercase, **soft-filled colour**, pill radius |
+
+**Every one of the six signals is DA-native**, including the readiness chip —
+`.a1v2-chip` with all four states (`complete` / `partial` / `empty` / `no_type`)
+is in the canonical stylesheet. I initially suspected the chip was a nexus
+addition competing with the DA; it is not. The only nexus liberty is that the
+chip shares cell 6 with the context trigger rather than holding a column, which
+is the same folding `.direct-actions` already uses and causes no wrap.
+
+### So where does the density actually come from
+
+Not from extra elements. **From three elements the DA gives competing emphasis
+to at the same time**, in a row whose text is otherwise deliberately quiet:
+
+- **type tag** — outlined *and* filled *and* accent-coloured. The only bordered
+  element in the row.
+- **readiness chip** — soft-filled colour, uppercase, pill.
+- **name** — the largest text, and the only thing at full `--ink`.
+
+Two coloured, enclosed shapes sit adjacent at the row's right edge, and only one
+of them is actionable. `.leaf-refs` is already at the DA's quietest register
+(mono 10px `--ink-4`, same as the qty·cost meta line), so it contributes little
+weight — but it does consume a full grid column, which widens the right cluster
+and pushes the name cell narrower on a 15-product quote.
+
+### Minimal proposal — entirely within the DA, nothing invented
+
+**1 · `Used in N other quotes` → the name cell's meta line.**
+It is already in the *same* register as `qty · cost` (mono 10px `--ink-4`), so
+appending it there costs no new weight and **frees grid column 5**, widening the
+1fr identity column across every row. This demotes it substantially without
+hiding it, and avoids putting a passive fact behind an interaction. If you want
+it gone from the row entirely, the overflow menu is the alternative — but the
+meta-line move gets most of the density benefit at none of the discoverability
+cost.
+
+**2 · Demote the type tag to the DA's OWN quiet register.**
+The DA contains *two* type-tag treatments: the outlined accent one on leaf rows,
+and a flat one on assembly rows — `.a1v2-asy-row .type-tag`: mono 9.5px,
+`--ink-4`, `--paper-3` fill, **no border**. Applying the assembly register to
+member rows is a move *within* the DA rather than an invention, and it leaves
+the readiness chip as the row's only coloured, enclosed element.
+
+**Keep `untyped` in the `--bad` register.** "No type set" is actionable, so it
+belongs with the readiness signals rather than with the demoted informational
+ones — which is the same reason the chip has a `no_type` state.
+
+**3 · Readiness chip unchanged.** It becomes the primary row-level operational
+signal by subtraction rather than by amplification — nothing is made louder.
+
+**4 · Name, SKU, qty, cost unchanged.** Already the DA's hierarchy: name at
+full ink and largest, SKU and meta demoted beneath it.
+
+### Net effect
+
+Per member row: six competing signals → **one coloured actionable chip**, one
+quiet type tag, one identity block, and one overflow. Grid narrows 6 → 5
+columns, so identity gets the reclaimed width on every row of a 15-product
+quote.
+
+**Not in scope and not touched:** Item Group / member structure, quote-spec
+authority, Library-default authority, cost, pricing, projection. This is
+row-level CSS and one JSX move.
