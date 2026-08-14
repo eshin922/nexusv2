@@ -454,8 +454,12 @@ renders today was invented.
    never looked at generated *data*. Operator-visible `ASY` therefore survives a
    test asserting it is gone — the test reads source text, and this string is
    produced at runtime.
-7. **Member rows read as detached.** Two contributors, both consequences of the
-   above rather than of the connector CSS, which is intact and canonical: the
+7. **Member rows read as detached.** **The canonical member connector was NOT
+   shown to be defective** — it is intact and matches `qw_styles.css` exactly.
+   The major visual detachment came from the parent grid overflow wrapping
+   `+ Add products` onto an implicit row, which breaks the intended seal between
+   the Item Group row and `.a1v2-leaves`. Two contributors, both consequences of
+   the drifts above rather than of the connector: the
    wrapped grid pushes the group's own content below the connector's origin, and
    `.a1v2-leaves` renders unconditionally while `.expanded` is tied to child
    count, so the container tint that should bind the block to its header is
@@ -491,3 +495,140 @@ redesign, and no capability is removed.
 Recommend CD review before item 4 ships, since it is the one with no upstream
 source. Items 1-3 are restoration and can be evidenced against `qw_styles.css`
 directly.
+
+---
+
+## B-4B · Broken member action menu — **V1 SIGN-OFF BLOCKER**
+
+**Inventory only. No code changed.** B-4A (structural/visual) is parked; its
+item-3 helper is written but unwired and uncommitted.
+
+### Capability matrix
+
+**Item Group member row — the `…` overflow menu (6 items)**
+
+| # | action | reachable | handler | expected | actual | V1 | coverage |
+|---|---|---|---|---|---|---|---|
+| 1 | Edit specs | **yes** | `<Link>` → `/leaves/{leafId}/specs` → `updateLeafSpec` | navigate, edit spec values | works | **required** | **none** |
+| 2 | Move up | **no** — `disabled` | none | — | inert | no | n/a |
+| 3 | Move down | **no** — `disabled` | none | — | inert | no | n/a |
+| 4 | Move to another item group | **no** — `disabled` | **no writer exists** | — | inert | product call | none |
+| 5 | View library record | **no** — `disabled` | none | — | inert | product call | none |
+| 6 | Remove from item group | **yes** | `detachAssemblyLeaf` | delete junction, keep library leaf | works | **required** | `product-structure-slice1-compatibility` |
+
+**Direct Product row — inline (2 items)**
+
+| # | action | reachable | handler | expected | actual | V1 | coverage |
+|---|---|---|---|---|---|---|---|
+| 7 | Edit specs | **yes** | same `<Link>` as #1 | navigate, edit spec values | works | **required** | **none** |
+| 8 | Remove | **yes** | `detachQuoteProduct` | delete this quote's `quote_leaves` row | works | **required** | **none** |
+
+**Four of six member-menu items are `disabled` placeholders.** Their `title`
+attributes carry the deferral reasons: *"Drag-to-reorder is the primary path
+(Step 9)"* (×2), *"Move between item groups — design TBD"*, *"Library browse
+surface ships in impl-5"*.
+
+### Mutation scope, per action
+
+| action | tables mutated | scope | can affect another quote? |
+|---|---|---|---|
+| Edit specs (#1, #7) | `leaf_specs`, `leaves.product_type_id` | **Library / master data** | **YES — see falsification 1** |
+| Remove from item group (#6) | `assembly_leaves` + `quote_leaves` (via `detachGroupedMembership`) | quote-local, group-local | no |
+| Remove (#8) | `quote_leaves` | quote-local | no |
+| drag-reorder (members, working) | `assembly_leaves.sort_order` | group-local | no |
+
+`assertDraft` gates #6 and #8, so neither can touch an accepted or complete
+quote.
+
+### Falsification results
+
+**1. "Edit specs cannot unexpectedly mutate other quote usages through shared
+Library identity" — FALSIFIED for draft quotes. By design, but undisclosed.**
+
+`leaf_specs` is keyed by `leaf_id` and carries **no `quote_id`** — the schema
+comment says so explicitly: *"globally scoped library"*. Between pin events an
+edit **UPDATEs the current row in place** (schema §leaf_specs). So editing specs
+from inside one quote changes them for **every other draft quote using that
+leaf, immediately**.
+
+Sent and accepted quotes are protected: `quote_leaves.leaf_spec_version_id` pins
+a specific historical `leaf_specs` row at send.
+
+This is correct library semantics and must not be "fixed" by scoping specs to a
+quote. The gap is disclosure: the row already renders the blast radius
+(`+15 other uses`, `+23 other uses`) but the menu item next to it says only
+"Edit specs", and an operator inside a quote may reasonably read that as
+quote-local. **Product disposition, not a defect.**
+
+**2. "Move up/down cannot escape the Item Group or alter economics" — not
+applicable; there is no capability to test.** The equivalent *working* path is
+drag-to-reorder → `reorderAssemblyLeaves`, which writes `assembly_leaves
+.sort_order` only. Junction-scoped, no economics, cannot leave the group. The
+two menu items duplicate a path that already works.
+
+**3. "Move to another item group changes attribution only" — no capability
+exists to falsify.** No writer anywhere in `src/app/actions/`. `assemblies.ts`
+records the intent in a comment: *"Cross-ASY junction moves (reparenting) is a
+separate workflow."* The menu item is an unimplemented design note rendered as a
+command.
+
+**4. "View library record is navigation/read only" — no capability exists.** No
+handler. Its stated blocker — *"Library browse surface ships in impl-5"* — **has
+since shipped**; the Library modal exists and is in daily use. The item is stale
+rather than blocked.
+
+**5. "Remove from item group detaches membership only" — HOLDS.**
+`detachGroupedMembership` deletes the junction and the canonical `quote_leaves`
+row. The library leaf is untouched, and `assembly_leaves.leaf_id` is
+`ON DELETE RESTRICT`, so a cascade to the library is structurally impossible.
+The menu's own caption already says *"library leaf stays"*.
+
+**6. "Direct Remove removes from this quote only" — HOLDS.** Deletes one
+`quote_leaves` row, guarded to that `quoteId`.
+
+**7. Do Direct Products have a governed ordering capability? NO —** and the
+refusal is deliberate. `direct-product-row.tsx`: *"No drag handle: ordering
+among Direct Products is not an operator concern yet, and a handle that
+reorders nothing would lie."* `position` is stored at attach (visible in the
+attach audit rows) but nothing reorders it.
+
+**8. Does View library record apply equally to Direct Products? It is absent
+from both rows.** Neither row can reach the library record.
+
+### The DA for action grammar — partially unrecoverable
+
+`leaf-context-menu.tsx` cites *"docs/design-prototypes/dist/qw_a1v2.jsx
+LeafContextMenu (lines 262-276)"* as canonical. **That file is not in the
+repository**, and neither is `qw_styles.css`, the stated upstream for
+`r-a1v2-setup.css`. `git log --diff-filter=D` shows no deletion, so they were
+never committed. Rounds 8 and 9 do not cover this tree.
+
+So the surviving DA is the canonical CSS alone — and it does establish the
+grammar, from the grid definitions:
+
+- `.a1v2-leaf-row` — `60px 110px 1fr auto auto auto`, six cells: leaf-icon,
+  leaf-sku, name-cell, type-tag, **leaf-refs**, **context-trigger**. No inline
+  action cells.
+- `.a1v2-asy-row` — six cells likewise ending in `.context-trigger`.
+
+**The DA grammar for both row types is overflow-only.** There is no canonical
+inline action button anywhere in this tree. The Direct Product row's inline
+`Edit specs` + `Remove` is therefore a nexus invention with no DA — which is
+consistent, since Direct Products postdate the DA entirely. No later
+disposition intentionally changed the grammar; the inline pair arrived with
+§9.1 and was never measured against the DA.
+
+### Recommended disposition — not applied
+
+| action | recommendation | rationale |
+|---|---|---|
+| Edit specs (#1, #7) | **keep**; disclose library scope at the point of action | works, required; the shared-identity effect is real and currently unstated |
+| Move up / Move down | **wire to `reorderAssemblyLeaves`** or remove | the writer exists and works; wiring is cheap and gives a keyboard path to a drag-only capability. Removal is equally defensible |
+| Move to another item group | **remove** | no writer, design TBD; a command that has never existed |
+| View library record | **wire to the Library modal** or remove | its blocker has shipped, so "remove" would be discarding a now-cheap capability — product call |
+| Remove from item group (#6) | keep | works, guarded, covered |
+| Remove (#8) | keep, **add coverage** | works and is destructive, with **zero automated evidence** |
+
+**Coverage gap worth naming separately:** `updateLeafSpec` and
+`detachQuoteProduct` have no unit coverage at all. One writes shared library
+master data; the other is the only destructive action on a Direct Product.
