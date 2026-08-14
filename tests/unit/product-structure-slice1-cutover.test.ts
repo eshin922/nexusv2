@@ -226,6 +226,10 @@ const classifiedIdentityFiles = new Set([
   // (quote_id, leaf_id); it reads leafId to template from the Library default
   // and never touches the legacy junction or maps between identity spaces.
   "src/lib/product-structure/quote-spec-authority.ts",
+  // CLASSIFIED — read-only evidence, canonical only. The B-3 falsification
+  // harness builds fixtures keyed by (quote_id, leaf_id) and never touches the
+  // legacy junction or maps between identity spaces.
+  "scripts/verify/b3-spec-authority.ts",
   "scripts/smoke/mark-complete.ts", "scripts/verify/costing-adapter.ts",
   "scripts/verify/sample-order-margin.ts", "scripts/verify/slice-11-5-1-warnings-parity.ts",
   "tests/harness/fixtures/world.ts",
