@@ -261,16 +261,22 @@ test("the Library's visible Type is HubSpot's classification, not the Nexus taxo
 test("Library Edit specs is a subordinate control, not a peer or a column", async () => {
   const src = await read("src/components/library/library-browse-modal.tsx");
   // Inside the existing action cell — no sixth column, no widened modal.
-  assert.match(src, /className="lib-edit-specs"/);
+  assert.match(src, /className="lib-edit-specs lib-icon-btn"/);
   // The previous treatment: a persistent column that opened a new tab.
   assert.doesNotMatch(src, /lib-defaults-link/);
   assert.doesNotMatch(src, /target="_blank"/);
   // Keyboard-reachable with an explicit accessible name; discoverability never
   // depends on hover.
-  assert.match(src, /aria-label=\{`Edit library default specs for \$\{row\.name\}`\}/);
+  assert.match(src, /aria-label=\{`Edit default specs for \$\{row\.name\}`\}/);
+  // Both controls carry their own accessible name, because the glyph is
+  // aria-hidden and a "+" would otherwise be the whole label.
+  assert.match(src, /aria-label=\{`Add product \$\{row\.name\}`\}/);
   const css = await read("src/styles/r-a1v2-overrides.css");
-  assert.match(css, /\.lib-edit-specs:focus-visible \{[^}]*outline: 2px solid var\(--accent\)/);
-  assert.match(css, /\.lib-row \.action-cell \{[^}]*flex-direction: column/);
+  // The hit target is the control, not the glyph, and focus is visible on both.
+  assert.match(css, /\.lib-icon-btn \{[^}]*width: 28px;[^}]*height: 28px/);
+  assert.match(css, /\.lib-icon-btn:focus-visible \{[^}]*outline: 2px solid var\(--accent\)/);
+  // Secondary is outlined rather than filled, so it cannot read as a peer.
+  assert.match(css, /\.lib-edit-specs\.lib-icon-btn \{[^}]*background: none/);
 });
 
 test("the Library spec editor stacks over the browse modal", async () => {

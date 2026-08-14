@@ -556,33 +556,56 @@
  * produced when it was given peer standing.
  */
 .lib-row .action-cell {
+  /* Row, not column: two compact icon controls side by side. Still one cell —
+     no sixth column, no wider modal. */
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
   min-width: 0;
 }
-.lib-edit-specs {
-  background: none;
-  border: 0;
+
+/* Compact, but NOT tiny, and the whole control is the hit target rather than
+ * the glyph. 28px square clears the 24px minimum for a pointer target while
+ * still fitting the 56px fixed row height the DA specifies. */
+.lib-icon-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-4);
+  border-radius: 5px;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
   cursor: pointer;
-  text-align: center;
-  white-space: nowrap;
 }
-.lib-edit-specs:hover { color: var(--ink-2); }
-/* Discoverability never depends on hover, and focus is always visible — this
- * is the only route to Library master data, so it must be reachable by keyboard
- * and legible when it is. */
-.lib-edit-specs:focus-visible {
+
+/* PRIMARY — the add control keeps the accent fill it had as a text button, so
+ * demoting the secondary did not also demote the main workflow. */
+.lib-attach-btn.lib-icon-btn { font-size: 16px; font-weight: 500; }
+
+/* SECONDARY — visible at rest, so discoverability never depends on hover, but
+ * outlined rather than filled so it cannot read as a peer of Add.
+ * A pencil, not a gear: this edits product specifications, not settings. */
+.lib-edit-specs.lib-icon-btn {
+  background: none;
+  border: 1px solid var(--rule);
+  color: var(--ink-3);
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.lib-edit-specs.lib-icon-btn:hover {
+  color: var(--ink);
+  border-color: var(--ink-4);
+  background: var(--paper-2);
+}
+.lib-icon-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 3px;
   color: var(--ink);
 }
 

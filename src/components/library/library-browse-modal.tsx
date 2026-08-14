@@ -1183,7 +1183,7 @@ export function LibraryBrowseModal({
                         ) : (
                           <button
                             type="button"
-                            className="lib-attach-btn"
+                            className="lib-attach-btn lib-icon-btn"
                             onClick={() => handleAttach(row)}
                             disabled={
                               // Preventative only. The server gate remains
@@ -1198,6 +1198,7 @@ export function LibraryBrowseModal({
                             aria-disabled={
                               !attachReady || !row.eligibility.attachable
                             }
+                            aria-label={`Add product ${row.name}`}
                             title={
                               // A disabled control must say why (Pattern 47f).
                               // The server's own message is reused verbatim, so
@@ -1212,7 +1213,9 @@ export function LibraryBrowseModal({
                                     : "Create an item group first to enable adding"
                             }
                           >
-                            {attaching === row.leafId ? "Adding…" : "Add"}
+                            <span aria-hidden="true">
+                              {attaching === row.leafId ? "…" : "+"}
+                            </span>
                           </button>
                         )}
 
@@ -1227,14 +1230,15 @@ export function LibraryBrowseModal({
                             always rendered. */}
                         <button
                           type="button"
-                          className="lib-edit-specs"
+                          className="lib-edit-specs lib-icon-btn"
                           onClick={() => {
                             setSpecLeafId(row.leafId);
                             setSpecOpen(true);
                           }}
-                          aria-label={`Edit library default specs for ${row.name}`}
+                          aria-label={`Edit default specs for ${row.name}`}
+                          title="Edit default specs"
                         >
-                          Edit specs
+                          <span aria-hidden="true">✎</span>
                         </button>
                       </span>
                     </div>
