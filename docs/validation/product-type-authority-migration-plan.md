@@ -321,3 +321,143 @@ be silently coerced to `NO_SCHEMA`.
 
 PR **#260 remains unmerged**. **Step 5 remains paused.**
 **`leaves.product_type_id` remains untouched.**
+
+---
+
+## 15 · The authority model — RATIFIED (2026-08-14)
+
+Recorded explicitly so it is not re-litigated from a symptom.
+
+### Product Type
+
+- current **authoritative business classification**;
+- source = HubSpot `hs_product_type`;
+- **may legitimately change later in HubSpot.**
+
+### Pinned Spec Schema
+
+- **quote-owned behavioural authority**;
+- records which specification field set **that quote's values were authored
+  against**;
+- **does not change** merely because the HubSpot Product Type changes later.
+
+### The consequence, stated so it is never read as a defect
+
+An existing quote may **intentionally** display a current Product Type whose
+current default mapping differs from that quote's pinned Spec Schema.
+
+**That is not drift.** The pin is precisely what prevents a later source
+reclassification from reinterpreting historical or in-flight quote specs.
+
+**Do not add another authority to make those values artificially agree.** A
+reconciling third value would restore the exact failure this migration removed,
+and it would be silent.
+
+### Also ratified
+
+- The `schema` / `no_schema` / `no_type` states are **structurally**
+  represented and must not be collapsed.
+- `unmapped` is an accepted runtime result. Fail-loud belongs in CI, not on an
+  operator page, and an unmapped authoritative type is **never** coerced to
+  `no_schema`.
+- The two unlinked authored fixtures may lose reachable schema behaviour under
+  strict authority. Their `spec_values` are preserved. **No fallback semantics
+  are introduced for fixture compatibility.**
+
+---
+
+## 16 · Steps 7 and 8 — COMPLETE (2026-08-14)
+
+### Step 7 · Item Group Category
+
+Migration `0074`, additive. Nine assembly-scope rows separated out of
+`product_types` into `item_group_categories`, **ids and names verbatim**, so no
+group's classification moved. `assemblies.item_group_category_id` added and
+backfilled; `assemblies.product_type_id` **dual-written** so currently deployed
+code keeps reading a column it still populates.
+
+The separation is structural rather than conventional. `createAssembly`
+previously enforced it with a runtime `scope !== 'assembly'` check; the registry
+now contains categories and nothing else, so a leaf Spec Schema id is not
+rejected — it is absent.
+
+Operator-facing: **Item group category** replaces *Item group type*; the ASY row
+renders `category`, never a Product Type.
+
+**Falsification 11 — 8/8.** All nine intact · ids and names identical to the
+rows they came from · **67 groups, 44 classified, 0 mismatched** · picker order
+preserved · no leaf schema reachable as a category and no category offered as a
+leaf schema · Setup renders from the new registry · the registry has no HubSpot,
+`field_schema`, `placeholder` or `scope` column.
+
+### Step 8 · leaf TypePicker authority retired
+
+`assignLeafProductType` and `changeLeafProductType` **deleted**, not deprecated —
+a server action stays reachable by anyone holding a saved page's action id, so
+leaving them would have kept the write open while the UI merely stopped offering
+it. `TypePicker` and `ChangeTypeModal` removed. `createLeaf` no longer accepts a
+Nexus type. The Library's Nexus-taxonomy filter and its dead options loader are
+gone.
+
+The spec surface's picker empty state is replaced by a panel that names **which**
+of the two no-field situations applies and points at HubSpot, since there is no
+longer a choice for an operator to make here.
+
+**Falsification 12 — 9/9.** Retired actions absent from the tree · no file
+outside the two unrelated columns names the leaf type · picker surfaces gone ·
+`createLeaf` clean · Setup displays HubSpot authority · Spec Schema pinned from
+the governed mapping · `Specs not applicable` is an explicit `no_schema` with the
+type still shown · `NO TYPE SET` means the HubSpot type is genuinely missing ·
+**no path wrote `leaves.product_type_id` through a full create + attach cycle.**
+
+> **A measurement note worth keeping.** The first version of the Step 8 sweep
+> reported FAIL by matching a **tombstone comment** naming the retired actions.
+> A filter that cannot tell code from prose about the code is measuring the
+> wrong thing — and here it failed in the direction where a comment *about a
+> removal* reads as the removal not having happened. The sweep strips comments
+> before scanning.
+
+### Evidence
+
+`tsc --noEmit` clean · `test:unit` **1214/1214** by the runner's own exit status
+· `verify:s7-preserved` green, **global digest
+`22264ba2…f13dc0e8` unchanged across 33 quotes** · falsifications 7-10 **11/11**,
+11 **8/8**, 12 **9/9**.
+
+Two further tests were **superseded and rewritten rather than deleted**: B-10's
+"one authority" claim (display and readiness are now two named authorities by
+design) and the type-fidelity slice's "both taxonomies coexist" claim, which is
+now inverted. A deleted test cannot notice the old behaviour returning.
+
+---
+
+## 17 · Step 9 prerequisites — inventory for the destructive removal
+
+**NOT PERFORMED. Requires separate authorization.**
+
+### Remaining references to `leaves.product_type_id` (comments stripped)
+
+| location | kind |
+|---|---|
+| `scripts/verify/b3-spec-authority.ts:120,127` | **verification harness only** — reads the column to assert the B-3 Library→quote carry, a behaviour Step 8 retired. **Must be updated before the drop**, or the harness breaks on it. |
+| `drizzle/0072`, `0073`, `manual/0033` | SQL **comments** in historical migrations. Inert. |
+
+**Zero runtime paths. Zero operator paths. Zero customer paths.**
+
+### Data still in the column
+
+**26 of 1,082** leaves carry a Nexus type: 14 primary, 6 secondary, 4 tertiary,
+2 soft goods. **1,056 are NULL.** None is read.
+
+### Also pending the same destructive step
+
+`assemblies.product_type_id` is now **dual-written legacy** (44 rows, 0
+mismatched against `item_group_category_id`). It should be dropped in the same
+isolated change, and for the same reason: nothing reads it.
+
+### Still open
+
+`leaf_specs.product_type_id` is a **different column** — quote-owned, carried
+from a Library template, and no longer authoritative for behaviour now that
+`spec_schema` is pinned. Its disposition (drop, or keep as provenance) is a
+separate question from the two above and is **not** proposed here.

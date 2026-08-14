@@ -2079,6 +2079,36 @@ export const productTypes = pgTable(
 //
 // `internal_notes` surfaces in Setup tree view's HAS NOTE chip.
 // `position` drives tree-order rendering.
+// ---------- item_group_categories (Step 7 · authority separation) ----------
+
+/**
+ * How a quote-local Item Group is classified. Skincare, Supplement, Hair care,
+ * and six more.
+ *
+ * SEPARATE FROM `product_types` ON PURPOSE. These nine have no HubSpot origin,
+ * no field schema and no relationship to a specification — they were never
+ * product types in the sense the leaf rows are. Sharing a table with the leaf
+ * Spec Schemas is what let an Item Group be presented as carrying a competing
+ * leaf `Product Type`.
+ *
+ * The separation is structural rather than conventional: `createAssembly` used
+ * to enforce it with a runtime `scope !== 'assembly'` check, and one check is
+ * one place to forget. An FK into a table containing only categories cannot
+ * reference a Spec Schema at all.
+ *
+ * Ids are the originals, verbatim, so no existing group's classification moved.
+ */
+export const itemGroupCategories = pgTable("item_group_categories", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  /** Display order. Previously a CASE expression in a product-type helper. */
+  position: integer("position").notNull().default(0),
+  hidden: boolean("hidden").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const assemblies = pgTable(
   "assemblies",
   {
@@ -2089,7 +2119,15 @@ export const assemblies = pgTable(
     sku: text("sku").notNull(),
     name: text("name").notNull(),
     packLabel: text("pack_label"),
+    /**
+     * RETIRED by Step 7. Still DUAL-WRITTEN so the currently deployed code,
+     * which reads it, keeps working across the interval. Dropped separately.
+     */
     productTypeId: text("product_type_id").references(() => productTypes.id),
+    /** Step 7 · the Item Group's classification. The read authority. */
+    itemGroupCategoryId: text("item_group_category_id").references(
+      () => itemGroupCategories.id,
+    ),
     description: text("description"),
     url: text("url"),
     imageUrl: text("image_url"),

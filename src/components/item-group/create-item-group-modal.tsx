@@ -22,24 +22,25 @@ import { createAssembly } from "@/app/actions/assemblies";
 // The writer is unchanged: `createAssembly`, exactly as before. This moves the
 // entry point and the vocabulary, not the semantics.
 
-type AssemblyTypeOption = { id: string; name: string };
+/** Step 7 · a category, not a product type. Item Groups never had one. */
+type ItemGroupCategoryOption = { id: string; name: string };
 
 export function CreateItemGroupModal({
   quoteId,
   open,
   onClose,
-  assemblyTypes,
+  itemGroupCategories,
   onSuccess,
 }: {
   quoteId: string;
   open: boolean;
   onClose: () => void;
-  assemblyTypes: AssemblyTypeOption[];
+  itemGroupCategories: ItemGroupCategoryOption[];
   /** Fires only on a successful create, alongside `onClose`. */
   onSuccess?: (result: { id: string; name: string }) => void;
 }) {
   const [name, setName] = useState("");
-  const [typeId, setTypeId] = useState("");
+  const [categoryId, setCategoryId] = useState("");
   const [sku, setSku] = useState("");
   const [description, setDescription] = useState("");
   const [unitPrice, setUnitPrice] = useState("");
@@ -55,7 +56,7 @@ export function CreateItemGroupModal({
   useEffect(() => {
     if (open) return;
     setName("");
-    setTypeId("");
+    setCategoryId("");
     setSku("");
     setDescription("");
     setUnitPrice("");
@@ -87,7 +88,7 @@ export function CreateItemGroupModal({
     const fd = new FormData();
     fd.set("quoteId", quoteId);
     fd.set("name", name.trim());
-    if (typeId) fd.set("productTypeId", typeId);
+    if (categoryId) fd.set("itemGroupCategoryId", categoryId);
     if (sku) fd.set("sku", sku.trim());
     if (description) fd.set("description", description.trim());
     if (unitPrice) fd.set("unitPrice", unitPrice.trim());
@@ -150,13 +151,13 @@ export function CreateItemGroupModal({
               </div>
               <div className="row-pair">
                 <div className="field">
-                  <span className="lbl">Item group type</span>
+                  <span className="lbl">Item group category</span>
                   <select
-                    value={typeId}
-                    onChange={(e) => setTypeId(e.target.value)}
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
                   >
-                    <option value="">— Pick a type —</option>
-                    {assemblyTypes.map((t) => (
+                    <option value="">— Pick a category —</option>
+                    {itemGroupCategories.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.name}
                       </option>

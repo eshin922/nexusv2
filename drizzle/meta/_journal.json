@@ -505,6 +505,13 @@
       "when": 1786320010000,
       "tag": "0073_pinned_spec_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1786320011000,
+      "tag": "0074_item_group_categories",
+      "breakpoints": true
     }
   ]
 }

@@ -57,7 +57,6 @@ export type LeafSpecEntryData = {
     id: string;
     name: string;
     sku: string | null;
-    productTypeId: string | null;
     /** AUTHORITATIVE Product Type — HubSpot's, read live. Step 4.5. */
     hubspotProductType: string | null;
     unitCost: string | null;
@@ -66,6 +65,15 @@ export type LeafSpecEntryData = {
     archived: boolean;
   };
   productType: LeafSpecEntryProductType | null;
+  /**
+   * Step 8 · WHY there is no field set, when there is none.
+   *
+   * `productType === null` alone cannot say whether the product is
+   * unclassified or classified into a category specifications do not apply to.
+   * Those need different copy and different operator action, so the surface is
+   * told which it is rather than inferring it from an absence.
+   */
+  specSchemaState: "schema" | "no_schema" | "unmapped" | "no_type";
   // Current leaf_spec row (is_current=true). Null when no spec
   // values yet (TypePicker empty state OR a typed leaf that hasn't
   // had any field filled).
@@ -75,9 +83,6 @@ export type LeafSpecEntryData = {
     specValues: Record<string, unknown>;
     effectiveFrom: Date;
   } | null;
-  // List of all leaf-scope product types available in the picker.
-  // Used by TypePicker (scenario ⑨) — filtered to non-hidden.
-  availableLeafTypes: LeafSpecEntryProductType[];
   // References — every assembly_leaves row pointing at this leaf,
   // dereferenced with parent ASY identity + parent quote identity.
   // Drives the header reference count + cascade-warning modal.
@@ -184,16 +189,8 @@ export async function loadLeafForSpecEntry(
       ? SPEC_SCHEMA_PRODUCT_TYPE_ID[resolution.schemaId]
       : null;
   const productType = schemaTypeId ? typeMap.get(schemaTypeId) ?? null : null;
-
-  const availableLeafTypes: LeafSpecEntryProductType[] = typeRows
-    .filter((t) => t.scope === "leaf" && !t.hidden)
-    .map((t) => ({
-      id: t.id,
-      name: t.name,
-      scope: "leaf",
-      placeholder: t.placeholder,
-      fieldSchema: (t.fieldSchema as LeafSpecFieldSchema | null) ?? null,
-    }));
+  const specSchemaState: LeafSpecEntryData["specSchemaState"] =
+    resolution === null ? "no_type" : resolution.kind;
 
   const currentSpec = specRows[0]
     ? {
@@ -219,7 +216,6 @@ export async function loadLeafForSpecEntry(
       id: leaf.id,
       name: leaf.name,
       sku: leaf.sku,
-      productTypeId: leaf.productTypeId,
       hubspotProductType: leaf.hubspotProductType,
       unitCost: leaf.unitCost,
       fscClaim: leaf.fscClaim,
@@ -227,8 +223,8 @@ export async function loadLeafForSpecEntry(
       archived: leaf.archived,
     },
     productType,
+    specSchemaState,
     currentSpec,
-    availableLeafTypes,
     references,
   };
 }

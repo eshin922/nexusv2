@@ -10,6 +10,7 @@ import { loadHubspotProductTypeOptions } from "@/lib/hubspot-product-type-vocabu
 import {
   assemblies,
   assemblyLeaves,
+  itemGroupCategories,
   leafSpecs,
   leaves,
   productTypes,
@@ -30,11 +31,17 @@ import {
 // disposition). This helper renders one indent level; deeper levels
 // trigger an assertion in dev to surface invariant violations.
 
-export type ProductTypeRef = {
+/**
+ * Step 7 · how a quote-local Item Group is classified.
+ *
+ * Its own registry, not `product_types`. These nine have no HubSpot origin and
+ * no field schema; sharing a table with the leaf Spec Schemas is what let an
+ * Item Group be presented as carrying a competing leaf Product Type. Nothing
+ * about the categories themselves changed — only which authority owns them.
+ */
+export type ItemGroupCategoryRef = {
   id: string;
   name: string;
-  scope: "assembly" | "leaf";
-  placeholder: boolean;
 };
 
 /**
@@ -128,7 +135,8 @@ export type AssemblyNode = {
   sku: string;
   name: string;
   packLabel: string | null;
-  productType: ProductTypeRef | null;
+  /** Step 7 · the Item Group's CATEGORY. Never a leaf Product Type. */
+  category: ItemGroupCategoryRef | null;
   unitPrice: string | null;
   unitCost: string | null;
   position: number;
@@ -252,7 +260,7 @@ export async function loadAssemblyTree(
   // Second wave: junction rows + product types in parallel. Junction
   // rows give us leafIds; product types we deref via the assembly's
   // productTypeId (one fetch covers both ASY-scope + leaf-scope).
-  const [junctionRows, allTypes] = await Promise.all([
+  const [junctionRows, allTypes, allCategories] = await Promise.all([
     asmIds.length > 0
       ? db
           .select()
@@ -261,6 +269,7 @@ export async function loadAssemblyTree(
           .orderBy(asc(assemblyLeaves.position), asc(assemblyLeaves.createdAt))
       : Promise.resolve([] as (typeof assemblyLeaves.$inferSelect)[]),
     db.select().from(productTypes),
+    db.select().from(itemGroupCategories),
   ]);
   // Loaded here rather than inside the projection so one lookup covers the
   // whole tree, and so a HubSpot outage degrades the LABEL only — never the
@@ -268,6 +277,7 @@ export async function loadAssemblyTree(
   const typeLabels = await loadTypeLabels();
 
   const typeMap = new Map(allTypes.map((t) => [t.id, t] as const));
+  const categoryMap = new Map(allCategories.map((c) => [c.id, c] as const));
 
   // Dev-mode invariant: v1 forbids non-NULL parent_assembly_leaf_id.
   // Schema allows it; app-side guard rejects writes. Surface any
@@ -294,7 +304,7 @@ export async function loadAssemblyTree(
   if (leafIds.length === 0) {
     // Edge case: ASYs exist but no junction rows and no Direct Products — all
     // assemblies have empty children. Skip leaf + spec queries.
-    return assembleTree(asmRows, junctionRows, directRows, [], [], new Map(), typeMap, typeLabels);
+    return assembleTree(asmRows, junctionRows, directRows, [], [], new Map(), typeMap, typeLabels, categoryMap);
   }
 
   // Third wave: library leaves + current spec rows for those leaves
@@ -343,6 +353,7 @@ export async function loadAssemblyTree(
     refCountMap,
     typeMap,
     typeLabels,
+    categoryMap,
   );
 }
 
@@ -355,6 +366,7 @@ function assembleTree(
   refCountMap: Map<string, number>,
   typeMap: Map<string, typeof productTypes.$inferSelect>,
   typeLabels: Map<string, string>,
+  categoryMap: Map<string, typeof itemGroupCategories.$inferSelect>,
 ): AssemblyTree {
   const leafMap = new Map(leafRows.map((r) => [r.id, r] as const));
   const specMap = new Map(specRows.map((r) => [r.leafId, r] as const));
@@ -429,14 +441,14 @@ function assembleTree(
         } satisfies AssemblyLeafNode;
       });
 
-    const asmType = asm.productTypeId ? typeMap.get(asm.productTypeId) : null;
-    const productType: ProductTypeRef | null = asmType
-      ? {
-          id: asmType.id,
-          name: asmType.name,
-          scope: asmType.scope as "assembly" | "leaf",
-          placeholder: asmType.placeholder,
-        }
+    // Step 7 · read from the Item Group Category registry. Never from
+    // `product_types`, and never from `assemblies.product_type_id`, which is
+    // now dual-written legacy awaiting its separate destructive removal.
+    const asmCategory = asm.itemGroupCategoryId
+      ? categoryMap.get(asm.itemGroupCategoryId)
+      : null;
+    const category: ItemGroupCategoryRef | null = asmCategory
+      ? { id: asmCategory.id, name: asmCategory.name }
       : null;
 
     return {
@@ -444,7 +456,7 @@ function assembleTree(
       sku: asm.sku,
       name: asm.name,
       packLabel: asm.packLabel,
-      productType,
+      category,
       unitPrice: asm.unitPrice,
       unitCost: asm.unitCost,
       position: asm.position,

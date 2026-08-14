@@ -26,7 +26,6 @@ export function AssemblyTreeBody({
   projectId,
   quoteId,
   assemblies,
-  leafTypes,
   fullLeafTypes,
   permissions,
 }: {
@@ -35,7 +34,6 @@ export function AssemblyTreeBody({
   projectId: string;
   quoteId: string;
   assemblies: { id: string; sku: string; name: string; leafCount: number }[];
-  leafTypes: { id: string; name: string; placeholder: boolean }[];
   fullLeafTypes: LeafSpecEntryProductType[];
   permissions: { canCreateLeaves: boolean };
 }) {
@@ -148,7 +146,6 @@ export function AssemblyTreeBody({
               onDragStart={(e) => handleAsyDragStart(e, asy.id)}
               onDragOver={(e) => handleAsyDragOver(e, asy.id)}
               assemblies={assemblies}
-              leafTypes={leafTypes}
               fullLeafTypes={fullLeafTypes}
               permissions={permissions}
             />

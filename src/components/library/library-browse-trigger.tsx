@@ -12,7 +12,7 @@ import { LibraryBrowseModal, type AssemblyTarget } from "./library-browse-modal"
 // library-first-creation-flow replaced.
 //
 // slice-library-first-creation-flow Step 3 — extended props thread
-// projectId + assemblyTypes + fullLeafTypes + permissions through
+// projectId + itemGroupCategories + fullLeafTypes + permissions through
 // for the nested AddProductModal launched from "+ Create new
 // product" inside the library modal's empty-states.
 //
@@ -35,7 +35,6 @@ export function LibraryBrowseTrigger({
   initialTargetAssemblyId,
   label,
   className,
-  leafTypes,
   fullLeafTypes,
   permissions,
 }: {
@@ -55,7 +54,6 @@ export function LibraryBrowseTrigger({
   label?: string;
   /** Overrides the default button weight for non-card-head placements. */
   className?: string;
-  leafTypes: { id: string; name: string; placeholder: boolean }[];
   fullLeafTypes: LeafSpecEntryProductType[];
   permissions: { canCreateLeaves: boolean };
 }) {
@@ -90,7 +88,6 @@ export function LibraryBrowseTrigger({
         quoteId={quoteId}
         projectId={projectId}
         assemblies={assemblies}
-        leafTypes={leafTypes}
         fullLeafTypes={fullLeafTypes}
         permissions={permissions}
       />

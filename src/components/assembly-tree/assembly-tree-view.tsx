@@ -37,18 +37,16 @@ export function AssemblyTreeView({
   editable,
   projectId,
   quoteId,
-  assemblyTypes,
+  itemGroupCategories,
   leafTypes,
-  leafTypesForFilter,
   permissions,
 }: {
   tree: AssemblyTree;
   editable: boolean;
   projectId: string;
   quoteId: string;
-  assemblyTypes: { id: string; name: string }[];
+  itemGroupCategories: { id: string; name: string }[];
   leafTypes: LeafSpecEntryProductType[];
-  leafTypesForFilter: { id: string; name: string; placeholder: boolean }[];
   // slice-library-first-creation-flow Step 3 — threaded through to
   // LibraryBrowseTrigger → LibraryBrowseModal for the gated
   // "+ Create new product" + "↗ Refresh from HubSpot" affordances.
@@ -129,14 +127,13 @@ export function AssemblyTreeView({
             projectId={projectId}
             editable={editable}
             assemblies={assemblyTargets}
-            leafTypes={leafTypesForFilter}
             fullLeafTypes={leafTypes}
             permissions={permissions}
           />
           <CreateItemGroupTrigger
             quoteId={quoteId}
             editable={editable}
-            assemblyTypes={assemblyTypes}
+            itemGroupCategories={itemGroupCategories}
           />
         </div>
       </div>
@@ -161,7 +158,6 @@ export function AssemblyTreeView({
         projectId={projectId}
         quoteId={quoteId}
         assemblies={assemblyTargets}
-        leafTypes={leafTypesForFilter}
         fullLeafTypes={leafTypes}
         permissions={permissions}
       />

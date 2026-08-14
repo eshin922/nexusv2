@@ -40,9 +40,9 @@ const classifiedIdentityFiles = new Set([
   // reference. Becomes a canonical quoteLeafId read when OD-017 is settled and
   // cost inputs stop being keyed on assembly_leaf_id.
   "src/components/costs/packaging-drilldown.tsx",
-  "src/components/library/library-browse-modal.tsx", "src/components/spec-entry/change-type-modal.tsx",
+  "src/components/library/library-browse-modal.tsx",
   "src/components/spec-entry/spec-entry-surface.tsx", "src/components/spec-entry/spec-panel.tsx",
-  "src/components/spec-entry/type-picker.tsx", "src/db/schema.ts", "src/lib/addendum-loader.ts",
+  "src/db/schema.ts", "src/lib/addendum-loader.ts",
   "src/lib/assembly-tree.ts", "src/lib/costing-adapter.ts",
   // CLASSIFIED — enduring. costing.ts carries canonicalQuoteLeafId on
   // CostingSku; the math layer keys on canonical identity by design.
@@ -241,6 +241,9 @@ const classifiedIdentityFiles = new Set([
   // CLASSIFIED — read-only evidence, canonical only. The Step 4 falsification
   // harness keys on (quote_id, leaf_id) and never touches the legacy junction.
   "scripts/verify/step-4-pinned-spec-schema.ts",
+  // CLASSIFIED — canonical only. Step 8 builds fixtures keyed by
+  // (quote_id, leaf_id) and sweeps source for the retired write paths.
+  "scripts/verify/step-8-leaf-authority-retired.ts",
   // CLASSIFIED — canonical only. The Step 4 backfill reads `leaf_specs` by
   // (quote_id, leaf_id) and writes only the pinned schema columns; it maps
   // between no identity spaces.

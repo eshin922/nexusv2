@@ -6,8 +6,6 @@ import type {
 import { CompletenessChip } from "@/components/assembly-tree/completeness-chip";
 import { SpecPanel } from "./spec-panel";
 import { PlaceholderPanel } from "./placeholder-panel";
-import { TypePicker } from "./type-picker";
-import { ChangeTypeModal } from "./change-type-modal";
 
 // Phase A.1 v2 impl-3 Step 3 — SpecEntry surface (server wrapper).
 //
@@ -111,24 +109,17 @@ export function SpecEntrySurface({
                 {productType.name}
               </span>
             ) : null}
-            {productType && !readOnly ? (
-              <ChangeTypeModal
-                scope={scope}
-                leafId={leaf.id}
-                currentType={productType}
-                availableTypes={data.availableLeafTypes}
-                disabled={readOnly}
-              />
-            ) : null}
+            {/* Step 8 · the change-type control is retired. Classification is
+                HubSpot's, and the Spec Schema follows from it — so there is
+                nothing here for an operator to choose. Offering a choice was
+                what created a second authority. */}
           </div>
         </div>
         <div className="a1v2-card-body">
           {!productType ? (
-            <TypePicker
-              scope={scope}
-              leafId={leaf.id}
-              availableTypes={data.availableLeafTypes}
-              disabled={readOnly}
+            <NoSchemaPanel
+              state={data.specSchemaState}
+              typeValue={leaf.hubspotProductType}
             />
           ) : productType.placeholder ? (
             <PlaceholderPanel productType={productType} />
@@ -212,4 +203,58 @@ function computeCompleteness(
     return { kind: "partial", typeName: productType.name, filled, total };
   }
   return { kind: "complete", typeName: productType.name, total };
+}
+
+/**
+ * Step 8 · what the spec surface says when no field set applies.
+ *
+ * Replaces the TypePicker. There is no longer a choice to offer here: a
+ * product's classification is HubSpot's, and the Spec Schema follows from it.
+ * So the panel explains WHICH of the two situations this is, and where the
+ * operator would go to change it — which is HubSpot, not Nexus.
+ *
+ * The two states are kept apart deliberately. "Not classified" is an
+ * unanswered question with an action attached; "specifications do not apply"
+ * is a finished answer with none. Showing one message for both is what made
+ * classified and unclassified products look identical.
+ */
+function NoSchemaPanel({
+  state,
+  typeValue,
+}: {
+  state: "schema" | "no_schema" | "unmapped" | "no_type";
+  typeValue: string | null;
+}) {
+  if (state === "no_schema") {
+    return (
+      <div className="a1v2-empty">
+        <strong>Specifications not applicable</strong>
+        <p>
+          {typeValue ?? "This category"} does not carry a product
+          specification. Nothing is missing.
+        </p>
+      </div>
+    );
+  }
+  if (state === "unmapped") {
+    return (
+      <div className="a1v2-empty">
+        <strong>No specification schema for “{typeValue}”</strong>
+        <p>
+          This Product Type has no governed schema yet. It needs adding to the
+          mapping before specifications can be authored.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="a1v2-empty">
+      <strong>No Product Type set</strong>
+      <p>
+        This product has no Product Type in HubSpot, so no specification schema
+        applies. Classify it in HubSpot and it will pick up its schema on the
+        next attachment.
+      </p>
+    </div>
+  );
 }

@@ -136,7 +136,9 @@ export async function ensureQuoteSpecAuthority(
 
   const [leaf] = await tx
     .select({
-      productTypeId: leaves.productTypeId,
+      // Step 8 · `leaves.product_type_id` is NOT read. The quote-owned type
+      // column below now carries only what a Library default template held;
+      // authority for behaviour is the pinned Spec Schema.
       hubspotProductType: leaves.hubspotProductType,
     })
     .from(leaves)
@@ -168,7 +170,7 @@ export async function ensureQuoteSpecAuthority(
       // The Library type in force at attach time. Where the Library default
       // carried its own type that wins, since it is the schema the copied
       // values were authored under.
-      productTypeId: libraryDefault?.productTypeId ?? leaf?.productTypeId ?? null,
+      productTypeId: libraryDefault?.productTypeId ?? null,
       // For a fresh attachment this is the Library default it copied. For a
       // copy it is the source quote's own provenance, carried forward, so a
       // clone still records which Library version its values originate from

@@ -164,7 +164,9 @@ export function AddProductModal({
     }
     const fd = new FormData();
     fd.set("name", leafName.trim());
-    fd.set("productTypeId", leafTypeId);
+    // Step 8 · a Nexus leaf type is no longer sent. Classification travels as
+    // `hubspotProductType` only, which is the authority the Library, Setup and
+    // the Spec Schema mapping all read.
     // The internal value, never the label. The server re-validates membership
     // against the governed option set, so a stale client cannot write a
     // withdrawn or invented classification.

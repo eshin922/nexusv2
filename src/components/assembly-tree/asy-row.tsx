@@ -29,7 +29,6 @@ import { reorderAssemblyLeaves } from "@/app/actions/assemblies";
 
 export function AsyRow({
   assemblies,
-  leafTypes,
   fullLeafTypes,
   permissions,
   asy,
@@ -43,7 +42,6 @@ export function AsyRow({
   asy: AssemblyNode;
   editable: boolean;
   assemblies: { id: string; sku: string; name: string; leafCount: number }[];
-  leafTypes: { id: string; name: string; placeholder: boolean }[];
   fullLeafTypes: LeafSpecEntryProductType[];
   permissions: { canCreateLeaves: boolean };
   projectId: string;
@@ -170,9 +168,10 @@ export function AsyRow({
           <div className="meta">
             {asy.packLabel ? <span>{asy.packLabel}</span> : null}
             {asy.packLabel ? <span className="sep">·</span> : null}
-            <span className="type-tag">
-              {asy.productType?.name ?? "—"}
-            </span>
+            {/* Step 7 · the Item Group's CATEGORY. An Item Group has never
+                had a leaf Product Type; presenting one here is what made the
+                two taxonomies look like a single competing authority. */}
+            <span className="type-tag">{asy.category?.name ?? "—"}</span>
           </div>
         </div>
         <span className="leaf-count">{asy.children.length} products</span>
@@ -197,7 +196,6 @@ export function AsyRow({
           initialTargetAssemblyId={asy.id}
           label="+ Add products"
           className="a1v2-btn ghost xs"
-          leafTypes={leafTypes}
           fullLeafTypes={fullLeafTypes}
           permissions={permissions}
         />

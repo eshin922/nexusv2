@@ -1,7 +1,7 @@
 import "server-only";
-import { asc } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { productTypes } from "@/db/schema";
+import { itemGroupCategories, productTypes } from "@/db/schema";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { productTypeOrderExpression } from "@/lib/product-type-order";
 
@@ -9,7 +9,7 @@ import { productTypeOrderExpression } from "@/lib/product-type-order";
 // Product modal.
 //
 // Returns:
-//   - assemblyTypes: id + name only, non-hidden, scope=assembly
+//   - itemGroupCategories: id + name, non-hidden (Step 7 · own registry)
 //   - leafTypes: full LeafSpecEntryProductType shape (id + name +
 //     scope + placeholder + fieldSchema), non-hidden, scope=leaf
 //
@@ -18,18 +18,26 @@ import { productTypeOrderExpression } from "@/lib/product-type-order";
 // ASY mode doesn't need spec schema context; LEAF mode does.
 
 export async function loadProductTypeOptions(): Promise<{
-  assemblyTypes: { id: string; name: string }[];
+  /**
+   * Step 7 · Item Group Categories, from their OWN registry.
+   *
+   * Named for what they are. They are not product types, they never had a
+   * field schema, and reading them out of `product_types` is what let an Item
+   * Group be presented as carrying a competing leaf Product Type.
+   */
+  itemGroupCategories: { id: string; name: string }[];
   leafTypes: LeafSpecEntryProductType[];
 }> {
+  const categoryRows = await db
+    .select()
+    .from(itemGroupCategories)
+    .where(eq(itemGroupCategories.hidden, false))
+    .orderBy(asc(itemGroupCategories.position), asc(itemGroupCategories.name));
   // Canonical ordering per Edward §15.1 + §15.2 (Bug #L fix).
   const rows = await db
     .select()
     .from(productTypes)
     .orderBy(productTypeOrderExpression, asc(productTypes.name));
-
-  const assemblyTypes = rows
-    .filter((t) => t.scope === "assembly" && !t.hidden)
-    .map((t) => ({ id: t.id, name: t.name }));
 
   const leafTypes: LeafSpecEntryProductType[] = rows
     .filter((t) => t.scope === "leaf" && !t.hidden)
@@ -42,5 +50,8 @@ export async function loadProductTypeOptions(): Promise<{
         (t.fieldSchema as LeafSpecEntryProductType["fieldSchema"]) ?? null,
     }));
 
-  return { assemblyTypes, leafTypes };
+  return {
+    itemGroupCategories: categoryRows.map((c) => ({ id: c.id, name: c.name })),
+    leafTypes,
+  };
 }

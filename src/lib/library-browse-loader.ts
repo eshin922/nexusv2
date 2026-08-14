@@ -58,7 +58,6 @@ export type LibraryBrowseFilters = {
    * Nexus taxonomy filter (`product_types.id`). Operator-authored; 26 of 1,077
    * leaves carry one. Retained unchanged — the TypePicker still writes it.
    */
-  typeFilter?: string;
   /**
    * HubSpot classification filter — the RAW internal `hs_product_type` value,
    * or the sentinel `UNCLASSIFIED_SOURCE_TYPE` for products HubSpot has not
@@ -75,7 +74,6 @@ export type LibraryBrowseRow = {
   leafId: string;
   name: string;
   sku: string | null;
-  productType: { id: string; name: string } | null;
   unitCost: string | null;
   url: string | null;
   // slice-hubspot-bidirectional — origin indicator. Non-null when
@@ -172,9 +170,9 @@ export async function loadLibraryBrowse(
     );
     if (orClause) conds.push(orClause);
   }
-  if (filters.typeFilter) {
-    conds.push(eq(leaves.productTypeId, filters.typeFilter));
-  }
+  // Step 8 · the Nexus-taxonomy filter is retired. `sourceTypeFilter` below
+  // matches on authoritative HubSpot classification, which is the only
+  // classification a leaf now has.
   if (filters.sourceTypeFilter) {
     // Equality on the RAW internal value — never on a display label. The three
     // largest categories have labels that differ from their values, so a
@@ -252,8 +250,9 @@ export async function loadLibraryBrowse(
     };
   }
 
-  // Wave 2: junction + product_types in parallel.
-  const [junctionRows, allTypes] = await Promise.all([
+  // Step 8 · product_types is no longer read here. A Library row's
+  // classification is HubSpot's, carried on `hubspot_product_type`.
+  const [junctionRows] = await Promise.all([
     db
       .select({
         junctionId: assemblyLeaves.id,
@@ -264,7 +263,6 @@ export async function loadLibraryBrowse(
       .from(assemblyLeaves)
       .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
       .where(inArray(assemblyLeaves.leafId, baseIds)),
-    db.select().from(productTypes),
   ]);
 
   // Group junctions by leaf for per-leaf stats + attached-flag.
@@ -274,8 +272,6 @@ export async function loadLibraryBrowse(
     list.push(j);
     junctionsByLeaf.set(j.leafId, list);
   }
-
-  const typeMap = new Map(allTypes.map((t) => [t.id, t] as const));
 
   // Scope filter at row level.
   const filteredBase = baseRows.filter((r) => {
@@ -298,13 +294,11 @@ export async function loadLibraryBrowse(
       .filter((j) => j.assemblyQuoteId === filters.targetQuoteId)
       .map((j) => j.assemblyId);
     const distinctQuoteIds = new Set(js.map((j) => j.assemblyQuoteId));
-    const type = r.productTypeId ? typeMap.get(r.productTypeId) : null;
 
     return {
       leafId: r.id,
       name: r.name,
       sku: r.sku,
-      productType: type ? { id: type.id, name: type.name } : null,
       unitCost: r.unitCost,
       url: r.url,
       hubspotProductId: r.hubspotProductId,
@@ -326,27 +320,6 @@ export async function loadLibraryBrowse(
     scenarioLabel,
     clientName,
   };
-}
-
-/**
- * Loads the list of leaf-scope product types for the library
- * browse type filter. Mirrors the productTypeOptions loader from
- * impl-4 but trimmed to id + name + placeholder flag.
- */
-export async function loadLeafTypesForFilter(): Promise<
-  { id: string; name: string; placeholder: boolean }[]
-> {
-  // Canonical ordering per Edward §15.2 (Bug #L fix).
-  const rows = await db
-    .select()
-    .from(productTypes)
-    .where(and(eq(productTypes.scope, "leaf"), eq(productTypes.hidden, false)))
-    .orderBy(productTypeOrderExpression, asc(productTypes.name));
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    placeholder: r.placeholder,
-  }));
 }
 
 // `assembly_leaves_assembly_id` import alias for the inner-join

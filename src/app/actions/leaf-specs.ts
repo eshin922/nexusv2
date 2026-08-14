@@ -270,7 +270,11 @@ export async function updateLeafSpec(
         action: "leaf_spec_create",
         diffJson: {
           leaf_id: leafId,
-          product_type_id: leaf.productTypeId,
+          // Step 8 · the SCHEMA these values were authored under, which is
+          // what a forensic reader needs. The retired Nexus type recorded
+          // neither what governed the values nor what the product is.
+          spec_schema: scopedSpec?.specSchema ?? null,
+          schema_derived_from_type: scopedSpec?.schemaDerivedFromType ?? null,
           initial_field: fieldKey,
           initial_value: nextValue,
         },
@@ -303,277 +307,19 @@ export async function updateLeafSpec(
     return { leafId, specId, specValues, versionNumber };
   });
 }
-
 /**
- * Phase A.1 v2 impl-3 Step 7 — set/change Product Type on a leaf.
+ * Step 8 · assignLeafProductType and changeLeafProductType are RETIRED.
  *
- * Two modes:
- *   - Initial assignment: leaf had no product_type_id → assigning a
- *     type just writes the column; no spec_values impact since no
- *     spec row exists yet. Audit: no `leaf_spec_type_change` (there
- *     was no prior type); `leaves` table gets the column write.
- *   - Type change: leaf already had a type → switching discards
- *     prior spec_values (per CD designer notes §4.10 — fields don't
- *     translate across types). The current leaf_spec row's
- *     spec_values is cleared to `{}` in-place. Audit emits both
- *     `leaf_spec_type_change` (root, on leaves.id entity) AND a
- *     derived `leaf_spec_field_edit` row clearing spec_values
- *     (caused_by_audit_id linking).
+ * They were the only operator paths that could give a leaf a Nexus Product
+ * Type independently of HubSpot, and that independence is the second authority
+ * this migration removes. Classification now comes from HubSpot; the Spec
+ * Schema is derived from it through the governed mapping and pinned per quote.
  *
- * Step 7 wires Mode 1 (initial assignment). Mode 2 (type change with
- * destructive clear) wires in Step 9 with the confirmation modal —
- * we explicitly reject type changes here so PMs can't bypass the
- * modal by re-submitting.
+ * Deleted rather than deprecated. A server action left in place is reachable
+ * by anyone holding a saved page's action id, so leaving them would have kept
+ * the write path open while the UI merely stopped offering it.
  */
-export async function assignLeafProductType(
-  formData: FormData,
-): Promise<ActionResult<{ leafId: string; productTypeId: string }>> {
-  return runAction(async () => {
-    const leafId = String(formData.get("leafId") ?? "").trim();
-    const productTypeId = String(formData.get("productTypeId") ?? "").trim();
-    // B-3 — the Product Type IS the schema spec_values are validated against,
-    // so it belongs to the same authority as the values.
-    const assignScope = readScope(formData);
 
-    if (!leafId)
-      throw new ActionGuardError(ERR.VALIDATION, "leafId required");
-    if (!productTypeId)
-      throw new ActionGuardError(ERR.VALIDATION, "productTypeId required");
-
-    const user = await assertCanEditSpecs();
-
-    const leafRows = await db
-      .select()
-      .from(leaves)
-      .where(eq(leaves.id, leafId))
-      .limit(1);
-    if (leafRows.length === 0)
-      throw new ActionGuardError(ERR.NOT_FOUND, "Leaf not found");
-    const leaf = leafRows[0];
-
-    // Step 7 covers initial assignment only. Type-change requires
-    // confirmation modal (Step 9). Reject here if the leaf already
-    // has a type to prevent bypass.
-    if (leaf.productTypeId)
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "This leaf already has a product type. Use the type-change flow (impl-3 Step 9) to switch.",
-      );
-
-    // Validate target type exists and is leaf-scope.
-    const typeRows = await db
-      .select()
-      .from(productTypes)
-      .where(eq(productTypes.id, productTypeId))
-      .limit(1);
-    if (typeRows.length === 0)
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Product type not found.",
-      );
-    if (typeRows[0].scope !== "leaf")
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Selected type is not a leaf-scope type.",
-      );
-
-    // Writes THIS QUOTE's authority. `leaves.product_type_id` is the Library
-    // default for FUTURE attachments and is deliberately untouched — changing
-    // it here would retype every other quote using this product.
-    await db
-      .update(leafSpecs)
-      .set({ productTypeId, updatedAt: new Date(), updatedBy: user.id })
-      .where(scopeWhere(leafId, assignScope));
-
-    // No `leaf_spec_type_change` audit on initial assignment —
-    // that action is reserved for actual type SWITCHES (Step 9).
-    // Use a generic write on the leaf entity.
-    await writeAuditEntry({
-      userId: user.id,
-      entityType: "leaf",
-      entityId: leafId,
-      action: "leaf_product_type_assigned",
-      diffJson: {
-        from: null,
-        to: productTypeId,
-      },
-    });
-
-    revalidatePath(
-      "/projects/[id]/quotes/[quoteId]/leaves/[leafId]/specs",
-      "page",
-    );
-
-    return { leafId, productTypeId };
-  });
-}
-
-/**
- * Phase A.1 v2 impl-3 Step 9 — change a leaf's Product Type
- * (destructive; clears spec_values).
- *
- * Per CD designer notes §4.10: type changes discard prior
- * spec_values since fields don't translate across types. PM must
- * confirm via the modal before this action fires.
- *
- * Cascade audit pattern (per CLAUDE.md namespace + Phase A.1 v2):
- *   - Root audit row: `leaf_spec_type_change` on entity_id=leaves.id
- *     with diff_json carrying {from_type, to_type, cleared_field_count}
- *   - Derived audit rows: one `leaf_spec_field_edit` per non-null
- *     spec value cleared, with caused_by_audit_id pointing at the
- *     root row
- */
-export async function changeLeafProductType(
-  formData: FormData,
-): Promise<
-  ActionResult<{
-    leafId: string;
-    fromTypeId: string;
-    toTypeId: string;
-    clearedFieldCount: number;
-  }>
-> {
-  return runAction(async () => {
-    const leafId = String(formData.get("leafId") ?? "").trim();
-    const toTypeId = String(formData.get("productTypeId") ?? "").trim();
-    // B-3 — same authority as the values, for the same reason.
-    const changeScope = readScope(formData);
-
-    if (!leafId)
-      throw new ActionGuardError(ERR.VALIDATION, "leafId required");
-    if (!toTypeId)
-      throw new ActionGuardError(ERR.VALIDATION, "productTypeId required");
-
-    const user = await assertCanEditSpecs();
-
-    const leafRows = await db
-      .select()
-      .from(leaves)
-      .where(eq(leaves.id, leafId))
-      .limit(1);
-    if (leafRows.length === 0)
-      throw new ActionGuardError(ERR.NOT_FOUND, "Leaf not found");
-    const leaf = leafRows[0];
-
-    if (!leaf.productTypeId)
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Leaf has no current product type. Use the type-picker assign flow instead.",
-      );
-    if (leaf.productTypeId === toTypeId)
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Target type matches the current type — nothing to change.",
-      );
-
-    const typeRows = await db
-      .select()
-      .from(productTypes)
-      .where(eq(productTypes.id, toTypeId))
-      .limit(1);
-    if (typeRows.length === 0)
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Target product type not found.",
-      );
-    if (typeRows[0].scope !== "leaf")
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Target type is not a leaf-scope type.",
-      );
-
-    const fromTypeId = leaf.productTypeId;
-
-    // Load current spec row + extract cleared fields for cascade audit.
-    const currentRows = await db
-      .select()
-      .from(leafSpecs)
-      // Quote-scoped: the prior values being transformed are this quote's.
-      .where(scopeWhere(leafId, changeScope))
-      .limit(1);
-    const current = currentRows[0];
-    const priorValues = (current?.specValues as
-      | Record<string, unknown>
-      | undefined) ?? {};
-    const clearedFields = Object.entries(priorValues).filter(
-      ([, v]) =>
-        v !== null &&
-        v !== undefined &&
-        !(typeof v === "string" && v.trim() === ""),
-    );
-
-    // Transaction: retype the addressed authority + clear its spec_values +
-    // emit cascade audit rows atomically. `leaves.product_type_id` stays as
-    // the Library default for future attachments.
-    await db.transaction(async (tx) => {
-      await tx
-        .update(leafSpecs)
-        .set({ productTypeId: toTypeId, updatedAt: new Date(), updatedBy: user.id })
-        .where(scopeWhere(leafId, changeScope));
-
-      if (current) {
-        await tx
-          .update(leafSpecs)
-          .set({
-            specValues: sql`'{}'::jsonb`,
-            updatedAt: new Date(),
-            updatedBy: user.id,
-          })
-          .where(eq(leafSpecs.id, current.id));
-      }
-
-      // Root audit row.
-      const rootId = await writeAuditEntryReturningId(
-        {
-          userId: user.id,
-          entityType: "leaf",
-          entityId: leafId,
-          action: "leaf_spec_type_change",
-          diffJson: {
-            from_type_id: fromTypeId,
-            to_type_id: toTypeId,
-            cleared_field_count: clearedFields.length,
-            current_spec_id: current?.id ?? null,
-          },
-        },
-        tx,
-      );
-
-      // Derived audit rows per cleared field (cascade pattern).
-      if (current && clearedFields.length > 0) {
-        await writeAuditEntries(
-          clearedFields.map(([fieldKey, value]) => ({
-            userId: user.id,
-            entityType: "leaf_spec",
-            entityId: current.id,
-            action: "leaf_spec_field_edit",
-            causedByAuditId: rootId,
-            diffJson: {
-              leaf_id: leafId,
-              field: fieldKey,
-              from: value,
-              to: null,
-              source: "type_change_clear",
-            },
-          })),
-          tx,
-        );
-      }
-    });
-
-    revalidatePath(
-      "/projects/[id]/quotes/[quoteId]/leaves/[leafId]/specs",
-      "page",
-    );
-
-    return {
-      leafId,
-      fromTypeId,
-      toTypeId,
-      clearedFieldCount: clearedFields.length,
-    };
-  });
-}
 
 /**
  * Library-default specification data, for the stacked editor.

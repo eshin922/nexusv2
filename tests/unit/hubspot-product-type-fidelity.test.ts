@@ -234,14 +234,24 @@ test("the Library modal takes no RUNTIME value from the server-only loader", asy
   assert.doesNotMatch(await code("src/lib/library-source-type.ts"), /server-only/);
 });
 
-test("the Nexus taxonomy survives untouched in both directions", async () => {
-  // Independence: this repair neither reads productTypeId to derive a source
-  // type nor writes it from one. Both filters coexist.
-  assert.match(
-    await code("src/lib/library-browse-loader.ts"),
-    /eq\(leaves\.productTypeId, filters\.typeFilter\)/,
-  );
-  assert.match(await code("src/app/actions/leaves.ts"), /productTypeId,/);
+test("the Nexus taxonomy no longer participates in Library classification", async () => {
+  // SUPERSEDED BY STEP 8, and inverted rather than deleted.
+  //
+  // This originally asserted the two taxonomies COEXISTED — that the type
+  // fidelity repair neither read nor wrote the Nexus column, leaving both
+  // filters standing side by side. That coexistence is the second authority
+  // the migration removes, so the same subject now carries the opposite
+  // assertion: the Nexus column is neither filtered on nor written.
+  //
+  // Kept as an assertion instead of dropped because a deleted test cannot
+  // notice the old filter coming back.
+  const loader = await code("src/lib/library-browse-loader.ts");
+  assert.doesNotMatch(loader, /leaves\.productTypeId/);
+  assert.doesNotMatch(loader, /typeFilter/);
+  // Classification still travels on create — as HubSpot's value, alone.
+  const create = await code("src/app/actions/leaves.ts");
+  assert.doesNotMatch(create, /productTypeId/);
+  assert.match(create, /hubspotProductType,/);
 });
 
 test("the create dropdown is fed by the fetched vocabulary, and submits the value", async () => {

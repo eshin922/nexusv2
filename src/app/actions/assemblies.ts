@@ -9,6 +9,7 @@ import {
   leaves,
   productTypes,
   quotes,
+  itemGroupCategories,
 } from "@/db/schema";
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -92,8 +93,15 @@ export async function createAssembly(
     const quoteId = String(formData.get("quoteId") ?? "").trim();
     const sku = String(formData.get("sku") ?? "").trim();
     const name = String(formData.get("name") ?? "").trim();
-    const productTypeId =
-      String(formData.get("productTypeId") ?? "").trim() || null;
+    // Step 7 · the Item Group's CATEGORY. `productTypeId` is still accepted as
+    // an alias so a form rendered before this deploy keeps working; the two
+    // never disagree because the ids are the originals, unchanged.
+    const itemGroupCategoryId =
+      String(
+        formData.get("itemGroupCategoryId") ??
+          formData.get("productTypeId") ??
+          "",
+      ).trim() || null;
     const description =
       String(formData.get("description") ?? "").trim() || null;
     const unitPriceRaw = String(formData.get("unitPrice") ?? "").trim();
@@ -106,22 +114,22 @@ export async function createAssembly(
     if (!name)
       throw new ActionGuardError(ERR.VALIDATION, "name required");
 
-    // Validate product type if provided (must be assembly-scope).
-    if (productTypeId) {
-      const typeRows = await db
+    // Step 7 · validated against the Item Group Category registry.
+    //
+    // The former `scope !== 'assembly'` check is gone because it is no longer
+    // expressible: the registry contains categories and nothing else, so a leaf
+    // Spec Schema id simply is not found. The separation moved from a runtime
+    // check that one caller could forget into the shape of the data.
+    if (itemGroupCategoryId) {
+      const categoryRows = await db
         .select()
-        .from(productTypes)
-        .where(eq(productTypes.id, productTypeId))
+        .from(itemGroupCategories)
+        .where(eq(itemGroupCategories.id, itemGroupCategoryId))
         .limit(1);
-      if (typeRows.length === 0)
+      if (categoryRows.length === 0)
         throw new ActionGuardError(
           ERR.VALIDATION,
-          "Selected product type not found.",
-        );
-      if (typeRows[0].scope !== "assembly")
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "Selected type is not an ASY-scope type.",
+          "Selected Item Group category not found.",
         );
     }
 
@@ -157,7 +165,10 @@ export async function createAssembly(
         quoteId,
         sku: skuValue,
         name,
-        productTypeId,
+        itemGroupCategoryId,
+        // Dual-written until the separate destructive step, so the currently
+        // deployed code — which still reads this column — keeps working.
+        productTypeId: itemGroupCategoryId,
         description,
         unitPrice: unitPriceRaw === "" ? null : unitPriceRaw,
         unitCost: unitCostRaw === "" ? null : unitCostRaw,
@@ -177,7 +188,7 @@ export async function createAssembly(
         quote_id: quoteId,
         sku: newRow.sku,
         name: newRow.name,
-        product_type_id: newRow.productTypeId,
+        item_group_category_id: newRow.itemGroupCategoryId,
         description: newRow.description,
         unit_price: newRow.unitPrice,
         unit_cost: newRow.unitCost,
@@ -245,7 +256,7 @@ export async function deleteAssembly(
             sku: asm.sku,
             name: asm.name,
             pack_label: asm.packLabel,
-            product_type_id: asm.productTypeId,
+            item_group_category_id: asm.itemGroupCategoryId,
             position: asm.position,
           },
           cascaded_junctions: junctionRows.map((r) => ({

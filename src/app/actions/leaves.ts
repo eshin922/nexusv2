@@ -64,13 +64,12 @@ export async function createLeaf(
   return runAction(async () => {
     const name = String(formData.get("name") ?? "").trim();
     const sku = String(formData.get("sku") ?? "").trim() || null;
-    const productTypeIdRaw =
-      String(formData.get("productTypeId") ?? "").trim();
-    const productTypeId = productTypeIdRaw === "" ? null : productTypeIdRaw;
+    // Step 8 · `productTypeId` is NO LONGER READ. A leaf's classification is
+    // HubSpot's alone; accepting a Nexus type here would have left the second
+    // authority creatable at the exact moment a product enters the Library.
+    //
     // HubSpot classification — the INTERNAL option value the dropdown carried,
-    // never the label it displayed. Independent of productTypeId above: that is
-    // Nexus's own taxonomy and this is HubSpot's, and neither derives from the
-    // other.
+    // never the label it displayed.
     const hubspotProductTypeRaw =
       String(formData.get("hubspotProductType") ?? "").trim();
     const hubspotProductType =
@@ -85,25 +84,6 @@ export async function createLeaf(
 
     // Permission gate (Path B per Architect Gate 5).
     const user = await assertCanCreateLeaves();
-
-    // Validate product type if provided (must be leaf-scope).
-    if (productTypeId) {
-      const typeRows = await db
-        .select()
-        .from(productTypes)
-        .where(eq(productTypes.id, productTypeId))
-        .limit(1);
-      if (typeRows.length === 0)
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "Selected product type not found.",
-        );
-      if (typeRows[0].scope !== "leaf")
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "Selected type is not a leaf-scope type.",
-        );
-    }
 
     // HubSpot-first write-back. Push mapping per Concern C
     // disposition: name + sku + unit_cost + url + technical catalog price.
@@ -160,7 +140,6 @@ export async function createLeaf(
       .values({
         name,
         sku,
-        productTypeId,
         unitCost,
         ownerId: ownerIdRaw === "" ? null : ownerIdRaw,
         url,
@@ -185,7 +164,6 @@ export async function createLeaf(
       diffJson: {
         name: newRow.name,
         sku: newRow.sku,
-        product_type_id: newRow.productTypeId,
         unit_cost: newRow.unitCost,
         owner_id: newRow.ownerId,
         url: newRow.url,

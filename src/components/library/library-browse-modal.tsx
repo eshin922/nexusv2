@@ -58,7 +58,6 @@ export function LibraryBrowseModal({
   projectId,
   assemblies,
   initialTargetAssemblyId,
-  leafTypes,
   fullLeafTypes,
   permissions,
 }: {
@@ -93,7 +92,6 @@ export function LibraryBrowseModal({
   projectId: string;
   assemblies: AssemblyTarget[];
   // Type-filter dropdown options (id + name + placeholder).
-  leafTypes: { id: string; name: string; placeholder: boolean }[];
   // slice-library-first-creation-flow Step 3 — AddProductModal
   // form requires the full leaf-spec-entry shape (id + name +
   // placeholder + fieldSchema). Threaded through alongside the
@@ -193,8 +191,7 @@ export function LibraryBrowseModal({
         setError(null);
         const result = await fetchLibraryBrowse({
           search,
-          typeFilter: typeFilter || undefined,
-        sourceTypeFilter: sourceTypeFilter || undefined,
+          sourceTypeFilter: sourceTypeFilter || undefined,
           scopeFilter,
           targetQuoteId: quoteId,
         });
@@ -316,7 +313,6 @@ export function LibraryBrowseModal({
     startTransition(async () => {
       const refreshed = await fetchLibraryBrowse({
         search,
-        typeFilter: undefined,
         scopeFilter: "all",
         targetQuoteId: quoteId,
       });
@@ -383,7 +379,6 @@ export function LibraryBrowseModal({
       // (and refresh the Setup tree behind the modal).
       const refreshed = await fetchLibraryBrowse({
         search,
-        typeFilter: typeFilter || undefined,
         sourceTypeFilter: sourceTypeFilter || undefined,
         scopeFilter,
         targetQuoteId: quoteId,
@@ -420,7 +415,6 @@ export function LibraryBrowseModal({
       setToast(`Restored "${row.name}" to the library.`);
       const refreshed = await fetchLibraryBrowse({
         search,
-        typeFilter: typeFilter || undefined,
         sourceTypeFilter: sourceTypeFilter || undefined,
         scopeFilter,
         targetQuoteId: quoteId,

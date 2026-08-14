@@ -15,11 +15,11 @@ import { CreateItemGroupModal } from "@/components/item-group/create-item-group-
 export function CreateItemGroupTrigger({
   quoteId,
   editable,
-  assemblyTypes,
+  itemGroupCategories,
 }: {
   quoteId: string;
   editable: boolean;
-  assemblyTypes: { id: string; name: string }[];
+  itemGroupCategories: { id: string; name: string }[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -45,7 +45,7 @@ export function CreateItemGroupTrigger({
         quoteId={quoteId}
         open={open}
         onClose={() => setOpen(false)}
-        assemblyTypes={assemblyTypes}
+        itemGroupCategories={itemGroupCategories}
       />
     </>
   );
