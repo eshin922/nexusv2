@@ -231,19 +231,21 @@ export async function loadAssemblyTree(
       .where(
         and(inArray(leafSpecs.leafId, leafIds), eq(leafSpecs.isCurrent, true)),
       ),
-    // Counted on `quote_leaves` — the CANONICAL attachment table — not on the
-    // legacy junction. A Direct Product has no junction row, so the old basis
-    // would have counted it as zero and reported "this scenario only" for a
-    // product used elsewhere.
+    // How many QUOTES use this library product — not how many attachment rows
+    // exist.
     //
-    // This is not a behaviour change for existing data: the two tables were
-    // verified to agree exactly (0 leaves with differing counts) before the
-    // basis was switched. One basis for both collections, so a caption cannot
-    // mean different things depending on which branch produced it.
+    // Counted on `quote_leaves`, the CANONICAL attachment table, not the legacy
+    // junction: a Direct Product has no junction row, so the old basis reported
+    // "this scenario only" for a product used elsewhere.
+    //
+    // COUNT(DISTINCT quote_id), because a raw COUNT(*) counts ATTACHMENTS. 20
+    // (quote, leaf) pairs currently hold more than one attachment — the same
+    // library product in two Item Groups of one quote — and a row-count basis
+    // reports those siblings as "other uses", which reads as other quotes.
     db
       .select({
         leafId: quoteLeaves.leafId,
-        n: sql<number>`count(*)::int`,
+        n: sql<number>`count(distinct ${quoteLeaves.quoteId})::int`,
       })
       .from(quoteLeaves)
       .where(inArray(quoteLeaves.leafId, leafIds))

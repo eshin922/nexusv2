@@ -36,9 +36,13 @@ export function DirectProductRow({
   const [confirming, setConfirming] = useState(false);
 
   const otherRefs = Math.max(0, product.globalRefCount - 1);
+  // Neutral wording, deliberately. This is NOT a blast-radius count: whether a
+  // spec edit reaches another quote depends on that quote's own pin state, which
+  // this number does not model. It says where the product is used and stops
+  // there. B-3 item 4.
   const refsCopy =
     otherRefs > 0
-      ? `+ ${otherRefs} other use${otherRefs === 1 ? "" : "s"}`
+      ? `Used in ${otherRefs} other quote${otherRefs === 1 ? "" : "s"}`
       : "this scenario only";
   const qtyNum = Number(product.quantity);
   const qtyDisplay = qtyNum < 1 ? qtyNum.toFixed(4) : String(qtyNum);
@@ -89,7 +93,7 @@ export function DirectProductRow({
         <div className="direct-actions">
           <span className="leaf-refs">{refsCopy}</span>
           <a className="a1v2-btn ghost sm" href={editSpecsHref}>
-            Edit specs
+            Edit product specs
           </a>
           {editable ? (
             confirming ? (

@@ -114,49 +114,21 @@ export function LeafContextMenu({
             role="menuitem"
             onClick={() => setOpen(false)}
           >
-            Edit specs
+            Edit product specs
           </Link>
-          <div className="sep" />
-          <button
-            type="button"
-            className="item"
-            role="menuitem"
-            disabled
-            aria-disabled="true"
-            title="Drag-to-reorder is the primary path (Step 9)"
-          >
-            Move up
-          </button>
-          <button
-            type="button"
-            className="item"
-            role="menuitem"
-            disabled
-            aria-disabled="true"
-            title="Drag-to-reorder is the primary path (Step 9)"
-          >
-            Move down
-          </button>
-          <button
-            type="button"
-            className="item"
-            role="menuitem"
-            disabled
-            aria-disabled="true"
-            title="Move between item groups — design TBD"
-          >
-            Move to another item group
-          </button>
-          <button
-            type="button"
-            className="item"
-            role="menuitem"
-            disabled
-            aria-disabled="true"
-            title="Library browse surface ships in impl-5"
-          >
-            View library record
-          </button>
+          {/* B-4B — four disabled items removed: Move up, Move down, Move to
+              another item group, View library record.
+
+              None was a capability. Move up/down duplicated drag-to-reorder,
+              which works and writes assembly_leaves.sort_order. Move to another
+              item group had no writer anywhere in the action layer. View
+              library record had no handler.
+
+              A rendered command that cannot run is worse than an absent one: it
+              teaches the operator that this menu is unreliable, and the doubt
+              transfers to the two items that DO work. Removed rather than left
+              greyed — none is required for V1, and the writers for the first
+              three either exist elsewhere or do not exist at all. */}
           <div className="sep" />
           <button
             type="button"

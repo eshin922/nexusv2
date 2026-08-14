@@ -10,6 +10,7 @@ import { AsyContextMenu } from "./asy-context-menu";
 import { LeafContextMenu } from "./leaf-context-menu";
 import { AsyNotesDrawerPanel, AsyNotesTrigger } from "./asy-notes-drawer";
 import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
+import { assemblyDisplaySku } from "@/lib/product-structure/assembly-display-sku";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { CompletenessChip } from "./completeness-chip";
 import { reorderAssemblyLeaves } from "@/app/actions/assemblies";
@@ -52,6 +53,10 @@ export function AsyRow({
   onDragOver: (e: React.DragEvent) => void;
 }) {
   const isExpanded = asy.children.length > 0;
+  // B-4A item 3 — display only. The stored SKU is unchanged and still carries
+  // certified NetSuite projection and audit identity; `ASY-` is simply not a
+  // word the operator has ever been shown for this concept.
+  const displaySku = assemblyDisplaySku(asy.sku, quoteId);
   const [notesOpen, setNotesOpen] = useState(false);
 
   // LEAF-level drag state (scoped per ASY — leaves can only reorder
@@ -151,7 +156,7 @@ export function AsyRow({
         >
           ▾
         </span>
-        <span className="sku-pill">{asy.sku}</span>
+        <span className="sku-pill">{displaySku ?? "—"}</span>
         <div className="name-cell">
           <div className="name">{asy.name}</div>
           <div className="meta">
@@ -190,7 +195,7 @@ export function AsyRow({
         />
         <AsyContextMenu
           assemblyId={asy.id}
-          assemblySku={asy.sku}
+          assemblySku={displaySku ?? asy.name}
           disabled={!editable}
         />
       </div>
@@ -247,9 +252,13 @@ function LeafRow({
   onDragOver: (e: React.DragEvent) => void;
 }) {
   const otherRefs = Math.max(0, leaf.globalRefCount - 1);
+  // Neutral wording, deliberately. This is NOT a blast-radius count: whether a
+  // spec edit reaches another quote depends on that quote's own pin state, which
+  // this number does not model. It says where the product is used and stops
+  // there. B-3 item 4.
   const refsCopy =
     otherRefs > 0
-      ? `+ ${otherRefs} other use${otherRefs === 1 ? "" : "s"}`
+      ? `Used in ${otherRefs} other quote${otherRefs === 1 ? "" : "s"}`
       : "this scenario only";
   const qtyNum = Number(leaf.quantity);
   const qtyDisplay = qtyNum < 1 ? qtyNum.toFixed(4) : String(qtyNum);

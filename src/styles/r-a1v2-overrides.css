@@ -438,3 +438,32 @@
   gap: 8px;
   justify-content: flex-end;
 }
+
+/* B-4A · Item Group row restoration — evidenced against qw_styles.css.
+ *
+ * ITEM 1 — GRID. The canonical `.a1v2-asy-row` declares six columns for the six
+ * cells CD drew. Nexus renders eight: the canonical six plus a notes trigger and
+ * `+ Add products`. The surplus wrapped onto an implicit second row, which is
+ * what broke the seal between the group header and its `.a1v2-leaves` block —
+ * not the member connector, which is intact and canonical.
+ *
+ * Restated with one column per rendered cell, exactly the precedent
+ * `.a1v2-direct-row` already set for its actions cluster. Column widths and
+ * order are unchanged; only the count grows.
+ *
+ * ITEM 2 — STRUCTURAL IDENTITY. Canonical gives the accent left rule to
+ * `.expanded`, and `isExpanded` is `children.length > 0`. So an EMPTY Item Group
+ * rendered identically to a Direct Product: the structural distinction rested on
+ * a population state that does not track it.
+ *
+ * The accent rule now marks the Item Group itself. The expanded state keeps its
+ * own separate treatment — the tinted background — so the two signals stay
+ * legible as different things: what this row IS, and whether it is open.
+ *
+ * `:not(.a1v2-direct-row)` rather than ordering, so the Direct Product's
+ * `--ink-4` rule and this one can never both match the same element.
+ */
+.a1v2-asy-row:not(.a1v2-direct-row) {
+  grid-template-columns: 24px 90px 1fr auto auto auto auto auto;
+  border-left-color: var(--accent);
+}

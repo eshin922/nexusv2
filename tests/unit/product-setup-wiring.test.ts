@@ -441,3 +441,109 @@ test("healthy and archived rows keep their existing presentation", async () => {
   assert.match(src, /readiness === "archived"/);
   assert.match(src, /lib-restore-btn/);
 });
+
+// ------------------------------------------------ B-3 · library spec authority
+test("the spec action names the authority it edits", async () => {
+  // Specs are library master data. "Edit specs", read from inside a quote,
+  // invites the operator to believe it is quote-local. It is not.
+  for (const f of [
+    "src/components/assembly-tree/leaf-context-menu.tsx",
+    "src/components/assembly-tree/direct-product-row.tsx",
+  ]) {
+    assert.match(await read(f), /Edit product specs/);
+  }
+});
+
+test("usage is counted in QUOTES, not attachment rows", async () => {
+  const src = await code("src/lib/assembly-tree.ts");
+  // A raw count(*) counts attachments, and a leaf attached to two Item Groups
+  // in one quote would report its own sibling as another use.
+  assert.match(src, /count\(distinct \$\{quoteLeaves\.quoteId\}\)/);
+  assert.doesNotMatch(src, /n: sql<number>`count\(\*\)::int`/);
+});
+
+test("the usage caption makes no claim about what an edit would reach", async () => {
+  for (const f of [
+    "src/components/assembly-tree/asy-row.tsx",
+    "src/components/assembly-tree/direct-product-row.tsx",
+  ]) {
+    const src = await read(f);
+    assert.match(src, /Used in \$\{otherRefs\} other quote/);
+    // "other uses" read as a blast radius. Whether an edit reaches another
+    // quote depends on that quote's pin state, which this number does not model.
+    assert.doesNotMatch(src, /other use\$\{/);
+  }
+});
+
+// -------------------------------------------- B-4B · no dead operator commands
+test("the member menu renders no disabled command", async () => {
+  const src = await read("src/components/assembly-tree/leaf-context-menu.tsx");
+  // Move up, Move down, Move to another item group, View library record. None
+  // was a capability; a rendered command that cannot run teaches the operator
+  // that the menu is unreliable, and the doubt transfers to the items that work.
+  for (const gone of [
+    "Move up",
+    "Move down",
+    "Move to another item group",
+    "View library record",
+  ]) {
+    assert.doesNotMatch(src, new RegExp(`>\s*${gone}\s*<`), `${gone} still rendered`);
+  }
+  assert.doesNotMatch(src, /aria-disabled="true"/);
+});
+
+test("both surviving member actions are wired", async () => {
+  const src = await read("src/components/assembly-tree/leaf-context-menu.tsx");
+  assert.match(src, /href=\{editSpecsHref\}/);
+  assert.match(src, /detachAssemblyLeaf\(fd\)/);
+});
+
+// ------------------------------------------------ B-4A · restoration to the DA
+test("the Item Group row declares one column per rendered cell", async () => {
+  const css = await read("src/styles/r-a1v2-overrides.css");
+  // Eight cells rendered: the canonical six plus notes trigger and
+  // + Add products. Implicit-row wrapping is what broke the seal between the
+  // group header and .a1v2-leaves.
+  assert.match(
+    css,
+    /\.a1v2-asy-row:not\(\.a1v2-direct-row\)\s*\{[^}]*grid-template-columns:\s*24px 90px 1fr auto auto auto auto auto/,
+  );
+});
+
+test("Item Group identity does not depend on being populated", async () => {
+  const css = await read("src/styles/r-a1v2-overrides.css");
+  assert.match(
+    css,
+    /\.a1v2-asy-row:not\(\.a1v2-direct-row\)\s*\{[^}]*border-left-color:\s*var\(--accent\)/,
+  );
+  // The Direct Product keeps its own rule, and :not() makes the two mutually
+  // exclusive rather than order-dependent.
+  assert.match(css, /\.a1v2-asy-row\.a1v2-direct-row\s*\{[^}]*border-left-color:\s*var\(--ink-4\)/);
+  // Expanded keeps a SEPARATE signal, so "what this is" and "whether it is
+  // open" stay legible as different things.
+  assert.match(
+    await read("src/styles/r-a1v2-setup.css"),
+    /\.a1v2-asy-row\.expanded \{[^}]*background:/,
+  );
+});
+
+test("the generated ASY placeholder never reaches the operator", async () => {
+  const helper = await read("src/lib/product-structure/assembly-display-sku.ts");
+  // Reconstructs the exact generated string rather than matching /^ASY-/, so an
+  // operator who genuinely types "ASY-7" keeps their own value.
+  assert.match(helper, /const prefix = `ASY-\$\{quoteId\.slice\(0, 8\)\}-`/);
+  const row = await read("src/components/assembly-tree/asy-row.tsx");
+  assert.match(row, /assemblyDisplaySku\(asy\.sku, quoteId\)/);
+  assert.doesNotMatch(row, /sku-pill">\{asy\.sku\}/);
+});
+
+test("suppression is display-only — no writer touches the stored SKU", async () => {
+  const helper = await read("src/lib/product-structure/assembly-display-sku.ts");
+  assert.doesNotMatch(helper, /db\.|update\(|insert\(/);
+  // The generator is untouched: the stored value still carries certified
+  // NetSuite projection and audit identity.
+  assert.match(
+    await read("src/app/actions/assemblies.ts"),
+    /`ASY-\$\{quoteId\.slice\(0, 8\)\}-\$\{nextPosition \+ 1\}`/,
+  );
+});
