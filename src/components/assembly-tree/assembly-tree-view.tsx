@@ -107,28 +107,22 @@ export function AssemblyTreeView({
             {tree.totalAssemblies}{" "}
             {tree.totalAssemblies === 1 ? "item group" : "item groups"}
           </span>
-          {/* THREE OPERATOR INTENTIONS, kept distinct.
+          {/* TWO PEER STRUCTURAL ACTIONS, at equal visual weight.
 
-              + Add Product      — browse the library, attach an existing
-                                   product to the quote as a standalone
-                                   Direct Product.
-              + Create Item Group— create quote-local grouping structure. Not a
-                                   product, and nothing is written to the
-                                   library.
-              + Add to Item Group— put products into a group that already
-                                   exists.
+              + Add Product       browse the library, attach an existing product
+                                  to the quote as a standalone Direct Product.
+              + Create Item Group create quote-local grouping structure. Not a
+                                  product; nothing is written to the library.
 
-              The first two are PEERS and are always available. Structure is
-              never inferred from product count: a one-product Item Group prints
-              on the Sales Order as a named container with a nested line, where a
-              Direct Product prints as one line, so grouping is only ever what
-              the operator explicitly asked for.
+              Both are primary. A ghost beside a filled button is not a peer —
+              it reads as secondary chrome, which is how the grouped choice went
+              unnoticed even after it became reachable (B-1, OW-4).
 
-              The third is CONDITIONAL, and that is the B-1 repair. The Library
-              attaches into a destination, so it cannot be the entry point for
-              creating that destination — offering it on a quote with no groups
-              is what produced a dead end the operator had to reason their way
-              out of. */}
+              ADDING PRODUCTS INTO A GROUP IS NOT HERE. It belongs to a specific
+              Item Group, so it lives on that group's row, where the operator
+              has already named the destination by choosing which row to act on.
+              A quote-level entry had to ask for the destination in a menu, and
+              on a quote with no groups it could not be answered at all. */}
           <LibraryBrowseTrigger
             mode="direct"
             quoteId={quoteId}
@@ -144,18 +138,6 @@ export function AssemblyTreeView({
             editable={editable}
             assemblyTypes={assemblyTypes}
           />
-          {assemblyTargets.length > 0 ? (
-            <LibraryBrowseTrigger
-              mode="group"
-              quoteId={quoteId}
-              projectId={projectId}
-              editable={editable}
-              assemblies={assemblyTargets}
-              leafTypes={leafTypesForFilter}
-              fullLeafTypes={leafTypes}
-              permissions={permissions}
-            />
-          ) : null}
         </div>
       </div>
 
@@ -178,6 +160,10 @@ export function AssemblyTreeView({
         editable={editable}
         projectId={projectId}
         quoteId={quoteId}
+        assemblies={assemblyTargets}
+        leafTypes={leafTypesForFilter}
+        fullLeafTypes={leafTypes}
+        permissions={permissions}
       />
     </div>
   );

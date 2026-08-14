@@ -27,7 +27,7 @@ export function CreateItemGroupTrigger({
     <>
       <button
         type="button"
-        className="a1v2-btn ghost sm"
+        className="a1v2-btn primary sm"
         onClick={() => setOpen(true)}
         disabled={!editable}
         aria-disabled={!editable}

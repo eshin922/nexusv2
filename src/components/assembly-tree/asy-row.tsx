@@ -9,6 +9,8 @@ import type {
 import { AsyContextMenu } from "./asy-context-menu";
 import { LeafContextMenu } from "./leaf-context-menu";
 import { AsyNotesDrawerPanel, AsyNotesTrigger } from "./asy-notes-drawer";
+import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
+import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { CompletenessChip } from "./completeness-chip";
 import { reorderAssemblyLeaves } from "@/app/actions/assemblies";
 
@@ -25,6 +27,10 @@ import { reorderAssemblyLeaves } from "@/app/actions/assemblies";
 // ASY" affordance which is deferred to a follow-up).
 
 export function AsyRow({
+  assemblies,
+  leafTypes,
+  fullLeafTypes,
+  permissions,
   asy,
   editable,
   projectId,
@@ -35,6 +41,10 @@ export function AsyRow({
 }: {
   asy: AssemblyNode;
   editable: boolean;
+  assemblies: { id: string; sku: string; name: string; leafCount: number }[];
+  leafTypes: { id: string; name: string; placeholder: boolean }[];
+  fullLeafTypes: LeafSpecEntryProductType[];
+  permissions: { canCreateLeaves: boolean };
   projectId: string;
   quoteId: string;
   isDragging: boolean;
@@ -161,6 +171,22 @@ export function AsyRow({
           }
           open={notesOpen}
           onToggle={() => setNotesOpen((v) => !v)}
+        />
+        {/* Adding products belongs to THIS group. Launching the Library from
+            the row means the destination is already chosen — the operator named
+            it by acting on this row — so the picker has nothing left to ask. */}
+        <LibraryBrowseTrigger
+          mode="group"
+          quoteId={quoteId}
+          projectId={projectId}
+          editable={editable}
+          assemblies={assemblies}
+          initialTargetAssemblyId={asy.id}
+          label="+ Add products"
+          className="a1v2-btn ghost xs"
+          leafTypes={leafTypes}
+          fullLeafTypes={fullLeafTypes}
+          permissions={permissions}
         />
         <AsyContextMenu
           assemblyId={asy.id}

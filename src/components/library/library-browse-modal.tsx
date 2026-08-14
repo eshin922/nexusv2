@@ -56,6 +56,7 @@ export function LibraryBrowseModal({
   quoteId,
   projectId,
   assemblies,
+  initialTargetAssemblyId,
   leafTypes,
   fullLeafTypes,
   permissions,
@@ -72,6 +73,15 @@ export function LibraryBrowseModal({
    * behaviour rather than silently changing structure.
    */
   mode?: "direct" | "group";
+  /**
+   * Preselected destination for `group` mode.
+   *
+   * Set when the Library is opened FROM an Item Group row, where the operator
+   * has already named the destination by choosing which row to act on. Asking
+   * them to pick it again in a menu would be asking a question they just
+   * answered.
+   */
+  initialTargetAssemblyId?: string;
   open: boolean;
   onClose: () => void;
   quoteId: string;
@@ -107,7 +117,9 @@ export function LibraryBrowseModal({
   const [scopeFilter, setScopeFilter] = useState<"all" | "this" | "other">(
     "all",
   );
-  const [targetAssemblyId, setTargetAssemblyId] = useState<string>("");
+  const [targetAssemblyId, setTargetAssemblyId] = useState<string>(
+    initialTargetAssemblyId ?? "",
+  );
   const [rows, setRows] = useState<LibraryBrowseRow[]>([]);
   const [total, setTotal] = useState(0);
   // slice-library-first-creation-flow Step 2 — libraryTotal lets
@@ -243,11 +255,19 @@ export function LibraryBrowseModal({
   // placeholder, row attach buttons disable).
   useEffect(() => {
     if (!open) return;
+    // An explicit destination wins, and is re-applied on every open: the same
+    // modal instance serves a different Item Group each time it is launched
+    // from a row, so carrying the previous target forward would silently attach
+    // to the wrong group.
+    if (initialTargetAssemblyId) {
+      setTargetAssemblyId(initialTargetAssemblyId);
+      return;
+    }
     if (targetAssemblyId) return;
     if (assemblies.length > 0) {
       setTargetAssemblyId(assemblies[0].id);
     }
-  }, [open, assemblies, targetAssemblyId]);
+  }, [open, assemblies, targetAssemblyId, initialTargetAssemblyId]);
 
   // slice-library-modal-polish Step 4 — click-outside dismiss for
   // the target picker menu. Document-level listener attached only

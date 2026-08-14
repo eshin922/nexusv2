@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import type { AssemblyTree } from "@/lib/assembly-tree";
+import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AsyRow } from "./asy-row";
 import { DirectProductRow } from "./direct-product-row";
 import { reorderAssemblies } from "@/app/actions/assemblies";
@@ -24,11 +25,19 @@ export function AssemblyTreeBody({
   editable,
   projectId,
   quoteId,
+  assemblies,
+  leafTypes,
+  fullLeafTypes,
+  permissions,
 }: {
   tree: AssemblyTree;
   editable: boolean;
   projectId: string;
   quoteId: string;
+  assemblies: { id: string; sku: string; name: string; leafCount: number }[];
+  leafTypes: { id: string; name: string; placeholder: boolean }[];
+  fullLeafTypes: LeafSpecEntryProductType[];
+  permissions: { canCreateLeaves: boolean };
 }) {
   const serverOrder = useMemo(
     () => tree.assemblies.map((a) => a.id),
@@ -138,6 +147,10 @@ export function AssemblyTreeBody({
               isDragging={dragId === asy.id}
               onDragStart={(e) => handleAsyDragStart(e, asy.id)}
               onDragOver={(e) => handleAsyDragOver(e, asy.id)}
+              assemblies={assemblies}
+              leafTypes={leafTypes}
+              fullLeafTypes={fullLeafTypes}
+              permissions={permissions}
             />
           ))}
         </>

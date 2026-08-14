@@ -32,6 +32,9 @@ export function LibraryBrowseTrigger({
   projectId,
   editable,
   assemblies,
+  initialTargetAssemblyId,
+  label,
+  className,
   leafTypes,
   fullLeafTypes,
   permissions,
@@ -46,6 +49,12 @@ export function LibraryBrowseTrigger({
   projectId: string;
   editable: boolean;
   assemblies: AssemblyTarget[];
+  /** Preselected destination — set when launched from an Item Group row. */
+  initialTargetAssemblyId?: string;
+  /** Overrides the default copy; the row-level control names its own action. */
+  label?: string;
+  /** Overrides the default button weight for non-card-head placements. */
+  className?: string;
   leafTypes: { id: string; name: string; placeholder: boolean }[];
   fullLeafTypes: LeafSpecEntryProductType[];
   permissions: { canCreateLeaves: boolean };
@@ -57,7 +66,7 @@ export function LibraryBrowseTrigger({
     <>
       <button
         type="button"
-        className={`a1v2-btn ${isDirect ? "primary" : "ghost"} sm`}
+        className={className ?? `a1v2-btn ${isDirect ? "primary" : "ghost"} sm`}
         onClick={() => setOpen(true)}
         disabled={!editable}
         aria-disabled={!editable}
@@ -71,10 +80,11 @@ export function LibraryBrowseTrigger({
               : "Add products into an existing item group"
         }
       >
-        {isDirect ? "+ Add Product" : "+ Add to Item Group"}
+        {label ?? (isDirect ? "+ Add Product" : "+ Add to Item Group")}
       </button>
       <LibraryBrowseModal
         mode={mode}
+        initialTargetAssemblyId={initialTargetAssemblyId}
         open={open}
         onClose={() => setOpen(false)}
         quoteId={quoteId}

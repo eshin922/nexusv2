@@ -155,14 +155,45 @@ test("Create New Product is library master data only — no Item Group branch", 
   );
 });
 
-test("the grouped Library entry appears only once a destination exists", async () => {
-  const view = await code("src/components/assembly-tree/assembly-tree-view.tsx");
-  // Requirement 6: the grouped workflow survives. Requirement 3: it is never
-  // the path an empty quote is sent down.
+test("the two structural peers carry equal visual weight", async () => {
+  // A ghost beside a filled button is not a peer — it reads as secondary
+  // chrome, which is how the grouped choice stayed unnoticed even after B-1
+  // made it reachable. Both are primary.
   assert.match(
-    view,
-    /assemblyTargets\.length > 0 \? \(\s*<LibraryBrowseTrigger\s+mode="group"/,
+    await read("src/components/assembly-tree/create-item-group-trigger.tsx"),
+    /className="a1v2-btn primary sm"/,
   );
+  assert.match(
+    await read("src/components/library/library-browse-trigger.tsx"),
+    /isDirect \? "primary" : "ghost"/,
+  );
+});
+
+test("adding products into a group lives on that group's row, not the quote head", async () => {
+  const view = await code("src/components/assembly-tree/assembly-tree-view.tsx");
+  // No quote-level grouped entry. It had to ask which group in a menu, and on
+  // a quote with no groups the question had no answer.
+  assert.doesNotMatch(view, /mode="group"/);
+
+  const row = await code("src/components/assembly-tree/asy-row.tsx");
+  assert.match(row, /mode="group"/);
+  // The destination is the row the operator acted on — already chosen, so the
+  // picker has nothing left to ask.
+  assert.match(row, /initialTargetAssemblyId=\{asy\.id\}/);
+});
+
+test("an explicit destination survives the modal's auto-select", async () => {
+  const modal = await code("src/components/library/library-browse-modal.tsx");
+  // Re-applied on every open: one modal instance serves a different group each
+  // launch, so a carried-over target would attach to the wrong one.
+  assert.match(
+    modal,
+    /if \(initialTargetAssemblyId\) \{\s*setTargetAssemblyId\(initialTargetAssemblyId\);\s*return;/,
+  );
+  // And it is checked BEFORE the fall-back to assemblies[0].
+  const explicit = modal.indexOf("setTargetAssemblyId(initialTargetAssemblyId)");
+  const fallback = modal.indexOf("setTargetAssemblyId(assemblies[0].id)");
+  assert.ok(explicit > 0 && fallback > 0 && explicit < fallback);
 });
 
 // --------------------------------------------------------------- routing
