@@ -249,6 +249,10 @@ const classifiedIdentityFiles = new Set([
   // it consistent; the falsification asserts that identity survives.
   "scripts/verify/structural-move-identity.ts",
   "src/lib/product-structure/structural-move.ts",
+  // CLASSIFIED — read-only evidence, canonical only. The B-14 falsification
+  // asserts attachment is read from `quote_leaves`, the canonical table, and
+  // creates its own fixtures.
+  "scripts/verify/b14-attachment-state.ts",
   // CLASSIFIED — read-only evidence, canonical only. The Step 9 post-drop
   // runtime probe executes every loader that once read the dropped columns; it
   // creates nothing and maps between no identity spaces.

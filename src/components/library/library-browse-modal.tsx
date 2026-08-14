@@ -1048,15 +1048,30 @@ export function LibraryBrowseModal({
                      `archived` takes priority — an archived leaf
                      shows the Restore action regardless of any-ASY
                      attachment status. */
+                  // B-14 · `attached` now answers the question the operator is
+                  // actually asking: is this product already in this quote at
+                  // the place I am about to put it?
+                  //
+                  // The previous form required BOTH a selected Item Group AND a
+                  // legacy junction row. In Direct Product mode there is no
+                  // target group, so it short-circuited to `ready` and the row
+                  // kept offering `Add` after a successful attach — the operator
+                  // clicked again and nothing happened, because the attach was
+                  // idempotent and the badge was simply blind to it.
                   const readiness: "ready" | "attached" | "archived" =
                     row.archived
                       ? "archived"
-                      : targetAssemblyId &&
-                          row.attachedAssemblyIdsInTargetQuote.includes(
+                      : targetAssemblyId
+                        ? row.attachedAssemblyIdsInTargetQuote.includes(
                             targetAssemblyId,
                           )
-                        ? "attached"
-                        : "ready";
+                          ? "attached"
+                          : "ready"
+                        : // Direct Product mode — attached means attached at
+                          // quote level with no group.
+                          row.attachedDirectInTargetQuote
+                          ? "attached"
+                          : "ready";
                   const source: "nexus" | "hubspot" = row.hubspotProductId
                     ? "hubspot"
                     : "nexus";
