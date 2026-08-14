@@ -142,3 +142,46 @@ migration needs every deployed reader already gone.
 No catalogue hand-typing. No HubSpot → `product_type_id` mapping. No renaming of
 the two taxonomies to explain the contradiction. No change to B-3 quote-owned
 authority beyond what the schema pin requires. No schema definitions removed.
+
+---
+
+## 11 · Checkpoint — HubSpot prerequisite (BLOCKING, 2026-08-14)
+
+Nexus migration steps 3–10 are **blocked**. The `Tertiary Packaging` option is
+added through the **HubSpot property UI**, by Edward, not by Nexus.
+
+**No API PATCH.** Updating an enumeration property replaces the entire options
+array, so a payload carrying only the new option would delete the other fifteen
+and unclassify 1,032 products. The UI performs the read-modify-write; the API
+would require Nexus to reconstruct all sixteen options in order, and getting
+that wrong is silent and catalogue-wide.
+
+### What is verified after the change, before any migration step
+
+1. `Tertiary Packaging` present in the fetched vocabulary.
+2. All **15** existing options still present.
+3. Their internal **values** and labels unchanged — the values are what
+   `leaves.hubspot_product_type` stores and what the Library filters on, so a
+   changed value orphans every row holding it.
+4. Classified product counts have not collapsed — compare against the recorded
+   census: 1,037 products, 1,032 classified, `Secondary` 346 / `Primary` 171 /
+   `Labels` 117 / `Filling and Packout Services` 110 / `Soft Goods` 95 /
+   `One Time Charges` 60 / `Cards, Booklets` 51 / `Raw ingredients` 46 /
+   `Freight` 11 / `Design` 9 / `R&D / Testing` 6 / `Finished Goods` 4 /
+   `Third Party Logistics` 4 / `Turnkey` 2 / `Formulation` 1.
+5. A small **human-confirmed** control set classified `Tertiary Packaging`,
+   read back through the governed pull, resolving to Tertiary Spec Schema.
+
+### Historical reclassification is NOT a blocker
+
+The architecture needs a handful of unequivocal controls, not a clean
+catalogue. Remaining candidates continue as governed data cleanup afterwards.
+
+**The 66-hit name sweep is a discovery aid and must not drive classification.**
+It caught shopping bags, tissue, stickers, hang tags and rigid bookstyle boxes
+under Secondary; it caught `Art Direction` on the substring `RSC`; it caught
+service charges (`OTC - Master Carton`, `OTC - Pallets`, `OTC - Palletization`)
+which stay commercial and must never acquire a packaging schema; and it MISSED
+the clearest genuine corrugated row in the data — `Master carton · ECT-32 ·
+12-up` — because its HubSpot type is NULL. A heuristic that both
+over-selects and under-selects is a search, not a classifier.
