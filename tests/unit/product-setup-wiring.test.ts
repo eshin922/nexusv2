@@ -753,7 +753,27 @@ test("B-10 · an absent Item Group SKU renders no pill, and the duplicate type s
   assert.match(asy, /displaySku \? \(\s*<span className="sku-pill">\{displaySku\}<\/span>/);
   assert.doesNotMatch(asy, /sku-pill">\{displaySku \?\? /);
   // NO TYPE SET already carries the actionable condition; valid metadata stays.
+  // Superseded by the type-cell move: the meta line no longer carries type at
+  // all, so the duplicate is gone by relocation rather than by a conditional.
   const direct = await code("src/components/assembly-tree/direct-product-row.tsx");
-  assert.doesNotMatch(direct, /\?\? "untyped"/);
-  assert.match(direct, /product\.productType \? \(/);
+  assert.doesNotMatch(direct, /className="sep"[\s\S]{0,80}type-tag/);
+});
+
+test("B-10 · displayed type and readiness share ONE quote-owned authority", async () => {
+  const src = await code("src/lib/assembly-tree.ts");
+  // The invariant must hold by construction, not by coincidence. Library and
+  // quote-owned agree today only because the backfill copied one into the
+  // other; a quote-side type change would separate them silently.
+  assert.match(src, /const effectiveTypeId = spec\?\.productTypeId \?\? leaf\.productTypeId/);
+  assert.match(src, /computeSpecCompleteness\(leafType/);
+});
+
+test("B-10 · the generic Product label is replaced by the quote-owned type", async () => {
+  const src = await code("src/components/assembly-tree/direct-product-row.tsx");
+  assert.doesNotMatch(src, /leaf-count">Product</);
+  // Same register as member rows — one product grammar, not two.
+  assert.match(src, /type-tag leaf-type\$\{product\.productType \? "" : " untyped"\}/);
+  // Absent stays absent: the Library's HubSpot classification is a different
+  // taxonomy and is never substituted to silence the warning.
+  assert.doesNotMatch(src, /hubspotProductType/);
 });

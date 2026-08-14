@@ -708,12 +708,25 @@
   font-size: 10px;
   color: var(--ink-4);
 }
-/* Type tag matches the demoted member treatment, so the readiness chip stays
-   the only coloured element on a product row at either level. */
-.a1v2-asy-row.a1v2-direct-row .type-tag {
+/* Type tag matches the demoted member treatment exactly, so Direct and member
+   products carry ONE type grammar and the readiness chip stays the only
+   coloured element on a product row at either level. `untyped` keeps the
+   warning register, as on member rows, because a missing type is actionable. */
+.a1v2-asy-row.a1v2-direct-row .type-tag.leaf-type {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 3px;
+  border: 1px solid transparent;
   color: var(--ink-4);
   background: var(--paper-3);
-  border-color: transparent;
+  white-space: nowrap;
+}
+.a1v2-asy-row.a1v2-direct-row .type-tag.leaf-type.untyped {
+  color: var(--bad);
+  background: var(--bad-soft);
+  border-color: oklch(from var(--bad) l c h / 0.25);
 }
 /* Overflow needs positioning context now that the actions collapsed into it. */
 .a1v2-asy-row.a1v2-direct-row .direct-actions { position: relative; }

@@ -288,7 +288,19 @@ function assembleTree(
   const describeLeaf = (
     leaf: typeof leaves.$inferSelect,
   ): Omit<DirectProductNode, "quoteLeafId" | "position" | "quantity"> => {
-    const leafType = leaf.productTypeId ? typeMap.get(leaf.productTypeId) : null;
+    // B-3/B-10 · the QUOTE-OWNED Product Type, which is the schema this
+    // quote's spec_values are validated against. Reading leaves.product_type_id
+    // — the Library default — would let the displayed type and the readiness
+    // verdict come from different authorities. They agree today only because
+    // the backfill copied Library into quote-owned, so the invariant currently
+    // holds by coincidence rather than by construction; a quote-side type
+    // change would separate them silently.
+    //
+    // Falls back to the Library value only when no quote-owned row exists at
+    // all, which after B-3 means an attachment that predates it.
+    const spec = specMap.get(leaf.id);
+    const effectiveTypeId = spec?.productTypeId ?? leaf.productTypeId;
+    const leafType = effectiveTypeId ? typeMap.get(effectiveTypeId) : null;
     return {
       leafId: leaf.id,
       name: leaf.name,

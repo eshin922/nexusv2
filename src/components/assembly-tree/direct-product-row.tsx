@@ -106,15 +106,19 @@ export function DirectProductRow({
                 NO TYPE SET readiness chip on this row. Saying it twice put the
                 same fact in both of the row's coloured slots. Valid type
                 metadata still renders. */}
-            {product.productType ? (
-              <>
-                <span className="sep">·</span>
-                <span className="type-tag">{product.productType.name}</span>
-              </>
-            ) : null}
           </div>
         </div>
-        <span className="leaf-count">Product</span>
+        {/* B-10 · the generic "Product" label carried no operator value — the
+            tree already says what this is. The slot now holds the QUOTE-OWNED
+            Product Type in the same quiet register member rows use, so Direct
+            and member products read as one register. Absent type stays absent:
+            the Library's HubSpot classification is a different taxonomy and is
+            not substituted here. */}
+        <span
+          className={`type-tag leaf-type${product.productType ? "" : " untyped"}`}
+        >
+          {product.productType?.name ?? "untyped"}
+        </span>
         <CompletenessChip completeness={product.specCompleteness} />
         {/* One grid cell for every action, so the confirm state adding a
             second button cannot reflow the row into a new grid line. */}
