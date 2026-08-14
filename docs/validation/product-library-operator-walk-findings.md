@@ -974,3 +974,76 @@ mapping silently validates spec values against the wrong field set.
 This needs its own typing/backfill disposition grounded in Nexus taxonomy rules
 — which is a product decision about what the firm's leaf taxonomy means, not a
 display fix and not a warning to be suppressed.
+
+## B-16 · Pricing grid does not locate the compliance condition (2026-08-14)
+
+**Status:** LOGGED for the consolidated Pricing/presentation closeout. Not a
+standalone patch.
+
+Next Move correctly identifies below-target and below-floor conditions, but the
+pricing grid does not show WHERE. The operator reads a verdict and then scans
+individual percentages to find the cells it refers to — the surface states the
+conclusion without locating the evidence.
+
+**Treatment.**
+
+| Condition | State |
+|---|---|
+| at/above target | normal / positive |
+| below target, at/above floor | amber warning |
+| below floor | red, correction required |
+
+Applied to the affected CELL sufficiently to make the grid scannable — not to
+the percentage text alone, which is what makes it a scan rather than a read.
+Restrained, and within the existing Nexus warning/error vocabulary.
+
+Operator example: target 35%, floor 25% → 33.2 / 33.9 / 34.1 amber; any cell
+below 25% red.
+
+**Constraints — these are the part that can go wrong quietly.**
+
+- Derive the visual state from the SAME governed target/floor classification
+  that drives Next Move. Do not recompute margin policy in the component.
+- No new business logic.
+- Selected-cell treatment must COEXIST with compliance state, not hide it. A
+  selection that masks a red cell removes the signal at the exact moment the
+  operator is acting on it.
+
+**Pattern 50 applies and should be read before implementing.** The classifier is
+per-CELL (worst SKU × tier); the suggestion engine is per-TIER (revenue-weighted
+blend). They can legitimately disagree, and `suggestion_manual_only` exists to
+name that intersection. A grid tinted from one basis while the banner speaks
+from the other will look like a defect in whichever one the operator checks
+second. Confirm which basis the cell treatment reads from, and say so in the
+implementation.
+
+## B-17 · Dark-mode structural contrast (2026-08-14)
+
+**Status:** LOGGED for the consolidated presentation slice. Not a standalone
+deploy.
+
+In dark mode, table/card boundaries and row separators sit too close in
+luminance to the near-black background. Content is readable; STRUCTURE is not —
+the operator cannot perceive where one division ends and the next begins.
+
+Observed on Setup: SKU table outer boundary; SKU row separators; Item
+Group/member divisions; Tier table outer boundary; Tier row separators;
+adjacent card boundaries.
+
+**Treatment.**
+
+- Raise neutral-gray contrast of structural borders and dividers slightly.
+- Outer/container borders stay somewhat stronger than internal row separators —
+  the hierarchy between the two is itself the signal.
+- Preserve the current near-black surfaces.
+- No accent colors for ordinary structural separation.
+- Do not make dark mode materially brighter.
+
+**Investigate first, then fix at the level the finding actually lives at.**
+Establish whether these surfaces share dark-mode border/divider tokens. If they
+do, the fix is the token, not Setup — and the follow-up is a visual check of
+representative surfaces for unintended OVER-contrast, since a token change
+reaches surfaces this finding never looked at. Patching Setup individually would
+leave the same defect everywhere else while appearing resolved.
+
+Goal: make structure easier to SCAN. Not make borders prominent.
