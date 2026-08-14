@@ -1047,3 +1047,66 @@ reaches surfaces this finding never looked at. Patching Setup individually would
 leave the same defect everywhere else while appearing resolved.
 
 Goal: make structure easier to SCAN. Not make borders prominent.
+
+## OW-10 · S-7 refresh — structural reorder on `2f29af72` during the #265 walk (2026-08-14)
+
+**Disposition A applied.** Baseline refreshed
+`8d4ab825…88577763` → `84890653…6150a6df`. 33 quotes, 0 failed.
+
+**Recorded rationale:** intentional structural reorder during operator drag/drop
+walk — no commercial movement at quote level.
+
+### What the verifier said, and why it was not enough
+
+S-7 reported ONE differing field:
+`skuRollups[1].canonicalQuoteLeafId: null -> "fd4adddd"`. Read alone that says
+"an identity binding moved", and the first characterization of this delta —
+"no commercial number moved" — was taken from it. That reading was imprecise.
+The verifier surfaces a located difference, not an exhaustive one.
+
+### What a full characterization showed
+
+`scripts/gate-1b/confirm-s7-delta.ts` compares every numeric leaf as an
+ORDER-INDEPENDENT MULTISET, because a pure reorder permutes values without
+changing any, and an index-walking comparison cannot tell those two apart.
+
+- Only `2f29af72` changed, of 33.
+- No product added or removed; the identity SET is unchanged (8 before, 8 after).
+- **Quote-level commercial values are IDENTICAL** — `blendedMarginPct` matches to
+  full precision on all three tiers; `quoteRollup`, `quoteSummary` and `tiers`
+  produced no differing path at all.
+- **Eleven per-SKU per-tier paths DID move**, including `factoryCostPerUnit`,
+  `computedSellPerUnit` and `revenue`.
+
+So per-SKU attribution changed while quote-level arithmetic did not. The
+`factoryCostPerUnit` multiset makes it explicit:
+
+```
+before  … 2.0150  3.1400  4.0000  5.0000 …   sum 45.710000
+after   … 2.0000  3.0000  4.1400  5.0150 …   sum 45.710000
+```
+
+`0.0150` and `0.1400` each moved from one product to another. Nothing was
+created or destroyed.
+
+### Why this is the invariant holding, not breaking
+
+This is Pattern 58 — *membership determines attribution, never arithmetic* —
+observed on live data. The operator moved products between structural homes, so
+their component costs moved with them. Attribution followed membership; the sum,
+the blended margin and every quote-level figure were invariant. A structural
+move that did NOT reattribute would be the defect.
+
+### Consequences recorded
+
+1. **`2f29af72` is retired from ALL further writes.** Mutable drag testing uses
+   `ZZ-VALIDATION-drag-drop` / `ff90d502-28a1-4a11-bbd5-75e1b5b916e8`, or another
+   proven non-basket fixture.
+2. **S-7 remains position-sensitive** where ordering is now a legitimate operator
+   action. `skuRollups` is an indexed array and the baseline is keyed by
+   position, so a reorder moves the digest with no value change. Logged as a
+   later test-harness improvement — key entries by canonical identity rather than
+   by index. **Not redesigned during this closeout.**
+3. `confirm-s7-delta.ts` is kept. The next time a digest moves, the first
+   question is again "what KIND of movement", and the multiset comparison is the
+   instrument that answers it.
