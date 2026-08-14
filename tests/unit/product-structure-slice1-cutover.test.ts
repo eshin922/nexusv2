@@ -244,6 +244,10 @@ const classifiedIdentityFiles = new Set([
   // CLASSIFIED — canonical only. Step 8 builds fixtures keyed by
   // (quote_id, leaf_id) and sweeps source for the retired write paths.
   "scripts/verify/step-8-leaf-authority-retired.ts",
+  // CLASSIFIED — read-only evidence, canonical only. The B-14 falsification
+  // asserts attachment is read from `quote_leaves`, the canonical table, and
+  // creates its own fixtures.
+  "scripts/verify/b14-attachment-state.ts",
   // CLASSIFIED — read-only evidence, canonical only. The Step 9 post-drop
   // runtime probe executes every loader that once read the dropped columns; it
   // creates nothing and maps between no identity spaces.

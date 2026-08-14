@@ -9,6 +9,7 @@ import {
   productTypes,
   projects,
   quotes,
+  quoteLeaves,
 } from "@/db/schema";
 import { productTypeOrderExpression } from "@/lib/product-type-order";
 import {
@@ -90,6 +91,10 @@ export type LibraryBrowseRow = {
   totalRefs: number;
   totalScenarios: number;
   attachedAssemblyIdsInTargetQuote: string[];
+  /** B-14 · attached at quote level with no Item Group. */
+  attachedDirectInTargetQuote: boolean;
+  /** B-14 · attached to this quote at all, however structured. */
+  attachedInTargetQuote: boolean;
   /**
    * Whether the attach gate would REFUSE this product, and why — computed
    * server-side by `evaluateAttachmentEligibility`, the same function both
@@ -246,37 +251,43 @@ export async function loadLibraryBrowse(
     };
   }
 
-  // Step 8 · product_types is no longer read here. A Library row's
-  // classification is HubSpot's, carried on `hubspot_product_type`.
-  const [junctionRows] = await Promise.all([
+  // B-14 · attachment is read from `quote_leaves`, the CANONICAL attachment
+  // table — not from `assembly_leaves`.
+  //
+  // The legacy junction only records GROUP MEMBERSHIP. A Direct Product is
+  // attached with `assembly_id NULL` and produces no junction row at all, so a
+  // junction-derived reading could never see it: the operator attached a
+  // product, the attach succeeded, and the row kept offering `Add`. Same defect
+  // family as OD-017/OD-028 — a consumer matching on the legacy identity.
+  //
+  // `quote_leaves.assembly_id` carries the membership too (NULL = Direct), so
+  // one query answers both "is it in this quote" and "which group".
+  const [attachmentRows] = await Promise.all([
     db
       .select({
-        junctionId: assemblyLeaves.id,
-        leafId: assemblyLeaves.leafId,
-        assemblyId: assembly_leaves_assembly_id,
-        assemblyQuoteId: assemblies.quoteId,
+        leafId: quoteLeaves.leafId,
+        assemblyId: quoteLeaves.assemblyId,
+        quoteId: quoteLeaves.quoteId,
       })
-      .from(assemblyLeaves)
-      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
-      .where(inArray(assemblyLeaves.leafId, baseIds)),
+      .from(quoteLeaves)
+      .where(inArray(quoteLeaves.leafId, baseIds)),
   ]);
 
-  // Group junctions by leaf for per-leaf stats + attached-flag.
-  const junctionsByLeaf = new Map<string, typeof junctionRows>();
-  for (const j of junctionRows) {
-    const list = junctionsByLeaf.get(j.leafId) ?? [];
-    list.push(j);
-    junctionsByLeaf.set(j.leafId, list);
+  const attachmentsByLeaf = new Map<string, typeof attachmentRows>();
+  for (const a of attachmentRows) {
+    const list = attachmentsByLeaf.get(a.leafId) ?? [];
+    list.push(a);
+    attachmentsByLeaf.set(a.leafId, list);
   }
 
   // Scope filter at row level.
   const filteredBase = baseRows.filter((r) => {
-    const js = junctionsByLeaf.get(r.id) ?? [];
+    const at = attachmentsByLeaf.get(r.id) ?? [];
     if (filters.scopeFilter === "this") {
-      return js.some((j) => j.assemblyQuoteId === filters.targetQuoteId);
+      return at.some((a) => a.quoteId === filters.targetQuoteId);
     }
     if (filters.scopeFilter === "other") {
-      return js.some((j) => j.assemblyQuoteId !== filters.targetQuoteId);
+      return at.some((a) => a.quoteId !== filters.targetQuoteId);
     }
     return true; // "all" or undefined
   });
@@ -285,11 +296,20 @@ export async function loadLibraryBrowse(
   const trimmed = filteredBase.slice(0, limit);
 
   const rows: LibraryBrowseRow[] = trimmed.map((r) => {
-    const js = junctionsByLeaf.get(r.id) ?? [];
-    const attachedAssemblyIdsInTargetQuote = js
-      .filter((j) => j.assemblyQuoteId === filters.targetQuoteId)
-      .map((j) => j.assemblyId);
-    const distinctQuoteIds = new Set(js.map((j) => j.assemblyQuoteId));
+    const at = attachmentsByLeaf.get(r.id) ?? [];
+    const inTargetQuote = at.filter((a) => a.quoteId === filters.targetQuoteId);
+    const attachedAssemblyIdsInTargetQuote = inTargetQuote
+      .map((a) => a.assemblyId)
+      .filter((id): id is string => id !== null);
+    // Attached at quote level with no group. The case the junction could not
+    // represent, and the one the operator hit.
+    const attachedDirectInTargetQuote = inTargetQuote.some(
+      (a) => a.assemblyId === null,
+    );
+    // Attached to this quote AT ALL, however it is structured. What the row
+    // badge should reflect when no specific group is the target.
+    const attachedInTargetQuote = inTargetQuote.length > 0;
+    const distinctQuoteIds = new Set(at.map((a) => a.quoteId));
 
     return {
       leafId: r.id,
@@ -302,9 +322,11 @@ export async function loadLibraryBrowse(
       // The gate's own verdict, not a re-derivation of it.
       eligibility: evaluateAttachmentEligibility({ sku: r.sku, archived: r.archived }),
       hubspotProductType: r.hubspotProductType,
-      totalRefs: js.length,
+      totalRefs: at.length,
       totalScenarios: distinctQuoteIds.size,
       attachedAssemblyIdsInTargetQuote,
+      attachedDirectInTargetQuote,
+      attachedInTargetQuote,
     };
   });
 
