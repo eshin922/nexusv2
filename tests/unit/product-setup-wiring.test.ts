@@ -715,3 +715,37 @@ test("B-8 · the type tag uses the DA's quiet register, untyped stays actionable
   // The readiness chip is untouched: primary by subtraction, not amplification.
   assert.doesNotMatch(css, /\.a1v2-chip\.(complete|partial|empty|no_type)/);
 });
+
+// ------------------------------------- B-4/B-10 · one visual system
+test("B-10 · a Direct Product renders in the PRODUCT register", async () => {
+  const css = await read("src/styles/r-a1v2-overrides.css");
+  // Register represents structural ROLE. A Direct Product is a product, and it
+  // was wearing the Item Group's container typography — so a container and a
+  // product were typographically identical.
+  assert.match(css, /\.a1v2-direct-row \.name-cell \.name \{[^}]*font-style: normal[^}]*font-size: 12\.5px/);
+  assert.match(css, /\.a1v2-direct-row \.sku-pill \{[^}]*background: none/);
+  // Independence stays in POSITION and the left rule, not in a third register.
+  assert.match(css, /\.a1v2-asy-row\.a1v2-direct-row \{[^}]*border-left-color: var\(--ink-4\)/);
+});
+
+test("B-10 · row-level secondary actions converge on the overflow grammar", async () => {
+  const src = await code("src/components/assembly-tree/direct-product-row.tsx");
+  assert.match(src, /className="context-trigger"/);
+  assert.match(src, /a1v2-context-menu/);
+  // Same handlers, different place. Semantics unchanged.
+  assert.match(src, /href=\{editSpecsHref\}/);
+  assert.match(src, /onClick=\{handleRemove\}/);
+  // The inline pair is gone.
+  assert.doesNotMatch(src, /className="a1v2-btn ghost sm"/);
+});
+
+test("B-10 · an absent Item Group SKU renders no pill, and the duplicate type signal is gone", async () => {
+  const asy = await code("src/components/assembly-tree/asy-row.tsx");
+  // A filled accent pill around an em dash reads as broken, not as absent.
+  assert.match(asy, /displaySku \? \(\s*<span className="sku-pill">\{displaySku\}<\/span>/);
+  assert.doesNotMatch(asy, /sku-pill">\{displaySku \?\? /);
+  // NO TYPE SET already carries the actionable condition; valid metadata stays.
+  const direct = await code("src/components/assembly-tree/direct-product-row.tsx");
+  assert.doesNotMatch(direct, /\?\? "untyped"/);
+  assert.match(direct, /product\.productType \? \(/);
+});

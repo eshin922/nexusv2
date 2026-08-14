@@ -156,7 +156,15 @@ export function AsyRow({
         >
           ▾
         </span>
-        <span className="sku-pill">{displaySku ?? "—"}</span>
+        {/* No pill at all when the SKU is the governed generated placeholder.
+            An accent pill wrapped around an em dash reads as broken rather than
+            as absent. The detection reconstructs the exact generated string, so
+            an operator-authored "ASY-7" keeps its pill. */}
+        {displaySku ? (
+          <span className="sku-pill">{displaySku}</span>
+        ) : (
+          <span aria-hidden="true" />
+        )}
         <div className="name-cell">
           <div className="name">{asy.name}</div>
           <div className="meta">

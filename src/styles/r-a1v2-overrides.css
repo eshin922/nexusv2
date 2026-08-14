@@ -654,3 +654,50 @@
 }
 .lib-row .status-cell .status-pill { white-space: normal; text-align: left; }
 .lib-row .action-cell { flex-shrink: 0; }
+
+/* B-4/B-10 · one visual system.
+ *
+ * GOVERNING PRINCIPLE: register represents structural ROLE — container or
+ * product. Depth is carried by position, indentation and connectors, which is
+ * what the DA already uses depth for.
+ *
+ * The seam this closes: a Direct Product is a PRODUCT, and it was rendering in
+ * the Item Group's container register — 14px display italic with an accent SKU
+ * pill — so a container and a product were typographically identical and only a
+ * rule colour and a glyph told them apart. On the reference quote the pills were
+ * empty as well, so Direct Products were taking container prominence while
+ * carrying no container identity at all.
+ *
+ * Structural independence is preserved by POSITION and the existing top-level
+ * left rule, not by typography. No third register is introduced.
+ */
+.a1v2-asy-row.a1v2-direct-row .name-cell .name {
+  font-family: inherit;
+  font-style: normal;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+/* Plain mono identity, as member rows use — not a filled accent pill. */
+.a1v2-asy-row.a1v2-direct-row .sku-pill {
+  background: none;
+  color: var(--ink-3);
+  font-weight: 400;
+  font-size: 10.5px;
+  padding: 0;
+  text-align: left;
+}
+/* The role word sits with the metadata rather than competing with the name. */
+.a1v2-asy-row.a1v2-direct-row .leaf-count {
+  font-size: 10px;
+  color: var(--ink-4);
+}
+/* Type tag matches the demoted member treatment, so the readiness chip stays
+   the only coloured element on a product row at either level. */
+.a1v2-asy-row.a1v2-direct-row .type-tag {
+  color: var(--ink-4);
+  background: var(--paper-3);
+  border-color: transparent;
+}
+/* Overflow needs positioning context now that the actions collapsed into it. */
+.a1v2-asy-row.a1v2-direct-row .direct-actions { position: relative; }

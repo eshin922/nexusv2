@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import type { DirectProductNode } from "@/lib/assembly-tree";
 import { CompletenessChip } from "./completeness-chip";
 import { detachQuoteProduct } from "@/app/actions/quote-products";
@@ -34,6 +34,30 @@ export function DirectProductRow({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Click-outside + Escape dismiss, matching the member row's overflow so the
+  // two behave identically now that they share the grammar.
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDown(e: MouseEvent) {
+      if (menuRef.current?.contains(e.target as Node)) return;
+      setMenuOpen(false);
+      setConfirming(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      setMenuOpen(false);
+      setConfirming(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   // B-8 — the cross-quote usage cell is GONE from this surface. Under B-3
   // isolation it changes no quote-side decision: this quote owns its
@@ -78,52 +102,63 @@ export function DirectProductRow({
             <span>
               qty {qtyDisplay} · {costDisplay}
             </span>
-            <span className="sep">·</span>
-            <span className="type-tag">
-              {product.productType?.name ?? "untyped"}
-            </span>
+            {/* B-10 · the untyped case is already carried by the
+                NO TYPE SET readiness chip on this row. Saying it twice put the
+                same fact in both of the row's coloured slots. Valid type
+                metadata still renders. */}
+            {product.productType ? (
+              <>
+                <span className="sep">·</span>
+                <span className="type-tag">{product.productType.name}</span>
+              </>
+            ) : null}
           </div>
         </div>
         <span className="leaf-count">Product</span>
         <CompletenessChip completeness={product.specCompleteness} />
         {/* One grid cell for every action, so the confirm state adding a
             second button cannot reflow the row into a new grid line. */}
-        <div className="direct-actions">
-          <a className="a1v2-btn ghost sm" href={editSpecsHref}>
-            Edit product specs
-          </a>
-          {editable ? (
-            confirming ? (
-              <>
-                <button
-                  type="button"
-                  className="a1v2-btn ghost sm"
-                  onClick={handleRemove}
-                  // Pattern 47(f): this button owns the action it initiates,
-                  // and nothing else on the row is gated by it.
-                  disabled={pending}
-                  title={pending ? "Removing…" : "Confirm removal"}
-                >
-                  {pending ? "Removing…" : "Confirm"}
-                </button>
-                <button
-                  type="button"
-                  className="a1v2-btn ghost sm"
-                  onClick={() => setConfirming(false)}
-                >
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                className="a1v2-btn ghost sm"
-                onClick={() => setConfirming(true)}
-                title="Remove this product from the quote"
+        {/* B-10 · overflow, not inline. The DA's row grammar ends every row in
+            a single `…`; the inline pair arrived with §9.1 and was never
+            measured against it. Handlers and semantics are unchanged — only
+            where the operator reaches them. */}
+        <div className="direct-actions" ref={menuRef}>
+          <button
+            type="button"
+            className="context-trigger"
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-label={`${product.name} actions`}
+          >
+            ⋯
+          </button>
+          {menuOpen ? (
+            <div className="a1v2-context-menu" role="menu" aria-label="Product actions">
+              <div className="header">Product actions</div>
+              <a
+                href={editSpecsHref}
+                className="item accent"
+                role="menuitem"
+                onClick={() => setMenuOpen(false)}
               >
-                Remove
-              </button>
-            )
+                Edit product specs
+              </a>
+              {editable ? (
+                <>
+                  <div className="sep" />
+                  <button
+                    type="button"
+                    className="item bad"
+                    role="menuitem"
+                    onClick={handleRemove}
+                    disabled={pending}
+                  >
+                    {confirming ? "Confirm — remove from quote" : "Remove"}
+                  </button>
+                </>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </div>
