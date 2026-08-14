@@ -468,3 +468,95 @@ One slice, no standalone deploys:
 
 **Drag/drop is DONE for V1.** No further polish before beta unless a new blocker
 appears.
+
+
+---
+
+## 17 · Scenario Copy — V1 functional blocker (2026-08-14)
+
+**Copy Scenario must create an editable alternative whose initial working
+commercial state is EQUIVALENT to the source.** Immediately after copy, before
+any operator edit: *source economics = copied economics*.
+
+### Root cause — a stale rationale, not a decision
+
+`quotes.ts:3082` reads:
+
+> `Dropped per Pattern 32: packaging_inputs, production_inputs, quote_sku_tiers,
+> quote_sku_tier_targets — all FK to legacy quoteSkus.id chain; orphan for v1
+> quotes.`
+
+That was TRUE when written — those tables were empty for v1 quotes, so dropping
+them cost nothing. Since Slice 11.5/11.5.1 and OD-017, cost inputs live in
+`assembly_leaf_inputs` / `assembly_production_inputs` keyed on `quote_leaf_id`,
+which appear in **neither** list. The copy drops today's costs by omission,
+under a comment explaining why it dropped yesterday's. **Superseded — do not
+preserve the omission.**
+
+### Carry forward (editable working state)
+
+tiers **including quantities** (the current reset is removed — it conflicts with
+the equivalence invariant) - Direct products - Item Groups - membership and
+ordering - quote-owned specs - packaging inputs - packaging overrides/targets -
+production inputs - bulk raw - freight/customs/duty/tariff - pricing GPA +
+target margin - pricing lifts and other active adjustments required to
+reproduce current sell/margin - **internal notes** - **customer-facing notes**.
+
+Notes carry because Scenario Copy creates an alternative from the current
+working commercial context, not a blank quote. The operator can edit or remove
+them in the copy.
+
+### Keep reset (historical / workflow identity)
+
+sent snapshots + PDF identity - approvals/authorization - acceptance/complete
+state - audit history - provider/NetSuite transaction state - external
+transaction identities.
+
+### Identity requirement — the part that must not be shortcut
+
+Build the **source -> destination identity map first**: new quote id, new
+canonical `quote_leaves.id` values, new Item Group/membership identities. Then
+remap every dependent row onto the new identities. **Do not blind-copy FK
+values** — that would attach the copy's costs to the source's leaves, which
+after OD-017 is precisely the wrong failure to risk.
+
+### Implementation order
+
+1. Confirm actual cloning of `quote_leaves` and `assembly_leaves` **from the
+   insert path, not the header claim.** The header already asserted membership
+   cloning that was not observed in the insert set — and a comment being wrong
+   is what caused this defect.
+2. Build the explicit identity map.
+3. Clone/remap the complete editable working state.
+4. Preserve tier quantities.
+5. Prove initial economic equivalence.
+6. Prove independence after mutation, both directions.
+
+### Acceptance
+
+structure = - quantities = - specs = - packaging/production/freight = - cost,
+sell, revenue, margin identical before any edit - all dependent rows reference
+the NEW identities - editing the copy cannot mutate the source - editing the
+source cannot mutate the copy - workflow/history/provider state not duplicated.
+
+Targeted economic-equality proof + targeted tests + `tsc` only.
+
+## 18 · Presentation closeout addition — Production paired-toggle regression
+
+**Log only. No logic work; do not interrupt the Scenario Copy repair for it.**
+
+`Customer ships raws` and `Allocate service fees to unit cost` previously shared
+one Production-level control row. `Allocate service fees` has moved to a
+separate full-width row below the production-block summary.
+
+**Restore the paired layout:** `Customer ships raws | Allocate service fees to
+unit cost`. Both are Production-level costing controls and should read as peers.
+
+The current placement also creates a **scope problem**: it sits immediately
+below the Item Group header, so it reads as belonging to that Item Group rather
+than to the Production surface.
+
+Requirements: same horizontal control row - preserve all existing
+behaviour/state - preserve existing explanatory copy - may stack responsively on
+genuinely narrow screens - do not move either control into an Item Group/product
+block - **no costing or business-logic changes.**

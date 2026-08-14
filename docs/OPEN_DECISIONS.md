@@ -829,6 +829,33 @@ a kind whose advertised operation it does not perform.
 
 ## Open — needed before the relevant work starts
 
+### CS-1 · Client Send unresolved-category enrichment
+
+**Owner:** Edward · **Blocks:** nothing — the Client Send repair shipped without
+it · **Raised:** 2026-08-14, during the digest `2489794625` repair.
+
+`UnresolvedQuoteCost` carries **no machine-readable reason or category**. Its
+only statement of *what* is missing is the optional human-readable
+`description`, and only freight and customs rows populate it. Packaging rows
+arrive with product, SKU, tier and three UUIDs — and nothing that says which
+input is absent.
+
+So the blocked-state list reads, for those rows, **`Cost unresolved`**.
+
+**Why it was not made smarter.** The shape could be inferred from the product,
+or from which table the row came out of. That would be a guess presented as
+fact, and the operator would act on it — walking to the wrong surface to enter
+the wrong number. Less useful and true beats useful and possibly wrong.
+
+**Proposed:** add a category/reason field to the costing completeness payload,
+populated where the check already knows what it tested for — it necessarily does,
+since it decided the row was unresolved. Every blocked line could then name its
+own missing input.
+
+**Explicitly not in scope of the Client Send repair.** It touches the costing
+layer, and that repair changed no costing or send economics — which is what let
+it ship on targeted verification alone.
+
 ### OBS-1 · production artifact identity is not provable
 
 **Owner:** Edward · **Blocks:** nothing today · **Raised:** 2026-08-14, during

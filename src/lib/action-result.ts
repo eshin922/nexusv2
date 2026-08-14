@@ -6,7 +6,23 @@
  * See CLAUDE.md "Action result pattern" for the project convention.
  */
 
-export type ActionError = { code: string; message: string; field?: string };
+import { UnresolvedQuoteCostsError } from "./quote-cost-completeness-contract";
+
+export type ActionError = {
+  code: string;
+  message: string;
+  field?: string;
+  /**
+   * Structured payload for refusals the UI must RENDER rather than merely
+   * report. Present only for codes that document it — today
+   * `UNRESOLVED_COSTS`, whose payload is the unresolved cost rows.
+   *
+   * It exists so a caller never has to parse the human-readable `message`.
+   * Message text is written for a person and changes freely; anything that
+   * branched on it would break the first time the copy improved.
+   */
+  details?: unknown;
+};
 
 export type ActionResult<T = void> =
   | { ok: true; data: T }
@@ -16,6 +32,14 @@ export type ActionResult<T = void> =
 // modes like QUOTE_NOT_DRAFT) and server (for tagging the cause).
 export const ERR = {
   QUOTE_NOT_DRAFT: "QUOTE_NOT_DRAFT",
+  /**
+   * The quote carries costs the operator has not resolved. A BUSINESS REFUSAL,
+   * not a fault: the guard is working, and the send is correctly declined.
+   *
+   * It has its own code because it is the one refusal the UI must render as a
+   * work list rather than a sentence — `error.details` carries the rows.
+   */
+  UNRESOLVED_COSTS: "UNRESOLVED_COSTS",
   // Slice 12 Step 10 §0.5 RECOMMEND 1 — the "quote is frozen"
   // signal for writes that must not touch accepted/complete quotes
   // outside the sanctioned reopen path. See assertRevisable().
@@ -54,8 +78,17 @@ export function actionError(
   code: string,
   message: string,
   field?: string,
+  details?: unknown,
 ): ActionResult<never> {
-  return { ok: false, error: { code, message, ...(field ? { field } : {}) } };
+  return {
+    ok: false,
+    error: {
+      code,
+      message,
+      ...(field ? { field } : {}),
+      ...(details === undefined ? {} : { details }),
+    },
+  };
 }
 
 /**
@@ -133,6 +166,21 @@ export async function runAction<T>(
   } catch (e) {
     if (e instanceof ActionGuardError)
       return actionError(e.code, e.message, e.field);
+    // A BUSINESS REFUSAL, not a fault. The cost guard is authoritative and
+    // stays exactly as it is; what was wrong is that its exception was not in
+    // the vocabulary this function translates, so it fell through to the
+    // rethrow below and Next rendered it as a server-side application error.
+    // The operator got a 500 where they should have got a work list.
+    //
+    // The structured `unresolved` payload is passed through verbatim. Nothing
+    // parses the message string — that text is written for a person.
+    if (e instanceof UnresolvedQuoteCostsError)
+      return actionError(
+        ERR.UNRESOLVED_COSTS,
+        "Resolve costs before sending.",
+        undefined,
+        e.unresolved,
+      );
     const pg = pgValidationError(e);
     if (pg) return actionError(pg.code, pg.message);
     throw e;

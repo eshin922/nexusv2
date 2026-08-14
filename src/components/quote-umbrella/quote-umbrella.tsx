@@ -30,12 +30,14 @@ import { Legend } from "./legend";
 import { QuoteAxisProvider } from "./quote-axis-context";
 import { TabPreviewQuote } from "./tab-preview-quote";
 import { TabSendToClient } from "./tab-send-to-client";
+import type { UnresolvedQuoteCost } from "@/lib/quote-cost-completeness-contract";
 import { TabClientReview } from "./tab-client-review";
 import { TabMarkAccepted } from "./tab-mark-accepted";
 import { TabSalesOrder } from "./tab-sales-order";
 import type { SubTabId } from "./subtabs";
 
 export function QuoteUmbrella({
+  unresolvedCosts,
   activeTab,
   view,
   quoteId,
@@ -64,6 +66,8 @@ export function QuoteUmbrella({
   projectId,
   versionChain,
 }: {
+  /** Send readiness, loaded server-side. Empty means nothing blocks the send. */
+  unresolvedCosts: ReadonlyArray<UnresolvedQuoteCost>;
   activeTab: SubTabId;
   view: CustomerView;
   quoteId: string;
@@ -295,6 +299,7 @@ export function QuoteUmbrella({
           )}
           {activeTab === "send" && (
             <TabSendToClient
+              unresolvedCosts={unresolvedCosts}
               view={view}
               quoteId={quoteId}
               quoteStatus={quoteStatus}

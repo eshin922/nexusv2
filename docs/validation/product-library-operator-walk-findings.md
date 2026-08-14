@@ -1216,3 +1216,44 @@ That distinction is the whole reason to write this down. Two refreshes in one
 afternoon, each individually justified, is exactly how a gate stops meaning
 anything: the third one arrives already framed as routine. The boundary is what
 keeps the next movement diagnostic instead of administrative.
+
+
+## OW-12 · Third authorized S-7 refresh — demo state, basket cleaned first (2026-08-14)
+
+**Refreshed** `84890653...6150a6df` -> `3d67a986...823a7ccc`. 33 quotes, 0 failed,
+green on two consecutive runs.
+
+### Provenance
+
+Only `2f29af72` differs. Every write attributable to `edward.shin@gmail.com`
+(admin):
+
+- **19:11** `pricing_adjustments_applied` + `assembly_leaf_sell_override_updated`
+  — an override legitimately moved margin, `0.3432 -> 0.3322`.
+- **19:22** `assembly_created` + 4 x `product_membership_moved` — a new Item
+  Group legitimately changed rollup shape, per-tier array 27 -> 30.
+
+Identity set unchanged 8 -> 8; nothing added or removed; `float-noise-only
+paths: 0`, so this is real movement and not the torn read that produced OW-11.
+
+### The basket was cleaned BEFORE the refresh, not after
+
+Two scenario copies — `658c8bb4` ("Copy of Cert mixed") and `5a6e0883`
+("Alt 1"), both from `d6a3ba17` — had entered the basket at 19:25 and 19:49.
+They carry the **known scenario-copy defect** (structure and tiers present, all
+per-product economic inputs absent), so refreshing with them present would have
+certified a defect as baseline truth. That is the specific trap: S-7 does not
+know a number is wrong, only that it is stable.
+
+Confirmed disposable before deletion — both `draft`, no `sent_at`,
+`accepted_at`, `pdf_url`, `quote_number`, `hubspot_quote_id`, zero snapshots,
+every NetSuite field null. Deleted scoped to those two ids
+(`leaves 4, assemblies 2, tiers 2, quotes 2`), with the safety conditions
+re-asserted INSIDE the transaction rather than trusted from the read that
+authorized it — a separate read is a separate moment.
+
+### `2f29af72` is now READ-ONLY EVIDENCE
+
+No further mutable demos or validation. All writes go to explicit
+`ZZ-VALIDATION-*` fixtures. This is the third time this quote has moved the
+gate; the boundary is only worth anything if the next movement is diagnostic.
