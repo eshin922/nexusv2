@@ -829,7 +829,64 @@ a kind whose advertised operation it does not perform.
 
 ## Open — needed before the relevant work starts
 
-### CI-1 · the S-7 preservation required check is configured without the database authority it needs
+### OBS-1 · production artifact identity is not provable
+
+**Owner:** Edward · **Blocks:** nothing today · **Raised:** 2026-08-14, during
+the Product Type authority cutover. **Explicitly NOT implemented in that
+cutover.**
+
+**Nexus has no operator- or agent-visible way to prove which git commit
+production is serving.** Everything available is an inference:
+
+| attempted | why it falls short |
+|---|---|
+| Vercel build success | says a build succeeded, not that the production alias points at it |
+| GitHub `Production` deployment record | Vercel's own claim about promotion, not an observation of the running artifact |
+| deployment-specific alias | behind deployment protection; returns nothing |
+| `/api/certification-status` | responds, carries no commit identity |
+| production HTML `buildId` | opaque per-build hash with nothing to compare it against |
+| public JS bundles | only pages-router shell chunks are unauthenticated; App Router chunks need a session |
+
+The gap surfaced three times in one session, and it mattered most where it was
+least affordable: **before a destructive migration**, where the whole safety
+argument rests on "the deployed code no longer references the column being
+dropped." That claim was reachable only by operator smoke, which is slower and
+less certain than reading a value.
+
+**Proposed capability, not yet designed:** expose `VERCEL_GIT_COMMIT_SHA` (or
+equivalent) through a protected version/status endpoint, or fold it into an
+existing operational surface such as `/api/certification-status`. Must not leak
+credentials, and should be readable without a full operator session so that
+automation can use it.
+
+**Why it is worth having.** Any future destructive or compatibility-ordered
+migration needs the same proof. Without it, every such cutover pays the same
+operator-smoke cost and settles for a weaker claim than the situation deserves.
+
+### CI-1 · the S-7 preservation required check ran without the database authority it needed — **CLOSED 2026-08-14**
+
+**Resolved.** `verify.yml`'s verifier step ran `npm run prebuild`, the DEPLOYMENT
+gate, which contains `verify:s7-preserved` — the one check this workflow's own
+header lists under "WHAT IS DELIBERATELY NOT HERE". CI was therefore invoking,
+indirectly, the thing it had documented itself as excluding.
+
+Fixed by a governed `verify:ci` script — `prebuild` minus that single entry,
+eleven checks each verified environment-free rather than assumed. `prebuild` is
+unchanged and still enforces S-7 for deployment. **No database or provider secret
+was added to GitHub Actions**; doing so would couple mergeability to a shared
+mutable database and hand CI live production credentials.
+
+Evidence: `verify:ci` EXIT=0 with `DATABASE_URL`, `DIRECT_URL`, both HubSpot
+tokens and `NETSUITE_ACCOUNT_ID` unset; the GitHub `verify` check green;
+PR #260 merged through the normal path with **no `--admin` bypass**.
+
+The boundary this restored: **CI runs deterministic, environment-free
+verification; S-7 stays deployment protection.** Do not reopen unless that
+regresses.
+
+<details><summary>Original entry</summary>
+
+#### CI-1 · the S-7 preservation required check is configured without the database authority it needs
 
 **Owner:** Edward · **Blocks:** nothing functionally — but it defeats branch
 protection today
@@ -866,6 +923,8 @@ first is the only one that makes the check genuinely enforcing.
 
 **Do not fold this into an unrelated change.** It touches branch protection and
 possibly CI credentials, and belongs in its own PR with its own review.
+
+</details>
 
 ### OD-009 · Freight markup resolution when a break carries no markup
 
