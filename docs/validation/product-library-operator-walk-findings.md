@@ -373,3 +373,121 @@ baseline disposition mid-review. A quote is in the basket if it has at least one
 `assembly_leaves` row and its `scenario_label` is outside the excluded
 namespaces — which is most real quotes, so the check is worth making before the
 walk rather than after the build fails.
+
+---
+
+## B-4 · SKU tree has drifted from the Design Authority — **V1 SIGN-OFF BLOCKER**
+
+**Investigation only. Nothing repaired.**
+
+### The governing source
+
+`src/styles/r-a1v2-setup.css`, imported verbatim under Pattern 30
+path-B-default from CD's `docs/design-prototypes/dist/qw_styles.css`. It is the
+DA for this tree. Two documented drops (review-chrome state strip, a
+`--paper-4` override); no other content modification. The implementation's own
+CSS is therefore *not* the reference — the upstream file is.
+
+### What the DA specifies
+
+**Item Group — `.a1v2-asy-row`**
+
+| | |
+|---|---|
+| grid | `24px 90px 1fr auto auto auto` — **six columns** |
+| padding | `14px 16px` |
+| left rule | `3px solid transparent`; **`.expanded` → `border-left-color: var(--accent)`** plus an accent-tinted background |
+| name | **14px, `var(--display)`, italic**, weight 500 |
+| sku pill | accent-tinted fill, `--accent-ink`, weight 600 |
+
+**Member products — `.a1v2-leaves` > `.a1v2-leaf-row`**
+
+| | |
+|---|---|
+| container | `.a1v2-leaves` — `background: var(--paper-2)`, bottom rule. A **contained block**, not loose rows |
+| grid | `60px 110px 1fr auto auto auto`, `padding: 10px 16px 10px 60px` |
+| connector | `::before` 1px vertical at `left: 38px`, full height; `::after` 14px horizontal tick at `left: 38px, top: 20px`; **`:last-child::before { bottom: 50% }`** so the spine terminates at the final tick |
+| name | **12.5px, regular** — deliberately subordinate to the group's 14px display italic |
+| sku | plain mono text, **not** a pill |
+
+**Standalone Product — the DA specifies nothing.** Direct Products are §9.1,
+added days ago. There is no canonical treatment to have drifted from; whatever
+renders today was invented.
+
+### Difference ledger
+
+**Approved dispositions — preserve**
+
+1. **Direct Product reuses the `.a1v2-asy-row` register.** Recorded as a nexus
+   extension with rationale in `r-a1v2-overrides.css`: a Direct Product is a
+   *peer* of an Item Group, so same height, rhythm and left rule; the rule is
+   set to `--ink-4` because the accent-on-expanded treatment could never fire on
+   a row with no children. Pattern 39 shape — documented at the extension site,
+   real data behind it.
+2. **Drag-handle affordances** on both row types — additive, documented.
+3. **`ASY-{quote-short}-{n}` as a generated SKU** is a *placeholder* by design
+   (`assemblies.ts:144`), used only when the operator supplies none.
+
+**Unapproved drift**
+
+4. **The peer treatment is now indistinguishable from the group.** The
+   disposition says "same register, distinguished by the left rule". In practice
+   both rows resolve to the same rule colour in the common case: an Item Group
+   turns accent only when `.expanded`, and `isExpanded` is
+   `asy.children.length > 0` — so an **empty** Item Group and a Direct Product
+   are pixel-identical apart from a non-interactive twirl glyph. The distinction
+   was made to rest on a state that does not track the structural difference it
+   is being asked to express.
+5. **The Item Group grid is overflowing.** `.a1v2-asy-row` defines **six**
+   columns; the row now renders **eight** children — twirl, sku-pill, name-cell,
+   leaf-count, rollup chip, notes trigger, **`+ Add products`**, context menu.
+   The surplus wraps onto an implicit second row, which is why `+ Add products`
+   drops beneath the group instead of sitting in the action cluster, and it
+   breaks the visual seal between the group header and its `.a1v2-leaves` block.
+   **This is mine, introduced in `aa24134`** — and it is the exact failure the
+   Direct Product override's own comment describes avoiding ("rather than
+   letting the surplus child wrap onto an implicit row"). The grid was restated
+   there and not here.
+6. **`ASY-*` is operator-visible in the sku pill**, in the highest-contrast
+   treatment on the row (accent fill, weight 600). The placeholder predates the
+   vocabulary disposition, and the vocabulary sweep covered JSX strings and
+   never looked at generated *data*. Operator-visible `ASY` therefore survives a
+   test asserting it is gone — the test reads source text, and this string is
+   produced at runtime.
+7. **Member rows read as detached.** Two contributors, both consequences of the
+   above rather than of the connector CSS, which is intact and canonical: the
+   wrapped grid pushes the group's own content below the connector's origin, and
+   `.a1v2-leaves` renders unconditionally while `.expanded` is tied to child
+   count, so the container tint that should bind the block to its header is
+   present but no longer aligned with an accent-marked header.
+
+### Minimum restoration proposed — not implemented
+
+Ordered by whether it restores canon or completes it. Nothing here is a
+redesign, and no capability is removed.
+
+1. **Restate the grid where a cell was added.** `.a1v2-asy-row` carrying the
+   `+ Add products` cell gets a seventh column, exactly as `.a1v2-direct-row`
+   already does for its actions cluster. Removes the implicit row and reseals
+   the group header against its member block. *Restores canon; fixes drift 5 and
+   most of 7.*
+2. **Bind the group's accent rule to being an Item Group, not to being
+   expanded.** Apply the canonical `border-left-color: var(--accent)`
+   structurally, and keep the tinted background for the expanded state. Uses the
+   DA's own token and treatment; changes only what triggers it. *Fixes drift 4
+   without inventing anything.*
+3. **Stop rendering the `ASY-` placeholder to the operator.** The stored value
+   is referenced by certified NetSuite projection and audit evidence and must
+   **not** change; this is a display rule — suppress the pill when the SKU is a
+   generated placeholder, or render the group's position instead. *Fixes drift
+   6. Data untouched.*
+4. **Give the standalone product its own first-level mark.** The only item with
+   no canonical source, so the minimum is the smallest thing that carries
+   meaning: the DA already reserves the 24px column for a twirl the Direct row
+   cannot use. Filling that column with a leaf-level glyph — the DA's own
+   `.leaf-icon` register — states "single product, nothing below" in existing
+   vocabulary. *Completes canon rather than extending it.*
+
+Recommend CD review before item 4 ships, since it is the one with no upstream
+source. Items 1-3 are restoration and can be evidenced against `qw_styles.css`
+directly.
