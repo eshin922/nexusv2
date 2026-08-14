@@ -73,7 +73,57 @@ the gap is specific to the direct structure rather than to the re-fetch.
 
 ---
 
-## OW-2 · (reserved)
+## OW-2 · The operator walk red-lines the Preview build (Gate 1B S-7)
+
+**Status:** blocking the walk. **Not repaired — the fix is a disposition, not a
+code change, and one of the options destroys evidence.**
+
+The Preview build now fails in `verify:s7-preserved`:
+
+```
+FAIL  2f29af72-…  Smart Pressed Juice - Juice Cleanse Reorder 2026 / Primary
+        skuRollups: length 4 -> 6
+A commercial number moved.
+```
+
+**It is not a number moving and not caused by the B-1 repair.** It is a
+LENGTH change: two products were added to a quote inside the S-7 preservation
+basket. Established from the database rather than inferred:
+
+```
+2026-08-05 18:15…  grouped  50ml Plastic Stick (50% PCR)
+2026-08-05 18:16…  grouped  50ml Plastic Stick (70%PCR)
+2026-08-05 18:16…  grouped  75ml Aluminum Wax Stick
+2026-08-13 23:46:47  DIRECT  10064-GNX-Box    Genexa - Box - Kids' Cough
+2026-08-13 23:46:57  DIRECT  DPS-BOTTLE-0001  Primary - Bottle
+
+audit: 2 x quote_product_attach, edward.shin@gmail.com, 2026-08-13 23:46
+```
+
+Both are Direct Product attachments made during the operator walk — walk item 6,
+"existing Direct Product attachment." **The gate is working correctly.** It
+detected that a baselined quote changed shape.
+
+**The structural tension it exposes.** The S-7 baseline is captured over LIVE
+quotes in the shared dev/prod database, so exercising the product-attach
+workflow on any baselined quote turns the build red. The operator walk and the
+preservation gate are pointed at the same rows. The walk cannot get a new
+deployment while this stands — the branch alias still serves `9ab025e`, which
+predates the B-1 repair.
+
+**Options, for disposition — I have not chosen one.**
+
+1. **Refresh the S-7 baseline** to absorb the walk's additions. Precedent
+   exists (`065aed3`, `d2a9272` — "identity and fixture-content causes recorded
+   separately"). Cheapest; requires stating that the delta is operator-walk
+   attachment and nothing else.
+2. **Walk on a quote outside the basket**, and leave the baseline alone.
+   Preserves the reference exactly; costs a fixture.
+3. **Detach the two products.** **Not recommended.** `2f29af72` is the Smart
+   Pressed Juice quote used for the M1-M4 NetSuite certification, so its state
+   is evidence, and detaching would also destroy the walk state that produced
+   OW-1. Same reasoning already applied to SO2707: preserve the artifact rather
+   than manipulate it back into a fixture.
 
 ---
 
