@@ -1048,13 +1048,22 @@ leave the same defect everywhere else while appearing resolved.
 
 Goal: make structure easier to SCAN. Not make borders prominent.
 
-## OW-10 · S-7 refresh — structural reorder on `2f29af72` during the #265 walk (2026-08-14)
+## OW-10 · Intentional structural membership change on `2f29af72` (2026-08-14)
 
 **Disposition A applied.** Baseline refreshed
 `8d4ab825…88577763` → `84890653…6150a6df`. 33 quotes, 0 failed.
 
-**Recorded rationale:** intentional structural reorder during operator drag/drop
-walk — no commercial movement at quote level.
+### Recorded rationale — OW-10, intentional structural membership change
+
+- per-SKU attribution moved with membership;
+- 11 per-SKU / per-tier paths changed;
+- quote-level economics did not move;
+- `blendedMarginPct` identical at full precision;
+- `quoteRollup` / `quoteSummary` / `tiers` unchanged;
+- identity set unchanged;
+- no product created or destroyed.
+
+**That is valid Pattern 58 behaviour, not a commercial regression.**
 
 ### What the verifier said, and why it was not enough
 
@@ -1102,11 +1111,15 @@ move that did NOT reattribute would be the defect.
 1. **`2f29af72` is retired from ALL further writes.** Mutable drag testing uses
    `ZZ-VALIDATION-drag-drop` / `ff90d502-28a1-4a11-bbd5-75e1b5b916e8`, or another
    proven non-basket fixture.
-2. **S-7 remains position-sensitive** where ordering is now a legitimate operator
-   action. `skuRollups` is an indexed array and the baseline is keyed by
-   position, so a reorder moves the digest with no value change. Logged as a
-   later test-harness improvement — key entries by canonical identity rather than
-   by index. **Not redesigned during this closeout.**
+2. **Later harness improvement — logged, NOT to be actioned now.**
+   - the S-7 `skuRollups` comparison is position-sensitive;
+   - a legitimate reorder can move the digest with no value change;
+   - the future improvement keys the comparison by canonical quote-leaf identity
+     rather than by array position;
+   - **do not redesign it now.** Reordering only became a legitimate operator
+     action with #265, so this is a consequence of the new capability rather
+     than a latent defect, and changing the instrument during a closeout it is
+     currently gating would leave nothing trustworthy to gate with.
 3. `confirm-s7-delta.ts` is kept. The next time a digest moves, the first
    question is again "what KIND of movement", and the multiset comparison is the
    instrument that answers it.
