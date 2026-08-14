@@ -244,6 +244,10 @@ const classifiedIdentityFiles = new Set([
   // CLASSIFIED — canonical only. Step 8 builds fixtures keyed by
   // (quote_id, leaf_id) and sweeps source for the retired write paths.
   "scripts/verify/step-8-leaf-authority-retired.ts",
+  // CLASSIFIED — read-only evidence, canonical only. The Step 9 post-drop
+  // runtime probe executes every loader that once read the dropped columns; it
+  // creates nothing and maps between no identity spaces.
+  "scripts/verify/step-9-post-drop-runtime.ts",
   // CLASSIFIED — canonical only. The Step 4 backfill reads `leaf_specs` by
   // (quote_id, leaf_id) and writes only the pinned schema columns; it maps
   // between no identity spaces.
