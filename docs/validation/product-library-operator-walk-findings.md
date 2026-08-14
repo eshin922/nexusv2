@@ -922,3 +922,55 @@ ongoing synchronization, never initialization.
 **This release:** the completed production pull IS the governed initial
 population. 1,037 processed, 5 added, 1,032 updated, typed 7 → 1,039. No
 synchronization is being added to normal deployments.
+
+---
+
+## OW-8 · S-7 refresh — three Direct Products added during review (2026-08-14)
+
+Intentional structural content change on the M1–M4 reference quote `2f29af72`.
+Pre-refresh isolation is the evidence; the refreshed baseline is not.
+
+- only the reference quote changed (basket 33)
+- three Direct Products added: `201299d8…`, `fd4adddd…`, `5d364814…`
+- all pre-existing rollups identical, matched by `skuId`
+- no quote-level governed value moved
+- no cost / sell / freight / duty / tariff / margin / quantity moved anywhere
+
+Delta: 33 → 33, **1** changed digest, 0 new, 0 removed; `abd7a4cd…` →
+`22264ba2…`.
+
+**The isolation reported 4/5 and that is not a defect.** Its claim 4 asserts
+*two* added rollups matching two attach events — OW-2's shape. This incident has
+three, so the claim could not hold and it refused to clear the delta. Failing
+closed on a claim that does not apply is the behaviour that check is for, and it
+is preserved rather than loosened.
+
+**`2f29af72` is retired from operator/visual mutation.** It is M1–M4
+certification evidence and has now been modified twice during review. Future
+mutation uses a non-basket, non-certification quote.
+
+## OW-9 · Data governance — Nexus Product Type is sparse by design
+
+**Logged, not solved. Do not close by mapping taxonomies.**
+
+- HubSpot source classification is now broadly populated: **1,039** of 1,066
+  linked leaves carry `hubspot_product_type`.
+- Nexus `leaves.product_type_id` is null on **~1,051 of 1,077** leaves. It has
+  only ever been operator-authored through the TypePicker, and the HubSpot pull
+  deliberately does not map one taxonomy into the other.
+- B-3 attach-time instantiation copies that null forward correctly, so
+  quote-owned authority inherits the absence rather than inventing a value.
+
+So `NO TYPE SET` on those rows is **true**, and the Setup tree is reporting the
+data accurately. The gap is that Nexus typing was never populated at catalogue
+scale.
+
+**Do not resolve this by mapping `hs_product_type` into `product_type_id`.** The
+two vocabularies do not correspond — HubSpot has 15 commercial/service
+categories, Nexus has 8 leaf-scope structural ones, and eleven HubSpot values
+have no leaf-scope home. Product Type determines the SPEC SCHEMA; a wrong
+mapping silently validates spec values against the wrong field set.
+
+This needs its own typing/backfill disposition grounded in Nexus taxonomy rules
+— which is a product decision about what the firm's leaf taxonomy means, not a
+display fix and not a warning to be suppressed.
