@@ -249,6 +249,16 @@ const classifiedIdentityFiles = new Set([
   // it consistent; the falsification asserts that identity survives.
   "scripts/verify/structural-move-identity.ts",
   "src/lib/product-structure/structural-move.ts",
+  // CLASSIFIED — canonical only. Ordering falsification: asserts the position
+  // the operator was promised is the position persisted. Reads back through the
+  // loader's own `ORDER BY position, created_at` rather than checking the
+  // written value, because a renumber that left ties would satisfy the latter
+  // and still render wrongly. Keys on quote_leaves.id throughout.
+  "scripts/verify/structural-move-ordering.ts",
+  // CLASSIFIED — canonical only. Provisions the mutable drag/drop operator
+  // fixture through the governed attach helpers, so every attachment it creates
+  // carries canonical identity by construction rather than by insertion.
+  "scripts/product-structure/provision-drag-drop-fixture.ts",
   // CLASSIFIED — read-only evidence, canonical only. The B-14 falsification
   // asserts attachment is read from `quote_leaves`, the canonical table, and
   // creates its own fixtures.

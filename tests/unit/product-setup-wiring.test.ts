@@ -724,6 +724,9 @@ test("B-10 · a Direct Product renders in the PRODUCT register", async () => {
   // was wearing the Item Group's container typography — so a container and a
   // product were typographically identical.
   assert.match(css, /\.a1v2-direct-row \.name-cell \.name \{[^}]*font-style: normal[^}]*font-size: 12\.5px/);
+  // The `.sku-pill` rule REMAINS in the stylesheet — Item Group rows still use
+  // it — but the Direct row no longer renders one. See the register assertions
+  // below for why: it was rendering the SKU twice.
   assert.match(css, /\.a1v2-direct-row \.sku-pill \{[^}]*background: none/);
   // Independence stays in POSITION — root placement, no connector, no child
   // inset — not in container styling. The 3px rule is transparent rather than
@@ -735,12 +738,41 @@ test("B-10 · a Direct Product renders in the PRODUCT register", async () => {
   // exposed it: the sixth element fell out of the last column and the overflow
   // stopped terminating the row.
   //
-  // The register is now literal — grip | SKU | name | Type | readiness |
-  // overflow — and every column exists on both row kinds. What must not return
-  // is a template whose column count disagrees with the cells rendered into it.
-  assert.match(css, /\.a1v2-direct-row \{[^}]*grid-template-columns: 16px 110px 1fr auto auto auto/);
+  // REWRITTEN AGAIN after operator review of the first repair, which did not
+  // hold: the row rendered the SKU TWICE — an Item Group `.sku-pill` and a
+  // member `.leaf-sku` — so it put seven children into the six-column template
+  // this assertion previously pinned. The surplus wrapped to an implicit second
+  // line and took the overflow with it. Asserting the template alone could not
+  // catch that, because the template was exactly what it claimed to be; what
+  // disagreed was the number of cells rendered into it.
+  //
+  // So the register is asserted as a RELATIONSHIP between the two row kinds,
+  // and against the cells actually rendered — not as a literal string that is
+  // true while the row is still broken.
+  const direct = css.match(/\.a1v2-asy-row\.a1v2-direct-row \{[\s\S]*?grid-template-columns: ([^;]+);/);
+  const member = css.match(/\.a1v2-leaf-row \{\s*grid-template-columns: ([^;]+);/);
+  assert.ok(direct && member, "both row templates must be declared");
+  const directCols = direct[1].trim().split(/\s+/);
+  const memberCols = member[1].trim().split(/\s+/);
+  assert.equal(directCols.length, 5);
+  // Identical downstream of the leading slot. That slot is the ONLY sanctioned
+  // difference between the two kinds: it carries the member hierarchy gutter.
+  assert.deepEqual(directCols.slice(1), memberCols.slice(1));
   const rowSrc = await code("src/components/assembly-tree/direct-product-row.tsx");
-  assert.match(rowSrc, /className="leaf-sku"/, "root rows must carry their own SKU cell");
+  assert.equal(
+    rowSrc.match(/className="leaf-sku"/g)?.length,
+    1,
+    "root rows carry exactly one SKU cell, in the member register",
+  );
+  assert.doesNotMatch(
+    rowSrc,
+    /className="sku-pill"/,
+    "the Item Group SKU pill must not also be rendered on a product row",
+  );
+  // The trailing cell must reach the LAST track. `-2` alone resolves to the
+  // second-to-last track and leaves the final column standing empty, which is
+  // the gap the overflow appeared stranded beside.
+  assert.match(css, /\.a1v2-direct-row > \.direct-actions \{[^}]*grid-column: -2 \/ -1/);
   // Identity absorbs the slack instead of pushing its neighbours out of line.
   assert.match(css, /min-width: 0/);
   assert.match(css, /\.a1v2-direct-row \{[^}]*padding: 10px 16px/);
@@ -885,7 +917,12 @@ test("member drag state lives at tree level, not inside one Item Group", async (
   assert.match(body, /movingLeafId/);
   assert.match(body, /moveProductMembership/);
   // The tree container is the Direct/root drop zone — no inserted dropzone.
-  assert.match(body, /onDrop=\{\(e\) => dropOnZone\(e, "direct"\)\}/);
+  // REWRITTEN: the drop handler no longer takes the destination as an argument.
+  // It reads the PLAN, which carries destination and resulting index together,
+  // so the position released on is the position the indicator promised. Pinning
+  // the old `dropOnZone(e, "direct")` call shape would forbid exactly that fix.
+  assert.match(body, /onDragOver=\{\(e\) => overZoneTail\(e, \{ kind: "direct" \}\)\}/);
+  assert.match(body, /onDrop=\{commitDrop\}/);
   // No optimistic reshuffle across a governed boundary.
   assert.match(body, /router\.refresh\(\)/);
 });
