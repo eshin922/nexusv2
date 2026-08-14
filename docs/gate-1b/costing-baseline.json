@@ -1,7 +1,7 @@
 {
   "capturedOver": 33,
   "failed": 0,
-  "globalDigest": "22264ba2919d0908debff2efe799e93a46f3abb44b6df3db04cde860f13dc0e8",
+  "globalDigest": "848906537f8806dee4799b3a1b4b1fb961b4b368eb4333bc438f66036150a6df",
   "entries": [
     {
       "quote_id": "071486be-e1a6-4475-8df6-2a2b78a21b58",
@@ -47,7 +47,7 @@
       "quote_id": "2f29af72-805b-446c-866c-73e9b0991b1a",
       "status": "draft",
       "label": "Smart Pressed Juice - Juice Cleanse Reorder 2026 / Primary",
-      "digest": "93a0a0546bccac6713e8b74737f5e123",
+      "digest": "d45d4ae42ca1943d2f20e17b7a52e8e2",
       "skus": 9,
       "tiers": 3
     },
