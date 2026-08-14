@@ -90,11 +90,11 @@ export function DirectProductRow({
   return (
     <>
       <div className="a1v2-asy-row a1v2-direct-row">
-        {/* No drag handle: ordering among Direct Products is not an operator
-            concern yet, and a handle that reorders nothing would lie. */}
-        <span className="twirl" aria-hidden="true">
-          ◆
-        </span>
+        {/* No leading slot. The ◆ was inert — no children to expand, and no
+            drag handle by design — and it existed only because the row had
+            borrowed a register that HAS a leading slot. A meaningless glyph is
+            not improved by replacing it with meaningless whitespace, so the
+            column goes with it and identity reclaims the width. */}
         <span className="sku-pill">{product.sku ?? "—"}</span>
         <div className="name-cell">
           <div className="name">{product.name}</div>

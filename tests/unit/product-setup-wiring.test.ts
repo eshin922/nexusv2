@@ -517,9 +517,10 @@ test("Item Group identity does not depend on being populated", async () => {
     css,
     /\.a1v2-asy-row:not\(\.a1v2-direct-row\)\s*\{[^}]*border-left-color:\s*var\(--accent\)/,
   );
-  // The Direct Product keeps its own rule, and :not() makes the two mutually
-  // exclusive rather than order-dependent.
-  assert.match(css, /\.a1v2-asy-row\.a1v2-direct-row\s*\{[^}]*border-left-color:\s*var\(--ink-4\)/);
+  // The Direct Product carries the rule TRANSPARENT after the shell
+  // reconciliation: the 3px box reserves shared geometry, the marking itself
+  // belongs to the Item Group alone.
+  assert.match(css, /\.a1v2-asy-row\.a1v2-direct-row\s*\{[^}]*border-left-color: transparent/);
   // Expanded keeps a SEPARATE signal, so "what this is" and "whether it is
   // open" stay legible as different things.
   assert.match(
@@ -724,8 +725,15 @@ test("B-10 · a Direct Product renders in the PRODUCT register", async () => {
   // product were typographically identical.
   assert.match(css, /\.a1v2-direct-row \.name-cell \.name \{[^}]*font-style: normal[^}]*font-size: 12\.5px/);
   assert.match(css, /\.a1v2-direct-row \.sku-pill \{[^}]*background: none/);
-  // Independence stays in POSITION and the left rule, not in a third register.
-  assert.match(css, /\.a1v2-asy-row\.a1v2-direct-row \{[^}]*border-left-color: var\(--ink-4\)/);
+  // Independence stays in POSITION — root placement, no connector, no child
+  // inset — not in container styling. The 3px rule is transparent rather than
+  // removed so the border box still reserves shared geometry.
+  assert.match(css, /\.a1v2-direct-row \{[^}]*grid-template-columns: 110px 1fr auto auto auto/);
+  assert.match(css, /\.a1v2-direct-row \{[^}]*padding: 10px 16px/);
+  assert.match(css, /\.a1v2-direct-row \{[^}]*border-left-color: transparent/);
+  // The inert diamond is gone, and its column with it — a meaningless glyph is
+  // not improved by replacing it with meaningless whitespace.
+  assert.doesNotMatch(await code("src/components/assembly-tree/direct-product-row.tsx"), /twirl/);
 });
 
 test("B-10 · row-level secondary actions converge on the overflow grammar", async () => {

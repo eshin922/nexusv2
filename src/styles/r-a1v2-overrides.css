@@ -426,11 +426,27 @@
  * the row would otherwise read as a permanently-collapsed Item Group.
  */
 .a1v2-asy-row.a1v2-direct-row {
-  grid-template-columns: 24px 90px 1fr auto auto auto;
-  border-left-color: var(--ink-4);
-}
-.a1v2-asy-row.a1v2-direct-row .twirl {
-  cursor: default;
+  /* B-4/B-10 · the PRODUCT shell at ROOT depth.
+   *
+   * Five cells, no leading column. Aligning Direct SKUs to the container's 24px
+   * grid would re-assert the equivalence this change removes; aligning them to
+   * the member's 60px would imply an indentation that is not there. Neither
+   * target is right, so the column serves no alignment function and identity
+   * takes the width.
+   *
+   * Padding drops to the product row's rhythm. The 3px left rule goes
+   * TRANSPARENT rather than being removed, so the border box still reserves its
+   * width and root rows stay aligned with the container above them — the rule
+   * is a container marking, but its space is shared geometry.
+   *
+   * What is deliberately ABSENT is the whole statement: no connector, no 60px
+   * inset, no .a1v2-leaves tint. A member is contained; a Direct Product is
+   * not, and containment is the only difference because it is the only thing
+   * that actually differs.
+   */
+  grid-template-columns: 110px 1fr auto auto auto;
+  padding: 10px 16px;
+  border-left-color: transparent;
 }
 .a1v2-asy-row.a1v2-direct-row .direct-actions {
   display: flex;
