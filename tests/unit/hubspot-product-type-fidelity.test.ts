@@ -243,3 +243,17 @@ test("the create dropdown is fed by the fetched vocabulary, and submits the valu
   assert.match(src, /props\.hsTypeOptions\.map/);
   assert.match(src, /fd\.set\("hubspotProductType", hsTypeValue\)/);
 });
+
+test("the Library's visible Type is HubSpot's classification, not the Nexus taxonomy", async () => {
+  const src = await read("src/components/library/library-browse-modal.tsx");
+  // The column must agree with the chips directly above it, which filter on the
+  // HubSpot value. Reading productTypeId here showed "untyped" for a product
+  // HubSpot classifies correctly, because the Nexus taxonomy is separate and
+  // largely unset.
+  assert.match(src, /o\.value === row\.hubspotProductType/);
+  assert.doesNotMatch(src, /row\.productType\?\.name \?\? "untyped"/);
+  // Absent classification says so plainly; an unrecognised value shows the
+  // stored string rather than claiming the product is unclassified.
+  assert.match(src, /: "Unclassified"/);
+  assert.match(src, /\?\? row\.hubspotProductType/);
+});

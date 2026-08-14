@@ -1101,8 +1101,23 @@ export function LibraryBrowseModal({
                           </span>
                         </span>
                       </div>
+                      {/* B-2 — the Library's visible Type is HubSpot's
+                          classification, because HubSpot's value is what this
+                          surface FILTERS on. Reading the Nexus taxonomy here
+                          made a product HubSpot classifies correctly display
+                          as "untyped" whenever Nexus's separate and largely
+                          unset taxonomy had no row — the column disagreeing
+                          with the chips directly above it.
+
+                          Raw value stays the authority; the label is looked up
+                          for display only. Nexus productTypeId is neither read
+                          nor written here: two taxonomies, no mapping. */}
                       <span className="type-cell">
-                        {row.productType?.name ?? "untyped"}
+                        {row.hubspotProductType
+                          ? (hsTypeOptions.find(
+                              (o) => o.value === row.hubspotProductType,
+                            )?.label ?? row.hubspotProductType)
+                          : "Unclassified"}
                       </span>
                       <span className="status-cell">
                         {/* §9.4 — surface the ALREADY-ENFORCED eligibility
