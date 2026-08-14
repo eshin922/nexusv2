@@ -1,10 +1,19 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 import type { AssemblyTree } from "@/lib/assembly-tree";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AsyRow } from "./asy-row";
 import { DirectProductRow } from "./direct-product-row";
+import { attachDragProxy } from "./drag-proxy";
+import {
+  indicatorAnchor,
+  isNoOpDrop,
+  resolveDropIndex,
+  sameZone,
+  type DropPlan,
+  type DropZone,
+} from "@/lib/product-structure/drop-plan";
 import {
   moveProductMembership,
   reorderAssemblies,
@@ -128,38 +137,143 @@ export function AssemblyTreeBody({
   // Reorder WITHIN a group stays where it was — that path works and is not
   // rebuilt here.
   const [movingLeafId, setMovingLeafId] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  // WHERE THE PRODUCT WILL LAND — destination plus resulting index, not "which
+  // row is the pointer over". Those two disagree on every downward same-list
+  // drag, and the operator is being shown a promise about the former.
+  const [plan, setPlan] = useState<DropPlan | null>(null);
   const [, startMoveTransition] = useTransition();
 
-  function beginMove(e: React.DragEvent, quoteLeafId: string) {
+  const directIds = useMemo(
+    () => tree.directProducts.map((p) => p.quoteLeafId),
+    [tree.directProducts],
+  );
+  const groupMemberIds = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const a of orderedAssemblies)
+      m.set(
+        a.id,
+        a.children.map((c) => c.quoteLeafId),
+      );
+    return m;
+  }, [orderedAssemblies]);
+
+  const siblingsFor = useCallback(
+    (zone: DropZone): string[] =>
+      zone.kind === "direct" ? directIds : (groupMemberIds.get(zone.assemblyId) ?? []),
+    [directIds, groupMemberIds],
+  );
+
+  /** The home the product is being dragged OUT of — needed to detect no-ops. */
+  const movingHome = useMemo<DropZone | null>(() => {
+    if (!movingLeafId) return null;
+    if (directIds.includes(movingLeafId)) return { kind: "direct" };
+    for (const [assemblyId, ids] of groupMemberIds)
+      if (ids.includes(movingLeafId)) return { kind: "group", assemblyId };
+    return null;
+  }, [movingLeafId, directIds, groupMemberIds]);
+
+  function beginMove(
+    e: React.DragEvent,
+    quoteLeafId: string,
+    name: string,
+    sku: string | null,
+  ) {
     if (!editable) return;
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", quoteLeafId);
     e.dataTransfer.setData("application/x-a1v2-drag-kind", "member");
     e.stopPropagation();
+    attachDragProxy(e, name, sku);
     setMovingLeafId(quoteLeafId);
   }
 
-  function overZone(e: React.DragEvent, zone: string) {
+  const proposePlan = useCallback(
+    (zone: DropZone, overId: string | null, edge: "before" | "after") => {
+      if (!movingLeafId) return;
+      const index = resolveDropIndex({
+        siblings: siblingsFor(zone),
+        movingId: movingLeafId,
+        overId,
+        edge,
+      });
+      const next: DropPlan = { zone, index };
+      // A destination that persists the structure that already exists is not a
+      // destination. No line, and the drop below becomes a no-op.
+      if (
+        isNoOpDrop({
+          plan: next,
+          currentZone: movingHome,
+          currentSiblings: movingHome ? siblingsFor(movingHome) : [],
+          movingId: movingLeafId,
+        })
+      ) {
+        setPlan(null);
+        return;
+      }
+      setPlan((prev) =>
+        prev && sameZone(prev.zone, next.zone) && prev.index === next.index
+          ? prev
+          : next,
+      );
+    },
+    [movingLeafId, movingHome, siblingsFor],
+  );
+
+  /** Hovering a product row — the precise case. Midpoint decides the edge. */
+  function overProductRow(
+    e: React.DragEvent,
+    zone: DropZone,
+    overQuoteLeafId: string,
+  ) {
     if (!editable || !movingLeafId) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "move";
-    if (dropTarget !== zone) setDropTarget(zone);
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const edge =
+      e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+    proposePlan(zone, overQuoteLeafId, edge);
   }
 
-  function dropOnZone(e: React.DragEvent, target: string) {
+  /** Hovering a destination but no particular row — append. */
+  function overZoneTail(e: React.DragEvent, zone: DropZone) {
+    if (!editable || !movingLeafId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    proposePlan(zone, null, "after");
+  }
+
+  /** The group HEADER sits above its members, so it reads as position zero. */
+  function overGroupHeader(e: React.DragEvent, assemblyId: string) {
+    if (!editable || !movingLeafId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    const zone: DropZone = { kind: "group", assemblyId };
+    const first = siblingsFor(zone).find((id) => id !== movingLeafId) ?? null;
+    proposePlan(zone, first, "before");
+  }
+
+  function commitDrop(e: React.DragEvent) {
     if (!editable || !movingLeafId) return;
     e.preventDefault();
     e.stopPropagation();
     const quoteLeafId = movingLeafId;
+    const target = plan;
     setMovingLeafId(null);
-    setDropTarget(null);
+    setPlan(null);
+    // No indicator was showing, so nothing was promised. Releasing over an
+    // invalid destination returns the product to where it already is.
+    if (!target) return;
 
     const fd = new FormData();
     fd.set("quoteLeafId", quoteLeafId);
-    fd.set("target", target);
-    fd.set("position", "0");
+    fd.set(
+      "target",
+      target.zone.kind === "direct" ? "direct" : target.zone.assemblyId,
+    );
+    fd.set("position", String(target.index));
     startMoveTransition(async () => {
       setError(null);
       const result = await moveProductMembership(fd);
@@ -174,16 +288,30 @@ export function AssemblyTreeBody({
 
   function endMove() {
     setMovingLeafId(null);
-    setDropTarget(null);
+    setPlan(null);
   }
+
+  // Which row carries the line, and on which edge.
+  const anchor = useMemo(() => {
+    if (!plan || !movingLeafId) return null;
+    return indicatorAnchor(siblingsFor(plan.zone), movingLeafId, plan.index);
+  }, [plan, movingLeafId, siblingsFor]);
+
+  const dropEdgeFor = useCallback(
+    (zone: DropZone, quoteLeafId: string): "before" | "after" | null => {
+      if (!plan || !anchor || !sameZone(plan.zone, zone)) return null;
+      return anchor.overId === quoteLeafId ? anchor.edge : null;
+    },
+    [plan, anchor],
+  );
 
   const isEmpty =
     orderedAssemblies.length === 0 && tree.directProducts.length === 0;
 
   return (
     <div
-      className={`a1v2-tree${dropTarget === "direct" ? " drop-active" : ""}`}
-      onDragEnd={(e) => {
+      className={`a1v2-tree${plan?.zone.kind === "direct" ? " drop-active" : ""}`}
+      onDragEnd={() => {
         handleAsyDragEnd();
         endMove();
       }}
@@ -191,8 +319,8 @@ export function AssemblyTreeBody({
       // element is introduced — the existing container communicates it, and a
       // permanent "drop here" affordance would be chrome the operator has to
       // read past on every render.
-      onDragOver={(e) => overZone(e, "direct")}
-      onDrop={(e) => dropOnZone(e, "direct")}
+      onDragOver={(e) => overZoneTail(e, { kind: "direct" })}
+      onDrop={commitDrop}
     >
       {isEmpty ? (
         <p className="r7b-empty-state">
@@ -209,7 +337,14 @@ export function AssemblyTreeBody({
               editable={editable}
               quoteId={quoteId}
               isMoving={movingLeafId === product.quoteLeafId}
-              onMoveStart={(e) => beginMove(e, product.quoteLeafId)}
+              onMoveStart={(e) =>
+                beginMove(e, product.quoteLeafId, product.name, product.sku)
+              }
+              dropEdge={dropEdgeFor({ kind: "direct" }, product.quoteLeafId)}
+              onRowDragOver={(e) =>
+                overProductRow(e, { kind: "direct" }, product.quoteLeafId)
+              }
+              onRowDrop={commitDrop}
               editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${product.leafId}/specs`}
             />
           ))}
@@ -224,10 +359,28 @@ export function AssemblyTreeBody({
               onDragStart={(e) => handleAsyDragStart(e, asy.id)}
               onDragOver={(e) => handleAsyDragOver(e, asy.id)}
               movingLeafId={movingLeafId}
-              isDropTarget={dropTarget === asy.id}
+              isDropTarget={
+                plan?.zone.kind === "group" && plan.zone.assemblyId === asy.id
+              }
+              // Empty group: there is no member row to anchor the line to, so
+              // the header carries it.
+              showTailIndicator={
+                plan?.zone.kind === "group" &&
+                plan.zone.assemblyId === asy.id &&
+                anchor?.overId === null
+              }
+              memberDropEdge={(quoteLeafId) =>
+                dropEdgeFor({ kind: "group", assemblyId: asy.id }, quoteLeafId)
+              }
               onMemberDragStart={beginMove}
-              onMemberDragOverGroup={(e) => overZone(e, asy.id)}
-              onMemberDropOnGroup={(e) => dropOnZone(e, asy.id)}
+              onMemberRowDragOver={(e, quoteLeafId) =>
+                overProductRow(e, { kind: "group", assemblyId: asy.id }, quoteLeafId)
+              }
+              onMemberDragOverGroup={(e) => overGroupHeader(e, asy.id)}
+              onMemberDragOverGroupTail={(e) =>
+                overZoneTail(e, { kind: "group", assemblyId: asy.id })
+              }
+              onMemberDropOnGroup={commitDrop}
               assemblies={assemblies}
               fullLeafTypes={fullLeafTypes}
               permissions={permissions}

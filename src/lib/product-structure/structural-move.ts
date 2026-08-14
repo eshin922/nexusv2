@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { db } from "../../db/index.ts";
 import {
   assemblies,
@@ -9,6 +9,7 @@ import {
   freightSubcategoryItems,
   quoteLeaves,
 } from "../../db/schema.ts";
+import { orderAfterMove } from "./drop-plan.ts";
 
 /**
  * Structural movement of an attached product. One primitive, four transitions.
@@ -207,6 +208,26 @@ export async function moveStructuralMembership(
     })
     .where(eq(quoteLeaves.id, canonical.id));
 
+  // Make the destination a TOTAL order. Writing one row's position leaves ties
+  // that render by creation time, which no client can predict — see drop-plan.ts.
+  const resolvedPosition =
+    args.target.kind === "group"
+      ? await placeInGroup(
+          tx,
+          args.target.assemblyId,
+          canonical.id,
+          args.target.position,
+        )
+      : await placeInDirect(tx, canonical.quoteId, canonical.id, args.target.position);
+
+  // Compact the group the product LEFT, so its remaining members stay dense.
+  if (
+    fromAssemblyId &&
+    (args.target.kind !== "group" || args.target.assemblyId !== fromAssemblyId)
+  ) {
+    await compactGroup(tx, fromAssemblyId);
+  }
+
   return {
     quoteLeafId: canonical.id,
     leafId: canonical.leafId,
@@ -217,9 +238,102 @@ export async function moveStructuralMembership(
       assemblyLeafId: toAssemblyLeafId,
     },
     quantity: canonical.quantity,
-    position: args.target.position,
+    position: resolvedPosition,
     dependentsRepointed,
   };
+}
+
+/**
+ * Rewrite a destination list densely with the moved product at `index`.
+ *
+ * Reads the destination in canonical `(position, created_at)` order, removes the
+ * moved row, and re-inserts it via the SHARED rule — the same call the insertion
+ * indicator makes. Returns the index actually persisted, which differs from the
+ * requested one only when the request was out of range.
+ */
+async function placeInGroup(
+  tx: StructuralMoveTransaction,
+  assemblyId: string,
+  movedQuoteLeafId: string,
+  index: number,
+): Promise<number> {
+  const rows = await tx
+    .select({ id: assemblyLeaves.id, quoteLeafId: assemblyLeaves.quoteLeafId })
+    .from(assemblyLeaves)
+    .where(eq(assemblyLeaves.assemblyId, assemblyId))
+    .orderBy(asc(assemblyLeaves.position), asc(assemblyLeaves.createdAt));
+
+  // A junction with no canonical link cannot be rendered (the tree keys on
+  // `quote_leaf_id`) and so cannot be a position the operator chose. Excluded
+  // rather than carried as a null, which would occupy an index slot and shift
+  // every row after it by one relative to what the indicator promised.
+  const others = rows
+    .filter(
+      (r): r is { id: string; quoteLeafId: string } =>
+        r.quoteLeafId !== null && r.quoteLeafId !== movedQuoteLeafId,
+    )
+    .map((r) => r.quoteLeafId);
+  const final = orderAfterMove(others, movedQuoteLeafId, index);
+  const junctionByLeaf = new Map(rows.map((r) => [r.quoteLeafId, r.id] as const));
+
+  for (const [i, quoteLeafId] of final.entries()) {
+    const junctionId = junctionByLeaf.get(quoteLeafId);
+    if (junctionId)
+      await tx
+        .update(assemblyLeaves)
+        .set({ position: i })
+        .where(eq(assemblyLeaves.id, junctionId));
+    // Mirrored so the junction and the canonical row can never disagree about
+    // order — two sources for one fact is how they drift.
+    await tx
+      .update(quoteLeaves)
+      .set({ position: i })
+      .where(eq(quoteLeaves.id, quoteLeafId));
+  }
+  return final.indexOf(movedQuoteLeafId);
+}
+
+async function placeInDirect(
+  tx: StructuralMoveTransaction,
+  quoteId: string,
+  movedQuoteLeafId: string,
+  index: number,
+): Promise<number> {
+  const rows = await tx
+    .select({ id: quoteLeaves.id })
+    .from(quoteLeaves)
+    .where(and(eq(quoteLeaves.quoteId, quoteId), isNull(quoteLeaves.assemblyId)))
+    .orderBy(asc(quoteLeaves.position), asc(quoteLeaves.createdAt));
+
+  const others = rows.map((r) => r.id).filter((id) => id !== movedQuoteLeafId);
+  const final = orderAfterMove(others, movedQuoteLeafId, index);
+  for (const [i, id] of final.entries()) {
+    await tx.update(quoteLeaves).set({ position: i }).where(eq(quoteLeaves.id, id));
+  }
+  return final.indexOf(movedQuoteLeafId);
+}
+
+/** Close the gap a departing member leaves behind. Order is preserved. */
+async function compactGroup(
+  tx: StructuralMoveTransaction,
+  assemblyId: string,
+): Promise<void> {
+  const rows = await tx
+    .select({ id: assemblyLeaves.id, quoteLeafId: assemblyLeaves.quoteLeafId })
+    .from(assemblyLeaves)
+    .where(eq(assemblyLeaves.assemblyId, assemblyId))
+    .orderBy(asc(assemblyLeaves.position), asc(assemblyLeaves.createdAt));
+  for (const [i, r] of rows.entries()) {
+    await tx
+      .update(assemblyLeaves)
+      .set({ position: i })
+      .where(eq(assemblyLeaves.id, r.id));
+    if (r.quoteLeafId)
+      await tx
+        .update(quoteLeaves)
+        .set({ position: i })
+        .where(eq(quoteLeaves.id, r.quoteLeafId));
+  }
 }
 
 /**

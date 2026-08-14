@@ -28,6 +28,9 @@ export function DirectProductRow({
   editSpecsHref,
   isMoving,
   onMoveStart,
+  dropEdge,
+  onRowDragOver,
+  onRowDrop,
 }: {
   product: DirectProductNode;
   editable: boolean;
@@ -37,6 +40,10 @@ export function DirectProductRow({
   isMoving?: boolean;
   /** Begin a structural move. Absent when the surface is read-only. */
   onMoveStart?: (e: React.DragEvent) => void;
+  /** Insertion line edge, when this row is the one the product will land at. */
+  dropEdge?: "before" | "after" | null;
+  onRowDragOver?: (e: React.DragEvent) => void;
+  onRowDrop?: (e: React.DragEvent) => void;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -97,23 +104,30 @@ export function DirectProductRow({
   return (
     <>
       <div
-        className={`a1v2-asy-row a1v2-direct-row${isMoving ? " moving" : ""}`}
+        className={`a1v2-asy-row a1v2-direct-row${isMoving ? " moving" : ""}${dropEdge ? ` drop-${dropEdge}` : ""}`}
+        onDragOver={onRowDragOver}
+        onDrop={onRowDrop}
       >
         {/* B-12 · the leading slot returns, but only because there is now a
             real capability behind it. The ◆ that used to sit here was inert;
-            this is the grip, and it is rendered only when a move is possible. */}
-        {editable && onMoveStart ? <DragGrip onDragStart={onMoveStart} /> : null}
-        {/* No leading slot. The ◆ was inert — no children to expand, and no
-            drag handle by design — and it existed only because the row had
-            borrowed a register that HAS a leading slot. A meaningless glyph is
-            not improved by replacing it with meaningless whitespace, so the
-            column goes with it and identity reclaims the width. */}
-        <span className="sku-pill">{product.sku ?? "—"}</span>
-        {/* B-12 REPAIR · the SKU cell. Root rows never had one, so root SKU and
-            member SKU could not share an x-coordinate — the identity block
-            simply started wherever the previous cell ended. The requested
-            register is grip | SKU | name | Type | readiness | overflow, and it
-            only holds if every column actually exists on both row kinds. */}
+            this is the grip, and it is rendered only when a move is possible.
+            The SLOT is unconditional even when the grip is not: dropping the
+            cell on a read-only surface shifts every column left by one and the
+            row stops sharing a register with the rows above it. */}
+        {editable && onMoveStart ? (
+          <DragGrip onDragStart={onMoveStart} />
+        ) : (
+          <span aria-hidden="true" />
+        )}
+        {/* B-12 REPAIR · ONE SKU cell.
+            The row was rendering the SKU twice — an accent `.sku-pill` in the
+            Item Group register AND the member-register `.leaf-sku` — which put
+            seven children in a six-column grid. The surplus wrapped to an
+            implicit second line, taking the overflow with it, and the pill's
+            width opened the gap between SKU and name that made root and member
+            identity blocks start at different x-coordinates.
+            The member register wins: a Direct Product is a PRODUCT, and it
+            should read like one. The accent pill belongs to Item Group rows. */}
         <span className="leaf-sku">{product.sku ?? "—"}</span>
         <div className="name-cell">
           <div className="name">{product.name}</div>
@@ -138,14 +152,18 @@ export function DirectProductRow({
         >
           {product.productType?.label ?? "untyped"}
         </span>
-        <CompletenessChip completeness={product.specCompleteness} />
-        {/* One grid cell for every action, so the confirm state adding a
+        {/* B-12 REPAIR · readiness and overflow share ONE trailing cell, which
+            is what the member row already does. Held as two cells the Direct
+            row declared six columns against the member row's five, so nothing
+            after the name column could line up between the two row kinds.
+            One grid cell for every action also means the confirm state adding a
             second button cannot reflow the row into a new grid line. */}
         {/* B-10 · overflow, not inline. The DA's row grammar ends every row in
             a single `…`; the inline pair arrived with §9.1 and was never
             measured against it. Handlers and semantics are unchanged — only
             where the operator reaches them. */}
         <div className="direct-actions" ref={menuRef}>
+          <CompletenessChip completeness={product.specCompleteness} />
           <button
             type="button"
             className="context-trigger"

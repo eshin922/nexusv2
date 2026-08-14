@@ -457,7 +457,13 @@
    * for ALIGNMENT to the container or the member inset — this column aligns to
    * neither, it just reserves the grip.
    */
-  grid-template-columns: 16px 110px 1fr auto auto auto;
+  /* FIVE columns, matching `.a1v2-leaf-row` cell-for-cell:
+   *   grip | SKU | name+meta | Type | readiness+overflow
+   * The ONLY declared difference is the leading slot: 16px here reserves the
+   * grip, 60px there reserves the grip PLUS the hierarchy indent and connector.
+   * That gutter is the one intentional divergence — everything downstream of it
+   * lines up because the two templates are otherwise identical. */
+  grid-template-columns: 16px 110px 1fr auto auto;
   gap: 10px;
   align-items: center;
   padding: 10px 16px;
@@ -476,10 +482,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The overflow terminates the row. Explicit, so no future cell can drift past
-   it and leave `⋯` mid-row. */
+/* The trailing cell terminates the row at the final column. `-1` is the last
+   line, so `-2 / -1` is the last TRACK — the previous `-2` alone resolved to the
+   second-to-last track and left the final column standing empty, which is the
+   gap the overflow appeared to be stranded beside. */
 .a1v2-asy-row.a1v2-direct-row > .direct-actions {
-  grid-column: -2;
+  grid-column: -2 / -1;
   justify-self: end;
 }
 .a1v2-asy-row.a1v2-direct-row .direct-actions {
@@ -803,3 +811,66 @@
    into a second grid system: their SKU, name, Type and readiness stay on the
    x-coordinates they already had. */
 .a1v2-leaf-row > .a1v2-grip { justify-self: center; }
+
+/* ── Drag feedback ──────────────────────────────────────────────────────────
+ *
+ * Two transient cues, both gone at drop. Neither is chrome: nothing here is
+ * rendered when a drag is not in flight.
+ */
+
+/* 1 · WHAT AM I CARRYING.
+ * Parked offscreen because the browser must snapshot a PAINTED element for
+ * `setDragImage` — `display:none` and `visibility:hidden` both snapshot empty.
+ * The operator never sees it in this position; they see the browser's copy of
+ * it under the pointer. */
+.a1v2-drag-proxy {
+  position: fixed;
+  top: -1000px;
+  left: -1000px;
+  z-index: -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+  padding: 6px 10px;
+  background: var(--paper);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  box-shadow: 0 4px 14px oklch(0% 0 0 / 0.18);
+  font-size: 12px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.a1v2-drag-proxy .sku {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+.a1v2-drag-proxy .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 2 · WHERE WILL IT LAND.
+ * An inset shadow, not a border and not an inserted node: a real element would
+ * reflow the list under the pointer mid-drag, and a border would change the
+ * row's box and shift its neighbours by a pixel. This paints inside the row and
+ * moves nothing.
+ *
+ * The row carrying the line is the row that will occupy the RESULTING index —
+ * chosen by `indicatorAnchor`, not by which row the pointer is over. */
+.a1v2-leaf-row.drop-before,
+.a1v2-asy-row.drop-before {
+  box-shadow: inset 0 2px 0 -0.5px var(--accent);
+}
+.a1v2-leaf-row.drop-after,
+.a1v2-asy-row.drop-after {
+  box-shadow: inset 0 -2px 0 -0.5px var(--accent);
+}
+/* The group tint and the insertion line coexist — the tint says WHICH group,
+   the line says WHERE in it. Restated together because both write box-shadow
+   and the later rule would otherwise drop the tint's left edge. */
+.a1v2-asy-row.drop-target.drop-after {
+  box-shadow: inset 2px 0 0 var(--accent), inset 0 -2px 0 -0.5px var(--accent);
+}

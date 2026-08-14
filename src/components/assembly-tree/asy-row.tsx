@@ -41,8 +41,12 @@ export function AsyRow({
   onDragOver,
   movingLeafId,
   isDropTarget,
+  showTailIndicator,
+  memberDropEdge,
   onMemberDragStart,
+  onMemberRowDragOver,
   onMemberDragOverGroup,
+  onMemberDragOverGroupTail,
   onMemberDropOnGroup,
 }: {
   asy: AssemblyNode;
@@ -58,8 +62,18 @@ export function AsyRow({
   /** Structural move in flight, held at tree level so it can cross rows. */
   movingLeafId?: string | null;
   isDropTarget?: boolean;
-  onMemberDragStart?: (e: React.DragEvent, quoteLeafId: string) => void;
+  /** Destination is this group but it has no member row to anchor the line to. */
+  showTailIndicator?: boolean;
+  memberDropEdge?: (quoteLeafId: string) => "before" | "after" | null;
+  onMemberDragStart?: (
+    e: React.DragEvent,
+    quoteLeafId: string,
+    name: string,
+    sku: string | null,
+  ) => void;
+  onMemberRowDragOver?: (e: React.DragEvent, quoteLeafId: string) => void;
   onMemberDragOverGroup?: (e: React.DragEvent) => void;
+  onMemberDragOverGroupTail?: (e: React.DragEvent) => void;
   onMemberDropOnGroup?: (e: React.DragEvent) => void;
 }) {
   const isExpanded = asy.children.length > 0;
@@ -148,7 +162,7 @@ export function AsyRow({
   return (
     <>
       <div
-        className={`a1v2-asy-row${isExpanded ? " expanded" : ""}${isDragging ? " dragging" : ""}${isDropTarget ? " drop-target" : ""}`}
+        className={`a1v2-asy-row${isExpanded ? " expanded" : ""}${isDragging ? " dragging" : ""}${isDropTarget ? " drop-target" : ""}${showTailIndicator ? " drop-after" : ""}`}
         // Two different drags reach this row. An ASY reorder uses onDragOver
         // as before; a member arriving from another home is routed to the
         // group handler instead. The tree, not this row, knows which is in
@@ -234,7 +248,11 @@ export function AsyRow({
       <div
         className="a1v2-leaves"
         onDragEnd={handleLeafDragEnd}
-        onDragOver={(e) => (movingLeafId ? onMemberDragOverGroup?.(e) : undefined)}
+        // Blank space inside the member block means "this group, at the end" —
+        // distinct from the header, which means "this group, at the top".
+        onDragOver={(e) =>
+          movingLeafId ? onMemberDragOverGroupTail?.(e) : undefined
+        }
         onDrop={(e) => (movingLeafId ? onMemberDropOnGroup?.(e) : undefined)}
       >
         {orderedChildren.map((leaf) => (
@@ -245,11 +263,21 @@ export function AsyRow({
             editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${leaf.leafId}/specs`}
             isDragging={leafDragId === leaf.junctionId}
             onDragStart={(e) => handleLeafDragStart(e, leaf.junctionId)}
-            onDragOver={(e) => handleLeafDragOver(e, leaf.junctionId)}
+            // A structural move in flight takes the row's dragover, so the
+            // precise index is computed at tree level where the destination
+            // lists live. The legacy same-group handler keeps the row otherwise.
+            onDragOver={(e) =>
+              movingLeafId
+                ? onMemberRowDragOver?.(e, leaf.quoteLeafId)
+                : handleLeafDragOver(e, leaf.junctionId)
+            }
+            onDrop={(e) => (movingLeafId ? onMemberDropOnGroup?.(e) : undefined)}
+            dropEdge={memberDropEdge?.(leaf.quoteLeafId) ?? null}
             isMoving={movingLeafId === leaf.quoteLeafId}
             onMoveStart={
               onMemberDragStart
-                ? (e) => onMemberDragStart(e, leaf.quoteLeafId)
+                ? (e) =>
+                    onMemberDragStart(e, leaf.quoteLeafId, leaf.name, leaf.sku)
                 : undefined
             }
           />
@@ -277,8 +305,9 @@ function LeafRow({
   editable,
   editSpecsHref,
   isDragging,
-  onDragStart,
   onDragOver,
+  onDrop,
+  dropEdge,
   isMoving,
   onMoveStart,
 }: {
@@ -288,6 +317,9 @@ function LeafRow({
   isDragging: boolean;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent) => void;
+  /** Insertion line edge, when this row is the one the product will land at. */
+  dropEdge?: "before" | "after" | null;
   /** Cross-home move in flight for THIS member. */
   isMoving?: boolean;
   onMoveStart?: (e: React.DragEvent) => void;
@@ -307,8 +339,9 @@ function LeafRow({
 
   return (
     <div
-      className={`a1v2-leaf-row${isDragging ? " dragging" : ""}${isMoving ? " moving" : ""}`}
+      className={`a1v2-leaf-row${isDragging ? " dragging" : ""}${isMoving ? " moving" : ""}${dropEdge ? ` drop-${dropEdge}` : ""}`}
       onDragOver={onDragOver}
+      onDrop={onDrop}
     >
       {/* B-12 · the `◦` was ambiguous — it read as a bullet, so the drag
           capability behind it went unused. Replaced by the conventional grip.
