@@ -730,3 +730,35 @@
 }
 /* Overflow needs positioning context now that the actions collapsed into it. */
 .a1v2-asy-row.a1v2-direct-row .direct-actions { position: relative; }
+
+/* B-12 · the drag grip.
+   Conventional six dots. Quiet at rest — it is an affordance, not information —
+   and it only exists on rows where a move is actually possible, so its presence
+   is itself the signal. */
+.a1v2-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  cursor: grab;
+  color: var(--ink-4);
+  opacity: 0.45;
+  transition: opacity 90ms ease;
+}
+.a1v2-grip:active { cursor: grabbing; }
+.a1v2-grip svg { fill: currentColor; }
+.a1v2-asy-row:hover .a1v2-grip,
+.a1v2-leaf-row:hover .a1v2-grip { opacity: 0.9; }
+
+/* The row being moved recedes rather than being decorated — the operator is
+   watching the cursor, not the source. */
+.a1v2-leaf-row.moving,
+.a1v2-direct-row.moving { opacity: 0.4; }
+
+/* Drop feedback uses the container that already exists. No inserted dropzone
+   element, no "drop here" copy: the group tints, and that is the whole signal. */
+.a1v2-asy-row.drop-target {
+  background: oklch(from var(--accent) l c h / 0.06);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.a1v2-tree.drop-active { background: oklch(from var(--accent) l c h / 0.03); }

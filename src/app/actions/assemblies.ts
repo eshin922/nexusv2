@@ -10,6 +10,7 @@ import {
   productTypes,
   quotes,
   itemGroupCategories,
+  quoteLeaves,
 } from "@/db/schema";
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -23,6 +24,7 @@ import {
 import { materializePackagingRows } from "@/lib/packaging-materialization";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import { evaluateAttachmentEligibility } from "@/lib/product-structure/attachment-eligibility";
+import { moveStructuralMembership } from "@/lib/product-structure/structural-move";
 import {
   attachGroupedMembership,
   detachGroupedMembership,
@@ -677,5 +679,79 @@ export async function reorderAssemblyLeaves(
     });
 
     revalidateQuoteTree(quote.projectId, asm.quoteId);
+  });
+}
+
+/**
+ * Move an attached product between structural homes. The drag/drop writer.
+ *
+ * Delegates to `moveStructuralMembership`, which is the ONLY safe way to do
+ * this: composing it from detach + attach would mint a new `quote_leaves.id`
+ * (orphaning the rollup) and cascade the product's cost inputs away through the
+ * dual-keyed `assembly_leaf_id`. Both failures leave the tree looking correct.
+ *
+ * `target` is either an Item Group id or the literal `direct`, which means
+ * quote level with no group.
+ */
+export async function moveProductMembership(
+  formData: FormData,
+): Promise<ActionResult<{ quoteLeafId: string; assemblyId: string | null }>> {
+  return runAction(async () => {
+    const quoteLeafId = String(formData.get("quoteLeafId") ?? "").trim();
+    const target = String(formData.get("target") ?? "").trim();
+    const positionRaw = String(formData.get("position") ?? "0").trim();
+    if (!quoteLeafId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteLeafId required");
+    if (!target)
+      throw new ActionGuardError(ERR.VALIDATION, "target required");
+    const position = Number.isFinite(Number(positionRaw))
+      ? Number(positionRaw)
+      : 0;
+
+    const user = await ensureUser();
+
+    const [existing] = await db
+      .select({ quoteId: quoteLeaves.quoteId, assemblyId: quoteLeaves.assemblyId })
+      .from(quoteLeaves)
+      .where(eq(quoteLeaves.id, quoteLeafId))
+      .limit(1);
+    if (!existing)
+      throw new ActionGuardError(ERR.NOT_FOUND, "Attachment not found.");
+
+    const quote = await loadQuoteOrThrow(existing.quoteId);
+    assertDraft(quote);
+
+    const evidence = await db.transaction(async (tx) =>
+      moveStructuralMembership(tx as never, {
+        quoteLeafId,
+        target:
+          target === "direct"
+            ? { kind: "direct", position }
+            : { kind: "group", assemblyId: target, position },
+      }),
+    );
+
+    // Structure only. `diff_json` records both homes so a forensic reader can
+    // see the move without reconstructing it from two rows.
+    await writeAuditEntry({
+      userId: user.id,
+      entityType: "quote_leaf",
+      entityId: evidence.quoteLeafId,
+      action: "product_membership_moved",
+      diffJson: {
+        quote_id: evidence.quoteId,
+        leaf_id: evidence.leafId,
+        from: evidence.from,
+        to: evidence.to,
+        position: evidence.position,
+        dependents_repointed: evidence.dependentsRepointed,
+      },
+    });
+
+    revalidateQuoteTree(quote.projectId, existing.quoteId);
+    return {
+      quoteLeafId: evidence.quoteLeafId,
+      assemblyId: evidence.to.assemblyId,
+    };
   });
 }

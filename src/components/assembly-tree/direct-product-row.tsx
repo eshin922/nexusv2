@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import type { DirectProductNode } from "@/lib/assembly-tree";
 import { CompletenessChip } from "./completeness-chip";
 import { detachQuoteProduct } from "@/app/actions/quote-products";
+import { DragGrip } from "./drag-grip";
 
 // A Direct Product — a product attached straight to the quote, with no Item
 // Group. Renders as a FIRST-CLASS quote row, peer to an Item Group row, because
@@ -25,11 +26,17 @@ export function DirectProductRow({
   editable,
   quoteId,
   editSpecsHref,
+  isMoving,
+  onMoveStart,
 }: {
   product: DirectProductNode;
   editable: boolean;
   quoteId: string;
   editSpecsHref: string;
+  /** Drag in flight for THIS product. */
+  isMoving?: boolean;
+  /** Begin a structural move. Absent when the surface is read-only. */
+  onMoveStart?: (e: React.DragEvent) => void;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +96,13 @@ export function DirectProductRow({
 
   return (
     <>
-      <div className="a1v2-asy-row a1v2-direct-row">
+      <div
+        className={`a1v2-asy-row a1v2-direct-row${isMoving ? " moving" : ""}`}
+      >
+        {/* B-12 · the leading slot returns, but only because there is now a
+            real capability behind it. The ◆ that used to sit here was inert;
+            this is the grip, and it is rendered only when a move is possible. */}
+        {editable && onMoveStart ? <DragGrip onDragStart={onMoveStart} /> : null}
         {/* No leading slot. The ◆ was inert — no children to expand, and no
             drag handle by design — and it existed only because the row had
             borrowed a register that HAS a leading slot. A meaningless glyph is

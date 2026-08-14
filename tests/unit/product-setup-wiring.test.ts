@@ -839,3 +839,58 @@ test("Step 4 · spec validation selects its schema from the pin, in quote scope"
   // The unmapped state must not be absorbed into "no schema applies".
   assert.match(src, /resolution\.kind === "unmapped"/);
 });
+
+// ------------------------------------------- drag/drop · structural movement
+test("every drag direction reaches the move primitive, not detach + attach", async () => {
+  // The primitive is the only safe writer: composing a move from detach +
+  // attach mints a new quote_leaves.id AND cascades the product's cost inputs
+  // away through the dual-keyed assembly_leaf_id. Both leave the tree looking
+  // correct, so this is asserted structurally rather than trusted.
+  const action = await code("src/app/actions/assemblies.ts");
+  assert.match(action, /moveStructuralMembership/);
+  assert.match(action, /target === "direct"[\s\S]{0,120}kind: "direct"/);
+  assert.match(action, /kind: "group", assemblyId: target/);
+  // A move is a draft-only structural edit.
+  assert.match(action, /assertDraft\(quote\)/);
+  // It must never reach for the destructive helpers.
+  const moveBlock = action.slice(action.indexOf("moveProductMembership"));
+  assert.doesNotMatch(moveBlock, /detachGroupedMembership|attachGroupedMembership/);
+});
+
+test("the move writer records both structural homes in its audit row", async () => {
+  const action = await code("src/app/actions/assemblies.ts");
+  assert.match(action, /action: "product_membership_moved"/);
+  assert.match(action, /from: evidence\.from/);
+  assert.match(action, /to: evidence\.to/);
+});
+
+test("member drag state lives at tree level, not inside one Item Group", async () => {
+  // Per-ASY state can only describe movement INSIDE one group, which is why
+  // cross-group movement was unreachable before.
+  const body = await code("src/components/assembly-tree/assembly-tree-body.tsx");
+  assert.match(body, /movingLeafId/);
+  assert.match(body, /moveProductMembership/);
+  // The tree container is the Direct/root drop zone — no inserted dropzone.
+  assert.match(body, /onDrop=\{\(e\) => dropOnZone\(e, "direct"\)\}/);
+  // No optimistic reshuffle across a governed boundary.
+  assert.match(body, /router\.refresh\(\)/);
+});
+
+test("the grip renders only where a move is supported", async () => {
+  const grip = await code("src/components/assembly-tree/drag-grip.tsx");
+  assert.match(grip, /draggable/);
+  for (const f of [
+    "src/components/assembly-tree/asy-row.tsx",
+    "src/components/assembly-tree/direct-product-row.tsx",
+  ]) {
+    const src = await code(f);
+    // Guarded on BOTH editability and the handler's presence.
+    assert.match(src, /editable && onMoveStart \? \(?\s*<DragGrip/);
+  }
+});
+
+test("same-group reorder is untouched by the cross-home move", async () => {
+  const src = await code("src/components/assembly-tree/asy-row.tsx");
+  assert.match(src, /reorderAssemblyLeaves/);
+  assert.match(src, /handleLeafDragOver/);
+});

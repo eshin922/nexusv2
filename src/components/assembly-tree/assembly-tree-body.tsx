@@ -5,7 +5,11 @@ import type { AssemblyTree } from "@/lib/assembly-tree";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AsyRow } from "./asy-row";
 import { DirectProductRow } from "./direct-product-row";
-import { reorderAssemblies } from "@/app/actions/assemblies";
+import {
+  moveProductMembership,
+  reorderAssemblies,
+} from "@/app/actions/assemblies";
+import { useRouter } from "next/navigation";
 
 // Phase A.1 v2 impl-2 Step 9 — Drag-to-reorder ASY rows.
 //
@@ -43,6 +47,7 @@ export function AssemblyTreeBody({
   );
   const [optimisticOrder, setOptimisticOrder] = useState<string[] | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
+  const router = useRouter();
   const [, startReorderTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -113,11 +118,82 @@ export function AssemblyTreeBody({
   // Direct Products render as peers of Item Groups, not inside them. They are
   // listed first because a quote-level product is the simpler structure and
   // reading it before the nested one matches how the operator built it.
+  // ---- Member/product movement across structural homes.
+  //
+  // Held HERE rather than inside AsyRow, because the drag now crosses row
+  // boundaries: A -> B, Direct -> group, group -> Direct. Per-ASY state can
+  // only ever describe movement inside one group, which is why cross-group
+  // movement was unreachable before.
+  //
+  // Reorder WITHIN a group stays where it was — that path works and is not
+  // rebuilt here.
+  const [movingLeafId, setMovingLeafId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [, startMoveTransition] = useTransition();
+
+  function beginMove(e: React.DragEvent, quoteLeafId: string) {
+    if (!editable) return;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", quoteLeafId);
+    e.dataTransfer.setData("application/x-a1v2-drag-kind", "member");
+    e.stopPropagation();
+    setMovingLeafId(quoteLeafId);
+  }
+
+  function overZone(e: React.DragEvent, zone: string) {
+    if (!editable || !movingLeafId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    if (dropTarget !== zone) setDropTarget(zone);
+  }
+
+  function dropOnZone(e: React.DragEvent, target: string) {
+    if (!editable || !movingLeafId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const quoteLeafId = movingLeafId;
+    setMovingLeafId(null);
+    setDropTarget(null);
+
+    const fd = new FormData();
+    fd.set("quoteLeafId", quoteLeafId);
+    fd.set("target", target);
+    fd.set("position", "0");
+    startMoveTransition(async () => {
+      setError(null);
+      const result = await moveProductMembership(fd);
+      // No optimistic reshuffle. A move crosses a governed boundary, so the
+      // tree redraws from what the server actually did rather than from what
+      // the drop implied — a failed move must not leave the operator looking
+      // at a structure that does not exist.
+      if (!result.ok) setError(result.error.message);
+      else router.refresh();
+    });
+  }
+
+  function endMove() {
+    setMovingLeafId(null);
+    setDropTarget(null);
+  }
+
   const isEmpty =
     orderedAssemblies.length === 0 && tree.directProducts.length === 0;
 
   return (
-    <div className="a1v2-tree" onDragEnd={handleAsyDragEnd}>
+    <div
+      className={`a1v2-tree${dropTarget === "direct" ? " drop-active" : ""}`}
+      onDragEnd={(e) => {
+        handleAsyDragEnd();
+        endMove();
+      }}
+      // The tree body IS the Direct/root drop zone. No separate dropzone
+      // element is introduced — the existing container communicates it, and a
+      // permanent "drop here" affordance would be chrome the operator has to
+      // read past on every render.
+      onDragOver={(e) => overZone(e, "direct")}
+      onDrop={(e) => dropOnZone(e, "direct")}
+    >
       {isEmpty ? (
         <p className="r7b-empty-state">
           {editable
@@ -132,6 +208,8 @@ export function AssemblyTreeBody({
               product={product}
               editable={editable}
               quoteId={quoteId}
+              isMoving={movingLeafId === product.quoteLeafId}
+              onMoveStart={(e) => beginMove(e, product.quoteLeafId)}
               editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${product.leafId}/specs`}
             />
           ))}
@@ -145,6 +223,11 @@ export function AssemblyTreeBody({
               isDragging={dragId === asy.id}
               onDragStart={(e) => handleAsyDragStart(e, asy.id)}
               onDragOver={(e) => handleAsyDragOver(e, asy.id)}
+              movingLeafId={movingLeafId}
+              isDropTarget={dropTarget === asy.id}
+              onMemberDragStart={beginMove}
+              onMemberDragOverGroup={(e) => overZone(e, asy.id)}
+              onMemberDropOnGroup={(e) => dropOnZone(e, asy.id)}
               assemblies={assemblies}
               fullLeafTypes={fullLeafTypes}
               permissions={permissions}
