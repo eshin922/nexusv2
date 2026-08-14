@@ -1,7 +1,7 @@
 {
   "capturedOver": 33,
   "failed": 0,
-  "globalDigest": "e60be671932d147ee44b9ae1139c25af8017d0177bb96e330c02dd379bf2af0d",
+  "globalDigest": "abd7a4cdec9f56d1350792802abd6f43245c3c5da75c27bcf956d2e3e00b9817",
   "entries": [
     {
       "quote_id": "071486be-e1a6-4475-8df6-2a2b78a21b58",
@@ -63,8 +63,8 @@
       "quote_id": "600dd15c-e304-40d4-883b-5a13dd3ba214",
       "status": "draft",
       "label": "Epicuren - Pro Mask Boosters / Alt 5",
-      "digest": "38226f806d06290dd6932e69e0945b7e",
-      "skus": 21,
+      "digest": "4c4d52bf4f00c2c3ca31319f805abb83",
+      "skus": 20,
       "tiers": 1
     },
     {

@@ -845,3 +845,51 @@ identity. The isolation script already does exactly this in its retained-rollup
 claim, so the technique is proven; it belongs in the gate.
 
 Not in this slice.
+
+---
+
+## OW-6 · S-7 refresh — intentional structural content change on Alt 5 (2026-08-14)
+
+**Distinct from OW-5 (ordering-only) and OW-2 (attachment).** This one really
+did change the quote: it lost a product.
+
+Pre-refresh evidence, which is the evidence — the refreshed baseline is not:
+
+- Alt 5 the only changed basket member (33)
+- rollup cardinality **21 → 20**; nothing added
+- removed identity `4056fe80…`, which post-OD-017 is both `skuId` and
+  `canonicalQuoteLeafId`
+- product **LEAF-GLW-30-PP** — 30ml Glass Dropper Bottle · Type III soda-lime ·
+  matte black — an **Item Group member** under assembly `9dc73ff2…`
+  (`skuRole: leaf`, `indentDepth: 1`, `qtyPerParent: 1`)
+- `quote_leaves` 0 rows, `assembly_leaves` 0 rows — membership gone
+- **library leaf present and unarchived**, per the "library leaf stays" contract
+- `assembly_leaf_detach` audited it against the `quote_leaf` identity,
+  `edward.shin@gmail.com`, 2026-08-14 03:03:00
+- retained rollups preserve their governed economics; no quote-level value moved
+
+Refresh delta: 33 → 33 entries, **1** changed digest, 0 new, 0 removed;
+`e60be671…` → `abd7a4cd…`. Nothing was reconstructed or restored.
+
+### Correction to the prior record — there was NO audit defect
+
+An earlier report said the reorder did not explain the removal and the quote's
+audit trail was silent about it. **The trail was not silent.** That query
+filtered on `diff_json->>'quote_id'` and `entity_id = quote_id`, but
+`assembly_leaf_detach` keys on the **`quote_leaf`**, exactly as the audit
+namespace in CLAUDE.md specifies. The evidence existed and the instrument could
+not express it.
+
+Retrieval scoped to the removed rollup's OWN identities found it immediately.
+Same class of error as the grep that could not match numeric differences and the
+`catch` that reported "missing" for a read failure: **a measurement taken with an
+instrument incapable of representing the thing it was screening for**, and the
+third time this session that a filter's silence was nearly read as a finding.
+
+### Alt 5 retired
+
+Two S-7 incidents in two days from routine walk activity. Alt 5 is withdrawn
+from Product Library operator mutation. **Every remaining walk quote must be
+proven outside the basket before it is mutated** — the basket is
+structure-bearing quotes (≥1 `assembly_leaves` row) minus the
+`ZZ-VALIDATION-` namespace, so the proof is one query, not an assumption.
