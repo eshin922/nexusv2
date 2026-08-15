@@ -16,7 +16,7 @@ import {
   quoteTiers,
   quotes,
 } from "@/db/schema";
-import { ActionGuardError, ERR, assertNotFrozen, runAction, type ActionResult } from "@/lib/action-result";
+import { ActionGuardError, ERR, runAction, type ActionResult } from "@/lib/action-result";
 import { writeAuditEntry } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { resolveBreakFieldSources } from "@/lib/freight-break-write";
@@ -499,7 +499,13 @@ export async function deleteFreightSubcategory(fd: FormData): Promise<ActionResu
     if (!row) throw new ActionGuardError(ERR.NOT_FOUND, "Shipment not found");
 
     // Frozen check before any evaluation, let alone mutation.
-    assertNotFrozen(row.quote);
+    // OD-023 · `assertNotFrozen` removed, not weakened. It passes on `sent`, so
+    // it never expressed this action's rule; the `quoteByIdDraft` on the line
+    // below is strictly stronger and already refuses everything the removed
+    // call did. Leaving both would keep advertising not-frozen as the governing
+    // rule for a draft-only writer — which is how the earlier sweep came to
+    // attribute this call to `updateFreightTracking` and conclude the module
+    // was unguarded.
     await quoteByIdDraft(row.quote.id);
 
     const destinations = await db

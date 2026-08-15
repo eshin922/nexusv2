@@ -552,6 +552,69 @@ Findings so far:
 - `quote-attachments.ts` · all three — verified absent from `src/components/pdf/`
   and `customer-view-resolver.ts`. **Outside**, revisit trigger recorded above.
 
+### Step 1 CLASSIFICATION COMPLETE — 2026-08-15, and it corrects both prior counts
+
+Every exported function in all nine modules read individually. Result: **the
+invariant was already almost entirely enforced.** One genuine gap, two inline
+checks to normalize, one misleading guard removed.
+
+**The counts were wrong because draft is enforced in FOUR shapes and each sweep
+searched for a subset:**
+
+| # | Shape | Where |
+|---|---|---|
+| 1 | `assertDraft(quote)` | `action-result.ts:211` |
+| 2 | `requireDraft(quote)` — **byte-identical rule, different name** | `quote-guards.ts:172` |
+| 3 | a **loader** that calls shape 2 | `quoteByIdDraft`, `quoteForAssembly`, `quoteForQuoteLeaf`, `quoteForQuoteLeaves`, `quoteForAssemblyLeaf`, `quoteForAssemblyLeafInputLineGroup`, `quoteForLegGroup`, `quoteForLeg` |
+| 4 | a **module-local loader** that calls shape 3 | `draftSubcategory` in `freight-worksheet.ts` |
+
+"48 unguarded paths" searched shape 1. The correction that added inline
+`status !== "draft"` still missed shapes 3 and 4 — which is where nearly all the
+enforcement actually lives.
+
+**`freight-worksheet.ts` was exactly inverted.** The recorded classification says
+*"11 of 12 have no guard at all"*. Measured per function: **11 of 12 ARE guarded**
+(all via `draftSubcategory` → `quoteByIdDraft`, or `quoteByIdDraft` directly), and
+the 12th — `updateFreightTracking` — correctly has none. The `assertNotFrozen` at
+line 502 was attributed to `updateFreightTracking`; it was in
+`deleteFreightSubcategory`, which also calls `quoteByIdDraft`. So the one function
+named as having the weaker guard never had it, and the trap function the
+classification protected was never at risk from that call.
+
+**Actual work, applied:**
+
+| Module · function | Before | Action |
+|---|---|---|
+| `leaf-specs.ts` · `updateLeafSpec` | **no guard** | `quoteByIdDraft` on quote scope. **The only real gap.** Spec values render in the PDF addendum. Library scope stays ungated — a template owns no quote's version, and gating it would freeze master data whenever any quote is sent. |
+| `freight.ts` · `updateLegTierCell` | inline `status !== "draft"` | normalized to `assertDraft` |
+| `freight.ts` · `updateFreightComponentTierCost` | inline `owner.status !== "draft"` | normalized to `assertDraft` |
+| `freight-worksheet.ts` · `deleteFreightSubcategory` | `assertNotFrozen` **and** `quoteByIdDraft` | `assertNotFrozen` removed — it passes on `sent`, so it never expressed this action's rule, while advertising the weaker one |
+
+Everything else in the nine modules already reached a draft guard, and every one
+was verified to do so **before** its first write.
+
+**Read-only, correctly outside:** `fetchLibraryDefaultSpecs`,
+`searchPricingVendors`, `getQuoteCosting`, `getCostingBundle`,
+`countFreightLegGroupsForQuote`, `countFreightLegTiersWithDataForQuote`,
+`previewGlobalAdj` (which requires draft anyway).
+
+**`updateFreightTracking` stays out** — confirmed by reading it: writes only
+`freight_destination_tracking`, audits `{ operational: true }`, touches no
+pricing table, and has no draft guard. It must keep none.
+
+**Proof:** `tests/unit/od-023-draft-guard-classification.test.ts`, 49 assertions.
+It enumerates the four shapes, asserts every loader really does call
+`requireDraft` (without which every downstream assertion is vacuous), checks
+guard-precedes-write, and asserts `updateFreightTracking` as a **refusal to
+guard** so a future mechanical sweep fails there instead of shipping a dead
+feature. Falsified three ways: removing the `leaf-specs` guard → 3 red; gating
+`updateFreightTracking` → 1 red; commenting out one loader's `requireDraft` →
+1 red.
+
+That third case initially passed, because commenting a guard out leaves the words
+behind for a regex to find. The test now strips comments before matching — the
+same instrument error, caught inside the file written to correct it.
+
 ### Proof obligations — all seven, before this closes
 
 1. Send captures a complete snapshot.
