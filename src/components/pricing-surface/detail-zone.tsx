@@ -103,6 +103,9 @@ function writeSessionOpen(quoteId: string, open: boolean): void {
 export function DetailZone({
   state,
   blendedByTier,
+  units,
+  selectedUnitId,
+  onSelectUnit,
   tierMeta,
   leversByTier,
   onPreviewGlobalAdjust,
@@ -120,9 +123,14 @@ export function DetailZone({
   renderStackMarginDelta,
 }: {
   state: QuoteState;
-  /** Blended per-unit values read from the canonical graph, keyed by the
-   *  classifier's numeric tier id. Resolved once at the composition point. */
+  /** Price-build values for the SELECTED unit of account, read from the
+   *  canonical graph and keyed by the classifier's numeric tier id. Resolved
+   *  once at the composition point. */
   blendedByTier: Map<number, BlendedTierComponents>;
+  /** Top-level sellable units — Item Groups, and Direct Components alone. */
+  units: ReadonlyArray<{ id: string; label: string; isFinishedGood: boolean }>;
+  selectedUnitId: string | null;
+  onSelectUnit: (id: string) => void;
   /** Tier label + ★ by numeric id, forwarded to the stack's header row. */
   tierMeta?: Map<number, { label: string; recommended: boolean }>;
   /** Which tiers carry a lever, from the governed working set. See B-2. */
@@ -199,6 +207,9 @@ export function DetailZone({
         <DetailCostStack
           state={state}
           blendedByTier={blendedByTier}
+          units={units}
+          selectedUnitId={selectedUnitId}
+          onSelectUnit={onSelectUnit}
           tierMeta={tierMeta}
           leversByTier={leversByTier}
           onTrace={onTraceStackCell}
@@ -566,21 +577,25 @@ export interface TracedStackCell {
 }
 
 /** What each traceable column is called when it titles a trace panel. */
+// "blended" is gone from every DOLLAR title. These are one sellable unit's own
+// economics now, not a mean across the quote's leaves, and the old word made a
+// scoped figure read as an average. Margin keeps it, because the tier's blended
+// margin genuinely is the revenue-weighted blend and its authority is unchanged.
 const COLUMN_TITLE = {
-  pkg: "Packaging · blended per unit",
-  prod: "Production · blended per unit",
-  raw: "Raw materials · blended per unit",
-  frt: "Freight · blended per unit",
-  dt: "Duty + tariff · blended per unit",
-  sellBefore: "Sell before adjustment · blended per unit",
-  sell: "Quoted sell · blended per unit",
-  cost: "Unit cost · blended per unit",
+  pkg: "Packaging · per unit",
+  prod: "Production · per unit",
+  raw: "Raw materials · per unit",
+  frt: "Freight · per unit",
+  dt: "Duty + tariff · per unit",
+  sellBefore: "Sell before adjustment · per unit",
+  sell: "Finished-good sell · per unit",
+  cost: "Unit cost · per unit",
   margin: "Blended margin · this tier",
-  adjDelta: "Price adjustment contribution · blended per unit",
-  sellAfterAdj: "Sell after adjustment · blended per unit",
-  liftDelta: "Surgical lift contribution · blended per unit",
-  sellAfterLift: "Sell after lifts · blended per unit",
-  overrideDelta: "PM override contribution · blended per unit",
+  adjDelta: "Price adjustment contribution · per unit",
+  sellAfterAdj: "Sell after adjustment · per unit",
+  liftDelta: "Surgical lift contribution · per unit",
+  sellAfterLift: "Sell after lifts · per unit",
+  overrideDelta: "PM override contribution · per unit",
 } as const;
 
 /**
@@ -686,6 +701,9 @@ function ReconStrip({ columns }: { columns: TierStackColumn[] }) {
 export function DetailCostStack({
   state,
   blendedByTier,
+  units,
+  selectedUnitId,
+  onSelectUnit,
   tierMeta,
   leversByTier,
   onTrace,
@@ -695,7 +713,18 @@ export function DetailCostStack({
   renderMarginDelta,
 }: {
   state: QuoteState;
+  /**
+   * Price build per COMMERCIAL UNIT OF ACCOUNT, keyed by unit id then numeric
+   * tier. Not a quote-wide blend: on a mixed quote that averaged across
+   * unrelated sellable products and divided an Item Group's economics by the
+   * whole quote's leaf count.
+   */
   blendedByTier: Map<number, BlendedTierComponents>;
+  /** Top-level sellable units — Item Groups, and Direct Components standing alone. */
+  units: ReadonlyArray<{ id: string; label: string; isFinishedGood: boolean }>;
+  /** Null until the operator chooses. Never auto-selected on a mixed quote. */
+  selectedUnitId: string | null;
+  onSelectUnit: (id: string) => void;
   /**
    * Tier label + ★, keyed by the classifier's numeric id.
    *
@@ -902,20 +931,78 @@ export function DetailCostStack({
     );
   };
 
+  const selectedUnit = units.find((u) => u.id === selectedUnitId) ?? null;
+  const unitLabel = selectedUnit?.label ?? null;
+  const selectedIsFinishedGood = selectedUnit?.isFinishedGood ?? true;
+
+  // NO AUTO-SELECTION on a mixed quote. Picking one for the operator would put
+  // a single product's economics under a heading they will read as the quote's,
+  // which is the same category error the leaf blend made one level up. A single
+  // sellable unit is not a choice, so it resolves itself.
+  if (selectedUnit === null) {
+    if (units.length === 1) {
+      onSelectUnit(units[0].id);
+      return null;
+    }
+    return (
+      <div className="psr-detail-section psr-detail-section--cost-stack">
+        <div className="section-head">
+          <h4>Price build</h4>
+          <span className="meta">
+            Dollar economics belong to one sellable product. This quote has{" "}
+            {units.length}.
+          </span>
+        </div>
+        <div className="r11-unit-picker">
+          <span className="r11-unit-picker-prompt">
+            Select a product to view its price build
+          </span>
+          {units.map((u) => (
+            <button
+              key={u.id}
+              type="button"
+              className="r11-unit-option"
+              onClick={() => onSelectUnit(u.id)}
+            >
+              <span className="n">{u.label}</span>
+              <span className="s">{u.isFinishedGood ? "Item Group" : "Direct product"}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="psr-detail-section psr-detail-section--cost-stack">
       <div className="section-head">
-        <h4>Cost stack</h4>
+        <h4>Price build{unitLabel === null ? "" : ` · ${unitLabel}`}</h4>
         <span className="meta">
-          Per-tier · sell-side contributions per unit, blended across SKUs ·
-          D+T is internal layer
+          Per-tier · sell-side contributions per finished unit · D+T is internal
+          layer
         </span>
+        {units.length > 1 && (
+          <select
+            className="r11-unit-switch"
+            value={selectedUnit.id}
+            onChange={(e) => onSelectUnit(e.target.value)}
+            aria-label="Product whose price build is shown"
+          >
+            {units.map((u) => (
+              <option key={u.id} value={u.id}>{u.label}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       <div className="r11-stack">
         <div className="r11-srow head">
           <div className="r11-slab">
-            <span className="colhead">Cost stack · blended per unit</span>
+            <span className="colhead">
+              {selectedIsFinishedGood
+                ? "Price build · per finished unit"
+                : "Price build · per unit"}
+            </span>
           </div>
           {columns.map((c) => (
             <div className="r11-scell flat" key={c.numericId}>
@@ -1037,8 +1124,10 @@ export function DetailCostStack({
           "quoted",
           "r11-srow total rule",
           <>
-            <span className="n">Quoted sell</span>
-            <span className="s">per unit, blended</span>
+            <span className="n">
+              {selectedIsFinishedGood ? "Finished-good sell" : "Product sell"}
+            </span>
+            <span className="s">per unit</span>
           </>,
           (c) => level(c, "sell"),
           "sell",

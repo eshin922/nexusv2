@@ -324,3 +324,58 @@
 /* When a lift IS available and still cannot finish, this sits under the
  * button and must read as its footnote rather than a competing control. */
 .btn + .r11-manual-remains { margin-top: 4px; }
+
+/* ── Price build · unit-of-account selection ──────────────────────────────
+ *
+ * Dollar economics belong to ONE sellable product. On a quote holding more
+ * than one, the section asks which before it shows any, rather than picking
+ * one and letting an operator read a single product's build as the quote's. */
+.r11-unit-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 0 4px;
+}
+
+.r11-unit-picker-prompt {
+  font-size: 12px;
+  color: var(--ink-2);
+  padding-bottom: 2px;
+}
+
+.r11-unit-option {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink);
+}
+
+.r11-unit-option:hover { background: var(--paper-3); border-color: var(--rule-2); }
+.r11-unit-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.r11-unit-option .n { font-size: 13px; }
+.r11-unit-option .s {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-left: auto;
+}
+
+/* Once chosen, switching is a control in the head rather than a return trip
+ * to the list — the operator is comparing products, not re-answering. */
+.r11-unit-switch {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 6px;
+  background: var(--paper-2);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}

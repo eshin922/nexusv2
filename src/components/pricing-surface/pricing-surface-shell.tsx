@@ -69,7 +69,7 @@ import { usePricingStaging } from "./pricing-staging-context";
 import { parseCellKey, type CellRef } from "@/lib/pricing-staging";
 import { useCostingStore } from "@/components/costing-store-provider";
 import { selectGraph, selectSkuRollups } from "@/lib/costing-store";
-import { readNodeValue, quoteScopeKey } from "@/lib/costing-nodes";
+import { readNodeValue, quoteScopeKey, priceBuildKey } from "@/lib/costing-nodes";
 
 // 30s persistent "↻ just updated" hint after a mode transition. CD
 // §4.6 / §9.2 pushback 2. Restart on each subsequent transition.
@@ -429,6 +429,7 @@ export function PricingSurfaceShell({
     return byNumeric;
   }, [graph, uuidToNumeric]);
 
+
   // ── display metadata ────────────────────────────────────────────
   //
   // Both maps below are JOINS on identity that something else already owns:
@@ -530,6 +531,81 @@ export function PricingSurfaceShell({
       return `${name} · ${tierLabel}`;
     };
   }, [skuRollups, tiers]);
+
+  // ── PRICE BUILD · per commercial unit of account ─────────────────
+  //
+  // The map above is a units-weighted MEAN across every governed leaf in the
+  // quote. It answers an analytical question and it still does, but it is not
+  // the dollar construction of anything anyone sells: on a mixed quote its
+  // denominator spans unrelated products, and a live quote rendered an Item
+  // Group's $7.51 finished-good sell as $1.0729 — divided by 7, the leaf count
+  // of the whole quote.
+  //
+  // These read the SAME shape from a scope the engine publishes per top-level
+  // sellable unit, so the stack renderer below is unchanged and simply points
+  // at a different address.
+  const priceBuildUnits = useMemo(
+    () =>
+      skuRollups
+        .filter((r) => r.parentSkuId === null)
+        .map((r) => ({
+          id: r.skuId,
+          label: r.productName ?? r.skuLabel,
+          isFinishedGood: r.skuRole === "assembly",
+        })),
+    [skuRollups],
+  );
+
+  const priceBuildByUnit = useMemo(() => {
+    const out = new Map<string, Map<number, BlendedTierComponents>>();
+    for (const unit of priceBuildUnits) {
+      const byNumeric = new Map<number, BlendedTierComponents>();
+      for (const [tierUuid, numeric] of uuidToNumeric) {
+        const k = (name: string) => priceBuildKey(unit.id, tierUuid, name);
+        const read = (name: string): number | null => readNodeValue(graph, k(name));
+        const pkg = read("pkg");
+        const prod = read("prod");
+        const raw = read("raw");
+        const frt = read("frt");
+        const dt = read("dt");
+        const sellBefore = read("sell-before");
+        const sell = read("sell");
+        const cost = read("cost");
+        const adjDelta = read("adj-delta");
+        const sellAfterAdj = read("sell-after-adj");
+        const liftDelta = read("lift-delta");
+        const sellAfterLift = read("sell-after-lift");
+        const overrideDelta = read("override-delta");
+        if (
+          pkg === null || prod === null || raw === null || frt === null ||
+          dt === null || sellBefore === null || sell === null || cost === null ||
+          adjDelta === null || sellAfterAdj === null || liftDelta === null ||
+          sellAfterLift === null || overrideDelta === null
+        ) {
+          continue;
+        }
+        byNumeric.set(numeric, {
+          pkg, prod, raw, frt, dt, sellBefore, sell, cost,
+          margin: read("margin"),
+          adjDelta, sellAfterAdj, liftDelta, sellAfterLift, overrideDelta,
+          keys: {
+            pkg: k("pkg"), prod: k("prod"), raw: k("raw"), frt: k("frt"),
+            dt: k("dt"), sellBefore: k("sell-before"), sell: k("sell"),
+            cost: k("cost"), margin: k("margin"), adjDelta: k("adj-delta"),
+            sellAfterAdj: k("sell-after-adj"), liftDelta: k("lift-delta"),
+            sellAfterLift: k("sell-after-lift"), overrideDelta: k("override-delta"),
+          },
+        });
+      }
+      if (byNumeric.size > 0) out.set(unit.id, byNumeric);
+    }
+    return out;
+  }, [graph, priceBuildUnits, uuidToNumeric]);
+
+  // No auto-selection. On a quote with more than one sellable unit, choosing
+  // one for the operator would present a single product's economics as though
+  // it were the quote's — the same category error one level up.
+  const [priceBuildUnitId, setPriceBuildUnitId] = useState<string | null>(null);
 
   /**
    * The same fail-closed contract as `cellLabel`, for the tier a per-tier
@@ -851,7 +927,16 @@ export function PricingSurfaceShell({
           DetailGlobalAdjust (CB Patch round 3 BUG-B wire). */}
       <DetailZone
         state={state}
-        blendedByTier={blendedByTier}
+        blendedByTier={
+          // The SELECTED unit's own price build. `blendedByTier` — the
+          // quote-wide leaf mean — is deliberately not passed: it is not the
+          // dollar construction of anything anyone sells.
+          (priceBuildUnitId === null ? undefined : priceBuildByUnit.get(priceBuildUnitId)) ??
+          new Map()
+        }
+        units={priceBuildUnits}
+        selectedUnitId={priceBuildUnitId}
+        onSelectUnit={setPriceBuildUnitId}
         tierMeta={tierMeta}
         leversByTier={leversByTier}
         onPreviewGlobalAdjust={onPreviewGlobalAdjust}

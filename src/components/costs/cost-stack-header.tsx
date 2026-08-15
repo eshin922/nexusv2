@@ -237,7 +237,18 @@ export function CostStackHeader({
           provides grid + padding + bottom-rule; LegendItem children
           render .swatch + label per canonical .legend grammar. */}
       <div className="r6-stack-head">
-        <h2>Cost stack</h2>
+        {/*
+          PRICE BUILD, not "Cost stack". Every row here is a marked-up SELL
+          contribution and always was; the heading named the inputs while the
+          bars showed the outputs. The arithmetic is unchanged — this is the
+          label catching up with what the section has been computing.
+        */}
+        <h2>
+          Price build
+          <span className="r6-stack-sub">
+            Sell-side contributions per finished unit
+          </span>
+        </h2>
         <div className="legend">
           <LegendItem label="Packaging" variant="pkg" />
           {/* A legend swatch is a promise that a colour appears in the bars.

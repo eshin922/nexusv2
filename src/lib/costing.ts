@@ -7,6 +7,7 @@ import {
   type CostingGraph,
   type CostingNode,
   type NodeCandidate,
+  priceBuildKey,
 } from "./costing-nodes";
 
 // Slice 8 — Pricing rollup. Pure TypeScript, no Drizzle imports,
@@ -3998,6 +3999,112 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       blend("sell-after-lift", "Blended sell after lift", (pt) => pt.sellAfterLiftPerUnit),
       blend("override-delta", "Blended override contribution", (pt) => pt.overrideDeltaPerUnit),
     );
+
+    // ---------- PRICE BUILD · per commercial unit of account ----------
+    //
+    // The blends above answer "what does an average leaf in this quote sell
+    // for". That is an analytical question and they remain the answer to it.
+    // It is NOT the dollar construction of anything anyone sells, and a live
+    // quote proved the difference: an Item Group selling at $7.51 rendered as
+    // $1.0729, its economics divided by 7 — the leaf count of the WHOLE quote,
+    // spanning a second Item Group and an unrelated Direct Component. Removing
+    // a zero-value leaf moved the figure while the turnkey economics did not,
+    // because the denominator was never the finished good's own composition.
+    //
+    // These nodes are scoped to ONE top-level sellable unit and read that
+    // unit's own rollup. An assembly's rollup already sums its children, so
+    // there is no new arithmetic here — only the correct scope. The picks are
+    // the same marked-up sell contributions the blends use.
+    //
+    // WHY SERVICES ARE NOT IN THE SUM. Separate service fees bill as fixed
+    // charges and are, by the engine's own rule, "not part of the per-unit
+    // price". Adding them would break the reconciliation they are absent from
+    // and assert they are per-unit economics. Emitted as a sibling instead,
+    // only when non-zero, so an operator can see them without the stack
+    // claiming they compose into the sell.
+    for (const unit of skus) {
+      if (unit.parentSkuId !== null) continue; // top-level sellable units only
+      const upt = rollupBySku.get(unit.id)?.perTier.find((p) => p.tierId === tier.id);
+      if (!upt) continue;
+      const unitBase = priceBuildKey(unit.id, tier.id);
+      const part = (name: string, label: string, value: number) => ({
+        key: nodeKey(unitBase, name),
+        kind: "origin" as const,
+        label,
+        value,
+        unit: "usd" as const,
+        origin: { grade: "thin" as const, actor: null, when: null, doc: null },
+      });
+      // Exactly the five that compose the per-unit sell. Verified on live data:
+      // 6.95 + 0 + 0 + 0.56 + 0 = 7.51 = requiredSellPerUnit.
+      const parts = [
+        part("pkg", "Packaging", upt.packagingMarkupSumPerUnit),
+        part("prod", "Production", upt.productionMarkupSumPerUnit),
+        part("raw", "Bulk raw", upt.rawMarkupSumPerUnit),
+        part("frt", "Freight", upt.freightContainerMarkupSumPerUnit),
+        part("dt", "Duty & tariff", upt.freightDutyTariffMarkupSumPerUnit),
+      ];
+      graphNodes.push({
+        key: nodeKey(unitBase, "sell"),
+        kind: "sum",
+        label: unit.skuRole === "assembly"
+          ? "Finished-good sell per unit · " + unit.skuLabel
+          : "Product sell per unit · " + unit.skuLabel,
+        value: parts.reduce((acc, p) => acc + p.value, 0),
+        unit: "usd",
+        op: "Packaging + Production + Bulk raw + Freight + Duty & tariff",
+        operands: parts,
+      });
+      // THE LADDER, per unit. The Pricing section's analytical purpose is how a
+      // price moved from build to quoted — build, adjustment, lift, override —
+      // and that purpose is worth keeping; only the POPULATION the dollars were
+      // taken over was wrong. Mirrors the blend set name-for-name so the
+      // consumer's shape is unchanged and it reads a scope instead of a mean.
+      const scalar = (name: string, label: string, value: number) =>
+        graphNodes.push({
+          key: nodeKey(unitBase, name),
+          kind: "origin",
+          label: label + " · " + unit.skuLabel,
+          value,
+          unit: "usd",
+          origin: { grade: "thin", actor: null, when: null, doc: null },
+        });
+      scalar("cost", "Cost per unit", upt.contributionCostPerUnit);
+      scalar("sell-before", "Sell before adjustment", upt.sellBeforeAdjustmentPerUnit);
+      scalar("adj-delta", "Price adjustment contribution", upt.adjDeltaPerUnit);
+      scalar("sell-after-adj", "Sell after adjustment", upt.sellAfterAdjustmentPerUnit);
+      scalar("lift-delta", "Surgical lift contribution", upt.liftDeltaPerUnit);
+      scalar("sell-after-lift", "Sell after lift", upt.sellAfterLiftPerUnit);
+      scalar("override-delta", "Override contribution", upt.overrideDeltaPerUnit);
+      // Margin is READ from the unit's own rollup, never re-derived here. It
+      // keeps whatever authority the engine gave it; this scope publishes it so
+      // the Price Build can state it without a second computation.
+      if (upt.marginPct !== null) {
+        graphNodes.push({
+          key: nodeKey(unitBase, "margin"),
+          kind: "origin",
+          label: "Margin · " + unit.skuLabel,
+          value: upt.marginPct,
+          unit: "pct",
+          origin: { grade: "thin", actor: null, when: null, doc: null },
+        });
+      }
+
+      const services =
+        upt.separateServiceFeesPerUnit + upt.separateServicesMarkupSumPerUnit;
+      if (services !== 0) {
+        graphNodes.push({
+          key: nodeKey(unitBase, "services"),
+          kind: "origin",
+          label: "Services billed separately · " + unit.skuLabel,
+          value: services,
+          unit: "usd",
+          origin: { grade: "thin", actor: null, when: null, doc: null },
+          note: "Billed as fixed charges; not part of the per-unit sell.",
+          noteLevel: "info",
+        });
+      }
+    }
 
     const sellBlend = blend("sell", "Blended sell per unit", (pt) => pt.requiredSellPerUnit);
     const costBlend = blend("cost", "Blended cost per unit", (pt) => pt.contributionCostPerUnit);
