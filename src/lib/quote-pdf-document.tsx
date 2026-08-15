@@ -31,9 +31,11 @@ import type { DocumentProps } from "@react-pdf/renderer";
 
 import { CustomerPdfAddendumPages } from "@/components/pdf/customer-pdf-addendum";
 import { CustomerPdfDocument } from "@/components/pdf/customer-pdf-document";
+import type { CpdfData } from "@/components/pdf/customer-pdf-types";
 import { customerViewToCpdf } from "@/lib/customer-view-to-cpdf";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import type { CustomerView } from "@/types/quote";
+import type { QuoteSnapshotRepresentation } from "@/lib/quote-snapshot-representation";
 
 export function buildQuoteDocument(args: {
   view: CustomerView;
@@ -46,18 +48,50 @@ export function buildQuoteDocument(args: {
   todayIso: string;
 }): ReactElement<DocumentProps> {
   const { view, addendumData, todayIso } = args;
-
-  const { data, skuSet, hasCharges, hasUnpriced } = customerViewToCpdf(view, {
-    todayIso,
+  const { data } = customerViewToCpdf(view, { todayIso });
+  return buildDocumentFromRepresentation({
+    data,
+    addendumData,
+    includeSpecAddendum: view.includeSpecAddendum,
+    layout: view.pdfLayout,
+    detail: view.detailLevel,
   });
+}
 
-  // Addendum gate: include only when the PM toggle is on AND the
-  // loader confirms meaningful content (impl-6 hasMeaningfulContent
-  // guard — all-empty addendum doesn't render). Consumer of the
-  // buildQuoteDocument factory doesn't decide; the CustomerView
-  // + addendum-loader output does.
+/**
+ * Render from `CpdfData` directly, with no `CustomerView` in sight.
+ *
+ * OD-023 · this is the seam that lets a SENT version render from its frozen
+ * representation instead of from live tables. `buildQuoteDocument` above is now
+ * a thin projection onto it, so a draft preview and a historical re-render go
+ * through exactly the same code — which is what makes "the artifact matches the
+ * stored representation" a property of the build rather than a hope.
+ *
+ * `skuSet`, `hasCharges` and `hasUnpriced` are DERIVED here rather than passed
+ * in. They are functions of `data` alone, and storing them would create three
+ * more values that could disagree with the payload they describe.
+ */
+export function buildDocumentFromRepresentation(args: {
+  data: CpdfData;
+  addendumData: QuoteAddendumData | null;
+  includeSpecAddendum: boolean;
+  layout: CustomerView["pdfLayout"];
+  detail: CustomerView["detailLevel"];
+}): ReactElement<DocumentProps> {
+  const { data, addendumData, includeSpecAddendum, layout, detail } = args;
+
+  const skuSet = data.skus;
+  const hasCharges = data.serviceFees.length > 0;
+  const hasUnpriced = data.skus.some((s) =>
+    s.tier_prices.some((p) => p === null),
+  );
+
+  // Addendum gate: include only when the toggle was on AND the loader confirms
+  // meaningful content (impl-6 `hasMeaningfulContent` guard — an all-empty
+  // addendum doesn't render). The caller doesn't decide; the representation
+  // does.
   const includeAddendum =
-    view.includeSpecAddendum &&
+    includeSpecAddendum &&
     addendumData !== null &&
     addendumData.hasMeaningfulContent;
 
@@ -74,11 +108,35 @@ export function buildQuoteDocument(args: {
     <CustomerPdfDocument
       data={data}
       skuSet={skuSet}
-      layout={view.pdfLayout}
-      detail={view.detailLevel}
+      layout={layout}
+      detail={detail}
       hasCharges={hasCharges}
       hasUnpriced={hasUnpriced}
       addendumPages={addendumPages}
     />
   );
+}
+
+/**
+ * OD-023 · render a SENT version from its frozen representation.
+ *
+ * The single render path used at send time, so the stored payload and the
+ * generated PDF cannot describe different versions — the artifact is produced
+ * from the same object that is persisted, not from a parallel resolution that
+ * happens to match.
+ *
+ * Lives here rather than beside the representation type because this module is
+ * inside the react-pdf containment allowlist and that one is deliberately kept
+ * free of the PDF library.
+ */
+export function renderRepresentation(
+  rep: QuoteSnapshotRepresentation,
+): ReactElement<DocumentProps> {
+  return buildDocumentFromRepresentation({
+    data: rep.cpdfData,
+    addendumData: rep.addendumData,
+    includeSpecAddendum: rep.includeSpecAddendum,
+    layout: rep.pdfLayout,
+    detail: rep.detailLevel,
+  });
 }

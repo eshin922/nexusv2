@@ -519,6 +519,13 @@
       "when": 1786320012000,
       "tag": "0075_drop_retired_product_type_authorities",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1786320013000,
+      "tag": "0076_od_023_snapshot_artifacts",
+      "breakpoints": true
     }
   ]
 }

@@ -70,6 +70,17 @@ export const fakeNetSuite: NetSuiteOperations = {
     }
     return "validation_project_source";
   },
+  async readCustomerTerms(netsuiteCustomerId) {
+    record("customer-terms-read", { netsuiteCustomerId });
+    fail("customer-terms-read");
+    // Scenario hooks mirror the two unresolved outcomes Send must fail closed
+    // on, so the harness can exercise the refusal as well as the happy path.
+    if (scenario() === "customer-missing") return null;
+    if (scenario() === "customer-no-terms") return { terms: null };
+    return {
+      terms: { id: "validation_ns_terms_net30", refName: "Net 30" },
+    };
+  },
   async createSalesOrder(payload, { idempotencyKey }) {
     record("sales-order-create", { idempotencyKey, payload });
     const existing = ordersByKey.get(idempotencyKey);

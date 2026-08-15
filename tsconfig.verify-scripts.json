@@ -1,0 +1,13 @@
+{
+  // OD-023 · runner config for verification scripts that render react-pdf.
+  //
+  // The app's tsconfig sets `jsx: "preserve"`, which is correct for Next (the
+  // bundler does the transform) and leaves a standalone runner with no JSX
+  // factory — the render fails with `React is not defined`.
+  //
+  // `react-jsx` selects the automatic runtime, so the transform injects its own
+  // import and no source file needs a React import added purely to satisfy a
+  // test runner. Scoped to this config so nothing about the app build changes.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "jsx": "react-jsx" }
+}

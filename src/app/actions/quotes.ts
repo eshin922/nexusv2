@@ -8,7 +8,9 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { resolveCustomerView } from "@/lib/customer-view-resolver";
-import { buildQuoteDocument } from "@/lib/quote-pdf-document";
+import { renderRepresentation } from "@/lib/quote-pdf-document";
+import { buildSnapshotRepresentation } from "@/lib/quote-snapshot-representation";
+import { loadQuoteProductStructure } from "@/lib/quote-product-structure";
 import { addDaysToIsoDate, toLocalIsoDate } from "@/lib/local-date";
 import {
   QUOTE_PDFS_BUCKET,
@@ -46,6 +48,7 @@ import {
   quotes,
   quoteReviewEvents,
   quoteSnapshots,
+  quoteSnapshotArtifacts,
   quoteSnapshotFreightInputs,
   quoteSnapshotFreightWorkbooks,
   quoteLeaves,
@@ -1710,12 +1713,28 @@ export async function sendQuote(
     }
 
     const todayIso = sentAt.toISOString().slice(0, 10);
-    const doc = buildQuoteDocument({
+
+    // ── OD-023 · one representation, persisted AND rendered ──────────────────
+    //
+    // Built ONCE from this send's resolution, then used twice: it is what goes
+    // into `quote_snapshot_artifacts` below, and it is what the PDF is rendered
+    // from. That ordering is the guarantee — "the stored representation and the
+    // generated artifact correspond to the same version" holds by construction,
+    // not because two independent resolutions happened to agree.
+    //
+    // The structure comes from the same canonical enumeration the addendum
+    // uses, so a Direct Component is present in both representations or in
+    // neither. It cannot be priced in one and missing from the other, which is
+    // what the legacy junction allowed.
+    const snapshotRepresentation = buildSnapshotRepresentation({
       view: resolved.view,
       addendumData: resolved.addendumData,
+      structure: await loadQuoteProductStructure(quoteId),
       todayIso,
     });
-    const buffer = await renderToBuffer(doc);
+    const buffer = await renderToBuffer(
+      renderRepresentation(snapshotRepresentation),
+    );
 
     const { artifacts } = await getApplicationDependencies();
     const storagePath = buildQuotePdfStoragePath(quoteId, sendUuid);
@@ -1828,6 +1847,19 @@ export async function sendQuote(
         acceptedSnapshotJson: null,
         createdByUserId: user.id,
       }).returning({ id: quoteSnapshots.id });
+
+      // OD-023 · the sent version's rendered representation, frozen in the
+      // SAME transaction as the snapshot it belongs to. A snapshot row without
+      // its artifact would be a version whose content is already unavailable at
+      // the moment it is created — indistinguishable, later, from a legacy
+      // send. Any failure here rolls the whole commercial send back.
+      await tx.insert(quoteSnapshotArtifacts).values({
+        quoteSnapshotId: snapshot.id,
+        schemaVersion: snapshotRepresentation.schemaVersion,
+        cpdfData: snapshotRepresentation.cpdfData,
+        addendumData: snapshotRepresentation.addendumData,
+        structure: snapshotRepresentation.structure,
+      });
 
       // Phase 2 worksheet freight is frozen inside the same transaction as
       // the Quote snapshot. The one-to-one snapshot FK is the durable

@@ -7,6 +7,7 @@ import {
   createSalesOrder,
   fetchSalesOrderTranid,
 } from "@/lib/netsuite/sales-orders";
+import { getRecord } from "@/lib/netsuite/client";
 
 export const productionNetSuite: NetSuiteOperations = {
   name: "netsuite",
@@ -16,4 +17,9 @@ export const productionNetSuite: NetSuiteOperations = {
   resolveProjectSource: resolveProjectSourceIdByLabel,
   createSalesOrder,
   fetchSalesOrderTranid,
+  readCustomerTerms: (id) =>
+    getRecord<{ terms?: { id?: string; refName?: string } | null }>(
+      "customer",
+      id,
+    ),
 };
