@@ -1407,3 +1407,65 @@ from mutation as S-7 evidence. **A quote cannot be both frozen evidence and the
 live walk subject.** While the re-walk continues, S-7 differences on 2f29af72
 are a moving target, which is a further reason not to refresh the baseline
 against it.
+
+---
+
+## PB-UNIT-UX1 — a zero-economics Item Group renders as a complete Price Build
+
+**Reported:** Price Build review, 2026-08-15. **Status:** characterized; design
+folded into Item 3 (Price Build hierarchy). No arithmetic change.
+
+**Observed.** Selecting "Umbrella Group" renders a full, well-formed Price
+Build: every component `$0.0000`, base sell `$0.0000`, final sell `$0.0000`,
+unit cost `$0.0000`, margin unavailable — and a green reconciliation footer.
+Mathematically true and commercially meaningless.
+
+### What Umbrella Group actually is
+
+Category (a): **a legitimate sellable unit with unresolved economics.** Not an
+empty structural group, and not a deliberate zero.
+
+| unit | leaves | cost rows | rows carrying a `unit_cost` |
+|---|---|---|---|
+| TEST ASY | 3 | 9 | 9 |
+| Umbrella Group | 3 | 9 | **0** |
+
+Its three members are real, named, SKU'd products (`BA146800`,
+`DPS-BOTTLE-0001`, `10064-GNX-Box`). The cost grid materialized all nine rows
+(3 leaves x 3 tiers); every `unit_cost` is NULL. Products were added; costs were
+never entered.
+
+**The distinguishing signal already exists and is already governed.**
+`loadUnresolvedQuoteCosts` flags precisely this predicate —
+`isNull(assemblyLeafInputs.unitCost)` — which is why Client Send would refuse
+this quote today. The Price Build does not consult it: it coerces NULL to
+`$0.0000`, sums zeros, and reports that they reconcile. Nothing is lying; the
+zeros are real sums of nothing. The defect is presenting "no data" in the
+vocabulary reserved for "data, and it balances".
+
+Item 3 therefore needs no new concept. It needs the Price Build to read the
+completeness signal Client Send already reads, and NULL must stop rendering as
+`$0.0000`.
+
+### Presentation rules for Item 3
+
+| population | behaviour |
+|---|---|
+| exactly one PRICED unit | auto-select it; no selector |
+| more than one priced unit | selector required |
+| unpriced / structural unit | never a wall of `$0.0000` presented as a valid build |
+| unpriced unit still selectable | label the state explicitly — "Not priced · costs incomplete" — and name what is missing |
+| no priced units at all | empty state directing the operator to Costs |
+
+Selector rows carry their state, so an operator choosing between units sees
+which are priced before selecting. "Priced" is defined by the existing
+completeness predicate, not by a non-zero total — a genuine zero and an absent
+cost are different facts and must not be collapsed, which is the same
+distinction PB-UNIT-UX1 is about.
+
+The reconciliation footer must not claim a green result for a unit with no
+resolved economics; there is nothing to reconcile, and saying so is not the
+same as saying it balances.
+
+**Unit-of-account isolation is unaffected.** No blending, no summing across
+unrelated Item Groups, no arithmetic change of any kind.
