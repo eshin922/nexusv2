@@ -379,3 +379,19 @@
   border: 1px solid var(--rule);
   border-radius: 4px;
 }
+
+/* P-PriceBuild-2 · the stack follows staged economics, so it says so.
+ * Warn register, not bad: nothing is wrong, but the figures are not yet the
+ * quote's. A previewed number and a committed one are otherwise identical on
+ * screen, and the operator acts on the difference. */
+.r11-pb-preview {
+  margin-left: auto;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  white-space: nowrap;
+}

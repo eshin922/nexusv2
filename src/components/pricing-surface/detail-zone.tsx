@@ -104,6 +104,8 @@ export function DetailZone({
   state,
   blendedByTier,
   units,
+  previewing,
+  adjScopeByTier,
   selectedUnitId,
   onSelectUnit,
   tierMeta,
@@ -129,6 +131,10 @@ export function DetailZone({
   blendedByTier: Map<number, BlendedTierComponents>;
   /** Top-level sellable units — Item Groups, and Direct Components alone. */
   units: ReadonlyArray<{ id: string; label: string; isFinishedGood: boolean }>;
+  /** True while the stack is showing STAGED economics rather than committed. */
+  previewing: boolean;
+  /** Which authority set each tier's adjustment, by numeric tier id. */
+  adjScopeByTier: ReadonlyMap<number, "tier" | "quote-wide">;
   selectedUnitId: string | null;
   onSelectUnit: (id: string) => void;
   /** Tier label + ★ by numeric id, forwarded to the stack's header row. */
@@ -208,6 +214,8 @@ export function DetailZone({
           state={state}
           blendedByTier={blendedByTier}
           units={units}
+          previewing={previewing}
+          adjScopeByTier={adjScopeByTier}
           selectedUnitId={selectedUnitId}
           onSelectUnit={onSelectUnit}
           tierMeta={tierMeta}
@@ -702,6 +710,8 @@ export function DetailCostStack({
   state,
   blendedByTier,
   units,
+  previewing,
+  adjScopeByTier,
   selectedUnitId,
   onSelectUnit,
   tierMeta,
@@ -722,6 +732,8 @@ export function DetailCostStack({
   blendedByTier: Map<number, BlendedTierComponents>;
   /** Top-level sellable units — Item Groups, and Direct Components standing alone. */
   units: ReadonlyArray<{ id: string; label: string; isFinishedGood: boolean }>;
+  previewing: boolean;
+  adjScopeByTier: ReadonlyMap<number, "tier" | "quote-wide">;
   /** Null until the operator chooses. Never auto-selected on a mixed quote. */
   selectedUnitId: string | null;
   onSelectUnit: (id: string) => void;
@@ -931,6 +943,12 @@ export function DetailCostStack({
     );
   };
 
+  const scopes = new Set(
+    columns.map((c) => adjScopeByTier.get(c.numericId) ?? "quote-wide"),
+  );
+  const adjScopeLabel =
+    scopes.size > 1 ? "per-tier and quote-wide" : scopes.has("tier") ? "Tier" : "Quote-wide";
+
   const selectedUnit = units.find((u) => u.id === selectedUnitId) ?? null;
   const unitLabel = selectedUnit?.label ?? null;
   const selectedIsFinishedGood = selectedUnit?.isFinishedGood ?? true;
@@ -981,6 +999,16 @@ export function DetailCostStack({
           Per-tier · sell-side contributions per finished unit · D+T is internal
           layer
         </span>
+        {/*
+          P-PriceBuild-2. The stack now follows staged economics, so it must say
+          when it is doing that. A previewed figure and a committed one look
+          identical, and the operator acts on the difference.
+        */}
+        {previewing && (
+          <span className="r11-pb-preview" title="These figures include changes you have not applied yet">
+            previewing staged changes
+          </span>
+        )}
         {units.length > 1 && (
           <select
             className="r11-unit-switch"
@@ -1048,7 +1076,16 @@ export function DetailCostStack({
           "r11-srow",
           <>
             <span className="n">Price adjustment</span>
-            <span className="s">tier ?? global — replaces</span>
+            {/*
+              This used to render the nullish-coalescing expression itself —
+              source notation shown to an operator. The precedence it gestured
+              at is real: a tier's own rate REPLACES the quote-wide one rather
+              than compounding with it. Which one applies is knowable per tier,
+              so the row states the resolved scope instead of printing the
+              expression that resolves it. Mixed scopes across tiers are named
+              as mixed rather than collapsed to either.
+            */}
+            <span className="s">{adjScopeLabel} rate — replaces, not compounds</span>
           </>,
           (c) => contribution(c, "adjDelta", null),
           "adjDelta",

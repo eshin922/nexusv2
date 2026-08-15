@@ -987,6 +987,38 @@ export function resolveMarkup(args: {
   return { value: winner.value as number, candidates };
 }
 
+/**
+ * How a contributing product identifies itself inside a trace.
+ *
+ * P-PriceBuild-UX2: operands carried `skuLabel` alone, which is the SKU CODE.
+ * Three leaves on the walk quote have no SKU recorded, so their rows rendered
+ * blank — arithmetic reconciling perfectly between two anonymous numbers, which
+ * is worse than a wrong total because nothing about it looks wrong.
+ *
+ * Name and code are different facts and a product may carry either, so the
+ * label takes what exists rather than assuming both. Identity comes from the
+ * product's own fields and the node is keyed on its canonical quote-leaf id —
+ * never from array position, row order, or matching on value.
+ *
+ * An unidentifiable product says so. A blank row is indistinguishable from a
+ * rendering fault; an explicit unresolved state is a finding someone can act on.
+ */
+function productIdentityLabel(sku: {
+  skuLabel: string;
+  productName: string;
+  canonicalQuoteLeafId?: string | null;
+  id: string;
+}): string {
+  const name = sku.productName?.trim() ?? "";
+  const code = sku.skuLabel?.trim() ?? "";
+  if (name && code) return name + " · " + code;
+  if (name) return name;
+  if (code) return code;
+  // Neither. Name the attachment so the row is traceable to something.
+  const ref = (sku.canonicalQuoteLeafId ?? sku.id ?? "").slice(0, 8);
+  return ref ? "Unresolved product · " + ref : "Unresolved product";
+}
+
 /** Thin wrapper preserving the original signature. Every existing caller keeps
  *  working and gets the identical number; only the reporting is new. */
 function lookupMarkup(
@@ -3764,7 +3796,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       const operands: CostingNode[] = contributors.map((c) => ({
         key: nodeKey(pkgTotalBase, c.sku.canonicalQuoteLeafId ?? c.sku.id),
         kind: "origin" as const,
-        label: c.sku.skuLabel,
+        label: productIdentityLabel(c.sku),
         value: c.pt.packagingMarkupSumPerUnit,
         unit: "usd" as const,
         origin: { grade: "thin" as const, actor: null, when: null, doc: null },
@@ -3800,7 +3832,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       const operands: CostingNode[] = contributors.map((c) => ({
         key: nodeKey(frtTotalBase, c.sku.canonicalQuoteLeafId ?? c.sku.id),
         kind: "origin" as const,
-        label: c.sku.skuLabel,
+        label: productIdentityLabel(c.sku),
         value:
           c.pt.freightContainerMarkupSumPerUnit +
           c.pt.freightDutyTariffMarkupSumPerUnit,
@@ -3841,7 +3873,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       const operands = contributors.map((c) => ({
         key: nodeKey(blendBase, name, c.sku.canonicalQuoteLeafId ?? c.sku.id),
         kind: "origin" as const,
-        label: c.sku.skuLabel,
+        label: productIdentityLabel(c.sku),
         value: pick(c.pt),
         unit: "usd" as const,
         origin: { grade: "thin" as const, actor: null, when: null, doc: null },
@@ -4055,7 +4087,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
           return [{
             key: nodeKey(unitBase, name, m.canonicalQuoteLeafId ?? m.id),
             kind: "origin" as const,
-            label: m.skuLabel,
+            label: productIdentityLabel(m),
             value: pick(mpt),
             unit: "usd" as const,
             origin: { grade: "thin" as const, actor: null, when: null, doc: null },

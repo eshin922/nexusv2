@@ -363,7 +363,12 @@ test("the blend contributors are the governed quote-leaf population", () => {
 
 test("operands are keyed by canonical identity, so a repeated leaf stays two", () => {
   const pkg = blendNode("pkg");
-  const repeats = (pkg.operands ?? []).filter((o) => o.label === "LIB-R");
+  // Matched on a CONTAINED code rather than an exact label. P-PriceBuild-UX2
+  // changed the label to "name · sku" because leaves with no SKU rendered
+  // blank rows in a trace; the identity being asserted here — that one library
+  // leaf attached twice stays two distinctly-keyed operands — is untouched by
+  // how the row is worded, and this now says so.
+  const repeats = (pkg.operands ?? []).filter((o) => o.label.includes("LIB-R"));
   assert.equal(repeats.length, 2);
   assert.notEqual(repeats[0].key, repeats[1].key);
 });

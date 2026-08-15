@@ -20,6 +20,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { computeQuoteCosting, type QuoteCostingInput } from "../../src/lib/costing.ts";
 import { priceBuildKey } from "../../src/lib/costing-nodes.ts";
 
@@ -75,6 +76,9 @@ function quote(extra: {
 /** The BUILD — components summed. Pre-adjustment by construction. */
 const build = (input: QuoteCostingInput, unitId: string) =>
   findNode(computeQuoteCosting(input).graph, priceBuildKey(unitId, TIER, "sell-before"));
+/** One component of the build — its operands are the contributing products. */
+const component = (input: QuoteCostingInput, unitId: string, name: string) =>
+  findNode(computeQuoteCosting(input).graph, priceBuildKey(unitId, TIER, name));
 /** The governed TERMINAL sell, after adjustment, lift and override. */
 const terminal = (input: QuoteCostingInput, unitId: string) =>
   findNode(computeQuoteCosting(input).graph, priceBuildKey(unitId, TIER, "sell"));
@@ -226,4 +230,83 @@ test("P-PriceBuild-1 · the ladder reconciles to the terminal, which is why the 
   const v = (n: string) => findNode(g, priceBuildKey("A", TIER, n)).value;
   const sum = v("sell-before") + v("adj-delta") + v("lift-delta") + v("override-delta");
   assert.ok(Math.abs(sum - v("sell")) < 1e-9, `ladder ${sum} vs terminal ${v("sell")}`);
+});
+
+test("P-PriceBuild-UX2 · every operand identifies its contributing product", () => {
+  // The defect: operands carried `skuLabel`, which is the SKU CODE, and leaves
+  // with no SKU rendered blank. Two anonymous numbers reconciling perfectly is
+  // worse than a wrong total — nothing about it looks wrong.
+  const noSku = (id: string, parent: string | null) => ({
+    ...leaf(id, parent),
+    skuLabel: "",
+    productName: `Product ${id}`,
+  });
+  const input = quote({ skus: [noSku("a3", "A")], packaging: [pkg("a3", 4)] });
+  const node = component(input, "A", "pkg");
+  const labels = (node.operands ?? []).map((o: any) => o.label);
+  assert.ok(labels.length >= 3);
+  for (const l of labels) assert.notEqual(l.trim(), "", `blank operand label in ${labels}`);
+  // Name when there is no code; name AND code when both exist.
+  assert.ok(labels.includes("Product a3"), `expected the name to stand alone: ${labels}`);
+  assert.ok(labels.some((l: string) => l.includes(" · ")), `expected "name · sku": ${labels}`);
+});
+
+test("P-PriceBuild-UX2 · identity is keyed canonically, not positionally", () => {
+  // "Do not derive identity from array position, row order, or value matching."
+  // Each operand's key ends in the contributor's canonical quote-leaf id, so
+  // reordering the inputs cannot reassign a name to a different contribution.
+  const node = component(quote(), "A", "pkg");
+  const pairs = (node.operands ?? []).map((o: any) => [o.key.split("/").pop(), o.value]);
+  assert.deepEqual(pairs, [["ql-a1", 12.5], ["ql-a2", 7.5]]);
+  const swapped = component(
+    { ...quote(), skus: [assembly("A"), leaf("a2", "A"), leaf("a1", "A")] },
+    "A",
+    "pkg",
+  );
+  const byId = Object.fromEntries(
+    (swapped.operands ?? []).map((o: any) => [o.key.split("/").pop(), o.value]),
+  );
+  assert.equal(byId["ql-a1"], 12.5, "a1 keeps its own contribution after reordering");
+  assert.equal(byId["ql-a2"], 7.5);
+});
+
+test("P-PriceBuild-UX2 · an unidentifiable product says so rather than rendering blank", () => {
+  const anon = { ...leaf("x1", "A"), skuLabel: "", productName: "" };
+  const input = quote({ skus: [anon], packaging: [pkg("x1", 4)] });
+  const labels = (component(input, "A", "pkg").operands ?? []).map((o: any) => o.label);
+  assert.ok(
+    labels.some((l: string) => l.startsWith("Unresolved product")),
+    `expected an explicit unresolved state: ${labels}`,
+  );
+  for (const l of labels) assert.notEqual(l.trim(), "");
+});
+
+test("P-PriceBuild-2 · the stack reads the staged graph, and no longer says `??`", () => {
+  // Characterized before repaired: the staging context ALREADY computes a full
+  // governed `computeQuoteCosting(preview)` including its graph, and the shell
+  // read the committed store graph instead. So a staged adjustment moved the
+  // margin banner while Price Build showed pre-adjustment figures, with nothing
+  // saying which of the two was on screen. No new projection was invented.
+  const shell = readFileSync(
+    "src/components/pricing-surface/pricing-surface-shell.tsx",
+    "utf8",
+  );
+  assert.match(shell, /const priceBuildGraph = previewResult\?\.graph \?\? graph;/);
+  assert.match(
+    shell,
+    /readNodeValue\(priceBuildGraph, k\(name\)\)/,
+    "the price build must read the staged graph, not the committed one",
+  );
+  // `previewResult` is null exactly when nothing is staged, so committed
+  // behaviour is unchanged — asserted so a later edit cannot make preview the
+  // permanent source.
+  assert.match(shell, /const previewing = previewResult !== null;/);
+
+  const zone = readFileSync("src/components/pricing-surface/detail-zone.tsx", "utf8");
+  // The scope is RESOLVED, and the operator never sees an operator.
+  assert.doesNotMatch(zone, /tier \?\? global/);
+  assert.match(zone, /adjScopeLabel/);
+  assert.match(zone, /replaces, not compounds/);
+  // And a previewed stack states that it is previewing.
+  assert.match(zone, /previewing staged changes/);
 });

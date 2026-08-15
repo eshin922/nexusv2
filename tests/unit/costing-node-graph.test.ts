@@ -983,7 +983,10 @@ test("blend · exposes its contributors, not just the result", () => {
   const r = computeQuoteCosting(twoProducts());
   const sell = blendNode(r, "sell");
   assert.equal(sell.kind, "blend");
-  assert.deepEqual(sell.operands!.map((o) => o.label), ["A", "B"]);
+  // "name · sku" since P-PriceBuild-UX2 — the fixture names both fields "A"/"B".
+  // A blank operand label was the defect; the contributor set asserted here is
+  // unchanged.
+  assert.deepEqual(sell.operands!.map((o) => o.label), ["A · A", "B · B"]);
   assert.deepEqual(sell.operands!.map((o) => o.value), [10, 20]);
 });
 

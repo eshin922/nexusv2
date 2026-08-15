@@ -505,13 +505,45 @@ export function PricingSurfaceShell({
     [skuRollups],
   );
 
+  /**
+   * P-PriceBuild-2 · Price Build follows the STAGED economics.
+   *
+   * It read the committed store graph, so an adjustment the operator had
+   * entered and previewed changed the margin banner and left the Price Build
+   * showing pre-adjustment figures — with nothing on screen saying which of the
+   * two it was looking at.
+   *
+   * No new projection was needed: the staging context already computes a full
+   * governed `computeQuoteCosting(preview)`, graph included. This reads it. It
+   * is null exactly when nothing is staged, so committed state is unchanged.
+   */
+  const previewing = previewResult !== null;
+  const priceBuildGraph = previewResult?.graph ?? graph;
+
+  /**
+   * Which authority set each tier's adjustment — resolved, not described.
+   *
+   * The row read `tier ?? global — replaces`, which is JS operator notation
+   * rendered to an operator. The precedence it was gesturing at is real: a
+   * tier's own rate REPLACES the quote-wide one rather than compounding with
+   * it. So the answer per tier is knowable, and stating it beats printing the
+   * expression that computes it.
+   */
+  const adjScopeByTier = useMemo(() => {
+    const out = new Map<number, "tier" | "quote-wide">();
+    for (const [tierUuid, numeric] of uuidToNumeric) {
+      out.set(numeric, working.tierAdj[tierUuid] != null ? "tier" : "quote-wide");
+    }
+    return out;
+  }, [working.tierAdj, uuidToNumeric]);
+
   const priceBuildByUnit = useMemo(() => {
     const out = new Map<string, Map<number, BlendedTierComponents>>();
     for (const unit of priceBuildUnits) {
       const byNumeric = new Map<number, BlendedTierComponents>();
       for (const [tierUuid, numeric] of uuidToNumeric) {
         const k = (name: string) => priceBuildKey(unit.id, tierUuid, name);
-        const read = (name: string): number | null => readNodeValue(graph, k(name));
+        const read = (name: string): number | null => readNodeValue(priceBuildGraph, k(name));
         const pkg = read("pkg");
         const prod = read("prod");
         const raw = read("raw");
@@ -549,7 +581,7 @@ export function PricingSurfaceShell({
       if (byNumeric.size > 0) out.set(unit.id, byNumeric);
     }
     return out;
-  }, [graph, priceBuildUnits, uuidToNumeric]);
+  }, [priceBuildGraph, priceBuildUnits, uuidToNumeric]);
 
   // No auto-selection. On a quote with more than one sellable unit, choosing
   // one for the operator would present a single product's economics as though
@@ -902,6 +934,8 @@ export function PricingSurfaceShell({
         // handler resolves against, by construction.
         blendedByTier={stackByTier}
         units={priceBuildUnits}
+        previewing={previewing}
+        adjScopeByTier={adjScopeByTier}
         selectedUnitId={priceBuildUnitId}
         onSelectUnit={setPriceBuildUnitId}
         tierMeta={tierMeta}
