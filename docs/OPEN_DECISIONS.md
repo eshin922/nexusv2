@@ -1448,7 +1448,55 @@ asserted, so a fix fails the test and forces this entry to be closed.
 
 ---
 
-### OD-023 · Send does not freeze the governed Product Structure — **V1 BLOCKER**
+### OD-023 · Send does not freeze the governed Product Structure — **CLOSED 2026-08-15**
+
+**Closed by** `133d0ea` (#273), architecture dispositioned 2026-08-14, Step 1
+guards `2b28641` (#271).
+
+**Resolution: the sent version's RENDERED REPRESENTATION is the historical
+authority.** `quote_snapshot_artifacts` holds, 1:1 with each snapshot, the
+`cpdf_data` and `addendum_data` the artifact was rendered from plus the governed
+`structure` (canonical `quote_leaves.id`, Direct vs grouped, group identity,
+explicit ordinals). Built once per send and used twice — the row is written from
+it and the PDF is rendered from it — so record and artifact correspond by
+construction.
+
+Snapshotting the cost/spec INPUT graph and recomputing was rejected: it freezes
+an input set the engine must keep interpreting identically forever, so a later
+change to the math would silently re-price already-sent quotes. That is
+correctness held by the engine not changing.
+
+**Two things the closure also settled:**
+
+- **Direct Components reach the customer's specification pages.** The addendum
+  enumerated through `assembly_leaves`, which a Direct has no row in, so a
+  Direct printed in the pricing table and was absent from its own spec pages.
+  Both the addendum and the frozen structure now share one canonical
+  enumeration (`loadQuoteProductStructure`). This was the last customer-facing
+  consumer of the junction OD-017 retired.
+- **Superseded versions are addressable.** `superseded_at IS NULL` was an
+  assumption, not an address, and it made a superseded version unreachable —
+  including for freight that was already snapshotted. `readQuoteVersion`
+  addresses `current` / `snapshotId` / `versionNumber`; the predicate survives
+  only inside `current`, where it is the definition.
+
+Draft recomputes live; sent reads what was sent. A version predating capture is
+`legacy` — a terminal answer, never a fallback to live rows — with its immutable
+`pdf_url` retained. No backfill: reconstructing structure from today's rows
+would record current state as historical sent state.
+
+Proof: `npm run verify:od-023`, 26 claims covering all nine obligations against
+the isolated harness through the real `sendQuote` / `reviseQuote`. Falsified two
+ways (stop writing the artifact → 1 red; revert the enumeration → 6 red).
+
+Inventory: [`validation/od-023-snapshot-inventory.md`](validation/od-023-snapshot-inventory.md).
+
+**Unblocks OD-022.** OD-026 remains its other gate.
+
+---
+
+<details>
+<summary>Original entry, retained for the record</summary>
 
 **Owner:** Nexus engineering + Edward · **Blocks:** OD-022, and historical
 integrity of every sent quote today
@@ -1478,6 +1526,55 @@ specification taxonomy and NetSuite field mapping are OD-024's, not this slice's
 Lifted out of OD-017 by disposition 2 (2026-08-12) so a cross-cutting repair is
 not buried inside a costing slice. Trace:
 [`validation/od-017-persistence-model.md`](validation/od-017-persistence-model.md) §7 T2.
+
+</details>
+
+---
+
+### OD-029 · A Direct Component cannot be detached from a quote that has ever been sent
+
+**Owner:** Nexus engineering + Edward · **Status:** OPEN, measured not repaired ·
+**Severity:** operator-facing failure, narrow reach today.
+
+> Removing a Direct Component from a quote that has been sent fails with a bare
+> `PostgresError 23503` from `quote_commercial_markup_pins` — a pin Send itself
+> writes. The operator sees a driver error, not a governed refusal.
+
+Measured during the OD-023 proof (2026-08-15). BOTH paths fail identically:
+
+```
+raw DELETE on quote_leaves                     23503
+detachDirectProduct (the GOVERNED helper)      23503
+  constraint quote_commercial_markup_pins_quote_leaf_id_quote_leaves_id_fk
+```
+
+That the governed helper fails the same way is the finding. It has a deliberate
+refusal path — it declines to detach a row carrying a legacy junction — so it is
+a helper that already knows how to say no, and here it does not get the chance:
+the FK fires first.
+
+**Not an OD-023 defect, and deliberately not repaired inside #273.** It concerns
+the quote LIFECYCLE — what may still be edited after a send has pinned
+commercial settings against it — not historical reconstruction. Folding it in
+would have mixed a lifecycle decision into a slice about immutability.
+
+**The decision it needs is a business one, not a mechanical one.** Three shapes,
+and they are not equivalent:
+
+1. **Cascade the pin.** A pin whose leaf is gone describes nothing, so delete it
+   with the attachment. Cheapest; loses the record that the leaf was priced
+   under that pin at send time, which is evidence a superseded version's audit
+   may want.
+2. **Refuse, in governed language.** Detach-after-send is simply not allowed
+   until Revise; say so. Preserves every pin. Needs the refusal to be reachable
+   BEFORE the FK, which is where the current helper falls short.
+3. **Detach the working copy while retaining the pin against the sent version.**
+   Most faithful to the version model OD-023 just established — the pin belongs
+   to the version, the attachment to the working copy — and the most work.
+
+Reach today: any sent quote carrying a Direct Component. Directs remain
+UI-unreachable until OD-022, so no operator can hit this yet — which is exactly
+why it should be settled before OD-022 exposes them, not after.
 
 ---
 
