@@ -2,7 +2,7 @@ import "server-only";
 import { db } from "@/db";
 import { eq } from "drizzle-orm";
 import { hubspotDealsCache, netsuiteCustomerMap } from "@/db/schema";
-import { getRecord } from "./client";
+import { getApplicationDependencies } from "@/lib/integrations/composition";
 
 // C.1 — governed customer payment terms.
 //
@@ -37,11 +37,17 @@ export type CustomerReader = (
   netsuiteCustomerId: string,
 ) => Promise<{ terms?: { id?: string; refName?: string } | null } | null>;
 
-const defaultReader: CustomerReader = (id) =>
-  getRecord<{ terms?: { id?: string; refName?: string } | null }>(
-    "customer",
-    id,
-  );
+// OD-023 · routed through the DEPENDENCY BOUNDARY, not the client.
+//
+// This previously imported `getRecord` directly. The isolated validation
+// harness composes `netsuite: isolated`, so every other NetSuite call was
+// faked and this one silently was not — which made Send, whose terms gate
+// fails closed, unreachable in the harness. A boundary one caller routes
+// around is not a boundary.
+const defaultReader: CustomerReader = async (id) => {
+  const { netsuite } = await getApplicationDependencies();
+  return netsuite.readCustomerTerms(id);
+};
 
 /**
  * Resolve the customer's governed payment terms.

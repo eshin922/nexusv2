@@ -173,6 +173,16 @@ async function loadFreightForQuote(quoteId: string): Promise<{
     .where(eq(quotes.id, quoteId))
     .limit(1);
   if (!lifecycle) throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found");
+  // OD-023 · `superseded_at IS NULL` here means THE CURRENT VERSION, and that
+  // is now the correct reading rather than an unexamined default.
+  //
+  // This path feeds the internal Costs and Pricing surfaces, which ask "what is
+  // the state of this quote", and for a sent quote the answer is its current
+  // sent version. It no longer feeds the CUSTOMER artifact: a sent quote's
+  // customer output is read from its frozen representation by
+  // `readQuoteVersion`, which addresses a version explicitly and can therefore
+  // reach a superseded one. That is where historical addressing belongs, and
+  // why this predicate is allowed to stay.
   const useSnapshot = lifecycle.status !== "draft" && lifecycle.snapshotId;
   const componentCostPromise: Promise<Array<{
     freightLegId: string;
@@ -360,6 +370,8 @@ async function loadWorksheetFreightForQuote(
     .leftJoin(quoteSnapshots, and(eq(quoteSnapshots.quoteId, quotes.id), isNull(quoteSnapshots.supersededAt)))
     .where(eq(quotes.id, quoteId)).limit(1);
   if (!quote) return [];
+  // OD-023 · current-version read, as above. Historical customer output is
+  // addressed by `readQuoteVersion`, not inferred from this predicate.
   if (quote.status !== "draft" && quote.snapshotId) {
     const [snapshot] = await db.select({ workbook: quoteSnapshotFreightWorkbooks.workbook })
       .from(quoteSnapshotFreightWorkbooks)

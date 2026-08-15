@@ -724,6 +724,61 @@ export const quoteSnapshots = pgTable(
   ],
 );
 
+// ---------- OD-023 · the sent version's rendered representation ----------
+//
+// THE HISTORICAL INVARIANT
+//
+//   A sent version must be reconstructable from immutable data, without
+//   depending on future costing, pricing, Library, firm-settings or live quote
+//   behaviour.
+//
+// So this stores the CUSTOMER-RENDER INPUTS THEMSELVES, not the inputs that
+// produce them. The alternative — snapshot the cost/spec graph and recompute —
+// looks more normalised and fails the invariant: it freezes an input set the
+// engine must keep interpreting identically forever, so any later change to the
+// math silently re-prices quotes that were already sent. That is correctness
+// held by the engine not changing rather than by construction.
+//
+// `quote_snapshots` already carried commercial terms, prepared-by, the three
+// PDF axes and `pdf_url`. It carried NO product content: leaf set, Direct vs
+// Item Group, membership, order, tiers, spec values, printed prices and service
+// fee lines were all re-derived live on every historical read. This is that gap.
+//
+// WHAT IS *NOT* HERE, deliberately:
+//   - No mirror of the header/party/vendor fields. `cpdf_data` already carries
+//     vendor, customer and quote in full — adding columns for them would create
+//     a second copy that can disagree with the payload the artifact was
+//     rendered from, which is the failure this table exists to prevent.
+//   - The two freight snapshot tables stay where they are. They record HOW a
+//     commercial figure was produced and remain useful provenance; they are not
+//     the historical rendering authority. This is.
+//
+// `schema_version` is load-bearing: a reader that meets an unknown version must
+// REFUSE, not guess. A payload shape is a contract with every future reader.
+export const quoteSnapshotArtifacts = pgTable("quote_snapshot_artifacts", {
+  // 1:1 with the version. The snapshot id IS the key — a surrogate would
+  // permit two artifacts for one version, and then "which one did the customer
+  // get" has no answer.
+  quoteSnapshotId: uuid("quote_snapshot_id")
+    .primaryKey()
+    .references(() => quoteSnapshots.id, { onDelete: "cascade" }),
+  schemaVersion: integer("schema_version").notNull(),
+  // The full `CpdfData` the artifact rendered from: vendor, customer, quote,
+  // tiers, recommendedTierIdx, skus with their printed per-tier prices,
+  // serviceFees, freightLines.
+  cpdfData: jsonb("cpdf_data").notNull(),
+  // `QuoteAddendumData`. NULL when the addendum was off at send — distinct from
+  // an empty addendum, which is `{...}` with no meaningful content.
+  addendumData: jsonb("addendum_data"),
+  // Governed product structure, kept out of the render payload so it is
+  // QUERYABLE rather than only printable: canonical `quote_leaves.id` per
+  // product, Direct vs grouped, group identity, and explicit ordinals.
+  structure: jsonb("structure").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 // ---------- Phase 1 — pinned commercial settings ----------
 //
 // One active Quote-scoped pin is written atomically with each customer-send

@@ -30,7 +30,12 @@ import { renderToStream } from "@react-pdf/renderer";
 import { Readable } from "node:stream";
 
 import { ensureUser } from "@/lib/auth/ensure-user";
-import { buildQuoteDocument } from "@/lib/quote-pdf-document";
+import { buildQuoteDocument, renderRepresentation } from "@/lib/quote-pdf-document";
+import {
+  quoteIsDraft,
+  readQuoteVersion,
+  type QuoteVersionAddress,
+} from "@/lib/quote-version-reader";
 import { resolveCustomerView } from "@/lib/customer-view-resolver";
 import { toLocalIsoDate } from "@/lib/local-date";
 
@@ -57,6 +62,71 @@ export async function GET(
   // `inline` (iframe embed) to `attachment` (browser save-as).
   // Same render path; browser decides based on the header.
   const download = url.searchParams.get("download") === "1";
+  // OD-023 · explicit version addressing. Absent, a sent quote renders its
+  // CURRENT version — which is what every caller wants and what the old
+  // `superseded_at IS NULL` did implicitly. Present, it names one, and a
+  // superseded version is as readable as the live one.
+  const versionParam = url.searchParams.get("version");
+  const snapshotParam = url.searchParams.get("snapshot");
+
+  // ── Draft renders live; sent renders what was sent ──────────────────────
+  //
+  // The rule the whole slice turns on. A draft is a working copy and its
+  // preview should follow the operator's edits. Anything sent has a frozen
+  // representation, and recomputing it from today's costing, pricing, Library
+  // and firm settings would show the operator something the customer never
+  // received — most convincingly on the oldest quotes, whose live rows have
+  // drifted furthest.
+  const isDraft = await quoteIsDraft(quoteId);
+  if (isDraft === null) return new Response("Quote not found", { status: 404 });
+
+  if (!isDraft || versionParam !== null || snapshotParam !== null) {
+    const address: QuoteVersionAddress = snapshotParam
+      ? { kind: "snapshotId", snapshotId: snapshotParam }
+      : versionParam
+        ? { kind: "versionNumber", versionNumber: Number(versionParam) }
+        : { kind: "current" };
+    if (address.kind === "versionNumber" && !Number.isInteger(address.versionNumber)) {
+      return new Response("Invalid version", { status: 400 });
+    }
+    const version = await readQuoteVersion(quoteId, address);
+    switch (version.kind) {
+      case "no_such_version":
+        return new Response("No such quote version", { status: 404 });
+      case "legacy":
+        // 409, not 500 and not a live re-render. Nothing is broken and nothing
+        // can be substituted: this version predates content capture, and the
+        // PDF it points at remains the record of what was actually sent.
+        return new Response(
+          `${version.reason}${version.summary.pdfUrl ? "" : " No stored PDF is available for it either."}`,
+          { status: 409 },
+        );
+      case "unsupported":
+        return new Response(
+          `This version was written by a newer release (payload version ${version.schemaVersion}) than this one can read.`,
+          { status: 409 },
+        );
+      case "sent": {
+        const stream = await renderToStream(
+          renderRepresentation(version.representation),
+        );
+        const web = Readable.toWeb(
+          stream as unknown as Readable,
+        ) as unknown as ReadableStream<Uint8Array>;
+        const slug =
+          version.summary.quoteNumber ?? `v${version.summary.versionNumber}`;
+        return new Response(web, {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${slug}.pdf"`,
+            // A sent version is immutable, so it is safe to cache hard. A draft
+            // below is not, and deliberately is not cached.
+            "Cache-Control": "private, max-age=3600",
+          },
+        });
+      }
+    }
+  }
 
   const result = await resolveCustomerView({
     quoteId,

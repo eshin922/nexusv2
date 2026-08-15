@@ -287,6 +287,27 @@ const classifiedIdentityFiles = new Set([
   "scripts/smoke/mark-complete.ts", "scripts/verify/costing-adapter.ts",
   "scripts/verify/sample-order-margin.ts", "scripts/verify/slice-11-5-1-warnings-parity.ts",
   "tests/harness/fixtures/world.ts",
+  // CLASSIFIED — canonical only, and it is the enumeration that RETIRES the
+  // last customer-facing junction read (OD-023). The quote's product set comes
+  // from `quote_leaves`; groups are LEFT JOINed for their identity only. That
+  // join direction is the whole fix: enumerating through `assembly_leaves`
+  // omitted every Direct Component silently, so the customer received a priced
+  // product with no specification pages and nothing said so.
+  //
+  // No compatibility window. It never reads or writes `assembly_leaf_id`.
+  "src/lib/quote-product-structure.ts",
+  // CLASSIFIED — canonical only. The sent version's frozen representation
+  // carries `quoteLeafId` and `leafId` as recorded EVIDENCE of what was sold,
+  // not as handles it resolves. It maps between no identity spaces and reaches
+  // no table; the structure it freezes is whatever the canonical enumeration
+  // above produced.
+  "src/lib/quote-snapshot-representation.ts",
+  // CLASSIFIED — read-only evidence, and it names BOTH identities on purpose.
+  // The OD-023 falsification asserts that the canonical enumeration sees a
+  // Direct Component and that the retired `assembly_leaves` read sees strictly
+  // fewer groups. Holding both is what makes that a comparison rather than an
+  // assertion; the junction appears only inside a `count(*)` taken to be beaten.
+  "scripts/verify/od-023-snapshot-completeness.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

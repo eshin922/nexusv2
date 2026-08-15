@@ -94,7 +94,10 @@ export function CustomerPdfAddendumPages({
       {addendum.assemblies.map((asy) =>
         asy.leaves.length === 0 ? null : (
           <AddendumAssemblyPage
-            key={asy.assemblyId}
+            // OD-023 · `groupKey`, not `assemblyId`. A Direct Component is its
+            // own group and has no assembly, so the assembly id is null for it
+            // and would collide across every Direct on the quote.
+            key={asy.groupKey}
             asy={asy}
             vendor={vendor}
             quote={quote}

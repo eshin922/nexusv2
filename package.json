@@ -16,6 +16,7 @@
     "gate1b:capture-baseline": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/capture-costing-baseline.ts",
     "gate1b:verify-preserved": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/verify-costing-preserved.ts",
     "gate1b:basket-membership": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/basket-membership-check.ts",
+    "verify:od-023": "cross-env NODE_OPTIONS=\"--require=./scripts/smoke/shim-server-only.cjs --require=./scripts/smoke/shim-next-cache.cjs\" TSX_TSCONFIG_PATH=./tsconfig.verify-scripts.json npx tsx --env-file=.env.validation.local scripts/verify/od-023-snapshot-completeness.ts",
     "verify:below-floor-record": "node --env-file=.env.validation.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/verify/below-floor-authorization-record.ts",
     "verify:s7-preserved": "node --env-file-if-exists=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/verify-costing-preserved.ts",
     "verify:ri-7-readiness": "node --env-file=.env.local --experimental-strip-types scripts/verify/ri-7-schema-readiness.ts",

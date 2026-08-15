@@ -41,9 +41,14 @@ test("revision supersedes snapshot and its commercial pin in the same transactio
 });
 
 test("send resolves canonical identity before creating the PDF artifact", () => {
+  // OD-023 · the render call is now `renderToBuffer(renderRepresentation(...))`
+  // — the artifact is produced from the representation that gets persisted,
+  // rather than from a separately-built document. The ORDERING property this
+  // test asserts is unchanged: the commercial pin is resolved before anything
+  // is rendered.
   assert.ok(
     send.indexOf("prepareQuoteCommercialPin(quoteId)") <
-      send.indexOf("renderToBuffer(doc)"),
+      send.indexOf("renderToBuffer("),
   );
   assert.match(send, /canonical quote_leaves\.id/);
   assert.match(send, /commercialSettingsOverride: sendCommercialSettings/);
