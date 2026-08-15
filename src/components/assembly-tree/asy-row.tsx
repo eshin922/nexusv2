@@ -9,7 +9,6 @@ import type {
 import { AsyContextMenu } from "./asy-context-menu";
 import { LeafContextMenu } from "./leaf-context-menu";
 import { AsyNotesDrawerPanel, AsyNotesTrigger } from "./asy-notes-drawer";
-import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
 import { assemblyDisplaySku } from "@/lib/product-structure/assembly-display-sku";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { CompletenessChip } from "./completeness-chip";
@@ -220,25 +219,24 @@ export function AsyRow({
           open={notesOpen}
           onToggle={() => setNotesOpen((v) => !v)}
         />
-        {/* Adding products belongs to THIS group. Launching the Library from
-            the row means the destination is already chosen — the operator named
-            it by acting on this row — so the picker has nothing left to ask. */}
-        <LibraryBrowseTrigger
-          mode="group"
-          quoteId={quoteId}
-          projectId={projectId}
-          editable={editable}
-          assemblies={assemblies}
-          initialTargetAssemblyId={asy.id}
-          label="+ Add products"
-          className="a1v2-btn ghost xs"
-          fullLeafTypes={fullLeafTypes}
-          permissions={permissions}
-        />
+        {/* §1 presentation closeout · the "+ Add products" BUTTON is gone from
+            this control band; the ACTION moved into the menu below, where the
+            destination is still this group. One affordance repeated on every
+            group read as a dense band and made the surface-level entry stop
+            looking like the way to add a product.
+
+            The route itself is preserved deliberately: B-1's repair is that
+            adding into a group lives on that group's row, and the
+            surface-level trigger is direct-only. */}
         <AsyContextMenu
           assemblyId={asy.id}
           assemblySku={displaySku ?? asy.name}
           disabled={!editable}
+          quoteId={quoteId}
+          projectId={projectId}
+          assemblies={assemblies}
+          fullLeafTypes={fullLeafTypes}
+          permissions={permissions}
         />
       </div>
       {notesOpen ? (

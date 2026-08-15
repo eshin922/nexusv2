@@ -175,11 +175,42 @@ test("adding products into a group lives on that group's row, not the quote head
   // a quote with no groups the question had no answer.
   assert.doesNotMatch(view, /mode="group"/);
 
+  // §1 presentation closeout — the action MOVED from a button on the group's
+  // control band into that group's context menu. Same row, same pre-chosen
+  // destination; one fewer repeated button per group.
+  //
+  // Asserted across the row's components rather than against `asy-row.tsx`
+  // alone. What B-1 protects is that the route exists ON THE GROUP'S ROW, not
+  // which file renders it — and pinning the file is what made a presentation
+  // move look like a regression.
   const row = await code("src/components/assembly-tree/asy-row.tsx");
-  assert.match(row, /mode="group"/);
-  // The destination is the row the operator acted on — already chosen, so the
-  // picker has nothing left to ask.
-  assert.match(row, /initialTargetAssemblyId=\{asy\.id\}/);
+  const menu = await code("src/components/assembly-tree/asy-context-menu.tsx");
+  const rowScope = row + menu;
+  assert.match(rowScope, /mode="group"/);
+  // The destination is the group the operator acted on — already chosen, so
+  // the picker has nothing left to ask.
+  assert.match(rowScope, /initialTargetAssemblyId=\{(asy\.id|assemblyId)\}/);
+
+  // And the route is genuinely reachable from the row: the menu is rendered by
+  // the row, so "in the menu" is not somewhere else on the surface.
+  assert.match(row, /<AsyContextMenu/);
+});
+
+test("the group route survives because the surface-level one cannot replace it", async () => {
+  // The reason "+ Add products" was moved rather than deleted, kept as an
+  // assertion because the deletion looked safe and was not.
+  //
+  // The surface-level trigger is direct-only and its modal has NO destination
+  // picker in that mode — so with the group route gone there would have been
+  // no way to add a product into an Item Group at all, silently reopening B-1.
+  const view = await code("src/components/assembly-tree/assembly-tree-view.tsx");
+  assert.match(view, /mode="direct"/);
+  const modal = await code("src/components/library/library-browse-modal.tsx");
+  assert.match(
+    modal,
+    /mode === "direct" \? \(/,
+    "precondition: direct mode takes a branch that renders no target picker",
+  );
 });
 
 test("an explicit destination survives the modal's auto-select", async () => {
