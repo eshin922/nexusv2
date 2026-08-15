@@ -41,6 +41,19 @@ export async function loadUnresolvedQuoteCosts(quoteId: string): Promise<Unresol
       unresolved(subcategory.id, subcategory.label, "selection", "all tiers", `${subcategory.label}: select exactly one valid destination.`);
       continue;
     }
+    // V1 FREIGHT DISTRIBUTION POLICY · membership is a required cost input.
+    //
+    // Freight is now distributed across the shipment's recorded members, so
+    // with none recorded there is no recipient and the amount reaches no
+    // product — the quote's freight is understated, quietly, by exactly this
+    // shipment. That is precisely the shape this gate exists to refuse.
+    //
+    // It sits with the other freight conditions rather than in the loader
+    // because it is the same KIND of thing as an unentered amount: something
+    // the operator has not said yet. Tier-independent, so it is stated once.
+    if (workbook.memberships.every((row) => row.freightSubcategoryId !== subcategory.id)) {
+      unresolved(subcategory.id, subcategory.label, "membership", "all tiers", `${subcategory.label}: add the products in this shipment — its freight has nowhere to go until then.`);
+    }
     for (const tier of tiers) {
       const breaks = workbook.breaks.filter(
         (row) => row.freightDestinationId === selected[0].id && row.tierId === tier.id,

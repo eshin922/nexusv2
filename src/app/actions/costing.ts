@@ -444,11 +444,23 @@ async function loadWorksheetFreightForQuote(
     const duty = charge(row.subcategoryId, row.tierId, "duty");
     const tariff = charge(row.subcategoryId, row.tierId, "tariff");
     const members = membersBySubcategory.get(row.subcategoryId) ?? [];
-    if (members.length === 0)
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "This shipment has no components, so its freight has nothing to cost against",
-      );
+    // A PRICED SHIPMENT WITH NO RECORDED MEMBERS CONTRIBUTES NOTHING, AND DOES
+    // NOT THROW.
+    //
+    // This threw, and it took a whole quote down with it: `9af5fe52` has a
+    // $500 ocean shipment whose membership was never recorded, and under the
+    // previous rule it was absorbed by a leaf picked from the assembly. That
+    // substitution is exactly what the distribution policy removes, so there is
+    // now no recipient — every fallback (assembly's first leaf, createdAt, id,
+    // cost share, quantity) is explicitly excluded.
+    //
+    // Nothing here is smart enough to invent one, so it declines to. The
+    // condition is a MISSING OPERATOR INPUT, not a fault, and it is surfaced
+    // where the other missing freight inputs are: `loadUnresolvedQuoteCosts`
+    // refuses the send until the operator says what is in the shipment. Costing
+    // stays loadable meanwhile — a quote that cannot be sent is still a quote
+    // someone is working on.
+    if (members.length === 0) return [];
     // ONE BREAK PER MEMBER. The amounts stay whole; `memberCount` carries the
     // split so the engine can state it and the trace can show the operator's
     // entered figure rather than a divided one.
@@ -495,11 +507,11 @@ function projectSnapshotWorkbook(
     const members = workbook.memberships
       .filter((m) => m.freightSubcategoryId === subcategory.id)
       .map((m) => m.quoteLeafId);
-    if (members.length === 0)
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "This shipment has no components, so its freight has nothing to cost against",
-      );
+    // Same declination on a historical read, and more emphatically: a sent
+    // version is a record of what was sent. Refusing to render one because its
+    // frozen membership is empty would make a past quote unreadable over a
+    // rule introduced after it was sent.
+    if (members.length === 0) return [];
     const duty = customsCharge(subcategory.id, row.tierId, "duty");
     const tariff = customsCharge(subcategory.id, row.tierId, "tariff");
     return members.map((memberSkuId) => ({
