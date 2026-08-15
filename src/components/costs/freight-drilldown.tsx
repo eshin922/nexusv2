@@ -43,6 +43,12 @@ type Product = { id: string; label: string };
 type Component = { id: string; assemblyId: string; label: string; sku: string | null };
 type Result = { ok: boolean; data?: Record<string, unknown>; error?: { message: string } };
 
+import {
+  readShipmentNodes,
+  shipKey,
+  NO_SHIPMENT_READ,
+} from "@/lib/freight-shipment-read";
+
 const money4 = (value: number) => `$${value.toFixed(4)}`;
 const money2 = (value: number) => value.toLocaleString("en-US", { style: "currency", currency: "USD" });
 const autosave = (formId: string) => () => {
@@ -715,57 +721,6 @@ function Fact({ label, value }: { label: string; value: unknown }) { return <div
  * belongs to exactly one. Two matches would mean that assumption has broken,
  * so it fails closed rather than taking the first.
  */
-type ShipmentRead = {
-  freightPerUnit: number;
-  dutyPerUnit: number;
-  tariffPerUnit: number;
-  totalPerUnit: number;
-};
-
-const NO_SHIPMENT_READ: ShipmentRead = {
-  freightPerUnit: 0,
-  dutyPerUnit: 0,
-  tariffPerUnit: 0,
-  totalPerUnit: 0,
-};
-
-/** `${subcategoryId}\u0000${tierId}` — NUL cannot occur in a UUID. */
-function shipKey(subcategoryId: string, tierId: string): string {
-  return `${subcategoryId}\u0000${tierId}`;
-}
-
-function readShipmentNodes(nodes: readonly CostingNode[]): Map<string, ShipmentRead> {
-  const byKey = new Map<string, CostingNode>();
-  const duplicated = new Set<string>();
-  for (const root of nodes) {
-    walkGraph(root, (n) => {
-      const a = parseNodeKey(n.key);
-      if (!a || a.scope !== "cell") return;
-      if (a.path.length !== 3 || a.path[0] !== "frt" || a.path[1] !== "shipment") return;
-      const k = shipKey(a.path[2], a.tierId);
-      if (byKey.has(k)) duplicated.add(k);
-      byKey.set(k, n);
-    });
-  }
-  const out = new Map<string, ShipmentRead>();
-  for (const [k, node] of byKey) {
-    if (duplicated.has(k)) continue; // fail closed
-    const charge = (name: string) => {
-      const hit = (node.operands ?? []).find((o) => {
-        const a = parseNodeKey(o.key);
-        return a?.path.length === 4 && a.path[3] === name;
-      });
-      return hit ? hit.value : 0;
-    };
-    out.set(k, {
-      freightPerUnit: charge("freight"),
-      dutyPerUnit: charge("duty"),
-      tariffPerUnit: charge("tariff"),
-      totalPerUnit: node.value,
-    });
-  }
-  return out;
-}
 
 /** Per-unit contribution for one DESTINATION under comparison — freight only,
  *  since customs is carried at shipment level and does not vary by
