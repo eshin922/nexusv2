@@ -66,6 +66,10 @@ import { RequestOverrideModal } from "./request-override-modal";
 import { ApprovalStateCard } from "./approval-state-card";
 import { StagedDelta, StagedMarginDelta } from "./staged-delta";
 import { usePricingStaging } from "./pricing-staging-context";
+import {
+  planGlobalRecommendation,
+  planSurgicalRecommendation,
+} from "@/lib/pricing-recommendation-stage";
 import { parseCellKey, type CellRef } from "@/lib/pricing-staging";
 import { useCostingStore } from "@/components/costing-store-provider";
 import { selectGraph, selectSkuRollups } from "@/lib/costing-store";
@@ -163,7 +167,7 @@ export function PricingSurfaceShell({
   // Read here rather than further down because the recommendation handlers
   // below stage into this set. They are the surface's operator pricing levers,
   // and every one of them now goes through the same door.
-  const { stageTierAdj, committed, working, previewResult } = usePricingStaging();
+  const { stageTierAdj, stageGlobalAdj, committed, working, previewResult } = usePricingStaging();
   const [applyError, setApplyError] = useState<string | null>(null);
   const [globalPreview, setGlobalPreview] =
     useState<GlobalPricingPreview | null>(null);
@@ -230,10 +234,15 @@ export function PricingSurfaceShell({
         setApplyError("Surgical lift target tier not found");
         return;
       }
-      stageTierAdj(
+      // Surgical is the one recommendation that legitimately creates a tier
+      // exception — it is explicitly about one tier. Still refuses to write a
+      // row for a composition that changes nothing.
+      const surgical = planSurgicalRecommendation(
         targetTierUuid,
-        composePricingAdjustment(effectiveAdj(targetTierUuid), sugg.surgical.lift_pct),
+        effectiveAdj(targetTierUuid),
+        sugg.surgical.lift_pct,
       );
+      if (surgical.kind === "tier") stageTierAdj(surgical.tierId, surgical.adjPct);
       return;
     }
 
@@ -243,17 +252,19 @@ export function PricingSurfaceShell({
       );
       return;
     }
-    // `buildGlobal` always returns `applyTo: rollup.map(t => t.tierId)` — all
-    // tiers in the rollup. Derived from the idMap to avoid re-invoking the
-    // suggestion engine. Each tier composes against its OWN current value, so
-    // a tier already carrying an adjustment is lifted from where it stands
-    // rather than being flattened to a shared figure.
-    for (const tierUuid of idMap.numericToUuid.values()) {
-      stageTierAdj(
-        tierUuid,
-        composePricingAdjustment(effectiveAdj(tierUuid), sugg.global.lift_pct),
-      );
-    }
+    // A GLOBAL RECOMMENDATION MOVES THE GLOBAL LEVER.
+    //
+    // This fanned out into one `tier_price_adj_pct` per tier. That is the
+    // two-competing-authorities problem the governing disposition removed —
+    // and worse, when the composition changed nothing it wrote four explicit
+    // `0.0000` rows, which then suppressed the global entirely because
+    // precedence is `tier ?? global` and zero is not null. The operator set
+    // 300% and saw an adjustment of $0.
+    //
+    // Quote-wide authority is `quotes.global_price_adj_pct`. Tier rows exist
+    // only for an explicitly tier-scoped decision, which this is not.
+    const global = planGlobalRecommendation(committed.globalAdj, sugg.global.lift_pct);
+    if (global.kind === "global") stageGlobalAdj(global.adjPct);
   }
 
   function onActivate(
