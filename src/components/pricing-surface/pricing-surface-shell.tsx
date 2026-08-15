@@ -74,6 +74,7 @@ import { parseCellKey, type CellRef } from "@/lib/pricing-staging";
 import { useCostingStore } from "@/components/costing-store-provider";
 import { selectGraph, selectSkuRollups } from "@/lib/costing-store";
 import { readNodeValue, quoteScopeKey, priceBuildKey } from "@/lib/costing-nodes";
+import type { GraphEvaluation } from "@/lib/costing-nodes";
 
 /**
  * A stable empty map for "no unit selected yet".
@@ -315,36 +316,34 @@ export function PricingSurfaceShell({
     setBulkPending(true);
     const fd = new FormData();
     fd.set("quoteId", quoteId);
-    fd.set("applyDelta", String(liftPct / 100));
+    // The entered figure is the PROPOSED quote-wide rate, not a delta to
+    // compound onto the current one. Apply sets it; preview must project the
+    // same thing or the two describe different quotes.
+    fd.set("proposedGlobalAdj", String(liftPct / 100));
     const r = await previewGlobalAdj(fd);
     setBulkPending(false);
     if (!r.ok) setApplyError(r.error.message);
     else setGlobalPreview(r.data);
   }
 
-  async function onApplyGlobalPreview() {
+  /**
+   * Accepting a preview STAGES it. It does not commit a second time.
+   *
+   * This called `applyGlobalAdj`, which persists one `tier_price_adj_pct` per
+   * tier from the preview's own compounded figures — a third commit path,
+   * writing per-tier rows for a quote-wide decision, and re-creating exactly
+   * the competing-authority defect the pricing-authority disposition removed.
+   *
+   * The preview now projects what the governed Apply would persist, so
+   * accepting it means putting that rate in the working set and letting the
+   * one page-level Apply commit it. Preview cannot promise one outcome and a
+   * button beside it deliver another, because there is only one writer.
+   */
+  function onApplyGlobalPreview() {
     if (!globalPreview) return;
     setApplyError(null);
-    setBulkPending(true);
-    const fd = new FormData();
-    fd.set("quoteId", quoteId);
-    fd.set("applyTo", globalPreview.tiers.map((tier) => tier.tierId).join(","));
-    fd.set("applyDelta", String(globalPreview.applyDelta));
-    fd.set("optionRecommended", "false");
-    fd.set("expectedPreview", JSON.stringify(globalPreview.tiers.map((tier) => ({
-      tierId: tier.tierId,
-      priorPersistedAdjustment: tier.priorPersistedAdjustment,
-      resultingAdjustment: tier.resultingAdjustment,
-    }))));
-    const r = await applyGlobalAdj(fd);
-    setBulkPending(false);
-    if (!r.ok) {
-      setApplyError(r.error.message);
-      return;
-    }
-    setBulkAuditId(r.data.auditId);
+    stageGlobalAdj(globalPreview.proposedGlobalAdj);
     setGlobalPreview(null);
-    setPricingConfirmation("Pricing updated.");
   }
 
   async function onUndoGlobalAdjust() {
@@ -530,6 +529,21 @@ export function PricingSurfaceShell({
    */
   const previewing = previewResult !== null;
   const priceBuildGraph = previewResult?.graph ?? graph;
+  /**
+   * The evaluation this read EXPECTS — stated, not inferred from the graph.
+   *
+   * PB-STAGED-1. `readNodeValue` refuses a graph whose `evaluation` is not the
+   * one the caller expects, and it defaults to "committed". Switching the
+   * Price Build to the preview graph without saying so made every read return
+   * null: the whole table rendered as em-dashes with "0 tiers could not be
+   * read", exactly when the operator staged something and most needed it.
+   *
+   * Derived from the SAME condition that chose the graph, not read off the
+   * graph itself. `graph.evaluation` would always match and the guard would
+   * stop asserting anything; this way a future change that swaps the graph
+   * without swapping the expectation still fails closed.
+   */
+  const priceBuildEvaluation: GraphEvaluation = previewing ? "preview" : "committed";
 
   /**
    * Which authority set each tier's adjustment — resolved, not described.
@@ -554,7 +568,8 @@ export function PricingSurfaceShell({
       const byNumeric = new Map<number, BlendedTierComponents>();
       for (const [tierUuid, numeric] of uuidToNumeric) {
         const k = (name: string) => priceBuildKey(unit.id, tierUuid, name);
-        const read = (name: string): number | null => readNodeValue(priceBuildGraph, k(name));
+        const read = (name: string): number | null =>
+          readNodeValue(priceBuildGraph, k(name), priceBuildEvaluation);
         const pkg = read("pkg");
         const prod = read("prod");
         const raw = read("raw");
@@ -592,7 +607,7 @@ export function PricingSurfaceShell({
       if (byNumeric.size > 0) out.set(unit.id, byNumeric);
     }
     return out;
-  }, [priceBuildGraph, priceBuildUnits, uuidToNumeric]);
+  }, [priceBuildGraph, priceBuildEvaluation, priceBuildUnits, uuidToNumeric]);
 
   // No auto-selection. On a quote with more than one sellable unit, choosing
   // one for the operator would present a single product's economics as though

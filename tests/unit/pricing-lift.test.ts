@@ -45,9 +45,17 @@ test("pricing Preview and Apply are separate server actions", async () => {
     // without a commit path was "staging with the second half absent". The
     // property this test defends is unchanged and now has one more instance —
     // previewing, staging and applying are three separate acts.
+    // Three columns renamed under GPA-PREV-1, which authorized it: "Delta"
+    // carried the ENTERED figure and read as "+30%" beside a current of 20%
+    // and a resulting of 56% — coherent only under compounding, which is not
+    // what Apply does. The change is +10 POINTS, and "Resulting" became
+    // "Proposed" because it states what Apply would persist rather than what
+    // this panel computed. The property under test — that the panel exposes a
+    // preview, a staging act and a commit as three distinct labelled things —
+    // is unchanged.
     "Preview changes", "Stage this adjustment",
-    "Current adjustment", "Current price", "Delta",
-    "Resulting adjustment", "Resulting price", "Apply", "Undo",
+    "Current adjustment", "Current price", "Change \\(pts\\)",
+    "Proposed adjustment", "Proposed price", "Apply", "Undo",
   ]) {
     assert.match(uiSource, new RegExp(label));
   }

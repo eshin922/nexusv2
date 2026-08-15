@@ -292,9 +292,13 @@ test("P-PriceBuild-2 · the stack reads the staged graph, and no longer says `??
     "utf8",
   );
   assert.match(shell, /const priceBuildGraph = previewResult\?\.graph \?\? graph;/);
+  // The evaluation argument was added by PB-STAGED-1; without it the read
+  // refused the preview graph and the table blanked. Matched loosely on the
+  // graph rather than the exact argument list, so the two tests do not both
+  // have to be edited whenever this call changes shape.
   assert.match(
     shell,
-    /readNodeValue\(priceBuildGraph, k\(name\)\)/,
+    /readNodeValue\(priceBuildGraph, k\(name\)/,
     "the price build must read the staged graph, not the committed one",
   );
   // `previewResult` is null exactly when nothing is staged, so committed
@@ -309,4 +313,37 @@ test("P-PriceBuild-2 · the stack reads the staged graph, and no longer says `??
   assert.match(zone, /replaces, not compounds/);
   // And a previewed stack states that it is previewing.
   assert.match(zone, /previewing staged changes/);
+});
+
+test("PB-STAGED-1 · the Price Build stays readable while previewing staged changes", () => {
+  // Switching to `previewResult.graph` without declaring the expectation made
+  // every read return null — `readNodeValue` refuses a graph whose evaluation
+  // is not the one asked for, and it defaults to "committed". The whole table
+  // rendered as em-dashes with "0 tiers could not be read", exactly when the
+  // operator had staged something and most needed it.
+  const shell = readFileSync(
+    "src/components/pricing-surface/pricing-surface-shell.tsx",
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.match(
+    shell,
+    /readNodeValue\(priceBuildGraph, k\(name\), priceBuildEvaluation\)/,
+    "the read must state which evaluation it expects",
+  );
+  // Derived from the same condition that CHOSE the graph. Reading
+  // `graph.evaluation` instead would always match and the guard would stop
+  // asserting anything — the fix must not be a way of switching it off.
+  assert.match(
+    shell,
+    /const priceBuildEvaluation: GraphEvaluation = previewing \? "preview" : "committed";/,
+  );
+  assert.doesNotMatch(shell, /priceBuildGraph\.evaluation/, "must not read the expectation off the graph");
+});
+
+test("PB-STAGED-1 · the graph guard itself is untouched", () => {
+  // "Do not weaken the graph guard." It still defaults to committed and still
+  // refuses a mismatch; only the call site changed.
+  const nodes = readFileSync("src/lib/costing-nodes.ts", "utf8");
+  assert.match(nodes, /expect: GraphEvaluation = "committed",/);
+  assert.match(nodes, /if \(graph\.evaluation !== expect\) return null;/);
 });

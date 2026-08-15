@@ -387,8 +387,16 @@ export function DetailGlobalAdjust({
           <p><strong>Preview only.</strong> No changes have been committed.</p>
           <table className="psr-tier-table">
             <thead><tr>
+              {/*
+                "Change" in POINTS, not "Delta". The column carried the entered
+                figure and rendered "+30%" beside a current of 20% and a
+                resulting of 56% — three numbers that cohere only under
+                compounding, which is not what Apply does. Under set-semantics
+                20% to 30% is a change of +10 points, and the header has to say
+                which of the two it means.
+              */}
               <th>Tier</th><th>Current adjustment</th><th>Current price</th>
-              <th>Delta</th><th>Resulting adjustment</th><th>Resulting price</th>
+              <th>Change (pts)</th><th>Proposed adjustment</th><th>Proposed price</th>
             </tr></thead>
             <tbody>
               {preview.tiers.map((tier) => (
@@ -396,7 +404,7 @@ export function DetailGlobalAdjust({
                   <td>{tier.label}</td>
                   <td>{fmtPct(tier.currentAdjustment)}%</td>
                   <td>{fmtUsd2(tier.currentCustomerPrice)}</td>
-                  <td>{tier.adjustmentDelta >= 0 ? "+" : ""}{fmtPct(tier.adjustmentDelta)}%</td>
+                  <td>{tier.adjustmentDeltaPoints >= 0 ? "+" : ""}{fmtPct(tier.adjustmentDeltaPoints)}</td>
                   <td>{fmtPct(tier.resultingAdjustment)}%</td>
                   <td>{fmtUsd2(tier.resultingCustomerPrice)}</td>
                 </tr>
