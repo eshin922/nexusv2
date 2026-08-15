@@ -199,9 +199,16 @@ OD-023's freeze model (section 11) will need evidence quotes to reason about. If
 that work is still open at purge time, it loses its subjects. **Sequence the
 purge after OD-023 closes, not merely after "V1 engineering" in the abstract.**
 
+**Discharged 2026-08-15.** OD-023 closed, so the purge no longer waits on it.
+Note what the constraint actually protected: the OD-023 proof provisions its own
+`ZZ-VALIDATION-od023-*` quote in the isolated harness and deletes it, so it never
+depended on the shared evidence set — but the dependency was real at the time it
+was written, when the freeze model still had to be reasoned about against live
+subjects.
+
 | Item | Current state | Remaining action | Blocker | Scope |
 |---|---|---|---|---|
-| Retirement event | Modelled, not scheduled | Steps 1-9 | Section 11 OD-023 must close first | beta |
+| Retirement event | Modelled, not scheduled | Steps 1-9 | ~~OD-023~~ closed 2026-08-15 — no longer gated | beta |
 
 ## 7 · Training / presentation package
 
@@ -229,11 +236,12 @@ Beta exit criteria satisfied → Nexus becomes the normal quoting workflow. **be
 
 ### Missing from the baseline
 
-1. **OD-023 · Send does not freeze the governed Product Structure — marked
-   V1 BLOCKER in `OPEN_DECISIONS.md`, absent from the baseline.** Pattern 52
-   freezes 30 columns at send; the product STRUCTURE is not among them. A beta
-   that stages real orders and then edits structure post-send would invalidate
-   the sent artifact. This belongs in §1 or §2, not the backlog.
+1. ~~**OD-023 · Send does not freeze the governed Product Structure.**~~
+   **RESOLVED 2026-08-15.** The sent version's rendered representation is now
+   the historical authority (`quote_snapshot_artifacts`), Direct Components
+   reach the customer's specification pages, and superseded versions are
+   explicitly addressable. The flag was right that this belonged in §1/§2 and
+   not the backlog. See §11a.
 2. **OD-021 · Send finalizes but does not deliver.** Nexus assigns a number,
    generates and stores the PDF, and transitions state — it does not send
    anything to the customer. Beta rules of engagement (§7) must state who
@@ -289,7 +297,7 @@ real time on every quote for two weeks, and it is a token change.
 Reconciled against `main` after #265 merged, against open PRs,
 `OPEN_DECISIONS.md`, and the validation records.
 
-## 11 · OD-023 — Send does not freeze the governed Product Structure
+## 11 · OD-023 — Send does not freeze the governed Product Structure — **CLOSED 2026-08-15**
 
 **V1 BLOCKER.** Absent from the original baseline; carried here now.
 
@@ -346,9 +354,9 @@ decides whether the snapshot is per-version or per-quote.
 
 | Item | Current state | Remaining action | Blocker | Scope |
 |---|---|---|---|---|
-| OD-023 | **ARCHITECTURE DISPOSITIONED 2026-08-14** — see §11a | Implement per the plan in §11a | None — decided | **V1 blocker** |
+| OD-023 | **CLOSED 2026-08-15** — `133d0ea` (#273), Step 1 guards `2b28641` (#271) | None. Proof: `npm run verify:od-023`, 26 claims | — | was V1 blocker |
 
-## 11a · OD-023 — architecture dispositioned (2026-08-14)
+## 11a · OD-023 — architecture dispositioned (2026-08-14), SHIPPED (2026-08-15)
 
 ### Version semantics — SETTLED
 
