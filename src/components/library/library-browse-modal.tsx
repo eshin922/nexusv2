@@ -4,6 +4,10 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { LibrarySpecModal } from "./library-spec-modal";
 import { useRouter } from "next/navigation";
 import { UNCLASSIFIED_SOURCE_TYPE } from "@/lib/library-source-type";
+
+/** B-11 · rows per page. Matches the loader default so the pager's arithmetic
+ *  and the query agree without either having to know the other's number. */
+const PAGE_SIZE = 50;
 import type { LibraryBrowseRow } from "@/lib/library-browse-loader";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import {
@@ -121,6 +125,11 @@ export function LibraryBrowseModal({
   );
   const [rows, setRows] = useState<LibraryBrowseRow[]>([]);
   const [total, setTotal] = useState(0);
+  // B-11 · paging state. `offset` resets whenever the filter set changes —
+  // staying on page 4 of a result set that just became 12 rows long would show
+  // an empty list and read as "no matches".
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   // slice-library-first-creation-flow Step 2 — libraryTotal lets
   // empty-state copy distinguish "library is empty" (libraryTotal
   // === 0) from "filtered to zero" (libraryTotal > 0 &&
@@ -182,6 +191,13 @@ export function LibraryBrowseModal({
     };
   }, [open]);
 
+  // B-11 · a filter change returns to page 1. Holding the offset across a
+  // filter change lands the operator past the end of the new result set, which
+  // renders an empty list and reads as "no matches" rather than as "page 4".
+  useEffect(() => {
+    setOffset(0);
+  }, [search, sourceTypeFilter, scopeFilter, quoteId]);
+
   // Initial load + filter changes (debounced for search input).
   useEffect(() => {
     if (!open) return;
@@ -191,6 +207,8 @@ export function LibraryBrowseModal({
         setError(null);
         const result = await fetchLibraryBrowse({
           search,
+          offset,
+          limit: PAGE_SIZE,
           sourceTypeFilter: sourceTypeFilter || undefined,
           scopeFilter,
           targetQuoteId: quoteId,
@@ -202,6 +220,7 @@ export function LibraryBrowseModal({
         }
         setRows(result.data.rows);
         setTotal(result.data.total);
+        setHasMore(result.data.hasMore);
         setLibraryTotal(result.data.libraryTotal);
         setLibraryTotalActive(result.data.libraryTotalActive);
         setScenarioLabel(result.data.scenarioLabel);
@@ -212,7 +231,7 @@ export function LibraryBrowseModal({
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
-  }, [open, search, typeFilter, sourceTypeFilter, scopeFilter, quoteId]);
+  }, [open, search, typeFilter, sourceTypeFilter, scopeFilter, quoteId, offset]);
 
   // Escape dismiss.
   useEffect(() => {
@@ -1248,6 +1267,52 @@ export function LibraryBrowseModal({
                     </div>
                   );
                 })}
+                {/* B-11 · the control bar.
+
+                    The list showed at most 50 rows of a 1,082-product library
+                    with NO count and NO indication that anything followed.
+                    `total` was already in state and never rendered, and the
+                    loader computed a "more available" probe and discarded it —
+                    so a truncated view was indistinguishable from a complete
+                    one. Silent truncation reads as "covered everything".
+
+                    States what is on screen, out of what matches, out of the
+                    library — three different denominators that were previously
+                    all absent. Paging is prev/next rather than numbered pages:
+                    the operator is looking for a product, and search plus the
+                    type and scope filters are the tools for that. Numbered
+                    pages would invite paging as a search strategy across
+                    twenty-two of them. */}
+                <div className="lib-pager">
+                  <span className="lib-pager-count">
+                    {(offset + 1).toLocaleString()}–
+                    {(offset + rows.length).toLocaleString()} of{" "}
+                    {total.toLocaleString()}
+                    {total !== libraryTotal && (
+                      <span className="lib-pager-scope">
+                        {" "}· {libraryTotal.toLocaleString()} in the library
+                      </span>
+                    )}
+                  </span>
+                  <div className="lib-pager-controls">
+                    <button
+                      type="button"
+                      className="a1v2-btn ghost xs"
+                      disabled={offset === 0 || pending}
+                      onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+                    >
+                      ← Previous
+                    </button>
+                    <button
+                      type="button"
+                      className="a1v2-btn ghost xs"
+                      disabled={!hasMore || pending}
+                      onClick={() => setOffset(offset + PAGE_SIZE)}
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
               </>
             )}
           </div>

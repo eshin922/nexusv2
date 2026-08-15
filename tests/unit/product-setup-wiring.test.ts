@@ -1042,3 +1042,54 @@ test("§1 · the Production allocation control sits IN the assembly's control ro
   // repair, and a layout move must not quietly re-broadcast it section-wide.
   assert.match(src, /policyByAssembly\.get\(sku\.id\) \?\? sectionPolicy/);
 });
+
+test("B-11 · the library states its own truncation", async () => {
+  // The defect was silence, not the cap. The list showed at most 50 rows of a
+  // 1,082-product library, `total` sat in state unrendered, and the loader
+  // computed a "more available" probe and threw it away with `slice` — so a
+  // truncated view was indistinguishable from a complete one.
+  const loader = await code("src/lib/library-browse-loader.ts");
+
+  // The probe is READ, not discarded.
+  assert.match(loader, /const hasMore = baseRows\.length > limit;/);
+  assert.doesNotMatch(
+    loader,
+    /const total = filteredBase\.length/,
+    "the match count must not be the length of the fetched page",
+  );
+  // And counted in SQL over the same predicates the rows come from.
+  assert.match(loader, /count\(\)\s*\}\)\.from\(leaves\)\.where\(and\(\.\.\.conds\)\)/);
+
+  // Paging needs a TOTAL order. Name alone lets two products sharing a name
+  // swap between pages — one seen twice, the other never.
+  assert.match(loader, /orderBy\(asc\(leaves\.name\), asc\(leaves\.id\)\)/);
+
+  const modal = await code("src/components/library/library-browse-modal.tsx");
+  assert.match(modal, /lib-pager/);
+  assert.match(modal, /setOffset/);
+});
+
+test("B-11 · scope filtering is a SQL predicate, not a filter over one page", async () => {
+  // The one that returned WRONG ANSWERS rather than partial ones. Scope ran in
+  // JS over the fetched `limit + 1` rows, so "attached to another quote" was
+  // answered from the first 51 products alphabetically — a product attached
+  // elsewhere but sorting 200th was reported as no match at all.
+  const loader = await code("src/lib/library-browse-loader.ts");
+  assert.doesNotMatch(
+    loader,
+    /baseRows\.filter\(/,
+    "scope must not be applied to the already-limited page",
+  );
+  assert.match(loader, /scopeFilter === "this"\) conds\.push/);
+  assert.match(loader, /scopeFilter === "other"\) conds\.push/);
+});
+
+test("B-11 · a filter change returns to the first page", async () => {
+  // Holding the offset across a filter change lands past the end of the new
+  // result set, which renders empty and reads as "no matches".
+  const modal = await code("src/components/library/library-browse-modal.tsx");
+  assert.match(
+    modal,
+    /setOffset\(0\);\s*\}, \[search, sourceTypeFilter, scopeFilter, quoteId\]\)/,
+  );
+});

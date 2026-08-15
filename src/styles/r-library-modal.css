@@ -392,3 +392,28 @@
 .lib-empty .perm-note {
   margin-top: 12px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-4); letter-spacing: 0.04em;
 }
+
+/* ── B-11 · the library control bar ────────────────────────────────────────
+ *
+ * The list rendered at most 50 rows of a 1,082-product library with no count
+ * and no indication that anything followed. This states what is on screen, out
+ * of what matches, out of the library.
+ *
+ * Quiet by construction. It is orientation, not an action the operator is being
+ * pushed toward — search and the type/scope filters are how a product is found,
+ * and a loud pager would suggest paging is the way to look. */
+.lib-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--rule);
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.lib-pager-count { font-variant-numeric: tabular-nums; }
+/* The library-wide denominator is context for the match count, not a peer of
+ * it — so it recedes rather than competing. */
+.lib-pager-scope { color: var(--ink-4); }
+.lib-pager-controls { display: flex; gap: 6px; }
