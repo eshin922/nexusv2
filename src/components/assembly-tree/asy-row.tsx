@@ -366,11 +366,27 @@ function LeafRow({
           qty {qtyDisplay} · {costDisplay}
         </div>
       </div>
-      <span
-        className={`type-tag leaf-type${leaf.productType ? "" : " untyped"}`}
-      >
-        {leaf.productType?.label ?? "untyped"}
-      </span>
+      {/* §1 presentation closeout · the redundant UNTYPED state is gone.
+
+          The row already carries this fact in its readiness chip — "⚠ No type
+          set" — which is the slot that exists to say what a product still
+          needs. Printing "untyped" in the type slot as well put one fact in two
+          of the row's coloured places, and the two disagreed in register: a
+          warning chip beside what looks like a stated value.
+
+          B-10 removed the same duplication from the meta line and left this
+          one, because at the time the type slot's absent-case had not been
+          separated from its present-case. It has now: valid type metadata still
+          renders exactly as before, and absence renders as absence.
+
+          Absence is NOT em-dashed either. An em dash is a value meaning "none";
+          the chip is already saying "not yet", and two answers to one question
+          is what this removes. */}
+      {leaf.productType ? (
+        <span className="type-tag leaf-type">{leaf.productType.label}</span>
+      ) : (
+        <span aria-hidden="true" />
+      )}
       <div
         style={{
           position: "relative",

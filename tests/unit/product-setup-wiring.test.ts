@@ -864,10 +864,40 @@ test("B-10 · the generic Product label is replaced by the quote-owned type", as
   const src = await code("src/components/assembly-tree/direct-product-row.tsx");
   assert.doesNotMatch(src, /leaf-count">Product</);
   // Same register as member rows — one product grammar, not two.
-  assert.match(src, /type-tag leaf-type\$\{product\.productType \? "" : " untyped"\}/);
+  assert.match(src, /className="type-tag leaf-type"/);
   // Absent stays absent: the Library's HubSpot classification is a different
   // taxonomy and is never substituted to silence the warning.
   assert.doesNotMatch(src, /hubspotProductType/);
+});
+
+test("§1 · the untyped state is stated ONCE, by the readiness chip", async () => {
+  // B-10 removed this duplication from the meta line and left it in the type
+  // slot, which still printed the literal "untyped" beside a chip already
+  // saying "⚠ No type set". One fact in two of the row's coloured places, and
+  // in two registers — a warning chip next to what reads as a stated value.
+  //
+  // Asserted on BOTH row kinds, because the member row carried it too and
+  // fixing one would have re-split a grammar B-10 had just unified.
+  for (const file of [
+    "src/components/assembly-tree/direct-product-row.tsx",
+    "src/components/assembly-tree/asy-row.tsx",
+  ]) {
+    const src = await code(file);
+    assert.doesNotMatch(src, /"untyped"/, `${file} still states the type slot's absent case`);
+    // Not em-dashed either. An em dash is a value meaning "none"; the chip is
+    // already saying "not yet", and two answers to one question is the defect.
+    assert.doesNotMatch(
+      src,
+      /productType[^\n]*\?\?\s*"—"/,
+      `${file} substituted an em dash for the removed label`,
+    );
+  }
+
+  // And the chip that carries it still exists, or the fact is now stated ZERO
+  // times — which would be worse than twice.
+  const chip = await code("src/components/assembly-tree/completeness-chip.tsx");
+  assert.match(chip, /no_type/);
+  assert.match(chip, /No type set/);
 });
 
 // ------------------------------------- Step 4 · Product Type authority cutover
@@ -980,4 +1010,35 @@ test("same-group reorder is untouched by the cross-home move", async () => {
   const src = await code("src/components/assembly-tree/asy-row.tsx");
   assert.match(src, /reorderAssemblyLeaves/);
   assert.match(src, /handleLeafDragOver/);
+});
+
+test("§1 · the Production allocation control sits IN the assembly's control row", async () => {
+  // It had drifted to a sibling BELOW the banner, so each assembly occupied two
+  // stacked bands — an identity row, then a lone control floating under it —
+  // which doubled the section's vertical rhythm and detached each control from
+  // the thing it controls.
+  //
+  // Asserted as ORDERING inside the row, not as the presence of the component:
+  // presence was never in doubt, placement was.
+  const src = await code("src/components/costs/production-drilldown.tsx");
+  const caption = src.indexOf("Production rolls up from leaf children.");
+  const toggle = src.indexOf("<AssemblyAllocationToggle");
+  assert.ok(caption > 0 && toggle > 0, "both the caption and the control must exist");
+  assert.ok(
+    toggle > caption,
+    "the control must follow the caption inside the row, not precede the row",
+  );
+  // The row's closing tag must come AFTER the control. This is the assertion
+  // that actually distinguishes "in the row" from "under it" — the ordering
+  // above holds in both arrangements.
+  const rowClose = src.indexOf("</div>", toggle);
+  const captionClose = src.indexOf("</span>", caption);
+  assert.ok(
+    captionClose < toggle && toggle < rowClose,
+    "the control must be enclosed by the row it belongs to",
+  );
+
+  // Scope is unchanged: allocation is ASSEMBLY-scoped per the 2026-08-11
+  // repair, and a layout move must not quietly re-broadcast it section-wide.
+  assert.match(src, /policyByAssembly\.get\(sku\.id\) \?\? sectionPolicy/);
 });

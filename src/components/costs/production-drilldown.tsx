@@ -316,12 +316,28 @@ export function ProductionDrilldown({
               >
                 Production rolls up from leaf children.
               </span>
-              </div>
+              {/* §1 presentation closeout · the allocation control is back IN
+                  the assembly's control row.
+
+                  It had come to sit as a sibling BELOW the banner — the stray
+                  indentation on the closing tag was the tell — so each assembly
+                  occupied two stacked bands: an identity row, then a lone
+                  control floating under it. On a quote with several assemblies
+                  that doubled the vertical rhythm of the section and detached
+                  each control from the thing it controls.
+
+                  The row was already built for this: the caption carries
+                  `marginLeft: auto`, which exists to push trailing controls to
+                  the right edge. Nothing about the control, its scope or its
+                  action changes — allocation stays ASSEMBLY-scoped per the
+                  2026-08-11 repair, and each assembly still expresses its own
+                  policy. */}
               <AssemblyAllocationToggle
                 assemblyId={sku.id}
                 policy={policyByAssembly.get(sku.id) ?? sectionPolicy}
                 disabled={!editable}
               />
+            </div>
             </div>
           );
         }

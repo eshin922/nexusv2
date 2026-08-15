@@ -150,11 +150,27 @@ export function DirectProductRow({
             and member products read as one register. Absent type stays absent:
             the Library's HubSpot classification is a different taxonomy and is
             not substituted here. */}
-        <span
-          className={`type-tag leaf-type${product.productType ? "" : " untyped"}`}
-        >
-          {product.productType?.label ?? "untyped"}
-        </span>
+        {/* §1 presentation closeout · the redundant UNTYPED state is gone.
+
+            The row already carries this fact in its readiness chip — "⚠ No type
+            set" — which is the slot that exists to say what a product still
+            needs. Printing "untyped" in the type slot as well put one fact in two
+            of the row's coloured places, and the two disagreed in register: a
+            warning chip beside what looks like a stated value.
+
+            B-10 removed the same duplication from the meta line and left this
+            one, because at the time the type slot's absent-case had not been
+            separated from its present-case. It has now: valid type metadata still
+            renders exactly as before, and absence renders as absence.
+
+            Absence is NOT em-dashed either. An em dash is a value meaning "none";
+            the chip is already saying "not yet", and two answers to one question
+            is what this removes. */}
+        {product.productType ? (
+          <span className="type-tag leaf-type">{product.productType.label}</span>
+        ) : (
+          <span aria-hidden="true" />
+        )}
         {/* B-12 REPAIR · readiness and overflow share ONE trailing cell, which
             is what the member row already does. Held as two cells the Direct
             row declared six columns against the member row's five, so nothing
