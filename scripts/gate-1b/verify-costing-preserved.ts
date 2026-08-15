@@ -4,7 +4,9 @@
  * THE INVARIANT
  *
  *   Every commercial scalar returned by `computeQuoteCosting` is byte-identical
- *   to the value captured before the node graph existed.
+ *   to the value captured before the node graph existed — EXCEPT that a freight
+ *   contribution may be attributed to a different product, provided every
+ *   aggregate it feeds is conserved.
  *
  * This is the boundary Amendment A-1 draws: exposing computation structure is
  * permitted; changing an existing commercial number is not. The invariant is
@@ -14,6 +16,41 @@
  * much a customer-facing price may quietly move during a refactor, and the
  * answer to that is none. Values are compared at 17 significant digits, which is
  * full float precision — if a value changes at all, this fails.
+ *
+ * ── THE PATTERN 58 EXCEPTION, AND WHY IT IS NARROW ───────────────────────────
+ *
+ * Pattern 58 governs: *membership may determine attribution, but must never
+ * determine commercial arithmetic.* Which leaf a shipment anchors to is an
+ * attribution choice — on `2f29af72` three members share `position 0`, so the
+ * "lowest-position" anchor is a tie broken by physical row order (OD-028).
+ *
+ * A verifier that fails on BOTH halves of that rule cannot certify EITHER. It
+ * reported the same red for a repair that made the arithmetic owner-invariant
+ * as it would for a repair that broke it, and the one-line-per-quote report
+ * then hid a 5,880 revenue movement behind a 1.7e-16 margin difference on an
+ * earlier tier.
+ *
+ * So the payload is split and each half is held to the rule that is true of it:
+ *
+ *   STRICT      quote, firm settings, tiers, tier rollups, quote summary, SKU
+ *               identity and membership, and every per-SKU scalar that carries
+ *               no freight. ZERO DRIFT, unchanged from before.
+ *
+ *   ATTRIBUTION the per-SKU scalars a freight contribution reaches. Permitted
+ *               to REDISTRIBUTE between products, and nothing more:
+ *                 · the freight multiset per tier is unchanged — the same
+ *                   amounts, possibly held by different products;
+ *                 · each row's movement equals THAT ROW'S freight movement, so
+ *                   a packaging edit hiding inside a reattributed row fails;
+ *                 · the sums over leaves and over top-level rows are conserved;
+ *                 · each row's margin still equals its own sell and cost.
+ *
+ * A row with no freight movement is therefore still strict, because its
+ * permitted delta is zero. This is more discriminating than the digest it
+ * replaces, not less: the digest could say only that something moved.
+ *
+ * Same reasoning as the Scenario Copy acceptance, which separates economic
+ * equality from permissible attribution for the same reason.
  *
  * WHEN IT RUNS. Before and after rollups begin deriving from nodes (§11.2 of the
  * specification). Failing here means the graph changed the arithmetic, which is
@@ -35,6 +72,13 @@ import { getCostingBundle } from "@/app/actions/costing";
 import { canonical } from "./canonical-digest.ts";
 import { baselineEntryInBasket, basketPredicate, VALIDATION_NAMESPACE } from "./basket.ts";
 import { projectOntoBaseline } from "./projection.ts";
+import {
+  ATTRIBUTION_FIELDS,
+  allDifferences,
+  attributionViolations,
+  strictHalf,
+  type Diff,
+} from "./preservation-compare.ts";
 
 type Entry = { quote_id: string; status: string; label: string; digest: string };
 const baseline = JSON.parse(
@@ -45,30 +89,39 @@ const baselineDetail = JSON.parse(
 )._ as Record<string, unknown>;
 
 
-/** Report WHERE a value moved, not merely that the digest changed. */
-function firstDifference(a: unknown, b: unknown, path = ""): string | null {
-  if (typeof a === "number" && typeof b === "number") {
-    return a === b ? null : `${path}: ${a} -> ${b}`;
+/**
+ * Grouped by SHAPE, ordered by the LARGEST movement in each group.
+ *
+ * `firstDifference` used to return ONE line per quote, and the walk order chose
+ * which. On `2f29af72` it chose `quoteRollup[0].blendedMarginPct` moving by
+ * 1.7e-16 — behind which sat `quoteRollup[1].totalRevenue` moving by 5,880. The
+ * report named the harmless one and the material one stayed invisible until it
+ * was looked for by other means. A gate whose output can do that is not
+ * reporting.
+ *
+ * Ordering by magnitude is the half that matters: it is what stops a float-noise
+ * difference from being printed where a commercial one should be.
+ */
+function reportDifferences(diffs: Diff[], indent: string): void {
+  const byShape = new Map<string, Diff[]>();
+  for (const d of diffs) {
+    const shape = d.path.replace(/\[\d+\]/g, "[]");
+    (byShape.get(shape) ?? byShape.set(shape, []).get(shape)!).push(d);
   }
-  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") {
-    return canonical(a) === canonical(b) ? null : `${path}: ${canonical(a)} -> ${canonical(b)}`;
+  const ranked = [...byShape.entries()]
+    .map(([shape, ds]) => ({
+      shape,
+      ds,
+      worst: ds.reduce((m, d) => Math.max(m, d.delta ?? Infinity), 0),
+    }))
+    .sort((x, y) => y.worst - x.worst);
+  for (const { shape, ds, worst } of ranked) {
+    const e = ds[0];
+    const mag = Number.isFinite(worst) ? `max|d|=${worst.toExponential(2)}` : "non-numeric";
+    console.error(
+      `${indent}${shape}  x${ds.length}  ${mag}  e.g. ${canonical(e.from)} -> ${canonical(e.to)}`,
+    );
   }
-  if (Array.isArray(a) !== Array.isArray(b)) return `${path}: shape changed`;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return `${path}: length ${a.length} -> ${b.length}`;
-    for (let i = 0; i < a.length; i++) {
-      const d = firstDifference(a[i], b[i], `${path}[${i}]`);
-      if (d) return d;
-    }
-    return null;
-  }
-  const ao = a as Record<string, unknown>;
-  const bo = b as Record<string, unknown>;
-  for (const k of new Set([...Object.keys(ao), ...Object.keys(bo)])) {
-    const d = firstDifference(ao[k], bo[k], path ? `${path}.${k}` : k);
-    if (d) return d;
-  }
-  return null;
 }
 
 const quotes = (await db.execute(sql`
@@ -92,6 +145,19 @@ console.log("\nGate 1B S-7 — preservation check\n");
 
 let failed = false;
 const now: { quote_id: string; digest: string }[] = [];
+/**
+ * The expected global is aggregated from digests taken over the SAME strict
+ * projection as the current side, computed here from the detail file rather
+ * than read from `baseline.entries[].digest`.
+ *
+ * The recorded digests cover the WHOLE payload including the attribution half,
+ * so they cannot be the reference once that half is compared by conservation
+ * instead of by identity. The detail file's integrity is checked separately,
+ * per quote, against those recorded digests — so nothing is taken on trust that
+ * used to be verified.
+ */
+const expectedNow: { quote_id: string; digest: string }[] = [];
+const reattributed: { quote_id: string; label: string; n: number }[] = [];
 const baseByQuote = new Map(inBasket.map((e) => [e.quote_id, e]));
 const additions: string[] = [];
 
@@ -122,14 +188,55 @@ for (const q of quotes) {
   const projected = projectOntoBaseline(baselineDetail[q.quote_id], payload, addedHere);
   for (const a of addedHere) additions.push(a);
 
-  const digest = createHash("sha256").update(canonical(projected)).digest("hex").slice(0, 32);
-  now.push({ quote_id: q.quote_id, digest });
-
-  if (base.digest !== digest) {
+  // The DETAIL file is the reference for everything below, so it is checked
+  // against the recorded digest first. Without this, editing the detail file
+  // would "fix" a failure by moving the thing the failure is measured against —
+  // and nothing would say so.
+  const baselineFull = createHash("sha256")
+    .update(canonical(baselineDetail[q.quote_id]))
+    .digest("hex")
+    .slice(0, 32);
+  if (baselineFull !== base.digest) {
     failed = true;
-    const where = firstDifference(baselineDetail[q.quote_id], projected);
-    console.error(`  FAIL  ${q.quote_id}  ${base.label}`);
-    console.error(`          ${where ?? "digest differs; no scalar difference located"}`);
+    console.error(
+      `  FAIL  ${q.quote_id} — the baseline DETAIL no longer matches its recorded digest.` +
+        ` The reference has been edited; nothing below is trustworthy.`,
+    );
+    continue;
+  }
+
+  // ── the strict half ──────────────────────────────────────────────────────
+  const baseStrict = strictHalf(baselineDetail[q.quote_id]);
+  const curStrict = strictHalf(projected);
+  const digest = createHash("sha256").update(canonical(curStrict)).digest("hex").slice(0, 32);
+  const expected = createHash("sha256").update(canonical(baseStrict)).digest("hex").slice(0, 32);
+  now.push({ quote_id: q.quote_id, digest });
+  expectedNow.push({ quote_id: q.quote_id, digest: expected });
+
+  if (expected !== digest) {
+    failed = true;
+    const diffs: Diff[] = [];
+    allDifferences(baseStrict, curStrict, diffs);
+    console.error(`  FAIL  ${q.quote_id}  ${base.label}  — ${diffs.length} governed scalar(s) moved`);
+    reportDifferences(diffs, "          ");
+  }
+
+  // ── the attribution half ─────────────────────────────────────────────────
+  const violations = attributionViolations(baselineDetail[q.quote_id], projected);
+  if (violations.length > 0) {
+    failed = true;
+    console.error(`  FAIL  ${q.quote_id}  ${base.label}  — per-SKU movement is not reattribution`);
+    for (const v of violations.slice(0, 12)) console.error(`          ${v}`);
+    if (violations.length > 12)
+      console.error(`          … and ${violations.length - 12} more`);
+  } else {
+    const moved: Diff[] = [];
+    allDifferences(baselineDetail[q.quote_id], projected, moved);
+    const attributionMoved = moved.filter((d) =>
+      ATTRIBUTION_FIELDS.has(d.path.split(".").pop() ?? ""),
+    );
+    if (attributionMoved.length > 0)
+      reattributed.push({ quote_id: q.quote_id, label: base.label, n: attributionMoved.length });
   }
 }
 
@@ -148,14 +255,20 @@ const globalDigest = createHash("sha256")
  * The expected global, over the RETAINED baseline entries.
  *
  * `baseline.globalDigest` was computed over the whole captured set, so it cannot
- * remain the reference once a namespace is out of scope. This re-aggregates the
- * SAME RECORDED per-quote digests over the subset that remains — baseline values
- * only, no current value anywhere in it. It is AM-005's remainder-digest method,
- * promoted from a one-off isolation script into the standing check.
+ * remain the reference once a namespace is out of scope. This re-aggregates over
+ * the subset that remains — baseline values only, no current value anywhere in
+ * it. It is AM-005's remainder-digest method, promoted from a one-off isolation
+ * script into the standing check.
+ *
+ * The per-quote digests are now taken over the STRICT half, so they are computed
+ * from the detail file rather than read from `entries[].digest` — which covers
+ * the attribution half too and would therefore hold a product's freight share
+ * fixed. Each detail entry has already been checked against its recorded digest
+ * above, so this is a re-projection of verified baseline data, not a new one.
  */
 const expectedGlobal = createHash("sha256")
   .update(
-    [...inBasket]
+    [...expectedNow]
       .sort((a, b) => a.quote_id.localeCompare(b.quote_id))
       .map((e) => `${e.quote_id}|${e.digest}`)
       .join("\n"),
@@ -198,8 +311,29 @@ if (additions.length > 0) {
   }
 }
 
+if (reattributed.length > 0) {
+  // Reported on a GREEN run, deliberately. Attribution movement is permitted,
+  // not invisible — a shipment changing hands is a real change to what an
+  // operator sees on a product row, and a gate that permitted it silently would
+  // be the broad exemption this narrow one exists to avoid.
+  console.log(
+    `  --    ${reattributed.length} quote(s) reattributed freight between products — permitted`,
+  );
+  console.log(
+    "        under Pattern 58: the owner moved, every aggregate it feeds is conserved.",
+  );
+  console.log("        Underlying cause is OD-028 (duplicate member positions).");
+  for (const r of reattributed)
+    console.log(`          ${r.quote_id}  ${r.label} — ${r.n} per-SKU scalar(s)`);
+}
+
 if (!failed) {
-  console.log(`  ok    ${now.length} quotes — every captured commercial scalar identical`);
+  console.log(
+    `  ok    ${now.length} quotes — every governed commercial scalar identical`,
+  );
+  console.log(
+    "  ok    per-SKU freight attribution conserved: same amounts, same sums, same tier totals",
+  );
   console.log(`  ok    global digest ${globalDigest}`);
   console.log(
     "\n  NOT COVERED: `override` and `flagged-out` node kinds have zero rows in\n" +
